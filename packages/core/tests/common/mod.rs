@@ -203,3 +203,91 @@ pub fn seed_epics(conn: &mut Connection, project_id: &str, n: usize) -> anyhow::
 
     Ok(ids)
 }
+
+/// Branch names produced by [`review_branches`], so plan 08-01's and plan 08-03's tests can name
+/// them without re-deriving.
+#[allow(dead_code)]
+pub struct ReviewBranches {
+    pub integration: &'static str,
+    /// Touches many files: modified, added, deleted, renamed, binary, and a spaced path.
+    pub task_rich: &'static str,
+    /// Touches only `other.txt` — merges cleanly with `task_rich`.
+    pub task_clean: &'static str,
+    /// Both conflict branches rewrite line 1 of `shared.txt` differently.
+    pub task_conflict_a: &'static str,
+    pub task_conflict_b: &'static str,
+}
+
+/// Build the review fixture on top of a repo from [`seeded_git_project`]: commit the base files
+/// on `main`, cut an integration branch off it, then build the task branches off the integration
+/// branch. Leaves `main` checked out. Direct `Command::new("git")` is fine here — the cwd gate
+/// scans only `src` trees.
+#[allow(dead_code)]
+pub fn review_branches(repo_path: &std::path::Path) -> ReviewBranches {
+    let run = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(repo_path)
+            .args(args)
+            .output()
+            .unwrap_or_else(|e| panic!("failed to spawn git {args:?}: {e}"));
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    let write = |name: &str, body: &str| {
+        std::fs::write(repo_path.join(name), body).unwrap_or_else(|e| panic!("write {name}: {e}"));
+    };
+    let commit_all = |msg: &str| {
+        run(&["add", "-A"]);
+        run(&["commit", "-m", msg]);
+    };
+
+    let body = |tag: &str| {
+        (1..=12).map(|i| format!("{tag} line {i}\n")).collect::<String>()
+    };
+
+    write("keep.txt", &body("keep"));
+    write("old_name.txt", &body("rename-me"));
+    write("gone.txt", &body("gone"));
+    write("shared.txt", &body("shared"));
+    write("other.txt", &body("other"));
+    commit_all("base files");
+
+    run(&["branch", "flywheel/epic-int", "main"]);
+
+    // task_rich
+    run(&["checkout", "-b", "flywheel/task-rich", "flywheel/epic-int"]);
+    write("keep.txt", &body("keep").replace("keep line 3", "keep line 3 CHANGED"));
+    write("added.txt", "fn added() {}\n");
+    std::fs::remove_file(repo_path.join("gone.txt")).expect("remove gone.txt");
+    run(&["mv", "old_name.txt", "new_name.txt"]);
+    std::fs::write(repo_path.join("image.bin"), [0u8, 1, 2, 0, 255, 254, 0, 7]).expect("bin");
+    write("with space.txt", "spaced\n");
+    commit_all("rich task work");
+
+    // task_clean
+    run(&["checkout", "-b", "flywheel/task-clean", "flywheel/epic-int"]);
+    write("other.txt", &body("other").replace("other line 1", "other line 1 CHANGED"));
+    commit_all("clean task work");
+
+    // conflict pair
+    run(&["checkout", "-b", "flywheel/task-conflict-a", "flywheel/epic-int"]);
+    write("shared.txt", &body("shared").replace("shared line 1", "A's version of line 1"));
+    commit_all("conflict a");
+    run(&["checkout", "-b", "flywheel/task-conflict-b", "flywheel/epic-int"]);
+    write("shared.txt", &body("shared").replace("shared line 1", "B's version of line 1"));
+    commit_all("conflict b");
+
+    run(&["checkout", "main"]);
+
+    ReviewBranches {
+        integration: "flywheel/epic-int",
+        task_rich: "flywheel/task-rich",
+        task_clean: "flywheel/task-clean",
+        task_conflict_a: "flywheel/task-conflict-a",
+        task_conflict_b: "flywheel/task-conflict-b",
+    }
+}

@@ -5,10 +5,11 @@
  * (`legend/marks.ts`'s `STATUS_MARKS`, itself asserted elsewhere to match
  * `core::domain::WORKFLOW_STATES`), never a second hand-typed list in either component.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
+import { showStatusBands } from "./lens";
 import { StatusPicker } from "../pickers/StatusPicker";
 import { STATUS_MARKS } from "../../legend/marks";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
@@ -27,6 +28,11 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   blockedSummary: () => Promise.resolve({ blockedTaskIds: [], blockedCount: 0 }),
 }));
+
+// These cases are about the status bands; the rack opens on the epic roster (A-01).
+beforeEach(() => {
+  showStatusBands();
+});
 
 const EMPTY_COUNTS: BandCounts = {
   backlog: 0,

@@ -8,7 +8,7 @@
  * row opens it read-only, and the whole `open-live-session` path is a no-op for a task with no
  * runs.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RunsSection } from "../RunsSection";
@@ -20,21 +20,36 @@ const pendingPermissionRequestsMock = vi.fn();
 const answerPermissionRequestMock = vi.fn().mockResolvedValue(undefined);
 const worktreeSummaryMock = vi.fn();
 const invokeCommandMock = vi.fn();
+const acknowledgeAgentRunMock = vi.fn();
+const sessionSummariesForTaskMock = vi.fn();
 
 vi.mock("../../adapters/tauri", () => ({
   agentRunsForTask: (taskId: string) => agentRunsForTaskMock(taskId),
   pendingPermissionRequests: (agentRunId: string) => pendingPermissionRequestsMock(agentRunId),
   answerPermissionRequest: (requestId: string, decision: string) =>
     answerPermissionRequestMock(requestId, decision),
+  acknowledgeAgentRun: (agentRunId: string) => acknowledgeAgentRunMock(agentRunId),
+  sessionSummariesForTask: (taskId: string) => sessionSummariesForTaskMock(taskId),
   // `ItemDetailPanel`'s own describe block below mounts the full panel (title, acceptance
   // criteria, worktree summary, runs section, activity trail) — these two are what its OTHER
   // sections call directly, following the same "delegate every named export the code under test
   // actually calls" discipline `session/__tests__/permission-card.test.tsx` established.
   worktreeSummary: (taskId: string) => worktreeSummaryMock(taskId),
+  // `GitFactsSection` (Phase 7 plan 07-01) is the panel's other new section, mounted the same
+  // way as `WorktreeSummary` — mocked here for the same reason `worktreeSummary` is.
+  gitFacts: () => Promise.resolve(null),
+  gitTruthFocusTask: () => Promise.resolve(),
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeAgentEvent: () => Promise.resolve(() => {}),
 }));
+
+// Every existing test in this file predates plan 04-09's summary card and never sets up
+// `sessionSummariesForTaskMock` itself — default it to "no summaries" so `useTaskSessionSummaries`
+// resolves cleanly for all of them; tests that care about summaries override per-test below.
+beforeEach(() => {
+  sessionSummariesForTaskMock.mockReset().mockResolvedValue([]);
+});
 
 function makeRun(overrides: Partial<RunSummaryDto> = {}): RunSummaryDto {
   return {
@@ -47,6 +62,8 @@ function makeRun(overrides: Partial<RunSummaryDto> = {}): RunSummaryDto {
     tokensIn: 100,
     tokensOut: 200,
     externalSessionId: "sess-abc",
+    acknowledgedAt: null,
+    abandonedReason: null,
     ...overrides,
   };
 }
@@ -219,6 +236,149 @@ describe("RunsSection", () => {
   });
 });
 
+describe("RunsSection — abandoned run (plan 03-10 Task 2, D-49/D-50)", () => {
+  beforeEach(() => {
+    acknowledgeAgentRunMock.mockReset();
+  });
+
+  it("renders the Abandoned badge and word, distinct from the Interrupted badge's glyph", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", endedAt: "2026-01-01T00:05:00.000Z" }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    expect(await screen.findByText("Abandoned")).toBeInTheDocument();
+  });
+
+  it("distinguishes the abandoned badge's glyph from the interrupted badge's glyph", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", startedAt: "2026-01-02T00:00:00.000Z" }),
+      makeRun({ id: "run-interrupted", status: "interrupted", startedAt: "2026-01-01T00:00:00.000Z" }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    const items = await screen.findAllByRole("listitem");
+    const abandonedIcon = within(items[0]).getByText("Abandoned").querySelector("svg");
+    const interruptedIcon = within(items[1]).getByText("Interrupted").querySelector("svg");
+    expect(abandonedIcon?.getAttribute("class")).toContain("lucide-unplug");
+    expect(interruptedIcon?.getAttribute("class")).toContain("lucide-circle-slash");
+    expect(abandonedIcon?.getAttribute("class")).not.toBe(interruptedIcon?.getAttribute("class"));
+  });
+
+  it("renders the watchdog explanation with the kill record's timestamp when abandonedReason is present", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", abandonedReason: "2026-01-02T03:04:05.000Z" }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    expect(
+      await screen.findByText(/Flywheel wasn't running to supervise this session/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("This run never finished, and Flywheel doesn't know why it stopped.")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the honest weaker sentence when abandonedReason is null, with no invented timestamp", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", abandonedReason: null }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    expect(
+      await screen.findByText("This run never finished, and Flywheel doesn't know why it stopped."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Flywheel wasn't running to supervise this session/)).not.toBeInTheDocument();
+  });
+
+  it("renders the Acknowledge button only while acknowledgedAt is null", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", acknowledgedAt: null }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    expect(await screen.findByRole("button", { name: "Acknowledge" })).toBeInTheDocument();
+  });
+
+  it("omits the Acknowledge button once acknowledgedAt is non-null, while the word Abandoned remains", async () => {
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", acknowledgedAt: "2026-01-02T00:00:00.000Z" }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    await screen.findByText("Abandoned");
+    expect(screen.queryByRole("button", { name: "Acknowledge" })).not.toBeInTheDocument();
+  });
+
+  it("pressing Acknowledge calls the command with the run id", async () => {
+    acknowledgeAgentRunMock.mockResolvedValue(undefined);
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", acknowledgedAt: null }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Acknowledge" }));
+
+    await waitFor(() => expect(acknowledgeAgentRunMock).toHaveBeenCalledWith("run-abandoned"));
+  });
+
+  it("pressing Acknowledge while the call is in flight does not issue a second call", async () => {
+    let resolveAck: () => void = () => {};
+    acknowledgeAgentRunMock.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveAck = resolve;
+      }),
+    );
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", acknowledgedAt: null }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    const ackButton = await screen.findByRole("button", { name: "Acknowledge" });
+    ackButton.click();
+    ackButton.click();
+    ackButton.click();
+
+    await waitFor(() => expect(acknowledgeAgentRunMock).toHaveBeenCalledTimes(1));
+    resolveAck();
+  });
+
+  it("a rejected Acknowledge leaves the button and explanatory line in place with an inline message", async () => {
+    acknowledgeAgentRunMock.mockRejectedValue(new Error("write failed"));
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", acknowledgedAt: null }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Acknowledge" }));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText("This run never finished, and Flywheel doesn't know why it stopped.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Acknowledge" })).toBeInTheDocument();
+  });
+
+  it("selecting an abandoned run row still invokes onOpenRun, read-only like any other terminal run", async () => {
+    const onOpenRun = vi.fn();
+    agentRunsForTaskMock.mockResolvedValue([
+      makeRun({ id: "run-abandoned", status: "abandoned", externalSessionId: "sess-abandoned" }),
+    ]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    renderSection("task-1", onOpenRun);
+
+    const row = await screen.findByRole("listitem", { name: "Run · session sess-abandoned" });
+    fireEvent.click(row);
+
+    expect(onOpenRun).toHaveBeenCalledWith("run-abandoned");
+  });
+});
+
 describe("ItemDetailPanel section order (plan 02-08 Task 3)", () => {
   function taskDetailItem(): DetailItem {
     return { id: "task-order-1", kind: "task", key: "FLY-9", title: "Ordered task", status: "in_progress", projectId: "proj-1" };
@@ -251,5 +411,70 @@ describe("ItemDetailPanel section order (plan 02-08 Task 3)", () => {
     expect(worktreeSection.compareDocumentPosition(runsSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // eslint-disable-next-line no-bitwise
     expect(runsSection.compareDocumentPosition(activitySection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe("RunsSection — session summary card (plan 04-09 Task 3)", () => {
+  function makeSummary(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      agentRunId: "run-1",
+      createdAt: "2026-01-01T00:05:00.000Z",
+      autoGenerated: false,
+      changedFiles: ["src/a.ts", "src/b.ts"],
+      changedProse: "Did the thing.",
+      remains: "Nothing left.",
+      nextSessionMustKnow: "Watch out for the flaky test.",
+      decisions: [],
+      folded: false,
+      ...overrides,
+    };
+  }
+
+  it("renders a run's summary card under its own row and not under a sibling run's row", async () => {
+    const runs = [
+      makeRun({ id: "run-with-summary", startedAt: "2026-01-02T00:00:00.000Z", externalSessionId: "sess-a" }),
+      makeRun({ id: "run-without-summary", startedAt: "2026-01-01T00:00:00.000Z", externalSessionId: "sess-b" }),
+    ];
+    agentRunsForTaskMock.mockResolvedValue(runs);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    sessionSummariesForTaskMock.mockResolvedValue([makeSummary({ agentRunId: "run-with-summary" })]);
+    renderSection();
+
+    const items = await screen.findAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(within(items[0]).getByText("Remains: Nothing left.")).toBeInTheDocument();
+    expect(within(items[1]).queryByText(/Remains:/)).not.toBeInTheDocument();
+  });
+
+  it("renders no card at all for a run with no summary", async () => {
+    agentRunsForTaskMock.mockResolvedValue([makeRun({ id: "run-1" })]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    sessionSummariesForTaskMock.mockResolvedValue([]);
+    renderSection();
+
+    await screen.findAllByRole("listitem");
+    expect(screen.queryByText(/^Summary ·/)).not.toBeInTheDocument();
+  });
+
+  it("renders the same auto-generated provenance label the launch sheet uses", async () => {
+    agentRunsForTaskMock.mockResolvedValue([makeRun({ id: "run-1" })]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    sessionSummariesForTaskMock.mockResolvedValue([
+      makeSummary({ agentRunId: "run-1", autoGenerated: true }),
+    ]);
+    renderSection();
+
+    expect(await screen.findByText(/auto-generated/)).toBeInTheDocument();
+  });
+
+  it("a task with zero summaries renders the runs list exactly as it does today", async () => {
+    agentRunsForTaskMock.mockResolvedValue([makeRun({ id: "run-1" })]);
+    pendingPermissionRequestsMock.mockResolvedValue([]);
+    sessionSummariesForTaskMock.mockResolvedValue([]);
+    renderSection();
+
+    const items = await screen.findAllByRole("listitem");
+    expect(items).toHaveLength(1);
+    expect(screen.queryByText(/^Summary ·/)).not.toBeInTheDocument();
   });
 });

@@ -10,7 +10,7 @@
  * and the command palette — never an inline settings-adjacent affordance on the board or the
  * launch sheet.
  *
- * Three sections, top to bottom:
+ * Six sections, top to bottom:
  * 1. **Credential path** — a global two-value segmented control (`Local Claude Code Credentials`
  *    default / `API Key`), the write-only Keychain-backed key field (only revealed while the
  *    global mode is `api_key`), and the non-blocking backend-unavailable notice.
@@ -18,7 +18,23 @@
  *    `useProjects`), each carrying the same segmented control plus a third `Use global default`
  *    option. Absent entirely at zero registered projects (E7 zero-one-many) — an override table
  *    with no rows would be noise, and the global control alone is the honest surface.
- * 3. **Permission rules** (D-38) — `PermissionRulesTable.tsx`, mounted by plan 02-10 Task 2.
+ * 3. **Forge override** (D-119, phase 07 plan 07-08) — the exact same per-project row shape as
+ *    section 2, beside it: a four-value segmented control (`Detected` / `GitHub` / `GitLab` /
+ *    `Local only`), where `Detected` sends `forge: null`. Reads its OWN `projectForgeOverrides`
+ *    list (one row per registered project, each carrying `projectName` — the exact same "read
+ *    carries the row's own display name" shape `settings.projectOverrides` already uses for
+ *    section 2), so the control shows the CURRENT value rather than always resetting to
+ *    `Detected`, and a test exercising an unrelated section needs no forge-specific mock to avoid
+ *    rendering this one (mirrors section 2's own "leave `projectOverrides: []`" convenience).
+ * 4. **Worktree open commands** (D-130, LINK-11, plan 07-04 Task 3) — the two command templates
+ *    `item-detail/WorktreeSummary.tsx`'s "Open in editor"/"Open in terminal" actions run,
+ *    pre-filled with their current (stored-or-default) value and saved on blur/Enter, following
+ *    this file's own "every field commits on interaction" discipline. A rejected save (an empty
+ *    or whitespace-only template) surfaces the core's own rejection text rather than storing it.
+ * 5. **Parallel agents** (D-159, phase 09 plan 09-04) — one native select over 1 to 8 for the
+ *    global cap on concurrent agent sessions, with the live occupied-slot count beside it. The
+ *    cap gates the dispatcher's own spawns only; no verdict is computed in the renderer.
+ * 6. **Permission rules** (D-38) — `PermissionRulesTable.tsx`, mounted by plan 02-10 Task 2.
  *
  * `T-02-40`'s mitigation lives here structurally: the API key input is always `type="password"`,
  * there is no unmask affordance anywhere in this file (Task 1's own structural `<verify>` grep
@@ -30,12 +46,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   backendCapabilityProbe,
   getSettings,
+  openCommandTemplate,
+  projectForgeOverrides,
   setCredentialMode,
+  setOpenCommandTemplate,
+  settingsSetDispatchMaxParallel,
+  settingsSetProjectForge,
   storeApiKey,
+  type ProjectForge,
   type SettingsDto,
+  type WorktreeOpenSurface,
 } from "../adapters/tauri";
 import { useProjects } from "../board/useBoardQuery";
+import { NotificationsControl } from "./NotificationsControl";
 import { PermissionRulesTable } from "./PermissionRulesTable";
+import "../styles/admin-surfaces.css";
 
 /** The two credential-mode values the schema/commands accept (`commands/settings.rs`'s
  * `validate_mode`) — the exact labels 02-UI-SPEC.md's Copywriting Contract specifies. */
@@ -58,9 +83,45 @@ const PROJECT_CREDENTIAL_OPTIONS: readonly { value: ProjectOptionValue; label: s
 
 const SETTINGS_QUERY_KEY = ["settings"] as const;
 const BACKEND_CAPABILITY_QUERY_KEY = ["backend-capability"] as const;
+const FORGE_OVERRIDES_QUERY_KEY = ["forge-overrides"] as const;
+
+/** The per-project forge override's four values (D-119, phase 07 plan 07-08): `"detected"` is a
+ * renderer-only value (never sent to the command surface as-is), mirroring `ProjectOptionValue`'s
+ * own "default" convention above — selecting it sends `forge: null`, which
+ * `settings_set_project_forge` treats as clearing the override back to detection. */
+type ForgeOptionValue = ProjectForge | "detected";
+
+const PROJECT_FORGE_OPTIONS: readonly { value: ForgeOptionValue; label: string }[] = [
+  { value: "detected", label: "Detected" },
+  { value: "github", label: "GitHub" },
+  { value: "gitlab", label: "GitLab" },
+  { value: "local", label: "Local only" },
+];
 
 /** The exact copy from 02-UI-SPEC.md's Copywriting Contract ("Settings — CLI not detected
  * notice") — never a hard error, since the API-key path remains fully usable regardless. */
+/** T-02-42 clause 1 (D-39). The threat's declared mitigation is conjoined: the API-key override
+ * assumption (A1) is measured and its outcome recorded, AND "if the override cannot be confirmed
+ * the Settings surface carries a notice rather than the product assuming it worked."
+ *
+ * A1 was never confirmed — measuring it needs a spend-authorized key alongside a live subscription
+ * session, which no environment available to this project has had (02-09-SUMMARY.md "What could
+ * NOT be measured"; 02-UAT.md test 3's open_question). The conditional therefore fired, and this
+ * string is its consequence.
+ *
+ * Why it is not cosmetic: clause 2 (error rather than silent fallback, credentials.rs) only covers
+ * api_key mode with NO key stored. The harm this threat names is the opposite configuration —
+ * BOTH credentials present — where resolve_credential succeeds, ANTHROPIC_API_KEY is set, and the
+ * control reads "API Key". If the environment variable does not in fact win over a live
+ * `claude login` session, Flywheel bills the subscription while displaying API Key. Saying so is
+ * the mitigation; silence is the threat.
+ *
+ * Delete this only when precedence has been MEASURED, not when it is assumed. */
+const API_KEY_PRECEDENCE_NOTICE =
+  "Unverified: if you are also signed in with the claude CLI, we have not confirmed which " +
+  "credential the backend actually uses. Sign out of the CLI to be certain this key is the one " +
+  "being billed.";
+
 const BACKEND_UNAVAILABLE_NOTICE =
   "Local credentials require the claude CLI, which wasn't found. The API key path still works.";
 
@@ -114,15 +175,7 @@ function SegmentedControl<T extends string>({
             role="radio"
             aria-checked={selected}
             onClick={() => onSelect(option.value)}
-            className="type-label"
-            style={{
-              padding: "var(--space-xs) var(--space-sm)",
-              border: "1px solid var(--divider)",
-              borderRadius: "var(--radius-chrome)",
-              background: selected ? "var(--accent-nontext)" : "transparent",
-              color: selected ? "var(--text-primary-rack)" : "inherit",
-              cursor: "pointer",
-            }}
+            className="type-label control-edge admin-choice"
           >
             {option.label}
           </button>
@@ -185,15 +238,7 @@ function ApiKeyField({ settings }: { settings: SettingsDto }) {
             saveMutation.reset();
             setReplacing(true);
           }}
-          className="type-label"
-          style={{
-            background: "transparent",
-            border: "1px solid var(--divider)",
-            borderRadius: "var(--radius-chrome)",
-            color: "var(--text-primary-rack)",
-            padding: "var(--space-xs) var(--space-sm)",
-            cursor: "pointer",
-          }}
+          className="type-label control-edge admin-action"
         >
           Replace
         </button>
@@ -212,14 +257,7 @@ function ApiKeyField({ settings }: { settings: SettingsDto }) {
         onBlur={commit}
         onKeyDown={handleKeyDown}
         placeholder="sk-ant-…"
-        className="type-body"
-        style={{
-          background: "var(--surface-dominant)",
-          border: "1px solid var(--divider)",
-          borderRadius: "var(--radius-chrome)",
-          color: "inherit",
-          padding: "var(--space-xs) var(--space-sm)",
-        }}
+        className="type-body control-edge admin-field"
       />
       {saveMutation.isError && (
         <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
@@ -227,6 +265,135 @@ function ApiKeyField({ settings }: { settings: SettingsDto }) {
         </p>
       )}
     </div>
+  );
+}
+
+/** `item-detail/WorktreeSummary.tsx`'s open-command template helper text — stated once here
+ * rather than per-field, since both fields carry the identical mechanism. */
+const OPEN_COMMAND_HELP_TEXT =
+  "Split into arguments and run directly — {worktree_path} is substituted, no shell is involved.";
+
+function openCommandTemplateQueryKey(surface: WorktreeOpenSurface) {
+  return ["open-command-template", surface] as const;
+}
+
+/**
+ * One of the two D-130 worktree-open command template fields (editor/terminal). Reads the
+ * current (stored-or-default) value on mount via `openCommandTemplate`, commits an edit on
+ * blur/Enter — mirroring `ApiKeyField`'s own commit-on-interaction convention above — and renders
+ * the core's own rejection text (`set_open_command_template`'s empty/whitespace-only refusal)
+ * inline rather than storing it.
+ */
+function OpenCommandTemplateField({ surface, label }: { surface: WorktreeOpenSurface; label: string }) {
+  const queryClient = useQueryClient();
+  const queryKey = openCommandTemplateQueryKey(surface);
+  const templateQuery = useQuery({ queryKey, queryFn: () => openCommandTemplate(surface) });
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const saveMutation = useMutation({
+    mutationFn: (value: string) => setOpenCommandTemplate(surface, value),
+    onSuccess: () => {
+      setDraft(null);
+      queryClient.invalidateQueries({ queryKey });
+    },
+  });
+
+  function commit() {
+    if (saveMutation.isPending || draft === null) return;
+    saveMutation.mutate(draft);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.currentTarget.blur();
+    }
+  }
+
+  // E7 loading: render nothing while the read is in flight — this is a near-instant local read,
+  // not worth a dedicated skeleton (and `SectionSkeleton`'s shared `data-testid` would otherwise
+  // collide with the Credential Path section's own skeleton above).
+  if (templateQuery.isPending) return null;
+
+  const value = draft ?? templateQuery.data ?? "";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", maxWidth: 420 }}>
+      <label className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        {label}
+      </label>
+      <input
+        type="text"
+        aria-label={label}
+        value={value}
+        disabled={saveMutation.isPending}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={handleKeyDown}
+        className="type-body control-edge admin-field"
+        style={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace' }}
+      />
+      <p className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+        {OPEN_COMMAND_HELP_TEXT}
+      </p>
+      {saveMutation.isError && (
+        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+          {saveMutation.error instanceof Error ? saveMutation.error.message : "Could not save this template."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** The cap's closed range (D-159, `domain/settings.rs`) as a list the select renders — an
+ * out-of-range value is unreachable from the UI rather than merely rejected by the command. */
+const PARALLEL_CAP_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
+
+/**
+ * The global parallel-agent cap (PLAN-06, D-159): one number for concurrent agent sessions across
+ * every project, shown beside how many slots are in use right now. Controlled by the stored value
+ * so a refused set snaps back by construction; the error text is the command's own. The cap gates
+ * the dispatcher's spawns only — a launch the user starts is never refused by it.
+ */
+function ParallelCapControl({ settings }: { settings: SettingsDto }) {
+  const queryClient = useQueryClient();
+  const setCapMutation = useMutation({
+    mutationFn: (value: number) => settingsSetDispatchMaxParallel(value),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY }),
+  });
+  const { maxParallel, occupiedSlots } = settings.dispatchCap;
+  const error = setCapMutation.error;
+  const errorText =
+    typeof error === "string" ? error : error instanceof Error ? error.message : "Could not save the cap.";
+
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
+        <select
+          aria-label="Parallel agent sessions"
+          value={maxParallel}
+          disabled={setCapMutation.isPending}
+          onChange={(event) => setCapMutation.mutate(Number(event.target.value))}
+          className="type-body control-edge admin-field"
+        >
+          {PARALLEL_CAP_OPTIONS.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+        <span data-testid="dispatch-cap-occupancy" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          {`${occupiedSlots} of ${maxParallel} slots in use`}
+        </span>
+      </div>
+      <p className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+        Most agent sessions the planner runs at once, across every project. Sessions you start yourself are never refused.
+      </p>
+      {setCapMutation.isError && (
+        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+          {errorText}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -249,46 +416,34 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY }),
   });
 
+  const forgeOverridesQuery = useQuery({
+    queryKey: FORGE_OVERRIDES_QUERY_KEY,
+    queryFn: () => projectForgeOverrides(),
+  });
+  const setForgeMutation = useMutation({
+    mutationFn: (input: { projectId: string; forge: ProjectForge | null }) =>
+      settingsSetProjectForge(input.projectId, input.forge),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: FORGE_OVERRIDES_QUERY_KEY }),
+  });
+
   const loading = settingsQuery.isPending;
   const settings = settingsQuery.data;
   const projects = projectsQuery.data ?? [];
   const backendUnavailable = backendQuery.data ? !backendQuery.data.available : false;
+  const forgeOverrides = forgeOverridesQuery.data ?? [];
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--text-primary-rack)" }}>
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-md)",
-          padding: "var(--space-md)",
-          borderBottom: "1px solid var(--divider)",
-        }}
-      >
-        <button
-          type="button"
-          onClick={onBack}
-          className="type-label"
-          style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer" }}
-        >
+      <header className="admin-header">
+        <button type="button" onClick={onBack} className="type-label admin-back">
           ← Board
         </button>
         <span className="type-heading">Settings</span>
       </header>
 
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: "auto",
-          padding: "var(--space-lg)",
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-lg)",
-        }}
-      >
-        <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+      <div className="admin-body">
+        <section className="admin-section">
+          <span className="type-body admin-section-label">
             Credential Path
           </span>
           {loading || !settings ? (
@@ -306,30 +461,31 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
                   {BACKEND_UNAVAILABLE_NOTICE}
                 </p>
               )}
+              {settings.globalCredentialMode === "api_key" && (
+                <p
+                  role="status"
+                  data-testid="api-key-precedence-notice"
+                  className="type-label"
+                  style={{ margin: 0, color: "var(--text-muted-rack)" }}
+                >
+                  {API_KEY_PRECEDENCE_NOTICE}
+                </p>
+              )}
               {settings.globalCredentialMode === "api_key" && <ApiKeyField settings={settings} />}
             </>
           )}
         </section>
 
         {!loading && settings && projects.length > 0 && (
-          <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-            <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          <section className="admin-section">
+            <span className="type-body admin-section-label">
               Per-Project Override
             </span>
             <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-sm)",
-                maxHeight: 240,
-                overflowY: "auto",
-              }}
+              style={{ display: "flex", flexDirection: "column", maxHeight: 240, overflowY: "auto" }}
             >
               {settings.projectOverrides.map((override) => (
-                <div
-                  key={override.projectId}
-                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-md)" }}
-                >
+                <div key={override.projectId} className="admin-row">
                   <span
                     className="type-body"
                     style={{
@@ -360,8 +516,76 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
           </section>
         )}
 
-        <section style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        {!forgeOverridesQuery.isPending && forgeOverrides.length > 0 && (
+          <section className="admin-section">
+            <span className="type-body admin-section-label">
+              Forge Override
+            </span>
+            <div
+              style={{ display: "flex", flexDirection: "column", maxHeight: 240, overflowY: "auto" }}
+            >
+              {forgeOverrides.map((override) => (
+                <div key={override.projectId} className="admin-row">
+                  <span
+                    className="type-body"
+                    style={{
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      flexShrink: 1,
+                      minWidth: 0,
+                    }}
+                  >
+                    {override.projectName}
+                  </span>
+                  <SegmentedControl
+                    ariaLabel={`Forge for ${override.projectName}`}
+                    options={PROJECT_FORGE_OPTIONS}
+                    value={(override.forge ?? "detected") as ForgeOptionValue}
+                    onSelect={(selected) =>
+                      setForgeMutation.mutate({
+                        projectId: override.projectId,
+                        forge: selected === "detected" ? null : selected,
+                      })
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {!loading && settings && (
+          <section className="admin-section">
+            <span className="type-body admin-section-label">
+              Parallel Agents
+            </span>
+            <ParallelCapControl settings={settings} />
+          </section>
+        )}
+
+        {!loading && settings && (
+          <section className="admin-section">
+            <span className="type-body admin-section-label">
+              Notifications
+            </span>
+            <NotificationsControl
+              settings={settings}
+              onChanged={() => queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY })}
+            />
+          </section>
+        )}
+
+        <section className="admin-section" style={{ gap: "var(--space-md)" }}>
+          <span className="type-body admin-section-label">
+            Worktree Open Commands
+          </span>
+          <OpenCommandTemplateField surface="editor" label="Open in editor" />
+          <OpenCommandTemplateField surface="terminal" label="Open in terminal" />
+        </section>
+
+        <section className="admin-section">
+          <span className="type-body admin-section-label">
             Permission Rules
           </span>
           <PermissionRulesTable projects={projects} loadingProjects={projectsQuery.isPending} />

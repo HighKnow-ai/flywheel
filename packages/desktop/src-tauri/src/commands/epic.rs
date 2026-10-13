@@ -39,13 +39,17 @@ impl From<flywheel_core::domain::epic::Epic> for EpicDto {
 }
 
 /// The three fields the epic pill, the filter chips and the `ParentPicker` option lists consume
-/// (G-01-2) — the narrow DTO `epic_list_all` returns, deliberately not the full `EpicDto`.
+/// (G-01-2), plus the two the roster header's sub-label reads (08.1-14 finish review) — the narrow
+/// DTO `epic_list_all` returns, deliberately not the full `EpicDto`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpicSummaryDto {
     pub id: String,
     pub key: String,
     pub title: String,
+    pub status: String,
+    /// `null` until the epic's integration branch is first cut (D-25).
+    pub integration_branch: Option<String>,
 }
 
 impl From<flywheel_core::domain::epic::EpicSummary> for EpicSummaryDto {
@@ -54,20 +58,44 @@ impl From<flywheel_core::domain::epic::EpicSummary> for EpicSummaryDto {
             id: summary.id,
             key: summary.key,
             title: summary.title,
+            status: summary.status,
+            integration_branch: summary.integration_branch,
         }
     }
 }
 
-/// List every epic in `project_id` (BOARD-06, G-01-2) — the one read in this workspace deliberately
-/// exempt from D-03's windowing contract (T-01-17-03): it carries no `limit`/`cursor` argument at
-/// all, because epics are a small roster authored one at a time by a human, and windowing the
-/// roster is exactly the defect this command exists to fix. Unlike every other handler in this
-/// file, it takes no `AppHandle` and emits nothing — it is a pure read.
+/// [`epic_list_all`]'s wire shape (D-16, D-87, plan 05-04) — the roster page plus `total` and
+/// `truncated` so the renderer can tell "every epic" from "the first `EPIC_ROSTER_CEILING`" and
+/// surface the difference rather than swallow it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpicRosterDto {
+    pub epics: Vec<EpicSummaryDto>,
+    pub total: i64,
+    pub truncated: bool,
+}
+
+impl From<flywheel_core::domain::epic::EpicRoster> for EpicRosterDto {
+    fn from(roster: flywheel_core::domain::epic::EpicRoster) -> Self {
+        Self {
+            epics: roster.epics.into_iter().map(EpicSummaryDto::from).collect(),
+            total: roster.total,
+            truncated: roster.truncated,
+        }
+    }
+}
+
+/// List every epic in `project_id` (BOARD-06, G-01-2), up to `domain::epic::EPIC_ROSTER_CEILING`
+/// (plan 05-04, closing `01-SECURITY.md` AR-01-04's re-rate trigger). No longer literally exempt
+/// from a windowing contract — the roster now carries `total`/`truncated` so a truncation is
+/// surfaced rather than silent, which is what let this exemption close without reopening G-01-2.
+/// Unlike every other handler in this file, it takes no `AppHandle` and emits nothing — it is a
+/// pure read.
 #[tauri::command]
-pub fn epic_list_all(state: State<AppState>, project_id: String) -> Result<Vec<EpicSummaryDto>, String> {
+pub fn epic_list_all(state: State<AppState>, project_id: String) -> Result<EpicRosterDto, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let epics = flywheel_core::domain::epic::list_epics(&conn, &project_id).map_err(|e| e.to_string())?;
-    Ok(epics.into_iter().map(EpicSummaryDto::from).collect())
+    let roster = flywheel_core::domain::epic::list_epics(&conn, &project_id).map_err(|e| e.to_string())?;
+    Ok(roster.into())
 }
 
 fn validate_title(title: &str) -> Result<(), String> {

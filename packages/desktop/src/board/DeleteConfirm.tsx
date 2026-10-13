@@ -11,11 +11,16 @@
  * (`pickers/StatusPicker.tsx`'s pattern) — `component_strategy: a-selfhost-radix`. Escape defaults
  * to cancel (T-01-25's explicit requirement); the destructive "Delete" button is never
  * `autoFocus`ed, so a stray Enter press while the dialog is opening lands on Cancel, not Delete.
+ * Cancel carries `autoFocus` itself as well as the scope's mount handler, because a reviewer found
+ * the dialog opening with focus on the scrim's own `tabindex="-1"` container, where Enter answers
+ * nothing: the attribute makes the first focus deterministic, and the scope then leaves it alone.
  */
 import { useRef, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
+import { Trash2 } from "lucide-react";
+import "../styles/states-and-confirms.css";
 
 export interface DeleteConfirmProps {
   itemType: "Epic" | "Task" | "Issue";
@@ -52,72 +57,34 @@ export function DeleteConfirm({ itemType, itemKey, title, onConfirm, onCancel }:
           role="alertdialog"
           aria-label={`Delete ${itemType} ${itemKey}?`}
           onKeyDown={handleKeyDown}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1200,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0,0,0,0.45)",
-          }}
+          className="confirm-scrim"
         >
-          <div
-            className="type-body"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-md)",
-              maxWidth: 420,
-              padding: "var(--space-lg)",
-              background: "var(--surface-secondary)",
-              color: "var(--text-primary-rack)",
-              border: "1px solid var(--divider)",
-              borderRadius: "var(--radius-chrome)",
-              boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
-            }}
-          >
-            <h2 className="type-heading" style={{ margin: 0 }}>
+          <div className="type-body confirm-dialog">
+            <h2 className="type-heading">
               Delete {itemType} {itemKey}?
             </h2>
-            <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+            <p className="type-body">
               "{title}" and its acceptance criteria will be permanently removed. This can't be
               undone.
             </p>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-sm)" }}>
+            <div className="confirm-actions">
               <button
                 ref={cancelRef}
                 type="button"
-                className="type-body"
+                autoFocus
+                className="type-body control-edge confirm-action"
                 onClick={onCancel}
-                style={{
-                  padding: "var(--space-xs) var(--space-md)",
-                  borderRadius: "var(--radius-chrome)",
-                  border: "1px solid var(--divider)",
-                  background: "var(--surface-dominant)",
-                  color: "var(--text-primary-rack)",
-                  cursor: "pointer",
-                }}
               >
                 Cancel
               </button>
+              {/* The destructive text role on an edge, never a fill (2.95:1 light, 2.86:1 dark as a fill),
+                  and the icon tells it from the accent by more than hue. */}
               <button
                 type="button"
-                className="type-body"
+                className="type-body control-edge confirm-action confirm-action-destructive"
                 onClick={onConfirm}
-                style={{
-                  padding: "var(--space-xs) var(--space-md)",
-                  borderRadius: "var(--radius-chrome)",
-                  border: "1px solid var(--destructive-strip)",
-                  background: "var(--destructive-strip)",
-                  // `--text-primary-strip` (dark ink, meant for strip PAPER stock) measures only
-                  // 2.2:1 against `--destructive-strip` — `--text-primary-rack` (the light rack
-                  // text token) measures 6.3:1 here instead, well past AA. Caught in this plan's
-                  // own craft-floor review, not shipped as a first draft.
-                  color: "var(--text-primary-rack)",
-                  cursor: "pointer",
-                }}
               >
+                <Trash2 size={14} strokeWidth={2} aria-hidden="true" />
                 Delete
               </button>
             </div>

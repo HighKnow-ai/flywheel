@@ -1,0 +1,182 @@
+/*
+ * The fan-out surface (plan 09-09). Tokens only: no literal colour is declared here, and nothing
+ * rests on colour alone (every state is a printed word).
+ */
+
+.wave-plan-sheet {
+  width: 720px;
+  max-height: 80vh;
+}
+
+.wave-plan-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--divider);
+  flex-shrink: 0;
+}
+
+.wave-plan-status,
+.wave-plan-note {
+  color: var(--text-muted-rack);
+  margin: 0;
+}
+
+.wave-plan-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.wave-plan-wave-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.wave-plan-tasks,
+.wave-plan-pairs,
+.wave-plan-entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.wave-plan-entries {
+  gap: 0;
+}
+
+.wave-plan-task {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--divider);
+}
+
+.wave-plan-task-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+}
+
+.wave-plan-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.wave-plan-key,
+.wave-plan-state {
+  color: var(--text-muted-rack);
+}
+
+.wave-plan-files {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: flex-start;
+}
+
+.wave-plan-textarea {
+  flex: 1;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.wave-plan-wave,
+.wave-plan-files button {
+  background: transparent;
+  color: var(--text-primary-rack);
+}
+
+.wave-plan-pair {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  align-items: flex-start;
+}
+
+.wave-plan-attention {
+  margin: 0;
+  color: var(--text-primary-rack);
+  font-weight: 600;
+}
+
+.wave-plan-refusal {
+  margin: 0;
+  color: var(--destructive-text-rack);
+}
+
+.wave-plan-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-top: 1px solid var(--divider);
+  flex-shrink: 0;
+}
+
+/* --- The epic row's dispatch cell ------------------------------------------------------------- */
+
+.epic-dispatch {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.epic-dispatch-line {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--space-sm);
+  color: var(--text-muted-rack);
+}
+
+.epic-dispatch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.epic-dispatch-btn {
+  background: transparent;
+  color: var(--text-primary-rack);
+  cursor: pointer;
+  padding: 0 var(--space-sm);
+  line-height: 18px;
+}
+
+.epic-dispatch-error {
+  color: var(--destructive-text-rack);
+}
+
+/* --- The gate line ----------------------------------------------------------------------------- */
+
+.epic-dispatch-gate {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  color: var(--text-primary-rack);
+}
+
+.epic-dispatch-gate-text {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* A waiting gate is the news: it takes the status line's place, so the cell stays inside the row. */
+.epic-dispatch:has(.epic-dispatch-gate) .epic-dispatch-line {
+  display: none;
+}

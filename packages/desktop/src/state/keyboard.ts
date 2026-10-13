@@ -26,7 +26,16 @@ export type FocusRegion =
   | "item-detail"
   | "command-palette"
   | "session-surface"
-  | "permission-card";
+  | "permission-card"
+  | "proposal-tray"
+  // D-103 (plan 06-07): the dedicated triage surface's own region — `ProposalRow`'s `region` prop
+  // (plan 06-07 Task 1) is what lets the SAME row component act in either this region or the
+  // tray's, so the two never fork into separate row implementations.
+  | "triage-surface"
+  // Phase 8 plan 08-01: the review surface's own region — `j`/`k` through its file list.
+  | "review-surface"
+  // Phase 10 plan 10-01 (D-163): the fleet surface's own region — added the way `triage-surface` was.
+  | "fleet-surface";
 
 /** Every board action reachable from the keyboard, the palette, or (menu.rs) the native menu.
  * `create-issue`/`open-legend`/`filter-status`/`filter-epic`/`filter-assignee`/`filter-priority`
@@ -52,6 +61,8 @@ export type ActionId =
   | "select-first"
   | "select-last"
   | "open-detail"
+  | "expand-row"
+  | "collapse-row"
   | "open-status-picker"
   | "open-priority-picker"
   | "open-estimate-picker"
@@ -64,13 +75,65 @@ export type ActionId =
   // deliberately NOT reachable from `board-list` — `bindingAllowedInLayer` below permits them only
   // in the `"permission-card"` layer (T-02-15).
   | "start-work"
+  | "open-review"
   | "open-live-session"
   | "stop-session"
   | "toggle-raw-view"
   | "answer-permission-allow"
   | "answer-permission-deny"
   | "answer-permission-allow-always"
-  | "open-settings";
+  | "open-settings"
+  // Phase 10 plan 10-01 (D-163): open the fleet surface — one global binding, reachable identically
+  // from the keystroke, the command palette and the native menu (never a broader capability).
+  | "open-fleet"
+  // Phase 10 plan 10-06 (D-166, FLEET-03): the fleet list's primary action — open the selected row's
+  // session. Region-scoped to the fleet surface; Enter on a focused button keeps its own activation.
+  | "open-fleet-row"
+  // ...and its secondary target: the board item the row's subject names, in whatever project it lives.
+  | "open-fleet-row-subject"
+  // D-84/D-88 (plan 05-02): start a fresh epic-authoring session. Command-palette-only in this
+  // plan (no key binding yet), mirroring `create-issue`/`open-legend`'s own palette-only entries
+  // above — the palette is the least invasive entry point and it re-enters the same
+  // `dispatchAction` pipeline every other action uses.
+  | "shape-epic"
+  // D-91 (plan 05-10): reopen an existing epic's authoring session (SHAPE-05) — a `board-list`
+  // binding, epic-row-only, mirroring `open-epic-picker`'s own row-kind refusal pattern (inverted:
+  // refused on a TASK row rather than an epic row). Also reachable from `ItemDetailPanel.tsx`'s
+  // own Continue Shaping section for the same reason `start-work`'s own button exists beside its
+  // keyboard binding.
+  | "continue-shaping"
+  // D-88/D-90 (plan 05-03): the human-only stage-transition verbs. `advance-stage` is bound to a
+  // real key in the `session-surface` region (below); `return-stage` is command-palette-only,
+  // mirroring `shape-epic`'s own palette-only entry — neither is reachable from a tool call, which
+  // is the whole point of D-90.
+  | "advance-stage"
+  | "return-stage"
+  // D-92/D-95 (plan 05-07): the proposal tray's own per-row verbs, reusing the exact
+  // `a`/`d`/`Shift+A` vocabulary the permission card already established (`answer-permission-*`
+  // above) — the developer learns one set of answer keys for everything an agent asks of them.
+  // `bindingAllowedInLayer` below scopes all four to the `"proposal-tray"` layer only.
+  | "accept-proposal"
+  | "reject-proposal"
+  | "amend-proposal"
+  | "accept-proposal-subtree"
+  // D-101/D-102/D-104 (plan 06-07): the triage surface's own two new per-row verbs (merge, defer)
+  // and its two bulk sweeps (bulk reject, bulk defer) — D-104's ONLY two batchable verbs. No id
+  // here or anywhere else in this file means "accept many" or "accept all".
+  | "merge-proposal"
+  | "defer-proposal"
+  | "reject-selected-proposals"
+  | "defer-selected-proposals"
+  // Phase 8 plan 08-01: expand/collapse the focused file in the review surface.
+  | "expand-file"
+  // Phase 8 plan 08-06: check the focused criterion against the selected diff lines (D-139).
+  | "check-with-selection"
+  // Phase 8 plan 08-15 (G-08-6, D-146/D-118): the keyboard route to the two confirmations. WKWebView
+  // leaves `<button>` out of Tab order, so the Merge and Open request buttons were mouse-only on
+  // macOS; these two bindings are the route. Each is offered under exactly the conditions its
+  // button is (the surface hoists one const per action), and each confirm sheet focuses its own
+  // confirm button on open so the Enter/Space activation of CR-03 lands on it.
+  | "open-merge"
+  | "open-epic-request";
 
 export interface Binding {
   id: ActionId;
@@ -121,6 +184,11 @@ export const BINDINGS: Binding[] = [
   { id: "select-last", region: "board-list", key: "End", label: "Jump to last row" },
   { id: "open-detail", region: "board-list", key: "Enter", label: "Open selected item" },
   { id: "open-detail", region: "board-list", key: "o", label: "Open selected item" },
+  // 08.1 A-09: the epic roster is the home surface and its rows start collapsed, so a keyboard user
+  // needs a way to disclose one. Tree-row grammar; neither key was bound anywhere before (checked
+  // against every region of this table and every `event.key` read in the source). Epic header rows only.
+  { id: "expand-row", region: "board-list", key: "ArrowRight", label: "Expand epic" },
+  { id: "collapse-row", region: "board-list", key: "ArrowLeft", label: "Collapse epic" },
   { id: "create-task", region: "board-list", key: "c", label: "Create Task" },
   { id: "open-status-picker", region: "board-list", key: "s", label: "Set Status" },
   { id: "open-priority-picker", region: "board-list", key: "p", label: "Set Priority" },
@@ -136,11 +204,23 @@ export const BINDINGS: Binding[] = [
   // `w`/`l` — neither collides with the nine letters above (`j k o c s p e a m`), verified at test
   // time from this table rather than restated (02-03-PLAN.md Task 3).
   { id: "start-work", region: "board-list", key: "w", label: "Start Work" },
+  // D-133: `r` is taken, `v` is the free letter that reads as review. Deliberately NOT in
+  // `REVIEW_SURFACE_ACTION_IDS` — it is dispatched from the board, so it must fall through to the
+  // board clause of `bindingAllowedInLayer`.
+  { id: "open-review", region: "board-list", key: "v", label: "Review" },
   { id: "open-live-session", region: "board-list", key: "l", label: "Open Live Session" },
+  // `r` — free in this region (verified against every entry above, none of which claims it) and
+  // the mnemonic for "reshape"/"reopen" (D-91, plan 05-10 Task 1). Epic-row-only, mirroring
+  // `open-epic-picker`'s own row-kind guard above, inverted.
+  { id: "continue-shaping", region: "board-list", key: "r", label: "Continue Shaping" },
 
   // ---- Live session surface (D-31) --------------------------------------------------------
   { id: "stop-session", region: "session-surface", key: ".", meta: true, label: "Stop Session" },
   { id: "toggle-raw-view", region: "session-surface", key: "r", label: "Toggle Raw View" },
+  // D-88/D-90 (plan 05-03): `n` is free in this region — the global `Cmd+N` create-task binding
+  // carries `meta`, and `resolveBinding` requires `Boolean(binding.meta) === event.metaKey`, so a
+  // bare `n` here can never match that global entry regardless of scan order.
+  { id: "advance-stage", region: "session-surface", key: "n", label: "Advance Authoring Stage" },
 
   // ---- Permission-request card (AGNT-06, D-37/D-38) — region-scoped so a bare `a`/`d` here
   // never collides with the board list's own `a` (assignee picker); `bindingAllowedInLayer` below
@@ -159,6 +239,91 @@ export const BINDINGS: Binding[] = [
 
   // ---- Global (agent additions) -----------------------------------------------------------
   { id: "open-settings", region: "global", key: ",", meta: true, label: "Open Settings" },
+  // D-163: `⌘⇧F`. The uniqueness test in `keyboard-fleet.test.ts` proves no other global binding
+  // shares this key-plus-modifier combination (`⌘F` is Search Board, which differs by shift).
+  { id: "open-fleet", region: "global", key: "f", meta: true, shift: true, label: "Open Fleet" },
+
+  // ---- Proposal tray (D-92/D-95, plan 05-07) — region-scoped so `a`/`d`/`Shift+A` here reuse
+  // the exact permission-card vocabulary without colliding with it (a different region namespace
+  // entirely — `resolveBinding` matches on region, never on key alone). `e` is free in this
+  // region and matches the board's own `open-estimate-picker` mnemonic only by letter, not by
+  // region, which `resolveBinding` resolves correctly. `move-down`/`move-up` reuse the board
+  // list's own ids rather than a second "move" vocabulary — `bindingAllowedInLayer` below grants
+  // them an extra allowance under the `"proposal-tray"` layer alongside their existing
+  // board/quick-add one.
+  { id: "accept-proposal", region: "proposal-tray", key: "a", label: "Accept Proposal" },
+  { id: "reject-proposal", region: "proposal-tray", key: "d", label: "Reject Proposal" },
+  { id: "amend-proposal", region: "proposal-tray", key: "e", label: "Amend Proposal" },
+  {
+    id: "accept-proposal-subtree",
+    region: "proposal-tray",
+    key: "a",
+    shift: true,
+    label: "Accept Task and Its Criteria",
+  },
+  { id: "move-down", region: "proposal-tray", key: "j", label: "Move selection down" },
+  { id: "move-down", region: "proposal-tray", key: "ArrowDown", label: "Move selection down" },
+  { id: "move-up", region: "proposal-tray", key: "k", label: "Move selection up" },
+  { id: "move-up", region: "proposal-tray", key: "ArrowUp", label: "Move selection up" },
+
+  // ---- Triage surface (D-103, plan 06-07) — the dedicated triage view's own region. Reuses the
+  // tray's exact accept/reject/amend vocabulary (same letter, same verb, D-92/D-95's own reasoning
+  // extended here) plus two new per-row verbs (`m` merge, `z` defer, neither a free letter the tray
+  // itself claims) and two new bulk sweeps (`Shift+D` reject-selected, `Shift+Z` defer-selected) —
+  // D-104's only two batchable verbs. Deliberately NO binding anywhere in this region accepts more
+  // than one proposal: accept stays per-row (or per-subtree, via the tray's own `accept-proposal-
+  // subtree`, which this region does not bind a key to — mouse-only here, same as everywhere else).
+  { id: "accept-proposal", region: "triage-surface", key: "a", label: "Accept Proposal" },
+  { id: "reject-proposal", region: "triage-surface", key: "d", label: "Reject Proposal" },
+  { id: "amend-proposal", region: "triage-surface", key: "e", label: "Amend Proposal" },
+  { id: "merge-proposal", region: "triage-surface", key: "m", label: "Merge Proposal" },
+  { id: "defer-proposal", region: "triage-surface", key: "z", label: "Defer Proposal" },
+  { id: "move-down", region: "triage-surface", key: "j", label: "Move selection down" },
+  { id: "move-down", region: "triage-surface", key: "ArrowDown", label: "Move selection down" },
+  { id: "move-up", region: "triage-surface", key: "k", label: "Move selection up" },
+  { id: "move-up", region: "triage-surface", key: "ArrowUp", label: "Move selection up" },
+  {
+    id: "reject-selected-proposals",
+    region: "triage-surface",
+    key: "d",
+    shift: true,
+    label: "Reject Selected Proposals",
+  },
+  {
+    id: "defer-selected-proposals",
+    region: "triage-surface",
+    key: "z",
+    shift: true,
+    label: "Defer Selected Proposals",
+  },
+
+  // ---- Review surface (Phase 8 plan 08-01) — j/k through the changed-file list, Enter/Space to
+  // expand the focused file. Escape pops the surface itself (handled by the surface component).
+  { id: "move-down", region: "review-surface", key: "j", label: "Move selection down" },
+  { id: "move-down", region: "review-surface", key: "ArrowDown", label: "Move selection down" },
+  { id: "move-up", region: "review-surface", key: "k", label: "Move selection up" },
+  { id: "move-up", region: "review-surface", key: "ArrowUp", label: "Move selection up" },
+  // Phase 10 plan 10-01 (D-163): the fleet surface's selection movement. Deliberately NO `a`, `d` or
+  // `Shift+A` here — the permission card owns those three keys and a later plan mounts it inside this
+  // surface; `bindingAllowedInLayer` refuses them under the `"fleet-surface"` layer too.
+  { id: "move-down", region: "fleet-surface", key: "j", label: "Move selection down" },
+  { id: "move-down", region: "fleet-surface", key: "ArrowDown", label: "Move selection down" },
+  { id: "move-up", region: "fleet-surface", key: "k", label: "Move selection up" },
+  { id: "move-up", region: "fleet-surface", key: "ArrowUp", label: "Move selection up" },
+  { id: "open-fleet-row", region: "fleet-surface", key: "Enter", label: "Open selected agent's session" },
+  // `b` for board item: not Enter (the session), not `a`, `d` or shift-`a` (the permission card's), and
+  // there is no dismiss key to avoid (plan 10-04 chose none; 10-06 keeps it that way).
+  { id: "open-fleet-row-subject", region: "fleet-surface", key: "b", label: "Open selected agent's board item" },
+  { id: "expand-file", region: "review-surface", key: "Enter", label: "Expand file" },
+  { id: "expand-file", region: "review-surface", key: " ", label: "Expand file" },
+  // The check is the act of attestation (T-08-06-01): selecting lines alone never writes. The
+  // row's own Space/Enter plain check stays untouched — two affordances, not one overloaded one.
+  { id: "check-with-selection", region: "review-surface", key: "c", label: "Check criterion against selection" },
+  // `m` and `r` also exist in other regions (`open-epic-picker`; `continue-shaping`/`toggle-raw-view`).
+  // That is not a collision: `resolveBinding` filters by region, as `j`/`k` are already shared between
+  // `board-list` and `review-surface`.
+  { id: "open-merge", region: "review-surface", key: "m", label: "Merge this task" },
+  { id: "open-epic-request", region: "review-surface", key: "r", label: "Open request for this epic" },
 
   // ---- Command-palette-only (no keystroke; CommandPalette.tsx's generator source) --------
   { id: "create-issue", region: "command-palette", label: "Create Issue" },
@@ -167,6 +332,8 @@ export const BINDINGS: Binding[] = [
   { id: "filter-epic", region: "command-palette", label: "Filter by Epic" },
   { id: "filter-assignee", region: "command-palette", label: "Filter by Assignee" },
   { id: "filter-priority", region: "command-palette", label: "Filter by Priority" },
+  { id: "shape-epic", region: "command-palette", label: "Shape an Epic" },
+  { id: "return-stage", region: "command-palette", label: "Return to Previous Authoring Stage" },
 ];
 
 /** True when `target` is a live text-entry element (input/textarea/contentEditable) — the
@@ -176,6 +343,16 @@ function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable;
+}
+
+/** True when `target` sits inside a button, anchor or `role=button` element. `isTypingTarget` guards
+ * *text entry*; this guards *activation*: Enter and Space belong to a focused interactive element
+ * (the browser clicks it on keydown's default action), so a window-level binding must not claim
+ * them — cancelling the keydown here is what made a confirm sheet's button unreachable by keyboard
+ * (CR-03). Used only by `useRegionBindings`; `resolveBinding` stays unchanged because BoardView's
+ * element-level handler wants Enter on its focused list container. */
+function isActivationTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.closest("button, a, [role='button']") !== null;
 }
 
 function keyMatches(
@@ -267,8 +444,8 @@ export function actionLabel(id: ActionId): string {
   return BINDINGS.find((b) => b.id === id)?.label ?? id;
 }
 
-/** The TypeScript mirror of `src-tauri/src/main.rs`'s `FORWARDED_MENU_ACTIONS` — the exact five
- * ids `menu.rs` builds as custom native menu items and `on_menu_event` forwards over
+/** The TypeScript mirror of `src-tauri/src/main.rs`'s `FORWARDED_MENU_ACTIONS` — the exact
+ * set of ids `menu.rs` builds as custom native menu items and `on_menu_event` forwards over
  * `menu:action`. This is the set `state/menuSync.ts`'s `useMenuLayerSync` (01-16-PLAN.md Task 3)
  * drives native enable/disable state for, and the set `App.tsx`'s bridge re-enters
  * `dispatchAction`/`bindingAllowedInLayer` for exactly like a real keystroke (G-01-1, threat
@@ -280,6 +457,7 @@ export const MENU_ACTION_IDS: readonly ActionId[] = [
   "create-epic",
   "open-palette",
   "open-settings",
+  "open-fleet",
 ];
 
 // -------------------------------------------------------------------------------------------
@@ -302,7 +480,21 @@ export const MENU_ACTION_IDS: readonly ActionId[] = [
  * scoped, rather than a special case. No component wires these layers into `topLayer` yet — that
  * is plans 02-07/02-08's job once the surfaces themselves exist; this plan only reserves the
  * vocabulary so `bindingAllowedInLayer` has somewhere correct to point a future caller. */
-export type UiLayer = "board" | "quick-add" | "detail" | "picker" | "palette" | "session-surface" | "permission-card";
+export type UiLayer =
+  | "board"
+  | "quick-add"
+  | "detail"
+  | "picker"
+  | "palette"
+  | "session-surface"
+  | "permission-card"
+  | "proposal-tray"
+  // D-103 (plan 06-07): the triage surface's own layer — see `TRIAGE_SURFACE_ACTION_IDS` below.
+  | "triage-surface"
+  // Phase 8 plan 08-01: the review surface's own layer — its allow-list sits beside the triage one below.
+  | "review-surface"
+  // Phase 10 plan 10-01 (D-163): the fleet surface's own layer — see `FLEET_SURFACE_ACTION_IDS` below.
+  | "fleet-surface";
 
 /** The four booleans every layer decision is made from. `EscapeLadderState` below extends this
  * with only `hasSelection` — the two are the same subject read two ways (which layer to CLOSE on
@@ -333,12 +525,67 @@ export function topLayer(state: LayerState): UiLayer {
  * here because it is an inline input inside the list, not a trapped scope — a bare letter typed
  * into it is separately suppressed by `resolveBinding`'s `isTypingTarget` check, which this
  * function does not touch. */
-const SESSION_SURFACE_ACTION_IDS = new Set<ActionId>(["stop-session", "toggle-raw-view"]);
+const SESSION_SURFACE_ACTION_IDS = new Set<ActionId>(["stop-session", "toggle-raw-view", "advance-stage"]);
 
 const PERMISSION_CARD_ACTION_IDS = new Set<ActionId>([
   "answer-permission-allow",
   "answer-permission-deny",
   "answer-permission-allow-always",
+]);
+
+// T-05-07-02 (STRIDE, elevation of privilege): the tray's own four verbs must never fire outside
+// its own layer, mirroring PERMISSION_CARD_ACTION_IDS' identical reasoning above.
+const PROPOSAL_TRAY_ACTION_IDS = new Set<ActionId>([
+  "accept-proposal",
+  "reject-proposal",
+  "amend-proposal",
+  "accept-proposal-subtree",
+]);
+
+// `move-down`/`move-up` are shared with the board list's own ids (plan 05-07) rather than a
+// second "move" vocabulary — this is the tray's own allowance for them, additive to the
+// board/quick-add allowance the final `return` below already grants.
+const TRAY_SELECTION_ACTION_IDS = new Set<ActionId>(["move-down", "move-up"]);
+
+// D-103/D-104 (plan 06-07): the triage surface's own complete allow-list — the four verbs it
+// shares with the tray (accept/reject/amend, reused by the SAME id so the same key means the same
+// thing in both places) plus its own two new per-row verbs (merge, defer) and its own two bulk
+// sweeps. This is checked as its OWN layer-first branch (below), never by widening
+// `PROPOSAL_TRAY_ACTION_IDS`'s existing rule — that rule stays exactly `layer === "proposal-tray"`,
+// unchanged for every id it already governed, so the tray's own keyboard tests keep asserting the
+// same behaviour they always did.
+const TRIAGE_SURFACE_ACTION_IDS = new Set<ActionId>([
+  "accept-proposal",
+  "reject-proposal",
+  "amend-proposal",
+  "merge-proposal",
+  "defer-proposal",
+  "reject-selected-proposals",
+  "defer-selected-proposals",
+]);
+
+// Phase 8 plan 08-01: the review surface's complete allow-list. The movement ids are shared with
+// the tray and triage sets, so the layer branch below answers from THIS set rather than falling
+// through to the board clause.
+const REVIEW_SURFACE_ACTION_IDS = new Set<ActionId>([
+  "move-down",
+  "move-up",
+  "expand-file",
+  "check-with-selection",
+  "open-merge",
+  "open-epic-request",
+]);
+
+// Phase 10 plan 10-01: the fleet surface's complete allow-list — selection movement, plus (plan 10-06)
+// the jumps out of a row. The three
+// permission-answer ids are refused by the `PERMISSION_CARD_ACTION_IDS` clause in
+// `bindingAllowedInLayer` (they fire only under the `"permission-card"` layer), so a stray `a`/`d`
+// over the fleet can never approve or deny a tool call.
+const FLEET_SURFACE_ACTION_IDS = new Set<ActionId>([
+  "move-down",
+  "move-up",
+  "open-fleet-row",
+  "open-fleet-row-subject",
 ]);
 
 export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
@@ -347,6 +594,26 @@ export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   // the card's own layer — a stray `a`/`d` on the board must never approve or deny a tool call.
   if (PERMISSION_CARD_ACTION_IDS.has(id)) return layer === "permission-card";
   if (SESSION_SURFACE_ACTION_IDS.has(id)) return layer === "session-surface";
+  // Checked BEFORE `PROPOSAL_TRAY_ACTION_IDS` below because three ids (accept/reject/amend-
+  // proposal) are members of both sets — under the triage-surface layer this branch decides them;
+  // under every other layer it is a no-op (its own condition is false) and the tray's own branch
+  // decides them exactly as it always has.
+  if (layer === "triage-surface") {
+    return TRIAGE_SURFACE_ACTION_IDS.has(id) || TRAY_SELECTION_ACTION_IDS.has(id);
+  }
+  if (layer === "review-surface") return REVIEW_SURFACE_ACTION_IDS.has(id);
+  if (layer === "fleet-surface") return FLEET_SURFACE_ACTION_IDS.has(id);
+  // Unlike `move-down`/`move-up` (shared with the board, so they cannot be refused here), these four
+  // are the review surface's alone; every other layer must refuse them rather than fall through to
+  // the board clause.
+  if (id === "expand-file" || id === "check-with-selection" || id === "open-merge" || id === "open-epic-request") {
+    return false;
+  }
+  // The fleet row's two jumps are that surface's alone, for the same reason: refuse them elsewhere rather
+  // than fall through to the board clause.
+  if (id === "open-fleet-row" || id === "open-fleet-row-subject") return false;
+  if (PROPOSAL_TRAY_ACTION_IDS.has(id)) return layer === "proposal-tray";
+  if (layer === "proposal-tray") return TRAY_SELECTION_ACTION_IDS.has(id);
   return layer === "board" || layer === "quick-add";
 }
 
@@ -565,6 +832,8 @@ export function useRegionBindings(
     function onKeyDown(event: KeyboardEvent) {
       const binding = resolveBinding(event, region);
       if (!binding) return;
+      // Before preventDefault: a focused button keeps its own Enter/Space activation (CR-03).
+      if ((event.key === "Enter" || event.key === " ") && isActivationTarget(event.target)) return;
       if (!bindingAllowedInLayer(binding.id, layer)) return;
       const handler = handlers[binding.id];
       if (!handler) return;

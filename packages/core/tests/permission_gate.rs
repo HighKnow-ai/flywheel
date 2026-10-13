@@ -4,6 +4,7 @@
 
 mod common;
 
+use core::destructive::DestructiveCategory;
 use core::domain::agent_run::start_agent_run;
 use core::domain::permission_request::{answer_request, create_pending_request, AlreadyAnsweredError};
 use core::domain::permission_rule::{matching_rule, revoke_rule, rules_for_project, upsert_rule};
@@ -72,7 +73,7 @@ fn create_pending_request_blocks_the_run_and_raises_a_labeled_event() {
 
     assert_eq!(run_status(&conn, &run_id), "running", "the run must start out running");
 
-    let request = create_pending_request(&mut conn, &run_id, "Bash", Some("{\"command\":\"rm -rf /\"}"), &actor_id)
+    let request = create_pending_request(&mut conn, &run_id, "Bash", Some("{\"command\":\"rm -rf /\"}"), &actor_id, None)
         .expect("create_pending_request should succeed");
 
     // --- Behavior: the row is pending ---
@@ -104,7 +105,7 @@ fn create_pending_request_blocks_the_run_and_raises_a_labeled_event() {
 #[test]
 fn answer_request_allowed_clears_the_block_and_appends_exactly_one_event() {
     let (mut conn, actor_id, _project_id, _task_id, run_id) = seeded_running_run();
-    let request = create_pending_request(&mut conn, &run_id, "Bash", None, &actor_id)
+    let request = create_pending_request(&mut conn, &run_id, "Bash", None, &actor_id, None)
         .expect("create_pending_request should succeed");
 
     let answered = answer_request(&mut conn, &request.id, "allowed", &actor_id)
@@ -125,7 +126,7 @@ fn answer_request_allowed_clears_the_block_and_appends_exactly_one_event() {
 #[test]
 fn answering_an_already_answered_request_is_refused_and_resolves_nothing_a_second_time() {
     let (mut conn, actor_id, _project_id, _task_id, run_id) = seeded_running_run();
-    let request = create_pending_request(&mut conn, &run_id, "Bash", None, &actor_id)
+    let request = create_pending_request(&mut conn, &run_id, "Bash", None, &actor_id, None)
         .expect("create_pending_request should succeed");
 
     answer_request(&mut conn, &request.id, "allowed", &actor_id)
@@ -240,7 +241,7 @@ fn blocked_count_and_ids_reflect_only_tasks_whose_most_recent_run_is_blocked() {
             .expect("create_task should succeed");
         let blocked_run = start_agent_run(&mut conn, &blocked_task.id, "acceptEdits", &actor_id)
             .expect("start_agent_run should succeed");
-        create_pending_request(&mut conn, &blocked_run.id, "Bash", None, &actor_id)
+        create_pending_request(&mut conn, &blocked_run.id, "Bash", None, &actor_id, None)
             .expect("create_pending_request should succeed");
 
         let running_task = create_task(&mut conn, &project.id, &actor_id, "Still running task", None)
@@ -267,11 +268,11 @@ fn pending_requests_for_run_returns_every_pending_row_in_creation_order() {
         .expect("pending_requests_for_run should succeed")
         .is_empty());
 
-    let first = create_pending_request(&mut conn, &run_id, "Bash", Some("{\"command\":\"ls\"}"), &actor_id)
+    let first = create_pending_request(&mut conn, &run_id, "Bash", Some("{\"command\":\"ls\"}"), &actor_id, None)
         .expect("create_pending_request should succeed");
     // Two concurrent held calls (02-05-SUMMARY's own D4) can each raise their own pending row for
     // the SAME run — this query must surface BOTH, not just the latest.
-    let second = create_pending_request(&mut conn, &run_id, "Edit", Some("{\"path\":\"a.txt\"}"), &actor_id)
+    let second = create_pending_request(&mut conn, &run_id, "Edit", Some("{\"path\":\"a.txt\"}"), &actor_id, None)
         .expect("create_pending_request should succeed");
 
     let pending = pending_requests_for_run(&conn, &run_id).expect("pending_requests_for_run should succeed");
@@ -286,6 +287,46 @@ fn pending_requests_for_run_returns_every_pending_row_in_creation_order() {
     let remaining = pending_requests_for_run(&conn, &run_id).expect("pending_requests_for_run should succeed");
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].id, second.id);
+}
+
+#[test]
+fn pending_requests_for_run_round_trips_the_destructive_category_or_none(
+) {
+    let (mut conn, actor_id, _project_id, _task_id, run_id) = seeded_running_run();
+
+    // A routine request comes back with `destructive_category: None`.
+    let routine = create_pending_request(&mut conn, &run_id, "Bash", Some("{\"command\":\"ls\"}"), &actor_id, None)
+        .expect("create_pending_request should succeed for a routine request");
+
+    // A destructive request comes back with its EXACT category string — asserted against
+    // `DestructiveCategory::as_str()`'s own output, never a hand-typed literal, so the classifier,
+    // the database value and this test's expectation cannot drift apart independently.
+    let category = DestructiveCategory::ForcePush;
+    let destructive = create_pending_request(
+        &mut conn,
+        &run_id,
+        "Bash",
+        Some("{\"command\":\"git push --force\"}"),
+        &actor_id,
+        Some(category.as_str()),
+    )
+    .expect("create_pending_request should succeed for a destructive request");
+
+    let pending = pending_requests_for_run(&conn, &run_id).expect("pending_requests_for_run should succeed");
+    assert_eq!(pending.len(), 2, "both the routine and destructive requests must be returned");
+
+    let routine_row = pending.iter().find(|r| r.id == routine.id).expect("routine row must be present");
+    assert_eq!(
+        routine_row.destructive_category, None,
+        "a routine request must round-trip with destructive_category = None"
+    );
+
+    let destructive_row = pending.iter().find(|r| r.id == destructive.id).expect("destructive row must be present");
+    assert_eq!(
+        destructive_row.destructive_category.as_deref(),
+        Some(category.as_str()),
+        "a destructive request must round-trip with its exact DestructiveCategory::as_str() value"
+    );
 }
 
 #[test]
@@ -338,7 +379,16 @@ fn permission_requests_status_outside_the_accepted_set_is_rejected_by_the_schema
 #[test]
 fn migration_source_list_registers_the_permission_gate_tables_exactly_once() {
     let sources = core::db::migration_sources();
-    let request_table_count = sources.iter().filter(|s| s.contains("CREATE TABLE permission_requests")).count();
+    // The trailing `(` (matching this codebase's own `CREATE TABLE <name> (` formatting, one
+    // space then the open paren on the same line) is load-bearing, not decorative: plan 05-09's
+    // `0014_permission_requests_authoring.sql` rebuild (the SAME `<name>_new` / `RENAME TO`
+    // sequence `0006_recovery_statuses.sql` established) creates a transient
+    // `permission_requests_new` table, and a bare `.contains("CREATE TABLE permission_requests")`
+    // matches that line too (`permission_requests_new` starts with `permission_requests`) — which
+    // is exactly the false positive this narrower literal avoids, without weakening the real
+    // property under test: the BASE table is still created by exactly one migration.
+    let request_table_count =
+        sources.iter().filter(|s| s.contains("CREATE TABLE permission_requests (")).count();
     let rule_table_count = sources.iter().filter(|s| s.contains("CREATE TABLE permission_rules")).count();
     assert_eq!(request_table_count, 1, "permission_requests must be created by exactly one migration");
     assert_eq!(rule_table_count, 1, "permission_rules must be created by exactly one migration");

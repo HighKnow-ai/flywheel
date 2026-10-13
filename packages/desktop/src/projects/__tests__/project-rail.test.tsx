@@ -15,13 +15,18 @@ import App from "../../App";
 import { ProjectRail } from "../ProjectRail";
 import { ProjectUnreachable } from "../ProjectUnreachable";
 import type { Project } from "../../board/useBoardQuery";
-import { resetUiState } from "../../state/uiStore";
+import { resetUiState, useUiStore } from "../../state/uiStore";
 
 const invokeCommandMock = vi.fn();
+const fleetBlockedQueueMock = vi.fn(() => Promise.resolve<unknown[]>([]));
 
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
+  subscribeAgentEvent: () => Promise.resolve(() => {}),
+  fleetBlockedQueue: () => fleetBlockedQueueMock(),
+  fleetWatchRun: () => Promise.resolve(),
+  boardRecoverySummary: (projectId: string) => invokeCommandMock("board_recovery_summary", { projectId }),
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
 }));
@@ -46,6 +51,8 @@ function renderWithClient(node: React.ReactElement) {
 beforeEach(() => {
   resetUiState();
   invokeCommandMock.mockReset();
+  fleetBlockedQueueMock.mockReset();
+  fleetBlockedQueueMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -93,6 +100,106 @@ describe("ProjectRail", () => {
   });
 });
 
+describe("ProjectRail's Fleet entry point (Phase 10, D-163)", () => {
+  it("renders the Fleet row as a button that opens the fleet surface", () => {
+    renderWithClient(
+      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
+    );
+    const fleetGroup = screen.getByRole("group", { name: "Fleet" });
+    const row = within(fleetGroup).getByRole("button", { name: "Open fleet" });
+    expect(row.tagName).toBe("BUTTON");
+    expect(useUiStore.getState().fleetSurface).toBeNull();
+    fireEvent.click(row);
+    expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
+  });
+});
+
+describe("ProjectRail's Worktrees entry point (Phase 10 plan 10-08, WORK-07)", () => {
+  it("renders the Worktrees row as a button that opens the inventory", () => {
+    renderWithClient(
+      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
+    );
+    const fleetGroup = screen.getByRole("group", { name: "Fleet" });
+    const row = within(fleetGroup).getByRole("button", { name: "Open worktree inventory" });
+    expect(row.tagName).toBe("BUTTON");
+    expect(useUiStore.getState().worktreeInventoryOpen).toBe(false);
+    fireEvent.click(row);
+    expect(useUiStore.getState().worktreeInventoryOpen).toBe(true);
+  });
+});
+
+describe("ProjectRail's review queue entry points (Phase 10 plan 10-05, FLEET-02)", () => {
+  it("renders the Blocked row as a button that opens the blocked queue", () => {
+    renderWithClient(
+      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
+    );
+    const group = screen.getByRole("group", { name: "Review queue" });
+    const row = within(group).getByRole("button", { name: "Open blocked queue" });
+    expect(row.tagName).toBe("BUTTON");
+    fireEvent.click(row);
+    expect(useUiStore.getState().fleetSurface).toEqual({ view: "queue" });
+  });
+
+  it("counts blocked agents fleet-wide, not just the current project's share", async () => {
+    // Two blocked agents in project A, one in project B; the current project is A.
+    fleetBlockedQueueMock.mockResolvedValue([
+      { requestId: "r1", projectId: "proj-1" },
+      { requestId: "r2", projectId: "proj-1" },
+      { requestId: "r3", projectId: "proj-2" },
+    ]);
+    renderWithClient(
+      <ProjectRail
+        projects={[project({}), project({ id: "proj-2", name: "Other", keyPrefix: "OTH" })]}
+        currentProjectId="proj-1"
+        onSelect={() => {}}
+      />,
+    );
+    const row = await screen.findByRole("button", { name: "Open blocked queue, 3 waiting" });
+    expect(row.querySelector('[data-count="blocked"]')).toHaveTextContent("3");
+  });
+
+  it("shows no figure at all at zero blocked agents", async () => {
+    renderWithClient(
+      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
+    );
+    await waitFor(() => expect(fleetBlockedQueueMock).toHaveBeenCalled());
+    expect(document.querySelector('[data-count="blocked"]')).toBeNull();
+  });
+
+  it("keeps the blocked count and the needs-decision count as separate figures, and Needs decision opens the fleet list", async () => {
+    invokeCommandMock.mockImplementation((command: string) =>
+      command === "board_recovery_summary"
+        ? Promise.resolve({ recoveryTaskIds: [], recoveryCount: 4 })
+        : Promise.resolve(undefined),
+    );
+    fleetBlockedQueueMock.mockResolvedValue([{ requestId: "r1" }, { requestId: "r2" }]);
+    renderWithClient(
+      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
+    );
+    const blocked = await screen.findByRole("button", { name: /Open blocked queue/ });
+    const decision = await screen.findByRole("button", { name: "Open decisions" });
+    expect(blocked.querySelector('[data-count="blocked"]')).toHaveTextContent("2");
+    expect(decision.querySelector('[data-count="needs-decision"]')).toHaveTextContent("4");
+    expect(screen.queryByText("6")).not.toBeInTheDocument();
+    fireEvent.click(decision);
+    expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
+  });
+});
+
+describe("ProjectRail's own proposal-badge absence (plan 05-09, D-46/D-82)", () => {
+  // D-46's rule is that only money-burning work blocks; a pending authoring proposal burns
+  // nothing (the session that staged it may already have ended). D-82 already answered where
+  // "waiting on me at all" surfaces instead: the board-level triage lane and the epic-row count,
+  // never this rail. A source-scanning gate (mirroring this codebase's own established idiom for
+  // "a property that must never quietly return") is the structural companion to that reading —
+  // it fails the moment a future edit wires a third badge here, whether or not any behavioral
+  // test happens to render it yet.
+  it("contains no proposal-badge source at all — the rail renders blocked/recovery counts only", () => {
+    const source = ProjectRail.toString();
+    expect(source.toLowerCase()).not.toContain("proposal");
+  });
+});
+
 describe("ProjectUnreachable", () => {
   it("offers exactly one action and no automatic-recovery affordance", () => {
     renderWithClient(
@@ -134,11 +241,14 @@ describe("project switching via the keyboard (⌘1-⌘9)", () => {
     render(<App />);
 
     // Defaults to the first registered project.
-    await screen.findByText("Alpha");
+    await screen.findAllByText("Alpha");
 
     fireEvent.keyDown(window, { key: "3", metaKey: true });
 
-    await waitFor(() => expect(screen.getByText("Charlie")).toBeInTheDocument());
-    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+    // The rail now names every project, so the open board is read from the current-position mark.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Charlie" })).toHaveAttribute("aria-current", "true"),
+    );
+    expect(screen.getByRole("button", { name: "Alpha" })).not.toHaveAttribute("aria-current");
   });
 });

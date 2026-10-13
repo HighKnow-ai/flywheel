@@ -1,0 +1,36 @@
+[
+  {
+    "number": 55,
+    "state": "OPEN",
+    "url": "https://github.com/acme/widget/pull/55",
+    "title": "Rework the session summary compaction",
+    "isDraft": false,
+    "reviewDecision": "CHANGES_REQUESTED",
+    "mergedAt": null,
+    "closedAt": null,
+    "baseRefName": "main",
+    "createdAt": "2026-09-25T08:00:00Z",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-25T08:10:00Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/acme/widget/actions/runs/300/job/301",
+        "name": "lint",
+        "startedAt": "2026-09-25T08:05:00Z",
+        "status": "COMPLETED",
+        "workflowName": "CI"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-09-25T08:12:00Z",
+        "conclusion": "FAILURE",
+        "detailsUrl": "https://github.com/acme/widget/actions/runs/300/job/302",
+        "name": "test",
+        "startedAt": "2026-09-25T08:05:00Z",
+        "status": "COMPLETED",
+        "workflowName": "CI"
+      }
+    ]
+  }
+]

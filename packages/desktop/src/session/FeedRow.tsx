@@ -11,7 +11,9 @@
  * text triangle, not a signal mark, so it never needs marks.ts's "always paired with a word"
  * discipline that governs status/priority glyphs.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { widenFileSet, type WidenResultDto } from "../adapters/tauri";
+import "./session.css";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
@@ -32,13 +34,41 @@ export function toolCallTarget(input: unknown): string {
   return "";
 }
 
+/** The collapsed tool-call label — the tool's name and its target. The one place this string is built,
+ * so the fleet's activity cell (`fleet/FleetSurface.tsx`) and `ToolCallRow` below can never word the
+ * same call differently. */
+export function toolCallLabel(toolName: string, input: unknown): string {
+  const target = toolCallTarget(input);
+  return target ? `${toolName} · ${target}` : toolName;
+}
+
 /** One structured feed row's own data — the shape `SessionSurface.tsx`'s pairing/filtering step
  * produces from the raw windowed-read entries. `key` is a stable React key, independent of
  * whatever field(s) a given row kind happens to carry. */
 export type FeedRowData =
   | { kind: "assistant_text"; key: string; text: string }
+  // Task 2, plan 05-12: a turn the application sent into a live authoring session (the
+  // developer's own typed message, or a system-generated relay — see `sidecar.rs`'s
+  // `AuthoringTurnOrigin`) — its own row kind, never merged into `assistant_text` (that would
+  // attribute the developer's own words to the agent) and never falling through to `raw` (that
+  // would show the JSON-stringified line instead of the plain words).
+  | { kind: "developer_turn"; key: string; text: string }
   | { kind: "tool_call"; key: string; toolName: string; input: unknown; output?: unknown }
   | { kind: "system_notice"; key: string; text: string }
+  // D-53/plan 03-13 (03-UI-SPEC.md "Git lock-retry transient row"): the shim's retry notice,
+  // reusing the system/transient row kind's own treatment rather than defining a parallel one —
+  // `attempt`/`max` are the only interpolated values, per the Copywriting Contract.
+  | { kind: "git_retry"; key: string; attempt: number; max: number }
+  // D-53 (03-UI-SPEC.md "Git lock-exhaustion entry"): the event exists on the stream (the shim
+  // emits it, the Rust core consumes it into the Activity Trail), but the FEED renders nothing
+  // for it — exhaustion is a trail-only artifact, never a feed row, which is exactly the
+  // signal-to-noise ratio D-53 protects. Carries no fields: the no-render case needs none.
+  | { kind: "git_lock_exhausted"; key: string }
+  // D-153 (phase 09): the scope hook refused a file-tool write. Its own row kind, beside the
+  // permission card — never the raw row. `path` is repository-relative unless `outsideWorktree`,
+  // which is a different fact (the backend writing its own configuration, not the agent leaving
+  // its lane) and is worded differently and not widenable.
+  | { kind: "scope_denied"; key: string; path: string; tool: string; outsideWorktree: boolean }
   | { kind: "raw"; key: string; raw: string };
 
 export interface FeedRowProps {
@@ -46,6 +76,21 @@ export interface FeedRowProps {
   /** Only meaningful for a `tool_call` row — ignored by every other kind. */
   expanded: boolean;
   onToggleExpand: () => void;
+  /** Only meaningful for a `tool_call` row: this is the call the agent is running right now. It carries
+   * the live mark, so the eye finds life where the work is and not only in the header chrome. */
+  live?: boolean;
+  /** Only meaningful for a `scope_denied` row: the task whose declared set the widen action grows.
+   * Absent for a run with no task (an authoring run), where no widen is offered. */
+  taskId?: string | null;
+}
+
+/** Whether the OS reports a reduced-motion preference — checked once at mount (no acceptance
+ * criterion requires reacting to the preference changing mid-session). Guarded for an environment
+ * with no `matchMedia` at all (this project's own jsdom test environment does not implement it by
+ * default; a test asserting the reduced-motion path installs its own mock first). */
+export function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 function stringifyPayload(value: unknown): string {
@@ -58,15 +103,31 @@ function stringifyPayload(value: unknown): string {
   }
 }
 
-function ToolCallRow({ row, expanded, onToggleExpand }: { row: Extract<FeedRowData, { kind: "tool_call" }>; expanded: boolean; onToggleExpand: () => void }) {
-  const target = toolCallTarget(row.input);
+/** The shared "expanded" sub-block's fixed max height (px) — the SAME value `ToolCallRow`'s own
+ * expanded payload block already used before this task, now named so the body-row presentation
+ * component below can share it rather than duplicating the literal. Still a constant: the block's
+ * own internal scroll is what absorbs a long payload, never the row's own reserved slot. */
+const EXPANDED_SUBBLOCK_MAX_HEIGHT = 240;
+
+function ToolCallRow({
+  row,
+  expanded,
+  onToggleExpand,
+  live,
+}: {
+  row: Extract<FeedRowData, { kind: "tool_call" }>;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  live: boolean;
+}) {
   return (
     <div role="listitem" style={{ padding: "var(--space-xs) 0", minWidth: 0 }}>
       <button
         type="button"
         onClick={onToggleExpand}
         aria-expanded={expanded}
-        className="type-body tabular-nums"
+        className="feed-disclosure type-body tabular-nums"
+        data-live={live ? "true" : undefined}
         style={{
           display: "flex",
           alignItems: "center",
@@ -86,9 +147,16 @@ function ToolCallRow({ row, expanded, onToggleExpand }: { row: Extract<FeedRowDa
           {expanded ? "▾" : "▸"}
         </span>
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-          {row.toolName}
-          {target ? ` · ${target}` : ""}
+          {toolCallLabel(row.toolName, row.input)}
         </span>
+        {/* The live mark: a block caret after the call, the terminal's own "it is working here". It is the
+            running-session pulse (the one scoped opacity animation) moved to where the work is; under reduced
+            motion the class is omitted, so the caret is a plain, fully legible mark and never frozen mid-cycle. */}
+        {live && (
+          <span aria-hidden="true" className={prefersReducedMotion() ? "feed-caret" : "feed-caret agent-pulse"}>
+            ▍
+          </span>
+        )}
       </button>
 
       {expanded && (
@@ -96,7 +164,7 @@ function ToolCallRow({ row, expanded, onToggleExpand }: { row: Extract<FeedRowDa
           style={{
             marginTop: "var(--space-xs)",
             marginLeft: "var(--space-md)",
-            maxHeight: 240,
+            maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT,
             overflowY: "auto",
             fontFamily: MONO_STACK,
             whiteSpace: "pre-wrap",
@@ -122,37 +190,310 @@ function ToolCallRow({ row, expanded, onToggleExpand }: { row: Extract<FeedRowDa
   );
 }
 
-export function FeedRow({ row, expanded, onToggleExpand }: FeedRowProps) {
+/** The character count above which a text row is considered to have more to show than one
+ * collapsed line can hold (G-02-3, Task 2). This is a PRESENTATION threshold — it decides only
+ * whether a disclosure control is OFFERED. It never affects any row's height: `feedRowEstimateSize`
+ * below still returns one of exactly two constants, so the fixed-size virtualization contract
+ * (02-UI-SPEC.md "Performance Contract Additions") is untouched by this value. */
+export const FEED_ROW_TRUNCATION_THRESHOLD = 120;
+
+/** The text a given expandable row kind carries, for length-based expandability — `undefined` for
+ * `tool_call`, whose expandability is unconditional (see `isRowExpandable` below) and does not
+ * depend on any text length. */
+function expandableRowText(row: FeedRowData): string | undefined {
+  switch (row.kind) {
+    case "assistant_text":
+    case "developer_turn":
+    case "system_notice":
+      return row.text;
+    // The Copywriting Contract's fixed retry line, apart from the two interpolated integers
+    // (03-UI-SPEC.md's own wording, character for character) — computed here so `FeedRow`'s
+    // "git_retry" case below can route through the exact same `ExpandableTextRow` call the
+    // "system_notice" case already uses, rather than duplicating that JSX.
+    case "git_retry":
+      return `git: retrying after index lock (attempt ${row.attempt}/${row.max})…`;
+    case "raw":
+      return row.raw;
+    default:
+      return undefined;
+  }
+}
+
+/** Whether a row offers a disclosure control at all — a PURE function of the row's own data,
+ * deterministic and never a measurement of the rendered DOM (the distinction 02-UI-SPEC.md's
+ * Performance Contract Additions requires). `tool_call` is always expandable, unchanged from
+ * before this task: expanding it reveals its input/output payload, not "more of one line".
+ * `assistant_text`, `system_notice` and `raw` are expandable only when their own text exceeds
+ * `FEED_ROW_TRUNCATION_THRESHOLD` — a short row offers no control and cannot be expanded. */
+export function isRowExpandable(row: FeedRowData): boolean {
+  if (row.kind === "tool_call") return true;
+  const text = expandableRowText(row);
+  return typeof text === "string" && text.length > FEED_ROW_TRUNCATION_THRESHOLD;
+}
+
+/** The shared presentation for every body row kind that is plain text (`assistant_text`,
+ * `system_notice`, `raw`) — D-32's "assistant text as prose" stays true under the G-02-3 clamp by
+ * making that prose expandable rather than permanently one ellipsised line. Collapsed: the text on
+ * one line, clipped exactly the way `ToolCallRow`'s label span already clips — hidden overflow, an
+ * ellipsis, a no-wrap rule and a zero minimum width — AND capped to `FEED_ROW_TRUNCATION_THRESHOLD`
+ * characters before it ever reaches the DOM, so a multi-kilobyte payload never sits in the document
+ * behind a CSS clip (wasteful, and unreachable-until-expanded content should not exist at all).
+ * Expanded (only reachable when `isRowExpandable` is true): the full text inside the same
+ * fixed-max-height, internally-scrolling block `ToolCallRow`'s own expanded payload uses,
+ * preserving whitespace and allowing long unbroken tokens to break. */
+function ExpandableTextRow({
+  row,
+  roleClassName,
+  color,
+  mono,
+  expanded,
+  onToggleExpand,
+}: {
+  row: FeedRowData;
+  roleClassName: string;
+  color: string;
+  mono?: boolean;
+  expanded: boolean;
+  onToggleExpand: () => void;
+}) {
+  const text = expandableRowText(row) ?? "";
+  const expandable = isRowExpandable(row);
+  const showExpanded = expandable && expanded;
+  const collapsedText = text.length > FEED_ROW_TRUNCATION_THRESHOLD ? text.slice(0, FEED_ROW_TRUNCATION_THRESHOLD) : text;
+
+  return (
+    <div role="listitem" style={{ padding: "var(--space-xs) 0", minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-xs)", minWidth: 0 }}>
+        {expandable && (
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            aria-expanded={showExpanded}
+            aria-label={showExpanded ? "Collapse full text" : "Expand full text"}
+            className="feed-disclosure"
+            style={{
+              flexShrink: 0,
+              display: "inline-block",
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              color,
+              transition: "none",
+            }}
+          >
+            {showExpanded ? "▾" : "▸"}
+          </button>
+        )}
+        {showExpanded ? (
+          <div
+            className={roleClassName}
+            style={{
+              maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT,
+              overflowY: "auto",
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+              color,
+              fontFamily: mono ? MONO_STACK : undefined,
+              minWidth: 0,
+            }}
+          >
+            {text}
+          </div>
+        ) : (
+          <span
+            className={roleClassName}
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              minWidth: 0,
+              color,
+              fontFamily: mono ? MONO_STACK : undefined,
+            }}
+          >
+            {collapsedText}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The last path segment — what an outside-the-repository denial shows, never its absolute path. */
+function baseName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+/** The refusal's one-line wording, shared with the fleet's activity cell. */
+function scopeDeniedText(row: Extract<FeedRowData, { kind: "scope_denied" }>): string {
+  return row.outsideWorktree
+    ? `Scope: ${row.tool} · ${baseName(row.path)} is outside the repository, not this task's files`
+    : `Scope: ${row.tool} · ${row.path} is outside this task's declared files`;
+}
+
+/** The text a row reads as on one line — what the fleet's activity cell shows for a row (D-167: the
+ * fleet defines no vocabulary of its own for agent activity). Each kind returns the same words its
+ * feed row prints. */
+export function feedRowText(row: FeedRowData): string {
+  switch (row.kind) {
+    case "tool_call":
+      return toolCallLabel(row.toolName, row.input);
+    case "scope_denied":
+      return scopeDeniedText(row);
+    case "git_lock_exhausted":
+      return "";
+    default:
+      return expandableRowText(row) ?? "";
+  }
+}
+
+/** D-153: a refused write, with the one action that answers it — widen the set to the refused path.
+ * The verdict is the Rust core's: the response carries the accepted set or the colliding path, and
+ * this component only displays it. One line, like every fixed-height feed row.
+ * ponytail: the outcome is component state, so a row scrolled out of the virtualised window and
+ * back reads as un-widened (clicking again is a harmless no-op widen). Lift it into the surface's
+ * state if that ever confuses anyone. */
+function ScopeDeniedRow({
+  row,
+  taskId,
+}: {
+  row: Extract<FeedRowData, { kind: "scope_denied" }>;
+  taskId: string | null;
+}) {
+  const [inFlight, setInFlight] = useState(false);
+  // Same synchronous double-activation guard as `PermissionRequestCard`'s `answeringRef`.
+  const inFlightRef = useRef(false);
+  const [result, setResult] = useState<WidenResultDto | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  async function handleWiden() {
+    if (inFlightRef.current || !taskId) return;
+    inFlightRef.current = true;
+    setInFlight(true);
+    setFailure(null);
+    try {
+      setResult(await widenFileSet(taskId, row.path));
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : String(error));
+    } finally {
+      inFlightRef.current = false;
+      setInFlight(false);
+    }
+  }
+
+  const widened = result?.status === "accepted";
+  const outcome = failure
+    ? `Could not widen: ${failure}`
+    : result?.status === "refused"
+      ? (result.refusal ?? "Refused")
+      : result?.status === "marker_not_rewritten"
+        ? `Widened on the board, but the running agent's scope file was not updated (${result.markerError ?? "unknown error"}). Widen again to retry.`
+        : widened
+          ? "widened"
+          : null;
+  const text = scopeDeniedText(row);
+  const full = outcome ? `${text} — ${outcome}` : text;
+
+  return (
+    <div
+      role="listitem"
+      data-kind="scope_denied"
+      data-widened={widened ? "true" : undefined}
+      style={{ padding: "var(--space-xs) 0", minWidth: 0 }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
+        <span
+          className="type-label"
+          title={full}
+          style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            minWidth: 0,
+            flex: 1,
+            color: "var(--text-muted-rack)",
+            fontFamily: MONO_STACK,
+          }}
+        >
+          {text}
+          {outcome ? ` — ${outcome}` : ""}
+        </span>
+        {!row.outsideWorktree && taskId && !widened && (
+          <button
+            type="button"
+            onClick={handleWiden}
+            disabled={inFlight}
+            className="type-label"
+            style={{ flexShrink: 0, cursor: inFlight ? "default" : "pointer" }}
+          >
+            Widen scope to this path
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function FeedRow({ row, expanded, onToggleExpand, live = false, taskId = null }: FeedRowProps) {
   switch (row.kind) {
     case "assistant_text":
       return (
-        <div role="listitem" className="type-body" style={{ padding: "var(--space-xs) 0", color: "var(--text-primary-rack)", overflowWrap: "anywhere" }}>
-          {row.text}
-        </div>
+        <ExpandableTextRow
+          row={row}
+          roleClassName="type-body"
+          color="var(--text-primary-rack)"
+          expanded={expanded}
+          onToggleExpand={onToggleExpand}
+        />
       );
-    case "system_notice":
+    // Task 2, plan 05-12: the accent text token — the developer's own words read as a different
+    // speaker class than the agent's `assistant_text` (`--text-primary-rack`) immediately above,
+    // exactly what row kind exists to signal in this file.
+    case "developer_turn":
       return (
-        <div role="listitem" className="type-micro" style={{ padding: "var(--space-xs) 0", color: "var(--text-muted-rack)" }}>
-          {row.text}
-        </div>
+        <ExpandableTextRow
+          row={row}
+          roleClassName="type-body"
+          color="var(--accent-text-rack)"
+          expanded={expanded}
+          onToggleExpand={onToggleExpand}
+        />
       );
+    // D-53/plan 03-13: "git_retry" is routed through the SAME branch "system_notice" already
+    // uses — reusing the existing system/transient row kind, not a parallel one (03-UI-SPEC.md's
+    // own "no new visual component" instruction) — identical roleClassName/color, so a later
+    // change to the transient treatment reaches this row automatically.
+    case "system_notice":
+    case "git_retry":
+      return (
+        <ExpandableTextRow
+          row={row}
+          roleClassName="type-label"
+          color="var(--text-muted-rack)"
+          expanded={expanded}
+          onToggleExpand={onToggleExpand}
+        />
+      );
+    // D-53: an explicit no-render case, never a fallthrough to the unknown-event branch — a
+    // silent fallthrough would render this event's raw payload as an unknown row, which is
+    // exactly the noise D-53 protects against. Exhaustion surfaces in the Activity Trail only.
+    case "git_lock_exhausted":
+      return null;
     case "tool_call":
-      return <ToolCallRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} />;
+      return <ToolCallRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} live={live} />;
+    case "scope_denied":
+      return <ScopeDeniedRow row={row} taskId={taskId} />;
     case "raw":
       return (
-        <div
-          role="listitem"
-          className="type-body"
-          style={{
-            padding: "var(--space-xs) 0",
-            color: "var(--text-muted-rack)",
-            fontFamily: MONO_STACK,
-            whiteSpace: "pre-wrap",
-            overflowWrap: "anywhere",
-          }}
-        >
-          {row.raw}
-        </div>
+        <ExpandableTextRow
+          row={row}
+          roleClassName="type-body"
+          color="var(--text-muted-rack)"
+          mono
+          expanded={expanded}
+          onToggleExpand={onToggleExpand}
+        />
       );
     default: {
       const exhaustive: never = row;
@@ -162,14 +503,20 @@ export function FeedRow({ row, expanded, onToggleExpand }: FeedRowProps) {
 }
 
 /** A fixed row height per kind (02-UI-SPEC.md "Performance Contract Additions": "a fixed
- * `estimateSize` per row kind... never measured"). An EXPANDED tool-call row is the one exception
- * — its own larger fixed height, still a constant, never derived from actual content length
- * (the expanded sub-block's own internal scroll is what absorbs a long payload). */
+ * `estimateSize` per row kind... never measured"). `FEED_TOOL_ROW_EXPANDED_HEIGHT` is the expanded
+ * height for EVERY expandable row kind, not the tool call's alone (G-02-3, Task 2) — its own
+ * larger fixed height, still a constant, never derived from actual content length (the expanded
+ * sub-block's own internal scroll is what absorbs a long payload). Its exported name and value are
+ * unchanged from before this task, so no call site moves. */
 export const FEED_ROW_HEIGHT = 32;
 export const FEED_TOOL_ROW_EXPANDED_HEIGHT = 296;
 
+/** Depends only on the row's kind and its expand state, never on the length of its content — a
+ * ten-character and a ten-thousand-character row of the same kind return the identical constant,
+ * which is exactly what keeps this a fixed-size virtualization contract rather than a measured
+ * one (02-UI-SPEC.md "Performance Contract Additions"). */
 export function feedRowEstimateSize(row: FeedRowData, expanded: boolean): number {
-  if (row.kind === "tool_call" && expanded) return FEED_TOOL_ROW_EXPANDED_HEIGHT;
+  if (isRowExpandable(row) && expanded) return FEED_TOOL_ROW_EXPANDED_HEIGHT;
   return FEED_ROW_HEIGHT;
 }
 

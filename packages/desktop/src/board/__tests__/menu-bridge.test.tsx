@@ -39,6 +39,9 @@ let capturedMenuActionHandler: ((actionId: string) => void) | null = null;
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
+  subscribeAgentEvent: () => Promise.resolve(() => {}),
+  fleetBlockedQueue: () => Promise.resolve([]),
+  fleetWatchRun: () => Promise.resolve(),
   subscribeMenuAction: (handler: (actionId: string) => void) => {
     capturedMenuActionHandler = handler;
     return Promise.resolve(() => {
@@ -46,6 +49,10 @@ vi.mock("../../adapters/tauri", () => ({
     });
   },
   openFolderDialog: () => openFolderDialogMock(),
+  // `ItemDetailPanel`'s `GitFactsSection` (Phase 7 plan 07-01) calls these two directly, not
+  // through `invokeCommand` — mocked here for the same reason `openFolderDialog` is.
+  gitFacts: () => Promise.resolve(null),
+  gitTruthFocusTask: () => Promise.resolve(),
 }));
 
 const EMPTY_COUNTS: BandCounts = { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 };
@@ -125,7 +132,8 @@ afterEach(() => {
  * `capturedMenuActionHandler` is populated before a test tries to call it. */
 async function renderApp() {
   render(<App />);
-  await screen.findByText("Flywheel");
+  // The project name is on screen twice since 08.1-14 (the rail row and the board's own heading).
+  await screen.findAllByText("Flywheel");
   await waitFor(() => expect(capturedMenuActionHandler).not.toBeNull());
 }
 
@@ -459,7 +467,7 @@ describe("useMenuLayerSync (G-01-1, Task 3)", () => {
 
     // Still mounted, still interactive — the rejected push degraded silently rather than
     // crashing the tree (a renderer with no native menu attached must still work).
-    expect(screen.getByText("Flywheel")).toBeInTheDocument();
+    expect(screen.getAllByText("Flywheel").length).toBeGreaterThan(0);
     expect(useUiStore.getState().detailItemId).toBe("1");
   });
 });

@@ -4,6 +4,7 @@ members = [
     "packages/core",
     "packages/relay-client",
     "packages/desktop/src-tauri",
+    "packages/shim",
 ]
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

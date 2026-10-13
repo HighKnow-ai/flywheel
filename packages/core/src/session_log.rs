@@ -22,7 +22,24 @@ pub fn sessions_dir() -> anyhow::Result<PathBuf> {
 }
 
 /// The path a given agent run's durable log lives at: `<app-data>/sessions/<agent_run_id>.jsonl`.
+///
+/// This is the fail-closed join site for the whole module — the ONE place a run id becomes a
+/// path. `count_lines`, `read_window` and `SessionLogWriter::open` all funnel through it, which is
+/// what makes the guard below structural rather than a convention every caller must remember.
+/// `agent_run_id` is rejected via [`crate::ids::is_ulid`] — the single shared shape predicate —
+/// BEFORE `sessions_dir()` is ever resolved: no app-data lookup, no directory creation and no
+/// `format!` join happens for an id that is not ULID-shaped. `packages/desktop/src-tauri/src/
+/// sidecar.rs`'s `is_plausible_run_id` is the other user of this same predicate (it delegates to
+/// `is_ulid` rather than re-implementing the shape check), so the sidecar-stdout boundary and the
+/// renderer-facing IPC boundary can never disagree about what a valid run id is. The rejected id
+/// is never echoed into the error message — the message describes the shape requirement only,
+/// never reflecting caller-controlled text into logs or the UI.
 pub fn session_log_path(agent_run_id: &str) -> anyhow::Result<PathBuf> {
+    if !crate::ids::is_ulid(agent_run_id) {
+        anyhow::bail!(
+            "agent run id must be a 26-character Crockford-base32 ULID; refusing to build a session log path"
+        );
+    }
     Ok(sessions_dir()?.join(format!("{agent_run_id}.jsonl")))
 }
 
@@ -195,4 +212,64 @@ pub fn read_window(agent_run_id: &str, offset: usize, limit: usize) -> anyhow::R
     }
 
     Ok(LogWindow { entries, offset, limit: effective_limit, total })
+}
+
+/// The most bytes [`read_tail`] will examine, counted back from the end of the file (RESEARCH
+/// Assumption A5). A line larger than this yields NO row, by design: half a JSON object parsed as if
+/// it were whole is worse than an honest absence, so the fleet shows "nothing readable" instead.
+pub const LOG_TAIL_MAX_BYTES: usize = 256 * 1024;
+
+/// The most complete lines [`read_tail`] returns. Small, like [`LOG_WINDOW_MAX_LIMIT`]: the fleet
+/// wants only the newest feed row, and a handful of lines is enough for the feed's normaliser to
+/// step past suppressed events (`cost_update`, `result`) and pair a `tool_result` with its call.
+pub const LOG_TAIL_MAX_LINES: usize = 16;
+
+/// [`read_tail`]'s return shape. `truncated` tells "nothing was there" (empty, `false`) from
+/// "something was there but did not fit the window" (empty, `true`), so a caller can show an honest
+/// absence in both cases and never a stale value.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LogTail {
+    /// Verbatim complete lines, oldest first, at most [`LOG_TAIL_MAX_LINES`].
+    pub lines: Vec<String>,
+    pub truncated: bool,
+}
+
+/// The end of `agent_run_id`'s durable log, in bounded time and bytes: seeks from the end of the file
+/// and reads at most [`LOG_TAIL_MAX_BYTES`], never the whole log and never [`read_window`]'s
+/// whole-file line counter, so a caller can afford it per live row on every refresh.
+///
+/// A missing file is empty, not an error. An in-flight final line (no trailing `\n`) is dropped, as
+/// in [`read_window`]. When the read starts mid-file its first fragment is dropped too, so a line
+/// larger than the window yields no line at all (and `truncated`) rather than a cut-off one.
+pub fn read_tail(agent_run_id: &str) -> anyhow::Result<LogTail> {
+    let path = session_log_path(agent_run_id)?;
+    let mut file = match File::open(&path) {
+        Ok(file) => file,
+        Err(_) => return Ok(LogTail::default()),
+    };
+    let len = file.metadata().with_context(|| format!("failed to stat {path:?}"))?.len();
+    let window = len.min(LOG_TAIL_MAX_BYTES as u64);
+    file.seek(SeekFrom::Start(len - window))
+        .with_context(|| format!("failed to seek {path:?}"))?;
+    let mut buf = vec![0u8; window as usize];
+    file.read_exact(&mut buf).with_context(|| format!("failed to read the tail of {path:?}"))?;
+    let starts_mid_file = window < len;
+
+    // Drop the in-flight fragment after the last newline; what remains ends on a line boundary.
+    let complete = match buf.iter().rposition(|&b| b == b'\n') {
+        Some(last_newline) => &buf[..last_newline],
+        None => return Ok(LogTail { lines: Vec::new(), truncated: starts_mid_file }),
+    };
+
+    let text = String::from_utf8_lossy(complete);
+    let mut segments = text.split('\n');
+    if starts_mid_file {
+        segments.next(); // cut off by the window: never a whole line
+    }
+    let mut lines: Vec<String> =
+        segments.filter(|line| !line.is_empty()).map(str::to_owned).collect();
+    if lines.len() > LOG_TAIL_MAX_LINES {
+        lines.drain(..lines.len() - LOG_TAIL_MAX_LINES);
+    }
+    Ok(LogTail { truncated: lines.is_empty() && starts_mid_file, lines })
 }

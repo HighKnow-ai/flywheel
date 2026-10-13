@@ -1,0 +1,227 @@
+/*
+ * Surface group two: the item detail panel and everything inside it, plus the command palette's
+ * search field (08.1 plan 15). Group-scoped rules live here, not in `App.css` (plan 14's), following
+ * `review/review.css`. No literal colour, scrim or shadow: `styles/tokens.css` is the one source.
+ *
+ * The world is Mission Control (08.1-UI-SPEC.md): one near-neutral ground, hairline rules, no fills.
+ * Type and spacing carry the section hierarchy. A control's visible edge is `--border-control`
+ * (the global `.control-edge` class in App.css); `--divider` is a decorative hairline that separates
+ * regions and rows only.
+ */
+
+/* The panel is a peer surface on the page ground, set off from the list by one hairline. */
+.detail-panel {
+  background: var(--surface-dominant);
+  color: var(--text-primary-rack);
+  border-left: 1px solid var(--divider);
+}
+
+/*
+ * The title is the panel's one focal point, and the locked 11/13/15 scale cannot make it bigger. It gets its
+ * emphasis from what surrounds it instead: semibold (the heading role), a tighter tracking as the comp sets it,
+ * no field chrome at rest (a standing underline made it read as a form input, not a heading), and the panel's
+ * 24px gap above and below it. The control edge appears under it on hover and focus, so it is still findable
+ * as an editable field (a plain colour change, no motion).
+ */
+.detail-title {
+  background: transparent;
+  color: inherit;
+  border: none;
+  border-bottom: 1px solid transparent;
+  padding: var(--space-xs) 0;
+  letter-spacing: -0.01em;
+  width: 100%;
+}
+
+.detail-title:hover,
+.detail-title:focus {
+  border-bottom-color: var(--border-control);
+}
+
+/*
+ * The property grid, in the body face: a muted label and its value, one row each (the comp's `.props`).
+ * It is also how the Worktree and Changes rows of the sections below are drawn, so every fact about the item
+ * reads the same way. A row exists only when it has a value.
+ */
+.detail-props {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  row-gap: var(--space-sm);
+  align-items: center;
+  margin: 0;
+}
+
+.detail-props dt {
+  color: var(--text-muted-rack);
+}
+
+.detail-props dd {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+/*
+ * A value that can be changed: its value and a caret, with no box. A box is what an ACTION wears
+ * (`control-edge`), so the two are told apart by the edge alone, with no fill and no brand spent on either
+ * (owner, 2026-10-08: no fills; 08.1-15 closure, finding 3).
+ */
+.detail-value-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+.detail-value-control:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* The panel's own actions share one row; a kind with none (an issue) leaves no gap behind. */
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.detail-actions:empty {
+  display: none;
+}
+
+/* An action is drawn, not filled: the brand carries progress and is never an action. */
+.detail-action {
+  background: transparent;
+  color: var(--text-primary-rack);
+  padding: var(--space-xs) var(--space-md);
+  cursor: pointer;
+}
+
+/*
+ * The one leading action of a section wears the selection rule's device, a 2px ink edge, over the same
+ * control edge every other action has at 1px. Padding gives the extra pixel back, so a leading action and
+ * its neighbours are the same size. Ink, not brand: the brand carries progress and is never an action.
+ */
+.detail-action.detail-action-lead {
+  border: 2px solid var(--selection-rule);
+  padding: calc(var(--space-xs) - 1px) calc(var(--space-md) - 1px);
+}
+
+/*
+ * A section's title: semibold ink over one hairline, with its count muted beside it. The old
+ * muted 11px label made every section read as the same grey whisper.
+ */
+.detail-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--divider);
+}
+
+.detail-section-title {
+  font-weight: 600;
+  color: var(--text-primary-rack);
+}
+
+/* Acceptance criteria: square rows separated by hairlines (08.1-UI-SPEC § Radius Language). */
+.criterion-row {
+  border-bottom: 1px solid var(--divider);
+  outline: none;
+}
+
+/*
+ * The criteria list's cursor ring. A criterion row is not itself focusable: the list is, and the row
+ * the cursor is on carries `data-focused`. Driven by that attribute alone, a MOUSE CLICK on a row
+ * (which also moves the cursor) left a permanent brand-coloured rectangle, the defect 08.1-14 found
+ * on the board rows. So the ring needs the list to be keyboard-focused, which :focus-visible alone
+ * answers. A list focused by keyboard with no cursor yet rings the list itself, so it is never silent.
+ */
+.criteria-list {
+  outline: none;
+}
+
+.criteria-list:focus-visible .criterion-row[data-focused="true"] {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.criteria-list:focus-visible:not(:has([data-focused="true"])) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/*
+ * The activity trail: one entry per hairline-separated row, the sentence first and its actor and time
+ * pushed to the trailing edge when they fit, wrapping beneath when they do not. Nothing animates: it
+ * is a historical list.
+ */
+.activity-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  column-gap: var(--space-md);
+  padding: var(--space-xs) 0;
+  border-bottom: 1px solid var(--divider);
+}
+
+.activity-meta {
+  margin-left: auto;
+  color: var(--text-muted-rack);
+}
+
+/* A run's rows are hairline-separated like every other list in the panel. */
+.run-row + .run-row {
+  border-top: 1px solid var(--divider);
+  padding-top: var(--space-sm);
+}
+
+/*
+ * A criterion's edit affordance is hover or keyboard, not standing ornament (08.1-15 closure, finding 8).
+ * It stays in the DOM and the tab order, so a keyboard user reaches it (it appears on focus) and so do
+ * `e` and a click on the row text; opacity, not display, keeps it focusable. No transition: it is a
+ * state, not a movement.
+ */
+.criterion-edit {
+  opacity: 0;
+}
+
+.criterion-row:hover .criterion-edit,
+.criterion-row:focus-within .criterion-edit,
+.criteria-list .criterion-row[data-focused="true"] .criterion-edit,
+.criterion-edit:focus-visible {
+  opacity: 1;
+}
+
+/*
+ * A value that must stay inside its column: one line, ellipsised, shrinkable. `min-width: 0` is what lets a
+ * flex or grid child go below its content width; without it the value pushes past the panel's padding box
+ * (08.1-15 closure, finding 1). `-left` truncates from the start (direction: rtl) so the meaningful tail of a
+ * path stays visible. The text sits in a `bdi` (left-to-right, isolated) inside that right-to-left box;
+ * `unicode-bidi: plaintext` on the box itself clipped BOTH ends in WebKit.
+ */
+.detail-clip {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-clip-left {
+  direction: rtl;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--text-muted-rack);
+  cursor: pointer;
+}

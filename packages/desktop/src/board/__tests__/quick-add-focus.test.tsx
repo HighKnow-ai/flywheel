@@ -9,7 +9,7 @@
  * comfortably covers it) — this defect is structurally unreachable under test below this volume.
  * Two consecutive gaps in this phase (G-01-2 and G-01-4) had the same root shape: an assumption
  * that holds at small N and is false at volume. Every fixture in this repo other than this one is
- * small enough to hide both. A change to `BoardView.tsx`'s virtualization, to `ROW_HEIGHT`, to
+ * small enough to hide both. A change to `BoardView.tsx`'s virtualization, to `ROW_HEIGHT_BY_KIND`, to
  * `overscan`, or to `BAND_ORDER` should be re-checked here first.
  *
  * The lesson this suite exists to institutionalise: "the symptom stopped" is not "the contract
@@ -32,6 +32,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
+import { showStatusBands } from "./lens";
 import { useCollapseStore } from "../collapseStore";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { BandCounts, BoardItem, IssueItem } from "../useBoardQuery";
@@ -50,6 +51,7 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
+  boardEpicProgress: (projectId: string) => invokeCommandMock("board_epic_progress", { projectId }),
 }));
 
 const EMPTY_COUNTS: BandCounts = { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 };
@@ -60,11 +62,12 @@ const SIXTY_ROWS: BoardItem[] = buildVolumeItems();
 
 beforeEach(() => {
   resetUiState();
+  showStatusBands();
   useCollapseStore.setState({ collapsedByProject: {} });
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);
-    if (command === "epic_list_all") return Promise.resolve([]);
+    if (command === "epic_list_all") return Promise.resolve({ epics: [], total: 0, truncated: false });
     return Promise.resolve(undefined);
   });
 });
@@ -138,7 +141,7 @@ function bandHeader(label: string): HTMLElement {
 
 // This block runs first and proves the fixture's own precondition — hoisted into named cases of
 // its own rather than left as an assumption inside a behavioral case, so a regression in the
-// fixture (a `ROW_HEIGHT`/`overscan`/jsdom-viewport change eroding the margin, or the quick-add
+// fixture (a `ROW_HEIGHT_BY_KIND`/`overscan`/jsdom-viewport change eroding the margin, or the quick-add
 // row mounting after all) reports as its own named failure, not a confusing failure buried
 // inside a case that is really testing something else.
 describe("the shared volume fixture's own adequacy (Task 1)", () => {
@@ -676,5 +679,44 @@ describe("prohibition 2 and the preserved defaults", () => {
     const { container } = renderVolumeBoard();
     const ulidPattern = /\b[0-9A-HJKMNP-TV-Z]{26}\b/i;
     expect(container.textContent ?? "").not.toMatch(ulidPattern);
+  });
+});
+
+describe("quick-add on the epic lens, where the first group is not the backlog band", () => {
+  it("cmd_n_focuses_quick_add_from_deep_inside_an_expanded_epic", async () => {
+    // One epic holding the whole volume fixture, expanded. The quick-add row leads the rack here,
+    // so its index is not the backlog-leads-the-band-order position the status lens happens to use.
+    const epicTasks = buildVolumeItems().map((item) => ({ ...item, epicId: "epic-a" }));
+    useUiStore.getState().setGroupingKey("epic");
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "epic_list_all") {
+        return Promise.resolve({ epics: [{ id: "epic-a", key: "FLY-1", title: "Alpha" }], total: 1, truncated: false });
+      }
+      if (command === "board_epic_progress") {
+        return Promise.resolve([
+          { epicId: "epic-a", byStatus: [], total: epicTasks.length, done: 0, agentsRunning: 0, agentsBlocked: 0, criteria: null },
+        ]);
+      }
+      if (command === "board_list") {
+        return Promise.resolve({ items: epicTasks, issues: [], counts: EMPTY_COUNTS });
+      }
+      return Promise.resolve(undefined);
+    });
+    renderVolumeBoard([]);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Expand FLY-1 Alpha" })); // expand the epic
+    await screen.findByText("Backlog task 0");
+
+    const container = boardContainer();
+    scrollTo(container, DEEP_SCROLL_OFFSET);
+    expect(screen.queryByPlaceholderText("Type a title, press Enter to create…")).not.toBeInTheDocument();
+    const scrollTopBefore = container.scrollTop;
+
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+
+    const input = await screen.findByPlaceholderText("Type a title, press Enter to create…");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(container.scrollTop).toBeLessThan(scrollTopBefore);
   });
 });

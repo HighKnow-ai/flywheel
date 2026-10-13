@@ -1,3 +1,534 @@
+---
+name: Flywheel (by HighKnow)
+description: "Mission Control: a near-neutral, hairline, no-fill board that reads like a roster of epics, authored once for light and for dark."
+colors:
+  ground-light: "#ffffff"
+  ground-dark: "#0a0a0a"
+  surface-light: "#f6f8fa"
+  surface-dark: "#0f0f0f"
+  rule-light: "#d1d9e0"
+  rule-dark: "#2c2c2c"
+  control-edge-light: "#7a828c"
+  control-edge-dark: "#707070"
+  ink-light: "#1f2328"
+  ink-dark: "#ededed"
+  muted-light: "#59636e"
+  muted-dark: "#8b8b8b"
+  placeholder-light: "#68727d"
+  placeholder-dark: "#7c7c7c"
+  brand-fill: "#3c64dd"
+  brand-text-light: "#3c64dd"
+  brand-text-dark: "#5175e1"
+  done-light: "#1a7f37"
+  done-dark: "#3fb950"
+  failed-light: "#cf222e"
+  failed-dark: "#f85149"
+  blocked-light: "#9a6700"
+  blocked-dark: "#d29922"
+  row-hover-light: "#fafbfc"
+  row-hover-dark: "#0c0c0c"
+  row-selected-light: "#f5f7f9"
+  row-selected-dark: "#101010"
+  row-selected-unfocused-light: "#f9fafc"
+  row-selected-unfocused-dark: "#0e0e0e"
+  selection-rule-light: "#1f2328"
+  selection-rule-dark: "#ededed"
+  selection-rule-unfocused-light: "#7a828c"
+  selection-rule-unfocused-dark: "#707070"
+typography:
+  micro:
+    fontFamily: "Archivo Variable, sans-serif"
+    fontSize: "10px"
+    fontWeight: 400
+    lineHeight: 1.2
+  label:
+    fontFamily: "Archivo Variable, sans-serif"
+    fontSize: "11px"
+    fontWeight: 400
+    lineHeight: 1.3
+  body:
+    fontFamily: "Archivo Variable, sans-serif"
+    fontSize: "13px"
+    fontWeight: 400
+    lineHeight: 1.4
+  heading:
+    fontFamily: "Archivo Variable, sans-serif"
+    fontSize: "15px"
+    fontWeight: 600
+    lineHeight: 1.25
+rounded:
+  row: "0px"
+  mark: "3px"
+  chrome: "6px"
+spacing:
+  xs: "4px"
+  sm: "8px"
+  md: "16px"
+  lg: "24px"
+  xl: "32px"
+  2xl: "48px"
+  3xl: "64px"
+components:
+  row-epic:
+    height: "64px"
+    rounded: "{rounded.row}"
+  row-challenge:
+    height: "48px"
+    rounded: "{rounded.row}"
+  row-task:
+    height: "32px"
+    rounded: "{rounded.row}"
+  row-band-header:
+    height: "28px"
+    rounded: "{rounded.row}"
+  progress-fill:
+    backgroundColor: "{colors.brand-fill}"
+    rounded: "{rounded.mark}"
+  button-control:
+    backgroundColor: "transparent"
+    textColor: "{colors.ink-light}"
+    rounded: "{rounded.chrome}"
+---
+
+# Design System: Flywheel (by HighKnow)
+
+> **Provenance.** Written once, at the end of Phase 8.1, from the shipped code (`styles/tokens.css`,
+> `styles/motion.css`, `styles/type.css`, `App.css`, the group stylesheets and the components) and the
+> closure sections of the twenty-one Phase 8.1 plans, not from the plan. Where the contract
+> (`.planning/phases/08.1-*/08.1-UI-SPEC.md`) and the build disagree, the build is the subject and the
+> disagreement is listed under "Contract versus the built world" below. The frontmatter is normative for
+> every value; prose names a role and does not restate a hex. Light and dark are separate keys because
+> the product authors a value per mode (a token declared identically in both modes fails
+> `theme/__tests__/contrast.test.ts` unless the sameness is the design). The tokens are CSS custom
+> properties in `styles/tokens.css` and are mirrored as typed constants in `theme/tokens.ts`; if this file
+> and `contrast.test.ts` ever disagree, the test wins.
+>
+> **Written by the executor, not by the shipped `impeccable-documenter` agent.** Plan 20 asked for the
+> agent. The executor that wrote this has no subagent tool, so it followed the agent's own spec
+> (`reference/document.md`, scan mode) by hand. No `.impeccable/design.json` sidecar was produced.
+>
+> **The old world is kept below, marked superseded.** Everything under "History" describes the Flight
+> Progress Strips world (cream strip stock on a dark navy rack). It was replaced in Phase 8.1 and is not
+> a source of colour, material, radius or motion for any new surface.
+
+## Overview
+
+**Creative North Star: "Mission Control"**
+
+Flywheel is a board a developer reads the way a controller reads a roster: one row per epic, each row
+saying how far along it is, what is running on it and what is waiting on the owner, with the tasks one
+disclosure beneath. The surface is near-neutral and hairline. There are no fills, no tinted rows, no
+status pills with backgrounds and no cards. Type and spacing carry hierarchy; colour is a data channel
+and nothing else. It is authored for light and for dark from one token set, so dark is not a recolour of
+light. The direction was adopted wholesale by the owner on 2026-10-07 after he viewed six code-rendered
+comps (see "Contract versus the built world" for what that adoption did and did not cover).
+
+The mood is calm and dense. The home surface is an epic roster; tasks sit at 32px and the whole product
+runs at that density. Meaning never rests on colour alone: every status keeps a shape glyph and a printed
+word, the progress bar prints its fraction, and each distribution segment carries its label.
+
+**Key Characteristics:**
+
+- Dual-mode from one token set: the light values are the root block, the dark values are a
+  `prefers-color-scheme: dark` block that re-declares every mirrored name. `tauri.conf.json` forces no
+  window theme, so the mode should follow the operating system; that the shell's web view actually
+  reports the OS appearance has never been observed (it is queued as D-REV-22).
+- One surface family. The five paper tints of the old world survive only as aliases of the ground.
+- Rules are hairlines (`rule`); a control's visible edge is its own role (`control-edge`), never the
+  hairline.
+- Colour appears as a data channel only: progress (the brand), done, blocked, failed, and the
+  commits-ahead count.
+- Actions are drawn with an edge on their own surface. There are no filled buttons anywhere.
+- Rows are square, marks are 3px, chrome is 6px.
+- Motion is four named, owner-confirmed CSS motions and nothing else; reduced motion collapses all of
+  them to an instant state change.
+
+## Colors
+
+A near-neutral palette with one brand blue that is spent on progress and almost nothing else. Contrast is
+asserted per mode, per role, in `theme/__tests__/contrast.test.ts` and painted in WebKit in both schemes
+(`legibility.browser.test.tsx`); the measured floors are 4.5:1 for text roles and 3:1 for non-text roles.
+
+### Primary
+
+- **Progress Blue** (`brand-fill`, `#3c64dd`, the same in both modes): the progress fill on every epic row.
+  It repeats down the page as a rhythm, which is why it reads as identity. As a fill or an edge it is 3:1
+  or better in both modes (3.71 on the worst dark surface).
+- **Brand Text** (`brand-text-light` / `brand-text-dark`): the brand as text. Light needs no lift (4.86 on
+  the surface). Dark is lifted to `#5175e1`, found by search (hue 225, saturation held at 70.3%, lightness
+  stepped from 55% until 4.5 was cleared on the worst dark surface, 4.55). It colours the commits-ahead
+  count and the keyboard focus ring (`focus-ring` is the same value per mode).
+
+### Neutral
+
+- **Ground** (`ground-*`): the window. **Surface** (`surface-*`): panels and the rail, a cool step off the
+  ground.
+- **Ink** (`ink-*`): primary text, and the 2px selection rule when the list has focus. **Muted** (`muted-*`):
+  secondary text (5.6 to 5.7 on the surfaces). **Placeholder** (`placeholder-*`): a field's placeholder, a
+  step below muted and 4.56 worst case in both modes. It exists because the engine's own placeholder was an
+  unowned grey (2.3 on white in light, about 8.5 in dark).
+- **Rule** (`rule-*`): the hairline between rows and regions, 1.34 to 1.43 in both modes. Deliberately under
+  3:1: it is decorative and separates regions only.
+- **Control Edge** (`control-edge-*`): the visible boundary of an input, picker, chip or button, 3.65 to 4.0.
+  `popover`, `dialog` and `sheet` edges are three further roles; in light all three equal the control edge,
+  in dark each tier is a step lighter (`#7a7a7a`, `#909090`, `#a6a6a6`).
+- **Row states** (`row-hover-*`, `row-selected-*`, `row-selected-unfocused-*`, and `row-surface`, which is
+  transparent): washes of 1.03 to 1.074 against the ground. They are at the ceiling AA allows, because every
+  text role must stay 4.5:1 on them (see the Selection Rule below).
+
+### Data channels
+
+- **Done** (`done-*`), **Failed** (`failed-*`), **Blocked** (`blocked-*`): the only status colours. Each
+  is AA text on both surfaces and on all three opaque row surfaces in both modes.
+- `destructive-strip`, `blocked-text-strip`, `text-primary-strip` and the other `strip` names are aliases
+  of the `rack` roles. The suffixes are semantic debt, not a second material. `destructive-strip` is still
+  consumed as a text and edge colour by `App.tsx`, `BoardRow.tsx`, `CommandPalette.tsx` and
+  `WorktreeRemovalDialog.tsx`; do not delete the alias.
+
+### Named Rules
+
+**The Progress-Not-Position Rule.** The brand carries progress. The current position (a selected row, the
+current project in the rail, the highlighted command in the palette) is marked neutrally, with a surface
+shift and, on a task row, a 2px ink rule. It is never the brand. This replaces the old world's "the brand
+marks exactly one thing, the current position".
+
+**The Edge-Not-Fill Rule.** An action is drawn with a 3:1 edge on its own surface. Ink on the brand fill was
+3.05 (light) and 4.42 (dark), under the text floor, and the owner decided on 2026-10-08 that Flywheel has no
+brand-filled primary buttons. The one leading action in a region takes a 2px ink edge (`selection-rule`) with
+the pixel given back by padding; every other action is a 1px control edge.
+
+**The Selection Rule.** A selected task row has a 2px left border. Focused: full ink. List not focused: the
+lighter `selection-rule-unfocused` (4.06 / 4.23 apart from the focused rule), and the surface wash drops to
+the idle surface, so focus reads twice (rule tone, and wash present or absent). Every task row reserves a
+2px transparent left border so a row changing state never reflows. The two rule roles are separate names
+from `ink` and `control-edge` on purpose: a later change to control borders must not move selection. The
+selected wash is the strongest AA allows (1.074 light, 1.040 dark); the finish reviewer asked for 1.12 and
+1.08, which are not reachable without darkening the blocked text or lifting the dark brand text past its
+minimum step, and `contrast.test.ts` asserts that claim.
+
+**The Placeholder Rule.** A field's placeholder takes `placeholder-*`, never the engine default.
+
+## Typography
+
+**Font:** Archivo Variable (OFL, self-hosted under `public/fonts/`, one variable file, `wght` 100 to 900,
+`wdth` 62 to 125), with `sans-serif` as the fallback. **Mono:** the system `ui-monospace` stack, only for git
+shas, paths, diff code, branch names and the run's session line.
+
+**Character:** a plain, slightly condensed grotesque used at small sizes, two weights only. There is no
+display role: this is a product surface.
+
+### Hierarchy
+
+- **Heading** (600, 15px, 1.25): panel and region titles, and the current-selection emphasis.
+- **Body** (400, 13px, 1.4): row titles, field text, prose.
+- **Label** (400, 11px, 1.3): counts, pills, badges, captions, key sub-labels.
+- **Micro** (400, 10px, 1.2): the feed's "retrying request" system notice and the assignee picker. The
+  detector reports `tiny-text` on it, and the 08.1 scale otherwise starts at 11. See "Not canonized".
+
+Two further steps ship and are **not** in `type.css`, which carries only the four roles above. They were
+missing from this document's first draft, which claimed to be written from the built world and was not
+complete; the design hook caught the omission. Both are deliberate roles, not drift:
+
+- **State heading** (600, 20px, 1.2, `.state-heading` in `styles/states-and-confirms.css`): the
+  full-page hero heading on first-run and on the unreachable-project surface. It is a distinct role
+  from **Heading**, which titles a panel inside a populated window — first-run is the first thing a new
+  user ever sees and owns its whole viewport, so it is not a 15px panel title.
+- **Diff code** (12px, `.review-diff` root in `review/review.css`): the monospace size for patch
+  content. Code is set a step below body prose so a 1440px review column holds a realistic line without
+  wrapping — and the review surface explicitly does not wrap code, it scrolls sideways.
+
+The full shipped scale is therefore **10 / 11 / 12 / 13 / 15 / 20px**. Anything outside it is drift.
+- **Condensed cut** (`font-stretch: 75%`, the same file): the stamped key and band headers.
+- **Tabular figures** (`tnum`, `lnum`, verified present in the shipped font): every numeric and columnar
+  field.
+
+### Named Rules
+
+**The Two-Weights Rule.** Regular and Semibold, nothing else. Emphasis is the Semibold, a surface shift or a
+rule, never a third weight or a colour.
+
+## Layout
+
+A fixed shell: the project rail on the leading edge, the rack in the middle, the item-detail panel as a peer
+surface on the trailing edge. macOS desktop only; the minimum supported window is 900px wide.
+
+The rack is one virtualized list with four row kinds at four fixed heights (epic header 64px, challenge
+48px, task 32px, band header 28px). The virtualizer's `estimateSize` is an O(1) lookup on row kind
+(`ROW_HEIGHT_BY_KIND`); there is no `measureElement` and no per-row measurement. Rows are keyed by item
+identity, not by index, so they keep their DOM node across a collapse. The board has one query, one
+keyboard map and one rack; "Group by Epic / Status" is a lens over it, not a second surface. The status
+lens keeps the "everything in review across all epics" sweep.
+
+Spacing is a 4px scale from `xs` (4px) to `3xl` (64px). Rows declare a container query type, so the
+progressive-disclosure ladder responds to the row's own width (which narrows when the detail panel opens):
+actor-of-last-change drops first, then the epic pill, the assignee, and the estimate last. The status glyph,
+key, title, priority glyph and criteria fraction are never dropped at any supported width.
+
+## Elevation & Depth
+
+Flat at rest. Depth is told by edge and wash, not by elevation: rows have no shadow, no card and no fill.
+Only overlays lift, in three tiers by kind.
+
+### Shadow Vocabulary
+
+- **Popover** (`0 8px 24px`, 16% ink in light, 60% black in dark): anchored to a trigger, dismissed by an
+  outside click, no scrim. The five pickers and the Done warning.
+- **Dialog** (`0 12px 32px`, 20% / 65%): a centred modal that asks for a decision, with the scrim. Delete
+  confirm, worktree removal, orphan recovery, the legend.
+- **Sheet** (`0 16px 48px`, 24% / 70%): a large modal workspace, with the scrim. The command palette, the
+  merge and epic-request sheets, the launch sheet.
+
+### Named Rules
+
+**The Edge-Tells-The-Tier Rule.** A shadow over a near-black ground is invisible, so in dark the three tiers
+are told by the lightness of their own edge role. The dark scrim is 40%, not 60%, so a modal still shows
+the board it sits over.
+
+**The Inside-The-Content-Box Rule.** A highlighted or chosen row's 2px rule sits inside the overlay's content
+box (the overlay pads its list by one 8px gutter), never on the overlay's own border where it would read as a
+thickened edge. The palette's always-on search ring is the ink rule, inset 8px, not the brand.
+
+**The No-Literal Rule.** No literal colour, scrim or shadow outside `styles/tokens.css` and `theme/tokens.ts`.
+Checked on 2026-10-09: the only hex in non-test source outside those files is a comment.
+
+## Shapes
+
+Three shapes and no others. **Rows are square** (0): hairline-separated, no rounding. **Marks are 3px**
+(`rounded.mark`): the progress track and fill, the task-distribution strip, small tags and inline boxes.
+**Chrome is 6px** (`rounded.chrome`): buttons, inputs, pickers, chips, the palette, dialogs and sheets. The
+focus ring follows the radius of whatever it wraps. Glyphs are `lucide-react`, outline-only at a uniform
+stroke; no mark's meaning rests on fill, and the owner declined to loosen that rule (A-05).
+
+## Components
+
+### The epic roster row (home surface, 64px)
+
+Title with a muted sub-label (key, status, integration branch; a missing branch prints `no integration
+branch yet`), a progress bar with its printed fraction, a task-distribution strip, the agents-running count,
+the proposals-waiting count and the rolled-up change cue. Every figure is the board-wide aggregate, never
+derived from the rows that happen to be loaded. Progress is tasks done over total; an epic whose tasks carry
+no criteria prints `no criteria yet`, never a `0%`. The distribution strip runs done, in review, in
+progress, todo, backlog; done is the done role and the rest are neutral tonal mixes of ink, so there is no
+second palette. The row takes the surface shift when selected, not the rule (the rule is a task-row mark);
+when the list loses focus an epic row uses `row-selected-unfocused` because it has no rule to carry the
+difference. The row is a selection target (click, `j`/`k`, Enter or `o` for detail, `r` to continue
+shaping).
+
+### The task row (32px)
+
+Status glyph and printed word, key, title, then a tail: estimate badge (the letter alone, boxed, no icon),
+criteria fraction (the fraction alone, never dropped, even at `0/0`), priority glyph, and the change cue.
+The change cue is a `Triangle` plus the commits-ahead count in brand text, and a `Dot` for uncommitted
+changes; a task with no worktree, zero ahead, or an unmeasurable base prints nothing. The assignee glyph
+prints only for an assigned row. Pills trail the status glyph and never clip. Hover is an inset wash. The
+keyboard ring is `:focus-visible` at a -4px offset, so a click selects without leaving a blue rectangle and a
+keyboard focus shows both the ring and the ink rule.
+
+### Challenge row (48px) and proposal rows
+
+An agent's open challenge sits above the epic's tasks. Accept and Reject are drawn identically, a control
+edge on the row surface, with no brand and no fill, because accepting is not the more important answer. The
+proposal row in the authoring tray and the triage surface is the challenge row's twin.
+
+### Buttons and the lead action
+
+- **Control button:** transparent ground, 1px control edge, 6px radius, ink text. Hover moves the edge to ink
+  as a plain static change. Disabled returns a lead to the plain 1px edge.
+- **Lead action:** the one leading action in a region has the 2px ink edge. Examples: Start Work on a task,
+  Continue Shaping on an epic, Watch Live in Runs, Merge in the review foot, Stop on a live run, Advance in an
+  authoring run, Accept subtree on a triage row (so every triage row has exactly one lead).
+- **Text action:** a caret and no box, for the lower-ranked answer (Deny on a routine permission card).
+- **Destructive:** the destructive text role on a 2px edge with an icon, never a fill (Delete, Kill All,
+  worktree Remove). `Bypass Permissions` in the launch sheet takes the same text role plus a one-line
+  consequence printed when it is chosen.
+
+### Inputs, chips and pickers
+
+A 1px control edge, 6px radius, placeholder role for the empty state. The filter bar is one row at 1440px:
+a lens, a 240px search, the dimension chips, and a single `Epic` button over the roster chips, collapsed by
+default (the options stay mounted but `hidden`, so they leave the tab order while closed, and the button
+reads `Epic · N` when epics are selected). The keyboard focus ring on an ordinary input is still the brand;
+see "Not canonized".
+
+### The project rail
+
+Leading-edge navigation. The current project is marked neutrally (a surface shift against a rail whose
+ground equals the unselected state, so the mark is deliberate), an unreachable project keeps its label on its
+own line, and the fleet and review-queue rows are read-only facts, not links. Small section labels sit above
+the groups; see "Not canonized".
+
+### The item-detail panel
+
+A peer surface that slides in from the trailing edge. Status, Priority and Estimate are label and value
+rows at the top, and Worktree, Path and Changes are the same rows in their own sections; a row appears only
+when it has a value. The status control is a value and a caret with no box. Consecutive identical activity
+events fold into one row with a `×n` suffix, except `git.lock_exhausted`, which is never folded. The pencil
+is revealed on hover, focus or the cursor row.
+
+### The command palette
+
+A sheet-tier overlay. It arrives at full opacity and settles 8px down by transform only. Sections
+(Navigation, Project, Create, Selected item, Filter, Reference, Session) are headers in the list, not a
+per-row eyebrow. The highlighted command takes the ink rule inside the 8px gutter.
+
+### The review surface
+
+A scope toggle, a criteria rail, a file list and the diff. Change in the diff is carried by the row tint and
+the gutter only: there is no syntax colouring and the status palette is not repurposed as code decoration.
+Code is `white-space: pre` and the pane scrolls sideways; a word-level edit is not marked with an underline
+or a fill. The **review decision** group sits at the foot of the criteria column: Merge keeps the 2px ink
+lead edge, and Request changes is a 1px hairline secondary beside it. Neither is filled, brand or
+destructive, because a decline is reversible. There is no confirm sheet; the cost is printed first ("Request
+changes sends N unchecked criteria back to the agent.") and is the button's accessible description. When the
+merge is predicted to conflict the lead reads `Attempt merge`, and both conflict file lists are mono,
+hairline-separated rows with no bullets. The foot's decline path is the product's core value as a daily act:
+the reason is derived live from the unchecked criteria and reaches the agent as a `## Review Feedback`
+section of its next briefing, which the launch sheet previews in the same words.
+
+### The live session surface
+
+A header with elapsed time (always) and in, out and cost figures only once they exist, so no placeholder
+dash is ever printed. The feed's newest row sits on a floor, and every state ends on a bar ("Waiting on the
+agent.", "Waiting on you: answer the permission request above.", "This run has ended. Nothing more will be
+added to this transcript.", or the composer). The newest tool call with no result carries a block caret with
+the `agent-pulse` animation while the run is live; under reduced motion the pulse class is omitted and the
+caret is a plain mark. On the permission card Allow keeps the lead box, Deny is a text action with a caret,
+and "Allow this tool for this project from now on" sits below a hairline gutter.
+
+### Settings, triage, the authoring tray and the legend
+
+Tables read as columns (the permission-rules table is at most 900px). Bulk checkboxes are drawn 14px squares
+with the mark radius. The merge picker is 420px with its own filter field and a list that scrolls inside 240px.
+The legend has one entry per printed label (two marks under one heading cannot share a label), a channel
+index, sticky channel headings, swatches that draw the mark exactly as its row does, and meanings written in
+plain words with no decision ids.
+
+### Empty, broken and confirming states
+
+First run draws its app-icon tile in ink (the brand is not spent on an identity tile). The unreachable
+project's heading is the first element of the surface, with no red eyebrow. Orphan recovery's initial focus
+is its heading, because the modal has no safe button; it offers `Leave them running` beside `Kill All`,
+without weakening the rule that the modal cannot be dismissed without answering. The Done warning names the
+task ("THRE-26 · 2 of 3 criteria unchecked. Mark Done anyway?") and opens anchored under its row.
+
+## Do's and Don'ts
+
+### Do:
+
+- **Do** spend the brand on progress, the commits-ahead count and the focus ring, and mark position with
+  ink (a surface shift and, on a task row, the 2px rule).
+- **Do** draw every action with an edge on its own surface, and give each region exactly one 2px lead.
+- **Do** take every colour, scrim and shadow from `tokens.css`; mirror a new role in `theme/tokens.ts` and
+  author it for dark. A role that is the same in both blocks needs a reason on the test's named list.
+- **Do** state an unknown in words (`no criteria yet`, `no integration branch yet`) and omit a figure that
+  does not exist yet, rather than printing a zero or a dash.
+- **Do** keep all motion in CSS so the blanket reduced-motion rule catches it.
+- **Do** check a new text role at 4.5:1 on all three opaque row surfaces in both modes before using it on a row.
+
+### Don't:
+
+- **Don't** fill a button, tint a row, or put a background on a status pill.
+- **Don't** use the brand for an action, for the current position, or for a state.
+- **Don't** repaint the status palette as decoration (the diff's syntax colours were deleted for this).
+- **Don't** fade or scale an overlay in. The palette, the scrim and every dialog are at full value on the
+  first frame.
+- **Don't** animate width or height, or measure a row. Rows declare a container query type and the rack
+  never measures.
+- **Don't** rely on the jsdom suite to prove a style exists: jsdom stubs stylesheets. `@keyframes agent-pulse`
+  was deleted in plan 13 while three components kept applying the class, and every test stayed green for four
+  plans. `motion.test.ts` now reads `motion.css`.
+- **Don't** treat a green detector as clearing the 2px selection rule. `skill-ban-side-stripe-borders` is
+  prose in the craft floor, not a `detect.mjs` antipattern, so the detector cannot speak to it.
+
+## Motion
+
+Four named motions, one easing (`cubic-bezier(0.16, 1, 0.3, 1)`), all CSS, all zeroed under
+`prefers-reduced-motion: reduce`. The owner confirmed all four unchanged on 2026-10-08 after opening and
+watching `comps/motion.html`, a page that inlines the shipped `motion.css` (so he watched the shipped
+keyframes, not the packaged app).
+
+| Motion | Duration | Technique |
+|--------|----------|-----------|
+| Detail panel slide-in | 220ms | `transform: translateX(100%)` to rest, never width |
+| Group collapse and expand | 180ms | rows below travel by transform; new rows reveal as a staggered top-down `clip-path` wipe, each taking `180ms / n`; removed rows vanish immediately; no height is animated |
+| Command palette open | 140ms | full opacity on frame one; `translateY(-8px)` to rest |
+| Selection move | 120ms | the row's wash and the 2px rule's colour |
+
+The easing is front-loaded, so each label overstates the felt time: 90% of travel is done at about 73, 59, 46
+and 40ms. Two figures are the implementer's judgement, accepted by the owner: the palette's 8px settle and
+reading "selection move" as the background wash. `--duration-settle` (180ms, the colour wash on a settling
+control) is not one of the four, was not shown to the owner, and is still an unreviewed assertion.
+`--duration-displace` was retired.
+
+The one carve-out to "never a fade" is the running-session `Loader` pulse (opacity, 1.6s, infinite), which
+signals that a process is alive and is not a state change. State-bearing surfaces (the orphan modal, the
+missing-worktree banner, the Needs Decision pill, the destructive-gate and permission cards, the lock-retry
+row) change as plain state changes; numerals update with no odometer; nothing animates on page load or hover.
+
+## Not canonized
+
+These are defects or knowing exceptions the build carries. They are recorded so they are not mistaken for
+house style and inherited by the next surface.
+
+- **A neutral 2px left border on a selected list item.** A knowing exception to the craft floor's
+  coloured-side-border ban, decided by the owner on 2026-10-08 (A-06) on the reading that the ban targets
+  accent colour, not neutral ink. It is a dated decision, not a precedent for any other list.
+- **Small uppercase section labels in the rail.** The floor bans a kicker or eyebrow above a heading; these
+  label groups of nav rows and the owner's reference adopted grouped navigation with small labels. A decided
+  exception for the rail only.
+- **A brand-coloured 2px left border on `.review-anchor-widget`** (`review/review.css`). This is not covered
+  by A-06 (it is the brand, not ink) and is not one of the four permitted brand uses. It is a defect the
+  build carries, found by this closing pass; it is not a pattern.
+- **Brand text outside the four permitted uses:** the running status, the live authoring stage and the
+  developer's own turn in the feed (an open owner question), and also links and text actions in the forge
+  section, the activity trail, the triage lane, the epic-request sheet and the orphan modal.
+- **The 10px `micro` role** for a feed system notice and the assignee picker.
+- **The `rack` and `strip` token suffixes.** One material, two names.
+- **The global input focus ring is still the brand** for inputs outside the groups finished so far
+  (`QuickAdd`, the filter bar, the criteria composer, the title field).
+
+## Contract versus the built world
+
+Recorded so the next phase inherits a true document. Each item is also in `08.1-UI-SPEC.md`.
+
+1. **Adoption covered the comps, not the build.** The owner adopted the direction on 2026-10-07 after
+   viewing six code-rendered comps (not image-generated), with values labelled FIXTURE and three caveats on
+   the table (the craft detector had not run; the roster's rhythm was untested because the seed data is
+   uniform; the roster's lead row is a junk epic). He has not been recorded as viewing the built board.
+2. **No masthead.** The comp's `Mission Control` heading and `threadfin . 13 epics . 906 tasks` subhead are
+   not in the shipped source. The lens toggle and the summary line are, but the shell was never captured for
+   the finish reviewer (every built capture is a harness page of the real components).
+3. **A-04 is not realised as header narrowing.** Under the has-worktree chip the epic lens lists every roster
+   epic with its unfiltered count, which is behaviourally the `always` reading the owner declined. The core
+   SQL clause is correct; the epic lens does not consult it for headers.
+4. **ROADMAP success criterion 3's wording differs from the contract.** It says the palette "fades/scales"
+   in and that a group "animates its height". The contract decided the palette does not fade or scale, and
+   the build animates no height (a wipe and row travel instead).
+5. **Brand sites beyond the four** (see "Not canonized").
+6. **The Done warning's copy** differs from `01-UI-SPEC.md`'s Copywriting Contract by instruction of the
+   group-six reviewer.
+7. **`packages/desktop/index.html` carried the old direction contract** (Flight Progress Strips) as its
+   first body comment. It now opens with a supersession note.
+
+---
+
+# History: the Flight Progress Strips world (SUPERSEDED in Phase 8.1)
+
+> **Superseded.** Everything below was written against the Flight Progress Strips world and is preserved
+> as the record of why that world lost (D-20): a hardcoded material split (a cream strip plane on a dark
+> navy rack, five paper tints) that structurally cannot do light and dark, and that the owner called, on
+> 2026-09-10, "a very old app". It is not a source for any new surface.
+>
+> | Below | Status |
+> |-------|--------|
+> | Direction, Token roles, Type's Motion paragraph, Motion, radius `--radius-strip` | **Void.** Replaced by the sections above. Every hex, ratio and the 2px strip radius are void. |
+> | The rack/strip material split, the five strip tints, `--accent-text-strip #2d4fb8`, `--destructive-strip #9c351c` as a value | **Void.** `destructive-strip` survives as a name only. |
+> | "The brand marks exactly one thing: the current position" | **Void.** Replaced by The Progress-Not-Position Rule. |
+> | Marks registry and Legend | **Partly true.** The registry exists and resolves every glyph against `lucide-react`; the glyph assignments changed (A-05) and the legend was rewritten in plan 18. |
+> | Per-plan sections (Phases 1 to 3): behaviour, data and keyboard statements | **Mostly still true as behaviour,** void as appearance. Check the code, not this log. |
+> | Review-against-contract narratives | **History.** They were reviewed against the superseded contract. |
+
+
 # DESIGN.md — Phase 1
 
 **Status:** The Flight Progress Strips visual world is authored (`01-02`) and every surface named
@@ -1352,3 +1883,400 @@ Rust-side change.
 - `launch-sheet/LaunchSheet.tsx`'s `PreviewSkeleton` as a stopgap until a shared skeleton-row
   component exists — a future plan building one for the board proper should consider migrating
   this local copy to it rather than leaving two independent implementations.
+
+# Phase 3, Plan 03-01 — Worktree Removal and the Refusal That Guards It
+
+## What was built
+
+- `WorktreeRemovalDialog.tsx` (new) reuses `board/DeleteConfirm.tsx`'s exact Radix
+  `FocusScope`/`DismissableLayer`/`createPortal` overlay pattern verbatim (same `role="alertdialog"`
+  scrim, `--surface-secondary` panel, `--radius-chrome` radius) and its destructive-button
+  treatment (`--destructive-strip` background/border, `--text-primary-rack` text) for the Clean
+  state's "Remove" button. **No new colour token, no new mark, and no new overlay mechanism** —
+  this plan's own `03-UI-SPEC.md` explicitly scopes this dialog to introduce zero new legend marks
+  (`legend/marks.ts` is untouched), so `packages/desktop/src/legend/marks.ts` does not appear in
+  this plan's `files_modified` at all.
+- The Dirty refusal state's single "OK" button reuses the Cancel button's secondary styling, never
+  the destructive treatment — matching `DeleteConfirm.tsx`'s own "the safe action, never the
+  destructive one, gets `autoFocus`" rule, applied here to the ONLY button the Dirty state renders.
+
+## Review against the direction contract
+
+- **Never colour alone:** the Dirty refusal's porcelain rows distinguish status by printed word
+  (`Modified`/`Added`/`Deleted`/`Untracked`/`Changed`), never by colour — the row's status label
+  uses the ambient `type-label` role with no colour override at all.
+- **60/30/10 unaffected:** the one destructive-red use (the Clean state's "Remove" button) is the
+  same button style Phase 1's `DeleteConfirm.tsx` already spends that budget on; this plan adds no
+  new claim on it.
+- **No new mark introduced** — confirmed above; `legend/marks.ts` is unmodified by this plan.
+
+## Craft floor review
+
+No live Tauri shell or headless-Chromium screenshot pass was run this session (no GUI display
+available to this executor, matching most Phase 1/2 plans' own precedent). The Impeccable design
+hook ran automatically on every `Write`/`Edit` to `WorktreeRemovalDialog.tsx` and
+`WorktreeSummary.tsx` and reported no deterministic design-quality issues. `cargo test --workspace`
+and `npm --prefix packages/desktop run test`/`run build` are this plan's actual evidence.
+
+## Known Stubs
+
+None. The dialog's three states (Checking/Clean/Dirty) are all wired to the real
+`worktree_remove_check`/`worktree_remove` commands — no mock data path exists anywhere in this
+plan's production code.
+
+## What the next plan inherits
+
+- `WorktreeRemovalDialog.tsx`'s `PORCELAIN_STATUS_WORDS`/`PORCELAIN_FALLBACK_WORD` mapping — the
+  reference shape for any future surface that needs to render `git status --porcelain` codes as
+  human words (this plan's own copy is not extracted to a shared module, since only one surface
+  needs it today).
+- `remove_worktree_for_task`'s re-read-porcelain-inside-the-domain-function shape (packages/core) —
+  the pattern any future destructive git action in this codebase should copy: never trust a
+  renderer's earlier check as authorization to proceed.
+
+# Phase 3, Plan 03-09 — The Missing-Worktree Decision Banner (WORK-06, D-45)
+
+## What was built
+
+- `MissingWorktreeBanner` (new, inside `item-detail/WorktreeSummary.tsx`) — an early return in the
+  component's existing early-return ladder, inserted between the singleton-violation guard and the
+  normal branch/path render. It REPLACES the branch/path line and plan 03-01's Remove Worktree
+  action entirely whenever a task's worktree row reads `status === "missing"`; it never renders
+  alongside them. The early return itself is the structural guarantee — there is no second guard
+  anywhere in the file gating Remove Worktree against a missing row.
+- One new legend mark: `worktree-missing` (`TriangleAlert`, agent channel, word "Missing") —
+  `--destructive-text-rack` for the glyph, matching the existing `project-unreachable` precedent
+  (`ProjectUnreachable.tsx`) for a destructive-toned recovery notice.
+- **Zero new colour tokens.** The banner reuses `--destructive-text-rack` for the glyph, the
+  ambient `type-label`/`type-body` roles for heading/body, and `--divider`/`--surface-dominant`/
+  `--text-primary-rack` (the same trio `WorktreeRemovalDialog.tsx`'s own secondary-button style
+  already uses) for both actions.
+- **Both actions carry IDENTICAL visual treatment** — same border, background and text colour —
+  because `03-UI-SPEC.md` is explicit this is a genuine either/or (Recreate vs. Remove Record), not
+  a safe-default/destructive pair. `Remove Record` deliberately does NOT borrow
+  `WorktreeRemovalDialog.tsx`'s destructive-fill button: nothing is destroyed on disk by it (the
+  row being `missing` is exactly what means there is nothing there to destroy), and destructive
+  weight would misreport what the action does.
+- A shared `{ acting, error }` banner state (one object for the whole banner, not one per button)
+  guards both actions against a second concurrent call. The guard reads a `useRef` rather than
+  React state alone — two synchronous clicks in the same tick can both observe stale `state.acting`
+  before a re-render flushes the `disabled` attribute to the DOM, so the ref is the actual guard and
+  `state.acting` remains only the source of truth for what renders. On rejection the banner stays
+  mounted with an inline error; it never unmounts and never clears itself locally — it disappears
+  only when `worktree_recreate`/`worktree_forget_record`'s own `board:changed` emit invalidates
+  `useWorktreeSummary` and the re-read row's `status` is no longer `"missing"`.
+
+## Review against the direction contract
+
+- **Never colour alone:** the banner's heading carries the literal words "This worktree is missing
+  from disk," not a colour change alone; the glyph is paired with a printed legend word ("Missing"),
+  matching every other agent-channel mark's own discipline.
+- **60/30/10 unaffected:** the one destructive-toned use (the glyph) is the same
+  `--destructive-text-rack` token every other recovery surface in this phase already spends that
+  budget on; this plan adds no new claim on it and no new hex value anywhere in the file (verified
+  by a `<verify>` grep gate with zero matches).
+- **One new mark, published before any surface renders it a second way** — `worktree-missing` is
+  appended to the existing `"agent"` channel in `legend/marks.ts`, no new `MarkChannel` member.
+
+## Craft floor review
+
+No live Tauri shell or headless-Chromium screenshot pass was run this session (no GUI display
+available to this executor, matching plan 03-01's own precedent). The Impeccable detector
+(`detect.mjs --json`) was run directly against `WorktreeSummary.tsx` and `legend/marks.ts` and
+reported zero findings for both. `cargo build --workspace` and
+`npm --prefix packages/desktop run build`/`run test` (full suite, 334/334) are this plan's actual
+evidence.
+
+## Known Stubs
+
+None. The banner's two actions are wired to the real `worktree_recreate`/`worktree_forget_record`
+commands (plan 03-09 Task 1), which delegate straight to plan 03-03's domain verbs — no mock data
+path exists anywhere in this plan's production code.
+
+## What the next plan inherits
+
+- `MissingWorktreeBanner`'s `{ acting, error }` + `useRef` guard shape — the reference pattern for
+  any future surface that needs to guard two async actions sharing one row against synchronous
+  double-clicks, where React state alone is not a fast-enough guard.
+- `WorktreeSummaryDto.status` is now on the wire end to end (Rust `commands/agent_run.rs` through
+  `adapters/tauri.ts`) — any future surface reading a task's worktree summary can branch on it
+  without a second call.
+
+# Phase 3, Plan 03-10 — The Orphan Recovery Modal and the Abandoned-Run Acknowledgment (PROC-04, PROC-05, D-46, D-49, D-50)
+
+## What was built
+
+- `OrphanRecoveryModal.tsx` (new, `packages/desktop/src/recovery/`) — the blocking launch-time
+  overlay. Reuses `board/DeleteConfirm.tsx`'s exact `FocusScope`/`createPortal` overlay shape at a
+  wider 560px fixed width (mirroring the launch sheet's own precedent of widening the same base
+  pattern for denser content), with **one deliberate divergence**: the dismissable-layer primitive
+  is never composed in at all — not mounted with no-op handlers, simply absent — so the modal has
+  no Escape binding, no click-outside dismissal and no close button (D-46, T-03-10-01). A source
+  gate (`grep -c 'DismissableLayer'` over non-comment lines, verified zero) makes this structural,
+  not a convention. It closes itself the instant its own row list becomes empty and never before —
+  a Kill All where every kill fails leaves all rows mounted with their own pid-naming failure copy,
+  proven by this plan's own criterion-2 honesty test (Task 3).
+- Each row's Kill action carries the `{ killing, failed }` local state
+  `session/PermissionRequestCard.tsx`'s `RowState` pattern establishes, with the ONE deliberate
+  divergence the UI-SPEC calls out: a permission card's failed answer clears back to answerable, a
+  failed kill row's failure is PERMANENT — no retry button, only a terminal failure message naming
+  the pid, because a process Flywheel could not kill needs a human at a terminal, not a second press
+  of the same control.
+- The leading glyph on every row reuses the existing `run-running` mark (`Loader`, its `agent-pulse`
+  animation gated on `prefers-reduced-motion` exactly as `RunsSection.tsx`'s own badge) with
+  different label copy ("Running (from a previous session)") — no new mark for this row, since it is
+  genuinely the same "running" fact wearing different context copy.
+- Mounted once in `App.tsx`, present across every app-shell branch (boot, first-run, main), self-
+  conditioned on a non-empty pending-orphan list — structurally absent from the DOM otherwise.
+- `run-abandoned` mark (new, `Unplug` glyph, agent channel) — deliberately a different glyph from
+  `run-interrupted`'s `CircleSlash`: an interrupted run was a normal, user-initiated Stop, while an
+  abandoned run is the product's own supervision failing to reach a clean end (D-49).
+- `RunsSection.tsx`'s `abandoned` row variant renders the badge, one explanatory line (the watchdog
+  sentence with the kill record's timestamp interpolated when a record exists and parsed, otherwise
+  the honest weaker fallback — never inventing a reason the data does not support), and a single
+  Acknowledge button guarded by the SAME `useRef` double-click fix plan 03-09's
+  `MissingWorktreeBanner` introduced for the identical bug (React state does not flush the
+  `disabled` attribute between two synchronous clicks).
+- `agent_run_acknowledge` (new Tauri command) writes `acknowledged_at` through a compile-time-
+  literal `UPDATE ... WHERE id = ?1 AND status = 'abandoned'` — no domain function backs it
+  (deliberately excluded from this plan's `files_modified`), so acknowledging a non-abandoned run is
+  a no-op rather than a state change of any kind.
+
+## Review against the direction contract
+
+- **Never colour alone:** the abandoned badge carries the literal word "Abandoned" plus a distinct
+  glyph from every other terminal status; the modal's failure copy names the pid in words, not by a
+  colour change.
+- **60/30/10 unaffected:** the abandoned badge and the modal's Kill/Kill All buttons all reuse
+  `--destructive-strip`/`--destructive-text-rack`, the same destructive-family budget Phase 2's
+  "Failed" status and `DeleteConfirm.tsx`'s "Delete" button already spend — this plan adds meaning
+  via glyph/word, not a new claim on the palette. Zero new colour tokens; zero raw hex literals
+  (verified by this plan's own `<verify>` grep gate).
+- **One new mark, published before any surface renders it** — `run-abandoned` is appended to the
+  existing `"agent"` channel in `legend/marks.ts` before `RunsSection.tsx` references it.
+- **Directory deviation from `03-PATTERNS.md`:** that document names
+  `packages/desktop/src/components/OrphanRecoveryModal.tsx`, but no `components/` directory exists
+  anywhere in this codebase — every surface lives in a domain-named folder (`board/`, `item-detail/`,
+  `session/`, `settings/`, `projects/`, `launch-sheet/`). This plan follows the codebase's own
+  convention and creates `packages/desktop/src/recovery/` instead, matching how every prior phase's
+  pattern map has been treated as a starting reference, never a literal path contract.
+
+## Craft floor review
+
+No live Tauri shell or headless-Chromium screenshot pass was run this session (no GUI display
+available to this executor, matching every prior Phase 3 plan's own precedent). The Impeccable
+detector (`detect.mjs --json`) was run directly against `OrphanRecoveryModal.tsx` and
+`RunsSection.tsx` and reported zero findings for both. `cargo build --workspace`/`cargo test
+--workspace` and `npm --prefix packages/desktop run build`/`run test` (full suite) are this plan's
+actual evidence.
+
+## Known Stubs
+
+None. Both surfaces are wired to the real `orphanKill`/`acknowledgeAgentRun` commands — no mock data
+path exists anywhere in this plan's production code.
+
+## What the next plan inherits
+
+- `OrphanRecoveryModal.tsx`'s "compose the overlay shape, omit the dismissable-layer primitive
+  entirely" pattern — the reference shape for any future surface that must structurally guarantee it
+  cannot be dismissed while an unresolved state remains.
+- `RunSummaryDto.acknowledgedAt`/`abandonedReason` are now on the wire end to end — any future
+  surface reading a task's runs can branch on either without a second call.
+- The `packages/desktop/src/recovery/` directory now exists and holds this plan's one component; any
+  future recovery-adjacent surface should land here rather than reopening the `components/` question
+  `03-PATTERNS.md` raised and this plan declined.
+
+# Phase 3, Plan 03-11 — The Needs Decision Pill and the Rail's Second Badge (WORK-06, PROC-05, D-46)
+
+## What was built
+
+- `recovery_task_ids_for_project`/`recovery_count_for_project`
+  (`packages/core/src/query/recovery.rs`) — one `UNION` over `worktrees.status = 'missing'` and
+  `agent_runs.status = 'abandoned' AND acknowledged_at IS NULL`, structurally mirroring
+  `query::permissions::blocked_task_ids_for_project`/`blocked_count_for_project`. `UNION`, not
+  `UNION ALL`, is what de-duplicates a task carrying BOTH conditions to exactly one row — a source
+  gate proves the absence of `UNION ALL` the same way the module's own gate proves the absence of
+  `format!`. Deliberately does NOT require the abandoned run to be the task's most recent run: a
+  clean later run does not retroactively make an earlier, never-acknowledged abandonment seen.
+- `board_recovery_summary` (new Tauri command) + `RecoverySummaryDto`, `boardRecoverySummary`
+  (adapter) and `useRecoverySummary` (TanStack Query hook) — the same three-layer shape
+  `board_blocked_summary`/`BlockedSummaryDto`/`useBlockedSummary` already established. Invalidated
+  on `subscribeBoardChanged`, no polling: every command that resolves a recovery item
+  (`worktree_recreate`, `worktree_forget_record`, `agent_run_acknowledge`) already emits
+  `board:changed`, so the pill clears through the same push-invalidate path the rest of the board
+  uses.
+- `recovery-needed` mark (new, `TriangleAlert` glyph, agent channel) — deliberately the SAME glyph
+  as `worktree-missing`'s banner icon, since the row pill is a rollup of that same underlying fact;
+  mirrors `run-blocked`/`blocked-indicator`'s own shared-glyph precedent from Phase 2. Published in
+  `legend/marks.ts` before `BoardRow.tsx` references it.
+- `BoardRow.tsx`'s Needs Decision pill — trails the Blocked pill (or the status glyph alone) in the
+  same no-`field-*`-class structural position that already exempts Blocked from the row's
+  progressive-disclosure truncation ladder. Uses `--destructive-strip` for text/border on strip
+  material, mirroring the Blocked pill's own `--blocked-text-strip` treatment shape rather than
+  inventing a new one. Activating it opens the item detail panel via the same `onOpenDetail`
+  destination the Blocked pill already uses.
+- `ProjectRail.tsx`'s second count badge — `--destructive-text-rack` background, positioned at the
+  OPPOSITE corner (bottom-right) from the existing Blocked badge/Unreachable glyph (both top-right)
+  so the two never visually collide when both render on the same entry. Gated on
+  `isCurrent && recoveryCount > 0`, exactly like the Blocked badge; a source gate over
+  `ProjectRail.tsx` proves no `blockedCount + ` arithmetic combines the two counts.
+
+## Review against the direction contract
+
+- **Never colour alone:** the Needs Decision pill carries the literal words "Needs Decision" plus a
+  distinct glyph (`TriangleAlert`) from Blocked's `ShieldAlert`; the rail's second badge is
+  distinguished by its printed tooltip and its opposite-corner position, never colour alone.
+- **60/30/10 unaffected, zero new colour tokens:** the pill/badge both reuse
+  `--destructive-strip`/`--destructive-text-rack`, the same destructive-family budget Phase 2's
+  "Failed" status and this phase's `run-abandoned`/`worktree-missing` marks already spend. Zero raw
+  hex literals in `BoardRow.tsx` (verified by this plan's own `<verify>` grep gate, unchanged from
+  03-09/03-10's identical gate).
+- **Three independent distinguishing axes from Blocked** (03-UI-SPEC.md's own requirement): a
+  different glyph (`TriangleAlert` vs. `ShieldAlert`), a different printed word ("Needs Decision"
+  vs. "Blocked"), and a different colour family (destructive-red vs. blocked-amber).
+- **Truncation ladder:** `BoardRow.tsx`'s header comment now names TWO truncation-exempt pills, not
+  one — both hold their space and the title truncates instead, per 03-UI-SPEC.md's own rule.
+- **Named gap:** the pill's activation opens the item detail panel plainly rather than scrolled to
+  the worktree summary or runs section specifically — `03-CONTEXT.md`'s own flagged assumption
+  anticipated this: no target-section mechanism exists on the panel yet (`uiStore.ts` carries no
+  scroll target field), so Task 2 built the reachable half (open the panel) and named the gap here
+  rather than building a scroll mechanism this plan's `files_modified` never scoped.
+
+## Craft floor review
+
+No live Tauri shell or headless-Chromium screenshot pass was run this session (no GUI display
+available to this executor, matching every prior Phase 3 plan's own precedent). The Impeccable
+detector (`detect.mjs --json`) was run directly against `BoardRow.tsx`, `ProjectRail.tsx` and
+`legend/marks.ts` and reported zero findings for all three. `cargo build --workspace`/`cargo test
+--workspace` and `npm --prefix packages/desktop run build`/`run test` (full suite) are this plan's
+actual evidence.
+
+## Known Stubs
+
+None. Both the pill and the rail badge are wired to the real `board_recovery_summary` read — no
+mock data path exists anywhere in this plan's production code.
+
+## What the next plan inherits
+
+- `query::recovery`'s `UNION`-over-two-tables shape is the reference pattern for any future rollup
+  that must merge two independent "needs attention" signals into one de-duplicated set without
+  double-counting a task that trips both.
+- `RecoverySummaryDto`/`useRecoverySummary` are on the wire end to end — any future surface needing
+  "does this task have something the user hasn't seen" can read the same summary without a second
+  query.
+- The item detail panel still has no target-section mechanism — the next surface that needs to open
+  it scrolled to a specific section (this plan's own named gap, or any future one) will need to add
+  that mechanism once, rather than each caller inventing its own.
+
+# Phase 3, Plan 03-12 — The Destructive-Action Gate Card (AGNT-07, D-55, D-56, D-57, D-58)
+
+## What was built
+
+- `destructive-gate` mark (`OctagonAlert`, agent channel, the tenth entry) — a stop-sign shape,
+  categorically different from the `ShieldAlert` shield used everywhere else in this product's
+  permission vocabulary. Published in `legend/marks.ts` before `PermissionRequestCard.tsx`
+  references it.
+- `PermissionRequestCard.tsx`'s `PermissionRequestRow` extends, rather than forks: one component,
+  one `useRegionBindings` call, one `answer()` function. A non-null `destructiveCategory` selects:
+  - the `destructive-gate` glyph in place of `blocked-indicator`'s shield;
+  - a 4px `--destructive-text-rack` left-border stripe (new on this card — the routine variant
+    carried no stripe of its own before this plan; see "Judgment calls" below);
+  - the heading "Destructive action — needs your OK" above the existing tool-name line;
+  - a per-category consequence sentence (`DESTRUCTIVE_CONSEQUENCE`, keyed by
+    `DestructiveCategory::as_str()`'s exact strings) rendered in the Body role between the heading
+    and the raw payload, with `overflowWrap: "anywhere"` so a long branch name wraps rather than
+    truncating;
+  - **reversed button emphasis** — Deny takes the filled/primary position (`DeleteConfirm.tsx`'s
+    destructive-button styling, its contrast comment reused verbatim), Allow takes the outline/
+    secondary position and reads "Allow, just this once";
+  - the tertiary allow-always button **conditionally absent** from the JSX tree (never rendered-
+    and-disabled) — D-57's "structurally absent," verified by a source gate rejecting any
+    `disabled={...destructive...}` pattern.
+- `Shift+A` (`answer-permission-allow-always`) is gated inert on the destructive variant inside
+  this row's own handler — `state/keyboard.ts` is unchanged (still exactly 3
+  `region: "permission-card"` entries), per the UI-SPEC's "same physical bindings, only which
+  button each key's action visually occupies differs."
+
+## The branch-name gap (flagged in the plan, resolved here)
+
+Three of the six named categories' consequence sentences interpolate a branch name
+(`force-push`, `branch-deletion`, `default-branch-push`), but `permission_requests
+.destructive_category` stores only the category string — 03-07's classifier never persists the
+matched branch alongside it. Rather than adding new plumbing, the renderer re-parses the SAME raw
+command text already shown in the Mono payload block beneath the sentence (`commandTokensFromPayload`
++ `pushDestinationBranch`/`branchDeleteTarget`, mirroring `destructive.rs`'s own positional argv
+parsing at display precision only). This parse is **never used for any gating decision** — the
+real classification already happened server-side before the card ever mounted — and a branch this
+parse cannot resolve falls back to a category-correct sentence that simply omits the name, never
+to the fully generic uncategorized sentence. This is the "known cost" the plan's own
+`flagged_assumptions` named in advance.
+
+## Fail-closed copy (D-56 applied to text, not just gating)
+
+`DESTRUCTIVE_CONSEQUENCE` covers the six categories `03-UI-SPEC.md`'s own copy table names.
+Looking up any OTHER category string — an unrecognised one, or `recursive-delete` (a category the
+Rust classifier genuinely produces but the UI-SPEC's own table does not cover) — falls back to the
+generic `UNCATEGORIZED_CONSEQUENCE` sentence. The variant selection itself keys off "category is
+non-null," never off a known-key match, so an unrecognised category still renders the full strong
+treatment (stop sign, reversed emphasis, no allow-always) with an honest generic sentence — it
+never falls through to the routine layout.
+
+## Judgment call: the border stripe is new, not swapped
+
+`03-UI-SPEC.md` describes the routine card as already carrying a "4px `--blocked-text-rack`/
+`-strip` stripe" that the destructive variant swaps to `--destructive-text-rack`. The shipped
+routine card (as of this plan's own `read_first`) carries no such stripe — only the glyph itself
+uses `--blocked-text-rack`. Rather than retrofitting a stripe onto the routine card (out of this
+plan's declared scope) or silently ignoring the spec's distinguishing axis, this plan adds the
+stripe ONLY to the destructive variant — a new visual element for this variant specifically,
+satisfying "a different border-stripe colour" as a real, testable distinction without changing the
+routine card's established appearance.
+
+## Review against the direction contract
+
+- **Never colour alone:** the destructive variant carries a different glyph (`OctagonAlert` vs.
+  `ShieldAlert`), a different heading, a full consequence sentence, and reversed button labels —
+  colour is one of five independent signals, never the only one.
+- **60/30/10 unaffected, zero new colour tokens:** reuses `--destructive-text-rack` and
+  `--destructive-strip`, the same destructive-family budget Phase 2's "Failed" status and this
+  phase's `run-abandoned`/`worktree-missing`/`recovery-needed` marks already spend.
+- **The load-bearing decision is structural/behavioural, not visual:** the reversed button
+  emphasis repurposes approve-by-muscle-memory as the safety mechanism — chosen over a typed
+  confirmation and a timed delay, both considered and rejected on the same "rigidity is the
+  feature, friction is not" reasoning that already settled D-43's worktree-removal refusal, and a
+  timed delay would contradict D-58's "no second timeout mechanism." This decision survives Phase
+  10.1's palette re-derivation untouched, since it claims no colour value of its own.
+- **Inherited-ratio dependency unchanged:** this plan adds no colour value, so
+  `theme/__tests__/contrast.test.ts` is byte-identical to its pre-plan state — re-confirmed passing
+  (14/14) after every other change in this plan.
+
+## Craft floor review
+
+The Impeccable detector (`detect.mjs --json`) was run directly against
+`PermissionRequestCard.tsx` and `legend/marks.ts` and reported zero findings for both. No live
+Tauri shell or headless-Chromium screenshot pass was run this session (no GUI display available to
+this executor, matching every prior Phase 3 plan's own precedent) — `npm --prefix packages/desktop
+run test` (413/413) and `cargo test --workspace` (0 failed across every suite) are this plan's
+actual evidence; final visual confirmation is deferred to `/gsd-verify-work` per
+`workflow.human_verify_mode: end-of-phase`.
+
+## Known Stubs
+
+None. The destructive variant reads the real `destructiveCategory` field end to end — no mock data
+path exists anywhere in this plan's production code.
+
+## What the next plan inherits
+
+- `DESTRUCTIVE_CONSEQUENCE`'s fallback-to-generic pattern (key not in the record → the honest
+  generic sentence, never a silent blank or a routine-layout regression) is the reference shape
+  for any future per-category copy table that must fail closed the same way D-56's classifier
+  does.
+- The branch-name re-parse in the renderer is a duplication of logic that already lives in
+  `destructive.rs` — if a future plan needs MORE display-only detail out of a classified command
+  (not just the branch), carrying it through `permission_requests` as a structured field rather
+  than re-parsing raw command text a second time is the better-scoped fix; not built here since
+  this plan's own `files_modified` never scoped a schema change.
+- The routine permission-request card still carries no border stripe of its own — if a future
+  plan (Phase 10.1's re-derivation, or an earlier fix) wants the routine/destructive distinction to
+  read as a swap rather than an addition, that stripe needs to be added to the routine variant
+  first.

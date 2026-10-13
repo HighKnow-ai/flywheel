@@ -32,6 +32,8 @@ const clearApiKeyMock = vi.fn();
 const backendCapabilityProbeMock = vi.fn();
 const listPermissionRulesMock = vi.fn();
 const revokePermissionRuleMock = vi.fn();
+const openCommandTemplateMock = vi.fn();
+const setOpenCommandTemplateMock = vi.fn();
 
 // Every named export the code under test actually calls is re-implemented here, delegating
 // through named mocks — `permission-card.test.tsx`/`worktree-summary.test.tsx` establish the same
@@ -49,6 +51,9 @@ vi.mock("../../adapters/tauri", () => ({
   backendCapabilityProbe: () => backendCapabilityProbeMock(),
   listPermissionRules: (projectId: string) => listPermissionRulesMock(projectId),
   revokePermissionRule: (ruleId: string) => revokePermissionRuleMock(ruleId),
+  openCommandTemplate: (surface: string) => openCommandTemplateMock(surface),
+  setOpenCommandTemplate: (surface: string, template: string) =>
+    setOpenCommandTemplateMock(surface, template),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
 }));
 
@@ -76,6 +81,8 @@ function settingsFixture(overrides: Partial<SettingsDto> = {}): SettingsDto {
     projectOverrides: [],
     apiKeyConfigured: false,
     apiKeyConfiguredAt: null,
+    dispatchCap: { maxParallel: 3, occupiedSlots: 0 },
+    notificationsEnabled: true,
     ...overrides,
   };
 }
@@ -111,6 +118,8 @@ beforeEach(() => {
   backendCapabilityProbeMock.mockReset();
   listPermissionRulesMock.mockReset();
   revokePermissionRuleMock.mockReset();
+  openCommandTemplateMock.mockReset();
+  setOpenCommandTemplateMock.mockReset();
 
   mockProjects([]);
   getSettingsMock.mockResolvedValue(settingsFixture());
@@ -118,6 +127,8 @@ beforeEach(() => {
   storeApiKeyMock.mockResolvedValue(undefined);
   backendCapabilityProbeMock.mockResolvedValue(backendFixture(true));
   listPermissionRulesMock.mockResolvedValue([]);
+  openCommandTemplateMock.mockResolvedValue("code {worktree_path}");
+  setOpenCommandTemplateMock.mockResolvedValue(undefined);
 });
 
 // `useUiStore` is a module-level singleton — the Task 3 describe block below is the only one in
@@ -155,6 +166,29 @@ describe("SettingsSurface — credential path (Task 1)", () => {
     const input = await screen.findByLabelText("API key");
     expect(input).toHaveAttribute("type", "password");
     expect(screen.queryByRole("button", { name: /show/i })).not.toBeInTheDocument();
+  });
+
+  it("API Key mode carries the unverified-precedence notice (T-02-42)", async () => {
+    // The threat's declared mitigation is conjoined: measure the override assumption AND, if it
+    // cannot be confirmed, say so here. It was never confirmed — no environment available to this
+    // project has had a spend-authorized key alongside a live subscription session — so the
+    // conditional fired and this notice IS the mitigation. Asserted on content, not on the exact
+    // sentence, so rewording the copy does not fail the test but deleting the warning does.
+    getSettingsMock.mockResolvedValue(settingsFixture({ globalCredentialMode: "api_key" }));
+    renderSettings();
+
+    const notice = await screen.findByTestId("api-key-precedence-notice");
+    expect(notice).toHaveTextContent(/unverified/i);
+    expect(notice).toHaveTextContent(/claude cli/i);
+    expect(notice).toHaveAttribute("role", "status");
+  });
+
+  it("Local mode carries no precedence notice — it applies only to the API-key path (T-02-42)", async () => {
+    getSettingsMock.mockResolvedValue(settingsFixture({ globalCredentialMode: "local" }));
+    renderSettings();
+
+    await screen.findByRole("radio", { name: "Local Claude Code Credentials" });
+    expect(screen.queryByTestId("api-key-precedence-notice")).not.toBeInTheDocument();
   });
 
   it("saving a key clears the input and shows the configured-on copy with a Replace action", async () => {
@@ -352,6 +386,34 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
     expect(toolCell.style.textOverflow).toBe("ellipsis");
     expect(toolCell.style.whiteSpace).toBe("nowrap");
     expect(toolCell.style.overflow).toBe("hidden");
+    // 11-17 finish review (group five): the ellipsis must never hide the name of a granted authority.
+    expect(toolCell).toHaveAttribute("title", longName);
+  });
+
+  it("disables a rule's Revoke while its revoke is in flight, so one click is one write", async () => {
+    mockProjects([PROJECT_A]);
+    listPermissionRulesMock.mockResolvedValue([ruleFixture({ id: "rule-a" })]);
+    revokePermissionRuleMock.mockReset().mockReturnValue(new Promise(() => {})); // never settles
+    renderSettings();
+
+    const revokeButton = await screen.findByRole("button", { name: "Revoke" });
+    fireEvent.click(revokeButton);
+    await waitFor(() => expect(revokeButton).toBeDisabled());
+    fireEvent.click(revokeButton);
+    expect(revokePermissionRuleMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("names a failed revoke in place and keeps the row, which is still granted authority", async () => {
+    mockProjects([PROJECT_A]);
+    listPermissionRulesMock.mockResolvedValue([ruleFixture({ id: "rule-a", toolName: "Bash" })]);
+    revokePermissionRuleMock.mockReset().mockRejectedValue(new Error("database is locked"));
+    renderSettings();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn\u2019t revoke this rule \u2014 database is locked");
+    expect(screen.getByText("Bash")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revoke" })).toBeEnabled();
   });
 
   it("renders skeleton rows (not the empty-state copy) while the rules read is in flight", async () => {

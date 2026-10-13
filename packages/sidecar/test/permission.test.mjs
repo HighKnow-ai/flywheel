@@ -23,12 +23,28 @@ process.env.FLYWHEEL_CLAUDE_BIN = FAKE_CLAUDE;
 // Safety net: a test that fails an assertion before answering a held call would otherwise leave
 // fake-claude.mjs (and the grandchild MCP server process it spawned) running forever, hanging
 // this file's own process. Runs once, after every test has settled; a no-op when nothing is left.
+//
+// Scoped to THIS process's own descendants. It used to be `pkill -f <fake-claude path>`, which
+// matches every fake-claude on the machine, and `node --test` runs files concurrently: when this
+// file finished it SIGTERMed the stubborn sessions `stop.test.mjs` still had in flight (the
+// session closed early and its grandchild survived), failing stop.test.mjs ~half the time on a
+// 3-vCPU CI runner (11-04). `shutdown.test.mjs` and `watchdog.test.mjs` already scope theirs.
+function descendantsOf(pid) {
+  let kids = [];
+  try {
+    kids = execSync(`pgrep -P ${pid}`, { encoding: "utf8" }).split("\n").filter(Boolean).map(Number);
+  } catch {
+    // pgrep exits non-zero when there are no children.
+  }
+  return kids.flatMap((kid) => [kid, ...descendantsOf(kid)]);
+}
+
 after(() => {
-  for (const pattern of [FAKE_CLAUDE, "mcp-permission-server\\.js"]) {
+  for (const pid of descendantsOf(process.pid)) {
     try {
-      execSync(`pkill -f ${JSON.stringify(pattern)}`, { stdio: "ignore" });
+      process.kill(pid, "SIGKILL");
     } catch {
-      // pkill exits non-zero when nothing matched — nothing to clean up.
+      // Already gone.
     }
   }
 });

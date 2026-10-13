@@ -3,6 +3,8 @@
 
 mod commands;
 mod menu;
+mod notify;
+mod scheduler;
 mod sidecar;
 mod state;
 
@@ -23,13 +25,25 @@ use tauri::{Emitter, Manager};
 /// (01-16-PLAN.md Task 2, UAT gap G-01-1) — `state/keyboard.ts`'s `MENU_ACTION_IDS` is their
 /// renderer-side mirror, kept in sync by hand across the IPC seam since a Rust const and a
 /// TypeScript array cannot share a single source.
-const FORWARDED_MENU_ACTIONS: &[&str] =
-    &["register-project", "create-task", "create-epic", "open-palette", "open-settings"];
+const FORWARDED_MENU_ACTIONS: &[&str] = &[
+    "register-project",
+    "create-task",
+    "create-epic",
+    "open-palette",
+    "open-settings",
+    "open-fleet",
+];
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        // D-175: granted to the Rust core only. No notification permission is added to the window.
+        .plugin(tauri_plugin_notification::init())
+        // D-186/D-188: self-update, driven by `commands::update` from the Rust core only. No `updater:`
+        // permission is added to the window. Registered on the builder, not in `.setup()`, where
+        // `panic = "abort"` would turn a failed registration into a crash with no message.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .menu(|app| menu::build_menu(app))
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
@@ -59,6 +73,28 @@ fn main() {
             flywheel_core::domain::project::reconcile_projects(&mut conn, &reconcile_actor_id)
                 .expect("failed to reconcile registered projects at launch");
 
+            // Launch-time reconciliation for worktrees (WORK-06, D-45): a `worktrees` row the
+            // database calls `active` that is no longer present on disk is written to `missing`
+            // and explained with one event — never repaired, never deleted, path/branch/
+            // base_branch never rewritten. Same expect-or-crash-loudly idiom and the same
+            // already-resolved `reconcile_actor_id` as `reconcile_projects` immediately above.
+            flywheel_core::domain::worktree::reconcile_worktrees(&mut conn, &reconcile_actor_id)
+                .expect("failed to reconcile recorded worktrees at launch");
+
+            // Launch-time reconciliation for agent runs (PROC-05, D-46, D-49, D-50, plan 03-06):
+            // every `agent_runs` row still `running`/`blocked` when the app died is sorted into
+            // killed-by-its-watchdog, dead-without-a-record, or genuinely-still-alive — the first
+            // two are written to `abandoned` here; the third is NEVER written to any status
+            // (writing one would be the board lying about a live fact, D-46) and is instead
+            // returned as a live-orphan list stored on `AppState` below, for the first paint's
+            // recovery modal (plan 03-10) to offer the user a decision. Same expect-or-crash-
+            // loudly idiom, same already-resolved `reconcile_actor_id`, and runs BEFORE
+            // `spawn_sidecar` so the classification is already resolved before any new session
+            // could possibly start.
+            let pending_orphans =
+                flywheel_core::domain::agent_run::reconcile_agent_runs(&mut conn, &reconcile_actor_id)
+                    .expect("failed to reconcile in-flight agent runs at launch");
+
             // Spawn the sidecar supervisor before any window is shown, with the same
             // expect-or-crash-loudly idiom the migration step above already uses — a sidecar
             // that fails to start means no agent run can ever be driven, so this never proceeds
@@ -69,7 +105,28 @@ fn main() {
             app.manage(AppState {
                 db: Mutex::new(conn),
                 sidecar: Some(sidecar_handle),
+                pending_orphans: Mutex::new(pending_orphans),
+                focused_task: Mutex::new(None),
+                watched_run: Mutex::new(None),
             });
+
+            // D-113/D-114/D-116 (Phase 7 plan 07-01): start the git-truth scheduler AFTER
+            // AppState is managed above, so every tick it fires can reach it via
+            // `app.try_state::<AppState>()`. Spawned rather than awaited directly here — the
+            // board's git facts are display-freshness furniture, not a startup precondition, so
+            // this must not hold up the first paint the way the migration/reconciliation/sidecar
+            // steps above correctly do. A start failure still crashes loudly (LINK-10: a board
+            // that silently never refreshes is the exact failure this phase exists to remove),
+            // just inside the spawned task rather than blocking `.setup()`.
+            let scheduler_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                scheduler::start_git_truth_scheduler(scheduler_handle)
+                    .await
+                    .expect("failed to start the git-truth scheduler");
+            });
+
+            // D-174/D-175: the one task that closes each coalescing window and shows the banner.
+            notify::spawn_notify_task(app.handle().clone());
 
             Ok(())
         })
@@ -79,6 +136,8 @@ fn main() {
             commands::project::project_reconcile,
             commands::project::project_relocate,
             commands::task::task_create,
+            commands::task::task_header,
+            commands::task::epic_header,
             commands::task::task_update,
             commands::task::task_delete,
             commands::task::task_set_status,
@@ -103,6 +162,7 @@ fn main() {
             commands::issue::issue_set_parent,
             commands::board::board_list,
             commands::board::board_search,
+            commands::board::board_epic_progress,
             commands::actor::actor_list,
             commands::criterion::criterion_create,
             commands::criterion::criterion_update,
@@ -110,27 +170,112 @@ fn main() {
             commands::criterion::criterion_reorder,
             commands::criterion::criterion_delete,
             commands::criterion::criterion_list,
+            commands::criterion::criterion_revise,
+            commands::criterion::criterion_revisions,
             commands::events::events_activity_trail,
             commands::events::events_since_cursor,
+            commands::file_set::task_file_set_get,
+            commands::file_set::task_file_set_set,
+            commands::file_set::task_file_set_widen,
+            commands::file_set::board_scope_flags,
+            commands::dispatch::dispatch_plan_create,
+            commands::dispatch::dispatch_plan_get,
+            commands::dispatch::dispatch_plan_edit,
+            commands::dispatch::dispatch_plan_approve,
+            commands::dispatch::dispatch_plan_pause,
+            commands::dispatch::dispatch_plan_resume,
+            commands::dispatch::dispatch_plan_stop,
+            commands::dispatch::dispatch_why,
+            commands::dispatch::dispatch_gate_state,
+            commands::dispatch::dispatch_gate_resume_now,
+            commands::dispatch::dispatch_advance_now,
+            commands::dispatch::retry_task,
+            commands::dispatch::skip_task,
+            commands::dispatch::dispatch_plan_generate,
+            commands::dispatch::dispatch_planning_run,
             commands::menu::menu_set_action_enabled,
+            commands::update::update_check,
+            commands::update::update_install,
             commands::agent_run::agent_run_preview,
             commands::agent_run::agent_run_start,
             commands::agent_run::agent_run_log_window,
             commands::agent_run::agent_run_raw_window,
             commands::agent_run::agent_runs_for_task,
+            commands::agent_run::task_session_summaries,
+            commands::agent_run::agent_run_acknowledge,
+            commands::agent_run::agent_run_acknowledge_many,
             commands::agent_run::worktree_summary,
+            commands::agent_run::worktree_remove_check,
+            commands::agent_run::worktree_remove,
+            commands::agent_run::worktree_recreate,
+            commands::agent_run::worktree_forget_record,
             commands::agent_run::agent_run_stop,
+            commands::agent_run::agent_run_discard,
             commands::agent_run::agent_run_answer_permission,
             commands::agent_run::permission_rules_list,
             commands::agent_run::permission_rule_revoke,
             commands::agent_run::agent_run_pending_permissions,
             commands::agent_run::task_latest_agent_run,
             commands::agent_run::board_blocked_summary,
+            commands::agent_run::board_recovery_summary,
+            commands::agent_run::agent_runs_pending_orphans,
+            commands::agent_run::orphan_kill,
             commands::settings::settings_get,
             commands::settings::settings_set_credential_mode,
+            commands::settings::settings_set_dispatch_max_parallel,
             commands::settings::settings_store_api_key,
             commands::settings::settings_clear_api_key,
             commands::settings::backend_capability_probe,
+            commands::authoring::authoring_run_start,
+            commands::authoring::authoring_run_for_epic,
+            commands::authoring::authoring_preview_epic_packet,
+            commands::authoring::authoring_proposals_for_run,
+            commands::authoring::authoring_proposals_pending,
+            commands::authoring::authoring_proposals_deferred,
+            commands::authoring::authoring_proposal_limit_notices,
+            commands::authoring::authoring_proposal_accept,
+            commands::authoring::authoring_subtree_accept,
+            commands::authoring::authoring_proposal_merge,
+            commands::authoring::authoring_proposal_defer,
+            commands::authoring::authoring_proposals_reject_bulk,
+            commands::authoring::authoring_proposals_defer_bulk,
+            commands::authoring::authoring_proposal_reject,
+            commands::authoring::authoring_proposal_amend,
+            commands::authoring::authoring_stage_advance,
+            commands::authoring::authoring_stage_return,
+            commands::authoring::authoring_turn_send,
+            commands::git_identity::git_identifier_resolve,
+            commands::git_truth::git_facts,
+            commands::git_truth::git_truth_focus_task,
+            commands::worktree_open::worktree_open,
+            commands::worktree_open::open_command_template,
+            commands::worktree_open::set_open_command_template,
+            commands::forge::forge_request_for_task,
+            commands::forge::board_forge_flags,
+            commands::change_flags::board_change_flags,
+            commands::fleet::fleet_list,
+            commands::fleet::fleet_blocked_queue,
+            commands::fleet::fleet_watch_run,
+            commands::fleet::worktree_inventory,
+            commands::fleet::worktree_measure,
+            commands::fleet::worktree_reclaim,
+            commands::settings::settings_set_notifications_enabled,
+            commands::forge::settings_set_project_forge,
+            commands::forge::project_forge_overrides,
+            commands::forge::forge_request_draft,
+            commands::forge::forge_open_request,
+            commands::forge::forge_epic_request_draft,
+            commands::forge::forge_open_epic_request,
+            commands::forge::forge_request_for_epic,
+            commands::review::review_files,
+            commands::review::review_file_patch,
+            commands::review::review_criteria_state,
+            commands::review::criterion_check_with_anchor,
+            commands::review::review_merge_precheck,
+            commands::review::review_merge_task,
+            commands::review::review_changes_request_state,
+            commands::review::review_request_changes,
+            commands::review::review_epic_task_rollup,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

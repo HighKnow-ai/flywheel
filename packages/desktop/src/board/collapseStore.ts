@@ -4,10 +4,22 @@
  * does not leak one project's collapsed bands onto another.
  */
 import { create } from "zustand";
+import type { GroupingKey } from "../state/uiStore";
+
+/**
+ * The collapse key for one group within the active grouping key (D-07, A-02). A status band keeps
+ * its bare status name; an epic (or the no-epic bucket, id `null`) is `epic:`-prefixed, so an epic
+ * and a band that happen to share a name never share collapse state.
+ */
+export function groupCollapseKey(grouping: GroupingKey, id: string | null): string {
+  return grouping === "status" ? (id as string) : `epic:${id ?? "none"}`;
+}
 
 interface CollapseState {
   collapsedByProject: Record<string, Record<string, boolean>>;
-  toggle: (projectId: string, status: string) => void;
+  /** Flips `status`'s collapsed value. `defaultCollapsed` is what an untouched group reads as —
+   * a status band starts open, an epic starts closed (the roster is the home surface). */
+  toggle: (projectId: string, status: string, defaultCollapsed?: boolean) => void;
   isCollapsed: (projectId: string, status: string) => boolean;
   /** Sets `status`'s collapsed value to `false` unconditionally — never a flip, unlike `toggle`.
    * The setter a caller uses when it needs a band GUARANTEED open rather than switched
@@ -16,17 +28,20 @@ interface CollapseState {
    * already-open band on a second consecutive press — the exact bug `expand`'s idempotence
    * exists to avoid. */
   expand: (projectId: string, status: string) => void;
+  /** `expand`'s mirror: sets `status`'s collapsed value to `true` unconditionally, so a Left key
+   * pressed on an already-collapsed epic stays collapsed instead of flipping open (A-09). */
+  collapse: (projectId: string, status: string) => void;
 }
 
 export const useCollapseStore = create<CollapseState>((set, get) => ({
   collapsedByProject: {},
-  toggle: (projectId, status) =>
+  toggle: (projectId, status, defaultCollapsed = false) =>
     set((state) => {
       const forProject = state.collapsedByProject[projectId] ?? {};
       return {
         collapsedByProject: {
           ...state.collapsedByProject,
-          [projectId]: { ...forProject, [status]: !forProject[status] },
+          [projectId]: { ...forProject, [status]: !(forProject[status] ?? defaultCollapsed) },
         },
       };
     }),
@@ -38,6 +53,16 @@ export const useCollapseStore = create<CollapseState>((set, get) => ({
         collapsedByProject: {
           ...state.collapsedByProject,
           [projectId]: { ...forProject, [status]: false },
+        },
+      };
+    }),
+  collapse: (projectId, status) =>
+    set((state) => {
+      const forProject = state.collapsedByProject[projectId] ?? {};
+      return {
+        collapsedByProject: {
+          ...state.collapsedByProject,
+          [projectId]: { ...forProject, [status]: true },
         },
       };
     }),

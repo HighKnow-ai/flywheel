@@ -9,13 +9,14 @@
  *
  * `App.tsx` renders this instead of `Board` whenever the currently selected project's
  * `status === "unreachable"` — selecting an unreachable entry in `ProjectRail.tsx` opens this
- * surface, not a board.
+ * surface, not a board. It fills the content area only: the project rail is rendered beside it by
+ * `App.tsx` in every state, so a healthy project stays one click away
+ * (`projects/__tests__/unreachable-in-app.test.tsx` renders the real app to prove it).
  */
-import type { CSSProperties } from "react";
-import { TriangleAlert } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { invokeCommand, openFolderDialog } from "../adapters/tauri";
 import type { Project } from "../board/useBoardQuery";
+import "../styles/states-and-confirms.css";
 
 /**
  * `project_relocate` (01-11-PLAN.md Task 2) — the ONLY mutation this surface ever issues.
@@ -38,28 +39,6 @@ function useRelocateProject() {
   });
 }
 
-const surfaceStyle: CSSProperties = {
-  height: "100%",
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "var(--space-md)",
-  background: "var(--surface-dominant)",
-  color: "var(--text-primary-rack)",
-  padding: "var(--space-xl)",
-  textAlign: "center",
-};
-
-const buttonStyle: CSSProperties = {
-  padding: "var(--space-sm) var(--space-lg)",
-  borderRadius: "var(--radius-chrome)",
-  border: "1px solid var(--divider)",
-  background: "var(--surface-secondary)",
-  color: "var(--accent-text-rack)",
-  cursor: "pointer",
-};
-
 export function ProjectUnreachable({ project }: { project: Project }) {
   const relocateProject = useRelocateProject();
 
@@ -70,26 +49,25 @@ export function ProjectUnreachable({ project }: { project: Project }) {
   }
 
   return (
-    <div className="project-unreachable" style={surfaceStyle}>
-      <span aria-hidden="true" style={{ color: "var(--destructive-strip)" }}>
-        <TriangleAlert size={32} strokeWidth={2} />
-      </span>
-      <h1 className="type-heading">Can&rsquo;t find this project</h1>
-      <p className="type-body" style={{ maxWidth: "60ch" }}>
-        Flywheel expected {project.name} at {project.repoPath}, but the repository marker there no
-        longer matches. Nothing was scanned or guessed automatically.
+    <div className="project-unreachable state-surface">
+      {/* No eyebrow above the heading: a kicker that only restates the line below it is banned outright by the craft
+          floor. The red "Unreachable" marker keeps its job where it is a data channel, the project's own rail entry,
+          which is on screen beside this surface (it replaces the board, not the window). */}
+      <h1 className="state-heading">Can&rsquo;t find this project</h1>
+      <p className="type-body state-body">
+        Flywheel expected {project.name} at <span className="state-path">{project.repoPath}</span>, but the
+        repository marker there no longer matches. Nothing was scanned or guessed automatically.
       </p>
       <button
         type="button"
-        className="type-body"
-        style={buttonStyle}
+        className="type-body control-edge state-action state-action-lead"
         onClick={() => void handleLocate()}
         disabled={relocateProject.isPending}
       >
         Locate Project…
       </button>
       {relocateProject.isError && (
-        <p className="type-label" style={{ color: "var(--destructive-strip)" }}>
+        <p role="alert" className="type-label state-error">
           Couldn&rsquo;t locate this project — {(relocateProject.error as Error).message}
         </p>
       )}

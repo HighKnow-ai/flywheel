@@ -12,16 +12,28 @@
  * Renders nothing when there is nothing to warn about: zero total criteria, or nothing left
  * unchecked — it never fires for either case.
  */
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, type CSSProperties, type KeyboardEvent } from "react";
 
 export interface DoneWarningProps {
   checked: number;
   total: number;
+  /** The item's own key, so the warning names what it is about ("THRE-26"). Omitted by a caller with none. */
+  itemKey?: string;
+  /**
+   * The triggering row's `getBoundingClientRect()`. The warning is a POPOVER (UI-SPEC § Overlay Rule 2:
+   * "anchored to a trigger"), so it opens under the row it concerns. Absent when that row is not on screen
+   * (a change raised from the detail panel for an off-screen row): it then falls back to the bottom centre.
+   */
+  anchorRect?: { top: number; left: number; bottom: number };
   onConfirm: () => void;
   onCancel: () => void;
 }
 
-export function DoneWarning({ checked, total, onConfirm, onCancel }: DoneWarningProps) {
+/** Room under the anchor the popover needs; below it, the popover opens above the row instead. */
+const POPOVER_HEIGHT_GUESS = 56;
+const POPOVER_MAX_WIDTH = 640;
+
+export function DoneWarning({ checked, total, itemKey, anchorRect, onConfirm, onCancel }: DoneWarningProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const hasUnchecked = total > 0 && checked < total;
 
@@ -45,6 +57,19 @@ export function DoneWarning({ checked, total, onConfirm, onCancel }: DoneWarning
     }
   }
 
+  // Placed from the row's real screen coordinates, like the five pickers (a portal-free `position: fixed`).
+  let placement: CSSProperties;
+  if (anchorRect) {
+    const above = anchorRect.bottom + POPOVER_HEIGHT_GUESS > window.innerHeight;
+    placement = {
+      position: "fixed",
+      left: Math.max(8, Math.min(anchorRect.left + 16, window.innerWidth - POPOVER_MAX_WIDTH - 8)),
+      ...(above ? { bottom: window.innerHeight - anchorRect.top + 4 } : { top: anchorRect.bottom + 4 }),
+    };
+  } else {
+    placement = { position: "fixed", bottom: "var(--space-lg)", left: "50%", transform: "translateX(-50%)" };
+  }
+
   return (
     <div
       ref={rootRef}
@@ -53,10 +78,8 @@ export function DoneWarning({ checked, total, onConfirm, onCancel }: DoneWarning
       tabIndex={-1}
       onKeyDown={handleKeyDown}
       style={{
-        position: "fixed",
-        bottom: "var(--space-lg)",
-        left: "50%",
-        transform: "translateX(-50%)",
+        ...placement,
+        maxWidth: POPOVER_MAX_WIDTH,
         zIndex: 1100,
         display: "flex",
         alignItems: "center",
@@ -64,14 +87,16 @@ export function DoneWarning({ checked, total, onConfirm, onCancel }: DoneWarning
         padding: "var(--space-sm) var(--space-md)",
         background: "var(--surface-secondary)",
         color: "var(--text-primary-rack)",
-        border: "1px solid var(--divider)",
+        border: "1px solid var(--border-popover)",
         borderRadius: "var(--radius-chrome)",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+        boxShadow: "var(--shadow-popover)",
         outline: "none",
       }}
     >
+      {/* "2 of 3 criteria unchecked", not "1/3": the fraction read two ways (one unchecked, or one checked). */}
       <span className="type-body tabular-nums">
-        {checked}/{total} criteria unchecked. Mark Done anyway?
+        {itemKey ? `${itemKey} · ` : ""}
+        {total - checked} of {total} criteria unchecked. Mark Done anyway?
       </span>
       <span className="type-label" style={{ color: "var(--text-muted-rack)", whiteSpace: "nowrap" }}>
         Enter to confirm · Escape to cancel

@@ -54,6 +54,10 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => openFolderDialogMock(),
+  // `ItemDetailPanel`'s `GitFactsSection` (Phase 7 plan 07-01) calls these two directly, not
+  // through `invokeCommand` — mocked here for the same reason `openFolderDialog` is.
+  gitFacts: () => Promise.resolve(null),
+  gitTruthFocusTask: () => Promise.resolve(),
 }));
 
 const EMPTY_COUNTS: BandCounts = { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 };
@@ -315,6 +319,26 @@ describe("layer-guard", () => {
         expect(bindingAllowedInLayer("focus-search", layer)).toBe(expectedElsewhere);
         expect(bindingAllowedInLayer("move-down", layer)).toBe(expectedElsewhere);
         expect(bindingAllowedInLayer("switch-project", layer)).toBe(expectedElsewhere);
+      }
+    });
+
+    it("bindingAllowedInLayer_admits_open_merge_and_open_epic_request_only_in_the_review_surface_layer", () => {
+      const layers: UiLayer[] = [
+        "board",
+        "quick-add",
+        "detail",
+        "picker",
+        "palette",
+        "session-surface",
+        "permission-card",
+        "proposal-tray",
+        "triage-surface",
+        "review-surface",
+      ];
+      for (const layer of layers) {
+        const expected = layer === "review-surface";
+        expect(bindingAllowedInLayer("open-merge", layer), `open-merge in ${layer}`).toBe(expected);
+        expect(bindingAllowedInLayer("open-epic-request", layer), `open-epic-request in ${layer}`).toBe(expected);
       }
     });
   });

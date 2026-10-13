@@ -1,0 +1,444 @@
+/*
+ * Surface group five (08.1 plan 18): settings and its permission-rules table, the triage surface, the
+ * authoring tray with its rows and amend editor, and the published legend. Group-scoped rules live here,
+ * beside the group, the way `review/review.css` and `session/session.css` do; nothing for this group is
+ * added to `App.css`.
+ *
+ * No comp was rendered for this group (plan 04 comped Mission Control, the item detail and the review
+ * surface). It is finished against 08.1-UI-SPEC.md directly: the token roles, the radius language, the type
+ * scale, the selection rule, the overlay rule and the motion contract. No literal colour, scrim or shadow
+ * appears below or in the group's components: `styles/tokens.css` is the one source.
+ *
+ * The brand carries progress and is never an action (owner decision 2026-10-08), so an action here is DRAWN:
+ * the 3:1 control edge (`control-edge`, App.css) on its own surface, never filled. A chosen VALUE is not an
+ * action and is not boxed in two pixels: it wears an ink edge, a 2px foot rule and a heavier weight.
+ */
+
+/* --- The published legend ------------------------------------------------------------------------- */
+
+/* Embedded, the legend sits on the page ground. As an overlay it is a dialog (UI-SPEC § Overlay Rule):
+ * the per-mode scrim over a surface that carries the dialog shadow, and in dark the dialog-tier edge,
+ * because a shadow over a near-black ground tells no tier. Both are at full value on frame one. */
+.legend {
+  /* What a sticky channel heading paints over, so a row never shows through it. */
+  --legend-ground: var(--surface-dominant);
+  color: var(--text-primary-rack);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+}
+
+.legend-scrim {
+  align-items: center;
+  background: var(--scrim);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 1150;
+}
+
+.legend-dialog {
+  --legend-ground: var(--surface-secondary);
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-dialog);
+  border-radius: var(--radius-chrome);
+  box-shadow: var(--shadow-dialog);
+  max-height: 80vh;
+  max-width: 640px;
+  overflow-y: auto;
+}
+
+.legend-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.legend-channel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  /* The index lands a channel under its sticky heading, not behind it. */
+  scroll-margin-top: var(--space-sm);
+}
+
+/* The channel being read stays named: 53 marks are one long scroll, and the heading is the only landmark in it.
+ * Sticky inside `.legend-dialog`'s own scroll, and the page's when embedded. */
+.legend-channel > h2 {
+  background: var(--legend-ground);
+  border-bottom: 1px solid var(--divider);
+  padding: var(--space-xs) 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* A sticky offset is measured from the scroller's CONTENT edge, so the dialog's own 24px padding would leave the
+ * pinned heading hanging 24px below the top with rows scrolling visibly above it. Cancel the padding. */
+.legend-dialog .legend-channel > h2 {
+  top: calc(var(--space-lg) * -1);
+}
+
+/* The ten channels, as plain links in a wrapping line: type and a hairline, no chips. */
+.legend-index {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+}
+
+.legend-index a {
+  color: var(--text-primary-rack);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.legend-index a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* A reference table: type and spacing carry it, and a hairline separates the rows, as it does the board's. */
+.legend-list {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.legend-row {
+  align-items: center;
+  border-bottom: 1px solid var(--divider);
+  display: grid;
+  gap: var(--space-sm) var(--space-md);
+  grid-template-columns: 44px 168px minmax(0, 1fr);
+  padding: var(--space-xs) 0;
+}
+
+.legend-meaning {
+  color: var(--text-muted-rack);
+}
+
+/* --- A drawn action ------------------------------------------------------------------------------- */
+
+/* An action is drawn, not filled. The edge comes from `control-edge` (App.css). */
+.admin-action {
+  background: transparent;
+  color: var(--text-primary-rack);
+  cursor: pointer;
+  padding: var(--space-xs) var(--space-md);
+}
+
+.admin-action:disabled {
+  cursor: default;
+}
+
+/*
+ * Hover on a drawn action is the board row's quiet inset wash, not App.css's --divider wash: the divider is
+ * a decorative hairline and the wrong ground under text. The edge still goes to ink on hover (App.css).
+ */
+.admin-action:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+/*
+ * The one leading action of a section: a 2px ink edge over the 1px control edge its neighbours have. Padding
+ * gives the extra pixel back, so a lead and its neighbours are the same size. Ink, not brand.
+ */
+.admin-action.admin-action-lead {
+  border: 2px solid var(--selection-rule);
+  font-weight: 600;
+  padding: calc(var(--space-xs) - 1px) calc(var(--space-md) - 1px);
+}
+
+/* A chosen VALUE (a credential path, a forge, Pending or Deferred) is not an action. */
+.admin-choice {
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.admin-choice:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+/*
+ * The chosen one is told by an ink edge and a 2px ink rule along its foot: the selection rule's device (A-06)
+ * turned to suit a value, which is why it is NOT boxed in 2px the way a lead action is. It is not told by a
+ * surface shift either (the selected-row surface is under 1.01 from the page's own ground), and the weight
+ * does not change, because a segment that grows when chosen would push its neighbours along.
+ */
+.admin-choice[aria-checked="true"],
+.admin-choice[aria-pressed="true"] {
+  border-color: var(--selection-rule);
+  box-shadow: inset 0 -2px 0 var(--selection-rule);
+}
+
+.admin-choice[aria-checked="true"]:hover:not(:disabled),
+.admin-choice[aria-pressed="true"]:hover:not(:disabled) {
+  box-shadow: inset 0 -2px 0 var(--selection-rule), inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+/* --- A surface's shell: header, back, body, section ----------------------------------------------- */
+
+.admin-header {
+  align-items: center;
+  border-bottom: 1px solid var(--divider);
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-md);
+}
+
+/* "← Board" is navigation, not a command: type, with a quiet inset wash on hover like a rail row. */
+.admin-back {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.admin-back:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+.admin-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-lg);
+}
+
+/* Sections are told apart by a hairline and a heavier label, not by a fill or a card. */
+.admin-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.admin-section + .admin-section {
+  border-top: 1px solid var(--divider);
+  padding-top: var(--space-lg);
+}
+
+.type-body.admin-section-label {
+  font-weight: 600;
+}
+
+/* One project, one value: a hairline-separated row at the board's task-row height. */
+.admin-row {
+  align-items: center;
+  border-bottom: 1px solid var(--divider);
+  display: flex;
+  gap: var(--space-md);
+  justify-content: space-between;
+  min-height: 32px;
+  padding: var(--space-xs) 0;
+}
+
+/* The section's own hairline closes the list; a second one under the last row would double it. */
+.admin-row:last-child {
+  border-bottom: 0;
+}
+
+/* --- Fields --------------------------------------------------------------------------------------- */
+
+/*
+ * A field draws its boundary from the control role (`control-edge`). Its focus ring is the ink rule, the
+ * device the palette's always-on field and the session group's text areas use: the amend editor's first field
+ * is focused the moment the editor opens, so a standing brand box there would spend the brand on an input.
+ * App.css's `input:focus-visible` is still the brand for ordinary inputs elsewhere in the product.
+ */
+.admin-field {
+  background: transparent;
+  color: inherit;
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.admin-field:focus-visible {
+  outline: 2px solid var(--selection-rule);
+  outline-offset: 1px;
+}
+
+/* A native checkbox takes the system accent unless told otherwise; the brand is not a control colour. */
+.admin-check {
+  accent-color: var(--text-primary-rack);
+  margin-top: 4px;
+  /* Drawn, square: the engine's own box is a circle at this size, which reads as a radio group on a surface
+   * whose header actions are plural ("Reject selected"). A mark radius, the control boundary, an ink tick. */
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-mark);
+  cursor: pointer;
+  flex-shrink: 0;
+  height: 14px;
+  margin-left: 0;
+  margin-right: 0;
+  position: relative;
+  width: 14px;
+}
+
+.admin-check:checked {
+  border-color: var(--text-primary-rack);
+}
+
+.admin-check:checked::after {
+  border: solid var(--text-primary-rack);
+  border-width: 0 2px 2px 0;
+  content: "";
+  height: 7px;
+  left: 3px;
+  position: absolute;
+  top: 0;
+  transform: rotate(45deg);
+  width: 4px;
+}
+
+/* A text action inside a sentence ("Jump to turn", a duplicate's name): ink and underlined, not brand. */
+.admin-link {
+  background: transparent;
+  border: none;
+  color: var(--text-primary-rack);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.admin-link:hover:not(:disabled) {
+  background: transparent;
+  text-decoration-thickness: 2px;
+}
+
+/* A notice (a run that hit its proposal limit): hairline-bounded, no fill. */
+.admin-notice {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-chrome);
+  color: var(--text-primary-rack);
+  display: flex;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+}
+
+/* --- The permission rules table ------------------------------------------------------------------- */
+
+/*
+ * The densest table in the product, in a world with no fills: columns that line up, a hairline under every
+ * row, and the type scale doing the rest. No zebra striping and no tinted row; that is the Jira chrome this
+ * phase refuses while keeping the density.
+ */
+.admin-table {
+  display: flex;
+  flex-direction: column;
+  /* A column, not a band: uncapped, Tool took every pixel left on a 1440px window and put ~950px of paper
+   * between "Edit" and "allow". */
+  max-width: 900px;
+}
+
+.admin-table-row {
+  align-items: center;
+  border-bottom: 1px solid var(--divider);
+  column-gap: var(--space-md);
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) 72px 88px 80px;
+  min-height: 32px;
+  padding: var(--space-xs) 0;
+}
+
+.admin-table-head {
+  color: var(--text-muted-rack);
+  min-height: 28px;
+}
+
+/* --- Proposals: the tray's rows and the triage surface's rows ------------------------------------- */
+
+/*
+ * One proposed item is a row of the one rack, the same object `board/ChallengeRow.tsx` shows inline: the
+ * idle row surface, a hairline underneath, square. Selection is the board's: a 2px ink rule on the leading
+ * edge and the selected-row surface (A-06). It was a 2px brand outline driven by the `selected` prop, which
+ * is also true after a mouse click, so a click left a permanent brand rectangle; this is neutral, and it is
+ * the current POSITION (the j/k cursor), not keyboard focus, which the row's own buttons carry on their own.
+ * The 2px edge is reserved on every row so a row changing state never reflows.
+ */
+.proposal-row {
+  box-sizing: border-box;
+  max-width: 100%;
+  background: var(--row-surface);
+  border-bottom: 1px solid var(--divider);
+  border-left: 2px solid transparent;
+  color: var(--text-primary-rack);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+  padding: var(--space-md);
+}
+
+.proposal-row[data-selected="true"] {
+  background: var(--row-surface-selected);
+  border-left-color: var(--selection-rule);
+}
+
+/* A drafted child sits under its root by a hairline and an indent, so the subtree is a visible thing and not
+ * only a 24px shift. A 1px edge, in the divider role: the side-stripe ban is for coloured edges above 1px. */
+.proposal-child {
+  border-left: 1px solid var(--divider);
+  margin-left: var(--space-lg);
+  padding-left: var(--space-sm);
+}
+
+/* The merge target picker: a column the width of a field, a filter, and a list that scrolls inside it. On a
+ * board of hundreds it was fourteen rows, 1380px wide, pushing the lane 450px down. */
+.merge-picker {
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-chrome);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+  max-width: 420px;
+  padding: var(--space-sm);
+}
+
+.merge-picker-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* An option in the merge target picker: a menu row, hairline-separated, not a boxed button. */
+.admin-option {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--divider);
+  color: var(--text-primary-rack);
+  cursor: pointer;
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+}
+
+.admin-option:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+.admin-option:disabled {
+  cursor: default;
+}
+
+/* The reject-reason field is a sentence, not a column: it need not run the width of a 1440px triage row. */
+.proposal-row .admin-field {
+  max-width: 420px;
+}

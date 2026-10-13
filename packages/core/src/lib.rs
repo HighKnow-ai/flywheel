@@ -4,13 +4,31 @@
 //! database file directly, per `ARCHITECTURE.md` Anti-Pattern 3 and D-03).
 
 pub mod branch;
+pub mod compaction;
 pub mod context_packet;
 pub mod credentials;
 pub mod db;
+pub mod destructive;
+pub mod dispatch;
+pub mod dispatch_exec;
 pub mod domain;
+pub mod drift;
+pub mod epic_context_packet;
+pub mod file_set;
+pub mod forge;
 pub mod git;
+pub mod git_facts;
+pub mod git_hooks;
+pub mod git_identity;
+pub mod git_retry;
 pub mod ids;
+pub mod limit_gate;
 pub mod marker;
+pub mod merge;
+pub mod proc;
 pub mod query;
 pub mod ranking;
+pub mod review;
+pub mod runtime_protocol;
+pub mod shim;
 pub mod session_log;

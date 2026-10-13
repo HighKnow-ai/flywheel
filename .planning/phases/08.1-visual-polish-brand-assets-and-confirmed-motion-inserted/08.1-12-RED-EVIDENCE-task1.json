@@ -1,0 +1,20 @@
+{
+  "command": "npx vitest run src/board/__tests__/challenge-inline.test.tsx",
+  "exit_code": 1,
+  "failing_test": "emits two challenge rows followed by ten task rows, in that order",
+  "target_test": "emits two challenge rows followed by ten task rows, in that order",
+  "expected": "two challenge rows then ten task rows in the rack",
+  "actual": "no challenge row emitted; 12 row keys instead of 14",
+  "verdict": "RED_EVIDENCE_OK",
+  "reason": "target_test_failed",
+  "failing_tests": [
+    "emits two challenge rows followed by ten task rows, in that order",
+    "renders a challenge row at the challenge height from the row-kind lookup",
+    "shows the challenge text with accept and reject, each named for the epic it concerns",
+    "keeps challenge rows in the one rack: the same rows container as the epic header, one board",
+    "removes the challenge rows along with the task rows when the epic collapses"
+  ],
+  "tests": 7,
+  "pass": 2,
+  "fail": 5
+}

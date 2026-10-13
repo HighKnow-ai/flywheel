@@ -1,0 +1,334 @@
+//! D-47/D-48/D-50 round-trip proof for the on-disk runtime protocol (plan 03-02 Task 1): every
+//! public function in `core::runtime_protocol` returns a value on every failure mode (CR-03), and
+//! the heartbeat/kill-record/run-descriptor files round-trip exactly as `packages/sidecar/src/
+//! watchdog.ts` (Task 2) needs them to.
+
+use std::fs;
+use std::time::Duration;
+
+use core::runtime_protocol::{
+    clear_run_runtime_files, list_run_descriptors, read_authoring_stage, read_heartbeat_age,
+    read_kill_record, runtime_dir, touch_heartbeat, write_authoring_stage, write_kill_record,
+    write_run_descriptor, KillRecordRead, RuntimeIo,
+};
+
+/// A 26-character Crockford-base32-shaped literal — every [`write_authoring_stage`]/
+/// [`read_authoring_stage`] test below uses this rather than a real `new_id()` call, since only
+/// the SHAPE matters to these functions' own `is_ulid` guard.
+const A_ULID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+
+/// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — `FLYWHEEL_RUNTIME_DIR`
+/// is process-global mutable state, and `cargo test` runs this binary's `#[test]` functions
+/// concurrently on a thread pool by default. Mirrors `stop_lifecycle.rs`'s own
+/// `WORKTREE_ROOT_ENV_LOCK`/`with_scratch_worktree_root` pair for `FLYWHEEL_WORKTREE_ROOT` — same
+/// idiom, this binary's own static, since a Rust `static` cannot be shared across separate test
+/// binaries.
+static RUNTIME_DIR_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn with_scratch_runtime_dir<T>(f: impl FnOnce(&std::path::Path) -> T) -> T {
+    let _guard = RUNTIME_DIR_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let dir = tempfile::tempdir().expect("failed to create scratch runtime dir");
+    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads
+    // or mutates this var while it's set, and this helper always clears it before returning.
+    unsafe { std::env::set_var("FLYWHEEL_RUNTIME_DIR", dir.path()) };
+    let result = f(dir.path());
+    unsafe { std::env::remove_var("FLYWHEEL_RUNTIME_DIR") };
+    result
+}
+
+#[test]
+fn runtime_dir_resolves_to_the_override_and_creates_it() {
+    with_scratch_runtime_dir(|expected| {
+        let resolved = runtime_dir().expect("runtime_dir should succeed");
+        assert_eq!(resolved, expected);
+        assert!(
+            resolved.is_dir(),
+            "runtime_dir must create the directory if it does not already exist"
+        );
+    });
+}
+
+#[test]
+fn touch_heartbeat_writes_a_parseable_rfc3339_timestamp() {
+    with_scratch_runtime_dir(|dir| {
+        let outcome = touch_heartbeat();
+        assert_eq!(outcome, RuntimeIo::Written);
+        let contents =
+            fs::read_to_string(dir.join("heartbeat")).expect("heartbeat file should exist");
+        chrono::DateTime::parse_from_rfc3339(contents.trim())
+            .expect("heartbeat contents should parse as RFC3339");
+    });
+}
+
+#[test]
+fn touch_heartbeat_returns_write_failed_never_panics_when_the_directory_is_blocked() {
+    with_scratch_runtime_dir(|dir| {
+        // Replace the runtime directory's own path with a plain FILE so `create_dir_all` cannot
+        // succeed — forces the WriteFailed branch without depending on filesystem permission
+        // behaviour, which varies across the user running CI vs. a dev machine.
+        fs::remove_dir_all(dir).expect("failed to remove scratch dir");
+        fs::write(dir, b"not a directory").expect("failed to create the blocking file");
+        let outcome = touch_heartbeat();
+        assert!(
+            matches!(outcome, RuntimeIo::WriteFailed(_)),
+            "expected WriteFailed, got {outcome:?}"
+        );
+    });
+}
+
+#[test]
+fn read_heartbeat_age_is_some_and_small_shortly_after_a_touch() {
+    with_scratch_runtime_dir(|_dir| {
+        assert_eq!(touch_heartbeat(), RuntimeIo::Written);
+        let age = read_heartbeat_age().expect("age should be Some right after a touch");
+        assert!(
+            age < Duration::from_secs(5),
+            "a freshly touched heartbeat should read as very recent, got {age:?}"
+        );
+    });
+}
+
+#[test]
+fn read_heartbeat_age_is_none_when_the_file_is_absent() {
+    with_scratch_runtime_dir(|_dir| {
+        assert_eq!(read_heartbeat_age(), None);
+    });
+}
+
+#[test]
+fn read_heartbeat_age_is_none_when_the_file_is_unparseable() {
+    with_scratch_runtime_dir(|dir| {
+        fs::write(dir.join("heartbeat"), b"not-a-timestamp").expect("failed to write heartbeat");
+        assert_eq!(read_heartbeat_age(), None);
+    });
+}
+
+#[test]
+fn read_heartbeat_age_is_none_when_the_file_is_empty() {
+    with_scratch_runtime_dir(|dir| {
+        fs::write(dir.join("heartbeat"), b"").expect("failed to write empty heartbeat");
+        assert_eq!(read_heartbeat_age(), None);
+    });
+}
+
+#[test]
+fn kill_record_round_trips_with_the_fields_a_watchdog_writes() {
+    with_scratch_runtime_dir(|_dir| {
+        let outcome = write_kill_record("run-abc123", 4242, 1_700_000_000, "heartbeat-stale");
+        assert_eq!(outcome, RuntimeIo::Written);
+        match read_kill_record("run-abc123") {
+            KillRecordRead::Found(record) => {
+                assert_eq!(record.run_id, "run-abc123");
+                assert_eq!(record.pid, 4242);
+                assert_eq!(record.start_time, 1_700_000_000);
+                assert_eq!(record.reason, "heartbeat-stale");
+                assert!(!record.killed_at.is_empty());
+            }
+            other => panic!("expected Found, got {other:?}"),
+        }
+    });
+}
+
+#[test]
+fn read_kill_record_is_absent_when_no_file_exists() {
+    with_scratch_runtime_dir(|_dir| {
+        assert_eq!(read_kill_record("run-does-not-exist"), KillRecordRead::Absent);
+    });
+}
+
+#[test]
+fn read_kill_record_is_malformed_when_the_file_does_not_parse() {
+    with_scratch_runtime_dir(|dir| {
+        let kills_dir = dir.join("kills");
+        fs::create_dir_all(&kills_dir).expect("failed to create kills dir");
+        fs::write(kills_dir.join("run-bad.json"), b"{ not json")
+            .expect("failed to write bad kill record");
+        assert!(matches!(
+            read_kill_record("run-bad"),
+            KillRecordRead::Malformed(_)
+        ));
+    });
+}
+
+#[test]
+fn run_descriptor_round_trips_and_lists_every_descriptor_on_disk() {
+    with_scratch_runtime_dir(|_dir| {
+        assert_eq!(write_run_descriptor("run-one", 100, 111), RuntimeIo::Written);
+        assert_eq!(write_run_descriptor("run-two", 200, 222), RuntimeIo::Written);
+        let mut descriptors = list_run_descriptors();
+        descriptors.sort_by(|a, b| a.run_id.cmp(&b.run_id));
+        assert_eq!(descriptors.len(), 2);
+        assert_eq!(descriptors[0].run_id, "run-one");
+        assert_eq!(descriptors[0].pid, 100);
+        assert_eq!(descriptors[0].start_time, 111);
+        assert_eq!(descriptors[1].run_id, "run-two");
+        assert_eq!(descriptors[1].pid, 200);
+        assert_eq!(descriptors[1].start_time, 222);
+    });
+}
+
+/// Plan 03-23 Task 3: `clear_run_runtime_files` gains a fourth entry — the run's lifecycle
+/// timeline `packages/sidecar/src/watchdog.ts` writes at `<runtime>/lifecycle/<run_id>.jsonl`
+/// (added by plan 03-20). Written first, before the source change: with all four per-run runtime
+/// files present, the resolved run must leave nothing behind.
+#[test]
+fn clear_run_runtime_files_removes_the_lifecycle_timeline_alongside_the_other_three_files() {
+    with_scratch_runtime_dir(|dir| {
+        assert_eq!(write_run_descriptor("run-lifecycle", 100, 111), RuntimeIo::Written);
+        assert_eq!(
+            write_kill_record("run-lifecycle", 100, 111, "heartbeat-stale"),
+            RuntimeIo::Written
+        );
+        let contention_dir = dir.join("contention");
+        fs::create_dir_all(&contention_dir).expect("failed to create contention dir");
+        fs::write(contention_dir.join("run-lifecycle.jsonl"), b"{}\n")
+            .expect("failed to write contention log");
+        let lifecycle_dir = dir.join("lifecycle");
+        fs::create_dir_all(&lifecycle_dir).expect("failed to create lifecycle dir");
+        fs::write(lifecycle_dir.join("run-lifecycle.jsonl"), b"{}\n")
+            .expect("failed to write lifecycle timeline");
+
+        let outcome = clear_run_runtime_files("run-lifecycle");
+        assert_eq!(outcome, RuntimeIo::Written);
+
+        assert!(matches!(
+            read_kill_record("run-lifecycle"),
+            KillRecordRead::Absent
+        ));
+        assert!(
+            list_run_descriptors()
+                .iter()
+                .all(|d| d.run_id != "run-lifecycle"),
+            "the run descriptor must be removed"
+        );
+        assert!(
+            !contention_dir.join("run-lifecycle.jsonl").exists(),
+            "the contention log must be removed"
+        );
+        assert!(
+            !lifecycle_dir.join("run-lifecycle.jsonl").exists(),
+            "the lifecycle timeline must be removed"
+        );
+    });
+}
+
+/// A missing lifecycle file is not an error — matching how the three existing entries already
+/// behave (the not-found tolerance in `clear_run_runtime_files`'s loop).
+#[test]
+fn clear_run_runtime_files_succeeds_when_the_lifecycle_file_is_absent() {
+    with_scratch_runtime_dir(|_dir| {
+        assert_eq!(
+            write_run_descriptor("run-no-lifecycle", 200, 222),
+            RuntimeIo::Written
+        );
+        let outcome = clear_run_runtime_files("run-no-lifecycle");
+        assert_eq!(outcome, RuntimeIo::Written);
+    });
+}
+
+/// D-88 (plan 05-03): the marker round-trips exactly like every other on-disk shape in this
+/// module.
+#[test]
+fn authoring_stage_marker_round_trips() {
+    with_scratch_runtime_dir(|_dir| {
+        assert_eq!(write_authoring_stage(A_ULID, "challenge"), RuntimeIo::Written);
+        assert_eq!(read_authoring_stage(A_ULID), Some("challenge".to_string()));
+
+        // A later write for the SAME run overwrites, never appends — matches every other
+        // atomic_write-backed file in this module.
+        assert_eq!(write_authoring_stage(A_ULID, "decompose"), RuntimeIo::Written);
+        assert_eq!(read_authoring_stage(A_ULID), Some("decompose".to_string()));
+    });
+}
+
+/// T-05-03-03: a non-ULID run id is rejected before any path is built — neither function ever
+/// resolves `runtime_dir()` for a caller-controlled string that does not have the right shape.
+#[test]
+fn authoring_stage_functions_reject_a_non_ulid_run_id() {
+    with_scratch_runtime_dir(|_dir| {
+        let outcome = write_authoring_stage("../../etc/passwd", "challenge");
+        assert!(
+            matches!(outcome, RuntimeIo::WriteFailed(_)),
+            "expected WriteFailed for a non-ULID run id, got {outcome:?}"
+        );
+        assert_eq!(read_authoring_stage("../../etc/passwd"), None);
+        assert_eq!(read_authoring_stage("too-short"), None);
+    });
+}
+
+/// A run that never had a stage marker written reads as `None`, never a panic and never a
+/// fabricated stage.
+#[test]
+fn read_authoring_stage_is_none_when_no_marker_was_ever_written() {
+    with_scratch_runtime_dir(|_dir| {
+        assert_eq!(read_authoring_stage(A_ULID), None);
+    });
+}
+
+/// A marker file present but not parseable as an [`core::runtime_protocol::AuthoringStageMarker`]
+/// reads as `None` — the same fail-closed collapse `stage-gate-hook.ts` depends on.
+#[test]
+fn read_authoring_stage_is_none_when_the_marker_file_is_malformed() {
+    with_scratch_runtime_dir(|dir| {
+        let stage_dir = dir.join("stage");
+        fs::create_dir_all(&stage_dir).expect("failed to create stage dir");
+        fs::write(stage_dir.join(format!("{A_ULID}.json")), b"{ not json")
+            .expect("failed to write malformed marker");
+        assert_eq!(read_authoring_stage(A_ULID), None);
+    });
+}
+
+/// `clear_run_runtime_files` removes the stage marker alongside the other three per-run files —
+/// written first, before the source change, per this module's own established convention.
+#[test]
+fn clear_run_runtime_files_removes_the_authoring_stage_marker_alongside_the_other_files() {
+    with_scratch_runtime_dir(|_dir| {
+        assert_eq!(write_run_descriptor(A_ULID, 100, 111), RuntimeIo::Written);
+        assert_eq!(write_authoring_stage(A_ULID, "challenge"), RuntimeIo::Written);
+        assert_eq!(read_authoring_stage(A_ULID), Some("challenge".to_string()));
+
+        let outcome = clear_run_runtime_files(A_ULID);
+        assert_eq!(outcome, RuntimeIo::Written);
+
+        assert_eq!(
+            read_authoring_stage(A_ULID),
+            None,
+            "the authoring stage marker must be removed"
+        );
+    });
+}
+
+/// A missing stage marker is not an error — matching how the other entries in
+/// `clear_run_runtime_files`'s loop already tolerate absence.
+#[test]
+fn clear_run_runtime_files_succeeds_when_the_authoring_stage_marker_is_absent() {
+    with_scratch_runtime_dir(|_dir| {
+        assert_eq!(write_run_descriptor(A_ULID, 200, 222), RuntimeIo::Written);
+        let outcome = clear_run_runtime_files(A_ULID);
+        assert_eq!(outcome, RuntimeIo::Written);
+    });
+}
+
+#[test]
+fn no_panicking_calls_survive_in_the_runtime_protocol_module() {
+    let source = fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/runtime_protocol.rs"
+    ))
+    .expect("failed to read runtime_protocol.rs source");
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        assert!(!line.contains("unwrap()"), "found unwrap() in: {line}");
+        assert!(!line.contains("expect("), "found expect( in: {line}");
+        assert!(!line.contains("panic!"), "found panic! in: {line}");
+        assert!(
+            !line.contains("rusqlite") && !line.contains("Connection"),
+            "found a database reference in: {line}"
+        );
+    }
+}

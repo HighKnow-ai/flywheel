@@ -28,11 +28,15 @@ import { useRef, useState, type KeyboardEvent } from "react";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { StatusPicker } from "../board/pickers/StatusPicker";
-import { MARKS_BY_ID, statusMarkId } from "../legend/marks";
+import { ChevronDown } from "lucide-react";
+import { estimateLetter, MARKS_BY_ID, priorityMarkId, statusMarkId } from "../legend/marks";
 import { AcceptanceCriteriaList } from "./AcceptanceCriteriaList";
 import { ActivityTrail } from "./ActivityTrail";
+import { ForgeSection } from "./ForgeSection";
+import { GitFactsSection } from "./GitFactsSection";
 import { RunsSection } from "./RunsSection";
 import { WorktreeSummary } from "./WorktreeSummary";
+import "./item-detail.css";
 
 export type DetailItemKind = "epic" | "task" | "issue";
 
@@ -45,6 +49,12 @@ export interface DetailItem {
   status?: string;
   /** Needed by the acceptance-criteria list to create a criterion against the right project. */
   projectId?: string;
+  /** The item's priority (0-4, keyed as the keyboard map). `undefined` means NOT KNOWN (an epic
+   * reached from the roster carries none), which prints no row; `0` is the fact "No priority". */
+  priority?: number;
+  /** S/M/L as the stored ordinal 1-3. `null`/`undefined` is "no estimate set": no row, never a
+   * placeholder (the board row prints no badge for it either, D-12). */
+  estimate?: number | null;
 }
 
 export interface ItemDetailPanelProps {
@@ -73,6 +83,16 @@ export interface ItemDetailPanelProps {
    * convention `onStartWork` already follows), and an epic/issue never renders the Runs section
    * that would need it (D-37). */
   onOpenRun?: (agentRunId: string) => void;
+  /** Called when the "Continue Shaping" affordance is pressed (D-91, plan 05-10) — the caller
+   * resolves whether a session is already running for this epic and either routes to it or opens
+   * the authoring launch sheet (`useBoardQuery.ts`'s `continueShapingEpic`, the SAME entry point
+   * `board/BoardView.tsx`'s own `r` keyboard binding calls). This component stays free of any
+   * store import, per `onStartWork`'s own established convention above. Only rendered for an epic
+   * (the fixed three-level hierarchy gives only an epic a shaping session of its own). */
+  onContinueShaping?: () => void;
+  /** Called when the Review button is pressed (Phase 8 plan 08-01) — the caller pushes into the
+   * review surface. Offered for both a task and an epic, since one surface serves both scopes. */
+  onReview?: () => void;
 }
 
 export function ItemDetailPanel({
@@ -83,6 +103,8 @@ export function ItemDetailPanel({
   trapped = true,
   onStartWork,
   onOpenRun,
+  onContinueShaping,
+  onReview,
 }: ItemDetailPanelProps) {
   const [titleDraft, setTitleDraft] = useState(item.title);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
@@ -93,6 +115,11 @@ export function ItemDetailPanel({
   const isIssue = item.kind === "issue";
   const isTask = item.kind === "task";
   const statusMark = item.status ? MARKS_BY_ID[statusMarkId(item.status)] : undefined;
+  // Printed only where there is a value to print. The panel receives no other property (assignee, epic and the
+  // worktree facts have their own sections), and an unknown value prints nothing rather than a dash.
+  const priorityMark = item.priority === undefined ? undefined : MARKS_BY_ID[priorityMarkId(item.priority)];
+  const estimate = estimateLetter(item.estimate);
+  const hasProps = (!isIssue && !!item.status) || !!priorityMark || !!estimate;
 
   function commitTitle() {
     const trimmed = titleDraft.trim();
@@ -131,6 +158,9 @@ export function ItemDetailPanel({
         <aside
           role="dialog"
           aria-label={`${item.key} detail`}
+          // `panel-slide-in` (motion.css): arrives from the trailing edge by transform only — width
+          // is never animated, since board rows re-evaluate a container query on every width frame.
+          className="panel-slide-in detail-panel"
           onKeyDown={handlePanelKeyDown}
           style={{
             width: 480,
@@ -138,103 +168,124 @@ export function ItemDetailPanel({
             height: "100%",
             display: "flex",
             flexDirection: "column",
-            gap: "var(--space-md)",
+            gap: "var(--space-lg)",
             padding: "var(--space-lg)",
-            background: "var(--surface-secondary)",
-            color: "var(--text-primary-rack)",
-            borderLeft: "1px solid var(--divider)",
             overflowY: "auto",
           }}
         >
-          <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
-              {item.key}
-            </span>
-            <button
-              type="button"
-              aria-label="Close detail panel"
-              onClick={onClose}
-              style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer" }}
-            >
-              Close
-            </button>
-          </header>
-
-          <input
-            className="type-heading"
-            aria-label="Title"
-            value={titleDraft}
-            onChange={(event) => setTitleDraft(event.target.value)}
-            onBlur={commitTitle}
-            onKeyDown={handleTitleKeyDown}
-            style={{
-              background: "transparent",
-              border: "none",
-              borderBottom: "1px solid var(--divider)",
-              color: "inherit",
-              padding: "var(--space-xs) 0",
-            }}
-          />
-
-          {!isIssue && (
-            <div style={{ position: "relative", display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
-              <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-                Status
+          {/* The key and the title are one unit (tight), set well apart from the rest (the panel's gap):
+              spacing is the title's focal device, since the locked 11/13/15 scale cannot grow it. */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
+            <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
+                {item.key}
               </span>
               <button
-                ref={statusButtonRef}
                 type="button"
-                onClick={() => {
-                  const rect = statusButtonRef.current?.getBoundingClientRect();
-                  if (rect) {
-                    setStatusPickerAnchor({ top: rect.top, left: rect.left, bottom: rect.bottom });
-                  }
-                  setStatusPickerOpen(true);
-                }}
-                className="type-body"
-                style={{
-                  background: "var(--surface-dominant)",
-                  border: "1px solid var(--divider)",
-                  borderRadius: "var(--radius-chrome)",
-                  color: "inherit",
-                  padding: "var(--space-xs) var(--space-sm)",
-                  cursor: "pointer",
-                }}
+                aria-label="Close detail panel"
+                onClick={onClose}
+                style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer" }}
               >
-                {statusMark?.label ?? item.status}
+                Close
               </button>
-              {statusPickerOpen && item.status && statusPickerAnchor && (
-                <StatusPicker
-                  currentStatus={item.status}
-                  anchorRect={statusPickerAnchor}
-                  onSelect={(status) => {
-                    onSetStatus?.(status);
-                    setStatusPickerOpen(false);
-                  }}
-                  onClose={() => setStatusPickerOpen(false)}
-                />
+            </header>
+
+            <input
+              className="type-heading detail-title"
+              aria-label="Title"
+              value={titleDraft}
+              onChange={(event) => setTitleDraft(event.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={handleTitleKeyDown}
+            />
+          </div>
+
+          {hasProps && (
+            <dl className="detail-props">
+              {!isIssue && item.status && (
+                <>
+                  <dt className="type-body">Status</dt>
+                  <dd className="type-body" style={{ position: "relative" }}>
+                    {/* A VALUE, not an action: no box. A value plus its caret is how a field that can be changed
+                        reads, so it cannot be mistaken for the drawn verbs beneath (08.1-15 closure, finding 3). */}
+                    <button
+                      ref={statusButtonRef}
+                      type="button"
+                      aria-haspopup="menu"
+                      onClick={() => {
+                        const rect = statusButtonRef.current?.getBoundingClientRect();
+                        if (rect) {
+                          setStatusPickerAnchor({ top: rect.top, left: rect.left, bottom: rect.bottom });
+                        }
+                        setStatusPickerOpen(true);
+                      }}
+                      className="type-body detail-value-control"
+                    >
+                      {statusMark?.label ?? item.status}
+                      <ChevronDown size={12} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                    {statusPickerOpen && item.status && statusPickerAnchor && (
+                      <StatusPicker
+                        currentStatus={item.status}
+                        anchorRect={statusPickerAnchor}
+                        onSelect={(status) => {
+                          onSetStatus?.(status);
+                          setStatusPickerOpen(false);
+                        }}
+                        onClose={() => setStatusPickerOpen(false)}
+                      />
+                    )}
+                  </dd>
+                </>
               )}
-            </div>
+              {priorityMark && (
+                <>
+                  <dt className="type-body">Priority</dt>
+                  <dd className="type-body">{priorityMark.label}</dd>
+                </>
+              )}
+              {estimate && (
+                <>
+                  <dt className="type-body">Estimate</dt>
+                  <dd className="type-body tabular-nums">{estimate}</dd>
+                </>
+              )}
+            </dl>
           )}
 
-          {item.kind === "task" && (
-            <button
-              type="button"
-              onClick={onStartWork}
-              className="type-body"
-              style={{
-                alignSelf: "flex-start",
-                background: "var(--accent-nontext)",
-                border: "none",
-                borderRadius: "var(--radius-chrome)",
-                color: "var(--text-primary-rack)",
-                padding: "var(--space-xs) var(--space-md)",
-                cursor: "pointer",
-              }}
-            >
-              Start Work
-            </button>
-          )}
+          <div className="detail-actions">
+            {/* One leading action per section carries the 2px ink edge (the selection rule's device); the rest stay
+                on the hairline control edge. A task leads with Start Work, an epic with Continue Shaping. */}
+            {item.kind === "task" && (
+              <button
+                type="button"
+                onClick={onStartWork}
+                className="type-body control-edge detail-action detail-action-lead"
+              >
+                Start Work
+              </button>
+            )}
+
+            {item.kind === "epic" && (
+              <button
+                type="button"
+                onClick={onContinueShaping}
+                className="type-body control-edge detail-action detail-action-lead"
+              >
+                Continue Shaping
+              </button>
+            )}
+
+            {(item.kind === "task" || item.kind === "epic") && (
+              <button
+                type="button"
+                onClick={onReview}
+                className="type-body control-edge detail-action"
+              >
+                Review
+              </button>
+            )}
+          </div>
 
           {!isIssue && (
             <AcceptanceCriteriaList
@@ -245,6 +296,10 @@ export function ItemDetailPanel({
           )}
 
           {isTask && <WorktreeSummary taskId={item.id} />}
+
+          {isTask && <GitFactsSection taskId={item.id} />}
+
+          {isTask && <ForgeSection taskId={item.id} />}
 
           {isTask && <RunsSection taskId={item.id} onOpenRun={onOpenRun ?? (() => {})} />}
 

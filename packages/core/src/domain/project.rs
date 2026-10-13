@@ -201,6 +201,72 @@ fn set_repo_path(tx: &Transaction, project_id: &str, repo_path: &str) -> anyhow:
     Ok(())
 }
 
+/// Install the Layer 3 pre-push gate (phase 12, plan 12-02) at `repo_path` for `project_id`,
+/// rendering every non-`Installed` outcome on stderr instead of ever propagating it as a failure
+/// — no `?`, no early return: a repository Flywheel cannot gate is still a repository Flywheel
+/// can manage, and the degradation is recorded in `docs/destructive-gate-trust-boundary.md`'s
+/// refusal residual rows, never silently absorbed. This is the ONE place that renders this
+/// outcome for both mutation paths that can change a project's `repo_path` —
+/// [`register_project`] and [`relocate_project`] both call it, so they cannot drift from each
+/// other — and `packages/core/tests/destructive_gate_layer_coverage.rs`'s
+/// `every_repo_path_mutation_routes_through_the_layer3_install` fails the moment a third mutation
+/// path appears without routing through it too (phase 12, plan 12-06 gap closure).
+fn install_layer3_pre_push_gate(repo_path: &Path, project_id: &str) {
+    match crate::git_hooks::install_pre_push_hook(repo_path, project_id) {
+        Ok(crate::git_hooks::PrePushInstall::Installed { .. }) => {}
+        Ok(crate::git_hooks::PrePushInstall::RefusedPreexistingHooksPath { existing }) => {
+            eprintln!(
+                "flywheel core: pre-push gate not installed for {}: core.hooksPath is already set to {existing:?}",
+                repo_path.display()
+            );
+        }
+        Ok(crate::git_hooks::PrePushInstall::RefusedPreexistingPrePush { path }) => {
+            eprintln!(
+                "flywheel core: pre-push gate not installed for {}: a pre-existing pre-push hook already exists at {path:?}",
+                repo_path.display()
+            );
+        }
+        Err(e) => {
+            eprintln!(
+                "flywheel core: pre-push gate not installed for {}: {e}",
+                repo_path.display()
+            );
+        }
+    }
+}
+
+/// Install the commit-msg trailer hook (phase 7, plan 07-02) at `repo_path` for `project_id`,
+/// matching the Layer 3 pre-push gate's own installer above exactly: a `match` over every
+/// outcome, each arm an `eprintln!` naming the repository and the reason, no `?` and no early
+/// return — a repository whose commits Flywheel cannot stamp is still a repository Flywheel can
+/// manage, and the degradation is reported rather than absorbed. Called from the same two places
+/// that installer is already called, immediately after it, so no `repo_path` mutation path can
+/// acquire one hook without the other and
+/// `packages/core/tests/destructive_gate_layer_coverage.rs`'s structural gate keeps its meaning.
+fn install_commit_msg_trailer_hook(repo_path: &Path, project_id: &str) {
+    match crate::git_hooks::install_commit_msg_hook(repo_path, project_id) {
+        Ok(crate::git_hooks::CommitMsgInstall::Installed { .. }) => {}
+        Ok(crate::git_hooks::CommitMsgInstall::RefusedPreexistingHooksPath { existing }) => {
+            eprintln!(
+                "flywheel core: commit-msg trailer hook not installed for {}: core.hooksPath is already set to {existing:?}",
+                repo_path.display()
+            );
+        }
+        Ok(crate::git_hooks::CommitMsgInstall::RefusedPreexistingCommitMsg { path }) => {
+            eprintln!(
+                "flywheel core: commit-msg trailer hook not installed for {}: a pre-existing commit-msg hook already exists at {path:?}",
+                repo_path.display()
+            );
+        }
+        Err(e) => {
+            eprintln!(
+                "flywheel core: commit-msg trailer hook not installed for {}: {e}",
+                repo_path.display()
+            );
+        }
+    }
+}
+
 /// Register a repository as a project (BOARD-10, D-15, D-16). Reads any existing marker at
 /// `repo_path` FIRST, as a plain filesystem read at an explicit path (`ARCHITECTURE.md`
 /// Anti-Pattern 3) — never inside the database transaction. Then, inside exactly one
@@ -318,6 +384,14 @@ pub fn register_project(
         },
     )?;
 
+    // Layer 3 (phase 12, plan 12-02): install the git-native pre-push gate via the shared helper
+    // (phase 12, plan 12-06) — see [`install_layer3_pre_push_gate`] for why both mutation paths
+    // that can change `repo_path` route through it.
+    install_layer3_pre_push_gate(&canonical, &project_id);
+    // Commit-msg trailer hook (phase 7, plan 07-02): installed immediately after Layer 3, from
+    // the same call site, so no repo_path mutation path can acquire one hook without the other.
+    install_commit_msg_trailer_hook(&canonical, &project_id);
+
     get_project(conn, &project_id)
 }
 
@@ -394,6 +468,15 @@ pub fn reconcile_projects(conn: &mut Connection, actor_id: &str) -> anyhow::Resu
 /// new path names `project_id` and rejects a mismatch rather than adopting it (T-01-29): this
 /// function never re-binds a project to a repository whose marker claims a different identity,
 /// hand-edited or otherwise.
+///
+/// After its transaction commits, this also re-installs the Layer 3 pre-push gate at the new
+/// path (phase 12, plan 12-06 gap closure): git hooks are never part of a repository's tracked
+/// history, while `.flywheel/project.json` IS committed and travels with a fresh `git clone`, so
+/// the exact scenario this function exists to recover from — a repository moved or re-cloned to a
+/// new local path — is precisely the scenario in which the new location's `.git/config` has never
+/// had `core.hooksPath` set. Without this call, a relocated project would silently fall back to
+/// the pre-phase-12, Layer-2-only posture with no refusal, no log line, and no documented
+/// residual. See [`install_layer3_pre_push_gate`] for the shared install/refusal/error handling.
 pub fn relocate_project(
     conn: &mut Connection,
     actor_id: &str,
@@ -451,6 +534,14 @@ pub fn relocate_project(
 
     tx.commit()
         .context("failed to commit relocate_project transaction")?;
+
+    // Layer 3 (phase 12, plan 12-06 gap closure): re-install the pre-push gate at the new path —
+    // see this function's own doc comment and [`install_layer3_pre_push_gate`] for why. Never
+    // propagated as a relocation failure: the relocation above already committed successfully.
+    install_layer3_pre_push_gate(&canonical, project_id);
+    // Commit-msg trailer hook (phase 7, plan 07-02): re-installed at the new path from the same
+    // call site as Layer 3, for the identical reason.
+    install_commit_msg_trailer_hook(&canonical, project_id);
 
     get_project(conn, project_id)
 }

@@ -1,0 +1,16 @@
+-- The forge setting (D-119, D-117, LINK-05/LINK-06/LINK-08, phase 07 plan 07-03): a per-project
+-- override for which forge Flywheel talks to, mirroring 0005_credentials.sql's own nullable
+-- override shape exactly.
+--
+-- Owner decisions closing this schema's shape:
+--   1. D-119: NULL means "detect from the origin remote" (`forge::detect_forge_from_origin`,
+--      matched against `github.com`/`gitlab.com` in the origin URL) — a non-NULL value is an
+--      explicit override, rescuing a self-hosted GitHub Enterprise or GitLab instance behind a
+--      company domain that the host-substring match would otherwise miss.
+--   2. The CHECK below — not app code — is the authority on the vocabulary, this codebase's
+--      established idiom (0002's status CHECK, 0004's permission-status CHECK, 0005's
+--      credential_mode CHECK). An out-of-set value is rejected by SQLite itself.
+--   3. D-117: no forge credential, token or request body is or will ever be a column in this
+--      database. `gh`/`glab` hold their own authentication — this column holds only the CHOICE of
+--      which CLI to shell out to, never a secret.
+ALTER TABLE projects ADD COLUMN forge TEXT CHECK (forge IS NULL OR forge IN ('github', 'gitlab', 'local'));

@@ -21,19 +21,137 @@
  * listener lives in that module, not here, which is what keeps this file's own key/dismissal
  * surface at zero (this task's own structural verify gate).
  */
-import { useState, type ComponentType } from "react";
+import { useRef, useState, type ComponentType } from "react";
 import * as icons from "lucide-react";
 import { MARKS_BY_ID } from "../legend/marks";
 import { useRegionBindings } from "../state/keyboard";
+import "./session.css";
 
 export type PermissionRequestCardVariant = "feed" | "compact";
 
 /** One pending `permission_requests` row, projected for this card — mirrors
- * `adapters/tauri.ts`'s `PendingPermissionRequestDto` field-for-field. */
+ * `adapters/tauri.ts`'s `PendingPermissionRequestDto` field-for-field.
+ *
+ * `destructiveCategory` (plan 03-12, D-55/D-56) is `null` for the routine variant, or one of
+ * `destructive::DestructiveCategory::as_str()`'s eight kebab-case names for the destructive-action
+ * gate — the field this component's own variant selection branches on. */
 export interface PendingPermissionRequest {
   id: string;
   toolName: string;
   inputPayload: string | null;
+  destructiveCategory: string | null;
+}
+
+/**
+ * Per-category consequence copy (D-56, `03-UI-SPEC.md` § "Destructive-action gate card"), keyed
+ * by `DestructiveCategory::as_str()`'s exact strings. Three of the six named categories interpolate
+ * the target branch name — but `permission_requests.destructive_category` stores only the category
+ * string, never the branch the classifier matched (03-07's classifier never persists it
+ * alongside the category, per this plan's own flagged assumption). This is a best-effort re-parse
+ * of the SAME raw command text already rendered in the Mono payload block beneath it, mirroring
+ * `destructive.rs`'s own positional argv parsing at renderer-display precision only — it is NEVER
+ * used for any gating decision, since the real classification already happened server-side before
+ * this card ever mounted. A command whose branch this parse cannot resolve falls back to a
+ * category-correct sentence that simply omits the name, never to the fully generic
+ * `UNCATEGORIZED_CONSEQUENCE` — the category itself is still known even when the branch is not.
+ */
+function commandTokensFromPayload(inputPayload: string | null): string[] {
+  if (!inputPayload) return [];
+  let command: unknown;
+  try {
+    command = (JSON.parse(inputPayload) as { command?: unknown }).command;
+  } catch {
+    return [];
+  }
+  if (typeof command !== "string") return [];
+  return command.trim().split(/\s+/).filter(Boolean);
+}
+
+/** A push refspec's destination branch — either the bare form (`main`), the `refs/heads/`-
+ * qualified form, or the destination half of a `src:dst` refspec — mirrors
+ * `destructive.rs::refspec_targets_branch`'s own parsing at display precision. */
+function refspecTargetBranch(refspec: string): string {
+  const dst = refspec.includes(":") ? (refspec.split(":").pop() ?? refspec) : refspec;
+  return dst.startsWith("refs/heads/") ? dst.slice("refs/heads/".length) : dst;
+}
+
+/** `["git", "push", ...args]` — the last non-flag positional is the conventional refspec
+ * destination for `git push <remote> <refspec>`. */
+function pushDestinationBranch(tokens: string[]): string | undefined {
+  const positionals = tokens.slice(2).filter((t) => !t.startsWith("-"));
+  const refspec = positionals[positionals.length - 1];
+  return refspec ? refspecTargetBranch(refspec) : undefined;
+}
+
+/** `["git", "branch", ...args]` — the first non-flag positional after `branch` is the
+ * conventional target for `git branch -d/-D/--delete <name>`. */
+function branchDeleteTarget(tokens: string[]): string | undefined {
+  const positionals = tokens.slice(2).filter((t) => !t.startsWith("-"));
+  return positionals[0];
+}
+
+/** `["git", "push", ...args]` — the push spelling of a remote branch deletion (D-56's
+ * "Branch deletion" category is reachable from a push as of plan 03-14's `classify_push`).
+ * `branchDeleteTarget`'s "first non-flag positional" rule is WRONG here: for `git push origin
+ * --delete feature-x` that positional is the REMOTE, not the branch — exactly the defect this
+ * resolver exists to fix (03-16-PLAN.md Task 2). Resolves in two steps, mirroring
+ * `destructive.rs::classify_push`'s own two spellings:
+ *
+ * 1. The empty-source colon refspec (`:feature-x`, `:refs/heads/feature-x`) — if any token
+ *    begins with a colon, `refspecTargetBranch` already strips everything up to the last colon
+ *    and the `refs/heads/` prefix, so this resolves correctly with no new parsing.
+ * 2. Otherwise, the `--delete`/`-d` flag spelling: take the non-flag positionals after the
+ *    subcommand and return the LAST one, but only when there is more than one — with a single
+ *    positional the only thing named is the remote, and returning it would reproduce the exact
+ *    wrong sentence this resolver exists to prevent. */
+function pushDeleteTarget(tokens: string[]): string | undefined {
+  const colonRefspec = tokens.find((token) => token.startsWith(":"));
+  if (colonRefspec) return refspecTargetBranch(colonRefspec);
+  const positionals = tokens.slice(2).filter((t) => !t.startsWith("-"));
+  return positionals.length > 1 ? positionals[positionals.length - 1] : undefined;
+}
+
+type ConsequenceResolver = (inputPayload: string | null) => string;
+
+const DESTRUCTIVE_CONSEQUENCE: Record<string, ConsequenceResolver> = {
+  "force-push": (payload) => {
+    const branch = pushDestinationBranch(commandTokensFromPayload(payload));
+    return branch
+      ? `This would force-push to ${branch}, overwriting any commits already there.`
+      : "This would force-push, overwriting any commits already on the remote branch.";
+  },
+  "branch-deletion": (payload) => {
+    const tokens = commandTokensFromPayload(payload);
+    // The subcommand token (index 1) dispatches which resolver applies: a push-shaped deletion
+    // resolves via `pushDeleteTarget`, everything else (namely `git branch -D <name>`) keeps the
+    // existing `branchDeleteTarget` — its "first non-flag positional" rule is correct there and
+    // this task changes nothing about that path.
+    const branch = tokens[1] === "push" ? pushDeleteTarget(tokens) : branchDeleteTarget(tokens);
+    return branch ? `This would delete the branch ${branch}.` : "This would delete a branch on this remote.";
+  },
+  "default-branch-push": (payload) => {
+    const branch = pushDestinationBranch(commandTokensFromPayload(payload));
+    return branch
+      ? `This would push directly to ${branch}, the project's main branch.`
+      : "This would push directly to the project's main branch.";
+  },
+  "hard-reset": () => "This would discard uncommitted changes in the worktree — permanently.",
+  "force-clean": () => "This would delete every untracked and ignored file in the worktree — permanently.",
+  "history-rewrite": () => "This would rewrite commit history other work may depend on.",
+};
+
+/** Generic, honest fallback (D-56's fail-closed rule applied to copy) for any category value this
+ * record does not hold a key for — an unrecognised string OR a recognised-but-uncovered category
+ * such as `recursive-delete` (the D-56 copy table names six of the classifier's seven named
+ * categories; `recursive-delete` has no dedicated sentence in `03-UI-SPEC.md`'s own table). Never
+ * a bare tool name or a silently-blank sentence — the raw command still renders in Mono beneath
+ * this text either way. */
+const UNCATEGORIZED_CONSEQUENCE =
+  "This command can destroy work, and Flywheel doesn't recognise exactly what it would do.";
+
+function consequenceCopyFor(category: string, inputPayload: string | null): string {
+  const resolver = DESTRUCTIVE_CONSEQUENCE[category];
+  return resolver ? resolver(inputPayload) : UNCATEGORIZED_CONSEQUENCE;
 }
 
 export type PermissionDecision = "allow" | "deny" | "allow_always";
@@ -46,6 +164,13 @@ export interface PermissionRequestCardProps {
    * placeholder (E3 `empty`). */
   requests: PendingPermissionRequest[];
   onAnswer: (requestId: string, decision: PermissionDecision) => Promise<void>;
+  /** Whether this card instance may own `a`/`d`/Shift+A. Omitted, the card keeps its original rule:
+   * the first request of the array it received is the keyboard owner. Passed `false`, NO row in this
+   * instance listens. Every row of every instance registers its own window-level listener with no
+   * deduplication (`useRegionBindings`), so a surface mounting one card per blocked agent (the fleet's
+   * blocked queue) must pass `true` to exactly one of them — otherwise one `a` press answers every
+   * agent across every project, destructive requests included. */
+  keyboardEnabled?: boolean;
 }
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
@@ -79,33 +204,66 @@ function PermissionRequestRow({
   onAnswer: (requestId: string, decision: PermissionDecision) => Promise<void>;
 }) {
   const [state, setState] = useState<RowState>({ answering: false, error: null });
-  const glyph = MARKS_BY_ID["blocked-indicator"];
+  // A destructive category selects the strong variant; `null` is the routine variant unchanged
+  // from before this plan (03-UI-SPEC.md's own "populated" resolution — the routine layout is
+  // never reached for a destructive category, and vice versa).
+  const isDestructive = request.destructiveCategory !== null;
+  const glyph = MARKS_BY_ID[isDestructive ? "destructive-gate" : "blocked-indicator"];
+  const consequenceCopy = isDestructive
+    ? consequenceCopyFor(request.destructiveCategory as string, request.inputPayload)
+    : null;
+
+  // `state.answering` alone is not a sufficient guard against two activations in the same
+  // synchronous tick, because React has not necessarily flushed the state update — and the
+  // `disabled` attribute with it — before a second click fires; a ref reads and writes
+  // synchronously and has no such window. `state.answering` stays the source of truth for what
+  // the UI renders. This is the destructive-gate card, so a double-click here would double-answer
+  // a destructive permission request (mirrors `item-detail/RunsSection.tsx`'s `ackActingRef`,
+  // which itself cites `item-detail/WorktreeSummary.tsx`'s `actingRef` as the original fix,
+  // 03-16-PLAN.md Task 1).
+  const answeringRef = useRef(false);
 
   async function answer(decision: PermissionDecision) {
-    // A second activation while disabled invokes nothing (T-02-29) — the guard the UI layer adds
-    // on top of the core's own guarded once-only write.
-    if (state.answering) return;
+    // A second activation while the ref is set invokes nothing — the synchronous-tick guard.
+    if (answeringRef.current) return;
+    answeringRef.current = true;
     setState({ answering: true, error: null });
     try {
       await onAnswer(request.id, decision);
       // On success this row disappears once the shared pending-set query re-reads (Task 2) — no
-      // local "answered" state to hold here.
+      // local "answered" state to hold here, and the ref is deliberately never reset: the row
+      // unmounts when that happens, which is what removes it. Resetting on success would reopen
+      // the same window this guard exists to close, for the brief span between the resolved
+      // promise and the unmount.
     } catch {
+      // Clear the ref before setting the error state (mirrors `acknowledge()` in
+      // `RunsSection.tsx`) — a rejected answer must re-enable the row so a retry is possible; a
+      // guard that is never cleared on failure would permanently disable the only affordance that
+      // unblocks a waiting agent.
+      answeringRef.current = false;
       setState({ answering: false, error: "Could not send your answer. Try again." });
     }
   }
 
-  useRegionBindings("permission-card", "permission-card", {
-    "answer-permission-allow": () => {
-      if (keyboardEnabled) void answer("allow");
-    },
-    "answer-permission-deny": () => {
-      if (keyboardEnabled) void answer("deny");
-    },
-    "answer-permission-allow-always": () => {
-      if (keyboardEnabled) void answer("allow_always");
-    },
-  });
+  // The destructive variant reuses these SAME two action ids through this SAME
+  // `useRegionBindings` call — no new entry in `state/keyboard.ts`, only which button each
+  // visually occupies differs (03-UI-SPEC.md Keyboard Map Additions). `Shift+A` is inert on this
+  // variant per that same section ("has no effect... since it renders no allow-always action to
+  // trigger") — gated here, in this row's own handler, not by touching the shared binding table.
+  useRegionBindings(
+    "permission-card",
+    "permission-card",
+    // A row that does not own the keyboard registers no handler at all, so a keypress finds nothing here.
+    keyboardEnabled
+      ? {
+          "answer-permission-allow": () => void answer("allow"),
+          "answer-permission-deny": () => void answer("deny"),
+          "answer-permission-allow-always": () => {
+            if (!isDestructive) void answer("allow_always");
+          },
+        }
+      : {},
+  );
 
   const payloadMaxHeight = variant === "compact" ? 160 : 240;
 
@@ -113,20 +271,23 @@ function PermissionRequestRow({
     <div
       role="group"
       aria-label={`${request.toolName} wants to:`}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-sm)",
-        padding: "var(--space-md)",
-        borderRadius: "var(--radius-chrome)",
-        background: "var(--surface-secondary)",
-        color: "var(--text-primary-rack)",
-        maxWidth: "100%",
-        minWidth: 0,
-      }}
+      className={`session-card${isDestructive ? " session-card-destructive" : ""}`}
     >
+      {isDestructive && (
+        <span className="type-heading" style={{ color: "var(--destructive-text-rack)" }}>
+          Destructive action — needs your OK
+        </span>
+      )}
+
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
-        <span aria-hidden="true" style={{ color: "var(--blocked-text-rack)", flexShrink: 0, display: "inline-flex" }}>
+        <span
+          aria-hidden="true"
+          style={{
+            color: isDestructive ? "var(--destructive-text-rack)" : "var(--blocked-text-rack)",
+            flexShrink: 0,
+            display: "inline-flex",
+          }}
+        >
           <Icon name={glyph?.glyph ?? "ShieldAlert"} />
         </span>
         <span
@@ -137,6 +298,12 @@ function PermissionRequestRow({
           {request.toolName} wants to:
         </span>
       </div>
+
+      {consequenceCopy && (
+        <p className="type-body" style={{ margin: 0, overflowWrap: "anywhere" }}>
+          {consequenceCopy}
+        </p>
+      )}
 
       <pre
         className="type-body"
@@ -155,59 +322,71 @@ function PermissionRequestRow({
 
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
         <div style={{ display: "flex", gap: "var(--space-sm)" }}>
-          <button
-            type="button"
-            disabled={state.answering}
-            onClick={() => void answer("allow")}
-            className="type-body"
-            style={{
-              background: "var(--accent-nontext)",
-              border: "none",
-              borderRadius: "var(--radius-chrome)",
-              color: "var(--text-primary-rack)",
-              padding: "var(--space-xs) var(--space-md)",
-              cursor: state.answering ? "default" : "pointer",
-              opacity: state.answering ? 0.6 : 1,
-            }}
-          >
-            Allow
-          </button>
-          <button
-            type="button"
-            disabled={state.answering}
-            onClick={() => void answer("deny")}
-            className="type-body"
-            style={{
-              background: "transparent",
-              border: "1px solid var(--divider)",
-              borderRadius: "var(--radius-chrome)",
-              color: "var(--text-primary-rack)",
-              padding: "var(--space-xs) var(--space-md)",
-              cursor: state.answering ? "default" : "pointer",
-              opacity: state.answering ? 0.6 : 1,
-            }}
-          >
-            Deny
-          </button>
+          {isDestructive ? (
+            <>
+              {/* Reversed emphasis (03-UI-SPEC.md § "Destructive-action gate card", the load-bearing
+                  decision this plan adds): Deny takes the filled/primary position a routine card's
+                  Allow occupies, repurposing approve-by-muscle-memory as the safety mechanism rather
+                  than fighting it with a delay or a typed confirmation. */}
+              <button
+                type="button"
+                disabled={state.answering}
+                onClick={() => void answer("deny")}
+                className="control-edge session-action session-action-lead session-action-destructive type-body"
+              >
+                Deny
+              </button>
+              <button
+                type="button"
+                disabled={state.answering}
+                onClick={() => void answer("allow")}
+                className="control-edge session-action type-body"
+              >
+                Allow, just this once
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={state.answering}
+                onClick={() => void answer("allow")}
+                className="control-edge session-action session-action-lead type-body"
+              >
+                Allow
+              </button>
+              {/* Deny is the secondary answer: text and a caret, no box (the "← Board" / disclosure device). It was a
+                  1px box beside a 2px box, so the two read as interchangeable (08.1-17 closure). */}
+              <button
+                type="button"
+                disabled={state.answering}
+                onClick={() => void answer("deny")}
+                className="session-text-action type-body"
+              >
+                Deny
+                <span aria-hidden="true">›</span>
+              </button>
+            </>
+          )}
         </div>
-        <button
-          type="button"
-          disabled={state.answering}
-          onClick={() => void answer("allow_always")}
-          className="type-label"
-          style={{
-            alignSelf: "flex-start",
-            background: "transparent",
-            border: "none",
-            color: "var(--text-muted-rack)",
-            textDecoration: "underline",
-            padding: 0,
-            cursor: state.answering ? "default" : "pointer",
-            opacity: state.answering ? 0.6 : 1,
-          }}
-        >
-          Allow this tool for this project from now on
-        </button>
+        {/* The tertiary allow-always action is conditionally ABSENT from the destructive variant —
+            not rendered-and-disabled — so it can never regress back in for a destructive category
+            (D-57). `disabled` is never used to hide it; the whole button is omitted from the tree. */}
+        {/* The permanent grant is the highest-consequence answer, so it is the furthest from the two quick ones: it
+            sits below a hairline gutter, and its scope is carried by weight on the words, not by an underline. */}
+        {!isDestructive && (
+          <div className="session-grant">
+            <button
+              type="button"
+              disabled={state.answering}
+              onClick={() => void answer("allow_always")}
+              className="session-text-action type-label"
+            >
+              Allow this tool <strong>for this project</strong> from now on
+              <span aria-hidden="true">›</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {state.error && (
@@ -219,7 +398,12 @@ function PermissionRequestRow({
   );
 }
 
-export function PermissionRequestCard({ variant, requests, onAnswer }: PermissionRequestCardProps) {
+export function PermissionRequestCard({
+  variant,
+  requests,
+  onAnswer,
+  keyboardEnabled = true,
+}: PermissionRequestCardProps) {
   if (requests.length === 0) return null;
 
   return (
@@ -233,7 +417,7 @@ export function PermissionRequestCard({ variant, requests, onAnswer }: Permissio
           key={request.id}
           request={request}
           variant={variant}
-          keyboardEnabled={index === 0}
+          keyboardEnabled={keyboardEnabled && index === 0}
           onAnswer={onAnswer}
         />
       ))}

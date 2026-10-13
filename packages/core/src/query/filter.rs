@@ -52,10 +52,15 @@ pub struct BoardFilter {
     pub assignees: Option<Vec<AssigneeSelector>>,
     pub priorities: Option<Vec<i64>>,
     pub estimates: Option<Vec<i64>>,
+    /// D-17: restrict to rows that have an active worktree (08.1-AMENDMENTS.md A-04: an epic row
+    /// counts when any of its child tasks does). `false` is "this dimension is unfiltered" — there
+    /// is deliberately no "only rows WITHOUT a worktree" reading, because nothing asks for one.
+    pub has_worktree: bool,
 }
 
 /// The pre-serialised form of a `BoardFilter`, bound directly as named parameters
-/// (`:status_json`, `:epic_json`, `:assignee_json`, `:priority_json`, `:estimate_json`) into
+/// (`:status_json`, `:epic_json`, `:assignee_json`, `:priority_json`, `:estimate_json`,
+/// `:has_worktree`) into
 /// every query in this crate that includes `FILTER_WHERE`. `None` binds SQL `NULL` ("this
 /// dimension is unfiltered"); `Some(json)` binds the dimension's value set as a JSON array.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -65,6 +70,8 @@ pub struct FilterBinding {
     pub assignee_json: Option<String>,
     pub priority_json: Option<String>,
     pub estimate_json: Option<String>,
+    /// `Some(1)` restricts to rows with an active worktree; `None` binds SQL `NULL` (unfiltered).
+    pub has_worktree: Option<i64>,
 }
 
 fn to_json<T: Serialize>(values: &[T]) -> String {
@@ -97,6 +104,7 @@ pub fn apply_filter(filter: &BoardFilter) -> FilterBinding {
         }),
         priority_json: filter.priorities.as_ref().map(|v| to_json(v)),
         estimate_json: filter.estimates.as_ref().map(|v| to_json(v)),
+        has_worktree: filter.has_worktree.then_some(1),
     }
 }
 
@@ -111,4 +119,14 @@ pub const FILTER_WHERE: &str = concat!(
     " AND (:assignee_json IS NULL OR COALESCE(b.assignee_id, '') IN (SELECT value FROM json_each(:assignee_json)))",
     " AND (:priority_json IS NULL OR b.priority IN (SELECT value FROM json_each(:priority_json)))",
     " AND (:estimate_json IS NULL OR COALESCE(b.estimate, 0) IN (SELECT value FROM json_each(:estimate_json)))",
+    // D-17 / A-04. A task matches on its own active worktree (`worktrees.task_id` is UNIQUE, so
+    // that probe is an index seek). An epic can never own a worktree, so it matches when ANY
+    // child task has one. Keyed on `b.kind`, never on `b.epic_id`: an epic row's own `epic_id`
+    // is NULL, so it sits in the no-epic bucket. `wt.project_id` lets the child probe use the
+    // `(project_id, epic_id)` index on `tasks`.
+    " AND (:has_worktree IS NULL OR CASE b.kind",
+    "   WHEN 'epic' THEN EXISTS (SELECT 1 FROM tasks wt JOIN worktrees w ON w.task_id = wt.id",
+    "     WHERE wt.project_id = :project_id AND wt.epic_id = b.id AND w.status = 'active')",
+    "   ELSE EXISTS (SELECT 1 FROM worktrees w WHERE w.task_id = b.id AND w.status = 'active')",
+    " END)",
 );

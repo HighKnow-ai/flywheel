@@ -23,9 +23,16 @@
 //! board").
 
 pub mod agent_runs;
+pub mod authoring;
+pub mod change_flags;
+pub mod epic_progress;
 pub mod events;
 pub mod filter;
+pub mod fleet;
+pub mod forge;
 pub mod permissions;
+pub mod recovery;
+pub mod scope;
 pub mod search;
 
 use anyhow::Context;
@@ -178,11 +185,14 @@ const ITEM_SELECT_LIST: &str = concat!(
 );
 
 /// The criteria-count `LEFT JOIN` every window query attaches to its `b` subquery (D-08) — a
-/// single grouped aggregate, never a per-row follow-up query.
+/// single grouped aggregate, never a per-row follow-up query. Restricted to current revisions
+/// (`superseded_at IS NULL`, D-79, plan 04-04 Task 3) so a revised criterion never inflates an
+/// item's `x/y` badge from `1/3` to `1/4` — this constant is shared by every window query and by
+/// `search.rs`, so this one edit covers all of them; never add a second, unfiltered copy.
 const CRITERIA_JOIN: &str = concat!(
     "LEFT JOIN (",
     " SELECT parent_id, SUM(checked) AS checked, COUNT(*) AS total",
-    " FROM acceptance_criteria GROUP BY parent_id",
+    " FROM acceptance_criteria WHERE superseded_at IS NULL GROUP BY parent_id",
     ") c ON c.parent_id = b.id",
 );
 
@@ -275,6 +285,7 @@ fn list_board_first_page(
                 ":assignee_json": binding.assignee_json,
                 ":priority_json": binding.priority_json,
                 ":estimate_json": binding.estimate_json,
+                ":has_worktree": binding.has_worktree,
                 ":limit": limit,
             },
             row_to_item,
@@ -319,6 +330,7 @@ fn list_board_next_page(
                 ":assignee_json": binding.assignee_json,
                 ":priority_json": binding.priority_json,
                 ":estimate_json": binding.estimate_json,
+                ":has_worktree": binding.has_worktree,
                 ":cursor_status": cursor.status_sort_key,
                 ":cursor_priority": cursor.priority_sort_key,
                 ":cursor_rank": &cursor.rank,
@@ -375,11 +387,11 @@ pub(crate) fn board_band_counts(
 ) -> anyhow::Result<BandCounts> {
     let sql = format_sql(&[
         "SELECT b.status, COUNT(*) FROM (",
-        " SELECT id, key, title, status, rank, priority, NULL AS epic_id, estimate, assignee_id",
-        "   FROM epics WHERE project_id = :project_id",
+        " SELECT id, 'epic' AS kind, key, title, status, rank, priority, NULL AS epic_id,",
+        "   estimate, assignee_id FROM epics WHERE project_id = :project_id",
         " UNION ALL",
-        " SELECT id, key, title, status, rank, priority, epic_id, estimate, assignee_id",
-        "   FROM tasks WHERE project_id = :project_id",
+        " SELECT id, 'task' AS kind, key, title, status, rank, priority, epic_id,",
+        "   estimate, assignee_id FROM tasks WHERE project_id = :project_id",
         " ) b",
         " WHERE ",
         FILTER_WHERE,
@@ -394,6 +406,7 @@ pub(crate) fn board_band_counts(
             ":assignee_json": binding.assignee_json,
             ":priority_json": binding.priority_json,
             ":estimate_json": binding.estimate_json,
+            ":has_worktree": binding.has_worktree,
         },
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
     )?;

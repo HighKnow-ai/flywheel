@@ -1,8 +1,8 @@
 ---
 phase: 02-one-agent-one-worktree-watched-live
-verified: 2026-09-11T13:55:00Z
-status: human_needed
-score: 3/6 truths verified (5 roadmap success criteria + 1 project-constraint truth; 0 failed, 3 present-behavior-unverified)
+verified: 2026-09-12T12:30:00Z
+status: passed
+score: 6/6 truths supported by evidence (5 roadmap success criteria + 1 project-constraint truth); 0 failed; 0 present-behavior-unverified; 0 open human-verification items (down from 1 at the last pass, 2 two passes ago, and 5 in the pre-UAT report)
 covered_files:
   - .planning/REQUIREMENTS.md
   - .planning/ROADMAP.md
@@ -35,253 +35,294 @@ covered_files:
   - .planning/phases/02-one-agent-one-worktree-watched-live/02-13-SUMMARY.md
   - .planning/phases/02-one-agent-one-worktree-watched-live/02-14-PLAN.md
   - .planning/phases/02-one-agent-one-worktree-watched-live/02-14-SUMMARY.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-CONTEXT.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-DISCUSSION-LOG.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-PATTERNS.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-RESEARCH.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-REVIEW-FIX.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-REVIEW.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-REVIEW.pre-gap-closure.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-UI-SPEC.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-VALIDATION.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/02-VERIFICATION.pre-gap-closure.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/COVERAGE.md
-  - .planning/phases/02-one-agent-one-worktree-watched-live/deferred-items.md
-  - packages/core/src/db/migrations/0003_agent_runtime.sql
-  - packages/core/src/db/migrations/0004_permission_gate.sql
-  - packages/core/src/domain/task.rs
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-15-PLAN.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-15-SUMMARY.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-16-PLAN.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-16-SUMMARY.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-17-PLAN.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-17-SUMMARY.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-18-PLAN.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-18-SUMMARY.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-SECURITY.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/02-UAT.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/archive/02-REVIEW.pre-gap-closure.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/archive/02-VERIFICATION.pre-gap-closure.md
+  - .planning/phases/02-one-agent-one-worktree-watched-live/archive/README.md
+  - packages/core/src/domain/agent_run.rs
   - packages/core/tests/agent_run_stop_ordering.rs
   - packages/core/tests/app_exit_ordering.rs
+  - packages/core/tests/runtime_context_call_sites.rs
+  - packages/core/tests/session_close_lifecycle.rs
+  - packages/core/tests/session_closed_call_site.rs
   - packages/core/tests/task_delete_with_run_history.rs
   - packages/desktop/src-tauri/src/commands/agent_run.rs
   - packages/desktop/src-tauri/src/main.rs
   - packages/desktop/src-tauri/src/sidecar.rs
-  - packages/desktop/src/adapters/tauri.ts
+  - packages/desktop/src/session/FeedRow.tsx
   - packages/desktop/src/session/SessionSurface.tsx
-  - packages/desktop/src/session/__tests__/session-surface.test.tsx
+  - packages/sidecar/src/adapter.ts
   - packages/sidecar/src/claude-code-adapter.ts
   - packages/sidecar/src/index.ts
+  - packages/sidecar/test/real-claude-argv.test.mjs
   - packages/sidecar/test/shutdown.test.mjs
-covered_digest: "v1:sha256:5f71a5c6e84bd0dd3a4caa254e31efaba9f9665402cdb0145d07b82d52ccad2e"
-behavior_unverified: 3
+  - packages/sidecar/test/stub-invocation.test.mjs
+covered_digest: "v1:sha256:3cebf0d8767b01624e73cf571ed014cf90729c6b21b54e29ddced3d14d1593a5"
+behavior_unverified: 0
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
-  previous_score: "1/5 roadmap success criteria fully verified (2 failed, 2 human-verification-only)"
+  previous_status: human_needed
+  previous_score: "6/6 truths supported by evidence (5 roadmap success criteria + 1 project-constraint truth); 0 failed; 1 narrower human-verification item remained open"
   gaps_closed:
-    - "PROC-06 / CR-04: agent_run_stop's terminal write is now unconditional on the sidecar ack (stop_agent_run_recording_first captures the interrupt Result in a local rather than propagating it with `?`); proven by two new Rust tests that stop a run whose interrupt closure always returns Err and assert the run still reaches `interrupted`, exactly once."
-    - "02-07-PLAN prohibition / CR-03: the shared sidecar stdout-reader loop no longer calls `SessionLogWriter::open(...).expect(...)`. `persist_event_line` returns a `PersistOutcome` value on every path (RejectedRunId/OpenFailed/AppendFailed/Written) and never unwinds; proven by three new `persist_tests` cases showing one run's permanently-unopenable log never stops another run's events, and a failed open retries rather than caching the failure."
-    - "DATA-06 / CR-01 (task deletion regression): `delete_task` now counts rows in triggers/worktrees/agent_runs/permission_requests inside its own transaction and blocks with a human-readable `anyhow::bail!` before ever reaching `DELETE FROM tasks` (D-40: block, never cascade). Proven by `task_delete_with_run_history.rs`'s three tests: blocked-with-history, still-succeeds-with-no-history, and never-a-raw-SQLite-message."
-    - "CLAUDE.md orphan-process constraint / CR-02: `RunEvent::Exit` now calls `SidecarHandle::shutdown_all_sessions()` (which asks the sidecar to signal every live session's process group and waits on a bounded ack) BEFORE `SidecarHandle::kill()`. Proven by `shutdown.test.mjs`, which drives the real compiled sidecar binary as a child process, spawns two real stubborn grandchildren, and proves via `process.kill(pid, 0)` throwing ESRCH that both are gone after a `shutdown` request — plus a SIGTERM-fallback case and an idempotent-second-call case. A source-scanning gate (`app_exit_ordering.rs`) makes the shutdown-before-kill ordering a compiler-adjacent regression gate, falsifiable against a reordered/missing/commented-out fixture."
+    - "The single remaining human-verification item — whether a Stop preserves an agent's specifically UNCOMMITTED work, not just an intact branch and no orphan process — is now closed by a third, successful attempt. Independently re-verified this pass directly against the live worktree and database, not trusted from any narrative: `git -C .../THRE-58 status --short` returns ` M README.md`; `git -C .../THRE-58 diff -- README.md` shows an uncommitted `+stop-test` line; `agent_runs` records THRE-58's run as `interrupted` with `ended_at = 2026-09-12T00:34:36.064558+00:00`, matching the expected kill time exactly; `pgrep -fl 'flywheel-permissions'` finds no match (no orphaned process). The process-group kill demonstrably does not reach the working tree. T-02-12 (high, 02-SECURITY.md) and WINDOWS.md row 3 are both closed with this evidence; row 7 (the allow-always permission-rule round trip, closed in the prior pass) is also now flipped to `status: fixed` in the ledger, matching its own already-updated narrative."
+    - "FOURTH PASS: the advisory this same block left open — that 02-UAT.md test 4's own body was never updated to match its resolution, only its frontmatter timestamp — is now closed. Commit `4facbfd` added a `resolved:` block to 02-UAT.md test 4 naming THRE-58, the `interrupted` run reaching `ended_at 2026-09-12T00:34:36.064558Z`, the uncommitted ` M README.md`, and no orphaned process (`pgrep -fl 'flywheel-permissions'` no match) — confirmed by direct read of 02-UAT.md this pass, not trusted from the commit message. The block also names the earlier no-op itself ('a string replacement whose anchor did not match, run without an assertion, which still reported success') rather than silently repairing it, closing the hygiene gap without erasing the record of how it happened."
   gaps_remaining: []
-  regressions:
-    - "A second-round code review (02-REVIEW.md, post-gap-closure) found that 02-11's CR-04 fix had introduced a new regression: `agent_run_stop` acquired `state.db.lock()` BEFORE the up-to-30-second-blocking `interrupt_run` call, so a wedged sidecar would freeze every other command in the app (board reads, task creation, every other run's interactions) behind one Stop click — worse than the original CR-04 bug in a different dimension. This was fixed in commit `e0f532c` (interrupt resolved into a local before the lock is acquired) and independently re-verified here by direct code read plus a new falsifiable source-scanning gate, `packages/core/tests/agent_run_stop_ordering.rs`, which passes. This regression was found and fixed entirely within the gap-closure round, before this verification ran — it is recorded here for the audit trail, not as an open issue."
+  regressions: []
+observed_since_last_verification:
+  - "THIRD PASS (2026-09-12, commit b467830): independently re-ran every command the instruction supplied, not trusted from WINDOWS.md's, 02-SECURITY.md's, or 02-UAT.md's own narrative. `git -C /Users/cymarechal/Flywheel/THRE/THRE-58 status --short` -> ` M README.md`. `git -C .../THRE-58 diff -- README.md` -> uncommitted `+stop-test` line appended after the existing test-command block. `sqlite3 flywheel.db` on `agent_runs` joined to `tasks` -> THRE-58's run `interrupted`, `started_at 2026-09-12T00:33:31.202604+00:00`, `ended_at 2026-09-12T00:34:36.064558+00:00` — matching the expected 00:34:36Z exactly. `pgrep -fl 'flywheel-permissions'` -> no match, exit code 1."
+  - "THIRD PASS: full `agent_runs` table inspected (not just the last 3 rows) — 5 runs total, 2 `completed` (THRE-38: cost_usd 1.183256/tokens_in 1011934/tokens_out 7615; THRE-33: cost_usd 0.8583115/tokens_in 531449/tokens_out 5811) and 3 `interrupted` (THRE-53, THRE-43, THRE-58, each with populated cost/token columns), 0 stuck at `running`. G-02-4's fix (close_agent_run gaining a production caller) is holding across five independent real runs spanning two days, not just the single run that first demonstrated it at UAT."
+  - "THIRD PASS: all five live worktrees' dirty state re-checked directly (`git status --short` in each) — THRE-33, THRE-38, THRE-43, THRE-53 report 0 dirty entries (consistent with prior passes: THRE-43's edit was committed, `1a59dbe`); THRE-58 alone reports ` M README.md`, the uncommitted edit the third attempt was designed to produce."
+  - "THIRD PASS: `.planning/WINDOWS.md` re-read directly — both row 3 and row 7 now carry `status: fixed` with matching `resolved_at` timestamps (`2026-09-12T00:35:37.853Z` and `2026-09-12T00:29:05.383Z` respectively), and the ledger header now reads `open_count: 5, fixed_count: 2, total_count: 7` — internally consistent with the two rows' own status fields. Confirmed via `git show` that the single commit (`b467830`) which flipped row 3 to `fixed` also updated `02-SECURITY.md`'s T-02-12 entry to `RESOLVED` in the same commit, so the ledger and the threat register did not drift apart."
+  - "THIRD PASS: `.planning/phases/.../02-SECURITY.md` re-read directly — T-02-12 now reads `RESOLVED 2026-09-12T00:34Z — now verified by observed behaviour`, with the same THRE-58 evidence as WINDOWS.md row 3. `threats_open: 0` unchanged. The main threat-register summary line (`84 threats · 82 closed · 2 open`) still refers to T-02-37 (medium, Phase-3-deferred) and one other pre-existing open item — T-02-12 was never counted in that 2-open figure (its disposition was `closed` in the register from audit time; the separate 'code-reading only' table tracked *evidence quality*, not disposition), so no inconsistency there."
+  - "THIRD PASS: a discrepancy found and worth recording — `.planning/phases/.../02-UAT.md` test 4's own body (the `not_corroborated:` field) was NOT updated to reflect the third attempt; only its frontmatter `updated:` timestamp changed (confirmed via `git show b467830 -- .../02-UAT.md`, a 2-line diff touching only that timestamp). The claim that '02-UAT.md test 4 carries a FULLY RESOLVED block' does not hold literally — that language lives in WINDOWS.md row 3 and 02-SECURITY.md's T-02-12 entry, not in 02-UAT.md itself. This is a documentation-hygiene gap in 02-UAT.md, not a substantive one: the underlying claim was independently verified directly against the live worktree and database by this pass, not taken from any of the three files' narrative. Recorded as an advisory, not a gap, because presence-of-evidence was confirmed at the primary source (git + sqlite) rather than through the stale document. Closed at the fourth pass — see below."
+  - "No source file was touched between the prior pass and this one (`git log` shows only phase-02 doc/ledger commits since; `git status --short` on the main repo shows only unrelated untracked directories — `.flywheel/`, `.gsd/`, `.planning/milestone.lock`, a new `10.1-*` phase directory — none touching this phase's covered files). The full-suite results carried forward from two passes ago (cargo 222/222, sidecar 39/39, desktop 314/314, clean TS build) were not re-run this pass; they would produce no new evidence."
+  - ".planning/REQUIREMENTS.md's per-requirement status table (lines ~217-271) still shows the inverse of the actual, code-verified state for this phase (DATA-04/WORK-01/WORK-02/WORK-08/LINK-01/AGNT-03/AGNT-04/AGNT-06 marked 'Gaps Found' while DATA-06/PROC-01/PROC-06/PROC-07/AGNT-01/AGNT-02 are marked 'Complete') — flagged across three passes now and still unreconciled. Directly re-confirmed this pass by reading the table. Doc-hygiene only; not evidence of a code regression; does not block `passed`."
+  - "FOURTH PASS (2026-09-12, post-4facbfd): 02-UAT.md test 4 re-read directly (not the diff, the live file) — it now carries a `resolved:` block naming THRE-58, the run reaching `interrupted` at `2026-09-12T00:34:36.064558Z`, the uncommitted ` M README.md`, and no orphaned process, plus a 'NOTE ON THIS RECORD' paragraph documenting the prior silent no-op as a failure in its own right rather than papering over it. The advisory this report carried at the third pass is closed."
+  - "FOURTH PASS: archive integrity independently re-verified, not trusted from the commit message. `git show 4facbfd~1:.../02-VERIFICATION.pre-gap-closure.md` and `git show 4facbfd~1:.../02-REVIEW.pre-gap-closure.md` diffed byte-for-byte against their current `archive/` copies with plain `diff` — both diffs empty, exit 0. `git log --follow --stat` on each archived path shows the `4facbfd` commit itself as `0 insertions(+), 0 deletions(-)` on that file — a pure rename, not an edit disguised as one. `archive/README.md` (new, 15 lines) explains why the two reports were moved."
+  - "FOURTH PASS: working tree confirmed clean of any change to phase-02 covered files — `git status --short` on the main repo shows only unrelated untracked directories (`.flywheel/`, `.gsd/`, `.planning/milestone.lock`, a new `10.1-visual-polish-...` phase directory), none touching this phase. HEAD is `4facbfd`, the commit named in the verification instruction, and it is the tip of the branch (no unpushed or uncommitted phase-02 changes)."
 gaps: []
 deferred: []
-behavior_unverified_items:
-  - truth: "PROC-07: a user watches a long-running session live and application memory stays flat rather than growing with the transcript"
-    test: "Start a long-running real session on a real task, leave it streaming for several minutes, and watch RSS in Activity Monitor while the transcript grows on disk."
-    expected: "RSS stays flat while the persisted log on disk keeps growing; the renderer never holds more than a bounded window."
-    why_human: "The windowed-read design (session_log.rs::read_window, LOG_WINDOW_MAX_LIMIT=100; SessionSurface.tsx's @tanstack/react-virtual usage) is present and structurally sound, and this round closed the confirmed silent-drop defect (CR-03) with real tests — but actual flat-RSS behavior over a long real session can only be observed by running the packaged app, per 02-VALIDATION.md's own Manual-Only Verifications table. Unchanged from the prior verification round."
-  - truth: "AGNT-06: a permission request pauses the agent, the user answers it from the board, and the agent genuinely resumes (full path through a real claude process)"
-    test: "Press Start Work on a task whose work needs a permission decision, confirm the board surfaces the request and the agent is genuinely blocked, answer it, and confirm the agent resumes rather than restarting."
-    expected: "The real claude process blocks on the MCP tool call, the board renders the pending request, answering it resolves the held call, and the agent continues the same turn."
-    why_human: "The DB/MCP-server halves (permission_gate.rs, mcp-permission-server.ts) are proven by real automated tests, but the end-to-end path crosses the renderer and a real spawned claude process — explicitly manual-only per 02-VALIDATION.md. Execution notes also record that Claude Code's own built-in bash safety heuristic was empirically found to bypass a configured --permission-prompt-tool for commands it judges read-only, even in --permission-mode default. No gap-closure plan touched this path; unchanged from the prior verification round."
-  - truth: "AGNT-03/AGNT-04: the user can point Flywheel at local Claude Code credentials or an explicit API key with nothing else in the product behaving differently"
-    test: "Run the same task once under local Claude Code credentials and once with an explicit API key configured in Settings; confirm nothing else in the product behaves differently, and confirm the key never appears in `ps` or the persisted session JSONL."
-    expected: "Identical argv and event-kind/order between the two modes (already proven by packages/sidecar/test/credentials.test.mjs); the API key is present in the child's environment only."
-    why_human: "The structural/code-level guarantees (argv parity, env-only injection, no credential-mode branching, single resolver) are proven by real spawned-child tests. What remains unverified is whether ANTHROPIC_API_KEY reliably overrides a present local subscription session in the real claude CLI — unmeasurable in this environment (no spend-authorized key) and logged as a Phase 3 input. Unchanged from the prior verification round."
-  - truth: "Plan 02-02's own manual verification step: starting a real session, pressing Stop, and confirming from a bare terminal that the worktree is intact and no process survives under it"
-    test: "Start a real session, press Stop, then from a bare terminal confirm the worktree directory and its uncommitted changes are intact and no claude (or descendant) process is still running."
-    expected: "Worktree intact and dirty exactly as the agent left it; no orphaned process."
-    why_human: "Logged as an open unrun-verify item in .planning/WINDOWS.md (row 3), deferred to end-of-phase UAT per workflow.human_verify_mode=end-of-phase. The underlying process-group-kill mechanism is now proven at two levels — packages/sidecar/test/stop.test.mjs (single-run interrupt) and this round's shutdown.test.mjs (app-exit path) — but the packaged-app path itself has still not been observed by a human. Still open in WINDOWS.md as of this verification."
-  - truth: "Plan 02-10's own manual verification step: Settings surface reachable from menu/⌘,/palette, API key save-then-hide, and allow-always rule list/revoke from a real permission request"
-    test: "Open Settings from the app menu, from ⌘,, and from the command palette; save an API key and confirm it cannot be read back; grant an allow-always rule from a real permission request and confirm it appears in the table with its project and can be revoked."
-    expected: "All three entry points open the same Settings surface; the saved key is never re-rendered; the granted rule appears, attributable and revocable."
-    why_human: "Logged as an open unrun-verify item in .planning/WINDOWS.md (row 7), deferred to end-of-phase UAT per workflow.human_verify_mode=end-of-phase. No gap-closure plan touched this surface; still open."
-human_verification:
-  - test: "Start a long-running real session on a real task, leave it streaming for several minutes, and watch RSS in Activity Monitor while the transcript grows on disk."
-    expected: "RSS stays flat while the persisted log keeps growing on disk."
-    why_human: "Real-process memory behavior over minutes cannot be observed by static analysis; explicitly manual-only per 02-VALIDATION.md. Unchanged from the prior round."
-  - test: "Press Start Work on a task whose work needs a permission decision; confirm the board surfaces the request, the agent is genuinely blocked, and answering resumes the same turn rather than restarting it."
-    expected: "The real claude process blocks on the MCP tool call and resumes correctly once answered."
-    why_human: "Crosses the renderer and a real spawned claude process; also subject to the noted Claude Code bash-safety-heuristic caveat that may bypass the configured permission-prompt-tool for some commands. Unchanged from the prior round."
-  - test: "Run the same task once under local Claude Code credentials and once with an explicit API key configured in Settings; confirm identical product behavior and that the key never appears in `ps` or the persisted JSONL."
-    expected: "No behavioral difference between the two credential paths; the key is present only in the child's environment."
-    why_human: "Requires two real credential configurations on one machine; whether ANTHROPIC_API_KEY reliably overrides a present subscription session could not be measured in this environment (no spend-authorized key) and is recorded as a Phase 3 input. Unchanged from the prior round."
-  - test: "Start a real session, press Stop, and confirm from a bare terminal that the worktree is intact and no process survives under it."
-    expected: "Worktree intact and dirty as left; no orphaned process."
-    why_human: "Open unrun-verify item, .planning/WINDOWS.md row 3 — deferred to end-of-phase UAT. Still open."
-  - test: "Open Settings from the app menu, ⌘,, and the command palette; save an API key and confirm it cannot be read back; grant and revoke an allow-always rule from a real permission request."
-    expected: "All entry points open the same surface; key never re-rendered; rule appears and is revocable."
-    why_human: "Open unrun-verify item, .planning/WINDOWS.md row 7 — deferred to end-of-phase UAT. Still open."
+human_verification: []
 ---
 
-# Phase 2: One Agent, One Worktree, Watched Live — Verification Report (Re-Verification)
+# Phase 2: One Agent, One Worktree, Watched Live — Verification Report (Re-Verification, post-UAT, post-security-audit, post-third-human-observation, fourth pass — advisory closure)
 
-**Phase Goal:** Cyril presses Start Work on a board task and watches a Claude Code session do
-that task inside a git worktree that belongs to the task rather than to the session.
+**Phase Goal:** Cyril presses Start Work on a board task and watches a Claude Code session do that
+task inside a git worktree that belongs to the task rather than to the session.
 
-**Verified:** 2026-09-11
-**Status:** human_needed
-**Re-verification:** Yes — after gap closure (plans 02-11..02-14) and a second code-review round
-(02-REVIEW.md / 02-REVIEW-FIX.md)
+**Verified:** 2026-09-12T12:30:00Z
+**Status:** passed
+**Re-verification:** Yes — this updates a report written 2026-09-12T11:40:00Z (itself updating
+reports written 2026-09-12T10:15:00Z, 2026-09-11T19:05:00Z and 2026-09-11T13:55:00Z). This fourth
+pass is deliberately narrow: it does not re-litigate the five gap closures, the security audit, or
+the suites. It confirms two things the third pass surfaced but left open — that the third pass's
+own advisory (02-UAT.md test 4's stale narrative) is now closed, and that two superseded reports
+moved to `archive/` in the same commit were moved verbatim, not quietly edited.
 
-**Mode note:** ROADMAP.md marks this phase `mode: mvp`, but its `**Goal:**` line is not in
-`As a … I want to … so that …` user-story format. Plan 02-11 explicitly flagged this and declined
-to invent a user-story enrichment. The prior (pre-gap-closure) verification used the standard
-goal-backward methodology against the roadmap's five numbered Success Criteria rather than an MVP
-User Flow Coverage table, and this re-verification continues that same methodology for
-consistency and because the gap-closure plans themselves were scoped and evaluated against those
-same five criteria.
+**Mode note:** unchanged from prior reports — ROADMAP.md marks this phase `mode: mvp`, but its
+`**Goal:**` line is not in `As a … I want to … so that …` user-story format, so this report
+continues the standard goal-backward methodology against the roadmap's five numbered Success
+Criteria.
+
+## What changed since the last report (this update)
+
+The 2026-09-12T10:15:00Z report held `human_needed` on exactly one item: whether a Stop preserves an
+agent's specifically **uncommitted** work, not just an intact branch and no orphan process. Two prior
+attempts (02-UAT.md test 4, and a same-day re-run) both ended with the agent's edit already committed
+before the kill landed, so the narrower claim stayed genuinely unexercised.
+
+**A third attempt closed it, and this pass re-verifies the closure independently rather than trusting
+WINDOWS.md's, 02-SECURITY.md's, or the instruction's own narrative:**
+
+- `git -C /Users/cymarechal/Flywheel/THRE/THRE-58 status --short` → ` M README.md` (uncommitted).
+- `git -C /Users/cymarechal/Flywheel/THRE/THRE-58 diff -- README.md` → an uncommitted `+stop-test`
+  line appended after the existing test-command block — never committed.
+- `sqlite3 flywheel.db` on `agent_runs` joined to `tasks` → THRE-58's run status `interrupted`,
+  `started_at 2026-09-12T00:33:31.202604+00:00`, `ended_at 2026-09-12T00:34:36.064558+00:00` —
+  matching the expected kill time (00:34:36Z) exactly, with populated `cost_usd`/`tokens_in`/
+  `tokens_out` (not the "stuck running forever" defect G-02-4 fixed).
+- `pgrep -fl 'flywheel-permissions'` → no match. No orphaned process.
+
+This directly exercises the previously-unexercised claim: an uncommitted edit was on disk, Stop was
+pressed, and the edit is still there, unmodified, with no process surviving. `.planning/WINDOWS.md`
+row 3 and `.planning/phases/.../02-SECURITY.md`'s T-02-12 entry were both updated in the same commit
+(`b467830`) to reflect this, and row 3's `status` field was flipped from `open` to `fixed` — closing
+the doc-hygiene gap the prior report also flagged (row 7 was likewise flipped to `fixed`, closing
+that hygiene gap too). One new, minor hygiene gap surfaced this pass: `02-UAT.md` test 4's own body
+was not updated to match — only its frontmatter timestamp changed. This does not weaken the
+substantive finding, since the finding was independently re-derived from git and the database
+directly, not from any of the three narrative documents. See `observed_since_last_verification`
+above and the Advisory section below.
+
+With this item closed, the human-verification section is now empty. Per this agent's own routing
+rule, an empty human-verification section together with zero failed truths and zero blockers means
+the correct status is `passed`.
+
+## Fourth pass (narrow scope): advisory closure and archive-integrity check
+
+This pass does not re-litigate the five gap closures, the security audit, or the suites — they were
+carried forward unchanged (no source file touched since the third pass). It checks exactly three
+things.
+
+**1. The third pass's own advisory — 02-UAT.md test 4's stale narrative — is now closed.** Direct
+read of `02-UAT.md` (not the commit diff, the live file) confirms test 4 now carries a `resolved:`
+block naming THRE-58, the run reaching `interrupted` at `2026-09-12T00:34:36.064558Z`, the
+uncommitted ` M README.md`, and no orphaned process — the same evidence WINDOWS.md row 3 and
+02-SECURITY.md's T-02-12 entry already carried. It also carries a `NOTE ON THIS RECORD` paragraph
+that names the earlier failure explicitly: "this resolution was first written only into WINDOWS.md
+and 02-SECURITY.md. The edit meant for this file silently no-opped — a string replacement whose
+anchor did not match, run without an assertion, which still reported success." The no-op is
+recorded, not quietly repaired out of the historical trail. **Closed.**
+
+**2. Two superseded reports were moved to `archive/`, not edited.** `git show
+4facbfd~1:.../02-VERIFICATION.pre-gap-closure.md` and `git show
+4facbfd~1:.../02-REVIEW.pre-gap-closure.md` were diffed byte-for-byte against their current
+`archive/` copies with plain `diff` — **both diffs are empty (exit 0)**. `git log --follow --stat`
+on each archived path confirms the `4facbfd` commit itself touched each file with
+`0 insertions(+), 0 deletions(-)` — a pure git rename, not an edit disguised as one. A new
+`archive/README.md` (15 lines) explains why the two reports were moved: the pre-gap-closure
+verification report's own `status: gaps_found` was blocking the phase predicate on a stale status
+long after every gap it named was closed, and rewriting a historical report's status to unblock a
+gate would have destroyed the record that makes the gate worth having. **Confirmed intact.**
+
+**3. Working tree is clean and every change above is committed.** `git status --short` on the main
+repo shows only unrelated untracked directories (`.flywheel/`, `.gsd/`, `.planning/milestone.lock`,
+a new `10.1-visual-polish-...` phase directory) — none touching phase 02's covered files. HEAD is
+`4facbfd`, the commit named in the verification instruction. **Confirmed.**
+
+All three checks held. `status: passed` is re-affirmed and this report's `verified` timestamp is
+refreshed so it is no longer stale relative to `02-UAT.md`.
 
 ## Goal Achievement
 
-### Re-Verification Summary
+### Independently Re-Run Evidence (this pass — worktree and database state, not trusted from any narrative)
 
-All four `gaps_found` truths from the pre-gap-closure report (`02-VERIFICATION.pre-gap-closure.md`)
-were independently re-tested against the code on disk — not trusted from `02-11`..`02-14`'s own
-SUMMARY.md claims — and all four are closed with real, currently-passing tests:
-
-| Gap (pre-gap-closure) | Closing plan | Verified how |
+| Check | Command | Result |
 |---|---|---|
-| PROC-06/CR-04: stop can strand a run `running`/`blocked` forever | 02-11 | Read `stop_agent_run_recording_first` — interrupt result is captured in a local, never applied with `?`; ran `cargo test -p desktop stop_` → 2 passed |
-| 02-07-PLAN prohibition/CR-03: one run's log-open panic silences every run's feed | 02-12 | Read `persist_event_line` — returns `PersistOutcome`, no `.expect()`/`.unwrap()` in the shared reader loop before its test module; ran `cargo test -p desktop persist_tests` → 3 passed |
-| DATA-06/CR-01: task deletion breaks once agent-run history exists | 02-13 | Read `delete_task`'s D-40 block-never-cascade guard; ran `cargo test --workspace --test task_delete_with_run_history` → 3 passed against real git repos and real `start_agent_run` |
-| CLAUDE.md orphan constraint/CR-02: quitting the app orphans live `claude` processes | 02-14 | Read `RunEvent::Exit` → `shutdown_all_sessions()` before `kill()`; ran `packages/sidecar/test/shutdown.test.mjs` → 4 passed against real spawned grandchild processes, proven gone via `process.kill(pid,0)` throwing ESRCH |
+| THRE-58 worktree dirty state | `git -C .../THRE-58 status --short` | ` M README.md` |
+| THRE-58 uncommitted diff | `git -C .../THRE-58 diff -- README.md` | Uncommitted `+stop-test` line present, not committed |
+| THRE-58 run record | `select r.status, r.started_at, r.ended_at, t.key from agent_runs r join tasks t ... order by started_at desc limit 3` | `interrupted`, `2026-09-12T00:33:31...` → `2026-09-12T00:34:36.064558+00:00`, `THRE-58` |
+| No orphaned process | `pgrep -fl 'flywheel-permissions'` | No match (exit 1) |
+| Full `agent_runs` table | `select status, count(*) from agent_runs group by status` | 2 `completed`, 3 `interrupted`, 0 `running` |
+| All five live worktrees' dirty state | `git status --short` in each of THRE-33/38/43/53/58 | 0 dirty in the first four; ` M README.md` in THRE-58 only |
+| WINDOWS.md rows 3 and 7 | direct read | Both `status: fixed`, matching `resolved_at` timestamps, ledger header (`open_count: 5, fixed_count: 2`) internally consistent |
+| 02-SECURITY.md T-02-12 | direct read | `RESOLVED 2026-09-12T00:34Z — now verified by observed behaviour`, same THRE-58 evidence |
+| 02-UAT.md test 4 body vs. commit diff | `git show b467830 -- .../02-UAT.md` | Only the frontmatter `updated:` timestamp changed; the test's own `not_corroborated:` narrative is stale (advisory, not a gap — see below) |
+| Source changes since prior pass | `git log --oneline -8`, `git status --short` | Only phase-02 doc/ledger commits; no source file touched |
+| REQUIREMENTS.md status-table inversion | direct read of lines ~217-271 | Still inverted (DATA-04/WORK-01/WORK-02/WORK-08/LINK-01/AGNT-03/AGNT-04/AGNT-06 = "Gaps Found"; DATA-06/PROC-01/PROC-06/PROC-07/AGNT-01/AGNT-02 = "Complete") — unreconciled across three passes |
+| `## Threat Flags` sections | `grep -n "^## Threat Flags" *-SUMMARY.md \| wc -l` | 0 — absence remains unrecorded, not "none found" |
 
-A second code-review round (`02-REVIEW.md`) then found that 02-11's own fix had introduced a new
-regression — `agent_run_stop` acquired the app's single `Mutex<Connection>` before the up-to-30s
-`interrupt_run` call, freezing every other command behind one Stop against a wedged sidecar. This
-was fixed in commit `e0f532c`, independently re-verified here: `agent_run_stop`'s body now resolves
-`interrupt_result` from `state.sidecar.as_ref()` **before** calling `state.db.lock()`, and a new
-falsifiable source-scanning test, `packages/core/tests/agent_run_stop_ordering.rs`, makes this
-ordering a permanent regression gate (`cargo test --workspace --test agent_run_stop_ordering` → 2
-passed, including a fixture proving the gate actually detects a reordered violation). The
-accompanying wording Warning (WR-01 in that review) was also fixed in `f1743a1` and verified: the
-blocking-deletion message now names whichever of trigger/worktree/agent_run/permission_request
-count is actually nonzero, rather than always naming `agent_run_count`.
+### Independently Re-Run Evidence (prior passes, carried forward — not repeated this pass, no source changed)
 
-**No new gaps were found in this re-verification.** The five human-verification items from the
-prior report are carried forward unchanged — none of the gap-closure plans attempted to automate
-them, per the prior report's own routing to `workflow.human_verify_mode: end-of-phase`.
+| Check | Command | Result |
+|---|---|---|
+| Rust workspace suite | `cargo test --workspace` | **222 passed, 0 failed** across every crate/test binary |
+| Sidecar (Node) suite | `npm --prefix packages/sidecar test` | **39 passed, 0 failed** |
+| Desktop (TS/React) suite | `npm --prefix packages/desktop test` | **314 passed, 0 failed** across 29 test files |
+| Desktop TypeScript build | `npm --prefix packages/desktop run build` | `tsc && vite build` exits 0, no `error TS` diagnostics |
+| Permission-rule event trail | `select event_type, count(*) from events where event_type like '%rule%' group by event_type` | `permission_rule.granted` 1, `permission_rule.revoked` 1 |
+| Permission requests | `select tool_name, status from permission_requests` | 5 rows including one `allowed_always` decision |
 
 ### Observable Truths (Roadmap Success Criteria)
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | Worktree appears on a branch derived from the task identifier, chained to the epic integration branch, visible from a bare terminal | ✓ VERIFIED | Unaffected by the gap-closure round. Re-ran `cargo test --workspace --test branch_naming --test worktree_lifecycle` — both pass (real scratch git repos, real `git worktree list`). |
-| 2 | User watches the agent's output stream live for a long session with flat memory | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED (upgraded from ✗ FAILED) | The confirmed defect that made this FAILED before (CR-03: a single run's log-open panic silently halting every run's feed) is now closed — `persist_event_line` never panics and 3 new tests prove one run's permanently-unopenable log never stops another run's events. The remaining half of this truth — RSS staying flat over a real long-running session — was never automatable and remains routed to human verification, unchanged from the prior round. |
-| 3 | Agent pauses on a permission request, user answers from the board, agent resumes | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED (unchanged) | No gap-closure plan touched this path. `permission_gate.rs`'s DB/MCP-layer tests still pass; the full path through a real spawned `claude` process remains explicitly manual-only per 02-VALIDATION.md. |
-| 4 | User stops a session, worktree stays intact/inspectable, and a second session reuses it — the worktree outlives the session | ✓ VERIFIED (upgraded from ✗ FAILED) | The confirmed defect (CR-04: stop could strand a run `running`/`blocked` forever if the sidecar never acked) is closed and proven: `stop_records_interrupted_even_when_the_sidecar_never_acks` and `stop_twice_with_a_dead_sidecar_appends_exactly_one_interrupted_event` both pass, plus the pre-existing `stop_lifecycle.rs`/`worktree_lifecycle.rs`/`stop.test.mjs` real-process suites still pass unmodified. The lock-ordering regression the second review round found is also fixed and gated (`agent_run_stop_ordering.rs`). A narrower manual confirmation (WINDOWS.md row 3: a bare-terminal walkthrough in the packaged app) remains open and is carried into Human Verification below — it does not gate this truth's own status, since the specific mechanism it would confirm is already proven by the real-process test suites cited above. |
-| 5 | Worktree, agent run and session are distinct linked records on the task; local-credential and API-key paths behave identically | ⚠️ PRESENT_BEHAVIOR_UNVERIFIED (upgraded — one confirmed defect closed) | The "distinct linked records" half remains solidly VERIFIED, and its previously-unguarded edge case (CR-01: deleting a task with agent-run history) is now closed — `task_delete_with_run_history.rs`'s 3 tests pass, proving the block-with-a-sentence (D-40) outcome, the still-succeeds-with-no-history outcome, and that no raw SQLite constraint message ever reaches the caller. The credential-parity half is unchanged: `credentials.test.mjs`'s argv/env/event-parity tests still pass, but whether `ANTHROPIC_API_KEY` reliably overrides a present local subscription session in the real CLI remains unmeasurable in this environment and is routed to human verification. |
+| 1 | Worktree appears on a branch derived from the task identifier, chained to the epic integration branch, visible from a bare terminal | ✓ VERIFIED | Unaffected by any gap-closure round. `cargo test --workspace` includes `branch_naming`/`worktree_lifecycle` — both pass against real scratch git repos. |
+| 2 | User watches the agent's output stream live for a long session with flat memory | ✓ VERIFIED (qualified — short session only) | G-02-3's silent-panic/overlap defect is closed and gated. UAT test 1 ran a real streaming session to natural completion (~2.5 min, 126 lines, 211 KB) and measured application RSS (APP+RENDER+SIDECAR) DECLINE by 64 MB from its early peak while the log grew monotonically. UAT's own qualification, preserved here: "PASSED ON A SHORT SESSION... The truth is SUPPORTED, not stress-tested. A multi-hour session remains the stronger evidence." |
+| 3 | Agent pauses on a permission request, user answers from the board, agent resumes | ✓ VERIFIED | UAT test 2 exercised the full pause/answer/resume path through a real spawned `claude` process. The allow-always rule variant (grant, list, revoke) is independently confirmed in production: `permission_rule.granted`/`.revoked` both 1, `permission_requests` at 5 including an `allowed_always` decision. |
+| 4 | User stops a session, worktree stays intact/inspectable, and a second session reuses it — the worktree outlives the session | ✓ VERIFIED | The stop-stranding defect (CR-04) and app-exit orphan defect (CR-02) are closed and gated. UAT test 4 corroborated "worktree intact, no orphan process." **This pass closes the previously-open narrower claim**: THRE-58's worktree carries an uncommitted ` M README.md` (a real `+stop-test` diff, never committed) after a real Stop drove the run to `interrupted` at 00:34:36; no orphaned process. The process-group kill demonstrably does not reach the working tree, committed or not. |
+| 5 | Worktree, agent run and session are distinct linked records on the task; local-credential and API-key paths behave identically | ✓ VERIFIED (qualified) | The "distinct linked records" half and its previously-unguarded edge case (CR-01, task deletion with agent-run history) remain solidly proven. UAT test 3 measured the non-leak half independently (0 credential-shaped matches across 191 persisted JSONL lines; 0 of 11 argv elements credential-shaped); the PARITY claim rests on the tester's own observation, not independent reproduction. Whether `ANTHROPIC_API_KEY` reliably *overrides* a present subscription session remains unmeasured here (no spend-authorized key) and is explicitly recorded as a Phase 3 input, not a Phase 2 gap. |
 
-**Score:** 2/5 roadmap success criteria fully verified without qualification (up from 1/5); 0
-failed (down from 2); 3 have solid, now-strengthened automated evidence for their structural/
-mechanical half but still require human observation for their full real-process claim (down from
-"2 failed + 2 human-only" to "0 failed + 3 human-only", since SC2's and SC5's previously-failing
-halves are now closed).
+**Score:** 5/5 roadmap success criteria supported by evidence; 0 failed. Two of the five (#2, #5)
+carry explicit, load-bearing qualifications preserved above rather than smoothed into a clean pass.
+#3 and #4 each had a narrower sub-claim genuinely unexercised as of two passes ago — both are now
+closed by direct evidence.
 
 ### Additional Project-Constraint Truth (not one of the 5 numbered Success Criteria)
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 6 | CLAUDE.md hard architectural constraint: "killing orphans... at the OS-process-tree level" — no `claude` process should survive Flywheel quitting | ✓ VERIFIED (upgraded from ✗ FAILED) | `RunEvent::Exit` now calls `SidecarHandle::shutdown_all_sessions()` before `SidecarHandle::kill()` (`main.rs:147-155`), confirmed by direct read. `shutdown_all_sessions` sends a `shutdown` op to the sidecar and blocks on a bounded ack (`SHUTDOWN_ACK_TIMEOUT`); the sidecar's handler (`index.ts` `case "shutdown"`) calls `shutdownAllSessions()`, which races each live session's `killSession` (process-group SIGINT→SIGTERM→SIGKILL escalation) against a grace timer via `Promise.all`. `shutdown.test.mjs` drives the real compiled sidecar binary, spawns two real stubborn grandchildren, and proves via `process.kill(pid, 0)` throwing `ESRCH` that both are gone after one `shutdown` request — plus a SIGTERM-fallback-net case, an empty-sessions promptly-ok case, and an idempotent-second-call case. All 4 pass. A falsifiable source-scanning gate (`app_exit_ordering.rs`, 3 tests, all pass) makes the shutdown-before-kill ordering a permanent regression gate. |
+| 6 | CLAUDE.md hard architectural constraint: "killing orphans... at the OS-process-tree level" — no `claude` process should survive Flywheel quitting | ✓ VERIFIED | Unchanged mechanism (`shutdown_all_sessions()` before `kill()`, `shutdown.test.mjs` 4/4 against real spawned grandchildren), corroborated live twice now: UAT test 4's `pgrep` found no match, and this pass's independent `pgrep -fl 'flywheel-permissions'` re-check after THRE-58's Stop also found no match. |
 
-**Combined score (6 truths):** 3/6 fully verified (SC1, SC4, and the CLAUDE.md constraint truth);
-3/6 present-behavior-unverified (SC2, SC3, SC5); 0/6 failed.
+**Combined score (6 truths):** 6/6 supported by evidence; 0 failed; 0 `PRESENT_BEHAVIOR_UNVERIFIED`;
+0 open human-verification items. **Status: passed.**
 
 ### Required Artifacts
 
+All artifacts from the original 10 plans and the two gap-closure/security-remediation rounds
+(`02-01`..`02-18`) were VERIFIED in the prior pass and were not re-audited file-by-file this pass —
+no source file changed between the last pass and this one. See the prior pass's Required Artifacts
+table (archived in this file's git history) for the full per-artifact evidence; the relevant items
+for this pass's closed item are:
+
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `packages/desktop/src-tauri/src/commands/agent_run.rs` | `AgentRunStopDto`, `stop_agent_run_recording_first`, `agent_run_stop` (CR-04 fix + CR-01/second-review fix) | ✓ VERIFIED | Read directly (lines 246-341): interrupt result captured in a local, unconditional `interrupt_agent_run` call, status read back via `SELECT`, and the interrupt is resolved before `state.db.lock()`. `cargo test -p desktop stop_` → 2 passed; `agent_run_stop_ordering.rs` → 2 passed. |
-| `packages/desktop/src-tauri/src/sidecar.rs` | `persist_event_line`, `PersistOutcome`, `emit_persistence_failure_notice` (CR-03 fix) | ✓ VERIFIED | Read directly (lines 308-420): no `.expect()`/`.unwrap()` anywhere in the shared reader loop or persist path; `persist_tests` module (3 tests) passes, proving one run's unopenable log never stops another run's events and a failed open retries rather than being cached. |
-| `packages/core/src/domain/task.rs` | `delete_task` with D-40 block-never-cascade semantics (CR-01 fix) | ✓ VERIFIED | Read directly (lines 210-296): four bound `COUNT(*)` probes inside the transaction, `anyhow::bail!` naming whichever count is nonzero (post-WR-01-fix wording), before ever reaching `DELETE FROM tasks`. `task_delete_with_run_history.rs` (3 tests) passes. |
-| `packages/desktop/src-tauri/src/main.rs` | `RunEvent::Exit` calling `shutdown_all_sessions()` before `kill()` (CR-02 fix) | ✓ VERIFIED | Read directly (lines 147-156). `app_exit_ordering.rs` (3 tests) passes, including a falsifiable-reordering self-test. |
-| `packages/sidecar/src/index.ts` | `shutdown` op handler, `shutdownAllSessions()`, SIGTERM/stdin-close fallback nets | ✓ VERIFIED | Read directly (lines 47-241); `shutdown.test.mjs` (4 tests) passes against the real compiled binary. |
-| `packages/sidecar/src/claude-code-adapter.ts` | `interruptSession`'s SIGINT now guarded (WR-01, folded into 02-14) | ✓ VERIFIED | Read directly (lines 382-401): the initial `process.kill(-pid, "SIGINT")` is now wrapped in `try {...} catch {...}`, matching the SIGTERM escalation's existing guard. |
-| `packages/core/tests/agent_run_stop_ordering.rs` | New falsifiable source-scanning regression gate (second-review fix) | ✓ VERIFIED | Read in full; 2 tests pass, including a deliberately-reordered fixture proving the gate is falsifiable, not just structurally present. |
-| `.planning/phases/02-one-agent-one-worktree-watched-live/deferred-items.md` | First item corrected from `open` to `resolved` (02-11 Task 3) | ✓ VERIFIED | Read directly; the `ItemDetailPanel.tsx` hex-literal no longer exists at HEAD (now `var(--text-primary-rack)`), and the repo-wide raw-hex gate returns `0`. |
-
-All artifacts from the original 10 plans (`02-01`..`02-10`) that were previously VERIFIED remain
-unchanged in this round; not re-audited here beyond the regression checks embedded in the full
-test-suite runs below.
+| `packages/core/tests/agent_run_stop_ordering.rs` | Stop path never issues git commands against the worktree | ✓ VERIFIED (now also observed) | Structurally proven by the test; this pass's THRE-58 evidence is the first real-world observation confirming the structural guarantee holds against a genuinely dirty tree. |
+| `packages/desktop/src-tauri/src/sidecar.rs` (stop/kill path) | Process-group kill only, no filesystem/git mutation | ✓ VERIFIED (now also observed) | Read directly in the prior pass; this pass's live evidence (uncommitted diff intact after Stop) is the behavioral confirmation. |
 
 ### Key Link Verification
 
-| From | To | Via | Status | Details |
-|------|----|----|--------|---------|
-| `commands/agent_run.rs` (`agent_run_stop`) | `domain/agent_run.rs` (`interrupt_agent_run`) | Unconditional call, interrupt result captured in a local | ✓ WIRED | Confirmed by direct read: no `?` or early return on the interrupt closure's result. |
-| `commands/agent_run.rs` (`agent_run_stop`) | `state.db` (`Mutex<Connection>`) | Lock acquired AFTER the interrupt call resolves | ✓ WIRED (regression fixed) | Confirmed by direct read and by `agent_run_stop_ordering.rs`'s passing source-scanning gate. |
-| `sidecar.rs` (shared reader loop) | `persist_event_line` | Every stdout event line routes through it; no panic path | ✓ WIRED | Confirmed by direct read; loop continues (`while let Some(event) = rx.recv().await`) regardless of `PersistOutcome`. |
-| `domain/task.rs` (`delete_task`) | `triggers`/`worktrees`/`agent_runs`/`permission_requests` | Bound `COUNT(*)` probes before `DELETE FROM tasks` | ✓ WIRED | Confirmed by direct read and passing tests. |
-| `main.rs` (`RunEvent::Exit`) | `sidecar.rs` (`shutdown_all_sessions`, then `kill()`) | Sequential, shutdown before kill | ✓ WIRED | Confirmed by direct read and `app_exit_ordering.rs`'s passing gate. |
-| `sidecar.rs` (`shutdown_all_sessions`) | `packages/sidecar/src/index.ts` (`op: "shutdown"`) | Sidecar stdio request/ack protocol | ✓ WIRED | Confirmed by direct read of both sides; `shutdown.test.mjs` proves it end-to-end against the real compiled binary. |
-| `index.ts` (`shutdownAllSessions`) | `claude-code-adapter.ts` (`killSession`) | Process-group signal escalation, raced against a grace timer | ✓ WIRED | Confirmed by direct read; `shutdown.test.mjs` proves real grandchild processes are gone afterward. |
+Unchanged from the prior pass — no source file changed. All links previously confirmed WIRED remain
+so (`sidecar.rs` reader loop → `handle_inbound_session_closed` → `apply_session_closed`; readiness
+handshake; stderr → `SessionClosedEvent.detail`; `RunEvent::Exit` → shutdown-then-kill; permission
+grant/revoke round trip). The permission-rule round trip and the stop-preserves-uncommitted-work
+claim are now BOTH independently observed in production, closing the last two links that had only
+structural (code-level) evidence.
 
 ### Requirements Coverage
 
 | Requirement | Description | Status | Evidence |
 |---|---|---|---|
-| DATA-04 | Generic trigger record, `user_action` implemented, `schedule`/`webhook` schema-only | ✓ SATISFIED | Unchanged; `02-01`'s edge-probe tests still pass. |
-| DATA-06 | Worktrees/runs/sessions/summaries/artifacts as first-class records | ✓ SATISFIED (upgraded from ⚠️ SATISFIED WITH GAP) | CR-01 closed — `delete_task` no longer breaks once a task has agent-run history; D-40's block-never-cascade decision is implemented and tested. |
-| WORK-01 | Start Work creates a dedicated worktree | ✓ SATISFIED | Unchanged. |
-| WORK-02 | Fixed branch topology (task → epic-integration → trunk) | ✓ SATISFIED | Unchanged. |
-| WORK-08 | Worktree persists across many sessions, removed only on explicit action | ✓ SATISFIED | Unchanged. |
-| LINK-01 | Branch name derives from task identifier, recognisable from CLI | ✓ SATISFIED | Unchanged. |
-| PROC-01 | Each session is a separate OS process in its own worktree | ✓ SATISFIED | Unchanged, and its app-exit-cleanup boundary is now also closed (CR-02, mapped to the additional constraint truth #6 above). |
-| PROC-02 | Supervisor never reads its own cwd; explicit absolute paths only | ✓ SATISFIED | Unchanged. |
-| PROC-06 | User can interrupt/stop at any time, worktree left consistent | ✓ SATISFIED (upgraded from ✗ BLOCKED) | CR-04 closed and gated against regression by `agent_run_stop_ordering.rs`. |
-| PROC-07 | Live streaming without unbounded memory growth | ⚠️ SATISFIED WITH HUMAN ITEM (upgraded from ✗ BLOCKED) | CR-03's silent-drop defect closed with real tests; the flat-memory runtime claim itself remains human-verification-only, unchanged. |
-| AGNT-01 | Single adapter interface, no backend branching | ✓ SATISFIED | Unchanged. |
-| AGNT-02 | Claude Code adapter normalises stream-json | ✓ SATISFIED | Unchanged. |
-| AGNT-03 | Local Claude Code credentials, never leaving the machine | ⚠️ NEEDS HUMAN | Unchanged — code-level guarantee proven; real end-to-end parity not exercised here. |
-| AGNT-04 | Explicit API-key path as first-class alternative | ⚠️ NEEDS HUMAN | Unchanged — structural/behavioral tests pass; override reliability unmeasurable here. |
-| AGNT-06 | Permission requests block the agent until answered | ⚠️ NEEDS HUMAN (DB/MCP half SATISFIED) | Unchanged. |
+| DATA-04 | Generic trigger record, `user_action` implemented | ✓ SATISFIED | Unchanged. |
+| DATA-06 | Worktrees/runs/sessions as first-class records | ✓ SATISFIED | Unchanged; `apply_session_closed` correctly writes terminal state, now confirmed across 5 real runs. |
+| WORK-01/02/08, LINK-01 | Worktree creation, branch topology, persistence, naming | ✓ SATISFIED | Unchanged. |
+| PROC-01 | Each session a separate OS process in its own worktree | ✓ SATISFIED | Unchanged; startup-liveness boundary proven (G-02-1). |
+| PROC-02 | Supervisor never reads its own cwd | ✓ SATISFIED | Unchanged. |
+| PROC-06 | Interrupt/stop leaves the worktree consistent | ✓ SATISFIED | **Closed this pass.** Mechanism proven; branch-integrity half independently corroborated in the prior pass; the uncommitted-work half is now independently corroborated this pass (THRE-58). No open sub-claim remains. |
+| PROC-07 | Live streaming without unbounded memory growth | ✓ SATISFIED (qualified — short session) | G-02-3 closed; UAT test 1 measured a real short session (~2.5 min, 211 KB); long-session stress observation not yet performed. Preserved as a qualification, not treated as a gap. |
+| AGNT-01, AGNT-02 | Single adapter interface; normalises stream-json | ✓ SATISFIED | The argv the adapter builds is proven against the REAL CLI, not just an internal fake. |
+| AGNT-03, AGNT-04 | Local credentials / explicit API key | ✓ SATISFIED (qualified) | Non-leak independently measured; parity observed but not independently reproduced; precedence-override unmeasurable here, explicit Phase 3 input. |
+| AGNT-06 | Permission requests block until answered | ✓ SATISFIED | Pause/answer/resume core proven end-to-end at UAT; the allow-always rule grant/revoke half is independently confirmed live. |
 
-No orphaned requirements — all 15 IDs mapped to this phase in REQUIREMENTS.md are declared in at
-least one plan's frontmatter (`02-01` through `02-14`).
+No orphaned requirements — all 15 IDs mapped to this phase are declared in at least one plan's
+frontmatter (`02-01` through `02-18`).
 
-**Advisory (documentation hygiene, not a code gap):** `.planning/REQUIREMENTS.md`'s "By
-Requirement" status table (lines ~217-271) currently shows DATA-04, WORK-01, WORK-02, WORK-08,
-LINK-01, PROC-02, AGNT-01, AGNT-02, AGNT-03, AGNT-04 and AGNT-06 as `Gaps Found`, while DATA-06,
-PROC-01, PROC-06 and PROC-07 show `Complete` — the inverse of what this and the pre-gap-closure
-verification actually found (those four were the ones with confirmed defects; the others were
-already satisfied). This table appears to reflect an in-progress reconciliation (see commit
-`d52e9e7`, "revert premature Complete requirements after gaps found") rather than the current,
-code-verified state, and should be reconciled by the orchestrator once this report's findings are
-accepted — it is not evidence of an actual regression in those ten requirements, all of which were
-independently re-confirmed satisfied in this pass (see table above).
+**Advisory (documentation hygiene, carried forward unresolved, third pass):**
+`.planning/REQUIREMENTS.md`'s per-requirement status table still shows the inverse of the actual,
+code-verified state for this phase. Not evidence of a code regression — should be reconciled by the
+orchestrator.
+
+**Advisory (ledger hygiene — now resolved):** `.planning/WINDOWS.md` rows 3 and 7 both now carry
+`status: fixed` with matching `resolved_at` timestamps, consistent with their own narrative text and
+with this report's independent verification. This closes the ledger-hygiene gap the prior two passes
+flagged.
+
+**Advisory (02-UAT.md staleness — now resolved, fourth pass):** the third pass found that
+`02-UAT.md` test 4's own `not_corroborated:` body text had not been updated to reflect the third,
+successful attempt — only its frontmatter `updated:` timestamp had changed (`git show b467830`, a
+2-line diff). Commit `4facbfd` fixed this: test 4 now carries a `resolved:` block naming THRE-58,
+the `interrupted` run at `2026-09-12T00:34:36.064558Z`, the uncommitted ` M README.md`, no orphaned
+process, and — notably — the no-op failure itself, so the record shows how the gap happened rather
+than erasing it. Confirmed by direct read of `02-UAT.md` this pass, not trusted from the commit
+message. **Closed.**
+
+**Advisory (security audit hygiene, carried forward):** No `## Threat Flags` section exists in any
+of the 18 `*-SUMMARY.md` files for this phase. Treat the absence of threat flags across this phase's
+plans as **unrecorded**, not as **none found**.
+
+**Advisory (evidentiary provenance, worth stating explicitly per this pass's instruction):** T-02-12
+(high severity) and the five permission-rule mitigations (T-02-04, T-02-24 high, T-02-27, T-02-45,
+T-02-47) were verified by code reading only for most of this phase's life and became independently
+observed in production only in the final two passes of verification. This is the same pattern that
+let G-02-4 (a function with no production caller) ship undetected through 220/220 green tests — code
+correctness in isolation is not proof of a wired, executed path. The phase's eventual `passed` status
+rests partly on late-arriving behavioral evidence, not on the automated suite alone; this should
+inform how much a clean test suite is trusted going forward.
 
 ### Anti-Patterns Found
 
-| File | Line | Pattern | Severity | Impact |
-|---|---|---|---|---|
-| `.planning/WINDOWS.md` | row 4 | Ledger still marks the `ItemDetailPanel.tsx:219` hex-literal item `open`, though `deferred-items.md` and the code itself confirm it was corrected in plan 02-11 Task 3 (verified above) | ℹ️ Info | Doc-hygiene only — the underlying code issue is genuinely resolved (repo-wide raw-hex gate returns `0`); the cross-phase ledger simply was not updated to reflect the 02-11 correction. Recommend flipping row 4 to `fixed`. |
-| `.planning/WINDOWS.md` | row 2 | Pre-existing, unrelated `FLYWHEEL_WORKTREE_ROOT` test-isolation race in `worktree_lifecycle.rs`, open since plan 02-01 | ℹ️ Info | Not part of any of the four gaps closed this round; carried forward unchanged, out of scope for this re-verification. |
-| `.planning/WINDOWS.md` | row 6 | Pre-existing `WorktreeSummary.tsx` "missing from disk" clause deferred to Phase 3 | ℹ️ Info | Not part of this round's scope; explicitly deferred to Phase 3 (WORK-06) per its own record. |
-
-No debt markers (`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER`) found in any of the files touched
-by plans `02-11`..`02-14` or the two review-fix commits (`agent_run.rs`, `sidecar.rs`, `main.rs`,
-`task.rs`, `tauri.ts`, `SessionSurface.tsx`, `index.ts`, `claude-code-adapter.ts`). No new stub
-patterns (empty handlers, `return null`/`{}`/`[]` on a rendered path, hardcoded-empty props) found
-in the gap-closure diff.
+No debt markers (`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER`) found in any file this or the prior
+rounds touched. No new stub patterns found. No source file was touched between the prior pass and
+this one, so this scan was not re-run — it would produce no new evidence. The `ℹ️ Info`-level items
+from earlier passes (stale `deferred-items.md`/WINDOWS.md row 4 wording, the pre-existing
+`FLYWHEEL_WORKTREE_ROOT` test race at WINDOWS.md row 2, and the Phase-3-deferred
+`WorktreeSummary.tsx` disk-existence gap at row 6) are unrelated to this round's changes and carried
+forward unchanged — all remain `open` in WINDOWS.md, all non-blocking.
 
 ### Behavioral Spot-Checks
 
-| Behavior | Command | Result | Status |
-|---|---|---|---|
-| Full Rust workspace suite | `cargo build --workspace` then `cargo test --workspace` | Build exits 0; every test binary reports `test result: ok`, 0 failed, across all Rust suites (branch/worktree/permission/credentials/task-delete/app-exit/stop-ordering/etc.) | ✓ PASS |
-| Full desktop (TS/React) suite | `npm --prefix packages/desktop test` | 28 test files, 297 tests, all passed | ✓ PASS |
-| Full sidecar (Node) suite | `npm --prefix packages/sidecar test` | 28 tests, all passed (0 fail) — includes `shutdown.test.mjs`'s 4 real-process cases | ✓ PASS |
-| CR-04 fix, isolated | `cargo test -p desktop stop_` | 2 passed — a dead-sidecar closure still reaches `interrupted`, exactly once on a repeat call | ✓ PASS |
-| CR-03 fix, isolated | `cargo test -p desktop persist_tests` | 3 passed — one run's unopenable log never stops another run's events; a failed open retries, not caches | ✓ PASS |
-| CR-01 fix, isolated | `cargo test --workspace --test task_delete_with_run_history` | 3 passed — blocked-with-history, succeeds-with-no-history, never-a-raw-SQLite-message | ✓ PASS |
-| CR-02 fix, isolated | `node --test packages/sidecar/test/shutdown.test.mjs` | 4 passed — real grandchild processes proven gone via `process.kill(pid,0)` throwing ESRCH after a `shutdown` op, plus SIGTERM/empty/idempotent cases | ✓ PASS |
-| Second-review lock-ordering fix | `cargo test --workspace --test agent_run_stop_ordering` | 2 passed — the interrupt call precedes `.lock()` in the real source, and the gate is falsifiable against a reordered fixture | ✓ PASS |
-| Second-review app-exit ordering gate | `cargo test --workspace --test app_exit_ordering` | 3 passed | ✓ PASS |
-| Raw-hex token gate (repo-wide) | `grep -rlE '#[0-9a-fA-F]{6}' packages/desktop/src \| grep -vcE '...'` | `0` | ✓ PASS |
+Not re-run this pass for the full suite — no source file changed. This pass's checks were the
+targeted database/worktree inspection above (git status/diff on THRE-58, `agent_runs` query,
+`pgrep`), which is the correct instrument for the one item being re-assessed.
 
 ### Probe Execution
 
@@ -289,47 +330,49 @@ No `scripts/*/tests/probe-*.sh` conventions or phase-declared probes found for t
 
 ### Human Verification Required
 
-See `human_verification` in frontmatter — 5 items, all carried forward unchanged from the
-pre-gap-closure report because none of the gap-closure plans attempted to automate them (by design,
-per `workflow.human_verify_mode: end-of-phase`):
-
-1. Flat-memory long-session observation (PROC-07) — the silent-drop code defect is now closed, but
-   the RSS-stays-flat claim itself remains an unavoidable manual observation.
-2. Full permission-gate pause/resume through a real `claude` process (AGNT-06), with the noted
-   Claude Code bash-safety-heuristic caveat.
-3. Local-vs-API-key real-world parity including `ANTHROPIC_API_KEY` override reliability
-   (AGNT-03/04, unmeasurable in this environment).
-4. Plan 02-02's own deferred bare-terminal stop verification (WINDOWS.md row 3) — still open.
-5. Plan 02-10's own deferred Settings walkthrough (WINDOWS.md row 7) — still open.
+None. The one item carried from the prior two passes — whether Stop preserves an agent's
+specifically uncommitted work — is now closed by direct, independently-reproduced evidence (see
+above). No new human-verification items were identified this pass.
 
 ### Gaps Summary
 
-**No gaps remain from this re-verification.** All four confirmed defects from the pre-gap-closure
-report (CR-01 task-deletion regression, CR-02 orphaned processes on app exit, CR-03 shared-reader
-panic silencing every run's feed, CR-04 stop stranding a run in a stuck state) were independently
-re-tested against the code on disk — not trusted from any plan's SUMMARY.md — and all four are
-closed with real, currently-passing behavioral tests, several of which exercise real spawned OS
-processes (`shutdown.test.mjs`'s grandchild-teardown proof) or real git repositories
-(`task_delete_with_run_history.rs`, `worktree_lifecycle.rs`).
+**No gaps remain.** All five defects found by human UAT (G-02-1 through G-02-5) are independently
+re-confirmed closed against the code on disk and the previously-passing, independently-re-run test
+suites. The security audit closed with `threats_open: 0`. The one item that kept this phase at
+`human_needed` across two prior passes — whether a Stop preserves an agent's uncommitted work — is
+now closed by a third human attempt, independently re-verified this pass directly against the live
+worktree (`git status`/`diff` on THRE-58) and the database (`agent_runs`), not trusted from any
+narrative document.
 
-A second code-review round found and this verification independently confirmed a fix for one
-additional regression introduced by the CR-04 fix itself (a lock-ordering issue that would have
-frozen the whole app behind one Stop click against a wedged sidecar) — that fix is in place, tested,
-and now gated against reintroduction by a dedicated falsifiable source-scanning test.
+**Status is `passed`:** every roadmap Success Criterion has supporting evidence, the additional
+project-constraint truth (no orphaned processes) is verified, zero truths failed, zero
+present-behavior-unverified truths remain, and the human-verification section is empty. Per the
+routing rule this agent follows, that combination is exactly what `passed` requires.
 
-The reason overall status is `human_needed` rather than `passed` is exclusively the five
-pre-existing, unautomatable human-verification items — none of which are new, none of which were
-claimed closed by any gap-closure plan, and all of which were explicitly and correctly deferred to
-end-of-phase UAT by the phase's own `workflow.human_verify_mode: end-of-phase` design from the
-start. Per the routing rule this agent follows: if a human-verification item is the only thing
-standing between this phase and `passed`, the correct status is `human_needed`, not `passed` and
-not `gaps_found` — that is exactly the case here.
-
-One documentation-hygiene item is worth the orchestrator's attention before considering this phase
-fully closed: `.planning/REQUIREMENTS.md`'s per-requirement status table currently shows the
-inverse of the actual, code-verified state (see Advisory note above) and should be reconciled.
+**Qualifications preserved, not smoothed over, per this pass's explicit instruction:**
+- PROC-07 (truth #2) passed on a SHORT session only (~2.5 min, 211 KB). Supported, not
+  stress-tested — a multi-hour session remains the stronger evidence and should be re-run
+  opportunistically.
+- `.planning/REQUIREMENTS.md`'s per-requirement status table inversion, flagged across three passes
+  now, remains unreconciled. Doc-hygiene only.
+- No `*-SUMMARY.md` in this phase carries a `## Threat Flags` section — absence of flags means
+  **unrecorded**, not **none found**.
+- T-02-12 and the five permission-rule mitigations were verified by code reading only for most of
+  this phase's life and only became independently observed at the very end — the same
+  code-correct-but-never-executed pattern that let G-02-4 ship. Worth remembering when trusting a
+  green suite on future phases.
+- Resolved at the fourth pass: the third pass found `02-UAT.md` test 4's own narrative text had
+  never been updated to match its resolution (only its frontmatter timestamp had changed). Commit
+  `4facbfd` added a `resolved:` block to test 4 naming THRE-58, the `interrupted` run, the
+  uncommitted ` M README.md`, no orphaned process, and the no-op failure itself — confirmed by
+  direct read this pass. No open doc-hygiene gap remains here.
+- Also confirmed at the fourth pass: two superseded reports (`02-VERIFICATION.pre-gap-closure.md`,
+  `02-REVIEW.pre-gap-closure.md`) were moved into `archive/` in the same commit. Both diffed
+  byte-for-byte against their pre-move content — empty diffs, and `git log --follow --stat` shows
+  `0 insertions(+), 0 deletions(-)` on each in that commit. A pure rename, not an edit disguised as
+  one.
 
 ---
 
-_Verified: 2026-09-11T13:55:00Z_
+_Verified: 2026-09-12T12:30:00Z_
 _Verifier: Claude (gsd-verifier)_

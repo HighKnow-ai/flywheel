@@ -60,12 +60,17 @@ fn roster_returns_every_epic_past_the_board_window() {
     let roster = core::domain::epic::list_epics(&conn, &project.id)
         .expect("list_epics should succeed");
     assert_eq!(
-        roster.len(),
+        roster.epics.len(),
         EPIC_COUNT,
         "the roster must return every seeded epic, not a windowed subset"
     );
+    assert_eq!(roster.total, EPIC_COUNT as i64, "total must report the real epic count");
+    assert!(
+        !roster.truncated,
+        "a project well under EPIC_ROSTER_CEILING must not report truncated"
+    );
     let roster_ids: std::collections::HashSet<String> =
-        roster.iter().map(|e| e.id.clone()).collect();
+        roster.epics.iter().map(|e| e.id.clone()).collect();
     let seeded_ids: std::collections::HashSet<String> = seeded_ids.into_iter().collect();
     assert_eq!(
         roster_ids, seeded_ids,
@@ -114,7 +119,7 @@ fn roster_is_scoped_to_one_project() {
     let roster_a = core::domain::epic::list_epics(&conn, &project_a.id)
         .expect("list_epics for project A should succeed");
     let roster_a_ids: std::collections::HashSet<String> =
-        roster_a.iter().map(|e| e.id.clone()).collect();
+        roster_a.epics.iter().map(|e| e.id.clone()).collect();
     let expected_a: std::collections::HashSet<String> = ids_a.into_iter().collect();
 
     assert_eq!(roster_a_ids, expected_a, "project A's roster must be exactly project A's ids");
@@ -137,7 +142,7 @@ fn roster_at_volume_is_under_the_50ms_budget() {
     let elapsed_ms = start.elapsed().as_millis();
     println!("list_epics at {EPIC_COUNT} epics: {elapsed_ms}ms");
 
-    assert_eq!(roster.len(), EPIC_COUNT);
+    assert_eq!(roster.epics.len(), EPIC_COUNT);
     assert!(
         elapsed_ms < BUDGET_MS,
         "list_epics took {elapsed_ms}ms, budget is {BUDGET_MS}ms"
@@ -173,7 +178,7 @@ fn roster_order_is_the_board_total_order() {
     let expected = vec![f, b, c, g, d, e, a];
 
     let roster = core::domain::epic::list_epics(&conn, &project.id).expect("list_epics should succeed");
-    let roster_ids: Vec<String> = roster.iter().map(|epic| epic.id.clone()).collect();
+    let roster_ids: Vec<String> = roster.epics.iter().map(|epic| epic.id.clone()).collect();
     assert_eq!(roster_ids, expected, "the roster's order must match the board's total order");
 }
 
@@ -190,6 +195,7 @@ fn roster_tie_breaks_equal_ranks_by_id_and_drops_neither() {
 
     let roster = core::domain::epic::list_epics(&conn, &project.id).expect("list_epics should succeed");
     let positions: Vec<usize> = roster
+        .epics
         .iter()
         .enumerate()
         .filter(|(_, epic)| epic.id == smaller || epic.id == larger)
@@ -198,7 +204,7 @@ fn roster_tie_breaks_equal_ranks_by_id_and_drops_neither() {
     assert_eq!(positions.len(), 2, "both tied epics must be present, neither dropped");
     assert_eq!(positions[1], positions[0] + 1, "the tied epics must be adjacent");
     assert_eq!(
-        roster[positions[0]].id, smaller,
+        roster.epics[positions[0]].id, smaller,
         "the lexicographically smaller id must come first"
     );
 
@@ -211,8 +217,9 @@ fn roster_tie_breaks_equal_ranks_by_id_and_drops_neither() {
 
     let roster_at_volume =
         core::domain::epic::list_epics(&conn, &project.id).expect("list_epics should succeed");
-    assert_eq!(roster_at_volume.len(), 2 + EPIC_COUNT + 2);
+    assert_eq!(roster_at_volume.epics.len(), 2 + EPIC_COUNT + 2);
     let positions_v: Vec<usize> = roster_at_volume
+        .epics
         .iter()
         .enumerate()
         .filter(|(_, epic)| epic.id == smaller_v || epic.id == larger_v)
@@ -221,7 +228,7 @@ fn roster_tie_breaks_equal_ranks_by_id_and_drops_neither() {
     assert_eq!(positions_v.len(), 2, "both tied epics must be present at volume too");
     assert_eq!(positions_v[1], positions_v[0] + 1, "the tied epics must be adjacent at volume too");
     assert_eq!(
-        roster_at_volume[positions_v[0]].id, smaller_v,
+        roster_at_volume.epics[positions_v[0]].id, smaller_v,
         "the lexicographically smaller id must come first at volume too"
     );
 }
@@ -277,7 +284,9 @@ fn roster_is_empty_for_a_project_with_no_epics() {
     let (conn, _actor_id, project) = seeded_project();
     let roster = core::domain::epic::list_epics(&conn, &project.id)
         .expect("list_epics on a project with no epics must still return Ok");
-    assert!(roster.is_empty(), "an epic-less project's roster must be an empty vector");
+    assert!(roster.epics.is_empty(), "an epic-less project's roster must be an empty vector");
+    assert_eq!(roster.total, 0);
+    assert!(!roster.truncated);
 }
 
 /// A title containing multi-byte characters and a combining mark round-trips byte-identically
@@ -295,9 +304,96 @@ fn roster_returns_non_ascii_titles_unchanged() {
 
     let roster = core::domain::epic::list_epics(&conn, &project.id).expect("list_epics should succeed");
     let found = roster
+        .epics
         .iter()
         .find(|e| e.id == epic.id)
         .expect("the created epic must be found in the roster by exact id equality");
     assert_eq!(found.title, title, "the title must round-trip byte-identically");
     assert_eq!(found.id.len(), 26, "resolution is against a 26-character ULID, never key/title text");
+}
+
+// --- AR-01-04 closure (01-17-PLAN.md's own re-rate trigger, plan 05-04): `EPIC_ROSTER_CEILING`
+// replaces the unbounded read, and truncation is surfaced rather than silent (D-16). A ceiling of
+// exactly `EPIC_ROSTER_CEILING` still returns everything; one row past it must report the real
+// total and set `truncated: true`, never silently drop the extra row.
+
+use core::domain::epic::EPIC_ROSTER_CEILING;
+
+#[test]
+fn roster_at_exactly_the_ceiling_reports_untruncated() {
+    let (mut conn, _actor_id, project) = seeded_project();
+    seed_epics(&mut conn, &project.id, EPIC_ROSTER_CEILING as usize)
+        .expect("seed_epics should succeed");
+
+    let roster = core::domain::epic::list_epics(&conn, &project.id).expect("list_epics should succeed");
+    assert_eq!(roster.epics.len(), EPIC_ROSTER_CEILING as usize);
+    assert_eq!(roster.total, EPIC_ROSTER_CEILING);
+    assert!(
+        !roster.truncated,
+        "a project holding exactly EPIC_ROSTER_CEILING epics must not report truncated"
+    );
+}
+
+#[test]
+fn roster_one_past_the_ceiling_reports_truncated_with_the_real_total() {
+    let (mut conn, _actor_id, project) = seeded_project();
+    seed_epics(&mut conn, &project.id, EPIC_ROSTER_CEILING as usize + 1)
+        .expect("seed_epics should succeed");
+
+    let roster = core::domain::epic::list_epics(&conn, &project.id).expect("list_epics should succeed");
+    assert_eq!(
+        roster.epics.len(),
+        EPIC_ROSTER_CEILING as usize,
+        "the returned page must never exceed EPIC_ROSTER_CEILING rows"
+    );
+    assert_eq!(
+        roster.total,
+        EPIC_ROSTER_CEILING + 1,
+        "total must report the project's real epic count, not the ceiling"
+    );
+    assert!(
+        roster.truncated,
+        "one epic past the ceiling must be surfaced as truncated, never silently dropped"
+    );
+}
+
+// --- The agent's own bounded epic read (D-87, T-05-04-02): `query::authoring::list_epics_page`
+// clamps a caller-supplied limit that exceeds MAX_LIMIT — never an unbounded pass-through.
+
+#[test]
+fn agent_epic_page_clamps_a_huge_limit_request_to_max_limit() {
+    let (mut conn, _actor_id, project) = seeded_project();
+    let seeded = core::query::authoring::MAX_LIMIT as usize + 100;
+    seed_epics(&mut conn, &project.id, seeded).expect("seed_epics should succeed");
+
+    let page = core::query::authoring::list_epics_page(&conn, &project.id, 10_000_000, None)
+        .expect("list_epics_page should succeed");
+    assert_eq!(
+        page.len(),
+        core::query::authoring::MAX_LIMIT as usize,
+        "a 10,000,000-row request must clamp to MAX_LIMIT, never reach the database as-is"
+    );
+}
+
+/// 08.1-14 finish review (finding 3): the roster header's sub-label is `KEY . status . branch`, so the
+/// roster carries each epic's own status and its integration branch. `None` is a fact (D-25 cuts the
+/// branch lazily), not a gap, and must reach the renderer as exactly that.
+#[test]
+fn roster_carries_each_epics_status_and_integration_branch() {
+    let (conn, actor_id, project) = seeded_project();
+    let cut = insert_epic_with(&conn, &project.id, &actor_id, "in_progress", 0, "a0", "FLY-1", "Has a branch");
+    let uncut = insert_epic_with(&conn, &project.id, &actor_id, "backlog", 0, "a1", "FLY-2", "No branch yet");
+    conn.execute(
+        "UPDATE epics SET integration_branch = ?1 WHERE id = ?2",
+        params!["epic/FLY-1-has-a-branch", cut],
+    )
+    .expect("set integration_branch");
+
+    let roster = core::domain::epic::list_epics(&conn, &project.id).expect("list_epics should succeed");
+    let by_id = |id: &str| roster.epics.iter().find(|e| e.id == id).expect("epic in roster");
+
+    assert_eq!(by_id(&cut).status, "in_progress");
+    assert_eq!(by_id(&cut).integration_branch.as_deref(), Some("epic/FLY-1-has-a-branch"));
+    assert_eq!(by_id(&uncut).status, "backlog");
+    assert_eq!(by_id(&uncut).integration_branch, None, "an epic never run against has no branch, and says None");
 }

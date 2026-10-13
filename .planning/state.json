@@ -11,63 +11,68 @@
     {
       "number": "2",
       "name": "One Agent, One Worktree, Watched Live",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "3",
       "name": "Nothing Lost, Nothing Left Running",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "4",
       "name": "`/clear` Is Free",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "5",
       "name": "Socratic Epic Authoring",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "6",
       "name": "Agents File Their Own Backlog",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "7",
       "name": "The Board Tells The Git Truth",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "8",
       "name": "Review And Merge Inside Flywheel",
-      "status": "pending"
+      "status": "complete"
+    },
+    {
+      "number": "8.1",
+      "name": "Visual polish: brand assets and confirmed motion",
+      "status": "complete"
     },
     {
       "number": "9",
       "name": "Planned Fan-Out That Does Not Collide",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "10",
       "name": "Fleet Supervision Across Every Project",
-      "status": "pending"
-    },
-    {
-      "number": "10.1",
-      "name": "Visual polish: brand assets and confirmed motion",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "11",
       "name": "Ship It",
       "status": "pending"
+    },
+    {
+      "number": "12",
+      "name": "Destructive-gate trust boundary redesign",
+      "status": "complete"
     }
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 02 of 12 · 0% · executing"
+    "label": "Advance to the next step (plan phase 11)",
+    "reason": "Phase 11 of 13 — needs a plan"
   },
-  "updated_at": "2026-09-11T05:22:13.900Z"
+  "updated_at": "2026-10-12T11:29:56.698Z"
 }

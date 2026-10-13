@@ -157,9 +157,9 @@ own scale must be derived from that scene. Public Sans, the neutral ramps, and t
 (`--color-absent`, `--color-warn`, `--color-error`) are precedent to reason from, not defaults to
 adopt.
 
-**Still open — an owner decision:** whether Flywheel carries the HighKnow lightbulb-brain mark, or
-earns its own mark under the HighKnow name. Nothing in the first phase depends on the answer; only
-the app icon and the About item render a logo at all.
+**Decided (2026-10-07):** Flywheel ships under the HighKnow lightbulb-brain mark. Flywheel earning
+its own mark under the HighKnow name stays available if it ever gets a commercial identity of its
+own. Only the app icon, the About item and the first-run and project-rail surfaces render a logo.
 
 (The visual world itself was settled on 2026-09-09 in an Impeccable direction round and lives in
 `.planning/phases/01-the-board-is-the-store-of-record/01-UI-SPEC.md`, not here — a visual world is

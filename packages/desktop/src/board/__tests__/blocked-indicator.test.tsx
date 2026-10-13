@@ -17,6 +17,8 @@ const invokeCommandMock = vi.fn();
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
+  subscribeAgentEvent: () => Promise.resolve(() => {}),
+  fleetBlockedQueue: () => invokeCommandMock("fleet_blocked_queue", undefined),
   openFolderDialog: () => Promise.resolve(null),
   blockedSummary: (projectId: string) => invokeCommandMock("board_blocked_summary", { projectId }),
 }));
@@ -96,8 +98,10 @@ describe("ProjectRail blocked count badge (D-37)", () => {
   function renderRail(blockedCount: number) {
     invokeCommandMock.mockReset();
     invokeCommandMock.mockImplementation((command: string) => {
-      if (command === "board_blocked_summary") {
-        return Promise.resolve({ blockedTaskIds: [], blockedCount });
+      if (command === "fleet_blocked_queue") {
+        // Plan 10-05: the rail's count is the fleet-wide queue's length (FLEET-02), no longer the
+        // current project's `board_blocked_summary`.
+        return Promise.resolve(Array.from({ length: blockedCount }, (_, i) => ({ requestId: `req-${i}` })));
       }
       return Promise.resolve(undefined);
     });
@@ -113,7 +117,7 @@ describe("ProjectRail blocked count badge (D-37)", () => {
     renderRail(0);
     // Give the (disabled-until-resolved) query a tick to settle before asserting absence.
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(screen.queryByTitle(/task.*waiting on you/)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/agent.*waiting on you/)).not.toBeInTheDocument();
   });
 
   it("renders a numeral equal to the count above zero", async () => {
@@ -123,11 +127,11 @@ describe("ProjectRail blocked count badge (D-37)", () => {
 
   it("renders the singular tooltip at exactly one blocked task", async () => {
     renderRail(1);
-    expect(await screen.findByTitle("1 task waiting on you")).toBeInTheDocument();
+    expect(await screen.findByTitle("1 agent waiting on you")).toBeInTheDocument();
   });
 
   it("renders the plural tooltip above one blocked task", async () => {
     renderRail(4);
-    expect(await screen.findByTitle("4 tasks waiting on you")).toBeInTheDocument();
+    expect(await screen.findByTitle("4 agents waiting on you")).toBeInTheDocument();
   });
 });

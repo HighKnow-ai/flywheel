@@ -15,12 +15,11 @@
  * ever re-requesting a growing, unbounded window (Performance Contract: "never renders an
  * unbounded trail at once").
  */
-import { useEffect, type ComponentType } from "react";
+import { useEffect } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import * as icons from "lucide-react";
 import { invokeCommand, subscribeBoardChanged } from "../adapters/tauri";
-import { actorTypeMarkId, MARKS_BY_ID } from "../legend/marks";
 import { useActors } from "../board/useBoardQuery";
+import "./item-detail.css";
 
 const PAGE_SIZE = 50;
 
@@ -44,12 +43,35 @@ export interface ActivityTrailProps {
   parentId: string;
 }
 
-type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
+/**
+ * Event types that are never folded into a neighbour: each is a distinct incident the reader should be
+ * able to count (D-53: two lock-exhaustions are two entries). Everything else that repeats is noise.
+ */
+const NEVER_COLLAPSE = new Set(["git.lock_exhausted"]);
 
-function Icon({ name, size = 14 }: { name: string; size?: number }) {
-  const Component = (icons as unknown as Record<string, IconComponent>)[name];
-  if (!Component) return null;
-  return <Component size={size} strokeWidth={2} />;
+/**
+ * Consecutive events that say the same thing, by the same actor, folded into one entry with a count (08.1-15
+ * closure, finding 2: eight identical "criterion created" rows were the one thing that would embarrass the panel
+ * on first open). Newest-first in, newest-first out; the folded entry keeps the NEWEST event's time. The trail's
+ * pagination and ordering are untouched: this only changes how a page is drawn.
+ */
+export function collapseRepeats(newestFirst: ActivityEventDto[]): { event: ActivityEventDto; count: number }[] {
+  const out: { event: ActivityEventDto; count: number }[] = [];
+  for (const event of newestFirst) {
+    const last = out[out.length - 1];
+    if (
+      last &&
+      !NEVER_COLLAPSE.has(event.eventType) &&
+      last.event.eventType === event.eventType &&
+      last.event.description === event.description &&
+      last.event.actorId === event.actorId
+    ) {
+      last.count += 1;
+    } else {
+      out.push({ event, count: 1 });
+    }
+  }
+  return out;
 }
 
 function trailQueryKey(parentType: string, parentId: string) {
@@ -116,10 +138,8 @@ export function ActivityTrail({ parentType, parentId }: ActivityTrailProps) {
 
   return (
     <section aria-label="Activity" style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-          Activity
-        </span>
+      <header className="detail-section-head">
+        <span className="type-body detail-section-title">Activity</span>
       </header>
 
       {trailQuery.isPending && (
@@ -128,33 +148,29 @@ export function ActivityTrail({ parentType, parentId }: ActivityTrailProps) {
         </p>
       )}
 
-      <div role="list" aria-label="Activity trail" style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
-        {newestFirst.map((event) => {
+      <div role="list" aria-label="Activity trail" style={{ display: "flex", flexDirection: "column" }}>
+        {collapseRepeats(newestFirst).map(({ event, count }) => {
           const actor = actorsById.get(event.actorId);
-          const badgeMark = MARKS_BY_ID[actorTypeMarkId(actor?.actorType ?? "human")];
           const absolute = new Date(event.occurredAt).toLocaleString();
           return (
-            <div
-              key={event.id}
-              role="listitem"
-              style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-sm)" }}
-            >
-              <span
-                aria-hidden="true"
-                title={badgeMark?.label ?? "Unknown actor type"}
-                style={{ display: "inline-flex", flexShrink: 0, marginTop: 2, color: "var(--text-muted-rack)" }}
-              >
-                <Icon name={badgeMark?.glyph ?? "User"} />
+            <div key={event.id} role="listitem" className="activity-entry">
+              <span className="type-body">
+                {event.description}
+                {count > 1 && (
+                  <>
+                    {" "}
+                    <span className="tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
+                      ×{count}
+                    </span>
+                  </>
+                )}
               </span>
-              <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                <span className="type-body">{event.description}</span>
-                <span className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
-                  {actor?.displayName ?? "Unknown actor"} · {badgeMark?.label ?? "Unknown"}
-                  {" · "}
-                  <time dateTime={event.occurredAt} title={absolute}>
-                    {relativeTime(event.occurredAt)}
-                  </time>
-                </span>
+              <span className="type-label tabular-nums activity-meta">
+                {actor?.displayName ?? "Unknown actor"}
+                {" · "}
+                <time dateTime={event.occurredAt} title={absolute}>
+                  {relativeTime(event.occurredAt)}
+                </time>
               </span>
             </div>
           );

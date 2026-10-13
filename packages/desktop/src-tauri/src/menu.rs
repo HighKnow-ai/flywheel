@@ -61,6 +61,11 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let toggle_palette = MenuItemBuilder::with_id("open-palette", "Toggle Command Palette")
         .accelerator("CmdOrCtrl+K")
         .build(app)?;
+    // Phase 10 plan 10-01 (D-163): the fleet surface. Forwards the same `open-fleet` action id the
+    // `⌘⇧F` keystroke dispatches — no broader capability (T-01-02, T-10-01-04).
+    let open_fleet = MenuItemBuilder::with_id("open-fleet", "Fleet")
+        .accelerator("CmdOrCtrl+Shift+F")
+        .build(app)?;
 
     // Register the layer-aware handles BEFORE the five items are placed into their submenus
     // below — `.item(&x)` only ever borrows, but registering here (right after all five exist,
@@ -77,6 +82,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         create_epic: new_epic.clone(),
         open_palette: toggle_palette.clone(),
         open_settings: open_settings.clone(),
+        open_fleet: open_fleet.clone(),
     });
 
     let file_menu = SubmenuBuilder::new(app, "File")
@@ -99,7 +105,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .select_all()
         .build()?;
 
-    let view_menu = SubmenuBuilder::new(app, "View").item(&toggle_palette).build()?;
+    let view_menu = SubmenuBuilder::new(app, "View").item(&toggle_palette).item(&open_fleet).build()?;
 
     // `WINDOW_SUBMENU_ID` is what tells macOS to auto-populate this submenu with the running
     // window list (the same id Tauri's own `Menu::default` uses) — a plain `SubmenuBuilder::new`

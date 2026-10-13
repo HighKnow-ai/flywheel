@@ -21,5 +21,7 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"],
+  /* The real-browser arm is a separate program — see tsconfig.browser-tests.json for why. */
+  "exclude": ["src/**/*.browser.test.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

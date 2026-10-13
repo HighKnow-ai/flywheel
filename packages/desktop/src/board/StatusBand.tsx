@@ -1,5 +1,6 @@
 /**
- * One sticky stamped band header (01-UI-SPEC.md "Board list", "Selected Direction") — one per
+ * One group header — a status band or, in the epic lens (08.1 A-02), an epic. One component for
+ * both: the grouping key changes what a group IS, not how its header collapses. Originally: one sticky stamped band header (01-UI-SPEC.md "Board list", "Selected Direction") — one per
  * entry of the fixed five-state workflow, carrying the state name and its item count. The count
  * stays visible even when a band is collapsed (BOARD-08: legibility of scale, not just render
  * speed), so it is passed and rendered unconditionally here rather than hidden on collapse.
@@ -11,7 +12,8 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 
 export interface StatusBandProps {
   label: string;
-  count: number;
+  /** `undefined` while the aggregate that supplies it has not loaded — renders nothing, never a 0. */
+  count?: number;
   collapsed: boolean;
   onToggleCollapsed: () => void;
 }

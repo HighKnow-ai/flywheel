@@ -59,13 +59,17 @@ describe("board-list additions", () => {
           b.key.length === 1 &&
           !b.meta &&
           b.id !== "start-work" &&
-          b.id !== "open-live-session",
+          b.id !== "open-live-session" &&
+          // Phase 8 (08-04, D-133): `v` is the one addition since; it is not a Phase 1 letter.
+          b.id !== "open-review",
       ).map((b) => b.key as string),
     );
     expect(existingLetters.has("w")).toBe(false);
     expect(existingLetters.has("l")).toBe(false);
     // Sanity check against the known Phase 1 set, so a change to that set is visible here too.
-    expect([...existingLetters].sort()).toEqual(["a", "c", "e", "j", "k", "m", "o", "p", "s"]);
+    // "r" ("continue-shaping", D-91, plan 05-10) is the one addition since this list was last
+    // updated.
+    expect([...existingLetters].sort()).toEqual(["a", "c", "e", "j", "k", "m", "o", "p", "r", "s"]);
   });
 });
 
@@ -131,6 +135,17 @@ describe("global additions", () => {
         "open-settings",
       );
     }
+  });
+});
+
+describe("global additions (Phase 10)", () => {
+  it("⌘⇧F resolves to open-fleet from every region, and ⌘F still resolves to search", () => {
+    const regions = ["board-list", "session-surface", "permission-card", "item-detail"] as const;
+    for (const region of regions) {
+      const binding = resolveBinding(fakeEvent("f", { meta: true, shift: true }), region);
+      expect(binding?.id, `expected ⌘⇧F to resolve to open-fleet from region "${region}"`).toBe("open-fleet");
+    }
+    expect(resolveBinding(fakeEvent("f", { meta: true }), "board-list")?.id).toBe("focus-search");
   });
 });
 

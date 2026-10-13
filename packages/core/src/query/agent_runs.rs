@@ -21,6 +21,12 @@ use rusqlite::{params, Connection, OptionalExtension};
 /// rather than two the user must correlate themselves (02-UI-SPEC.md Discretion #1). `NULL` until
 /// the sidecar's own `init` event reports it (AGNT-01) — a run in flight before that event lands
 /// renders its run identity alone.
+///
+/// `acknowledged_at` (added plan 03-10 Task 2, D-49) is `agent_runs.acknowledged_at`'s own value
+/// verbatim — `NULL` until the abandoned-run acknowledgment row's Acknowledge button writes it
+/// (`agent_run_acknowledge`, `commands/agent_run.rs`). Meaningless for any status other than
+/// `abandoned`, but read for every row regardless — a status can change under a caller between two
+/// reads, and this column carries no branch of its own.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunRow {
     pub id: String,
@@ -32,10 +38,11 @@ pub struct RunRow {
     pub tokens_in: Option<i64>,
     pub tokens_out: Option<i64>,
     pub external_session_id: Option<String>,
+    pub acknowledged_at: Option<String>,
 }
 
 const RUNS_FOR_TASK_SQL: &str = "SELECT id, task_id, status, started_at, ended_at, cost_usd, \
-    tokens_in, tokens_out, external_session_id FROM agent_runs WHERE task_id = ?1 \
+    tokens_in, tokens_out, external_session_id, acknowledged_at FROM agent_runs WHERE task_id = ?1 \
     ORDER BY started_at DESC, id DESC LIMIT ?2 OFFSET ?3";
 
 fn row_to_run(row: &rusqlite::Row) -> rusqlite::Result<RunRow> {
@@ -49,6 +56,7 @@ fn row_to_run(row: &rusqlite::Row) -> rusqlite::Result<RunRow> {
         tokens_in: row.get(6)?,
         tokens_out: row.get(7)?,
         external_session_id: row.get(8)?,
+        acknowledged_at: row.get(9)?,
     })
 }
 
@@ -72,13 +80,20 @@ pub fn runs_for_task(
 
 /// A task's worktree summary (02-UI-SPEC.md "Worktree summary") — `branch`/`path` as
 /// `ensure_worktree` recorded them at creation time (D-23/D-24), never re-derived at read time.
+/// `task_key` (plan 03-01 Task 1, WORK-03) is joined in from `tasks` so the worktree-removal
+/// dialog's heading can print the task key without a second query. `status` (plan 03-03 Task 3,
+/// WORK-06) lets the renderer branch on `missing` — D-45's recovery banner — without a second
+/// query either.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorktreeSummary {
     pub branch: String,
     pub path: String,
+    pub task_key: String,
+    pub status: String,
 }
 
-const WORKTREE_SUMMARY_SQL: &str = "SELECT branch, path FROM worktrees WHERE task_id = ?1";
+const WORKTREE_SUMMARY_SQL: &str = "SELECT worktrees.branch, worktrees.path, tasks.key, worktrees.status \
+    FROM worktrees JOIN tasks ON worktrees.task_id = tasks.id WHERE worktrees.task_id = ?1";
 
 /// `task_id`'s worktree summary, or `None` for a task with no worktree yet (one worktree per
 /// task, ever — LINK-01/WORK-08's own UNIQUE constraint) — never a row of empty strings standing
@@ -88,7 +103,12 @@ pub fn worktree_summary_for_task(
     task_id: &str,
 ) -> anyhow::Result<Option<WorktreeSummary>> {
     conn.query_row(WORKTREE_SUMMARY_SQL, params![task_id], |row| {
-        Ok(WorktreeSummary { branch: row.get(0)?, path: row.get(1)? })
+        Ok(WorktreeSummary {
+            branch: row.get(0)?,
+            path: row.get(1)?,
+            task_key: row.get(2)?,
+            status: row.get(3)?,
+        })
     })
     .optional()
     .context("failed to read worktree summary for task")

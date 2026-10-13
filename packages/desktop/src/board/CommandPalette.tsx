@@ -17,7 +17,7 @@
  * each render. `switch-project` is excluded from the fixed generator entirely; it only ever
  * appears as the per-project runtime entries below.
  */
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
@@ -39,11 +39,15 @@ import {
   type ActionId,
 } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
+import { groupCollapseKey, useCollapseStore } from "./collapseStore";
 import {
+  continueShapingEpic,
   openLiveSessionForTask,
+  startAuthoringSessionForProject,
   useActors,
   useBoardQuery,
   useCreateIssue,
+  useGitIdentifier as useIdentityLookup,
   useProjects,
   useReorderItem,
   useSetAssignee,
@@ -52,6 +56,8 @@ import {
   useSetStatus,
   useSetTaskEpic,
 } from "./useBoardQuery";
+import { authoringStageReturn } from "../adapters/tauri";
+import { previousAuthoringStage } from "../session/SessionSurface";
 
 /** Board-list action ids whose palette command opens its OWN overlay (a picker, or the delete
  * confirmation via `BoardView.tsx`'s `deleteTarget` in `uiStore`) rather than completing
@@ -79,6 +85,24 @@ const SELECTION_INDEPENDENT_ACTION_IDS = new Set<ActionId>([
  * hierarchy gives an epic no epic parent of its own (G-01-EPIC-ASSIGN). The palette disables
  * these when an epic is selected, in addition to the no-selection case above. */
 const TASK_ONLY_ACTION_IDS = new Set<ActionId>(["open-epic-picker"]);
+
+/** Board-list action ids that only apply to an epic, never a task (D-91, plan 05-10) — the
+ * inverse of `TASK_ONLY_ACTION_IDS` above. The palette disables these when a task is selected. */
+const EPIC_ONLY_ACTION_IDS = new Set<ActionId>(["continue-shaping", "expand-row", "collapse-row"]);
+
+/**
+ * The order the palette's sections appear in. A command carries its own `group`, but the generated list
+ * visits the fixed binding table in table order, so one group's commands are not contiguous in it; sorting
+ * by this (stable, so each group keeps the table's own order) is what lets a section header stand over its
+ * commands, instead of every row repeating its group in a right-hand column (08.1-15 closure, finding 7).
+ * A group not named here sorts last.
+ */
+const GROUP_ORDER = ["Git", "Navigation", "Project", "Create", "Selected item", "Filter", "Reference", "Session"];
+
+const groupRank = (group: string): number => {
+  const at = GROUP_ORDER.indexOf(group);
+  return at === -1 ? GROUP_ORDER.length : at;
+};
 
 interface Command {
   id: string;
@@ -117,7 +141,12 @@ export function CommandPalette() {
   const selectedItemId = useUiStore((state) => state.selectedItemId);
   const setSelectedItemId = useUiStore((state) => state.setSelectedItemId);
   const setDetailItemId = useUiStore((state) => state.setDetailItemId);
+  const setReviewSurface = useUiStore((state) => state.setReviewSurface);
   const setDeleteTarget = useUiStore((state) => state.setDeleteTarget);
+  // D-90 (plan 05-03): the `return-stage` palette entry's own gate — disabled unless the CURRENT
+  // session (if any) is an authoring run with somewhere earlier to return to.
+  const activeAgentRunId = useUiStore((state) => state.activeAgentRunId);
+  const activeAgentRunAuthoringStage = useUiStore((state) => state.activeAgentRunAuthoringStage);
 
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -135,7 +164,18 @@ export function CommandPalette() {
   const items = boardQuery.data?.items ?? [];
   const actorsQuery = useActors();
   const actors = actorsQuery.data ?? [];
-  const selectedItem = items.find((item) => item.id === selectedItemId);
+  // The item "Selected item" commands act on: the list's selection, or, with the detail panel open and no row
+  // selected, the item the panel is showing. The palette opens OVER that panel by design, so without this
+  // fallback "Open selected item" read disabled over an open item while its siblings did not (08.1-15 closure,
+  // finding 7). `selectedItemId` still wins whenever it is set.
+  const detailItemId = useUiStore((state) => state.detailItemId);
+  const targetItemId = selectedItemId ?? detailItemId;
+  const selectedItem = items.find((item) => item.id === targetItemId);
+
+  // D-127/D-128 (Phase 7 plan 07-05): the git identifier round trip. `enabled` inside the hook
+  // stays false for ordinary text, so typing a search term spends no IPC call (T-07-05-05) — read
+  // once per render, never a second time.
+  const identityQuery = useIdentityLookup(query);
 
   // The SAME registration flow ⌘⇧O and the rail's `+` button use (`RegisterProjectFlow.tsx`) —
   // never a re-derived copy. `isError`/`error` are surfaced below (CR-02) — this command runs
@@ -199,7 +239,14 @@ export function CommandPalette() {
         setSelectedItemId(boundarySelectionId(items, "last"));
         break;
       case "open-detail":
-        if (selectedItemId) setDetailItemId(selectedItemId);
+        if (targetItemId) setDetailItemId(targetItemId);
+        break;
+      case "expand-row":
+        // A-09: the same collapse key the roster's own disclosure reads (`groupCollapseKey`).
+        if (selectedItem) useCollapseStore.getState().expand(effectiveProjectId ?? "", groupCollapseKey("epic", selectedItem.id));
+        break;
+      case "collapse-row":
+        if (selectedItem) useCollapseStore.getState().collapse(effectiveProjectId ?? "", groupCollapseKey("epic", selectedItem.id));
         break;
       case "open-status-picker":
         if (selectedItem) setOverlay("status");
@@ -241,10 +288,92 @@ export function CommandPalette() {
           void openLiveSessionForTask(selectedItem.id);
         }
         break;
+      case "continue-shaping":
+        // D-91 (plan 05-10): epic-only, the inverse of `open-epic-picker`'s task-only refusal
+        // above — resolved through the ONE shared entry point (`continueShapingEpic`,
+        // `useBoardQuery.ts`) so the palette and `BoardView.tsx`'s real `r` keystroke never
+        // compute "is a session already running for this epic" two different ways.
+        if (selectedItem && (selectedItem.kind ?? "task") === "epic") {
+          void continueShapingEpic(selectedItem.id);
+        }
+        break;
       default:
         break;
     }
   }
+
+  // The one runtime-generated section D-127 adds (mirrors the "Go to Project" loop's own
+  // generated-every-render shape): at most one entry, computed from the identity query's current
+  // outcome. A resolved outcome activates straight to the item; an ambiguous outcome renders a
+  // single non-activatable entry naming the count; a not-found outcome renders nothing — never a
+  // second static list and never a second palette input (D-127 rejects both).
+  const identityEntries = useMemo<Command[]>(() => {
+    const outcome = identityQuery.data;
+    if (!outcome) return [];
+    if (outcome.outcome === "resolved") {
+      const { resolution } = outcome;
+      const shaPart = resolution.matchedSha
+        ? ` (${resolution.matchedSha.slice(0, 7)}${resolution.runId ? `, ${resolution.runId}` : ""})`
+        : "";
+      return [
+        {
+          id: `git-identifier:${resolution.itemId}`,
+          label: `${resolution.itemKey} ${resolution.itemTitle}${shaPart}`,
+          group: "Git",
+          run: () => {
+            setCurrentProjectId(resolution.projectId);
+            setSelectedItemId(resolution.itemId);
+            setDetailItemId(resolution.itemId);
+            close();
+          },
+        },
+        // D-133: a review path beside the default detail path — a sha or branch is resolved for
+        // reasons other than reviewing it, so detail stays first. Issues carry no criteria.
+        ...(resolution.itemKind === "task" || resolution.itemKind === "epic"
+          ? [
+              {
+                id: `git-identifier-review:${resolution.itemId}`,
+                label: `Review: ${resolution.itemTitle}`,
+                group: "Git",
+                run: () => {
+                  setCurrentProjectId(resolution.projectId);
+                  setReviewSurface({
+                    scope: resolution.itemKind === "epic" ? "epic" : "task",
+                    itemId: resolution.itemId,
+                    label: `${resolution.itemKey} ${resolution.itemTitle}`,
+                  });
+                  close();
+                },
+              },
+            ]
+          : []),
+      ];
+    }
+    if (outcome.outcome === "ambiguousPrefix") {
+      return [
+        {
+          id: "git-identifier:ambiguous-prefix",
+          label: `Ambiguous — ${outcome.matches} commits share this prefix`,
+          group: "Git",
+          disabled: true,
+          run: () => {},
+        },
+      ];
+    }
+    if (outcome.outcome === "ambiguousAcrossRepositories") {
+      return [
+        {
+          id: "git-identifier:ambiguous-repositories",
+          label: `Ambiguous — found in ${outcome.repositories} repositories`,
+          group: "Git",
+          disabled: true,
+          run: () => {},
+        },
+      ];
+    }
+    return [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identityQuery.data, setCurrentProjectId, setSelectedItemId, setDetailItemId, setReviewSurface]);
 
   const commands = useMemo<Command[]>(() => {
     const out: Command[] = [];
@@ -351,6 +480,70 @@ export function CommandPalette() {
         case "open-legend":
           out.push({ id, label, group: "Reference", run: () => setOverlay("legend") });
           continue;
+        case "shape-epic":
+          // D-84/D-86 (plan 05-02): starts a fresh epic-authoring session and opens the session
+          // surface on the returned run id (`startAuthoringSessionForProject`,
+          // `board/useBoardQuery.ts`) — the least invasive entry point (SHAPE-01), re-entering the
+          // same `activeAgentRunId` plumbing every task-execution run already uses.
+          out.push({
+            id,
+            label,
+            group: "Create",
+            disabled: !effectiveProjectId,
+            run: () => {
+              if (!effectiveProjectId) return;
+              close();
+              void startAuthoringSessionForProject(effectiveProjectId);
+            },
+          });
+          continue;
+        case "return-stage": {
+          // D-90 (plan 05-03): the palette's own reachable path to the same verb
+          // `SessionSurface.tsx`'s inline "way back" control calls — disabled unless the CURRENT
+          // session is an authoring run with somewhere earlier to return to. `run()` fires the
+          // command directly (mirrors `shape-epic`'s own direct-run pattern) rather than routing
+          // through `dispatchAction`, which only works for bindings that carry a real key.
+          const target = activeAgentRunAuthoringStage
+            ? previousAuthoringStage(activeAgentRunAuthoringStage)
+            : undefined;
+          out.push({
+            id,
+            label,
+            group: "Session",
+            disabled: !activeAgentRunId || !target,
+            run: () => {
+              if (!activeAgentRunId || !target) return;
+              close();
+              void authoringStageReturn(activeAgentRunId, target);
+            },
+          });
+          continue;
+        }
+        case "accept-proposal":
+        case "reject-proposal":
+        case "amend-proposal":
+        case "accept-proposal-subtree":
+          // D-92/D-95 (plan 05-07): proposal-tray-scoped verbs with no palette-reachable target —
+          // the palette's own selection model has no "selected proposal" concept, and
+          // `bindingAllowedInLayer` gates all four to the `"proposal-tray"` layer only, so a
+          // palette-issued `dispatchAction`/`runBoardListAction` call could never actually reach
+          // one. Excluded here, mirroring `open-palette`'s own continue-without-pushing pattern,
+          // rather than falling through to the generic board-list handler below and silently
+          // doing nothing (the exact dead-menu-entry defect `return-stage`'s own case above was
+          // added to avoid, 05-03-SUMMARY.md's Deviations).
+          continue;
+        case "expand-file":
+        case "check-with-selection":
+        case "open-merge":
+        case "open-epic-request":
+          // Phase 8 (plans 08-01, 08-06, 08-15): review-surface-only verbs. The palette has no "review
+          // surface currently open" target, `bindingAllowedInLayer` gates all four to the
+          // `"review-surface"` layer, and `dispatchAction` only ever resolves `"global"`-region
+          // bindings, so a palette-issued activation could never reach one. Excluded here rather than
+          // falling through to the generic board-list push below as an entry that does nothing — the
+          // same dead-menu-entry defect the proposal-tray case above avoids. (`expand-file` and
+          // `check-with-selection` contributed exactly such entries before this case existed.)
+          continue;
         case "filter-status":
         case "filter-epic":
         case "filter-assignee":
@@ -374,10 +567,13 @@ export function CommandPalette() {
       out.push({
         id,
         label,
-        group: "Selected item",
+        // Moving the selection and jumping to either end act on the LIST, so they need no selected item and sit
+        // with Navigation. What remains under "Selected item" all shares one precondition and so one look.
+        group: SELECTION_INDEPENDENT_ACTION_IDS.has(id) ? "Navigation" : "Selected item",
         disabled:
-          (!selectedItemId && !SELECTION_INDEPENDENT_ACTION_IDS.has(id)) ||
-          (TASK_ONLY_ACTION_IDS.has(id) && (selectedItem?.kind ?? "task") === "epic"),
+          (!targetItemId && !SELECTION_INDEPENDENT_ACTION_IDS.has(id)) ||
+          (TASK_ONLY_ACTION_IDS.has(id) && (selectedItem?.kind ?? "task") === "epic") ||
+          (EPIC_ONLY_ACTION_IDS.has(id) && (selectedItem?.kind ?? "task") === "task"),
         run: () => {
           runBoardListAction(id);
           if (!OVERLAY_ACTION_IDS.has(id)) close();
@@ -387,12 +583,20 @@ export function CommandPalette() {
 
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, items, selectedItemId, selectedItem, effectiveProjectId]);
+  }, [projects, items, targetItemId, selectedItem, effectiveProjectId]);
 
-  const filtered = useMemo(
-    () => commands.filter((command) => fuzzyMatches(query, command.label)),
-    [commands, query],
-  );
+  const filtered = useMemo(() => {
+    // The identity entry never passes `fuzzyMatches` against the raw hash/branch the user typed
+    // (its label carries the resolved item's key and title, not the pasted string) — it is
+    // positioned ahead of the fuzzy-filtered list by position, not by a sort comparator.
+    const result = commands
+      .filter((command) => fuzzyMatches(query, command.label))
+      .sort((a, b) => groupRank(a.group) - groupRank(b.group));
+    for (let i = identityEntries.length - 1; i >= 0; i -= 1) {
+      result.unshift(identityEntries[i]);
+    }
+    return result;
+  }, [commands, query, identityEntries]);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -553,23 +757,28 @@ export function CommandPalette() {
             alignItems: "flex-start",
             justifyContent: "center",
             paddingTop: "12vh",
-            background: "rgba(0,0,0,0.45)",
+            background: "var(--scrim)",
           }}
         >
           <div
             ref={panelRef}
-            className="command-palette"
+            // `palette-settle` (motion.css): full opacity on the first frame, then an 8px
+            // transform-only settle. Mounts only while open, so there is no exit animation.
+            className="command-palette palette-settle"
             onKeyDown={handleKeyDown}
             style={{
               width: 560,
               maxHeight: "60vh",
               display: "flex",
               flexDirection: "column",
-              background: "var(--surface-secondary)",
+              // The ground, not the secondary surface: the highlighted command is a surface shift, and on
+              // `--surface-secondary` that shift would equal the panel itself and draw nothing (the
+              // rail's trap in 08.1-14). The edge is the control boundary, the shadow the sheet tier.
+              background: "var(--surface-dominant)",
               color: "var(--text-primary-rack)",
-              border: "1px solid var(--divider)",
+              border: "1px solid var(--border-sheet)",
               borderRadius: "var(--radius-chrome)",
-              boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
+              boxShadow: "var(--shadow-sheet)",
               overflow: "hidden",
             }}
           >
@@ -583,7 +792,7 @@ export function CommandPalette() {
               // being unmounted, the restore silently no-ops, leaving focus on `<body>`.
               // `FocusScope`'s own default mount behavior (`focusFirst` over the container's
               // tabbable candidates) already lands focus here, correctly, after that capture.
-              className="type-body"
+              className="type-body command-palette-search"
               aria-label="Command search"
               placeholder="Type a command…"
               value={query}
@@ -594,39 +803,64 @@ export function CommandPalette() {
                 borderBottom: "1px solid var(--divider)",
                 background: "transparent",
                 color: "inherit",
-                outline: "none",
+                // No `outline: none`: it beat the global `input:focus-visible` ring, so a keyboard user
+                // saw no focus in the field they are typing in (08.1-14, deviation 4). The ring itself is
+                // `.command-palette-search:focus-visible` in App.css (ink, inset past the panel edge).
               }}
             />
-            <div role="listbox" aria-label="Commands" style={{ overflowY: "auto" }}>
+            {/* The list is inset by the row's own gutter, so a highlighted row's 2px rule sits inside the dialog's
+                edge instead of reading as a thicker edge (08.1-15 closure, finding 8). */}
+            <div
+              role="listbox"
+              aria-label="Commands"
+              style={{ overflowY: "auto", padding: "var(--space-sm)" }}
+            >
               {filtered.length === 0 && (
                 <div className="type-body" style={{ padding: "var(--space-md)", color: "var(--text-muted-rack)" }}>
                   No matching commands or items
                 </div>
               )}
               {filtered.map((command, index) => (
-                <div
-                  key={command.id}
-                  role="option"
-                  aria-selected={index === activeIndex}
-                  aria-disabled={command.disabled}
-                  className="type-body"
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onClick={() => !command.disabled && command.run()}
-                  style={{
-                    padding: "var(--space-sm) var(--space-md)",
-                    background: index === activeIndex ? "var(--surface-dominant)" : "transparent",
-                    color: command.disabled ? "var(--text-muted-rack)" : "inherit",
-                    cursor: command.disabled ? "default" : "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <span>{command.label}</span>
-                  <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-                    {command.group}
-                  </span>
-                </div>
+                <Fragment key={command.id}>
+                  {/* A section header where the group changes. Decorative (the group is also each row's
+                      accessible context through `aria-description`), so it is hidden from the listbox. */}
+                  {(index === 0 || filtered[index - 1].group !== command.group) && (
+                    <div
+                      aria-hidden="true"
+                      className="type-label"
+                      style={{
+                        padding: "var(--space-sm) var(--space-sm) var(--space-xs)",
+                        marginTop: index === 0 ? 0 : "var(--space-xs)",
+                        borderTop: index === 0 ? "none" : "1px solid var(--divider)",
+                        color: "var(--text-muted-rack)",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {command.group}
+                    </div>
+                  )}
+                  <div
+                    role="option"
+                    aria-selected={index === activeIndex}
+                    aria-disabled={command.disabled}
+                    aria-description={command.group}
+                    className="type-body"
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => !command.disabled && command.run()}
+                    style={{
+                      padding: "var(--space-sm) var(--space-sm)",
+                      // The highlighted command reads like a selected task row (A-06): a neutral surface
+                      // shift and a 2px ink rule, never the brand. The palette's list always has the
+                      // keyboard (the input owns it), so it is the list-focused rule.
+                      background: index === activeIndex ? "var(--row-surface-selected)" : "transparent",
+                      borderLeft: index === activeIndex ? "2px solid var(--selection-rule)" : "2px solid transparent",
+                      color: command.disabled ? "var(--text-muted-rack)" : "inherit",
+                      cursor: command.disabled ? "default" : "pointer",
+                    }}
+                  >
+                    {command.label}
+                  </div>
+                </Fragment>
               ))}
             </div>
           </div>

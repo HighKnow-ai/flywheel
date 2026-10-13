@@ -1,4 +1,4 @@
-//! `settings_get` / `settings_set_credential_mode` / `settings_store_api_key` /
+//! `settings_get` / `settings_set_credential_mode` / `settings_set_dispatch_max_parallel` / `settings_store_api_key` /
 //! `settings_clear_api_key` / `backend_capability_probe` — D-39's Settings command surface (the
 //! product's first). No command in this module ever returns the API key value itself —
 //! `settings_get` reports only whether a key is configured and the date, never the key.
@@ -24,6 +24,23 @@ pub struct ProjectCredentialOverrideDto {
     pub credential_mode: Option<String>,
 }
 
+/// The global parallel-agent cap beside the number of slots in use right now (D-159), so Settings
+/// can show "3 of 3 slots in use" from one read. `occupied_slots` is counted from the database.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DispatchCapDto {
+    pub max_parallel: u32,
+    pub occupied_slots: u32,
+}
+
+fn read_dispatch_cap(conn: &rusqlite::Connection) -> Result<DispatchCapDto, String> {
+    Ok(DispatchCapDto {
+        max_parallel: flywheel_core::domain::settings::dispatch_max_parallel(conn)
+            .map_err(|e| e.to_string())?,
+        occupied_slots: flywheel_core::dispatch::occupied_slots(conn).map_err(|e| e.to_string())?,
+    })
+}
+
 /// The full Settings read (D-39) — the global default, every registered project's override (or
 /// lack of one), and whether an API key is configured and when. Never the key value itself.
 #[derive(Debug, Clone, Serialize)]
@@ -33,6 +50,9 @@ pub struct SettingsDto {
     pub project_overrides: Vec<ProjectCredentialOverrideDto>,
     pub api_key_configured: bool,
     pub api_key_configured_at: Option<String>,
+    pub dispatch_cap: DispatchCapDto,
+    /// The one global OS-notification switch (D-176).
+    pub notifications_enabled: bool,
 }
 
 /// Read the full Settings state. Read-only.
@@ -67,7 +87,50 @@ pub fn settings_get(state: State<AppState>) -> Result<SettingsDto, String> {
         project_overrides,
         api_key_configured,
         api_key_configured_at,
+        dispatch_cap: read_dispatch_cap(&conn)?,
+        notifications_enabled: flywheel_core::domain::settings::notifications_enabled(&conn)
+            .map_err(|e| e.to_string())?,
     })
+}
+
+/// Rejects a cap outside the closed range before any DB call, naming both bounds.
+fn validate_dispatch_cap(value: u32) -> Result<(), String> {
+    use flywheel_core::domain::settings::{DISPATCH_MAX_PARALLEL_MAX, DISPATCH_MAX_PARALLEL_MIN};
+    if !(DISPATCH_MAX_PARALLEL_MIN..=DISPATCH_MAX_PARALLEL_MAX).contains(&value) {
+        return Err(format!(
+            "parallel agent cap must be between {DISPATCH_MAX_PARALLEL_MIN} and {DISPATCH_MAX_PARALLEL_MAX}, got {value}"
+        ));
+    }
+    Ok(())
+}
+
+/// Set the global cap on concurrently running agent sessions (D-159). Human-only: the actor is
+/// resolved server-side and no MCP tool exposes this. The cap gates the DISPATCHER's own spawns
+/// only — `agent_run_start` never consults it, so a user's own launch is never refused.
+#[tauri::command]
+pub fn settings_set_dispatch_max_parallel(
+    state: State<AppState>,
+    value: u32,
+) -> Result<DispatchCapDto, String> {
+    validate_dispatch_cap(value)?;
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+        .map_err(|e| e.to_string())?;
+    flywheel_core::domain::settings::set_dispatch_max_parallel(&mut conn, &actor_id, value)
+        .map_err(|e| e.to_string())?;
+    read_dispatch_cap(&conn)
+}
+
+/// Set the one global OS-notification switch (D-176). Human-only: the actor is resolved
+/// server-side, so the handler accepts none. Returns the stored value re-read.
+#[tauri::command]
+pub fn settings_set_notifications_enabled(state: State<AppState>, value: bool) -> Result<bool, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+        .map_err(|e| e.to_string())?;
+    flywheel_core::domain::settings::set_notifications_enabled(&mut conn, &actor_id, value)
+        .map_err(|e| e.to_string())?;
+    flywheel_core::domain::settings::notifications_enabled(&conn).map_err(|e| e.to_string())
 }
 
 /// Rejects a `mode` outside exactly `"local"`/`"api_key"` before any DB call (mirrors
@@ -200,6 +263,16 @@ pub fn backend_capability_probe(state: State<AppState>) -> Result<BackendCapabil
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_handler_refuses_zero_and_nine_naming_both_bounds_and_accepts_one_and_eight() {
+        for bad in [0u32, 9, u32::MAX] {
+            let err = validate_dispatch_cap(bad).unwrap_err();
+            assert!(err.contains('1') && err.contains('8'), "{err}");
+        }
+        assert!(validate_dispatch_cap(1).is_ok());
+        assert!(validate_dispatch_cap(8).is_ok());
+    }
 
     /// The half of "the probe with the binary absent reports unavailable and reports the
     /// API-key path usable" (plan 02-09 Task 3 acceptance criteria) that is reachable without a

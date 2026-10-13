@@ -1,79 +1,111 @@
 /**
- * Flight Progress Strips — token roles (01-UI-SPEC.md § "Color & Token Roles",
- * "Measured starting palette", "Selected Direction" § Type / Design System).
+ * Token roles — one set, authored for light and for dark (08.1-DIRECTION.md, D-10).
  *
- * This file is the ONE source of colour, radius and spacing values for the whole
- * product. No component may declare a literal hex colour outside this file and
- * theme/tokens.ts (which mirrors these values as typed TS constants for the
- * contrast test in theme/__tests__/contrast.test.ts).
+ * This file is the ONE source of colour, radius and spacing values for the whole product. No
+ * component may declare a literal colour outside this file and theme/tokens.ts (which mirrors
+ * the values below as typed constants for theme/__tests__/contrast.test.ts, per mode).
  *
- * The rack/strip material split (01-UI-SPEC.md "The world"):
- *   - "rack" tokens are the dark chrome: window ground, project rail, sticky band
- *     headers, detail-panel frame.
- *   - "strip" tokens are the one light content plane: a contiguous band of
- *     strip stock, tinted per workflow state.
+ * Re-themed by VALUE, not by name: every custom-property name that existed under the retired
+ * rack/strip material split still exists, so no consumer changed. The `rack` and `strip`
+ * suffixes are semantic debt. The `strip` roles are now aliases of the rack roles (D-11: colour
+ * is a data channel only, so there is no second material).
+ *
+ * Mode selection: the light values sit in the root block; the dark block re-declares EVERY
+ * mirrored name, so the drift check can compare a mode against its own block and nothing else.
+ * A name declared with the SAME value in both blocks is allowed only where the sameness is the
+ * design (the pinned brand fill, text on it, the transparent rest state); contrast.test.ts keeps
+ * that list and fails on any other, because a value written twice and changed in neither is how
+ * --focus-ring shipped unauthored for dark. The contrast test owns every number here.
  */
 
 :root {
-  /* --- Rack (dark chrome) — 01-UI-SPEC.md "Measured starting palette" --- */
-  --surface-dominant: #171b22;
-  --surface-secondary: #1e232b;
-  --divider: #2c333e;
-  --text-primary-rack: #eef1f6;
-  --text-muted-rack: #9aa4b5;
-  --accent-text-rack: #7d99ff;
-  --accent-nontext: #3c64dd;
+  color-scheme: light dark;
 
-  /* --- Strip stock — five workflow-state tints, one paper family --- */
-  --strip-backlog: #e6e1d6;
-  --strip-todo: #dfe4ea;
-  --strip-in-progress: #efe6c8;
-  --strip-in-review: #e6ddec;
-  --strip-done: #dde9dc;
-
-  /* --- Ink and accents on strip stock --- */
-  --text-primary-strip: #1e232b;
-  --text-muted-strip: #4a5261;
-  --accent-text-strip: #2d4fb8;
-  --focus-ring: #3c64dd;
-  --destructive-strip: #9c351c;
-
-  /* --- Agent signal vocabulary (02-UI-SPEC.md "Color Additions") ---
-   * Four roles for the five new run-status/blocked signals this phase introduces. Only `blocked`
-   * gets a rack/strip pair: it is the one new signal that renders on BOTH material families (board
-   * row = strip stock, session surface and item detail = rack), whereas run status (success/
-   * destructive) only ever renders on rack surfaces in this phase. Running reuses the existing
-   * `accent-text-rack`; interrupted reuses the existing `text-muted-rack` — no new role for either.
+  /* --- Ground, surface, rule (light) --- */
+  --surface-dominant: #ffffff;
+  --surface-secondary: #f6f8fa;
+  /* Region separator only: 1.43 / 1.34 on ground / surface. A hairline, NOT a control edge. */
+  --divider: #d1d9e0;
+  /* A control's visible boundary (inputs, pickers, buttons): 3.89 / 3.65 on ground / surface. */
+  --border-control: #7a828c;
+  /*
+   * An overlay's own edge, per tier (UI-SPEC § Overlay Rule). Light says the tier with the shadow
+   * below, so all three edges are the control boundary. Dark cannot (a shadow over a near-black
+   * ground is invisible), so dark says it with edge LIGHTNESS: each tier a step lighter.
    */
-  --success-text-rack: #5fbf8e;
-  --destructive-text-rack: #d9776c;
-  --blocked-text-rack: #dda845;
-  --blocked-text-strip: #7a4e19;
+  --border-popover: #7a828c;
+  --border-dialog: #7a828c;
+  --border-sheet: #7a828c;
+
+  /* --- Text --- */
+  --text-primary-rack: #1f2328;
+  --text-muted-rack: #59636e;
+  /*
+   * A field's placeholder: a step below muted, and AA (4.56 worst case) in BOTH modes. The engine's own
+   * placeholder was an unowned grey, 2.3:1 on white and about 8.5:1 in dark, so the dark launch sheet
+   * looked as if a prompt were already typed (08.1-17 closure). Matched on ratio, not on hex distance.
+   */
+  --text-placeholder: #68727d;
+
+  /* --- Brand. Light needs NO text lift: the pinned hue is 5.17 / 4.86 on ground / surface. --- */
+  --accent-text-rack: #3c64dd;
+  --accent-nontext: #3c64dd;
+  --focus-ring: #3c64dd;
+
+  /* --- Data channels (D-11): done, failed, blocked. All AA on both surfaces. --- */
+  --success-text-rack: #1a7f37;
+  --destructive-text-rack: #cf222e;
+  --blocked-text-rack: #9a6700;
 
   /*
-   * Board row states — overlays applied on top of a row's own strip-state tint,
-   * not replacements for it. The distinguishability obligation (01-UI-SPEC.md
-   * "Color & Token Roles" role table) is that all four are pairwise distinct —
-   * a selected-but-blurred row must never look identical to a focused-and-
-   * selected one. `row-surface` is fully transparent (the row shows its strip
-   * tint unmodified at rest); hover/selected/selected-unfocused layer
-   * increasingly assertive tints so the state reads independently of which
-   * status tint sits underneath.
+   * Board row states. Selection is a rule plus a background shift (D-12), never a brand colour.
+   * The shift is as strong as AA allows and no stronger: every text and data-channel role is
+   * asserted 4.5:1 on all of these, and the weakest text role (blocked, 4.87 on the ground in
+   * light; the dark brand text lift, 4.70 on the ground in dark) runs out at about 1.08 in light and
+   * 1.04 in dark. The finish reviewer asked for 1.12 / 1.08; neither is reachable without lowering a
+   * text role under AA (08.1-14 closure). Selected = the ceiling (#f5f7f9 / #101010). Selected,
+   * list not focused = about half of it: a task row does not use it (it shows the lighter rule on
+   * the idle surface), an epic row, which has no rule, does. Pairwise distinct (legend test);
+   * `row-surface` is the transparent rest state.
    */
-  --row-surface: rgba(23, 27, 34, 0);
-  --row-surface-hover: rgba(60, 100, 221, 0.06);
-  --row-surface-selected: rgba(60, 100, 221, 0.14);
-  --row-surface-selected-unfocused: rgba(74, 82, 97, 0.14);
+  --row-surface: rgba(0, 0, 0, 0);
+  --row-surface-hover: #fafbfc;
+  --row-surface-selected: #f5f7f9;
+  --row-surface-selected-unfocused: #f9fafc;
 
-  /* --- Radius language (01-UI-SPEC.md "Design System" § Radius Language, LOCKED 2026-09-09) ---
-   * Strip stock reads as near-square printed stock; interactive chrome carries
-   * the mark's rounded-join character more openly. A focus ring follows the
-   * radius of whatever shape it wraps rather than declaring its own.
+  /*
+   * The 2px rule on a selected task row (A-06). The two selected surfaces above are about 1.03
+   * apart, so the RULE carries focus: full ink while the list has focus, the lighter control tone
+   * once it has lost it (4.06 apart). A task row's unfocused selection also drops the surface shift
+   * altogether (08.1-14 closure), so band-present against band-absent says it a second time. Separate roles from --text-primary-rack and --border-control on
+   * purpose: a later change to control borders must not silently move selection.
    */
-  --radius-strip: 2px;
+  --selection-rule: #1f2328;
+  --selection-rule-unfocused: #7a828c;
+
+  /* --- Overlays: scrim and the three elevation shadows --- */
+  --scrim: rgba(31, 35, 40, 0.4);
+  --shadow-popover: 0 8px 24px rgba(31, 35, 40, 0.16);
+  --shadow-dialog: 0 12px 32px rgba(31, 35, 40, 0.2);
+  --shadow-sheet: 0 16px 48px rgba(31, 35, 40, 0.24);
+
+  /* --- Aliases. The five paper tints are removed as colours (D-11): one surface family. --- */
+  --strip-backlog: var(--surface-dominant);
+  --strip-todo: var(--surface-dominant);
+  --strip-in-progress: var(--surface-dominant);
+  --strip-in-review: var(--surface-dominant);
+  --strip-done: var(--surface-dominant);
+  --text-primary-strip: var(--text-primary-rack);
+  --text-muted-strip: var(--text-muted-rack);
+  --accent-text-strip: var(--accent-text-rack);
+  --destructive-strip: var(--destructive-text-rack);
+  --blocked-text-strip: var(--blocked-text-rack);
+
+  /* --- Radius language (rows are square; marks 3px; chrome 6px) --- */
+  --radius-mark: 3px;
   --radius-chrome: 6px;
 
-  /* --- Spacing scale (01-UI-SPEC.md "Spacing Scale" — structural, locked) --- */
+  /* --- Spacing scale (structural, locked) --- */
   --space-xs: 4px;
   --space-sm: 8px;
   --space-md: 16px;
@@ -81,4 +113,61 @@
   --space-xl: 32px;
   --space-2xl: 48px;
   --space-3xl: 64px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-dominant: #0a0a0a;
+    --surface-secondary: #0f0f0f;
+    /*
+     * 1.42 / 1.37 on ground / surface: the weight the light hairline has (1.43 / 1.34). It was #1f1f1f
+     * (1.20 / 1.16), which is the same rule at about half the perceptual strength (08.1-15 closure).
+     * Still a hairline, still under 3:1.
+     */
+    --divider: #2c2c2c;
+    /* 4.00 / 3.87 on ground / surface. */
+    --border-control: #707070;
+    /* Tier by edge lightness: popover < dialog < sheet, every one clear of the 3:1 control floor. */
+    --border-popover: #7a7a7a;
+    --border-dialog: #909090;
+    --border-sheet: #a6a6a6;
+
+    --text-primary-rack: #ededed;
+    --text-muted-rack: #8b8b8b;
+    --text-placeholder: #7c7c7c;
+
+    /*
+     * Dark brand text lift. The pinned #3c64dd is 3.83 / 3.71 here: fine for the progress fill
+     * (3:1 non-text), failing for text. Derived by search, not by eye: hue 225, saturation held
+     * at the brand's 70.3%, lightness stepped 1% up from the brand's 55% until the ratio
+     * against the WORST dark surface (#0f0f0f) reached 4.5. First hit: 60% -> #5175e1, 4.55 on
+     * #0f0f0f (4.70 on #0a0a0a). The retired lift #7d99ff is 7.19 here: over-lifted.
+     */
+    --accent-text-rack: #5175e1;
+    --accent-nontext: #3c64dd;
+    /*
+     * The ring was declared #3c64dd here as well, identical to light: written twice, authored once. Every
+     * other brand role shifts per mode, so this one takes the lifted step (4.55 on the worst surface,
+     * 3:1 asked for). Overlay controls that sit flush on a dialog edge do not use it; they use the ink rule.
+     */
+    --focus-ring: #5175e1;
+
+    --success-text-rack: #3fb950;
+    --destructive-text-rack: #f85149;
+    --blocked-text-rack: #d29922;
+
+    --row-surface: rgba(0, 0, 0, 0);
+    --row-surface-hover: #0c0c0c;
+    --row-surface-selected: #101010;
+    --row-surface-selected-unfocused: #0e0e0e;
+
+    --selection-rule: #ededed;
+    --selection-rule-unfocused: #707070;
+
+    /* 0.4, not 0.6: over a near-black ground 0.6 erases the board the modal sits over (08.1-15 closure). */
+    --scrim: rgba(0, 0, 0, 0.4);
+    --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.6);
+    --shadow-dialog: 0 12px 32px rgba(0, 0, 0, 0.65);
+    --shadow-sheet: 0 16px 48px rgba(0, 0, 0, 0.7);
+  }
 }

@@ -7,7 +7,7 @@ pub mod backup;
 
 use anyhow::Context;
 use once_cell::sync::Lazy;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use rusqlite_migration::{Migrations, M};
 use std::path::{Path, PathBuf};
 
@@ -24,6 +24,22 @@ fn migration_source_list() -> Vec<&'static str> {
         include_str!("migrations/0003_agent_runtime.sql"),
         include_str!("migrations/0004_permission_gate.sql"),
         include_str!("migrations/0005_credentials.sql"),
+        include_str!("migrations/0006_recovery_statuses.sql"),
+        include_str!("migrations/0007_destructive_gate.sql"),
+        include_str!("migrations/0008_session_summaries.sql"),
+        include_str!("migrations/0009_criteria_revisions.sql"),
+        include_str!("migrations/0010_authoring_runs.sql"),
+        include_str!("migrations/0011_authoring_staging.sql"),
+        include_str!("migrations/0012_authoring_proposals_project_status_index.sql"),
+        include_str!("migrations/0013_authoring_summaries.sql"),
+        include_str!("migrations/0014_permission_requests_authoring.sql"),
+        include_str!("migrations/0015_proposal_triage_extension.sql"),
+        include_str!("migrations/0016_authoring_proposals_fts.sql"),
+        include_str!("migrations/0017_forge_setting.sql"),
+        include_str!("migrations/0018_criterion_anchors.sql"),
+        include_str!("migrations/0019_fan_out.sql"),
+        include_str!("migrations/0020_fleet.sql"),
+        include_str!("migrations/0021_fleet_review_backlog.sql"),
     ]
 }
 
@@ -86,14 +102,53 @@ pub fn open_and_migrate(db_path: &Path, backups_dir: &Path) -> anyhow::Result<Co
 
     apply_pragmas(&conn).context("failed to apply pragmas after opening the database")?;
 
-    if let Err(migration_err) = MIGRATIONS.to_latest(&mut conn) {
+    // Migration `0006_recovery_statuses.sql` rebuilds `worktrees` and `agent_runs` (SQLite
+    // cannot ALTER a CHECK constraint in place), and both are the parent side of a real foreign
+    // key that a sibling table declares against them (`agent_runs.worktree_id` -> `worktrees.id`,
+    // `permission_requests.agent_run_id` -> `agent_runs.id`). `DROP TABLE` on a table that is the
+    // parent of an existing foreign key with matching child rows fails under
+    // `PRAGMA foreign_keys = ON` — verified directly against a real `sqlite3` binary while writing
+    // this migration. Toggling the pragma from INSIDE a migration's own SQL is a documented
+    // no-op (`rusqlite_migration` runs every migration body inside its own transaction, and
+    // SQLite ignores `PRAGMA foreign_keys` once a transaction is already open), so it is toggled
+    // here instead, at the connection level, around the whole `to_latest()` call — exactly as
+    // `rusqlite_migration`'s own `foreign_key_check()` documentation recommends for a migration
+    // that rebuilds a referenced table.
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .context("failed to disable foreign_keys before migrating")?;
+
+    // A successful `to_latest()` is not yet trusted: re-enable enforcement and run
+    // `PRAGMA foreign_key_check` before deciding the migration truly succeeded. A rebuild that
+    // silently dropped or misdirected a foreign key must be treated exactly like a `to_latest`
+    // failure — routed through the SAME restore-and-refuse path below (D-18) — never surfaced as
+    // a late, un-recovered error after the connection has already been handed back.
+    let migration_result: anyhow::Result<()> = MIGRATIONS
+        .to_latest(&mut conn)
+        .map_err(anyhow::Error::from)
+        .and_then(|()| {
+            conn.pragma_update(None, "foreign_keys", "ON")
+                .context("failed to re-enable foreign_keys after migrating")?;
+            let fk_violation: Option<String> = conn
+                .query_row("SELECT * FROM pragma_foreign_key_check LIMIT 1", [], |row| row.get(0))
+                .optional()
+                .context("failed to run foreign_key_check after migrating")?;
+            if let Some(table) = fk_violation {
+                anyhow::bail!(
+                    "PRAGMA foreign_key_check reported a violation involving {table:?} for \
+                     {db_path:?} after migrating — a table rebuild left a dangling foreign key"
+                );
+            }
+            Ok(())
+        });
+
+    if let Err(migration_err) = migration_result {
         // Drop the connection before touching the file on disk — SQLite (and the OS, on
         // Windows in particular) will not let another process overwrite a file that is still
         // held open.
         drop(conn);
 
         let Some(backup_path) = backup_path else {
-            return Err(anyhow::Error::from(migration_err).context(format!(
+            return Err(migration_err.context(format!(
                 "failed to run pending migrations against {db_path:?}; no pre-migration backup \
                  existed to restore (this was a brand-new database)"
             )));
@@ -106,7 +161,7 @@ pub fn open_and_migrate(db_path: &Path, backups_dir: &Path) -> anyhow::Result<Co
             )
         })?;
 
-        return Err(anyhow::Error::from(migration_err).context(format!(
+        return Err(migration_err.context(format!(
             "failed to run pending migrations against {db_path:?}; restored the pre-migration \
              backup at {backup_path:?} and refused to open"
         )));
@@ -142,7 +197,38 @@ pub fn default_backups_dir() -> anyhow::Result<PathBuf> {
     Ok(app_data_dir()?.join("backups"))
 }
 
+/// Resolve `<app-data>/Flywheel/` — the one directory holding the fleet-wide database, its
+/// backups, `runtime/` and `sessions/`. Overridable via `FLYWHEEL_APP_DATA_DIR`, mirroring
+/// `runtime_protocol::runtime_dir`'s own `FLYWHEEL_RUNTIME_DIR` pattern exactly: a test-only
+/// override that is ALSO a production seam, because it is what lets a harness drive the REAL
+/// application — the same binary, the same migrations, the same store of record — against a
+/// scratch directory instead of the developer's own data.
+///
+/// Without this seam the only way to isolate a harness run would be to override `HOME`, which
+/// would also move `~/.claude` out from under the agent binary a session spawns and so break the
+/// very credential resolution those sessions depend on. Overriding this one directory moves
+/// Flywheel's own state and nothing else.
+///
+/// Never reads or sets the process working directory (ARCHITECTURE.md Anti-Pattern 3): an empty
+/// override is ignored rather than resolving to a relative path, so a caller that exports the
+/// variable unset can never silently write the fleet database into whatever directory it happens
+/// to be standing in. WR-02 (03-REVIEW.md): a non-empty override that is NOT absolute is rejected
+/// with a named error rather than silently resolving against the process's current directory —
+/// the same shape `packages/shim/src/main.rs::resolve_real_binary_from_env` already uses for
+/// `FLYWHEEL_REAL_GIT`/`FLYWHEEL_REAL_RM`. The empty-override and no-override branches are
+/// unchanged: an empty value is still ignored, and the OS app-data directory is still the
+/// fallback.
 fn app_data_dir() -> anyhow::Result<PathBuf> {
+    if let Some(over) = std::env::var_os("FLYWHEEL_APP_DATA_DIR") {
+        if !over.is_empty() {
+            let path = PathBuf::from(&over);
+            anyhow::ensure!(
+                path.is_absolute(),
+                "FLYWHEEL_APP_DATA_DIR does not name an absolute path: {path:?}"
+            );
+            return Ok(path);
+        }
+    }
     let base = dirs::data_dir().context("could not resolve the OS app-data directory")?;
     Ok(base.join("Flywheel"))
 }

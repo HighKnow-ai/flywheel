@@ -1,9 +1,8 @@
 /*
- * Reset + the rack ground. The Flight Progress Strips world (01-UI-SPEC.md
- * "Selected Direction") lands here: the boot window reads as the dark chrome
- * frame described in "First viewport." Board surfaces (rail, strips, panel,
- * palette) land starting in plan 01-03; this plan authors only the ground and
- * the theme foundation every later surface consumes.
+ * Reset + the rack ground, and the app shell's shared rules. The world is Mission Control
+ * (08.1-UI-SPEC.md "Selected Direction"): one near-neutral surface family in light and dark,
+ * hairline rules, no fills, type and spacing carrying the hierarchy. The Flight Progress Strips
+ * world this file was first written for is retired (D-10).
  */
 * {
   box-sizing: border-box;
@@ -44,12 +43,55 @@ button:focus-visible {
 }
 
 /*
- * Board row / quick-add hover (01-UI-SPEC.md Row Anatomy row states). Rows set their status tint
- * via an inline `background` (dynamic per status), so the hover wash is an inset box-shadow
- * overlay — the same `--row-surface-hover` token layered on top, rather than a second background
- * declaration fighting the inline one.
+ * The command palette's search field is always focused, so its ring is always on. Drawn as the brand
+ * and flush on the dialog's own edge it doubled that edge and spent the brand on an input (08.1-15
+ * closure, finding 5). It takes the ink rule, the same device the highlighted command uses, and is
+ * inset by the field's padding so it sits inside the dialog edge, never on it.
  */
-.board-row,
+.command-palette-search:focus-visible {
+  outline: 2px solid var(--selection-rule);
+  outline-offset: -8px;
+}
+
+/*
+ * A control's visible edge (WCAG 1.4.11, 3:1): inputs, chips and buttons draw it from
+ * --border-control, never from --divider (1.16 to 1.43, a decorative hairline that separates
+ * regions and rows only). The chrome radius is the contract's radius for controls. A pressed or
+ * selected state may override `border-color` inline; the focus ring follows this radius.
+ */
+.control-edge {
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-chrome);
+}
+
+/* Hover on a control: the edge goes to ink, a plain static colour change (no motion on hover). */
+button.control-edge:hover:not(:disabled) {
+  border-color: var(--text-primary-rack);
+}
+
+/*
+ * A rail row hovers like a board row: the same inset wash, because the rows set `background`
+ * inline and a plain `background` rule here would lose to it. The current entry keeps its own mark.
+ */
+.project-rail button:not([aria-current]):hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+/*
+ * Board row hover (01-UI-SPEC.md Row Anatomy row states). The row's own background is the
+ * selection overlay set inline, so the hover wash is an inset box-shadow layered on top — the same
+ * `--row-surface-hover` token, rather than a second background declaration fighting the inline one.
+ */
+.board-row {
+  /* The selection-move duration (08.1-UI-SPEC.md § Motion): moving selection or hover down the
+     rack changes exactly this wash and the 2px rule's colour, so this is where "you moved" is
+     felt. */
+  transition:
+    box-shadow var(--duration-select, 120ms) var(--ease, ease),
+    border-left-color var(--duration-select, 120ms) var(--ease, ease),
+    background var(--duration-select, 120ms) var(--ease, ease);
+}
+
 .quick-add {
   transition:
     box-shadow var(--duration-settle, 180ms) var(--ease, ease),
@@ -58,6 +100,28 @@ button:focus-visible {
 
 .board-row:hover {
   box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+/*
+ * The keyboard-focus ring on a row. It is :focus-visible and not the `focused` prop because that
+ * prop is also true after a mouse click: driven by it, a click leaves a permanent blue rectangle
+ * and the brand becomes the cursor, which 08.1-UI-SPEC § The brand rule forbids. Pointer selection
+ * shows only the surface shift and the 2px rule (A-06). The task row's ring is inset to -4, past the
+ * 2px rule, so a focused row shows both; the epic header has no rule, so -2 is the ring's own edge.
+ */
+.board-row,
+.epic-header-row {
+  outline: none;
+}
+
+.board-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -4px;
+}
+
+.epic-header-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 
 /*
@@ -92,6 +156,45 @@ button:focus-visible {
   }
 }
 
+/*
+ * The epic roster header is a grid, so unlike a task row it cannot shed a field by hiding it
+ * inside a fixed template. Its wrapper is the container; the ladder rewrites the template. A
+ * FIELD (the distribution strip, the progress column's width) gives way as the rack narrows,
+ * and the title keeps the slack; a SIGNAL (agents, proposals, the change cue) never does — the
+ * same field-versus-signal convention as the `.field-*` rules above.
+ */
+.epic-header-cell {
+  container-type: inline-size;
+  container-name: epic-header;
+}
+
+.epic-header-row {
+  grid-template-columns: minmax(0, 1fr) 220px 200px 56px 56px 56px 260px;
+  column-gap: var(--space-md);
+}
+
+@container epic-header (max-width: 900px) {
+  .field-epic-distribution {
+    display: none;
+  }
+
+  .epic-header-row {
+    grid-template-columns: minmax(0, 1fr) 220px 56px 56px 56px 260px;
+  }
+}
+
+/* The dispatch controls are a field (plan 09-09): they give way before the title does. Two classes of
+   specificity, so the cell's own `display: flex` cannot win on stylesheet order. */
+@container epic-header (max-width: 640px) {
+  .epic-header-row .field-epic-dispatch {
+    display: none;
+  }
+
+  .epic-header-row {
+    grid-template-columns: minmax(0, 1fr) 140px 56px 56px 56px;
+  }
+}
+
 button {
   font-family: inherit;
   transition: background-color var(--duration-settle, 180ms) var(--ease, ease);
@@ -104,4 +207,20 @@ button:hover:not(:disabled) {
 button:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* A-08(c): the rail's identity mark is ink, not the brand-filled tile. The owner declined a fifth
+   permitted brand use for an identity mark, so the rail follows FirstRun. It lives here rather than
+   in states-and-confirms.css because App.css is the sheet the rail actually loads. */
+.rail-mark {
+  background-color: var(--text-primary-rack);
+  display: block;
+  height: 28px;
+  width: 28px;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
 }

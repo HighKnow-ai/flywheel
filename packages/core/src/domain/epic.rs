@@ -29,21 +29,54 @@ pub struct Epic {
     pub priority: i64,
 }
 
-/// The project's full epic roster (BOARD-06, G-01-2): `id`, `key` and `title` only — the three
-/// fields the epic pill, the filter chips and the picker options consume.
+/// The project's full epic roster (BOARD-06, G-01-2): the three fields the epic pill, the filter
+/// chips and the picker options consume (`id`, `key`, `title`), plus the two the roster header's
+/// sub-label reads (`status`, `integration_branch`; 08.1-14 finish review). Still deliberately not
+/// the full epic row: no description, rank or priority.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EpicSummary {
     pub id: String,
     pub key: String,
     pub title: String,
+    /// The epic's own workflow status, as the board stores it.
+    pub status: String,
+    /// `None` until an agent first runs against the epic (D-25 cuts the branch lazily) — which is a
+    /// fact the header says in words ("no integration branch yet"), never a blank.
+    pub integration_branch: Option<String>,
 }
 
-/// List every epic in `project_id` — unwindowed, unlike every other board read (D-03). Epics are
-/// a small roster authored one at a time by a human, and resolving a label against a 200-row
-/// `list_board` page is UAT gap G-01-2: any epic sorting outside that window has no entry, so
-/// `BoardRow.tsx` fell back to rendering the epic's raw internal ULID. Placed here rather than in
-/// `query/mod.rs` because that module is framed specifically around the bounded, cursor-resumable
-/// board window, exactly as `list_actors` sits in `domain/actor.rs` rather than in `query/`.
+/// [`list_epics`]'s ceiling (D-87, plan 05-04, closing `01-SECURITY.md` AR-01-04): five hundred
+/// times `board.rs`'s `DEFAULT_LIMIT`, and NOT a page size — nothing in this crate paginates
+/// against it. AR-01-04's own objection to a naive cap was that a cap would *silently* truncate
+/// the roster and reintroduce G-01-2 (an epic sorting outside the window rendering as a raw
+/// internal ULID). A ceiling this far above any realistic human-authored roster, combined with
+/// [`EpicRoster::truncated`] — a fact the caller must render, never swallow (D-16: surface a
+/// mismatch, never silently repair it) — removes the unbounded read AR-01-04 flagged as this
+/// phase's re-rate trigger without recreating the silence that made the original exemption safe
+/// to reject.
+pub const EPIC_ROSTER_CEILING: i64 = 5000;
+
+/// [`list_epics`]'s return shape (D-16, D-87): the roster page (bounded by
+/// [`EPIC_ROSTER_CEILING`]), the project's TRUE epic count, and whether the two differ. A caller
+/// that ignores `truncated` gets exactly `EPIC_ROSTER_CEILING` rows and no signal that more exist
+/// — the renderer must check this field, not infer truncation from `epics.len()` alone.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EpicRoster {
+    pub epics: Vec<EpicSummary>,
+    pub total: i64,
+    pub truncated: bool,
+}
+
+/// List every epic in `project_id`, up to [`EPIC_ROSTER_CEILING`] — no longer literally unwindowed
+/// (closing `01-SECURITY.md` AR-01-04's re-rate trigger: Phase 5 gives an agent a board read
+/// path), but still deliberately NOT `board.rs`'s `DEFAULT_LIMIT`/200-row window: epics are a
+/// small roster, and resolving a label against a 200-row `list_board` page was UAT gap G-01-2 —
+/// any epic sorting outside that window had no entry, so `BoardRow.tsx` fell back to rendering the
+/// epic's raw internal ULID. Placed here rather than in `query/mod.rs` because that module is
+/// framed specifically around the bounded, cursor-resumable board window, exactly as `list_actors`
+/// sits in `domain/actor.rs` rather than in `query/`. `query::authoring::list_epics_page` is the
+/// SEPARATE, `DEFAULT_LIMIT`/`MAX_LIMIT`-clamped read an agent's own tools call (plan 05-04 Task
+/// 2) — two reads, two ceilings, one reason each, never one function serving both purposes.
 ///
 /// Orders by `crate::query::ORDER_BY` — the same status-band/priority/rank/id total order
 /// `list_board` uses (BOARD-05) — so this roster's own iteration order, where it happens to
@@ -55,23 +88,38 @@ pub struct EpicSummary {
 /// `format_sql` helper uses for the identical reason. Every fragment is a literal; the only
 /// runtime value is `project_id`, bound through `params![]`, never interpolated into the string
 /// (T-01-01/T-01-23) — this function contains no `format!`.
-pub fn list_epics(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<EpicSummary>> {
+pub fn list_epics(conn: &Connection, project_id: &str) -> anyhow::Result<EpicRoster> {
     let sql: String = [
-        "SELECT b.id, b.key, b.title FROM epics b WHERE b.project_id = ?1 ",
+        "SELECT b.id, b.key, b.title, b.status, b.integration_branch FROM epics b WHERE b.project_id = ?1 ",
         crate::query::ORDER_BY,
+        " LIMIT ?2",
     ]
     .concat();
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt
-        .query_map(params![project_id], |row| {
+        .query_map(params![project_id, EPIC_ROSTER_CEILING], |row| {
             Ok(EpicSummary {
                 id: row.get(0)?,
                 key: row.get(1)?,
                 title: row.get(2)?,
+                status: row.get(3)?,
+                integration_branch: row.get(4)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>();
-    rows.context("failed to list the project's epics")
+    let epics = rows.context("failed to list the project's epics")?;
+
+    let total: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM epics WHERE project_id = ?1",
+            params![project_id],
+            |row| row.get(0),
+        )
+        .context("failed to count the project's epics")?;
+
+    let truncated = total > epics.len() as i64;
+
+    Ok(EpicRoster { epics, total, truncated })
 }
 
 /// Create an epic: one transaction allocates the tail rank for the backlog band, allocates the
@@ -84,10 +132,29 @@ pub fn create_epic(
     title: &str,
     description: Option<&str>,
 ) -> anyhow::Result<Epic> {
-    let id = new_id();
     let now = Utc::now().to_rfc3339();
-
     let tx = conn.transaction()?;
+    let epic = create_epic_in_tx(&tx, project_id, actor_id, title, description, &now)?;
+    tx.commit().context("failed to commit create_epic transaction")?;
+    Ok(epic)
+}
+
+/// The statement body [`create_epic`] issues, factored out so a caller composing an epic creation
+/// with something else in the SAME transaction —
+/// `domain::authoring_proposal::accept_proposal`, which must never write `epics` through a second
+/// statement of its own (T-05-02-03, mirrors `task::create_task_in_tx`'s identical precedent) —
+/// can run it inside a transaction it already owns. `create_epic`'s own body and signature are
+/// otherwise unchanged; this is the same statements, callable from inside the caller's
+/// transaction.
+pub fn create_epic_in_tx(
+    tx: &rusqlite::Transaction,
+    project_id: &str,
+    actor_id: &str,
+    title: &str,
+    description: Option<&str>,
+    now: &str,
+) -> anyhow::Result<Epic> {
+    let id = new_id();
 
     let last_rank: Option<String> = tx
         .query_row(
@@ -120,7 +187,7 @@ pub fn create_epic(
     )
     .context("failed to insert epic")?;
 
-    let sequence = next_sequence(&tx, project_id, "local")?;
+    let sequence = next_sequence(tx, project_id, "local")?;
     let payload = serde_json::json!({
         "field": "status",
         "before": null,
@@ -129,7 +196,7 @@ pub fn create_epic(
         "label": format!("Created epic \"{title}\""),
     });
     append_event(
-        &tx,
+        tx,
         project_id,
         "local",
         sequence,
@@ -140,10 +207,8 @@ pub fn create_epic(
         actor_id,
         "epic.created",
         &payload,
-        &now,
+        now,
     )?;
-
-    tx.commit().context("failed to commit create_epic transaction")?;
 
     Ok(Epic {
         id,
@@ -168,7 +233,22 @@ pub fn update_epic(
 ) -> anyhow::Result<Epic> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    let epic = update_epic_in_tx(&tx, actor_id, epic_id, title, description, &now)?;
+    tx.commit().context("failed to commit update_epic transaction")?;
+    Ok(epic)
+}
 
+/// The statement body [`update_epic`] issues, factored out so `domain::authoring_proposal::accept_proposal`
+/// can materialise an `amend`/`epic` proposal inside its own already-open transaction — mirrors
+/// [`create_epic_in_tx`]'s identical factoring reason.
+pub fn update_epic_in_tx(
+    tx: &rusqlite::Transaction,
+    actor_id: &str,
+    epic_id: &str,
+    title: Option<&str>,
+    description: Option<&str>,
+    now: &str,
+) -> anyhow::Result<Epic> {
     let (project_id, key, current_title, current_description, status, rank, priority): (
         String,
         String,
@@ -204,7 +284,7 @@ pub fn update_epic(
     )
     .context("failed to update epic")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "title",
         "before": current_title,
@@ -212,7 +292,7 @@ pub fn update_epic(
         "label": format!("Edited title to \"{new_title}\""),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -223,10 +303,8 @@ pub fn update_epic(
         actor_id,
         "epic.updated",
         &payload,
-        &now,
+        now,
     )?;
-
-    tx.commit().context("failed to commit update_epic transaction")?;
 
     Ok(Epic {
         id: epic_id.to_string(),
@@ -248,7 +326,16 @@ pub fn update_epic(
 pub fn delete_epic(conn: &mut Connection, actor_id: &str, epic_id: &str) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    delete_epic_in_tx(&tx, actor_id, epic_id, &now)?;
+    tx.commit().context("failed to commit delete_epic transaction")?;
+    Ok(())
+}
 
+/// The statement body [`delete_epic`] issues, factored out so `domain::authoring_proposal::accept_proposal`
+/// can materialise a `delete`/`epic` proposal inside its own already-open transaction — mirrors
+/// [`create_epic_in_tx`]'s identical factoring reason. Idempotent, exactly like [`delete_epic`]
+/// itself: an id that no longer exists is a no-op, no event appended.
+pub fn delete_epic_in_tx(tx: &rusqlite::Transaction, actor_id: &str, epic_id: &str, now: &str) -> anyhow::Result<()> {
     let existing: Option<(String, String)> = tx
         .query_row(
             "SELECT project_id, title FROM epics WHERE id = ?1",
@@ -260,7 +347,6 @@ pub fn delete_epic(conn: &mut Connection, actor_id: &str, epic_id: &str) -> anyh
 
     let Some((project_id, title)) = existing else {
         // Already gone — idempotent success, no second event.
-        tx.commit().context("failed to commit no-op delete_epic transaction")?;
         return Ok(());
     };
 
@@ -283,12 +369,12 @@ pub fn delete_epic(conn: &mut Connection, actor_id: &str, epic_id: &str) -> anyh
 
     // The epic's own criteria are deleted with it (unlike its child tasks, which are orphaned,
     // not cascaded) — one `criterion.deleted` event per row, inside this same transaction.
-    delete_criteria_for_parent(&tx, &project_id, actor_id, "epic", epic_id, &now)?;
+    delete_criteria_for_parent(tx, &project_id, actor_id, "epic", epic_id, now)?;
 
     tx.execute("DELETE FROM epics WHERE id = ?1", params![epic_id])
         .context("failed to delete epic")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "status",
         "before": "existing",
@@ -297,7 +383,7 @@ pub fn delete_epic(conn: &mut Connection, actor_id: &str, epic_id: &str) -> anyh
         "label": format!("Deleted epic \"{title}\""),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -308,10 +394,9 @@ pub fn delete_epic(conn: &mut Connection, actor_id: &str, epic_id: &str) -> anyh
         actor_id,
         "epic.deleted",
         &payload,
-        &now,
+        now,
     )?;
 
-    tx.commit().context("failed to commit delete_epic transaction")?;
     Ok(())
 }
 

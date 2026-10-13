@@ -1,0 +1,82 @@
+name: Open core
+
+# DIST-04: the open-source application builds and passes its full test suite
+# with the relay seam entirely absent. The crate is deleted from the tree, not
+# feature-gated: a gated member is still in the tree.
+#
+# This is a boundary proved by a check that fails the build, not a convention.
+# A failed or re-run job guarantees nothing of its own; the property is
+# structural, so the remedy is simply to re-run it.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  relay-absent:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Delete the relay seam
+        run: rm -rf packages/relay-client
+
+      # packages/sidecar is not a Cargo member, so this edit leaves the
+      # sidecar steps below untouched.
+      - name: Remove it from the workspace members
+        run: |
+          sed -i.bak '/packages\/relay-client/d' Cargo.toml
+          rm Cargo.toml.bak
+          if grep -q 'packages/relay-client' Cargo.toml; then
+            echo "::error::relay-client is still listed in Cargo.toml members"
+            exit 1
+          fi
+          cargo metadata --no-deps --format-version 1 > /dev/null
+
+      - name: No source outside the crate references it
+        run: |
+          hits=$(grep -rInE 'relay[_-]client' packages scripts Cargo.toml package.json \
+            --exclude-dir=node_modules --exclude-dir=target --exclude-dir=dist 2>/dev/null \
+            | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|#|\*|/\*|<!--)' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::non-comment references to the relay crate outside packages/relay-client:"
+            echo "$hits"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            packages/desktop/package-lock.json
+            packages/sidecar/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm --prefix packages/sidecar ci
+
+      - run: npm --prefix packages/desktop ci
+
+      # Staging MUST precede every cargo step: tauri_build::build() fails the
+      # whole workspace build when a bundle.externalBin file is missing.
+      - run: npm --prefix packages/sidecar run build:dist
+
+      - run: npm --prefix packages/sidecar test
+
+      - run: cargo build --workspace
+
+      - run: cargo test --workspace
+
+      - run: npm --prefix packages/desktop test
+
+      - run: npm --prefix packages/desktop run build

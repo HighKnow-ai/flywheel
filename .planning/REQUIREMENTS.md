@@ -12,7 +12,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **DATA-01**: Every board mutation is written to an append-only event log in the same transaction as the mutable projection it updates, so audit trail and current state can never diverge
 - [x] **DATA-02**: Every entity uses a client-generated globally unique identifier (ULID), never an auto-incrementing integer, so records created offline or on another device never collide
 - [x] **DATA-03**: Every mutation records the actor that made it, with humans and agents represented as distinct actors in the same actor model
-- [ ] **DATA-04**: Agent work is started through a generic trigger record whose source is one of a known set, with `user_action` implemented and `schedule`/`webhook` accepted by the schema but unimplemented
+- [x] **DATA-04**: Agent work is started through a generic trigger record whose source is one of a known set, with `user_action` implemented and `schedule`/`webhook` accepted by the schema but unimplemented
 - [x] **DATA-05**: The event log is readable as an ordered, resumable stream from any point via a cursor, so a future relay can subscribe and replay without a schema change
 - [x] **DATA-06**: Worktrees, agent runs, sessions, session summaries and artifacts are first-class records with their own identity, not JSON blobs attached to a task
 - [x] **DATA-07**: The database survives an unclean application termination without corruption or loss of committed work
@@ -22,7 +22,7 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 - [x] **BOARD-01**: User can create, edit and delete epics, tasks and issues in a fixed three-level hierarchy that cannot be reconfigured
 - [x] **BOARD-02**: Every task carries structured acceptance criteria as discrete, individually checkable items — not free prose
-- [ ] **BOARD-03**: Acceptance criteria are immutable once a task starts work; changing them creates a new revision rather than overwriting
+- [x] **BOARD-03**: Acceptance criteria are immutable once a task starts work; changing them creates a new revision rather than overwriting
 - [x] **BOARD-04**: Items move through a fixed workflow (Backlog → Todo → In Progress → In Review → Done) that cannot be customised
 - [x] **BOARD-05**: User can reorder and reprioritise items within an epic and within the backlog
 - [x] **BOARD-06**: User can filter and search across all items in a project by text, status, epic and assignee
@@ -33,111 +33,112 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 
 ### Worktree & Branch Management
 
-- [ ] **WORK-01**: Starting work on a task creates a dedicated git worktree for that task
-- [ ] **WORK-02**: Branches follow the fixed topology: a task branch merges into its epic integration branch, which merges into the trunk
-- [ ] **WORK-03**: A worktree is never destroyed without first checking for uncommitted changes; if any exist, destruction is refused and surfaced to the user
-- [ ] **WORK-04**: Concurrent git operations against the same repository retry with exponential backoff and jitter on index-lock contention rather than failing the task
-- [ ] **WORK-05**: Agent spawn timing is desynchronised so that parallel starts do not collide on the same repository index
-- [ ] **WORK-06**: On launch, the application reconciles worktrees recorded in the database against those actually present on disk and surfaces any discrepancy to the user rather than silently repairing it
-- [ ] **WORK-07**: User can see all worktrees across all projects, their disk usage, and reclaim stale ones
-- [ ] **WORK-08**: A task's worktree persists across many agent sessions and is only removed on explicit completion or user action
+- [x] **WORK-01**: Starting work on a task creates a dedicated git worktree for that task
+- [x] **WORK-02**: Branches follow the fixed topology: a task branch merges into its epic integration branch, which merges into the trunk
+- [x] **WORK-03**: A worktree is never destroyed without first checking for uncommitted changes; if any exist, destruction is refused and surfaced to the user
+- [x] **WORK-04**: Concurrent git operations against the same repository retry with exponential backoff and jitter on index-lock contention rather than failing the task
+- [x] **WORK-05**: Agent spawn timing is desynchronised so that parallel starts do not collide on the same repository index
+- [x] **WORK-06**: On launch, the application reconciles worktrees recorded in the database against those actually present on disk and surfaces any discrepancy to the user rather than silently repairing it
+- [x] **WORK-07**: User can see all worktrees across all projects, their disk usage, and reclaim stale ones
+- [x] **WORK-08**: A task's worktree persists across many agent sessions and is only removed on explicit completion or user action
 
 ### Git & Forge Linkage
 
-- [ ] **LINK-01**: Every task is bound to exactly one branch whose name derives from the task identifier, so the branch is recognisable from the command line without Flywheel
-- [ ] **LINK-02**: Every board item shows its branch, its commits, and its current ahead/behind position relative to its integration target
-- [ ] **LINK-03**: Commits produced by an agent carry the task identifier in a commit-message trailer, so `git log` alone reveals which board item produced any change
-- [ ] **LINK-04**: User can navigate from a branch name or a commit hash back to the originating board item
-- [ ] **LINK-05**: A task's pull or merge request is linked to its board item, and the request's state (open, changes requested, merged, closed) is reflected on the item
-- [ ] **LINK-06**: Continuous-integration status for a task's branch is visible on its board item
-- [ ] **LINK-07**: Board status transitions follow git and forge state — opening a pull request moves the task to In Review, merging it moves the task to Done
-- [ ] **LINK-08**: Flywheel works against GitHub and GitLab, and degrades cleanly to local-only git when no forge is configured
-- [ ] **LINK-09**: User can see uncommitted changes in a task's worktree from the board without leaving the application
-- [ ] **LINK-10**: Work performed outside Flywheel on a task's branch — a manual commit from a terminal — is detected and reflected on the board item, never silently overwritten
-- [ ] **LINK-11**: User can open a task's worktree in their own editor or terminal in one action
+- [x] **LINK-01**: Every task is bound to exactly one branch whose name derives from the task identifier, so the branch is recognisable from the command line without Flywheel
+- [x] **LINK-02**: Every board item shows its branch, its commits, and its current ahead/behind position relative to its integration target
+- [x] **LINK-03**: Commits produced by an agent carry the task identifier in a commit-message trailer, so `git log` alone reveals which board item produced any change
+- [x] **LINK-04**: User can navigate from a branch name or a commit hash back to the originating board item
+- [x] **LINK-05**: A task's pull or merge request is linked to its board item, and the request's state (open, changes requested, merged, closed) is reflected on the item
+- [x] **LINK-06**: Continuous-integration status for a task's branch is visible on its board item
+- [x] **LINK-07**: Board status transitions follow git and forge state — opening a pull request moves the task to In Review, merging it moves the task to Done
+- [x] **LINK-08**: Flywheel works against GitHub and GitLab, and degrades cleanly to local-only git when no forge is configured
+- [x] **LINK-09**: User can see uncommitted changes in a task's worktree from the board without leaving the application
+- [x] **LINK-10**: Work performed outside Flywheel on a task's branch — a manual commit from a terminal — is detected and reflected on the board item, never silently overwritten
+- [x] **LINK-11**: User can open a task's worktree in their own editor or terminal in one action
 
 ### Process Supervision
 
 - [x] **PROC-01**: Each agent session runs as a separate operating-system process in its own worktree directory
-- [ ] **PROC-02**: The supervisor never reads its own current working directory; every filesystem and git operation is issued against an explicit absolute path
-- [ ] **PROC-03**: Agent processes are managed as process groups so that termination reliably kills the whole tree, not just the parent
-- [ ] **PROC-04**: No agent process survives application quit; a worker self-terminates if its supervisor disappears
-- [ ] **PROC-05**: On launch, orphaned agent processes and in-flight runs from a previous session are detected and surfaced to the user for a decision rather than silently resumed
+- [x] **PROC-02**: The supervisor never reads its own current working directory; every filesystem and git operation is issued against an explicit absolute path
+- [x] **PROC-03**: Agent processes are managed as process groups so that termination reliably kills the whole tree, not just the parent
+- [x] **PROC-04**: No agent process survives application quit; a worker self-terminates if its supervisor disappears
+- [x] **PROC-05**: On launch, orphaned agent processes and in-flight runs from a previous session are detected and surfaced to the user for a decision rather than silently resumed
 - [x] **PROC-06**: User can interrupt or stop a running agent session at any time and the worktree is left in a consistent, inspectable state
 - [x] **PROC-07**: Agent output is streamed to the user live without unbounded memory growth on a long-running session
 
 ### Agent Integration
 
-- [ ] **AGNT-01**: All agent interaction goes through a single adapter interface; no supervisor code branches on which backend is in use
-- [ ] **AGNT-02**: A Claude Code adapter drives headless sessions and normalises their event stream into the adapter's common event type
-- [ ] **AGNT-03**: Agents run using the developer's existing local Claude Code credentials, with no credential ever leaving the machine
-- [ ] **AGNT-04**: An explicit API-key credential path is supported as a first-class alternative to local subscription credentials
+- [x] **AGNT-01**: All agent interaction goes through a single adapter interface; no supervisor code branches on which backend is in use
+- [x] **AGNT-02**: A Claude Code adapter drives headless sessions and normalises their event stream into the adapter's common event type
+- [x] **AGNT-03**: Agents run using the developer's existing local Claude Code credentials, with no credential ever leaving the machine
+- [x] **AGNT-04**: An explicit API-key credential path is supported as a first-class alternative to local subscription credentials
 - [ ] **AGNT-05**: Rate limits and session limits from the backend are detected, backed off from, and surfaced to the user rather than retried blindly
-- [ ] **AGNT-06**: Permission requests raised by a running agent surface to the user and block that agent until answered
-- [ ] **AGNT-07**: Destructive actions (force-push, branch deletion, recursive delete) always require explicit confirmation, even when the session is running in an auto-accept permission mode
-- [ ] **AGNT-08**: The adapter reports token usage and cost per session
+- [x] **AGNT-06**: Permission requests raised by a running agent surface to the user and block that agent until answered
+- [x] **AGNT-07**: A destructive action (force-push, branch deletion, recursive delete) is refused before it reaches the remote, and the user is told, even when the session is running in an auto-accept permission mode
+  - *Narrowed 2026-10-12 by D-197 (Phase 11).* The prior wording claimed the gate asks a human and blocks. The product does not do that: the `PreToolUse` hook (matcher `Bash`) and git's `pre-push` hook refuse outright, so D-58's indefinite block is unreachable for anything run through `Bash`. Safety holds (the remote ref is unchanged) and the agent is told; no permission request is raised. The shipped refusal was measured twice by `scripts/uat/uat-03-destructive-gate.mjs`. The requirement was the side that was wrong; the gate's code is unchanged.
+- [x] **AGNT-08**: The adapter reports token usage and cost per session
 
 ### Context Reconstitution
 
-- [ ] **CTX-01**: Every agent session ends by writing a structured summary to the board recording what changed, what remains, and what the next session must know
-- [ ] **CTX-02**: Session summaries are append-only; an existing summary is never overwritten or rewritten in place
-- [ ] **CTX-03**: A new session is primed automatically from the board — task, epic context, immutable acceptance criteria, prior session summaries, and the diff so far — with no chat transcript involved
-- [ ] **CTX-04**: Context assembly is a deterministic query, not a model call, so the same board state always produces the same context packet
-- [ ] **CTX-05**: Recent summaries are carried verbatim and older ones compacted, with the compaction boundary visible to the user
-- [ ] **CTX-06**: The system detects and surfaces when a new session's stated understanding contradicts a decision already recorded on the board
-- [ ] **CTX-07**: A task can be run through repeated session cycles with its acceptance criteria verifiably unchanged, demonstrated by an automated test over at least five cycles
-- [ ] **CTX-08**: User can discard a session's context and start a fresh one on the same worktree in a single action, losing no board state
+- [x] **CTX-01**: Every agent session ends by writing a structured summary to the board recording what changed, what remains, and what the next session must know
+- [x] **CTX-02**: Session summaries are append-only; an existing summary is never overwritten or rewritten in place
+- [x] **CTX-03**: A new session is primed automatically from the board — task, epic context, immutable acceptance criteria, prior session summaries, and the diff so far — with no chat transcript involved
+- [x] **CTX-04**: Context assembly is a deterministic query, not a model call, so the same board state always produces the same context packet
+- [x] **CTX-05**: Recent summaries are carried verbatim and older ones compacted, with the compaction boundary visible to the user
+- [x] **CTX-06**: The system detects and surfaces when a new session's stated understanding contradicts a decision already recorded on the board
+- [x] **CTX-07**: A task can be run through repeated session cycles with its acceptance criteria verifiably unchanged, demonstrated by an automated test over at least five cycles
+- [x] **CTX-08**: User can discard a session's context and start a fresh one on the same worktree in a single action, losing no board state
 
 ### Socratic Epic Authoring
 
-- [ ] **SHAPE-01**: User can start a conversational session to shape a new epic, in which the agent challenges assumptions and asks clarifying questions before any work is planned
-- [ ] **SHAPE-02**: The authoring session writes its outcome directly to the board as a structured epic with child tasks, not as a document
-- [ ] **SHAPE-03**: The agent drafts acceptance criteria for each generated task, which the user can edit before accepting
-- [ ] **SHAPE-04**: User can accept, reject or amend any individual item the authoring session proposes, rather than accepting the set wholesale
-- [ ] **SHAPE-05**: User can reopen and continue shaping an existing epic at any time, and the agent challenges changes against what the epic already contains
+- [x] **SHAPE-01**: User can start a conversational session to shape a new epic, in which the agent challenges assumptions and asks clarifying questions before any work is planned — the live acceptance arm can authenticate as the developer on the developer's own claude.ai subscription login, with configuration isolation preserved and the credential referenced rather than copied (plans 05-33/05-34); a backend message the wire flags as an error is classified from that flag rather than from its prose, so a non-conversation first turn can no longer be counted as agent speech; the attempt/answer correlation remains exact by construction from plan 05-30 — a lookup on the correlation id the wire itself supplies, carried through the adapter seam, replacing the positional heuristic six consecutive rounds of narrowing had failed to make correct; a live run that ends for ANY reason — a thrown deadline included — now leaves its evidence sheet carrying the turns it captured and a named cause, so a run that spends a credential can no longer be invisible afterwards, which is what makes the judgement recoverable even from a failed run (plan 05-36); a live turn is now bounded by silence rather than by a wall-clock budget, so an agent doing genuine exploratory work is not failed for being thorough, and the surviving ceiling (`LIVE_TURN_CEILING_MS`) is a runaway bound whose only underlying measurement is a LOWER bound (plan 05-38); a reasoning-only assistant message and a `rate_limit_event` line — two wire shapes the real backend emitted and the adapter did not model — are now modelled, grounded in a real frozen capture, so a live run's stream is no longer partly illegible (plan 05-37); the credential seam from round 8 has still never been exercised against a real `~/.claude` by any committed test, which remains true; the live `tool_use` block's own `id` is still the one half of the correlation change this repository has no capture of; the live dialogue-quality judgement was still UNJUDGED as of round 11 (`05-LIVE-CHALLENGE-TRANSCRIPT.md`); round 10 additionally wrote the stage marker at session start so a challenging agent is refused with an actionable reason rather than an infrastructure error, modelled the `AskUserQuestion` payload at the adapter seam and rendered it into the evidence sheet — closing `G-05-7`'s stated residual — and removed the tool from an authoring session's tool set, proven as argv only; round 11 additionally gave D-88's criteria stage its own instruction naming `propose_criterion` and gave the agent `proposal_list` to read back a staged proposal's id, so the stage machine now delivers an instruction on every transition that has one and the opening prompt names the three stages once — an agent learns the machine from the product rather than from a denial; round 13 closes this requirement: the live UAT harness's stale-snapshot `reject-proposal` defect was fixed (quick task `260929-lq1` — the reject target is re-derived from a fresh `list-pending` snapshot taken after `accept-subtree`'s D-96 cascade), live run `01M3QQQM4GAYB2Y9RQMJDRWAX0` exited 0 with SHAPE-01, SHAPE-02 and SHAPE-03/SHAPE-04 all green, and no UNJUDGED line remains in `05-LIVE-CHALLENGE-TRANSCRIPT.md`. The credential seam is still exercised only against a synthetic fixture by committed tests; the developer accepted the four observed live successes as sufficient (`05-UAT.md` test 3) rather than requiring a new committed test, and the developer signed the SHAPE-01 challenge-quality verdict PASS on 2026-09-30 — the agent contradicted him on substance, catching a logical contradiction in his own answers and rejecting a constraint he had specified
+- [x] **SHAPE-02**: The authoring session writes its outcome directly to the board as a structured epic with child tasks, not as a document — round 10 recorded, without re-scoring this requirement, that the live board write has never once succeeded in a live run; the coverage behind this checked state is offline and structural (`authoring_proposal.rs`, `authoring_acceptance.rs`, the replay scenarios), not a live-run observation; round 11 recorded, again without re-scoring, that the accept/reject/amend block was skipped wholesale in the only live run that ever reached it, because the proposals that block operates on could not be produced (`epic: 1, assumption: 12`, zero tasks, zero criteria) — and that this round removed that structural block offline (`proposal_list`, the criteria-stage instruction), with the live path still unobserved
+- [x] **SHAPE-03**: The agent drafts acceptance criteria for each generated task, which the user can edit before accepting — the live acceptance arm can authenticate as the developer on the developer's own claude.ai subscription login, with configuration isolation preserved and the credential referenced rather than copied (plans 05-33/05-34); a backend message the wire flags as an error is classified from that flag rather than from its prose, so a non-conversation first turn can no longer be counted as agent speech; the attempt/answer correlation remains exact by construction from plan 05-30 — a lookup on the correlation id the wire itself supplies, carried through the adapter seam, replacing the positional heuristic six consecutive rounds of narrowing had failed to make correct; a live run that ends for ANY reason — a thrown deadline included — now leaves its evidence sheet carrying the turns it captured and a named cause, so a run that spends a credential can no longer be invisible afterwards, which is what makes the judgement recoverable even from a failed run (plan 05-36); a live turn is now bounded by silence rather than by a wall-clock budget, so an agent doing genuine exploratory work is not failed for being thorough, and the surviving ceiling (`LIVE_TURN_CEILING_MS`) is a runaway bound whose only underlying measurement is a LOWER bound (plan 05-38); a reasoning-only assistant message and a `rate_limit_event` line — two wire shapes the real backend emitted and the adapter did not model — are now modelled, grounded in a real frozen capture, so a live run's stream is no longer partly illegible (plan 05-37); the credential seam from round 8 has still never been exercised against a real `~/.claude` by any committed test, which remains true; the live `tool_use` block's own `id` is still the one half of the correlation change this repository has no capture of; the live draft-usefulness judgement was still UNJUDGED as of round 11 (`05-LIVE-CHALLENGE-TRANSCRIPT.md`); round 10 additionally wrote the stage marker at session start so a challenging agent is refused with an actionable reason rather than an infrastructure error, modelled the `AskUserQuestion` payload at the adapter seam and rendered it into the evidence sheet — closing `G-05-7`'s stated residual — and removed the tool from an authoring session's tool set, proven as argv only; round 11 closed the reachability gap: `propose_criterion` was unreachable in a fresh-epic session by construction for the whole life of this phase, and is now reachable through a run-scoped id read (`proposal_list`); D-88's criteria stage asks for criteria by tool name; and a criteria count of zero is now a reading with a named reason (`readCriteriaReachability`) rather than a bare number; round 13 closes this requirement: the live UAT harness's stale-snapshot `reject-proposal` defect was fixed (quick task `260929-lq1` — the reject target is re-derived from a fresh `list-pending` snapshot taken after `accept-subtree`'s D-96 cascade), live run `01M3QQQM4GAYB2Y9RQMJDRWAX0` exited 0 with SHAPE-01, SHAPE-02 and SHAPE-03/SHAPE-04 all green, and no UNJUDGED line remains in `05-LIVE-CHALLENGE-TRANSCRIPT.md`. The credential seam is still exercised only against a synthetic fixture by committed tests; the developer accepted the four observed live successes as sufficient (`05-UAT.md` test 3) rather than requiring a new committed test, and the developer signed the SHAPE-03 draft-usefulness verdict PASS on 2026-09-30 — run `01M3QQQM4GAYB2Y9RQMJDRWAX0` drafted 42 criteria (reachability reading: `drafted`), one of which was amended rather than accepted as written
+- [x] **SHAPE-04**: User can accept, reject or amend any individual item the authoring session proposes, rather than accepting the set wholesale — round 10 recorded, without re-scoring this requirement, that the live board write has never once succeeded in a live run; the coverage behind this checked state is offline and structural (`authoring_proposal.rs`, `authoring_acceptance.rs`, the replay scenarios), not a live-run observation; round 11 recorded, again without re-scoring, that the accept/reject/amend block was skipped wholesale in the only live run that ever reached it, because the proposals that block operates on could not be produced (`epic: 1, assumption: 12`, zero tasks, zero criteria) — and that this round removed that structural block offline (`proposal_list`, the criteria-stage instruction), with the live path still unobserved
+- [x] **SHAPE-05**: User can reopen and continue shaping an existing epic at any time, and the agent challenges changes against what the epic already contains
 
 ### Agent-Authored Backlog
 
-- [ ] **PROP-01**: A running agent can propose new tasks, issues and epics through a board tool interface exposed to it
-- [ ] **PROP-02**: Agent-proposed items enter a distinct proposed state and never appear as accepted work until a human triages them
-- [ ] **PROP-03**: No code path promotes a proposed item to active work except explicit human triage
-- [ ] **PROP-04**: Proposals are checked against existing items for duplicates before being surfaced
-- [ ] **PROP-05**: Proposal volume per agent run is rate-limited, and hitting the limit is surfaced rather than silently dropped
-- [ ] **PROP-06**: User can triage the proposal queue — accept, reject, merge into an existing item, or defer — in a dedicated view
-- [ ] **PROP-07**: Every proposal records which agent run produced it and what prompted it
+- [x] **PROP-01**: A running agent can propose new tasks, issues and epics through a board tool interface exposed to it
+- [x] **PROP-02**: Agent-proposed items enter a distinct proposed state and never appear as accepted work until a human triages them
+- [x] **PROP-03**: No code path promotes a proposed item to active work except explicit human triage
+- [x] **PROP-04**: Proposals are checked against existing items for duplicates before being surfaced
+- [x] **PROP-05**: Proposal volume per agent run is rate-limited, and hitting the limit is surfaced rather than silently dropped
+- [x] **PROP-06**: User can triage the proposal queue — accept, reject, merge into an existing item, or defer — in a dedicated view
+- [x] **PROP-07**: Every proposal records which agent run produced it and what prompted it
 
 ### Planner & Parallel Fan-Out
 
 - [ ] **PLAN-01**: The planner decomposes an epic into tasks each declaring the set of files it expects to modify
-- [ ] **PLAN-02**: Before dispatch, the planner checks every pair of candidate parallel tasks for declared file-set overlap
-- [ ] **PLAN-03**: When two tasks overlap, only that pair is downgraded to sequential execution — not the entire batch
+- [x] **PLAN-02**: Before dispatch, the planner checks every pair of candidate parallel tasks for declared file-set overlap
+- [x] **PLAN-03**: When two tasks overlap, only that pair is downgraded to sequential execution — not the entire batch
 - [ ] **PLAN-04**: A running agent is prevented at the tool level from writing to files outside its task's declared file-set
-- [ ] **PLAN-05**: An agent's attempt to write outside its declared file-set is surfaced to the user as a scope event, not silently blocked
-- [ ] **PLAN-06**: The planner decides how many tasks run in parallel, and the user can cap that width globally
-- [ ] **PLAN-07**: User can see why any two tasks were scheduled sequentially rather than in parallel
+- [x] **PLAN-05**: An agent's attempt to write outside its declared file-set is surfaced to the user as a scope event, not silently blocked
+- [x] **PLAN-06**: The planner decides how many tasks run in parallel, and the user can cap that width globally
+- [x] **PLAN-07**: User can see why any two tasks were scheduled sequentially rather than in parallel
 
 ### Fleet Supervision
 
-- [ ] **FLEET-01**: User can see, in one view, every agent running across every registered project and what each is doing
-- [ ] **FLEET-02**: A dedicated queue shows every agent currently blocked and waiting on a human, across all projects
-- [ ] **FLEET-03**: User can jump from any fleet entry directly to that agent's live output and its board item
-- [ ] **FLEET-04**: The fleet view distinguishes running, blocked, finished-awaiting-review, and failed states at a glance
-- [ ] **FLEET-05**: The user receives an operating-system notification when an agent becomes blocked or completes
+- [x] **FLEET-01**: User can see, in one view, every agent running across every registered project and what each is doing
+- [x] **FLEET-02**: A dedicated queue shows every agent currently blocked and waiting on a human, across all projects
+- [x] **FLEET-03**: User can jump from any fleet entry directly to that agent's live output and its board item
+- [x] **FLEET-04**: The fleet view distinguishes running, blocked, finished-awaiting-review, and failed states at a glance
+- [x] **FLEET-05**: The user receives an operating-system notification when an agent becomes blocked or completes
 
 ### Review & Merge
 
-- [ ] **REVW-01**: User can review a task's full diff inside the application with syntax highlighting
-- [ ] **REVW-02**: User can review the accumulated diff of an epic's integration branch
-- [ ] **REVW-03**: User can check off a task's acceptance criteria against the diff during review
-- [ ] **REVW-04**: User can merge a task branch into its epic integration branch from within the application, with conflicts surfaced clearly
-- [ ] **REVW-05**: User can open a pull request or merge request for an epic integration branch in one action
+- [x] **REVW-01**: User can review a task's full diff inside the application with syntax highlighting
+- [x] **REVW-02**: User can review the accumulated diff of an epic's integration branch
+- [x] **REVW-03**: User can check off a task's acceptance criteria against the diff during review
+- [x] **REVW-04**: User can merge a task branch into its epic integration branch from within the application, with conflicts surfaced clearly
+- [x] **REVW-05**: User can open a pull request or merge request for an epic integration branch in one action
 
 ### Distribution
 
 - [ ] **DIST-01**: The application installs and runs on macOS from a signed, notarized build
-- [ ] **DIST-02**: The application updates itself to new releases without a manual reinstall
+- [x] **DIST-02**: The application updates itself to new releases without a manual reinstall
 - [ ] **DIST-03**: A developer can clone the repository and build a working desktop application from source following the documented steps
-- [ ] **DIST-04**: The open-source desktop application is fully functional standalone, with no feature gated behind an account or network service
+- [x] **DIST-04**: The open-source desktop application is fully functional standalone, with no feature gated behind an account or network service
 
 ## v2 Requirements
 
@@ -222,14 +223,14 @@ Which phases cover which requirements. Populated during roadmap creation.
 | DATA-01 | Phase 1 | Complete |
 | DATA-02 | Phase 1 | Complete |
 | DATA-03 | Phase 1 | Complete |
-| DATA-04 | Phase 2 | Gaps Found |
+| DATA-04 | Phase 2 | Complete |
 | DATA-05 | Phase 1 | Complete |
 | DATA-06 | Phase 2 | Complete |
 | DATA-07 | Phase 1 | Complete |
 | DATA-08 | Phase 1 | Complete |
 | BOARD-01 | Phase 1 | Complete |
 | BOARD-02 | Phase 1 | Complete |
-| BOARD-03 | Phase 4 | Pending |
+| BOARD-03 | Phase 4 | Complete |
 | BOARD-04 | Phase 1 | Complete |
 | BOARD-05 | Phase 1 | Complete |
 | BOARD-06 | Phase 1 | Complete |
@@ -237,81 +238,81 @@ Which phases cover which requirements. Populated during roadmap creation.
 | BOARD-08 | Phase 1 | Complete |
 | BOARD-09 | Phase 1 | Complete |
 | BOARD-10 | Phase 1 | Complete |
-| WORK-01 | Phase 2 | Gaps Found |
-| WORK-02 | Phase 2 | Gaps Found |
-| WORK-03 | Phase 3 | Pending |
-| WORK-04 | Phase 3 | Pending |
-| WORK-05 | Phase 3 | Pending |
-| WORK-06 | Phase 3 | Pending |
-| WORK-07 | Phase 10 | Pending |
-| WORK-08 | Phase 2 | Gaps Found |
-| LINK-01 | Phase 2 | Gaps Found |
-| LINK-02 | Phase 7 | Pending |
-| LINK-03 | Phase 7 | Pending |
-| LINK-04 | Phase 7 | Pending |
-| LINK-05 | Phase 7 | Pending |
-| LINK-06 | Phase 7 | Pending |
-| LINK-07 | Phase 7 | Pending |
-| LINK-08 | Phase 7 | Pending |
-| LINK-09 | Phase 7 | Pending |
-| LINK-10 | Phase 7 | Pending |
-| LINK-11 | Phase 7 | Pending |
+| WORK-01 | Phase 2 | Complete |
+| WORK-02 | Phase 2 | Complete |
+| WORK-03 | Phase 3 | Complete |
+| WORK-04 | Phase 3 | Complete |
+| WORK-05 | Phase 3 | Complete |
+| WORK-06 | Phase 3 | Complete |
+| WORK-07 | Phase 10 | Complete |
+| WORK-08 | Phase 2 | Complete |
+| LINK-01 | Phase 2 | Complete |
+| LINK-02 | Phase 7 | Complete |
+| LINK-03 | Phase 7 | Complete |
+| LINK-04 | Phase 7 | Complete |
+| LINK-05 | Phase 7 | Complete |
+| LINK-06 | Phase 7 | Complete |
+| LINK-07 | Phase 7 | Complete |
+| LINK-08 | Phase 7 | Complete |
+| LINK-09 | Phase 7 | Complete |
+| LINK-10 | Phase 7 | Complete |
+| LINK-11 | Phase 7 | Complete |
 | PROC-01 | Phase 2 | Complete |
-| PROC-02 | Phase 2 | Gaps Found |
-| PROC-03 | Phase 3 | Pending |
-| PROC-04 | Phase 3 | Pending |
-| PROC-05 | Phase 3 | Pending |
+| PROC-02 | Phase 2 | Complete |
+| PROC-03 | Phase 3 | Complete |
+| PROC-04 | Phase 3 | Complete |
+| PROC-05 | Phase 3 | Complete |
 | PROC-06 | Phase 2 | Complete |
 | PROC-07 | Phase 2 | Complete |
-| AGNT-01 | Phase 2 | Gaps Found |
-| AGNT-02 | Phase 2 | Gaps Found |
-| AGNT-03 | Phase 2 | Gaps Found |
-| AGNT-04 | Phase 2 | Gaps Found |
-| AGNT-05 | Phase 9 | Pending |
-| AGNT-06 | Phase 2 | Gaps Found |
-| AGNT-07 | Phase 3 | Pending |
-| AGNT-08 | Phase 10 | Pending |
-| CTX-01 | Phase 4 | Pending |
-| CTX-02 | Phase 4 | Pending |
-| CTX-03 | Phase 4 | Pending |
-| CTX-04 | Phase 4 | Pending |
-| CTX-05 | Phase 4 | Pending |
-| CTX-06 | Phase 4 | Pending |
-| CTX-07 | Phase 4 | Pending |
-| CTX-08 | Phase 4 | Pending |
-| SHAPE-01 | Phase 5 | Pending |
-| SHAPE-02 | Phase 5 | Pending |
-| SHAPE-03 | Phase 5 | Pending |
-| SHAPE-04 | Phase 5 | Pending |
-| SHAPE-05 | Phase 5 | Pending |
-| PROP-01 | Phase 6 | Pending |
-| PROP-02 | Phase 6 | Pending |
-| PROP-03 | Phase 6 | Pending |
-| PROP-04 | Phase 6 | Pending |
-| PROP-05 | Phase 6 | Pending |
-| PROP-06 | Phase 6 | Pending |
-| PROP-07 | Phase 6 | Pending |
-| PLAN-01 | Phase 9 | Pending |
-| PLAN-02 | Phase 9 | Pending |
-| PLAN-03 | Phase 9 | Pending |
-| PLAN-04 | Phase 9 | Pending |
-| PLAN-05 | Phase 9 | Pending |
-| PLAN-06 | Phase 9 | Pending |
-| PLAN-07 | Phase 9 | Pending |
-| FLEET-01 | Phase 10 | Pending |
-| FLEET-02 | Phase 10 | Pending |
-| FLEET-03 | Phase 10 | Pending |
-| FLEET-04 | Phase 10 | Pending |
-| FLEET-05 | Phase 10 | Pending |
-| REVW-01 | Phase 8 | Pending |
-| REVW-02 | Phase 8 | Pending |
-| REVW-03 | Phase 8 | Pending |
-| REVW-04 | Phase 8 | Pending |
-| REVW-05 | Phase 8 | Pending |
+| AGNT-01 | Phase 2 | Complete |
+| AGNT-02 | Phase 2 | Complete |
+| AGNT-03 | Phase 2 | Complete |
+| AGNT-04 | Phase 2 | Complete |
+| AGNT-05 | Phase 9 | Deferred — gate implemented and unit-tested; a real hard rate limit against a live account was never observed (09-VERIFICATION.md, DEFERRED-REVIEW.md) |
+| AGNT-06 | Phase 2 | Complete |
+| AGNT-07 | Phase 3 | Complete |
+| AGNT-08 | Phase 10 | Complete |
+| CTX-01 | Phase 4 | Complete |
+| CTX-02 | Phase 4 | Complete |
+| CTX-03 | Phase 4 | Complete |
+| CTX-04 | Phase 4 | Complete |
+| CTX-05 | Phase 4 | Complete |
+| CTX-06 | Phase 4 | Complete |
+| CTX-07 | Phase 4 | Complete |
+| CTX-08 | Phase 4 | Complete |
+| SHAPE-01 | Phase 5 | Complete — closed round 13: the harness's stale-snapshot `reject-proposal` defect fixed (`260929-lq1`); live run `01M3QQQM4GAYB2Y9RQMJDRWAX0` exited 0 with all gating SHAPE criteria green; developer verdict signed PASS 2026-09-30; credential seam accepted on four observed live successes (`05-UAT.md` test 3) |
+| SHAPE-02 | Phase 5 | Complete |
+| SHAPE-03 | Phase 5 | Complete — closed round 13: the harness's stale-snapshot `reject-proposal` defect fixed (`260929-lq1`); live run `01M3QQQM4GAYB2Y9RQMJDRWAX0` exited 0 with all gating SHAPE criteria green; developer verdict signed PASS 2026-09-30; credential seam accepted on four observed live successes (`05-UAT.md` test 3) |
+| SHAPE-04 | Phase 5 | Complete |
+| SHAPE-05 | Phase 5 | Complete |
+| PROP-01 | Phase 6 | Complete |
+| PROP-02 | Phase 6 | Complete |
+| PROP-03 | Phase 6 | Complete |
+| PROP-04 | Phase 6 | Complete |
+| PROP-05 | Phase 6 | Complete |
+| PROP-06 | Phase 6 | Complete |
+| PROP-07 | Phase 6 | Complete |
+| PLAN-01 | Phase 9 | Deferred — code path in place; a real planning run against a live account was never observed (09-VERIFICATION.md, DEFERRED-REVIEW.md) |
+| PLAN-02 | Phase 9 | Complete |
+| PLAN-03 | Phase 9 | Complete |
+| PLAN-04 | Phase 9 | Deferred — enforced for Write/Edit/MultiEdit/NotebookEdit; a Bash write is caught only at session close and a flagged breach still auto-merges (09-VERIFICATION.md) |
+| PLAN-05 | Phase 9 | Complete |
+| PLAN-06 | Phase 9 | Complete |
+| PLAN-07 | Phase 9 | Complete |
+| FLEET-01 | Phase 10 | Complete |
+| FLEET-02 | Phase 10 | Complete |
+| FLEET-03 | Phase 10 | Complete |
+| FLEET-04 | Phase 10 | Complete |
+| FLEET-05 | Phase 10 | Complete |
+| REVW-01 | Phase 8 | Complete |
+| REVW-02 | Phase 8 | Complete |
+| REVW-03 | Phase 8 | Complete |
+| REVW-04 | Phase 8 | Complete |
+| REVW-05 | Phase 8 | Complete |
 | DIST-01 | Phase 11 | Pending |
-| DIST-02 | Phase 11 | Pending |
+| DIST-02 | Phase 11 | Complete |
 | DIST-03 | Phase 11 | Pending |
-| DIST-04 | Phase 11 | Pending |
+| DIST-04 | Phase 11 | Complete |
 
 **Coverage:**
 

@@ -15,6 +15,25 @@ use crate::sidecar::SidecarHandle;
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub sidecar: Option<SidecarHandle>,
+    /// The launch-time classification's live-orphan list (plan 03-06, PROC-05, D-46) — populated
+    /// EXACTLY ONCE, in `main.rs`'s `.setup()` closure, from `flywheel_core::domain::agent_run::
+    /// reconcile_agent_runs`'s own return value, before any window is shown. `orphan_kill`
+    /// (`commands::agent_run`) drains entries out of it as the user resolves each one; nothing
+    /// else in this codebase ever repopulates it at runtime — a process orphaned DURING this
+    /// session (rather than left over from a previous one) is covered by `RunEvent::Exit` and the
+    /// per-session watchdog (plan 03-02), never by this field.
+    pub pending_orphans: Mutex<Vec<flywheel_core::domain::agent_run::LiveOrphan>>,
+    /// D-114's "open detail panel" half of the git-truth hot tier (Phase 7 plan 07-01,
+    /// `scheduler.rs`): the renderer declares which task's item panel is currently open via
+    /// `git_truth_focus_task`, and `None` means no panel is open. This is display-freshness
+    /// input only — never a source of truth about anything else, and never read by any mutation
+    /// path in this codebase.
+    pub focused_task: Mutex<Option<String>>,
+    /// Phase 10 plan 10-07 (D-174): the agent run whose session surface the renderer is showing
+    /// right now, or `None` (the fleet, the board and every other surface all report `None`).
+    /// Read only by `notify.rs`, together with the window's focus read in Rust, to withhold the one
+    /// banner for the session the user is already looking at.
+    pub watched_run: Mutex<Option<String>>,
 }
 
 /// Native menu handles for the five forwarded custom items — `main.rs`'s
@@ -41,13 +60,15 @@ pub struct MenuHandles<R: tauri::Runtime> {
     pub create_epic: MenuItem<R>,
     pub open_palette: MenuItem<R>,
     pub open_settings: MenuItem<R>,
+    /// Phase 10 plan 10-01 (D-163): the Fleet item under View.
+    pub open_fleet: MenuItem<R>,
 }
 
 impl<R: tauri::Runtime> MenuHandles<R> {
-    /// Resolves an action id string to its handle, or `None` for anything outside the five
+    /// Resolves an action id string to its handle, or `None` for anything outside the
     /// forwarded ids. `commands::menu::menu_set_action_enabled` uses the `None` case to refuse an
     /// unrecognised id rather than silently doing nothing — the renderer may only ever toggle
-    /// the five items the menu bar itself declares, never an arbitrary menu node
+    /// the items the menu bar itself declares, never an arbitrary menu node
     /// (threat T-01-16-01).
     pub fn get(&self, action_id: &str) -> Option<&MenuItem<R>> {
         match action_id {
@@ -56,6 +77,7 @@ impl<R: tauri::Runtime> MenuHandles<R> {
             "create-epic" => Some(&self.create_epic),
             "open-palette" => Some(&self.open_palette),
             "open-settings" => Some(&self.open_settings),
+            "open-fleet" => Some(&self.open_fleet),
             _ => None,
         }
     }

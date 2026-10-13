@@ -49,9 +49,14 @@ function optionStyle(selected: boolean): CSSProperties {
     alignItems: "center",
     gap: "var(--space-sm)",
     padding: "var(--space-xs) var(--space-sm)",
-    border: "none",
-    borderRadius: "var(--radius-chrome)",
-    background: selected ? "var(--surface-dominant)" : "transparent",
+    // Per-side, not `border: "none"`: the selected rule below is `borderLeft`, and React warns when a
+    // shorthand and one of its longhands are both set on a style that re-renders.
+    borderTop: "none",
+    borderRight: "none",
+    borderBottom: "none",
+    borderRadius: 0,
+    background: selected ? "var(--row-surface-selected)" : "transparent",
+    borderLeft: selected ? "2px solid var(--selection-rule)" : "2px solid transparent",
     color: "inherit",
     cursor: "pointer",
     textAlign: "left",
@@ -105,12 +110,13 @@ export function ParentPicker({
             minWidth: 220,
             maxHeight: 320,
             overflowY: "auto",
-            background: "var(--surface-secondary)",
+            background: "var(--surface-dominant)",
             color: "var(--text-primary-rack)",
-            border: "1px solid var(--divider)",
+            border: "1px solid var(--border-popover)",
             borderRadius: "var(--radius-chrome)",
-            padding: "var(--space-xs)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+            // Inset by the item gutter: a chosen item's 2px rule sits inside the popover edge, not on it (08.1-15 closure, finding 8).
+            padding: "var(--space-sm)",
+            boxShadow: "var(--shadow-popover)",
           }}
         >
           <button

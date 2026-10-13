@@ -21,6 +21,7 @@ import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listPermissionRules, revokePermissionRule, subscribeBoardChanged, type PermissionRuleDto } from "../adapters/tauri";
 import type { Project } from "../board/useBoardQuery";
+import "../styles/admin-surfaces.css";
 
 /** The exact copy from 02-UI-SPEC.md's Copywriting Contract ("Settings — permission rules, empty
  * state") — tells the user where rules come from rather than just reporting their absence. */
@@ -124,7 +125,7 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
   const loading = loadingProjects || (rulesQuery.isPending && projects.length > 0);
 
   return (
-    <div role="table" aria-label="Permission rules" style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
+    <div role="table" aria-label="Permission rules" className="admin-table">
       {loading ? (
         <RowsSkeleton />
       ) : rules.length === 0 ? (
@@ -132,50 +133,59 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
           {EMPTY_STATE_COPY}
         </p>
       ) : (
-        rules.map((rule) => (
-          <div key={rule.id} role="row" style={{ display: "flex", alignItems: "center", gap: "var(--space-md)" }}>
-            <span
-              className="type-body"
-              style={{
-                flexShrink: 0,
-                maxWidth: 140,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {rule.projectName}
-            </span>
-            <span
-              className="type-body"
-              style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-            >
-              {rule.toolName}
-            </span>
-            <span className="type-label" style={{ color: "var(--text-muted-rack)", flexShrink: 0 }}>
-              {rule.decision}
-            </span>
-            <span className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)", flexShrink: 0 }}>
-              {formatDate(rule.createdAt)}
-            </span>
-            <button
-              type="button"
-              onClick={() => revokeMutation.mutate(rule.id)}
-              className="type-label"
-              style={{
-                flexShrink: 0,
-                background: "transparent",
-                border: "1px solid var(--divider)",
-                borderRadius: "var(--radius-chrome)",
-                color: "var(--text-primary-rack)",
-                padding: "var(--space-xs) var(--space-sm)",
-                cursor: "pointer",
-              }}
-            >
-              Revoke
-            </button>
+        <>
+          {/* Column headings, so the four unlabelled columns read as a table and not as a run of words. */}
+          <div role="row" className="admin-table-row admin-table-head type-label">
+            <span role="columnheader">Project</span>
+            <span role="columnheader">Tool</span>
+            <span role="columnheader">Decision</span>
+            <span role="columnheader">Granted</span>
+            <span role="columnheader" aria-hidden="true" />
           </div>
-        ))
+          {rules.map((rule) => (
+            <div key={rule.id} role="row" className="admin-table-row">
+              <span
+                role="cell"
+                className="type-body"
+                // A cell that ellipsizes names granted authority, so the whole name stays readable (title).
+                title={rule.projectName}
+                style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              >
+                {rule.projectName}
+              </span>
+              <span
+                role="cell"
+                className="type-body"
+                title={rule.toolName}
+                style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              >
+                {rule.toolName}
+              </span>
+              <span role="cell" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+                {rule.decision}
+              </span>
+              <span role="cell" className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
+                {formatDate(rule.createdAt)}
+              </span>
+              <button
+                type="button"
+                onClick={() => revokeMutation.mutate(rule.id)}
+                // One revoke at a time per rule: a second click while the write is in flight would fire it twice.
+                disabled={revokeMutation.isPending && revokeMutation.variables === rule.id}
+                className="type-label control-edge admin-action"
+                style={{ justifySelf: "end" }}
+              >
+                Revoke
+              </button>
+            </div>
+          ))}
+          {revokeMutation.isError && (
+            // The row is kept (it is still granted authority) and the failure is named in place.
+            <p role="alert" className="type-label" style={{ margin: "var(--space-sm) 0 0", color: "var(--destructive-text-rack)" }}>
+              Couldn&rsquo;t revoke this rule — {(revokeMutation.error as Error).message}
+            </p>
+          )}
+        </>
       )}
     </div>
   );

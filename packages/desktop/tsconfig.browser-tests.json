@@ -1,0 +1,19 @@
+{
+  /*
+   * The real-browser test arm (`vitest.browser.config.ts`) is typechecked as its OWN program,
+   * separate from `tsconfig.json`.
+   *
+   * Why: `@vitest/browser/jest-dom.d.ts` augments vitest's `Assertion` with its own DOM matchers,
+   * and its `toHaveTextContent` accepts `string | number` — no `RegExp`. `@testing-library/jest-dom`
+   * (loaded by `src/test/setup.ts` for the jsdom arm) declares the same matcher as
+   * `string | RegExp`. With both augmentations in ONE program the `string | number` signature wins
+   * for every file, so any jsdom test asserting `toHaveTextContent(/.../i)` fails to compile even
+   * though it runs correctly. Keeping the two arms in separate programs lets each see only the
+   * matcher augmentation that actually applies to it.
+   */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*.browser.test.tsx", "src/test"]
+}

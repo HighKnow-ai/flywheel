@@ -15,19 +15,48 @@
 //! below re-derives the identical hypothetical value read-only: the epic's already-cut
 //! `integration_branch` if one exists, or exactly the name `ensure_epic_integration_branch` would
 //! cut later (`branch::epic_integration_branch_name`) — never cutting it here.
+//!
+//! `review_feedback` (A-08(a)) is read the same way — from the criteria and the event log, live, at
+//! assembly — so purity, determinism and the omit-the-heading rule are unchanged: a task that was
+//! never declined assembles and renders exactly as it did before.
+//!
+//! One bounded exception to "no git call" (D-142, plan 08-02): when a checked criterion carries an
+//! anchor, its staleness is derived by the review module's read-only `git` queries (rev-parse,
+//! cat-file, diff, rev-list) so the agent reads the same verdict the review rail shows. Nothing is
+//! written, and no branch is ever cut (the target is resolved by `review::resolve_review_target`).
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::branch::{epic_integration_branch_name, task_branch_name};
+use crate::compaction::{CompactedSummary, CompactionBoundary};
+use crate::domain::acceptance_criterion::{row_to_anchor, CriterionAnchor};
+use crate::domain::session_summary::DecisionEntry;
 use crate::domain::worktree::worktree_root;
+use crate::drift::DriftWarning;
+use crate::review::{AnchorStaleness, ReviewScope};
 
-/// One acceptance criterion entry, in rank order — statement plus its verification hint (D-05).
+/// The fully-qualified `report_summary` MCP tool name, exactly as `packages/sidecar/src/
+/// mcp-permission-server.ts`'s `SUMMARY_TOOL_NAME` composes it (`mcp__${MCP_SERVER_NAME}__
+/// ${REPORT_SUMMARY_TOOL_NAME}`) — declared once on THIS side of the pair; the sidecar declares
+/// the other half. Both sides must agree exactly (T-04-17): a `<verify>` gate greps this file for
+/// exactly one occurrence of the literal string.
+pub const REPORT_SUMMARY_TOOL_NAME: &str = "mcp__flywheel-permissions__report_summary";
+
+/// One acceptance criterion entry, in rank order — statement plus its verification hint (D-05),
+/// whether it is checked, and (D-142) the evidence behind a check: the anchor, and how that anchor
+/// has aged. `anchor_staleness` is derived from git when the packet is assembled and stored
+/// nowhere; `None` beside a `Some` anchor means it could not be measured (no branch to measure
+/// against), which renders as "unknown", never as "untouched". Roster reads (the epic packet, the
+/// agent's epic read) do not load anchors, so their entries carry `anchor: None`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CriterionEntry {
     pub statement: String,
     pub verification_hint: Option<String>,
+    pub checked: bool,
+    pub anchor: Option<CriterionAnchor>,
+    pub anchor_staleness: Option<AnchorStaleness>,
 }
 
 /// The epic section, present only when the task has an epic (D-13) — an absent epic is `None` on
@@ -37,6 +66,30 @@ pub struct CriterionEntry {
 pub struct EpicSection {
     pub title: String,
     pub description: Option<String>,
+}
+
+/// One prior-session summary entry (D-65, CTX-01) — the packet's read-only projection of a
+/// `session_summaries` row, in the same field shape [`crate::domain::session_summary::SummaryFields`]
+/// was written with. Ordered oldest-first by [`assemble_context_packet`]'s own query, matching
+/// `session_summaries`' own `created_at ASC, id ASC` read order (CTX-04's stable tie-break).
+///
+/// `acknowledged_decisions` and `diff_ref` (plan 04-11) exist on this projection for exactly one
+/// reason: `crate::drift::detect_drift`'s staleness and read-back detectors read the LATEST
+/// entry's own values of both. Nothing else in this file renders either field.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SummaryEntry {
+    pub agent_run_id: String,
+    pub changed_files: Vec<String>,
+    pub changed_prose: Option<String>,
+    pub remains: Option<String>,
+    pub next_session_must_know: Option<String>,
+    pub decisions: Vec<DecisionEntry>,
+    /// D-73's read-back input, verbatim from `session_summaries.acknowledged_decisions`.
+    pub acknowledged_decisions: Vec<String>,
+    /// D-72's staleness input, verbatim from `session_summaries.diff_ref`.
+    pub diff_ref: Option<String>,
+    pub auto_generated: bool,
+    pub created_at: String,
 }
 
 /// The branch/worktree facts the run will actually use (WORK-01/WORK-02) — the resolved row's
@@ -49,6 +102,59 @@ pub struct WorktreeFacts {
     pub path: String,
 }
 
+/// Both halves of the diff-so-far briefing (D-70, D-71, CTX-03) — the committed range from
+/// `base_ref` to `HEAD`, and the working tree's own uncommitted state, kept as two labelled
+/// sections rather than merged into one blob. `committed_stat`/`committed_paths` are
+/// [`crate::git::DiffStat`]'s two fields verbatim; `working_tree_porcelain` is
+/// `crate::git::git_status_porcelain`'s raw output verbatim. Carries no hunk body of any kind —
+/// D-71's stat-plus-names shape is what keeps the packet's size bounded by the number of changed
+/// files, never by how large any one change is.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DiffSoFar {
+    pub base_ref: String,
+    pub committed_stat: String,
+    pub committed_paths: Vec<String>,
+    pub working_tree_porcelain: String,
+}
+
+/// The heading of the declared-scope section (phase 09, D-150): present only when the task declares
+/// a file-set, so an unarmed task's briefing is byte-for-byte what it was before this phase.
+pub const SCOPE_SECTION_HEADING: &str = "## Declared Scope";
+
+/// The instruction a DISPATCHED run is launched with (phase 09 plan 09-07). The briefing's only other
+/// closing instruction is to report a summary, so an agent that leaves work uncommitted would give
+/// the automatic merge nothing to merge and the next wave would start without it. Passed as the
+/// launch's additional instruction, so a user's own launch carries none of it.
+pub const DISPATCHED_COMMIT_INSTRUCTION: &str = "Commit your work on this branch before you finish, as one or more commits. Do not push. Uncommitted work is not on the branch: it cannot be merged, and the next stage of the plan would start without it.";
+
+/// The lead sentence of the Review Feedback section, declared once on this side so the prompt and
+/// the launch sheet's preview (`ContextPacketDto`) can never word it differently (T-02-21).
+pub const REVIEW_FEEDBACK_LEAD: &str =
+    "A reviewer sent this task back. These acceptance criteria are still unchecked:";
+
+/// What a reviewer's decline (A-08(a)) tells the next session: the criteria that are still
+/// unchecked, in rank order, current wording only. Derived live from the criteria at assembly —
+/// the `task.changes_requested` event is only the marker, so this can never go stale. Its own
+/// field, deliberately NOT a drift warning: drift is recorded as `drift.detected` events at run
+/// start and raises the Needs Decision signal, which a decline must never do.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ReviewFeedback {
+    pub statements: Vec<String>,
+}
+
+/// Optional packet extras composed one layer above [`assemble_context_packet`] — a struct rather
+/// than a bare argument so a later plan can grow this without changing
+/// [`assemble_context_packet_with_extras`]'s signature. `diff` is `None` when the caller has
+/// nothing to attach (no worktree on disk yet, or a git error the caller chose to degrade rather
+/// than propagate). `drift` (plan 04-11, D-72/D-73/D-75) is the caller's own
+/// `crate::drift::detect_drift` result — empty when the caller has nothing to report, never
+/// stored anywhere: recomputed on every call that builds one of these.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PacketExtras {
+    pub diff: Option<DiffSoFar>,
+    pub drift: Vec<DriftWarning>,
+}
+
 /// The full context packet (D-28). Every field is data — no pre-rendered sentence is stored here;
 /// [`render_prompt`] is the only place prose is produced, matching this crate's "derive at read
 /// time, never store" rule (`query/events.rs`).
@@ -59,6 +165,38 @@ pub struct ContextPacket {
     pub task_description: Option<String>,
     pub epic: Option<EpicSection>,
     pub criteria: Vec<CriterionEntry>,
+    pub summaries: Vec<SummaryEntry>,
+    /// Where `render_prompt`'s Prior Sessions section splits older sessions from recent ones
+    /// (CTX-05) — computed once, here, by folding this packet's own `summaries` list through
+    /// `crate::compaction`'s pure fold. A no-query, no-I/O derivation over data this function
+    /// already read. Kept alongside the full `summaries` list rather than replacing it: this is a
+    /// presentation of that list, not a substitute for it — the accumulated `decisions` list below
+    /// and a later plan's drift detectors both need every summary regardless of where the fold
+    /// falls.
+    pub compaction: CompactionBoundary,
+    /// Every decision entry from `summaries`, deduplicated by id (first occurrence wins, order
+    /// preserved) — a pure fold over data this function already read, issuing no additional
+    /// query (D-73). Complete regardless of how many summaries have folded under compaction,
+    /// because compaction is lossless for decisions — which is why the closing read-back can be
+    /// checked against this list at all.
+    pub decisions: Vec<DecisionEntry>,
+    /// Always `None` from [`assemble_context_packet`] itself (D-70/CTX-03) — this function makes
+    /// no git call and its purity contract is unchanged by this field's existence. Populated only
+    /// by [`assemble_context_packet_with_extras`], one layer above.
+    pub diff: Option<DiffSoFar>,
+    /// Always empty from [`assemble_context_packet`] itself (D-72/D-73/D-75, plan 04-11) — the
+    /// claimed-files and staleness detectors need git state, which only the caller one layer up
+    /// has, exactly the seam plan 04-07 established for `diff`. Populated only by
+    /// [`assemble_context_packet_with_extras`]. Never stored: re-derived on every assembly, so a
+    /// warning clears the instant the fact behind it clears.
+    pub drift: Vec<DriftWarning>,
+    /// `Some` only while a reviewer's decline is pending and some criterion is still unchecked
+    /// (A-08(a)). Populated by [`assemble_context_packet`] itself — a pure read of the board — so
+    /// the preview and the run start get it from the one assembler.
+    pub review_feedback: Option<ReviewFeedback>,
+    /// The task's declared file-set, as stored paths (a directory ends in `/`), in declared order.
+    /// Empty for an unarmed task. Read from the database rows (D-150), never the marker file.
+    pub file_set: Vec<String>,
     pub worktree: WorktreeFacts,
 }
 
@@ -68,8 +206,19 @@ const TASK_ROW_SQL: &str =
 const EPIC_ROW_SQL: &str =
     "SELECT key, title, description, integration_branch FROM epics WHERE id = ?1";
 
-const CRITERIA_SQL: &str = "SELECT statement, verification_hint FROM acceptance_criteria \
-    WHERE parent_type = 'task' AND parent_id = ?1 ORDER BY rank ASC, id ASC";
+// D-79/P3: restricted to current revisions (`superseded_at IS NULL`) — this is the load-bearing
+// filter in the whole file. Putting a superseded statement in front of a model would hand it the
+// drift directly; every agent-facing read must see current wording only, no matter how a criterion
+// was most recently edited.
+const CRITERIA_SQL: &str = "SELECT ac.statement, ac.verification_hint, ac.checked, \
+    a.criterion_id, a.path, a.side, a.line_start, a.line_end, a.sha, a.created_at \
+    FROM acceptance_criteria ac LEFT JOIN criterion_anchors a ON a.criterion_id = ac.id \
+    WHERE ac.parent_type = 'task' AND ac.parent_id = ?1 AND ac.superseded_at IS NULL \
+    ORDER BY ac.rank ASC, ac.id ASC";
+
+const SUMMARIES_SQL: &str = "SELECT agent_run_id, changed_files, changed_prose, remains, \
+    next_session_must_know, decisions, acknowledged_decisions, diff_ref, auto_generated, \
+    created_at FROM session_summaries WHERE task_id = ?1 ORDER BY created_at ASC, id ASC";
 
 const WORKTREE_ROW_SQL: &str = "SELECT branch, base_branch, path FROM worktrees WHERE task_id = ?1";
 
@@ -126,16 +275,83 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
     });
 
     let mut criteria_stmt = conn.prepare(CRITERIA_SQL)?;
-    let criteria = criteria_stmt
+    let mut criteria = criteria_stmt
         .query_map(params![task_id], |row| {
+            let anchor = match row.get::<_, Option<String>>(3)? {
+                Some(_) => Some(row_to_anchor(row, 3)?),
+                None => None,
+            };
             Ok(CriterionEntry {
                 statement: row.get(0)?,
                 verification_hint: row.get(1)?,
+                checked: row.get::<_, i64>(2)? != 0,
+                anchor,
+                anchor_staleness: None,
             })
         })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the task's acceptance criteria")?;
     drop(criteria_stmt);
+
+    // D-142: ask the SAME function the review rail asks, so the agent and the human read one
+    // verdict. Read-only git, and only when some criterion actually carries an anchor.
+    if criteria.iter().any(|c| c.anchor.is_some()) {
+        let target = crate::review::resolve_review_target(conn, ReviewScope::Task, task_id)
+            .context("failed to resolve the task's review target")?;
+        for entry in criteria.iter_mut() {
+            if let Some(anchor) = &entry.anchor {
+                entry.anchor_staleness = crate::review::staleness_for_target(&target, anchor);
+            }
+        }
+    }
+
+    let mut summaries_stmt = conn.prepare(SUMMARIES_SQL)?;
+    let summaries = summaries_stmt
+        .query_map(params![task_id], |row| {
+            let changed_files_json: String = row.get(1)?;
+            let decisions_json: String = row.get(5)?;
+            let acknowledged_json: String = row.get(6)?;
+            let auto_generated_int: i64 = row.get(8)?;
+            let changed_files: Vec<String> =
+                serde_json::from_str(&changed_files_json).unwrap_or_else(|_| Vec::new());
+            let decisions: Vec<DecisionEntry> =
+                serde_json::from_str(&decisions_json).unwrap_or_else(|_| Vec::new());
+            let acknowledged_decisions: Vec<String> =
+                serde_json::from_str(&acknowledged_json).unwrap_or_else(|_| Vec::new());
+            Ok(SummaryEntry {
+                agent_run_id: row.get(0)?,
+                changed_files,
+                changed_prose: row.get(2)?,
+                remains: row.get(3)?,
+                next_session_must_know: row.get(4)?,
+                decisions,
+                acknowledged_decisions,
+                diff_ref: row.get(7)?,
+                auto_generated: auto_generated_int != 0,
+                created_at: row.get(9)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the task's session summaries")?;
+    drop(summaries_stmt);
+
+    // Pure fold over `summaries` (this function's own already-read data) — no query, no I/O.
+    // This is the one call site of the two the crate's own `<verify>` gate expects; the other
+    // lives in `render_prompt`, which folds the same list again to produce the rendered split.
+    let compaction = crate::compaction::compact_summaries(&summaries).boundary;
+
+    // Walk `summaries` oldest-first (their own read order, above) and collect every decision
+    // entry, deduplicated by id — first occurrence wins, order preserved. Pure transform over
+    // data already read; no additional query, no I/O (this file's own purity contract).
+    let mut decisions: Vec<DecisionEntry> = Vec::new();
+    let mut seen_decision_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for summary in &summaries {
+        for decision in &summary.decisions {
+            if seen_decision_ids.insert(decision.id.clone()) {
+                decisions.push(decision.clone());
+            }
+        }
+    }
 
     let existing_worktree: Option<(String, String, String)> = conn
         .query_row(WORKTREE_ROW_SQL, params![task_id], |row| {
@@ -176,14 +392,147 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         }
     };
 
+    // A-08(a): the reason a reviewer sent this task back, read live from the unchecked criteria.
+    let review_feedback = crate::domain::task::pending_changes_request(conn, task_id)?
+        .map(|unchecked| ReviewFeedback {
+            statements: unchecked.into_iter().map(|c| c.statement).collect(),
+        });
+
+    let file_set = crate::domain::file_set::list_entries_for_task(conn, task_id)?
+        .iter()
+        .map(|e| crate::file_set::entry_path(e).to_string())
+        .collect();
+
     Ok(ContextPacket {
         task_key,
         task_title,
         task_description,
         epic,
         criteria,
+        summaries,
+        compaction,
+        decisions,
+        diff: None,
+        drift: Vec::new(),
+        review_feedback,
+        file_set,
         worktree,
     })
+}
+
+/// Attach [`PacketExtras`] to an otherwise-normal [`assemble_context_packet`] call (D-70, plan
+/// 04-07 Task 2, 04-RESEARCH.md Pitfall 2/assumption A3). This wrapper is the ONLY place a
+/// non-`None` `diff` ever reaches a `ContextPacket` — `assemble_context_packet` itself never calls
+/// this function and never calls git. The git read that produced `extras.diff` (if any) happened
+/// one layer up, in the command handler that composes the briefing (`agent_run_preview`/
+/// `agent_run_start`), never here and never inside `assemble_context_packet`.
+///
+/// Determinism distinction (CTX-04): `assemble_context_packet` is byte-identical for two calls
+/// against an unchanged database, full stop. THIS wrapper is byte-identical for an unchanged
+/// database *and* unchanged `extras` — a worktree edited between two calls legitimately changes
+/// the diff section it returns, and that is the diff being ground truth, not a determinism
+/// failure. Callers must not mistake a changed `diff` field for a broken determinism contract.
+pub fn assemble_context_packet_with_extras(
+    conn: &Connection,
+    task_id: &str,
+    extras: PacketExtras,
+) -> anyhow::Result<ContextPacket> {
+    let mut packet = assemble_context_packet(conn, task_id)?;
+    packet.diff = extras.diff;
+    packet.drift = extras.drift;
+    Ok(packet)
+}
+
+/// Render one **verbatim** Prior Sessions block — the full narrative fields plus decisions,
+/// numbered by its position across the whole prior-sessions list (not restarting per subsection),
+/// so the section reads in one continuous chronological sequence even when it is split across a
+/// fold boundary.
+fn render_verbatim_summary_block(out: &mut String, ordinal: usize, summary: &SummaryEntry) {
+    out.push_str("### Session ");
+    out.push_str(&ordinal.to_string());
+    if summary.auto_generated {
+        out.push_str(" (auto-generated — no agent summary was recorded for this run)");
+    }
+    out.push('\n');
+
+    if !summary.changed_files.is_empty() {
+        out.push_str("Changed: ");
+        out.push_str(&summary.changed_files.join(", "));
+        out.push('\n');
+    }
+    if let Some(prose) = &summary.changed_prose {
+        out.push_str(prose);
+        out.push('\n');
+    }
+    if let Some(remains) = &summary.remains {
+        out.push_str("Remains: ");
+        out.push_str(remains);
+        out.push('\n');
+    }
+    if let Some(next) = &summary.next_session_must_know {
+        out.push_str("Next session must know: ");
+        out.push_str(next);
+        out.push('\n');
+    }
+    for decision in &summary.decisions {
+        out.push_str("- [");
+        out.push_str(&decision.id);
+        out.push_str("] ");
+        out.push_str(&decision.statement);
+        out.push('\n');
+    }
+    out.push('\n');
+}
+
+/// Render one **folded** Prior Sessions block (T-04-22) — ordinal, the `auto_generated` marker
+/// when set, a comma-separated `Changed:` line, and decision bullets. Nothing else:
+/// `CompactedSummary` has no field for `changed_prose`/`remains`/`next_session_must_know`, so
+/// there is nothing here that could accidentally leak a folded summary's narrative text — a
+/// structural guarantee, not a rendering convention this function could quietly violate.
+fn render_folded_summary_block(out: &mut String, ordinal: usize, summary: &CompactedSummary) {
+    out.push_str("### Session ");
+    out.push_str(&ordinal.to_string());
+    if summary.auto_generated {
+        out.push_str(" (auto-generated — no agent summary was recorded for this run)");
+    }
+    out.push('\n');
+
+    if !summary.changed_files.is_empty() {
+        out.push_str("Changed: ");
+        out.push_str(&summary.changed_files.join(", "));
+        out.push('\n');
+    }
+    for decision in &summary.decisions {
+        out.push_str("- [");
+        out.push_str(&decision.id);
+        out.push_str("] ");
+        out.push_str(&decision.statement);
+        out.push('\n');
+    }
+    out.push('\n');
+}
+
+/// The one indented line under a checked criterion naming what satisfied it and whether that code
+/// has moved since. The `None` and `Unknown` clauses never say "unchanged": an unmeasured anchor
+/// must not read as a verified one.
+fn render_evidence_line(anchor: &CriterionAnchor, staleness: Option<AnchorStaleness>) -> String {
+    let sha: String = anchor.sha.chars().take(7).collect();
+    let clause = match staleness {
+        Some(AnchorStaleness::Untouched) => "that file is unchanged since".to_string(),
+        Some(AnchorStaleness::Changed { commits }) => format!(
+            "that file has changed since ({commits} commit{} touched it)",
+            if commits == 1 { "" } else { "s" }
+        ),
+        Some(AnchorStaleness::MovedOrChanged) => "that file has moved or changed since".to_string(),
+        Some(AnchorStaleness::Unknown) => {
+            "that commit no longer exists, so whether the file changed is unknown".to_string()
+        }
+        None => "whether that file changed since could not be determined".to_string(),
+    };
+    format!(
+        "  Evidence: {} lines {}-{} ({} side) at {sha}; {clause}\n",
+        anchor.path, anchor.line_start, anchor.line_end, anchor.side
+    )
 }
 
 /// Render the initial prompt text (D-28) — stable headings, stable ordering, and an omitted
@@ -203,6 +552,37 @@ pub fn render_prompt(packet: &ContextPacket, instruction: &str) -> String {
         out.push('\n');
         out.push_str(description);
         out.push('\n');
+    }
+
+    // First in the body, before the epic section — D-74's whole argument is that the agent reads
+    // this too, and a warning at the bottom of a long briefing is a warning the model may weight
+    // least. Emitted only when non-empty (this file's own omit-the-heading rule). These are
+    // observed facts to reconcile, not a block: D-46 already settled the blocking question for
+    // this product, and drift is not money burning.
+    if !packet.drift.is_empty() {
+        out.push_str("\n## Warnings\n\n");
+        out.push_str(
+            "These are facts the board observed since the last session. Reconcile them before \
+             proceeding — they do not block you.\n\n",
+        );
+        for warning in &packet.drift {
+            out.push_str("- ");
+            out.push_str(&warning.sentence);
+            out.push('\n');
+        }
+    }
+
+    // A reviewer's decline (A-08(a)): after Warnings, before Epic Context, omitted entirely when
+    // absent. The lead sentence is the constant the launch sheet's preview also renders.
+    if let Some(feedback) = &packet.review_feedback {
+        out.push_str("\n## Review Feedback\n\n");
+        out.push_str(REVIEW_FEEDBACK_LEAD);
+        out.push_str("\n\n");
+        for statement in &feedback.statements {
+            out.push_str("- ");
+            out.push_str(statement);
+            out.push('\n');
+        }
     }
 
     if let Some(epic) = &packet.epic {
@@ -227,6 +607,102 @@ pub fn render_prompt(packet: &ContextPacket, instruction: &str) -> String {
                 out.push(')');
             }
             out.push('\n');
+            // D-142: only a CHECKED criterion with an anchor carries an evidence line — an
+            // unchecked one, or a check made with no anchor, renders nothing extra.
+            if let (true, Some(anchor)) = (criterion.checked, &criterion.anchor) {
+                out.push_str(&render_evidence_line(anchor, criterion.anchor_staleness));
+            }
+        }
+    }
+
+    if !packet.summaries.is_empty() {
+        out.push_str("\n## Prior Sessions\n\n");
+
+        // Second (and last) call site of the crate's compaction fold in this file — the boundary
+        // computed here from `packet.summaries` is the same fold the assembler already ran over
+        // the identical list, so the prompt's split and `ContextPacket.compaction` can never
+        // disagree (T-04-23): both read only the list's length and order.
+        let history = crate::compaction::compact_summaries(&packet.summaries);
+
+        if history.boundary.folded_count == 0 {
+            // Nothing folded (five or fewer summaries): the flat list, unchanged from before this
+            // plan — no subsection headings, no boundary line.
+            for (i, summary) in packet.summaries.iter().enumerate() {
+                render_verbatim_summary_block(&mut out, i + 1, summary);
+            }
+        } else {
+            out.push_str("### Earlier sessions (folded)\n\n");
+            for (i, folded) in history.folded.iter().enumerate() {
+                render_folded_summary_block(&mut out, i + 1, folded);
+            }
+
+            if let Some(sentence) = history.boundary.boundary_sentence() {
+                out.push_str(&sentence);
+                out.push('\n');
+            }
+
+            out.push_str("\n### Recent sessions (verbatim)\n\n");
+            // Ordinals continue from where the folded block left off, so the section reads as one
+            // continuous chronological sequence across the fold boundary rather than restarting.
+            let verbatim_start = history.folded.len();
+            for (i, summary) in history.verbatim.iter().enumerate() {
+                render_verbatim_summary_block(&mut out, verbatim_start + i + 1, summary);
+            }
+        }
+    }
+
+    if !packet.decisions.is_empty() {
+        out.push_str("\n## Decisions On Record\n\n");
+        for decision in &packet.decisions {
+            out.push_str("- [");
+            out.push_str(&decision.id);
+            out.push_str("] ");
+            out.push_str(&decision.statement);
+            out.push('\n');
+        }
+    }
+
+    if let Some(diff) = &packet.diff {
+        let committed_present = !diff.committed_stat.is_empty() || !diff.committed_paths.is_empty();
+        let working_tree_present = !diff.working_tree_porcelain.is_empty();
+        if committed_present || working_tree_present {
+            out.push_str("\n## Diff So Far\n\n");
+
+            if committed_present {
+                out.push_str("### Committed since ");
+                out.push_str(&diff.base_ref);
+                out.push_str("\n\n");
+                out.push_str(&diff.committed_stat);
+                for path in &diff.committed_paths {
+                    out.push_str("- ");
+                    out.push_str(path);
+                    out.push('\n');
+                }
+            }
+
+            if working_tree_present {
+                out.push_str("\n### Working tree (uncommitted)\n\n");
+                out.push_str(&diff.working_tree_porcelain);
+            }
+
+            out.push_str(
+                "\nYou are in this worktree — read any of these files directly for the full \
+                 detail.\n",
+            );
+        }
+    }
+
+    if !packet.file_set.is_empty() {
+        out.push('\n');
+        out.push_str(SCOPE_SECTION_HEADING);
+        out.push_str(
+            "\n\nThis task declares the files it may change. File-tool edits outside this set are \
+             refused, and shell writes outside it are checked when the session closes.\n\n",
+        );
+        for path in &packet.file_set {
+            out.push_str("- ");
+            out.push_str(path);
+            out.push('\n');
         }
     }
 
@@ -236,6 +712,19 @@ pub fn render_prompt(packet: &ContextPacket, instruction: &str) -> String {
         out.push_str(trimmed_instruction);
         out.push('\n');
     }
+
+    // The one section with no omit case (D-64) — every session must be told how to close, even a
+    // task with no criteria and no prior summaries. Placed last, so it is the final thing the
+    // agent reads.
+    out.push_str("\n## Closing Requirement\n\n");
+    out.push_str("Call the `");
+    out.push_str(REPORT_SUMMARY_TOOL_NAME);
+    out.push_str("` tool as your final turn to record this session's closing summary. Pass ");
+    out.push_str(
+        "changed_files, changed_prose, remains and next_session_must_know describing this \
+         session's own work, and set acknowledged_decisions to the ids — from the Decisions On \
+         Record section above, if any — that you are working under.\n",
+    );
 
     out
 }

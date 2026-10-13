@@ -1,0 +1,134 @@
+{
+  "purpose": "Frozen backend wire shapes for the rate-limit gate (D-REV-32). A hard limit is never provoked to produce these: it is the abuse requirement AGNT-05 exists to avoid.",
+  "honesty": "CORRECTED 2026-10-13 (the first version of this note was wrong). A real hard limit HAS been observed, but only in Claude Code's own interactive transcripts (~/.claude/projects/*/*.jsonl, two 'session limit' and two 'weekly limit' records, 2026-09-21 onward), not in a Flywheel session log and not as a stream-json line. That record is an assistant message carrying error 'rate_limit', isApiErrorMessage true, apiErrorStatus 429 and a `quotaLimits` object whose status is 'rejected'; it is frozen below as provenance 'observed-transcript'. It is the transcript's serialisation, so its field spelling (isApiErrorMessage, camelCase) may differ from the `-p --output-format stream-json` line the adapter reads (is_api_error_message). STILL UNOBSERVED: a top-level `rate_limit_event` line whose `rate_limit_info.status` is 'rejected'. Every shape of that kind is 'documented'. If a Flywheel session ever hits a limit, its raw line is in the session log: replace the matching documented entry and set provenance to 'observed'.",
+  "shapes": [
+    {
+      "name": "documented-rejected-status",
+      "provenance": "documented",
+      "source": "09-RESEARCH.md A2/M6, citing code.claude.com/docs/en/agent-sdk/typescript (SDKRateLimitInfo.status 'rejected'); recorded 2026-10-13. Never observed.",
+      "expectTier": "rejected",
+      "line": {
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+          "status": "rejected",
+          "resetsAt": 1791538200,
+          "rateLimitType": "five_hour"
+        }
+      }
+    },
+    {
+      "name": "documented-rejected-with-overage-allowed",
+      "provenance": "documented",
+      "source": "same documented status; overageStatus flipped to prove the tier reads the top-level status alone (09-RESEARCH.md M6). Never observed.",
+      "expectTier": "rejected",
+      "line": {
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+          "status": "rejected",
+          "resetsAt": 1791538200,
+          "rateLimitType": "seven_day",
+          "overageStatus": "allowed"
+        }
+      }
+    },
+    {
+      "name": "documented-assistant-error-rate-limit",
+      "provenance": "documented",
+      "source": "SDKAssistantMessageError value 'rate_limit' (code.claude.com/docs/en/agent-sdk/typescript), 09-RESEARCH.md line 468; recorded 2026-10-13. Never observed.",
+      "expectRateLimitTier": "rejected",
+      "line": {
+        "type": "assistant",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "limit reached"
+            }
+          ]
+        },
+        "is_api_error_message": true,
+        "error": "rate_limit"
+      }
+    },
+    {
+      "name": "observed-transcript-assistant-rate-limit",
+      "provenance": "observed-transcript",
+      "source": "Claude Code interactive transcript record, session 9fd279e8-d8dc-4f80-850c-430082c5aa55, timestamp 2026-09-21T03:12:12Z (CLI 2.1.236, entrypoint cli). Trimmed to the fields the adapter reads plus quotaLimits; usage and ids dropped. Transcript serialisation, not a stream-json capture.",
+      "expectRateLimitTier": "rejected",
+      "line": {
+        "type": "assistant",
+        "message": {
+          "role": "assistant",
+          "type": "message",
+          "model": "<synthetic>",
+          "content": [
+            {
+              "type": "text",
+              "text": "You've hit your session limit · resets 1pm (Australia/Perth)"
+            }
+          ]
+        },
+        "quotaLimits": {
+          "status": "rejected",
+          "resetsAt": 1789966800,
+          "unifiedRateLimitFallbackAvailable": false,
+          "rateLimitType": "five_hour",
+          "overageStatus": "rejected",
+          "overageDisabledReason": "org_level_disabled",
+          "upgradePaths": [
+            "upgrade_plan"
+          ],
+          "isUsingOverage": false
+        },
+        "error": "rate_limit",
+        "isApiErrorMessage": true,
+        "apiErrorStatus": 429
+      }
+    },
+    {
+      "name": "observed-allowed-overage-rejected",
+      "provenance": "observed",
+      "source": "verbatim from a live run, 09-RESEARCH.md M6 (2026-10-09). NEGATIVE: the substring 'rejected' is present but the account may keep going.",
+      "expectTier": "open",
+      "line": {
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+          "status": "allowed",
+          "resetsAt": 1791538200,
+          "rateLimitType": "five_hour",
+          "overageStatus": "rejected",
+          "overageDisabledReason": "org_level_disabled",
+          "isUsingOverage": false,
+          "unifiedWindows": {
+            "five_hour": {
+              "utilization": 0.28,
+              "resetsAt": 1791538200
+            },
+            "seven_day": {
+              "utilization": 0.31,
+              "resetsAt": 1791806400
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "observed-allowed-warning",
+      "provenance": "observed",
+      "source": "raw line from the Flywheel session log, run 01M27YR97ZZ01RHVREKNWH96ST seq 17, 2026-09-11. NEGATIVE: soft limit, must not read as rejected.",
+      "expectTier": "warning",
+      "line": {
+        "type": "rate_limit_event",
+        "rate_limit_info": {
+          "status": "allowed_warning",
+          "resetsAt": 1789387200,
+          "rateLimitType": "seven_day",
+          "utilization": 0.9,
+          "isUsingOverage": false,
+          "surpassedThreshold": 0.75
+        }
+      }
+    }
+  ]
+}

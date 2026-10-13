@@ -4,7 +4,7 @@
 
 use anyhow::Context;
 use chrono::Utc;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::domain::acceptance_criterion::delete_criteria_for_parent;
 use crate::domain::event::{append_event, next_sequence};
@@ -44,13 +44,31 @@ pub fn create_task(
     title: &str,
     epic_id: Option<&str>,
 ) -> anyhow::Result<Task> {
-    let id = new_id();
     let now = Utc::now().to_rfc3339();
-
     let tx = conn.transaction()?;
+    let task = create_task_in_tx(&tx, project_id, actor_id, title, epic_id, &now)?;
+    tx.commit()
+        .context("failed to commit create_task transaction")?;
+    Ok(task)
+}
+
+/// The statement body [`create_task`] issues, factored out so a caller composing a task creation
+/// with something else in the SAME transaction — `domain::authoring_proposal::accept_proposal`,
+/// which must never write `tasks` through a second statement of its own (T-05-02-03) — can run it
+/// inside a transaction it already owns. `create_task`'s own body and signature are otherwise
+/// unchanged; this is the same statements, callable from inside the caller's transaction.
+pub fn create_task_in_tx(
+    tx: &Transaction,
+    project_id: &str,
+    actor_id: &str,
+    title: &str,
+    epic_id: Option<&str>,
+    now: &str,
+) -> anyhow::Result<Task> {
+    let id = new_id();
 
     if let Some(epic_id) = epic_id {
-        assert_parent_in_project(&tx, project_id, ParentTable::Epics, epic_id)?;
+        assert_parent_in_project(tx, project_id, ParentTable::Epics, epic_id)?;
     }
 
     let last_rank: Option<String> = tx
@@ -84,7 +102,7 @@ pub fn create_task(
     )
     .context("failed to insert task")?;
 
-    let sequence = next_sequence(&tx, project_id, "local")?;
+    let sequence = next_sequence(tx, project_id, "local")?;
     let payload = serde_json::json!({
         "field": "status",
         "before": null,
@@ -93,7 +111,7 @@ pub fn create_task(
         "label": format!("Created task \"{title}\""),
     });
     append_event(
-        &tx,
+        tx,
         project_id,
         "local",
         sequence,
@@ -104,11 +122,8 @@ pub fn create_task(
         actor_id,
         "task.created",
         &payload,
-        &now,
+        now,
     )?;
-
-    tx.commit()
-        .context("failed to commit create_task transaction")?;
 
     Ok(Task {
         id,
@@ -133,7 +148,23 @@ pub fn update_task(
 ) -> anyhow::Result<Task> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    let task = update_task_in_tx(&tx, actor_id, task_id, title, description, &now)?;
+    tx.commit()
+        .context("failed to commit update_task transaction")?;
+    Ok(task)
+}
 
+/// The statement body [`update_task`] issues, factored out so `domain::authoring_proposal::accept_proposal`
+/// can materialise an `amend`/`task` proposal inside its own already-open transaction — mirrors
+/// [`create_task_in_tx`]'s identical factoring reason.
+pub fn update_task_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    task_id: &str,
+    title: Option<&str>,
+    description: Option<&str>,
+    now: &str,
+) -> anyhow::Result<Task> {
     let (project_id, epic_id, key, current_title, current_description, status, rank, priority): (
         String,
         Option<String>,
@@ -171,7 +202,7 @@ pub fn update_task(
     )
     .context("failed to update task")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "title",
         "before": current_title,
@@ -179,7 +210,7 @@ pub fn update_task(
         "label": format!("Edited title to \"{new_title}\""),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -190,10 +221,8 @@ pub fn update_task(
         actor_id,
         "task.updated",
         &payload,
-        &now,
+        now,
     )?;
-
-    tx.commit().context("failed to commit update_task transaction")?;
 
     Ok(Task {
         id: task_id.to_string(),
@@ -212,22 +241,45 @@ pub fn update_task(
 /// is set to NULL before the task row itself is removed, so a task deletion never fails with a
 /// foreign-key error when an issue references it (CR-01).
 ///
-/// **Decided deletion semantics for agent-run history (D-40, DATA-06, CR-01 gap 3):** a task that
-/// has ever had Start Work pressed on it holds rows in `triggers` (on `target_task_id`),
-/// `worktrees`, `agent_runs` and/or `permission_requests` (all `NOT NULL REFERENCES tasks(id)`
-/// with no `ON DELETE` clause, and `foreign_keys = ON` on every connection). This function BLOCKS
-/// the deletion in that case — it never cascades those rows away — and returns an `Err` whose
-/// `to_string()` is a human sentence naming what blocks it, never SQLite's raw `FOREIGN KEY
-/// constraint failed` message. This preserves the non-repudiable record of what an agent did on
-/// the task and can never orphan an on-disk worktree holding uncommitted changes. `events.task_id`
-/// is a plain column with no foreign key to `tasks` (`0002_board_schema.sql`), so the event log —
-/// including every `agent_run.*` and permission-decision entry — survives regardless: this
-/// function only ever blocks the *structured* rows, never the append-only stream. A task with NO
-/// agent-run history deletes exactly as it did before this decision existed.
+/// **Revised deletion semantics (D-44, plan `03-05` Task 1 checkpoint — Option A, superseding
+/// D-40): the guard is now WORKTREE-ONLY.** D-40 blocked deletion on ANY agent-run history
+/// because no path existed to clear a worktree holding uncommitted work; plan `03-01` added that
+/// path (`worktree::remove_worktree_for_task`, itself refusing a dirty tree per D-43), so a task
+/// with no `worktrees` row can never be deleted out from under uncommitted work regardless of
+/// what else is done here. The one condition that still makes deletion dangerous — a live
+/// `worktrees` row — still BLOCKS, with an actionable message naming the fix (see the
+/// Copywriting Contract string this function's `bail!` uses verbatim), never SQLite's raw
+/// `FOREIGN KEY constraint failed`.
+///
+/// Once that guard clears, this task's `triggers`, `agent_runs` and `permission_requests` rows
+/// are CASCADED — deleted in this same transaction, in foreign-key-safe order — rather than kept
+/// as permanently-undeletable history. The append-only `events` log is NEVER touched by this or
+/// any other path: `events.task_id` is a plain column with no foreign key to `tasks`
+/// (`0002_board_schema.sql`), so the full chronological record of what the agent did — every
+/// `agent_run.*` and permission-decision entry — survives this deletion untouched. That is the
+/// non-repudiable record the core value rests on; `agent_runs` etc. are a reconstructible
+/// projection over it, not the record itself. Session transcript files at
+/// `<app-data>/sessions/<agent-run-id>.jsonl` (D-34) are also LEFT ON DISK — they are named by
+/// run id, referenced by no surviving row, and deleting a user-inspectable transcript as a side
+/// effect of deleting a board item is exactly the silent destruction this phase exists to
+/// refuse. A task with no worktree, no triggers, no agent runs and no permission requests
+/// deletes exactly as it did before this decision existed.
 pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    delete_task_in_tx(&tx, actor_id, task_id, &now)?;
+    tx.commit()
+        .context("failed to commit delete_task transaction")?;
+    Ok(())
+}
 
+/// The statement body [`delete_task`] issues, factored out so `domain::authoring_proposal::accept_proposal`
+/// can materialise a `delete`/`task` proposal inside its own already-open transaction — mirrors
+/// [`create_task_in_tx`]'s identical factoring reason. Idempotent, exactly like [`delete_task`]
+/// itself: an id that no longer exists is a no-op, no event appended. The worktree-only guard
+/// (D-44) is unchanged: a live `worktrees` row still refuses the delete with the same actionable
+/// message.
+pub fn delete_task_in_tx(tx: &Transaction, actor_id: &str, task_id: &str, now: &str) -> anyhow::Result<()> {
     let existing: Option<(String, Option<String>, String)> = tx
         .query_row(
             "SELECT project_id, epic_id, title FROM tasks WHERE id = ?1",
@@ -238,20 +290,13 @@ pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyh
         .context("failed to read task before delete")?;
 
     let Some((project_id, epic_id, title)) = existing else {
-        tx.commit().context("failed to commit no-op delete_task transaction")?;
         return Ok(());
     };
 
-    // D-40: block the deletion if this task has any agent-run history, rather than let SQLite's
-    // implicit NO ACTION surface a raw FOREIGN KEY constraint error. Each count is a
-    // compile-time-literal SELECT with a single bound parameter (Phase 01's no-format!-SQL rule).
-    let trigger_count: i64 = tx
-        .query_row(
-            "SELECT COUNT(*) FROM triggers WHERE target_task_id = ?1",
-            params![task_id],
-            |row| row.get(0),
-        )
-        .context("failed to count triggers referencing this task")?;
+    // D-44 (plan 03-05, revising D-40): the guard is now WORKTREE-ONLY. A single condition means
+    // there is no longer a "name whichever count is nonzero" case to guard against — WR-01's
+    // priority-ordered wording is gone because the contradiction it protected against (naming a
+    // count that is itself zero) cannot occur with one check.
     let worktree_count: i64 = tx
         .query_row(
             "SELECT COUNT(*) FROM worktrees WHERE task_id = ?1",
@@ -259,46 +304,62 @@ pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyh
             |row| row.get(0),
         )
         .context("failed to count worktrees referencing this task")?;
-    let agent_run_count: i64 = tx
-        .query_row(
-            "SELECT COUNT(*) FROM agent_runs WHERE task_id = ?1",
-            params![task_id],
-            |row| row.get(0),
-        )
-        .context("failed to count agent runs referencing this task")?;
-    let permission_request_count: i64 = tx
-        .query_row(
-            "SELECT COUNT(*) FROM permission_requests WHERE task_id = ?1",
-            params![task_id],
-            |row| row.get(0),
-        )
-        .context("failed to count permission requests referencing this task")?;
 
-    if trigger_count > 0 || worktree_count > 0 || agent_run_count > 0 || permission_request_count > 0 {
-        // WR-01 (`02-REVIEW.md` gap-closure round): this block is gated on ANY of the four counts
-        // being nonzero, but the message must never NAME `agent_run_count` when it is the count
-        // that happens to be zero — e.g. a task with only a `worktrees` row (no `agent_runs` row
-        // yet, a state `start_agent_run` can leave behind if its own transaction fails after
-        // `ensure_worktree` already committed) would otherwise read "it has 0 recorded agent
-        // runs and a worktree exists for it," which contradicts itself. Name whichever count is
-        // actually nonzero, falling back in the same trigger/worktree/agent_run/permission_request
-        // priority order the gate above checks — the D-40 semantics (block, never cascade) are
-        // unchanged; only the wording changes.
-        let run_word = if agent_run_count == 1 { "run" } else { "runs" };
-        let reason = if agent_run_count > 0 {
-            format!("it has {agent_run_count} recorded agent {run_word}")
-        } else if worktree_count > 0 {
-            "a worktree has been created for it".to_string()
-        } else if trigger_count > 0 {
-            "a trigger has been recorded for it".to_string()
-        } else {
-            "a permission request has been recorded for it".to_string()
-        };
+    if worktree_count > 0 {
         anyhow::bail!(
-            "Cannot delete this task: {reason}. Flywheel does not delete an agent's recorded \
-             work as a side effect of deleting a task — leave the task on the board, or wait \
-             for the worktree-removal action a future release adds."
+            "Cannot delete this task: a worktree exists for it. Remove the worktree first, then delete."
         );
+    }
+
+    // D-44 Option A: once no worktree row exists, cascade this task's recorded agent history —
+    // `permission_requests` (references `agent_runs`), then `agent_runs`, then `triggers` — in
+    // this same transaction, in foreign-key-safe order. Each is its own compile-time-literal
+    // statement with a single bound parameter (Phase 01's no-format!-SQL rule). The row count
+    // comes directly from each DELETE's own affected-row return value, not a separate COUNT(*)
+    // query, since the count and the deletion are the same fact. `events` is never touched here
+    // (see the function doc comment) — a source-scanning verify gate asserts no `DELETE FROM
+    // events` exists anywhere in this file.
+    let permission_requests_deleted = tx
+        .execute("DELETE FROM permission_requests WHERE task_id = ?1", params![task_id])
+        .context("failed to delete permission requests referencing this task")?;
+    let agent_runs_deleted = tx
+        .execute("DELETE FROM agent_runs WHERE task_id = ?1", params![task_id])
+        .context("failed to delete agent runs referencing this task")?;
+    let triggers_deleted = tx
+        .execute("DELETE FROM triggers WHERE target_task_id = ?1", params![task_id])
+        .context("failed to delete triggers referencing this task")?;
+
+    // One summarising event, not one per deleted row (mirrors D-53's "count, do not narrate"
+    // instinct) — and only when there was history to summarise, so the ordinary case (a task
+    // that never started work) appends no extra event and is a no-op regression check.
+    if permission_requests_deleted > 0 || agent_runs_deleted > 0 || triggers_deleted > 0 {
+        let sequence = next_sequence(&tx, &project_id, "local")?;
+        let payload = serde_json::json!({
+            "field": "history",
+            "before": {
+                "agent_runs": agent_runs_deleted,
+                "triggers": triggers_deleted,
+                "permission_requests": permission_requests_deleted,
+            },
+            "after": null,
+            "label": format!(
+                "Deleted {agent_runs_deleted} recorded agent run(s), {triggers_deleted} trigger(s) and {permission_requests_deleted} permission request(s) for \"{title}\""
+            ),
+        });
+        append_event(
+            &tx,
+            &project_id,
+            "local",
+            sequence,
+            "task",
+            task_id,
+            Some(task_id),
+            epic_id.as_deref(),
+            actor_id,
+            "task.history_deleted",
+            &payload,
+            &now,
+        )?;
     }
 
     // Issues referencing this task must also be orphaned, not left dangling — `issues.task_id`
@@ -343,7 +404,6 @@ pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyh
         &now,
     )?;
 
-    tx.commit().context("failed to commit delete_task transaction")?;
     Ok(())
 }
 
@@ -351,14 +411,45 @@ pub fn delete_task(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyh
 /// a no-op: `Ok` is returned, `updated_at` is left untouched, and no event is appended. An
 /// invalid status is rejected by the schema CHECK constraint in migration `0002_board_schema.sql`
 /// (BOARD-04, T-01-15) — this function performs no application-layer allow-list of its own.
+///
+/// Opens its own transaction and delegates the whole body to [`set_task_status_in_tx`],
+/// committing once. Signature and observable behaviour are unchanged by that extraction.
 pub fn set_task_status(
     conn: &mut Connection,
     actor_id: &str,
     task_id: &str,
     new_status: &str,
 ) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    set_task_status_in_tx(&tx, actor_id, task_id, new_status)?;
+    tx.commit().context("failed to commit set_task_status transaction")?;
+    Ok(())
+}
+
+/// The statement body [`set_task_status`] issues, factored out so a caller already holding a
+/// transaction — `forge::transitions::apply_forge_observation` (phase 7 plan 07-07) — can compose
+/// a status change with its own writes atomically, inside one transaction, instead of nesting a
+/// second `conn.transaction()`. This is the crate's established `*_in_tx` idiom, the same reason
+/// `domain::authoring_proposal::accept_proposal_in_tx`/`merge_proposal_in_tx` and
+/// `domain::agent_run::interrupt_agent_run_in_tx` exist.
+///
+/// A redundant transition (new value equals the current value) is a no-op: `Ok` is returned,
+/// `updated_at` is left untouched, and no event is appended — the same guarantee
+/// `set_task_status` has always made. On a real transition: `UPDATE tasks SET status = ?1,
+/// updated_at = ?2 WHERE id = ?3`, then one `task.status_changed` event carrying its
+/// `field`/`before`/`after`/`label` payload. Does not commit — the caller's transaction owns
+/// that.
+///
+/// **No caller anywhere may issue a raw `UPDATE tasks SET status`.** The schema CHECK constraint
+/// in migration `0002_board_schema.sql` is the sole authority on the status vocabulary, and this
+/// function is the only path to it.
+pub fn set_task_status_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    task_id: &str,
+    new_status: &str,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
 
     let (project_id, epic_id, current_status): (String, Option<String>, String) = tx
         .query_row(
@@ -369,7 +460,6 @@ pub fn set_task_status(
         .with_context(|| format!("task {task_id:?} not found"))?;
 
     if current_status == new_status {
-        tx.commit().context("failed to commit no-op set_task_status transaction")?;
         return Ok(());
     }
 
@@ -379,7 +469,7 @@ pub fn set_task_status(
     )
     .context("failed to set task status")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "status",
         "before": current_status,
@@ -387,7 +477,7 @@ pub fn set_task_status(
         "label": format!("Changed status from {current_status} to {new_status}"),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -401,8 +491,192 @@ pub fn set_task_status(
         &now,
     )?;
 
-    tx.commit().context("failed to commit set_task_status transaction")?;
     Ok(())
+}
+
+/// The event a human decline appends (A-08(a)). A marker plus an audit snapshot (count and
+/// criterion ids, never statement text); the reason itself is read live from the criteria.
+pub const EVENT_CHANGES_REQUESTED: &str = "task.changes_requested";
+
+/// One current, unchecked criterion of a task — what a decline sends back.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct UncheckedCriterion {
+    pub id: String,
+    pub statement: String,
+}
+
+/// Why a decline is not offered. `category()` is the wire string the renderer switches on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangesRequestRefusal {
+    NotInFlight,
+    Integrated,
+    NoCriteria,
+    NothingUnchecked,
+}
+
+impl ChangesRequestRefusal {
+    pub fn category(&self) -> &'static str {
+        match self {
+            Self::NotInFlight => "notInFlight",
+            Self::Integrated => "integrated",
+            Self::NoCriteria => "noCriteria",
+            Self::NothingUnchecked => "nothingUnchecked",
+        }
+    }
+}
+
+/// What the review surface may offer for a task right now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangesRequestState {
+    Ready(Vec<UncheckedCriterion>),
+    SentBack(Vec<UncheckedCriterion>),
+    Refused(ChangesRequestRefusal),
+}
+
+/// What [`request_changes`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangesRequestOutcome {
+    Requested { count: usize },
+    AlreadySentBack,
+    Refused(ChangesRequestRefusal),
+}
+
+/// Every current criterion of a task as `(criterion, checked)`, in the same rank-then-id order
+/// `context_packet::CRITERIA_SQL` uses, so the reason reads in the order the agent's own
+/// Acceptance Criteria section does. Current revisions only (`superseded_at IS NULL`) — the same
+/// predicate `forge::transitions` uses for its unmet count.
+fn current_criteria(conn: &Connection, task_id: &str) -> anyhow::Result<Vec<(UncheckedCriterion, bool)>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, statement, checked FROM acceptance_criteria \
+         WHERE parent_type = 'task' AND parent_id = ?1 AND superseded_at IS NULL \
+         ORDER BY rank ASC, id ASC",
+    )?;
+    let rows = stmt
+        .query_map(params![task_id], |row| {
+            Ok((
+                UncheckedCriterion { id: row.get(0)?, statement: row.get(1)? },
+                row.get::<_, i64>(2)? != 0,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the task's current acceptance criteria")?;
+    Ok(rows)
+}
+
+/// Is a decline the newest word on the task? True when its newest `task.changes_requested` event
+/// is later (by `sequence`) than its newest move to `in_review` — a re-submission, by a human or
+/// by the forge's own `None -> open` edge, clears the marker.
+fn decline_is_newest(conn: &Connection, task_id: &str) -> anyhow::Result<bool> {
+    let newest: Option<String> = conn
+        .query_row(
+            "SELECT event_type FROM events WHERE task_id = ?1 AND ( event_type = ?2 OR \
+             (event_type = 'task.status_changed' AND json_extract(payload, '$.after') = 'in_review') ) \
+             ORDER BY sequence DESC LIMIT 1",
+            params![task_id, EVENT_CHANGES_REQUESTED],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("failed to read the task's decline marker")?;
+    Ok(newest.as_deref() == Some(EVENT_CHANGES_REQUESTED))
+}
+
+/// The live unchecked list when a decline is pending, else `None`. Pending means the decline is
+/// the newest word on the task AND some current criterion is still unchecked. Carries no status
+/// gate: a declined task later demoted to Todo still briefs its next session with the reason.
+pub fn pending_changes_request(
+    conn: &Connection,
+    task_id: &str,
+) -> anyhow::Result<Option<Vec<UncheckedCriterion>>> {
+    if !decline_is_newest(conn, task_id)? {
+        return Ok(None);
+    }
+    let unchecked: Vec<UncheckedCriterion> =
+        current_criteria(conn, task_id)?.into_iter().filter(|(_, checked)| !checked).map(|(c, _)| c).collect();
+    Ok((!unchecked.is_empty()).then_some(unchecked))
+}
+
+/// Derive what the surface may offer for `task_id`. Precedence: not in flight, integrated (a
+/// recorded event, a board read — no git), no criteria, sent back, nothing unchecked, ready.
+pub fn changes_request_state(conn: &Connection, task_id: &str) -> anyhow::Result<ChangesRequestState> {
+    let status: String = conn
+        .query_row("SELECT status FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
+        .with_context(|| format!("task {task_id:?} not found"))?;
+    if status != "in_progress" && status != "in_review" {
+        return Ok(ChangesRequestState::Refused(ChangesRequestRefusal::NotInFlight));
+    }
+    if crate::merge::integrated_merge_commit(conn, task_id)?.is_some() {
+        return Ok(ChangesRequestState::Refused(ChangesRequestRefusal::Integrated));
+    }
+    let criteria = current_criteria(conn, task_id)?;
+    if criteria.is_empty() {
+        return Ok(ChangesRequestState::Refused(ChangesRequestRefusal::NoCriteria));
+    }
+    let unchecked: Vec<UncheckedCriterion> =
+        criteria.into_iter().filter(|(_, checked)| !checked).map(|(c, _)| c).collect();
+    if unchecked.is_empty() {
+        return Ok(ChangesRequestState::Refused(ChangesRequestRefusal::NothingUnchecked));
+    }
+    if decline_is_newest(conn, task_id)? {
+        return Ok(ChangesRequestState::SentBack(unchecked));
+    }
+    Ok(ChangesRequestState::Ready(unchecked))
+}
+
+/// Decline a task's work: send its unchecked criteria back to the agent (A-08(a)). One
+/// transaction. The state is re-derived inside it, so a stale `Ready` on screen cannot record a
+/// decline the board no longer supports, and a double click is `AlreadySentBack`. On a real
+/// decline the status moves to `in_progress` through [`set_task_status_in_tx`] (D-03: the one
+/// status implementation; a task already `in_progress` is that writer's documented no-op) and one
+/// `task.changes_requested` event is appended beside it. The command accepts no reason text: the
+/// reason is the unchecked criteria, read live at briefing time.
+pub fn request_changes(
+    conn: &mut Connection,
+    actor_id: &str,
+    task_id: &str,
+) -> anyhow::Result<ChangesRequestOutcome> {
+    let tx = conn.transaction()?;
+    let unchecked = match changes_request_state(&tx, task_id)? {
+        ChangesRequestState::Refused(why) => return Ok(ChangesRequestOutcome::Refused(why)),
+        ChangesRequestState::SentBack(_) => return Ok(ChangesRequestOutcome::AlreadySentBack),
+        ChangesRequestState::Ready(unchecked) => unchecked,
+    };
+
+    let (project_id, epic_id, from_status): (String, Option<String>, String) = tx
+        .query_row(
+            "SELECT project_id, epic_id, status FROM tasks WHERE id = ?1",
+            params![task_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .with_context(|| format!("task {task_id:?} not found"))?;
+
+    set_task_status_in_tx(&tx, actor_id, task_id, "in_progress")?;
+
+    let count = unchecked.len();
+    let noun = if count == 1 { "criterion" } else { "criteria" };
+    let payload = serde_json::json!({
+        "unchecked_count": count,
+        "criterion_ids": unchecked.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+        "from_status": from_status,
+        "label": format!("Requested changes: {count} acceptance {noun} unchecked"),
+    });
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        epic_id.as_deref(),
+        actor_id,
+        EVENT_CHANGES_REQUESTED,
+        &payload,
+        &Utc::now().to_rfc3339(),
+    )?;
+
+    tx.commit().context("failed to commit request_changes transaction")?;
+    Ok(ChangesRequestOutcome::Requested { count })
 }
 
 /// Move a task up or down by one position within its `(project_id, status, priority)` band

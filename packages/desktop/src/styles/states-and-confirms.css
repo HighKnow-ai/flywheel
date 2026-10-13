@@ -1,0 +1,254 @@
+/*
+ * Surface group six (08.1 plan 19): the states the product shows when there is nothing yet or something is
+ * wrong (the first-run state, the unreachable project), and the three places it asks before doing something
+ * it cannot undo (delete and orphan recovery; the done-with-unchecked-criteria prompt was put on its popover tier by plan 18 and stays inline). Group-scoped rules live here,
+ * beside the group, the way `review/review.css`, `session/session.css` and `styles/admin-surfaces.css` do for
+ * theirs; nothing for this group is added to `App.css`.
+ *
+ * No comp was rendered for this group. It is finished against 08.1-UI-SPEC.md directly: the token roles, the
+ * radius language, the type scale, the overlay rule and the motion contract. No literal colour, scrim or
+ * shadow appears below or in the group's components: `styles/tokens.css` is the one source.
+ *
+ * The brand carries progress and is never an action (owner decision 2026-10-08), and a destructive FILL fails
+ * AA (2.95:1 light, 2.86:1 dark). So an action here is DRAWN: the 3:1 control edge (`control-edge`, App.css) on
+ * its own surface, never filled. A destructive action is the destructive TEXT role (asserted 4.5:1 on every
+ * surface in both modes) on that edge, paired with an icon so it is told from an ordinary action by more than
+ * hue. Nothing here animates: a state and a confirmation are present on their first frame.
+ */
+
+/* --- A full-window state -------------------------------------------------------------------------- */
+
+/*
+ * With no fills in this world, type and spacing carry the hierarchy. The heading is the scale's 20px; the
+ * explanation is held to a readable measure; the one action sits below on a drawn edge. The browser's own
+ * margins on h1 and p are zeroed so the gap is the only spacing, and it is the same between every pair.
+ */
+.state-surface {
+  align-items: center;
+  background: var(--surface-dominant);
+  color: var(--text-primary-rack);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  height: 100%;
+  justify-content: center;
+  padding: var(--space-xl);
+  text-align: center;
+}
+
+.state-surface > h1,
+.state-surface > p {
+  margin: 0;
+}
+
+/* The first-run mark, in ink: the glyph is a mask and the colour is the text role, so it follows both schemes. */
+.first-run-mark {
+  background-color: var(--text-primary-rack);
+  display: block;
+  flex-shrink: 0;
+  height: 64px;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  width: 64px;
+}
+
+.state-heading {
+  font-family: var(--font-family);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* The explanation. 60ch is the measure the unreachable body already had; the first-run body takes it too. */
+.state-body {
+  max-width: 60ch;
+}
+
+/* The folder just picked: a path is read letter by letter, so it is mono, muted, and breaks anywhere. */
+.state-path {
+  color: var(--text-muted-rack);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  max-width: 60ch;
+  overflow-wrap: anywhere;
+}
+
+/* A failure the user caused or can retry. It names what failed in words; the colour is the data channel only. */
+.state-error {
+  color: var(--destructive-text-rack);
+  margin: 0;
+}
+
+/* --- A drawn action ------------------------------------------------------------------------------- */
+
+/* An action is drawn, not filled. The edge and the chrome radius come from `control-edge` (App.css). */
+.state-action {
+  align-items: center;
+  background: transparent;
+  color: var(--text-primary-rack);
+  cursor: pointer;
+  display: inline-flex;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+}
+
+.state-action:disabled {
+  cursor: default;
+}
+
+/*
+ * Hover on a drawn action is the board row's quiet inset wash, not App.css's --divider wash: the divider is
+ * a decorative hairline and the wrong ground under text, and under the destructive text role it is under
+ * the 4.5 floor in dark. The edge still goes to ink on hover (App.css), except on a destructive action below.
+ */
+.state-action:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+/*
+ * The one leading action of a section: a 2px ink edge over the 1px control edge its neighbours have. Padding
+ * gives the extra pixel back, so a lead and its neighbours are the same size. Ink, not brand.
+ */
+.state-action.state-action-lead {
+  border: 2px solid var(--selection-rule);
+  font-weight: 600;
+  padding: calc(var(--space-sm) - 1px) calc(var(--space-lg) - 1px);
+}
+
+/* The secondary action beside the lead, on the plain control edge: Back, never a second lead. */
+.state-actions {
+  align-items: center;
+  display: flex;
+  gap: var(--space-sm);
+}
+
+/* --- A field -------------------------------------------------------------------------------------- */
+
+/* A label above its field, left-aligned with it: the field is an input, and it says what it asks for. */
+.state-field-group {
+  align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 240px;
+  text-align: left;
+}
+
+.state-field-group > label {
+  color: var(--text-muted-rack);
+}
+
+/*
+ * The confirm-the-key field is the only control on its surface and holds focus for as long as the user types,
+ * so its ring is the ink rule (the device `.admin-field` and the palette's search use), not a standing brand
+ * box. App.css's `input:focus-visible` is the brand for ordinary inputs elsewhere in the product.
+ */
+.state-field {
+  background: transparent;
+  color: var(--text-primary-rack);
+  padding: var(--space-sm);
+  text-align: left;
+}
+
+.state-field:focus-visible {
+  outline: 2px solid var(--selection-rule);
+  outline-offset: 1px;
+}
+
+/* --- A confirmation (dialog tier) ----------------------------------------------------------------- */
+
+/*
+ * A confirmation that asks for a decision is a DIALOG (UI-SPEC § Overlay Rule): the per-mode scrim over a
+ * surface carrying the dialog shadow and, in dark, the dialog-tier edge, because a shadow over a near-black
+ * ground tells no tier. The scrim is at full value on the first frame: an overlay never interpolates opacity
+ * on mount. A scrim valued for a dark ground washes out on a white one, which is why it is a role, not a value.
+ */
+.confirm-scrim {
+  align-items: center;
+  background: var(--scrim);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 1200;
+}
+
+.confirm-dialog {
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-dialog);
+  border-radius: var(--radius-chrome);
+  box-shadow: var(--shadow-dialog);
+  color: var(--text-primary-rack);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  max-width: 420px;
+  padding: var(--space-lg);
+}
+
+/* The orphan recovery modal carries denser content: a list of runs. */
+.confirm-dialog.confirm-dialog-wide {
+  max-width: none;
+  width: 560px;
+}
+
+.confirm-dialog > h2 {
+  margin: 0;
+}
+
+/* The heading takes initial focus where a dialog has no safe button; it is read, not operated, so no ring. */
+.confirm-heading:focus {
+  outline: none;
+}
+
+.confirm-dialog > p {
+  margin: 0;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: flex-end;
+}
+
+/* A confirmation's buttons are the same drawn action as a state's, one step tighter for a dialog's width. */
+.confirm-action {
+  align-items: center;
+  background: transparent;
+  color: var(--text-primary-rack);
+  cursor: pointer;
+  display: inline-flex;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+}
+
+.confirm-action:disabled {
+  cursor: default;
+}
+
+.confirm-action:hover:not(:disabled) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+}
+
+/*
+ * The destructive action of a confirmation: the destructive TEXT role on its own edge, never filled (the
+ * fill was 2.95:1 light, 2.86:1 dark; this role is asserted 4.5:1 on every surface in both modes), with an
+ * icon in the button so it is told from the accent and from an ordinary action by more than hue. It is the
+ * section's one lead: a 2px edge over the 1px control edge, the pixel given back by padding.
+ */
+.confirm-action.confirm-action-destructive {
+  border: 2px solid var(--destructive-text-rack);
+  color: var(--destructive-text-rack);
+  font-weight: 600;
+  padding: calc(var(--space-xs) - 1px) calc(var(--space-md) - 1px);
+}
+
+/* App.css sends a hovered control's edge to ink; a destructive action keeps its own at the moment of click. */
+.confirm-action.confirm-action-destructive:hover:not(:disabled) {
+  border-color: var(--destructive-text-rack);
+}

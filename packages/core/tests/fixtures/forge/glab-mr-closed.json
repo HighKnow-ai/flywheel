@@ -1,0 +1,15 @@
+{
+  "id": 66609876,
+  "iid": 1750,
+  "state": "closed",
+  "title": "Spike: alternate diff viewer",
+  "web_url": "https://gitlab.com/acme/widget/-/merge_requests/1750",
+  "source_branch": "flywheel/fly-120-diff-viewer-spike",
+  "target_branch": "main",
+  "created_at": "2026-05-10T13:20:00.000Z",
+  "merged_at": null,
+  "closed_at": "2026-05-12T08:00:00.000Z",
+  "detailed_merge_status": "unchecked",
+  "merge_when_pipeline_succeeds": false,
+  "head_pipeline": null
+}

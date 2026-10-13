@@ -17,6 +17,7 @@ import { create } from "zustand";
 // Type-only — erased at compile time, so this does not create a runtime circular dependency even
 // though `board/useBoardQuery.ts` itself imports `BoardFilterDraft` from this module.
 import type { BoardItemKind } from "../board/useBoardQuery";
+import type { RunStatus } from "../legend/runStatus";
 
 /**
  * The in-progress filter selection (BOARD-06): every field is an empty array when that dimension
@@ -33,6 +34,9 @@ export interface BoardFilterDraft {
   assigneeIds: (string | null)[];
   priorities: number[];
   estimates: number[];
+  /** D-17: only items with an active worktree (epics: any child task has one, amendment A-04).
+   * `false` is "this dimension is unfiltered" — there is no "only without a worktree" reading. */
+  hasWorktree: boolean;
 }
 
 export const EMPTY_FILTER_DRAFT: BoardFilterDraft = {
@@ -41,6 +45,7 @@ export const EMPTY_FILTER_DRAFT: BoardFilterDraft = {
   assigneeIds: [],
   priorities: [],
   estimates: [],
+  hasWorktree: false,
 };
 
 /** True when at least one filter dimension carries a value — the renderer's own signal for which
@@ -53,7 +58,8 @@ export function isFilterDraftActive(filter: BoardFilterDraft): boolean {
     filter.epicIds.length > 0 ||
     filter.assigneeIds.length > 0 ||
     filter.priorities.length > 0 ||
-    filter.estimates.length > 0
+    filter.estimates.length > 0 ||
+    filter.hasWorktree
   );
 }
 
@@ -80,9 +86,36 @@ export interface PendingDone {
   status: string;
   checked: number;
   total: number;
+  /** The item's key, so the warning names the task it is about. */
+  key?: string;
+  /** The row's viewport rectangle when the request was raised, so the warning opens under it. */
+  anchorRect?: { top: number; left: number; bottom: number };
 }
 
+/** What the fleet surface (Phase 10, D-163) is showing: the banded fleet list, or (plan 10-05) the
+ * blocked queue. One field, one surface, two views; `null` means the fleet is closed. */
+export interface FleetSurfaceTarget {
+  view: "fleet" | "queue";
+}
+
+/** What the review surface is open for: a task or an epic, plus its key and title for the header. */
+export interface ReviewSurfaceTarget {
+  scope: "task" | "epic";
+  itemId: string;
+  label: string;
+  /** Set when an epic review was reached from a task's review (the scope toggle), so toggling back
+   * returns to that same task. Absent when the surface was opened on the epic directly. */
+  fromTask?: { itemId: string; label: string };
+}
+
+/** The board's grouping key (D-07, amendment A-02): the one rack groups its rows by epic (the
+ * home surface, A-01) or by status (the five bands, the "everything in review" sweep). A lens over
+ * one board — not a second surface. It has no keybinding (A-02 grants none). */
+export type GroupingKey = "epic" | "status";
+
 interface UiState {
+  groupingKey: GroupingKey;
+  setGroupingKey: (key: GroupingKey) => void;
   searchTerm: string;
   filterDraft: BoardFilterDraft;
   selectedItemId: string | null;
@@ -136,6 +169,37 @@ interface UiState {
    * deep inside `BoardView`'s tree, but the session surface it routes to replaces the whole
    * board/detail layout at the `AppShell` level. */
   activeAgentRunId: string | null;
+  /** The task id `activeAgentRunId` belongs to (plan 04-13, D-66/D-67) — set together with
+   * `activeAgentRunId` at every call site that opens the live session surface, each of which
+   * already has the task id in scope (the launch sheet's own `taskId` prop, `RunsSection.tsx`'s
+   * task-scoped `taskId` prop, `openLiveSessionForTask`'s own parameter). Exists so the session
+   * surface's Discard verb can hand off to the launch sheet for the SAME task without adding a
+   * new backend read — the session surface itself has no other source for this id. */
+  activeAgentRunTaskId: string | null;
+  /** `activeAgentRunId`'s own `authoringStage` (D-88, plan 05-02), or `null` for an ordinary
+   * task-execution run — set together with `activeAgentRunId`/`activeAgentRunTaskId` at the one
+   * call site that opens an authoring session (`BoardView.tsx`'s `shape-epic` handler). This is
+   * what `SessionSurface.tsx` reads to decide whether to mount `ProposalTray` at all: the tray has
+   * no other source for "is this run an authoring session." */
+  activeAgentRunAuthoringStage: string | null;
+  /** `activeAgentRunId`'s own `epicId` (D-84, plan 05-09) — `null` for an ordinary task-execution
+   * run AND for a fresh-epic authoring run (SHAPE-01's own case), `Some` only for an authoring run
+   * reopening an existing epic (SHAPE-05). Set together with `activeAgentRunId`/
+   * `activeAgentRunAuthoringStage`. Exists for the same reason `activeAgentRunTaskId` does: the
+   * Discard hand-off needs the epic id to prime a fresh authoring launch for the SAME epic, and
+   * the session surface has no other source for it. */
+  activeAgentRunEpicId: string | null;
+  /** A one-shot initial position for the session feed (D-99, plan 06-08) — `null` for every
+   * pre-existing call site (the default, unchanged behaviour: the feed opens at its tail exactly
+   * as before). Set together with `activeAgentRunId` only by the triage surface's turn-pointer
+   * jump (`App.tsx`'s `TriageSurface` `onOpenSession`), which is the one caller that has a
+   * recorded log offset to open at rather than "whatever the tail currently is". */
+  activeAgentRunInitialLogOffset: number | null;
+  /** The status the opener already knows for `activeAgentRunId` (Phase 10 plan 10-06, Pitfall 7), or
+   * `null` for every caller that does not — the session then falls back to its running default. Set
+   * only by the fleet, whose row is already showing the run's real status; without it a terminal run
+   * reads "Running" until something else re-reads it, which nothing does. */
+  activeAgentRunInitialStatus: RunStatus | null;
   /** The task id the launch sheet (D-27, plan 02-04) is currently open for, or `null` when it is
    * closed. Lives here for the same cross-tree reasoning as `activeAgentRunId`: the sheet is
    * mounted once at the `App.tsx` level (a peer of `CommandPalette`, per its own "briefing gate
@@ -143,18 +207,62 @@ interface UiState {
    * Work" affordance (deep inside `BoardView`'s tree) and from the board-list `start-work` action
    * id (`w`) — neither of which imports the sheet component itself. */
   launchSheetTaskId: string | null;
+  /** The epic whose wave plan sheet (plan 09-09) is open, or `null` when it is closed. Mounted once at
+   * the `App.tsx` level like the launch sheet; opened from the epic row's dispatch controls, which sit
+   * deep in `BoardView`'s tree and do not import the sheet. */
+  wavePlanSheetEpicId: string | null;
+  /** D-66's authoring hand-off (plan 05-09): the epic id a Discard on an authoring run wants a
+   * fresh authoring launch primed for, or `null` (not `undefined`) to distinguish "not pending" —
+   * an object rather than a bare `string | null` field because a fresh-epic authoring run's own
+   * epic id IS `null`, so a bare field could not tell "no hand-off pending" from "hand-off pending
+   * for a new epic" apart. Mirrors `launchSheetTaskId`'s own cross-tree reasoning: no authoring
+   * launch surface consumes this yet (Discretion item, `05-CONTEXT.md`), but the channel exists so
+   * a future one has somewhere to read the hand-off from without a second backend round trip. */
+  launchSheetAuthoringHandoff: { epicId: string | null } | null;
   /** Whether the Settings surface (D-39, plan 02-10) is currently open — same cross-tree
    * reasoning as `activeAgentRunId`/`launchSheetTaskId`: the surface is mounted once at the
    * `App.tsx` level (a peer of the board/session surface, replacing the same content area), but
    * opened from the native menu bridge, the global `⌘,` binding, and the command palette, none of
    * which import the surface component itself. */
   settingsOpen: boolean;
+  /** The project the dedicated triage surface (D-103, plan 06-08) is currently open for, or
+   * `null` when it is closed. Lives here for the same cross-tree reasoning `activeAgentRunId`/
+   * `launchSheetTaskId`/`settingsOpen` document: the surface is mounted once at the `App.tsx`
+   * level, a peer of the session surface, but it is opened from `board/TriageLane.tsx`'s header
+   * (deep inside `BoardView`'s tree), which does not import the surface component itself. */
+  triageSurfaceProjectId: string | null;
+  /** The item the review surface (Phase 8 plan 08-01) is open for, or `null` when closed — same
+   * cross-tree reasoning as the triage field above: mounted once in `App.tsx`, opened from the
+   * item detail panel's Review button. `label` is the item's key and title for the surface header. */
+  reviewSurface: ReviewSurfaceTarget | null;
+  /** Whether the fleet surface (Phase 10, D-163) is open, and which view — same cross-tree
+   * reasoning as the fields above: mounted once in `App.tsx`, opened from the project rail's Fleet
+   * row, the global `open-fleet` binding, the palette and the native menu, none of which import the
+   * surface. `null` when closed. */
+  fleetSurface: FleetSurfaceTarget | null;
+  /** Whether the worktree inventory (Phase 10 plan 10-08, WORK-07) is open. A separate flag from
+   * `fleetSurface` on purpose: the fleet's row selection and key bindings are scoped to a non-null
+   * `fleetSurface`, and the inventory has no rows to select. The two are mutually exclusive: opening
+   * either closes the other. */
+  worktreeInventoryOpen: boolean;
+  /** A one-shot request to select a board item and open its detail (Phase 10 plan 10-06, FLEET-03,
+   * RESEARCH Finding 9). It exists because `BoardView` clears selection, detail and delete whenever its
+   * project id changes, so a jump into another project that sets those three fields directly (as the
+   * palette's git-identifier jump does) is undone by that effect the moment it runs. The request outlives
+   * the clear, `BoardView` acts on it once the item is among its rows, and `consumePendingFocusItemId`
+   * reads and clears it in one call so it can never fire twice. */
+  pendingFocusItemId: string | null;
+  /** The version string of the update offer the user dismissed (plan 11-06, D-187). A version rather
+   * than a boolean, so "dismissed" means "not this one": a later release offers itself again. Held for
+   * the life of the window; a relaunch asks again. */
+  dismissedUpdateVersion: string | null;
   setSearchTerm: (term: string) => void;
   toggleStatus: (status: string) => void;
   toggleEpic: (epicId: string | null) => void;
   toggleAssignee: (assigneeId: string | null) => void;
   togglePriority: (priority: number) => void;
   toggleEstimate: (estimate: number) => void;
+  toggleHasWorktree: () => void;
   clearFilters: () => void;
   setSelectedItemId: (id: string | null) => void;
   setPaletteOpen: (open: boolean) => void;
@@ -173,12 +281,47 @@ interface UiState {
    * that actually moved the cursor (`board/QuickAdd.tsx`'s focus effect) — so a request is
    * honoured once and never twice (G-01-4). */
   clearQuickAddFocusPending: () => void;
-  setActiveAgentRunId: (agentRunId: string | null) => void;
+  /** Sets `activeAgentRunId` and `activeAgentRunTaskId` together in one `set` call (plan 04-13) —
+   * mirrors `openQuickAdd`'s own "N related fields, one writer" shape. `taskId` defaults to
+   * `null` so every pre-existing call site (none of which needs to change) keeps working exactly
+   * as before. */
+  setActiveAgentRunId: (
+    agentRunId: string | null,
+    taskId?: string | null,
+    authoringStage?: string | null,
+    epicId?: string | null,
+    initialLogOffset?: number | null,
+    initialStatus?: RunStatus | null,
+  ) => void;
   setLaunchSheetTaskId: (taskId: string | null) => void;
+  setWavePlanSheetEpicId: (epicId: string | null) => void;
+  /** Opens the authoring hand-off channel for `epicId` (`null` for a fresh epic) — the Discard
+   * verb's own call, mirroring `setLaunchSheetTaskId`'s shape. */
+  setLaunchSheetAuthoringHandoff: (epicId: string | null) => void;
+  /** Clears the authoring hand-off channel — the future authoring launch surface's own consume
+   * call, mirroring `setLaunchSheetTaskId(null)`'s "closed" convention. */
+  clearLaunchSheetAuthoringHandoff: () => void;
   setSettingsOpen: (open: boolean) => void;
+  /** Rust's overlap warning for a launch over a live task (plan 09-13), set by every launch site and
+   * shown by `shell/LaunchOverlapToast` mounted once in App, because the launch surface unmounts. */
+  launchOverlapWarning: string | null;
+  setLaunchOverlapWarning: (warning: string | null) => void;
+  /** Opens/closes the dedicated triage surface for `projectId` (`null` to close) — the route
+   * control's own call, mirroring `setLaunchSheetTaskId`'s "one field, one writer" shape. */
+  setTriageSurfaceProjectId: (projectId: string | null) => void;
+  /** Opens/closes the review surface (`null` to close). */
+  setReviewSurface: (target: ReviewSurfaceTarget | null) => void;
+  /** Opens/closes the fleet surface (`null` to close). */
+  setFleetSurface: (target: FleetSurfaceTarget | null) => void;
+  /** Opens/closes the worktree inventory; opening it closes the fleet surface. */
+  setWorktreeInventoryOpen: (open: boolean) => void;
+  setPendingFocusItemId: (id: string | null) => void;
+  setDismissedUpdateVersion: (version: string | null) => void;
+  /** Returns the pending focus request and clears it in the same call. */
+  consumePendingFocusItemId: () => string | null;
 }
 
-export const useUiStore = create<UiState>((set) => ({
+export const useUiStore = create<UiState>((set, get) => ({
   searchTerm: "",
   filterDraft: EMPTY_FILTER_DRAFT,
   selectedItemId: null,
@@ -188,12 +331,27 @@ export const useUiStore = create<UiState>((set) => ({
   deleteTarget: null,
   activePicker: null,
   quickAddOpen: false,
+  groupingKey: "epic",
+  setGroupingKey: (key) => set({ groupingKey: key }),
   quickAddKind: "task",
   pendingDone: null,
   quickAddFocusPending: false,
   activeAgentRunId: null,
+  activeAgentRunTaskId: null,
+  activeAgentRunAuthoringStage: null,
+  activeAgentRunEpicId: null,
+  activeAgentRunInitialLogOffset: null,
+  activeAgentRunInitialStatus: null,
   launchSheetTaskId: null,
+  wavePlanSheetEpicId: null,
+  launchSheetAuthoringHandoff: null,
   settingsOpen: false,
+  triageSurfaceProjectId: null,
+  reviewSurface: null,
+  fleetSurface: null,
+  worktreeInventoryOpen: false,
+  pendingFocusItemId: null,
+  dismissedUpdateVersion: null,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
 
@@ -231,6 +389,11 @@ export const useUiStore = create<UiState>((set) => ({
       },
     })),
 
+  toggleHasWorktree: () =>
+    set((state) => ({
+      filterDraft: { ...state.filterDraft, hasWorktree: !state.filterDraft.hasWorktree },
+    })),
+
   // Clears the search term too — "Clear Filters" (Copywriting Contract) is the one recovery
   // action offered from the empty-filter-result state, and a lingering search term with no
   // filter chips would still leave the board looking "stuck" after the user asks to clear it.
@@ -254,9 +417,42 @@ export const useUiStore = create<UiState>((set) => ({
   openQuickAdd: (kind) => set({ quickAddKind: kind, quickAddOpen: true, quickAddFocusPending: true }),
   setPendingDone: (pending) => set({ pendingDone: pending }),
   clearQuickAddFocusPending: () => set({ quickAddFocusPending: false }),
-  setActiveAgentRunId: (agentRunId) => set({ activeAgentRunId: agentRunId }),
+  setActiveAgentRunId: (
+    agentRunId,
+    taskId = null,
+    authoringStage = null,
+    epicId = null,
+    initialLogOffset = null,
+    initialStatus = null,
+  ) =>
+    set({
+      activeAgentRunId: agentRunId,
+      activeAgentRunTaskId: taskId,
+      activeAgentRunAuthoringStage: authoringStage,
+      activeAgentRunEpicId: epicId,
+      activeAgentRunInitialLogOffset: initialLogOffset,
+      activeAgentRunInitialStatus: initialStatus,
+    }),
   setLaunchSheetTaskId: (taskId) => set({ launchSheetTaskId: taskId }),
+  setWavePlanSheetEpicId: (epicId) => set({ wavePlanSheetEpicId: epicId }),
+  setLaunchSheetAuthoringHandoff: (epicId) => set({ launchSheetAuthoringHandoff: { epicId } }),
+  clearLaunchSheetAuthoringHandoff: () => set({ launchSheetAuthoringHandoff: null }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
+  launchOverlapWarning: null,
+  setLaunchOverlapWarning: (warning) => set({ launchOverlapWarning: warning }),
+  setTriageSurfaceProjectId: (projectId) => set({ triageSurfaceProjectId: projectId }),
+  setReviewSurface: (target) => set({ reviewSurface: target }),
+  setFleetSurface: (target) =>
+    set(target ? { fleetSurface: target, worktreeInventoryOpen: false } : { fleetSurface: null }),
+  setWorktreeInventoryOpen: (open) =>
+    set(open ? { worktreeInventoryOpen: true, fleetSurface: null } : { worktreeInventoryOpen: false }),
+  setPendingFocusItemId: (id) => set({ pendingFocusItemId: id }),
+  setDismissedUpdateVersion: (version) => set({ dismissedUpdateVersion: version }),
+  consumePendingFocusItemId: () => {
+    const id = get().pendingFocusItemId;
+    if (id !== null) set({ pendingFocusItemId: null });
+    return id;
+  },
 }));
 
 /** Resets every UI field back to its initial value — the shared reset four test suites
@@ -267,6 +463,7 @@ export const useUiStore = create<UiState>((set) => ({
  * removes that whole class of drift (this plan's Task 1/Task 3). */
 export function resetUiState() {
   useUiStore.setState({
+    groupingKey: "epic",
     searchTerm: "",
     filterDraft: EMPTY_FILTER_DRAFT,
     selectedItemId: null,
@@ -280,7 +477,21 @@ export function resetUiState() {
     pendingDone: null,
     quickAddFocusPending: false,
     activeAgentRunId: null,
+    activeAgentRunTaskId: null,
+    activeAgentRunAuthoringStage: null,
+    activeAgentRunEpicId: null,
+    activeAgentRunInitialLogOffset: null,
+    activeAgentRunInitialStatus: null,
     launchSheetTaskId: null,
+    wavePlanSheetEpicId: null,
+    launchSheetAuthoringHandoff: null,
     settingsOpen: false,
+    launchOverlapWarning: null,
+    triageSurfaceProjectId: null,
+    reviewSurface: null,
+    fleetSurface: null,
+    worktreeInventoryOpen: false,
+    pendingFocusItemId: null,
+    dismissedUpdateVersion: null,
   });
 }

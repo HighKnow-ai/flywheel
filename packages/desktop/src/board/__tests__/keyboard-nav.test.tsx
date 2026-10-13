@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
+import { showStatusBands } from "./lens";
 import { CommandPalette } from "../CommandPalette";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
@@ -23,6 +24,10 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
+  // `ItemDetailPanel`'s `GitFactsSection` (Phase 7 plan 07-01) calls these two directly, not
+  // through `invokeCommand` — mocked here for the same reason `openFolderDialog` is.
+  gitFacts: () => Promise.resolve(null),
+  gitTruthFocusTask: () => Promise.resolve(),
 }));
 
 const EMPTY_COUNTS: BandCounts = { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 };
@@ -35,6 +40,7 @@ const ITEMS: BoardItem[] = [
 
 beforeEach(() => {
   resetUiState();
+  showStatusBands();
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);

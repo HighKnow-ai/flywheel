@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
+import { showStatusBands } from "./lens";
 import { CommandPalette } from "../CommandPalette";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { BandCounts, BoardItem, IssueItem } from "../useBoardQuery";
@@ -77,6 +78,7 @@ const PROJECT = {
 
 beforeEach(() => {
   resetUiState();
+  showStatusBands();
   invokeCommandMock.mockReset();
   invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);
@@ -94,7 +96,11 @@ beforeEach(() => {
     // roster (G-01-2, 01-18-PLAN.md), never from `items` — this suite's assertions need the same
     // epic `board_list` already returns to also be resolvable through `epic_list_all`.
     if (command === "epic_list_all") {
-      return Promise.resolve([{ id: EPIC_1.id, key: EPIC_1.key, title: EPIC_1.title }]);
+      return Promise.resolve({
+        epics: [{ id: EPIC_1.id, key: EPIC_1.key, title: EPIC_1.title }],
+        total: 1,
+        truncated: false,
+      });
     }
     return Promise.resolve(undefined);
   });

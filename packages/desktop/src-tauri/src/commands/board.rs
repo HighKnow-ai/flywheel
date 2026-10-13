@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::commands::ipc_error;
 use crate::state::AppState;
 
 /// The Rust core returns a page, never the whole board (D-03). 200 rows comfortably covers a
@@ -136,6 +137,10 @@ pub struct BoardFilterInput {
     pub assignee_ids: Option<Vec<Option<String>>>,
     pub priorities: Option<Vec<i64>>,
     pub estimates: Option<Vec<i64>>,
+    /// D-17: `Some(true)` restricts to rows with an active worktree (epics: any child task does,
+    /// amendment A-04). Absent and `Some(false)` both mean "unfiltered" — there is no "only rows
+    /// without a worktree" reading.
+    pub has_worktree: Option<bool>,
 }
 
 impl From<BoardFilterInput> for flywheel_core::query::filter::BoardFilter {
@@ -161,6 +166,7 @@ impl From<BoardFilterInput> for flywheel_core::query::filter::BoardFilter {
             }),
             priorities: input.priorities,
             estimates: input.estimates,
+            has_worktree: input.has_worktree.unwrap_or(false),
         }
     }
 }
@@ -249,4 +255,74 @@ pub fn board_search(
     .map_err(|e| e.to_string())?;
 
     Ok(window.into())
+}
+
+/// One status's task count inside an epic's distribution strip (D-05).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusCountDto {
+    pub status: String,
+    pub count: u32,
+}
+
+/// An epic's criteria position (D-06): `checked` of `total` current criteria across its tasks.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CriteriaCountDto {
+    pub checked: u32,
+    pub total: u32,
+}
+
+/// One epic's roll-up for the roster (D-05/D-06) — mirrors
+/// `flywheel_core::query::epic_progress::EpicProgress`. `epic_id: null` is the "No epic" bucket.
+/// `criteria` is nullable and never defaulted to zero: an epic with no criteria must reach the
+/// renderer as absent so it can print a true statement instead of a lying zero.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpicProgressDto {
+    pub epic_id: Option<String>,
+    pub by_status: Vec<StatusCountDto>,
+    pub total: u32,
+    pub done: u32,
+    pub agents_running: u32,
+    pub agents_blocked: u32,
+    pub criteria: Option<CriteriaCountDto>,
+}
+
+impl From<flywheel_core::query::epic_progress::EpicProgress> for EpicProgressDto {
+    fn from(p: flywheel_core::query::epic_progress::EpicProgress) -> Self {
+        Self {
+            epic_id: p.epic_id,
+            by_status: p
+                .by_status
+                .into_iter()
+                .map(|(status, count)| StatusCountDto { status, count })
+                .collect(),
+            total: p.total,
+            done: p.done,
+            agents_running: p.agents_running,
+            agents_blocked: p.agents_blocked,
+            criteria: p.criteria.map(|(checked, total)| CriteriaCountDto { checked, total }),
+        }
+    }
+}
+
+/// Every epic that has tasks, plus the no-epic bucket, with its real status distribution, agent
+/// counts and criteria position — one grouped read over ALL the project's tasks, never the
+/// board's 200-row window (D-05, RESEARCH Correction 3). Database-only, so unlike
+/// `board_change_flags` there is no git half to keep off the mutex; the project id is the only
+/// input, and the epic cap lives in the core.
+#[tauri::command]
+pub fn board_epic_progress(
+    state: State<AppState>,
+    project_id: String,
+) -> Result<Vec<EpicProgressDto>, String> {
+    let conn = state.db.lock().map_err(|e| ipc_error("board_epic_progress:lock", e))?;
+    let progress = flywheel_core::query::epic_progress::board_epic_progress(
+        &conn,
+        &project_id,
+        flywheel_core::domain::epic::EPIC_ROSTER_CEILING as usize,
+    )
+    .map_err(|e| ipc_error("board_epic_progress:read", e))?;
+    Ok(progress.into_iter().map(EpicProgressDto::from).collect())
 }

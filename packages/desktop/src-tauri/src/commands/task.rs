@@ -35,6 +35,27 @@ impl From<flywheel_core::domain::task::Task> for TaskDto {
     }
 }
 
+/// The session surface's title (plan 11-22, finish-review four-1): a task's key and title by id,
+/// `None` when the task no longer exists. Read-only; takes an id and nothing else.
+#[tauri::command]
+pub fn task_header(
+    state: State<AppState>,
+    task_id: String,
+) -> Result<Option<flywheel_core::query::authoring::ItemHeader>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    flywheel_core::query::authoring::task_header(&conn, &task_id).map_err(|e| e.to_string())
+}
+
+/// The same title for an authoring run, which has an epic and no task. Read-only.
+#[tauri::command]
+pub fn epic_header(
+    state: State<AppState>,
+    epic_id: String,
+) -> Result<Option<flywheel_core::query::authoring::ItemHeader>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    flywheel_core::query::authoring::epic_header(&conn, &epic_id).map_err(|e| e.to_string())
+}
+
 /// Create a task at the current position (D-09: quick-add is the creation path). `actor_id` is
 /// resolved inside this handler (T-01-04) — the command signature accepts no actor argument from
 /// the renderer. Emits `board:changed` after the mutation commits (D-04): the renderer never

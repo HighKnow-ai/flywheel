@@ -7,12 +7,27 @@
  * - Plan 02-07 Task 2: the structured feed itself — one row per event kind, tool-call
  *   collapse/expand, the terminal row, the "Starting session…" pulse, bounded virtualization,
  *   and scroll-triggered older-page paging.
+ * - Plan 02-16 Task 1/3 (G-02-3): the virtual row slot is clamped to the height the virtualizer
+ *   reserved for it, and a multi-kilobyte event never overlaps the row rendered beneath it. jsdom
+ *   performs no layout at all, so `getBoundingClientRect` returns zeroes here and a real painted
+ *   overlap can never be observed in this environment — these assertions read the DECLARED
+ *   geometry instead (the inline `height` and the pixel value inside `transform`), which is the
+ *   only geometry that exists in jsdom, and which is precisely the geometry the defect got wrong.
  */
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionSurface } from "../SessionSurface";
 import { sessionFeedQueryKey } from "../../board/useBoardQuery";
+import { resetUiState, useUiStore } from "../../state/uiStore";
+import { FEED_ROW_HEIGHT } from "../FeedRow";
+
+// Every test in this file shares the same module-level Zustand store — the Discard describe
+// block below is the first one in this file to write to it (`setLaunchSheetTaskId`), so it must
+// leave no residue for a later test (mirrors `settings-surface.test.tsx`'s own precedent).
+afterEach(() => {
+  resetUiState();
+});
 
 const invokeCommandMock = vi.fn();
 
@@ -42,10 +57,19 @@ vi.mock("../../adapters/tauri", async () => {
       invokeCommandMock("agent_run_stop", { agentRunId }).then(
         (result: unknown) => result ?? { status: "interrupted", sidecarWarning: null },
       ),
+    // Discard's own wrapper (plan 04-13) — mirrors `stopAgentRun`'s mock shape exactly, routed
+    // through the SAME `invokeCommandMock`, under its own command name.
+    discardSession: (agentRunId: string) =>
+      invokeCommandMock("agent_run_discard", { agentRunId }).then(
+        (result: unknown) => result ?? { status: "interrupted", sidecarWarning: null },
+      ),
     // The permission-request card's feed mount (plan 02-06 Task 2) — no pending requests by
     // default so every pre-existing test in this file keeps rendering the plain event feed alone.
     pendingPermissionRequests: () => Promise.resolve([]),
     answerPermissionRequest: () => Promise.resolve(undefined),
+    // The header's two narrow board reads (plan 11-22, four-1), routed through the same mock.
+    taskHeader: (taskId: string) => invokeCommandMock("task_header", { taskId }),
+    epicHeader: (epicId: string) => invokeCommandMock("epic_header", { epicId }),
   };
 });
 
@@ -134,8 +158,46 @@ function makeToolResult(seq: number, toolName: string, output: unknown) {
   return { runId: "run-1", seq, at: "2026-01-01T00:00:00.000Z", raw: `result-${seq}`, type: "tool_result", toolName, output };
 }
 
-function makeSessionClosed(seq: number, reason: string, result?: { subtype: string }) {
-  return { runId: "run-1", seq, at: "2026-01-01T00:00:00.000Z", raw: `closed-${seq}`, type: "session_closed", reason, result };
+function makeSessionClosed(seq: number, reason: string, result?: { subtype: string }, detail?: string) {
+  return { runId: "run-1", seq, at: "2026-01-01T00:00:00.000Z", raw: `closed-${seq}`, type: "session_closed", reason, result, detail };
+}
+
+const OVERSIZED_EVENT_MARKER = "OVERSIZED-END-MARKER";
+
+/** G-02-3, Task 3: an `assistant_text`-shaped entry carrying roughly four kilobytes of text — many
+ * multiples of the collapsed row height at any plausible font size, which is the condition the
+ * UAT screenshot showed. The distinctive marker sits near the END of the text so a later assertion
+ * can prove the expanded view reveals text the collapsed view did not. */
+function makeOversizedEvent(seq: number) {
+  const filler = "the-agent-said-quite-a-lot-of-words-here ".repeat(100); // ~4.2 KB
+  return {
+    runId: "run-1",
+    seq,
+    at: "2026-01-01T00:00:00.000Z",
+    raw: `oversized-${seq}`,
+    type: "assistant_text",
+    text: `${filler}${OVERSIZED_EVENT_MARKER}`,
+  };
+}
+
+/** Reads one `feed-row-slot` element's DECLARED geometry — the inline `height` and the pixel
+ * value inside its `transform`. Both are declared inline by Task 1, so both are readable in
+ * jsdom (which performs no layout). Fails loudly, with the element's own `outerHTML` in the
+ * message, when either value is absent — an absent height IS the defect this plan closes and
+ * must never be silently coerced to zero. */
+function readSlotGeometry(slot: Element): { height: number; translateY: number } {
+  const style = (slot as HTMLElement).style;
+  const heightRaw = style.height;
+  const transformRaw = style.transform;
+  const heightMatch = /^([\d.]+)px$/.exec(heightRaw);
+  const transformMatch = /translateY\(([\d.]+)px\)/.exec(transformRaw);
+  if (!heightMatch) {
+    throw new Error(`feed-row-slot has no declared pixel height: ${slot.outerHTML}`);
+  }
+  if (!transformMatch) {
+    throw new Error(`feed-row-slot has no declared translateY transform: ${slot.outerHTML}`);
+  }
+  return { height: Number(heightMatch[1]), translateY: Number(transformMatch[1]) };
 }
 
 function renderSurface(queryClient = new QueryClient()) {
@@ -157,6 +219,28 @@ describe("SessionSurface", () => {
     expect(screen.getByText("Event number 0")).toBeInTheDocument();
     expect(screen.getByText("Event number 1")).toBeInTheDocument();
     expect(screen.getByText("Event number 2")).toBeInTheDocument();
+  });
+
+  it("every rendered row slot declares the height the virtualizer reserved and clips its overflow", async () => {
+    // G-02-3 structural half: jsdom performs no layout at all — `getBoundingClientRect` returns
+    // zeroes here, so a real painted overlap can never be observed in this environment. These
+    // assertions read the DECLARED geometry instead — the inline `height` and `overflow` values
+    // React put on the wrapper — which is the only geometry that exists in jsdom, and which is
+    // precisely the geometry the defect got wrong. Task 3 below adds the behavioural half with an
+    // oversized event, still reading this same declared geometry.
+    const events = [makeEvent(0), makeEvent(1), makeEvent(2)];
+    mockWindowReads(() => events);
+
+    renderSurface();
+
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(3));
+    const slots = document.querySelectorAll('[data-testid="feed-row-slot"]');
+    expect(slots.length).toBe(3);
+    slots.forEach((slot) => {
+      const style = (slot as HTMLElement).style;
+      expect(style.height).not.toBe("");
+      expect(style.overflow).toBe("hidden");
+    });
   });
 
   it("shows the ← Board affordance and calls onBack when clicked", async () => {
@@ -302,6 +386,266 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
       unmount();
     }
   });
+
+  /**
+   * 03-17-PLAN.md Task 2 (T-03-17-03): `handleStop` had no synchronous re-entry guard beyond
+   * `disabled={stopping}` — a React state update that has not necessarily flushed to the DOM
+   * before a second `.click()` fires in the same tick. Raw `element.click()` calls (never
+   * `fireEvent.click`, which flushes `act()` between calls) reproduce the bug. Because every
+   * adapter call funnels through the single `invokeCommandMock`, the count is filtered to calls
+   * whose first argument is the stop command name rather than asserted via a bare
+   * `toHaveBeenCalledTimes` on the shared mock.
+   */
+  it("clicking Stop three times in one synchronous tick sends exactly one agent_run_stop command", async () => {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_stop") return new Promise(() => {}); // never resolves within the test
+      return Promise.resolve(undefined);
+    });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+      </QueryClientProvider>,
+    );
+
+    const stopButton = await screen.findByRole("button", { name: "Stop" });
+    stopButton.click();
+    stopButton.click();
+    stopButton.click();
+
+    await waitFor(() => {
+      const stopCalls = invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "agent_run_stop");
+      expect(stopCalls).toHaveLength(1);
+    });
+  });
+
+  it("re-enables Stop after a rejected stop, and a further click sends a second agent_run_stop command", async () => {
+    let stopCallCount = 0;
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_stop") {
+        stopCallCount += 1;
+        return stopCallCount === 1
+          ? Promise.reject(new Error("ipc failure"))
+          : Promise.resolve({ status: "interrupted", sidecarWarning: null });
+      }
+      return Promise.resolve(undefined);
+    });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+      </QueryClientProvider>,
+    );
+
+    const stopButton = await screen.findByRole("button", { name: "Stop" });
+    stopButton.click();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled());
+
+    screen.getByRole("button", { name: "Stop" }).click();
+
+    await waitFor(() => {
+      const stopCalls = invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "agent_run_stop");
+      expect(stopCalls).toHaveLength(2);
+    });
+  });
+});
+
+describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () => {
+  // `impl`, when supplied, is installed INSTEAD OF the plain window-only mock below — never
+  // BEFORE it. `mockWindowReads` itself calls `invokeCommandMock.mockImplementation(...)`, so
+  // installing a caller's own `agent_run_discard` behavior before calling this helper would be
+  // silently overwritten the instant this helper's own default runs.
+  function renderDiscard(
+    status: "running" | "blocked" | "completed" | "failed" | "interrupted" = "running",
+    impl?: (command: string, args: { offset: number; limit: number }) => Promise<unknown>,
+  ) {
+    if (impl) {
+      invokeCommandMock.mockImplementation(impl);
+    } else {
+      mockWindowReads(() => []);
+    }
+    const queryClient = new QueryClient();
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <SessionSurface agentRunId="run-1" taskId="task-1" onBack={() => {}} initialStatus={status} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("renders neither Stop nor Discard for a terminal run", () => {
+    renderDiscard("completed");
+    expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discarding…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stopping…" })).not.toBeInTheDocument();
+  });
+
+  it("reads Discard and is enabled for a running run, beside Stop", async () => {
+    renderDiscard("running");
+    const discardButton = await screen.findByRole("button", { name: "Discard" });
+    expect(discardButton).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+  });
+
+  it(
+    "clicking Discard twice in one synchronous tick sends exactly one agent_run_discard command, " +
+      "with no confirmation dialog appearing in between",
+    async () => {
+      renderDiscard("running", (command) => {
+        if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+        if (command === "agent_run_discard") return new Promise(() => {}); // never resolves within the test
+        return Promise.resolve(undefined);
+      });
+
+      const discardButton = await screen.findByRole("button", { name: "Discard" });
+      discardButton.click();
+      discardButton.click();
+
+      // No dialog role is present between the activation and the call — CTX-08's "single action"
+      // promise, asserted as an absence rather than only checking the end state (a test that only
+      // checks the end state would pass for a two-step confirm-then-discard flow too).
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+      await waitFor(() => {
+        const discardCalls = invokeCommandMock.mock.calls.filter(
+          (call: unknown[]) => call[0] === "agent_run_discard",
+        );
+        expect(discardCalls).toHaveLength(1);
+      });
+    },
+  );
+
+  it("reads Discarding… and disables both Discard and Stop immediately after activation", async () => {
+    renderDiscard("running", (command) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_discard") return new Promise(() => {}); // never resolves within the test
+      return Promise.resolve(undefined);
+    });
+
+    const discardButton = await screen.findByRole("button", { name: "Discard" });
+    discardButton.click();
+
+    const discardingButton = await screen.findByRole("button", { name: "Discarding…" });
+    expect(discardingButton).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeDisabled();
+  });
+
+  it("opens the launch sheet for this run's own task once the discard resolves", async () => {
+    renderDiscard("running", (command) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_discard") {
+        return Promise.resolve({ status: "interrupted", sidecarWarning: null });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    expect(useUiStore.getState().launchSheetTaskId).toBeNull();
+
+    const discardButton = await screen.findByRole("button", { name: "Discard" });
+    discardButton.click();
+
+    await waitFor(() => expect(useUiStore.getState().launchSheetTaskId).toBe("task-1"));
+  });
+
+  it("renders the muted warning notice and never opens the launch sheet when the discard call is rejected", async () => {
+    renderDiscard("running", (command) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_discard") return Promise.reject(new Error("ipc failure"));
+      return Promise.resolve(undefined);
+    });
+
+    const discardButton = await screen.findByRole("button", { name: "Discard" });
+    discardButton.click();
+
+    // Reuses the SAME muted notice `StopWarningNotice` renders for a rejected/unconfirmed Stop —
+    // no second notice component was introduced.
+    await screen.findByText(/could not confirm this discard completed/);
+    expect(useUiStore.getState().launchSheetTaskId).toBeNull();
+
+    // A genuine failure must leave the control usable — the discard button re-enables.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled());
+  });
+});
+
+describe("SessionSurface Stop/Discard for an authoring run (plan 05-09)", () => {
+  function renderAuthoring(
+    epicId: string | null,
+    impl?: (command: string, args?: { offset: number; limit: number }) => Promise<unknown>,
+  ) {
+    if (impl) {
+      invokeCommandMock.mockImplementation(impl);
+    } else {
+      mockWindowReads(() => []);
+    }
+    const queryClient = new QueryClient();
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <SessionSurface
+          agentRunId="run-1"
+          taskId={null}
+          epicId={epicId}
+          authoringStage="challenge"
+          onBack={() => {}}
+          initialStatus="running"
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("carries the epic id into the authoring launch hand-off once discard resolves", async () => {
+    renderAuthoring("epic-123", (command) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_discard") {
+        return Promise.resolve({ status: "interrupted", sidecarWarning: null });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    expect(useUiStore.getState().launchSheetAuthoringHandoff).toBeNull();
+    expect(useUiStore.getState().launchSheetTaskId).toBeNull();
+
+    const discardButton = await screen.findByRole("button", { name: "Discard" });
+    discardButton.click();
+
+    await waitFor(() =>
+      expect(useUiStore.getState().launchSheetAuthoringHandoff).toEqual({ epicId: "epic-123" }),
+    );
+    // The TASK hand-off channel must never be used for an authoring run.
+    expect(useUiStore.getState().launchSheetTaskId).toBeNull();
+  });
+
+  it("carries a null epic id (a fresh-epic run) into the same hand-off channel", async () => {
+    renderAuthoring(null, (command) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "agent_run_discard") {
+        return Promise.resolve({ status: "interrupted", sidecarWarning: null });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const discardButton = await screen.findByRole("button", { name: "Discard" });
+    discardButton.click();
+
+    await waitFor(() =>
+      expect(useUiStore.getState().launchSheetAuthoringHandoff).toEqual({ epicId: null }),
+    );
+  });
+
+  it("renders the authoring-specific Stop gloss, never mentioning a worktree", async () => {
+    const events = [makeSessionClosed(0, "interrupted")];
+    renderAuthoring("epic-123", (command: string, args?: { offset: number; limit: number }) => {
+      if (command === "agent_run_log_window") {
+        return Promise.resolve(windowFor(events, args?.offset ?? 0, args?.limit ?? 50));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    await screen.findByText(/Every staged proposal is still waiting on the board/);
+    expect(screen.queryByText(/worktree/i)).not.toBeInTheDocument();
+  });
 });
 
 describe("SessionSurface persistence-failure banner (plan 02-12, CR-03/PROC-07)", () => {
@@ -428,7 +772,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     renderSurface();
 
     const node = await screen.findByText("Retrying request…");
-    expect(node.className).toContain("type-micro");
+    expect(node.className).toContain("type-label");
   });
 
   it("renders an unrecognised event kind as a raw fallback line, never dropping it", async () => {
@@ -461,6 +805,30 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
 
     await screen.findByText("This run ended in an error. The worktree was left as-is — nothing was lost.");
     expect(screen.getByText("error_during_execution")).toBeInTheDocument();
+  });
+
+  it("renders the terminal event's detail beneath the machine-detail line for a failed run (G-02-2)", async () => {
+    const events = [
+      makeEvent(0),
+      makeSessionClosed(1, "failed", { subtype: "error_during_execution" }, "Error: something went wrong on stderr"),
+    ];
+    mockWindowReads(() => events);
+
+    renderSurface();
+
+    await screen.findByText("error_during_execution");
+    expect(screen.getByText("Error: something went wrong on stderr")).toBeInTheDocument();
+  });
+
+  it("renders no detail block for a failed run whose terminal event carries none", async () => {
+    const events = [makeEvent(0), makeSessionClosed(1, "failed", { subtype: "error_during_execution" })];
+    mockWindowReads(() => events);
+
+    renderSurface();
+
+    await screen.findByText("error_during_execution");
+    // Absent, not an empty string — nothing extra renders when the sidecar had nothing to say.
+    expect(screen.queryByTestId("terminal-detail")).not.toBeInTheDocument();
   });
 
   it("renders a plain terminal row for a completed run, with no destructive styling", async () => {
@@ -511,6 +879,42 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
       ),
     );
     await screen.findByText("Event number 0");
+  });
+
+  it("G-02-3: a multi-kilobyte event never overlaps the row beneath it", async () => {
+    const events = [makeOversizedEvent(0), makeEvent(1), makeEvent(2)];
+    mockWindowReads(() => events);
+
+    renderSurface();
+
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(3));
+    const slots = Array.from(document.querySelectorAll('[data-testid="feed-row-slot"]'));
+    expect(slots.length).toBe(3);
+
+    const geometries = slots.map(readSlotGeometry);
+    for (let i = 0; i < geometries.length - 1; i += 1) {
+      const earlier = geometries[i];
+      const later = geometries[i + 1];
+      expect(earlier.translateY + earlier.height).toBeLessThanOrEqual(later.translateY);
+    }
+
+    // The oversized row's declared height equals the collapsed constant imported from FeedRow —
+    // proving the reservation did not silently grow to accommodate the payload.
+    expect(geometries[0].height).toBe(FEED_ROW_HEIGHT);
+  });
+
+  it("G-02-3: an oversized row's full text is reachable in place", async () => {
+    const events = [makeOversizedEvent(0)];
+    mockWindowReads(() => events);
+
+    renderSurface();
+
+    const toggle = await screen.findByRole("button", { name: /Expand full text/ });
+    expect(screen.queryByText(new RegExp(OVERSIZED_EVENT_MARKER))).not.toBeInTheDocument();
+
+    toggle.click();
+
+    expect(await screen.findByText(new RegExp(OVERSIZED_EVENT_MARKER))).toBeInTheDocument();
   });
 });
 
@@ -640,5 +1044,140 @@ describe("SessionSurface raw view, status strip, and run-status badge (plan 02-0
 
     // @ts-expect-error test-only cleanup of the global override installed above
     delete window.matchMedia;
+  });
+});
+
+describe("08.1 group-four finish-review closure (behaviour)", () => {
+  it("prints no meter figures while there are none, and prints them once they exist", async () => {
+    mockCombinedReads({ events: [{ runId: "run-1", seq: 0, at: "2026-01-01T00:00:00.000Z", raw: "hi", type: "assistant_text", text: "hi" }] });
+    const { unmount } = renderSurface();
+    await screen.findByText("hi");
+    expect(screen.getByLabelText("Elapsed time")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Tokens in")).toBeNull();
+    expect(screen.queryByLabelText("Tokens out")).toBeNull();
+    expect(screen.queryByLabelText("Cost")).toBeNull();
+    expect(document.body.textContent).not.toContain("—");
+    unmount();
+  });
+
+  it("the running tool call, and only that one, wears the live caret; a finished run's call does not", async () => {
+    mockCombinedReads({ events: [makeToolCall(0, "Read", { file_path: "a.ts" }), makeToolResult(1, "Read", "ok"), makeToolCall(2, "Bash", { command: "npm test" })] });
+    const running = renderSurface();
+    const bash = await screen.findByRole("button", { name: /Bash · npm test/ });
+    expect(bash).toHaveAttribute("data-live", "true");
+    expect(bash.querySelector(".feed-caret.agent-pulse")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Read · a.ts/ })).not.toHaveAttribute("data-live");
+    running.unmount();
+
+    mockCombinedReads({ events: [makeToolCall(0, "Bash", { command: "npm test" })] });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="failed" />
+      </QueryClientProvider>,
+    );
+    const ended = await screen.findByRole("button", { name: /Bash · npm test/ });
+    expect(ended).not.toHaveAttribute("data-live");
+    expect(ended.querySelector(".feed-caret")).toBeNull();
+  });
+
+  it("under reduced motion the live caret is a plain mark: present, never animated", async () => {
+    mockMatchMedia(true);
+    mockCombinedReads({ events: [makeToolCall(0, "Bash", { command: "npm test" })] });
+    renderSurface();
+    const bash = await screen.findByRole("button", { name: /Bash · npm test/ });
+    expect(bash.querySelector(".feed-caret")).not.toBeNull();
+    expect(bash.querySelector(".agent-pulse")).toBeNull();
+    // @ts-expect-error test-only cleanup of the global override installed above
+    delete window.matchMedia;
+  });
+
+  it("every state has a floor: waiting on the agent, waiting on the developer, the run's end", async () => {
+    mockCombinedReads({ events: [makeToolCall(0, "Bash", { command: "npm test" })] });
+    const a = renderSurface();
+    expect(await screen.findByText("Waiting on the agent.")).toBeInTheDocument();
+    a.unmount();
+
+    mockCombinedReads({});
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="completed" />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText(/This run has ended\./)).toBeInTheDocument();
+  });
+
+  it("while running, Stop leads and Discard sits on the plain edge", async () => {
+    mockCombinedReads({});
+    renderSurface();
+    const stop = await screen.findByRole("button", { name: "Stop" });
+    const discard = screen.getByRole("button", { name: "Discard" });
+    expect(stop.className).toContain("session-action-lead");
+    expect(discard.className).not.toContain("session-action-lead");
+  });
+});
+
+describe("review offer (08-04, D-133)", () => {
+  function renderOffer(status: "running" | "blocked" | "completed" | "failed" | "interrupted", taskId: string | null) {
+    mockCombinedReads({});
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface agentRunId="run-1" taskId={taskId} onBack={() => {}} initialStatus={status} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it.each(["completed", "failed", "interrupted"] as const)("offers review of the task once the run is %s", (status) => {
+    renderOffer(status, "task-1");
+    fireEvent.click(screen.getByRole("button", { name: "Review changes" }));
+    expect(useUiStore.getState().reviewSurface).toEqual({ scope: "task", itemId: "task-1", label: "This task" });
+  });
+
+  it.each(["running", "blocked"] as const)("offers nothing while the run is %s", (status) => {
+    renderOffer(status, "task-1");
+    expect(screen.queryByRole("button", { name: "Review changes" })).not.toBeInTheDocument();
+  });
+
+  it("offers nothing for a terminal run with no task id", () => {
+    renderOffer("completed", null);
+    expect(screen.queryByRole("button", { name: "Review changes" })).not.toBeInTheDocument();
+  });
+});
+
+describe("the header names the board item the run serves (11-22, finish-review four-1)", () => {
+  function renderHeader(props: { taskId?: string | null; epicId?: string | null }, reads: Record<string, () => Promise<unknown>>) {
+    invokeCommandMock.mockImplementation((command: string, args: { offset: number; limit: number }) => {
+      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], args.offset, args.limit));
+      return reads[command]?.() ?? Promise.resolve(undefined);
+    });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface agentRunId="run-1" onBack={() => {}} {...props} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("names the task by key and title on a task run", async () => {
+    renderHeader({ taskId: "task-1" }, { task_header: () => Promise.resolve({ key: "FLY-9", title: "Add push retry" }) });
+    expect(await screen.findByText("FLY-9 Add push retry")).toBeInTheDocument();
+    expect(screen.queryByText("Session")).not.toBeInTheDocument();
+  });
+
+  it("names the epic on an authoring run, which has no task", async () => {
+    renderHeader({ epicId: "epic-1" }, { epic_header: () => Promise.resolve({ key: "FLY-7", title: "Review inside Flywheel" }) });
+    expect(await screen.findByText("FLY-7 Review inside Flywheel")).toBeInTheDocument();
+  });
+
+  it("says Session while the read is in flight, and keeps saying it when the task is gone (read returns null)", async () => {
+    renderHeader({ taskId: "task-deleted" }, { task_header: () => Promise.resolve(null) });
+    expect(screen.getByText("Session")).toBeInTheDocument();
+    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("task_header", { taskId: "task-deleted" }));
+    expect(screen.getByText("Session")).toBeInTheDocument();
+  });
+
+  it("does not throw or blank the header when the read fails", async () => {
+    renderHeader({ taskId: "task-1" }, { task_header: () => Promise.reject(new Error("boom")) });
+    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("task_header", { taskId: "task-1" }));
+    expect(screen.getByText("Session")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "← Board" })).toBeInTheDocument();
   });
 });

@@ -433,9 +433,22 @@ the detail panel.
 - status glyph (a shape, not a colour — see Accessibility)
 - key (`FLY-142`, monospace, fixed-width column)
 - title (flex-grow, always the last thing to lose space)
-- priority glyph
-- **criteria checked/total** — D-08 requires this "visible wherever the item appears"; it is
-  structurally exempt from the truncation ladder below, not merely last on it.
+
+**Amended by D-198.1 (Phase 11, 2026-10-13) — the tail prints a value or nothing.** This list
+formerly also named the priority glyph and the criteria checked/total count as "never dropped". That
+sentence made the shipped behaviour look like a bug, so it is amended: a zero criteria count (`0/0`)
+and "No priority" render **nothing** in a task row's tail, extending A-03's change-cue rule (absent
+is not a value; fourteen identical "nothing" marks down a roster flatten the signals that do vary).
+A real count (`1/3`) and a real priority still render, and neither is subject to the truncation
+ladder below. The count is therefore absent exactly when the Done warning cannot fire (it fires only
+when total > 0 and unchecked > 0), which is consistent with D-08. The priority is still one key
+away, so nothing becomes unreachable.
+
+**Key alignment on pill-bearing rows is deliberate and left as it is (D-198.4).** A row that carries
+a pill ahead of its key does not align that key with the keys of rows that carry none. Reserving an
+alignment slot on every row costs more than it buys, and pills trailing the status glyph is this
+section's deliberate choice. A reviewer or later reader asking for a slot on every row is asking to
+reverse a locked decision; it is recorded here so it is not re-filed.
 
 **Progressive disclosure ladder (first field dropped as width narrows, in this order):**
 1. actor-of-last-change (avatar + timestamp) — first to go
@@ -585,7 +598,7 @@ Assignee, Set Epic, Delete).
 | Project switcher | Project unreachable (D-16) | Rail entry shows a warning glyph + "Unreachable" text (never colour alone). Selecting it opens a dedicated reconciliation state replacing the board: explains the marker mismatch, offers only "Locate Project…" (native folder picker) — never an auto-scan, never a silent rebind. |
 | Board | 1,000+ item overflow | Virtualization renders only the visible window; group headers show item counts (numbers, not just density) so scale stays legible even when a group is collapsed. |
 | Board row | Long title | Single-line truncation with ellipsis; full text via native tooltip on hover/focus; detail panel always shows the untruncated title. |
-| Board / Detail | Moving an item to Done with unchecked criteria (D-08) | Non-modal inline confirmation requiring one keypress: "{checked}/{total} criteria unchecked. Mark Done anyway?" `Enter` confirms, `Escape` cancels and reverts the status change. Deliberately not a modal dialog — D-08 "warns but does not block," and a modal would block the rest of the list, which contradicts that intent even though a bare inline prompt still requires one acknowledgment for that specific action. |
+| Board / Detail | Moving an item to Done with unchecked criteria (D-08) | Non-modal inline confirmation requiring one keypress: "{key} · {unchecked} of {total} criteria unchecked. Mark Done anyway?" (string amended by D-198.2) `Enter` confirms, `Escape` cancels and reverts the status change. Deliberately not a modal dialog — D-08 "warns but does not block," and a modal would block the rest of the list, which contradicts that intent even though a bare inline prompt still requires one acknowledgment for that specific action. |
 | Board / Detail | Destructive delete (task/epic/issue) | Confirmation names the item type, key and title explicitly; see Copywriting Contract. |
 
 ---
@@ -699,8 +712,8 @@ product UI rarely needs a display face, and this is pure product surface with no
 
 | Role | Size | Weight | Line Height | Usage |
 |------|------|--------|-------------|-------|
-| Micro | 10px | Regular (400) | 1.2 | Badges, counts (criteria checked/total, estimate) |
-| Label | 11px | Regular (400) | 1.3 | Metadata (epic pill, assignee, actor + timestamp) |
+| ~~Micro~~ | ~~10px~~ | — | — | **Retired by D-198.3 (Phase 11, 2026-10-13).** No production surface renders text below the 11px floor the 08.1 scale sets; the last two 10px survivors (the feed system notice and the assignee picker's badge) moved to Label, and the `.type-micro` class was deleted. |
+| Label | 11px | Regular (400) | 1.3 | Metadata (epic pill, assignee, actor + timestamp), badges, counts (criteria checked/total, estimate) |
 | Body | 13px | Regular (400) | 1.4 | Row titles, primary field content, description text |
 | Heading | 15px | Semibold (600) | 1.25 | Panel section headers, status group headers |
 | Display | not used | — | — | No marketing/display type on this surface (Impeccable `operate.md`) |
@@ -808,7 +821,7 @@ reserved for exactly one thing — the current position.
 | Error state (search failure) | "Search failed — {reason}. Showing the last known results. [Retry]" |
 | Project unreachable heading | "Can't find this project" |
 | Project unreachable body | "Flywheel expected {project_name} at {last_known_path}, but the repository marker there no longer matches. Nothing was scanned or guessed automatically." — CTA: "Locate Project…" |
-| Done-with-unchecked-criteria warning | "{checked}/{total} criteria unchecked. Mark Done anyway?" — `Enter` confirms, `Escape` cancels. |
+| Done-with-unchecked-criteria warning | "{key} · {unchecked} of {total} criteria unchecked. Mark Done anyway?" — `Enter` confirms, `Escape` cancels. **Amended by D-198.2**, transcribed from `DoneWarning.tsx` (the `{key} · ` prefix is omitted when the item has no key). The earlier "{checked}/{total}" string is withdrawn: the fraction read two ways (one unchecked, or one checked). |
 | Destructive confirmation (delete) | Heading: "Delete {ItemType} {key}?" Body: "\"{title}\" and its acceptance criteria will be permanently removed. This can't be undone." Buttons: "Delete" (destructive role) / "Cancel." |
 | Command palette empty result | "No matching commands or items" |
 
@@ -842,7 +855,7 @@ Applicable state considerations resolved: 12 covered, 2 backstop, 0 unresolved.
 | overflow | board list, 1,000+ items | ✅ covered | Fixed-height virtualization + visible group counts (Performance Contract, State Inventory). **Amended in plan `01-20` (G-01-4):** this row's original claim covered rendering rows at volume, not focusing an off-window one — G-01-4 proved the quick-add row's focus needed its own coverage; see the row below. |
 | overflow | quick-add row, board scrolled past the mounted window | ✅ covered | Scrolled into view and focused from an effect rather than relying on mount-time focus (see "Quick-add's focus delivery," Keyboard Map). Attributed to plan `01-20` (G-01-4). |
 | long-text | row title | ✅ covered | Truncate-not-wrap + native tooltip; full text in detail panel (Row Anatomy). |
-| zero-one-many | acceptance criteria, 0 vs many | ✅ covered | Checked/total badge always visible (D-08); Done-warning fires only when total > 0 and unchecked > 0. |
+| zero-one-many | acceptance criteria, 0 vs many | ✅ covered | Checked/total badge prints whenever total > 0 and nothing at `0/0` (D-198.1, amending D-08's "always visible"); Done-warning fires only when total > 0 and unchecked > 0. |
 | partial | activity trail beyond 50 events | 🧪 backstop | "Load more" affordance assumed sufficient; not verified against a real 1,000+-event trail in this spec — executor should confirm pagination feels adequate during UAT. |
 | overflow | project rail with many registered projects | 🧪 backstop | ⌘1–⌘9 covers the first nine; behavior beyond nine projects (scroll? overflow menu?) is not specified here — flagged for the planner to resolve, not silently dropped. |
 
@@ -860,8 +873,17 @@ Applicable state considerations resolved: 12 covered, 2 backstop, 0 unresolved.
    - **The radius and stroke language — RESOLVED.** `--radius-strip: 2px`, `--radius-chrome: 6px`.
      See Design System § "Radius Language."
    - **Whether Flywheel carries the HighKnow lightbulb-brain mark or earns its own under it** —
-     still an owner decision, recorded as open in `PRODUCT.md`. It does not block Phase 1: no
-     surface in this spec renders a logo except the app icon and the About item.
+     **RESOLVED 2026-10-07, owner decision: the HighKnow lightbulb-brain mark, for now.** Taken to
+     unblock Phase 8.1's app icon and direction round; Flywheel earning its own mark under HighKnow
+     stays available if it ever gets a commercial identity of its own. Recorded in
+     `.planning/PROJECT.md` § Key Decisions.
+     It did not block Phase 1: no surface in this spec renders a logo except the app icon and the
+     About item. **Two corrections to the previous text of this bullet**, both found 2026-10-07:
+     (1) it said the decision was "recorded as open in `PRODUCT.md`" — no `PRODUCT.md` exists in
+     this project, the file is `PROJECT.md`, so the pointer dangled and the decision was recorded
+     nowhere for a month; (2) Gate A above claims the owner supplied the mark as `logo.svg`, but no
+     `logo.svg` exists anywhere in the repository, so Phase 8.1 must PRODUCE the asset, not wire up
+     an existing one.
 2. **shadcn / component-library adoption, and its preset — RESOLVED 2026-09-09.** Option
    `a-selfhost-radix`: no shadcn preset is derived; `shadcn` is not initialized at all. Self-hosted
    type plus hand-rolled unstyled Radix primitives supply the accessibility machinery instead. See

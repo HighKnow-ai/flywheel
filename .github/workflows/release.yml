@@ -1,0 +1,116 @@
+name: Release
+
+# D-182: this workflow is the only sanctioned way a Flywheel binary comes into existence, and a
+# tag is the only thing that starts it. There is deliberately no workflow_dispatch with a typed
+# version: D-184 rejected it as trivially desynced from the tag and the changelog.
+# The build steps are ci.yml's, in the same order, so a release is itself a clean-clone build.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      # fetch-depth 0: the release-notes step reads history between tags.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # First, before any toolchain is installed: a malformed tag fails here and writes nothing.
+      - name: Stamp the tag as the version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node scripts/release/apply-tag-version.mjs "$TAG"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            packages/desktop/package-lock.json
+            packages/sidecar/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm --prefix packages/sidecar ci
+
+      - run: npm --prefix packages/desktop ci
+
+      # Staging MUST precede every cargo step. tauri_build::build() fails the whole workspace
+      # build when a bundle.externalBin file is missing, so a fresh clone cannot compile or test
+      # until the three binaries/flywheel-* files exist.
+      - run: npm --prefix packages/sidecar run build:dist
+
+      # A release that cannot pass its own tests must not produce an artifact.
+      - run: npm --prefix packages/sidecar test
+
+      - run: cargo test --workspace
+
+      # These commit subjects are the "what changed" text the update banner shows (D-187):
+      # real history, never a placeholder.
+      - name: Release notes from history
+        id: notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if PREV=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null); then
+            RANGE="$PREV..$TAG"
+          else
+            RANGE="$TAG"
+          fi
+          # Capped: with no previous tag the range is the whole history, which on the first throwaway
+          # tag was 116,932 characters against GitHub's 125,000-character release-body limit.
+          git log --max-count=200 --pretty=format:'- %s' "$RANGE" > release-notes.md
+          {
+            echo 'body<<NOTES_EOF'
+            cat release-notes.md
+            echo
+            echo 'NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      # Not Apple-signed on purpose (D-185): nothing but criterion 1 waits on an Apple account.
+      # The updater key below is a different thing: it signs the update payload, not the app (D-186).
+      # Env group added later, NOT here:
+      #   the Apple signing and notarization set  -> plan 11-07
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # T-11-16: referenced only here; no step echoes them. tauri signs the .app.tar.gz with them.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: packages/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: Flywheel ${{ github.ref_name }}
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: false
+          prerelease: false
+          args: --target aarch64-apple-darwin
+          # D-186: latest.json beside the artifacts is what gives self-update zero infrastructure.
+          includeUpdaterJson: true
+
+      # Do not trust the action's own success: read back what was actually published.
+      # The updater tier (.sig + latest.json) is required as soon as the config asks for updater
+      # artifacts. Plan 11-05 adds createUpdaterArtifacts together with the key (tauri refuses to
+      # build it earlier), so this check starts enforcing it the moment that lands.
+      - name: Assert the published assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          NAMES=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          echo "$NAMES"
+          need() { echo "$NAMES" | grep -Eq "$1" || { echo "MISSING release asset matching: $1" >&2; exit 1; }; }
+          need '\.dmg$'
+          need '\.app\.tar\.gz$'
+          if grep -q createUpdaterArtifacts packages/desktop/src-tauri/tauri.conf.json; then
+            need '\.app\.tar\.gz\.sig$'
+            need '^latest\.json$'
+          fi

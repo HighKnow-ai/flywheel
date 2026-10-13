@@ -1,0 +1,1264 @@
+//! A fan-out's stored plan (phase 09, D-157, D-158): `dispatch_plans`, `dispatch_plan_tasks` and
+//! `dispatch_edges` CRUD in the `*_in_tx` style so a caller composes, plus [`approve_plan`] — the
+//! one transaction that matters.
+//!
+//! [`approve_plan`] normalises the waves, computes the ordering edges, writes every edge with its
+//! colliding paths FROZEN as stored JSON, appends one `task.sequenced` event per edge and the
+//! plan-approved event, and flips the status — all of it or none of it. The frozen
+//! `colliding_paths` column is what makes "why is this one waiting?" answerable a week later and
+//! after a live widen: a recomputation is not a record.
+//!
+//! This module writes no `tasks.status`. A status has exactly one owner per transition, and the
+//! wave-plan state here is the dispatcher's own display, not the board's workflow column.
+
+use anyhow::{anyhow, bail, Context};
+use chrono::Utc;
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
+
+use crate::dispatch::{
+    decode_paths, edges_for_plan, encode_paths, normalise_waves, planned_tasks, DispatchEdge,
+    DISPATCH_PLAN_STATES, DISPATCH_TASK_STATES,
+};
+use crate::domain::event::{append_event, next_sequence};
+use crate::ids::new_id;
+
+/// Appended once per ordering edge, attributed to the WAITING task (the one a user asks about).
+pub const EVENT_TASK_SEQUENCED: &str = "task.sequenced";
+/// Appended once when a plan is approved.
+pub const EVENT_DISPATCH_PLAN_APPROVED: &str = "dispatch_plan.approved";
+
+/// One task as supplied to [`replace_plan_tasks_in_tx`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanTaskInput {
+    pub task_id: String,
+    pub wave: u32,
+    pub rationale: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanTaskRow {
+    pub task_id: String,
+    pub wave: u32,
+    pub state: String,
+    pub rationale: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DispatchPlan {
+    pub id: String,
+    pub epic_id: String,
+    pub status: String,
+    pub wave_cursor: u32,
+    pub tasks: Vec<PlanTaskRow>,
+}
+
+/// Create an empty `draft` plan for `epic_id`. A second live plan for one epic is refused by the
+/// partial unique index, not by code here.
+pub fn create_draft_plan_in_tx(
+    tx: &Transaction,
+    epic_id: &str,
+    planning_run_id: Option<&str>,
+    actor_id: &str,
+    now: &str,
+) -> anyhow::Result<String> {
+    let id = new_id();
+    tx.execute(
+        "INSERT INTO dispatch_plans
+             (id, epic_id, planning_run_id, status, wave_cursor, created_by, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'draft', 1, ?4, ?5, ?5)",
+        params![id, epic_id, planning_run_id, actor_id, now],
+    )
+    .with_context(|| format!("failed to create a draft plan for epic {epic_id:?}"))?;
+    Ok(id)
+}
+
+/// Replace a DRAFT plan's task rows. Every task must belong to the plan's epic and every wave must
+/// be at least one; all of it is checked before anything is deleted.
+pub fn replace_plan_tasks_in_tx(
+    tx: &Transaction,
+    plan_id: &str,
+    tasks: &[PlanTaskInput],
+) -> anyhow::Result<()> {
+    let (epic_id, status): (String, String) = tx
+        .query_row(
+            "SELECT epic_id, status FROM dispatch_plans WHERE id = ?1",
+            params![plan_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .with_context(|| format!("plan {plan_id:?} not found"))?;
+    if status != "draft" {
+        bail!("plan {plan_id:?} is {status}; only a draft plan's tasks can be replaced");
+    }
+    for task in tasks {
+        if task.wave < 1 {
+            bail!("task {:?} was given wave {}; waves start at 1", task.task_id, task.wave);
+        }
+        let task_epic: Option<Option<String>> = tx
+            .query_row("SELECT epic_id FROM tasks WHERE id = ?1", params![task.task_id], |r| r.get(0))
+            .optional()
+            .context("failed to read a plan task's epic")?;
+        match task_epic {
+            None => bail!("task {:?} not found", task.task_id),
+            Some(e) if e.as_deref() != Some(epic_id.as_str()) => {
+                bail!("task {:?} does not belong to the plan's epic", task.task_id)
+            }
+            Some(_) => {}
+        }
+    }
+    // A task the planning pass left out is `skipped`; rewriting the draft (a wave move) must not
+    // quietly bring it back, so a task keeps the state it already had.
+    let previous: std::collections::HashMap<String, String> = {
+        let mut stmt = tx
+            .prepare("SELECT task_id, state FROM dispatch_plan_tasks WHERE plan_id = ?1")
+            .context("failed to prepare the previous-state read")?;
+        let rows = stmt
+            .query_map(params![plan_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .context("failed to read the previous plan-task states")?
+            .collect::<Result<Vec<_>, _>>()
+            .context("failed to read a previous plan-task state")?;
+        rows.into_iter().collect()
+    };
+    tx.execute("DELETE FROM dispatch_plan_tasks WHERE plan_id = ?1", params![plan_id])
+        .context("failed to clear the previous plan tasks")?;
+    for task in tasks {
+        let state = previous.get(&task.task_id).map_or("planned", String::as_str);
+        tx.execute(
+            "INSERT INTO dispatch_plan_tasks (plan_id, task_id, wave, state, rationale)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![plan_id, task.task_id, task.wave, state, task.rationale],
+        )
+        .with_context(|| format!("failed to store plan task {:?}", task.task_id))?;
+    }
+    Ok(())
+}
+
+/// Write one ordering edge with its colliding paths frozen. Used by approval (`overlap`) and by
+/// the live widen path (`widen`). A pair already ordered in this plan is a UNIQUE violation.
+pub fn insert_edge_in_tx(
+    tx: &Transaction,
+    plan_id: &str,
+    edge: &DispatchEdge,
+    now: &str,
+) -> anyhow::Result<()> {
+    tx.execute(
+        "INSERT INTO dispatch_edges
+             (id, plan_id, before_task_id, after_task_id, cause, colliding_paths, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            new_id(),
+            plan_id,
+            edge.before_task_id,
+            edge.after_task_id,
+            edge.cause,
+            encode_paths(&edge.colliding_paths),
+            now
+        ],
+    )
+    .with_context(|| {
+        format!("failed to store the edge {:?} -> {:?}", edge.before_task_id, edge.after_task_id)
+    })?;
+    Ok(())
+}
+
+/// The ordering edges approval WOULD write for this plan, computed from the CURRENT declared sets and
+/// waves and written nowhere, so the review sheet can show the colliding paths while the user can
+/// still fix a wrong one. It is the same computation approval runs (`edges_for_plan`), so what the
+/// sheet shows and what approval freezes cannot disagree about the rule.
+pub fn preview_edges(conn: &Connection, plan_id: &str) -> anyhow::Result<Vec<DispatchEdge>> {
+    let fold_case = crate::domain::file_set::repo_is_case_insensitive(std::path::Path::new(&plan_repo_path(conn, plan_id)?));
+    preview_edges_with(conn, plan_id, fold_case)
+}
+
+/// The repository path of the project `plan_id` belongs to. A database read only: a command that
+/// holds the database lock reads it, drops the lock, runs the `git config` probe
+/// ([`crate::domain::file_set::repo_is_case_insensitive`]), and re-locks for the `*_with` variants
+/// (D-REV-39 WR-07).
+pub fn plan_repo_path(conn: &Connection, plan_id: &str) -> anyhow::Result<String> {
+    conn.query_row(
+        "SELECT pr.repo_path FROM dispatch_plans p
+           JOIN epics e ON e.id = p.epic_id JOIN projects pr ON pr.id = e.project_id
+          WHERE p.id = ?1",
+        params![plan_id],
+        |r| r.get(0),
+    )
+    .with_context(|| format!("plan {plan_id:?} not found"))
+}
+
+/// [`preview_edges`] with the repository's case flag supplied.
+pub fn preview_edges_with(conn: &Connection, plan_id: &str, fold_case: bool) -> anyhow::Result<Vec<DispatchEdge>> {
+    let mut tasks = planned_tasks(conn, plan_id)?;
+    normalise_waves(&mut tasks);
+    Ok(edges_for_plan(&tasks, fold_case))
+}
+
+/// Approve a draft plan. Case-folding is read from the epic's repository (`core.ignorecase`)
+/// BEFORE the write transaction opens. A caller holding the database lock must not call this: it
+/// runs a subprocess. It reads [`plan_repo_path`] and [`approve_plan_with`] instead.
+pub fn approve_plan(conn: &mut Connection, plan_id: &str, actor_id: &str) -> anyhow::Result<()> {
+    let fold_case = crate::domain::file_set::repo_is_case_insensitive(std::path::Path::new(&plan_repo_path(conn, plan_id)?));
+    approve_plan_with(conn, plan_id, actor_id, fold_case, &Utc::now().to_rfc3339())
+}
+
+/// [`approve_plan`] with the case-fold flag and clock supplied.
+pub fn approve_plan_with(
+    conn: &mut Connection,
+    plan_id: &str,
+    actor_id: &str,
+    fold_case: bool,
+    now: &str,
+) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    let (epic_id, status, project_id): (String, String, String) = tx
+        .query_row(
+            "SELECT p.epic_id, p.status, e.project_id FROM dispatch_plans p
+               JOIN epics e ON e.id = p.epic_id WHERE p.id = ?1",
+            params![plan_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .with_context(|| format!("plan {plan_id:?} not found"))?;
+    if status != "draft" {
+        bail!("plan {plan_id:?} is {status}; only a draft plan can be approved");
+    }
+
+    let mut tasks = planned_tasks(&tx, plan_id)?;
+    normalise_waves(&mut tasks);
+    for task in &tasks {
+        tx.execute(
+            "UPDATE dispatch_plan_tasks SET wave = ?1 WHERE plan_id = ?2 AND task_id = ?3",
+            params![task.wave, plan_id, task.task_id],
+        )
+        .context("failed to store a normalised wave")?;
+    }
+
+    let edges = edges_for_plan(&tasks, fold_case);
+    for edge in &edges {
+        insert_edge_in_tx(&tx, plan_id, edge, now)?;
+        append_sequenced_event(&tx, &project_id, &epic_id, plan_id, edge, actor_id, now)?;
+    }
+
+    let wave_count = tasks.iter().map(|t| t.wave).max().unwrap_or(0);
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "dispatch_plan",
+        plan_id,
+        None,
+        Some(&epic_id),
+        actor_id,
+        EVENT_DISPATCH_PLAN_APPROVED,
+        &serde_json::json!({
+            "field": "dispatch_plan",
+            "plan_id": plan_id,
+            "task_count": tasks.len(),
+            "edge_count": edges.len(),
+            "wave_count": wave_count,
+            "label": format!(
+                "Approved a fan-out of {} tasks in {} waves, {} ordered",
+                tasks.len(), wave_count, edges.len()
+            ),
+        }),
+        now,
+    )?;
+
+    tx.execute(
+        "UPDATE dispatch_plans SET status = 'approved', updated_at = ?1 WHERE id = ?2",
+        params![now, plan_id],
+    )
+    .context("failed to mark the plan approved")?;
+    tx.commit().context("failed to commit the plan approval")?;
+    Ok(())
+}
+
+/// Append the `task.sequenced` event for one edge, attributed to the waiting task. The one writer
+/// of that event shape, with two callers: [`approve_plan_with`] (cause `overlap`) and the live
+/// widen in `domain::file_set` (cause `widen`), so `why` and the sheet read a single shape.
+pub(crate) fn append_sequenced_event(
+    tx: &Transaction,
+    project_id: &str,
+    epic_id: &str,
+    plan_id: &str,
+    edge: &DispatchEdge,
+    actor_id: &str,
+    now: &str,
+) -> anyhow::Result<()> {
+    let key = |task_id: &str| -> anyhow::Result<String> {
+        tx.query_row("SELECT key FROM tasks WHERE id = ?1", params![task_id], |r| r.get(0))
+            .with_context(|| format!("task {task_id:?} not found"))
+    };
+    let mut shown: Vec<&str> =
+        edge.colliding_paths.iter().take(3).map(|(_, after)| after.as_str()).collect();
+    shown.dedup();
+    let more = edge.colliding_paths.len().saturating_sub(3);
+    let label = format!(
+        "Waits for {}: both declare {}{}",
+        key(&edge.before_task_id)?,
+        shown.join(", "),
+        if more > 0 { format!(" and {more} more") } else { String::new() },
+    );
+    let sequence = next_sequence(tx, project_id, "local")?;
+    append_event(
+        tx,
+        project_id,
+        "local",
+        sequence,
+        "task",
+        &edge.after_task_id,
+        Some(&edge.after_task_id),
+        Some(epic_id),
+        actor_id,
+        EVENT_TASK_SEQUENCED,
+        &serde_json::json!({
+            "field": "sequenced",
+            "plan_id": plan_id,
+            "before_task_id": edge.before_task_id,
+            "after_task_id": edge.after_task_id,
+            "cause": edge.cause,
+            "colliding_paths": edge
+                .colliding_paths
+                .iter()
+                .map(|(b, a)| serde_json::json!({ "before": b, "after": a }))
+                .collect::<Vec<_>>(),
+            "label": label,
+        }),
+        now,
+    )?;
+    Ok(())
+}
+
+/// Set a plan's status. Only the declared vocabulary is accepted.
+pub fn set_plan_status(conn: &Connection, plan_id: &str, status: &str) -> anyhow::Result<()> {
+    if !DISPATCH_PLAN_STATES.contains(&status) {
+        return Err(anyhow!("{status:?} is not a plan status"));
+    }
+    let changed = conn
+        .execute(
+            "UPDATE dispatch_plans SET status = ?1, updated_at = ?2 WHERE id = ?3",
+            params![status, Utc::now().to_rfc3339(), plan_id],
+        )
+        .context("failed to set the plan status")?;
+    if changed == 0 {
+        bail!("plan {plan_id:?} not found");
+    }
+    Ok(())
+}
+
+/// Set one plan task's dispatcher display state. Never touches the board's `tasks.status`.
+pub fn set_task_dispatch_state(
+    conn: &Connection,
+    plan_id: &str,
+    task_id: &str,
+    state: &str,
+) -> anyhow::Result<()> {
+    if !DISPATCH_TASK_STATES.contains(&state) {
+        return Err(anyhow!("{state:?} is not a dispatch task state"));
+    }
+    let changed = conn
+        .execute(
+            "UPDATE dispatch_plan_tasks SET state = ?1 WHERE plan_id = ?2 AND task_id = ?3",
+            params![state, plan_id, task_id],
+        )
+        .context("failed to set the dispatch task state")?;
+    if changed == 0 {
+        bail!("task {task_id:?} is not in plan {plan_id:?}");
+    }
+    Ok(())
+}
+
+/// Read a plan and its task rows (ordered wave, board rank, task id).
+pub fn read_plan(conn: &Connection, plan_id: &str) -> anyhow::Result<Option<DispatchPlan>> {
+    let head: Option<(String, String, u32)> = conn
+        .query_row(
+            "SELECT epic_id, status, wave_cursor FROM dispatch_plans WHERE id = ?1",
+            params![plan_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .context("failed to read the plan")?;
+    let Some((epic_id, status, wave_cursor)) = head else {
+        return Ok(None);
+    };
+    let mut stmt = conn
+        .prepare(
+            "SELECT pt.task_id, pt.wave, pt.state, pt.rationale
+               FROM dispatch_plan_tasks pt JOIN tasks t ON t.id = pt.task_id
+              WHERE pt.plan_id = ?1 ORDER BY pt.wave, t.rank, pt.task_id",
+        )
+        .context("failed to prepare the plan-task read")?;
+    let tasks = stmt
+        .query_map(params![plan_id], |r| {
+            Ok(PlanTaskRow {
+                task_id: r.get(0)?,
+                wave: r.get(1)?,
+                state: r.get(2)?,
+                rationale: r.get(3)?,
+            })
+        })
+        .context("failed to read the plan tasks")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read a plan-task row")?;
+    Ok(Some(DispatchPlan { id: plan_id.to_string(), epic_id, status, wave_cursor, tasks }))
+}
+
+/// A plan's stored edges in the order they were written, with the paths as frozen at the time.
+pub fn read_edges(conn: &Connection, plan_id: &str) -> anyhow::Result<Vec<DispatchEdge>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT before_task_id, after_task_id, cause, colliding_paths
+               FROM dispatch_edges WHERE plan_id = ?1 ORDER BY rowid",
+        )
+        .context("failed to prepare the edge read")?;
+    let rows = stmt
+        .query_map(params![plan_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?))
+        })
+        .context("failed to read the edges")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read an edge row")?;
+    rows.into_iter()
+        .map(|(before_task_id, after_task_id, cause, paths)| {
+            Ok(DispatchEdge { before_task_id, after_task_id, cause, colliding_paths: decode_paths(&paths)? })
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------------------------
+// Plan 09-07: the dispatcher's own writes. Every state here is the dispatcher's DISPLAY state
+// (`dispatch_plan_tasks.state`, `dispatch_plans.status`); none of it writes `tasks.status`.
+// ---------------------------------------------------------------------------------------------
+
+/// Appended when a task stops its wave and asks for the user. The payload carries the plan id, the
+/// phase, the cause kind and the sentence; the latest one is the readable cause.
+pub const EVENT_TASK_NEEDS_ATTENTION: &str = "dispatch.task_needs_attention";
+pub const EVENT_WAVE_ADVANCED: &str = "dispatch_plan.wave_advanced";
+pub const EVENT_PLAN_COMPLETED: &str = "dispatch_plan.completed";
+
+fn plan_anchor(conn: &Connection, plan_id: &str) -> anyhow::Result<(String, String, String, u32)> {
+    conn.query_row(
+        "SELECT p.epic_id, e.project_id, p.status, p.wave_cursor
+           FROM dispatch_plans p JOIN epics e ON e.id = p.epic_id WHERE p.id = ?1",
+        params![plan_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    )
+    .with_context(|| format!("plan {plan_id:?} not found"))
+}
+
+/// Mark a task as needing attention with a named cause: state and event in one transaction. Returns
+/// `false` and writes nothing when the task is already marked with the very same cause, so a
+/// condition that persists across ticks is one record, not one per tick.
+pub fn mark_needs_attention(
+    conn: &mut Connection,
+    plan_id: &str,
+    task_id: &str,
+    cause: &crate::dispatch::AttentionCause,
+    actor_id: &str,
+) -> anyhow::Result<bool> {
+    let (epic_id, project_id, _, _) = plan_anchor(conn, plan_id)?;
+    let sentence = cause.sentence();
+    let current: String = conn
+        .query_row(
+            "SELECT state FROM dispatch_plan_tasks WHERE plan_id = ?1 AND task_id = ?2",
+            params![plan_id, task_id],
+            |r| r.get(0),
+        )
+        .with_context(|| format!("task {task_id:?} is not in plan {plan_id:?}"))?;
+    if current == "needs_attention" {
+        if let Some((_, kind, text)) = crate::dispatch::attention_for(conn, plan_id, task_id)? {
+            if kind == cause.kind() && text == sentence {
+                return Ok(false);
+            }
+        }
+    }
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    tx.execute(
+        "UPDATE dispatch_plan_tasks SET state = 'needs_attention' WHERE plan_id = ?1 AND task_id = ?2",
+        params![plan_id, task_id],
+    )
+    .context("failed to mark the task as needing attention")?;
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        Some(&epic_id),
+        actor_id,
+        EVENT_TASK_NEEDS_ATTENTION,
+        &serde_json::json!({
+            "field": "dispatch_state",
+            "plan_id": plan_id,
+            "phase": cause.phase().as_str(),
+            "kind": cause.kind(),
+            "cause": sentence,
+            "label": "Needs attention",
+        }),
+        &now,
+    )?;
+    tx.commit().context("failed to commit the needs-attention mark")?;
+    Ok(true)
+}
+
+/// Where a wave advance left the plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdvanceOutcome {
+    NextWave(u32),
+    Completed,
+}
+
+/// Move the cursor past a wave that is entirely merged or skipped; past the last wave the plan is
+/// completed. Refuses a wave that is not drained, so neither the tick nor the manual advance can
+/// start a wave on a base that lacks the last one's work. One transaction with its event.
+pub fn advance_wave(conn: &mut Connection, plan_id: &str, actor_id: &str) -> anyhow::Result<AdvanceOutcome> {
+    let (epic_id, project_id, status, cursor) = plan_anchor(conn, plan_id)?;
+    if !matches!(status.as_str(), "approved" | "running") {
+        bail!("plan {plan_id:?} is {status}; only a running plan advances");
+    }
+    if !crate::dispatch::wave_is_drained(conn, plan_id, cursor)? {
+        bail!("wave {cursor} of plan {plan_id:?} still has tasks that are not merged or skipped");
+    }
+    let last: u32 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(wave), 0) FROM dispatch_plan_tasks WHERE plan_id = ?1",
+            params![plan_id],
+            |r| r.get(0),
+        )
+        .context("failed to read the last wave")?;
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let (outcome, event_type, label) = if cursor >= last {
+        tx.execute(
+            "UPDATE dispatch_plans SET status = 'completed', updated_at = ?1 WHERE id = ?2",
+            params![now, plan_id],
+        )
+        .context("failed to complete the plan")?;
+        (AdvanceOutcome::Completed, EVENT_PLAN_COMPLETED, "Fan-out completed".to_string())
+    } else {
+        tx.execute(
+            "UPDATE dispatch_plans SET wave_cursor = ?1, updated_at = ?2 WHERE id = ?3",
+            params![cursor + 1, now, plan_id],
+        )
+        .context("failed to advance the wave cursor")?;
+        (AdvanceOutcome::NextWave(cursor + 1), EVENT_WAVE_ADVANCED, format!("Wave {cursor} merged; starting wave {}", cursor + 1))
+    };
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "dispatch_plan",
+        plan_id,
+        None,
+        Some(&epic_id),
+        actor_id,
+        event_type,
+        &serde_json::json!({ "field": "dispatch_plan", "plan_id": plan_id, "from_wave": cursor, "label": label }),
+        &now,
+    )?;
+    tx.commit().context("failed to commit the wave advance")?;
+    Ok(outcome)
+}
+
+/// Appended when a user retries a stuck task (D-REV-41).
+pub const EVENT_TASK_RETRIED: &str = "dispatch.task_retried";
+/// Appended when a user leaves a stuck task out of its plan (D-REV-41).
+pub const EVENT_TASK_SKIPPED: &str = "dispatch.task_skipped";
+
+/// Why [`retry_task`] or [`skip_task`] did nothing. The sentence is composed here, from names and
+/// states only, so a command can hand it to the renderer as it is (no git or CLI text reaches it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StuckRefusal {
+    /// The task is in no approved, running or paused plan.
+    NotInLivePlan,
+    /// The task is in a live plan but not in one of [`crate::dispatch::STUCK_STATES`].
+    NotStuck { state: String },
+    /// A run of the task is live (the user's own, started by hand): stop it first.
+    HasLiveRun,
+}
+
+impl std::fmt::Display for StuckRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StuckRefusal::NotInLivePlan => {
+                f.write_str("That task is not in a running plan, so there is nothing to retry or skip.")
+            }
+            StuckRefusal::NotStuck { state } => write!(
+                f,
+                "Only a task whose run failed, was stopped, or whose merge found a conflict can be retried or \
+                 skipped; this one is {}.",
+                match state.as_str() {
+                    "needs_attention" => "waiting for you to resolve what it names",
+                    "held_by_limit" => "held by the account limit",
+                    "merged" => "already merged",
+                    "skipped" => "already left out",
+                    other => other,
+                }
+            ),
+            StuckRefusal::HasLiveRun => {
+                f.write_str("That task has a run in progress. Stop the run first, then retry or skip it.")
+            }
+        }
+    }
+}
+
+impl std::error::Error for StuckRefusal {}
+
+/// The plan row a stuck-task verb acts on: the task's live plan, preferring one where it is stuck.
+fn stuck_target(conn: &Connection, task_id: &str) -> anyhow::Result<(String, String)> {
+    conn.query_row(
+        "SELECT pt.plan_id, pt.state
+           FROM dispatch_plan_tasks pt JOIN dispatch_plans p ON p.id = pt.plan_id
+          WHERE pt.task_id = ?1 AND p.status IN ('approved', 'running', 'paused')
+          ORDER BY (pt.state IN ('failed', 'stopped', 'conflict')) DESC, p.created_at DESC, p.id DESC
+          LIMIT 1",
+        params![task_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .optional()
+    .context("failed to read the task's live plan")?
+    .ok_or_else(|| StuckRefusal::NotInLivePlan.into())
+}
+
+/// Move a stuck task to `to`, recording who did it and what it was. One transaction: the state and
+/// its event, or neither. Refuses by name, writing nothing, outside the stuck states or with a live run.
+fn leave_stuck(
+    conn: &mut Connection,
+    task_id: &str,
+    actor_id: &str,
+    event_type: &str,
+    label: &str,
+    to_for: impl Fn(&str) -> &'static str,
+) -> anyhow::Result<String> {
+    let (plan_id, from) = stuck_target(conn, task_id)?;
+    if !crate::dispatch::STUCK_STATES.contains(&from.as_str()) {
+        return Err(StuckRefusal::NotStuck { state: from }.into());
+    }
+    let live: bool = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM agent_runs WHERE task_id = ?1 AND status IN ('running', 'blocked'))",
+            params![task_id],
+            |r| r.get(0),
+        )
+        .context("failed to read whether the task has a live run")?;
+    if live {
+        return Err(StuckRefusal::HasLiveRun.into());
+    }
+    let (epic_id, project_id, _, _) = plan_anchor(conn, &plan_id)?;
+    let to = to_for(&from);
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let changed = tx
+        .execute(
+            "UPDATE dispatch_plan_tasks SET state = ?1 WHERE plan_id = ?2 AND task_id = ?3 AND state = ?4",
+            params![to, plan_id, task_id, from],
+        )
+        .context("failed to move the stuck task")?;
+    if changed == 0 {
+        return Err(StuckRefusal::NotStuck { state: from }.into());
+    }
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        Some(&epic_id),
+        actor_id,
+        event_type,
+        &serde_json::json!({ "field": "dispatch_state", "plan_id": plan_id, "from": from, "to": to, "label": label }),
+        &now,
+    )?;
+    tx.commit().context("failed to commit the stuck-task change")?;
+    Ok(plan_id)
+}
+
+/// Hand a stuck task back to the dispatcher (D-REV-41). HUMAN-ONLY: the caller resolves a human
+/// actor, and no MCP tool or agent-reachable path calls this, because an agent restarting its own
+/// stuck work would be an agent deciding its own work is not done.
+///
+/// A run that `failed` or was `stopped` goes back to `planned`, and the next dispatcher pass starts it
+/// as it would any planned task. A task whose automatic merge found a `conflict` goes to `merging`:
+/// the work is finished and only the merge is repeated, not the agent. This does NOT refuse a
+/// conflict that still stands. The conflict is not checked here (that is a git dry run, and this
+/// function runs under the database lock); the next pass runs the merge's own dry run, and a merge
+/// that still conflicts lands the task back in `conflict` with one fresh record, which is the answer.
+///
+/// Returns the plan the task was in. Refuses by name, writing nothing, a task outside the stuck
+/// states or with a live run.
+pub fn retry_task(conn: &mut Connection, task_id: &str, actor_id: &str) -> anyhow::Result<String> {
+    leave_stuck(conn, task_id, actor_id, EVENT_TASK_RETRIED, "Retried by the user", |from| {
+        if from == "conflict" { "merging" } else { "planned" }
+    })
+}
+
+/// Leave a stuck task out of its plan (D-REV-41). HUMAN-ONLY, for the reason [`retry_task`] gives.
+/// The task becomes `skipped`, which [`crate::dispatch::wave_is_drained`] counts and a sequenced
+/// successor does not wait on, so its wave and every later wave advance. Its branch and worktree are
+/// left exactly as they are. Returns the plan the task was in.
+pub fn skip_task(conn: &mut Connection, task_id: &str, actor_id: &str) -> anyhow::Result<String> {
+    leave_stuck(conn, task_id, actor_id, EVENT_TASK_SKIPPED, "Left out by the user", |_| "skipped")
+}
+
+/// A user's control over a plan. Pause and stop change what the dispatcher STARTS; neither touches
+/// a running session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanControl {
+    Start,
+    Pause,
+    Resume,
+    Stop,
+}
+
+/// Apply a control, recorded against `actor_id`. `Start` takes an approved plan to running.
+pub fn control_plan(
+    conn: &mut Connection,
+    plan_id: &str,
+    control: PlanControl,
+    actor_id: &str,
+) -> anyhow::Result<()> {
+    let (epic_id, project_id, status, _) = plan_anchor(conn, plan_id)?;
+    let (to, event_type, label) = match (control, status.as_str()) {
+        (PlanControl::Start, "approved") => ("running", "dispatch_plan.started", "Started the fan-out"),
+        (PlanControl::Pause, "running" | "approved") => ("paused", "dispatch_plan.paused", "Paused the fan-out"),
+        (PlanControl::Resume, "paused") => ("running", "dispatch_plan.resumed", "Resumed the fan-out"),
+        (PlanControl::Stop, "approved" | "running" | "paused") => ("aborted", "dispatch_plan.stopped", "Stopped the fan-out"),
+        (c, s) => bail!("plan {plan_id:?} is {s}; {c:?} does not apply"),
+    };
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    tx.execute(
+        "UPDATE dispatch_plans SET status = ?1, updated_at = ?2 WHERE id = ?3",
+        params![to, now, plan_id],
+    )
+    .context("failed to change the plan status")?;
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "dispatch_plan",
+        plan_id,
+        None,
+        Some(&epic_id),
+        actor_id,
+        event_type,
+        &serde_json::json!({ "field": "dispatch_plan", "plan_id": plan_id, "from": status, "to": to, "label": label }),
+        &now,
+    )?;
+    tx.commit().context("failed to commit the plan control")?;
+    Ok(())
+}
+
+/// Approve a draft plan and start it: [`approve_plan`] then [`PlanControl::Start`]. The approval is
+/// its own transaction (it freezes the edges); a start that then fails leaves an `approved` plan,
+/// which the dispatcher already treats as live.
+pub fn approve_and_start(conn: &mut Connection, plan_id: &str, actor_id: &str) -> anyhow::Result<()> {
+    approve_plan(conn, plan_id, actor_id)?;
+    control_plan(conn, plan_id, PlanControl::Start, actor_id)
+}
+
+/// [`approve_and_start`] with the repository's case flag supplied, for a caller that holds the
+/// database lock and so has already run the probe outside it (D-REV-39 WR-07).
+pub fn approve_and_start_with(
+    conn: &mut Connection,
+    plan_id: &str,
+    actor_id: &str,
+    fold_case: bool,
+) -> anyhow::Result<()> {
+    approve_plan_with(conn, plan_id, actor_id, fold_case, &Utc::now().to_rfc3339())?;
+    control_plan(conn, plan_id, PlanControl::Start, actor_id)
+}
+
+/// A draft plan over an epic's not-yet-started tasks, built from their currently declared sets with
+/// no planning agent involved. Every task starts in wave one: overlap inside a wave is the ordering
+/// edges' job (only the colliding pair waits), and wave boundaries are a planner's judgement that
+/// this draft has no basis to invent. The user edits waves before approving.
+pub fn create_plan_for_epic(conn: &mut Connection, epic_id: &str, actor_id: &str) -> anyhow::Result<String> {
+    // ponytail: only backlog/todo tasks are included; a task already in progress or in review is the
+    // user's to launch. Widen the filter if a re-plan after a changes-requested loop is wanted.
+    let task_ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id FROM tasks WHERE epic_id = ?1 AND status IN ('backlog', 'todo') ORDER BY rank, id",
+            )
+            .context("failed to prepare the epic task read")?;
+        let rows = stmt
+            .query_map(params![epic_id], |r| r.get::<_, String>(0))
+            .context("failed to read the epic's tasks")?
+            .collect::<Result<Vec<_>, _>>()
+            .context("failed to read an epic task row")?;
+        rows
+    };
+    if task_ids.is_empty() {
+        bail!("epic {epic_id:?} has no backlog or todo tasks to plan");
+    }
+    let inputs: Vec<PlanTaskInput> = task_ids
+        .into_iter()
+        .map(|task_id| PlanTaskInput { task_id, wave: 1, rationale: None })
+        .collect();
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let plan_id = create_draft_plan_in_tx(&tx, epic_id, None, actor_id, &now)?;
+    replace_plan_tasks_in_tx(&tx, &plan_id, &inputs)?;
+    tx.commit().context("failed to commit the draft plan")?;
+    Ok(plan_id)
+}
+
+/// One edit to a draft plan: move a task to another wave and/or replace its declared entries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DraftEdit {
+    pub task_id: String,
+    pub wave: Option<u32>,
+    pub entries: Option<Vec<String>>,
+}
+
+/// Apply edits to a DRAFT plan. Entries are parsed first (a refused entry changes nothing); wave
+/// moves rewrite the plan's task rows, keeping each task's rationale.
+pub fn edit_draft_plan(
+    conn: &mut Connection,
+    plan_id: &str,
+    edits: &[DraftEdit],
+    actor_id: &str,
+) -> anyhow::Result<()> {
+    let plan = read_plan(conn, plan_id)?.with_context(|| format!("plan {plan_id:?} not found"))?;
+    if plan.status != "draft" {
+        bail!("plan {plan_id:?} is {}; only a draft plan can be edited", plan.status);
+    }
+    let mut parsed = Vec::new();
+    for edit in edits {
+        if !plan.tasks.iter().any(|t| t.task_id == edit.task_id) {
+            bail!("task {:?} is not in plan {plan_id:?}", edit.task_id);
+        }
+        if let Some(raw) = &edit.entries {
+            let entries = raw
+                .iter()
+                .map(|r| crate::file_set::parse_entry(r).map_err(|e| anyhow!("{r:?}: {e}")))
+                .collect::<Result<Vec<_>, _>>()?;
+            parsed.push((edit.task_id.clone(), entries));
+        }
+    }
+    let inputs: Vec<PlanTaskInput> = plan
+        .tasks
+        .iter()
+        .map(|t| PlanTaskInput {
+            task_id: t.task_id.clone(),
+            wave: edits.iter().rev().find(|e| e.task_id == t.task_id).and_then(|e| e.wave).unwrap_or(t.wave),
+            rationale: t.rationale.clone(),
+        })
+        .collect();
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    for (task_id, entries) in &parsed {
+        crate::domain::file_set::declare_file_set_in_tx(&tx, task_id, entries, actor_id, &now)?;
+    }
+    replace_plan_tasks_in_tx(&tx, plan_id, &inputs)?;
+    tx.commit().context("failed to commit the draft edit")?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Plan 09-08: the pre-dispatch planning pass's submission (D-147, D-149, PLAN-01).
+//
+// A planning run reads the repository as it is NOW and calls `submit_plan` once, naming a file-set
+// and a wave for each task of the epic. Authority lives here, not in the tool list: the sidecar's
+// MCP server lists `submit_plan` to every run, so [`resolve_planning_run`] is the control. The plan
+// row does not exist until a valid submission arrives, so a pass that is abandoned or refused
+// leaves nothing behind and the one-live-plan-per-epic index is the only guard on a second one.
+// ---------------------------------------------------------------------------------------------
+
+/// Appended when a planning run's submission is stored as a draft plan.
+pub const EVENT_DISPATCH_PLAN_DRAFTED: &str = "dispatch_plan.drafted";
+
+/// The most tasks, entries per task and characters per entry one submission may carry. The list is
+/// model-authored text crossing into the database, so it is bounded here and not only in the tool.
+pub const MAX_SUBMITTED_TASKS: usize = 500;
+pub const MAX_SUBMITTED_ENTRIES: usize = 200;
+pub const MAX_SUBMITTED_ENTRY_CHARS: usize = 1024;
+
+/// One task as the planning run declared it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct SubmittedTask {
+    pub key: String,
+    pub files: Vec<String>,
+    pub wave: u32,
+    #[serde(default)]
+    pub rationale: String,
+}
+
+/// A task the planning run chose to leave out, with the reason the user will read.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct SubmittedExclusion {
+    pub key: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct SubmittedPlan {
+    pub tasks: Vec<SubmittedTask>,
+    #[serde(default)]
+    pub excluded: Vec<SubmittedExclusion>,
+}
+
+/// Why a submission was refused. Each message is written for the AGENT that will read it in the
+/// same tool call and correct it, so it names the task key or the entry and says what to change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubmissionRefusal {
+    NotPlanningRun,
+    RunNotRunning { status: String },
+    Malformed(String),
+    NoTasks,
+    EmptyFileList { key: String },
+    UnknownKey { key: String },
+    NotPlannable { key: String, status: String },
+    DuplicateKey { key: String },
+    BadWave { key: String },
+    EmptyReason { key: String },
+    BadEntry { key: String, entry: String, cause: crate::file_set::EntryRefusal },
+    TooLarge(String),
+    LivePlanExists,
+    Storage(String),
+}
+
+impl std::fmt::Display for SubmissionRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use SubmissionRefusal::*;
+        match self {
+            NotPlanningRun => write!(f, "only the planning run of an epic can submit a plan"),
+            RunNotRunning { status } => write!(f, "this planning run is {status}, so it can no longer submit a plan"),
+            Malformed(why) => write!(f, "the submission could not be read: {why}"),
+            NoTasks => write!(f, "the submission names no tasks; name every task of the epic, with a file list for each"),
+            EmptyFileList { key } => write!(f, "task {key} has an empty file list; give the files it expects to modify, or move it to `excluded` with a reason"),
+            UnknownKey { key } => write!(f, "{key} is not a task of this epic; use the exact keys from the task roster"),
+            NotPlannable { key, status } => write!(f, "task {key} is {status}; only backlog and todo tasks are planned for dispatch"),
+            DuplicateKey { key } => write!(f, "task {key} appears more than once in the submission"),
+            BadWave { key } => write!(f, "task {key} has a wave below 1; waves start at 1"),
+            EmptyReason { key } => write!(f, "task {key} is excluded without a reason; say why it is left out"),
+            BadEntry { key, entry, cause } => write!(f, "task {key}: the file-set entry {entry:?} was refused: {cause}"),
+            TooLarge(what) => write!(f, "the submission is too large: {what}"),
+            LivePlanExists => write!(f, "this epic already has a live plan; discard or finish it before submitting another"),
+            Storage(why) => write!(f, "the plan could not be stored: {why}"),
+        }
+    }
+}
+
+impl std::error::Error for SubmissionRefusal {}
+
+/// The identity of a planning run, resolved from the database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanningRun {
+    pub run_id: String,
+    pub epic_id: String,
+    pub actor_id: String,
+}
+
+/// Who may submit a plan: an epic-scoped run with no task and no authoring stage, in `running`
+/// status. This is the authority check; the tool being listed to every run is not a control.
+pub fn resolve_planning_run(conn: &Connection, run_id: &str) -> Result<PlanningRun, SubmissionRefusal> {
+    let row: Option<(Option<String>, Option<String>, Option<String>, String, String)> = conn
+        .query_row(
+            "SELECT epic_id, task_id, authoring_stage, status, actor_id FROM agent_runs WHERE id = ?1",
+            params![run_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .optional()
+        .map_err(|e| SubmissionRefusal::Storage(format!("{e}")))?;
+    let Some((Some(epic_id), None, None, status, actor_id)) = row else {
+        return Err(SubmissionRefusal::NotPlanningRun);
+    };
+    if status != "running" {
+        return Err(SubmissionRefusal::RunNotRunning { status });
+    }
+    Ok(PlanningRun { run_id: run_id.to_string(), epic_id, actor_id })
+}
+
+fn storage(e: impl std::fmt::Display) -> SubmissionRefusal {
+    SubmissionRefusal::Storage(format!("{e:#}"))
+}
+
+/// `(id, rank, status)` of the epic's task with this key, or `UnknownKey`.
+fn epic_task(tx: &Transaction, epic_id: &str, key: &str) -> Result<(String, String, String), SubmissionRefusal> {
+    tx.query_row(
+        "SELECT id, rank, status FROM tasks WHERE epic_id = ?1 AND key = ?2",
+        params![epic_id, key],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )
+    .optional()
+    .map_err(storage)?
+    .ok_or_else(|| SubmissionRefusal::UnknownKey { key: key.to_string() })
+}
+
+/// The statuses a planning pass plans for dispatch; the same filter `create_plan_for_epic` uses.
+fn is_plannable(status: &str) -> bool {
+    matches!(status, "backlog" | "todo")
+}
+
+/// Validate a submission and store it as ONE draft plan: the plan row, its task rows (waves
+/// normalised, same-wave tasks in rank-then-id order), each task's declared entries and one event,
+/// in a single transaction. Returns the new plan's id. Nothing is stored on any refusal.
+///
+/// The plan row is created HERE, not when the planning run starts, so a pass that is abandoned or
+/// refused leaves no row, and the one-live-plan-per-epic index is the only guard on a second plan.
+pub fn store_submitted_plan(
+    conn: &mut Connection,
+    planning_run_id: &str,
+    epic_id: &str,
+    plan: &SubmittedPlan,
+    actor_id: &str,
+    now: &str,
+) -> Result<String, SubmissionRefusal> {
+    if plan.tasks.is_empty() {
+        return Err(SubmissionRefusal::NoTasks);
+    }
+    if plan.tasks.len() + plan.excluded.len() > MAX_SUBMITTED_TASKS {
+        return Err(SubmissionRefusal::TooLarge(format!("at most {MAX_SUBMITTED_TASKS} tasks")));
+    }
+    let tx = conn.transaction().map_err(storage)?;
+    let project_id: String = tx
+        .query_row("SELECT project_id FROM epics WHERE id = ?1", params![epic_id], |r| r.get(0))
+        .map_err(storage)?;
+
+    let mut seen = std::collections::HashSet::new();
+    let mut included: Vec<(crate::dispatch::PlannedTask, String)> = Vec::new();
+    for task in &plan.tasks {
+        if task.files.is_empty() {
+            return Err(SubmissionRefusal::EmptyFileList { key: task.key.clone() });
+        }
+        if task.files.len() > MAX_SUBMITTED_ENTRIES
+            || task.files.iter().any(|f| f.chars().count() > MAX_SUBMITTED_ENTRY_CHARS)
+        {
+            return Err(SubmissionRefusal::TooLarge(format!(
+                "task {} may list at most {MAX_SUBMITTED_ENTRIES} entries of {MAX_SUBMITTED_ENTRY_CHARS} characters",
+                task.key
+            )));
+        }
+        if !seen.insert(task.key.clone()) {
+            return Err(SubmissionRefusal::DuplicateKey { key: task.key.clone() });
+        }
+        if task.wave < 1 {
+            return Err(SubmissionRefusal::BadWave { key: task.key.clone() });
+        }
+        let (task_id, rank, status) = epic_task(&tx, epic_id, &task.key)?;
+        if !is_plannable(&status) {
+            return Err(SubmissionRefusal::NotPlannable { key: task.key.clone(), status });
+        }
+        let mut entries = Vec::with_capacity(task.files.len());
+        for raw in &task.files {
+            let entry = crate::file_set::parse_entry(raw).map_err(|cause| SubmissionRefusal::BadEntry {
+                key: task.key.clone(),
+                entry: raw.clone(),
+                cause,
+            })?;
+            entries.push(entry);
+        }
+        included.push((
+            crate::dispatch::PlannedTask { task_id, wave: task.wave, rank, entries },
+            task.rationale.trim().to_string(),
+        ));
+    }
+
+    // Left out: named by the agent with a reason, or not named at all. Either way the draft shows
+    // the task, skipped, with words the user can read; none is dropped silently.
+    let mut left_out: Vec<(String, String, String)> = Vec::new(); // (rank, task_id, reason)
+    for ex in &plan.excluded {
+        if ex.reason.trim().is_empty() {
+            return Err(SubmissionRefusal::EmptyReason { key: ex.key.clone() });
+        }
+        if !seen.insert(ex.key.clone()) {
+            return Err(SubmissionRefusal::DuplicateKey { key: ex.key.clone() });
+        }
+        let (task_id, rank, _) = epic_task(&tx, epic_id, &ex.key)?;
+        left_out.push((rank, task_id, ex.reason.trim().to_string()));
+    }
+    let unnamed: Vec<(String, String)> = {
+        let mut stmt = tx
+            .prepare("SELECT id, rank, key FROM tasks WHERE epic_id = ?1 AND status IN ('backlog', 'todo')")
+            .map_err(storage)?;
+        let rows = stmt
+            .query_map(params![epic_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))
+            .map_err(storage)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage)?;
+        rows.into_iter().filter(|(_, _, key)| !seen.contains(key)).map(|(id, rank, _)| (id, rank)).collect()
+    };
+    for (task_id, rank) in unnamed {
+        left_out.push((
+            rank,
+            task_id,
+            "The planner did not place this task and gave no reason; it stays out of the plan until you decide.".to_string(),
+        ));
+    }
+
+    let mut planned: Vec<crate::dispatch::PlannedTask> = included.iter().map(|(t, _)| t.clone()).collect();
+    normalise_waves(&mut planned);
+    planned.sort_by(|a, b| (a.wave, &a.rank, &a.task_id).cmp(&(b.wave, &b.rank, &b.task_id)));
+    let last_wave = planned.iter().map(|t| t.wave).max().unwrap_or(1);
+    left_out.sort();
+
+    let mut inputs: Vec<PlanTaskInput> = planned
+        .iter()
+        .map(|t| PlanTaskInput {
+            task_id: t.task_id.clone(),
+            wave: t.wave,
+            rationale: included.iter().find(|(i, _)| i.task_id == t.task_id).map(|(_, r)| r.clone()).filter(|r| !r.is_empty()),
+        })
+        .collect();
+    inputs.extend(left_out.iter().map(|(_, task_id, reason)| PlanTaskInput {
+        task_id: task_id.clone(),
+        wave: last_wave,
+        rationale: Some(reason.clone()),
+    }));
+
+    let plan_id = create_draft_plan_in_tx(&tx, epic_id, Some(planning_run_id), actor_id, now).map_err(|e| {
+        let unique = e.chain().any(|c| {
+            matches!(
+                c.downcast_ref::<rusqlite::Error>(),
+                Some(rusqlite::Error::SqliteFailure(f, _)) if f.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
+            )
+        });
+        if unique { SubmissionRefusal::LivePlanExists } else { storage(e) }
+    })?;
+    for task in &planned {
+        crate::domain::file_set::declare_file_set_in_tx(&tx, &task.task_id, &task.entries, actor_id, now).map_err(storage)?;
+    }
+    replace_plan_tasks_in_tx(&tx, &plan_id, &inputs).map_err(storage)?;
+    for (_, task_id, _) in &left_out {
+        tx.execute(
+            "UPDATE dispatch_plan_tasks SET state = 'skipped' WHERE plan_id = ?1 AND task_id = ?2",
+            params![plan_id, task_id],
+        )
+        .map_err(storage)?;
+    }
+
+    let sequence = next_sequence(&tx, &project_id, "local").map_err(storage)?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "dispatch_plan",
+        &plan_id,
+        None,
+        Some(epic_id),
+        actor_id,
+        EVENT_DISPATCH_PLAN_DRAFTED,
+        &serde_json::json!({
+            "field": "dispatch_plan",
+            "plan_id": plan_id,
+            "planning_run_id": planning_run_id,
+            "task_count": planned.len(),
+            "left_out_count": left_out.len(),
+            "wave_count": last_wave,
+            "label": format!(
+                "Drafted a fan-out of {} tasks in {} waves, {} left out",
+                planned.len(), last_wave, left_out.len()
+            ),
+        }),
+        now,
+    )
+    .map_err(storage)?;
+    tx.commit().map_err(storage)?;
+    Ok(plan_id)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Plan 09-08, Task 2: the planning run's own row.
+// ---------------------------------------------------------------------------------------------
+
+/// Refuse to plan an epic that already has a live plan, a planning run still running, or nothing to
+/// plan. Checked before any run row, branch or worktree exists.
+pub fn check_can_plan(conn: &Connection, epic_id: &str) -> anyhow::Result<()> {
+    let exists = |sql: &str| -> anyhow::Result<bool> {
+        conn.query_row(sql, params![epic_id], |r| r.get::<_, i64>(0))
+            .map(|n| n > 0)
+            .context("failed to check whether the epic can be planned")
+    };
+    if exists(
+        "SELECT COUNT(*) FROM dispatch_plans WHERE epic_id = ?1 AND status IN ('draft', 'approved', 'running', 'paused')",
+    )? {
+        bail!("epic {epic_id:?} already has a live plan; finish or discard it before planning again");
+    }
+    if exists(
+        "SELECT COUNT(*) FROM agent_runs
+          WHERE epic_id = ?1 AND task_id IS NULL AND authoring_stage IS NULL AND status IN ('running', 'blocked')",
+    )? {
+        bail!("epic {epic_id:?} is already being planned by a running planning run");
+    }
+    if !exists("SELECT COUNT(*) FROM tasks WHERE epic_id = ?1 AND status IN ('backlog', 'todo')")? {
+        bail!("epic {epic_id:?} has nothing to plan: no backlog or todo tasks");
+    }
+    Ok(())
+}
+
+/// Insert the planning run: an epic-scoped `agent_runs` row with no task, no worktree of its own and
+/// no authoring stage (so every authoring lookup, which filters on a non-null stage, skips it), plus
+/// its trigger and started event, in one transaction. `record_state` runs as the LAST step before
+/// commit, and if it fails nothing is left behind: a run that cannot record its own state does not
+/// start. No plan row is written here; the plan comes into being at a valid submission. Returns the
+/// run id.
+pub fn start_planning_run_row(
+    conn: &mut Connection,
+    epic_id: &str,
+    human_actor_id: &str,
+    permission_mode: &str,
+    record_state: impl FnOnce(&str) -> anyhow::Result<()>,
+) -> anyhow::Result<String> {
+    let agent_id = crate::domain::agent_run::agent_actor_id(conn)?;
+    let now = Utc::now().to_rfc3339();
+    let run_id = new_id();
+    let log_path = crate::session_log::session_log_path(&run_id)?.to_string_lossy().into_owned();
+
+    let tx = conn.transaction()?;
+    check_can_plan(&tx, epic_id)?;
+    let project_id: String = tx
+        .query_row("SELECT project_id FROM epics WHERE id = ?1", params![epic_id], |r| r.get(0))
+        .with_context(|| format!("epic {epic_id:?} not found"))?;
+    let trigger_id = crate::domain::trigger::create_user_action_trigger_for_epic(
+        &tx,
+        &project_id,
+        Some(epic_id),
+        human_actor_id,
+        &now,
+    )?;
+    tx.execute(
+        "INSERT INTO agent_runs (
+            id, worktree_id, task_id, epic_id, project_id, trigger_id, adapter, actor_id, status,
+            external_session_id, permission_mode, cost_usd, tokens_in, tokens_out, log_path,
+            started_at, ended_at, authoring_stage
+        ) VALUES (?1, NULL, NULL, ?2, ?3, ?4, 'claude_code', ?5, 'running', NULL, ?6, NULL, NULL, NULL, ?7, ?8, NULL, NULL)",
+        params![run_id, epic_id, project_id, trigger_id, agent_id, permission_mode, log_path, now],
+    )
+    .context("failed to insert the planning run")?;
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "agent_run",
+        &run_id,
+        None,
+        Some(epic_id),
+        &agent_id,
+        "agent_run.started",
+        &serde_json::json!({
+            "field": "agent_run",
+            "before": null,
+            "after": run_id,
+            "label": format!("Started a planning run for {epic_id}"),
+        }),
+        &now,
+    )?;
+    record_state(&run_id)?;
+    tx.commit().context("failed to commit the planning run")?;
+    Ok(run_id)
+}

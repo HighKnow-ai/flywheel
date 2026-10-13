@@ -7,10 +7,8 @@
  * header even when their own list is empty.
  *
  * Reads through `useWorktreeSummary` (`board/useBoardQuery.ts`, plan 02-07 Task 1). Renders one
- * line: the branch name and the absolute path, both in the Mono role (the local `MONO_STACK`
- * constant `session/FeedRow.tsx`/`session/SessionSurface.tsx`/`session/RawLogView.tsx`/
- * `session/PermissionRequestCard.tsx` each already declare their own copy of — this file follows
- * that same established per-file convention rather than extracting a fifth shared constant).
+ * rows: the branch name and the absolute path, in the body face. (They were Mono, the system monospace
+ * stack; 08.1-15 closure, finding 6, moved them into the panel's one family, as the approved comp prints them.)
  *
  * The path truncates from the LEFT (`direction: rtl` + `text-align: left` is the standard CSS
  * technique for this — the browser ellipsizes the leading characters while the trailing ones,
@@ -26,13 +24,195 @@
  * defensive rendering stays because a null here is exactly the kind of schema regression T-02-37
  * says must surface, not silently render blank.
  *
- * No "open in editor/terminal" affordance is rendered — that is `LINK-11`, Phase 7, out of scope
- * here (this file's own structural `<verify>` gate greps for it).
+ * **Open in editor / Open in terminal** (D-130, LINK-11, plan 07-04 Task 3) — two more
+ * text-style tertiary actions in the same row as Remove Worktree, each running a
+ * user-configurable command template resolved in the Rust core (`domain::worktree::
+ * resolve_open_argv`) with this task's worktree path substituted. The renderer never sees a
+ * program name, argument or path — it supplies only the task id and one of the two
+ * `WorktreeOpenSurface` values. Closes the gate this file's header comment used to reserve for
+ * Phase 7.
+ *
+ * **Remove Worktree** (WORK-03, D-41, plan 03-01 Task 1) — a text-style tertiary action appended
+ * after the branch/path row, opening `WorktreeRemovalDialog`. All three tertiary actions share
+ * ONE `BannerState`-shaped in-flight/error state object for the open-in-editor/open-in-terminal
+ * pair (Remove Worktree opens a dialog instead and has no in-flight state of its own) — the same
+ * rationale `MissingWorktreeBanner` below states explicitly: pressing either button disables both
+ * and a failure message has one home. Rendered only on the path where `query.data` resolved to a
+ * real summary AND the row's status is not `missing` — see `MissingWorktreeBanner` below, which
+ * this component renders instead of the branch/path row (and therefore instead of these actions
+ * too) whenever the worktree is missing from disk.
+ *
+ * **Missing-worktree decision banner** (WORK-06, D-45, plan 03-09 Task 2; gated on status alone
+ * since plan 03-18 Task 2) — inserted into the early-return ladder below, between the
+ * singleton-violation guard and the normal render. When `summary.status === "missing"` this
+ * REPLACES the branch/path row and the Remove Worktree action entirely (never renders alongside
+ * them — 03-UI-SPEC.md's "Missing-worktree decision banner"), offering exactly two
+ * equally-weighted actions: Recreate Worktree and Remove Record. The early return is gated on
+ * `status` alone — there is no `path` conjunct — so there is no value of `path` for which a
+ * missing row can reach the normal render, and the Remove Worktree action below is structurally
+ * unreachable while the row is `missing`; there is no second guard anywhere in this file for that,
+ * the early return IS the guarantee. `path` only selects which of the banner's two body sentences
+ * renders: the one naming a real path, or — when no usable path is recorded — the one that omits
+ * the location clause rather than interpolating an empty string.
  */
+import { useRef, useState } from "react";
+import { TriangleAlert } from "lucide-react";
 import { useWorktreeSummary } from "../board/useBoardQuery";
-import type { WorktreeSummaryDto } from "../adapters/tauri";
+import {
+  worktreeForgetRecord,
+  worktreeOpen,
+  worktreeRecreate,
+  type WorktreeOpenSurface,
+  type WorktreeSummaryDto,
+} from "../adapters/tauri";
+import { WorktreeRemovalDialog } from "./WorktreeRemovalDialog";
 
-const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+/** The shared text-style tertiary-action button treatment — Remove Worktree's own existing
+ * inline style, factored out so the two new D-130 actions (Open in editor / Open in terminal)
+ * render identically rather than duplicating the object literal three times. */
+const tertiaryActionButtonStyle = {
+  background: "transparent",
+  border: "none",
+  color: "var(--text-muted-rack)",
+  textDecoration: "underline",
+  padding: 0,
+  cursor: "pointer",
+} as const;
+
+/** One banner action's own in-flight/error state (mirrors `session/PermissionRequestCard.tsx`'s
+ * `RowState` idiom) — ONE shared object for the whole banner, not one per button, so pressing
+ * either button disables both and a failure message has one home. */
+interface BannerState {
+  acting: boolean;
+  error: string | null;
+}
+
+// The edge and radius come from the `control-edge` class (a 3:1 control boundary, never the divider).
+const bannerActionButtonStyle = {
+  padding: "var(--space-xs) var(--space-md)",
+  background: "transparent",
+  color: "var(--text-primary-rack)",
+  cursor: "pointer",
+} as const;
+
+/**
+ * D-45's missing-worktree decision banner. Exists only here (this component is not reused
+ * anywhere else) — kept local rather than extracting a shared module for a single call site.
+ *
+ * The two actions carry IDENTICAL visual treatment (same border/background/text colour) —
+ * `03-UI-SPEC.md` is explicit this is a genuine either/or, not a safe-default/destructive pair, so
+ * `Remove Record` deliberately does NOT reuse `WorktreeRemovalDialog.tsx`'s destructive
+ * button style: nothing is destroyed on disk by it, and destructive weight would misreport what it
+ * does.
+ *
+ * On success this component renders nothing new locally — the banner disappears only because
+ * `worktree_recreate`/`worktree_forget_record` both emit `board:changed`, `useWorktreeSummary`
+ * re-reads, and the row's `status` is no longer `"missing"`. A rejected call sets `error` and
+ * leaves `acting` false; the banner never unmounts and never clears itself (a failed recreate is
+ * not a decision made, 03-UI-SPEC.md E3 `error`).
+ */
+function MissingWorktreeBanner({ taskId, path }: { taskId: string; path?: string | null }) {
+  const [state, setState] = useState<BannerState>({ acting: false, error: null });
+  // `state.acting` alone is not a sufficient guard against two clicks arriving in the same
+  // synchronous tick (React's state update has not necessarily flushed to the DOM, and the
+  // `disabled` attribute with it, before a second `.click()` fires) — a ref reads/writes
+  // synchronously with no such window, so it is the actual guard; `state.acting` remains the
+  // source of truth for what the UI renders (disabled/opacity).
+  const actingRef = useRef(false);
+
+  async function recreate() {
+    if (actingRef.current) return;
+    actingRef.current = true;
+    setState({ acting: true, error: null });
+    try {
+      await worktreeRecreate(taskId);
+      // No local success state to set: the board:changed emit above invalidates
+      // useWorktreeSummary, which re-reads and flips status away from "missing" — that re-render
+      // is what removes this banner, never a local optimistic flag.
+    } catch {
+      actingRef.current = false;
+      setState({ acting: false, error: "Couldn't recreate this worktree. Try again." });
+    }
+  }
+
+  async function forgetRecord() {
+    if (actingRef.current) return;
+    actingRef.current = true;
+    setState({ acting: true, error: null });
+    try {
+      await worktreeForgetRecord(taskId);
+    } catch {
+      actingRef.current = false;
+      setState({ acting: false, error: "Couldn't remove this record. Try again." });
+    }
+  }
+
+  return (
+    <div
+      role="group"
+      aria-label="Worktree missing from disk"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-sm)",
+        minWidth: 0,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
+        <span
+          aria-hidden="true"
+          style={{ color: "var(--destructive-text-rack)", flexShrink: 0, display: "inline-flex" }}
+        >
+          <TriangleAlert size={16} strokeWidth={2} />
+        </span>
+        <span className="type-label" style={{ color: "var(--text-primary-rack)" }}>
+          This worktree is missing from disk.
+        </span>
+      </div>
+
+      <p className="type-body" style={{ margin: 0, overflowWrap: "anywhere", color: "var(--text-primary-rack)" }}>
+        {isNonEmptyString(path) ? (
+          <>
+            Flywheel expected it at {path}, but nothing is there. Recreate it to keep working, or
+            remove the record if you don&rsquo;t need it anymore.
+          </>
+        ) : (
+          <>
+            Flywheel expected the worktree on disk and found nothing there. Recreate it to keep
+            working, or remove the record if you don&rsquo;t need it anymore.
+          </>
+        )}
+      </p>
+
+      <div style={{ display: "flex", gap: "var(--space-sm)" }}>
+        <button
+          type="button"
+          disabled={state.acting}
+          onClick={() => void recreate()}
+          className="type-body control-edge"
+          style={{ ...bannerActionButtonStyle, opacity: state.acting ? 0.6 : 1 }}
+        >
+          Recreate Worktree
+        </button>
+        <button
+          type="button"
+          disabled={state.acting}
+          onClick={() => void forgetRecord()}
+          className="type-body control-edge"
+          style={{ ...bannerActionButtonStyle, opacity: state.acting ? 0.6 : 1 }}
+        >
+          Remove Record
+        </button>
+      </div>
+
+      {state.error && (
+        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+          {state.error}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export interface WorktreeSummaryProps {
   taskId: string;
@@ -44,6 +224,7 @@ export interface WorktreeSummaryProps {
 type PossiblyPartialSummary = {
   branch?: string | null;
   path?: string | null;
+  status?: string | null;
 };
 
 function isNonEmptyString(value: unknown): value is string {
@@ -63,6 +244,32 @@ async function copyToClipboard(text: string): Promise<void> {
 
 export function WorktreeSummary({ taskId }: WorktreeSummaryProps) {
   const query = useWorktreeSummary(taskId);
+  const [removalDialogOpen, setRemovalDialogOpen] = useState(false);
+
+  // D-130's shared in-flight/error state for the Open in editor / Open in terminal pair — ONE
+  // object for both actions, mirroring `MissingWorktreeBanner`'s own `BannerState` rationale:
+  // pressing either button disables both and a failure message has one home.
+  const [openState, setOpenState] = useState<BannerState>({ acting: false, error: null });
+  // Synchronous guard against a second click landing before React's `disabled` attribute has
+  // flushed — same reasoning as `MissingWorktreeBanner`'s own `actingRef`.
+  const openActingRef = useRef(false);
+
+  async function openWorktree(surface: WorktreeOpenSurface) {
+    if (openActingRef.current) return;
+    openActingRef.current = true;
+    setOpenState({ acting: true, error: null });
+    try {
+      await worktreeOpen(taskId, surface);
+      openActingRef.current = false;
+      setOpenState({ acting: false, error: null });
+    } catch (err) {
+      openActingRef.current = false;
+      setOpenState({
+        acting: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   // E6 `loading`: render nothing while the read is in flight — a transitional placeholder would
   // make the section's eventual appearance stop meaning "work has started" (State Inventory).
@@ -82,66 +289,125 @@ export function WorktreeSummary({ taskId }: WorktreeSummaryProps) {
     | undefined;
   if (!summary) return null;
 
+  // Missing-worktree decision banner (WORK-06, D-45): an early return, inserted between the
+  // singleton-violation guard above and the normal branch/path render below — this REPLACES that
+  // render entirely rather than layering onto it (03-UI-SPEC.md "never rendered alongside the
+  // normal line"), and is what makes the Remove Worktree action below structurally unreachable
+  // while the row is missing. Gated on `status` alone (plan 03-18 Task 2) — there is no `path`
+  // conjunct here, so no value of `path` (empty, null, or absent) can let a missing row fall
+  // through to the normal render below; the banner itself decides how to phrase a location it
+  // does not have.
+  if (summary.status === "missing") {
+    return <MissingWorktreeBanner taskId={taskId} path={summary.path} />;
+  }
+
   const hasBranch = isNonEmptyString(summary.branch);
   const hasPath = isNonEmptyString(summary.path);
 
   return (
     <section
       aria-label="Worktree"
-      style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", minWidth: 0 }}
+      style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)", minWidth: 0 }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
-        {hasBranch ? (
-          <span
-            className="type-body"
-            style={{ fontFamily: MONO_STACK, flexShrink: 0, color: "var(--text-primary-rack)" }}
-          >
-            {summary.branch}
-          </span>
-        ) : (
-          <span className="type-label" style={{ color: "var(--text-muted-rack)", flexShrink: 0 }}>
-            Branch unavailable
-          </span>
-        )}
+      {/* Two property rows in the body face (the panel's one family; the branch and path were set in the system
+          monospace stack, a second family). Each value sits in a `minmax(0, 1fr)` column and ellipsises
+          within it: the branch from the right, the path from the LEFT so the meaningful tail stays. A
+          `flex-shrink: 0` on the branch used to push the path past the panel's padding box (08.1-15 closure,
+          finding 1). */}
+      <dl className="detail-props">
+        <dt className="type-body">Worktree</dt>
+        <dd>
+          {hasBranch ? (
+            <span
+              className="type-body tabular-nums detail-clip"
+              title={summary.branch as string}
+              style={{ color: "var(--text-primary-rack)" }}
+            >
+              {summary.branch}
+            </span>
+          ) : (
+            <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+              Branch unavailable
+            </span>
+          )}
+        </dd>
 
-        {hasPath ? (
-          <button
-            type="button"
-            onClick={() => void copyToClipboard(summary.path as string)}
-            aria-label="Copy worktree path"
-            title={summary.path as string}
-            className="type-body"
-            style={{
-              fontFamily: MONO_STACK,
-              background: "transparent",
-              border: "none",
-              padding: 0,
-              margin: 0,
-              color: "var(--text-muted-rack)",
-              cursor: "pointer",
-              minWidth: 0,
-              maxWidth: "100%",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              direction: "rtl",
-              textAlign: "left",
-              unicodeBidi: "plaintext",
-            }}
-          >
-            {summary.path}
-          </button>
-        ) : (
-          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-            Path unavailable
-          </span>
-        )}
-      </div>
+        <dt className="type-body">Path</dt>
+        <dd>
+          {hasPath ? (
+            <button
+              type="button"
+              onClick={() => void copyToClipboard(summary.path as string)}
+              aria-label="Copy worktree path"
+              title={summary.path as string}
+              className="type-body tabular-nums detail-clip detail-clip-left"
+            >
+              {/* `bdi` isolates the path as left-to-right text inside the right-to-left box, so the ellipsis lands at
+                  the START and the meaningful tail stays. `unicode-bidi: plaintext` on the box did not do this in
+                  WebKit: it clipped both ends. */}
+              <bdi>{summary.path}</bdi>
+            </button>
+          ) : (
+            <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+              Path unavailable
+            </span>
+          )}
+        </dd>
+      </dl>
 
       {violatesSingleton && (
         <span role="alert" className="type-label" style={{ color: "var(--destructive-text-rack)" }}>
           More than one worktree was recorded for this task — showing the first.
         </span>
+      )}
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          alignSelf: "flex-start",
+          gap: "var(--space-md)",
+          flexWrap: "wrap",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setRemovalDialogOpen(true)}
+          className="type-label"
+          style={tertiaryActionButtonStyle}
+        >
+          Remove Worktree
+        </button>
+
+        <button
+          type="button"
+          disabled={openState.acting}
+          onClick={() => void openWorktree("editor")}
+          className="type-label"
+          style={{ ...tertiaryActionButtonStyle, opacity: openState.acting ? 0.6 : 1 }}
+        >
+          Open in editor
+        </button>
+
+        <button
+          type="button"
+          disabled={openState.acting}
+          onClick={() => void openWorktree("terminal")}
+          className="type-label"
+          style={{ ...tertiaryActionButtonStyle, opacity: openState.acting ? 0.6 : 1 }}
+        >
+          Open in terminal
+        </button>
+      </div>
+
+      {openState.error && (
+        <span role="alert" className="type-label" style={{ color: "var(--destructive-text-rack)" }}>
+          {openState.error}
+        </span>
+      )}
+
+      {removalDialogOpen && (
+        <WorktreeRemovalDialog taskId={taskId} onClose={() => setRemovalDialogOpen(false)} />
       )}
     </section>
   );

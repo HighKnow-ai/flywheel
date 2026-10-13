@@ -12,13 +12,20 @@
 //! - Paging by cursor through 1,000 seeded rows visits every id exactly once.
 //! - Editing a task's title changes what a search for that title matches (the FTS sync triggers
 //!   fire on an ordinary `UPDATE`, not only on `INSERT`).
+//! - The has-a-worktree dimension (08.1-08, D-17): off is the unfiltered board; on keeps a task
+//!   only while it has an ACTIVE worktree; an epic row follows amendment A-04 (it matches when any
+//!   child task does); it composes with the other dimensions; and every one of the six
+//!   named-parameter sites (list x3, search x3) binds it.
 
 mod common;
 
+use core::domain::epic::create_epic;
 use core::domain::task::{create_task, update_task};
+use core::ids::new_id;
 use core::query::filter::{AssigneeSelector, BoardFilter, EpicSelector};
 use core::query::search::search_items;
-use core::query::{list_board, priority_sort_key, status_sort_key, BoardCursor};
+use core::query::{list_board, priority_sort_key, status_sort_key, BoardCursor, BoardWindow};
+use rusqlite::{params, Connection};
 use std::collections::HashSet;
 
 use common::{seed_project, seeded_project};
@@ -241,4 +248,173 @@ fn common_scratch() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBu
     let db_path = dir.path().join("flywheel.db");
     let backups_dir = dir.path().join("backups");
     (dir, db_path, backups_dir)
+}
+
+// ---------------------------------------------------------------------------------------------
+// has_worktree (08.1-08, D-17). Epic semantics: 08.1-AMENDMENTS.md A-04 — an epic row matches
+// when ANY of its child tasks has an active worktree (the owner's `any-child` reading).
+// ---------------------------------------------------------------------------------------------
+
+struct WtBoard {
+    conn: Connection,
+    project_id: String,
+    epic_live: String,
+    epic_stale: String,
+    epic_empty: String,
+    live_task: String,
+    idle_task: String,
+    stale_task: String,
+    orphan_live: String,
+    orphan_idle: String,
+    stale_wt_id: String,
+}
+
+impl WtBoard {
+    fn worktree(conn: &Connection, project_id: &str, actor: &str, task: &str, status: &str) -> String {
+        let id = new_id();
+        conn.execute(
+            "INSERT INTO worktrees (id, task_id, project_id, path, branch, base_branch, status, created_by, created_at)
+             VALUES (?1, ?2, ?3, '/nonexistent/worktree', ?4, 'main', ?5, ?6, '2026-01-01T00:00:00.000Z')",
+            params![id, task, project_id, format!("flywheel/{task}"), status, actor],
+        )
+        .expect("insert worktree row");
+        id
+    }
+
+    /// Every title carries "probe" so one search term reaches all eight rows.
+    fn new() -> Self {
+        let (mut conn, actor, proj) = seeded_project();
+        let p = proj.id.clone();
+        let epic_live = create_epic(&mut conn, &p, &actor, "probe epic live", None).unwrap().id;
+        let epic_stale = create_epic(&mut conn, &p, &actor, "probe epic stale", None).unwrap().id;
+        let epic_empty = create_epic(&mut conn, &p, &actor, "probe epic empty", None).unwrap().id;
+        let mk = |conn: &mut Connection, title: &str, epic: Option<&str>| {
+            create_task(conn, &p, &actor, title, epic).unwrap().id
+        };
+        let live_task = mk(&mut conn, "probe task live", Some(&epic_live));
+        let idle_task = mk(&mut conn, "probe task idle", Some(&epic_live));
+        let stale_task = mk(&mut conn, "probe task stale", Some(&epic_stale));
+        let orphan_live = mk(&mut conn, "probe orphan live", None);
+        let orphan_idle = mk(&mut conn, "probe orphan idle", None);
+        Self::worktree(&conn, &p, &actor, &live_task, "active");
+        let stale_wt_id = Self::worktree(&conn, &p, &actor, &stale_task, "stale");
+        Self::worktree(&conn, &p, &actor, &orphan_live, "active");
+        WtBoard {
+            conn, project_id: p, epic_live, epic_stale, epic_empty, live_task, idle_task,
+            stale_task, orphan_live, orphan_idle, stale_wt_id,
+        }
+    }
+
+    fn live_filter() -> BoardFilter {
+        BoardFilter { has_worktree: true, ..BoardFilter::default() }
+    }
+}
+
+fn ids(window: &BoardWindow) -> HashSet<String> {
+    window.items.iter().map(|i| i.id.clone()).collect()
+}
+
+fn cursor_after(window: &BoardWindow) -> BoardCursor {
+    let last = window.items.last().expect("a page to resume from");
+    BoardCursor {
+        status_sort_key: status_sort_key(&last.status),
+        priority_sort_key: priority_sort_key(last.priority),
+        rank: last.rank.clone(),
+        id: last.id.clone(),
+    }
+}
+
+#[test]
+fn has_worktree_unset_is_the_unfiltered_board() {
+    let b = WtBoard::new();
+    let unset = list_board(&b.conn, &b.project_id, &BoardFilter::default(), 200, None).unwrap();
+    // 3 epics + 5 tasks, none dropped by an unset dimension.
+    assert_eq!(unset.items.len(), 8);
+    assert_eq!(unset.counts.total(), 8);
+    assert!(ids(&unset).contains(&b.idle_task) && ids(&unset).contains(&b.epic_empty));
+}
+
+#[test]
+fn has_worktree_keeps_a_task_only_when_it_has_an_active_worktree() {
+    let b = WtBoard::new();
+    let got = ids(&list_board(&b.conn, &b.project_id, &WtBoard::live_filter(), 200, None).unwrap());
+    assert!(got.contains(&b.live_task), "a task with an active worktree is included");
+    assert!(got.contains(&b.orphan_live), "an orphan task with an active worktree is included");
+    assert!(!got.contains(&b.idle_task), "a task with no worktree is excluded");
+    assert!(!got.contains(&b.orphan_idle), "an orphan task with no worktree is excluded");
+}
+
+#[test]
+fn has_worktree_ignores_a_worktree_that_is_not_active() {
+    let b = WtBoard::new();
+    for status in ["stale", "merged", "abandoned", "missing"] {
+        b.conn
+            .execute("UPDATE worktrees SET status = ?1 WHERE id = ?2", params![status, b.stale_wt_id])
+            .unwrap();
+        let window = list_board(&b.conn, &b.project_id, &WtBoard::live_filter(), 200, None).unwrap();
+        assert!(!ids(&window).contains(&b.stale_task), "a {status} worktree must not count");
+        assert!(!ids(&window).contains(&b.epic_stale), "nor must it make its epic match ({status})");
+    }
+}
+
+#[test]
+fn has_worktree_epic_row_follows_amendment_a04_any_child() {
+    let b = WtBoard::new();
+    let window = list_board(&b.conn, &b.project_id, &WtBoard::live_filter(), 200, None).unwrap();
+    let got = ids(&window);
+    assert!(got.contains(&b.epic_live), "A-04: an epic matches when any child task has an active worktree");
+    assert!(!got.contains(&b.epic_stale), "A-04: a child whose worktree is not active does not count");
+    assert!(!got.contains(&b.epic_empty), "A-04: an epic with no children has nothing to match");
+    // 2 matching tasks under epics/orphans + the one matching epic.
+    assert_eq!(got.len(), 3);
+    assert_eq!(window.counts.total(), 3, "band counts follow the same rule as the rows");
+}
+
+#[test]
+fn has_worktree_composes_with_the_other_dimensions() {
+    let b = WtBoard::new();
+    let by_epic = BoardFilter {
+        epics: Some(vec![EpicSelector::Epic(b.epic_live.clone())]),
+        ..WtBoard::live_filter()
+    };
+    let got = ids(&list_board(&b.conn, &b.project_id, &by_epic, 200, None).unwrap());
+    assert_eq!(got, HashSet::from([b.live_task.clone()]), "epic AND has_worktree both apply");
+
+    let by_status = BoardFilter { statuses: Some(vec!["done".to_string()]), ..WtBoard::live_filter() };
+    let window = list_board(&b.conn, &b.project_id, &by_status, 200, None).unwrap();
+    assert!(window.items.is_empty() && window.counts.total() == 0, "status AND has_worktree both apply");
+}
+
+/// A named parameter the statement declares but the call never binds is SQL `NULL` in rusqlite —
+/// it does NOT error. A missed bind site therefore silently means "unfiltered", which is why each
+/// of the six sites is asserted against the EXACT matching set rather than "it did not error".
+#[test]
+fn has_worktree_is_bound_at_all_six_named_parameter_sites() {
+    let b = WtBoard::new();
+    let f = WtBoard::live_filter();
+    let want: HashSet<String> =
+        HashSet::from([b.epic_live.clone(), b.live_task.clone(), b.orphan_live.clone()]);
+
+    // list x3: first page, cursored next page, band counts.
+    let all = list_board(&b.conn, &b.project_id, &f, 200, None).unwrap();
+    assert_eq!(ids(&all), want, "list first page binds the dimension");
+    assert_eq!(all.counts.total(), 3, "list band counts bind the dimension");
+    let first = list_board(&b.conn, &b.project_id, &f, 1, None).unwrap();
+    assert_eq!(first.items.len(), 1);
+    let second = list_board(&b.conn, &b.project_id, &f, 200, Some(&cursor_after(&first))).unwrap();
+    let mut seen = ids(&first);
+    seen.extend(ids(&second));
+    assert_eq!(seen, want, "list cursored page binds the dimension");
+
+    // search x3: first page, cursored next page, band counts.
+    let s_all = search_items(&b.conn, &b.project_id, "probe", &f, 200, None).unwrap();
+    assert_eq!(ids(&s_all), want, "search first page binds the dimension");
+    assert_eq!(s_all.counts.total(), 3, "search band counts bind the dimension");
+    let s_first = search_items(&b.conn, &b.project_id, "probe", &f, 1, None).unwrap();
+    assert_eq!(s_first.items.len(), 1);
+    let s_second =
+        search_items(&b.conn, &b.project_id, "probe", &f, 200, Some(&cursor_after(&s_first))).unwrap();
+    let mut s_seen = ids(&s_first);
+    s_seen.extend(ids(&s_second));
+    assert_eq!(s_seen, want, "search cursored page binds the dimension");
 }

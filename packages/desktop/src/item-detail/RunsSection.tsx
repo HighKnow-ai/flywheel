@@ -9,11 +9,9 @@
  * IS the signal that work has started (State Inventory "No runs yet").
  *
  * Each row carries its run-status badge (glyph + word, resolved from `legend/marks.ts`'s `agent`
- * channel — the same published vocabulary `SessionSurface.tsx`'s own `RunStatusBadge` renders;
- * this file duplicates the small status/label/colour lookup tables locally rather than importing
- * SessionSurface's unexported component, following this codebase's own established per-file
- * duplication convention for small building blocks (`MONO_STACK` is already duplicated across
- * `FeedRow.tsx`/`RawLogView.tsx`/`SessionSurface.tsx`/`PermissionRequestCard.tsx`)), its relative
+ * channel — the same published vocabulary `SessionSurface.tsx`'s own `RunStatusBadge` renders; the
+ * status, label, mark and colour tables and the cost formatter live once in `legend/runStatus.ts`
+ * (Phase 10 plan 10-01, Finding 14) and are imported here, not declared), its relative
  * start time, a duration (terminal runs) or a live elapsed counter (running/blocked runs, ticking
  * once a second in its own isolated `RunRow` component so the tick never re-renders the whole
  * list), and its cost so far.
@@ -28,51 +26,38 @@
  * 02-06's component — the ONE card, now living under the specific row it answers for rather than
  * as a generic panel-level mount (`ItemDetailPanel.tsx`'s prior compact mount, moved here).
  */
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import * as icons from "lucide-react";
-import { answerPermissionRequest, type RunSummaryDto } from "../adapters/tauri";
-import { useAgentRuns, usePendingPermissionRequests } from "../board/useBoardQuery";
+import {
+  acknowledgeAgentRun,
+  answerPermissionRequest,
+  type RunSummaryDto,
+  type SessionSummaryDto,
+} from "../adapters/tauri";
+import { useAgentRuns, usePendingPermissionRequests, useTaskSessionSummaries } from "../board/useBoardQuery";
 import { MARKS_BY_ID } from "../legend/marks";
+import {
+  RUN_STATUS_COLOR_ROLES,
+  RUN_STATUS_LABELS,
+  RUN_STATUS_MARK_IDS,
+  TERMINAL_STATUSES,
+  formatCostUsd,
+  isRunStatus,
+} from "../legend/runStatus";
+import type { RunStatus } from "../legend/runStatus";
 import { PermissionRequestCard, type PermissionDecision } from "../session/PermissionRequestCard";
+import "./item-detail.css";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
-/** The five values `agent_runs.status` can hold (migration `0003_agent_runtime.sql`) — mirrors
- * `session/SessionSurface.tsx`'s own `RunStatus` type. */
-export type RunStatus = "running" | "blocked" | "completed" | "failed" | "interrupted";
-
-const RUN_STATUS_LABELS: Record<RunStatus, string> = {
-  running: "Running",
-  blocked: "Blocked",
-  completed: "Completed",
-  failed: "Failed",
-  interrupted: "Interrupted",
-};
-
-const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "interrupted"];
-
-function isRunStatus(value: string): value is RunStatus {
-  return value in RUN_STATUS_LABELS;
+/** The abandoned-run explanation + Acknowledge button's own answering/error state
+ * (`session/PermissionRequestCard.tsx`'s `RowState` pattern) — guards a second press while
+ * `acting`, and on failure leaves the button mounted with an inline message rather than clearing
+ * optimistically (03-UI-SPEC.md E4 `error`, decided as a backstop: "the button stays mounted"). */
+interface AcknowledgeState {
+  acting: boolean;
+  error: string | null;
 }
-
-/** `agent_runs.status` -> the matching published `agent`-channel mark id (`legend/marks.ts`,
- * plan 02-03) — mirrors `SessionSurface.tsx`'s own lookup, never a second hand-typed glyph. */
-const RUN_STATUS_MARK_ID: Record<RunStatus, string> = {
-  running: "run-running",
-  blocked: "run-blocked",
-  completed: "run-completed",
-  failed: "run-failed",
-  interrupted: "run-interrupted",
-};
-
-/** 02-UI-SPEC.md's "Run Status" table — mirrors `SessionSurface.tsx`'s own colour lookup. */
-const RUN_STATUS_COLOR: Record<RunStatus, string> = {
-  running: "var(--accent-text-rack)",
-  blocked: "var(--blocked-text-rack)",
-  completed: "var(--success-text-rack)",
-  failed: "var(--destructive-text-rack)",
-  interrupted: "var(--text-muted-rack)",
-};
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
 
@@ -93,12 +78,12 @@ function prefersReducedMotion(): boolean {
  * `SessionSurface.tsx`'s own `RunStatusBadge`, duplicated locally per this file's own doc
  * comment above. */
 function RunStatusBadge({ status }: { status: RunStatus }) {
-  const mark = MARKS_BY_ID[RUN_STATUS_MARK_ID[status]];
+  const mark = MARKS_BY_ID[RUN_STATUS_MARK_IDS[status]];
   const pulsing = status === "running" && !prefersReducedMotion();
   return (
     <span
       className="type-label"
-      style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", color: RUN_STATUS_COLOR[status] }}
+      style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", color: RUN_STATUS_COLOR_ROLES[status] }}
     >
       <span aria-hidden="true" className={pulsing ? "agent-pulse" : undefined} style={{ display: "inline-flex" }}>
         <Icon name={mark?.glyph ?? "Circle"} />
@@ -106,10 +91,6 @@ function RunStatusBadge({ status }: { status: RunStatus }) {
       {RUN_STATUS_LABELS[status]}
     </span>
   );
-}
-
-function formatCostUsd(value: number | null | undefined): string {
-  return value == null ? "—" : `$${value.toFixed(4)}`;
 }
 
 /** A relative "Xm/Xh/Xd ago" label, the absolute timestamp carried in the entry's own `title`
@@ -154,6 +135,36 @@ async function handleAnswerPermission(requestId: string, decision: PermissionDec
   await answerPermissionRequest(requestId, decision);
 }
 
+/**
+ * A run's own summary, mounted under its row (plan 04-09 Task 3) — resolves CONTEXT.md's open
+ * question about where summaries render: not a separate top-level list, but a small card under
+ * the specific run that produced it, the same way `PermissionRequestCard` mounts under a blocked
+ * run's own row. A run with no summary renders no card (the caller never mounts this component
+ * for one) — absence renders nothing, matching this file's own "renders nothing, not a
+ * placeholder" convention.
+ */
+function SessionSummaryCard({ summary }: { summary: SessionSummaryDto }) {
+  const fileCount = summary.changedFiles.length;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
+      <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        Summary · {fileCount} file{fileCount === 1 ? "" : "s"} changed
+        {summary.autoGenerated && <> · auto-generated</>}
+      </span>
+      {summary.remains && (
+        <p className="type-body" style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+          Remains: {summary.remains}
+        </p>
+      )}
+      {summary.nextSessionMustKnow && (
+        <p className="type-body" style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+          Next session must know: {summary.nextSessionMustKnow}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** One run row, its own component so the elapsed-counter tick (running/blocked runs only) stays
  * an isolated re-render boundary rather than ticking the whole `RunsSection` list every second.
  *
@@ -169,16 +180,47 @@ function RunRow({
   run,
   isActive,
   onOpenRun,
+  summary,
 }: {
   run: RunSummaryDto;
   isActive: boolean;
   onOpenRun: (agentRunId: string) => void;
+  /** This run's own summary, or `undefined` when none exists yet (plan 04-09 Task 3) — renders
+   * no card at all rather than a placeholder. */
+  summary: SessionSummaryDto | undefined;
 }) {
   const status: RunStatus = isRunStatus(run.status) ? run.status : "running";
   const isTerminal = TERMINAL_STATUSES.includes(status);
   const isBlocked = status === "blocked";
+  const isAbandoned = status === "abandoned";
   const now = useNowTick(!isTerminal);
   const absolute = new Date(run.startedAt).toLocaleString();
+
+  // D-49/D-50's abandoned-run explanation and its one Acknowledge action — changes nothing about
+  // the underlying record (the run is already abandoned, already terminal, already exactly what
+  // it will remain); acknowledging is a statement that the user has seen it, not a repair.
+  const [ackState, setAckState] = useState<AcknowledgeState>({ acting: false, error: null });
+  // `ackState.acting` alone is not a sufficient guard against two clicks arriving in the same
+  // synchronous tick (React's state update has not necessarily flushed to the DOM, and the
+  // `disabled` attribute with it, before a second `.click()` fires) — mirrors
+  // `item-detail/WorktreeSummary.tsx`'s own `actingRef` fix (plan 03-09) for the identical bug,
+  // found here by this task's own failing test before it was anticipated by the plan.
+  const ackActingRef = useRef(false);
+
+  async function acknowledge() {
+    if (ackActingRef.current) return;
+    ackActingRef.current = true;
+    setAckState({ acting: true, error: null });
+    try {
+      await acknowledgeAgentRun(run.id);
+      // No local success state to set: the command's own board:changed emit invalidates
+      // useAgentRuns, which re-reads and the row's own acknowledgedAt flips non-null — that
+      // re-render is what removes this button, never a local optimistic flag.
+    } catch {
+      ackActingRef.current = false;
+      setAckState({ acting: false, error: "Couldn't acknowledge this run. Try again." });
+    }
+  }
 
   const durationLabel = isTerminal && run.endedAt ? formatSpan(run.startedAt, new Date(run.endedAt).getTime()) : formatSpan(run.startedAt, now);
 
@@ -195,6 +237,7 @@ function RunRow({
   return (
     <div
       role="listitem"
+      className="run-row"
       aria-label={identityLine}
       onClick={() => onOpenRun(run.id)}
       style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", minWidth: 0, cursor: "pointer" }}
@@ -230,16 +273,9 @@ function RunRow({
               event.stopPropagation();
               onOpenRun(run.id);
             }}
-            className="type-body"
-            style={{
-              marginLeft: "auto",
-              background: "var(--accent-nontext)",
-              border: "none",
-              borderRadius: "var(--radius-chrome)",
-              color: "var(--text-primary-rack)",
-              padding: "var(--space-xs) var(--space-md)",
-              cursor: "pointer",
-            }}
+            // The Runs section's one leading action: the 2px ink edge (item-detail.css), as Start Work has.
+            className="type-body control-edge detail-action detail-action-lead"
+            style={{ marginLeft: "auto" }}
           >
             {isTerminal ? "View" : "Watch Live"}
           </button>
@@ -251,6 +287,45 @@ function RunRow({
       {isBlocked && pendingRequests.length > 0 && (
         <div onClick={(event) => event.stopPropagation()}>
           <PermissionRequestCard variant="compact" requests={pendingRequests} onAnswer={handleAnswerPermission} />
+        </div>
+      )}
+      {summary && (
+        <div onClick={(event) => event.stopPropagation()}>
+          <SessionSummaryCard summary={summary} />
+        </div>
+      )}
+      {isAbandoned && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
+          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+            {run.abandonedReason
+              ? `Flywheel wasn't running to supervise this session — it was stopped at ${new Date(
+                  run.abandonedReason,
+                ).toLocaleString()} because Flywheel had died.`
+              : "This run never finished, and Flywheel doesn't know why it stopped."}
+          </span>
+          {!run.acknowledgedAt && (
+            <button
+              type="button"
+              disabled={ackState.acting}
+              onClick={(event) => {
+                event.stopPropagation();
+                void acknowledge();
+              }}
+              className="type-body control-edge detail-action"
+              style={{
+                alignSelf: "flex-start",
+                cursor: ackState.acting ? "default" : "pointer",
+                opacity: ackState.acting ? 0.6 : 1,
+              }}
+            >
+              Acknowledge
+            </button>
+          )}
+          {ackState.error && (
+            <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+              {ackState.error}
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -273,6 +348,10 @@ const RUNS_LIST_MAX_HEIGHT = 320;
 
 export function RunsSection({ taskId, onOpenRun }: RunsSectionProps) {
   const runsQuery = useAgentRuns(taskId);
+  // Plan 04-09 Task 3: a run's own summary card mounts under its row, resolved from this SAME
+  // task-scoped read for every run at once (never a per-run query) — a task with ten runs
+  // resolves ten cards from one read, not ten.
+  const summariesQuery = useTaskSessionSummaries(taskId);
 
   // E5 `loading`: render nothing while the read is in flight, for the same reason
   // `WorktreeSummary.tsx` does — the section's appearance means "there is a run."
@@ -283,12 +362,12 @@ export function RunsSection({ taskId, onOpenRun }: RunsSectionProps) {
   // E5 `empty`: no runs yet — the section does not exist, not an empty-state placeholder.
   if (runs.length === 0) return null;
 
+  const summariesByRunId = new Map((summariesQuery.data ?? []).map((summary) => [summary.agentRunId, summary]));
+
   return (
     <section aria-label="Runs" style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)", minWidth: 0 }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-          Runs
-        </span>
+      <header className="detail-section-head">
+        <span className="type-body detail-section-title">Runs</span>
       </header>
       <div
         role="list"
@@ -303,7 +382,13 @@ export function RunsSection({ taskId, onOpenRun }: RunsSectionProps) {
         }}
       >
         {runs.map((run, index) => (
-          <RunRow key={run.id} run={run} isActive={index === 0} onOpenRun={onOpenRun} />
+          <RunRow
+            key={run.id}
+            run={run}
+            isActive={index === 0}
+            onOpenRun={onOpenRun}
+            summary={summariesByRunId.get(run.id)}
+          />
         ))}
       </div>
     </section>

@@ -2,13 +2,19 @@
 //!
 //! Issues are proposals and notes, not units of work — they carry no `status` column and no
 //! acceptance criteria. Giving them a workflow status or a criteria contract would blur the
-//! triage lane Phase 6's `proposed/triaged/accepted/rejected/merged_into_task` lifecycle depends
-//! on. This module contains no `status` identifier and no reference to `WORKFLOW_STATES` — a
-//! grep gate in `hierarchy_workflow.rs` asserts exactly that.
+//! triage lane Phase 6's staging lifecycle depends on — resolved in writing (D-97): the triage
+//! lifecycle lives entirely on `authoring_proposals.status` (`pending`/`accepted`/`rejected`/
+//! `merged`/`deferred`), never on this table. This module contains no `status` identifier and no
+//! reference to `WORKFLOW_STATES` — a grep gate in `hierarchy_workflow.rs` asserts exactly that.
+//!
+//! [`create_issue_in_tx`] is the in-transaction canonical writer `domain::authoring_proposal`'s
+//! accept path (a `create`/`Issue` proposal) and merge path (`merge_proposal_in_tx`, plan 06-03)
+//! both call — mirroring `domain::task::create_task_in_tx`/`domain::epic::create_epic_in_tx`'s
+//! identical factoring.
 
 use anyhow::{anyhow, Context};
 use chrono::Utc;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::domain::event::{append_event, next_sequence};
 use crate::domain::{assert_parent_in_project, ParentTable};
@@ -47,8 +53,31 @@ pub fn create_issue(
     kind: &str,
     parent: IssueParent,
 ) -> anyhow::Result<Issue> {
-    let id = new_id();
     let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let issue = create_issue_in_tx(&tx, project_id, actor_id, title, body, kind, parent, &now)?;
+    tx.commit().context("failed to commit create_issue transaction")?;
+    Ok(issue)
+}
+
+/// The statement body [`create_issue`] issues, factored out so a caller composing an issue
+/// creation with something else in the SAME transaction —
+/// `domain::authoring_proposal::materialise_proposal`'s `create`/`Issue` arm, and
+/// `merge_proposal_in_tx`'s child-issue arm — can run it inside a transaction it already owns.
+/// `create_issue`'s own body and signature are otherwise unchanged; this is the same statements,
+/// callable from inside the caller's transaction (mirrors `task::create_task_in_tx`'s and
+/// `epic::create_epic_in_tx`'s identical factoring reason).
+pub fn create_issue_in_tx(
+    tx: &Transaction,
+    project_id: &str,
+    actor_id: &str,
+    title: &str,
+    body: Option<&str>,
+    kind: &str,
+    parent: IssueParent,
+    now: &str,
+) -> anyhow::Result<Issue> {
+    let id = new_id();
 
     let (epic_id, task_id): (Option<String>, Option<String>) = match &parent {
         IssueParent::None => (None, None),
@@ -58,13 +87,11 @@ pub fn create_issue(
     let epic_id = epic_id.as_deref();
     let task_id = task_id.as_deref();
 
-    let tx = conn.transaction()?;
-
     if let Some(epic_id) = epic_id {
-        assert_parent_in_project(&tx, project_id, ParentTable::Epics, epic_id)?;
+        assert_parent_in_project(tx, project_id, ParentTable::Epics, epic_id)?;
     }
     if let Some(task_id) = task_id {
-        assert_parent_in_project(&tx, project_id, ParentTable::Tasks, task_id)?;
+        assert_parent_in_project(tx, project_id, ParentTable::Tasks, task_id)?;
     }
 
     let last_rank: Option<String> = tx
@@ -96,7 +123,7 @@ pub fn create_issue(
     )
     .context("failed to insert issue")?;
 
-    let sequence = next_sequence(&tx, project_id, "local")?;
+    let sequence = next_sequence(tx, project_id, "local")?;
     let payload = serde_json::json!({
         "field": "title",
         "before": null,
@@ -105,7 +132,7 @@ pub fn create_issue(
         "label": format!("Created issue \"{title}\""),
     });
     append_event(
-        &tx,
+        tx,
         project_id,
         "local",
         sequence,
@@ -116,10 +143,8 @@ pub fn create_issue(
         actor_id,
         "issue.created",
         &payload,
-        &now,
+        now,
     )?;
-
-    tx.commit().context("failed to commit create_issue transaction")?;
 
     Ok(Issue {
         id,

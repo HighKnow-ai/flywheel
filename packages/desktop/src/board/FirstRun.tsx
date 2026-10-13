@@ -8,9 +8,11 @@
  * (`packages/core::domain::project::update_key_prefix` enforces this; no rename affordance ships
  * in Phase 1).
  */
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import { openFolderDialog } from "../adapters/tauri";
+import glyphUrl from "../assets/logo-glyph.svg";
 import { useRegisterProject } from "./useBoardQuery";
+import "../styles/states-and-confirms.css";
 
 /** A short, uppercase, greppable default derived from a repo path's directory name (D-10).
  * Always emits a prefix `domain/project.rs::validate_key_prefix` accepts (2-10 uppercase
@@ -28,28 +30,6 @@ export function deriveKeyPrefix(pathOrName: string): string {
   const prefixed = startsWithLetter ? candidate : `P${candidate}`.slice(0, 4);
   return prefixed.length >= 2 ? prefixed : "PRJ";
 }
-
-const emptyStateStyle: CSSProperties = {
-  height: "100%",
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "var(--space-md)",
-  background: "var(--surface-dominant)",
-  color: "var(--text-primary-rack)",
-  padding: "var(--space-xl)",
-  textAlign: "center",
-};
-
-const buttonStyle: CSSProperties = {
-  padding: "var(--space-sm) var(--space-lg)",
-  borderRadius: "var(--radius-chrome)",
-  border: "1px solid var(--divider)",
-  background: "var(--surface-secondary)",
-  color: "var(--accent-text-rack)",
-  cursor: "pointer",
-};
 
 export function FirstRun() {
   const [pending, setPending] = useState<{ repoPath: string; name: string } | null>(null);
@@ -73,31 +53,50 @@ export function FirstRun() {
 
   if (pending) {
     return (
-      <div className="first-run" style={emptyStateStyle}>
-        <h1 className="type-heading">Register {pending.name}</h1>
-        <p className="type-body">
+      <div className="first-run state-surface">
+        <h1 className="state-heading">Register {pending.name}</h1>
+        {/* The folder the key is for: the screen asks for a permanent key, so it says which folder that is. */}
+        <p className="type-label state-path">{pending.repoPath}</p>
+        <p className="type-body state-body">
           Confirm the project key — it becomes permanent once the first item is created.
         </p>
-        <input
-          className="type-body tabular-nums"
-          value={keyPrefix}
-          onChange={(event) => setKeyPrefix(event.target.value.toUpperCase())}
-          maxLength={10}
-          aria-label="Project key prefix"
-          style={{
-            padding: "var(--space-sm)",
-            borderRadius: "var(--radius-chrome)",
-            border: "1px solid var(--divider)",
-            background: "var(--surface-secondary)",
-            color: "var(--text-primary-rack)",
-            textAlign: "center",
-          }}
-        />
-        <button type="button" className="type-body" style={buttonStyle} onClick={handleConfirm} disabled={registerProject.isPending}>
-          Register Project
-        </button>
+        <div className="state-field-group">
+          <label htmlFor="first-run-project-key" className="type-label">
+            Project key
+          </label>
+          <input
+            id="first-run-project-key"
+            className="type-body tabular-nums control-edge state-field"
+            value={keyPrefix}
+            onChange={(event) => setKeyPrefix(event.target.value.toUpperCase())}
+            maxLength={10}
+            aria-label="Project key prefix"
+          />
+        </div>
+        <div className="state-actions">
+          {/* Back is the plain edge: it changes the folder, it registers nothing. */}
+          <button
+            type="button"
+            className="type-body control-edge state-action"
+            onClick={() => {
+              registerProject.reset();
+              setPending(null);
+            }}
+            disabled={registerProject.isPending}
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            className="type-body control-edge state-action state-action-lead"
+            onClick={handleConfirm}
+            disabled={registerProject.isPending}
+          >
+            Register Project
+          </button>
+        </div>
         {registerProject.isError && (
-          <p className="type-label" style={{ color: "var(--destructive-strip)" }}>
+          <p role="alert" className="type-label state-error">
             Couldn't register this project — {(registerProject.error as Error).message}
           </p>
         )}
@@ -106,13 +105,26 @@ export function FirstRun() {
   }
 
   return (
-    <div className="first-run" style={emptyStateStyle}>
-      <h1 className="type-heading">No projects yet</h1>
-      <p className="type-body">
+    <div className="first-run state-surface">
+      {/* A-08(c): the mark is drawn in ink, not the 64px brand-filled tile. A CSS mask over a glyph-only asset, so
+          `--text-primary-rack` colours it in both schemes (an <img> cannot read the page's tokens). Still a
+          reference to a static file, never inline markup (T-08.1-05). */}
+      <span
+        role="img"
+        aria-label="Flywheel by HighKnow"
+        className="first-run-mark"
+        style={{ maskImage: `url(${glyphUrl})`, WebkitMaskImage: `url(${glyphUrl})` }}
+      />
+      <h1 className="state-heading">No projects yet</h1>
+      <p className="type-body state-body">
         Register a local git repository to see its board. Flywheel never touches board content in
         the repo itself — only a small marker file.
       </p>
-      <button type="button" className="type-body" style={buttonStyle} onClick={handlePickFolder}>
+      <button
+        type="button"
+        className="type-body control-edge state-action state-action-lead"
+        onClick={handlePickFolder}
+      >
         Register Project…
       </button>
     </div>

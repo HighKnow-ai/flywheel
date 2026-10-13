@@ -11,6 +11,38 @@ name = "core"
 name = "crash_harness"
 path = "tests/bin/crash_harness.rs"
 
+[[bin]]
+name = "commit_stress_harness"
+path = "tests/bin/commit_stress_harness.rs"
+
+[[bin]]
+name = "uat_session_env"
+path = "tests/bin/uat_session_env.rs"
+
+[[bin]]
+name = "uat_seed_ui"
+path = "tests/bin/uat_seed_ui.rs"
+
+[[bin]]
+name = "uat_authoring_ops"
+path = "tests/bin/uat_authoring_ops.rs"
+
+[[bin]]
+name = "uat_fleet_ops"
+path = "tests/bin/uat_fleet_ops.rs"
+
+[[bin]]
+name = "uat_fanout_ops"
+path = "tests/bin/uat_fanout_ops.rs"
+
+[[bin]]
+name = "forge_probe"
+path = "tests/bin/forge_probe.rs"
+
+[[bin]]
+name = "seed_criteria"
+path = "tests/bin/seed_criteria.rs"
+
 [dependencies]
 rusqlite = { version = "0.40", features = ["bundled", "serde_json", "chrono"] }
 rusqlite_migration = "2.6"
@@ -27,6 +59,27 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # crate starts a scheduler yet (`domain::trigger::cron_tick_trigger_unimplemented`).
 tokio-cron-scheduler = "0.15"
 keyring = { version = "4.2.0", features = ["apple-native-keyring-store"] }
+# Pid-reuse-safe liveness for the launch reconciler (plan 03-06, PROC-05): pid alone is never
+# enough to identify "the same process" across a restart, since the OS recycles pids. Pinned to
+# an EXACT version (no caret, no wildcard) per this plan's Task 1 package-legitimacy checkpoint —
+# a human-approved crates.io identity/API-shape/license check, not floated deliberately.
+# RESEARCH.md's own "Don't Hand-Roll" table names this exact crate over a hand-rolled per-platform
+# pid-plus-start-time read.
+sysinfo = "=0.39.6"
+# `kill_orphan` (plan 03-06) signals a process GROUP via a negative pid (`libc::kill(-pid, ...)`),
+# mirroring `packages/sidecar/src/watchdog.ts`'s own `process.kill(-process.pid, "SIGKILL")` force
+# step on the Rust side. Already resolved transitively (via sysinfo); declared directly here
+# because this crate calls it by name.
+libc = "0.2"
+# Already a dev-dependency for every test fixture's scratch directories; promoted to a real
+# dependency here because `forge::gitlab::create_request` (plan 07-09) writes the merge request
+# description to an owner-only `NamedTempFile` rather than argv (T-07-09-02) — `glab mr create`
+# has no stdin-reading form, unlike `gh pr create`'s `--body-file -`.
+tempfile = "3"
+# `RequestDraft::content_hash` (plan 08-14, G-08-5/WR-08): the epic request confirm refuses when the
+# draft it would publish is not the draft the sheet rendered, and the comparison is a SHA-256 over the
+# title and body. `0.10.9` is already resolved in the workspace `Cargo.lock` (via `tauri-codegen`/`wry`),
+# so declaring it here adds no package to the resolved tree.
+sha2 = "0.10"
 
 [dev-dependencies]
-tempfile = "3"
