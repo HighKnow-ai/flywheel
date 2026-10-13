@@ -18,8 +18,8 @@
  * files alone would report nothing for most of this surface; running it on this HTML is the check
  * that actually sees what these components paint.
  */
-import { describe, expect, it } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "vitest/browser";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { commands, page } from "vitest/browser";
@@ -40,6 +40,10 @@ import { QuickAdd } from "../../QuickAdd";
 import { FilterBar } from "../../FilterBar";
 import { IssuesLane } from "../../IssuesLane";
 import { ProjectRail } from "../../../projects/ProjectRail";
+import App from "../../../App";
+import { queryClient } from "../../../adapters/queryClient";
+import { resetUiState, useUiStore } from "../../../state/uiStore";
+import { groupCollapseKey, useCollapseStore } from "../../collapseStore";
 import type { AuthoringProposalDto, EpicProgressDto } from "../../../adapters/tauri";
 import type { BoardItem, IssueItem, Project } from "../../useBoardQuery";
 
@@ -324,5 +328,128 @@ describe(`challenge row at ${ROW_HEIGHT_BY_KIND.challenge}px, measured in WebKit
     // proposal the reader can no longer identify is not legible.
     const title = screen.getByText(LONG.trim());
     expect(title.clientWidth, "the error squeezed the title out of the row").toBeGreaterThanOrEqual(80);
+  });
+});
+
+/**
+ * D-REV-12: the board group mounted inside the REAL app shell, not a page of components. `<App />`
+ * renders `AppShell` (not exported), which composes the project rail, the `Board` header, the filter
+ * bar, `BoardView` (lens toggle, summary line, the virtualised rack) and the overlays. Only the Tauri
+ * bridge is stood in for, and it answers with the same real-board export (`comp-data.json`) the group
+ * capture above composes by hand; the two staged challenges reuse that capture's `proposal()` helper
+ * and its FIXTURE labelling rather than seeding a second fixture.
+ *
+ * This task only CAPTURES. It asserts that every element D-REV-12's truth names which the source
+ * draws is on the page and stacked in the order the comp stacks it; whether the page matches the comp
+ * is the finish reviewer's judgement (plan 11-17 task 2), not this test's. NOTE for that reviewer: the
+ * shipped source draws the masthead as the bare project name (`.board-header`) and has no `Mission
+ * Control` heading or `threadfin . N epics . N tasks` subhead; this test does not assert their absence
+ * and does not invent them.
+ */
+describe(`board group one, mounted in the real app shell (AppShell via <App />), ${scheme} scheme`, () => {
+  // The first epic that has tasks, so the open epic, its two challenges and its first tasks sit in the
+  // first window of the virtualised rack (the group capture above opens THRE-14, which would be below the fold).
+  const expandedEpic = epics.find((e) => e.key === "THRE-6")!;
+  const items = (): BoardItem[] => [
+    ...tasks.map(toItem),
+    ...epics.map((e) => ({ id: e.id, key: e.key, title: e.title, status: e.status, rank: "a0", priority: 0, epicId: null, kind: "epic" as const })),
+  ];
+  const worktreeTaskIds = new Set((data.worktrees as { task_id: string }[]).map((w) => w.task_id));
+
+  function installShellBridge() {
+    const counts = {
+      backlog: tasks.filter((t) => t.status === "backlog").length,
+      todo: tasks.filter((t) => t.status === "todo").length,
+      inProgress: tasks.filter((t) => t.status === "in_progress").length,
+      inReview: tasks.filter((t) => t.status === "in_review").length,
+      done: tasks.filter((t) => t.status === "done").length,
+    };
+    const staged = [
+      "Should a filter chip persist when the owner switches project, or reset? [FIXTURE]",
+      "Proposed task: debounce the chip toggles so one click is one query. [FIXTURE]",
+    ].map((title, i) => ({ ...proposal(`shell-p${i}`, title, i === 0 ? "question" : "task"), epicId: expandedEpic.id }));
+    const answer = (command: string, args: Record<string, unknown> = {}): unknown => {
+      switch (command) {
+        case "project_list":
+          return projects;
+        case "board_list":
+        case "board_search": {
+          const filter = (args.filter ?? {}) as { hasWorktree?: boolean; epicIds?: (string | null)[] };
+          const rows = items()
+            .filter((r) => !filter.epicIds || filter.epicIds.includes(r.kind === "epic" ? r.id : r.epicId))
+            .filter((r) => !filter.hasWorktree || worktreeTaskIds.has(r.id));
+          return { items: rows.slice(0, (args.limit as number) ?? 200), issues: [], counts };
+        }
+        case "epic_list_all":
+          return { epics: epics.map((e) => ({ id: e.id, key: e.key, title: e.title, status: e.status, integrationBranch: null })), total: epics.length, truncated: false };
+        case "board_epic_progress":
+          return [...epics.map((e) => progressFor(e.id)), progressFor(null)];
+        case "authoring_proposals_pending":
+          return { proposals: staged, counts: { pending: staged.length, accepted: 0, rejected: 0, merged: 0, deferred: 0 } };
+        case "board_change_flags":
+          return (data.worktrees as { task_id: string; ahead: number; dirty: boolean }[]).map((w) => ({ taskId: w.task_id, epicId: null, ahead: w.ahead, dirty: w.dirty }));
+        case "board_blocked_summary":
+          return { blockedTaskIds: [], blockedCount: 0 };
+        case "board_recovery_summary":
+          return { recoveryTaskIds: [], recoveryCount: 0 };
+        case "actor_list":
+          return [];
+        default:
+          return null;
+      }
+    };
+    (window as unknown as { __TAURI_EVENT_PLUGIN_INTERNALS__: unknown }).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
+    (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
+      transformCallback: () => 1,
+      unregisterCallback: () => {},
+      invoke: (command: string, args?: Record<string, unknown>) => {
+        return Promise.resolve(answer(command, args));
+      },
+    };
+  }
+
+  afterEach(() => {
+    cleanup();
+    queryClient.clear();
+    resetUiState();
+    useCollapseStore.setState({ collapsedByProject: {} });
+  });
+
+  it("captures the masthead, lens toggle, summary line, filter bar and rack as AppShell lays them out", async () => {
+    installShellBridge();
+    resetUiState();
+    useCollapseStore.setState({ collapsedByProject: {} });
+    useUiStore.setState({ currentProjectId: currentProject.id });
+    // One epic open so the challenge rows and the task rows are in the shot.
+    useCollapseStore.getState().expand(currentProject.id, groupCollapseKey("epic", expandedEpic.id));
+    // `main.tsx` mounts into `#root`, and App.css gives `#root` the window's height; a bare RTL container
+    // would not, and the rail and rack would size to their content instead of the window.
+    const mount = document.body.appendChild(document.createElement("div"));
+    mount.id = "root";
+    render(<App />, { container: mount });
+
+    await waitFor(() => expect(document.querySelectorAll(".epic-header-row").length).toBeGreaterThan(3));
+    await waitFor(() => expect(document.querySelectorAll("[data-challenge-id]").length).toBe(2));
+    await waitFor(() => expect(document.querySelector("[data-summary-line]")).not.toBeNull());
+
+    const root = document.getElementById("app-root") as HTMLElement;
+    // The shell, not a page: the rail beside the board column, and the masthead naming the project.
+    for (const label of ["Projects", "Fleet", "Review queue"]) expect(root.textContent).toContain(label);
+    const masthead = root.querySelector<HTMLElement>("header.board-header")!;
+    expect(masthead.textContent).toBe(currentProject.name);
+    // The vertical order the comp stacks: masthead, filter bar, lens toggle, summary line, then the rack.
+    const filterBar = root.querySelector<HTMLElement>('[role="search"]')!;
+    const lensToggle = screen.getByRole("button", { name: "Group by epic" }).parentElement!;
+    const summary = root.querySelector<HTMLElement>("[data-summary-line]")!;
+    const rack = root.querySelector<HTMLElement>('[role="list"][aria-label="Board"]')!;
+    const tops = [masthead, filterBar, lensToggle, summary, rack].map((el) => el.getBoundingClientRect().top);
+    expect(tops, "masthead, filter bar, lens toggle, summary line and rack must stack top-down").toEqual([...tops].sort((a, b) => a - b));
+    expect(screen.getByRole("button", { name: "Group by status" })).toBeTruthy();
+    expect(root.querySelectorAll('[role="listitem"].board-row').length, "the expanded epic's task rows are in the shot").toBeGreaterThan(0);
+
+    await page.screenshot({ path: `${OUT}/board-shell-built-${scheme}-1440x900.png` });
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>board group one in the app shell, ${scheme}</title>` +
+      `<style>${tokensCss}\n${typeCss}\n${motionCss}\n${appCss}</style></head><body>${document.body.innerHTML}</body></html>`;
+    await commands.writeFile(`${OUT_FROM_ROOT}/board-shell-built-${scheme}.html`, html);
   });
 });
