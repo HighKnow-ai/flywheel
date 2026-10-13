@@ -129,8 +129,22 @@ pub fn merge_task(
     }
 
     // Only now is a merge really under way; every refusal above leaves the state as it was, so a
-    // persisting cause stays one record rather than flickering through `merging` each pass.
-    set_task_dispatch_state(&*lock(db)?, plan_id, task_id, "merging")?;
+    // persisting cause stays one record rather than flickering through `merging` each pass. The same
+    // holds for a retry of a merge that already failed (D-REV-39 WR-04): a task that is
+    // `needs_attention` stays there while the merge is re-attempted, so a failure with the same cause
+    // meets `mark_needs_attention`'s dedupe instead of an unrelated `merging` state, and the success
+    // and conflict arms below still write their own state.
+    {
+        let conn = lock(db)?;
+        let state: String = conn.query_row(
+            "SELECT state FROM dispatch_plan_tasks WHERE plan_id = ?1 AND task_id = ?2",
+            [plan_id, task_id],
+            |r| r.get(0),
+        )?;
+        if state != "needs_attention" {
+            set_task_dispatch_state(&conn, plan_id, task_id, "merging")?;
+        }
+    }
     let outcome = match run_merge(&plan) {
         Ok(outcome) => outcome,
         Err(e) => return block(db, plan_id, task_id, AttentionCause::MergeBlocked { reason: format!("{e:#}") }, system_actor_id),
