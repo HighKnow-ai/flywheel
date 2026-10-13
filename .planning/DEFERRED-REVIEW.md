@@ -1143,7 +1143,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-57
   phase: "11 - Ship It (plan 11-04)"
   truth: "One pushed v* tag produces a release carrying FOUR assets: the .dmg, the .app.tar.gz, its .sig, and latest.json with a non-empty signature, and a client can read releases/latest/download/latest.json."
-  status: open
+  status: closed (four-asset publication observed on GitHub - 2026-10-13, plan 11-05; installed-client update not proven, see update_11-05)
   why_deferred: |
     Plan 11-04 proved the pipeline unsigned and can prove only half the assets. 11-01 deliberately left
     bundle.createUpdaterArtifacts unset (tauri refuses to build updater artifacts without a signing key), so the
@@ -1155,6 +1155,20 @@ At Phase 11, with an installed, usable build:
     keypair, so it is the plan that makes the assertion bite.
   risk_if_wrong: "High for the self-update claim, none for the first download. If 11-05 lands and the assertion is not exercised on a real tag, a release with no signature or no manifest ships, and no installed client can update from it."
   automatable: "YES, in the same way 11-04 did it: push a throwaway tag after 11-05 and read gh release view; the assertion step fails the run if any of the four is missing. Delete the tag and release afterwards."
+  update_11-05: |
+    CLOSED (four-asset half). Throwaway tag v0.0.1-ci at 1882b14 on HighKnow-ai/flywheel, Release run 38396587749,
+    conclusion success, 20m42s, with createUpdaterArtifacts now in tauri.conf.json so the asset assertion required
+    all four. gh release view listed exactly: Flywheel_0.0.1-ci_aarch64.dmg (47,000,025 bytes),
+    Flywheel_aarch64.app.tar.gz (48,105,596), Flywheel_aarch64.app.tar.gz.sig (408), latest.json (16,403). Release
+    not a draft, not a prerelease. latest.json: version "0.0.1-ci", platforms darwin-aarch64 and darwin-aarch64-app,
+    both with url https://github.com/HighKnow-ai/flywheel/releases/download/v0.0.1-ci/Flywheel_aarch64.app.tar.gz
+    and a 408-character non-empty signature, byte-identical to the .sig asset. The signature's minisign key id is
+    AB3536BDD39983C5, the id of the public key compiled into tauri.conf.json. Throwaway tag and release deleted;
+    gh release list, git ls-remote --tags origin and the releases API (drafts included, length 0) are all empty.
+    NOT PROVEN, and not claimed: that an installed older build actually fetches this manifest, verifies it and
+    installs it. Nothing here ran the updater against a real signed release; update_check/update_install were
+    tested through a fake source and the compiled config was read, not exercised. That needs two installed
+    versions and is the physical half of DIST-02 (queued with plan 11-06's banner).
 
 - id: D-REV-58
   phase: "11 - Ship It (plan 11-10, residuals of D-REV-39 and D-REV-44)"

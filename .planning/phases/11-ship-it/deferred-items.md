@@ -55,3 +55,14 @@
 ### The register's "Read, Grep, Glob" wording is stale for the installed CLI
 
 - `claude` 2.1.287 offers no Grep or Glob tool; search goes through Bash. Recorded under D-REV-35 in `DEFERRED-REVIEW.md`. No prompt or source file in this repository names Grep or Glob (grepped), so nothing is broken by it; only the register's sentence is out of date.
+
+## Found by plan 11-05
+
+### Two more `cargo test --workspace` reds on the GitHub runner, in git-spawning core tests
+
+- Evidence, tag push v0.0.1-ci at 1882b14 (the same commit that was green on Open core when pushed as a branch):
+  - ci.yml run 38396587795: `packages/core/tests/forge_degrade.rs` test `forced_gitlab_override_with_glab_absent_from_path_yields_cli_not_installed`, panicked at line 20 (inside `run_git`, a `git -C` call).
+  - open-core.yml run 38396587714: `packages/core/tests/worktree_lifecycle.rs` test `a_worktree_survives_two_runs_with_an_epic`, panicked at line 100.
+  - Neither touches the updater, the capability file or `tauri.conf.json`. Open core on the branch push of the same commit (run 38396663801) was green.
+- Different tests failed in different runs of the same SHA, so this is the 11-04 family: an intermittent red from tests that shell out to git on a loaded runner, now seen in three distinct tests. Same remedy as before (re-run), and `release.yml` itself gates on `cargo test --workspace`, so a real tag can be blocked by it. The Release run for this commit passed.
+- Not investigated: out of scope for 11-05, and the cause is unconfirmed. Start from the panic message at each of the two lines, which was not captured here.

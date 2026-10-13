@@ -4,16 +4,16 @@ milestone: v0.1.0
 current_phase: 11
 current_phase_name: Ship It
 status: executing
-stopped_at: Completed 11-18-PLAN.md
-last_updated: "2026-10-13T08:54:14.852Z"
+stopped_at: Completed 11-05-PLAN.md
+last_updated: "2026-10-13T12:49:42.192Z"
 last_activity: 2026-10-13
 last_activity_desc: Phase 11 execution started
-state_head: ae159ff1d03b1140fac656d58125cbb7da1e640d
+state_head: 1882b14010c1ee760cb04f9f1f59abeba146d65f
 progress:
   total_phases: 13
   completed_phases: 0
-  total_plans: 249
-  completed_plans: 241
+  total_plans: 250
+  completed_plans: 242
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 11 (Ship It) — EXECUTING
-Plan: 7 of 21
+Plan: 8 of 21
 Status: Ready to execute
 Last activity: 2026-10-13 — Phase 11 execution started
 
@@ -304,6 +304,7 @@ Progress: [█░░░░░░░░░] 8% — 12 of 13 phases complete (228/
 | Phase 11 P16 | 35 min | 2 tasks | 8 files |
 | Phase 11 P17 | 30 min | 3 tasks | 14 files |
 | Phase 11 P18 | 25 min | 3 tasks | 20 files |
+| Phase 11 P05 | 2h | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -706,6 +707,7 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-16: D-REV-34 driven with four tasks (three disjoint wave-one tasks, cap two) so the cap binds; D-REV-35 asked of the real binary through a loopback model server, not a real account, so no credential is used and the no-request assertion is not vacuous. — A two-task wave never tests the cap; the earlier argv tests keep the CLI off the network, so no tool call would ever happen.
 - [Phase 11]: 11-17: the nine high finish-review findings (no masthead, split controls row, review pane order and file column, no +/- diff sign, session header without a task name, proposal row eyebrow, triage button wall, rail counts) are owner decisions or larger than a finish pass; recorded for D-196, not fixed — Independent reviewers returned fix on every group; only defects that were small, contract-clear and testable were fixed (8); contract-contradicting findings were rejected with the sentence quoted (8); the rest recorded (45)
 - [Phase 11]: 11-18: the developer's turn keeps the brand colour; recorded in 08.1-UI-SPEC as an existing use D-199 did not decide, filed at 11-21 as an owner decision — Moving it to ink would remove the feed's only speaker channel; a replacement is a design call the owner has not made
+- [Phase 11]: 11-05: tauri-plugin-updater pinned =2.12.0; tauri stays =2.11.5 (D-181). update_install re-checks the live-run count after the download, before the install (D-188).
 
 ### Pending Todos
 
@@ -768,6 +770,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-13T08:54:14.643Z
-Stopped at: Completed 11-18-PLAN.md
+Last session: 2026-10-13T12:49:41.985Z
+Stopped at: Completed 11-05-PLAN.md
 Resume file: None
