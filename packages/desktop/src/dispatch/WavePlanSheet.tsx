@@ -23,6 +23,8 @@ import {
   dispatchPlanApprove,
   dispatchPlanEdit,
   dispatchWhy,
+  retryTask,
+  skipTask,
   type DispatchEdgeDto,
   type DispatchPlanDto,
   type DispatchTaskDto,
@@ -52,6 +54,9 @@ const STATE_LABEL: Record<string, string> = {
   held_by_limit: "Held by the account limit",
   skipped: "Left out",
 };
+
+/** The states that hold a wave until a human acts; the core's `STUCK_STATES`. */
+const STUCK = new Set(["failed", "stopped", "conflict"]);
 
 export const stateLabel = (state: string) => STATE_LABEL[state] ?? state;
 
@@ -96,6 +101,20 @@ function OpenSheet({ epicId, onClose }: { epicId: string; onClose: () => void })
         const { [taskId]: _dropped, ...rest } = d;
         return rest;
       });
+      setBusy(false);
+    }
+  }
+
+  async function leave(verb: typeof retryTask, taskId: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      accept(await verb(taskId));
+      setRefusal(null);
+    } catch (error) {
+      // The core's own refusal, shown on the task it concerns.
+      setRefusal({ taskId, text: errorText(error) });
+    } finally {
       setBusy(false);
     }
   }
@@ -152,6 +171,28 @@ function OpenSheet({ epicId, onClose }: { epicId: string; onClose: () => void })
         </div>
         {task.rationale && <p className="type-label wave-plan-note">{task.rationale}</p>}
         {task.attention && <p className="type-label wave-plan-attention">{task.attention}</p>}
+        {!isDraft && STUCK.has(task.state) && (
+          <div className="wave-plan-files">
+            <button
+              type="button"
+              aria-label={`Retry ${task.taskKey}`}
+              disabled={busy}
+              onClick={() => void leave(retryTask, task.taskId)}
+              className="control-edge session-action type-label"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              aria-label={`Skip ${task.taskKey}`}
+              disabled={busy}
+              onClick={() => void leave(skipTask, task.taskId)}
+              className="control-edge session-action type-label"
+            >
+              Skip
+            </button>
+          </div>
+        )}
         {task.entries.length === 0 && task.state !== "skipped" && (
           <p className="type-label wave-plan-note">No files declared, so this task runs alone.</p>
         )}

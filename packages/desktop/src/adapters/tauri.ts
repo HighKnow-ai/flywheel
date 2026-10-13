@@ -1948,6 +1948,18 @@ export async function dispatchPlanApprove(planId: string): Promise<DispatchPlanD
   return invokeCommand<DispatchPlanDto>("dispatch_plan_approve", { planId });
 }
 
+/** Hand a stuck task (run failed or stopped, or merge conflict) back to the dispatcher. Human-only; a
+ * refusal rejects with the core's own words. Returns the refreshed plan. Thin wrapper over `retry_task`. */
+export async function retryTask(taskId: string): Promise<DispatchPlanDto> {
+  return invokeCommand<DispatchPlanDto>("retry_task", { taskId });
+}
+
+/** Leave a stuck task out so its wave can advance. Human-only; same refusals as `retryTask`. Thin
+ * wrapper over `skip_task`. */
+export async function skipTask(taskId: string): Promise<DispatchPlanDto> {
+  return invokeCommand<DispatchPlanDto>("skip_task", { taskId });
+}
+
 /** Stop starting new work; running sessions are untouched. Human-only. */
 export async function dispatchPlanPause(planId: string): Promise<DispatchPlanDto> {
   return invokeCommand<DispatchPlanDto>("dispatch_plan_pause", { planId });
