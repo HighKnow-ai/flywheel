@@ -565,81 +565,80 @@ pub(crate) fn start_agent_run_recording_first(
     )
     .map_err(|e| e.to_string())?;
 
-    // Steps 3-6: re-read the packet now that the worktree is real (not predicted) — the same
-    // assembler `agent_run_preview` calls, so this run's prompt is exactly what the sheet most
-    // recently previewed, modulo the operator's own instruction (T-02-21). Composed through the
-    // same assemble_context_packet -> packet_extras_for -> assemble_context_packet_with_extras
-    // path as build_preview_dto (plan 04-07 Task 3, plan 04-11 Task 3), so the launch sheet's
-    // preview and this run's actual prompt can never carry a different diff section or a
-    // different set of drift warnings — including the criteria-revision one, now that
-    // `previous_run_id` is threaded correctly (gap #2 of 04-VERIFICATION.md).
-    let packet = assemble_context_packet(conn, task_id).map_err(|e| e.to_string())?;
-    let extras = packet_extras_for(conn, &packet, task_id, previous_run_id.as_deref());
-    let packet =
-        assemble_context_packet_with_extras(conn, task_id, extras).map_err(|e| e.to_string())?;
-    let prompt = render_prompt(&packet, instruction);
+    // Steps 3-9 all run AFTER the run row exists, so an error from any of them closes that row
+    // `failed` before it propagates (D-REV-46): a `running` row with no session behind it holds a
+    // cap slot and makes `launch_conflict` answer `HasLiveRun` until the app restarts.
+    let built = (|| -> Result<(String, usize, String), String> {
+        // Steps 3-6: re-read the packet now that the worktree is real (not predicted) — the same
+        // assembler `agent_run_preview` calls, so this run's prompt is exactly what the sheet most
+        // recently previewed, modulo the operator's own instruction (T-02-21). Composed through the
+        // same assemble_context_packet -> packet_extras_for -> assemble_context_packet_with_extras
+        // path as build_preview_dto (plan 04-07 Task 3, plan 04-11 Task 3), so the launch sheet's
+        // preview and this run's actual prompt can never carry a different diff section or a
+        // different set of drift warnings — including the criteria-revision one, now that
+        // `previous_run_id` is threaded correctly (gap #2 of 04-VERIFICATION.md).
+        let packet = assemble_context_packet(conn, task_id).map_err(|e| e.to_string())?;
+        let extras = packet_extras_for(conn, &packet, task_id, previous_run_id.as_deref());
+        let packet =
+            assemble_context_packet_with_extras(conn, task_id, extras).map_err(|e| e.to_string())?;
+        let prompt = render_prompt(&packet, instruction);
 
-    // Step 7 (D-72/D-73/D-74/D-75, plan 04-12): give every fired detector a durable activity-
-    // trail trace, one event per warning, appended in one atomic transaction right after the
-    // extras (and therefore the drift) have been computed. Called from this function only — never
-    // from `build_preview_dto`, whose whole value is that opening the launch sheet writes
-    // nothing; a single-call-site `<verify>` grep gate over this file asserts that.
-    // `record_drift_warnings` itself is a no-op (zero events, zero database reads) for an empty
-    // `packet.drift`, so this call is unconditional.
-    let drift_event_count = {
-        let now = chrono::Utc::now().to_rfc3339();
-        let tx = conn.transaction().map_err(|e| e.to_string())?;
-        let count = flywheel_core::domain::agent_run::record_drift_warnings(
-            &tx,
-            &run.id,
-            &packet.drift,
-            &run.actor_id,
-            &now,
-        )
-        .map_err(|e| e.to_string())?;
-        tx.commit().map_err(|e| e.to_string())?;
-        count
+        // Step 7 (D-72/D-73/D-74/D-75, plan 04-12): give every fired detector a durable activity-
+        // trail trace, one event per warning, appended in one atomic transaction right after the
+        // extras (and therefore the drift) have been computed. Called from this function only — never
+        // from `build_preview_dto`, whose whole value is that opening the launch sheet writes
+        // nothing; a single-call-site `<verify>` grep gate over this file asserts that.
+        // `record_drift_warnings` itself is a no-op (zero events, zero database reads) for an empty
+        // `packet.drift`, so this call is unconditional.
+        let drift_event_count = {
+            let now = chrono::Utc::now().to_rfc3339();
+            let tx = conn.transaction().map_err(|e| e.to_string())?;
+            let count = flywheel_core::domain::agent_run::record_drift_warnings(
+                &tx,
+                &run.id,
+                &packet.drift,
+                &run.actor_id,
+                &now,
+            )
+            .map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
+            count
+        };
+
+        // Step 8 (D-78, plan 04-10): pin, on the run row, exactly which criterion revisions this
+        // briefing carried — read via `list_current_criteria` in the same rank order the packet
+        // assembly above uses, so the pin and the prompt agree by construction.
+        let criteria_ids: Vec<String> =
+            flywheel_core::domain::acceptance_criterion::list_current_criteria(conn, "task", task_id)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|c| c.id)
+                .collect();
+        flywheel_core::domain::agent_run::pin_criteria_revisions(conn, &run.id, &criteria_ids)
+            .map_err(|e| e.to_string())?;
+
+        // Step 9.
+        let worktree_path: String = conn
+            .query_row(
+                "SELECT path FROM worktrees WHERE id = ?1",
+                rusqlite::params![run.worktree_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+
+        Ok((prompt, drift_event_count, worktree_path))
+    })();
+    let (prompt, drift_event_count, worktree_path) = match built {
+        Ok(v) => v,
+        Err(why) => return Err(fail_launch(conn, &run.id, why)),
     };
-
-    // Step 8 (D-78, plan 04-10): pin, on the run row, exactly which criterion revisions this
-    // briefing carried — read via `list_current_criteria` in the same rank order the packet
-    // assembly above uses, so the pin and the prompt agree by construction.
-    let criteria_ids: Vec<String> =
-        flywheel_core::domain::acceptance_criterion::list_current_criteria(conn, "task", task_id)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|c| c.id)
-            .collect();
-    flywheel_core::domain::agent_run::pin_criteria_revisions(conn, &run.id, &criteria_ids)
-        .map_err(|e| e.to_string())?;
-
-    // Step 9.
-    let worktree_path: String = conn
-        .query_row(
-            "SELECT path FROM worktrees WHERE id = ?1",
-            rusqlite::params![run.worktree_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
 
     // Step 10 (D-150/D-151, plan 09-01) — see this function's own doc comment. On failure the run
     // row this function inserted at step 2 is closed `failed` before the error propagates: a
     // `running` row with no session behind it would hold a dispatcher slot forever (plan 09-07
     // counts `running` runs) and leave the task looking worked-on.
-    let scope_armed = match arm_run_scope(conn, &run.id, task_id, &worktree_path) {
-        Ok(armed) => armed,
-        Err(why) => {
-            let _ = flywheel_core::domain::agent_run::close_agent_run(
-                conn,
-                &run.id,
-                flywheel_core::domain::agent_run::AgentRunStatus::Failed,
-                None,
-                None,
-                None,
-            );
-            return Err(why);
-        }
-    };
+    let scope_armed = arm_run_scope(conn, &run.id, task_id, &worktree_path)
+        .map_err(|why| fail_launch(conn, &run.id, why))?;
 
     Ok(StartRunOutcome {
         run_id: run.id,
@@ -671,6 +670,22 @@ pub(crate) fn arm_run_scope(
         std::path::Path::new(worktree_path),
     )
     .map(|mode| mode == flywheel_core::runtime_protocol::ScopeMode::Armed)
+}
+
+/// Close a run whose launch failed after its row was inserted, and hand `why` back for the caller to
+/// return. The one place that decides what a failed launch leaves behind: a `failed` row, never a
+/// `running` one (D-REV-46). Best-effort on the close itself, as [`fail_planning_start`]'s is: the
+/// original failure is the error worth reporting.
+pub(crate) fn fail_launch(conn: &mut Connection, run_id: &str, why: String) -> String {
+    let _ = flywheel_core::domain::agent_run::close_agent_run(
+        conn,
+        run_id,
+        flywheel_core::domain::agent_run::AgentRunStatus::Failed,
+        None,
+        None,
+        None,
+    );
+    why
 }
 
 /// Start a fresh agent run against `task_id` (D-30: always fresh, never `--resume`). Validates
@@ -809,7 +824,8 @@ pub(crate) fn prepare_launch(
     // A user's own launch proceeds, but no longer silently. The run id exists now, so the event can
     // carry it; its own transaction, as the neighbouring event writes do.
     if let Some(sentence) = &cross_task {
-        record_launch_overlap(conn, &project_id, task_id, &outcome.run_id, &human_actor_id, sentence)?;
+        record_launch_overlap(conn, &project_id, task_id, &outcome.run_id, &human_actor_id, sentence)
+            .map_err(|why| fail_launch(conn, &outcome.run_id, why))?;
     }
     Ok(PreparedLaunch { outcome, repo_path, env, overlap_warning: cross_task })
 }
@@ -881,14 +897,15 @@ fn record_launch_overlap(
 /// discipline.
 pub(crate) fn spawn_prepared_run(
     db: &std::sync::Mutex<Connection>,
-    conn: std::sync::MutexGuard<'_, Connection>,
+    mut conn: std::sync::MutexGuard<'_, Connection>,
     outcome: &StartRunOutcome,
     mut env: std::collections::HashMap<String, String>,
     permission_mode: &str,
     merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
     send: impl FnOnce(&serde_json::Value) -> Result<(), String>,
 ) -> Result<(), String> {
-    merge_shim(&mut env, &outcome.run_id).map_err(|e| e.to_string())?;
+    merge_shim(&mut env, &outcome.run_id)
+        .map_err(|e| fail_launch(&mut conn, &outcome.run_id, e.to_string()))?;
     drop(conn);
 
     let request = serde_json::json!({
@@ -901,8 +918,11 @@ pub(crate) fn spawn_prepared_run(
         "scopeArmed": outcome.scope_armed,
         "env": env,
     });
-    let _ = db;
-    send(&request)
+    // The guard is gone (the spawn floor sleeps inside `send`), so closing the row takes the lock afresh.
+    send(&request).map_err(|why| match db.lock() {
+        Ok(mut conn) => fail_launch(&mut conn, &outcome.run_id, why),
+        Err(_) => why,
+    })
 }
 
 /// The launch body, after argument validation: resolves the human actor server-side (T-01-04),
