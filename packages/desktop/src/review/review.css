@@ -71,6 +71,13 @@ table.review-diff {
   cursor: pointer;
 }
 
+/* The sign (three-3): text, so a screen reader and a greyscale print keep it. It takes the gutter's own
+ * ink (--diff-gutter-*-text-color, the primary rack text), so it is not a second colour layer. */
+.review-diff .diff-sign {
+  font-weight: 600;
+  margin-right: var(--space-xs);
+}
+
 /* The badge after an anchored line (D-139) — board text only, never patch content. */
 .review-anchor-widget {
   display: flex;

@@ -18,6 +18,7 @@ import {
   markEdits,
   parseDiff,
   tokenize,
+  type RenderGutter,
 } from "react-diff-view";
 import "react-diff-view/style/index.css";
 import "./review.css";
@@ -31,6 +32,19 @@ export const HUNK_CHUNK = 40;
 /** Changed lines above which tokenizing is skipped (the patch still renders as plain text).
  * Same status as `HUNK_CHUNK`: a heuristic held in one place. */
 export const HIGHLIGHT_LINE_CAP = 5000;
+
+/** The sign column (three-3, WCAG 1.4.1): change is the row tint AND a text glyph, so it survives
+ * greyscale and colour-blind vision. It sits in the gutter cell that holds the line number — the new
+ * side of an added row, the old side of a removed one — so context rows and the empty cells carry none. */
+const renderGutter: RenderGutter = ({ change, side, renderDefault, wrapInAnchor }) => {
+  const sign = change.type === "insert" && side === "new" ? "+" : change.type === "delete" && side === "old" ? "-" : null;
+  return wrapInAnchor(
+    <>
+      {sign && <span className="diff-sign">{sign}</span>}
+      {renderDefault()}
+    </>,
+  );
+};
 
 const BINARY_PATCH = /^(Binary files .* differ|GIT binary patch)$/m;
 
@@ -168,6 +182,7 @@ export function FileDiff({ patch, path, selection = null, onSelectChange, anchor
         tokens={tokens}
         selectedChanges={selectedChanges}
         gutterEvents={gutterEvents}
+        renderGutter={renderGutter}
         widgets={widgets}
         className="review-diff"
       >
