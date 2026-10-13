@@ -44,7 +44,8 @@ export function useFleet() {
   useFleetInvalidation();
   return useQuery({
     queryKey: fleetQueryKey(),
-    queryFn: fleetList,
+    // Lazy, so a test that mocks the adapter without `fleetList` fails the query, not the render.
+    queryFn: () => fleetList(),
   });
 }
 

@@ -252,6 +252,10 @@ interface UiState {
    * the clear, `BoardView` acts on it once the item is among its rows, and `consumePendingFocusItemId`
    * reads and clears it in one call so it can never fire twice. */
   pendingFocusItemId: string | null;
+  /** The version string of the update offer the user dismissed (plan 11-06, D-187). A version rather
+   * than a boolean, so "dismissed" means "not this one": a later release offers itself again. Held for
+   * the life of the window; a relaunch asks again. */
+  dismissedUpdateVersion: string | null;
   setSearchTerm: (term: string) => void;
   toggleStatus: (status: string) => void;
   toggleEpic: (epicId: string | null) => void;
@@ -312,6 +316,7 @@ interface UiState {
   /** Opens/closes the worktree inventory; opening it closes the fleet surface. */
   setWorktreeInventoryOpen: (open: boolean) => void;
   setPendingFocusItemId: (id: string | null) => void;
+  setDismissedUpdateVersion: (version: string | null) => void;
   /** Returns the pending focus request and clears it in the same call. */
   consumePendingFocusItemId: () => string | null;
 }
@@ -346,6 +351,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   fleetSurface: null,
   worktreeInventoryOpen: false,
   pendingFocusItemId: null,
+  dismissedUpdateVersion: null,
 
   setSearchTerm: (term) => set({ searchTerm: term }),
 
@@ -441,6 +447,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   setWorktreeInventoryOpen: (open) =>
     set(open ? { worktreeInventoryOpen: true, fleetSurface: null } : { worktreeInventoryOpen: false }),
   setPendingFocusItemId: (id) => set({ pendingFocusItemId: id }),
+  setDismissedUpdateVersion: (version) => set({ dismissedUpdateVersion: version }),
   consumePendingFocusItemId: () => {
     const id = get().pendingFocusItemId;
     if (id !== null) set({ pendingFocusItemId: null });
@@ -485,5 +492,6 @@ export function resetUiState() {
     fleetSurface: null,
     worktreeInventoryOpen: false,
     pendingFocusItemId: null,
+    dismissedUpdateVersion: null,
   });
 }
