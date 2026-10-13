@@ -3925,6 +3925,55 @@ mod tests {
         });
     }
 
+    // --- D-REV-39 IN-02: an unattended launch is not the user pressing Launch --------------------------
+
+    #[test]
+    fn a_dispatcher_launch_is_attributed_to_the_system_actor_and_a_manual_launch_to_the_human() {
+        for (conflict, automatic) in [(CrossTaskConflict::Refuse, true), (CrossTaskConflict::WarnAndProceed, false)] {
+            with_scratch_worktree_root(|| {
+                let (mut conn, human, _p, task, _repo) = seeded_git_conn_with_task();
+                declare_set(&mut conn, &human, &task, &["src/a/"]);
+                let system = flywheel_core::domain::actor::system_actor(&conn).unwrap().id;
+                let human_events = |c: &Connection| -> i64 {
+                    c.query_row("SELECT COUNT(*) FROM events WHERE actor_id = ?1", rusqlite::params![human], |r| r.get(0))
+                        .unwrap()
+                };
+                let before = human_events(&conn);
+
+                let prepared = launch(&mut conn, &task, conflict).unwrap();
+
+                let expected = if automatic { &system } else { &human };
+                let (trigger_by, config): (String, Option<String>) = conn
+                    .query_row(
+                        "SELECT t.created_by, t.config FROM agent_runs r JOIN triggers t ON t.id = r.trigger_id WHERE r.id = ?1",
+                        rusqlite::params![prepared.outcome.run_id],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .unwrap();
+                assert_eq!(&trigger_by, expected, "{conflict:?}: who fired the run");
+                assert_eq!(config.as_deref().is_some_and(|c| c.contains("automatic")), automatic, "{conflict:?}");
+                let worktree_by: String = conn
+                    .query_row("SELECT created_by FROM worktrees WHERE task_id = ?1", rusqlite::params![task], |r| r.get(0))
+                    .unwrap();
+                assert_eq!(&worktree_by, expected, "{conflict:?}: the worktree the launch cut");
+                let started: String = conn
+                    .query_row(
+                        "SELECT payload FROM events WHERE event_type = 'agent_run.started' AND stream_id = ?1",
+                        rusqlite::params![prepared.outcome.run_id],
+                        |r| r.get(0),
+                    )
+                    .unwrap();
+                let started: serde_json::Value = serde_json::from_str(&started).unwrap();
+                assert_eq!(started["automatic"] == true, automatic, "{conflict:?}: {started}");
+                if automatic {
+                    assert_eq!(human_events(&conn), before, "an unattended launch writes no event under the human actor");
+                } else {
+                    assert!(human_events(&conn) > before, "the user's own launch is still theirs");
+                }
+            });
+        }
+    }
+
     // --- D-REV-46: a launch that fails after its run row exists leaves no `running` row -----------------
 
     fn live_run_count(conn: &Connection) -> i64 {
