@@ -74,7 +74,8 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **AGNT-04**: An explicit API-key credential path is supported as a first-class alternative to local subscription credentials
 - [ ] **AGNT-05**: Rate limits and session limits from the backend are detected, backed off from, and surfaced to the user rather than retried blindly
 - [x] **AGNT-06**: Permission requests raised by a running agent surface to the user and block that agent until answered
-- [x] **AGNT-07**: Destructive actions (force-push, branch deletion, recursive delete) always require explicit confirmation, even when the session is running in an auto-accept permission mode
+- [x] **AGNT-07**: A destructive action (force-push, branch deletion, recursive delete) is refused before it reaches the remote, and the user is told, even when the session is running in an auto-accept permission mode
+  - *Narrowed 2026-10-12 by D-197 (Phase 11).* The prior wording claimed the gate asks a human and blocks. The product does not do that: the `PreToolUse` hook (matcher `Bash`) and git's `pre-push` hook refuse outright, so D-58's indefinite block is unreachable for anything run through `Bash`. Safety holds (the remote ref is unchanged) and the agent is told; no permission request is raised. The shipped refusal was measured twice by `scripts/uat/uat-03-destructive-gate.mjs`. The requirement was the side that was wrong; the gate's code is unchanged.
 - [x] **AGNT-08**: The adapter reports token usage and cost per session
 
 ### Context Reconstitution

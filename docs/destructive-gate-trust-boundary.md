@@ -692,8 +692,9 @@ it carries no dash-flag word immediately after "command".
 
 **The direction, stated plainly so no future reader mistakes this for a bypass.** The effect is
 OVER-triggering — the gate refuses MORE than this document claimed, never less. Success Criterion 5
-/ AGNT-07's behavioural truth (an agent in auto-accept permission mode still stops and asks before a
-real force-push, branch deletion, or recursive delete) is not weakened by it. What IS violated is
+/ AGNT-07's behavioural truth (an agent in auto-accept permission mode is still refused before a
+real force-push, branch deletion, or recursive delete reaches the remote, and is told; AGNT-07 was
+narrowed to this wording by D-197) is not weakened by it. What IS violated is
 this project's own prohibition against adding gate friction without pricing it in the same change,
 and round five's own rule that a field whose negative is read as proof must name the exact class for
 which that negative is sound.
