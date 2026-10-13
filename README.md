@@ -26,6 +26,26 @@ packages/
 | npm | 10.x |
 | git | ≥ 2.44 |
 | Xcode Command Line Tools (macOS) | present, for compiling bundled SQLite + native deps |
+| `rustc` host triple | `aarch64-apple-darwin` (Flywheel ships arm64 macOS only; check with `rustc -vV`) |
+
+`build:dist` (below) downloads a pinned Node runtime on first run and verifies it against the
+published SHA-256 checksums, so the first build needs network access.
+
+## Building from source
+
+```bash
+npm --prefix packages/sidecar ci
+npm --prefix packages/desktop ci
+npm --prefix packages/sidecar run build:dist
+cargo build --workspace
+npm --prefix packages/desktop run tauri build
+```
+
+The order matters. `build:dist` must run before any `cargo` command: `tauri_build::build()` fails
+the whole workspace build when a `bundle.externalBin` file is missing, so a fresh clone cannot even
+`cargo test` until `build:dist` has staged the `binaries/flywheel-*` files. The result is an
+unsigned `Flywheel.app` and `.dmg` under `target/release/bundle/`. CI runs these same commands on
+every push.
 
 ## Running the app
 
@@ -42,4 +62,23 @@ cargo test --workspace
 
 # Frontend
 npm --prefix packages/desktop run test
+
+# Sidecar (needs `npm --prefix packages/sidecar run build:dist` first)
+npm --prefix packages/sidecar test
 ```
+
+Optional browser-mode suites (they download a Playwright WebKit build):
+
+```bash
+npm --prefix packages/desktop run test:browser
+npm --prefix packages/desktop run test:browser:dark
+npm --prefix packages/desktop run test:browser:motion
+```
+
+## Architecture
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+## Licence
+
+Apache-2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
