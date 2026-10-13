@@ -1207,3 +1207,44 @@ At Phase 11, with an installed, usable build:
     nothing ever stalling in `planned`.
   risk_if_wrong: "Moderate and bounded: a hand-run task's work lands on the integration branch without owner review. Recoverable by git; it is not a data-loss path. Revisit at 11-21 only if an unreviewed adopt actually surprises the owner in use."
   automatable: "N/A - an owner preference, not a testable claim. The behaviour itself is already pinned by the tests plan 11-10 added (a dispatcher launch is attributed to the system actor; a hand-run task is adopted, not relaunched)."
+
+- id: D-REV-60
+  phase: "11 - Ship It (plan 11-07, owner declined the purchase)"
+  truth: "DIST-01 criterion 1 is not met. The released .dmg is unsigned and un-notarized, so a first-time user who double-clicks the downloaded application sees a Gatekeeper warning and must use the right-click-Open workaround. The requirement's text claims a signed, notarized build that opens with no warning."
+  status: open
+  why_deferred: |
+    Plan 11-07 is the one plan in Phase 11 gated on a purchase rather than on work: notarizing a
+    macOS application requires an Apple Developer Program membership ($99/yr), and a free Apple
+    account cannot notarize at all. D-185 had already made "unsigned first" the deliberate default
+    so that nothing else in the phase waited on Apple. Asked on 2026-10-13, the owner chose to ship
+    unsigned and continue.
+    Verified at the time: `security find-identity -v -p codesigning` reported 0 valid identities,
+    and the repository held no `APPLE_*` secret - only the two `TAURI_SIGNING_*` secrets from the
+    updater keypair. Apple's identity verification also takes 24-48 hours, so the plan could not
+    have completed the same day in any case.
+    Nothing partial was committed. No signing env was wired into `release.yml`, because empty
+    `APPLE_*` secrets would risk the release pipeline that plans 11-04 and 11-05 proved green, for
+    no present benefit - `tauri-action` cannot sign without a certificate. Plan 11-07 is recorded
+    `deferred` rather than `halted` for a mechanical reason: `halted` sets `blocked_by` on 11-08 and
+    would transitively strand 11-19, 11-20 and 11-21, which is the opposite of the owner's
+    instruction to keep shipping.
+  risk_if_wrong: |
+    Moderate, and entirely a first-run-experience risk rather than a correctness one. Every user who
+    downloads a release must right-click-Open the first time; some will read the Gatekeeper warning
+    as the application being broken or unsafe and will not try again. For the first user (the owner)
+    this costs nothing. It becomes the single biggest barrier to adoption the moment the repository
+    is shared, and the repository is already public.
+    There is no data-loss or security consequence: the build is still signature-verified for
+    AUTO-UPDATES by the separate Tauri updater keypair (key id AB3536BDD39983C5, proved end to end
+    in plan 11-05), which is a different trust root from Apple code signing. Only the first install
+    is unverified by Apple.
+  automatable: |
+    NO, not the purchase. Enrolling in the Apple Developer Program, creating a Developer ID
+    Application certificate and creating an App Store Connect API key are owner actions behind a
+    paid account and Apple's identity verification.
+    YES, everything after it. Once the six secrets exist on HighKnow-ai/flywheel, plan 11-07's
+    Tasks 2 and 3 run as written with no replanning: the signing and notarization env in
+    `release.yml`, and `scripts/release/verify-gatekeeper.sh` asserting `spctl --assess` and
+    `codesign --verify` against the downloaded artifact. Redeem by pushing a throwaway tag and
+    reading the verification script's output, then deleting the tag and release - the same shape
+    plans 11-04 and 11-05 both used successfully.
