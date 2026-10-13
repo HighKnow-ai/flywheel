@@ -1203,7 +1203,7 @@ notification click-to-jump is deferred to a board issue and is in no requirement
   3. A developer clones the repository and builds a working desktop application by following the documented steps.
   4. The installed open-source application is fully functional standalone — no account, no network service, and no feature gated behind either.
 
-**Plans**: 17/22 plans executed
+**Plans**: 18/22 plans executed
 
 Plans:
 
@@ -1240,7 +1240,7 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [ ] 11-08-PLAN.md — Cut v0.1.0: public repo, signed install, and an offered update observed
-- [ ] 11-11-PLAN.md — Register drain: retry/skip a stuck task, and an observed scope breach stops the merge (D-REV-41, 42)
+- [x] 11-11-PLAN.md — Register drain: retry/skip a stuck task, and an observed scope breach stops the merge (D-REV-41, 42)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
@@ -1322,7 +1322,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
 | 9. Planned Fan-Out That Does Not Collide | 13/13 | Complete    | 2026-10-10 |
 | 10. Fleet Supervision Across Every Project | 9/9 | Complete    | 2026-10-12 |
-| 11. Ship It | 17/22 | In Progress|  |
+| 11. Ship It | 18/22 | In Progress|  |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
 
 ### Phase 12: Destructive-gate trust boundary redesign

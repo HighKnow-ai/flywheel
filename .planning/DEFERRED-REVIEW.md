@@ -887,7 +887,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-41
   phase: "09 — Planned Fan-Out (verifier finding; 09-07 and 09-09 SUMMARYs both said 'file this' and it was never filed)"
   truth: "A task whose run ends `failed`, `stopped` or whose automatic merge ends `conflict` can be retried or skipped from the app, and the user is told why it is stuck; the plan then advances."
-  status: open
+  status: closed (2026-10-14, plan 11-11)
   why_deferred: |
     Not a human-judgement item: it is a missing command. `dispatch.rs::is_startable` retries only `planned`,
     `waiting`, `held_by_limit` and a pre-spawn `needs_attention`. `observation_targets` skips `conflict`,
@@ -900,6 +900,7 @@ At Phase 11, with an installed, usable build:
     09-09-SUMMARY repeated it as 'should be filed as a follow-up issue'. Neither filed it.
   risk_if_wrong: "Moderate. No work is lost and the failure is loud, but the first failed or conflicting task in a real fan-out strands the rest of the epic with no in-app recovery, which is the ordinary case rather than the edge."
   automatable: "YES. A core command `retry_task` (stuck state back to `planned`) and `skip_task` (to `skipped`), human-only, plus one `dispatch_auto_merge.rs` test per command driving a failed run and a real conflict to a drained wave. The cause string for the three states is a one-line addition to `attention_for`'s sibling."
+  update_11-11: "Plan 11-11, 2026-10-14. CLOSED. Core `retry_task` (stuck state back to `planned`, an event naming the human) and `skip_task` (to `skipped`) in domain/dispatch_plan.rs, refusing by name outside failed, stopped and conflict and writing nothing on a refusal; `dispatch::stuck_cause` is the cause sentence for the three states, rendered through dispatch_plan_get. Tauri commands `retry_task` and `skip_task` are in generate_handler! and in the capability roster as HUMAN-ONLY; `grep -rn retry_task packages/sidecar/src` returns 0. Tests in dispatch_auto_merge.rs drive a real failed run and a hand-run failed task to a drained wave, and a retry after a conflict. UI: `retryTask` and `skipTask` in adapters/tauri.ts, Retry and Skip on a stuck task in WavePlanSheet.tsx, a refusal rendered in the core's own words; stuck-task.test.tsx covers cause, both calls once, and the refusal."
 
 - id: D-REV-42
   phase: "09 — Planned Fan-Out (verifier finding; PLAN-04 and ROADMAP criterion 3)"
@@ -917,6 +918,7 @@ At Phase 11, with an installed, usable build:
     be a Bash write.
   risk_if_wrong: "Moderate to high for the headline claim. Disjointness is enforced for file tools and merely observed for Bash, and the merge that follows an observed breach is automatic and unreviewed."
   automatable: "PARTLY. Prevention for Bash is a design question, not a test. The cheap half is YES: make `after_completed_run` return a needs-attention cause when the run has a `detected_after_the_fact` scope event, plus one `dispatch_auto_merge.rs` test. Owner decision still needed on whether to reword PLAN-04 to 'file-writing tools'."
+  update_11-11: "Plan 11-11, 2026-10-14. CHEAP HALF CLOSED, entry stays OPEN. `after_completed_run` now holds the automatic merge with a needs-attention cause `scope_breach` when the task's LATEST run has a `detected_after_the_fact` scope event; a recorded human merge is not held again, and a breach recorded against an earlier run does not hold a retried task. Tests in dispatch_auto_merge.rs: held on breach (one needs-attention record, nothing integrated, wave held), a clean run still merges, a human merge after the breach lets the wave move on, an earlier run's breach does not hold a later clean run. STILL OPEN, and not closed by this plan: (1) prevention for Bash writes is still detective only, because the hook matcher cannot see Bash; (2) PLAN-04's wording ('prevented at the tool level') is still broader than the shipped behaviour and REQUIREMENTS.md still marks it Complete unqualified. Both are owner decisions, routed to the plan 11-21 owner pass."
 
 - id: D-REV-43
   phase: "09 — Planned Fan-Out (plan 09-13, overlap warning host)"
