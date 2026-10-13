@@ -1007,7 +1007,7 @@ fn a_run_that_cannot_record_its_state_does_not_start_and_leaves_nothing_behind()
     let runs = count(&fx.conn(), "SELECT COUNT(*) FROM agent_runs", []);
     let triggers = count(&fx.conn(), "SELECT COUNT(*) FROM triggers", []);
     let events = count(&fx.conn(), "SELECT COUNT(*) FROM events WHERE event_type = 'agent_run.started'", []);
-    let err = begin_planning_run_with(&fx.db, &fx.epic_id, &fx.human, "default", |_, _| {
+    let err = begin_planning_run_with(&fx.db, &fx.epic_id, &fx.human, "default", |_, _, _| {
         Err(anyhow::anyhow!("disk full"))
     })
     .unwrap_err();

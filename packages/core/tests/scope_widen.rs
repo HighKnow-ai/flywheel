@@ -16,7 +16,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use core::domain::agent_run::{close_agent_run, start_agent_run, AgentRun, AgentRunStatus};
-use core::dispatch::{why, AttentionCause, SequencingReason};
+use core::dispatch::{
+    launch_conflict, ready_tasks, why, AttentionCause, Observations, ReadinessRefusal, SequencingReason,
+};
 use core::domain::dispatch_plan::{
     approve_plan_with, create_draft_plan_in_tx, mark_needs_attention, replace_plan_tasks_in_tx, PlanTaskInput,
     EVENT_TASK_SEQUENCED,
@@ -375,6 +377,47 @@ fn a_running_and_a_queued(fx: &mut Fixture) -> (Running, String, String) {
     let b = queued(fx, "b", &epic.id, &["src/b/"]);
     let plan = approved_plan(fx, &epic.id, &[(&a.task_id, 1), (&b, 1)]);
     (a, b, plan)
+}
+
+/// D-REV-44. The launch body and the dispatcher must return ONE verdict for one pair, whatever the
+/// filesystem. Both ask `launch_conflict`; the launch passes the repository's observed case flag and
+/// the dispatcher's `readiness` reads the same flag from `Observations::case_insensitive`. The flag is
+/// driven explicitly with BOTH values, never read off the host: a test that quietly relied on a
+/// case-insensitive macOS runner would prove nothing about the case-sensitive repository this item is
+/// about. `Src/a.rs` and `src/a.rs` are one file when folded and two when not.
+#[test]
+fn the_launch_and_the_dispatcher_agree_on_a_case_only_pair_for_either_case_flag() {
+    with_scratch_env(|_| {
+        let mut fx = fixture();
+        let epic = create_epic(&mut fx.conn, &fx.project_id, &fx.actor, "E", None).unwrap();
+        let live = running(&mut fx, "live", None, &["Src/a.rs"]);
+        let queued_task = queued(&mut fx, "queued", &epic.id, &["src/a.rs"]);
+        let plan = approved_plan(&mut fx, &epic.id, &[(&queued_task, 1)]);
+
+        for fold in [false, true] {
+            let launch = launch_conflict(&fx.conn, &queued_task, &fx.project_id, fold, &[]).unwrap();
+            let mut obs = Observations::default();
+            obs.case_insensitive.insert(fx.project_id.clone(), fold);
+            let dispatcher_would_start = ready_tasks(&fx.conn, &plan, &obs).unwrap().contains(&queued_task);
+
+            assert_eq!(
+                launch.is_none(),
+                dispatcher_would_start,
+                "fold={fold}: the launch said {launch:?} but the dispatcher's readiness disagreed"
+            );
+            if fold {
+                assert_eq!(
+                    launch,
+                    Some(ReadinessRefusal::OverlapsInFlight {
+                        task_id: live.task_id.clone(),
+                        path: "src/a.rs".into()
+                    })
+                );
+            } else {
+                assert_eq!(launch, None, "two files on a case-sensitive repository: nothing to refuse");
+            }
+        }
+    });
 }
 
 #[test]

@@ -274,13 +274,13 @@ pub fn begin_planning_run(
     human_actor_id: &str,
     permission_mode: &str,
 ) -> anyhow::Result<PlanningRunStart> {
-    begin_planning_run_with(db, epic_id, human_actor_id, permission_mode, |run_id, worktree| {
+    begin_planning_run_with(db, epic_id, human_actor_id, permission_mode, |run_id, worktree, case_insensitive| {
         use crate::runtime_protocol::{write_scope_marker, RuntimeIo, ScopeMarker, ScopeMode, SCOPE_MARKER_VERSION};
         let marker = ScopeMarker {
             version: SCOPE_MARKER_VERSION,
             mode: ScopeMode::Armed,
             worktree_root: worktree.to_string_lossy().into_owned(),
-            case_insensitive: crate::domain::file_set::repo_is_case_insensitive(worktree),
+            case_insensitive,
             entries: Vec::new(),
             written_at: chrono::Utc::now().to_rfc3339(),
         };
@@ -298,7 +298,7 @@ pub fn begin_planning_run(
 /// Refusals come first (a live plan, a planning run already running, nothing to plan), before any
 /// branch, worktree or row exists. The integration branch is then cut through the sanctioned lazy
 /// path, so "the repository as it is now" means the integration tip. Git runs with no connection in
-/// scope. `record_state(run_id, canonical_worktree)` is the run's own state and runs last inside the
+/// scope. `record_state(run_id, canonical_worktree, case_insensitive)` is the run's own state and runs last inside the
 /// run's transaction; a failure leaves no run, trigger or event. The cap is not consulted: this is a
 /// user-initiated action, and the run still holds a slot while it runs.
 pub fn begin_planning_run_with(
@@ -306,7 +306,7 @@ pub fn begin_planning_run_with(
     epic_id: &str,
     human_actor_id: &str,
     permission_mode: &str,
-    record_state: impl FnOnce(&str, &std::path::Path) -> anyhow::Result<()>,
+    record_state: impl FnOnce(&str, &std::path::Path, bool) -> anyhow::Result<()>,
 ) -> anyhow::Result<PlanningRunStart> {
     let (project_id, repo_path, key_prefix, epic_key, branch) = {
         let mut conn = lock(db)?;
@@ -328,13 +328,17 @@ pub fn begin_planning_run_with(
     let canonical = std::fs::canonicalize(&worktree)
         .with_context(|| format!("cannot canonicalise the epic worktree {worktree:?}"))?;
 
+    // The repository's case flag is a `git config` subprocess, so it is read here, before the lock
+    // is taken again, and handed to `record_state` (which runs inside the run's transaction).
+    let case_insensitive = crate::domain::file_set::repo_is_case_insensitive(&canonical);
+
     let mut conn = lock(db)?;
     let run_id = crate::domain::dispatch_plan::start_planning_run_row(
         &mut conn,
         epic_id,
         human_actor_id,
         permission_mode,
-        |run_id| record_state(run_id, &canonical),
+        |run_id| record_state(run_id, &canonical, case_insensitive),
     )?;
     let packet = crate::epic_context_packet::assemble_epic_context_packet(&conn, &project_id, Some(epic_id))?;
     let prompt = crate::epic_context_packet::render_planning_prompt(&packet);

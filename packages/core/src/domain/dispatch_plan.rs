@@ -165,34 +165,37 @@ pub fn insert_edge_in_tx(
 /// still fix a wrong one. It is the same computation approval runs (`edges_for_plan`), so what the
 /// sheet shows and what approval freezes cannot disagree about the rule.
 pub fn preview_edges(conn: &Connection, plan_id: &str) -> anyhow::Result<Vec<DispatchEdge>> {
-    let repo_path: String = conn
-        .query_row(
-            "SELECT pr.repo_path FROM dispatch_plans p
-               JOIN epics e ON e.id = p.epic_id JOIN projects pr ON pr.id = e.project_id
-              WHERE p.id = ?1",
-            params![plan_id],
-            |r| r.get(0),
-        )
-        .with_context(|| format!("plan {plan_id:?} not found"))?;
-    let fold_case = crate::domain::file_set::repo_is_case_insensitive(std::path::Path::new(&repo_path));
+    let fold_case = crate::domain::file_set::repo_is_case_insensitive(std::path::Path::new(&plan_repo_path(conn, plan_id)?));
+    preview_edges_with(conn, plan_id, fold_case)
+}
+
+/// The repository path of the project `plan_id` belongs to. A database read only: a command that
+/// holds the database lock reads it, drops the lock, runs the `git config` probe
+/// ([`crate::domain::file_set::repo_is_case_insensitive`]), and re-locks for the `*_with` variants
+/// (D-REV-39 WR-07).
+pub fn plan_repo_path(conn: &Connection, plan_id: &str) -> anyhow::Result<String> {
+    conn.query_row(
+        "SELECT pr.repo_path FROM dispatch_plans p
+           JOIN epics e ON e.id = p.epic_id JOIN projects pr ON pr.id = e.project_id
+          WHERE p.id = ?1",
+        params![plan_id],
+        |r| r.get(0),
+    )
+    .with_context(|| format!("plan {plan_id:?} not found"))
+}
+
+/// [`preview_edges`] with the repository's case flag supplied.
+pub fn preview_edges_with(conn: &Connection, plan_id: &str, fold_case: bool) -> anyhow::Result<Vec<DispatchEdge>> {
     let mut tasks = planned_tasks(conn, plan_id)?;
     normalise_waves(&mut tasks);
     Ok(edges_for_plan(&tasks, fold_case))
 }
 
 /// Approve a draft plan. Case-folding is read from the epic's repository (`core.ignorecase`)
-/// BEFORE the write transaction opens, so no subprocess runs while the lock is held.
+/// BEFORE the write transaction opens. A caller holding the database lock must not call this: it
+/// runs a subprocess. It reads [`plan_repo_path`] and [`approve_plan_with`] instead.
 pub fn approve_plan(conn: &mut Connection, plan_id: &str, actor_id: &str) -> anyhow::Result<()> {
-    let repo_path: String = conn
-        .query_row(
-            "SELECT pr.repo_path FROM dispatch_plans p
-               JOIN epics e ON e.id = p.epic_id JOIN projects pr ON pr.id = e.project_id
-              WHERE p.id = ?1",
-            params![plan_id],
-            |r| r.get(0),
-        )
-        .with_context(|| format!("plan {plan_id:?} not found"))?;
-    let fold_case = crate::domain::file_set::repo_is_case_insensitive(std::path::Path::new(&repo_path));
+    let fold_case = crate::domain::file_set::repo_is_case_insensitive(std::path::Path::new(&plan_repo_path(conn, plan_id)?));
     approve_plan_with(conn, plan_id, actor_id, fold_case, &Utc::now().to_rfc3339())
 }
 
@@ -618,6 +621,18 @@ pub fn control_plan(
 /// which the dispatcher already treats as live.
 pub fn approve_and_start(conn: &mut Connection, plan_id: &str, actor_id: &str) -> anyhow::Result<()> {
     approve_plan(conn, plan_id, actor_id)?;
+    control_plan(conn, plan_id, PlanControl::Start, actor_id)
+}
+
+/// [`approve_and_start`] with the repository's case flag supplied, for a caller that holds the
+/// database lock and so has already run the probe outside it (D-REV-39 WR-07).
+pub fn approve_and_start_with(
+    conn: &mut Connection,
+    plan_id: &str,
+    actor_id: &str,
+    fold_case: bool,
+) -> anyhow::Result<()> {
+    approve_plan_with(conn, plan_id, actor_id, fold_case, &Utc::now().to_rfc3339())?;
     control_plan(conn, plan_id, PlanControl::Start, actor_id)
 }
 

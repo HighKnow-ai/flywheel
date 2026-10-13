@@ -147,13 +147,17 @@ pub struct WidenResultDto {
 /// The longest entry string a widen accepts. `parse_entry` has no length bound of its own.
 const MAX_ENTRY_CHARS: usize = 1024;
 
+/// `fold_case` is the repository's case flag, supplied by the caller because reading it runs
+/// `git config`, which must not run under `AppState.db` (D-REV-39 WR-07): [`task_file_set_widen`]
+/// reads it before taking the lock.
 pub(crate) fn widen_task_file_set(
     conn: &mut Connection,
     task_id: &str,
     entry: &str,
     actor_id: &str,
+    fold_case: bool,
 ) -> Result<WidenResultDto, String> {
-    use flywheel_core::domain::file_set::{widen_file_set, WidenOutcome, WidenRefusal};
+    use flywheel_core::domain::file_set::{widen_file_set_with, WidenOutcome, WidenRefusal};
 
     validate_task_id(task_id)?;
     if entry.chars().count() > MAX_ENTRY_CHARS {
@@ -167,7 +171,7 @@ pub(crate) fn widen_task_file_set(
         other_task_key: None,
         marker_error: None,
     };
-    match widen_file_set(conn, task_id, entry, actor_id)
+    match widen_file_set_with(conn, task_id, entry, actor_id, fold_case)
         .map_err(|e| ipc_error("task_file_set_widen:widen", e))?
     {
         WidenOutcome::Accepted { entries } => Ok(WidenResultDto { entries, ..dto("accepted") }),
@@ -203,10 +207,19 @@ pub fn task_file_set_widen(
     task_id: String,
     entry: String,
 ) -> Result<WidenResultDto, String> {
+    // Read the repository path under a short lock, drop it, run `git config`, then re-lock (the shape
+    // the worktree reclaim path uses). An unreadable task reads `false`; the widen reports the error.
+    let repo_path = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|conn| flywheel_core::domain::file_set::task_repo_path(&conn, &task_id).ok());
+    let fold_case = repo_path
+        .is_some_and(|p| flywheel_core::domain::file_set::repo_is_case_insensitive(std::path::Path::new(&p)));
     let mut conn = state.db.lock().map_err(|e| ipc_error("task_file_set_widen:lock", e))?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
         .map_err(|e| ipc_error("task_file_set_widen:actor", e))?;
-    let result = widen_task_file_set(&mut conn, &task_id, &entry, &actor_id)?;
+    let result = widen_task_file_set(&mut conn, &task_id, &entry, &actor_id, fold_case)?;
     if result.status != "refused" {
         app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id })).ok();
     }
@@ -467,7 +480,7 @@ mod tests {
     fn a_widen_with_no_collision_is_accepted_and_returns_the_new_set() {
         let (mut conn, actor, task_id) = seeded();
         set_task_file_set(&mut conn, &task_id, &strings(&["a/"]), &actor).unwrap();
-        let r = widen_task_file_set(&mut conn, &task_id, "b.rs", &actor).unwrap();
+        let r = widen_task_file_set(&mut conn, &task_id, "b.rs", &actor, false).unwrap();
         assert_eq!(r.status, "accepted");
         assert_eq!(r.entries, vec!["a/".to_string(), "b.rs".to_string()]);
         assert!(r.refusal.is_none());
@@ -476,7 +489,7 @@ mod tests {
     #[test]
     fn a_glob_widen_is_a_refusal_the_renderer_can_show_not_an_ipc_error() {
         let (mut conn, actor, task_id) = seeded();
-        let r = widen_task_file_set(&mut conn, &task_id, "src/*.rs", &actor).unwrap();
+        let r = widen_task_file_set(&mut conn, &task_id, "src/*.rs", &actor, false).unwrap();
         assert_eq!(r.status, "refused");
         assert!(r.refusal.unwrap().contains("glob"));
     }
@@ -484,9 +497,9 @@ mod tests {
     #[test]
     fn a_malformed_task_id_and_an_oversized_entry_are_refused_before_the_database() {
         let (mut conn, actor, task_id) = seeded();
-        assert!(widen_task_file_set(&mut conn, "../x", "a.rs", &actor).unwrap_err().contains("task id"));
+        assert!(widen_task_file_set(&mut conn, "../x", "a.rs", &actor, false).unwrap_err().contains("task id"));
         let long = "a".repeat(MAX_ENTRY_CHARS + 1);
-        assert!(widen_task_file_set(&mut conn, &task_id, &long, &actor).is_err());
+        assert!(widen_task_file_set(&mut conn, &task_id, &long, &actor, false).is_err());
     }
 
     #[test]

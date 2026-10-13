@@ -539,6 +539,10 @@ pub(crate) struct StartRunOutcome {
 /// 7. the `record_drift_warnings` transaction, unchanged in shape.
 /// 8. `list_current_criteria` then `pin_criteria_revisions`, unchanged.
 /// 9. the `SELECT path FROM worktrees WHERE id = ?1` read for the worktree path.
+/// `case_insensitive` is the repository's observed `core.ignorecase`, read by the caller BEFORE the
+/// database lock was taken (it is a `git config` subprocess, D-REV-39 WR-07) and written into the
+/// scope marker unchanged.
+///
 /// 10. [`arm_run_scope`] (phase 09, plan 09-01, D-150/D-151) — writes the run's scope marker, AFTER
 ///     the worktree path is read (the marker records the canonical worktree root) and BEFORE the
 ///     outcome is returned, so the marker exists on disk before the caller can spawn a session
@@ -551,6 +555,7 @@ pub(crate) fn start_agent_run_recording_first(
     permission_mode: &str,
     instruction: &str,
     human_actor_id: &str,
+    case_insensitive: bool,
 ) -> Result<StartRunOutcome, String> {
     // Step 1 — see this function's own doc comment for why this MUST stay first.
     let previous_run_id = flywheel_core::query::permissions::latest_run_id_for_task(conn, task_id)
@@ -637,7 +642,7 @@ pub(crate) fn start_agent_run_recording_first(
     // row this function inserted at step 2 is closed `failed` before the error propagates: a
     // `running` row with no session behind it would hold a dispatcher slot forever (plan 09-07
     // counts `running` runs) and leave the task looking worked-on.
-    let scope_armed = arm_run_scope(conn, &run.id, task_id, &worktree_path)
+    let scope_armed = arm_run_scope(conn, &run.id, task_id, &worktree_path, case_insensitive)
         .map_err(|why| fail_launch(conn, &run.id, why))?;
 
     Ok(StartRunOutcome {
@@ -662,12 +667,14 @@ pub(crate) fn arm_run_scope(
     run_id: &str,
     task_id: &str,
     worktree_path: &str,
+    case_insensitive: bool,
 ) -> Result<bool, String> {
-    flywheel_core::domain::file_set::arm_scope_marker(
+    flywheel_core::domain::file_set::arm_scope_marker_with(
         conn,
         run_id,
         task_id,
         std::path::Path::new(worktree_path),
+        case_insensitive,
     )
     .map(|mode| mode == flywheel_core::runtime_protocol::ScopeMode::Armed)
 }
@@ -763,9 +770,16 @@ pub(crate) fn prepare_launch(
     permission_mode: &str,
     instruction: &str,
     conflict: CrossTaskConflict,
+    fold_case: bool,
 ) -> Result<PreparedLaunch, String> {
-    let human_actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(conn).map_err(|e| e.to_string())?;
+    // D-REV-39 IN-02: `Refuse` is the dispatcher's launch, which nobody at the keyboard asked for, so
+    // it is the system actor's act (and `start_agent_run` flags it automatic from that actor's type);
+    // `WarnAndProceed` is the user pressing Launch. Same convention the automatic merge uses.
+    let initiator_id = match conflict {
+        CrossTaskConflict::Refuse => flywheel_core::domain::actor::system_actor(conn).map(|a| a.id),
+        CrossTaskConflict::WarnAndProceed => flywheel_core::domain::actor::local_human_actor_id(conn),
+    }
+    .map_err(|e| e.to_string())?;
 
     // Resolve the credential BEFORE any run/worktree state is created (D-39, plan 02-09 Task 2).
     // `resolve_credential` errors when the credential mode is api_key and no key is stored
@@ -793,12 +807,12 @@ pub(crate) fn prepare_launch(
     // 09-12's single rule, the same function the dispatcher's `readiness` calls; a verdict the
     // dispatcher took under its own lock can be stale by now, which is exactly why it is asked again
     // here, at the body every launch passes through.
-    // ponytail: folds case unconditionally (a launch picks one task, so `taken` is empty). Folding
-    // finds MORE collisions, the conservative side for a refusal, and resolving the repository's real
-    // case sensitivity runs git while this lock is held. Ceiling: on a case-sensitive repository a
-    // pair whose paths differ only in case can be refused here though the dispatcher allowed it.
-    // Upgrade: resolve the flag before taking the lock.
-    let cross_task = match flywheel_core::dispatch::launch_conflict(conn, task_id, &project_id, true, &[])
+    // `fold_case` is the repository's OBSERVED flag, the same value `readiness` reads for the dispatcher
+    // (`Observations::case_insensitive`), resolved by the caller before it took this lock because it
+    // runs `git config`. Both callers therefore return one verdict for one pair on every filesystem
+    // (D-REV-44): the launch used to fold unconditionally, so on a case-sensitive repository it
+    // refused a pair the dispatcher had judged disjoint.
+    let cross_task = match flywheel_core::dispatch::launch_conflict(conn, task_id, &project_id, fold_case, &[])
         .map_err(|e| e.to_string())?
     {
         None => None,
@@ -820,11 +834,11 @@ pub(crate) fn prepare_launch(
     }
 
     let outcome =
-        start_agent_run_recording_first(conn, task_id, permission_mode, instruction, &human_actor_id)?;
+        start_agent_run_recording_first(conn, task_id, permission_mode, instruction, &initiator_id, fold_case)?;
     // A user's own launch proceeds, but no longer silently. The run id exists now, so the event can
     // carry it; its own transaction, as the neighbouring event writes do.
     if let Some(sentence) = &cross_task {
-        record_launch_overlap(conn, &project_id, task_id, &outcome.run_id, &human_actor_id, sentence)
+        record_launch_overlap(conn, &project_id, task_id, &outcome.run_id, &initiator_id, sentence)
             .map_err(|why| fail_launch(conn, &outcome.run_id, why))?;
     }
     Ok(PreparedLaunch { outcome, repo_path, env, overlap_warning: cross_task })
@@ -925,6 +939,19 @@ pub(crate) fn spawn_prepared_run(
     })
 }
 
+/// The repository's OBSERVED case flag for `task_id`, read with no database lock held across the probe:
+/// the repository path under a short lock, the lock dropped, the `git config` subprocess, and the
+/// caller takes the lock again (the shape the worktree reclaim path uses). This is the value the
+/// dispatcher's `readiness` already reads, so a launch and a dispatcher decision see one flag
+/// (D-REV-44); it also keeps `git config` off `AppState.db` (D-REV-39 WR-07).
+pub(crate) fn observed_fold_case(db: &std::sync::Mutex<Connection>, task_id: &str) -> Result<bool, String> {
+    let repo_path = {
+        let conn = db.lock().map_err(|e| e.to_string())?;
+        flywheel_core::domain::file_set::task_repo_path(&conn, task_id).map_err(|e| e.to_string())?
+    };
+    Ok(flywheel_core::domain::file_set::repo_is_case_insensitive(std::path::Path::new(&repo_path)))
+}
+
 /// The launch body, after argument validation: resolves the human actor server-side (T-01-04),
 /// credential resolution before any run/worktree state exists (D-39, T-02-42), the DB-only half
 /// ([`prepare_launch`]), the shim env merge, the spawn request through the one gated path, and the
@@ -946,9 +973,10 @@ pub(crate) fn launch_run_for_task(
     instruction: &str,
     conflict: CrossTaskConflict,
 ) -> Result<AgentRunDto, String> {
+    let fold_case = observed_fold_case(&state.db, task_id)?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let PreparedLaunch { outcome, repo_path, env, overlap_warning } =
-        prepare_launch(&mut conn, task_id, permission_mode, instruction, conflict)?;
+        prepare_launch(&mut conn, task_id, permission_mode, instruction, conflict, fold_case)?;
     spawn_prepared_run(
         &state.db,
         conn,
@@ -3300,6 +3328,7 @@ mod tests {
                 "acceptEdits",
                 "",
                 &human_actor_id,
+                false,
             )
             .expect("run 1 should start");
             assert!(
@@ -3323,6 +3352,7 @@ mod tests {
                 "acceptEdits",
                 "",
                 &human_actor_id,
+                false,
             )
             .expect("run 2 should start");
 
@@ -3406,6 +3436,7 @@ mod tests {
                 "acceptEdits",
                 "",
                 &human_actor_id,
+                false,
             )
             .expect("run 1 should start");
 
@@ -3467,7 +3498,7 @@ mod tests {
             )
             .expect("create_criterion should succeed");
 
-            start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &human_actor_id)
+            start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &human_actor_id, false)
                 .expect("run 1 should start");
 
             flywheel_core::domain::acceptance_criterion::revise_criterion(
@@ -3500,6 +3531,7 @@ mod tests {
                 "acceptEdits",
                 "",
                 &human_actor_id,
+                false,
             )
             .expect("run 2 should start");
 
@@ -3567,7 +3599,7 @@ mod tests {
             let (mut conn, actor, project_id, task_id, _repo) = seeded_git_conn_with_task();
             let unchecked = declined_task(&mut conn, &actor, &project_id, &task_id);
 
-            let run = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor)
+            let run = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor, false)
                 .expect("the declined task relaunches");
 
             assert!(run.prompt.contains("## Review Feedback"), "{}", run.prompt);
@@ -3646,7 +3678,7 @@ mod tests {
             let (mut conn, actor, _project_id, task_id, _repo) = seeded_git_conn_with_task();
             declare_set(&mut conn, &actor, &task_id, &["src/allowed/"]);
 
-            let outcome = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor)
+            let outcome = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor, false)
                 .expect("a task with a declared set starts");
 
             let marker = flywheel_core::runtime_protocol::read_scope_marker(&outcome.run_id)
@@ -3671,7 +3703,7 @@ mod tests {
         with_scratch_worktree_root(|| {
             let (mut conn, actor, _project_id, task_id, _repo) = seeded_git_conn_with_task();
 
-            let outcome = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor)
+            let outcome = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor, false)
                 .expect("a task with no declared set starts exactly as before this phase");
 
             let marker = flywheel_core::runtime_protocol::read_scope_marker(&outcome.run_id)
@@ -3691,7 +3723,7 @@ mod tests {
         with_scratch_worktree_root(|| {
             let (mut conn, actor, _project_id, task_id, _repo) = seeded_git_conn_with_task();
             declare_set(&mut conn, &actor, &task_id, &["a/"]);
-            let first = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor).unwrap();
+            let first = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor, false).unwrap();
             assert_eq!(
                 flywheel_core::runtime_protocol::read_scope_marker(&first.run_id).unwrap().mode,
                 flywheel_core::runtime_protocol::ScopeMode::Armed
@@ -3709,7 +3741,7 @@ mod tests {
             )
             .unwrap();
             declare_set(&mut conn, &actor, &task_id, &[]);
-            let second = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor).unwrap();
+            let second = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor, false).unwrap();
             assert_eq!(
                 flywheel_core::runtime_protocol::read_scope_marker(&second.run_id).unwrap().mode,
                 flywheel_core::runtime_protocol::ScopeMode::Unarmed
@@ -3730,7 +3762,7 @@ mod tests {
             // SAFETY: serialised by `WORKTREE_ROOT_ENV_LOCK`, held by the enclosing helper.
             unsafe { std::env::set_var("FLYWHEEL_RUNTIME_DIR", &unusable) };
 
-            let err = match start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor) {
+            let err = match start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor, false) {
                 Ok(_) => panic!("a run that cannot record its scope must not start"),
                 Err(e) => e,
             };
@@ -3779,7 +3811,7 @@ mod tests {
         task_id: &str,
         conflict: CrossTaskConflict,
     ) -> Result<PreparedLaunch, String> {
-        prepare_launch(conn, task_id, "acceptEdits", "", conflict)
+        prepare_launch(conn, task_id, "acceptEdits", "", conflict, false)
     }
 
     /// A project with two tasks: `task` (declared `src/a/` unless `task_set` says otherwise) and an
@@ -3797,7 +3829,7 @@ mod tests {
         let (other, other_key) = add_task(&mut conn, &actor, &project_id, "Other task");
         declare_set(&mut conn, &actor, &task, task_set);
         declare_set(&mut conn, &actor, &other, other_set);
-        start_agent_run_recording_first(&mut conn, &other, "acceptEdits", "", &actor)
+        start_agent_run_recording_first(&mut conn, &other, "acceptEdits", "", &actor, false)
             .expect("the other task goes live");
         TwoTasks { conn, task, other, other_key, _repo: repo }
     }
@@ -3889,7 +3921,7 @@ mod tests {
                 with_scratch_worktree_root(|| {
                     let (mut conn, actor, _p, task, _repo) = seeded_git_conn_with_task();
                     declare_set(&mut conn, &actor, &task, &["src/a/"]);
-                    let first = start_agent_run_recording_first(&mut conn, &task, "acceptEdits", "", &actor).unwrap();
+                    let first = start_agent_run_recording_first(&mut conn, &task, "acceptEdits", "", &actor, false).unwrap();
                     conn.execute(
                         "UPDATE agent_runs SET status = ?1 WHERE id = ?2",
                         rusqlite::params![status, first.run_id],
@@ -3974,6 +4006,47 @@ mod tests {
         }
     }
 
+    // --- D-REV-44: the launch asks with the repository's observed case flag -----------------------------
+
+    /// `Src/a.rs` against `src/a.rs` is one file on a case-insensitive filesystem and two on a
+    /// case-sensitive one. The launch used to fold unconditionally, so on the second it refused a pair
+    /// the dispatcher had judged disjoint. The flag is passed explicitly (both values), so this means
+    /// the same thing on a case-insensitive macOS runner as on a case-sensitive Linux one.
+    #[test]
+    fn a_case_only_pair_is_judged_by_the_flag_the_launch_is_given() {
+        for fold in [false, true] {
+            with_scratch_worktree_root(|| {
+                let mut f = two_tasks(&["Src/a.rs"], &["src/a.rs"]);
+                let result = prepare_launch(&mut f.conn, &f.task, "acceptEdits", "", CrossTaskConflict::Refuse, fold);
+                if fold {
+                    let err = result.err().expect("folded, the pair is one file: the dispatcher's launch is refused");
+                    assert!(err.contains("Launch refused"), "{err}");
+                } else {
+                    result.expect("not folded, the pair is two files: nothing to refuse");
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn the_observed_case_flag_is_the_repositorys_core_ignorecase() {
+        for configured in ["false", "true"] {
+            with_scratch_worktree_root(|| {
+                let (conn, _actor, _project, task, repo) = seeded_git_conn_with_task();
+                let out = std::process::Command::new("git")
+                    .args(["-C"])
+                    .arg(repo.path())
+                    .args(["config", "core.ignorecase", configured])
+                    .output()
+                    .unwrap();
+                assert!(out.status.success());
+                let db = std::sync::Mutex::new(conn);
+                assert_eq!(observed_fold_case(&db, &task).unwrap(), configured == "true");
+                assert!(db.try_lock().is_ok(), "the database lock is not left held by the probe");
+            });
+        }
+    }
+
     // --- D-REV-46: a launch that fails after its run row exists leaves no `running` row -----------------
 
     fn live_run_count(conn: &Connection) -> i64 {
@@ -4054,7 +4127,7 @@ mod tests {
         let (conn, _actor, _p, task, repo) = seeded_git_conn_with_task();
         let db = std::sync::Mutex::new(conn);
         let mut guard = db.lock().unwrap();
-        let prepared = prepare_launch(&mut guard, &task, "acceptEdits", "", CrossTaskConflict::WarnAndProceed)
+        let prepared = prepare_launch(&mut guard, &task, "acceptEdits", "", CrossTaskConflict::WarnAndProceed, false)
             .expect("the run row is inserted");
         let err = spawn_prepared_run(&db, guard, &prepared.outcome, prepared.env, "acceptEdits", merge_shim, send)
             .expect_err("the injected step fails");

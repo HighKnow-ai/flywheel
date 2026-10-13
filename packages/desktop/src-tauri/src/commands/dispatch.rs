@@ -87,7 +87,10 @@ pub struct DispatchPlanDto {
     pub edges_frozen: bool,
 }
 
-fn plan_dto(conn: &rusqlite::Connection, plan_id: &str) -> Result<DispatchPlanDto, String> {
+/// `fold_case` is the repository's case flag, used only to preview a DRAFT's edges. It is a parameter
+/// because reading it runs `git config`, which must not happen under `AppState.db` (D-REV-39 WR-07);
+/// [`plan_fold_case`] reads it before the lock is taken.
+fn plan_dto(conn: &rusqlite::Connection, plan_id: &str, fold_case: bool) -> Result<DispatchPlanDto, String> {
     let plan = flywheel_core::domain::dispatch_plan::read_plan(conn, plan_id)
         .map_err(|e| ipc_error("dispatch_plan_get:read", e))?
         .ok_or_else(|| format!("plan {plan_id:?} not found"))?;
@@ -97,7 +100,7 @@ fn plan_dto(conn: &rusqlite::Connection, plan_id: &str) -> Result<DispatchPlanDt
     let edges = if edges_frozen {
         flywheel_core::domain::dispatch_plan::read_edges(conn, plan_id)
     } else {
-        flywheel_core::domain::dispatch_plan::preview_edges(conn, plan_id)
+        flywheel_core::domain::dispatch_plan::preview_edges_with(conn, plan_id, fold_case)
     }
     .map_err(|e| ipc_error("dispatch_plan_get:edges", e))?;
     let mut tasks = Vec::with_capacity(plan.tasks.len());
@@ -152,6 +155,32 @@ fn plan_dto(conn: &rusqlite::Connection, plan_id: &str) -> Result<DispatchPlanDt
     })
 }
 
+/// The repository's case flag for a DRAFT plan, read with NO database lock held across the probe:
+/// the repository path is read under a short lock, the lock is dropped, `git config` runs, and the
+/// caller re-locks (the shape `worktree.rs`'s reclaim path uses). Any other status needs no flag and
+/// reads `false`; so does a plan that cannot be found, because the core call that follows reports the
+/// real error.
+fn plan_fold_case(state: &AppState, plan_id: &str) -> bool {
+    let repo_path = state.db.lock().ok().and_then(|conn| {
+        let draft: bool = conn
+            .query_row("SELECT status = 'draft' FROM dispatch_plans WHERE id = ?1", [plan_id], |r| r.get(0))
+            .ok()?;
+        if !draft {
+            return None;
+        }
+        flywheel_core::domain::dispatch_plan::plan_repo_path(&conn, plan_id).ok()
+    });
+    repo_path.is_some_and(|p| flywheel_core::domain::file_set::repo_is_case_insensitive(std::path::Path::new(&p)))
+}
+
+/// [`plan_dto`] for a caller that holds no lock: the case flag first (no lock across the probe), then
+/// a short lock for the read.
+fn plan_dto_unlocked(state: &AppState, plan_id: &str) -> Result<DispatchPlanDto, String> {
+    let fold_case = plan_fold_case(state, plan_id);
+    let conn = state.db.lock().map_err(|e| ipc_error("dispatch_plan:lock", e))?;
+    plan_dto(&conn, plan_id, fold_case)
+}
+
 fn notify(app: &AppHandle, plan_id: &str) {
     app.emit("board:changed", serde_json::json!({ "entity": "dispatch_plan", "id": plan_id })).ok();
 }
@@ -170,8 +199,8 @@ pub fn dispatch_plan_create(
         .map_err(|e| ipc_error("dispatch_plan_create:actor", e))?;
     let plan_id = flywheel_core::domain::dispatch_plan::create_plan_for_epic(&mut conn, &epic_id, &human)
         .map_err(|e| ipc_error("dispatch_plan_create:create", e))?;
-    let dto = plan_dto(&conn, &plan_id)?;
     drop(conn);
+    let dto = plan_dto_unlocked(&state, &plan_id)?;
     notify(&app, &plan_id);
     Ok(dto)
 }
@@ -206,7 +235,8 @@ pub fn dispatch_plan_get(
         }
         _ => return Err("pass exactly one of a plan id or an epic id".to_string()),
     };
-    plan_dto(&conn, &plan_id).map(Some)
+    drop(conn);
+    plan_dto_unlocked(&state, &plan_id).map(Some)
 }
 
 /// One edit to a draft: a wave move and/or a replacement of the task's declared entries.
@@ -249,8 +279,8 @@ pub fn dispatch_plan_edit(
         .map_err(|e| ipc_error("dispatch_plan_edit:actor", e))?;
     flywheel_core::domain::dispatch_plan::edit_draft_plan(&mut conn, &plan_id, &inputs, &human)
         .map_err(|e| ipc_error("dispatch_plan_edit:edit", e))?;
-    let dto = plan_dto(&conn, &plan_id)?;
     drop(conn);
+    let dto = plan_dto_unlocked(&state, &plan_id)?;
     notify(&app, &plan_id);
     Ok(dto)
 }
@@ -267,8 +297,8 @@ fn control(
     let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| ipc_error(context, e))?;
     flywheel_core::domain::dispatch_plan::control_plan(&mut conn, plan_id, control, &human)
         .map_err(|e| ipc_error(context, e))?;
-    let dto = plan_dto(&conn, plan_id)?;
     drop(conn);
+    let dto = plan_dto_unlocked(state, plan_id)?;
     notify(app, plan_id);
     Ok(dto)
 }
@@ -282,13 +312,14 @@ pub fn dispatch_plan_approve(
     plan_id: String,
 ) -> Result<DispatchPlanDto, String> {
     validate_id("plan", &plan_id)?;
+    let fold_case = plan_fold_case(&state, &plan_id); // before the lock: it runs `git config`
     let mut conn = state.db.lock().map_err(|e| ipc_error("dispatch_plan_approve:lock", e))?;
     let human = flywheel_core::domain::actor::local_human_actor_id(&conn)
         .map_err(|e| ipc_error("dispatch_plan_approve:actor", e))?;
-    flywheel_core::domain::dispatch_plan::approve_and_start(&mut conn, &plan_id, &human)
+    flywheel_core::domain::dispatch_plan::approve_and_start_with(&mut conn, &plan_id, &human, fold_case)
         .map_err(|e| ipc_error("dispatch_plan_approve:approve", e))?;
-    let dto = plan_dto(&conn, &plan_id)?;
     drop(conn);
+    let dto = plan_dto_unlocked(&state, &plan_id)?;
     notify(&app, &plan_id);
     crate::scheduler::nudge_dispatch(&app);
     Ok(dto)
@@ -324,8 +355,8 @@ pub fn dispatch_advance_now(state: State<AppState>, app: AppHandle, plan_id: Str
         .map_err(|e| ipc_error("dispatch_advance_now:actor", e))?;
     flywheel_core::domain::dispatch_plan::advance_wave(&mut conn, &plan_id, &human)
         .map_err(|e| ipc_error("dispatch_advance_now:advance", e))?;
-    let dto = plan_dto(&conn, &plan_id)?;
     drop(conn);
+    let dto = plan_dto_unlocked(&state, &plan_id)?;
     notify(&app, &plan_id);
     crate::scheduler::nudge_dispatch(&app);
     Ok(dto)
@@ -732,7 +763,7 @@ mod surface_tests {
     fn a_draft_dto_carries_each_tasks_declared_entries_and_previews_the_edges_unfrozen() {
         let (mut conn, epic_id, human, tasks) = two_task_epic();
         let plan_id = flywheel_core::domain::dispatch_plan::create_plan_for_epic(&mut conn, &epic_id, &human).unwrap();
-        let dto = plan_dto(&conn, &plan_id).unwrap();
+        let dto = plan_dto(&conn, &plan_id, false).unwrap();
         assert_eq!(dto.status, "draft");
         assert!(!dto.edges_frozen, "a draft's edges are a preview");
         assert_eq!(dto.edges.len(), 1);
@@ -804,7 +835,7 @@ mod surface_tests {
         let (mut conn, epic_id, human, _) = two_task_epic();
         let plan_id = flywheel_core::domain::dispatch_plan::create_plan_for_epic(&mut conn, &epic_id, &human).unwrap();
         flywheel_core::domain::dispatch_plan::approve_and_start(&mut conn, &plan_id, &human).unwrap();
-        let dto = plan_dto(&conn, &plan_id).unwrap();
+        let dto = plan_dto(&conn, &plan_id, false).unwrap();
         assert!(dto.edges_frozen);
         assert_eq!(dto.edges.len(), 1);
     }

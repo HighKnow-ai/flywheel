@@ -173,7 +173,12 @@ pub fn declare_file_set(
 /// `core.ignorecase` (git sets it at init). Unset or unreadable reads as `false`: not folding is
 /// the STRICTER direction for enforcement (an alias spelled in another case is refused rather
 /// than allowed).
-pub(crate) fn repo_is_case_insensitive(worktree_path: &std::path::Path) -> bool {
+///
+/// This runs `git config`, a subprocess: call it with NO database lock held, and hand the answer to
+/// the `*_with` variants ([`arm_scope_marker_with`], [`widen_file_set_with`], `preview_edges_with`)
+/// rather than letting a command probe under `AppState.db` (D-REV-39 WR-07). It is `pub` so the
+/// launch body can read the repository's observed flag before taking the lock (D-REV-44).
+pub fn repo_is_case_insensitive(worktree_path: &std::path::Path) -> bool {
     crate::git::git_output_at(worktree_path, &["config", "--get", "core.ignorecase"])
         .map(|out| {
             out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "true"
@@ -195,6 +200,19 @@ pub fn arm_scope_marker(
     task_id: &str,
     worktree_path: &std::path::Path,
 ) -> Result<crate::runtime_protocol::ScopeMode, String> {
+    let case_insensitive = repo_is_case_insensitive(worktree_path);
+    arm_scope_marker_with(conn, run_id, task_id, worktree_path, case_insensitive)
+}
+
+/// [`arm_scope_marker`] with the repository's case flag supplied, so a caller holding the database
+/// lock never runs the `git config` probe under it.
+pub fn arm_scope_marker_with(
+    conn: &Connection,
+    run_id: &str,
+    task_id: &str,
+    worktree_path: &std::path::Path,
+    case_insensitive: bool,
+) -> Result<crate::runtime_protocol::ScopeMode, String> {
     use crate::runtime_protocol::{
         write_scope_marker, RuntimeIo, ScopeMarker, ScopeMarkerEntry, ScopeMode, SCOPE_MARKER_VERSION,
     };
@@ -208,7 +226,7 @@ pub fn arm_scope_marker(
         version: SCOPE_MARKER_VERSION,
         mode,
         worktree_root: canonical.to_string_lossy().into_owned(),
-        case_insensitive: repo_is_case_insensitive(&canonical),
+        case_insensitive,
         entries: entries
             .iter()
             .map(|e| ScopeMarkerEntry {
@@ -433,6 +451,30 @@ pub fn widen_file_set(
     raw_entry: &str,
     actor_id: &str,
 ) -> anyhow::Result<WidenOutcome> {
+    let repo_path = task_repo_path(conn, task_id)?;
+    let fold_case = repo_is_case_insensitive(std::path::Path::new(&repo_path));
+    widen_file_set_with(conn, task_id, raw_entry, actor_id, fold_case)
+}
+
+/// The repository path of the project `task_id` belongs to. A database read only: the desktop
+/// command reads it under a short lock, drops the lock, probes, then calls the `*_with` variant.
+pub fn task_repo_path(conn: &Connection, task_id: &str) -> anyhow::Result<String> {
+    conn.query_row(
+        "SELECT p.repo_path FROM tasks t JOIN projects p ON p.id = t.project_id WHERE t.id = ?1",
+        params![task_id],
+        |r| r.get(0),
+    )
+    .with_context(|| format!("task {task_id:?} not found"))
+}
+
+/// [`widen_file_set`] with the repository's case flag supplied (see [`repo_is_case_insensitive`]).
+pub fn widen_file_set_with(
+    conn: &mut Connection,
+    task_id: &str,
+    raw_entry: &str,
+    actor_id: &str,
+    fold_case: bool,
+) -> anyhow::Result<WidenOutcome> {
     use rusqlite::{OptionalExtension, TransactionBehavior};
 
     let candidate = match parse_entry(raw_entry) {
@@ -445,16 +487,13 @@ pub fn widen_file_set(
         }
     };
 
-    let (project_id, epic_id, repo_path): (String, Option<String>, String) = conn
+    let (project_id, epic_id): (String, Option<String>) = conn
         .query_row(
-            "SELECT t.project_id, t.epic_id, p.repo_path FROM tasks t
-               JOIN projects p ON p.id = t.project_id WHERE t.id = ?1",
+            "SELECT project_id, epic_id FROM tasks WHERE id = ?1",
             params![task_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .with_context(|| format!("task {task_id:?} not found"))?;
-    // A subprocess: done before the write lock is taken, as `approve_plan` does.
-    let fold_case = repo_is_case_insensitive(std::path::Path::new(&repo_path));
     let now = Utc::now().to_rfc3339();
 
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -503,7 +542,7 @@ pub fn widen_file_set(
     tx.commit().context("failed to commit widen_file_set transaction")?;
 
     let entries = entry_strings(&list_entries_for_task(conn, task_id)?);
-    match rewrite_live_markers(conn, task_id) {
+    match rewrite_live_markers(conn, task_id, fold_case) {
         Ok(()) => Ok(WidenOutcome::Accepted { entries }),
         Err(error) => Ok(WidenOutcome::MarkerNotRewritten { entries, error }),
     }
@@ -592,7 +631,7 @@ fn record_widen_sequencing(
 
 /// Re-arm the scope marker of every live run of `task_id` from the stored rows. A task with no live
 /// run has no marker to rewrite: its next run arms from the same rows.
-fn rewrite_live_markers(conn: &Connection, task_id: &str) -> Result<(), String> {
+fn rewrite_live_markers(conn: &Connection, task_id: &str, case_insensitive: bool) -> Result<(), String> {
     let run_ids: Vec<String> = conn
         .prepare("SELECT id FROM agent_runs WHERE task_id = ?1 AND status IN ('running', 'blocked')")
         .and_then(|mut stmt| stmt.query_map(params![task_id], |r| r.get(0))?.collect())
@@ -604,7 +643,7 @@ fn rewrite_live_markers(conn: &Connection, task_id: &str) -> Result<(), String> 
         .map_err(|e| format!("{e:#}"))?
         .ok_or_else(|| "the task has a live run but no worktree".to_string())?;
     for run_id in run_ids {
-        arm_scope_marker(conn, &run_id, task_id, std::path::Path::new(&worktree.path))?;
+        arm_scope_marker_with(conn, &run_id, task_id, std::path::Path::new(&worktree.path), case_insensitive)?;
     }
     Ok(())
 }
