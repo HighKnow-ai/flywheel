@@ -97,7 +97,7 @@ const proposal = (id: string, title: string, targetType: string): AuthoringPropo
 });
 
 const FIXTURE_TAG = (
-  <span className="type-micro control-edge" style={{ borderRadius: "var(--radius-mark)", padding: "0 4px", marginLeft: 6, color: "var(--text-muted-rack)" }}>
+  <span className="type-label control-edge" style={{ borderRadius: "var(--radius-mark)", padding: "0 4px", marginLeft: 6, color: "var(--text-muted-rack)" }}>
     FIXTURE
   </span>
 );

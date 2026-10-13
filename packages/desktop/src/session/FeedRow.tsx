@@ -404,7 +404,7 @@ function ScopeDeniedRow({
     >
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
         <span
-          className="type-micro"
+          className="type-label"
           title={full}
           style={{
             overflow: "hidden",
@@ -424,7 +424,7 @@ function ScopeDeniedRow({
             type="button"
             onClick={handleWiden}
             disabled={inFlight}
-            className="type-micro"
+            className="type-label"
             style={{ flexShrink: 0, cursor: inFlight ? "default" : "pointer" }}
           >
             Widen scope to this path
@@ -469,7 +469,7 @@ export function FeedRow({ row, expanded, onToggleExpand, live = false, taskId = 
       return (
         <ExpandableTextRow
           row={row}
-          roleClassName="type-micro"
+          roleClassName="type-label"
           color="var(--text-muted-rack)"
           expanded={expanded}
           onToggleExpand={onToggleExpand}

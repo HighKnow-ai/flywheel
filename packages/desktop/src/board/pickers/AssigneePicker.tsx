@@ -154,7 +154,7 @@ export function AssigneePicker({
                     {actor.displayName}
                   </span>
                   <span
-                    className="type-micro"
+                    className="type-label"
                     title={badgeMark?.meaning}
                     style={{ color: "var(--text-muted-rack)", flexShrink: 0 }}
                   >

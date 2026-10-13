@@ -769,7 +769,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     renderSurface();
 
     const node = await screen.findByText("Retrying request…");
-    expect(node.className).toContain("type-micro");
+    expect(node.className).toContain("type-label");
   });
 
   it("renders an unrecognised event kind as a raw fallback line, never dropping it", async () => {

@@ -2,17 +2,20 @@
  * One strip (01-UI-SPEC.md "Row Anatomy"): fixed-height, single-line, truncate-not-wrap, fields
  * in fixed left-to-right order (status glyph → key → title → estimate badge → epic pill →
  * assignee avatar → criteria checked/total → priority glyph → actor-of-last-change). The status
- * glyph, key, title, priority glyph and criteria checked/total are never dropped at any
- * supported window width (≥900px) — the `.field-estimate`/`.field-epic-pill`/`.field-assignee`
+ * glyph, key and title are never dropped at any supported window width (≥900px); the priority
+ * glyph and the criteria count are never dropped by width either, but print nothing when they hold
+ * no value (D-198.1, below) — the `.field-estimate`/`.field-epic-pill`/`.field-assignee`
  * container-query rules in `App.css` implement the progressive-disclosure ladder (estimate badge
  * drops last, epic pill and assignee avatar drop earlier) as the row's own inline size narrows;
  * `.board-row`'s `container-type: inline-size` is what makes those rules respond to the row
  * itself rather than the viewport. An epic renders as an ordinary strip in its own band
  * (01-UI-SPEC.md "Board list"); a task with no epic shows the muted "No epic" pill
  * (`legend/marks.ts`'s `epic-pill-none` mark) in the epic field slot, never a blank (D-13). The
- * criteria checked/total count (BOARD-02, D-08) is structurally exempt from the ladder — it
- * renders `0/0` for an item with zero criteria, never a blank (D-07: never for issues, but
- * issues never reach `BoardRow` — they render in `IssuesLane.tsx`'s separate lane).
+ * criteria checked/total count (BOARD-02, D-08) is structurally exempt from the ladder. D-198.1
+ * amends 01-UI-SPEC § Row Anatomy: a zero criteria total (`0/0`) and "No priority" render NOTHING
+ * in the tail, extending A-03's change-cue rule (absent is not a value). The count is then absent
+ * exactly when the Done warning cannot fire, which is consistent with D-08 (issues never reach
+ * `BoardRow` — they render in `IssuesLane.tsx`'s separate lane).
  *
  * The estimate badge (D-12) renders the letter itself (S/M/L), never the stored numeric ordinal
  * — the letters are the whole point of the "never aggregated" decision. It is simply absent (no
@@ -241,6 +244,7 @@ export function BoardRow({
   ];
   const statusLabel = statusMark?.label ?? item.status;
   const priorityLabel = priorityMark?.label ?? "No priority";
+  const hasPriority = priorityMarkId(item.priority) !== priorityMarkId(0);
   const isEpic = item.kind === "epic";
   const criteriaChecked = item.criteriaChecked ?? 0;
   const criteriaTotal = item.criteriaTotal ?? 0;
@@ -543,9 +547,8 @@ export function BoardRow({
         // An unassigned row prints no glyph: absent is not a value, the same discipline as the estimate
         // badge and the change cue (A-03: a zero or an unknown renders nothing). Fourteen identical
         // "nobody" marks down a roster flatten the signals that do vary (08.1-14 finish review). The
-        // picker is still one key (`a`), the palette and the detail panel away. The criteria count and
-        // the priority glyph are NOT treated this way: 01-UI-SPEC § Row Anatomy lists both as never
-        // dropped, and D-08 makes the count visible wherever the item appears, zero included.
+        // picker is still one key (`a`), the palette and the detail panel away. D-198.1 extends the
+        // same rule to the criteria count (`0/0`) and the priority glyph ("No priority") below.
         <span
           role="button"
           className="field-assignee type-label"
@@ -564,22 +567,26 @@ export function BoardRow({
           <Icon name={assigneeBadgeMark?.glyph ?? "UserRound"} size={12} />
         </span>
       )}
-      <span
-        className="type-label tabular-nums"
-        title={criteriaBadgeMark?.meaning}
-        style={{ flexShrink: 0, color: "var(--text-muted-strip)" }}
-      >
-        {criteriaChecked}/{criteriaTotal}
-      </span>
-      <span
-        role="button"
-        aria-label={`Priority: ${priorityLabel}. Press to change.`}
-        title={priorityLabel}
-        onClick={handlePriorityGlyphClick}
-        style={{ display: "inline-flex", flexShrink: 0, cursor: "pointer" }}
-      >
-        <Icon name={priorityMark?.glyph ?? "SignalZero"} />
-      </span>
+      {criteriaTotal > 0 && (
+        <span
+          className="type-label tabular-nums"
+          title={criteriaBadgeMark?.meaning}
+          style={{ flexShrink: 0, color: "var(--text-muted-strip)" }}
+        >
+          {criteriaChecked}/{criteriaTotal}
+        </span>
+      )}
+      {hasPriority && (
+        <span
+          role="button"
+          aria-label={`Priority: ${priorityLabel}. Press to change.`}
+          title={priorityLabel}
+          onClick={handlePriorityGlyphClick}
+          style={{ display: "inline-flex", flexShrink: 0, cursor: "pointer" }}
+        >
+          <Icon name={priorityMark?.glyph ?? "SignalZero"} />
+        </span>
+      )}
     </div>
   );
 }

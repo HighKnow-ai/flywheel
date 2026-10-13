@@ -3,9 +3,8 @@
  * change cue the rule "zero ahead and cannot-measure both render nothing"; the unassigned glyph now
  * follows it, because fourteen identical "nobody" marks flatten the signals that do vary.
  *
- * The criteria count and the priority glyph are deliberately NOT in this file's rule: 01-UI-SPEC
- * § Row Anatomy lists both as never dropped and D-08 keeps the count visible at zero, so the second
- * and third tests pin that they survive.
+ * D-198.1 extends the rule to the criteria count and the priority glyph: `0/0` and "No priority"
+ * render nothing, a real count and a real priority still render (the last two tests).
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -43,9 +42,15 @@ describe("the task row's tail", () => {
     expect(screen.getByRole("button", { name: /^Assignee: Assigned/ })).toBeInTheDocument();
   });
 
-  it("keeps the criteria count at zero (D-08) and the priority glyph at no priority (Row Anatomy: never dropped)", () => {
+  it("prints no criteria count at 0/0 and no priority glyph at no priority (D-198.1)", () => {
     render(<BoardRow item={ITEM} />);
-    expect(screen.getByText("0/0")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Priority: No priority/ })).toBeInTheDocument();
+    expect(screen.queryByText("0/0")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Priority:/ })).not.toBeInTheDocument();
+  });
+
+  it("still prints a real criteria count and a real priority glyph", () => {
+    render(<BoardRow item={{ ...ITEM, criteriaChecked: 1, criteriaTotal: 3, priority: 2 }} />);
+    expect(screen.getByText("1/3")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Priority: / })).toBeInTheDocument();
   });
 });

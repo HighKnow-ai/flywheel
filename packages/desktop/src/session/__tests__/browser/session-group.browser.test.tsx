@@ -509,7 +509,7 @@ describe(`scope-denied feed row and refusal badge, ${scheme} scheme`, () => {
 
     const row = await mountWithDenial(LONG_PATH);
     const slot = row.closest<HTMLElement>('[data-testid="feed-row-slot"]')!;
-    const text = row.querySelector<HTMLElement>("span.type-micro")!;
+    const text = row.querySelector<HTMLElement>("span.type-label")!;
     const widen = screen.getByRole("button", { name: "Widen scope to this path" });
 
     expect(row.getBoundingClientRect().height, "row height does not grow with the message").toBe(shortHeight);
