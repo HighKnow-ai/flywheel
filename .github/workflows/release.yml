@@ -65,7 +65,9 @@ jobs:
           else
             RANGE="$TAG"
           fi
-          git log --pretty=format:'- %s' "$RANGE" > release-notes.md
+          # Capped: with no previous tag the range is the whole history, which on the first throwaway
+          # tag was 116,932 characters against GitHub's 125,000-character release-body limit.
+          git log --max-count=200 --pretty=format:'- %s' "$RANGE" > release-notes.md
           {
             echo 'body<<NOTES_EOF'
             cat release-notes.md
