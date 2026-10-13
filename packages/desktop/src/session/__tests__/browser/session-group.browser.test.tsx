@@ -54,7 +54,7 @@ const REQUESTS = {
   routine: [{ id: "req-1", toolName: "Bash", inputPayload: '{"command":"npm --prefix packages/desktop run test"}', destructiveCategory: null }],
   destructive: [{ id: "req-2", toolName: "Bash", inputPayload: '{"command":"git reset --hard"}', destructiveCategory: "hard-reset" }],
 };
-const world = { events: FIXTURE_EVENTS as Record<string, unknown>[], requests: REQUESTS.routine as unknown[] };
+const world = { events: FIXTURE_EVENTS as Record<string, unknown>[], requests: REQUESTS.routine as unknown[], packetExtra: {} as Record<string, unknown> };
 
 vi.mock("../../../adapters/tauri", async (importOriginal) => {
   const real = await importOriginal<Record<string, unknown>>();
@@ -91,7 +91,7 @@ vi.mock("../../../adapters/tauri", async (importOriginal) => {
     answerPermissionRequest: () => Promise.resolve(undefined),
     stopAgentRun: () => Promise.resolve({ status: "interrupted", sidecarWarning: null }),
     discardSession: () => Promise.resolve({ status: "interrupted", sidecarWarning: null }),
-    previewContextPacket: () => Promise.resolve(packet),
+    previewContextPacket: () => Promise.resolve({ ...packet, ...world.packetExtra }),
     startAgentRun: () => new Promise(() => {}),
     // The authoring run's own reads and writes (the developer's-turn capture).
     authoringProposalsForRun: () => Promise.resolve([]),
@@ -172,6 +172,7 @@ beforeEach(() => {
   resetUiState();
   world.events = FIXTURE_EVENTS;
   world.requests = REQUESTS.routine;
+  world.packetExtra = {};
 });
 
 describe(`session group, built, ${scheme} scheme${reduced ? ", reduced motion" : ""}`, () => {
@@ -446,6 +447,31 @@ describe(`session group, built, ${scheme} scheme${reduced ? ", reduced motion" :
     await settle();
     await page.screenshot({ path: `${OUT}/session-group-built-${scheme}-launch-sheet-1440x900.png` });
     await writeHtml("session-group-launch-sheet");
+  });
+});
+
+// Plan 11-17 (D-REV-19): the capture the launch sheet's Review feedback section never had. The packet
+// carries a reviewer's decline (the lead is the core's own constant, delivered in the DTO) and one drift
+// warning, so the section is on the page between Warnings and Epic, in the order `render_prompt` uses.
+describe(`launch sheet with a reviewer's decline, ${scheme} scheme`, () => {
+  it("captures the Review feedback section between Warnings and Epic for the finish reviewer", async () => {
+    world.packetExtra = {
+      drift: [{ kind: "StaleSinceLastSummary", sentence: "The branch has moved since the last session's summary." }],
+      reviewFeedback: {
+        lead: "A reviewer sent this task back. These acceptance criteria are still unchecked:",
+        statements: [
+          "Closing the dialog returns focus to the element that held it before it opened.",
+          "Initial focus lands on the first focusable control.",
+        ],
+      },
+    };
+    mountSession({ sheet: true });
+    const feedback = await screen.findByText("Review feedback");
+    expect(screen.getByText("Warnings").compareDocumentPosition(feedback) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(feedback.compareDocumentPosition(screen.getByText("Epic")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await settle();
+    await page.screenshot({ path: `${OUT}/session-group-built-${scheme}-launch-sheet-feedback-1440x900.png` });
+    await writeHtml("session-group-launch-sheet-feedback");
   });
 });
 
