@@ -359,7 +359,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-11
   phase: "08.1 — Visual Polish (plan 14)"
   truth: "The shipped impeccable-finish-reviewer, run once against the approved comp and 08.1-UI-SPEC.md for surface group one (board and rail), raises nothing material that is not fixed or recorded."
-  status: "ran 2026-10-08, disposition fix, 8 material findings — each fixed, applied in part, or recorded (see update_08.1-14-closure). NOT re-reviewed: the fixes have had no second independent pass."
+  status: "drained 2026-10-13 (plan 11-17): the reviewer ran again over regenerated captures and returned disposition fix, 8 findings, each fixed, rejected or recorded (11-FINISH-REVIEW.md, rows one-1 to one-8). It did not return ship, and the fixed group has had no third pass."
   update_08.1-14-closure: |
     The gate RAN. The independent reviewer returned `disposition: fix` with 8 material findings
     against the board group as built (the component capture, not the app shell). The closure pass
@@ -380,11 +380,12 @@ At Phase 11, with an installed, usable build:
     board-group-built-{light,dark}-full.png and board-group-built-{light,dark}.html.
   risk_if_wrong: "Moderate. An independent reviewer may find fidelity gaps to the comp that the builder cannot see (the comp's lens toggle, the title block and the what-this-says paragraph are Phase 8.1 plan 10-11 surfaces and were not in this capture)."
   automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer against those paths now; it needs no human. (Done once, 2026-10-08; a second pass over the fixes is the same call.)"
+  update_11-17: "Plan 11-17, 2026-10-13. RAN AGAIN, as the entry said the orchestrator could. The executor has no Agent tool, so each run was a fresh `claude -p --agent impeccable:impeccable-finish-reviewer` process (Read, Glob, Grep only), not an in-thread review. Group one: disposition fix, 8 findings: 1 FIXED (the No epic caption is one line at 1440px, asserted in WebKit, red before), 1 REJECTED (the challenge row's inline kind label, quoting the craft floor's eyebrow ban), 6 RECORDED (four sit in files plan 11-18 owns or in its D-198.1; the rest, rail counts and the cue's size, go to D-196 via 11-21). The group did not pass; the findings did move to the board."
 
 - id: D-REV-12
   phase: "08.1 — Visual Polish (plan 14 finish review)"
   truth: "The board group, mounted inside the real app shell (App.tsx and BoardView, not a test page of components), matches the approved comp: the masthead, the threadfin / epics / tasks subhead, the Group by Epic / Status lens toggle, the summary line, and the filter bar in its real place above the rack."
-  status: unreviewed
+  status: "drained 2026-10-13 (plan 11-17): the board was captured mounted in the real shell and reviewed against the comp. It does NOT match. Findings app-shell-1 to 7 in 11-FINISH-REVIEW.md."
   why_deferred: |
     BOTH built captures (board-group-built-{light,dark}-*.png) are the test-harness page
     board/__tests__/browser/board-group.browser.test.tsx: the real rail, filter bar, epic header,
@@ -401,6 +402,7 @@ At Phase 11, with an installed, usable build:
     capture's bridge answers five reads today.
   risk_if_wrong: "Moderate. The group's parts were finished against the comp in isolation; the join between them (spacing between the toggle, the summary and the filter bar) and the masthead have never been compared to it."
   automatable: "YES. Extend board-group.browser.test.tsx to mount BoardView (or App) over a fuller bridge, capture it, and send the capture to the finish reviewer. It needs no human; it needs the bridge widened."
+  update_11-17: "Plan 11-17, 2026-10-13. CAPTURED AND REVIEWED. `board-group.browser.test.tsx` now mounts `<App />` (which renders `AppShell`) over a Tauri bridge answering from the same real-board export, with two staged challenges reusing the group capture's fixture, and writes `board-shell-built-{scheme}-1440x900`. Reviewer disposition: fix, 7 findings, 2 high: (1) NO masthead, no `Mission Control` heading, subhead or rule, a missing signature element (already recorded as UI-SPEC Disagrees 4 and DESIGN.md Contract versus the built world 2; this is the first look at it in the real shell); (2) the lens toggle has its own band, where DESIGN.md and the comp say one controls row. Both are owner decisions, RECORDED for D-196 via 11-21, not fixed: adding a masthead adds a surface and a data contract the owner has not decided to ship. The summary line's placement and wording (medium) and the rail/title-block join (medium) follow from them. 1 REJECTED (Plan fan-out on every epic row is the shipped Phase 9 dispatch cell)."
 
 - id: D-REV-13
   phase: "08.1 — Visual Polish (plan 14 finish review)"
@@ -423,7 +425,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-14
   phase: "08.1 — Visual Polish (plan 15)"
   truth: "The shipped impeccable-finish-reviewer, run against the approved item-detail comp and 08.1-UI-SPEC.md for surface group two (the detail panel, the command palette, the five pickers), raises nothing material that is not fixed or recorded."
-  status: "ran 2026-10-08, disposition fix, 8 material findings — each fixed, applied in part, or recorded (see the Finish-review closure in 08.1-15-SUMMARY.md). NOT re-reviewed: the fixes have had no second independent pass."
+  status: "drained 2026-10-13 (plan 11-17): the reviewer ran again, disposition fix, 8 findings (rows two-1 to two-8), 2 rejected with quotes, 6 recorded. No third pass."
   why_deferred: |
     The gate RAN on 2026-10-08, spawned by the orchestrator (the plan 15 executor could not spawn it). It
     returned `disposition: fix` with 8 material findings. All eight were applied or answered in the
@@ -437,11 +439,12 @@ At Phase 11, with an installed, usable build:
     FIXTURE run, not the app shell (see D-REV-12 for the same gap on group one).
   risk_if_wrong: "Low to moderate. The property grid is restored only as far as data exists (Status, Priority, Estimate at the top; Worktree and Changes as rows in their own sections, not one grid); the comp's `THRE-10` parent key and the Worktree row inside one grid were not rebuilt. Other `ui-monospace` uses in the panel (git shas, forge CLI names, the run's session line) stay under the Phase 2 Mono contract."
   automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer again against those paths; it needs no human."
+  update_11-17: "Plan 11-17, 2026-10-13. RAN AGAIN. Group two: disposition fix, 8 findings. REJECTED 2: two lead edges in one panel (DESIGN.md names Watch Live in Runs as a lead of its own region) and two pencils at once (the CSS reveals on hover and on the cursor row independently, by design). RECORDED 6, among them the title scale (15px vs the comp's 20px, an owner call), status and priority marks missing from the panel's value column, and a path ellipsis gap whose proposed remedy (`text-align`) was tested in WebKit and does not work: that claim did not survive. Not re-reviewed."
 
 - id: D-REV-15
   phase: "08.1 — Visual Polish (plan 16)"
   truth: "The shipped impeccable-finish-reviewer, run once against the approved review comp and 08.1-UI-SPEC.md for surface group three (the review surface, the criteria rail, the file diff, the merge confirm sheet, the epic request sheet), raises nothing material that is not fixed or recorded."
-  status: "ran 2026-10-08, disposition fix, 7 findings: each fixed, applied, or declined with a reason (see the Finish-review closure in 08.1-16-SUMMARY.md). NOT re-reviewed: the fixes have had no second independent pass."
+  status: "drained 2026-10-13 (plan 11-17): the reviewer ran again, disposition fix, 6 findings (rows three-1 to three-6): 1 fixed, 5 recorded, 3 of them high. No third pass."
   why_deferred: |
     The plan 16 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
     spawn the reviewer; the same limit as D-REV-11 and D-REV-14. It captured the group in WebKit in
@@ -466,11 +469,12 @@ At Phase 11, with an installed, usable build:
     pre-fix captures no longer exist.
   risk_if_wrong: "Moderate. The join between the three panes and the file-list row (a long path wraps its extension onto a second line at the 30 percent column) has only been judged by its builder."
   automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer again against those paths now, over the fixed group; it needs no human."
+  update_11-17: "Plan 11-17, 2026-10-13. RAN AGAIN. Group three: disposition fix, 6 findings. FIXED 1: the merge sheet title no longer breaks inside a branch name (each name an unbreakable unit, WebKit assertion). RECORDED 5, three of them HIGH and all for the owner or D-196: the pane order (criteria first against the comp's files, diff, criteria; a Phase 8 layout no amendment covers), the 380px file column squeezing the diff, and no +/- sign column on the diff (an accessibility-flavoured gap; the fix spans `FileDiff.tsx` and `review.css`, which plan 11-18 owns). The epic request sheet has no capture and was not reviewed."
 
 - id: D-REV-16
   phase: "08.1 — Visual Polish (plan 17)"
   truth: "The shipped impeccable-finish-reviewer, run once against 08.1-UI-SPEC.md's contract (NO comp was rendered for this group) for surface group four (the live session surface, its feed, the permission request card, the raw log, the launch sheet), raises nothing material that is not fixed or recorded."
-  status: "ran 2026-10-08, disposition fix, 7 findings: each fixed, applied, or declined with a reason (see the Finish-review closure in 08.1-17-SUMMARY.md). NOT re-reviewed: the fixes have had no second independent pass."
+  status: "drained 2026-10-13 (plan 11-17): the reviewer ran again against the contract alone (no comp), disposition fix, 8 findings (rows four-1 to four-8), 2 rejected, 6 recorded. The raw log was never captured and was not reviewed."
   why_deferred: |
     The plan 17 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
     spawn the reviewer; the same limit as D-REV-11, D-REV-14 and D-REV-15. It captured the group in WebKit
@@ -495,11 +499,12 @@ At Phase 11, with an installed, usable build:
     pre-fix captures no longer exist.
   risk_if_wrong: "Moderate. The reviewer may find that the header (a back link, a title, a status, a cost strip and up to four actions in one row) reads as crowded; that the three ink-bordered controls in the open launch sheet (the focused field, the chosen mode, Start Work) compete; or that the 10px system-notice role is too small. The first two were judged by their builder only."
   automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer again against those paths now, over the fixed group; it needs no human."
+  update_11-17: "Plan 11-17, 2026-10-13. RAN AGAIN, told that no comp exists. Group four: disposition fix, 8 findings. The header did NOT read as crowded and the three ink controls in the launch sheet were judged a real but rejected-as-contract issue (the 2px ink focus ring is a decided, tested treatment). The one HIGH finding: the header title is the literal word `Session` and never names the task it serves, against the Core Value; it needs a read the surface does not have (no command returns a task by id), RECORDED for D-196 as high. 2 REJECTED (the focus ring; the raw JSON on the permission card, which a gate should show). 6 RECORDED, including developer turns in the brand, which D-199 does NOT widen to and which sits in `FeedRow.tsx` (plan 11-18's): flagged to 11-18."
 
 - id: D-REV-17
   phase: "08.1 — Visual Polish (plan 18)"
   truth: "The shipped impeccable-finish-reviewer, run once against 08.1-UI-SPEC.md's contract (NO comp was rendered for this group) for surface group five (settings and its permission-rules table, the triage surface, the authoring tray with its rows and amend editor, the published legend, and the done warning's overlay tier), raises nothing material that is not fixed or recorded."
-  status: "ran 2026-10-08, disposition fix, 10 findings: each fixed, applied, or declined with a reason (see the Finish-review closure in 08.1-18-SUMMARY.md). NOT re-reviewed: the fixes have had no second independent pass."
+  status: "drained 2026-10-13 (plan 11-17): the reviewer ran again, plus a follow-up on the permission-rules table it could not see; disposition fix twice, 13 findings (rows five-1 to five-9 and five-rules-1 to 5): 2 fixed, 2 rejected, 9 recorded. No third pass."
   why_deferred: |
     The plan 18 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
     spawn the reviewer; the same limit as D-REV-11, D-REV-14, D-REV-15 and D-REV-16. It captured the group
@@ -528,11 +533,12 @@ At Phase 11, with an installed, usable build:
     pre-fix captures no longer exist.
   risk_if_wrong: "Moderate. The reviewer may find that a triage row's six drawn actions plus a reject-reason field read as a wall; that the chosen segment (an ink edge and a 2px foot rule, no weight change) is too quiet next to its neighbours at a glance; or that the legend's developer-voice copy is a problem (recorded in deferred-items.md). The first two were judged by their builder only."
   automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer again against those paths now, over the fixed group; it needs no human."
+  update_11-17: "Plan 11-17, 2026-10-13. RAN AGAIN, against the contract alone. Group five reported that BOTH settings captures cut off at the Permission Rules heading, so the table was never seen: a capture was added (`admin-group-built-{scheme}-settings-rules-1440x900`) and a follow-up run reviewed it. FIXED 2 in `PermissionRulesTable.tsx` with jsdom and WebKit assertions: an ellipsized tool name (a granted authority) now carries its full text as a title, and Revoke is disabled while its write is in flight with a failure named in place. REJECTED 2 (legend priority samples: every legend mark sits in the swatch; Revoke's accessible name: its copy is exactly Revoke under test). RECORDED 9, two HIGH: the proposal row stacks an uppercase kind label above its title where the challenge row it twins sets it inline (and the group-one reviewer contradicts removing the inline form), and the triage wall of sixteen boxed buttons (owner call). The reviewer did say the wall is too heavy."
 
 - id: D-REV-18
   phase: "08.1 — Visual Polish (plan 19)"
   truth: "The shipped impeccable-finish-reviewer, run once against 08.1-UI-SPEC.md's contract (NO comp was rendered for this group) for surface group six (the first-run state, the unreachable project, the registration flow, and the delete, done-warning and orphan-recovery confirmations), raises nothing material that is not fixed or recorded."
-  status: "ran 2026-10-08, disposition fix, 6 findings: each fixed, applied, or declined with a reason (see the Finish-review closure in 08.1-19-SUMMARY.md). NOT re-reviewed: the fixes have had no second independent pass."
+  status: "drained 2026-10-13 (plan 11-17): the reviewer ran again against the contract alone, disposition fix, 5 findings (rows six-1 to six-5): 2 fixed, 3 recorded. No third pass."
   why_deferred: |
     The plan 19 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
     spawn the reviewer; the same limit as D-REV-11 and D-REV-14 to D-REV-17. It captured the group in WebKit
@@ -558,11 +564,12 @@ At Phase 11, with an installed, usable build:
     pre-fix captures no longer exist.
   risk_if_wrong: "Moderate. The reviewer may find that a destructive action without a fill under-signals at a glance on a delete confirmation, or that the full-window states look unfinished at that size. Both were judged by their builder only. The scrim, the dialog tier and the blocking layer are measured in WebKit, not judged."
   automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer again against those paths now, over the fixed group; it needs no human."
+  update_11-17: "Plan 11-17, 2026-10-13. RAN AGAIN, told that no comp exists. Group six: disposition fix, 5 findings. It judged that a 2px destructive edge plus an icon DOES read as the section's lead without a fill, and that the sparse first-run state is acceptable. FIXED 2: the unreachable state draws its repo path in mono as its own element (the Copywriting Contract sentence is unchanged) and the orphan modal's consequence line now precedes the choices it bears on, both asserted in WebKit. RECORDED 3 (one is the recovery spinner's brand colour, which D-199 makes permitted)."
 
 - id: D-REV-19
   phase: "08.1 — Visual Polish (plan 21)"
   truth: "The shipped impeccable-finish-reviewer, run once against the approved review comp (comps/review.html, .action-row) and 08.1-UI-SPEC.md for the CHANGED foot of the review surface's criteria column (the `Review decision` group: Request changes beside Merge, the sent-back, nothing-unchecked and no-criteria notes, the could-not-send alert) and for the Review feedback section the launch sheet gained, raises nothing material that is not fixed or recorded."
-  status: "NOT RUN. No independent finish-review has seen the changed foot, the decline path's copy, or the launch sheet's new section. Nothing here is a reviewer finding; there are none."
+  status: "drained 2026-10-13 (plan 11-17): it was NOT RUN; it ran, disposition fix, 3 findings (rows review-foot-1 to 4): 1 fixed, 2 recorded; three alternate foot states are still uncaptured."
   why_deferred: |
     The plan 21 executor has no subagent tool, so it could not spawn the reviewer, and the orchestrator
     could not run it for this plan either: the run stalled (watchdog, no progress for 600s) between
@@ -587,6 +594,7 @@ At Phase 11, with an installed, usable build:
     and Epic. The captures are of a fixture task (THRE-58's three criteria, in_progress), not the app shell.
   risk_if_wrong: "Moderate. The foot is the surface where this product's core value becomes a daily act, and it was judged by its builder and by WebKit measurements only. The reviewer may find the secondary too quiet beside the lead, the foot too sparse under a short rail, or the sent-back note indistinct from a muted label."
   automatable: "YES. The orchestrator can spawn impeccable-finish-reviewer now against those paths and the regenerated captures; it needs no human."
+  update_11-17: "Plan 11-17, 2026-10-13. RAN FOR THE FIRST TIME. The launch sheet's Review feedback section had no capture at all; one was added (`session-group-built-{scheme}-launch-sheet-feedback-*`, with a drift warning so the section sits between Warnings and Epic). Reviewer: the foot reads as the end of the attestation and not as a stray block, the consequence line is enough without a confirm sheet, and the sent-back note reads as a state; disposition fix on three points: Merge's label dropped the comp's `into epic` (RECORDED, an owner copy call), the sent-back note shares the hint's muted style (RECORDED, `review.css` is plan 11-18's), and the capture fixture paraphrased a criterion (FIXED: it now takes the real criteria word for word, asserted). NOT captured, so not reviewed: the nothing-unchecked note, the no-criteria note and the could-not-send alert."
 
 - id: D-REV-20
   phase: "08.1 — Visual Polish (plan 20, handed forward from plan 02)"
@@ -675,7 +683,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-26
   phase: "08.1 — Visual Polish (plan 20)"
   truth: "The shipped impeccable-finish-reviewer, re-run once over each of the six fixed surface groups, the changed foot of the review surface (plan 21) and the app shell, raises nothing material that is not fixed or recorded."
-  status: "NOT RUN. Six reviewers ran once each and all returned `disposition: fix`; their findings were applied; none has been re-run against the fixes, and plan 21's changed foot has never been seen by one."
+  status: "drained 2026-10-13 (plan 11-17): it was NOT RUN; it ran as eight groups plus a follow-up, every one disposition fix, 58 findings in 11-FINISH-REVIEW.md: 8 fixed, 8 rejected with quotes, 45 recorded (9 high). Nothing in Phase 8.1 passes an independent review after its fixes."
   why_deferred: |
     No physical reason. This is an unexecuted automated step, queued only because the plan 20 executor has no
     subagent tool (Read, Write, Edit, Bash, Skill) and so could not spawn the reviewer or the documenter. It
@@ -683,6 +691,7 @@ At Phase 11, with an installed, usable build:
     Phase 8.1 may be described as passing an independent review after its fixes.
   risk_if_wrong: "Moderate and cumulative: seven groups were finished by their builders and corrected by findings, and the corrections are unreviewed. The app shell has never been reviewed at all (D-REV-12)."
   automatable: "YES. Capture the groups (`npm run test:browser`, `npm run test:browser:dark`, then `git checkout --` the Phase 8 UAT screenshot directory), widen the capture to mount BoardView/App (D-REV-12), and spawn impeccable-finish-reviewer once per group from the orchestrator. No human."
+  update_11-17: "Plan 11-17, 2026-10-13. RAN FOR THE FIRST TIME, as nine runs (six surface groups, the review foot, the app shell, and the permission-rules follow-up). The captures were regenerated first by green `test:browser` and `test:browser:dark`. NONE returned `ship`: 58 material fixes, 61 rows with the three coverage gaps. 8 FIXED with assertions, 8 REJECTED with the contract sentence quoted, 45 RECORDED (15 addressed to plan 11-18, 35 for D-196 via 11-21; some are both). The nine HIGH findings are the headline and are all owner decisions or larger than this plan: no masthead and a split controls row in the shell, the review surface's pane order and 380px file column, no +/- sign on the diff, the session header not naming its task, the proposal row's stacked kind label, the triage button wall, and the rail's missing counts. The reviewers judged the pre-fix captures; the fixed items are test-proven, not reviewer-approved."
 
 - id: D-REV-27
   phase: "08.1 — Visual Polish (plan 20, from plan 10 and the A-04 gate)"
