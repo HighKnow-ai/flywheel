@@ -546,9 +546,31 @@ pub fn wave_is_drained(conn: &Connection, plan_id: &str, wave: u32) -> anyhow::R
     Ok(open == 0)
 }
 
+/// Did the USER start this task's most recent run, after this plan came to exist? `dispatch_plan_tasks.
+/// state` is written only by the dispatcher, so a run the user started by hand leaves the task in
+/// `planned` (or `waiting`) once it ends, where [`is_startable`] would start it a second time
+/// (D-REV-39 WR-05). The run's own trigger says who fired it: a human-initiated one is the user's,
+/// and a dispatcher-initiated one is the SYSTEM actor's (`start_agent_run`). A run older than the
+/// plan is history, not a claim on the task, so the plan still starts it.
+pub(crate) fn manual_run_since_plan(conn: &Connection, plan_id: &str, task_id: &str) -> anyhow::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS (
+            SELECT 1
+              FROM (SELECT trigger_id, started_at FROM agent_runs WHERE task_id = ?2
+                     ORDER BY started_at DESC, id DESC LIMIT 1) latest
+              JOIN triggers tr ON tr.id = latest.trigger_id
+              JOIN actors a ON a.id = tr.created_by
+             WHERE a.type = 'human'
+               AND latest.started_at >= (SELECT created_at FROM dispatch_plans WHERE id = ?1))",
+        params![plan_id, task_id],
+        |r| r.get(0),
+    )
+    .context("failed to read whether the user ran the task by hand")
+}
+
 pub(crate) fn is_startable(conn: &Connection, plan_id: &str, t: &TaskView) -> anyhow::Result<bool> {
     Ok(match t.state.as_str() {
-        "planned" | "waiting" | "held_by_limit" => true,
+        "planned" | "waiting" | "held_by_limit" => !manual_run_since_plan(conn, plan_id, &t.task_id)?,
         // `running` with no run row at all: the process died between the state write and the run row.
         "running" => t.latest_run.is_none(),
         "needs_attention" => matches!(
@@ -782,7 +804,13 @@ pub fn decide(conn: &Connection, now_epoch_secs: i64, obs: &Observations) -> any
 
         for t in tasks.iter().filter(|t| t.wave <= plan.cursor && !t.live) {
             let completed = t.latest_run.as_deref() == Some("completed");
-            match t.state.as_str() {
+            // A run the user started by hand is ADOPTED, not repeated: its task reads as `running`
+            // here, so its ending is handled exactly as a dispatcher run's is (merge it, or record
+            // that it failed or stopped). D-REV-39 WR-05; `is_startable` is the other half.
+            let adopted = matches!(t.state.as_str(), "planned" | "waiting" | "held_by_limit")
+                && t.latest_run.is_some()
+                && manual_run_since_plan(conn, &plan.id, &t.task_id)?;
+            match if adopted { "running" } else { t.state.as_str() } {
                 "running" | "merging" => match t.latest_run.as_deref() {
                     Some("completed") => after_completed_run(conn, &plan.id, t, obs, &mut out)?,
                     Some(status @ ("failed" | "interrupted" | "abandoned")) => {

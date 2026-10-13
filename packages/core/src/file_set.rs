@@ -139,17 +139,19 @@ pub fn parse_entry(raw: &str) -> Result<FileSetEntry, EntryRefusal> {
 /// A `File` covers a path iff equal. A `Dir` covers a path iff the path starts with the directory
 /// string INCLUDING its trailing separator AND has at least one further component — so
 /// `packages/core/src/domain/` covers neither `packages/core/src/domain_x.rs` nor the directory's
-/// own path with the separator stripped. `fold_case` compares ASCII-lowercased (a case-insensitive
-/// filesystem makes `src/Foo.ts` and `src/foo.ts` one file).
+/// own path with the separator stripped. `fold_case` compares Unicode-lowercased (a case-insensitive
+/// filesystem makes `src/Foo.ts` and `src/foo.ts` one file, and `Écran.rs` and `écran.rs` too: ASCII
+/// folding would read that pair as disjoint, the unsafe direction for an overlap check, D-REV-39).
+/// ponytail: lowercase, not full case folding or NFC/NFD normalisation (APFS also equates composed and
+/// decomposed spellings of one name). That needs a normalisation crate; add it if a real repository
+/// ever has such a pair.
 pub fn covers(entry: &FileSetEntry, rel_path: &str, fold_case: bool) -> bool {
     let (entry_str, is_dir) = match entry {
         FileSetEntry::File(p) => (p.as_str(), false),
         FileSetEntry::Dir(p) => (p.as_str(), true),
     };
     if fold_case {
-        let e = entry_str.to_ascii_lowercase();
-        let p = rel_path.to_ascii_lowercase();
-        covers_exact(&e, is_dir, &p)
+        covers_exact(&entry_str.to_lowercase(), is_dir, &rel_path.to_lowercase())
     } else {
         covers_exact(entry_str, is_dir, rel_path)
     }
@@ -177,7 +179,7 @@ pub fn overlaps(a: &FileSetEntry, b: &FileSetEntry, fold_case: bool) -> bool {
         (FileSetEntry::File(f), FileSetEntry::Dir(_)) => covers(b, f, fold_case),
         (FileSetEntry::Dir(x), FileSetEntry::Dir(y)) => {
             if fold_case {
-                let (x, y) = (x.to_ascii_lowercase(), y.to_ascii_lowercase());
+                let (x, y) = (x.to_lowercase(), y.to_lowercase());
                 x.starts_with(&y) || y.starts_with(&x)
             } else {
                 x.starts_with(y.as_str()) || y.starts_with(x.as_str())
@@ -188,7 +190,7 @@ pub fn overlaps(a: &FileSetEntry, b: &FileSetEntry, fold_case: bool) -> bool {
 
 fn eq_folded(x: &str, y: &str, fold_case: bool) -> bool {
     if fold_case {
-        x.eq_ignore_ascii_case(y)
+        x.to_lowercase() == y.to_lowercase()
     } else {
         x == y
     }

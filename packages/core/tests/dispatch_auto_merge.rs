@@ -143,6 +143,12 @@ impl Fx {
         start_agent_run(&mut conn, task_id, "acceptEdits", &self.human).unwrap().id
     }
 
+    /// Start a run the way the dispatcher does: the SYSTEM actor initiates it, so it is automatic.
+    fn launch_auto(&self, task_id: &str) -> String {
+        let system = system_actor(&self.conn()).unwrap().id;
+        start_agent_run(&mut self.conn(), task_id, "acceptEdits", &system).unwrap().id
+    }
+
     /// The fake agent's finished work: write, optionally commit, close the run completed.
     fn finish(&self, task_id: &str, run_id: &str) {
         let work = self.work.lock().unwrap().get(task_id).cloned();
@@ -161,7 +167,7 @@ impl Fx {
     }
 
     fn spawn(&self, _plan: &str, task_id: &str) -> Result<(), String> {
-        let run_id = self.launch(task_id);
+        let run_id = self.launch_auto(task_id);
         if !self.hold.lock().unwrap().contains(&task_id.to_string()) {
             self.finish(task_id, &run_id);
         }
@@ -422,7 +428,7 @@ fn a_worktree_cut_before_the_integration_tip_moved_is_flagged_not_rebased() {
     fx.hold.lock().unwrap().push(a.clone());
     let plan = fx.plan(&[(&a, 1)]);
     // The task's worktree exists, cut from the integration tip at that moment, and its run ended.
-    let run = fx.launch(&a);
+    let run = fx.launch_auto(&a);
     close_agent_run(&mut fx.conn(), &run, AgentRunStatus::Failed, None, None, None).unwrap();
     // Then the integration branch moves on (a sibling merged).
     let integ = fx.integration_branch();
@@ -652,6 +658,110 @@ fn a_persistently_failing_merge_appends_one_event_and_does_not_flap() {
     // Fixed, it lands on its own.
     std::fs::remove_file(&hook).unwrap();
     fx.drive(10, |f| f.state(&plan, &a) == "merged");
+}
+
+// ===== D-REV-39: who started a run ===========================================================
+
+/// WR-05. A task the user ran by hand sits in `planned` because only the dispatcher writes that
+/// state. It must not be started a second time, and its finished work must not be orphaned.
+#[test]
+fn a_task_the_user_ran_by_hand_is_not_relaunched_and_its_finished_work_is_adopted() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/one.txt"));
+    let plan = fx.plan(&[(&a, 1)]);
+
+    let run = fx.launch(&a); // the user's own launch, not the dispatcher's
+    assert!(spawns(&fx.actions()).is_empty(), "never beside its own live run");
+    fx.finish(&a, &run);
+
+    let actions = fx.actions();
+    assert!(spawns(&actions).is_empty(), "the run is over, and it was the user's: no second run on a done task");
+    assert_eq!(merges(&actions), vec![a.as_str()], "the finished manual run is merged like any other");
+    fx.drive(10, |f| f.state(&plan, &a) == "merged");
+    assert_eq!(runs_for(&fx, &a), 1);
+}
+
+/// The companion: a run the dispatcher started is still retried under the existing rules. The real
+/// path: the gate pauses, the run fails, the task reads `held_by_limit`, the user resumes, and the
+/// dispatcher starts it again. (This is also the only test of the `MarkRunEnded` hold; the helper
+/// that used to duplicate it had no caller and is gone.)
+#[test]
+fn a_dispatcher_started_task_held_by_the_limit_is_still_retried() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/one.txt"));
+    let plan = fx.plan(&[(&a, 1)]);
+    fx.hold.lock().unwrap().push(a.clone());
+    fx.pass();
+    assert_eq!(fx.state(&plan, &a), "running");
+    pause_gate(&fx);
+    let run: String = fx.conn().query_row("SELECT id FROM agent_runs WHERE task_id = ?1", [&a], |r| r.get(0)).unwrap();
+    close_agent_run(&mut fx.conn(), &run, AgentRunStatus::Failed, None, None, None).unwrap();
+    fx.pass();
+    assert_eq!(fx.state(&plan, &a), "held_by_limit", "failed under a paused gate reads held, not failed");
+    assert!(spawns(&fx.actions()).is_empty(), "nothing starts while the gate is paused");
+
+    let human = fx.human.clone();
+    core::limit_gate::resume_now(&mut fx.conn(), &human).unwrap();
+    assert_eq!(spawns(&fx.actions()), vec![a.as_str()], "the dispatcher's own run is retried; only a user's is left alone");
+}
+
+/// A manual run from before the plan existed is history, not a claim on the task.
+#[test]
+fn a_manual_run_older_than_the_plan_does_not_stop_the_plan_starting_the_task() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/one.txt"));
+    let plan = fx.plan(&[(&a, 1)]);
+    let run = fx.launch(&a);
+    fx.finish(&a, &run);
+    fx.conn()
+        .execute("UPDATE agent_runs SET started_at = '2000-01-01T00:00:00+00:00' WHERE id = ?1", [&run])
+        .unwrap();
+    let _ = plan;
+
+    assert_eq!(spawns(&fx.actions()), vec![a.as_str()]);
+}
+
+/// IN-02. An unattended start is the system actor's, flagged automatic; a user's own is theirs.
+#[test]
+fn an_unattended_start_is_attributed_to_the_system_actor_and_a_manual_one_to_the_human() {
+    for automatic in [true, false] {
+        let fx = fx();
+        let a = fx.task("A", &["a/"], w("a/one.txt"));
+        let system = system_actor(&fx.conn()).unwrap().id;
+        let human_events = |f: &Fx| -> i64 {
+            f.conn().query_row("SELECT COUNT(*) FROM events WHERE actor_id = ?1", [&f.human], |r| r.get(0)).unwrap()
+        };
+        let before = human_events(&fx);
+
+        let run = if automatic { fx.launch_auto(&a) } else { fx.launch(&a) };
+
+        let expected = if automatic { &system } else { &fx.human };
+        let conn = fx.conn();
+        let (trigger_by, config): (String, Option<String>) = conn
+            .query_row(
+                "SELECT t.created_by, t.config FROM agent_runs r JOIN triggers t ON t.id = r.trigger_id WHERE r.id = ?1",
+                [&run],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(&trigger_by, expected, "automatic={automatic}: who fired the run");
+        assert_eq!(config.as_deref().is_some_and(|c| c.contains("\"automatic\":true")), automatic);
+        let worktree_by: String =
+            conn.query_row("SELECT created_by FROM worktrees WHERE task_id = ?1", [&a], |r| r.get(0)).unwrap();
+        assert_eq!(&worktree_by, expected, "automatic={automatic}: the worktree the start cut");
+        let started: String = conn
+            .query_row("SELECT payload FROM events WHERE event_type = 'agent_run.started' AND stream_id = ?1", [&run], |r| r.get(0))
+            .unwrap();
+        let started: serde_json::Value = serde_json::from_str(&started).unwrap();
+        assert_eq!(started["automatic"] == true, automatic, "{started}");
+        let after: i64 =
+            conn.query_row("SELECT COUNT(*) FROM events WHERE actor_id = ?1", [&fx.human], |r| r.get(0)).unwrap();
+        if automatic {
+            assert_eq!(after, before, "an unattended start writes nothing under the human actor");
+        } else {
+            assert!(after > before);
+        }
+    }
 }
 
 #[test]
@@ -1066,6 +1176,25 @@ fn launch_conflict_honours_the_case_folding_flag_it_is_given() {
         "folded: the same file"
     );
     assert_eq!(conflict(&fx, &a, false, &vec![]), None, "not folded: two files");
+}
+
+/// D-REV-39 IN-03. ASCII-only folding read `Écran.rs` and `écran.rs` as two files, which on a
+/// case-insensitive filesystem are one: the pair that should collide read as disjoint, the unsafe
+/// direction. The folded answer must be the strict one, through the predicate both callers share.
+#[test]
+fn launch_conflict_folds_non_ascii_case_so_the_strict_side_wins() {
+    let fx = fx();
+    let a = fx.task("A", &["src/Écran.rs"], w("src/Écran.rs"));
+    let b = fx.task("B", &["src/écran.rs"], w("src/écran.rs"));
+    fx.launch(&b);
+    assert_eq!(
+        conflict(&fx, &a, true, &vec![]),
+        Some(ReadinessRefusal::OverlapsInFlight { task_id: b, path: "src/Écran.rs".into() }),
+        "folded: the same file, even though the differing letter is not ASCII"
+    );
+    assert_eq!(conflict(&fx, &a, false, &vec![]), None, "not folded: two files");
+    // The directory form goes through the same fold.
+    assert!(core::file_set::overlaps(&set(&["Ünï/"])[0], &set(&["ünï/x.rs"])[0], true));
 }
 
 // ===== 09-12 Task 2: the decide-to-launch window =================================================

@@ -142,6 +142,13 @@ pub fn agent_actor_id(conn: &Connection) -> anyhow::Result<String> {
 /// actually changed, a `task.status_changed` event. `human_actor_id` is recorded as the actor who
 /// *initiated* the trigger (D-29 still applies to the task status change itself, which is always
 /// attributed to the agent actor, not the human).
+///
+/// D-REV-39 IN-02: the fan-out dispatcher passes the SYSTEM actor here, never the local human. A
+/// start initiated by the system actor is automatic, and says so the way the automatic merge does
+/// (D-156): the worktree, the trigger and the other events name the system actor, the trigger's
+/// `config` carries `{"automatic":true}`, and the `agent_run.started` payload carries `automatic:
+/// true`. The flag is derived from the actor's type rather than passed beside it, so the two cannot
+/// disagree.
 pub fn start_agent_run(
     conn: &mut Connection,
     task_id: &str,
@@ -158,6 +165,10 @@ pub fn start_agent_run(
 
     let tx = conn.transaction()?;
 
+    let automatic: bool = tx
+        .query_row("SELECT type = 'system' FROM actors WHERE id = ?1", params![human_actor_id], |r| r.get(0))
+        .with_context(|| format!("initiating actor {human_actor_id:?} not found"))?;
+
     let (project_id, current_status): (String, String) = tx
         .query_row(
             "SELECT project_id, status FROM tasks WHERE id = ?1",
@@ -167,6 +178,10 @@ pub fn start_agent_run(
         .with_context(|| format!("task {task_id:?} not found"))?;
 
     let trigger_id = create_user_action_trigger(&tx, &project_id, task_id, human_actor_id, &now)?;
+    if automatic {
+        tx.execute("UPDATE triggers SET config = '{\"automatic\":true}' WHERE id = ?1", params![trigger_id])
+            .context("failed to flag the trigger automatic")?;
+    }
 
     tx.execute(
         "INSERT INTO agent_runs (
@@ -189,12 +204,15 @@ pub fn start_agent_run(
     .context("failed to insert agent_runs row")?;
 
     let sequence = next_sequence(&tx, &project_id, "local")?;
-    let started_payload = serde_json::json!({
+    let mut started_payload = serde_json::json!({
         "field": "agent_run",
         "before": null,
         "after": run_id,
         "label": "Started agent run",
     });
+    if automatic {
+        started_payload["automatic"] = serde_json::Value::Bool(true);
+    }
     append_event(
         &tx,
         &project_id,
