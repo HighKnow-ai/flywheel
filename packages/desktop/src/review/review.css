@@ -78,11 +78,10 @@ table.review-diff {
   padding: var(--space-xs) var(--space-md);
   color: var(--text-muted-rack);
   background: var(--row-surface);
-  /* A-08/D-12: ink, not the brand. This was the only --accent left in the review surface and it was a
-     double violation — a fifth brand site outside the four permitted uses, drawn as a 2px coloured side
-     stripe, which is both the weight A-06 reserves for the selection rule and the shape craft-floor.md's
-     skill-ban-side-stripe-borders bans. The badge marks board text beside a diff; it is not a cursor. */
-  border-left: 2px solid var(--text-primary-rack);
+  /* A-08/D-12 took the brand out of this edge; D-199 takes the SHAPE out. A 2px side stripe is the weight
+     A-06 reserves for the selection rule and the pattern craft-floor.md's skill-ban-side-stripe-borders
+     bans, in ink as much as in colour. The badge marks board text beside a diff; it is not a cursor, so
+     it takes the neutral control edge (the `control-edge` class, App.css) on `FileDiff.tsx`'s element. */
 }
 
 /*

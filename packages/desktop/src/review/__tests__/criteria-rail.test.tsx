@@ -432,6 +432,7 @@ describe("select lines, then check", () => {
       return el as HTMLElement;
     });
     expect(within(badge).getByText(/Evidence for: Criterion c\d/)).toBeInTheDocument();
+    expect(badge.className, "the badge's edge is the neutral control edge, not a side stripe (D-199)").toContain("control-edge");
   });
 
   it("checks the focused criterion against the selection with the c key", async () => {

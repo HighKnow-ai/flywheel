@@ -189,7 +189,7 @@ describe("the brand rule holds across the review surface", () => {
     expect(offenders, "review.css must spend no --accent role").toEqual([]);
   });
 
-  it("draws the anchor badge's edge in ink, not the brand", () => {
-    expect(rule(".review-anchor-widget")).toMatch(/border-left:\s*2px solid var\(--text-primary-rack\)/);
+  it("draws the anchor badge with the neutral control edge, not a 2px side stripe (D-199)", () => {
+    expect(rule(".review-anchor-widget")).not.toMatch(/border-(left|right)/);
   });
 });

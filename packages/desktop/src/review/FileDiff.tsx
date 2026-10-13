@@ -123,7 +123,7 @@ export function FileDiff({ patch, path, selection = null, onSelectChange, anchor
         );
         if (onThisLine.length === 0) continue;
         out[getChangeKey(change)] = (
-          <div className="type-label review-anchor-widget">
+          <div className="type-label review-anchor-widget control-edge">
             {onThisLine.map((a) => (
               <span key={a.criterionId}>Evidence for: {a.statement}</span>
             ))}
