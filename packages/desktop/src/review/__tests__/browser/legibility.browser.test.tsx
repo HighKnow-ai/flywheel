@@ -67,6 +67,13 @@ function rowKind(el: Element): "insert" | "delete" | "normal" | "other" {
   return "other";
 }
 
+/** Every leaf whose painted contrast against its own row is under the AA floor, named for the failure message. */
+function belowAA(leaves: HTMLElement[]): string[] {
+  return leaves
+    .filter((leaf) => rowKind(leaf) !== "other" && paintedContrast(leaf) < AA_NORMAL)
+    .map((leaf) => `${rowKind(leaf)} = ${paintedContrast(leaf).toFixed(2)}:1`);
+}
+
 /** The token role, as `review.css` assigns colour: its non-structural class names. */
 function tokenRoles(el: Element): string[] {
   return Array.from(el.classList).filter((c) => c !== "token");
@@ -100,10 +107,39 @@ describe("UAT 1 — diff legibility at review width", () => {
     expect(recoloured, "token spans repaint the code").toEqual([]);
 
     // And the code itself stays at AA on every row paint it can sit on.
-    const failures = leaves
-      .filter((leaf) => rowKind(leaf) !== "other" && paintedContrast(leaf) < AA_NORMAL)
-      .map((leaf) => `${rowKind(leaf)} = ${paintedContrast(leaf).toFixed(2)}:1`);
-    expect(failures, "code below AA on its painted row").toEqual([]);
+    expect(belowAA(leaves), "code below AA on its painted row").toEqual([]);
+  });
+
+  it("keeps every token leaf at 4.5:1 and in the code's own ink while a row is gutter-selected (D-REV-06)", async () => {
+    renderSurface();
+    await expandEveryFile();
+
+    // One real gutter click per change kind, the way a reader selects: the selected row stacks the
+    // selection layer over the row tint, which is the state no other test measured.
+    for (const kind of ["delete", "insert"] as const) {
+      const gutter = document.querySelector<HTMLElement>(`.review-diff td.diff-gutter-${kind}`);
+      expect(gutter, `no ${kind} gutter rendered`).toBeTruthy();
+      gutter!.click();
+      await waitFor(() =>
+        expect(document.querySelectorAll(".review-diff td.diff-code-selected").length, `${kind} gutter click selected nothing`).toBeGreaterThan(0),
+      );
+
+      const leaves = tokenLeaves();
+      const selected = leaves.filter((leaf) => leaf.closest("td.diff-code-selected"));
+      // Not vacuous: the measured set must include tokens that actually sit on the selected row.
+      expect(selected.length, `no token leaf sits on the ${kind}-selected row`).toBeGreaterThan(0);
+      const measured = selected.map((leaf) => paintedContrast(leaf).toFixed(2));
+      // eslint-disable-next-line no-console
+      console.log(`D-REV-06 ${kind}-selected row, ${selected.length} token leaves, painted contrast: min ${Math.min(...measured.map(Number))}:1`);
+
+      expect(belowAA(leaves), `code below AA with a ${kind} row selected`).toEqual([]);
+      expect(
+        leaves
+          .filter((leaf) => toHex(effectiveForeground(leaf)) !== toHex(effectiveForeground(leaf.closest("td.diff-code") as Element)))
+          .map((leaf) => tokenRoles(leaf).join(".")),
+        `a token repaints the code with a ${kind} row selected`,
+      ).toEqual([]);
+    }
   });
 
   it("does not wrap code: a long line scrolls the pane sideways and no token breaks mid-word", async () => {
