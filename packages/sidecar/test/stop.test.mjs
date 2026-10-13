@@ -5,7 +5,7 @@
  * `child_process`.
  */
 import assert from "node:assert/strict";
-import { execSync, spawnSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
@@ -158,27 +158,10 @@ test("interrupting a stubborn session escalates to a group SIGTERM and tears dow
   assert.ok(closed, "expected a session_closed event for the stubborn session");
   assert.equal(closed.reason, "interrupted");
 
-  // The group SIGTERM was delivered by the time the session closes, but the grandchild is a
-  // dead process that stays in the process table as a zombie until whoever inherited it reaps it,
-  // and kill(pid, 0) still succeeds on a zombie. On GitHub's macos-14 runners that reaping has
-  // been observed to lag past 3s (11-04: identical code green on one run, red on the next). The
-  // claim under test is "the signal reached the grandchild", so a zombie counts as terminated;
-  // a process in any other state (running, sleeping) does not, and fails with its ps state.
-  const stateOf = (pid) => {
-    try {
-      process.kill(pid, 0);
-    } catch (err) {
-      if (err.code === "ESRCH") return "gone";
-      throw err;
-    }
-    const ps = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
-    const stat = ps.stdout.trim();
-    return stat === "" ? "gone" : stat.startsWith("Z") ? "zombie" : `alive (ps stat ${stat})`;
-  };
-  await waitForCondition(() => ["gone", "zombie"].includes(stateOf(grandchildPid)), { timeoutMs: 3000 }).catch(() => {});
-  assert.ok(
-    ["gone", "zombie"].includes(stateOf(grandchildPid)),
-    `the grandchild process must no longer be running after the force step reached the whole process group; it is ${stateOf(grandchildPid)}`,
+  assert.throws(
+    () => process.kill(grandchildPid, 0),
+    (err) => err.code === "ESRCH",
+    "the grandchild process must no longer exist after the force step reached the whole process group",
   );
 });
 
