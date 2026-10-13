@@ -4,11 +4,14 @@
  * - accepting with no live run installs once and says a relaunch applies it;
  * - with live runs the count is named and accept does not install;
  * - dismissal holds for that version only;
- * - a failed install shows its error and keeps the banner.
+ * - a failed install shows its error and keeps the banner;
+ * - (Task 3) the real AppShell draws the offer inside #app-root, on the board and on a fresh install.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import App from "../../App";
+import { queryClient as appQueryClient } from "../../adapters/queryClient";
 import { UpdateBanner } from "../UpdateBanner";
 import { resetUiState } from "../../state/uiStore";
 import type { UpdateCheckDto, UpdateInstallDto } from "../../adapters/tauri";
@@ -16,6 +19,7 @@ import type { UpdateCheckDto, UpdateInstallDto } from "../../adapters/tauri";
 const updateCheckMock = vi.fn();
 const updateInstallMock = vi.fn();
 const fleetListMock = vi.fn();
+const invokeCommandMock = vi.fn();
 
 vi.mock("../../adapters/tauri", () => ({
   updateCheck: () => updateCheckMock(),
@@ -23,6 +27,13 @@ vi.mock("../../adapters/tauri", () => ({
   fleetList: () => fleetListMock(),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeAgentEvent: () => Promise.resolve(() => {}),
+  // What the real AppShell reads (see projects/__tests__/project-rail.test.tsx).
+  invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
+  fleetBlockedQueue: () => Promise.resolve([]),
+  fleetWatchRun: () => Promise.resolve(),
+  boardRecoverySummary: () => Promise.resolve(undefined),
+  subscribeMenuAction: () => Promise.resolve(() => {}),
+  openFolderDialog: () => Promise.resolve(null),
 }));
 
 function offer(version: string, overrides: Partial<UpdateCheckDto> = {}): UpdateCheckDto {
@@ -54,6 +65,7 @@ beforeEach(() => {
   updateInstallMock.mockReset();
   fleetListMock.mockReset();
   fleetListMock.mockResolvedValue(fleet());
+  invokeCommandMock.mockReset();
 });
 
 afterEach(() => {
@@ -135,5 +147,50 @@ describe("UpdateBanner", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Install on relaunch" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("failed:update_install:download");
     expect(screen.getByText("Flywheel 0.2.0 is available")).toBeInTheDocument();
+  });
+});
+
+describe("UpdateBanner in the application shell", () => {
+  const registered = [
+    { id: "p1", keyPrefix: "ALP", name: "Alpha", repoPath: "/repo", defaultBranch: "main", status: "active" },
+  ];
+
+  function serve(projects: unknown[]) {
+    invokeCommandMock.mockImplementation((command: string) => {
+      if (command === "project_list") return Promise.resolve(projects);
+      if (command === "actor_list") return Promise.resolve([]);
+      if (command === "board_list") {
+        return Promise.resolve({ items: [], issues: [], counts: { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 } });
+      }
+      return Promise.resolve(undefined);
+    });
+  }
+
+  // `App` shares one module-level QueryClient; a cached answer from the previous test would hide this one.
+  beforeEach(() => appQueryClient.clear());
+
+  it("draws the offer inside #app-root over the board when an update exists", async () => {
+    serve(registered);
+    updateCheckMock.mockResolvedValue(offer("0.2.0"));
+    render(<App />);
+    const banner = await screen.findByRole("region", { name: "Update available" });
+    expect(banner.closest("#app-root")).not.toBeNull();
+    expect(screen.getAllByText("Alpha").length).toBeGreaterThan(0);
+  });
+
+  it("draws no offer when none exists", async () => {
+    serve(registered);
+    updateCheckMock.mockResolvedValue({ available: false, version: null, notes: null, currentVersion: "0.1.0" });
+    render(<App />);
+    await screen.findAllByText("Alpha");
+    await waitFor(() => expect(updateCheckMock).toHaveBeenCalled());
+    expect(screen.queryByRole("region", { name: "Update available" })).not.toBeInTheDocument();
+  });
+
+  it("offers the update on a fresh install with no project registered", async () => {
+    serve([]);
+    updateCheckMock.mockResolvedValue(offer("0.2.0"));
+    render(<App />);
+    expect(await screen.findByRole("region", { name: "Update available" })).toBeInTheDocument();
   });
 });
