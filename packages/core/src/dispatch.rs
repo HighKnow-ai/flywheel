@@ -336,6 +336,9 @@ pub enum AttentionCause {
     LaunchFailed { error: String },
     /// The merge could not run (a dirty integration worktree, a missing branch, ...).
     MergeBlocked { reason: String },
+    /// The close-time backstop found a change outside the declared file-set (D-REV-42). The merge is
+    /// automatic and unreviewed by design (D-156), so an observed breach has to interrupt it.
+    ScopeBreach { count: usize, first: String },
 }
 
 impl AttentionCause {
@@ -353,6 +356,7 @@ impl AttentionCause {
             AttentionCause::StaleBase { .. } => "stale_base",
             AttentionCause::LaunchFailed { .. } => "launch_failed",
             AttentionCause::MergeBlocked { .. } => "merge_blocked",
+            AttentionCause::ScopeBreach { .. } => "scope_breach",
         }
     }
 
@@ -372,6 +376,11 @@ impl AttentionCause {
             ),
             AttentionCause::LaunchFailed { error } => format!("The run could not be started: {error}"),
             AttentionCause::MergeBlocked { reason } => format!("The merge could not run: {reason}"),
+            AttentionCause::ScopeBreach { count, first } => format!(
+                "The run changed {count} path(s) outside its declared file-set (first: {first}), found when the \
+                 session closed. An unseen out-of-scope change is not merged automatically. Review the \
+                 task's diff and merge it yourself if it is fine."
+            ),
         }
     }
 }
@@ -803,6 +812,27 @@ pub fn observation_targets(conn: &Connection) -> anyhow::Result<Vec<ObservationT
     Ok(targets)
 }
 
+/// The paths the close-time backstop found outside the declared set in the task's most recent run.
+/// An earlier run's breach belongs to that run: a retried task is judged on its own run.
+fn breach_paths_of_latest_run(conn: &Connection, task_id: &str) -> anyhow::Result<Vec<String>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT json_extract(payload, '$.path') FROM events
+              WHERE task_id = ?1 AND event_type = ?2
+                AND json_extract(payload, '$.detected_after_the_fact') = 1
+                AND json_extract(payload, '$.run_id') =
+                    (SELECT id FROM agent_runs WHERE task_id = ?1 ORDER BY started_at DESC, id DESC LIMIT 1)
+              ORDER BY sequence",
+        )
+        .context("failed to prepare the scope-breach read")?;
+    let paths = stmt
+        .query_map(params![task_id, crate::domain::file_set::EVENT_SCOPE_DENIED], |r| r.get::<_, String>(0))
+        .context("failed to read the scope breaches")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read a scope-breach row")?;
+    Ok(paths)
+}
+
 /// A finished run's next step: merge it, or stop the wave and say why.
 fn after_completed_run(
     conn: &Connection,
@@ -823,6 +853,18 @@ fn after_completed_run(
             out.push(mark(AttentionCause::Uncommitted { count: seen.uncommitted.len(), first: first.clone() }));
         }
         return Ok(());
+    }
+    // D-REV-42: an out-of-scope write the backstop found in the LATEST run holds the merge for a
+    // human. A recorded merge means a person already looked (the Phase 8 path), so it is not held
+    // again. ponytail: Bash writes are still only detected, not prevented; that half stays open.
+    if crate::merge::integrated_merge_commit(conn, &t.task_id)?.is_none() {
+        let breaches = breach_paths_of_latest_run(conn, &t.task_id)?;
+        if let Some(first) = breaches.first() {
+            if !already_marked {
+                out.push(mark(AttentionCause::ScopeBreach { count: breaches.len(), first: first.clone() }));
+            }
+            return Ok(());
+        }
     }
     match seen.commits_ahead {
         None => {}
