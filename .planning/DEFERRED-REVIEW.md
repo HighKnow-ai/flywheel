@@ -1164,3 +1164,18 @@ At Phase 11, with an installed, usable build:
     `held_by_limit` from an old session reads as hand-run and is adopted rather than retried.
   risk_if_wrong: "Low to moderate. (1) is the only one that can strand a wave on a false message; the rest are narrow."
   automatable: "YES, all five. (1) a test that fails the event write after a real merge and asserts the next pass records the integrated event. (2) a core test that moves a task to done between draft and approve. (3) a pair spelled NFC and NFD through `overlaps`. (4) a test per consumer once split. (5) move the hook install after the lock is released in the two commands."
+
+- id: D-REV-59
+  phase: "11 - Ship It (plan 11-10, owner decision taken during execution)"
+  truth: "The dispatcher adopts a task the owner ran by hand: it merges that finished work automatically, unreviewed, attributed to the system actor. The owner was asked during plan 11-10's execution and chose to keep the shipped behaviour."
+  status: resolved
+  why_deferred: |
+    Not deferred - decided. Plan 11-10's fix for D-REV-39 ("a hand-run task is relaunched") replaced the relaunch
+    with adoption, which has a consequence the register should state plainly rather than leave implicit in a
+    SUMMARY: adopted work merges without review. The alternative considered was to refuse the relaunch and do
+    nothing else, which leaves the task stuck in `planned` with no message - strictly worse. The second
+    alternative, adopt-but-hold-for-review, is a small change in `decide` and was offered. The owner chose to keep
+    auto-merge as shipped on 2026-10-13, accepting that a merge they did not inspect can land, in exchange for
+    nothing ever stalling in `planned`.
+  risk_if_wrong: "Moderate and bounded: a hand-run task's work lands on the integration branch without owner review. Recoverable by git; it is not a data-loss path. Revisit at 11-21 only if an unreviewed adopt actually surprises the owner in use."
+  automatable: "N/A - an owner preference, not a testable claim. The behaviour itself is already pinned by the tests plan 11-10 added (a dispatcher launch is attributed to the system actor; a hand-run task is adopted, not relaunched)."
