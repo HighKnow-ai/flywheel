@@ -383,6 +383,42 @@ pub enum EpicRequestOutcome {
     PushedButNotOpened { branch: String, detail: String },
 }
 
+/// Why [`open_epic_request_if_unchanged`] did not open a request.
+#[derive(Debug)]
+pub enum OpenEpicRequestError {
+    /// The draft no longer hashes to what the user previewed. Nothing was pushed or sent. The
+    /// digests are for the host log only; [`OpenEpicRequestError::code`] is all that crosses IPC.
+    DraftChanged { previewed: String, current: String },
+    Forge(ForgeError),
+}
+
+impl OpenEpicRequestError {
+    /// The bare category the renderer matches on (T-08-14-03).
+    pub fn code(&self) -> &'static str {
+        match self {
+            OpenEpicRequestError::DraftChanged { .. } => "draftChanged",
+            OpenEpicRequestError::Forge(_) => "forge",
+        }
+    }
+}
+
+/// The ordering that matters for the one action that leaves the machine (D-REV-03): the text about
+/// to be published must be the text the user read, so the draft-hash comparison runs and refuses
+/// BEFORE [`open_epic_request_at`] does any lookup, push or forge call. Plain values only, so a
+/// test can drive it with a stub forge; the Tauri command is a thin caller.
+pub fn open_epic_request_if_unchanged(
+    forge: Forge,
+    repo_path: &std::path::Path,
+    draft: &request_body::RequestDraft,
+    previewed_hash: &str,
+) -> Result<EpicRequestOutcome, OpenEpicRequestError> {
+    let current = draft.content_hash();
+    if current != previewed_hash {
+        return Err(OpenEpicRequestError::DraftChanged { previewed: previewed_hash.to_string(), current });
+    }
+    open_epic_request_at(forge, repo_path, draft).map_err(OpenEpicRequestError::Forge)
+}
+
 /// Open a pull/merge request for an epic's integration branch (REVW-05): reuse an open request if
 /// one exists, else push the head, then create the request. Connection-free like every function in
 /// this module that shells out; `draft` comes from

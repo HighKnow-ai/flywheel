@@ -396,16 +396,17 @@ pub fn forge_open_epic_request(
     };
     let draft = request_body::finish_epic_request_draft(draft_inputs).map_err(|e| ipc_error("forge_open_epic_request:draft", e))?;
 
-    // The text about to be published must be the text the user read. Refused before any push or
-    // forge call; the category crosses IPC bare, the digests stay in the host log (T-08-14-03).
-    let current_hash = draft.content_hash();
-    if current_hash != content_hash {
-        eprintln!("epic {epic_id}: draft changed since the preview (previewed {content_hash}, now {current_hash})");
-        return Err("draftChanged".to_string());
-    }
-
-    let outcome = flywheel_core::forge::open_epic_request_at(inputs.forge(), inputs.repo_path(), &draft)
-        .map_err(|e| forge_error_code(e, "opening a request", &epic_id))?;
+    // The text about to be published must be the text the user read. The comparison lives in
+    // core, ahead of any push or forge call (D-REV-03); the category crosses IPC bare, the digests
+    // stay in the host log (T-08-14-03).
+    let outcome = flywheel_core::forge::open_epic_request_if_unchanged(inputs.forge(), inputs.repo_path(), &draft, &content_hash)
+        .map_err(|e| match e {
+            flywheel_core::forge::OpenEpicRequestError::DraftChanged { previewed, current } => {
+                eprintln!("epic {epic_id}: draft changed since the preview (previewed {previewed}, now {current})");
+                "draftChanged".to_string()
+            }
+            flywheel_core::forge::OpenEpicRequestError::Forge(e) => forge_error_code(e, "opening a request", &epic_id),
+        })?;
     let dto = match outcome {
         EpicRequestOutcome::Opened(request) => EpicRequestOutcomeDto::Opened { request: ForgeRequestDto::from(&request) },
         EpicRequestOutcome::AlreadyOpen(request) => {
