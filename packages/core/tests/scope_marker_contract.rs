@@ -643,7 +643,11 @@ fn start_agent_run_recording_first_arms_the_scope_after_the_worktree_read_and_ab
     // The arming error must reach the caller: either `?` on the call itself, or an `Err` arm that
     // returns it (the run row is closed `failed` first, so a failed arm does not leak a `running`
     // run).
+    //
+    // Plan 11-09 (D-REV-46) closes the run through `fail_launch` in a `.map_err(..)?;` continuation
+    // on the lines after the call, so the `?;` may sit a few lines below the `arm_run_scope(` line.
     let propagated = arm.1.trim_end().ends_with("?;")
+        || code.iter().filter(|(i, _)| *i > arm.0 && *i <= arm.0 + 3).any(|(_, l)| l.trim_end().ends_with("?;"))
         || code.iter().filter(|(i, _)| *i > arm.0 && *i < arm.0 + 14).any(|(_, l)| l.contains("return Err("));
     assert!(propagated, "the arming error must be propagated: {}", arm.1);
 }
@@ -678,10 +682,21 @@ fn the_spawn_request_carries_the_armed_fact_from_the_marker_the_run_start_wrote(
         "start_agent_run_recording_first must hand the armed fact to its outcome"
     );
 
-    let launch = function_region(&lines, "pub(crate) fn launch_run_for_task(");
-    let request: Vec<&&str> = launch.iter().filter(|l| !is_whole_line_comment(l)).collect();
+    // Plan 11-09 moved the spawn request out of `launch_run_for_task` into `spawn_prepared_run`,
+    // which `launch_run_for_task` hands the run-start outcome to. Both halves are pinned.
+    let spawn = function_region(&lines, "pub(crate) fn spawn_prepared_run(");
+    let request: Vec<&&str> = spawn.iter().filter(|l| !is_whole_line_comment(l)).collect();
     assert!(
         request.iter().any(|l| l.contains("\"scopeArmed\"") && l.contains("outcome.scope_armed")),
         "the spawn request must carry scopeArmed taken from the run-start outcome, never recomputed"
+    );
+    let launch = function_region(&lines, "pub(crate) fn launch_run_for_task(");
+    assert!(
+        launch.iter().filter(|l| !is_whole_line_comment(l)).any(|l| l.contains("spawn_prepared_run(")),
+        "launch_run_for_task must send its spawn through spawn_prepared_run, the one place scopeArmed is set"
+    );
+    assert!(
+        launch.iter().filter(|l| !is_whole_line_comment(l)).any(|l| l.contains("&outcome")),
+        "launch_run_for_task must hand spawn_prepared_run the run-start outcome"
     );
 }
