@@ -145,7 +145,7 @@ plan_head_before: 50b6019c18a6d0eb18d35f6297453480f930417c
 `packages/desktop/src/theme/__tests__/brand-rule.test.ts` reads every production `.ts`, `.tsx` and `.css` file through an eager `import.meta.glob` with `?raw` (tests excluded, token definitions excluded), strips comments, and asserts:
 
 1. it really read the source (more than 50 files, `App.css` contains `::selection`), so a stubbed `?raw` cannot pass vacuously;
-2. the brand-token occurrences per file equal the allowlist exactly (12 files, 20 occurrences), so a new use anywhere, or a second use in a listed file, fails;
+2. the brand-token occurrences per file equal the allowlist exactly (12 files, 17 occurrences), so a new use anywhere, or a second use in a listed file, fails;
 3. every use the allowlist names has its phrase in `08.1-UI-SPEC.md` § The brand rule, so widening the code without the document fails;
 4. no line declaring a left or right border has a coloured 2px-or-wider stroke other than `--selection-rule`, `${selectionRule}` or `transparent`. Shown red by restoring the old ink stripe temporarily.
 
