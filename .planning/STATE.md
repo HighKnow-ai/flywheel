@@ -4,16 +4,16 @@ milestone: v0.1.0
 current_phase: 11
 current_phase_name: Ship It
 status: executing
-stopped_at: Completed 11-10-PLAN.md
-last_updated: "2026-10-13T07:54:55.552Z"
+stopped_at: Completed 11-16-PLAN.md
+last_updated: "2026-10-13T08:14:22.503Z"
 last_activity: 2026-10-13
 last_activity_desc: Phase 11 execution started
-state_head: baec4d687de367b83b5d3d70da377017f58b78eb
+state_head: f39b5f72a320ac0dc9893ff161dac5314d45556d
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 249
-  completed_plans: 238
+  completed_plans: 239
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 11 (Ship It) — EXECUTING
-Plan: 4 of 21
+Plan: 5 of 21
 Status: Ready to execute
 Last activity: 2026-10-13 — Phase 11 execution started
 
@@ -301,6 +301,7 @@ Progress: [█░░░░░░░░░] 8% — 12 of 13 phases complete (228/
 | Phase 11 P03 | 10 min | 3 tasks | 4 files |
 | Phase 11 P04 | 2h 45m (continuation) | 3 tasks | 7 files |
 | Phase 11 P10 | 190 min | 3 tasks | 14 files |
+| Phase 11 P16 | 35 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -700,6 +701,7 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-04: asset assertion is conditional on createUpdaterArtifacts; release notes capped at 200 commits; repo slug rename is a prerequisite for 11-05 and 11-08 — 11-01 left updater artifacts unset until the signing key exists (11-05); first throwaway body was 116,932 chars against a 125,000 limit
 - [Phase 11]: 11-10: a task the user ran by hand is adopted by decide (merged or recorded), not relaunched; adoption merges it unreviewed with the system actor, owner may veto — Leaving it startable double-runs the task; merely refusing strands the wave silently in planned.
 - [Phase 11]: 11-10: git config never runs under AppState.db; a command reads the repo path under a short lock, drops it, probes, re-locks, and calls the *_with twin — D-REV-39 WR-07; pinned by no_desktop_command_runs_the_case_probe_under_the_database_lock. Exception: project registration (D-REV-58).
+- [Phase 11]: 11-16: D-REV-34 driven with four tasks (three disjoint wave-one tasks, cap two) so the cap binds; D-REV-35 asked of the real binary through a loopback model server, not a real account, so no credential is used and the no-request assertion is not vacuous. — A two-task wave never tests the cap; the earlier argv tests keep the CLI off the network, so no tool call would ever happen.
 
 ### Pending Todos
 
@@ -762,6 +764,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-13T07:54:55.340Z
-Stopped at: Completed 11-10-PLAN.md
+Last session: 2026-10-13T08:14:22.291Z
+Stopped at: Completed 11-16-PLAN.md
 Resume file: None
