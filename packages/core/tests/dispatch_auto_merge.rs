@@ -947,6 +947,38 @@ fn no_dispatch_handler_accepts_an_actor_a_branch_a_ref_a_sha_or_a_path() {
     assert!(handlers >= 11, "expected the whole command roster, found {handlers}");
 }
 
+/// D-REV-39 WR-07. The case probe runs `git config`, so no desktop command may reach it while it holds
+/// `AppState.db`. The core functions that probe themselves (`preview_edges`, `approve_plan`,
+/// `approve_and_start`, `widen_file_set`, `arm_scope_marker`) are for callers with no lock; a command
+/// calls their `*_with` twin and gets the flag from a helper that read the path under a short lock,
+/// dropped it, and probed. This pins both halves in the command sources (their test modules excluded).
+#[test]
+fn no_desktop_command_runs_the_case_probe_under_the_database_lock() {
+    let sources = [
+        "packages/desktop/src-tauri/src/commands/dispatch.rs",
+        "packages/desktop/src-tauri/src/commands/file_set.rs",
+        "packages/desktop/src-tauri/src/commands/agent_run.rs",
+    ];
+    let mut probe_sites = 0;
+    for rel in sources {
+        let full = read(rel);
+        let production = full.split("#[cfg(test)]").next().unwrap();
+        for line in code_lines(production) {
+            // Bare names, so an imported call is caught as well as a qualified one; the `_with` twins
+            // do not contain these substrings.
+            for self_probing in ["preview_edges(", "approve_plan(", "approve_and_start(", "widen_file_set(", "arm_scope_marker("] {
+                assert!(!line.contains(self_probing), "{rel} calls {self_probing} under a lock: {line}");
+            }
+            if line.contains("repo_is_case_insensitive(") {
+                probe_sites += 1;
+            }
+        }
+    }
+    // plan_fold_case, task_file_set_widen, observed_fold_case. A fourth means a new probe site: check it
+    // runs with no lock held, then raise this number.
+    assert_eq!(probe_sites, 3, "a command probes the case flag in an unexpected number of places");
+}
+
 // ===== 09 review CR-02: a task with no declared set runs alone (D-150) ==========================
 
 #[test]
