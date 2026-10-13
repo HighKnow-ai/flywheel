@@ -522,6 +522,10 @@ pub(crate) struct StartRunOutcome {
 /// `State<AppState>` and no `AppHandle` — named after [`stop_agent_run_recording_first`]'s
 /// identical precedent in this file, for the identical reason.
 ///
+/// `case_insensitive` is the repository's observed `core.ignorecase`, read by the caller BEFORE the
+/// database lock was taken (it is a `git config` subprocess, D-REV-39 WR-07) and written into the
+/// scope marker unchanged.
+///
 /// Performs, in exactly this order — the order IS the fix:
 /// 1. Resolve `previous_run_id`, the run that PRECEDED this one, via
 ///    `query::permissions::latest_run_id_for_task` — BEFORE anything inserts a row. This step
@@ -539,10 +543,6 @@ pub(crate) struct StartRunOutcome {
 /// 7. the `record_drift_warnings` transaction, unchanged in shape.
 /// 8. `list_current_criteria` then `pin_criteria_revisions`, unchanged.
 /// 9. the `SELECT path FROM worktrees WHERE id = ?1` read for the worktree path.
-/// `case_insensitive` is the repository's observed `core.ignorecase`, read by the caller BEFORE the
-/// database lock was taken (it is a `git config` subprocess, D-REV-39 WR-07) and written into the
-/// scope marker unchanged.
-///
 /// 10. [`arm_run_scope`] (phase 09, plan 09-01, D-150/D-151) — writes the run's scope marker, AFTER
 ///     the worktree path is read (the marker records the canonical worktree root) and BEFORE the
 ///     outcome is returned, so the marker exists on disk before the caller can spawn a session
@@ -4033,13 +4033,8 @@ mod tests {
         for configured in ["false", "true"] {
             with_scratch_worktree_root(|| {
                 let (conn, _actor, _project, task, repo) = seeded_git_conn_with_task();
-                let out = std::process::Command::new("git")
-                    .args(["-C"])
-                    .arg(repo.path())
-                    .args(["config", "core.ignorecase", configured])
-                    .output()
-                    .unwrap();
-                assert!(out.status.success());
+                // Every git command is constructed in `core/src/git.rs` (supervisor_cwd.rs pins it).
+                flywheel_core::git::git_at(repo.path(), &["config", "core.ignorecase", configured]).unwrap();
                 let db = std::sync::Mutex::new(conn);
                 assert_eq!(observed_fold_case(&db, &task).unwrap(), configured == "true");
                 assert!(db.try_lock().is_ok(), "the database lock is not left held by the probe");

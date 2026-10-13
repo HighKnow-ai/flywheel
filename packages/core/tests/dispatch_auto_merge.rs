@@ -653,7 +653,14 @@ fn a_persistently_failing_merge_appends_one_event_and_does_not_flap() {
         assert!(merges(&report.actions).contains(&a.as_str()), "the merge is still being retried each tick");
         assert_eq!(fx.state(&plan, &a), "needs_attention");
     }
-    assert_eq!(marks(&fx), once, "three more failed ticks append nothing");
+    let causes = |f: &Fx| -> Vec<String> {
+        let conn = f.conn();
+        let mut stmt = conn
+            .prepare("SELECT payload FROM events WHERE event_type = 'dispatch.task_needs_attention' AND task_id = ?1 ORDER BY sequence")
+            .unwrap();
+        stmt.query_map([&a], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
+    };
+    assert_eq!(marks(&fx), once, "three more failed ticks append nothing: {:#?}", causes(&fx));
 
     // Fixed, it lands on its own.
     std::fs::remove_file(&hook).unwrap();
