@@ -1087,6 +1087,81 @@ fn retry_and_skip_are_not_reachable_from_an_agent() {
     }
 }
 
+// ===== D-REV-42 (the cheap half): an observed scope breach interrupts the automatic merge =======
+
+/// A finished run whose close-time backstop found `path` outside the declared set.
+fn breach_after_the_fact(fx: &Fx, task: &str, path: &str) {
+    let run = latest_run(fx, task);
+    let appended = core::domain::file_set::record_backstop_denials(&mut fx.conn(), &run, &[path.to_string()]).unwrap();
+    assert_eq!(appended, 1);
+}
+
+#[test]
+fn a_clean_run_still_merges_automatically() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/1"));
+    let plan = fx.plan(&[(&a, 1)]);
+    fx.drive(10, |f| f.plan_status(&plan) == "completed");
+    assert_eq!(fx.state(&plan, &a), "merged");
+}
+
+#[test]
+fn a_run_with_an_out_of_scope_write_found_after_the_fact_is_not_merged_automatically() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/1"));
+    let plan = fx.plan(&[(&a, 1)]);
+    fx.pass(); // the fake agent ran and finished; nothing has merged yet
+    breach_after_the_fact(&fx, &a, "elsewhere/other.rs");
+
+    let actions = fx.actions();
+    assert!(merges(&actions).is_empty(), "an observed breach is not merged without a human seeing it: {actions:?}");
+    let cause = attention_of(&actions, &a).expect("a needs-attention action");
+    assert_eq!(cause.kind(), "scope_breach");
+    assert!(cause.sentence().contains("elsewhere/other.rs"), "{}", cause.sentence());
+
+    fx.pass();
+    fx.pass();
+    assert_eq!(fx.state(&plan, &a), "needs_attention");
+    let (phase, kind, _) = attention_for(&fx.conn(), &plan, &a).unwrap().unwrap();
+    assert_eq!((phase, kind.as_str()), (AttentionPhase::PostRun, "scope_breach"));
+    assert_eq!(events_of(&fx, &a, "dispatch.task_needs_attention"), 1, "one record, not one per tick");
+    assert_eq!(events_of(&fx, &a, "task.integrated"), 0, "nothing landed");
+    assert!(!has_advance(&fx.actions()), "the wave is held");
+}
+
+#[test]
+fn a_human_merge_after_the_breach_lets_the_wave_move_on() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/1"));
+    let plan = fx.plan(&[(&a, 1)]);
+    fx.pass();
+    breach_after_the_fact(&fx, &a, "elsewhere/other.rs");
+    fx.pass();
+    assert_eq!(fx.state(&plan, &a), "needs_attention");
+
+    // The Phase 8 review-and-merge path: a person looked at it and merged it under their own name.
+    let merge_plan = core::merge::plan_merge(&fx.conn(), &a).unwrap();
+    let outcome = core::merge::run_merge(&merge_plan).unwrap();
+    let human = fx.human.clone();
+    core::merge::record_merge_event(&mut fx.conn(), &merge_plan, &outcome, &human).unwrap();
+
+    fx.drive(10, |f| f.plan_status(&plan) == "completed");
+    assert_eq!(fx.state(&plan, &a), "merged");
+}
+
+#[test]
+fn a_breach_in_an_earlier_run_does_not_hold_a_later_clean_run() {
+    let fx = fx();
+    let a = fx.task("A", &["a/"], w("a/1"));
+    let plan = fx.plan(&[(&a, 1)]);
+    ended_badly(&fx, &plan, &a, AgentRunStatus::Failed);
+    breach_after_the_fact(&fx, &a, "elsewhere/other.rs"); // recorded against the failed first run
+    let human = fx.human.clone();
+    retry_task(&mut fx.conn(), &a, &human).unwrap();
+    fx.drive(10, |f| f.plan_status(&plan) == "completed");
+    assert_eq!(fx.state(&plan, &a), "merged", "the breach belonged to the run that failed");
+}
+
 // ===== source gates ===========================================================================
 
 fn read(rel: &str) -> String {
