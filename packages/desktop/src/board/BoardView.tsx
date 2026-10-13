@@ -71,6 +71,7 @@ import {
   toFilterInput,
   useDebouncedValue,
   useEpicProgress,
+  useFilteredEpics,
   useGroupItemsMany,
   openLiveSessionForTask,
   useActors,
@@ -576,6 +577,8 @@ export function BoardView({
   // has explicitly opened it via `c`/`⌘N`.
   const effectiveQuickAddOpen = quickAddOpen || items.length === 0;
 
+  const filteredEpics = useFilteredEpics(projectId, groupBase, groupingKey === "epic");
+
   const groups = useMemo<RackGroup[]>(() => {
     if (groupingKey === "status") {
       return BAND_ORDER.map((status) => {
@@ -591,7 +594,10 @@ export function BoardView({
       });
     }
     const collapsedOf = (id: string | null) => collapsedByStatus[groupCollapseKey("epic", id)] ?? true;
-    const out: RackGroup[] = epics.map((epic) => {
+    // A-04 `any-child`: under a filter the roster narrows to the epics the core returned rows for, so a
+    // header is never an empty shell. No answer yet, or one that may be cut short, narrows nothing.
+    const standing = filteredEpics.data && !filteredEpics.data.truncated ? new Set(filteredEpics.data.epicIds) : null;
+    const out: RackGroup[] = (standing ? epics.filter((epic) => standing.has(epic.id)) : epics).map((epic) => {
       const total = epicHeaderTotal(progress, epic.id) ?? (progress ? 0 : undefined);
       return {
         id: epic.id,
@@ -608,7 +614,7 @@ export function BoardView({
       };
     });
     const noEpicTasks = epicHeaderTotal(progress, null);
-    if (!progress || (noEpicTasks ?? 0) > 0) {
+    if ((!progress || (noEpicTasks ?? 0) > 0) && (!standing || filteredEpics.data!.hasNoEpicTasks)) {
       out.push({
         id: null,
         label: "No epic",
@@ -623,7 +629,7 @@ export function BoardView({
       });
     }
     return out;
-  }, [groupingKey, counts, collapsedByStatus, epics, progress]);
+  }, [groupingKey, counts, collapsedByStatus, epics, progress, filteredEpics.data]);
 
   const fetchedGroups = useGroupItemsMany(
     projectId,

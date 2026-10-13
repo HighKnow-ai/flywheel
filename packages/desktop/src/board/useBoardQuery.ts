@@ -1373,6 +1373,51 @@ export function useGroupItemsMany(
   });
 }
 
+/** Which epic headers the active filter and search leave standing (A-04, D-REV-27). */
+export interface FilteredEpics {
+  /** Epics the core's own filter returned a row for: the epic row itself (the has-worktree chip puts
+   * an epic in when any child task has a worktree) or a task that belongs to it. */
+  epicIds: string[];
+  /** Whether a matching task belongs to no epic, i.e. whether the "No epic" bucket still has a reason to show. */
+  hasNoEpicTasks: boolean;
+  /** True when the answer filled one call's row limit, so it may be a strict prefix: callers must not
+   * hide a header on an incomplete answer. */
+  truncated: boolean;
+}
+
+/**
+ * The epic lens under a filter: which headers have anything left to show. ONE unscoped read through
+ * the SAME `board_list`/`board_search` and the SAME filter the groups use, so the core does the
+ * filtering (D-03) and there is no second implementation; this only asks "which epics did it return
+ * rows for". Off (no query, no cost) while no filter or search is active. Fails open: until the answer
+ * lands, or if it may be cut short, every header shows. Header COUNTS stay board-wide (the aggregate
+ * is not filter-aware); only the set of headers narrows.
+ */
+export function useFilteredEpics(projectId: string | undefined, base: GroupBase | undefined, enabled: boolean) {
+  const filter = base?.filter;
+  const term = base?.term?.trim() ?? "";
+  const active = filter !== undefined || term.length > 0;
+  return useQuery<FilteredEpics>({
+    queryKey: [...boardQueryKey(projectId), "filtered-epics", filter ?? null, term],
+    queryFn: async () => {
+      const limit = GROUP_FETCH_MAX_ROWS;
+      const window =
+        term.length > 0
+          ? await invokeCommand<BoardWindow>("board_search", { projectId, term, filter, limit })
+          : await invokeCommand<BoardWindow>("board_list", { projectId, filter, limit });
+      const epicIds = new Set<string>();
+      let hasNoEpicTasks = false;
+      for (const item of window.items) {
+        if ((item.kind ?? "task") === "epic") epicIds.add(item.id);
+        else if (item.epicId) epicIds.add(item.epicId);
+        else hasNoEpicTasks = true;
+      }
+      return { epicIds: [...epicIds], hasNoEpicTasks, truncated: window.items.length >= limit };
+    },
+    enabled: Boolean(projectId) && enabled && active,
+  });
+}
+
 /** A cheap client-side pre-check mirroring `flywheel_core::git_identity::classify`'s two accepted
  * shapes (D-127/D-128, Phase 7 plan 07-05) — never the source of truth for validation (the core's
  * own `classify` is, called again server-side before any git invocation, T-07-05-01). This exists
