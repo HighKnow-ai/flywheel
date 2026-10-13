@@ -31,6 +31,11 @@ tauri-plugin-dialog = "2.7.3"
 # D-181 (Phase 10 plan 10-07): OS notifications, emitted by the Rust core only. Pinned to 2.4.0 so the
 # phase stays on `tauri = "=2.11.5"`; the window is granted nothing from this plugin (D-175).
 tauri-plugin-notification = "=2.4.0"
+# D-186 (Phase 11 plan 11-05): self-update. Checks `releases/latest/download/latest.json`, verifies the
+# ed25519 signature against the compiled pubkey, and stages the download. Pinned to 2.12.0, the newest
+# release requiring `tauri ^2.10`, so the build stays on `tauri = "=2.11.5"` (2.13.x needs `^2.12`).
+# Driven from the Rust core only (`commands/update.rs`); the window is granted nothing from it (D-175).
+tauri-plugin-updater = "=2.12.0"
 # D-113: the Rust core's periodic git-truth tick needs a tokio runtime and `app.emit`, which
 # `packages/core` (sync, no `AppHandle`) does not have — so the desktop crate, which already owns
 # the tokio runtime, starts the scheduler. This adds no new package to the dependency tree:
