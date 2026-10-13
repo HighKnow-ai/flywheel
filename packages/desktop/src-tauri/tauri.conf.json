@@ -43,6 +43,15 @@
     ],
     "resources": {
       "resources/sidecar": "sidecar"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFCMzUzNkJERDM5OTgzQzUKUldURmc1blR2VFkxcTdnb0dwMHFIYWNsc1cwcFJSOXpwb3BaNjI3MDEySG5icVJxZGFaNVFzaFgK",
+      "endpoints": [
+        "https://github.com/HighKnow-ai/flywheel/releases/latest/download/latest.json"
+      ]
     }
   }
 }

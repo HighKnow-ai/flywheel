@@ -40,6 +40,10 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         // D-175: granted to the Rust core only. No notification permission is added to the window.
         .plugin(tauri_plugin_notification::init())
+        // D-186/D-188: self-update, driven by `commands::update` from the Rust core only. No `updater:`
+        // permission is added to the window. Registered on the builder, not in `.setup()`, where
+        // `panic = "abort"` would turn a failed registration into a crash with no message.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .menu(|app| menu::build_menu(app))
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
@@ -186,6 +190,8 @@ fn main() {
             commands::dispatch::dispatch_plan_generate,
             commands::dispatch::dispatch_planning_run,
             commands::menu::menu_set_action_enabled,
+            commands::update::update_check,
+            commands::update::update_install,
             commands::agent_run::agent_run_preview,
             commands::agent_run::agent_run_start,
             commands::agent_run::agent_run_log_window,

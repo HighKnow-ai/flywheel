@@ -54,7 +54,9 @@ jobs:
       - run: npm --prefix packages/desktop run build
 
       # Unsigned (D-185). The signing identity lives only in the release workflow.
-      - run: npm --prefix packages/desktop run tauri build
+      # tauri.conf.json sets createUpdaterArtifacts (11-05), and tauri refuses to build those without
+      # the updater signing key. This job holds no secret (fork PRs cannot), so it turns them off here.
+      - run: npm --prefix packages/desktop run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - uses: actions/upload-artifact@v4
         with:

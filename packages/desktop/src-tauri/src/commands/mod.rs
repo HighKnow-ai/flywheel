@@ -25,6 +25,7 @@ pub mod project;
 pub mod review;
 pub mod settings;
 pub mod task;
+pub mod update;
 pub mod worktree_open;
 
 /// Map a core error to the string a handler returns to the renderer (T-07-08-01, T-08-08-06): the

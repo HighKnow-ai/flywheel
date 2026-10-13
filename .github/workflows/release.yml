@@ -75,13 +75,16 @@ jobs:
             echo 'NOTES_EOF'
           } >> "$GITHUB_OUTPUT"
 
-      # Unsigned on purpose (D-185): nothing but criterion 1 waits on an Apple account.
-      # Env groups added later, NOT here:
-      #   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD  -> plan 11-05
-      #   the Apple signing and notarization set                          -> plan 11-07
+      # Not Apple-signed on purpose (D-185): nothing but criterion 1 waits on an Apple account.
+      # The updater key below is a different thing: it signs the update payload, not the app (D-186).
+      # Env group added later, NOT here:
+      #   the Apple signing and notarization set  -> plan 11-07
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # T-11-16: referenced only here; no step echoes them. tauri signs the .app.tar.gz with them.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: packages/desktop
           tagName: ${{ github.ref_name }}
