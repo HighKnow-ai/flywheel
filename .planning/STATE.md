@@ -4,16 +4,16 @@ milestone: v0.1.0
 current_phase: 11
 current_phase_name: Ship It
 status: executing
-stopped_at: Completed 11-15-PLAN.md
-last_updated: "2026-10-13T01:29:30.747Z"
-last_activity: 2026-10-12
+stopped_at: Completed 11-03-PLAN.md
+last_updated: "2026-10-13T01:48:59.644Z"
+last_activity: 2026-10-13
 last_activity_desc: Phase 11 execution started
-state_head: ea19b9b1901827b29c1bdb20fabc4210930e65cb
+state_head: 1ab315506826a23e51f111792c2dcb4c3818d0f3
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 249
-  completed_plans: 235
+  completed_plans: 236
 ---
 
 # Project State
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 11 (Ship It) — EXECUTING
-Plan: 8 of 21
+Plan: 2 of 21
 Status: Ready to execute
-Last activity: 2026-10-12 — Phase 11 execution started
+Last activity: 2026-10-13 — Phase 11 execution started
 
 Progress: [█░░░░░░░░░] 8% — 12 of 13 phases complete (228/228 planned plans executed; phase 11 is not yet planned)
 
@@ -298,6 +298,7 @@ Progress: [█░░░░░░░░░] 8% — 12 of 13 phases complete (228/
 | Phase 11 P13 | 17 min | 3 tasks | 10 files |
 | Phase 11 P14 | 35 min | 3 tasks | 5 files |
 | Phase 11 P15 | 50 min | 3 tasks | 10 files |
+| Phase 11 P03 | 10 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -693,6 +694,7 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-14: WebKit plain Tab skips buttons; reachability probes use Option+Tab. A refused Approve renders below the fold in WavePlanSheet (it.fails, deferred-items.md)
 - [Phase 11]: 11-15: the fleet UAT harness drives core functions through uat_fleet_ops, not the Tauri commands; the AppState mutex and IPC stay unexercised (needs a ~13 min desktop test build with tauri/test, routed)
 - [Phase 11]: 11-15: two fleet/session defects held as it.fails, not fixed: Back loses the selected fleet row; a finished run with an empty log reads 'Starting session...'
+- [Phase 11]: 11-03: open-core grep gate runs after the Cargo.toml members sed (the members line is itself a reference); Cargo.lock not searched
 
 ### Pending Todos
 
@@ -754,6 +756,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-13T01:29:30.549Z
-Stopped at: Completed 11-15-PLAN.md
+Last session: 2026-10-13T01:48:59.447Z
+Stopped at: Completed 11-03-PLAN.md
 Resume file: None
