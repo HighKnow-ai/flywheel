@@ -88,7 +88,7 @@ const PROPOSALS = [
 const RULES = [
   { id: "r1", projectId: PROJECT.id, toolName: "Bash(npm run test:*)", decision: "allow", createdAt: "2026-09-30T10:00:00.000Z" },
   { id: "r2", projectId: PROJECT.id, toolName: "Edit", decision: "allow", createdAt: "2026-10-02T10:00:00.000Z" },
-  { id: "r3", projectId: PROJECT.id, toolName: "mcp__github__create_pull_request_with_a_very_long_name", decision: "allow", createdAt: "2026-10-06T10:00:00.000Z" },
+  { id: "r3", projectId: PROJECT.id, toolName: `mcp__github__${"create_pull_request_with_a_very_long_name_".repeat(5)}end`, decision: "allow", createdAt: "2026-10-06T10:00:00.000Z" },
 ];
 
 const world = { proposals: PROPOSALS as unknown[] };
@@ -283,6 +283,11 @@ describe(`admin group, built, ${scheme} scheme`, () => {
     expect(cells[2].getBoundingClientRect().left - cells[1].getBoundingClientRect().left, "Tool to Decision").toBeLessThan(560);
     // The long tool name sits in its own cell and does not push Revoke off the row.
     expect(revokes[2].getBoundingClientRect().right).toBeLessThanOrEqual(rows[3].getBoundingClientRect().right);
+    // 11-17 finish review (group five): the long name really does truncate at 1440px, and because it names granted
+    // authority the whole name is still readable (the title), never silently clipped.
+    const longTool = Array.from(rows[3].children).find((c) => c.textContent?.startsWith("mcp__github__")) as HTMLElement;
+    expect(longTool.scrollWidth, "the fixture's long name must overflow its cell, or this tests nothing").toBeGreaterThan(longTool.clientWidth);
+    expect(longTool.getAttribute("title"), "a truncated tool name carries its full text").toBe(longTool.textContent);
 
     await userEvent.hover(screen.getByText(/FIXTURE: the real board/)); // park the pointer
     await settle();

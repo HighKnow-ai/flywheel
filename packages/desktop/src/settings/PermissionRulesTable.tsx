@@ -147,6 +147,8 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
               <span
                 role="cell"
                 className="type-body"
+                // A cell that ellipsizes names granted authority, so the whole name stays readable (title).
+                title={rule.projectName}
                 style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
               >
                 {rule.projectName}
@@ -154,6 +156,7 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
               <span
                 role="cell"
                 className="type-body"
+                title={rule.toolName}
                 style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
               >
                 {rule.toolName}
@@ -167,6 +170,8 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
               <button
                 type="button"
                 onClick={() => revokeMutation.mutate(rule.id)}
+                // One revoke at a time per rule: a second click while the write is in flight would fire it twice.
+                disabled={revokeMutation.isPending && revokeMutation.variables === rule.id}
                 className="type-label control-edge admin-action"
                 style={{ justifySelf: "end" }}
               >
@@ -174,6 +179,12 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
               </button>
             </div>
           ))}
+          {revokeMutation.isError && (
+            // The row is kept (it is still granted authority) and the failure is named in place.
+            <p role="alert" className="type-label" style={{ margin: "var(--space-sm) 0 0", color: "var(--destructive-text-rack)" }}>
+              Couldn&rsquo;t revoke this rule — {(revokeMutation.error as Error).message}
+            </p>
+          )}
         </>
       )}
     </div>

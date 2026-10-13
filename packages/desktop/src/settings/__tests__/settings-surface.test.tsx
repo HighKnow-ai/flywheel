@@ -386,6 +386,34 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
     expect(toolCell.style.textOverflow).toBe("ellipsis");
     expect(toolCell.style.whiteSpace).toBe("nowrap");
     expect(toolCell.style.overflow).toBe("hidden");
+    // 11-17 finish review (group five): the ellipsis must never hide the name of a granted authority.
+    expect(toolCell).toHaveAttribute("title", longName);
+  });
+
+  it("disables a rule's Revoke while its revoke is in flight, so one click is one write", async () => {
+    mockProjects([PROJECT_A]);
+    listPermissionRulesMock.mockResolvedValue([ruleFixture({ id: "rule-a" })]);
+    revokePermissionRuleMock.mockReset().mockReturnValue(new Promise(() => {})); // never settles
+    renderSettings();
+
+    const revokeButton = await screen.findByRole("button", { name: "Revoke" });
+    fireEvent.click(revokeButton);
+    await waitFor(() => expect(revokeButton).toBeDisabled());
+    fireEvent.click(revokeButton);
+    expect(revokePermissionRuleMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("names a failed revoke in place and keeps the row, which is still granted authority", async () => {
+    mockProjects([PROJECT_A]);
+    listPermissionRulesMock.mockResolvedValue([ruleFixture({ id: "rule-a", toolName: "Bash" })]);
+    revokePermissionRuleMock.mockReset().mockRejectedValue(new Error("database is locked"));
+    renderSettings();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn\u2019t revoke this rule \u2014 database is locked");
+    expect(screen.getByText("Bash")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revoke" })).toBeEnabled();
   });
 
   it("renders skeleton rows (not the empty-state copy) while the rules read is in flight", async () => {
