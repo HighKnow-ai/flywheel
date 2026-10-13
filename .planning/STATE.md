@@ -4,16 +4,16 @@ milestone: v0.1.0
 current_phase: 11
 current_phase_name: Ship It
 status: executing
-stopped_at: Completed 11-13-PLAN.md
-last_updated: "2026-10-13T00:46:07.865Z"
+stopped_at: Completed 11-14-PLAN.md
+last_updated: "2026-10-13T01:01:22.986Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 11 execution started
-state_head: f095cf80aafea7c02a40009c9d1bf19792fc090a
+state_head: 985277df89c5f92a6c4e482ccd48c418b9df026b
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 249
-  completed_plans: 233
+  completed_plans: 234
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 11 (Ship It) — EXECUTING
-Plan: 6 of 21
+Plan: 7 of 21
 Status: Ready to execute
 Last activity: 2026-10-12 — Phase 11 execution started
 
@@ -296,6 +296,7 @@ Progress: [█░░░░░░░░░] 8% — 12 of 13 phases complete (228/
 | Phase 11 P09 | 3 attempts | 3 tasks | 5 files |
 | Phase 11 P12 | 35 min | 3 tasks | 12 files |
 | Phase 11 P13 | 17 min | 3 tasks | 10 files |
+| Phase 11 P14 | 35 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -687,6 +688,8 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-12: Tab traversal not asserted in WebKit (WKWebView does not Tab to buttons); jsdom asserts tabbable order, WebKit asserts focus + Enter
 - [Phase 11]: 11-13: epic lens narrows headers client-side from the core's own filtered board_list (fail-open at 500 rows); header counts stay board-wide
 - [Phase 11]: 11-13: row-enter keyframe needs an explicit 'to' - WebKit does not interpolate inset() with none
+- [Phase 11]: 11-14: rate-limit fixture shapes are labelled documented, not observed; no real hard limit exists in any log (D-REV-32 live half closed accepted-by-design)
+- [Phase 11]: 11-14: WebKit plain Tab skips buttons; reachability probes use Option+Tab. A refused Approve renders below the fold in WavePlanSheet (it.fails, deferred-items.md)
 
 ### Pending Todos
 
@@ -748,6 +751,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-13T00:46:07.659Z
-Stopped at: Completed 11-13-PLAN.md
+Last session: 2026-10-13T01:01:22.783Z
+Stopped at: Completed 11-14-PLAN.md
 Resume file: None
