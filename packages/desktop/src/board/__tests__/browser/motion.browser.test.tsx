@@ -197,24 +197,81 @@ describe(`motion, measured in WebKit, ${reduced ? "reduced-motion" : "default"} 
     if (reduced) expect(firstMs(lastStyle.animationDelay), "no delay survives reduced motion").toBe(0);
   });
 
-  it("actually moves the rows below, in the engine, when a group expands", async () => {
+  it("reveals an expanding group top-down and monotonically, and never paints a revealed row into the rows travelling below it (D-REV-23)", async () => {
     renderBoard();
     const alpha = await epicRow("Alpha");
     await waitFor(() => expect(alpha).toHaveAccessibleName(/tasks done/));
     const beta = wrapper("epic:epic-b")!;
-    let sawTransformTransition = false;
-    const watch = () => {
-      if (beta.getAnimations().some((a) => a instanceof CSSTransition && a.transitionProperty === "transform")) {
-        sawTransformTransition = true;
-      }
-    };
-    const timer = window.setInterval(watch, 8);
     fireEvent.click(within(alpha).getByRole("button", { name: /^Expand/ }));
     await waitFor(() => expect(wrapper("task:t-5")).not.toBeNull());
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    window.clearInterval(timer);
-    // Reduced motion: the state change applies instantly, so no transition is ever started.
-    expect(sawTransformTransition).toBe(!reduced);
+    const rows = TASKS.map((_, i) => wrapper(`task:t-${i}`)!);
+
+    if (reduced) {
+      // Reduced motion applies the state change instantly: nothing is animated or transitioned at all.
+      expect(rows.concat(beta).flatMap((el) => el.getAnimations()), "an animation survives reduced motion").toEqual([]);
+      return;
+    }
+
+    // Sample the engine's own animations at fixed times instead of racing the clock: pause each one
+    // and set its time, so a sample is the value at 0.25 / 0.5 / 0.75 of the collapse duration, not
+    // whatever frame a timer happened to land on. The existence of a transition is not the claim;
+    // the SHAPE of what it paints is.
+    const wipes = rows.map((row) => row.getAnimations().find((a) => a instanceof CSSAnimation && a.animationName === "row-enter"));
+    const travel = beta.getAnimations().find((a) => a instanceof CSSTransition && a.transitionProperty === "transform");
+    expect(wipes.every(Boolean), "a new row has no row-enter animation running").toBe(true);
+    expect(travel, "the row below has no transform transition running").toBeTruthy();
+    const everything = [...wipes, travel] as Animation[];
+    everything.forEach((a) => a.pause());
+
+    /** Fraction of a row's height that is visible, read from its computed clip-path (`none` = all of it). */
+    const revealedOf = (row: HTMLElement): number => {
+      const clip = getComputedStyle(row).clipPath;
+      if (clip === "none") return 1;
+      const inset = /^inset\((.+)\)$/.exec(clip);
+      expect(inset, `unrecognised clip-path ${JSON.stringify(clip)}`).toBeTruthy();
+      const bottom = inset![1].trim().split(/\s+/)[2];
+      expect(bottom, `clip-path ${JSON.stringify(clip)} has no bottom inset`).toBeTruthy();
+      if (bottom.endsWith("%")) return 1 - parseFloat(bottom) / 100;
+      return 1 - parseFloat(bottom) / rows[0].getBoundingClientRect().height;
+    };
+
+    const D = parseInt(MOTION.durationCollapse, 10);
+    const samples = [0.25, 0.4, 0.75, 1].map((fraction) => {
+      everything.forEach((a) => {
+        a.currentTime = fraction * D;
+      });
+      const below = beta.getBoundingClientRect();
+      const boxes = rows.map((row) => row.getBoundingClientRect());
+      const revealed = rows.map(revealedOf);
+      // The lowest painted pixel of the group: each row's top plus the visible share of its height.
+      const front = Math.max(...boxes.map((box, i) => (revealed[i] > 0 ? box.top + box.height * revealed[i] : -Infinity)));
+      return { fraction, revealed, total: revealed.reduce((n, r) => n + r, 0), front, belowTop: below.top, boxes };
+    });
+    // Monotonic: more of the group is shown at every later sample, and all of it at the end.
+    const totals = samples.map((sample) => sample.total);
+    for (let i = 1; i < totals.length; i += 1) {
+      expect(totals[i], `revealed extent ${JSON.stringify(totals)} did not grow from sample ${i - 1} to ${i}`).toBeGreaterThan(totals[i - 1]);
+    }
+    expect(totals[totals.length - 1], "the group is not fully revealed when the duration ends").toBeCloseTo(rows.length, 5);
+    // Continuous: a wipe has a front, so between row boundaries exactly one row is part-revealed. A clip
+    // that flips whole (every row 0 or 1 and never between) is a stepped pop, not growth.
+    for (const { fraction, revealed } of samples.slice(0, 3)) {
+      const partial = revealed.filter((r) => r > 0.02 && r < 0.98);
+      expect(partial, `at ${fraction * 100}% of the duration ${JSON.stringify(revealed)} has no row mid-wipe: the reveal steps instead of growing`).toHaveLength(1);
+    }
+    // Top-down: a row shows nothing until the row above it is whole, and no row ever un-reveals.
+    samples.forEach(({ revealed }, s) => {
+      revealed.forEach((fraction, i) => {
+        if (i > 0 && fraction > 0) expect(revealed[i - 1], `sample ${s}: row ${i} shows before row ${i - 1} is whole`).toBeCloseTo(1, 5);
+        if (s > 0) expect(fraction, `row ${i} un-revealed between samples`).toBeGreaterThanOrEqual(samples[s - 1].revealed[i] - 1e-6);
+      });
+    });
+    // No overprint: the wipe front never passes the top of the row travelling down through the same space
+    // (a pixel of tolerance for sub-pixel layout), and the new rows' own boxes never overlap each other.
+    for (const { fraction, front, belowTop, boxes } of samples) {
+      expect(front, `at ${fraction * 100}% of the duration the wipe front reaches ${front}px, past the row below at ${belowTop}px`).toBeLessThanOrEqual(belowTop + 1);
+      boxes.slice(1).forEach((box, i) => expect(boxes[i].bottom, `rows ${i} and ${i + 1} overlap at ${fraction * 100}%`).toBeLessThanOrEqual(box.top + 0.5));
+    }
   });
 
   it("still traps focus in the panel and still dismisses it with Escape", async () => {
