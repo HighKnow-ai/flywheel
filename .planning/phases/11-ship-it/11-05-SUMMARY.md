@@ -183,7 +183,9 @@ See key-decisions. One clarification on the capability prose: the plan's check `
 
 ### Plan conflict, recorded for the coordinator
 
-**A. [Plan conflict] The plan's keygen command does not work in this layout.** Step 1 of Task 2 says `npm --prefix packages/desktop exec -- tauri signer generate ...`. The `tauri` binary does not resolve that way here. The owner generated the keypair with `npx --yes @tauri-apps/cli signer generate --ci` instead. Anyone rotating the key should use that form.
+**A. [Plan conflict] The plan's keygen command does not work in this layout.** Step 1 of Task 2 says `npm --prefix packages/desktop exec -- tauri signer generate ...`. The `tauri` binary does not resolve that way here. The keypair was generated with `npx --yes @tauri-apps/cli signer generate --ci -p <password> -w ~/.flywheel/updater.key` instead. Anyone rotating the key should use that form. The password was machine-generated (`openssl rand -base64 32`) and never passed through a prompt.
+
+**A2. [Plan conflict] The plan's `gh secret set` commands carry no `-R`.** After today's transfer from `cymarechal/highknow-harness` to `HighKnow-ai/flywheel` they would have set the secrets on the wrong repository (or on none). Both were set with `-R HighKnow-ai/flywheel`; `gh secret list -R HighKnow-ai/flywheel` shows `TAURI_SIGNING_PRIVATE_KEY` (2026-10-13T12:10:25Z) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (12:10:28Z). Neither value is recorded anywhere in this repository.
 
 **B. [Plan conflict] The plan said "reuse the fleet read".** It cannot be used for a safe count: `fleet_rows` is capped at 200 rows and orders `running` after `abandoned`, so a live run can fall off the end. I used `flywheel_core::dispatch::occupied_slots`, an existing function with the identical predicate, so no query was added. The intent (one derivation of "live", no new SQL) is kept.
 
@@ -197,7 +199,7 @@ See key-decisions. One clarification on the capability prose: the plan's check `
 - **Files modified:** `.github/workflows/ci.yml`, `.gitignore`
 - **Commit:** `1882b14`
 
-**Total deviations:** 2 plan conflicts, 1 auto-fixed (Rule 3). **Impact:** none widened what the plan ships beyond keeping CI buildable and keeping a key file out of git.
+**Total deviations:** 3 plan conflicts (A, A2, B), 1 auto-fixed (Rule 3). **Impact:** none widened what the plan ships beyond keeping CI buildable and keeping a key file out of git.
 
 ## Authentication Gates
 
@@ -205,8 +207,8 @@ Task 1 and Task 2 were `blocking-human` gates, answered by the owner (version pi
 
 ## Issues Encountered
 
-- **CI is red on this commit, and the cause is not in this plan.** On the tag push, ci.yml run `38396587795` failed `packages/core/tests/forge_degrade.rs` (`forced_gitlab_override_with_glab_absent_from_path_yields_cli_not_installed`, line 20) and open-core.yml run `38396587714` failed `packages/core/tests/worktree_lifecycle.rs` (`a_worktree_survives_two_runs_with_an_epic`, line 100). On the branch push of the same SHA, Open core (`38396663801`) was green and ci.yml (`38396663875`) was re-run by someone else and was still in progress when I stopped looking, so its final result is **unknown to me**. The Release run, which runs the same `cargo test --workspace`, passed. This is the same family as 11-04's `authoring_lifecycle` flake, now in three distinct tests; logged in `deferred-items.md`, not investigated.
-- ci.yml's changed `tauri build` line (Deviation C) was exercised only by those runs; I did not see it complete green, so it is **not proven** that the override works.
+- **CI is red on this commit, and the cause is not in this plan.** On the tag push, ci.yml run `38396587795` failed `packages/core/tests/forge_degrade.rs` (`forced_gitlab_override_with_glab_absent_from_path_yields_cli_not_installed`, line 20) and open-core.yml run `38396587714` failed `packages/core/tests/worktree_lifecycle.rs` (`a_worktree_survives_two_runs_with_an_epic`, line 100). On the branch push of the same SHA, Open core (`38396663801`) was green and ci.yml (`38396663875`) failed `cargo test --workspace` on a different test (`no_origin_remote_spawns_no_forge_process_at_all`) and went green on re-run (see Update below). The Release run, which runs the same `cargo test --workspace`, passed. This is the same family as 11-04's `authoring_lifecycle` flake, now in three distinct tests; logged in `deferred-items.md`, not investigated.
+- **Update:** ci.yml's changed `tauri build` line (Deviation C) is now proven. ci.yml run `38396663875`, re-run (attempt 2) on `1882b14`, finished `success`: `cargo test --workspace` passed on the re-run (confirming the earlier red was the intermittent family, not this plan), the `tauri build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'` step and the artifact upload both succeeded without a signing key.
 
 ## Known Stubs
 
