@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReviewSurface } from "../ReviewSurface";
+import { useUiStore } from "../../state/uiStore";
 import type {
   AcceptanceCriterionDto,
   MergePreviewDto,
@@ -387,6 +388,27 @@ describe("the three outcomes", () => {
     expect(onOpenSession).toHaveBeenCalledWith("run-1", null, null);
     // The surface clears itself BEFORE the session takes the screen.
     expect(onBack.mock.invocationCallOrder[0]).toBeLessThan(onOpenSession.mock.invocationCallOrder[0]);
+  });
+
+  it("hands a launch's overlap warning to the app-level toast, since the sheet unmounts with the surface (D-REV-46)", async () => {
+    mergeMock.mockResolvedValue({ kind: "conflicted", files: ["src/a.rs"] });
+    startRunMock.mockResolvedValue({ id: "run-2", taskId: "t1", status: "running", permissionMode: "acceptEdits", overlapWarning: "FLY-3 is also live." });
+    useUiStore.getState().setLaunchOverlapWarning(null);
+    renderSurface();
+    const dialog = await confirmMerge();
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Start a session to resolve" }));
+    await waitFor(() => expect(onOpenSession).toHaveBeenCalledTimes(1));
+    expect(useUiStore.getState().launchOverlapWarning).toBe("FLY-3 is also live.");
+  });
+
+  it("renders a refused launch's real reason instead of a fixed string (D-REV-46)", async () => {
+    mergeMock.mockResolvedValue({ kind: "conflicted", files: ["src/a.rs"] });
+    startRunMock.mockRejectedValue("the concurrency cap is reached: 3 of 3 runs are live");
+    renderSurface();
+    const dialog = await confirmMerge();
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Start a session to resolve" }));
+    expect(await within(dialog).findByText(/the concurrency cap is reached: 3 of 3 runs are live/)).toBeInTheDocument();
+    expect(onOpenSession).not.toHaveBeenCalled();
   });
 
   it("opens the task's worktree in the editor through the existing affordance", async () => {
