@@ -388,14 +388,19 @@ const BOARDS: Record<string, BoardItem[]> = {
   "proj-B": [{ id: "task-b7", key: "BET-7", title: "Beta seven", status: "backlog", rank: "10", priority: 0, epicId: null }],
 };
 const unhandled = new Set<string>();
+/** Per-project delay for the board read, so a slow roster can be modelled. */
+const boardDelayMs: Record<string, number> = {};
 
 function stubShellReads() {
   invokeCommandMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
     if (command === "actor_list") return Promise.resolve([]);
     if (command === "project_list") return Promise.resolve([PROJECT_A, PROJECT_B]);
     if (command === "board_list" || command === "board_search") {
-      const items = BOARDS[(args?.projectId as string) ?? ""] ?? [];
-      return Promise.resolve({ items, issues: [], counts: { backlog: items.length, todo: 0, inProgress: 0, inReview: 0, done: 0 } });
+      const projectId = (args?.projectId as string) ?? "";
+      const items = BOARDS[projectId] ?? [];
+      const window = { items, issues: [], counts: { backlog: items.length, todo: 0, inProgress: 0, inReview: 0, done: 0 } };
+      const delay = boardDelayMs[projectId] ?? 0;
+      return delay > 0 ? new Promise((resolve) => setTimeout(() => resolve(window), delay)) : Promise.resolve(window);
     }
     // Fire-and-forget: the native menu's enabled-state sync (`state/menuSync.ts`). Nothing reads its answer.
     if (command === "menu_set_action_enabled") return Promise.resolve(undefined);
@@ -424,6 +429,7 @@ describe("AppShell: where a fleet row takes you", () => {
   beforeEach(() => {
     appQueryClient.clear();
     unhandled.clear();
+    for (const key of Object.keys(boardDelayMs)) delete boardDelayMs[key];
     logWindowMock.mockReset();
     logWindowMock.mockImplementation((_id: string, offset: number, limit: number) =>
       Promise.resolve({ entries: [FEED_LINE], offset, limit, total: 1 }),
@@ -499,6 +505,22 @@ describe("AppShell: where a fleet row takes you", () => {
     // The panel's own secondary reads (criterion_list, epic_list_all, events_activity_trail,
     // review_criteria_state) get `undefined` from this stub and are not asserted here: this test is about
     // WHICH item and WHICH project the jump lands on, not about what the panel goes on to show.
+  });
+
+  // The register's "a project whose roster loads slowly": while B's board is still loading, the shell keeps
+  // A's rows on screen (keepPreviousData). The jump must not be judged against them, and must still land
+  // once B's items arrive.
+  it("a jump into a project whose board loads slowly waits for it and then lands on the item", async () => {
+    boardDelayMs["proj-B"] = 600;
+    await mountShellOnFleet([RUN_B], "proj-A");
+    fireEvent.click(await screen.findByRole("button", { name: /Open BET-7 on the board/ }));
+    await waitFor(() => expect(useUiStore.getState().currentProjectId).toBe("proj-B"));
+    expect(useUiStore.getState().detailItemId, "B's board has not arrived, so nothing is open yet").toBeNull();
+    expect(useUiStore.getState().pendingFocusItemId, "the request is held, not dropped").toBe("task-b7");
+
+    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("task-b7"), { timeout: 3000 });
+    expect(useUiStore.getState().pendingFocusItemId).toBeNull();
+    expect((await screen.findByRole("dialog")).textContent).toContain("BET-7");
   });
 
   it("the key `b` does the same from the keyboard, and never opens the session", async () => {
