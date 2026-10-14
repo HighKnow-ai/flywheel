@@ -67,7 +67,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 8.1: Visual polish: brand assets and confirmed motion** (INSERTED) - A bolder, more modern direction; Flywheel wears its own mark and moves the way its contract says it moves
 - [x] **Phase 9: Planned Fan-Out That Does Not Collide** - Turn one epic into several agents at once, bounded by real file-set disjointness (completed 2026-10-10)
 - [x] **Phase 10: Fleet Supervision Across Every Project** - Answer "what is every agent everywhere doing, and what needs me?" in one glance (completed 2026-10-12)
-- [ ] **Phase 11: Ship It** - Install Flywheel from a GitHub release (UNSIGNED: macOS reports it "damaged", `xattr -cr` required); it keeps itself current; another developer builds it from source
+- [x] **Phase 11: Ship It** - Install Flywheel from a GitHub release (UNSIGNED: macOS reports it "damaged", `xattr -cr` required); it keeps itself current; another developer builds it from source (completed 2026-10-14; DIST-01 descoped to a later milestone, unmet)
 - [x] **Phase 12: Destructive-gate trust boundary redesign** - Close the destructive-command gate's trust hole at a layer the developer's login shell cannot reorder (completed 2026-10-02)
 
 ## Phase Details
