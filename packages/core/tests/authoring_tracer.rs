@@ -167,7 +167,7 @@ fn pending_proposals_for_run_clamps_to_max_limit_body() {
             &mut conn,
             &run.id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: format!("task {i}"), description: None },
+            ProposalPayload::Task { title: format!("task {i}"), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,

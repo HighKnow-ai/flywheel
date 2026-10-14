@@ -303,7 +303,7 @@ fn rejected_fold_is_untouched_at_exactly_the_verbatim_window() {
         stage_and_decide(
             &mut conn,
             &run.id,
-            ProposalPayload::Task { title: format!("proposal-{n:02}"), description: None },
+            ProposalPayload::Task { title: format!("proposal-{n:02}"), description: None, priority: None },
             "rejected",
             &actor_id,
             &format!("2026-01-{n:02}T00:00:00Z"),
@@ -336,7 +336,7 @@ fn rejected_fold_begins_one_past_the_verbatim_window_with_a_boundary_sentence() 
         stage_and_decide(
             &mut conn,
             &run.id,
-            ProposalPayload::Task { title: format!("proposal-{n:02}"), description: None },
+            ProposalPayload::Task { title: format!("proposal-{n:02}"), description: None, priority: None },
             "rejected",
             &actor_id,
             &format!("2026-02-{n:02}T00:00:00Z"),
@@ -395,7 +395,7 @@ fn rejected_proposals_read_is_bounded_at_the_context_packet_read_limit_and_keeps
             &project.id,
             &epic.id,
             &actor_id,
-            &ProposalPayload::Task { title: format!("proposal-{n:04}"), description: None },
+            &ProposalPayload::Task { title: format!("proposal-{n:04}"), description: None, priority: None },
             "rejected",
             &format!("2026-06-{:02}T{:02}:{:02}:00Z", 1 + (n / 1440) % 28, (n / 60) % 24, n % 60),
         );
@@ -502,7 +502,7 @@ fn packet_never_leaks_a_row_from_a_different_project() {
     stage_and_decide(
         &mut conn,
         &run_a.id,
-        ProposalPayload::Task { title: "A's rejected proposal".to_string(), description: None },
+        ProposalPayload::Task { title: "A's rejected proposal".to_string(), description: None, priority: None },
         "rejected",
         &actor_id,
         "2026-03-01T00:00:00Z",
@@ -519,7 +519,7 @@ fn packet_never_leaks_a_row_from_a_different_project() {
     stage_and_decide(
         &mut conn,
         &run_b.id,
-        ProposalPayload::Task { title: "B's rejected proposal".to_string(), description: None },
+        ProposalPayload::Task { title: "B's rejected proposal".to_string(), description: None, priority: None },
         "rejected",
         &actor_id,
         "2026-03-01T00:00:00Z",
@@ -582,7 +582,7 @@ fn reopening_a_primed_epic_produces_a_prompt_with_the_roster_assumptions_and_do_
     stage_and_decide(
         &mut conn,
         &run_1.id,
-        ProposalPayload::Task { title: "A task the developer already rejected".to_string(), description: None },
+        ProposalPayload::Task { title: "A task the developer already rejected".to_string(), description: None, priority: None },
         "rejected",
         &actor_id,
         "2026-03-01T00:01:00Z",

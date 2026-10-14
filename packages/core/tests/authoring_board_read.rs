@@ -194,7 +194,7 @@ fn list_proposals_clamps_an_enormous_limit_and_flags_truncation() {
             &mut conn,
             &run.id,
             ProposalVerb::Create,
-            ProposalPayload::Epic { title: format!("epic {i}"), description: None },
+            ProposalPayload::Epic { title: format!("epic {i}"), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,

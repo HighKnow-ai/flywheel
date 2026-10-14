@@ -190,7 +190,7 @@ fn merging_a_task_proposal_into_an_existing_task_creates_a_child_issue_and_leave
             ProposalVerb::Create,
             ProposalPayload::Task {
                 title: "Retry budget ignores the configured value".to_string(),
-                description: Some("Found while reading the retry loop".to_string()),
+                description: Some("Found while reading the retry loop".to_string()), priority: None,
             },
             None,
             None,
@@ -238,7 +238,7 @@ fn merging_a_task_proposal_into_an_existing_epic_creates_a_child_issue_and_leave
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Epic { title: "New epic drafted from a run's finding".to_string(), description: None },
+            ProposalPayload::Epic { title: "New epic drafted from a run's finding".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance { rationale: Some("Spotted a whole missing surface".to_string()), origin_log_offset: None },
@@ -301,7 +301,7 @@ fn merging_twice_returns_the_same_issue_id_and_creates_no_second_issue() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Merge me once".to_string(), description: None },
+            ProposalPayload::Task { title: "Merge me once".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -330,7 +330,7 @@ fn merging_into_a_target_that_no_longer_exists_raises_proposal_undecidable() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Orphaned merge attempt".to_string(), description: None },
+            ProposalPayload::Task { title: "Orphaned merge attempt".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -361,7 +361,7 @@ fn deferring_leaves_every_canonical_count_unchanged_and_the_row_recallable() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Not ready yet".to_string(), description: None },
+            ProposalPayload::Task { title: "Not ready yet".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -389,7 +389,7 @@ fn deferring_twice_is_idempotent() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Defer me once".to_string(), description: None },
+            ProposalPayload::Task { title: "Defer me once".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -414,7 +414,7 @@ fn deferring_an_accepted_proposal_is_refused_naming_the_current_status() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Already accepted".to_string(), description: None },
+            ProposalPayload::Task { title: "Already accepted".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -444,7 +444,7 @@ fn bulk_reject_over_a_mixed_set_decides_only_pending_and_reports_the_rest_as_ski
                 &mut conn,
                 &run_id,
                 ProposalVerb::Create,
-                ProposalPayload::Task { title: format!("Bulk reject candidate {i}"), description: None },
+                ProposalPayload::Task { title: format!("Bulk reject candidate {i}"), description: None, priority: None },
                 None,
                 None,
                 ProposalProvenance::NONE,
@@ -487,7 +487,7 @@ fn bulk_defer_over_a_mixed_set_decides_only_pending_and_reports_the_rest_as_skip
                 &mut conn,
                 &run_id,
                 ProposalVerb::Create,
-                ProposalPayload::Task { title: format!("Bulk defer candidate {i}"), description: None },
+                ProposalPayload::Task { title: format!("Bulk defer candidate {i}"), description: None, priority: None },
                 None,
                 None,
                 ProposalProvenance::NONE,
@@ -607,7 +607,7 @@ fn deferred_read_returns_only_deferred_rows_ordered_newest_first() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Stays pending".to_string(), description: None },
+            ProposalPayload::Task { title: "Stays pending".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -618,7 +618,7 @@ fn deferred_read_returns_only_deferred_rows_ordered_newest_first() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Gets rejected".to_string(), description: None },
+            ProposalPayload::Task { title: "Gets rejected".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -691,31 +691,31 @@ fn all_five_status_counts_are_reported_including_merged_and_deferred() {
 
         let to_accept = create_proposal(
             &mut conn, &run_id, ProposalVerb::Create,
-            ProposalPayload::Task { title: "counted accepted".to_string(), description: None },
+            ProposalPayload::Task { title: "counted accepted".to_string(), description: None, priority: None },
             None, None, ProposalProvenance::NONE,
         )
         .expect("create_proposal should succeed");
         let to_reject = create_proposal(
             &mut conn, &run_id, ProposalVerb::Create,
-            ProposalPayload::Task { title: "counted rejected".to_string(), description: None },
+            ProposalPayload::Task { title: "counted rejected".to_string(), description: None, priority: None },
             None, None, ProposalProvenance::NONE,
         )
         .expect("create_proposal should succeed");
         let to_merge = create_proposal(
             &mut conn, &run_id, ProposalVerb::Create,
-            ProposalPayload::Task { title: "counted merged".to_string(), description: None },
+            ProposalPayload::Task { title: "counted merged".to_string(), description: None, priority: None },
             None, None, ProposalProvenance::NONE,
         )
         .expect("create_proposal should succeed");
         let to_defer = create_proposal(
             &mut conn, &run_id, ProposalVerb::Create,
-            ProposalPayload::Task { title: "counted deferred".to_string(), description: None },
+            ProposalPayload::Task { title: "counted deferred".to_string(), description: None, priority: None },
             None, None, ProposalProvenance::NONE,
         )
         .expect("create_proposal should succeed");
         let _stays_pending = create_proposal(
             &mut conn, &run_id, ProposalVerb::Create,
-            ProposalPayload::Task { title: "counted pending".to_string(), description: None },
+            ProposalPayload::Task { title: "counted pending".to_string(), description: None, priority: None },
             None, None, ProposalProvenance::NONE,
         )
         .expect("create_proposal should succeed");
@@ -743,7 +743,7 @@ fn pending_read_projection_carries_a_staged_proposals_rationale_turn_pointer_and
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Staged with full provenance".to_string(), description: None },
+            ProposalPayload::Task { title: "Staged with full provenance".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance {

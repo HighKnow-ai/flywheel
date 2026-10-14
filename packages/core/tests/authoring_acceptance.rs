@@ -149,7 +149,7 @@ fn criterion_2_lands_directly_on_the_board_never_as_a_file() {
             &mut conn,
             &run_01.id,
             ProposalVerb::Create,
-            ProposalPayload::Epic { title: "epic-01".to_string(), description: None },
+            ProposalPayload::Epic { title: "epic-01".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -182,7 +182,7 @@ fn criterion_2_lands_directly_on_the_board_never_as_a_file() {
                 &mut conn,
                 &run_02.id,
                 ProposalVerb::Create,
-                ProposalPayload::Task { title: format!("task-{i:02}"), description: None },
+                ProposalPayload::Task { title: format!("task-{i:02}"), description: None, priority: None },
                 None,
                 None,
                 ProposalProvenance::NONE,
@@ -247,7 +247,7 @@ fn criterion_3_accepts_rejects_and_amends_each_item_individually() {
             &mut conn,
             &run.id,
             ProposalVerb::Create,
-            ProposalPayload::Epic { title: "epic-01".to_string(), description: None },
+            ProposalPayload::Epic { title: "epic-01".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -261,7 +261,7 @@ fn criterion_3_accepts_rejects_and_amends_each_item_individually() {
                 &mut conn,
                 &run.id,
                 ProposalVerb::Create,
-                ProposalPayload::Task { title: format!("task-{i:02}"), description: None },
+                ProposalPayload::Task { title: format!("task-{i:02}"), description: None, priority: None },
                 None,
                 None,
                 ProposalProvenance::NONE,
@@ -385,7 +385,7 @@ fn criterion_4_reopening_an_epic_primes_the_challenge_against_what_it_already_co
             &mut conn,
             &run_01.id,
             ProposalVerb::Create,
-            ProposalPayload::Epic { title: "epic-01".to_string(), description: None },
+            ProposalPayload::Epic { title: "epic-01".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -402,7 +402,7 @@ fn criterion_4_reopening_an_epic_primes_the_challenge_against_what_it_already_co
             &mut conn,
             &run_02.id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "task-01".to_string(), description: None },
+            ProposalPayload::Task { title: "task-01".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -425,7 +425,7 @@ fn criterion_4_reopening_an_epic_primes_the_challenge_against_what_it_already_co
             &mut conn,
             &run_02.id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "rejected-task-01".to_string(), description: None },
+            ProposalPayload::Task { title: "rejected-task-01".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -510,7 +510,7 @@ fn pending_proposals_come_back_in_the_same_order_across_two_reads() {
                 &mut conn,
                 &run.id,
                 ProposalVerb::Create,
-                ProposalPayload::Task { title: format!("task-{i:02}"), description: None },
+                ProposalPayload::Task { title: format!("task-{i:02}"), description: None, priority: None },
                 None,
                 None,
                 ProposalProvenance::NONE,
@@ -545,7 +545,7 @@ fn two_byte_identical_criterion_statements_stay_two_distinct_rows() {
             &mut conn,
             &run.id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "task-a".to_string(), description: None },
+            ProposalPayload::Task { title: "task-a".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -555,7 +555,7 @@ fn two_byte_identical_criterion_statements_stay_two_distinct_rows() {
             &mut conn,
             &run.id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "task-b".to_string(), description: None },
+            ProposalPayload::Task { title: "task-b".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -623,7 +623,7 @@ fn a_task_accepted_with_zero_criteria_produces_zero_criteria_rows() {
             &mut conn,
             &run.id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "task-with-no-criteria".to_string(), description: None },
+            ProposalPayload::Task { title: "task-with-no-criteria".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -652,7 +652,7 @@ fn per_project_key_allocation_follows_acceptance_order_never_proposal_order() {
             &mut conn,
             &run.id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "task-early".to_string(), description: None },
+            ProposalPayload::Task { title: "task-early".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -662,7 +662,7 @@ fn per_project_key_allocation_follows_acceptance_order_never_proposal_order() {
             &mut conn,
             &run.id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "task-late".to_string(), description: None },
+            ProposalPayload::Task { title: "task-late".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -699,5 +699,210 @@ fn per_project_key_allocation_follows_acceptance_order_never_proposal_order() {
             .filter(|name| name.as_deref() == Ok("key"))
             .count() as i64;
         assert_eq!(proposal_has_key_column, 0, "authoring_proposals must never grow its own key column");
+    });
+}
+
+// ============================================================================================
+// Phase 13 plan 13-06 (D-16, D-17, DRFT-06): priority is an opt-in suggestion that carries its
+// reasoning and is applied, per item, inside the acceptance transaction.
+// ============================================================================================
+
+fn priority_of(conn: &Connection, table: &str, id: &str) -> i64 {
+    let sql = match table {
+        "tasks" => "SELECT priority FROM tasks WHERE id = ?1",
+        _ => "SELECT priority FROM epics WHERE id = ?1",
+    };
+    conn.query_row(sql, params![id], |row| row.get(0)).unwrap()
+}
+
+fn count_events_of(conn: &Connection, event_type: &str) -> i64 {
+    conn.query_row("SELECT COUNT(*) FROM events WHERE event_type = ?1", params![event_type], |r| r.get(0))
+        .unwrap()
+}
+
+fn reasoned(why: &str) -> ProposalProvenance {
+    ProposalProvenance { rationale: Some(why.to_string()), origin_log_offset: None }
+}
+
+fn ready_authoring_run() -> (Connection, String, String) {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let run = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id).unwrap();
+    advance_stage(&mut conn, &run.id, &actor_id).unwrap();
+    (conn, actor_id, run.id)
+}
+
+#[test]
+fn a_payload_with_no_priority_key_deserialises_with_none_and_serialises_without_one() {
+    let staged = r#"{"kind":"task","title":"Old row","description":null}"#;
+    let payload: ProposalPayload = serde_json::from_str(staged).unwrap();
+    assert_eq!(payload.priority(), None);
+    assert_eq!(
+        serde_json::to_value(&payload).unwrap(),
+        serde_json::json!({ "kind": "task", "title": "Old row", "description": null }),
+        "a priority-less payload must round-trip byte-for-byte, so no stored row changes shape"
+    );
+    let epic: ProposalPayload = serde_json::from_str(r#"{"kind":"epic","title":"E","description":null}"#).unwrap();
+    assert_eq!(epic.priority(), None);
+}
+
+#[test]
+fn a_priority_proposal_stages_pending_and_changes_no_task_row() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, _actor, run_id) = ready_authoring_run();
+        let before = count_tasks(&conn);
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Ranked".to_string(), description: None, priority: Some(2) },
+            None,
+            None,
+            reasoned("It unblocks the rest of the epic."),
+        )
+        .unwrap();
+        assert_eq!(proposal_status(&conn, &proposal.id), "pending");
+        assert_eq!(proposal.payload.priority(), Some(2));
+        assert_eq!(count_tasks(&conn), before, "staging must not write a tasks row");
+        assert_eq!(count_events_of(&conn, "task.priority_changed"), 0);
+    });
+}
+
+#[test]
+fn one_accept_applies_the_task_and_its_priority_with_exactly_one_priority_event() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, actor_id, run_id) = ready_authoring_run();
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Ranked".to_string(), description: None, priority: Some(2) },
+            None,
+            None,
+            reasoned("It unblocks the rest of the epic."),
+        )
+        .unwrap();
+        let outcome = accept_proposal(&mut conn, &proposal.id, &actor_id).unwrap();
+
+        assert_eq!(priority_of(&conn, "tasks", &outcome.materialised_id), 2);
+        assert_eq!(count_events_of(&conn, "task.priority_changed"), 1);
+        assert_eq!(proposal_status(&conn, &proposal.id), "accepted", "no second confirmation exists");
+        let acting: String = conn
+            .query_row(
+                "SELECT actor_id FROM events WHERE event_type = 'task.priority_changed'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(acting, actor_id, "the human who accepted writes the priority, not the proposing agent");
+    });
+}
+
+#[test]
+fn an_epic_priority_suggestion_is_applied_on_accept() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, actor_id, run_id) = ready_authoring_run();
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Epic { title: "Big".to_string(), description: None, priority: Some(3) },
+            None,
+            None,
+            reasoned("Everything else depends on it."),
+        )
+        .unwrap();
+        let outcome = accept_proposal(&mut conn, &proposal.id, &actor_id).unwrap();
+        assert_eq!(priority_of(&conn, "epics", &outcome.materialised_id), 3);
+        assert_eq!(count_events_of(&conn, "epic.priority_changed"), 1);
+    });
+}
+
+#[test]
+fn rejecting_a_priority_suggestion_leaves_the_priority_and_appends_no_event() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, actor_id, run_id) = ready_authoring_run();
+        let project_id: String = conn.query_row("SELECT id FROM projects", [], |r| r.get(0)).unwrap();
+        let task = core::domain::task::create_task(&mut conn, &project_id, &actor_id, "Existing", None).unwrap();
+        let before = priority_of(&conn, "tasks", &task.id);
+
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Amend,
+            ProposalPayload::Task { title: "Existing".to_string(), description: None, priority: Some(4) },
+            Some(&task.id),
+            None,
+            reasoned("It is on the critical path."),
+        )
+        .unwrap();
+        reject_proposal(&mut conn, &proposal.id, &actor_id, Some("not now")).unwrap();
+
+        assert_eq!(priority_of(&conn, "tasks", &task.id), before);
+        assert_eq!(count_events_of(&conn, "task.priority_changed"), 0);
+        assert_eq!(proposal_status(&conn, &proposal.id), "rejected");
+    });
+}
+
+#[test]
+fn a_priority_outside_zero_to_four_is_refused_before_any_write() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, _actor, run_id) = ready_authoring_run();
+        for bad in [5, -1, 99] {
+            let err = create_proposal(
+                &mut conn,
+                &run_id,
+                ProposalVerb::Create,
+                ProposalPayload::Task { title: "Bad".to_string(), description: None, priority: Some(bad) },
+                None,
+                None,
+                reasoned("Whatever."),
+            )
+            .unwrap_err();
+            assert!(
+                err.to_string().contains(&format!("priority must be between 0 and 4, got {bad}")),
+                "unexpected refusal: {err}"
+            );
+        }
+        let staged: i64 = conn.query_row("SELECT COUNT(*) FROM authoring_proposals", [], |r| r.get(0)).unwrap();
+        assert_eq!(staged, 0, "a refused proposal stages nothing");
+    });
+}
+
+#[test]
+fn a_priority_proposal_with_no_reasoning_is_refused() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, _actor, run_id) = ready_authoring_run();
+        let payload = || ProposalPayload::Task { title: "Bare".to_string(), description: None, priority: Some(1) };
+        for provenance in [ProposalProvenance::NONE, reasoned("   ")] {
+            let err = create_proposal(&mut conn, &run_id, ProposalVerb::Create, payload(), None, None, provenance)
+                .unwrap_err();
+            assert!(
+                err.to_string().contains("a priority suggestion must carry its reasoning (DRFT-06)")
+                    || err.to_string().contains("rationale must be non-empty after trimming"),
+                "unexpected refusal: {err}"
+            );
+        }
+        let staged: i64 = conn.query_row("SELECT COUNT(*) FROM authoring_proposals", [], |r| r.get(0)).unwrap();
+        assert_eq!(staged, 0);
+    });
+}
+
+#[test]
+fn a_priority_less_proposal_accepts_exactly_as_before() {
+    with_scratch_runtime_dir(|| {
+        let (mut conn, actor_id, run_id) = ready_authoring_run();
+        let proposal = create_proposal(
+            &mut conn,
+            &run_id,
+            ProposalVerb::Create,
+            ProposalPayload::Task { title: "Plain".to_string(), description: None, priority: None },
+            None,
+            None,
+            ProposalProvenance::NONE,
+        )
+        .unwrap();
+        let outcome = accept_proposal(&mut conn, &proposal.id, &actor_id).unwrap();
+        assert_eq!(priority_of(&conn, "tasks", &outcome.materialised_id), core::domain::task::DEFAULT_PRIORITY);
+        assert_eq!(count_events_of(&conn, "task.priority_changed"), 0);
     });
 }

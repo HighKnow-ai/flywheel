@@ -80,7 +80,7 @@ fn an_accepted_agent_proposal_is_distinguishable_by_event_actor() {
         &mut conn,
         &run.id,
         ProposalVerb::Create,
-        ProposalPayload::Task { title: "Proposed".to_string(), description: None },
+        ProposalPayload::Task { title: "Proposed".to_string(), description: None, priority: None },
         None,
         None,
         ProposalProvenance::NONE,

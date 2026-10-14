@@ -150,7 +150,7 @@ fn seed_filler(conn: &mut Connection, project_id: &str, actor_id: &str, _run_id:
             conn,
             &filler_run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: title.to_string(), description: None },
+            ProposalPayload::Task { title: title.to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -367,7 +367,7 @@ fn seed_measurement_corpus() -> (Connection, String, String) {
                     ProposalVerb::Create,
                     ProposalPayload::Task {
                         title: case.canonical_title.to_string(),
-                        description: case.canonical_body.map(str::to_string),
+                        description: case.canonical_body.map(str::to_string), priority: None,
                     },
                     None,
                     None,
@@ -566,7 +566,7 @@ fn seed_staging_fixture() -> (Connection, String, String, String) {
         ProposalVerb::Create,
         ProposalPayload::Task {
             title: SLACK_PROPOSAL_TITLE.to_string(),
-            description: Some(SLACK_PROPOSAL_BODY.to_string()),
+            description: Some(SLACK_PROPOSAL_BODY.to_string()), priority: None,
         },
         None,
         None,
@@ -590,7 +590,7 @@ fn staging_flags_a_proposal_restating_an_existing_open_task() {
         ProposalVerb::Create,
         ProposalPayload::Task {
             title: RETRY_BUDGET_NEAR_DUP_TITLE.to_string(),
-            description: Some(RETRY_BUDGET_NEAR_DUP_BODY.to_string()),
+            description: Some(RETRY_BUDGET_NEAR_DUP_BODY.to_string()), priority: None,
         },
         None,
         None,
@@ -622,7 +622,7 @@ fn staging_writes_null_duplicate_columns_when_nothing_scores_below_threshold() {
             description: Some(
                 "A log so people can see when uploads happened, separate from any automatic retry mechanism."
                     .to_string(),
-            ),
+            ), priority: None,
         },
         None,
         None,
@@ -645,7 +645,7 @@ fn staging_against_an_entirely_empty_project_writes_null_and_raises_no_error() {
         ProposalVerb::Create,
         ProposalPayload::Task {
             title: "Anything at all restating some finding".to_string(),
-            description: Some("A body describing the same finding in different words.".to_string()),
+            description: Some("A body describing the same finding in different words.".to_string()), priority: None,
         },
         None,
         None,
@@ -673,7 +673,7 @@ fn a_flagged_proposal_is_still_pending_and_returned_by_the_pending_read() {
         ProposalVerb::Create,
         ProposalPayload::Task {
             title: RETRY_BUDGET_NEAR_DUP_TITLE.to_string(),
-            description: Some(RETRY_BUDGET_NEAR_DUP_BODY.to_string()),
+            description: Some(RETRY_BUDGET_NEAR_DUP_BODY.to_string()), priority: None,
         },
         None,
         None,
@@ -707,7 +707,7 @@ fn staging_flags_against_an_already_rejected_proposal_not_only_canonical_items()
         ProposalVerb::Create,
         ProposalPayload::Task {
             title: SLACK_PROPOSAL_NEAR_DUP_TITLE.to_string(),
-            description: Some(SLACK_PROPOSAL_NEAR_DUP_BODY.to_string()),
+            description: Some(SLACK_PROPOSAL_NEAR_DUP_BODY.to_string()), priority: None,
         },
         None,
         None,
@@ -734,7 +734,7 @@ fn a_title_containing_fts5_syntax_stages_successfully_with_both_columns_null() {
         ProposalVerb::Create,
         ProposalPayload::Task {
             title: "weird: title * with (parens) - and a dash".to_string(),
-            description: None,
+            description: None, priority: None,
         },
         None,
         None,
@@ -756,7 +756,7 @@ fn amend_proposal_rescores_the_amended_content_and_never_flags_its_own_row() {
         &mut conn,
         &run_id,
         ProposalVerb::Create,
-        ProposalPayload::Task { title: "Add a tooltip for the priority icons".to_string(), description: None },
+        ProposalPayload::Task { title: "Add a tooltip for the priority icons".to_string(), description: None, priority: None },
         None,
         None,
         ProposalProvenance::NONE,
@@ -772,7 +772,7 @@ fn amend_proposal_rescores_the_amended_content_and_never_flags_its_own_row() {
         &actor_id,
         ProposalPayload::Task {
             title: RETRY_BUDGET_NEAR_DUP_TITLE.to_string(),
-            description: Some(RETRY_BUDGET_NEAR_DUP_BODY.to_string()),
+            description: Some(RETRY_BUDGET_NEAR_DUP_BODY.to_string()), priority: None,
         },
     )
     .expect("amend_proposal should succeed");
@@ -790,7 +790,7 @@ fn amend_proposal_rescores_the_amended_content_and_never_flags_its_own_row() {
         &actor_id,
         ProposalPayload::Task {
             title: RETRY_BUDGET_NEAR_DUP_TITLE.to_string(),
-            description: Some(RETRY_BUDGET_NEAR_DUP_BODY.to_string()),
+            description: Some(RETRY_BUDGET_NEAR_DUP_BODY.to_string()), priority: None,
         },
     )
     .expect("re-amending to unchanged content should succeed");
@@ -884,7 +884,7 @@ fn staging_flags_a_proposal_restating_an_existing_open_epic() {
             description: Some(
                 "Rendering slows down badly once the board has over a thousand rows since every row mounts a full DOM node."
                     .to_string(),
-            ),
+            ), priority: None,
         },
         None,
         None,

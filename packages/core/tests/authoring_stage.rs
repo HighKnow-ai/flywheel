@@ -116,7 +116,7 @@ fn return_to_challenge_from_criteria_leaves_existing_proposal_rows_byte_identica
             &mut conn,
             &run.id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Write docs".to_string(), description: None },
+            ProposalPayload::Task { title: "Write docs".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,

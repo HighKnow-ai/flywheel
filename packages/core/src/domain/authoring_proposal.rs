@@ -132,8 +132,23 @@ impl ProposalTargetType {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProposalPayload {
-    Epic { title: String, description: Option<String> },
-    Task { title: String, description: Option<String> },
+    /// `priority` is an opt-in suggestion (D-16, DRFT-06): absent in every pre-existing staged
+    /// row, which is why it defaults, and never required to start work. When present it must
+    /// arrive with the proposal's rationale — see [`validate_priority_reasoning`] — and is applied
+    /// only when a human accepts the proposal.
+    Epic {
+        title: String,
+        description: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        priority: Option<i64>,
+    },
+    /// See [`ProposalPayload::Epic`] for the `priority` contract.
+    Task {
+        title: String,
+        description: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        priority: Option<i64>,
+    },
     Criterion { statement: String, verification_hint: Option<String> },
     Assumption { assumption: String, answer: String },
     /// D-97/D-98 (plan 06-01): an execution-run's `propose_item` call staging an issue. The field
@@ -154,6 +169,14 @@ pub enum ProposalPayload {
 pub const ISSUE_KINDS: [&str; 4] = ["bug", "idea", "question", "risk"];
 
 impl ProposalPayload {
+    /// The priority this payload suggests, if any. Only `Epic` and `Task` carry one.
+    pub fn priority(&self) -> Option<i64> {
+        match self {
+            ProposalPayload::Epic { priority, .. } | ProposalPayload::Task { priority, .. } => *priority,
+            _ => None,
+        }
+    }
+
     pub fn target_type(&self) -> ProposalTargetType {
         match self {
             ProposalPayload::Epic { .. } => ProposalTargetType::Epic,
@@ -187,8 +210,8 @@ impl ProposalPayload {
     /// needs no verb-aware branch of its own.
     pub fn duplicate_search_text(&self) -> (&str, Option<&str>) {
         match self {
-            ProposalPayload::Epic { title, description } => (title, description.as_deref()),
-            ProposalPayload::Task { title, description } => (title, description.as_deref()),
+            ProposalPayload::Epic { title, description, .. } => (title, description.as_deref()),
+            ProposalPayload::Task { title, description, .. } => (title, description.as_deref()),
             ProposalPayload::Criterion { statement, verification_hint } => {
                 (statement, verification_hint.as_deref())
             }
@@ -462,6 +485,7 @@ fn create_proposal_in_tx(
     // content that actually matters for a delete is `target_id`, not the payload's text fields.
     if verb != ProposalVerb::Delete {
         validate_payload(&payload)?;
+        validate_priority_reasoning(&payload, provenance.rationale.as_deref())?;
     }
 
     // Plan 06-01 (PROP-07): a `Some` rationale is validated exactly like the payload it
@@ -651,6 +675,11 @@ pub fn apply_proposal_created(
     // `AuthoringProposalPayload.rationale` doc comment states of itself. `None` for every
     // authoring-run event (the authoring write tools carry no such field).
     let rationale = event.get("rationale").and_then(|v| v.as_str()).map(str::to_string);
+    // DRFT-06: a priority-bearing event with no reasoning is malformed input, ignored like every
+    // other guard above rather than surfaced as an error from `create_proposal_in_tx`.
+    if verb != ProposalVerb::Delete && validate_priority_reasoning(&payload, rationale.as_deref()).is_err() {
+        return Ok(ProposalOutcome::Ignored);
+    }
 
     let status: Option<String> = conn
         .query_row(
@@ -807,14 +836,20 @@ fn require_target<'a>(proposal: &'a Proposal) -> anyhow::Result<&'a str> {
 /// A task created here lands at `todo`, like a hand-made one (D-18): acceptance IS the human act
 /// for this path, and `backlog` means only "proposed, not yet accepted". It stays distinguishable
 /// by its `task.created` event actor, which is the proposing agent.
+///
+/// A priority suggestion on a task or epic payload is applied here, after the row is written and
+/// inside the same transaction, through `set_priority_in_tx` / `set_epic_priority_in_tx` (D-16,
+/// D-17). It is attributed to `human_actor_id`, the person accepting it — the agent proposed the
+/// value, the human wrote it.
 fn materialise_proposal(
     tx: &Transaction,
     proposal: &Proposal,
     parent_outcome: Option<&AcceptOutcome>,
+    human_actor_id: &str,
     now: &str,
 ) -> anyhow::Result<String> {
     match (proposal.verb.as_str(), &proposal.payload) {
-        ("create", ProposalPayload::Task { title, .. }) => {
+        ("create", ProposalPayload::Task { title, priority, .. }) => {
             let epic_id = proposal.epic_id.as_deref();
             let task = crate::domain::task::create_task_in_tx(
                 tx,
@@ -824,9 +859,12 @@ fn materialise_proposal(
                 epic_id,
                 now,
             )?;
+            if let Some(priority) = priority {
+                crate::domain::task::set_priority_in_tx(tx, human_actor_id, &task.id, *priority)?;
+            }
             Ok(task.id)
         }
-        ("create", ProposalPayload::Epic { title, description }) => {
+        ("create", ProposalPayload::Epic { title, description, priority }) => {
             let epic = crate::domain::epic::create_epic_in_tx(
                 tx,
                 &proposal.project_id,
@@ -835,6 +873,9 @@ fn materialise_proposal(
                 description.as_deref(),
                 now,
             )?;
+            if let Some(priority) = priority {
+                crate::domain::epic::set_epic_priority_in_tx(tx, human_actor_id, &epic.id, *priority)?;
+            }
             Ok(epic.id)
         }
         ("create", ProposalPayload::Criterion { statement, verification_hint }) => {
@@ -899,7 +940,7 @@ fn materialise_proposal(
             )?;
             Ok(criterion.id)
         }
-        ("amend", ProposalPayload::Task { title, description }) => {
+        ("amend", ProposalPayload::Task { title, description, priority }) => {
             let target_id = require_target(proposal)?;
             ensure_target_exists(tx, proposal, ProposalTargetType::Task, target_id)?;
             crate::domain::task::update_task_in_tx(
@@ -910,9 +951,12 @@ fn materialise_proposal(
                 description.as_deref(),
                 now,
             )?;
+            if let Some(priority) = priority {
+                crate::domain::task::set_priority_in_tx(tx, human_actor_id, target_id, *priority)?;
+            }
             Ok(target_id.to_string())
         }
-        ("amend", ProposalPayload::Epic { title, description }) => {
+        ("amend", ProposalPayload::Epic { title, description, priority }) => {
             let target_id = require_target(proposal)?;
             ensure_target_exists(tx, proposal, ProposalTargetType::Epic, target_id)?;
             crate::domain::epic::update_epic_in_tx(
@@ -923,6 +967,9 @@ fn materialise_proposal(
                 description.as_deref(),
                 now,
             )?;
+            if let Some(priority) = priority {
+                crate::domain::epic::set_epic_priority_in_tx(tx, human_actor_id, target_id, *priority)?;
+            }
             Ok(target_id.to_string())
         }
         ("delete", _) => {
@@ -997,7 +1044,7 @@ fn accept_proposal_in_tx(
         None => None,
     };
 
-    let materialised_id = materialise_proposal(tx, &proposal, parent_outcome.as_ref(), now)?;
+    let materialised_id = materialise_proposal(tx, &proposal, parent_outcome.as_ref(), human_actor_id, now)?;
 
     tx.execute(
         "UPDATE authoring_proposals SET status = 'accepted', materialised_id = ?1, \
@@ -1151,8 +1198,8 @@ fn merge_proposal_in_tx(
     ensure_target_exists(tx, &proposal, target.target_type(), target.target_id())?;
 
     let (title, description, issue_kind): (&str, Option<&str>, &str) = match &proposal.payload {
-        ProposalPayload::Task { title, description } => (title.as_str(), description.as_deref(), "idea"),
-        ProposalPayload::Epic { title, description } => (title.as_str(), description.as_deref(), "idea"),
+        ProposalPayload::Task { title, description, .. } => (title.as_str(), description.as_deref(), "idea"),
+        ProposalPayload::Epic { title, description, .. } => (title.as_str(), description.as_deref(), "idea"),
         ProposalPayload::Issue { title, body, issue_kind } => {
             (title.as_str(), body.as_deref(), issue_kind.as_str())
         }
@@ -1405,12 +1452,20 @@ const MAX_PROPOSAL_TEXT_LEN: usize = 1000;
 /// (T-05-06-05).
 fn validate_payload(payload: &ProposalPayload) -> anyhow::Result<()> {
     match payload {
-        ProposalPayload::Epic { title, description } | ProposalPayload::Task { title, description } => {
+        ProposalPayload::Epic { title, description, priority }
+        | ProposalPayload::Task { title, description, priority } => {
             anyhow::ensure!(
                 !title.is_empty() && title.len() <= MAX_PROPOSAL_TITLE_LEN,
                 "title must be 1-{MAX_PROPOSAL_TITLE_LEN} characters, got {} characters",
                 title.len()
             );
+            // The schema's CHECK (priority BETWEEN 0 AND 4) is the backstop; this is the first line.
+            if let Some(p) = priority {
+                anyhow::ensure!(
+                    (0..=4).contains(p),
+                    "priority must be between 0 and 4, got {p}"
+                );
+            }
             if let Some(d) = description {
                 anyhow::ensure!(
                     d.len() <= MAX_PROPOSAL_TEXT_LEN,
@@ -1472,6 +1527,17 @@ fn validate_payload(payload: &ProposalPayload) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// DRFT-06: a priority suggestion must carry the reasoning behind it. A payload that proposes a
+/// priority while `rationale` is absent or blank is not an opt-in suggestion, it is an
+/// unexplained write, so it is refused before any row is staged.
+fn validate_priority_reasoning(payload: &ProposalPayload, rationale: Option<&str>) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        payload.priority().is_none() || rationale.is_some_and(|r| !r.trim().is_empty()),
+        "a priority suggestion must carry its reasoning (DRFT-06): the proposal has a priority but no rationale"
+    );
+    Ok(())
+}
+
 /// Amend a pending proposal (D-94) — edit the staged row's `payload` and leave it `pending`. The
 /// board receives nothing at this moment: amending does not accept. `payload`'s `target_type` must
 /// match the proposal's existing one (an amend corrects the drafted content, never repurposes the
@@ -1497,6 +1563,9 @@ pub fn amend_proposal(
          cannot be amended",
         existing.status
     );
+    // An amend keeps the staged row's own rationale, so a priority introduced by the amend needs
+    // that rationale to exist already.
+    validate_priority_reasoning(&payload, existing.rationale.as_deref())?;
     anyhow::ensure!(
         payload.target_type() == existing.payload.target_type(),
         "amend_proposal cannot change a proposal's target type ({:?} -> {:?})",

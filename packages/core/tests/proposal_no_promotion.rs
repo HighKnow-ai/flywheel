@@ -162,11 +162,14 @@ fn no_agent_reachable_module_writes_a_canonical_table() {
 
 // --- Gate 2: at most three functions in the staging module reach a canonical writer (PROP-03) ---
 
-/// The nine canonical-writer `_in_tx` call targets D-100's containment bound applies to (matches
-/// `06-02-PLAN.md`'s own enumeration exactly — `delete_criterion_in_tx` is deliberately not in
-/// this list for the same reason Gate 1 above does not police deletes: containment here bounds
-/// PROMOTION, not deletion).
-const CANONICAL_WRITER_CALLS: [&str; 9] = [
+/// The canonical-writer `_in_tx` call targets D-100's containment bound applies to (the first nine
+/// match `06-02-PLAN.md`'s own enumeration exactly — `delete_criterion_in_tx` is deliberately not
+/// in this list for the same reason Gate 1 above does not police deletes: containment here bounds
+/// PROMOTION, not deletion). The two priority writers were added by plan 13-06 (D-16, D-17): a
+/// priority suggestion is applied by `materialise_proposal` when a human accepts it, and a call
+/// from any other function in this module would be an agent-reachable write of the developer's own
+/// ordering.
+const CANONICAL_WRITER_CALLS: [&str; 11] = [
     "create_task_in_tx(",
     "create_epic_in_tx(",
     "create_criterion_in_tx(",
@@ -176,6 +179,8 @@ const CANONICAL_WRITER_CALLS: [&str; 9] = [
     "delete_task_in_tx(",
     "delete_epic_in_tx(",
     "create_issue_in_tx(",
+    "set_priority_in_tx(",
+    "set_epic_priority_in_tx(",
 ];
 
 /// The only three functions permitted to reach a canonical writer from this module.
@@ -487,7 +492,7 @@ fn case_create_task_via_create_proposal() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Retry budget ignores the configured value".to_string(), description: None },
+            ProposalPayload::Task { title: "Retry budget ignores the configured value".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -513,7 +518,7 @@ fn case_create_epic_via_create_proposal() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Epic { title: "New epic drafted from a run's finding".to_string(), description: None },
+            ProposalPayload::Epic { title: "New epic drafted from a run's finding".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -578,7 +583,7 @@ fn case_create_criterion_parented_to_an_already_accepted_task() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Parent task, accepted first".to_string(), description: None },
+            ProposalPayload::Task { title: "Parent task, accepted first".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -653,7 +658,7 @@ fn case_amend_task_leaves_every_canonical_count_unchanged() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Original title".to_string(), description: None },
+            ProposalPayload::Task { title: "Original title".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -665,7 +670,7 @@ fn case_amend_task_leaves_every_canonical_count_unchanged() {
             &mut conn,
             &proposal.id,
             &human_actor_id,
-            ProposalPayload::Task { title: "Corrected title".to_string(), description: None },
+            ProposalPayload::Task { title: "Corrected title".to_string(), description: None, priority: None },
         )
         .expect("amend_proposal should succeed");
         assert_eq!(amend_outcome.proposal.status, "pending", "{label}: amending must never accept");
@@ -683,7 +688,7 @@ fn case_amend_epic_leaves_every_canonical_count_unchanged() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Epic { title: "Original epic title".to_string(), description: None },
+            ProposalPayload::Epic { title: "Original epic title".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -695,7 +700,7 @@ fn case_amend_epic_leaves_every_canonical_count_unchanged() {
             &mut conn,
             &proposal.id,
             &human_actor_id,
-            ProposalPayload::Epic { title: "Corrected epic title".to_string(), description: None },
+            ProposalPayload::Epic { title: "Corrected epic title".to_string(), description: None, priority: None },
         )
         .expect("amend_proposal should succeed");
         assert_eq!(amend_outcome.proposal.status, "pending", "{label}: amending must never accept");
@@ -712,7 +717,7 @@ fn case_amend_criterion_leaves_every_canonical_count_unchanged() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Parent task for amend-criterion case".to_string(), description: None },
+            ProposalPayload::Task { title: "Parent task for amend-criterion case".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -757,7 +762,7 @@ fn case_delete_task_stays_pending_until_accept() {
             &mut conn,
             &run_id,
             ProposalVerb::Delete,
-            ProposalPayload::Task { title: String::new(), description: None },
+            ProposalPayload::Task { title: String::new(), description: None, priority: None },
             Some(&existing_task.id),
             None,
             ProposalProvenance::NONE,
@@ -787,7 +792,7 @@ fn case_delete_epic_stays_pending_until_accept() {
             &mut conn,
             &run_id,
             ProposalVerb::Delete,
-            ProposalPayload::Epic { title: String::new(), description: None },
+            ProposalPayload::Epic { title: String::new(), description: None, priority: None },
             Some(&existing_epic.id),
             None,
             ProposalProvenance::NONE,
@@ -855,7 +860,7 @@ fn case_criterion_parented_to_a_still_pending_task_proposal() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Not yet accepted parent".to_string(), description: None },
+            ProposalPayload::Task { title: "Not yet accepted parent".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -901,7 +906,7 @@ fn case_amend_target_deleted_underneath_it_is_undecidable() {
             &mut conn,
             &run_id,
             ProposalVerb::Amend,
-            ProposalPayload::Task { title: "Renamed before the target vanished".to_string(), description: None },
+            ProposalPayload::Task { title: "Renamed before the target vanished".to_string(), description: None, priority: None },
             Some(&task.id),
             None,
             ProposalProvenance::NONE,
@@ -939,7 +944,7 @@ fn case_ordering_child_accepted_before_parent_materialises_parent_exactly_once()
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Parent, not yet accepted".to_string(), description: None },
+            ProposalPayload::Task { title: "Parent, not yet accepted".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -995,7 +1000,7 @@ fn case_ordering_two_siblings_sharing_created_at_only_the_accepted_one_materiali
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "First sibling, will be accepted".to_string(), description: None },
+            ProposalPayload::Task { title: "First sibling, will be accepted".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -1005,7 +1010,7 @@ fn case_ordering_two_siblings_sharing_created_at_only_the_accepted_one_materiali
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Second sibling, stays pending".to_string(), description: None },
+            ProposalPayload::Task { title: "Second sibling, stays pending".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
@@ -1058,7 +1063,7 @@ fn case_ordering_reject_then_accept_is_refused_not_a_second_promotion() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Task { title: "Rejected, then an accept is attempted anyway".to_string(), description: None },
+            ProposalPayload::Task { title: "Rejected, then an accept is attempted anyway".to_string(), description: None, priority: None },
             None,
             None,
             ProposalProvenance::NONE,
