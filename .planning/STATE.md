@@ -3,12 +3,12 @@ gsd_state_version: "1.0"
 milestone: v0.2.0
 current_phase: 13
 current_phase_name: Nothing New Escapes The Fence
-status: planning
-stopped_at: Phase 13 context gathered
-last_updated: "2026-10-14T09:59:53.742Z"
+status: executing
+stopped_at: Completed 13-01-PLAN.md
+last_updated: "2026-10-14T10:09:50.111Z"
 last_activity: 2026-10-14
-last_activity_desc: "v0.2.0 roadmap written: 6 phases (13-18), 46/46 requirements mapped, DIST-01 and CONV-06 deferred with named triggers"
-state_head: "0b7ca725a2028607626606c4d3e31773e49bf7ae"
+last_activity_desc: Phase 13 execution started
+state_head: 1cb11d9ab7bf5961e4591ce2ebbcbf234e4b98b8
 progress:
   total_phases: 6
   completed_phases: 0
@@ -24,14 +24,14 @@ milestone_name: The Board Thinks With You
 See: .planning/PROJECT.md (updated 2026-10-12)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** v0.2.0 roadmap created — 6 phases (13-18), 46/46 requirements mapped. Phase 13 (Nothing New Escapes The Fence) is next and needs a plan. Open items carried forward: DIST-01 (deferred with a named trigger: an Apple Developer Program membership), CONV-06 (deferred with a named trigger: Phase 17 closing), the `owner-question` register entries including SC0 (answered or closed in Phase 18), and D-REV-68 (the `worktree_lifecycle` race).
+**Current focus:** Phase 13 — Nothing New Escapes The Fence
 
 ## Current Position
 
-Phase: 13 (Nothing New Escapes The Fence) — READY TO EXECUTE
-Plan: —
-Status: Roadmap approved pending owner review; Phase 13 needs a plan
-Last activity: 2026-10-14 — v0.2.0 roadmap written: 6 phases (13-18), 46/46 requirements mapped, DIST-01 and CONV-06 deferred with named triggers
+Phase: 13 (Nothing New Escapes The Fence) — EXECUTING
+Plan: 2 of 11
+Status: Ready to execute
+Last activity: 2026-10-14 — Phase 13 execution started
 
 ## Performance Metrics
 
@@ -311,6 +311,7 @@ Last activity: 2026-10-14 — v0.2.0 roadmap written: 6 phases (13-18), 46/46 re
 | Phase 11 P19 | 92 min | 3 tasks | 13 files |
 | Phase 11 P20 | 15 min | 2 tasks | 9 files |
 | Phase 11 P21 | 75 min | 3 tasks | 15 files |
+| Phase 13 P01 | 20 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -718,6 +719,7 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-08: v0.1.0 and v0.1.1 published unsigned; DIST-01 criterion 1 recorded UNMET (Gatekeeper), installed-client update NOT observed
 - [Phase 11]: 11-20: system appearance switched via System Events, not defaults write; installed app paints the dark/light token ground (D-REV-22 closed)
 - [Phase 11]: D-201 to D-207 (owner pass 2026-10-14): PLAN-04 narrowed to file-writing tools; SC3 wording ruled; brand rule allows the developer's turn; five layout calls filed as decisions; xattr workaround documented; banner dismissal stays per session; survivors filed by script capped at schema 21
+- [Phase 13]: PM-vocabulary gate (FNC-04) matches whole words case-insensitively, skips its own file, exactly two idiom exclusions scoped to the hit word — Planned whole-word rule; self-skip needed because corpus literals live in tests/
 
 ### Pending Todos
 
@@ -781,6 +783,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-14T09:12:15.402Z
-Stopped at: Phase 13 context gathered
-Resume file: .planning/phases/13-nothing-new-escapes-the-fence/13-CONTEXT.md
+Last session: 2026-10-14T10:09:50.094Z
+Stopped at: Completed 13-01-PLAN.md
+Resume file: None

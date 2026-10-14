@@ -84,7 +84,7 @@ own phases, which are read daily in this repository (owner decision, 2026-10-14)
 - [ ] **FNC-01**: The epic, task and issue tables are pinned by a test that fails if their schema changes, so the fixed spine cannot erode while records are added above it
 - [ ] **FNC-02**: The no-promotion source gate classifies every table in the database rather than naming four, so a new table is covered by default and an unclassified table fails the build
 - [ ] **FNC-03**: Every authority transition — sign-off, acceptance, checking a criterion, accepting an ADR — is reachable only from a human-initiated command, enforced at the database and in a source gate
-- [ ] **FNC-04**: A source gate fails the build on the vocabulary of the PM long tail — velocity, burndown, capacity, sprint, deadline, overdue, rollover — so the Cycle layer cannot drift into Jira by accretion
+- [x] **FNC-04**: A source gate fails the build on the vocabulary of the PM long tail — velocity, burndown, capacity, sprint, deadline, overdue, rollover — so the Cycle layer cannot drift into Jira by accretion
 - [ ] **FNC-05**: The context packet is bounded by fixed counts and link relevance with the boundary visible to the user; no unbounded read of summaries, decisions or records remains, and the bound is asserted by a scale test
 - [ ] **FNC-06**: Which surface is showing is one modelled value inside the keyboard layer model, not a nested conditional outside it
 - [ ] **FNC-07**: A board change notifies only the readers it affects, rather than invalidating every subscriber on every event
@@ -210,7 +210,7 @@ Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROAD
 | FNC-01 | Phase 13 | Pending |
 | FNC-02 | Phase 13 | Pending |
 | FNC-03 | Phase 13 | Pending |
-| FNC-04 | Phase 13 | Pending |
+| FNC-04 | Phase 13 | Complete |
 | FNC-05 | Phase 13 | Pending |
 | FNC-06 | Phase 13 | Pending |
 | FNC-07 | Phase 13 | Pending |
@@ -225,6 +225,7 @@ Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROAD
 - **VIS-07** — Mapped once; re-asserted as a success criterion in phases 15, 16, 17 and 18
 
 **Coverage:**
+
 - v0.2.0 requirements: 46 total (13 RECD, 12 DRFT, 6 ARVW, 8 VIS, 7 FNC — of which DRFT-01 and DRFT-12 carry PLAN-01 and AGNT-05)
 - Mapped to phases: 46 — Phase 13: 11, Phase 14: 9, Phase 15: 8, Phase 16: 10, Phase 17: 6, Phase 18: 2 (11 + 9 + 8 + 10 + 6 + 2 = 46)
 - Unmapped: 0 — no orphans, no duplicates
