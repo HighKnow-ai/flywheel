@@ -164,17 +164,71 @@ settle now than mid-phase.
 
 ## Traceability
 
-Populated during roadmap creation.
+Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROADMAP.md`.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (to be populated by the roadmapper) | | |
+| RECD-01 | Phase 16 | Pending |
+| RECD-02 | Phase 16 | Pending |
+| RECD-03 | Phase 16 | Pending |
+| RECD-04 | Phase 16 | Pending |
+| RECD-05 | Phase 16 | Pending |
+| RECD-06 | Phase 16 | Pending |
+| RECD-07 | Phase 16 | Pending |
+| RECD-08 | Phase 14 | Pending |
+| RECD-09 | Phase 14 | Pending |
+| RECD-10 | Phase 14 | Pending |
+| RECD-11 | Phase 16 | Pending |
+| RECD-12 | Phase 16 | Pending |
+| RECD-13 | Phase 16 | Pending |
+| DRFT-01 | Phase 15 | Pending |
+| DRFT-02 | Phase 15 | Pending |
+| DRFT-03 | Phase 15 | Pending |
+| DRFT-04 | Phase 13 | Pending |
+| DRFT-05 | Phase 13 | Pending |
+| DRFT-06 | Phase 13 | Pending |
+| DRFT-07 | Phase 15 | Pending |
+| DRFT-08 | Phase 15 | Pending |
+| DRFT-09 | Phase 13 | Pending |
+| DRFT-10 | Phase 15 | Pending |
+| DRFT-11 | Phase 15 | Pending |
+| DRFT-12 | Phase 15 | Pending |
+| ARVW-01 | Phase 17 | Pending |
+| ARVW-02 | Phase 17 | Pending |
+| ARVW-03 | Phase 17 | Pending |
+| ARVW-04 | Phase 17 | Pending |
+| ARVW-05 | Phase 17 | Pending |
+| ARVW-06 | Phase 17 | Pending |
+| VIS-01 | Phase 14 | Pending |
+| VIS-02 | Phase 14 | Pending |
+| VIS-03 | Phase 14 | Pending |
+| VIS-04 | Phase 14 | Pending |
+| VIS-05 | Phase 18 | Pending |
+| VIS-06 | Phase 14 | Pending |
+| VIS-07 | Phase 14 | Pending |
+| VIS-08 | Phase 18 | Pending |
+| FNC-01 | Phase 13 | Pending |
+| FNC-02 | Phase 13 | Pending |
+| FNC-03 | Phase 13 | Pending |
+| FNC-04 | Phase 13 | Pending |
+| FNC-05 | Phase 13 | Pending |
+| FNC-06 | Phase 13 | Pending |
+| FNC-07 | Phase 13 | Pending |
+
+**Placement notes:**
+
+- **DRFT-01** — Phase 13 carries its live measurement in parallel from day one; the requirement completes in 15
+- **DRFT-04** — Needs F5 fixed and the FNC-03 human-only gate widened
+- **DRFT-09** — Per-run production cap; lands with `agent_runs.kind` and the F1 repair
+- **DRFT-12** — Carries AGNT-05; needs a credential-spending run
+- **RECD-04** — Conditional on the anchor-preservation test, the phase's first plan
+- **VIS-07** — Mapped once; re-asserted as a success criterion in phases 15, 16, 17 and 18
 
 **Coverage:**
 - v0.2.0 requirements: 46 total (13 RECD, 12 DRFT, 6 ARVW, 8 VIS, 7 FNC — of which DRFT-01 and DRFT-12 carry PLAN-01 and AGNT-05)
-- Mapped to phases: 0 (roadmap not yet created)
-- Deferred with a named trigger: 1 — DIST-01
-- Unmapped: 0
+- Mapped to phases: 46 — Phase 13: 11, Phase 14: 9, Phase 15: 8, Phase 16: 10, Phase 17: 6, Phase 18: 2 (11 + 9 + 8 + 10 + 6 + 2 = 46)
+- Unmapped: 0 — no orphans, no duplicates
+- Deferred with a named trigger, outside the 46: DIST-01 (Apple Developer Program membership) and CONV-06 (Phase 17 closing)
 
 ---
 *Requirements defined: 2026-10-14 for milestone v0.2.0*
