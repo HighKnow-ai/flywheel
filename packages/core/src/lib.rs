@@ -30,5 +30,6 @@ pub mod query;
 pub mod ranking;
 pub mod review;
 pub mod runtime_protocol;
+pub mod schema_classification;
 pub mod shim;
 pub mod session_log;
