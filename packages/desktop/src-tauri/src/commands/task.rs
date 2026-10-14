@@ -233,27 +233,6 @@ pub fn task_set_priority(
     Ok(())
 }
 
-/// Set a task's estimate (`e`, D-12: nullable S/M/L). `estimate: None` clears the field.
-/// Rejected by the schema CHECK constraint if outside `{1,2,3}`. `actor_id` is resolved
-/// server-side; emits `board:changed` after commit (D-04).
-#[tauri::command]
-pub fn task_set_estimate(
-    state: State<AppState>,
-    app: AppHandle,
-    task_id: String,
-    estimate: Option<i64>,
-) -> Result<(), String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::task::set_estimate(&mut conn, &actor_id, &task_id, estimate)
-        .map_err(|e| e.to_string())?;
-    drop(conn);
-
-    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }))
-        .ok();
-    Ok(())
-}
-
 /// Set a task's assignee (`a`, BOARD-06). `assignee_id: None` clears the field ("Unassigned").
 /// An id naming no row in `actors` is rejected by the `assignee_id` foreign key (T-01-21).
 /// `actor_id` is resolved server-side; emits `board:changed` after commit (D-04).

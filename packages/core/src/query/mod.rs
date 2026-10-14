@@ -55,9 +55,6 @@ pub struct BoardItem {
     pub rank: String,
     pub priority: i64,
     pub epic_id: Option<String>,
-    /// S/M/L stored as a nullable ordinal 1-3 (D-12) — rendered and filterable, aggregated
-    /// nowhere in this crate (no `sum(`/`avg(`/`total(` over this column, T-01-* prohibition).
-    pub estimate: Option<i64>,
     /// Nullable FK to `actors(id)` (BOARD-06) — `None` renders as "Unassigned".
     pub assignee_id: Option<String>,
     /// How many of this item's acceptance criteria are checked, out of its total (BOARD-02,
@@ -157,10 +154,9 @@ pub(crate) fn row_to_item(row: &Row) -> rusqlite::Result<BoardItem> {
         rank: row.get(5)?,
         priority: row.get(6)?,
         epic_id: row.get(7)?,
-        estimate: row.get(8)?,
-        assignee_id: row.get(9)?,
-        criteria_checked: row.get(10)?,
-        criteria_total: row.get(11)?,
+        assignee_id: row.get(8)?,
+        criteria_checked: row.get(9)?,
+        criteria_total: row.get(10)?,
     })
 }
 
@@ -180,7 +176,7 @@ pub(crate) fn row_to_issue(row: &Row) -> rusqlite::Result<IssueItem> {
 /// `search.rs` so the two families of queries can never drift into projecting different shapes.
 const ITEM_SELECT_LIST: &str = concat!(
     "b.id, b.kind, b.key, b.title, b.status, b.rank, b.priority, b.epic_id,",
-    " b.estimate, b.assignee_id, COALESCE(c.checked, 0) AS criteria_checked,",
+    " b.assignee_id, COALESCE(c.checked, 0) AS criteria_checked,",
     " COALESCE(c.total, 0) AS criteria_total",
 );
 
@@ -229,7 +225,7 @@ const CURSOR_WHERE: &str = concat!(
 /// Return a bounded, indexed window over `project_id`'s epics and tasks, plus its full issues
 /// lane — never the whole board at once for the epics/tasks region (D-03).
 ///
-/// `filter` narrows the window by status/epic/assignee/priority/estimate (BOARD-06, plan 01-08);
+/// `filter` narrows the window by status/epic/assignee/priority (BOARD-06, plan 01-08);
 /// `BoardFilter::default()` is the unfiltered board, byte-identical to every call site before
 /// this plan. Epics and tasks are ordered by status band, then priority (with "No priority"
 /// sorting last), then manual rank, then id.
@@ -263,10 +259,10 @@ fn list_board_first_page(
         ITEM_SELECT_LIST,
         " FROM (",
         " SELECT id, 'epic' AS kind, key, title, status, rank, priority, NULL AS epic_id,",
-        "   estimate, assignee_id FROM epics WHERE project_id = :project_id",
+        "   assignee_id FROM epics WHERE project_id = :project_id",
         " UNION ALL",
         " SELECT id, 'task' AS kind, key, title, status, rank, priority, epic_id,",
-        "   estimate, assignee_id FROM tasks WHERE project_id = :project_id",
+        "   assignee_id FROM tasks WHERE project_id = :project_id",
         " ) b ",
         CRITERIA_JOIN,
         " WHERE ",
@@ -284,7 +280,6 @@ fn list_board_first_page(
                 ":epic_json": binding.epic_json,
                 ":assignee_json": binding.assignee_json,
                 ":priority_json": binding.priority_json,
-                ":estimate_json": binding.estimate_json,
                 ":has_worktree": binding.has_worktree,
                 ":limit": limit,
             },
@@ -306,10 +301,10 @@ fn list_board_next_page(
         ITEM_SELECT_LIST,
         " FROM (",
         " SELECT id, 'epic' AS kind, key, title, status, rank, priority, NULL AS epic_id,",
-        "   estimate, assignee_id FROM epics WHERE project_id = :project_id",
+        "   assignee_id FROM epics WHERE project_id = :project_id",
         " UNION ALL",
         " SELECT id, 'task' AS kind, key, title, status, rank, priority, epic_id,",
-        "   estimate, assignee_id FROM tasks WHERE project_id = :project_id",
+        "   assignee_id FROM tasks WHERE project_id = :project_id",
         " ) b ",
         CRITERIA_JOIN,
         " WHERE ",
@@ -329,7 +324,6 @@ fn list_board_next_page(
                 ":epic_json": binding.epic_json,
                 ":assignee_json": binding.assignee_json,
                 ":priority_json": binding.priority_json,
-                ":estimate_json": binding.estimate_json,
                 ":has_worktree": binding.has_worktree,
                 ":cursor_status": cursor.status_sort_key,
                 ":cursor_priority": cursor.priority_sort_key,
@@ -388,10 +382,10 @@ pub(crate) fn board_band_counts(
     let sql = format_sql(&[
         "SELECT b.status, COUNT(*) FROM (",
         " SELECT id, 'epic' AS kind, key, title, status, rank, priority, NULL AS epic_id,",
-        "   estimate, assignee_id FROM epics WHERE project_id = :project_id",
+        "   assignee_id FROM epics WHERE project_id = :project_id",
         " UNION ALL",
         " SELECT id, 'task' AS kind, key, title, status, rank, priority, epic_id,",
-        "   estimate, assignee_id FROM tasks WHERE project_id = :project_id",
+        "   assignee_id FROM tasks WHERE project_id = :project_id",
         " ) b",
         " WHERE ",
         FILTER_WHERE,
@@ -405,7 +399,6 @@ pub(crate) fn board_band_counts(
             ":epic_json": binding.epic_json,
             ":assignee_json": binding.assignee_json,
             ":priority_json": binding.priority_json,
-            ":estimate_json": binding.estimate_json,
             ":has_worktree": binding.has_worktree,
         },
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),

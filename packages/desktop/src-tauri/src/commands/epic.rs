@@ -252,26 +252,6 @@ pub fn epic_set_priority(
     Ok(())
 }
 
-/// Set an epic's estimate — mirrors `commands::task::task_set_estimate`'s shape exactly.
-#[tauri::command]
-pub fn epic_set_estimate(
-    state: State<AppState>,
-    app: AppHandle,
-    epic_id: String,
-    estimate: Option<i64>,
-) -> Result<(), String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::epic::set_estimate(&mut conn, &actor_id, &epic_id, estimate)
-        .map_err(|e| e.to_string())?;
-    drop(conn);
-
-    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": epic_id }))
-        .ok();
-    Ok(())
-}
-
 /// Set an epic's assignee — mirrors `commands::task::task_set_assignee`'s shape exactly.
 #[tauri::command]
 pub fn epic_set_assignee(

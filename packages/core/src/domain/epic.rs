@@ -567,8 +567,24 @@ pub fn set_priority(
     epic_id: &str,
     new_priority: i64,
 ) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    set_epic_priority_in_tx(&tx, actor_id, epic_id, new_priority)?;
+    tx.commit()
+        .context("failed to commit set_priority transaction")?;
+    Ok(())
+}
+
+/// The statement body [`set_priority`] issues, factored out like `task::set_priority_in_tx` so
+/// accepting a priority suggestion can compose with
+/// `authoring_proposal::accept_proposal_in_tx`'s transaction rather than nesting a second one
+/// (D-16, D-17, F4). Does not commit — the caller's transaction owns that.
+pub fn set_epic_priority_in_tx(
+    tx: &rusqlite::Transaction,
+    actor_id: &str,
+    epic_id: &str,
+    new_priority: i64,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
 
     let (project_id, current_priority): (String, i64) = tx
         .query_row(
@@ -579,8 +595,6 @@ pub fn set_priority(
         .with_context(|| format!("epic {epic_id:?} not found"))?;
 
     if current_priority == new_priority {
-        tx.commit()
-            .context("failed to commit no-op set_priority transaction")?;
         return Ok(());
     }
 
@@ -590,7 +604,7 @@ pub fn set_priority(
     )
     .context("failed to set epic priority")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "priority",
         "before": current_priority,
@@ -598,7 +612,7 @@ pub fn set_priority(
         "label": format!("Changed priority from {current_priority} to {new_priority}"),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -611,67 +625,6 @@ pub fn set_priority(
         &payload,
         &now,
     )?;
-
-    tx.commit()
-        .context("failed to commit set_priority transaction")?;
-    Ok(())
-}
-
-/// Set an epic's estimate — mirrors `task.rs::set_estimate` exactly (D-12: nullable, never
-/// aggregated).
-pub fn set_estimate(
-    conn: &mut Connection,
-    actor_id: &str,
-    epic_id: &str,
-    new_estimate: Option<i64>,
-) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
-    let tx = conn.transaction()?;
-
-    let (project_id, current_estimate): (String, Option<i64>) = tx
-        .query_row(
-            "SELECT project_id, estimate FROM epics WHERE id = ?1",
-            params![epic_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .with_context(|| format!("epic {epic_id:?} not found"))?;
-
-    if current_estimate == new_estimate {
-        tx.commit()
-            .context("failed to commit no-op set_estimate transaction")?;
-        return Ok(());
-    }
-
-    tx.execute(
-        "UPDATE epics SET estimate = ?1, updated_at = ?2 WHERE id = ?3",
-        params![new_estimate, now, epic_id],
-    )
-    .context("failed to set epic estimate")?;
-
-    let sequence = next_sequence(&tx, &project_id, "local")?;
-    let payload = serde_json::json!({
-        "field": "estimate",
-        "before": current_estimate,
-        "after": new_estimate,
-        "label": "Changed estimate",
-    });
-    append_event(
-        &tx,
-        &project_id,
-        "local",
-        sequence,
-        "epic",
-        epic_id,
-        None,
-        Some(epic_id),
-        actor_id,
-        "epic.estimate_changed",
-        &payload,
-        &now,
-    )?;
-
-    tx.commit()
-        .context("failed to commit set_estimate transaction")?;
     Ok(())
 }
 

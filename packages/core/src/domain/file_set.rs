@@ -5,7 +5,7 @@
 //!
 //! Plain values in, plain values out: entries arrive already parsed ([`FileSetEntry`]), so this
 //! module never decides what a valid entry is. The projection rows and the event commit together
-//! or not at all (DATA-01), following `merge.rs::record_merge_event` and `task::set_estimate`.
+//! or not at all (DATA-01), following `merge.rs::record_merge_event`.
 
 use anyhow::{anyhow, Context};
 use chrono::Utc;

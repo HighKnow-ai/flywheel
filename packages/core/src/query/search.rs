@@ -139,7 +139,7 @@ const MATCH_WHERE: &str =
 fn epics_from_clause() -> String {
     format_sql(&[
         "SELECT id, 'epic' AS kind, key, title, status, rank, priority, NULL AS epic_id,",
-        " estimate, assignee_id FROM epics WHERE project_id = :project_id AND ",
+        " assignee_id FROM epics WHERE project_id = :project_id AND ",
         &MATCH_WHERE.replace("{table}", "epics_fts"),
     ])
 }
@@ -147,7 +147,7 @@ fn epics_from_clause() -> String {
 fn tasks_from_clause() -> String {
     format_sql(&[
         "SELECT id, 'task' AS kind, key, title, status, rank, priority, epic_id,",
-        " estimate, assignee_id FROM tasks WHERE project_id = :project_id AND ",
+        " assignee_id FROM tasks WHERE project_id = :project_id AND ",
         &MATCH_WHERE.replace("{table}", "tasks_fts"),
     ])
 }
@@ -186,7 +186,6 @@ fn search_items_first_page(
                 ":epic_json": binding.epic_json,
                 ":assignee_json": binding.assignee_json,
                 ":priority_json": binding.priority_json,
-                ":estimate_json": binding.estimate_json,
                 ":has_worktree": binding.has_worktree,
                 ":limit": limit,
             },
@@ -233,7 +232,6 @@ fn search_items_next_page(
                 ":epic_json": binding.epic_json,
                 ":assignee_json": binding.assignee_json,
                 ":priority_json": binding.priority_json,
-                ":estimate_json": binding.estimate_json,
                 ":has_worktree": binding.has_worktree,
                 ":cursor_status": cursor.status_sort_key,
                 ":cursor_priority": cursor.priority_sort_key,
@@ -308,7 +306,6 @@ fn search_band_counts(
             ":epic_json": binding.epic_json,
             ":assignee_json": binding.assignee_json,
             ":priority_json": binding.priority_json,
-            ":estimate_json": binding.estimate_json,
             ":has_worktree": binding.has_worktree,
         },
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),

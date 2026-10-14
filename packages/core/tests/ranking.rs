@@ -10,6 +10,8 @@
 //!   by priority regardless of rank — "No priority" sorts last (Open Decisions #6).
 //! - Reading the board twice with no intervening write returns byte-identical id sequences.
 //! - Setting priority to the value it already holds appends no event.
+//! - `set_priority_in_tx` / `set_epic_priority_in_tx` compose into a caller-owned transaction:
+//!   one event, no commit of their own, no-op when redundant (D-17, F4).
 //! - `set_assignee` with an actor id that names no row returns a foreign-key error.
 
 use std::collections::HashSet;
@@ -17,7 +19,10 @@ use std::collections::HashSet;
 use core::db::open_and_migrate;
 use core::domain::actor::local_human_actor_id;
 use core::domain::project::{self, Project};
-use core::domain::task::{create_task, reorder_task, set_assignee, set_priority, DEFAULT_PRIORITY};
+use core::domain::epic::{create_epic, set_epic_priority_in_tx};
+use core::domain::task::{
+    create_task, reorder_task, set_assignee, set_priority, set_priority_in_tx, DEFAULT_PRIORITY,
+};
 use core::query::{list_board, BoardFilter};
 use core::ranking::{rank_after, rank_between, ReorderDirection};
 use rusqlite::{params, Connection};
@@ -317,4 +322,59 @@ fn assignee_must_reference_a_real_actor() {
         )
         .expect("should read the task's assignee_id");
     assert_eq!(assignee.as_deref(), Some(actor_id.as_str()));
+}
+
+fn priority_events(conn: &Connection, stream_id: &str, kind: &str) -> i64 {
+    count_rows(conn, "SELECT COUNT(*) FROM events WHERE stream_id = ?1 AND event_type = ?2", &[&stream_id, &kind])
+}
+
+#[test]
+fn set_priority_in_tx_composes_into_a_caller_owned_transaction() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let task = create_task(&mut conn, &project.id, &actor_id, "Suggested priority", None).unwrap();
+
+    // The caller owns the transaction: a rollback undoes the write and the event together.
+    {
+        let tx = conn.transaction().unwrap();
+        set_priority_in_tx(&tx, &actor_id, &task.id, 2).unwrap();
+        tx.rollback().unwrap();
+    }
+    let priority = |c: &Connection| -> i64 {
+        c.query_row("SELECT priority FROM tasks WHERE id = ?1", params![task.id], |r| r.get(0)).unwrap()
+    };
+    assert_eq!(priority(&conn), DEFAULT_PRIORITY, "set_priority_in_tx must not commit on its own");
+    assert_eq!(priority_events(&conn, &task.id, "task.priority_changed"), 0);
+
+    // Committed by the caller: the row changes and exactly one event is appended.
+    let tx = conn.transaction().unwrap();
+    set_priority_in_tx(&tx, &actor_id, &task.id, 2).unwrap();
+    // A redundant write inside the same transaction is a no-op.
+    set_priority_in_tx(&tx, &actor_id, &task.id, 2).unwrap();
+    tx.commit().unwrap();
+    assert_eq!(priority(&conn), 2);
+    assert_eq!(priority_events(&conn, &task.id, "task.priority_changed"), 1);
+}
+
+#[test]
+fn set_epic_priority_in_tx_composes_into_a_caller_owned_transaction() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let epic = create_epic(&mut conn, &project.id, &actor_id, "Suggested priority", None).unwrap();
+    let priority = |c: &Connection| -> i64 {
+        c.query_row("SELECT priority FROM epics WHERE id = ?1", params![epic.id], |r| r.get(0)).unwrap()
+    };
+    let before = priority(&conn);
+
+    {
+        let tx = conn.transaction().unwrap();
+        set_epic_priority_in_tx(&tx, &actor_id, &epic.id, 4).unwrap();
+        tx.rollback().unwrap();
+    }
+    assert_eq!(priority(&conn), before, "set_epic_priority_in_tx must not commit on its own");
+
+    let tx = conn.transaction().unwrap();
+    set_epic_priority_in_tx(&tx, &actor_id, &epic.id, 4).unwrap();
+    set_epic_priority_in_tx(&tx, &actor_id, &epic.id, 4).unwrap();
+    tx.commit().unwrap();
+    assert_eq!(priority(&conn), 4);
+    assert_eq!(priority_events(&conn, &epic.id, "epic.priority_changed"), 1);
 }

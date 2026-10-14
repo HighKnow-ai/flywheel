@@ -811,8 +811,26 @@ pub fn set_priority(
     task_id: &str,
     new_priority: i64,
 ) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    set_priority_in_tx(&tx, actor_id, task_id, new_priority)?;
+    tx.commit()
+        .context("failed to commit set_priority transaction")?;
+    Ok(())
+}
+
+/// The statement body [`set_priority`] issues, factored out the way [`set_task_status_in_tx`]
+/// was, so a caller already holding a transaction can compose a priority change with its own
+/// writes atomically instead of nesting a second one. It exists so that accepting a priority
+/// suggestion can run inside `authoring_proposal::accept_proposal_in_tx`'s per-item transaction
+/// (D-16, D-17, F4). Same no-op, event and range-check behaviour as [`set_priority`]; does not
+/// commit — the caller's transaction owns that.
+pub fn set_priority_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    task_id: &str,
+    new_priority: i64,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
 
     let (project_id, epic_id, current_priority): (String, Option<String>, i64) = tx
         .query_row(
@@ -823,8 +841,6 @@ pub fn set_priority(
         .with_context(|| format!("task {task_id:?} not found"))?;
 
     if current_priority == new_priority {
-        tx.commit()
-            .context("failed to commit no-op set_priority transaction")?;
         return Ok(());
     }
 
@@ -834,7 +850,7 @@ pub fn set_priority(
     )
     .context("failed to set task priority")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "priority",
         "before": current_priority,
@@ -842,7 +858,7 @@ pub fn set_priority(
         "label": format!("Changed priority from {current_priority} to {new_priority}"),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -855,70 +871,6 @@ pub fn set_priority(
         &payload,
         &now,
     )?;
-
-    tx.commit()
-        .context("failed to commit set_priority transaction")?;
-    Ok(())
-}
-
-/// Set a task's estimate (D-12: nullable ordinal S/M/L, stored 1-3). `new_estimate = None` clears
-/// the field — the column carries no default. A redundant change is a no-op, mirroring
-/// `set_priority`. An out-of-range value is rejected by the schema CHECK constraint, not by this
-/// function. Nothing in this crate aggregates the estimate column (D-12) — this function only
-/// ever writes the single row it was called for.
-pub fn set_estimate(
-    conn: &mut Connection,
-    actor_id: &str,
-    task_id: &str,
-    new_estimate: Option<i64>,
-) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
-    let tx = conn.transaction()?;
-
-    let (project_id, epic_id, current_estimate): (String, Option<String>, Option<i64>) = tx
-        .query_row(
-            "SELECT project_id, epic_id, estimate FROM tasks WHERE id = ?1",
-            params![task_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .with_context(|| format!("task {task_id:?} not found"))?;
-
-    if current_estimate == new_estimate {
-        tx.commit()
-            .context("failed to commit no-op set_estimate transaction")?;
-        return Ok(());
-    }
-
-    tx.execute(
-        "UPDATE tasks SET estimate = ?1, updated_at = ?2 WHERE id = ?3",
-        params![new_estimate, now, task_id],
-    )
-    .context("failed to set task estimate")?;
-
-    let sequence = next_sequence(&tx, &project_id, "local")?;
-    let payload = serde_json::json!({
-        "field": "estimate",
-        "before": current_estimate,
-        "after": new_estimate,
-        "label": "Changed estimate",
-    });
-    append_event(
-        &tx,
-        &project_id,
-        "local",
-        sequence,
-        "task",
-        task_id,
-        Some(task_id),
-        epic_id.as_deref(),
-        actor_id,
-        "task.estimate_changed",
-        &payload,
-        &now,
-    )?;
-
-    tx.commit()
-        .context("failed to commit set_estimate transaction")?;
     Ok(())
 }
 
@@ -926,7 +878,7 @@ pub fn set_estimate(
 /// `actors` is rejected by the `assignee_id` foreign key (T-01-21) — `foreign_keys = ON` is set
 /// on every connection (`db::open_and_migrate`), so this function performs no application-layer
 /// existence check of its own; the `UPDATE` itself fails with a SQLite foreign-key-constraint
-/// error. A redundant change is a no-op, mirroring `set_priority`/`set_estimate`.
+/// error. A redundant change is a no-op, mirroring `set_priority`.
 pub fn set_assignee(
     conn: &mut Connection,
     actor_id: &str,
@@ -986,7 +938,7 @@ pub fn set_assignee(
 /// Reparent a task under an epic, or clear its epic with `None` (G-01-EPIC-ASSIGN). A parent id
 /// in another project is rejected by [`assert_parent_in_project`] (T-01-GC-01); a redundant call
 /// naming the epic the task already has is a no-op — `Ok` is returned, `updated_at` is left
-/// untouched, and no event is appended, mirroring `set_priority`/`set_estimate`/`set_assignee`.
+/// untouched, and no event is appended, mirroring `set_priority`/`set_assignee`.
 ///
 /// Appends exactly one `task.epic_changed` event whose denormalised `epic_id` column is the NEW
 /// parent, not the task's own `epic_id` at the time of the call — so the arrival shows on the

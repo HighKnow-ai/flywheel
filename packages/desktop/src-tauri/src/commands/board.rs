@@ -30,7 +30,6 @@ pub struct BoardItemDto {
     pub rank: String,
     pub priority: i64,
     pub epic_id: Option<String>,
-    pub estimate: Option<i64>,
     pub assignee_id: Option<String>,
     pub criteria_checked: i64,
     pub criteria_total: i64,
@@ -47,7 +46,6 @@ impl From<flywheel_core::query::BoardItem> for BoardItemDto {
             rank: item.rank,
             priority: item.priority,
             epic_id: item.epic_id,
-            estimate: item.estimate,
             assignee_id: item.assignee_id,
             criteria_checked: item.criteria_checked,
             criteria_total: item.criteria_total,
@@ -136,7 +134,6 @@ pub struct BoardFilterInput {
     pub epic_ids: Option<Vec<Option<String>>>,
     pub assignee_ids: Option<Vec<Option<String>>>,
     pub priorities: Option<Vec<i64>>,
-    pub estimates: Option<Vec<i64>>,
     /// D-17: `Some(true)` restricts to rows with an active worktree (epics: any child task does,
     /// amendment A-04). Absent and `Some(false)` both mean "unfiltered" — there is no "only rows
     /// without a worktree" reading.
@@ -165,7 +162,6 @@ impl From<BoardFilterInput> for flywheel_core::query::filter::BoardFilter {
                     .collect()
             }),
             priorities: input.priorities,
-            estimates: input.estimates,
             has_worktree: input.has_worktree.unwrap_or(false),
         }
     }
