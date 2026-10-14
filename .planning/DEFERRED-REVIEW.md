@@ -368,6 +368,13 @@ context to be answerable months later by someone who was not in the room:
     seen. update.rs writes no log line, so a socket sample is the only trace. The four questions to ask are in
     11-RELEASE-EVIDENCE.md section 7. A one-line log of update_check's outcome would turn "reached the
     endpoint" into "parsed and verified" without a human; not added.
+  update_11-20: |
+    STILL OPEN, ONE QUESTION ANSWERED. Launching the installed v0.1.0 (scratch HOME) with v0.1.1 published
+    showed the banner in the corner of the real window: "Flywheel 0.1.1 is available / you have 0.1.0", the
+    release-body commit subject, and "Install on relaunch" / "Not now" (11-20-update-banner.png, and in dark
+    tokens in 11-20-appearance-dark.png). So the check ran, parsed and drew the offer. Nothing was clicked:
+    dismissal, the live-run count and the install-on-relaunch result are not observed. Screenshot read, not a
+    DOM assertion.
 
 - id: D-REV-62
   phase: "11 - Ship It (plan 08, DIST-01 criterion 1)"
@@ -647,7 +654,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-20
   phase: "08.1 — Visual Polish (plan 20, handed forward from plan 02)"
   truth: "The installed Flywheel application shows the new HighKnow mark in the Dock, in Finder, and in the native About panel (SC1, as the OS paints it)."
-  status: open
+  status: closed (2026-10-14, plan 11-20; installed icns sha256 == source, plist references it, Dock and About panel observed in screenshots. Finder's icon for the bundle was not captured)
   why_deferred: |
     Physical: the Dock and LaunchServices icon caches are operating-system state that only a reinstalled
     bundle plus a cache refresh change, and no WebDriver or vitest arm can observe the macOS Dock. What IS
@@ -672,7 +679,7 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-22
   phase: "08.1 — Visual Polish (plan 20)"
   truth: "Dark mode actually activates in the Tauri shell's web view: with macOS set to Dark, the installed app paints the dark token block, and with macOS set to Light it paints the light block."
-  status: open
+  status: closed (2026-10-14, plan 11-20; installed 0.1.0 paints #0a0a0a in system Dark and #ffffff in Light, sampled from an OS capture and compared to tokens.css. Evidence 11-INSTALLED-EVIDENCE.md section 2)
   why_deferred: |
     Physical: there is no WebDriver for WKWebView on macOS, and the appearance is operating-system state.
     Recorded as assumption A2 in 08.1-RESEARCH ("[ASSUMED] — not run in WKWebView this session") and never run since. What IS proven: the contrast tests prove the
