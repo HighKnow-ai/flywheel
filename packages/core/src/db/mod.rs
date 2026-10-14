@@ -8,7 +8,7 @@ pub mod backup;
 use anyhow::Context;
 use once_cell::sync::Lazy;
 use rusqlite::{Connection, OptionalExtension};
-use rusqlite_migration::{Migrations, M};
+use rusqlite_migration::{Error as MigrationError, MigrationDefinitionError, Migrations, M};
 use std::path::{Path, PathBuf};
 
 use self::backup::{backup_database_file, prune_backups, restore_from_backup, DEFAULT_BACKUP_RETENTION};
@@ -86,12 +86,43 @@ pub fn apply_pragmas(conn: &Connection) -> anyhow::Result<()> {
 /// than proceeding. This restore is the reversibility mechanism (D-18), not a hand-written
 /// down-migration.
 ///
+/// The same holds across builds: an older build cannot open a newer database at all (its
+/// `user_version` is ahead of the compiled migration set, and no down-migration exists to walk it
+/// back). So reversibility for a schema change means restoring the pre-migration backup this
+/// function wrote before the newer build migrated, never undoing the change in place. That refusal
+/// is tested by `tests/migration_schema_too_far_ahead.rs`.
+///
 /// On a successful migration, old backups are pruned to [`DEFAULT_BACKUP_RETENTION`] (T-01-18)
 /// and `PRAGMA integrity_check` is run before the connection is handed back — a migration that
 /// "succeeded" but left a corrupt file is still an error here, not a silently-returned
 /// `Connection`.
 pub fn open_and_migrate(db_path: &Path, backups_dir: &Path) -> anyhow::Result<Connection> {
     open_and_migrate_with(db_path, backups_dir, &MIGRATIONS)
+}
+
+/// The sentence that makes `rusqlite_migration`'s bare "migration number that is too high" usable
+/// (F7): the two numbers and the one recovery action. `None` for every other migration failure.
+///
+/// The supported version is measured by applying `migrations` to a throwaway in-memory database,
+/// because [`Migrations`] exposes no length; that only runs on this refusal path.
+fn schema_ahead_context(
+    migrations: &Migrations<'_>,
+    err: &anyhow::Error,
+    db_user_version: i64,
+    backups_dir: &Path,
+) -> Option<String> {
+    match err.downcast_ref::<MigrationError>() {
+        Some(MigrationError::MigrationDefinition(MigrationDefinitionError::DatabaseTooFarAhead)) => {}
+        _ => return None,
+    }
+    let mut probe = Connection::open_in_memory().ok()?;
+    migrations.to_latest(&mut probe).ok()?;
+    let supported: i64 = probe.query_row("PRAGMA user_version", [], |row| row.get(0)).ok()?;
+    Some(format!(
+        "this build supports database schema version {supported} but the database is at version \
+         {db_user_version}, written by a newer build; install the newer build, or restore a \
+         backup from {backups_dir:?}"
+    ))
 }
 
 /// [`open_and_migrate`] against an explicit migration set. The product always passes the full
@@ -157,6 +188,9 @@ pub fn open_and_migrate_with(
         });
 
     if let Err(migration_err) = migration_result {
+        // Read before the connection goes away: only the too-far-ahead refusal uses it.
+        let ahead_user_version: i64 =
+            conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap_or(-1);
         // Drop the connection before touching the file on disk — SQLite (and the OS, on
         // Windows in particular) will not let another process overwrite a file that is still
         // held open.
@@ -176,6 +210,11 @@ pub fn open_and_migrate_with(
             )
         })?;
 
+        let ahead = schema_ahead_context(migrations, &migration_err, ahead_user_version, backups_dir);
+        let migration_err = match ahead {
+            Some(msg) => migration_err.context(msg),
+            None => migration_err,
+        };
         return Err(migration_err.context(format!(
             "failed to run pending migrations against {db_path:?}; restored the pre-migration \
              backup at {backup_path:?} and refused to open"
