@@ -27,6 +27,10 @@ use serde::Serialize;
 /// where folding begins.
 pub const VERBATIM_WINDOW: usize = 5;
 
+/// The summary window (FNC-05, D-02): how many of a task's newest session summaries enter the
+/// context packet at all.
+pub const SUMMARY_WINDOW: usize = 25;
+
 /// What survives the fold for one summary past the verbatim window (D-68). The narrative fields
 /// — `changed_prose`, `remains`, `next_session_must_know` — are absent from this type entirely,
 /// not present-and-empty: that is what makes "total for narrative" a property a reader can check

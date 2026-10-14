@@ -4,12 +4,10 @@
 //! silently rather than loudly (determinism, extended to a second scope, and boundedness as a
 //! crate-wide gate) — both get a structural assertion here, not a comment.
 //!
-//! `STATE.md` carries two live warnings of this exact class: `context_packet.rs`'s own unbounded
-//! `SUMMARIES_SQL` read (a real, recorded, Phase-4-owned debt — this plan does NOT fix it, and the
-//! `unbounded_reads` gate below does not scan `context_packet.rs` at all, only
-//! `packages/core/src/query`), and `epic_roster`'s now-closed `EPIC_ROSTER_CEILING` exemption
-//! (closed by plan 05-04 Task 2). This file's `unbounded_reads` gate exists so a THIRD unbounded
-//! read is never added silently to `packages/core/src/query`.
+//! The `unbounded_reads` gate below scans `packages/core/src/query`, `epic_context_packet.rs` and
+//! (since plan 13-02, FNC-05) `context_packet.rs`: `SUMMARIES_SQL` is no longer a tolerated debt, it
+//! carries a LIMIT. `epic_roster`'s `EPIC_ROSTER_CEILING` exemption was closed by plan 05-04 Task 2.
+//! The gate exists so a further unbounded read is never added silently to any of those files.
 
 mod common;
 
@@ -725,13 +723,10 @@ fn five_consecutive_assemblies_are_equal_byte_identical_and_write_nothing() {
 /// `const` name or a function name) so a rename or a genuinely new unbounded read both surface as
 /// a real diff here, not a silent pass.
 ///
-/// This allowlist does NOT include `context_packet.rs`'s own `SUMMARIES_SQL` — that file is
-/// OUTSIDE this gate's scope and is a real, already-recorded `STATE.md` debt ("Bound the context
-/// packet before task histories get long", PROJECT.md Active requirements). Widening this gate to
-/// also cover `context_packet.rs` and then allowlisting `SUMMARIES_SQL` away would quietly fold a
-/// Phase-4-owned debt into this plan's own closure — exactly what this plan's own action text
-/// forbids. `SUMMARIES_SQL` stays unfixed, named here only so this gate is honest about what it is
-/// currently tolerating, not because the scanner below ever reaches it.
+/// `context_packet.rs` is inside this gate (plan 13-02, FNC-05). Its `SUMMARIES_SQL` is NOT in this
+/// allowlist and is no longer a tolerated debt: it passes because it carries a LIMIT, fixed by
+/// `compaction::SUMMARY_WINDOW`. Only that file's genuinely cardinality-one or one-row-bounded
+/// reads are named below, each with its reason.
 ///
 /// WR-02 (plan 05-09 code review): the scanner below now ALSO covers `epic_context_packet.rs` —
 /// this file's own review finding was exactly the class this gate exists to catch structurally
@@ -784,6 +779,14 @@ const ALLOWED_UNBOUNDED_SELECTS: &[&str] = &[
                                   // for), and the task COUNT(*) is a GROUP-BY-less aggregate (the
                                   // same shape BLOCKED_COUNT_SQL/RECOVERY_COUNT_SQL are allowlisted
                                   // for) — neither is a page read, so LIMIT does not apply to either
+    "TASK_ROW_SQL",             // context_packet.rs (plan 13-02) — query_row keyed by tasks.id (PRIMARY KEY)
+    "WORKTREE_ROW_SQL",         // context_packet.rs (plan 13-02) — query_row on worktrees.task_id, a UNIQUE column
+    "PROJECT_DEFAULT_BRANCH_SQL", // context_packet.rs (plan 13-02) — query_row keyed by projects.id (PRIMARY KEY)
+    "PROJECT_KEY_PREFIX_SQL",   // context_packet.rs (plan 13-02) — query_row keyed by projects.id (PRIMARY KEY)
+    "CRITERIA_SQL",             // context_packet.rs (plan 13-02) — bounded by one task's own current-revision
+                                 // criteria count, the AGENT_TASK_CRITERIA_SQL shape already allowlisted above
+    "SUMMARIES_TOTAL_SQL",      // context_packet.rs (plan 13-02) — COUNT(*) with no GROUP BY, always one row
+                                 // (`EPIC_ROW_SQL` there is already covered by its epic_context_packet.rs name)
     "task_header",              // authoring.rs (plan 11-22) — query_row keyed by tasks.id (PRIMARY KEY);
                                  // at most one row by construction, the get_epic_for_agent shape
     "epic_header",              // authoring.rs (plan 11-22) — query_row keyed by epics.id (PRIMARY KEY);
@@ -882,7 +885,14 @@ fn chunk_identifier(chunk: &str) -> String {
 fn scan_file_for_unbounded_selects(path: &std::path::Path, offenders: &mut Vec<String>) {
     let source = std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("reading {} should succeed: {e}", path.display()));
-    let stripped = strip_comment_lines(&source);
+    scan_source_for_unbounded_selects(&path.display().to_string(), &source, offenders);
+}
+
+/// The scanner proper, over source text already in memory — shared by the real-tree gate and by
+/// [`the_unbounded_reads_gate_fires_on_a_planted_violation`], so the two-sided proof drives the
+/// same logic the gate does.
+fn scan_source_for_unbounded_selects(label: &str, source: &str, offenders: &mut Vec<String>) {
+    let stripped = strip_comment_lines(source);
 
     for chunk in split_into_chunks(&stripped) {
         let literal_text = extract_string_literals(&chunk);
@@ -895,8 +905,7 @@ fn scan_file_for_unbounded_selects(path: &std::path::Path, offenders: &mut Vec<S
         let identifier = chunk_identifier(&chunk);
         if !ALLOWED_UNBOUNDED_SELECTS.contains(&identifier.as_str()) {
             offenders.push(format!(
-                "{}: {identifier} contains a SELECT with no LIMIT and is not in ALLOWED_UNBOUNDED_SELECTS",
-                path.display()
+                "{label}: {identifier} contains a SELECT with no LIMIT and is not in ALLOWED_UNBOUNDED_SELECTS"
             ));
         }
     }
@@ -924,12 +933,31 @@ fn unbounded_reads_in_query_module_and_epic_context_packet_are_all_named_in_the_
     // silently to THIS file either.
     scan_file_for_unbounded_selects(&manifest_dir.join("src/epic_context_packet.rs"), &mut offenders);
 
+    // FNC-05: `context_packet.rs` is no longer exempt. `SUMMARIES_SQL` passes by carrying a LIMIT.
+    scan_file_for_unbounded_selects(&manifest_dir.join("src/context_packet.rs"), &mut offenders);
+
     assert!(
         offenders.is_empty(),
         "unbounded, unallowlisted SELECT(s) found under packages/core/src/query or in \
-         epic_context_packet.rs:\n{}",
+         epic_context_packet.rs or context_packet.rs:\n{}",
         offenders.join("\n")
     );
+}
+
+/// The other half of the gate. Without it the clean-tree assertion above passes trivially on a
+/// scanner that never fires. A planted unbounded `SELECT` under an unallowlisted name is exactly
+/// one offender; a bounded one and an allowlisted one are silent.
+#[test]
+fn the_unbounded_reads_gate_fires_on_a_planted_violation() {
+    let planted = "\
+const PLANTED_UNBOUNDED_SQL: &str = \"SELECT id FROM session_summaries WHERE task_id = ?1\";
+const PLANTED_BOUNDED_SQL: &str = \"SELECT id FROM session_summaries WHERE task_id = ?1 LIMIT ?2\";
+const SUMMARIES_TOTAL_SQL: &str = \"SELECT COUNT(*) FROM session_summaries WHERE task_id = ?1\";
+";
+    let mut offenders = Vec::new();
+    scan_source_for_unbounded_selects("planted.rs", planted, &mut offenders);
+    assert_eq!(offenders.len(), 1, "expected exactly the planted violation, got {offenders:?}");
+    assert!(offenders[0].contains("PLANTED_UNBOUNDED_SQL"), "offender was {offenders:?}");
 }
 
 #[test]
