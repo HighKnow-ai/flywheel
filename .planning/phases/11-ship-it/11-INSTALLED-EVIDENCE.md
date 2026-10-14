@@ -61,3 +61,51 @@ This answers question 1 of 11-RELEASE-EVIDENCE section 7 (does a banner appear n
 commit subjects) for a fresh database. It is a screenshot read, not a scripted DOM assertion. **Nothing
 was clicked.** Questions 2, 3 and 4 (dismissal, the live-run state, and the install-on-relaunch result)
 are still not observed, and criterion 2 (the installed app becomes `0.1.1`) remains unobserved.
+
+## 2. D-REV-22: does dark mode reach the installed app's WKWebView
+
+**Result: yes. With macOS set to Dark the installed `0.1.0` paints the dark token ground; with macOS
+set to Light it paints the light one.** Measured on the installed bundle, not a dev build, not a
+browser-mode test.
+
+Command: `node scripts/release/verify-appearance.mjs` (exit 0). Output as printed:
+
+```
+installed app: /Applications/Flywheel.app
+original system appearance: dark=false AppleInterfaceStyle=(absent) SwitchesAutomatically=1
+tokens.css --surface-dominant: light=#ffffff dark=#0a0a0a
+PASS  AppleInterfaceStyle=Dark  mode=Dark  sampled=#0a0a0a,#0a0a0a,#0a0a0a,#0a0a0a  expected=#0a0a0a  tolerance=+-4/channel  window=1200x800
+PASS  AppleInterfaceStyle=(absent)  mode=Light  sampled=#ffffff,#ffffff,#ffffff,#ffffff  expected=#ffffff  tolerance=+-4/channel  window=1200x800
+restored system appearance: AppleInterfaceStyle=(absent) (was (absent))
+```
+
+How to read it:
+
+- **Expected colours are read from the shipped `packages/desktop/src/styles/tokens.css`** (the first
+  `--surface-dominant` is light, the first one after `@media (prefers-color-scheme: dark)` is dark). The
+  script contains no hex literal for either ground. The values happened to equal the register's
+  `#ffffff` / `#0a0a0a`, but the script did not rely on that.
+- **Sampled region:** four points in the left and right margins of the window's content area, at 35-65%
+  of the height. That is the full-height `.rack-ground` (`App.css`, `background: var(--surface-dominant)`)
+  behind the centred empty state, clear of the title bar, the content column and the update banner. All
+  four must match. Dark and Light cannot both pass by accident: the two expected values differ by 245
+  per channel against a tolerance of 4.
+- **Tolerance:** +-4 of 255 per channel, for display colour management. The sampled values matched
+  exactly, so none of the tolerance was used.
+- **The capture was read, not only measured.** `11-20-appearance-dark.png` is a visibly dark window
+  (near-black ground, light text, the update banner in dark tokens); `11-20-appearance-light.png` is the
+  light one. Both are crops of the app window only, taken by `screencapture -R` from the window rectangle.
+- **Appearance was changed through System Events (`appearance preferences`), not `defaults write -g
+  AppleInterfaceStyle`.** Deviation from the register's wording, deliberate: `defaults write` changes the
+  stored value but leaves the menu bar and every running application un-notified, which would have left the
+  developer's desktop half-switched. The effect on the stored key is the same and is asserted by the script
+  (`AppleInterfaceStyle=Dark` while Dark, absent while Light). The user's `AppleInterfaceStyleSwitchesAutomatically`
+  is `1` (auto day/night); it was not touched, and the restore to Light was confirmed afterwards
+  (`defaults read -g AppleInterfaceStyle` reports the key absent).
+- **What this does and does not establish.** It establishes that the WKWebView follows the OS appearance at
+  launch, and that the dark token block is therefore reachable in the shipped app. It does not show a
+  *live* switch while the app is running (each appearance was launched fresh), and it measures the ground
+  only: the contrast of text and controls in dark remains the job of the contrast tests.
+- **No dark-mode bug was found,** so nothing is filed under D-196. The register's recorded fallback
+  (a `data-theme` attribute from Tauri's window theme API) is not needed.
+- The app ran against a scratch `HOME` per appearance and was quit afterwards; no process survived.
