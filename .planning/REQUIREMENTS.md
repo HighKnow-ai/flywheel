@@ -141,8 +141,8 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [x] **DIST-02**: The application updates itself to new releases without a manual reinstall
   - *Evidence, 2026-10-14 (plan 11-21).* `latest.json` on `v0.1.1` offers `0.1.1` with a non-empty signature that verifies (`11-RELEASE-EVIDENCE.md` § 6). The installed `0.1.0` then showed its banner, accepted, and relaunched into an About panel reading `0.1.1` with nothing downloaded or dragged by a person (`11-OWNER-PASS.md` § 2.2, `11-21-about-after-update.png`). **Limit, stated plainly:** that run was driven by accessibility automation on a `ditto` copy of the installed bundle, not in place on `/Applications` and not watched by the owner. The banner's dismissal lasts the session only, not a relaunch (D-REV-66; the owner chose to keep it, D-206).
   - **Resolved 2026-10-14.** The 404 was caused by marking BOTH releases Pre-release: the compiled endpoint `https://github.com/HighKnow-ai/flywheel/releases/latest/download/latest.json` resolves via GitHub's `latest`, which skips Pre-releases. Fixed by un-marking `v0.1.1` while leaving `v0.1.0` Pre-release - the only remedy that reaches ALREADY-INSTALLED clients, since the endpoint is compiled into every shipped binary and a `tauri.conf.json` change would affect future builds only. Verified: `curl -sIL` returns **HTTP 200** and the manifest reads version 0.1.1 with platforms `darwin-aarch64`/`darwin-aarch64-app` and a non-empty signature (D-REV-67, closed).
-- [ ] **DIST-03**: A developer can clone the repository and build a working desktop application from source following the documented steps
-  - *Evidence, 2026-10-14 (plan 11-21). Left unticked.* A fresh HTTPS clone built a bundle from the README, after a README fix (`11-RELEASE-EVIDENCE.md` § 5). CI runs the same commands on every push (`.github/workflows/ci.yml`, run 38346860234 green on macos-14). It stays unticked because `main` still carries the old, broken README and a red CI; the fix lives on this branch. It becomes true when the owner merges the branch and a clone of `main` is built from the merged README.
+- [x] **DIST-03**: A developer can clone the repository and build a working desktop application from source following the documented steps
+  - *Evidence, 2026-10-14. TICKED after CI concluded.* A fresh HTTPS clone built a bundle from the README, after a README fix (`11-RELEASE-EVIDENCE.md` § 5). The README's five commands match `ci.yml` command for command. Proven on the default branch: CI run 38523539751 and Open core run 38523539858 are both `success` on `main` at `9fa4543`, and the CI run includes `cargo test --workspace` and the override `tauri build`. The only difference between `9fa4543` and HEAD is under `.planning/`.
 - [x] **DIST-04**: The open-source desktop application is fully functional standalone, with no feature gated behind an account or network service
   - *Evidence, 2026-10-14 (plan 11-21).* `.github/workflows/open-core.yml` deletes `packages/relay-client`, checks that no source references it, then builds, tests and builds the renderer: run 38346860235 green on macos-14 (D-REV-56).
 
@@ -324,7 +324,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 - v1 requirements: 93 total
 - Mapped to phases: 93 ✓
-- Unmapped: 0
+- Unmapped: 1 — **DIST-01**, deferred out of the v0.1.0 milestone on 2026-10-14 (owner declined the $99/yr Apple Developer account). It has no phase in the current roadmap and needs a named home in the next milestone; it is unticked and unmet, not dropped.
 - Duplicated across phases: 0
 
 ---

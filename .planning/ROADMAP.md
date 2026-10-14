@@ -12,7 +12,7 @@ that competitors cannot copy in a weekend — Socratic epic authoring and an age
 backlog behind a human triage gate. Phases 7 and 8 close the daily-work loop by putting git and
 forge truth on the board and moving diff review and merge inside the app. Phase 9 turns one agent
 into a planned fan-out bounded by real file-set disjointness, Phase 10 generalises supervision
-across every project, and Phase 11 ships a signed, self-updating macOS build that a stranger can
+across every project, and Phase 11 ships an UNSIGNED, self-updating macOS build that a stranger can
 also build from source.
 
 **Structure:** Vertical MVP. Every phase delivers an end-to-end capability the user can run and
@@ -1195,7 +1195,7 @@ notification click-to-jump is deferred to a board issue and is in no requirement
 
 ### Phase 11: Ship It
 
-**Goal**: Cyril installs Flywheel like any other Mac application and it keeps itself current, and another developer can clone the repository and build it.
+**Goal**: Cyril installs Flywheel from a GitHub release and it keeps itself current, and another developer can clone the repository and build it. **Amended 2026-10-14:** the original goal read "installs like any other Mac application". That is NOT delivered - the build is unsigned, so macOS reports it "damaged and can't be opened" and installing needs `xattr -cr`. Signing moved out of this milestone with DIST-01 (D-REV-60, D-REV-62).
 **Mode:** mvp
 **Depends on**: Phase 10
 **Requirements**: DIST-02, DIST-03, DIST-04 (DIST-01 deferred to a later milestone — see below)
@@ -1215,7 +1215,7 @@ notification click-to-jump is deferred to a board issue and is in no requirement
   3. A developer clones the repository and builds a working desktop application by following the documented steps.
   4. The installed open-source application is fully functional standalone — no account, no network service, and no feature gated behind either.
 
-**Plans**: 22/22 plans executed
+**Plans**: 21/22 plans executed; 11-07 deferred with 0 tasks (22/22 have SUMMARYs)
 
 Plans:
 
@@ -1247,7 +1247,7 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 11-06-PLAN.md — The update banner: offered, named, dismissible, refused while agents run
-- [x] 11-07-PLAN.md — Signed and notarized: the Apple gate and the Gatekeeper proof
+- [~] 11-07-PLAN.md — Signed and notarized: the Apple gate and the Gatekeeper proof — **DEFERRED, 0 tasks executed, no production file changed** (owner declined the $99/yr Apple account; D-REV-60)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 

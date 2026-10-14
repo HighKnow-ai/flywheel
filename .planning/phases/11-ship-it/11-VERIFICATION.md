@@ -1,27 +1,38 @@
 ---
 phase: 11-ship-it
-verified: 2026-10-14T06:53:42Z
-status: gaps_found
-score: 3/4 must-haves verified
+verified: 2026-10-14T07:12:28Z
+status: deferred
+score: 3/3 re-scoped success criteria verified (DIST-01 descoped by owner decision, UNMET, not counted)
 covered_files:
   - ".github/workflows/ci.yml"
   - ".github/workflows/open-core.yml"
   - ".github/workflows/release.yml"
   - ".planning/DEFERRED-REVIEW.md"
   - ".planning/REQUIREMENTS.md"
+  - ".planning/ROADMAP.md"
   - "ARCHITECTURE.md"
   - "LICENSE"
   - "README.md"
+  - "packages/core/tests/worktree_lifecycle.rs"
   - "packages/desktop/src-tauri/src/commands/update.rs"
   - "packages/desktop/src-tauri/tauri.conf.json"
   - "packages/desktop/src/update/UpdateBanner.tsx"
-covered_digest: "v1:sha256:aa62c7741dd8183c93915b3c742b1e5cc157f5f88c1d356d5f943d7d3f653ea8"
+covered_digest: "v1:sha256:4c88739ac402949dfc3f9f24abf0bc7297fc558901596949ea453d67b80ebd8b"
 behavior_unverified: 0
 overrides_applied: 0
-re_verification: null
-gaps:
+re_verification:
+  previous_status: gaps_found
+  previous_score: 3/4
+  reason: "Owner descoped DIST-01 on 2026-10-14; CI concluded green on main 9fa4543"
+  gaps_closed: []
+  gaps_remaining: []
+  descoped: ["DIST-01 criterion 1 (unmet, not achieved, no later phase covers it)"]
+  regressions: []
+gaps: []
+descoped:
+  # The first-pass gap, preserved verbatim. It is NOT closed. It is out of scope by owner decision.
   - truth: "User installs a signed, notarized macOS build and opens it with no Gatekeeper warning. (ROADMAP SC 1 / DIST-01)"
-    status: failed
+    status: unmet-descoped
     reason: "The build is ad-hoc signed only and is not notarized. Owner declined the Apple Developer purchase on 2026-10-13 (D-REV-60); plan 11-07 is `deferred` with zero tasks executed. A quarantined copy shows 'damaged and can't be opened' with only Move to Trash and Cancel. The only way in is the `xattr -cr` workaround."
     artifacts:
       - path: "/Applications/Flywheel.app"
@@ -33,17 +44,205 @@ gaps:
     missing:
       - "Apple Developer ID Application certificate, notarization and stapling in release.yml (plan 11-07 Tasks 1-3)"
       - "A Gatekeeper verification run against the downloaded release artifact"
-deferred: []
-advisory: []
+deferred: []   # DIST-01 has no later phase or milestone entry, so the Step 9b test is not met
+advisory:
+  - finding: "Phase Goal sentence ('installs like any other Mac application'), ROADMAP overview line 15 ('signed'), the [x] on plan 11-07 and '22/22 executed' were not amended after the descope"
+    category: other
+    reason: "Documents still imply the signing plan ran or the install is Mac-native. See the re-verification section."
+    evidence_status: "file lines cited in the report"
+  - finding: "D-REV-68 states the race as settled; its own reproduction recipe (--test-threads=8) did not fail in 8 of 8 runs here; three of the seven plans it names carry no flake mention"
+    category: other
+    reason: "Diagnosis is supported by source, not reproduced. Edit the entry to say so."
+    evidence_status: "8 runs at 8 threads and 3 at 1 thread all green"
 coincidental_reliance_items: []
 ---
 
 # Phase 11: Ship It Verification Report
 
 **Phase Goal:** Cyril installs Flywheel like any other Mac application and it keeps itself current, and another developer can clone the repository and build it.
-**Verified:** 2026-10-14T06:53:42Z
-**Status:** gaps_found
-**Re-verification:** No, initial verification
+**Verified:** 2026-10-14T07:12:28Z (re-verification); first pass 2026-10-14T06:53:42Z
+**Status:** deferred (re-verified 2026-10-14T07:12:28Z against the new three-criterion scope; first pass was `gaps_found` 3/4)
+**Re-verification:** Yes, after an owner-approved descope of DIST-01 and CI concluding green on `main`
+
+## Re-verification 2026-10-14T07:12:28Z: NEW SCOPE (DIST-02, DIST-03, DIST-04)
+
+**Result: 3 of 3 re-scoped success criteria verified. Status `deferred`, not `passed`.**
+**DIST-01 is UNMET and DESCOPED. It was not achieved, and nothing below says it was.**
+
+Everything under "First-pass report" further down is kept as written. Where this section corrects
+the first pass, it says so.
+
+### Why `deferred` and not `passed`
+
+Project policy (`.claude/CLAUDE.md`, "Human verification is deferred until MVP"): a report that would
+read `human_needed` reads `deferred`. This one would read `human_needed`, because:
+
+- 22 register entries are `owner-question`, unanswered. I counted `status: owner-question` in
+  `.planning/DEFERRED-REVIEW.md`: **22**. The set includes D-REV-24 (SC0, whether the built board
+  reads as "bold and modern"). Its `owner_answer` is "Not answered ... not as passed". They stay open.
+- DIST-02's update was observed by accessibility automation on a copy, not in place and not by the owner.
+- D-REV-68 is `status: open`.
+
+Phase 09's report uses the same `deferred` status, so this follows precedent.
+
+### Is the descope honest? My judgement: yes as a scoping call, with residual overstatements
+
+I am not blessing it blindly. I checked each claim in the brief against the files.
+
+**What holds (verified in the tree):**
+
+| Claim | Check | Result |
+|---|---|---|
+| DIST-01 stays unticked | `REQUIREMENTS.md:139` reads `- [ ] **DIST-01**` | TRUE |
+| Traceability says "NOT met and not reclassified" | `REQUIREMENTS.md:318` | TRUE, and it keeps the cost, the D-REV-60 and D-REV-62 references and the `xattr -cr` mitigation |
+| ROADMAP SC 1 struck through with a deferral note | `ROADMAP.md:1204-1213`, `~~...~~`, "NOT met and is NOT reclassified as met" | TRUE |
+| ROADMAP requirement line is `DIST-02, DIST-03, DIST-04` | `ROADMAP.md:1201` | TRUE |
+| Plan 11-07 is still `deferred`, 0 tasks, no production file changed | `11-07-SUMMARY.md` frontmatter `status: deferred`, `tasks: 0`; `git diff 9fa4543 HEAD --name-only` outside `.planning/` is empty | TRUE |
+| The 11-07 right-click-Open claim is corrected | SUMMARY now says "CORRECTED 2026-10-14 ... There is no Open button" | TRUE |
+| No signing config was slipped in | `release.yml` has no `APPLE_*` group; `verify-gatekeeper.sh` still absent | TRUE |
+
+The criterion was moved out of scope. It was not rewritten until it passed. The failing evidence is
+still on the record. That is a legitimate owner scoping decision: the blocker is a $99/yr purchase the
+owner declined, and the phase cannot code its way past it.
+
+**What is still dishonest or stale. These are WARNINGS the orchestrator should fix before calling the phase done:**
+
+1. **The Phase Goal sentence was not amended.** `ROADMAP.md:1198` still says "Cyril installs Flywheel
+   like any other Mac application". That is not true today: a first-time user meets "damaged and can't
+   be opened" with no Open button and must run `xattr -cr`. Three criteria were kept, but the goal
+   their removed sibling embodied was left standing. **The honest reading is that this phase delivers
+   its three retained criteria and does NOT deliver its headline install experience.** Amend the goal,
+   or say that in the roadmap entry.
+2. **`ROADMAP.md:15`** still says "Phase 11 ships a signed, self-updating macOS build". It is not signed.
+3. **`ROADMAP.md:1250` ticks `- [x] 11-07-PLAN.md - Signed and notarized` and line 1218 says
+   "22/22 plans executed".** Plan 11-07 executed **zero** tasks. A reader of the roadmap would conclude
+   the signing plan ran. The progress table (line 1337) also reads `22/22`. Show 11-07 as deferred.
+4. **DIST-01 has no destination.** Both documents say "a later milestone", but no later milestone or
+   phase exists in ROADMAP.md, and DIST-01 is not in REQUIREMENTS.md's v2 section. It still sits in
+   the v1 list, unticked. So the Step 9b "deferred to a later phase" test is NOT satisfied (I list it
+   under `descoped`, not `deferred`). Until it has a named home, "deferred" can quietly become "dropped".
+5. **`REQUIREMENTS.md` coverage block is now false.** Lines 326-327 say "Mapped to phases: 93 ✓",
+   "Unmapped: 0". DIST-01 is mapped to no phase any more. `ROADMAP.md` "Requirement Coverage" says
+   the same ("All 93 v1 requirements map to exactly one phase").
+6. **`STATE.md:742`** still says "Phase 11 has a hard prerequisite ... an Apple Developer account".
+
+### Observable truths, re-scoped
+
+| # | Truth | Status | Evidence (this pass) |
+|---|-------|--------|----------------------|
+| 1 | ~~Signed, notarized build opens with no Gatekeeper warning~~ (DIST-01) | **DESCOPED, UNMET** | Owner decision 2026-10-14. Not counted in the score, not counted as verified. First-pass evidence below is unchanged. |
+| 2 | User is offered a new release in the app and updates without a manual reinstall (DIST-02) | VERIFIED, limits stated | Re-run today, see below |
+| 3 | A developer clones the repository and builds a working desktop app from the documented steps (DIST-03) | VERIFIED | CI green on `main`, see below |
+| 4 | The installed open-source app is fully functional standalone (DIST-04) | VERIFIED | Open core green on `main`, see below |
+
+**Score: 3/3 re-scoped criteria verified. 0 present-but-behavior-unverified. DIST-01 excluded by owner decision, unmet.**
+
+### New evidence, checked by this verifier
+
+**CI has concluded green on `main`.** `gh run view` for both runs reports `headSha`
+`9fa45439845f0a2b649167d43c64cafa97d3ab3c`, which equals `origin/main`, `status: completed`,
+`conclusion: success`:
+
+- CI, push, 38523539751: all steps success, including `cargo test --workspace` and
+  `npm --prefix packages/desktop run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'`.
+- Open core, push, 38523539858 (job `relay-absent`): "Delete the relay seam", "Remove it from the
+  workspace members", "No source outside the crate references it", then `cargo build --workspace`,
+  `cargo test --workspace`, sidecar tests, desktop tests and the renderer build, all success.
+
+This **closes the first pass's main caveat for DIST-03 and DIST-04.** The README's five commands
+(read from `origin/main`) match the `run:` lines of `ci.yml` command for command. `git diff 9fa4543 HEAD`
+shows no change outside `.planning/`, so the tree that was built is the tree that is verified.
+
+One honest limit. This is **one green sample of a suite with a known race (D-REV-68 below)**. The same
+tree could go red on a re-run. The criterion (a stranger can build) does not depend on `cargo test`,
+because the README never asks for it. But "CI is green" is a fact about that run, not a standing guarantee.
+
+**DIST-02, re-checked rather than carried over:**
+
+- `curl -sIL .../releases/latest/download/latest.json`: 302 to `v0.1.1/latest.json`, then **HTTP 200**.
+  Manifest `version: 0.1.1`, platforms `darwin-aarch64` and `darwin-aarch64-app`, both signatures non-empty.
+- `gh release list`: `v0.1.1` Latest, `v0.1.0` Pre-release. The endpoint depends on that. Re-marking
+  `v0.1.1` Pre-release would bring the 404 back.
+- `cargo test -p desktop update`: 7 passed. **Correction to the first pass:** that count includes one
+  test that only matches the substring "update" (`build_preview_dto_performs_no_insert_update_or_delete`).
+  There are **6** tests in `commands::update`. They cover refusal with live runs, a run that starts
+  during the download, the plural count, a clean install, the compiled one-endpoint config, and the
+  window capability granting no updater permission. All pass.
+- Limits are as the first pass stated: the end-to-end update was automation on a copy, not the owner,
+  not in place.
+
+**DIST-04, re-checked:** the Open core run above is the evidence. Its structural gate fails the build if
+anything outside the crate references `relay-client`. The first pass's network-client scan stands.
+
+### D-REV-68: exists, and mostly honest. Two overstatements
+
+Entry present at `.planning/DEFERRED-REVIEW.md:1652`, `status: open`. It names the false SAFETY comment
+at line 18, says nothing enforces single-threaded execution, lists remedies, and says plainly that the
+phase misdiagnosed the race as a flake. I confirmed from the source:
+
+- The SAFETY comment is at `worktree_lifecycle.rs:18-19` and is false.
+- `grep` for `serial_test`, `test-threads` and `RUST_TEST_THREADS` in the Cargo manifests, `.cargo/`
+  and `.github/` finds nothing.
+- Two `#[test]` functions in the binary both call `with_scratch_worktree_root`, which sets and removes
+  a process-global variable. `git.rs:28` reads it. The failure signature (`NotFound` on a write into a
+  worktree path) fits one test's tempdir being dropped while its sibling still uses it.
+
+**Overstatement 1: the entry's own reproduction recipe did not reproduce it.** It says running with
+`--test-threads=8` "should fail today". I ran that binary **8 times at `--test-threads=8`: 8 of 8
+passed** (0.45 s each), and 3 of 3 passed at `--test-threads=1`. With the 5 of 5 from the first pass,
+that is 16 green local runs. The data race is real in the source. That it is *the* cause of the CI
+failures is a strong inference that I have not reproduced. The entry states it as settled. It should say
+"not reproduced locally".
+
+**Overstatement 2: the list of plans that recorded it as a flake is too long.** The entry names 11-04,
+05, 08, 10, 16, 19 and 20. I found the flake language in 11-04, 11-05, 11-08 and 11-10 only. 11-16,
+11-19 and 11-20 contain no mention in their SUMMARY or PLAN files. The pattern is still real, and 11-05
+shows it hitting `forge_degrade` and `worktree_lifecycle` as well as `authoring_lifecycle`, but three
+named plans are not supported.
+
+### The "five stale documents": four fixed, one half-fixed
+
+| Document | State |
+|---|---|
+| REQUIREMENTS DIST-02 "Unticked ... 404" bullet | FIXED. Now "Resolved 2026-10-14", HTTP 200 verified (matches my curl). |
+| REQUIREMENTS DIST-03 traceability row ("main still has the old README") | FIXED in the row. |
+| **REQUIREMENTS DIST-03 bullet (line 145) and checkbox (line 144)** | **STALE.** Still reads "Left unticked ... `main` still carries the old, broken README and a red CI". `main` has the fixed README and green CI. The checkbox is `[ ]` while the traceability row says "Met on evidence". The file contradicts itself. The row also still says CI "had NOT concluded", which is now false. The evidence now supports ticking DIST-03, but that edit is the orchestrator's. |
+| 11-07-SUMMARY right-click-Open claim | FIXED. |
+| Register frontmatter dispositions | FIXED. `17+9+2+22+16+1+1 = 68` matches the body: 68 `- id:` lines, 0 duplicates, statuses 17/9/2/22/16/1 closed/1 open. |
+
+DIST-04's row still cites run 38346860235 only. It could cite 38523539858 on `main`.
+
+### DIST-01 record (unchanged, restated)
+
+DIST-01 criterion 1 is **UNMET**. The bundle is ad-hoc signed (`Signature=adhoc`, `TeamIdentifier=not
+set`), is not notarized, and macOS reports it damaged with no Open button. `xattr -cr` is a workaround,
+not a signed build. No file in the tree makes it otherwise. The owner descoped it on 2026-10-14. That
+changes what this phase is *required* to deliver. It does not change what the phase *delivered*.
+
+### Open items that remain open
+
+- 22 `owner-question` register entries (D-REV-05, 07, 08, 09, 10, 21, 23, 24, 33, 34, 35, 36, 47 to 55,
+  63). Not passed, not verified.
+- D-REV-68, race unfixed and unreproduced locally.
+- DIST-01, unmet, no named destination.
+- Stale roadmap and requirements text listed above.
+- Update flow never observed by the owner or in place.
+- The 21 drained commits after `v0.1.1` are in no released build.
+
+### Actions for the orchestrator
+
+1. Amend the Phase 11 Goal sentence and `ROADMAP.md:15`, and show 11-07 as deferred (line 1250) so "22/22 executed" is not read as the signing plan having run.
+2. Give DIST-01 a named home (a v2 entry or a named future milestone), and correct the "Unmapped: 0" block.
+3. Fix `REQUIREMENTS.md` DIST-03: tick it or say why not, and drop the stale bullet text and the "had NOT concluded" phrase.
+4. Edit D-REV-68 to say "not reproduced locally in 16 runs" and trim the plan list to 11-04, 05, 08, 10.
+5. Then mark Phase 11 closed. No gap-closure plan is needed.
+
+---
+
+# First-pass report (2026-10-14T06:53:42Z), preserved as written
+
+*Superseded where this section above says so. Criterion 1 below was scored FAILED and a 3/4 score was
+given. That framing is replaced by the re-scoped result above. The evidence is not retracted.*
 
 ## Verdict in one paragraph
 
