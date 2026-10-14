@@ -94,12 +94,15 @@ pub fn create_project(
     })
 }
 
-/// List every registered project, oldest-registered first (stable order for the project rail's
-/// ⌘1-⌘9 switching and the "current project" default).
+/// List every registered, non-hidden project, oldest-registered first (stable order for the
+/// project rail's ⌘1-⌘9 switching and the "current project" default). A project hidden by
+/// [`hide_project`] (D-200) is absent here and from every other listing read; by-id lookups still
+/// resolve it.
 pub fn list_projects(conn: &Connection) -> anyhow::Result<Vec<Project>> {
     let mut stmt = conn.prepare(
         "SELECT id, key_prefix, name, repo_path, default_branch, status
          FROM projects
+         WHERE hidden = 0
          ORDER BY created_at ASC",
     )?;
     let rows = stmt
@@ -321,6 +324,9 @@ pub fn register_project(
                     // the same path; also the recovery path for re-registering a repository that
                     // moved without going through explicit relocation.
                     set_repo_path(&tx, &id, canonical_str)?;
+                    // D-200: registering the path of a hidden project brings it back rather than
+                    // leaving it hidden or minting a duplicate.
+                    set_hidden(&tx, &id, false, actor_id, &now)?;
                     (id, existing.project_key.clone())
                 }
                 None => {
@@ -461,6 +467,71 @@ pub fn reconcile_projects(conn: &mut Connection, actor_id: &str) -> anyhow::Resu
     }
 
     Ok(())
+}
+
+/// The one statement that writes `projects.hidden` (D-200): flips the flag and appends its event in
+/// the caller's transaction. Returns whether anything changed — a project already in the requested
+/// state is skipped, so hiding twice appends no second event. Errors on an unknown project id.
+fn set_hidden(
+    tx: &Transaction,
+    project_id: &str,
+    hidden: bool,
+    actor_id: &str,
+    now: &str,
+) -> anyhow::Result<bool> {
+    let (name, current): (String, i64) = tx
+        .query_row(
+            "SELECT name, hidden FROM projects WHERE id = ?1",
+            params![project_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("project {project_id:?} not found"))?;
+    if (current != 0) == hidden {
+        return Ok(false);
+    }
+    tx.execute(
+        "UPDATE projects SET hidden = ?1 WHERE id = ?2",
+        params![hidden as i64, project_id],
+    )
+    .context("failed to update project hidden flag")?;
+    let sequence = next_sequence(tx, project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "hidden",
+        "before": !hidden,
+        "after": hidden,
+        "label": if hidden { format!("Removed {name} from Flywheel") } else { format!("Restored {name}") },
+    });
+    append_event(
+        tx,
+        project_id,
+        "local",
+        sequence,
+        "project",
+        project_id,
+        None,
+        None,
+        actor_id,
+        if hidden { "project.hidden" } else { "project.restored" },
+        &payload,
+        now,
+    )?;
+    Ok(true)
+}
+
+/// Hide a project from every listing (D-200) — a reversible removal, never a delete: its board,
+/// worktrees, runs and events all stay in SQLite. Idempotent; errors on an unknown project id.
+pub fn hide_project(conn: &mut Connection, actor_id: &str, project_id: &str) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    set_hidden(&tx, project_id, true, actor_id, &Utc::now().to_rfc3339())?;
+    tx.commit().context("failed to commit hide_project transaction")
+}
+
+/// Undo [`hide_project`]: the project reappears with the same id, prefix, name and repo path.
+/// Idempotent; errors on an unknown project id.
+pub fn restore_project(conn: &mut Connection, actor_id: &str, project_id: &str) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    set_hidden(&tx, project_id, false, actor_id, &Utc::now().to_rfc3339())?;
+    tx.commit().context("failed to commit restore_project transaction")
 }
 
 /// Explicitly relocate a project to `new_repo_path` — the ONLY recovery action offered for an
