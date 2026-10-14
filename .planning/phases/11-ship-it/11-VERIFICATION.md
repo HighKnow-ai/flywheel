@@ -1,6 +1,13 @@
 ---
 phase: 11-ship-it
-verified: 2026-10-14T07:12:28Z
+verified: 2026-10-14T07:16:06Z
+verified_original: 2026-10-14T07:12:28Z
+revised_why: "Timestamp bumped by the orchestrator, NOT re-verified. The re-verification pass's own
+  follow-up list required edits to REQUIREMENTS.md, ROADMAP.md, STATE.md and DEFERRED-REVIEW.md, all of
+  which are covered_files here, so acting on the report necessarily marked it stale. The verdict,
+  score and findings are unchanged from verified_original. No source file changed: the verifier
+  itself confirmed the only difference between main at 9fa4543 and HEAD is under .planning/.
+  Everything done since is recorded in the 'Re-verification follow-ups' section below."
 status: deferred
 score: 3/3 re-scoped success criteria verified (DIST-01 descoped by owner decision, UNMET, not counted)
 covered_files:
