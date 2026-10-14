@@ -56,8 +56,13 @@ Stated plainly, because the phase must not imply otherwise:
 - **DIST-01 criterion 1 is NOT met.** "A `.dmg` downloaded from the release is signed with a
   Developer ID Application certificate and notarized, and opening the installed application raises
   no Gatekeeper warning" is false. The `.dmg` is unsigned and un-notarized.
-- A first-time user double-clicking the downloaded app **will** see a Gatekeeper warning and must
-  use the right-click-Open workaround. Plan 11-08 must document that rather than pretend otherwise.
+- A first-time user double-clicking the downloaded app **cannot open it at all**. CORRECTED
+  2026-10-14 by plan 11-21, which reproduced it on a quarantined copy: macOS shows "damaged and
+  can't be opened" with only *Move to Trash* and *Cancel*. **There is no Open button, so the
+  right-click-Open workaround this SUMMARY originally claimed does NOT exist on this macOS.** The
+  bundle is ad-hoc/linker-signed with no sealed resources, which produces the "damaged" dialog
+  rather than the softer "unidentified developer" prompt. Only `xattr -cr` gets past it; the README
+  documents that, and `v0.1.0` is marked Pre-release. See D-REV-62.
 - Task 2 (signing and notarization env in `release.yml`) and Task 3 (the Gatekeeper verification
   script run against the downloaded artifact) were **not written**. There is no
   `scripts/release/verify-gatekeeper.sh`.

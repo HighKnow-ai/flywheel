@@ -6,7 +6,7 @@ decision: "Owner, 2026-10-07: remove every user review until MVP completion; del
 redeem_at: "Redeemed 2026-10-14 in Phase 11 plan 11-21 (was: Phase 11 (Ship It) - one batch pass against a usable, installed build)."
 redeemed_by: "Phase 11 plan 11-21. Collation: .planning/phases/11-ship-it/11-OWNER-PASS.md. Survivors filed to the board by file_board_items (D-196, D-207)."
 items: 67
-dispositions: "closed-automated 17, closed-by-decision 9, accepted-by-design 2, owner-question 22 (unanswered), filed-to-board 17; 17+9+2+22+17 = 67"
+dispositions: "closed-automated 17, closed-by-decision 9, accepted-by-design 2, owner-question 22 (unanswered), filed-to-board 16, closed 1 (D-REV-67, resolved after the redemption pass), open 1 (D-REV-68, filed after it); 17+9+2+22+16+1+1 = 68. Corrected 2026-10-14 by the orchestrator: the earlier line read 'filed-to-board 17' and totalled 67, counting D-REV-67 as filed when the body records it closed, and predating D-REV-68."
 ---
 
 # Deferred Review Register
@@ -1648,3 +1648,40 @@ At Phase 11, with an installed, usable build:
 #
 # Plan 11-21 (2026-10-14) allocated D-REV-67 (the updater endpoint). The highest id is now D-REV-67 and
 # every id is unique. A later plan allocates from D-REV-68 onward.
+
+- id: D-REV-68
+  phase: "11 — Ship It (found by the phase verifier, 2026-10-14)"
+  truth: "The intermittent `cargo test --workspace` failure on the GitHub runner is a real data race on a process-global environment variable, not a flake. `packages/core/tests/worktree_lifecycle.rs` sets and removes `FLYWHEEL_WORKTREE_ROOT` from more than one test in the same binary, guarded by a SAFETY comment at line 18 asserting that \"tests in this crate run single-threaded per binary\" - an invariant nothing in the repository enforces."
+  status: open
+  why_deferred: |
+    Not deferred for lack of time - MISDIAGNOSED for the whole of Phase 11, by every plan and by the
+    orchestrator. It was recorded as "the known flake, re-run and it passes" in plans 11-04, 11-05,
+    11-08, 11-10, 11-16, 11-19, 11-20 and in every dispatch prompt the orchestrator wrote, and the
+    standing remedy was to re-run the job. The phase verifier was the first to read the test rather
+    than the failure rate.
+    `cargo test` runs the tests WITHIN one binary on multiple threads by default. There is no
+    `serial_test` dependency, no `#[serial]` attribute, no static mutex, and no `--test-threads=1`
+    in any Cargo config. So two tests can set and remove the same process-global variable
+    concurrently, and the loser sees an unset or foreign worktree root. It passes locally (5 of 5
+    observed) and fails on the GitHub runner because the timing differs, which is exactly the
+    signature of a race rather than a flake.
+    Observed failing on `22c9dcc` three times in a row (CI push, Open core push, Open core on the
+    pull request), always at `worktree_lifecycle.rs:100`. Earlier in the phase the same family hit
+    `forge_degrade` and `authoring_lifecycle`, which suggests the pattern is not confined to one file.
+  risk_if_wrong: |
+    Moderate and compounding. Today it costs a re-run per release. The real damage is epistemic: a
+    test suite with an accepted "just re-run it" failure trains everyone, human and agent, to
+    dismiss red CI, which is how a genuine regression ships unnoticed. Plan 11-08 already hit this
+    once in the other direction - a DETERMINISTIC failure (the missing `epic_context_packet`
+    allowlist entry) was nearly waved through as the known flake, and was only caught because it
+    failed every time rather than sometimes.
+  automatable: |
+    YES, and cheaply. Three options, in increasing order of soundness:
+    (1) add `serial_test` and mark every test that touches `FLYWHEEL_WORKTREE_ROOT` with
+        `#[serial]` - smallest diff, fixes the named binary;
+    (2) sweep for every test that mutates a process-global env var and serialise all of them -
+        `forge_degrade` and `authoring_lifecycle` suggest the pattern is wider;
+    (3) best: stop using a process-global for the worktree root in tests and thread it through
+        explicitly, removing the shared mutable state rather than locking around it.
+    Verify by running the binary with `--test-threads=8` repeatedly; it should fail today and stop
+    failing after the fix. Delete the false SAFETY comment either way.
