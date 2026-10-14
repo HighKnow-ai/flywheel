@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 13
 current_phase_name: Nothing New Escapes The Fence
 status: executing
-stopped_at: Completed 13-04-PLAN.md
-last_updated: "2026-10-14T15:19:34.448Z"
+stopped_at: Completed 13-05-PLAN.md
+last_updated: "2026-10-14T15:43:42.012Z"
 last_activity: 2026-10-14
 last_activity_desc: Phase 13 execution started
-state_head: c55da5fbda86d3bb6532c30522671945089cafa6
+state_head: 895a18970e42ce364526f65a54ba99480f187d8c
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 4
+  completed_plans: 5
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 13 (Nothing New Escapes The Fence) — EXECUTING
-Plan: 5 of 11
+Plan: 6 of 11
 Status: Ready to execute
 Last activity: 2026-10-14 — Phase 13 execution started
 
@@ -315,6 +315,7 @@ Last activity: 2026-10-14 — Phase 13 execution started
 | Phase 13 P02 | 45 min | 3 tasks | 9 files |
 | Phase 13 P03 | 1h 5m | 4 tasks | 43 files |
 | Phase 13 P04 | 15min | 3 tasks | 7 files |
+| Phase 13 P05 | 22 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -728,6 +729,7 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-03: estimate dropped from tasks and epics by table rebuild (D-14, owner confirmed 2026-10-14); rebuild keeps rowids and re-creates FTS5 sync triggers
 - [Phase 13]: 13-03: estimate_absent gate matches identifier words with named exclusions (estimateSize, volume fixture tokens, fleet spend copy)
 - [Phase 13]: 13-04: a database ahead of the build is refused with both schema versions and the recovery action named; reversibility is backup-and-restore, never a down-migration — rusqlite_migration's bare 'migration number too high' message names nothing actionable; the restore-on-failure path is unchanged
+- [Phase 13]: 13-05: table classification is a const list checked against sqlite_master (no catch-all class); spine DDL pinned post-0023; no-promotion Gate 1 patterns derived from canonical_tables()
 
 ### Pending Todos
 
@@ -791,6 +793,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-14T15:19:29.801Z
-Stopped at: Completed 13-04-PLAN.md
+Last session: 2026-10-14T15:43:41.993Z
+Stopped at: Completed 13-05-PLAN.md
 Resume file: None
