@@ -94,7 +94,7 @@ fn parse_resolved_git_line(stdout: &str) -> Option<String> {
 /// (`git_retry.rs`'s own comment: 200+400+800+1600=3000ms before jitter), padded generously for
 /// process-spawn/IO overhead across ten concurrently-retrying children — DERIVED from
 /// `RETRY_MAX_ATTEMPTS`/`RETRY_BASE_MS` rather than a literal, so a later change to the retry curve
-/// changes this deadline with it instead of silently making this test flaky.
+/// changes this timeout with it instead of silently making this test flaky.
 fn stress_deadline() -> Duration {
     let base_curve_ms: u64 = (1..RETRY_MAX_ATTEMPTS)
         .map(|failed_attempt| RETRY_BASE_MS.saturating_mul(1u64 << (failed_attempt - 1)))
@@ -202,7 +202,7 @@ fn ten_concurrent_commits_into_one_repository_keep_every_commit_and_every_worktr
             children.push((i, branch.clone(), child));
         }
 
-        // Wait on all ten with a shared, derived deadline — one watcher thread per child feeding
+        // Wait on all ten with a shared, derived timeout — one watcher thread per child feeding
         // one channel, so a hung child fails this test loudly rather than hanging the suite
         // (T-03-08-04).
         let (tx, rx) = mpsc::channel();
@@ -215,13 +215,13 @@ fn ten_concurrent_commits_into_one_repository_keep_every_commit_and_every_worktr
         }
         drop(tx);
 
-        let deadline = stress_deadline();
-        let deadline_instant = started + deadline;
+        let timeout_at = stress_deadline();
+        let deadline_instant = started + timeout_at;
         let mut summaries: Vec<(usize, String, ChildSummary)> = Vec::with_capacity(WORKTREE_COUNT);
         for _ in 0..WORKTREE_COUNT {
             let remaining = deadline_instant.saturating_duration_since(Instant::now());
             let (i, branch, wait_result) = rx.recv_timeout(remaining).unwrap_or_else(|_| {
-                panic!("timed out waiting for a child to finish within the derived deadline {deadline:?}")
+                panic!("timed out waiting for a child to finish within the derived timeout_at {timeout_at:?}")
             });
             let output = wait_result.unwrap_or_else(|e| panic!("failed to wait for child {i} ({branch}): {e}"));
             let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -254,7 +254,7 @@ fn ten_concurrent_commits_into_one_repository_keep_every_commit_and_every_worktr
         }
 
         let elapsed = started.elapsed();
-        println!("STRESS_ELAPSED={elapsed:?} (deadline {deadline:?})");
+        println!("STRESS_ELAPSED={elapsed:?} (timeout_at {timeout_at:?})");
 
         // Assertion 2: each branch's tip commit message equals THAT CHILD's own marker — reading
         // the tip, never counting commits, since counting would pass even if two children raced
@@ -325,8 +325,8 @@ fn companion_no_shim_ten_concurrent_commits_is_evidence_only_and_never_a_gate() 
         }
         drop(tx);
 
-        let deadline = stress_deadline();
-        let deadline_instant = started + deadline;
+        let timeout_at = stress_deadline();
+        let deadline_instant = started + timeout_at;
         let mut landed = 0usize;
         for _ in 0..WORKTREE_COUNT {
             let remaining = deadline_instant.saturating_duration_since(Instant::now());

@@ -1,11 +1,11 @@
 //! `output_with_timeout` must report what the child actually did. A child that exits at the
-//! deadline is reported with its real status and output, never as a fabricated timeout; a child
+//! timeout is reported with its real status and output, never as a fabricated timeout; a child
 //! that never exits is still killed and reported as one. Real child processes, short explicit
 //! timeouts (the production ceilings are 30s and 120s).
 //!
 //! Honest limit: the window the fix closes is the gap between one exit check and the next clock
 //! read, a few instructions wide. No test can force the old ordering to lose that race on demand,
-//! so these pin the three outcomes and run the near-deadline case repeatedly to make a regression
+//! so these pin the three outcomes and run the near-timeout case repeatedly to make a regression
 //! likely to surface; they are not a deterministic reproducer.
 
 use core::proc::output_with_timeout;
@@ -20,14 +20,14 @@ fn sh(script: &str) -> Command {
 
 #[test]
 fn a_child_exiting_zero_just_before_its_deadline_reports_success_and_its_stdout() {
-    // A short sleep against a generous deadline: the exit-before-deadline path without a margin
+    // A short sleep against a generous timeout: the exit-before-timeout path without a margin
     // that fork+exec and scheduler jitter on a loaded runner can eat (WR-10). Repeated anyway.
     for _ in 0..10 {
         let out = output_with_timeout(
             &mut sh("sleep 0.05; printf done"),
             None,
             Duration::from_millis(1000),
-            "near-deadline success",
+            "near-timeout success",
         )
         .expect("a child that exits before the ceiling is not a timeout");
         assert_eq!(out.status.code(), Some(0));
@@ -42,7 +42,7 @@ fn a_child_exiting_non_zero_just_before_its_deadline_reports_that_status() {
             &mut sh("sleep 0.05; exit 7"),
             None,
             Duration::from_millis(1000),
-            "near-deadline failure",
+            "near-timeout failure",
         )
         .expect("a non-zero exit is an outcome, not a timeout");
         assert_eq!(out.status.code(), Some(7));

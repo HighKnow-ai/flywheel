@@ -400,8 +400,8 @@ fn install_fails_loudly_when_the_hook_file_is_removed_before_verification() {
         let watcher = std::thread::spawn({
             let hook_path = hook_path.clone();
             move || {
-                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-                while std::time::Instant::now() < deadline {
+                let timeout_at = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                while std::time::Instant::now() < timeout_at {
                     if hook_path.is_file() {
                         let _ = std::fs::remove_file(&hook_path);
                         return true;

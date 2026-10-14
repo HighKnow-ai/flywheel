@@ -304,7 +304,7 @@ const UNRELATED_PAIRS: &[Case] = &[
         canonical_title: "Add a Slack integration for board notifications",
         canonical_body: Some("Notify a Slack channel whenever a task moves to done."),
         query_title: "Add a Microsoft Teams integration for reminders",
-        query_body: Some("Send a reminder when a task is overdue, a different chat platform and a different trigger entirely."),
+        query_body: Some("Send a reminder when a task has been waiting too long, a different chat platform and a different trigger entirely."),
     },
     Case {
         label: "proposal: printable board view is not the CSV import proposal",

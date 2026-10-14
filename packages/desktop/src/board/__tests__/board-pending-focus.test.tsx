@@ -152,7 +152,7 @@ describe("pendingFocusItemId", () => {
     expect(useUiStore.getState().pendingFocusItemId).toBe("gone");
   });
 
-  it("is bounded: a request that a settled window never satisfies is dropped after the deadline", async () => {
+  it("is bounded: a request that a settled window never satisfies is dropped after the timeout", async () => {
     vi.useFakeTimers();
     // In the window but not in any row: a filter hides it from the band it belongs to.
     useUiStore.getState().setPendingFocusItemId("2");
