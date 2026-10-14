@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 13
 current_phase_name: Nothing New Escapes The Fence
 status: executing
-stopped_at: Completed 13-01-PLAN.md
-last_updated: "2026-10-14T10:09:50.111Z"
+stopped_at: Completed 13-02-PLAN.md
+last_updated: "2026-10-14T13:00:41.687Z"
 last_activity: 2026-10-14
 last_activity_desc: Phase 13 execution started
-state_head: 1cb11d9ab7bf5961e4591ce2ebbcbf234e4b98b8
+state_head: 9e66df55eda5b2993f5bfd8a3a881b65b32f140b
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 0
+  completed_plans: 2
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 13 (Nothing New Escapes The Fence) — EXECUTING
-Plan: 2 of 11
+Plan: 3 of 11
 Status: Ready to execute
 Last activity: 2026-10-14 — Phase 13 execution started
 
@@ -312,6 +312,7 @@ Last activity: 2026-10-14 — Phase 13 execution started
 | Phase 11 P20 | 15 min | 2 tasks | 9 files |
 | Phase 11 P21 | 75 min | 3 tasks | 15 files |
 | Phase 13 P01 | 20 min | 2 tasks | 6 files |
+| Phase 13 P02 | 45 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -720,6 +721,8 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-20: system appearance switched via System Events, not defaults write; installed app paints the dark/light token ground (D-REV-22 closed)
 - [Phase 11]: D-201 to D-207 (owner pass 2026-10-14): PLAN-04 narrowed to file-writing tools; SC3 wording ruled; brand rule allows the developer's turn; five layout calls filed as decisions; xattr workaround documented; banner dismissal stays per session; survivors filed by script capped at schema 21
 - [Phase 13]: PM-vocabulary gate (FNC-04) matches whole words case-insensitively, skips its own file, exactly two idiom exclusions scoped to the hit word — Planned whole-word rule; self-skip needed because corpus literals live in tests/
+- [Phase 13]: 13-02: LIMIT bound as ?2 = compaction::SUMMARY_WINDOW (25), not interpolated; window declared once — keeps every SQL a literal bound through params!
+- [Phase 13]: 13-02: detector change (decision_ids_on_record) lands in the same commit as the SUMMARIES_SQL LIMIT — D-05 costly: LIMIT alone would fabricate FabricatedDecisionEcho
 
 ### Pending Todos
 
@@ -783,6 +786,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-14T10:09:50.094Z
-Stopped at: Completed 13-01-PLAN.md
+Last session: 2026-10-14T13:00:41.669Z
+Stopped at: Completed 13-02-PLAN.md
 Resume file: None
