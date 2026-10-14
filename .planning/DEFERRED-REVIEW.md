@@ -1,9 +1,12 @@
 ---
-status: accumulating
+status: redeemed
 opened: 2026-10-07
-reviewed_at: null
+reviewed_at: 2026-10-14
 decision: "Owner, 2026-10-07: remove every user review until MVP completion; delay all of it to the end, when there is a usable product to review."
-redeem_at: "Phase 11 (Ship It) — one batch pass against a usable, installed build. See ROADMAP.md Phase 11."
+redeem_at: "Redeemed 2026-10-14 in Phase 11 plan 11-21 (was: Phase 11 (Ship It) - one batch pass against a usable, installed build)."
+redeemed_by: "Phase 11 plan 11-21. Collation: .planning/phases/11-ship-it/11-OWNER-PASS.md. Survivors filed to the board by file_board_items (D-196, D-207)."
+items: 67
+dispositions: "closed-automated 17, closed-by-decision 9, accepted-by-design 2, owner-question 22 (unanswered), filed-to-board 17; 17+9+2+22+17 = 67"
 ---
 
 # Deferred Review Register
@@ -15,6 +18,19 @@ only point at which most of these questions have a meaningful answer anyway.
 
 The rule that produces this file is in `.claude/CLAUDE.md` § "Human verification
 is deferred until MVP". Read that before adding to or redeeming this register.
+
+## This register is a closed record (2026-10-14)
+
+Plan 11-21 redeemed it. Every item below keeps what was asked and now also carries `status`
+(its final disposition), `redeemed` (the evidence or the reason, inline), `board_items` (the
+keys of the items filed on Flywheel's own board, where there are any) and, for an unanswered
+question, `owner_answer`. The text each item had before is kept as `prior_status` and in its
+original fields, so nothing that was asked is lost.
+
+The dispositions are `closed-automated`, `closed-by-decision`, `accepted-by-design`,
+`owner-question` and `filed-to-board`. **22 items are `owner-question` and UNANSWERED.** They
+are not passed. Each needs a person for a physical reason and is a question issue on the board.
+The register stopped being the holding pen on 2026-10-14 (D-196); the board is now.
 
 ## How an item gets here
 
@@ -31,12 +47,14 @@ context to be answerable months later by someone who was not in the room:
   recorded as "needs a human" and then stopped being questioned. On 2026-10-07
   three of Phase 08's four "human" items turned out to be automatable.
 
-## Open items
+## Items (final dispositions, 2026-10-14)
 
 - id: D-REV-01
   phase: "03 — Nothing Lost, Nothing Left Running"
   truth: "A destructive action in an auto-accept session raises a pending permission request and blocks the session until a human answers (SC5, AGNT-07)."
-  status: closed (2026-10-13, plan 11-18, D-197)
+  status: closed-by-decision (2026-10-14, plan 11-21)
+  prior_status: closed (2026-10-13, plan 11-18, D-197)
+  redeemed: "D-197: the requirement was the wrong side. AGNT-07 now reads \"refused before it reaches the remote, and the user is told\" (REQUIREMENTS.md line 77). The behaviour itself is measured by `scripts/uat/uat-03-destructive-gate.mjs`."
   why_deferred: |
     Already measured, twice, against claude 2.1.267 by
     scripts/uat/uat-03-destructive-gate.mjs. Safety HOLDS — the remote ref is
@@ -58,7 +76,9 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-02
   phase: "08 — Review And Merge Inside Flywheel"
   truth: "A keyboard route exists out of a conflicting merge to 'Start a session to resolve', 'Open in editor' and Close (WR-05)."
-  status: unreachable
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: unreachable
+  redeemed: "`merge-sheet.test.tsx` \"moves focus onto a conflict exit when the result renders\"; WebKit: `keyboard.browser.test.tsx` \"lands focus on a conflict exit when the result renders\". Not observed anywhere: a literal Tab press (WKWebView does not Tab to buttons; plan 11-12 deviation 2)."
   why_deferred: |
     No conflicting merge exists on the board to exit from.
     `git merge-tree --write-tree` across all five worktree tasks returned clean
@@ -90,7 +110,9 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-03
   phase: "08 — Review And Merge Inside Flywheel"
   truth: "An epic request whose draft moved is refused with the bare string `draftChanged` BEFORE any push or forge call (WR-04)."
-  status: unproven
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: unproven
+  redeemed: "`packages/core/tests/forge_epic_request_ordering.rs`: `a_moved_draft_is_refused_as_draft_changed_before_any_forge_call_or_push` (no stub log, nothing on the remote) with the positive control `a_matching_draft_pushes_first_then_calls_the_forge_and_the_stub_leaves_a_trace`."
   why_deferred: |
     The owner observed "I think it works" on 2026-10-07, which is weaker
     evidence than this item needs and is recorded as such. The comparison lives
@@ -106,7 +128,10 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-04
   phase: "08 — Review And Merge Inside Flywheel"
   truth: "User checks off each of a task's acceptance criteria against the diff while reviewing it (Phase 08 success criterion 2)."
-  status: closed (data vacuum only — 2026-10-07, plan 08.1-03)
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: closed (data vacuum only — 2026-10-07, plan 08.1-03)
+  redeemed: "Only the data vacuum closed (plan 08.1-03). Measured on a copy of the live board (11-19-SUMMARY): 15 criteria on 5 tasks; 902 tasks and all 13 epics carry none. No test can change that; real criteria on real work can. Board item THRE-1119."
+  board_items: "THRE-1119"
   why_deferred: |
     NOT a code defect — a data vacuum. The entire database holds TWO
     acceptance_criteria rows, both on tasks, and neither is on any of the five
@@ -164,7 +189,11 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-05
   phase: "08 — Review And Merge Inside Flywheel"
   truth: "The diff's added/removed tints and the word-level edit mark read correctly at a glance, do not fight the token colours, and feel like the product's one palette rather than a second theme (08-01 and 08-13 human-check blocks)."
-  status: unasked
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: unasked
+  redeemed: "Physical reason: human aesthetic judgement. Three questions only; the light/dark half of the old question is void (one palette ships). UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1138."
+  board_items: "THRE-1138"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Harvested from the `<verify><human-check>` blocks of 08-01 and 08-13 at
     verification time; never asked, because human verification is suspended.
@@ -189,7 +218,9 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-06
   phase: "08 — Review And Merge Inside Flywheel"
   truth: "A gutter-SELECTED diff row keeps every code-bearing syntax role above 4.5:1 (the unmeasured residue of G-08-1)."
-  status: unmeasured
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: unmeasured
+  redeemed: "`legibility.browser.test.tsx` (review): gutter-clicks a delete and an insert row and runs the AA loop, minimum painted contrast 14.71:1 (plan 11-13). The 4.02 case is unreachable: no `diff` grammar is registered."
   why_deferred: |
     Carried as "Info only" by the 08-VERIFICATION of 2026-10-07 and never
     turned into a test. A selected row stacks a 14% blue selection layer over
@@ -206,7 +237,11 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-07
   phase: "08 — Review And Merge Inside Flywheel"
   truth: "The criteria rail stays usable while reading a long diff: checking a criterion off does not lose scroll position, and toggling to epic scope keeps the rail readable (08-08 human-check block)."
-  status: partly-blocked
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: partly-blocked
+  redeemed: "Asserted: `ergonomics.browser.test.tsx` (two tests, scrollTop unchanged) and the 900px rail measure (plan 11-13). Physical reason for the rest: ergonomic judgement. Asked with its threshold. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1139."
+  board_items: "THRE-1139"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Harvested from 08-08's `<verify><human-check>` block. It is two questions
     welded together, with different answers:
@@ -223,7 +258,11 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-08
   phase: "08 — Review And Merge Inside Flywheel"
   truth: "The epic task-criteria roll-up scans as one list beside a long diff, without crowding the epic's own criteria above it (08-09 human-check block)."
-  status: unreachable
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: unreachable
+  redeemed: "Structure asserted: `ergonomics.browser.test.tsx` \"UAT 2 — the epic roll-up beneath the epic's own criteria\" (rows equal the data, the epic's own criteria sit above it). Physical reason: aesthetic judgement of how it reads. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1140."
+  board_items: "THRE-1140"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Harvested from 08-09's `<verify><human-check>` block, which asks to open
     "an epic with three or more tasks at review width" and read the roll-up.
@@ -240,7 +279,11 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-09
   phase: "08.1 — Visual Polish (plan 09)"
   truth: "On the installed app, a selected row with list focus (full-ink 2px rule) and one that has lost focus (lighter 2px rule) read as different at a glance, and the `Dot` uncommitted-changes glyph is legible at 12px beside a status glyph."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Ratios and painted colours closed by `contrast.test.ts`, `selection-rule.test.tsx` and `legibility.browser.test.tsx`. Physical reason for the rest: perceptual judgement of one 12px glyph. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1141."
+  board_items: "THRE-1141"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Plan 09 specified the focus clause (A-06(b)) and changed the change-cue glyphs (A-05);
     plan 14 builds the rule. The two selected surfaces measure 1.011 / 1.014 apart, so the
@@ -255,7 +298,11 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-10
   phase: "08.1 — Visual Polish (plan 12)"
   truth: "On the installed app, an expanded epic with an agent's challenge reads as the challenge first and the tasks after, the 48px row is legible (type label, title, Accept, Reject, and an error when a decision fails), and accepting one makes the task appear and the epic's total move."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Layout closed in WebKit (`board-group.browser.test.tsx`, long title at 716px, error beside the buttons); the accept path is `packages/core/tests/authoring_acceptance.rs` (`accept_proposal` against real SQLite). Physical reason for the rest: aesthetic judgement. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1142."
+  board_items: "THRE-1142"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Plan 12 built the challenge row and its accept and reject, and proved order, height, the
     single rack, the existing mutation call, the board:changed refresh and the failed-accept
@@ -270,7 +317,9 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-32
   phase: "09 — Planned Fan-Out (plan 05, AGNT-05)"
   truth: "A real hard rate limit from the backend presents on the wire as a top-level `rate_limit_info.status` of `rejected` and/or an assistant message whose error is `rate_limit`, and pauses new dispatch."
-  status: open
+  status: accepted-by-design (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "The live half would mean provoking a hard limit, \"the abuse this requirement exists to avoid\". A real rejection from Claude Code's own transcripts is frozen as `packages/sidecar/test/fixtures/rate-limit-rejected.json` and classified by `rate-limit-wire.test.mjs`. The `rate_limit_event` shape stays `documented`, not observed."
   why_deferred: |
     Physical: a hard limit cannot be produced on demand, and none has ever been observed live in this
     project. The only real captures are an `allowed` event (carrying an overage status of `rejected`,
@@ -285,7 +334,11 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-33
   phase: "09 — Planned Fan-Out (plan 06, PLAN-05)"
   truth: "The scope-denied feed row (one line, with its widen action) and the per-task scope-refusal badge read well in the installed WKWebView: the row stays legible with a long refusal message, and a count of 20 is visibly different from none."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Layout closed in WebKit (`session-group.browser.test.tsx`, a 300-character path). Physical reason: aesthetic judgement of \"noticeable at a glance\". UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1146."
+  board_items: "THRE-1146"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Physical: human aesthetic judgement on a real window. The tests assert the row kind, the refused path,
     the single-flight action, the refusal text, the badge's presence, value, accessible name and call
@@ -299,7 +352,11 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-34
   phase: "09 — Planned Fan-Out (plan 07, PLAN-03, PLAN-06)"
   truth: "In the installed app, one approved plan drives real `claude` sessions end to end: the tick spawns up to the cap through the real sidecar, the agent commits as its briefing tells it to, the automatic merge lands, and wave two starts from a base containing wave one."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Wiring closed: `scripts/uat/uat-13-fan-out-live.mjs` (real sidecar, real dispatcher tick, real git; only the model faked; mutation-checked). Physical reason for the rest: a real login and a real model's obedience to the commit instruction. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1147."
+  board_items: "THRE-1147"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Physical: it needs a live `claude` login and the packaged sidecar, neither of which a test can stand in
     for. Everything the dispatcher decides and does is asserted against real git repositories
@@ -314,7 +371,11 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-35
   phase: "09 — Planned Fan-Out (plan 08, PLAN-01, D-147)"
   truth: "A real `claude` session started by `dispatch_plan_generate` completes headlessly, in the epic integration worktree, without stalling on a permission prompt: it reads the repository, calls `submit_plan`, a refused call is corrected in the same conversation, and it exits leaving the worktree clean."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Pre-approval closed against claude 2.1.287 by `real-claude-argv.test.mjs`. Physical reason for the rest: a real login and a real model following the prompt. Not run here: a planning run writes an epic integration branch into the owner's repository. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1148."
+  board_items: "THRE-1133, THRE-1148"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Physical: it needs a live `claude` login and the packaged sidecar. 09-RESEARCH flagged a read-only headless run as
     supported but not conclusive, and this is the first time the project launches one. What IS proven: the held
@@ -331,7 +392,11 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-36
   phase: "09 — Planned Fan-Out (plan 09, PLAN-07, D-149, D-157, D-161, D-162)"
   truth: "In the installed app, the wave plan sheet, the epic row's dispatch cell and the gate line read well and can be used end to end: Plan fan-out, a window with 'Planning in progress', the draft appearing, editing a path and a wave, Approve and start, Pause/Resume/Stop, and a paused or warning gate showing its reason and action."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Containment closed (`dispatch-layout.browser.test.tsx`). Click path now driven through the INSTALLED app (section 2.5): draft plan, edit a path, move a task to wave 2, Stop with confirmation. Physical reason for the rest: aesthetic judgement, and Approve or Resume would start real runs in the owner's repository. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1149."
+  board_items: "THRE-1130, THRE-1149"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Physical: there is no WebDriver for WKWebView, and the layout and wording are a human aesthetic judgement.
     What IS proven: every component's behaviour in jsdom against fixture DTOs (including the single-call and
@@ -355,7 +420,9 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-61
   phase: "11 - Ship It (plan 06, DIST-02, D-187, D-188)"
   truth: "In an installed build older than the latest release, the update banner appears over the running application, naming the new version and its notes; accepting it stages the update; a relaunch runs the new version; and with an agent running the banner names the count and installs nothing."
-  status: open
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Observed on the installed 0.1.0 in this plan (section 2.2 and 2.3): banner naming 0.1.1 with the release's commit subject; accept staged \"Flywheel 0.1.1 is installed. Relaunch to use it.\"; relaunch's About panel reads `Version 0.1.1 (0.1.1)`; with 2 live runs the banner reads \"2 agents running. The update waits until they finish.\" and Install is disabled. Dismissal lasts the session only: filed as D-REV-66, and the owner chose to keep it (D-206). Since 2026-10-14 the updater URL answers 404 while both releases are Pre-release: D-REV-67."
   why_deferred: |
     Physical: it needs two installed builds of different versions, a published newer release, and a real
     relaunch. What IS proven: the banner, its dismissal, the live-run count and the failed-install case in
@@ -395,7 +462,9 @@ context to be answerable months later by someone who was not in the room:
 - id: D-REV-62
   phase: "11 - Ship It (plan 08, DIST-01 criterion 1)"
   truth: "What a first-time user actually sees when they open the unsigned v0.1.0 from Finder after downloading it in a browser, and whether the documented workaround gets them in. The bundle is ad-hoc linker-signed only (Signature=adhoc, TeamIdentifier not set), `codesign --verify --deep --strict` and `spctl --assess` both fail with 'code has no resources but signature indicates they must be present', and no ticket is stapled."
-  status: open
+  status: closed-by-decision (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "D-205 (owner, 2026-10-14): the `xattr -cr /Applications/Flywheel.app` workaround is documented in README.md § Installing a release and appended to the release pages of `v0.1.0` and `v0.1.1`; `.github/release-install-note.md` is added by the release workflow to every later release. The dialog was reproduced on a quarantined copy (§ 2.1, `11-21-gatekeeper-dialog.png`): \"damaged\", with only Move to Trash and Cancel, so the register's old right-click-Open line was wrong and is corrected here. This is a workaround and not a signed build: DIST-01 criterion 1 stays UNMET."
   why_deferred: |
     Physical. The Gatekeeper dialog is drawn by the OS for a quarantined launch through LaunchServices; the
     quarantine attribute is set by a browser; the dialog needs a click and possibly an administrator password
@@ -437,10 +506,15 @@ At Phase 11, with an installed, usable build:
 4. Items whose `status` is `contradicted-by-measurement` or needs a decision are
    owner questions, not tests — group them separately and ask them as decisions.
 
+**Redeemed 2026-10-14 by plan 11-21** (collation and the owner's answers: `.planning/phases/11-ship-it/11-OWNER-PASS.md`).
+
 - id: D-REV-11
   phase: "08.1 — Visual Polish (plan 14)"
   truth: "The shipped impeccable-finish-reviewer, run once against the approved comp and 08.1-UI-SPEC.md for surface group one (board and rail), raises nothing material that is not fixed or recorded."
-  status: "drained 2026-10-13 (plan 11-17): the reviewer ran again over regenerated captures and returned disposition fix, 8 findings, each fixed, rejected or recorded (11-FINISH-REVIEW.md, rows one-1 to one-8). It did not return ship, and the fixed group has had no third pass."
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: "drained 2026-10-13 (plan 11-17): the reviewer ran again over regenerated captures and returned disposition fix, 8 findings, each fixed, rejected or recorded (11-FINISH-REVIEW.md, rows one-1 to one-8). It did not return ship, and the fixed group has had no third pass."
+  redeemed: "Ran twice; second run `fix`, 8 findings: 1 fixed, 1 rejected, 6 recorded (11-FINISH-REVIEW.md rows one-1 to one-8). Residue filed: THRE-1082 to THRE-1086."
+  board_items: "THRE-1082, THRE-1083, THRE-1084, THRE-1085, THRE-1086"
   update_08.1-14-closure: |
     The gate RAN. The independent reviewer returned `disposition: fix` with 8 material findings
     against the board group as built (the component capture, not the app shell). The closure pass
@@ -466,7 +540,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-12
   phase: "08.1 — Visual Polish (plan 14 finish review)"
   truth: "The board group, mounted inside the real app shell (App.tsx and BoardView, not a test page of components), matches the approved comp: the masthead, the threadfin / epics / tasks subhead, the Group by Epic / Status lens toggle, the summary line, and the filter bar in its real place above the rack."
-  status: "drained 2026-10-13 (plan 11-17): the board was captured mounted in the real shell and reviewed against the comp. It does NOT match. Findings app-shell-1 to 7 in 11-FINISH-REVIEW.md."
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: "drained 2026-10-13 (plan 11-17): the board was captured mounted in the real shell and reviewed against the comp. It does NOT match. Findings app-shell-1 to 7 in 11-FINISH-REVIEW.md."
+  redeemed: "Captured mounted in `<App />` and reviewed: it does not match (rows app-shell-1 to 7). Re-observed on the installed build in this plan: the board has no masthead (`11-21-board-light.png`, `11-21-board-dark.png`). Decisions THRE-1114, THRE-1115; task THRE-1087."
+  board_items: "THRE-1087, THRE-1114, THRE-1115"
   why_deferred: |
     BOTH built captures (board-group-built-{light,dark}-*.png) are the test-harness page
     board/__tests__/browser/board-group.browser.test.tsx: the real rail, filter bar, epic header,
@@ -488,7 +565,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-13
   phase: "08.1 — Visual Polish (plan 14 finish review)"
   truth: "A task row's tail should print nothing for a zero criteria count (0/0) or for no priority, as the finish reviewer asks, extending A-03's rule for the change cue."
-  status: closed (2026-10-13, plan 11-18, D-198.1)
+  status: closed-by-decision (2026-10-14, plan 11-21)
+  prior_status: closed (2026-10-13, plan 11-18, D-198.1)
+  redeemed: "D-198.1; `packages/desktop/src/board/__tests__/row-tail.test.tsx` (zero and non-zero cases)."
   why_deferred: |
     The reviewer found fourteen identical four-mark tails (estimate, assignee, 0/0, priority bars)
     flattening the change cue. Plan 14's closure removed the unassigned glyph (not a contract field)
@@ -506,7 +585,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-14
   phase: "08.1 — Visual Polish (plan 15)"
   truth: "The shipped impeccable-finish-reviewer, run against the approved item-detail comp and 08.1-UI-SPEC.md for surface group two (the detail panel, the command palette, the five pickers), raises nothing material that is not fixed or recorded."
-  status: "drained 2026-10-13 (plan 11-17): the reviewer ran again, disposition fix, 8 findings (rows two-1 to two-8), 2 rejected with quotes, 6 recorded. No third pass."
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: "drained 2026-10-13 (plan 11-17): the reviewer ran again, disposition fix, 8 findings (rows two-1 to two-8), 2 rejected with quotes, 6 recorded. No third pass."
+  redeemed: "`fix`, 8 findings: 2 rejected, 6 recorded (rows two-1 to two-8). Residue: THRE-1088 to THRE-1092 and decision THRE-1117 (title scale)."
+  board_items: "THRE-1088, THRE-1089, THRE-1090, THRE-1091, THRE-1092, THRE-1117"
   why_deferred: |
     The gate RAN on 2026-10-08, spawned by the orchestrator (the plan 15 executor could not spawn it). It
     returned `disposition: fix` with 8 material findings. All eight were applied or answered in the
@@ -525,7 +607,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-15
   phase: "08.1 — Visual Polish (plan 16)"
   truth: "The shipped impeccable-finish-reviewer, run once against the approved review comp and 08.1-UI-SPEC.md for surface group three (the review surface, the criteria rail, the file diff, the merge confirm sheet, the epic request sheet), raises nothing material that is not fixed or recorded."
-  status: "drained 2026-10-13 (plan 11-17): the reviewer ran again, disposition fix, 6 findings (rows three-1 to three-6): 1 fixed, 5 recorded, 3 of them high. No third pass."
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: "drained 2026-10-13 (plan 11-17): the reviewer ran again, disposition fix, 6 findings (rows three-1 to three-6): 1 fixed, 5 recorded, 3 of them high. No third pass."
+  redeemed: "`fix`, 6 findings: 1 fixed, 5 recorded; three-3 fixed later in plan 11-22. Residue: THRE-1093, THRE-1094, THRE-1095 and decisions THRE-1112, THRE-1113."
+  board_items: "THRE-1093, THRE-1094, THRE-1095, THRE-1112, THRE-1113"
   why_deferred: |
     The plan 16 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
     spawn the reviewer; the same limit as D-REV-11 and D-REV-14. It captured the group in WebKit in
@@ -555,7 +640,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-16
   phase: "08.1 — Visual Polish (plan 17)"
   truth: "The shipped impeccable-finish-reviewer, run once against 08.1-UI-SPEC.md's contract (NO comp was rendered for this group) for surface group four (the live session surface, its feed, the permission request card, the raw log, the launch sheet), raises nothing material that is not fixed or recorded."
-  status: "drained 2026-10-13 (plan 11-17): the reviewer ran again against the contract alone (no comp), disposition fix, 8 findings (rows four-1 to four-8), 2 rejected, 6 recorded. The raw log was never captured and was not reviewed."
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: "drained 2026-10-13 (plan 11-17): the reviewer ran again against the contract alone (no comp), disposition fix, 8 findings (rows four-1 to four-8), 2 rejected, 6 recorded. The raw log was never captured and was not reviewed."
+  redeemed: "`fix`, 8 findings: 2 rejected, 6 recorded; four-1 fixed in plan 11-22; four-2 (the developer's turn in the brand) closed by D-203. Residue: THRE-1096 to THRE-1099 (BI-15, the developer's turn, was closed by D-203 instead of filed). Raw log never captured (THRE-1099)."
+  board_items: "THRE-1096, THRE-1097, THRE-1098, THRE-1099"
   why_deferred: |
     The plan 17 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
     spawn the reviewer; the same limit as D-REV-11, D-REV-14 and D-REV-15. It captured the group in WebKit
@@ -585,7 +673,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-17
   phase: "08.1 — Visual Polish (plan 18)"
   truth: "The shipped impeccable-finish-reviewer, run once against 08.1-UI-SPEC.md's contract (NO comp was rendered for this group) for surface group five (settings and its permission-rules table, the triage surface, the authoring tray with its rows and amend editor, the published legend, and the done warning's overlay tier), raises nothing material that is not fixed or recorded."
-  status: "drained 2026-10-13 (plan 11-17): the reviewer ran again, plus a follow-up on the permission-rules table it could not see; disposition fix twice, 13 findings (rows five-1 to five-9 and five-rules-1 to 5): 2 fixed, 2 rejected, 9 recorded. No third pass."
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: "drained 2026-10-13 (plan 11-17): the reviewer ran again, plus a follow-up on the permission-rules table it could not see; disposition fix twice, 13 findings (rows five-1 to five-9 and five-rules-1 to 5): 2 fixed, 2 rejected, 9 recorded. No third pass."
+  redeemed: "`fix` twice, 13 findings: 2 fixed, 2 rejected, 9 recorded. Residue: THRE-1100 to THRE-1106 and decision THRE-1116."
+  board_items: "THRE-1100, THRE-1101, THRE-1102, THRE-1103, THRE-1104, THRE-1105, THRE-1106, THRE-1116"
   why_deferred: |
     The plan 18 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
     spawn the reviewer; the same limit as D-REV-11, D-REV-14, D-REV-15 and D-REV-16. It captured the group
@@ -619,7 +710,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-18
   phase: "08.1 — Visual Polish (plan 19)"
   truth: "The shipped impeccable-finish-reviewer, run once against 08.1-UI-SPEC.md's contract (NO comp was rendered for this group) for surface group six (the first-run state, the unreachable project, the registration flow, and the delete, done-warning and orphan-recovery confirmations), raises nothing material that is not fixed or recorded."
-  status: "drained 2026-10-13 (plan 11-17): the reviewer ran again against the contract alone, disposition fix, 5 findings (rows six-1 to six-5): 2 fixed, 3 recorded. No third pass."
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: "drained 2026-10-13 (plan 11-17): the reviewer ran again against the contract alone, disposition fix, 5 findings (rows six-1 to six-5): 2 fixed, 3 recorded. No third pass."
+  redeemed: "`fix`, 5 findings: 2 fixed, 3 recorded (rows six-3, six-4 filed; six-5 closed by D-199). Residue: THRE-1107, THRE-1108."
+  board_items: "THRE-1107, THRE-1108"
   why_deferred: |
     The plan 19 executor has no subagent tool (Read, Write, Edit, Bash, Skill only), so it could not
     spawn the reviewer; the same limit as D-REV-11 and D-REV-14 to D-REV-17. It captured the group in WebKit
@@ -650,7 +744,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-19
   phase: "08.1 — Visual Polish (plan 21)"
   truth: "The shipped impeccable-finish-reviewer, run once against the approved review comp (comps/review.html, .action-row) and 08.1-UI-SPEC.md for the CHANGED foot of the review surface's criteria column (the `Review decision` group: Request changes beside Merge, the sent-back, nothing-unchecked and no-criteria notes, the could-not-send alert) and for the Review feedback section the launch sheet gained, raises nothing material that is not fixed or recorded."
-  status: "drained 2026-10-13 (plan 11-17): it was NOT RUN; it ran, disposition fix, 3 findings (rows review-foot-1 to 4): 1 fixed, 2 recorded; three alternate foot states are still uncaptured."
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: "drained 2026-10-13 (plan 11-17): it was NOT RUN; it ran, disposition fix, 3 findings (rows review-foot-1 to 4): 1 fixed, 2 recorded; three alternate foot states are still uncaptured."
+  redeemed: "`fix`, 3 findings: 1 fixed, 2 recorded; three alternate foot states still uncaptured. Residue: THRE-1109, THRE-1110, THRE-1111."
+  board_items: "THRE-1109, THRE-1110, THRE-1111"
   why_deferred: |
     The plan 21 executor has no subagent tool, so it could not spawn the reviewer, and the orchestrator
     could not run it for this plan either: the run stalled (watchdog, no progress for 600s) between
@@ -680,7 +777,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-20
   phase: "08.1 — Visual Polish (plan 20, handed forward from plan 02)"
   truth: "The installed Flywheel application shows the new HighKnow mark in the Dock, in Finder, and in the native About panel (SC1, as the OS paints it)."
-  status: closed (2026-10-14, plan 11-20; installed icns sha256 == source, plist references it, Dock and About panel observed in screenshots. Finder's icon for the bundle was not captured)
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: closed (2026-10-14, plan 11-20; installed icns sha256 == source, plist references it, Dock and About panel observed in screenshots. Finder's icon for the bundle was not captured)
+  redeemed: "`bash scripts/release/verify-bundle-assets.sh` exit 0 (installed icns sha256 equals source); `11-20-dock.png` and `11-20-about.png`; this plan's `11-21-about-after-update.png` shows the mark again on the updated 0.1.1. Finder's icon was not captured and is not claimed."
   why_deferred: |
     Physical: the Dock and LaunchServices icon caches are operating-system state that only a reinstalled
     bundle plus a cache refresh change, and no WebDriver or vitest arm can observe the macOS Dock. What IS
@@ -693,7 +792,11 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-21
   phase: "08.1 — Visual Polish (plan 20, handed forward from plan 02)"
   truth: "The macOS icon's inset margin reads correctly beside other application icons in the Dock."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Physical reason: aesthetic judgement. Answerable at a glance from `11-20-dock.png`. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1143."
+  board_items: "THRE-1143"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Physical: human aesthetic judgement, made against other applications' icons in a real Dock. The 824-of-1024
     figure is the commonly cited macOS icon grid (08.1-RESEARCH A1), a recorded assumption and not an Apple
@@ -705,7 +808,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-22
   phase: "08.1 — Visual Polish (plan 20)"
   truth: "Dark mode actually activates in the Tauri shell's web view: with macOS set to Dark, the installed app paints the dark token block, and with macOS set to Light it paints the light block."
-  status: closed (2026-10-14, plan 11-20; installed 0.1.0 paints #0a0a0a in system Dark and #ffffff in Light, sampled from an OS capture and compared to tokens.css. Evidence 11-INSTALLED-EVIDENCE.md section 2)
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: closed (2026-10-14, plan 11-20; installed 0.1.0 paints #0a0a0a in system Dark and #ffffff in Light, sampled from an OS capture and compared to tokens.css. Evidence 11-INSTALLED-EVIDENCE.md section 2)
+  redeemed: "`node scripts/release/verify-appearance.mjs` exit 0: `#0a0a0a` painted in system Dark, `#ffffff` in Light, expected values read from `tokens.css`. Re-seen in this plan: the installed app switched to Dark live (`11-21-board-dark.png`)."
   why_deferred: |
     Physical: there is no WebDriver for WKWebView on macOS, and the appearance is operating-system state.
     Recorded as assumption A2 in 08.1-RESEARCH ("[ASSUMED] — not run in WKWebView this session") and never run since. What IS proven: the contrast tests prove the
@@ -720,7 +825,11 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-23
   phase: "08.1 — Visual Polish (plan 20, from plan 13)"
   truth: "Expanding a status group reads as growth to a human eye (a top-down wipe with the rows below travelling), in the packaged app. ROADMAP success criterion 3 says 'animates its height'; the shipped technique animates no height."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Shape asserted and a stepped wipe fixed (plan 11-13). Physical reason: aesthetic judgement. The wording half is closed by D-202 (owner, 2026-10-14): the criterion reads \"reveals its rows with a wipe\". (The ROADMAP text had already been amended on 2026-10-09; the register's claim that it was not is stale.) The remaining question, whether the wipe reads as growth, is unanswered. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1144."
+  board_items: "THRE-1144"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Physical: human aesthetic judgement of a 180ms transition. Plan 13 replaced its own planned technique
     after seeing text overprint for about two frames in WebKit, and the browser test now polls getAnimations()
@@ -736,7 +845,11 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-24
   phase: "08.1 — Visual Polish (plan 20, success criterion 0)"
   truth: "The owner looks at the BUILT board, with real data on it, in the running app, and judges it bold and modern rather than 'a very old app' (SC0 as worded)."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Physical reason: aesthetic judgement, the one the phase exists for. Made answerable by this plan: the installed app on a copy of the real board, Light and Dark, window-only captures `11-21-board-light.png` and `11-21-board-dark.png`. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1145."
+  board_items: "THRE-1145"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Physical: this is a human aesthetic judgement, and it is the one the phase exists for. What happened:
     the owner ADOPTED the Mission Control direction wholesale on 2026-10-07 after viewing six code-rendered
@@ -753,7 +866,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-25
   phase: "08.1 — Visual Polish (plan 20, from plan 04 caveat c)"
   truth: "The home surface's strongest position does not hold a junk epic. Today the roster's lead row is `test`, 0 of 1, and the 'No epic' bucket holds all 181 in-review tasks, which is the entire review queue."
-  status: open
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Detection is a test: `JUNK_EPIC_SQL` in `packages/core/tests/project_hide.rs` returns THRE-4 (`test`, 1 task) on the live-board copy; 181 in-review tasks have no epic. The remedy is a data decision on the owner's board. Board item THRE-1120."
+  board_items: "THRE-1120"
   why_deferred: |
     Not a verification item: a data defect on the real board that the roster inherits. The owner adopted the
     direction knowing it (plan 04). Plan 04 asked plan 20 to register it. Neither the epic nor the no-epic
@@ -764,7 +880,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-26
   phase: "08.1 — Visual Polish (plan 20)"
   truth: "The shipped impeccable-finish-reviewer, re-run once over each of the six fixed surface groups, the changed foot of the review surface (plan 21) and the app shell, raises nothing material that is not fixed or recorded."
-  status: "drained 2026-10-13 (plan 11-17): it was NOT RUN; it ran as eight groups plus a follow-up, every one disposition fix, 58 findings in 11-FINISH-REVIEW.md: 8 fixed, 8 rejected with quotes, 45 recorded (9 high). Nothing in Phase 8.1 passes an independent review after its fixes."
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: "drained 2026-10-13 (plan 11-17): it was NOT RUN; it ran as eight groups plus a follow-up, every one disposition fix, 58 findings in 11-FINISH-REVIEW.md: 8 fixed, 8 rejected with quotes, 45 recorded (9 high). Nothing in Phase 8.1 passes an independent review after its fixes."
+  redeemed: "Ran as nine runs: 58 findings, 8 fixed, 8 rejected, 45 recorded, none returned `ship` (11-FINISH-REVIEW.md). Fixed items are test-proven, not reviewer-approved. Residue is THRE-1082 to THRE-1111."
   why_deferred: |
     No physical reason. This is an unexecuted automated step, queued only because the plan 20 executor has no
     subagent tool (Read, Write, Edit, Bash, Skill) and so could not spawn the reviewer or the documenter. It
@@ -777,7 +895,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-27
   phase: "08.1 — Visual Polish (plan 20, from plan 10 and the A-04 gate)"
   truth: "Under the has-worktree chip the epic lens narrows its headers from 13 epics to the 5 that own live work, as the owner chose in A-04 (`any-child`)."
-  status: contradicted-by-measurement
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: contradicted-by-measurement
+  redeemed: "`lens-narrowing.browser.test.tsx` asserts the narrowed set and the restore on chip-off (plan 11-13); SQL proved in `packages/core/tests/search_filter.rs`. Limits kept: header counts stay board-wide (THRE-1121) and 13 to 5 was not re-observed live."
+  board_items: "THRE-1121"
   why_deferred: |
     Escalated to the owner by the orchestrator on 2026-10-08 and left open; no plan owns it. As shipped, the
     epic lens renders every roster epic with the aggregate's unfiltered count and filters only the rows
@@ -792,7 +913,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-28
   phase: "08.1 — Visual Polish (plan 20)"
   truth: "The brand carries progress, the commits-ahead count and the focus ring, and nothing else (08.1-UI-SPEC.md, the brand rule's four permitted uses)."
-  status: closed (2026-10-13, plan 11-18, D-199) — one residue open: the developer's turn
+  status: closed-by-decision (2026-10-14, plan 11-21)
+  prior_status: closed (2026-10-13, plan 11-18, D-199) — one residue open: the developer's turn
+  redeemed: "D-203 (owner, 2026-10-14): the brand rule is amended to ALLOW the developer's own turn in the feed, because colour is the feed's only channel telling the two speakers apart. It is not moved to ink. `08.1-UI-SPEC.md` § The brand rule gained item 8 and `theme/__tests__/brand-rule.test.ts` was widened with it; the test passes (4 of 4). D-199's other uses are closed by the same test."
   why_deferred: |
     The build uses the brand in more places than the rule lists, and a new use needs an amendment. Open
     already as an owner question: the running status, the live authoring stage and the developer's own turn
@@ -809,7 +932,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-29
   phase: "08.1 — Visual Polish (plan 20, from plan 19)"
   truth: "A project whose repository is gone for good can be removed from Flywheel, and a duplicate registration can be cleared."
-  status: needs-owner-decision
+  status: closed-by-decision (2026-10-14, plan 11-21)
+  prior_status: needs-owner-decision
+  redeemed: "D-200: soft-hide. `packages/core/tests/project_hide.rs` (10/10) and the rail action. The restore surface is unbuilt and filed as D-REV-64."
   why_deferred: |
     The group-six reviewer asked for a secondary 'Remove Project' on the unreachable surface. It was declined
     in plan 19: no backend exists, and the decision (soft-hide, or delete the project's board) is the owner's.
@@ -822,7 +947,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-30
   phase: "08.1 — Visual Polish (plan 20)"
   truth: "Row Anatomy and the Copywriting Contract in 01-UI-SPEC.md describe the product: key alignment on rows that carry a pill, the 10px micro role, and the Done warning's copy."
-  status: closed (2026-10-13, plan 11-18, D-198)
+  status: closed-by-decision (2026-10-14, plan 11-21)
+  prior_status: closed (2026-10-13, plan 11-18, D-198)
+  redeemed: "D-198.2, .3 and .4 (plan 11-18): zero `type-micro` references remain under `packages/desktop/src`; the Done-warning string is transcribed."
   why_deferred: |
     Three finish-pass items declined on contract grounds, each an amendment and not a finish edit. (1) Keys
     misalign on rows that carry a pill or a change cue, because pills trail the status glyph by Row
@@ -838,7 +965,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-31
   phase: "08.1 — Visual Polish (plan 20, from A-06)"
   truth: "The 2px neutral-ink left rule on a selected task row does not read as the decorative side stripe the craft floor bans."
-  status: open
+  status: closed-by-decision (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "The owner decided in A-06 (2026-10-08) and the exception is dated. Independent reviewers told about the floor read it as a match: 11-FINISH-REVIEW.md \"Selection rule (A-06): match\" and \"inside the side-stripe allowance\"."
   why_deferred: |
     Physical: human aesthetic judgement, and a reading of prose. The owner decided on 2026-10-08 (A-06) that
     the ban targets accent colour, not neutral ink. The mechanical detector did not and cannot rule on it:
@@ -862,7 +991,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-37
   phase: "09 — Planned Fan-Out (09-REVIEW.md WR-02, WR-01)"
   truth: "Between the dispatcher's readiness decision and `launch_run_for_task`, nothing re-checks overlap, the cap or task liveness — so a manual launch or a live widen landing in that window can still put two agents on the same files."
-  status: resolved
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: resolved
+  redeemed: "`dispatch_auto_merge.rs` `a_live_widen_landing_in_the_window_refuses_the_spawn_and_leaves_exactly_one_run_on_the_files` (plan 11-09) with the Phase 09 interleave tests."
   why_deferred: |
     Not deferred for lack of automation — deferred because it is a second, separable defect class that
     the phase's two Critical fixes do not cover, and closing it needs a design choice (re-check at launch,
@@ -885,7 +1016,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-38
   phase: "09 — Planned Fan-Out (09-REVIEW.md WR-06, and the D-149 review point)"
   truth: "`dispatch_why` answers `DisjointSets` / 'neither waits' for an undeclared pair that, after the CR-02 fix, genuinely IS waiting; and the wave plan sheet shows no 'no files declared, runs alone' signal at the one human look."
-  status: resolved
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: resolved
+  redeemed: "`dispatch_plan.rs` `why_two_same_wave_tasks_that_declared_nothing_run_alone_not_disjoint`."
   why_deferred: |
     This became WRONG rather than merely incomplete as a result of closing CR-02. `EDGE_CAUSE_WIDEN` is
     declared and never used, and a live widen writes no ordering edge, so `why` has nothing to report for
@@ -904,7 +1037,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-39
   phase: "09 — Planned Fan-Out (09-REVIEW.md WR-03, WR-04, WR-05, WR-07, and the three Info items)"
   truth: "Five lower-severity review findings stand unfixed: a run row inserted then abandoned on error leaks a cap slot permanently (`agent_run.rs:734`); a persistently failing `run_merge` flaps state and appends an event every 5s; `is_startable` relaunches a task the user ran manually; the `AppState.db` mutex is held across `git config` subprocesses; plus dead code (`EDGE_CAUSE_WIDEN`, `may_merge`, `hold_for_limit`), unattended spawns attributed to the human actor, and ASCII-only case-folding that errs lax for overlap detection."
-  status: resolved
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: resolved
+  redeemed: "`dispatch_auto_merge.rs`: `a_persistently_failing_merge_appends_one_event_and_does_not_flap`, `a_task_the_user_ran_by_hand_is_not_relaunched_and_its_finished_work_is_adopted`, `no_desktop_command_runs_the_case_probe_under_the_database_lock`, `an_unattended_start_is_attributed_to_the_system_actor_and_a_manual_one_to_the_human`, `launch_conflict_folds_non_ascii_case_so_the_strict_side_wins`. The five residuals are D-REV-58."
   why_deferred: |
     Deliberate scope call at the phase close: the two Criticals were fixed because they inverted the
     phase's core value on the default path; these were filed instead of fixed, per the standing
@@ -939,7 +1074,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-40
   phase: "09 — Planned Fan-Out (process finding, not a code defect)"
   truth: "Every plan in phase 09 resolved `tdd_applicable: true` from task attributes, while the gate that enforces RED-before-GREEN reads `workflow.tdd_mode`, which is false for this project — so the gate was structurally incapable of firing, and plan 09-07 shipped three `feat` commits with no RED commit before it was noticed."
-  status: open
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "A defect in `gsd-core`, not in Flywheel: the remedy lands upstream. Board item THRE-1122."
+  board_items: "THRE-1122"
   why_deferred: |
     This is a defect in the harness's own gate wiring, not in Flywheel. Recorded here because it was
     found during this phase and will recur on every phase until the predicate is fixed: the gate should
@@ -953,7 +1091,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-41
   phase: "09 — Planned Fan-Out (verifier finding; 09-07 and 09-09 SUMMARYs both said 'file this' and it was never filed)"
   truth: "A task whose run ends `failed`, `stopped` or whose automatic merge ends `conflict` can be retried or skipped from the app, and the user is told why it is stuck; the plan then advances."
-  status: closed (2026-10-14, plan 11-11)
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: closed (2026-10-14, plan 11-11)
+  redeemed: "Core `retry_task` and `skip_task` driven in `dispatch_auto_merge.rs` against a real failed run and a real conflict; renderer `packages/desktop/src/dispatch/__tests__/stuck-task.test.tsx`; `grep -rn retry_task packages/sidecar/src` returns 0 (human-only)."
   why_deferred: |
     Not a human-judgement item: it is a missing command. `dispatch.rs::is_startable` retries only `planned`,
     `waiting`, `held_by_limit` and a pre-spawn `needs_attention`. `observation_targets` skips `conflict`,
@@ -971,7 +1111,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-42
   phase: "09 — Planned Fan-Out (verifier finding; PLAN-04 and ROADMAP criterion 3)"
   truth: "A write outside a task's declared file-set is stopped at the tool level. Today that holds for `Write`, `Edit`, `MultiEdit` and `NotebookEdit` only. A write through `Bash` is found at session close and recorded, but it does not stop the run, and a detected breach does not stop the automatic merge."
-  status: open
+  status: closed-by-decision (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "D-201 (owner, 2026-10-14): PLAN-04 is narrowed to the file-writing tools, and Bash writes are detected after the fact. REQUIREMENTS.md PLAN-04 now says so, with a dated note. The detection holds the merge: `scope_breach` in `packages/core/tests/dispatch_auto_merge.rs` (plan 11-11). Bash prevention is not claimed."
   why_deferred: |
     This is an owner acceptance, not a check: 09-RESEARCH Pitfall 2 and 09-01-SUMMARY state that the file-tool
     matcher cannot see `Bash` (`echo >`, `sed -i`, `rm`, an installer rewriting a lockfile) and that the
@@ -989,7 +1131,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-43
   phase: "09 — Planned Fan-Out (plan 09-13, overlap warning host)"
   truth: "A user who launches a task over a different live task sees Rust's overlap warning after the launch sheet closes."
-  status: open
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "`packages/desktop/src/shell/__tests__/launch-overlap-toast.test.tsx` (four tests) and `merge-sheet.test.tsx` (warning handed to the app-level toast)."
   why_deferred: |
     `App.tsx` receives the warning as `onStarted`'s second argument and shows it as a fixed toast, because the
     sheet unmounts in that same callback and its own copy of the warning (which IS tested) is gone with it. The
@@ -1003,7 +1147,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-44
   phase: "09 — Planned Fan-Out (09-REVIEW.md WR-02; verifier-confirmed in code)"
   truth: "The launch body and the dispatcher return the same verdict for the same pair on every repository."
-  status: resolved
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: resolved
+  redeemed: "`scope_widen.rs` `the_launch_and_the_dispatcher_agree_on_a_case_only_pair_for_either_case_flag`."
   why_deferred: |
     Not a human item; deferred only by the ship-first instruction. `prepare_launch` passes `fold_case = true`
     (`agent_run.rs:786`); `readiness` passes the repository's observed flag (`dispatch.rs:595`). On a
@@ -1025,7 +1171,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-45
   phase: "09 — Planned Fan-Out (09-REVIEW.md WR-03; verifier-confirmed in code)"
   truth: "A live widen that reaches a same-wave task waiting in a pre-spawn needs_attention state records an ordering edge, so the task waits for the widener's MERGE."
-  status: open
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "`scope_widen.rs` `a_widen_reaching_a_task_parked_at_pre_spawn_attention_records_a_widen_edge`."
   why_deferred: |
     `record_widen_sequencing` selects queued tasks with `pt.state IN ('planned','waiting','held_by_limit')`
     (`domain/file_set.rs:564-575`), but `is_startable` also starts a pre-spawn `needs_attention` task, which a
@@ -1038,7 +1186,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-46
   phase: "09 — Planned Fan-Out (09-REVIEW.md WR-01, WR-05; verifier-confirmed in code)"
   truth: "A launch that fails after its run row exists leaves no running row, and every manual launch site shows the overlap warning and the refusal reason."
-  status: open
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "`commands/agent_run.rs` `a_shim_install_failure_closes_the_run_failed`, `a_failed_gated_spawn_closes_the_run_failed` (and two siblings); renderer `merge-sheet.test.tsx` (refusal reason shown)."
   why_deferred: |
     After `start_agent_run_recording_first`, `record_launch_overlap(...)?`, `merge_shim_env_for_run(...)?` and
     `send_gated_spawn(...)?` return with the row still `running`. Before 09-13 that cost a cap slot until the
@@ -1051,7 +1201,11 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-47
   phase: "10 — Fleet Supervision (plan 10-01)"
   truth: "The fleet surface reads at a glance in the running app: the three band headers, the state glyph plus word, the project column and the age column are legible and scannable at the real row density, in light and dark."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Containment closed in WebKit (`fleet-group.browser.test.tsx`, 900 and 1200px, both schemes). Physical reason: aesthetic judgement of \"easy to scan\". UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1150."
+  board_items: "THRE-1150"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Everything structural is asserted: band order, the word and mark per state, the muted `interrupted`, the
     project column, the empty state (fleet-surface.test.tsx) and the 5,000-row read budget (fleet_perf.rs).
@@ -1064,7 +1218,11 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-48
   phase: "10 — Fleet Supervision (plan 10-03)"
   truth: "In the running app a live agent's activity cell shows what it is doing and moves within about a second of its tool call, and reads well as one truncated line."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Live-read half closed (`uat-12-fleet-live-reads.mjs` section D-REV-48). Physical reason for the rest: it needs a live sidecar writing a real log, which needs a real login; plus aesthetic judgement of the clipped line. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1151."
+  board_items: "THRE-1151"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Asserted piecewise: `read_tail`'s boundary cases and bounded cost (session_log_tail.rs), the live-rows-only
     read and the lock discipline (fleet.rs tests and grep gate), the throttle, the single listener and its
@@ -1079,7 +1237,11 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-49
   phase: "10 — Fleet Supervision (plan 10-04)"
   truth: "In the running app the spend column, the labelled estimate footer and the Dismiss buttons read clearly at row density, and a dismissed row leaves the fleet."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Round trip OBSERVED on the installed app in this plan: clicking Dismiss on THRE-38 removed the row (3 rows to 2) and set `acknowledged_at`; the other two rows were untouched (section 2.4). Physical reason for the rest: aesthetic judgement of the columns at row density. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1152."
+  board_items: "THRE-1152"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Asserted: the NULL and sum behaviour of the read (fleet_query.rs), blank-while-running, a failed run
     keeping its cost, the token label, the footer wording, Dismiss only on terminal rows, the batch call and
@@ -1098,7 +1260,11 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-50
   phase: "10 — Fleet Supervision (plan 10-05)"
   truth: "In the running app, with real blocked agents in two or more projects, the blocked queue lists each one, a single `a` press answers exactly the marked agent and the list then advances, and the queue reads well at row density."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Queue half closed (`uat-12` section D-REV-50). Physical reason for the rest: real blocked agents need a live sidecar and a real login; plus the look of the owner marking. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1153."
+  board_items: "THRE-1153"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Asserted: the cross-project read, one entry per run, live blocks only and the specified order (fleet_query.rs);
     that one a, d and shift-a keypress over three queued cards answers exactly one request, that the owner moves
@@ -1115,7 +1281,11 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-51
   phase: "10 — Fleet Supervision (plan 10-06)"
   truth: "In the running app, Enter or a click on a fleet row opens that agent's live output (and Back returns to the fleet), and the subject key on a row in another project lands on that item's detail panel."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Shell half closed in jsdom and WebKit (`fleet-jump.browser.test.tsx`). Installed-app check in this plan FOUND A DEFECT, filed as D-REV-65: the subject key leaves the fleet for the board but opens nothing. Physical reason for the rest: aesthetic judgement of the key as a button. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1154."
+  board_items: "THRE-1131, THRE-1132, THRE-1154"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Asserted: the session opener receiving run id, task id, stage, epic id and the row's status for task, authoring,
     no-subject, failed and awaiting-review rows; Dismiss and the subject key not bubbling into the row; the fleet
@@ -1135,7 +1305,11 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-52
   phase: "10 — Fleet Supervision (plan 10-07)"
   truth: "Against an installed, signed build, a real banner appears in the macOS Notification Center when an agent blocks, finishes or fails."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Physical reason: the OS notification centre is outside the process and has no automation surface; needs a real agent event on the installed bundle. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1155."
+  board_items: "THRE-1155"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Asserted: the coalescing window and the one-banner-for-a-wave behaviour, the single and summary wording, the
     run-and-kind collapse, the suppression rule, the body cap, the exclusion of interrupted and abandoned by type,
@@ -1150,7 +1324,11 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-53
   phase: "10 — Fleet Supervision (plan 10-07)"
   truth: "On a fresh macOS install, the first notification triggers (or silently skips) the system permission prompt, and a user who declines it is not left believing banners are on."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Physical reason: the prompt is drawn and answered by the operating system and its state lives in System Settings. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1156."
+  board_items: "THRE-1156"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     The plugin reports the permission as granted on desktop without asking (RESEARCH Assumption A6), so there is
     no in-app signal to assert on. Physical reason: the prompt is drawn and answered by the operating system.
@@ -1160,7 +1338,11 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-54
   phase: "10 — Fleet Supervision (plan 10-08)"
   truth: "In the running app, the Worktrees rail entry opens an inventory of every task worktree across projects with a size and its age, Re-measure fills in the sizes of a freshly created worktree without freezing the window, and each row's chip and reason read clearly at row density."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "View closed in WebKit (`fleet-group.browser.test.tsx`). Opened in the installed app on the board copy: 5 worktrees, eligibility shown, one `Reclaimable`. Re-measure returned \"could not be measured completely\" because the scratch HOME places the worktree root elsewhere; sizes were NOT observed. Needs the owner's real HOME, which means migrating the owner's real database (an irreversible step that is the owner's to take). UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1157."
+  board_items: "THRE-1157"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Asserted: the eligibility table (done, merged, both, running, blocked, dirty, unreachable, missing, no epic) and
     the board-then-git read against real git repositories, including a count of the porcelain reads performed
@@ -1177,7 +1359,11 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-55
   phase: "10 — Fleet Supervision (plan 10-09)"
   truth: "In the running app, selecting reclaimable worktrees, confirming, and pressing Remove deletes exactly those directories while the window stays responsive, and the confirmation and the result list read clearly at row density."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Removal half closed (`uat-12` section D-REV-55: 321 reads during a 2.2 s reclaim, slowest 11 ms). Physical reason for the rest: removing multi-second worktrees through the installed app deletes the owner's real directories and needs the owner's consent and data; plus aesthetic judgement. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1158."
+  board_items: "THRE-1134, THRE-1158"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Asserted: the batch against real git repositories (three removed; a run inserted after the read refused with
     the live-run reason while the others are removed; a tree dirtied after the read refused with its file intact;
@@ -1197,7 +1383,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-56
   phase: "11 — Ship It (plan 11-03)"
   truth: "On GitHub's macos-14 runner, a push runs ci.yml green end to end (sidecar staging, cargo build and test, vitest, tauri build, dmg upload), and open-core.yml goes green with packages/relay-client deleted."
-  status: closed (observed on GitHub macos-14 - 2026-10-13, plan 11-04)
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: closed (observed on GitHub macos-14 - 2026-10-13, plan 11-04)
+  redeemed: "Observed on macos-14: `ci.yml` run 38346860234 and `open-core.yml` run 38346860235 (plan 11-04). Stability is not claimed: `authoring_lifecycle.rs` fails about 1 run in 8 on a runtime-marker race (deferred-items)."
   why_deferred: |
     Asserted locally: both files parse as YAML; the staging step precedes the first cargo step; no continue-on-error;
     the open-core sed plus cargo metadata pair exits 0 against a tree with the crate moved away, the non-comment
@@ -1232,7 +1420,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-57
   phase: "11 - Ship It (plan 11-04)"
   truth: "One pushed v* tag produces a release carrying FOUR assets: the .dmg, the .app.tar.gz, its .sig, and latest.json with a non-empty signature, and a client can read releases/latest/download/latest.json."
-  status: closed (four-asset publication observed on GitHub - 2026-10-13, plan 11-05; installed-client update not proven, see update_11-05)
+  status: closed-automated (2026-10-14, plan 11-21)
+  prior_status: closed (four-asset publication observed on GitHub - 2026-10-13, plan 11-05; installed-client update not proven, see update_11-05)
+  redeemed: "Four assets observed on release run 38396587749 (plan 11-05); installed-client half now observed: the installed 0.1.0 downloaded, verified and installed 0.1.1 (section 2.2: `11-21-about-after-update.png`). Since 2026-10-14 the updater URL answers 404 while both releases are Pre-release: D-REV-67."
   why_deferred: |
     Plan 11-04 proved the pipeline unsigned and can prove only half the assets. 11-01 deliberately left
     bundle.createUpdaterArtifacts unset (tauri refuses to build updater artifacts without a signing key), so the
@@ -1265,7 +1455,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-58
   phase: "11 - Ship It (plan 11-10, residuals of D-REV-39 and D-REV-44)"
   truth: "Five findings that D-REV-39 and its review named, or that fixing them exposed, are still open: a merge whose event write fails after git succeeded is reported as 'nothing to merge'; plan approval does not re-check that its tasks are still startable; two spellings of one name that differ only in Unicode normalisation read as disjoint; an unreadable core.ignorecase reads as not folding; project registration runs git config under the database lock."
-  status: open
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Each names its closing test in the register entry. Board items THRE-1123 to THRE-1127."
+  board_items: "THRE-1123, THRE-1124, THRE-1125, THRE-1126, THRE-1127"
   why_deferred: |
     Each is real and each is separate from the seven plan 11-10 closed; none blocks the loop. (1) 09-REVIEW WR-04,
     second half: if `record_merge_event_with` fails after `run_merge` succeeded, the state stays `merging`, the next
@@ -1288,7 +1481,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-59
   phase: "11 - Ship It (plan 11-10, owner decision taken during execution)"
   truth: "The dispatcher adopts a task the owner ran by hand: it merges that finished work automatically, unreviewed, attributed to the system actor. The owner was asked during plan 11-10's execution and chose to keep the shipped behaviour."
-  status: resolved
+  status: closed-by-decision (2026-10-14, plan 11-21)
+  prior_status: resolved
+  redeemed: "Settled by the owner 2026-10-13: offered adopt-but-hold-for-review and declined. Revisit only if an unreviewed adopt surprises him in use."
   why_deferred: |
     Not deferred - decided. Plan 11-10's fix for D-REV-39 ("a hand-run task is relaunched") replaced the relaunch
     with adoption, which has a consequence the register should state plainly rather than leave implicit in a
@@ -1303,7 +1498,9 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-60
   phase: "11 - Ship It (plan 11-07, owner declined the purchase)"
   truth: "DIST-01 criterion 1 is not met. The released .dmg is unsigned and un-notarized, so a first-time user who double-clicks the downloaded application sees a Gatekeeper warning and must use the right-click-Open workaround. The requirement's text claims a signed, notarized build that opens with no warning."
-  status: open
+  status: accepted-by-design (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "The owner declined the $99/yr Apple Developer purchase (2026-10-13). **DIST-01 criterion 1 stays recorded as UNMET.** The register's workaround text (\"right-click-Open\") was wrong for this macOS; D-REV-62 documents the working `xattr -cr` instead. Both releases are marked Pre-release on GitHub (the owner's choice, 2026-10-14) to say that distribution is unsolved."
   why_deferred: |
     Plan 11-07 is the one plan in Phase 11 gated on a purchase rather than on work: notarizing a
     macOS application requires an Apple Developer Program membership ($99/yr), and a free Apple
@@ -1349,7 +1546,11 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-63
   phase: "11 — Ship It (plan 11-19)"
   truth: "The rail's 'Remove from Flywheel...' reads as a reversible hide and not a delete: its confirmation names the board, worktrees, runs and activity trail as kept, and the new row sits acceptably beside 'Register Project...'."
-  status: open
+  status: owner-question (2026-10-14, plan 11-21)
+  prior_status: open
+  redeemed: "Content asserted in `project-rail.test.tsx`. Physical reason: aesthetic and comprehension judgement of one sentence. UNANSWERED 2026-10-14; not recorded as passed. Board issue THRE-1159."
+  board_items: "THRE-1159"
+  owner_answer: "Not answered (2026-10-14). Recorded as unanswered, not as passed."
   why_deferred: |
     Human aesthetic and comprehension judgment: whether the sentence reads as 'nothing is lost' to a
     person is not something an assertion can establish. The sentence's content (it names all four kept
@@ -1361,7 +1562,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-64
   phase: "11 — Ship It (plan 11-19)"
   truth: "A hidden project can be listed and restored from inside the app, including the duplicate 'unreachable' registration that D-200 was written for."
-  status: open — known limit of plan 11-19
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: open — known limit of plan 11-19
+  redeemed: "Unbuilt: `project_restore` exists and is tested in core; nothing in the renderer calls `projectRestore`. Closing test named in the register entry. Board item THRE-1128."
+  board_items: "THRE-1128"
   why_deferred: |
     No physical reason: it is unbuilt. project_restore exists and is tested at the core level, but nothing
     in the renderer calls projectRestore and no surface lists hidden projects. The UI route back today is
@@ -1374,7 +1578,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-65
   phase: "11 — Ship It (plan 11-21, found on the installed build)"
   truth: "On the installed v0.1.0, pressing the subject key on a fleet row lands on the board with that item's detail panel open."
-  status: open — defect observed
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: open — defect observed
+  redeemed: "Defect observed on the installed build (§ 2.4): the key left the fleet for the board and opened nothing, on two tries. jsdom and WebKit assert it opens. Board item THRE-1129 (priority 2), closing test named in its criteria."
+  board_items: "THRE-1129"
   why_deferred: |
     Not deferred: found. On a copy of the live board in the installed app, clicking `Open THRE-43 on the board` and
     `Open THRE-33 on the board` on a fleet row switched from the fleet to the board and opened nothing, on two tries
@@ -1388,7 +1595,10 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-66
   phase: "11 — Ship It (plan 11-21, found on the installed build)"
   truth: "Dismissing the update banner is remembered for that version, as plan 11-06 states."
-  status: open — owner decision
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: open — owner decision
+  redeemed: "D-206 (owner, 2026-10-14): KEEP the per-session dismissal. Filed low priority as THRE-1135 (priority 4), gated on the owner reversing D-206 and closed unchanged otherwise."
+  board_items: "THRE-1135"
   why_deferred: |
     Observed: Not now hides the banner for the session; after quitting and relaunching with the same HOME the
     banner returned. The dismissal lives in uiStore (`dismissedUpdateVersion`), which does not persist. The plan's
@@ -1397,6 +1607,24 @@ At Phase 11, with an installed, usable build:
   needs: "An owner call: keep it (a banner that returns each launch is a reasonable nudge) or persist the version. Decision D6 in 11-OWNER-PASS.md; board item BI-49."
   automatable: "YES once decided: persist the field and assert a relaunch."
 
+
+- id: D-REV-67
+  phase: "11 — Ship It (plan 11-21, found while documenting the first-run workaround)"
+  truth: "An installed client can reach the updater endpoint and find the newest release."
+  status: filed-to-board (2026-10-14, plan 11-21)
+  prior_status: open — defect observed
+  redeemed: "Found in this plan: `https://github.com/HighKnow-ai/flywheel/releases/latest/download/latest.json` answers 404 (`curl -sIL`, 2026-10-14) because GitHub's `latest` skips Pre-releases and both releases were marked Pre-release on 2026-10-14. While it holds, no installed client sees an update. NOT changed here: the Pre-release marking is the owner's choice. Board item THRE-1136 (priority 1). DIST-02 is unticked for this reason."
+  board_items: "THRE-1136"
+  why_deferred: |
+    Not deferred: found. tauri.conf.json points the updater at
+    https://github.com/HighKnow-ai/flywheel/releases/latest/download/latest.json. GitHub's `latest`
+    skips Pre-releases. Both v0.1.0 and v0.1.1 were marked Pre-release on 2026-10-14, the owner's
+    choice, made to say that distribution is unsolved. `curl -sIL` on that URL answers 404 on the
+    same day. While that holds, no installed client sees an update, so the self-update that
+    D-REV-57 and D-REV-61 observed working does not work for a real user.
+  risk_if_wrong: "High for DIST-02: the requirement is unticked in REQUIREMENTS.md for this reason."
+  needs: "An owner call, not made here: un-mark the newest release as Pre-release, or point the updater at an endpoint that serves Pre-releases (for example a fixed tag or the releases API)."
+  automatable: "YES. `curl -sIL <endpoint>` returns 200 with a latest.json naming the newest release; then the installed-client path through scripts/release/ax-drive.js."
 
 # Register integrity note, 2026-10-14 (orchestrator)
 #
@@ -1407,3 +1635,6 @@ At Phase 11, with an installed, usable build:
 # (no in-app way to list or restore a hidden project). 11-19's SUMMARY was updated to match.
 # The originals at D-REV-61 and D-REV-62 are unchanged. Every id in this file is now unique;
 # plan 11-21 should allocate from D-REV-65 onward.
+#
+# Plan 11-21 (2026-10-14) allocated D-REV-67 (the updater endpoint). The highest id is now D-REV-67 and
+# every id is unique. A later plan allocates from D-REV-68 onward.
