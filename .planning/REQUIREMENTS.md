@@ -50,8 +50,8 @@ own phases, which are read daily in this repository (owner decision, 2026-10-14)
 - [ ] **DRFT-02**: Acceptance criteria are drafted by default when a task is created or started; a run on a task with no criteria routes through drafting first rather than proceeding without them
 - [ ] **DRFT-03**: An epic or task can be decomposed by an agent into child items with titles and bodies drafted, which the user accepts, rejects or amends individually
 - [ ] **DRFT-04**: A task's status is derived from git and forge state and is never drafted or written by an agent; the one non-derivable transition (backlog to todo) rides the acceptance of the task itself
-- [ ] **DRFT-05**: `estimate` is removed from every required flow unless a consumer that reads it is named; an unread field is not drafted, shown as required, or asked for
-- [ ] **DRFT-06**: Priority is offered only as an explicit, opt-in suggestion carrying its reasoning, never applied automatically and never required to start work
+- [x] **DRFT-05**: `estimate` is removed from every required flow unless a consumer that reads it is named; an unread field is not drafted, shown as required, or asked for
+- [x] **DRFT-06**: Priority is offered only as an explicit, opt-in suggestion carrying its reasoning, never applied automatically and never required to start work
 - [ ] **DRFT-07**: The unit of acceptance is the field for a scalar and the item for a structure; no control anywhere accepts a set wholesale, and the absence of a bulk-accept path is enforced by a source test
 - [ ] **DRFT-08**: Open drafts are capped per project with visible back-pressure, so a drafting run cannot accumulate an unreviewable queue
 - [ ] **DRFT-09**: The per-run proposal cap does not throttle a legitimate decomposition, and a run that hits its cap is refused with wording that fits the kind of session it is *(the current cap of 10 applies to authoring runs by accident, and its refusal text names a tool an authoring session does not have)*
@@ -185,8 +185,8 @@ Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROAD
 | DRFT-02 | Phase 15 | Pending |
 | DRFT-03 | Phase 15 | Pending |
 | DRFT-04 | Phase 13 | Pending |
-| DRFT-05 | Phase 13 | Pending |
-| DRFT-06 | Phase 13 | Pending |
+| DRFT-05 | Phase 13 | Complete |
+| DRFT-06 | Phase 13 | Complete |
 | DRFT-07 | Phase 15 | Pending |
 | DRFT-08 | Phase 15 | Pending |
 | DRFT-09 | Phase 13 | Pending |
