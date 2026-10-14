@@ -1,16 +1,16 @@
 # Challenge turn 1 — developer answers needed
 
-**Run:** 01M3QQQM4GAYB2Y9RQMJDRWAX0
+**Run:** 01M3V1JF1C43KY38JC120AY0J4
 
 The agent asked the questions below, verbatim and numbered. Fill in one `ANSWER n:` line per question below, save this file, and write your answers to this turn's own answers file (named in the harness scrollback) — the run polls for it.
 
 ## Questions
 
-1. What counts as "needs them"?
-2. Anything you'd add or cut — especially: do you want notifications for *activity on cards they merely watch*, or only things directed at them?
-3. Where does the ping land?
-4. Collapsing is nicer but meaningfully more work; worth it for v1?
-5. Who controls what they get?
+1. Where does the board actually live?
+2. Is there an existing app I should be integrating with (different repo, deployed service), or is the board itself also still to be built?
+3. What counts as "needs them"?
+4. Which of these are actually in v1?
+5. Where does the ping land?
 
 ## Your answers
 
