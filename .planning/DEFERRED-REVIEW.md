@@ -1656,7 +1656,10 @@ At Phase 11, with an installed, usable build:
   why_deferred: |
     Not deferred for lack of time - MISDIAGNOSED for the whole of Phase 11, by every plan and by the
     orchestrator. It was recorded as "the known flake, re-run and it passes" in plans 11-04, 11-05,
-    11-08, 11-10, 11-16, 11-19, 11-20 and in every dispatch prompt the orchestrator wrote, and the
+    11-08 and 11-10, and in every dispatch prompt the orchestrator wrote, and the standing remedy
+    was to re-run the job. (Corrected 2026-10-14 by the phase verifier: an earlier version of this
+    entry also named 11-16, 11-19 and 11-20, which do not mention it. Overstating how widely a
+    wrong belief was held is the same failure as understating it.)
     standing remedy was to re-run the job. The phase verifier was the first to read the test rather
     than the failure rate.
     `cargo test` runs the tests WITHIN one binary on multiple threads by default. There is no
@@ -1683,5 +1686,11 @@ At Phase 11, with an installed, usable build:
         `forge_degrade` and `authoring_lifecycle` suggest the pattern is wider;
     (3) best: stop using a process-global for the worktree root in tests and thread it through
         explicitly, removing the shared mutable state rather than locking around it.
-    Verify by running the binary with `--test-threads=8` repeatedly; it should fail today and stop
-    failing after the fix. Delete the false SAFETY comment either way.
+    NOT REPRODUCED LOCALLY. Corrected 2026-10-14 by the phase verifier: an earlier version of this
+    entry asserted that `--test-threads=8` "should fail today". It was then run 8 times at 8 threads
+    and 3 times at 1 thread, and passed 11 of 11. The race is therefore established by READING THE
+    SOURCE - two tests mutate one process-global, and the SAFETY comment asserting single-threaded
+    execution is false because nothing enforces it - and by three consecutive CI failures at the
+    same line, NOT by a local reproduction. Judge a fix on removing the shared mutable state, not
+    on flipping a local test from red to green.
+    Delete the false SAFETY comment either way.
