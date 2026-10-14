@@ -38,7 +38,7 @@ npm --prefix packages/sidecar ci
 npm --prefix packages/desktop ci
 npm --prefix packages/sidecar run build:dist
 cargo build --workspace
-npm --prefix packages/desktop run tauri build
+npm --prefix packages/desktop run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
 ```
 
 The order matters. `build:dist` must run before any `cargo` command: `tauri_build::build()` fails
@@ -46,6 +46,11 @@ the whole workspace build when a `bundle.externalBin` file is missing, so a fres
 `cargo test` until `build:dist` has staged the `binaries/flywheel-*` files. The result is an
 unsigned `Flywheel.app` and `.dmg` under `target/release/bundle/`. CI runs these same commands on
 every push.
+
+The `--config` override on the last command is required. `tauri.conf.json` asks for updater
+artifacts, and tauri fails the build (after the `.app` and `.dmg` already exist) unless it has the
+maintainers' updater signing key. A contributor does not have that key and does not need it: the
+override turns the updater artifacts off. Only the release workflow signs them.
 
 ## Running the app
 

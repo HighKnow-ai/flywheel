@@ -784,6 +784,10 @@ const ALLOWED_UNBOUNDED_SELECTS: &[&str] = &[
                                   // for), and the task COUNT(*) is a GROUP-BY-less aggregate (the
                                   // same shape BLOCKED_COUNT_SQL/RECOVERY_COUNT_SQL are allowlisted
                                   // for) — neither is a page read, so LIMIT does not apply to either
+    "task_header",              // authoring.rs (plan 11-22) — query_row keyed by tasks.id (PRIMARY KEY);
+                                 // at most one row by construction, the get_epic_for_agent shape
+    "epic_header",              // authoring.rs (plan 11-22) — query_row keyed by epics.id (PRIMARY KEY);
+                                 // at most one row by construction, the get_epic_for_agent shape
 ];
 
 fn strip_comment_lines(source: &str) -> String {
