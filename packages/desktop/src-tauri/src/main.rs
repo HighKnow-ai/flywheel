@@ -130,6 +130,11 @@ fn main() {
 
             Ok(())
         })
+        // This list is the enforcement point for the app's command surface: a #[tauri::command]
+        // is reachable from the webview only if it is named here. The roster string in
+        // `capabilities/default.json` is documentation, not enforcement. Adding a command means
+        // adding it here; `tests/handler_roster.rs` fails the build if the two drift in either
+        // direction (a command declared but not listed, or an entry naming no command).
         .invoke_handler(tauri::generate_handler![
             commands::project::project_register,
             commands::project::project_list,
