@@ -147,7 +147,7 @@ fn accepting_a_create_task_proposal_writes_one_task_row_and_one_event() {
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(status, "backlog");
+        assert_eq!(status, "todo");
     });
 }
 
@@ -1290,7 +1290,7 @@ fn assert_proposal_survives_terminal_run(
         })
         .unwrap();
     assert_eq!(
-        status, "backlog",
+        status, "todo",
         "accepting a proposal after its session ended must produce the canonical row exactly as \
          it would have during the session"
     );

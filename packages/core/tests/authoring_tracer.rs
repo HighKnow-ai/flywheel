@@ -117,7 +117,7 @@ fn a_proposed_task_becomes_a_real_task_end_to_end_body() {
     assert_eq!(accepted.proposal.decided_by.as_deref(), Some(human_actor_id.as_str()));
     assert_eq!(accepted.proposal.status, "accepted");
 
-    // Exactly one real task row, in backlog, carrying a real project key.
+    // Exactly one real task row, at todo, carrying a real project key.
     let (status, key): (String, String) = conn
         .query_row(
             "SELECT status, key FROM tasks WHERE id = ?1",
@@ -125,7 +125,7 @@ fn a_proposed_task_becomes_a_real_task_end_to_end_body() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("the materialised task row should exist");
-    assert_eq!(status, "backlog");
+    assert_eq!(status, "todo");
     assert!(key.starts_with(&project.key_prefix), "key {key:?} should carry the project's prefix");
 
     let tasks_final: i64 =

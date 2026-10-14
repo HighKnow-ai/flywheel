@@ -174,11 +174,11 @@ fn roll_up_lists_each_task_with_status_criteria_count_and_integrated_in_both_sta
             bd.conn.query_row("SELECT key FROM tasks WHERE id = ?1", [id], |r| r.get(0)).unwrap()
         };
         assert!(
-            body.contains(&format!("- {}: Clean work — backlog — 1/2 criteria checked — integrated\n", key(&merged))),
+            body.contains(&format!("- {}: Clean work — todo — 1/2 criteria checked — integrated\n", key(&merged))),
             "{body}"
         );
         assert!(
-            body.contains(&format!("- {}: Rich work — backlog — 0/0 criteria checked — not integrated\n", key(&open))),
+            body.contains(&format!("- {}: Rich work — todo — 0/0 criteria checked — not integrated\n", key(&open))),
             "{body}"
         );
     });

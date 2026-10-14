@@ -803,6 +803,10 @@ fn require_target<'a>(proposal: &'a Proposal) -> anyhow::Result<&'a str> {
 /// (T-05-02-03, extended here to every verb/target_type combination). `parent_outcome` is `Some`
 /// only for a `create`/`criterion` proposal whose `parent_proposal_id` was just accepted (or was
 /// already accepted) by the caller — see [`accept_proposal_in_tx`]'s implied-parent walk.
+///
+/// A task created here lands at `todo`, like a hand-made one (D-18): acceptance IS the human act
+/// for this path, and `backlog` means only "proposed, not yet accepted". It stays distinguishable
+/// by its `task.created` event actor, which is the proposing agent.
 fn materialise_proposal(
     tx: &Transaction,
     proposal: &Proposal,

@@ -360,7 +360,7 @@ fn plan_and_task_states_accept_only_the_declared_vocabulary() {
     // Not a board transition: the dispatcher's display state never touches `tasks.status`.
     let status: String =
         s.conn.query_row("SELECT status FROM tasks WHERE id = ?1", params![s.tasks[0]], |r| r.get(0)).unwrap();
-    assert_eq!(status, "backlog");
+    assert_eq!(status, "todo");
     let _ = &mut s;
 }
 

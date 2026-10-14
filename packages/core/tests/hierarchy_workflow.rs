@@ -122,7 +122,7 @@ fn key_allocation_never_collides() {
 #[test]
 fn redundant_status_transition_is_a_no_op() {
     let (mut conn, actor_id, project) = seeded_project();
-    let task = create_task(&mut conn, &project.id, &actor_id, "Stay backlog", None)
+    let task = create_task(&mut conn, &project.id, &actor_id, "Stay todo", None)
         .expect("create_task should succeed");
 
     let updated_at_before: String = conn
@@ -133,7 +133,7 @@ fn redundant_status_transition_is_a_no_op() {
         )
         .expect("should read updated_at");
 
-    set_task_status(&mut conn, &actor_id, &task.id, "backlog")
+    set_task_status(&mut conn, &actor_id, &task.id, "todo")
         .expect("setting status to its current value should succeed");
 
     let updated_at_after: String = conn

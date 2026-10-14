@@ -498,7 +498,7 @@ fn github_branch_with_no_request_yields_no_request_and_no_transition() {
                 .expect("apply_forge_observation should succeed");
             assert_eq!(outcome.status_changed_to, None);
             assert_eq!(outcome.events_appended, 0);
-            assert_eq!(task_status(&conn, &task_id), "backlog");
+            assert_eq!(task_status(&conn, &task_id), "todo");
         });
     });
 }
@@ -609,7 +609,7 @@ fn gitlab_branch_with_no_request_yields_no_request_and_never_calls_view() {
                 .expect("apply_forge_observation should succeed");
             assert_eq!(outcome.status_changed_to, None);
             assert_eq!(outcome.events_appended, 0);
-            assert_eq!(task_status(&conn, &task_id), "backlog");
+            assert_eq!(task_status(&conn, &task_id), "todo");
         });
     });
 }

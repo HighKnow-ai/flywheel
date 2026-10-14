@@ -57,8 +57,8 @@ fn criterion_changes_appear_on_the_parent_trail() {
         .expect("create_task should succeed");
 
     update_task(&mut conn, &actor_id, &task.id, Some("Renamed"), None).expect("update_task should succeed");
-    set_task_status(&mut conn, &actor_id, &task.id, "todo").expect("set_task_status should succeed");
     set_task_status(&mut conn, &actor_id, &task.id, "in_progress").expect("set_task_status should succeed");
+    set_task_status(&mut conn, &actor_id, &task.id, "in_review").expect("set_task_status should succeed");
 
     // Insert the criterion fixture directly (bypassing `create_criterion`) so setting it up does
     // not itself append a sixth `criterion.created` event onto this trail — this test proves that
@@ -163,7 +163,7 @@ fn every_entry_has_a_description_and_an_actor() {
     let task = create_task(&mut conn, &project.id, &actor_id, "Described", None)
         .expect("create_task should succeed");
     update_task(&mut conn, &actor_id, &task.id, Some("Renamed"), None).expect("update_task should succeed");
-    set_task_status(&mut conn, &actor_id, &task.id, "todo").expect("set_task_status should succeed");
+    set_task_status(&mut conn, &actor_id, &task.id, "in_progress").expect("set_task_status should succeed");
 
     let trail = activity_trail(&conn, "task", &task.id, 50, 0).expect("activity_trail should succeed");
 
@@ -186,7 +186,7 @@ fn trail_paging_covers_every_entry_once() {
         .expect("create_task should succeed");
     update_task(&mut conn, &actor_id, &task.id, Some("A"), None).expect("update_task should succeed");
     update_task(&mut conn, &actor_id, &task.id, Some("B"), None).expect("update_task should succeed");
-    set_task_status(&mut conn, &actor_id, &task.id, "todo").expect("set_task_status should succeed");
+    set_task_status(&mut conn, &actor_id, &task.id, "in_progress").expect("set_task_status should succeed");
 
     let full = activity_trail(&conn, "task", &task.id, 50, 0).expect("activity_trail should succeed");
     assert_eq!(full.len(), 4, "created + two title edits + one status change");

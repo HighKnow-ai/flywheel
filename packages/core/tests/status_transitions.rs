@@ -58,20 +58,20 @@ fn set_task_status_behavior_is_unchanged_by_the_extraction() {
     let task = create_task(&mut conn, &project.id, &actor_id, "Status writer", None)
         .expect("create_task should succeed");
 
-    // Redundant transition (new value == current value, "backlog"): no-op, no event, no
+    // Redundant transition (new value == current value, "todo"): no-op, no event, no
     // `updated_at` change — the guarantee set_task_status has always made.
-    set_task_status(&mut conn, &actor_id, &task.id, "backlog")
+    set_task_status(&mut conn, &actor_id, &task.id, "todo")
         .expect("no-op status set should succeed");
     assert_eq!(count_events_of_type(&conn, &task.id, "task.status_changed"), 0);
 
     // A real transition writes exactly one event with the before/after payload shape.
-    set_task_status(&mut conn, &actor_id, &task.id, "todo").expect("status set should succeed");
+    set_task_status(&mut conn, &actor_id, &task.id, "in_progress").expect("status set should succeed");
     let trail = activity_trail(&conn, "task", &task.id, 50, 0).expect("trail read should succeed");
     let status_events: Vec<_> =
         trail.iter().filter(|e| e.event_type == "task.status_changed").collect();
     assert_eq!(status_events.len(), 1);
-    assert_eq!(status_events[0].payload["before"], "backlog");
-    assert_eq!(status_events[0].payload["after"], "todo");
+    assert_eq!(status_events[0].payload["before"], "todo");
+    assert_eq!(status_events[0].payload["after"], "in_progress");
 }
 
 #[test]

@@ -31,7 +31,7 @@ pub struct Task {
 }
 
 /// Create a task: opens exactly one `conn.transaction()` and, inside it, computes the tail rank
-/// for the backlog band, allocates the project's next human-readable key, inserts the `tasks`
+/// for the `todo` band, allocates the project's next human-readable key, inserts the `tasks`
 /// row, allocates the next event sequence and appends a `task.created` event — then commits
 /// once. The projection row and the event either both land or neither does (DATA-01).
 ///
@@ -57,6 +57,11 @@ pub fn create_task(
 /// which must never write `tasks` through a second statement of its own (T-05-02-03) — can run it
 /// inside a transaction it already owns. `create_task`'s own body and signature are otherwise
 /// unchanged; this is the same statements, callable from inside the caller's transaction.
+///
+/// Band semantics (D-18): a new task is created at `todo`. `backlog` now means exactly "proposed
+/// by an agent, not yet accepted"; typing a task is the human act and there is no second
+/// acceptance to wait for. A task materialised from an accepted agent proposal also lands here,
+/// because acceptance IS the human act for that path.
 pub fn create_task_in_tx(
     tx: &Transaction,
     project_id: &str,
@@ -65,6 +70,7 @@ pub fn create_task_in_tx(
     epic_id: Option<&str>,
     now: &str,
 ) -> anyhow::Result<Task> {
+    const CREATED_BAND: &str = "todo";
     let id = new_id();
 
     if let Some(epic_id) = epic_id {
@@ -73,12 +79,12 @@ pub fn create_task_in_tx(
 
     let last_rank: Option<String> = tx
         .query_row(
-            "SELECT rank FROM tasks WHERE project_id = ?1 AND status = 'backlog' ORDER BY rank DESC LIMIT 1",
-            params![project_id],
+            "SELECT rank FROM tasks WHERE project_id = ?1 AND status = ?2 ORDER BY rank DESC LIMIT 1",
+            params![project_id, CREATED_BAND],
             |row| row.get(0),
         )
         .optional()
-        .context("failed to read the backlog tail rank")?;
+        .context("failed to read the todo tail rank")?;
     let rank = rank_after(last_rank.as_deref())?;
 
     // Allocate the human-readable key in the same transaction as the insert (D-10) — no gaps,
@@ -97,8 +103,8 @@ pub fn create_task_in_tx(
         "INSERT INTO tasks (
             id, project_id, epic_id, key, title, status, rank, priority,
             created_by, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, 'backlog', ?6, ?7, ?8, ?9, ?9)",
-        params![id, project_id, epic_id, key, title, rank, DEFAULT_PRIORITY, actor_id, now],
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?10, ?6, ?7, ?8, ?9, ?9)",
+        params![id, project_id, epic_id, key, title, rank, DEFAULT_PRIORITY, actor_id, now, CREATED_BAND],
     )
     .context("failed to insert task")?;
 
@@ -106,7 +112,7 @@ pub fn create_task_in_tx(
     let payload = serde_json::json!({
         "field": "status",
         "before": null,
-        "after": "backlog",
+        "after": CREATED_BAND,
         "title": title,
         "label": format!("Created task \"{title}\""),
     });
@@ -131,7 +137,7 @@ pub fn create_task_in_tx(
         epic_id: epic_id.map(|s| s.to_string()),
         key,
         title: title.to_string(),
-        status: "backlog".to_string(),
+        status: CREATED_BAND.to_string(),
         rank,
         priority: DEFAULT_PRIORITY,
     })

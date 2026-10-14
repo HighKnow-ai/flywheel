@@ -232,7 +232,7 @@ fn packet_for_a_real_epic_includes_its_task_roster_with_current_criteria() {
 
     assert_eq!(packet.task_roster.len(), 1);
     assert_eq!(packet.task_roster[0].title, "Wire the packet");
-    assert_eq!(packet.task_roster[0].status, "backlog");
+    assert_eq!(packet.task_roster[0].status, "todo");
     assert_eq!(packet.task_roster[0].criteria.len(), 1);
     assert_eq!(packet.task_roster[0].criteria[0].statement, "First criterion");
     assert_eq!(packet.task_roster[0].criteria[0].verification_hint.as_deref(), Some("run it"));
@@ -749,7 +749,8 @@ const ALLOWED_UNBOUNDED_SELECTS: &[&str] = &[
     "PENDING_REQUESTS_FOR_RUN_SQL", // permissions.rs — its own doc comment: "Do not reintroduce a LIMIT here"
     "RECOVERY_TASK_IDS_SQL",    // recovery.rs — bounded by the project's own recovery-item count
     "RECOVERY_COUNT_SQL",       // recovery.rs — COUNT(*) with no GROUP BY, always one row
-    "MATCH_WHERE",              // search.rs — a WHERE-clause fragment, always spliced into a LIMIT'd query
+    "EPICS_MATCH_WHERE",        // search.rs — a WHERE-clause fragment, always spliced into a LIMIT'd query (split from MATCH_WHERE by 13-05)
+    "TASKS_MATCH_WHERE",        // search.rs — as EPICS_MATCH_WHERE, for tasks_fts
     "epics_from_clause",        // search.rs — a FROM-subquery fragment, always spliced into a LIMIT'd query
     "tasks_from_clause",        // search.rs — a FROM-subquery fragment, always spliced into a LIMIT'd query
     "AGENT_TASK_CRITERIA_SQL",  // authoring.rs (plan 05-04) — bounded by one task's own criteria count,
