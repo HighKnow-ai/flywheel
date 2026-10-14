@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 19
+open_count: 20
 waived_count: 0
 fixed_count: 10
-total_count: 29
-last_updated: 2026-10-07T12:04:02.798Z
+total_count: 30
+last_updated: 2026-10-14T15:19:34.570Z
 ---
 
 # Broken Windows Ledger
@@ -44,6 +44,7 @@ last_updated: 2026-10-07T12:04:02.798Z
 | 27 | 07 | unrun-verify | packages/core/src/forge/github.rs |  | create_request's live arm (an actual gh pr create / glab mr create against a real authenticated forge) was never exercised — only hermetic argv/stdin construction and tempfile-write tests ran. No disposable forge repo was available in this environment; mirrors 07-03's forge_probe precedent of deferring the live check to a human-invoked command rather than running it during automated verification. | open |  | 2026-10-04T11:15:20.021Z |  |
 | 28 | 08 | unmet-truth | packages/desktop/src/review/ReviewSurface.tsx |  | Epic scope shows the epic's own criteria only; the roll-up of its tasks (D-132) has no data source (08-06's rail builds none, no command lists an epic's tasks with criteria counts) | fixed |  | 2026-10-06T05:55:53.998Z | 2026-10-06T07:12:00.016Z |
 | 29 | 08.1 | unrun-verify | .planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/mission-control.html |  | detect.mjs ran degraded (parser modules missing); selection-rule finding unevaluated | open |  | 2026-10-07T12:04:02.798Z |  |
+| 30 | 13 | stub | .planning/phases/13-nothing-new-escapes-the-fence/13-LIVE-PLANNING-RUN.md |  | Criterion 6 live planning run not yet recorded; deliberate placeholder, DRFT-01 (Phase 15) cannot retire the hand-typed path field until it exists | open |  | 2026-10-14T15:19:34.570Z |  |
 
 ````json
 [
@@ -393,6 +394,18 @@ last_updated: 2026-10-07T12:04:02.798Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-07T12:04:02.798Z",
+    "resolved_at": null
+  },
+  {
+    "id": 30,
+    "kind": "stub",
+    "phase": "13",
+    "file": ".planning/phases/13-nothing-new-escapes-the-fence/13-LIVE-PLANNING-RUN.md",
+    "line": null,
+    "description": "Criterion 6 live planning run not yet recorded; deliberate placeholder, DRFT-01 (Phase 15) cannot retire the hand-typed path field until it exists",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-14T15:19:34.570Z",
     "resolved_at": null
   }
 ]

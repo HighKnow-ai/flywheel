@@ -174,7 +174,7 @@ paths", and D-69 explicitly rejected size ceilings because a ceiling moves the b
 the developer cannot see. Any bound must use fixed counts, link-based inclusion and a visible
 boundary sentence; "truncate at N tokens" is out. Whether acknowledged or superseded decisions drop
 from the folded residue is a deliberate decision to take before planning, not during.
-**Plans**: 3/11 plans executed, 6 waves
+**Plans**: 4/11 plans executed, 6 waves
 
 Plans:
 **Wave 1**
@@ -188,7 +188,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 13-04-PLAN.md — CLAUDE.md/PROJECT.md reconciliation, the too-far-ahead database test, the handler roster gate, A-01…A-04 (F7, F11)
+- [x] 13-04-PLAN.md — CLAUDE.md/PROJECT.md reconciliation, the too-far-ahead database test, the handler roster gate, A-01…A-04 (F7, F11)
 - [ ] 13-05-PLAN.md — spine DDL pin and table classification; the no-promotion gate covers tables by class (FNC-01, FNC-02)
 - [ ] 13-06-PLAN.md — hand-made tasks at `todo`; priority as an opt-in suggestion carrying its reasoning (DRFT-06)
 
@@ -398,7 +398,7 @@ Phase 17 shares no file with Phase 16 and may run beside it; it may not be absor
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 13. Nothing New Escapes The Fence | 3/11 | In Progress|  |
+| 13. Nothing New Escapes The Fence | 4/11 | In Progress|  |
 | 14. Cycles On Screen, State In Colour | 0/0 | Not started | - |
 | 15. Nothing Typed That An Agent Could Draft | 0/0 | Not started | - |
 | 16. The Problem And The Decision Are Board Records | 0/0 | Not started | - |
