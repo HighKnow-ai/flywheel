@@ -7,6 +7,9 @@
 //! - `restore_project` round-trips: the project reappears with the same id, prefix, name and path.
 //! - Registering a path whose marker names a hidden project restores it rather than duplicating it.
 //! - Hiding or restoring an unknown project id is refused, and writes nothing.
+//! - The junk-epic detection query of D-REV-25 matches a seeded junk epic (titled `test`, or one
+//!   task and no criteria) and matches nothing on a healthy board. The same text is run against
+//!   a copy of the live board by plan 11-19.
 //! - The listing reads (`fleet_rows`, `blocked_queue`, the worktree inventory and its measure
 //!   targets, and both git-identity sweeps) skip a hidden project and bring it back on restore.
 
@@ -311,4 +314,62 @@ fn the_git_identity_sweeps_skip_a_hidden_project_and_restore_brings_it_back() {
     restore_project(&mut f.conn, &f.actor_id, &p.id).unwrap();
     assert!(matches!(by_sha(&f), ResolveOutcome::Resolved(_)));
     assert!(matches!(by_branch(&f), ResolveOutcome::Resolved(_)));
+}
+
+/// D-REV-25's detection, verbatim: epics whose title is `test`, or whose total is one with no
+/// criteria (on the epic or on its one task). Archived epics are not on the roster, so they are
+/// not candidates. Plan 11-19 ran this exact text against a copy of the live board.
+const JUNK_EPIC_SQL: &str = "SELECT e.id, e.title, \
+        (SELECT COUNT(*) FROM tasks t WHERE t.epic_id = e.id) AS total \
+    FROM epics e \
+    WHERE e.archived_at IS NULL \
+      AND (lower(trim(e.title)) = 'test' \
+           OR ((SELECT COUNT(*) FROM tasks t WHERE t.epic_id = e.id) = 1 \
+               AND NOT EXISTS (SELECT 1 FROM acceptance_criteria c \
+                   WHERE (c.parent_type = 'epic' AND c.parent_id = e.id) \
+                      OR (c.parent_type = 'task' AND c.parent_id IN (SELECT id FROM tasks WHERE epic_id = e.id))))) \
+    ORDER BY e.created_at";
+
+fn junk_epics(conn: &Connection) -> Vec<(String, i64)> {
+    let mut stmt = conn.prepare(JUNK_EPIC_SQL).expect("prepare junk query");
+    stmt.query_map([], |row| Ok((row.get::<_, String>(1)?, row.get::<_, i64>(2)?)))
+        .expect("query")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect")
+}
+
+/// An epic with `n` tasks, each attached; returns the epic id and the task ids.
+fn epic_with_tasks(f: &mut Fixture, p: &Project, title: &str, n: usize) -> (String, Vec<String>) {
+    let epic = create_epic(&mut f.conn, &p.id, &f.actor_id, title, None).expect("create_epic");
+    let tasks = (0..n)
+        .map(|i| {
+            let t = create_task(&mut f.conn, &p.id, &f.actor_id, &format!("{title} task {i}"), None).expect("create_task");
+            f.conn.execute("UPDATE tasks SET epic_id = ?1 WHERE id = ?2", params![epic.id, t.id]).unwrap();
+            t.id
+        })
+        .collect();
+    (epic.id, tasks)
+}
+
+#[test]
+fn junk_epic_detection_matches_a_seeded_junk_epic_and_nothing_on_a_healthy_board() {
+    let mut f = fixture();
+    let p = project(&mut f, "Alpha", "ALP");
+
+    // A healthy board: a real epic with several tasks, and a one-task epic that carries a criterion.
+    epic_with_tasks(&mut f, &p, "Real work", 3);
+    let (_, one_task) = epic_with_tasks(&mut f, &p, "Small but specified", 1);
+    f.conn
+        .execute(
+            "INSERT INTO acceptance_criteria (id, parent_type, parent_id, statement, checked, rank, created_by, created_at, updated_at)
+             VALUES (?1, 'task', ?2, 'It does the thing.', 0, 'a0', ?3, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            params![new_id(), one_task[0], f.actor_id],
+        )
+        .unwrap();
+    assert_eq!(junk_epics(&f.conn), vec![], "a healthy board has no junk epic");
+
+    // The junk: an epic titled `test` (the live board's lead row), and a one-task epic with no criteria.
+    epic_with_tasks(&mut f, &p, "test", 1);
+    epic_with_tasks(&mut f, &p, "Throwaway", 1);
+    assert_eq!(junk_epics(&f.conn), vec![("test".to_string(), 1), ("Throwaway".to_string(), 1)]);
 }
