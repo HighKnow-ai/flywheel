@@ -82,13 +82,13 @@ pub enum ResolveOutcome {
     AmbiguousAcrossRepositories { repositories: usize },
 }
 
-/// Every `status = 'active'` project row's `(id, repo_path)`, ordered by `id` — a ULID, therefore
+/// Every `status = 'active'`, non-hidden project row's `(id, repo_path)`, ordered by `id` — a ULID, therefore
 /// chronological, matching the project's own registration order. This is the deterministic
 /// repository-iteration order the sha path relies on so two reads of the same input agree, and it
 /// reads only repositories the user themselves registered (T-07-05-02).
 fn active_projects_ordered(conn: &Connection) -> anyhow::Result<Vec<(String, String)>> {
     let mut stmt =
-        conn.prepare("SELECT id, repo_path FROM projects WHERE status = 'active' ORDER BY id ASC")?;
+        conn.prepare("SELECT id, repo_path FROM projects WHERE status = 'active' AND hidden = 0 ORDER BY id ASC")?;
     let rows = stmt
         .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
         .collect::<Result<Vec<_>, _>>()?;
@@ -98,7 +98,7 @@ fn active_projects_ordered(conn: &Connection) -> anyhow::Result<Vec<(String, Str
 /// Every `status = 'active'` project row's `id` alone, same order as [`active_projects_ordered`] —
 /// the branch path needs no `repo_path` since it never touches git.
 fn active_project_ids_ordered(conn: &Connection) -> anyhow::Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT id FROM projects WHERE status = 'active' ORDER BY id ASC")?;
+    let mut stmt = conn.prepare("SELECT id FROM projects WHERE status = 'active' AND hidden = 0 ORDER BY id ASC")?;
     let rows = stmt.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }

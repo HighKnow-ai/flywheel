@@ -1,4 +1,5 @@
-//! `project_register` / `project_list` — project registration and listing.
+//! `project_register` / `project_list` / `project_hide` / `project_restore` — project registration,
+//! listing and reversible removal.
 
 use serde::Serialize;
 use std::path::Path;
@@ -141,4 +142,42 @@ pub fn project_relocate(
     .map_err(|e| e.to_string())?;
 
     Ok(project.into())
+}
+
+/// Remove a project from every list (D-200, closes D-REV-29) — a reversible soft-hide, never a
+/// delete: the project's board, worktrees, runs and activity trail all stay in SQLite and
+/// [`project_restore`] brings it back. Takes a project id and nothing else; the actor is resolved
+/// here, never accepted from the renderer (T-11-53). Refuses an id that names no project.
+#[tauri::command]
+pub fn project_hide(state: State<AppState>, project_id: String) -> Result<(), String> {
+    let project_id = project_id.trim();
+    if project_id.is_empty() {
+        return Err("project id is required".to_string());
+    }
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::project::hide_project(&mut conn, &actor_id, project_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Undo [`project_hide`] and return the resulting project list. Re-verifies every project's
+/// marker afterwards, so a restored project does not keep a stale `unreachable` or `active` status
+/// until the next launch. Same argument rules as [`project_hide`]: an id, no actor.
+#[tauri::command]
+pub fn project_restore(state: State<AppState>, project_id: String) -> Result<Vec<ProjectDto>, String> {
+    let project_id = project_id.trim();
+    if project_id.is_empty() {
+        return Err("project id is required".to_string());
+    }
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::project::restore_project(&mut conn, &actor_id, project_id)
+        .map_err(|e| e.to_string())?;
+    flywheel_core::domain::project::reconcile_projects(&mut conn, &actor_id)
+        .map_err(|e| e.to_string())?;
+    let projects =
+        flywheel_core::domain::project::list_projects(&conn).map_err(|e| e.to_string())?;
+    Ok(projects.into_iter().map(ProjectDto::from).collect())
 }

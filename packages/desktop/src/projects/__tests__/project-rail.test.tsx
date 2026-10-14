@@ -5,6 +5,9 @@
  *   never a colour change alone (01-UI-SPEC.md "Accessibility").
  * - `⌘3` switches the open board to the third registered project (01-UI-SPEC.md "Project
  *   switcher (left rail)").
+ * - "Remove from Flywheel…" (D-200) asks first, naming the board, worktrees, runs and trail as
+ *   kept; calls `project_hide` exactly once and only after the confirmation; a hidden project is
+ *   absent from the rail; and the rail selects another project afterwards.
  * - `ProjectUnreachable` offers exactly one action, and nothing that tries again on its own,
  *   searches the disk, or fixes the mismatch without the user's explicit choice.
  */
@@ -29,6 +32,7 @@ vi.mock("../../adapters/tauri", () => ({
   boardRecoverySummary: (projectId: string) => invokeCommandMock("board_recovery_summary", { projectId }),
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
+  projectHide: (projectId: string) => invokeCommandMock("project_hide", { projectId }),
 }));
 
 function project(overrides: Partial<Project>): Project {
@@ -250,5 +254,68 @@ describe("project switching via the keyboard (⌘1-⌘9)", () => {
       expect(screen.getByRole("button", { name: "Charlie" })).toHaveAttribute("aria-current", "true"),
     );
     expect(screen.getByRole("button", { name: "Alpha" })).not.toHaveAttribute("aria-current");
+  });
+});
+
+describe("ProjectRail's Remove from Flywheel (D-200, closes D-REV-29)", () => {
+  const alpha = project({ id: "p1", name: "Alpha", keyPrefix: "ALP" });
+  const dupe = project({ id: "p2", name: "Alpha", keyPrefix: "ALP", status: "unreachable" });
+
+  function openConfirmation() {
+    fireEvent.click(screen.getByRole("button", { name: "Remove from Flywheel…" }));
+  }
+
+  it("asks first, naming what is kept, and calls project_hide only after the confirmation", async () => {
+    invokeCommandMock.mockResolvedValue(undefined);
+    const onSelect = vi.fn();
+    renderWithClient(<ProjectRail projects={[alpha, dupe]} currentProjectId="p2" onSelect={onSelect} />);
+
+    openConfirmation();
+    expect(invokeCommandMock).not.toHaveBeenCalledWith("project_hide", expect.anything());
+    const confirmation = screen.getByRole("group", { name: "Remove Alpha from Flywheel" });
+    for (const kept of ["board", "worktrees", "runs", "activity trail"]) {
+      expect(confirmation).toHaveTextContent(kept);
+    }
+    expect(confirmation).toHaveTextContent("nothing is deleted");
+
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Remove from Flywheel" }));
+    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("project_hide", { projectId: "p2" }));
+    expect(invokeCommandMock.mock.calls.filter(([command]) => command === "project_hide")).toHaveLength(1);
+  });
+
+  it("selects another project afterwards rather than rendering an empty surface", async () => {
+    invokeCommandMock.mockResolvedValue(undefined);
+    const onSelect = vi.fn();
+    renderWithClient(<ProjectRail projects={[alpha, dupe]} currentProjectId="p2" onSelect={onSelect} />);
+
+    openConfirmation();
+    fireEvent.click(screen.getByRole("button", { name: "Remove from Flywheel" }));
+
+    await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1));
+    expect(onSelect).toHaveBeenCalledWith(alpha);
+  });
+
+  it("calls nothing when the confirmation is declined", () => {
+    renderWithClient(<ProjectRail projects={[alpha, dupe]} currentProjectId="p2" onSelect={() => {}} />);
+    openConfirmation();
+    fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
+    expect(invokeCommandMock).not.toHaveBeenCalledWith("project_hide", expect.anything());
+    expect(screen.queryByRole("group", { name: /Remove Alpha from Flywheel/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps the project and says why when the hide fails", async () => {
+    invokeCommandMock.mockRejectedValue(new Error("project not found"));
+    const onSelect = vi.fn();
+    renderWithClient(<ProjectRail projects={[alpha, dupe]} currentProjectId="p2" onSelect={onSelect} />);
+    openConfirmation();
+    fireEvent.click(screen.getByRole("button", { name: "Remove from Flywheel" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("project not found");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("a hidden project is absent from the rail once the list no longer carries it", () => {
+    renderWithClient(<ProjectRail projects={[alpha]} currentProjectId="p1" onSelect={() => {}} />);
+    expect(screen.getAllByRole("button", { name: /^Alpha/ })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Alpha, Unreachable" })).not.toBeInTheDocument();
   });
 });

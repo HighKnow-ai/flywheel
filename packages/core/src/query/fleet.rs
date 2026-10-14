@@ -116,7 +116,7 @@ pub const FLEET_SQL: &str = "SELECT * FROM ( \
             WHERE pr.agent_run_id = ar.id AND pr.status = 'pending') AS blocked_since, \
         ar.cost_usd AS cost_usd, ar.tokens_in AS tokens_in, ar.tokens_out AS tokens_out \
     FROM agent_runs ar \
-    JOIN projects p ON p.id = ar.project_id \
+    JOIN projects p ON p.id = ar.project_id AND p.hidden = 0 \
     LEFT JOIN tasks t ON t.id = ar.task_id \
     LEFT JOIN epics e ON e.id = ar.epic_id \
     WHERE ar.status IN ('running', 'blocked') \
@@ -231,7 +231,7 @@ pub const BLOCKED_QUEUE_SQL: &str = "SELECT pr.id, pr.tool_name, pr.input_payloa
         ar.task_id, t.key, t.title, ar.epic_id, e.key, ar.authoring_stage \
     FROM permission_requests pr \
     JOIN agent_runs ar ON ar.id = pr.agent_run_id \
-    JOIN projects p ON p.id = ar.project_id \
+    JOIN projects p ON p.id = ar.project_id AND p.hidden = 0 \
     LEFT JOIN tasks t ON t.id = ar.task_id \
     LEFT JOIN epics e ON e.id = ar.epic_id \
     WHERE ar.status = 'blocked' AND pr.status = 'pending' \
@@ -353,7 +353,7 @@ macro_rules! worktree_inventory_select {
 /// The inventory statement. Size descending (never-measured last: SQLite sorts NULL lowest), task
 /// key ascending as the tie-break, then the worktree id so two reads are byte-identical.
 pub const WORKTREE_INVENTORY_SQL: &str =
-    concat!(worktree_inventory_select!(), " ORDER BY w.size_bytes DESC, t.key ASC, w.id ASC LIMIT ?1");
+    concat!(worktree_inventory_select!(), " WHERE p.hidden = 0 ORDER BY w.size_bytes DESC, t.key ASC, w.id ASC LIMIT ?1");
 
 const WORKTREE_INVENTORY_ONE_SQL: &str = concat!(worktree_inventory_select!(), " WHERE t.id = ?1");
 
@@ -498,7 +498,7 @@ pub fn worktree_measure_targets(
             }
         }
         None => {
-            let mut stmt = conn.prepare("SELECT task_id, path FROM worktrees ORDER BY size_measured_at ASC, id ASC LIMIT ?1")?;
+            let mut stmt = conn.prepare("SELECT task_id, path FROM worktrees WHERE project_id IN (SELECT id FROM projects WHERE hidden = 0) ORDER BY size_measured_at ASC, id ASC LIMIT ?1")?;
             targets = stmt
                 .query_map(params![limit as i64], |row| {
                     Ok(WorktreeMeasureTarget { task_id: row.get(0)?, path: row.get(1)? })

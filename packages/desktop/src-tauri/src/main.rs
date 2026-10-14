@@ -135,6 +135,8 @@ fn main() {
             commands::project::project_list,
             commands::project::project_reconcile,
             commands::project::project_relocate,
+            commands::project::project_hide,
+            commands::project::project_restore,
             commands::task::task_create,
             commands::task::task_header,
             commands::task::epic_header,

@@ -7,13 +7,17 @@
 //! - `restore_project` round-trips: the project reappears with the same id, prefix, name and path.
 //! - Registering a path whose marker names a hidden project restores it rather than duplicating it.
 //! - Hiding or restoring an unknown project id is refused, and writes nothing.
+//! - The listing reads (`fleet_rows`, `blocked_queue`, the worktree inventory and its measure
+//!   targets, and both git-identity sweeps) skip a hidden project and bring it back on restore.
 
 use core::db::open_and_migrate;
 use core::domain::actor::local_human_actor_id;
 use core::domain::epic::create_epic;
 use core::domain::project::{create_project, hide_project, list_projects, register_project, restore_project, Project};
 use core::domain::task::create_task;
+use core::git_identity::{resolve_identifier, GitIdentifier, ResolveOutcome};
 use core::ids::new_id;
+use core::query::fleet::{blocked_queue, fleet_rows, worktree_inventory_inputs, worktree_measure_targets};
 use rusqlite::{params, Connection};
 
 struct Fixture {
@@ -205,4 +209,106 @@ fn hiding_or_restoring_an_unknown_project_is_refused_and_writes_nothing() {
 
     let events_after: i64 = f.conn.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0)).unwrap();
     assert_eq!(events_before, events_after);
+}
+
+/// Make the seeded run wait on a pending permission request, so `blocked_queue` has a row for it.
+fn block_run(f: &Fixture, p: &Project, task_id: &str, run_id: &str) {
+    f.conn.execute("UPDATE agent_runs SET status = 'blocked' WHERE id = ?1", params![run_id]).unwrap();
+    f.conn
+        .execute(
+            "INSERT INTO permission_requests (id, agent_run_id, task_id, project_id, tool_name, status, created_by, created_at)
+             VALUES (?1, ?2, ?3, ?4, 'Bash', 'pending', ?5, '2026-10-13T00:00:01Z')",
+            params![new_id(), run_id, task_id, p.id, f.actor_id],
+        )
+        .unwrap();
+}
+
+#[test]
+fn the_fleet_blocked_queue_and_worktree_reads_skip_a_hidden_project_and_restore_brings_it_back() {
+    let mut f = fixture();
+    let keep = project(&mut f, "Keep", "KEP");
+    let gone = project(&mut f, "Gone", "GON");
+    let (keep_task, keep_run) = seed_board(&mut f, &keep);
+    let (gone_task, gone_run) = seed_board(&mut f, &gone);
+    block_run(&f, &keep, &keep_task, &keep_run);
+    block_run(&f, &gone, &gone_task, &gone_run);
+
+    let fleet_projects = |f: &Fixture| -> Vec<String> {
+        let mut ids: Vec<String> = fleet_rows(&f.conn, 50).unwrap().rows.into_iter().map(|r| r.project_id).collect();
+        ids.sort();
+        ids
+    };
+    let queue_projects = |f: &Fixture| -> Vec<String> {
+        blocked_queue(&f.conn, 50).unwrap().into_iter().map(|e| e.project_id).collect::<Vec<_>>()
+    };
+    let inventory_tasks = |f: &Fixture| -> Vec<String> {
+        worktree_inventory_inputs(&f.conn, 50).unwrap().into_iter().map(|i| i.task_id).collect()
+    };
+    let measure_tasks = |f: &Fixture| -> Vec<String> {
+        worktree_measure_targets(&f.conn, None, 50).unwrap().into_iter().map(|t| t.task_id).collect()
+    };
+
+    // Baseline: both projects are everywhere.
+    assert_eq!(fleet_projects(&f).len(), 2);
+    assert_eq!(queue_projects(&f).len(), 2);
+    assert_eq!(inventory_tasks(&f).len(), 2);
+    assert_eq!(measure_tasks(&f).len(), 2);
+
+    hide_project(&mut f.conn, &f.actor_id, &gone.id).unwrap();
+
+    assert_eq!(fleet_projects(&f), vec![keep.id.clone()]);
+    assert_eq!(queue_projects(&f), vec![keep.id.clone()]);
+    assert_eq!(inventory_tasks(&f), vec![keep_task.clone()]);
+    assert_eq!(measure_tasks(&f), vec![keep_task.clone()]);
+    // By-id: the hidden project's one worktree still resolves, so reclaim and history keep working.
+    assert!(core::query::fleet::worktree_inventory_input_for_task(&f.conn, &gone_task).unwrap().is_some());
+
+    restore_project(&mut f.conn, &f.actor_id, &gone.id).unwrap();
+
+    assert_eq!(fleet_projects(&f).len(), 2);
+    assert_eq!(queue_projects(&f).len(), 2);
+    assert_eq!(inventory_tasks(&f).len(), 2);
+    assert_eq!(measure_tasks(&f).len(), 2);
+}
+
+#[test]
+fn the_git_identity_sweeps_skip_a_hidden_project_and_restore_brings_it_back() {
+    let mut f = fixture();
+    // A real repository whose one commit carries a `Flywheel-Task` trailer: the sha sweep shells out
+    // to git and resolves only a commit that names a task of that project. The branch sweep
+    // re-derives an epic's integration branch from the roster.
+    let repo = f.dir.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let p = create_project(&mut f.conn, &f.actor_id, "Real", repo.to_str().unwrap(), "REA", "main").unwrap();
+    let epic = create_epic(&mut f.conn, &p.id, &f.actor_id, "Branchy epic", None).unwrap();
+    let task = create_task(&mut f.conn, &p.id, &f.actor_id, "Stamped task", None).unwrap();
+    let trailer = format!("Flywheel-Task: {}", task.key.to_lowercase());
+    for args in [
+        vec!["init", "-q", "-b", "main"],
+        vec!["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first", "-m", &trailer],
+    ] {
+        let out = std::process::Command::new("git").arg("-C").arg(&repo).args(&args).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    let sha = String::from_utf8(
+        std::process::Command::new("git").arg("-C").arg(&repo).args(["rev-parse", "HEAD"]).output().unwrap().stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    let branch = core::branch::epic_integration_branch_name(&epic.key, &epic.title);
+
+    let by_sha = |f: &Fixture| resolve_identifier(&f.conn, &GitIdentifier::Sha(sha.clone())).unwrap();
+    let by_branch = |f: &Fixture| resolve_identifier(&f.conn, &GitIdentifier::Branch(branch.clone())).unwrap();
+
+    assert!(matches!(by_sha(&f), ResolveOutcome::Resolved(_)), "the shown project's commit must resolve");
+    assert!(matches!(by_branch(&f), ResolveOutcome::Resolved(_)));
+
+    hide_project(&mut f.conn, &f.actor_id, &p.id).unwrap();
+    assert_eq!(by_sha(&f), ResolveOutcome::NotFound, "a hidden project is not swept for a sha");
+    assert_eq!(by_branch(&f), ResolveOutcome::NotFound, "a hidden project's epics are not swept for a branch");
+
+    restore_project(&mut f.conn, &f.actor_id, &p.id).unwrap();
+    assert!(matches!(by_sha(&f), ResolveOutcome::Resolved(_)));
+    assert!(matches!(by_branch(&f), ResolveOutcome::Resolved(_)));
 }
