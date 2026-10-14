@@ -1008,6 +1008,9 @@ Plans:
      the Performance Contract's O(1) size lookup. The behaviour was decided deliberately and
      confirmed by the owner on 2026-10-08; only this sentence lagged, which made a correct build
      read as a miss. The three motions and the reduced-motion collapse are unchanged in substance.)*
+     *(Ruled again 2026-10-14 by the owner at the Phase 11 owner pass, D-202: the criterion says a group
+     "reveals its rows with a wipe", not that it "animates its height". Whether the wipe reads as growth
+     is a separate aesthetic judgement and remains an open owner question, D-REV-23.)*
   4. The motion durations in `styles/motion.css` are the ones a direction round actually
      confirmed, not an unreviewed assertion.
 

@@ -21,8 +21,8 @@ const specSource = new TextDecoder().decode(
  */
 
 /**
- * THE allowlist. It mirrors § "The brand rule" in 08.1-UI-SPEC.md: seven permitted uses (D-199) plus the three
- * existing uses plan 11-18 recorded without deciding. `spec` is a phrase that must appear in that section, so
+ * THE allowlist. It mirrors § "The brand rule" in 08.1-UI-SPEC.md: eight permitted uses (seven by D-199, the developer's turn by D-203)
+ * plus the two existing uses plan 11-18 recorded without deciding. `spec` is a phrase that must appear in that section, so
  * widening the code without widening the document is a failing test. Widen both together, or neither.
  *
  * `count` is the number of occurrences outside comments; a new use in an already-listed file changes it and fails.
@@ -33,8 +33,9 @@ const USE = {
   textAction: { spec: "text links and text actions" },
   runStatus: { spec: "the run status" },
   authoringStage: { spec: "the live authoring stage" },
-  // Recorded by plan 11-18, not decided by D-199 (the spec says so in its own words).
+  // Decided by D-203 (owner, 2026-10-14): colour is the feed's only channel telling the two speakers apart.
   developerTurn: { spec: "the developer's own turn in the authoring feed" },
+  // Recorded by plan 11-18, not decided by D-199 (the spec says so in its own words).
   proposalCount: { spec: "the pending-proposal count on an epic row" },
   selection: { spec: "the text-selection highlight" },
 } as const;
@@ -87,7 +88,7 @@ const files = Object.entries(sources)
 
 const BRAND = /--accent-(?:text-rack|text-strip|nontext)\b|#3c64dd|#5175e1/gi;
 
-describe("the brand rule (08.1-UI-SPEC.md, widened by D-199)", () => {
+describe("the brand rule (08.1-UI-SPEC.md, widened by D-199 and D-203)", () => {
   it("reads real source (a stubbed ?raw would pass vacuously)", () => {
     expect(files.length).toBeGreaterThan(50);
     expect(files.some(([p]) => p === "App.css")).toBe(true);

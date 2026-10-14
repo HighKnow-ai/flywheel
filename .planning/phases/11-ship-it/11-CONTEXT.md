@@ -245,6 +245,49 @@ treats them as locked and the drain does not re-ask them.
   contradicts the promise, so deferring it defers nothing worth having).
   — **Reversibility:** reversible — a `hidden` flag and a filter; the rows are never destroyed.
 
+### Decisions taken at the owner pass (plan 11-21, 2026-10-14)
+
+The owner answered the pass on 2026-10-14. These are his decisions, taken after the phase was
+planned, so they carry the next free ids. They are not in the planner's lock list above.
+
+- **D-201 (closes D-REV-42):** **PLAN-04 is narrowed to the file-writing tools.** The text said an
+  agent is "prevented at the tool level"; that holds for `Write`, `Edit`, `MultiEdit` and
+  `NotebookEdit` only. A `Bash` write is detected after the fact, and since plan 11-11 an observed
+  breach holds the automatic merge (`scope_breach`). Bash prevention is not scheduled and not claimed.
+  Rejected: scheduling Bash prevention. — **Reversibility:** reversible — a requirements edit.
+- **D-202 (closes the wording half of D-REV-23):** **ROADMAP Phase 8.1 success criterion 3 says a
+  group "reveals its rows with a wipe", not that it "animates its height".** The shipped technique
+  animates no height (a clip-path on the new rows, a transform on the rows below). The ROADMAP text
+  had already been amended on 2026-10-09; this records the owner's explicit ruling on the word. Whether
+  the wipe "reads as growth" is a separate aesthetic judgement and stays an owner question.
+  — **Reversibility:** reversible.
+- **D-203 (closes D-REV-28):** **The brand rule is amended to ALLOW the developer's own turn in the
+  authoring feed** (`FeedRow.tsx`, `--accent-text-rack`). Colour is the feed's only channel telling
+  the developer's words from the agent's. It is not moved to ink. The rule is now eight permitted
+  uses, and `brand-rule.test.ts` and `08.1-UI-SPEC.md` § The brand rule were widened together.
+  — **Reversibility:** reversible.
+- **D-204 (files D-REV-12, 15, 17 design calls):** **Five layout judgements are filed to the board
+  as decisions and do not block the phase:** the review pane order, the 380px file column, a masthead
+  in the shell, the lens toggle's own row, and the triage button wall. The owner's reason: these are
+  better judged against a running app than a screenshot. None is implemented here.
+  — **Reversibility:** not applicable (nothing built).
+- **D-205 (closes D-REV-62):** **The `xattr -cr` workaround is documented** in the README and the
+  release notes. Both releases are Pre-release on GitHub, which says plainly that distribution is
+  unsolved; the $99 Apple Developer purchase stays declined (D-REV-60), so DIST-01 criterion 1
+  stays unmet. **A consequence found while doing it:** GitHub's `releases/latest` skips Pre-releases,
+  and the updater asks `releases/latest/download/latest.json`, which now answers 404, so installed
+  clients cannot see an update (D-REV-67, DIST-02 unticked). Not changed here; it needs the owner's call.
+  — **Reversibility:** reversible.
+- **D-206 (closes the decision in D-REV-66):** **The update banner's dismissal stays per session.**
+  Filed low priority on the board in case it nags. — **Reversibility:** reversible.
+- **D-207:** **The register's survivors are filed by a script through the core's own write verbs,
+  after a `sqlite3 .backup` of the real database.** The owner approved writing to
+  `~/Library/Application Support/Flywheel/flywheel.db` and accepted the migration from schema 18 to 21
+  as irreversible. The script stops at schema 21, the schema the installed `0.1.1` knows; a build from
+  this branch would otherwise take the file to 22, a version the installed app has no migration for
+  (not tested; the migrator is expected to reject a database ahead of itself).
+  — **Reversibility:** the backup is the way back.
+
 ### Claude's Discretion
 
 Nothing was answered "you decide". Within the locked decisions above, planning owns: the exact
