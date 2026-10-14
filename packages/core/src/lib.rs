@@ -33,3 +33,4 @@ pub mod runtime_protocol;
 pub mod schema_classification;
 pub mod shim;
 pub mod session_log;
+pub mod status_derivation;

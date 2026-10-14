@@ -1,36 +1,37 @@
-//! The edge detector (D-121, D-122, D-123, D-124, phase 7 plan 07-07): the board's status column
-//! starts following the forge — forward only, on the edge, and then it hands the column back.
+//! The forge observation applier (D-121, D-122, D-123, D-124, phase 7 plan 07-07; DRFT-04, phase 13
+//! plan 07): records what the forge reported against a restart-safe baseline and hands the status
+//! question to the deriver (`status_derivation`). This module no longer writes `tasks.status` — the
+//! column has exactly one writer, and this function is one of its trigger points (D-12).
 //!
 //! Three properties a later reader must not break:
 //!
-//! First, this detector is **edge-triggered and hands the column back** (D-121) — it writes on an
-//! observed CHANGE against a baseline read from the append-only `events` log, and never
-//! re-asserts a level. That is what makes it structurally incapable of overwriting a manual move
-//! in a loop: once a poll has moved a task to the in-review band, a human moving it back
-//! afterwards stands until the forge state itself changes again, not merely re-observes. Across a
-//! window where the caller released its lock between reading a status and writing one (phase 07
-//! plan 07-11's lock-release restructure), edge-triggering alone is not enough — a merge observed
-//! before the release can still land after a manual move inside the window. `expected_status`
-//! (quick task 261005-mn5) closes that gap: a caller with a window passes the status it captured
-//! before releasing the lock, and the status write is refused unless the task is still there when
-//! the write actually runs. That precondition, not edge-triggering by itself, is what makes the
-//! "incapable of overwriting a manual move" claim hold across a lock-release window too.
+//! First, **the `in_review` promotion is edge-triggered** (D-121). It fires on an observed CHANGE
+//! against a baseline read from the append-only `events` log, and never re-asserts a level. That
+//! is what makes it structurally incapable of overwriting a human move in a loop: once a poll has
+//! moved a task to the in-review band, a human sending it back afterwards (`request_changes`)
+//! stands until the forge state itself changes again, not merely re-observes. This function
+//! tells the deriver whether this call is that edge ([`is_review_edge`]); the deriver does the
+//! rest. Across a window where the caller released its lock between reading a status and writing
+//! one (phase 07 plan 07-11's lock-release restructure), edge-triggering alone is not enough — a
+//! merge observed before the release can still land after a human move inside the window.
+//! `expected_status` (quick task 261005-mn5) closes that gap: a caller with a window passes the
+//! status it captured before releasing the lock, and the deriver refuses the write unless the task
+//! is still there when the write actually runs.
 //!
-//! Second, it implements **only the two transitions LINK-07 names, and only forward** (D-122):
-//! an opened (or reopened-with-changes-requested) request moves a task into the in-review band,
-//! and a merge moves it to the done band. It never moves a task backward out of either band on
-//! its own — "changes requested" and "closed without merging" are each only ever an `events` row.
-//! Those two rejected backward moves are named here deliberately, so a later reader does not add
-//! them as an "improvement": a changes-requested observation never demotes a task, and a
-//! closed-unmerged observation never demotes a task either.
+//! Second, **the board only ever moves forward on the forge's say-so** (D-122, now the deriver's
+//! band floor): an opened (or reopened-with-changes-requested) request moves a task into the
+//! in-review band, and a merge moves it to the done band. "Changes requested" and "closed without
+//! merging" are each only ever an `events` row, and no observation — including an absent request
+//! — moves a card backwards. Those rejected backward moves are named here deliberately, so a later
+//! reader does not add them as an "improvement".
 //!
 //! Third, it **never touches a criterion row** (D-123) — git stays the truth, and an unmet
 //! acceptance criterion on a task the forge just carried to Done is surfaced as an event, never
 //! silently closed on the user's behalf.
 //!
-//! Once a task's baseline has observed a merge, it is terminal — forward-only means forward only:
-//! no later observation (including an absent request, or a forge read that no longer finds the
-//! request at all) ever reopens or moves a merged task again.
+//! Once a task's baseline has observed a merge, no later observation (including an absent request,
+//! or a forge read that no longer finds the request at all) records a new state for it, and the
+//! deriver's floor keeps the card at done.
 
 use anyhow::Context;
 use chrono::Utc;
@@ -39,6 +40,7 @@ use rusqlite::{params, Connection};
 use crate::domain::event::{append_event, next_sequence};
 use crate::forge::{CiResult, ForgeRequest, ForgeState};
 use crate::query::forge::latest_forge_baseline;
+use crate::status_derivation::{derive_status_in_tx, is_review_edge, Derivation};
 
 /// A pull or merge request's lifecycle state changed since the last observation (LINK-07).
 pub const EVENT_FORGE_STATE_CHANGED: &str = "forge.state_changed";
@@ -102,8 +104,8 @@ fn state_changed_label(after: ForgeState, number: Option<i64>) -> String {
 }
 
 /// Apply one forge observation for `task_id` against the restart-safe baseline (D-121). Opens
-/// exactly one transaction: reads the baseline, decides, writes any status change through the
-/// transaction-scoped status writer, appends its own events, and commits.
+/// exactly one transaction: reads the baseline, appends its own events, hands the status question
+/// to `status_derivation::derive_status_in_tx` (which owns the column), and commits.
 ///
 /// `observed` is `None` when the forge reports no request for this task's branch at all — treated
 /// identically to a request whose state is "no request" for comparison purposes, EXCEPT that a
@@ -129,19 +131,13 @@ pub fn apply_forge_observation(
 
     let baseline = latest_forge_baseline(&tx, task_id)?;
 
-    let (project_id, epic_id, current_status): (String, Option<String>, String) = tx
+    let (project_id, epic_id): (String, Option<String>) = tx
         .query_row(
-            "SELECT project_id, epic_id, status FROM tasks WHERE id = ?1",
+            "SELECT project_id, epic_id FROM tasks WHERE id = ?1",
             params![task_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .with_context(|| format!("task {task_id:?} not found"))?;
-
-    // The compare-and-swap: a status write is permitted when the caller held no window (`None`),
-    // or when the status it captured before releasing its lock still matches what is in the
-    // database now.
-    let status_write_permitted =
-        expected_status.map(|expected| expected == current_status).unwrap_or(true);
 
     let (observed_state, observed_ci, number, url, ci_url) = match observed {
         Some(request) => (
@@ -156,6 +152,7 @@ pub fn apply_forge_observation(
 
     let mut status_changed_to: Option<String> = None;
     let mut events_appended = 0usize;
+    let mut forge_changed = false;
 
     // D-121/the module header's terminal rule: once the baseline has observed a merge, nothing
     // (including a request that has since gone absent from the read) ever moves this task again.
@@ -187,89 +184,88 @@ pub fn apply_forge_observation(
         )?;
         events_appended += 1;
 
-        let intended_status = if baseline.state == ForgeState::None
-            && matches!(observed_state, ForgeState::Open | ForgeState::ChangesRequested)
-        {
-            Some("in_review")
-        } else if observed_state == ForgeState::Merged {
-            Some("done")
-        } else {
-            None
-        };
+        forge_changed = true;
+    }
 
-        if let Some(intended_status) = intended_status {
-            if status_write_permitted {
-                crate::domain::task::set_task_status_in_tx(&tx, actor_id, task_id, intended_status)?;
-                status_changed_to = Some(intended_status.to_string());
+    // The deriver is the one writer of the status column (DRFT-04). It runs after the state-change
+    // event above, inside the same transaction, so its read of the forge baseline already sees
+    // this observation. Whether this call is the review edge is known only here.
+    let review_edge = forge_changed && is_review_edge(baseline.state, observed_state);
+    match derive_status_in_tx(&tx, task_id, actor_id, expected_status, review_edge)? {
+        Derivation::Unchanged => {}
+        Derivation::Wrote(new_status) => {
+            status_changed_to = Some(new_status.clone());
 
-                if intended_status == "done" {
-                    let unmet_count: i64 = tx
-                        .query_row(
-                            "SELECT COUNT(*) FROM acceptance_criteria \
-                             WHERE parent_type = 'task' AND parent_id = ?1 \
-                             AND checked = 0 AND superseded_at IS NULL",
-                            params![task_id],
-                            |row| row.get(0),
-                        )
-                        .context("failed to count unmet acceptance criteria")?;
+            if new_status == "done" {
+                let unmet_count: i64 = tx
+                    .query_row(
+                        "SELECT COUNT(*) FROM acceptance_criteria \
+                         WHERE parent_type = 'task' AND parent_id = ?1 \
+                         AND checked = 0 AND superseded_at IS NULL",
+                        params![task_id],
+                        |row| row.get(0),
+                    )
+                    .context("failed to count unmet acceptance criteria")?;
 
-                    if unmet_count > 0 {
-                        let unmet_payload = serde_json::json!({
-                            "unmet_count": unmet_count,
-                            "label": format!(
-                                "Merged with {unmet_count} unresolved acceptance criteria"
-                            ),
-                        });
-                        let unmet_sequence = next_sequence(&tx, &project_id, "local")?;
-                        append_event(
-                            &tx,
-                            &project_id,
-                            "local",
-                            unmet_sequence,
-                            "task",
-                            task_id,
-                            Some(task_id),
-                            epic_id.as_deref(),
-                            actor_id,
-                            EVENT_DONE_WITH_UNMET_CRITERIA,
-                            &unmet_payload,
-                            &now,
-                        )?;
-                        events_appended += 1;
-                    }
+                if unmet_count > 0 {
+                    let unmet_payload = serde_json::json!({
+                        "unmet_count": unmet_count,
+                        "label": format!(
+                            "Merged with {unmet_count} unresolved acceptance criteria"
+                        ),
+                    });
+                    let unmet_sequence = next_sequence(&tx, &project_id, "local")?;
+                    append_event(
+                        &tx,
+                        &project_id,
+                        "local",
+                        unmet_sequence,
+                        "task",
+                        task_id,
+                        Some(task_id),
+                        epic_id.as_deref(),
+                        actor_id,
+                        EVENT_DONE_WITH_UNMET_CRITERIA,
+                        &unmet_payload,
+                        &now,
+                    )?;
+                    events_appended += 1;
                 }
-            } else {
-                // Someone moved the card after the status this observation captured — the
-                // status write is refused, but the state-change event above still fired, so the
-                // baseline advances and no later tick retries this overwrite (D4).
-                let skip_label = format!(
-                    "Forge observed a change but did not move the card to {intended_status:?} — \
-                     its status changed to {current_status:?} after this observation was taken"
-                );
-                let skip_payload = serde_json::json!({
-                    "expected_status": expected_status,
-                    "actual_status": current_status,
-                    "intended_status": intended_status,
-                    "label": skip_label,
-                });
-                let skip_sequence = next_sequence(&tx, &project_id, "local")?;
-                append_event(
-                    &tx,
-                    &project_id,
-                    "local",
-                    skip_sequence,
-                    "task",
-                    task_id,
-                    Some(task_id),
-                    epic_id.as_deref(),
-                    actor_id,
-                    EVENT_FORGE_STATUS_WRITE_SKIPPED,
-                    &skip_payload,
-                    &now,
-                )?;
-                events_appended += 1;
             }
         }
+        // Someone moved the card after the status this observation captured. Only a refusal on a
+        // forge change leaves a trace here: a refusal on a level (a worktree, a standing merge) is
+        // retried by the next tick and needs none. The state-change event above already fired, so
+        // the baseline advances and no later tick re-fires this edge (D4).
+        Derivation::Refused { intended, actual } if forge_changed => {
+            let skip_label = format!(
+                "Forge observed a change but did not move the card to {intended:?} — \
+                 its status changed to {actual:?} after this observation was taken"
+            );
+            let skip_payload = serde_json::json!({
+                "expected_status": expected_status,
+                "actual_status": actual,
+                "intended_status": intended,
+                "label": skip_label,
+            });
+            let skip_sequence = next_sequence(&tx, &project_id, "local")?;
+            append_event(
+                &tx,
+                &project_id,
+                "local",
+                skip_sequence,
+                "task",
+                task_id,
+                Some(task_id),
+                epic_id.as_deref(),
+                actor_id,
+                EVENT_FORGE_STATUS_WRITE_SKIPPED,
+                &skip_payload,
+                &now,
+            )?;
+            events_appended += 1;
+        }
+        Derivation::Refused { .. } => {}
     }
 
     if observed_ci == CiResult::Failed && baseline.ci != CiResult::Failed {
