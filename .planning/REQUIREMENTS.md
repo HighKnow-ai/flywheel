@@ -220,7 +220,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | Phase 8 | Review And Merge Inside Flywheel | 5 | REVW-01, REVW-02, REVW-03, REVW-04, REVW-05 |
 | Phase 9 | Planned Fan-Out That Does Not Collide | 8 | AGNT-05, PLAN-01, PLAN-02, PLAN-03, PLAN-04, PLAN-05, PLAN-06, PLAN-07 |
 | Phase 10 | Fleet Supervision Across Every Project | 7 | WORK-07, AGNT-08, FLEET-01, FLEET-02, FLEET-03, FLEET-04, FLEET-05 |
-| Phase 11 | Ship It | 4 | DIST-01, DIST-02, DIST-03, DIST-04 |
+| Phase 11 | Ship It | 3 | DIST-02, DIST-03, DIST-04 (DIST-01 deferred to a later milestone, owner decision 2026-10-14) |
 
 ### By Requirement
 
@@ -315,7 +315,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | REVW-03 | Phase 8 | Complete |
 | REVW-04 | Phase 8 | Complete |
 | REVW-05 | Phase 8 | Complete |
-| DIST-01 | Phase 11 | Pending — criterion 1 (signed, notarized) UNMET by the owner's decision (D-REV-60); evidence in `11-RELEASE-EVIDENCE.md` § 3 and `11-OWNER-PASS.md` § 2.1 |
+| DIST-01 | **Deferred to a later milestone** (owner decision 2026-10-14) | NOT met and not reclassified. Criterion 1 requires a Developer ID Application certificate and notarization, i.e. a paid Apple Developer Program membership; the owner declined on 2026-10-13 (D-REV-60). The shipped bundle is ad-hoc/linker-signed with no sealed resources, so macOS reports it "damaged and can't be opened" with no Open button - the right-click-Open workaround does not exist (D-REV-62). Mitigated, not solved: `v0.1.0` is Pre-release and the README documents `xattr -cr`. Plan 11-07 is `deferred` with 0 tasks executed and runs unchanged once an account exists. Evidence: `11-RELEASE-EVIDENCE.md` § 3, `11-OWNER-PASS.md` § 2.1, `11-VERIFICATION.md` |
 | DIST-02 | Phase 11 | Met — mechanism observed end to end (plan 11-21: banner named 0.1.1 on an installed 0.1.0, install-on-relaunch staged it, the relaunched build reported 0.1.1, and with live runs the banner refused). The endpoint briefly 404'd while both releases were Pre-release; resolved 2026-10-14 by un-marking v0.1.1, verified HTTP 200 serving a signed 0.1.1 manifest (D-REV-67). `latest.json` verified (`11-RELEASE-EVIDENCE.md` § 6); update observed by automation on a copy of the installed build (`11-OWNER-PASS.md` § 2.2), not by the owner |
 | DIST-03 | Phase 11 | Met on evidence — fresh HTTPS clone built after the README fix (`11-RELEASE-EVIDENCE.md` § 5); README commands match `ci.yml` command for command; merged to `main` as `9fa4543` (PR #3) carrying the corrected build command, the `xattr -cr` note and the `epic_context_packet` allowlist entry. CI on the final tree had NOT concluded at verification time, and the repeated `worktree_lifecycle` failure is a real race, not a flake (D-REV-68) |
 | DIST-04 | Phase 11 | Complete — `open-core.yml`, run 38346860235 |

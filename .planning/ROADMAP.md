@@ -1198,10 +1198,19 @@ notification click-to-jump is deferred to a board issue and is in no requirement
 **Goal**: Cyril installs Flywheel like any other Mac application and it keeps itself current, and another developer can clone the repository and build it.
 **Mode:** mvp
 **Depends on**: Phase 10
-**Requirements**: DIST-01, DIST-02, DIST-03, DIST-04
+**Requirements**: DIST-02, DIST-03, DIST-04 (DIST-01 deferred to a later milestone — see below)
 **Success Criteria** (what must be TRUE):
 
-  1. User installs a signed, notarized macOS build and opens it with no Gatekeeper warning.
+  1. ~~User installs a signed, notarized macOS build and opens it with no Gatekeeper warning.~~
+     **DEFERRED OUT OF THIS MILESTONE, owner decision 2026-10-14.** Apple signing and notarization
+     require a paid Apple Developer Program membership ($99/yr), which the owner declined on
+     2026-10-13 after being told the cost (D-REV-60). On 2026-10-14 the consequence proved worse
+     than assumed: an ad-hoc, linker-signed bundle with no sealed resources makes macOS report the
+     app as "damaged and can't be opened", with no Open button, so the right-click-Open workaround
+     does not apply (D-REV-62). The owner chose to mark `v0.1.0` Pre-release and document
+     `xattr -cr` instead. This criterion is NOT met and is NOT reclassified as met - it moves to a
+     later milestone, with plan 11-07 (`deferred`, 0 tasks executed) ready to run unchanged the day
+     an account exists. Requirement DIST-01 stays unticked in REQUIREMENTS.md.
   2. User is offered a new release from inside the application and updates without a manual reinstall.
   3. A developer clones the repository and builds a working desktop application by following the documented steps.
   4. The installed open-source application is fully functional standalone — no account, no network service, and no feature gated behind either.
