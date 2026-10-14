@@ -177,16 +177,33 @@ from the folded residue is a deliberate decision to take before planning, not du
 **Plans**: 11 plans, 6 waves
 
 Plans:
+**Wave 1**
+
 - [ ] 13-01-PLAN.md — tracer: the PM-vocabulary gate (FNC-04), two-sided, wired into `cargo test -p core`
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 13-02-PLAN.md — bound the context packet at its input, with the drift detector in the same diff (FNC-05)
 - [ ] 13-03-PLAN.md — drop `estimate` from schema, domain, queries and UI; prove `criterion_anchors` survive the rebuild (DRFT-05, F4)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 13-04-PLAN.md — CLAUDE.md/PROJECT.md reconciliation, the too-far-ahead database test, the handler roster gate, A-01…A-04 (F7, F11)
 - [ ] 13-05-PLAN.md — spine DDL pin and table classification; the no-promotion gate covers tables by class (FNC-01, FNC-02)
 - [ ] 13-06-PLAN.md — hand-made tasks at `todo`; priority as an opt-in suggestion carrying its reasoning (DRFT-06)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 13-07-PLAN.md — derived task status with an explicit floor; F5's raw write and `StatusPicker` deleted (DRFT-04, F5)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 13-08-PLAN.md — one `UiSurface` union with one resolver inside the keyboard layer model (FNC-06, F9)
 - [ ] 13-09-PLAN.md — authority transitions human-only, two-sided, with the three write-past-the-gate sites dispositioned (FNC-03)
 - [ ] 13-10-PLAN.md — project-routed `board:changed` payload through one emit helper (FNC-07, F8)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 13-11-PLAN.md — per-kind proposal cap and refusal; run kind gets one definition (DRFT-09, F1, F6)
 
 ### Phase 14: Cycles On Screen, State In Colour
