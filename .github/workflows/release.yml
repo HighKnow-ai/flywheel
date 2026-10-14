@@ -96,6 +96,19 @@ jobs:
           # D-186: latest.json beside the artifacts is what gives self-update zero infrastructure.
           includeUpdaterJson: true
 
+      # D-205: the first-run workaround goes on the release page, not into the release body that
+      # tauri-action publishes: that body is also the update banner's "what changed" text (D-187),
+      # and an installed user does not need the first-run note on every update.
+      - name: Add the first-run note to the release page
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" --json body --jq .body > page.md
+          printf '\n\n' >> page.md
+          cat .github/release-install-note.md >> page.md
+          gh release edit "$TAG" --notes-file page.md
+
       # Do not trust the action's own success: read back what was actually published.
       # The updater tier (.sig + latest.json) is required as soon as the config asks for updater
       # artifacts. Plan 11-05 adds createUpdaterArtifacts together with the key (tauri refuses to

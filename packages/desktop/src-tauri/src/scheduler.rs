@@ -244,7 +244,7 @@ fn run_cold_tick(app: &AppHandle) {
 /// returned `Vec` owns its data, so the prepared statement (which borrows `conn`) is dropped
 /// before this function returns and before the caller releases the connection guard.
 fn fetch_tick_targets(conn: &rusqlite::Connection) -> Vec<FetchTarget> {
-    let mut stmt = match conn.prepare("SELECT id, repo_path FROM projects WHERE status = 'active'")
+    let mut stmt = match conn.prepare("SELECT id, repo_path FROM projects WHERE status = 'active' AND hidden = 0")
     {
         Ok(stmt) => stmt,
         Err(err) => {

@@ -27,6 +27,12 @@
  * Selecting it still calls `onSelect`; `App.tsx` is what decides an unreachable selection opens
  * `ProjectUnreachable` instead of a board — this component only renders the switcher itself.
  *
+ * "Remove from Flywheel…" (D-200, D-REV-29) hides the CURRENT project and nothing else. It is a
+ * reversible soft-hide, never a delete, and its confirmation says so by naming what is kept: the
+ * board, the worktrees, the runs and the activity trail. Registering the same repository again
+ * brings the project back. Afterwards the rail selects another project rather than leaving the
+ * surface pointing at one that no longer lists.
+ *
  * The `+` affordance at the rail's foot opens the SAME registration flow ⌘⇧O and the native File
  * menu use (`RegisterProjectFlow.tsx`) — never a second, rail-local copy of that sequence.
  *
@@ -41,11 +47,13 @@
  * spend attached). That one remains the CURRENT project's count.
  */
 import { useState, type CSSProperties } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Plus, TriangleAlert } from "lucide-react";
+import { projectHide } from "../adapters/tauri";
 import glyphUrl from "../assets/logo-glyph.svg";
 import type { Project } from "../board/useBoardQuery";
 import { useRecoverySummary } from "../board/useBoardQuery";
-import { useBlockedQueue } from "../fleet/useFleet";
+import { blockedQueueQueryKey, fleetQueryKey, useBlockedQueue, worktreeInventoryQueryKey } from "../fleet/useFleet";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
 import { useUiStore } from "../state/uiStore";
 
@@ -129,6 +137,10 @@ function Section({ id, label, children }: { id: string; label: string; children:
 
 export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRailProps) {
   const [notice, setNotice] = useState<string | null>(null);
+  // The project id the open confirmation is FOR, so switching project never carries it across.
+  const [confirmingRemoveId, setConfirmingRemoveId] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
   const setWorktreeInventoryOpen = useUiStore((state) => state.setWorktreeInventoryOpen);
   const {
@@ -161,6 +173,28 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   // exists to make at a glance.
   const recoverySummaryQuery = useRecoverySummary(currentProjectId);
   const recoveryCount = recoverySummaryQuery.data?.recoveryCount ?? 0;
+
+  const currentProject = projects.find((project) => project.id === currentProjectId);
+
+  async function removeCurrentProject() {
+    if (!currentProject) return;
+    try {
+      await projectHide(currentProject.id);
+    } catch (error) {
+      setRemoveError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    setConfirmingRemoveId(null);
+    setRemoveError(null);
+    // Land on another project before the list refetches, so the surface never points at a project
+    // that no longer lists. With none left, the empty list sends the app back to first run.
+    const next = projects.find((project) => project.id !== currentProject.id);
+    if (next) onSelect(next);
+    void queryClient.invalidateQueries({ queryKey: ["projects"] });
+    void queryClient.invalidateQueries({ queryKey: fleetQueryKey() });
+    void queryClient.invalidateQueries({ queryKey: blockedQueueQueryKey() });
+    void queryClient.invalidateQueries({ queryKey: worktreeInventoryQueryKey() });
+  }
 
   if (projects.length === 0) {
     // Not present pre-first-registration — `App.tsx` renders `FirstRun` instead, but this guard
@@ -236,6 +270,54 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
           <Plus size={14} strokeWidth={2} aria-hidden="true" />
           <span style={{ flex: 1 }}>Register Project…</span>
         </button>
+        {currentProject &&
+          (confirmingRemoveId === currentProject.id ? (
+            <div
+              role="group"
+              aria-label={`Remove ${currentProject.name} from Flywheel`}
+              style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", padding: "0 var(--space-sm)" }}
+            >
+              <p className="type-label" style={{ margin: 0, color: "var(--text-primary-rack)" }}>
+                Remove {currentProject.name} from Flywheel? Its board, worktrees, runs and activity trail are all
+                kept, and nothing is deleted. Register the repository again to bring it back.
+              </p>
+              <button
+                type="button"
+                className="type-body control-edge"
+                onClick={() => void removeCurrentProject()}
+                style={{ ...entryStyle, justifyContent: "flex-start" }}
+              >
+                Remove from Flywheel
+              </button>
+              <button
+                type="button"
+                className="type-body"
+                onClick={() => {
+                  setConfirmingRemoveId(null);
+                  setRemoveError(null);
+                }}
+                style={{ ...entryStyle, justifyContent: "flex-start", color: "var(--text-muted-rack)" }}
+              >
+                Keep it
+              </button>
+              {removeError && (
+                <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+                  Couldn&rsquo;t remove it — {removeError}
+                </p>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="type-body"
+              aria-label="Remove from Flywheel…"
+              title="Hide this project. Nothing is deleted."
+              onClick={() => setConfirmingRemoveId(currentProject.id)}
+              style={{ ...entryStyle, justifyContent: "flex-start", color: "var(--text-muted-rack)" }}
+            >
+              <span style={{ flex: 1 }}>Remove from Flywheel…</span>
+            </button>
+          ))}
       </Section>
 
       <Section id="rail-fleet" label="Fleet">

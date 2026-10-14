@@ -1008,6 +1008,9 @@ Plans:
      the Performance Contract's O(1) size lookup. The behaviour was decided deliberately and
      confirmed by the owner on 2026-10-08; only this sentence lagged, which made a correct build
      read as a miss. The three motions and the reduced-motion collapse are unchanged in substance.)*
+     *(Ruled again 2026-10-14 by the owner at the Phase 11 owner pass, D-202: the criterion says a group
+     "reveals its rows with a wipe", not that it "animates its height". Whether the wipe reads as growth
+     is a separate aesthetic judgement and remains an open owner question, D-REV-23.)*
   4. The motion durations in `styles/motion.css` are the ones a direction round actually
      confirmed, not an unreviewed assertion.
 
@@ -1203,7 +1206,7 @@ notification click-to-jump is deferred to a board issue and is in no requirement
   3. A developer clones the repository and builds a working desktop application by following the documented steps.
   4. The installed open-source application is fully functional standalone — no account, no network service, and no feature gated behind either.
 
-**Plans**: 18/22 plans executed
+**Plans**: 22/22 plans executed
 
 Plans:
 
@@ -1239,17 +1242,17 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 11-08-PLAN.md — Cut v0.1.0: public repo, signed install, and an offered update observed
+- [x] 11-08-PLAN.md — Cut v0.1.0: public repo, signed install, and an offered update observed
 - [x] 11-11-PLAN.md — Register drain: retry/skip a stuck task, and an observed scope breach stops the merge (D-REV-41, 42)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 11-19-PLAN.md — Register drain: reversible project soft-hide and two live-board data measurements (D-200, D-REV-29, 25, 04)
-- [ ] 11-20-PLAN.md — Register drain: the installed-build items — bundle icon and system appearance (D-REV-20, 22)
+- [x] 11-19-PLAN.md — Register drain: reversible project soft-hide and two live-board data measurements (D-200, D-REV-29, 25, 04)
+- [x] 11-20-PLAN.md — Register drain: the installed-build items — bundle icon and system appearance (D-REV-20, 22)
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
-- [ ] 11-21-PLAN.md — The single owner pass, register closure, and survivors filed on Flywheel's own board (D-194, D-196)
+- [x] 11-21-PLAN.md — The single owner pass, register closure, and survivors filed on Flywheel's own board (D-194, D-196)
 
 **UI hint**: no
 
@@ -1322,7 +1325,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8.1 Visual polish: brand assets and confirmed motion | 21/21 | Complete | 2026-10-09 |
 | 9. Planned Fan-Out That Does Not Collide | 13/13 | Complete    | 2026-10-10 |
 | 10. Fleet Supervision Across Every Project | 9/9 | Complete    | 2026-10-12 |
-| 11. Ship It | 18/22 | In Progress|  |
+| 11. Ship It | 22/22 | In Progress|  |
 | 12. Destructive-gate trust boundary redesign | 6/6 | Complete    | 2026-10-02 |
 
 ### Phase 12: Destructive-gate trust boundary redesign

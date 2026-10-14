@@ -11,6 +11,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import type { Project } from "../board/useBoardQuery";
 
 /**
  * Invoke a Tauri command and return its typed result.
@@ -2033,4 +2034,16 @@ export async function dispatchGateResumeNow(): Promise<GateDto> {
 /** Subscribe to `dispatch:gate_changed`, which the Rust core emits when the gate changes state. */
 export async function subscribeDispatchGateChanged(handler: () => void): Promise<UnlistenFn> {
   return listen("dispatch:gate_changed", () => handler());
+}
+
+/** Remove a project from every list (D-200). A reversible soft-hide, never a delete: its board,
+ * worktrees, runs and activity trail stay in SQLite. The id is the only argument; the actor is
+ * resolved in the Rust command. */
+export async function projectHide(projectId: string): Promise<void> {
+  return invokeCommand<void>("project_hide", { projectId });
+}
+
+/** Undo `projectHide`; resolves to the project list as it now stands. */
+export async function projectRestore(projectId: string): Promise<Project[]> {
+  return invokeCommand<Project[]>("project_restore", { projectId });
 }

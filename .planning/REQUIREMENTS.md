@@ -112,7 +112,8 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 - [ ] **PLAN-01**: The planner decomposes an epic into tasks each declaring the set of files it expects to modify
 - [x] **PLAN-02**: Before dispatch, the planner checks every pair of candidate parallel tasks for declared file-set overlap
 - [x] **PLAN-03**: When two tasks overlap, only that pair is downgraded to sequential execution — not the entire batch
-- [ ] **PLAN-04**: A running agent is prevented at the tool level from writing to files outside its task's declared file-set
+- [x] **PLAN-04**: A running agent is prevented, by the file-writing tools, from writing to files outside its task's declared file-set; a write made through `Bash` is detected after the fact, and an observed breach holds the automatic merge
+  - *Narrowed 2026-10-14 by D-201 (Phase 11, plan 11-21, owner pass D1).* As first written this said the write is "prevented at the tool level". That holds for the file-writing tools (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`; `09-VERIFICATION.md`). It does not hold for `Bash`, which can write any path: a Bash write is caught only after it happens. Plan 11-11 made that detection hold the merge: `scope_breach` stops the automatic merge until a person reviews it (`packages/core/tests/dispatch_auto_merge.rs`). The owner chose to narrow the text and keep the held merge rather than schedule Bash prevention. Bash prevention is not claimed anywhere.
 - [x] **PLAN-05**: An agent's attempt to write outside its declared file-set is surfaced to the user as a scope event, not silently blocked
 - [x] **PLAN-06**: The planner decides how many tasks run in parallel, and the user can cap that width globally
 - [x] **PLAN-07**: User can see why any two tasks were scheduled sequentially rather than in parallel
@@ -136,9 +137,14 @@ Requirements for the initial release. The bar for v1 is the stated success crite
 ### Distribution
 
 - [ ] **DIST-01**: The application installs and runs on macOS from a signed, notarized build
+  - *Evidence, 2026-10-14 (plan 11-21). Criterion 1 is UNMET and stays unmet.* The release is not Apple-signed and not notarized: `v0.1.0` and `v0.1.1` are ad-hoc signed (`11-RELEASE-EVIDENCE.md` § 3 and § 6, the raw `codesign`, `spctl` and `stapler` output; `scripts/release/verify-gatekeeper.sh` was never written, because plan 11-07 was deferred). The owner declined the Apple Developer purchase on 2026-10-13 (D-REV-60), and both releases are marked Pre-release on GitHub to say that distribution is unsolved. What a stranger sees was reproduced on a quarantined copy: macOS says the app is damaged and offers only Move to Trash and Cancel (`11-OWNER-PASS.md` § 2.1, `11-21-gatekeeper-dialog.png`). `xattr -cr` lets it open; that workaround is now in the README and the release notes (D-205). It is a workaround, not a signed build.
 - [x] **DIST-02**: The application updates itself to new releases without a manual reinstall
+  - *Evidence, 2026-10-14 (plan 11-21).* `latest.json` on `v0.1.1` offers `0.1.1` with a non-empty signature that verifies (`11-RELEASE-EVIDENCE.md` § 6). The installed `0.1.0` then showed its banner, accepted, and relaunched into an About panel reading `0.1.1` with nothing downloaded or dragged by a person (`11-OWNER-PASS.md` § 2.2, `11-21-about-after-update.png`). **Limit, stated plainly:** that run was driven by accessibility automation on a `ditto` copy of the installed bundle, not in place on `/Applications` and not watched by the owner. The banner's dismissal lasts the session only, not a relaunch (D-REV-66; the owner chose to keep it, D-206).
+  - **Unticked 2026-10-14, found by this plan.** The updater asks `https://github.com/HighKnow-ai/flywheel/releases/latest/download/latest.json` (`tauri.conf.json`). GitHub's `latest` skips Pre-releases. Both `v0.1.0` and `v0.1.1` were marked Pre-release on 2026-10-14 (the owner's choice, made to say that distribution is unsolved), and that URL now answers **404** (checked with `curl -sIL`, 2026-10-14). While that holds, no installed client can find an update, so the requirement is not met for a real user even though the mechanism worked. Either un-mark the newest release as Pre-release, or change the updater endpoint to something that serves Pre-releases. This is the owner's call and was not changed here. Board item filed.
 - [ ] **DIST-03**: A developer can clone the repository and build a working desktop application from source following the documented steps
+  - *Evidence, 2026-10-14 (plan 11-21). Left unticked.* A fresh HTTPS clone built a bundle from the README, after a README fix (`11-RELEASE-EVIDENCE.md` § 5). CI runs the same commands on every push (`.github/workflows/ci.yml`, run 38346860234 green on macos-14). It stays unticked because `main` still carries the old, broken README and a red CI; the fix lives on this branch. It becomes true when the owner merges the branch and a clone of `main` is built from the merged README.
 - [x] **DIST-04**: The open-source desktop application is fully functional standalone, with no feature gated behind an account or network service
+  - *Evidence, 2026-10-14 (plan 11-21).* `.github/workflows/open-core.yml` deletes `packages/relay-client`, checks that no source references it, then builds, tests and builds the renderer: run 38346860235 green on macos-14 (D-REV-56).
 
 ## v2 Requirements
 
@@ -295,7 +301,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PLAN-01 | Phase 9 | Deferred — code path in place; a real planning run against a live account was never observed (09-VERIFICATION.md, DEFERRED-REVIEW.md) |
 | PLAN-02 | Phase 9 | Complete |
 | PLAN-03 | Phase 9 | Complete |
-| PLAN-04 | Phase 9 | Deferred — enforced for Write/Edit/MultiEdit/NotebookEdit; a Bash write is caught only at session close and a flagged breach still auto-merges (09-VERIFICATION.md) |
+| PLAN-04 | Phase 9 | Complete — narrowed by D-201 (2026-10-14): file-writing tools prevent; a Bash write is detected and an observed breach holds the merge (plan 11-11, `dispatch_auto_merge.rs`); Bash prevention is not claimed |
 | PLAN-05 | Phase 9 | Complete |
 | PLAN-06 | Phase 9 | Complete |
 | PLAN-07 | Phase 9 | Complete |
@@ -309,10 +315,10 @@ Which phases cover which requirements. Populated during roadmap creation.
 | REVW-03 | Phase 8 | Complete |
 | REVW-04 | Phase 8 | Complete |
 | REVW-05 | Phase 8 | Complete |
-| DIST-01 | Phase 11 | Pending |
-| DIST-02 | Phase 11 | Complete |
-| DIST-03 | Phase 11 | Pending |
-| DIST-04 | Phase 11 | Complete |
+| DIST-01 | Phase 11 | Pending — criterion 1 (signed, notarized) UNMET by the owner's decision (D-REV-60); evidence in `11-RELEASE-EVIDENCE.md` § 3 and `11-OWNER-PASS.md` § 2.1 |
+| DIST-02 | Phase 11 | Met — mechanism observed end to end (plan 11-21: banner named 0.1.1 on an installed 0.1.0, install-on-relaunch staged it, the relaunched build reported 0.1.1, and with live runs the banner refused). The endpoint briefly 404'd while both releases were Pre-release; resolved 2026-10-14 by un-marking v0.1.1, verified HTTP 200 serving a signed 0.1.1 manifest (D-REV-67). `latest.json` verified (`11-RELEASE-EVIDENCE.md` § 6); update observed by automation on a copy of the installed build (`11-OWNER-PASS.md` § 2.2), not by the owner |
+| DIST-03 | Phase 11 | Pending — fresh clone built after a README fix (`11-RELEASE-EVIDENCE.md` § 5); `main` still has the old README until the branch merges |
+| DIST-04 | Phase 11 | Complete — `open-core.yml`, run 38346860235 |
 
 **Coverage:**
 

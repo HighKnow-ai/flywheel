@@ -1,0 +1,754 @@
+{
+ "project_key_prefix": "THRE",
+ "epics": [
+  {
+   "ref": "E-A",
+   "title": "Finish-review follow-ups (Phase 8.1 surfaces)",
+   "description": "The residue of the Phase 11 finish-reviewer runs (`.planning/phases/11-ship-it/11-FINISH-REVIEW.md`): findings that were recorded rather than fixed, and six design judgements filed as decisions. Source ids are the reviewer's row ids.",
+   "criteria": [
+    "Every task under this epic is done, or closed with a recorded reason.",
+    "Each decision under this epic carries a recorded owner call before any task that waits on it is started."
+   ],
+   "items": [
+    {
+     "ref": "BI-01",
+     "kind": "task",
+     "title": "Rail shows live counts (Agents, Worktrees, In review, Challenges)",
+     "description": "Register item D-REV-11. Source: one-1. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The rail prints all four counts from reads; a test asserts each against a fixture.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-02",
+     "kind": "task",
+     "title": "Move the change cue to the task row's tail",
+     "description": "Register item D-REV-11. Source: one-2. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The key aligns on rows with and without a cue; a WebKit test asserts the cue's right edge.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-03",
+     "kind": "task",
+     "title": "Task key muted and regular weight",
+     "description": "Register item D-REV-11. Source: one-3. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The key paints the muted role at weight 400 and the title carries the row; a computed-style test asserts it.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-04",
+     "kind": "task",
+     "title": "Raise the change cue's size and place the epic header's cue at the right edge",
+     "description": "Register item D-REV-11. Source: one-4. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The cue is at least 12px and filled; the epic header's cue sits within 24px of the right edge, measured in WebKit.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-05",
+     "kind": "task",
+     "title": "Rail wordmark and selected-project fill",
+     "description": "Register item D-REV-11. Source: one-6. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "After the owner's call, the rail either prints \"Flywheel\" or the decision is recorded; the selection treatment is asserted."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-06",
+     "kind": "task",
+     "title": "Summary line placement and the rail/title join",
+     "description": "Register item D-REV-12. Source: app-shell-3, app-shell-4. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "After the masthead and lens-row decisions (filed as decisions) are recorded, the summary sits where DESIGN.md says and the rail and title block share a line; both asserted in WebKit."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-07",
+     "kind": "task",
+     "title": "Item detail value column marks",
+     "description": "Register item D-REV-14. Source: two-2. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "Status and priority print their registry mark beside the word; a jsdom test asserts both.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-08",
+     "kind": "task",
+     "title": "Path value ellipsis gap in the detail panel",
+     "description": "Register item D-REV-14. Source: two-3. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The ellipsis sits against its text at 330px in WebKit; the failed `text-align` remedy is not reused.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-09",
+     "kind": "task",
+     "title": "Human verbs in the activity trail",
+     "description": "Register item D-REV-14. Source: two-4. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "\"criterion created x8\" reads as a verb phrase; the mapping has a test per event type shown.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-10",
+     "kind": "task",
+     "title": "Normalise palette and link copy",
+     "description": "Register item D-REV-14. Source: two-6. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "One case convention and the typographic ellipsis across the tested strings; each string's test updated.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-11",
+     "kind": "task",
+     "title": "Title scale of the detail panel",
+     "description": "Register item D-REV-14. Source: two-1 (decision BI-D6). Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "After the detail panel title scale decision (filed as a decision) is recorded, the title is 20px or the Heading step is recorded as final."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-12",
+     "kind": "task",
+     "title": "Review diff hunk headers",
+     "description": "Register item D-REV-15. Source: three-5. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "Each hunk renders an `@@` header decoration; asserted in WebKit with contrast re-measured.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-13",
+     "kind": "task",
+     "title": "Review diff code-area tint",
+     "description": "Register item D-REV-15. Source: three-4. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The tint is raised only if every syntax role still clears 4.5:1;",
+      "`legibility.browser.test.tsx` passes."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-14",
+     "kind": "task",
+     "title": "Sent-back note ink",
+     "description": "Register item D-REV-15. Source: review-foot-2. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The note takes the primary ink, distinct from the hint; a computed-style test asserts it.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-16",
+     "kind": "task",
+     "title": "Drawn disclosure and back glyphs in the session surface",
+     "description": "Register item D-REV-16. Source: four-4. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "`▸ ▾ ←` text characters become drawn icons in one size and ink.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-17",
+     "kind": "task",
+     "title": "Authoring header grouping",
+     "description": "Register item D-REV-16. Source: four-6. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The stage strip and the commands separate; asserted by a layout test.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-18",
+     "kind": "task",
+     "title": "Completed run outcome row",
+     "description": "Register item D-REV-16. Source: four-7. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "A completed run prints an outcome notice as the failed run does.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-19",
+     "kind": "task",
+     "title": "Capture the raw log and the cost strip",
+     "description": "Register item D-REV-16. Source: four-9. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "A capture exists for each and the finish reviewer has judged both."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-20",
+     "kind": "task",
+     "title": "Triage lead button order",
+     "description": "Register item D-REV-17. Source: five-3. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "One convention for where the lead sits is chosen and applied across the clusters.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-21",
+     "kind": "task",
+     "title": "Settings alignment",
+     "description": "Register item D-REV-17. Source: five-4. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "Controls share one alignment system, measured in WebKit.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-22",
+     "kind": "task",
+     "title": "Distinct icons for task and criterion proposals",
+     "description": "Register item D-REV-17. Source: five-6. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The two kinds draw different icons; a jsdom test asserts it.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-23",
+     "kind": "task",
+     "title": "Themed checkboxes and number spinner",
+     "description": "Register item D-REV-17. Source: five-7. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The settings controls use the app's tokens in both schemes; contrast asserted.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-24",
+     "kind": "task",
+     "title": "Permission-rules table measure",
+     "description": "Register item D-REV-17. Source: five-rules-1. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The table shares the settings column's right edge, measured in WebKit.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-25",
+     "kind": "task",
+     "title": "Permission-rules header weight",
+     "description": "Register item D-REV-17. Source: five-rules-5. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "Header and value differ in size or colour; asserted.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-26",
+     "kind": "task",
+     "title": "Proposal row kind label inline",
+     "description": "Register item D-REV-17. Source: five-1 (decision). Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "After the triage button wall decision (filed as a decision) is recorded, the proposal row and the challenge row set the kind the same way."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-27",
+     "kind": "task",
+     "title": "Orphan row repeats its heading",
+     "description": "Register item D-REV-18. Source: six-3. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The per-row phrase is shortened without losing the pairing with the glyph; copy test updated.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-28",
+     "kind": "task",
+     "title": "One key face across the product",
+     "description": "Register item D-REV-18. Source: six-4. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "Keys use one face, or the Mono contract is restated as final.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-29",
+     "kind": "task",
+     "title": "Merge label copy",
+     "description": "Register item D-REV-19. Source: review-foot-1. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The owner decides whether \"into epic\" returns; copy and test follow."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-30",
+     "kind": "task",
+     "title": "Capture the foot's alternate states",
+     "description": "Register item D-REV-19. Source: review-foot-4. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The nothing-unchecked note, the no-criteria note and the could-not-send alert are captured and reviewed."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-32",
+     "kind": "task",
+     "title": "Capture the epic request sheet",
+     "description": "Register item D-REV-19. Source: D-REV-15. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "A capture exists and has been judged by the finish reviewer."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-D1",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Decision: Review pane order",
+     "body": "Register item D-REV-15. Source: three-1. A design judgement from the finish reviewer, filed as a decision at the owner's request (D-204, 2026-10-14): it is better judged against a running app than a screenshot, it does not block the phase, and nothing is implemented here.\n\nDone when: A recorded owner call: criteria first, or files first."
+    },
+    {
+     "ref": "BI-D2",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Decision: The 380px file column",
+     "body": "Register item D-REV-15. Source: three-2. A design judgement from the finish reviewer, filed as a decision at the owner's request (D-204, 2026-10-14): it is better judged against a running app than a screenshot, it does not block the phase, and nothing is implemented here.\n\nDone when: A recorded owner call and the diff width it implies."
+    },
+    {
+     "ref": "BI-D3",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Decision: A masthead in the shell",
+     "body": "Register item D-REV-12. Source: app-shell-1. A design judgement from the finish reviewer, filed as a decision at the owner's request (D-204, 2026-10-14): it is better judged against a running app than a screenshot, it does not block the phase, and nothing is implemented here.\n\nDone when: A recorded owner call; if yes, a plan with its data contract."
+    },
+    {
+     "ref": "BI-D4",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Decision: The lens toggle's own row",
+     "body": "Register item D-REV-12. Source: app-shell-2. A design judgement from the finish reviewer, filed as a decision at the owner's request (D-204, 2026-10-14): it is better judged against a running app than a screenshot, it does not block the phase, and nothing is implemented here.\n\nDone when: A recorded owner call; DESIGN.md or the code changes to match."
+    },
+    {
+     "ref": "BI-D5",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Decision: The triage button wall",
+     "body": "Register item D-REV-17. Source: five-2. A design judgement from the finish reviewer, filed as a decision at the owner's request (D-204, 2026-10-14): it is better judged against a running app than a screenshot, it does not block the phase, and nothing is implemented here.\n\nDone when: A recorded owner call; the lower-ranked answers move to the text action or stay."
+    },
+    {
+     "ref": "BI-D6",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Decision: Detail panel title scale",
+     "body": "Register item D-REV-14. Source: two-1. A design judgement from the finish reviewer, filed as a decision at the owner's request (D-204, 2026-10-14): it is better judged against a running app than a screenshot, it does not block the phase, and nothing is implemented here.\n\nDone when: A recorded owner call (see BI-11)."
+    }
+   ]
+  },
+  {
+   "ref": "E-B",
+   "title": "Phase 11 register survivors",
+   "description": "Items from `.planning/DEFERRED-REVIEW.md` that automation could not close and that are not ship-blocking: owner data decisions, upstream fixes, the residuals of earlier findings, and defects found on the installed build.",
+   "criteria": [
+    "Every task under this epic is done, or closed with a recorded reason.",
+    "No task under this epic is closed on a test that does not name the behaviour in its criteria."
+   ],
+   "items": [
+    {
+     "ref": "BI-31",
+     "kind": "task",
+     "title": "Real acceptance criteria on the tasks that will be dispatched",
+     "description": "Register item D-REV-04. Source: D-REV-04. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "Every task given a worktree carries at least three diff-checkable criteria; the count is read from the board, not asserted.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-33",
+     "kind": "task",
+     "title": "The junk lead epic and the homeless review queue",
+     "description": "Register item D-REV-25. Source: D-REV-25. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "THRE-4 and THRE-5 are deleted or retitled; the 181 in-review tasks have an epic or the status lens is recorded as their home;",
+      "`JUNK_EPIC_SQL` returns 0 rows."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-34",
+     "kind": "task",
+     "title": "Epic header counts follow the filter",
+     "description": "Register item D-REV-27. Source: D-REV-27. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "A header narrowed by the has-worktree chip counts only matching tasks; asserted over the real chip.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-35",
+     "kind": "task",
+     "title": "The TDD gate reads `phase.tdd-applicable`",
+     "description": "Register item D-REV-40. Source: D-REV-40. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "In `gsd-core`, a plan with task-level `tdd=\"true\"` trips the RED-before-GREEN gate when `workflow.tdd_mode` is false; upstream test."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-36",
+     "kind": "task",
+     "title": "A merge whose event write fails is not reported as nothing to merge",
+     "description": "Register item D-REV-58. Source: D-REV-58 (1). Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "A test fails the event write after a real merge and the next pass records the integrated event.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-37",
+     "kind": "task",
+     "title": "Plan approval re-checks its tasks are startable",
+     "description": "Register item D-REV-58. Source: D-REV-58 (2). Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "A core test moves a task to done between draft and approve and approve refuses it by name.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-38",
+     "kind": "task",
+     "title": "NFC and NFD spellings overlap",
+     "description": "Register item D-REV-58. Source: D-REV-58 (3). Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "`overlaps` treats a composed and a decomposed spelling of one name as the same file.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-39",
+     "kind": "task",
+     "title": "Separate the strict and lax readings of an unset `core.ignorecase`",
+     "description": "Register item D-REV-58. Source: D-REV-58 (4). Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "One test per consumer; the unset-flag default is stated for each.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-40",
+     "kind": "task",
+     "title": "Project registration runs `git config` after the database lock is released",
+     "description": "Register item D-REV-58. Source: D-REV-58 (5). Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "`no_desktop_command_runs_the_case_probe_under_the_database_lock`-style gate covers `project_register` and `project_relocate`.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-42",
+     "kind": "task",
+     "title": "Hidden projects can be listed and restored in the app",
+     "description": "Register item D-REV-64. Source: D-REV-64. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "A Settings or rail list shows hidden projects and calls `projectRestore`; a jsdom test restores the duplicate `unreachable` registration.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-43",
+     "kind": "task",
+     "title": "Fleet subject-key jump opens the item in the installed build",
+     "description": "Register item D-REV-65. Source: D-REV-65. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "On the installed app, pressing the key on a fleet row lands on the board with that item's detail open, observed through `scripts/release/ax-drive.js`.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 2
+    },
+    {
+     "ref": "BI-44",
+     "kind": "task",
+     "title": "A refused Approve is visible without scrolling",
+     "description": "Register item D-REV-36. Source: D-REV-36. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The message sits where the dialog's foot is; the held `it.fails` in `dispatch-layout.browser.test.tsx` is flipped to a pass.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-45",
+     "kind": "task",
+     "title": "Back from a session returns to the fleet with the row selected",
+     "description": "Register item D-REV-51. Source: D-REV-51 (a). Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The held `it.fails` in `jump.test.tsx` becomes a pass.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-46",
+     "kind": "task",
+     "title": "A finished run with an empty log does not read \"Starting session...\"",
+     "description": "Register item D-REV-51. Source: D-REV-51 (b). Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "The held `it.fails` becomes a pass; the session says what happened.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-47",
+     "kind": "task",
+     "title": "The permission shim classifies read-only git commands",
+     "description": "Register item D-REV-35. Source: D-REV-35. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "`git rev-parse` and `git -c k=v <sub>` raise no permission request; a shim test per form.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-48",
+     "kind": "task",
+     "title": "The reclaim command keeps `AppState` released across git calls",
+     "description": "Register item D-REV-55. Source: D-REV-55. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "A desktop-crate test (tauri `test` feature) asserts the mutex is free during a reclaim; run detached, the cold build is about 13 minutes.",
+      "A test added or updated in the diff fails without the change and passes with it."
+     ],
+     "priority": 0
+    },
+    {
+     "ref": "BI-49",
+     "kind": "task",
+     "title": "The update banner's dismissal survives a relaunch, per version",
+     "description": "Register item D-REV-66. Source: D-REV-66. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "Gate: the owner reverses D-206 (the banner's dismissal stays per session) in a decision recorded on this task before any code changes; if he does not, this task is closed unchanged.",
+      "If he does: `dismissedUpdateVersion` persists per version, and a relaunch test asserts the banner stays hidden for that version and returns for the next."
+     ],
+     "priority": 4
+    },
+    {
+     "ref": "BI-50",
+     "kind": "task",
+     "title": "The updater endpoint answers 404 while the releases are Pre-release",
+     "description": "Register item D-REV-67. Source: D-REV-67. Filed at the Phase 11 owner pass (plan 11-21, 2026-10-14), D-196. The closed record is `.planning/DEFERRED-REVIEW.md`; the collation is `.planning/phases/11-ship-it/11-OWNER-PASS.md`.",
+     "criteria": [
+      "A request to the updater endpoint named in `tauri.conf.json` returns HTTP 200 and a `latest.json` naming the newest release; checked with `curl -sIL` and the result recorded on this task.",
+      "An installed client older than the newest release shows its update banner, observed through `scripts/release/ax-drive.js`.",
+      "The release workflow's `prerelease` setting and the README agree with whatever the owner chose."
+     ],
+     "priority": 1
+    }
+   ]
+  },
+  {
+   "ref": "E-C",
+   "title": "Phase 11 owner questions (unanswered)",
+   "description": "Register items that need a person for a physical reason: a judgement of looks, a real login and a real model, the operating system's notification centre, or the owner's real data. They were put to the owner on 2026-10-14 and are unanswered. None is recorded as passed.",
+   "criteria": [
+    "Each question carries the owner's verdict and its date, or is closed with a stated reason.",
+    "No question is closed from a test result."
+   ],
+   "items": [
+    {
+     "ref": "D-REV-05",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-05: Diff tints and the word-level edit mark read correctly and feel like one palette",
+     "body": "Register item D-REV-05, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: Diff tints and the word-level edit mark read correctly and feel like one palette\n\nWhat is already known, and why a person is needed: Physical reason: human aesthetic judgement. Three questions only; the light/dark half of the old question is void (one palette ships).\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-05` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-07",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-07: The criteria rail stays usable while reading a long diff",
+     "body": "Register item D-REV-07, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: The criteria rail stays usable while reading a long diff\n\nWhat is already known, and why a person is needed: Asserted: `ergonomics.browser.test.tsx` (two tests, scrollTop unchanged) and the 900px rail measure (plan 11-13). Physical reason for the rest: ergonomic judgement. Asked with its threshold.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-07` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-08",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-08: The epic task-criteria roll-up scans as one list beside a long diff",
+     "body": "Register item D-REV-08, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: The epic task-criteria roll-up scans as one list beside a long diff\n\nWhat is already known, and why a person is needed: Structure asserted: `ergonomics.browser.test.tsx` \"UAT 2 — the epic roll-up beneath the epic's own criteria\" (rows equal the data, the epic's own criteria sit above it). Physical reason: aesthetic judgement of how it reads.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-08` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-09",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-09: Selected-with-focus versus selected-without-focus rules differ; the `Dot` glyph reads at 12px",
+     "body": "Register item D-REV-09, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: Selected-with-focus versus selected-without-focus rules differ; the `Dot` glyph reads at 12px\n\nWhat is already known, and why a person is needed: Ratios and painted colours closed by `contrast.test.ts`, `selection-rule.test.tsx` and `legibility.browser.test.tsx`. Physical reason for the rest: perceptual judgement of one 12px glyph.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-09` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-10",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-10: An expanded epic with a challenge reads challenge-first and the 48px row is legible",
+     "body": "Register item D-REV-10, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: An expanded epic with a challenge reads challenge-first and the 48px row is legible\n\nWhat is already known, and why a person is needed: Layout closed in WebKit (`board-group.browser.test.tsx`, long title at 716px, error beside the buttons); the accept path is `packages/core/tests/authoring_acceptance.rs` (`accept_proposal` against real SQLite). Physical reason for the rest: aesthetic judgement.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-10` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-21",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-21: The icon's inset margin reads correctly beside other icons in the Dock",
+     "body": "Register item D-REV-21, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: The icon's inset margin reads correctly beside other icons in the Dock\n\nWhat is already known, and why a person is needed: Physical reason: aesthetic judgement. Answerable at a glance from `11-20-dock.png`.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-21` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-23",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-23: Expanding a status group reads as growth; SC3's text says \"animates its height\" and nothing does",
+     "body": "Register item D-REV-23, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: Expanding a status group reads as growth; SC3's text says \"animates its height\" and nothing does\n\nWhat is already known, and why a person is needed: Shape asserted and a stepped wipe fixed (plan 11-13). Physical reason: aesthetic judgement. The wording half is Decision D2 (section 3).\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-23` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-24",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-24: The built board with real data reads bold and modern, not \"a very old app\" (SC0)",
+     "body": "Register item D-REV-24, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: The built board with real data reads bold and modern, not \"a very old app\" (SC0)\n\nWhat is already known, and why a person is needed: Physical reason: aesthetic judgement, the one the phase exists for. Made answerable by this plan: the installed app on a copy of the real board, Light and Dark, window-only captures `11-21-board-light.png` and `11-21-board-dark.png`.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-24` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-33",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-33: The scope-denied row and the refusal badge read well",
+     "body": "Register item D-REV-33, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: The scope-denied row and the refusal badge read well\n\nWhat is already known, and why a person is needed: Layout closed in WebKit (`session-group.browser.test.tsx`, a 300-character path). Physical reason: aesthetic judgement of \"noticeable at a glance\".\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-33` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-34",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-34: One approved plan drives real `claude` sessions end to end in the installed app",
+     "body": "Register item D-REV-34, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: One approved plan drives real `claude` sessions end to end in the installed app\n\nWhat is already known, and why a person is needed: Wiring closed: `scripts/uat/uat-13-fan-out-live.mjs` (real sidecar, real dispatcher tick, real git; only the model faked; mutation-checked). Physical reason for the rest: a real login and a real model's obedience to the commit instruction.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-34` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-35",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-35: A real planning run completes headlessly, calls `submit_plan` and leaves the worktree clean",
+     "body": "Register item D-REV-35, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: A real planning run completes headlessly, calls `submit_plan` and leaves the worktree clean\n\nWhat is already known, and why a person is needed: Pre-approval closed against claude 2.1.287 by `real-claude-argv.test.mjs`. Physical reason for the rest: a real login and a real model following the prompt. Not run here: a planning run writes an epic integration branch into the owner's repository.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-35` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-36",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-36: The wave plan sheet, dispatch cell and gate line read well and work end to end",
+     "body": "Register item D-REV-36, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: The wave plan sheet, dispatch cell and gate line read well and work end to end\n\nWhat is already known, and why a person is needed: Containment closed (`dispatch-layout.browser.test.tsx`). Click path now driven through the INSTALLED app (section 2.5): draft plan, edit a path, move a task to wave 2, Stop with confirmation. Physical reason for the rest: aesthetic judgement, and Approve or Resume would start real runs in the owner's repository.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-36` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-47",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-47: The fleet surface reads at a glance at real row density",
+     "body": "Register item D-REV-47, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: The fleet surface reads at a glance at real row density\n\nWhat is already known, and why a person is needed: Containment closed in WebKit (`fleet-group.browser.test.tsx`, 900 and 1200px, both schemes). Physical reason: aesthetic judgement of \"easy to scan\".\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-47` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-48",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-48: A live agent's activity cell moves within about a second of its tool call",
+     "body": "Register item D-REV-48, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: A live agent's activity cell moves within about a second of its tool call\n\nWhat is already known, and why a person is needed: Live-read half closed (`uat-12-fleet-live-reads.mjs` section D-REV-48). Physical reason for the rest: it needs a live sidecar writing a real log, which needs a real login; plus aesthetic judgement of the clipped line.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-48` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-49",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-49: Spend column, estimate footer and Dismiss read clearly and a dismissed row leaves",
+     "body": "Register item D-REV-49, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: Spend column, estimate footer and Dismiss read clearly and a dismissed row leaves\n\nWhat is already known, and why a person is needed: Round trip OBSERVED on the installed app in this plan: clicking Dismiss on THRE-38 removed the row (3 rows to 2) and set `acknowledged_at`; the other two rows were untouched (section 2.4). Physical reason for the rest: aesthetic judgement of the columns at row density.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-49` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-50",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-50: With real blocked agents in two projects, one `a` press answers exactly the marked agent",
+     "body": "Register item D-REV-50, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: With real blocked agents in two projects, one `a` press answers exactly the marked agent\n\nWhat is already known, and why a person is needed: Queue half closed (`uat-12` section D-REV-50). Physical reason for the rest: real blocked agents need a live sidecar and a real login; plus the look of the owner marking.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-50` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-51",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-51: Enter or a click on a fleet row opens its live output; the subject key lands on the item",
+     "body": "Register item D-REV-51, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: Enter or a click on a fleet row opens its live output; the subject key lands on the item\n\nWhat is already known, and why a person is needed: Shell half closed in jsdom and WebKit (`fleet-jump.browser.test.tsx`). Installed-app check in this plan FOUND A DEFECT, filed as D-REV-65: the subject key leaves the fleet for the board but opens nothing. Physical reason for the rest: aesthetic judgement of the key as a button.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-51` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-52",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-52: A real banner appears in Notification Center when an agent blocks, finishes or fails",
+     "body": "Register item D-REV-52, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: A real banner appears in Notification Center when an agent blocks, finishes or fails\n\nWhat is already known, and why a person is needed: Physical reason: the OS notification centre is outside the process and has no automation surface; needs a real agent event on the installed bundle.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-52` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-53",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-53: The first notification triggers or skips the system permission prompt; a declining user is not misled",
+     "body": "Register item D-REV-53, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: The first notification triggers or skips the system permission prompt; a declining user is not misled\n\nWhat is already known, and why a person is needed: Physical reason: the prompt is drawn and answered by the operating system and its state lives in System Settings.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-53` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-54",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-54: The Worktrees entry lists every task worktree with size and age; Re-measure fills sizes",
+     "body": "Register item D-REV-54, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: The Worktrees entry lists every task worktree with size and age; Re-measure fills sizes\n\nWhat is already known, and why a person is needed: View closed in WebKit (`fleet-group.browser.test.tsx`). Opened in the installed app on the board copy: 5 worktrees, eligibility shown, one `Reclaimable`. Re-measure returned \"could not be measured completely\" because the scratch HOME places the worktree root elsewhere; sizes were NOT observed. Needs the owner's real HOME, which means migrating the owner's real database (an irreversible step that is the owner's to take).\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-54` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-55",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-55: Reclaiming selected worktrees deletes exactly those directories and the window stays responsive",
+     "body": "Register item D-REV-55, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: Reclaiming selected worktrees deletes exactly those directories and the window stays responsive\n\nWhat is already known, and why a person is needed: Removal half closed (`uat-12` section D-REV-55: 321 reads during a 2.2 s reclaim, slowest 11 ms). Physical reason for the rest: removing multi-second worktrees through the installed app deletes the owner's real directories and needs the owner's consent and data; plus aesthetic judgement.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-55` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    },
+    {
+     "ref": "D-REV-63",
+     "kind": "issue",
+     "issue_kind": "question",
+     "title": "Owner question D-REV-63: \"Remove from Flywheel...\" reads as a reversible hide and the row sits acceptably",
+     "body": "Register item D-REV-63, unanswered at the Phase 11 owner pass (2026-10-14). It is NOT recorded as passed.\n\nQuestion: \"Remove from Flywheel...\" reads as a reversible hide and the row sits acceptably\n\nWhat is already known, and why a person is needed: Content asserted in `project-rail.test.tsx`. Physical reason: aesthetic and comprehension judgement of one sentence.\n\nHow to answer: say yes, no or unsure, against the threshold in the register entry `D-REV-63` in `.planning/DEFERRED-REVIEW.md`. Where the item needs a real login, a real agent or the OS, answer it by using Flywheel for real work.\n\nDone when: the owner's verdict and its date are written on this issue in his own words. It is not inferred from a test result."
+    }
+   ]
+  }
+ ]
+}
