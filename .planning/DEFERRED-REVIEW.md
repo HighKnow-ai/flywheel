@@ -1302,3 +1302,28 @@ At Phase 11, with an installed, usable build:
     TeamIdentifier=not set; `spctl --assess --type execute -vv` rejects it (exit 1); `stapler validate`
     finds no ticket. Same for v0.1.1. Nothing was bypassed. The release is public and `releases/latest`
     resolves to it, so the first-run cost described above is now live. See 11-RELEASE-EVIDENCE.md section 3.
+
+- id: D-REV-61
+  phase: "11 — Ship It (plan 11-19)"
+  truth: "The rail's 'Remove from Flywheel...' reads as a reversible hide and not a delete: its confirmation names the board, worktrees, runs and activity trail as kept, and the new row sits acceptably beside 'Register Project...'."
+  status: open
+  why_deferred: |
+    Human aesthetic and comprehension judgment: whether the sentence reads as 'nothing is lost' to a
+    person is not something an assertion can establish. The sentence's content (it names all four kept
+    artefacts and says nothing is deleted) and the call to project_hide are asserted in
+    project-rail.test.tsx; how it reads and looks is not.
+  risk_if_wrong: "Low to moderate: a person declines a safe action because it reads like a delete, or the row clutters the project section."
+  automatable: "Partly. The copy's content is already asserted. The reading and the look need a person, on an installed build in Light and Dark, with two projects registered."
+
+- id: D-REV-62
+  phase: "11 — Ship It (plan 11-19)"
+  truth: "A hidden project can be listed and restored from inside the app, including the duplicate 'unreachable' registration that D-200 was written for."
+  status: open — known limit of plan 11-19
+  why_deferred: |
+    No physical reason: it is unbuilt. project_restore exists and is tested at the core level, but nothing
+    in the renderer calls projectRestore and no surface lists hidden projects. The UI route back today is
+    registering the repository again, which restores the project whose marker names that path. The
+    duplicate has a different id and its path's marker names the other project, so that route restores
+    the active project, not the duplicate. Data is safe; recovery is a command, not a button.
+  risk_if_wrong: "Moderate for 'a hidden project must not be a lost project': the project is intact in SQLite but unreachable from the surface without a developer."
+  automatable: "YES once built: a hidden-projects list (Settings or the rail) calling projectRestore, with a jsdom test. A small plan; the owner may prefer to defer it past ship."
