@@ -459,3 +459,43 @@ skip it**, on the grounds that this phase already carries unusually strong cover
 binaries and 1393 tests with zero failures, the full desktop jsdom and browser suites, nine
 `impeccable-finish-reviewer` runs producing 58 findings with a disposition on each, and this
 adversarial verification pass. Recorded as deliberately skipped, not silently dropped.
+
+---
+
+## Re-verification follow-ups — completed 2026-10-14 (orchestrator)
+
+The re-verification pass listed five remaining overstatements and four edits. All are done. The
+verdict above is unchanged: `deferred`, 3/3 on the re-scoped criteria, DIST-01 unmet and descoped.
+Nothing below alters a finding; this records that the report's own action list is discharged.
+
+1. **Phase 11 Goal and `ROADMAP.md:15` overstated the outcome.** The goal said "installs like any
+   other Mac application"; it now says "installs from a GitHub release", with an explicit amendment
+   noting the original is NOT delivered because the build is unsigned and installing needs
+   `xattr -cr`. Line 15's "ships a signed, self-updating macOS build" now reads "UNSIGNED".
+2. **Plan 11-07 was shown as `[x]` and the phase as "22/22 plans executed".** 11-07 is now `[~]`
+   with "DEFERRED, 0 tasks executed, no production file changed", and the count reads "21/22 plans
+   executed; 11-07 deferred with 0 tasks (22/22 have SUMMARYs)".
+3. **DIST-01 had no named home and the coverage block claimed "Unmapped: 0".** It now reads
+   "Unmapped: 1 — DIST-01", naming the deferral, the reason, and that it needs a home in the next
+   milestone. DIST-01 remains `- [ ]` unticked.
+4. **DIST-03 was half-fixed.** Its checkbox is now `[x]` and its bullet cites the concluded
+   evidence: CI run 38523539751 and Open core run 38523539858 both `success` on `main` at
+   `9fa4543`, the CI run including `cargo test --workspace` and the override `tauri build`, with
+   the only difference between `9fa4543` and HEAD being under `.planning/`.
+5. **`STATE.md`'s "Phase 11 has a hard prerequisite"** now reads "HAD … resolved by deferring it,
+   not by meeting it".
+
+**Two corrections to D-REV-68, both of them the orchestrator's own overstatements, both caught by
+this verification pass:**
+
+- It claimed seven plans had recorded the race as a flake. Only 11-04, 11-05, 11-08 and 11-10 did.
+  11-16, 11-19 and 11-20 never mention it. Corrected, with a note that overstating how widely a
+  wrong belief was held is the same failure as understating it.
+- It asserted the race "should fail today" under `--test-threads=8`. It was then run 8 times at 8
+  threads and 3 times at 1 thread and **passed 11 of 11**. The entry now says NOT REPRODUCED
+  LOCALLY, and rests the diagnosis on the source (two tests mutating one process-global behind a
+  SAFETY comment nothing enforces) plus three consecutive CI failures at the same line — and tells
+  a future fixer to judge the fix on removing the shared state, not on a local red-to-green flip.
+
+**Still open after all of this, and deliberately so:** DIST-01 (unmet, descoped, needs a milestone),
+the 22 `owner-question` register items including SC0, and D-REV-68.
