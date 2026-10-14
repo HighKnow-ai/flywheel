@@ -126,8 +126,8 @@ button.control-edge:hover:not(:disabled) {
 
 /*
  * Progressive disclosure ladder (01-UI-SPEC.md "Row Anatomy" — first field dropped as width
- * narrows, in this order: actor-of-last-change, epic pill, assignee avatar, estimate badge
- * last). `container-type: inline-size` on `.board-row` itself is what makes these `@container`
+ * narrows, in this order: actor-of-last-change, epic pill, assignee avatar).
+ * `container-type: inline-size` on `.board-row` itself is what makes these `@container`
  * rules respond to the row's own available width (which narrows when the item detail panel
  * opens, not only when the OS window itself does) rather than the document viewport. Never
  * dropped, at any supported window width (≥900px): status glyph, key, title, priority glyph,
@@ -146,12 +146,6 @@ button.control-edge:hover:not(:disabled) {
 
 @container board-row (max-width: 520px) {
   .field-assignee {
-    display: none;
-  }
-}
-
-@container board-row (max-width: 420px) {
-  .field-estimate {
     display: none;
   }
 }

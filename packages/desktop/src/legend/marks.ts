@@ -17,7 +17,6 @@ export type MarkChannel =
   | "priority"
   | "epic"
   | "criteria"
-  | "estimate"
   | "assignee"
   | "project"
   | "agent";
@@ -42,8 +41,7 @@ export interface Mark {
   /**
    * How the product actually draws the mark when that is more than the bare glyph: the legend's swatch
    * must be the mark as it renders on the row, or it teaches the wrong thing. `glyph: false` means the
-   * row draws the text alone (the estimate letter, the criteria fraction); `boxed` is the estimate
-   * badge's 1px control-edged box.
+   * row draws the text alone (the criteria fraction); `boxed` draws it in a 1px control-edged box.
    */
   sample?: { text: string; glyph: boolean; boxed?: boolean };
 }
@@ -185,7 +183,7 @@ export const MARKS: Mark[] = [
       "This item names an epic Flywheel could not resolve from the project's roster: the internal id is never shown in its place.",
   },
   // The epic roster's two graphic marks (08.1 A-01, D-06). Neither is an icon on the roster itself, which
-  // draws a bar; the glyph is the legend's stand-in for it, as the estimate letters' `Ruler` is.
+  // draws a bar; the glyph is the legend's stand-in for it.
   {
     id: "epic-progress",
     channel: "epic",
@@ -272,36 +270,6 @@ export const MARKS: Mark[] = [
     label: "Integrated",
     meaning: "This task's branch has been merged into its epic's integration branch.",
   },
-  // Estimate marks (D-12: S/M/L, stored as a nullable ordinal INTEGER 1-3, rendered as the
-  // letters themselves — never as a number, and never aggregated anywhere in the UI or a query).
-  // Sharing one glyph across the three levels is deliberate, mirroring `criteria-count-badge`:
-  // the row renders the letter itself as the badge text, not the icon; the glyph exists for the
-  // Legend surface's own entry.
-  {
-    id: "estimate-small",
-    channel: "estimate",
-    glyph: "Ruler",
-    label: "Small",
-    meaning: "S: small estimated effort. Never summed, averaged or converted to a point value.",
-    // The row draws the letter in a 1px control-edged box, with no icon.
-    sample: { text: "S", glyph: false, boxed: true },
-  },
-  {
-    id: "estimate-medium",
-    channel: "estimate",
-    glyph: "Ruler",
-    label: "Medium",
-    meaning: "M: medium estimated effort.",
-    sample: { text: "M", glyph: false, boxed: true },
-  },
-  {
-    id: "estimate-large",
-    channel: "estimate",
-    glyph: "Ruler",
-    label: "Large",
-    meaning: "L: large estimated effort.",
-    sample: { text: "L", glyph: false, boxed: true },
-  },
   // Assignee marks (BOARD-06) — a human and an agent actor are peers in one actor model; the
   // badge distinguishes which is which without relying on colour alone (01-UI-SPEC.md Activity
   // trail: "a badge distinguishing human vs agent vs system, never colour alone").
@@ -341,8 +309,7 @@ export const MARKS: Mark[] = [
   // Project switcher marks (01-UI-SPEC.md "Project switcher (left rail)", D-16, plan 01-11). The
   // rail itself renders a project's key prefix as literal text (e.g. `FLY`), not these icons —
   // these three marks exist for the Legend surface's own entries ("no mark may exist that the
-  // legend does not define"), mirroring `estimate-small`/`-medium`/`-large`'s role above: the
-  // real glyph is the printed text, this entry documents the channel.
+  // legend does not define"): the real glyph is the printed text, this entry documents the channel.
   {
     id: "project-entry",
     channel: "project",
@@ -600,30 +567,6 @@ export function priorityValueFromMarkId(markId: string): number {
   const index = PRIORITY_MARK_IDS.indexOf(markId as (typeof PRIORITY_MARK_IDS)[number]);
   return index === -1 ? 0 : index;
 }
-
-/**
- * D-12: S/M/L stored as a nullable ordinal 1-3. `null` (no estimate set) has no mark — the badge
- * is simply not rendered for that item, never a placeholder.
- */
-const ESTIMATE_MARK_IDS = ["estimate-small", "estimate-medium", "estimate-large"] as const;
-
-export function estimateMarkId(estimate: number | null | undefined): string | undefined {
-  if (estimate == null) return undefined;
-  return ESTIMATE_MARK_IDS[estimate - 1];
-}
-
-/** The rendered letter for an estimate value (D-12: the letters are the badge — never the
- * numeric ordinal, which would invite the aggregate reading D-12 explicitly forbids). */
-const ESTIMATE_LETTERS = ["S", "M", "L"] as const;
-
-export function estimateLetter(estimate: number | null | undefined): string | undefined {
-  if (estimate == null) return undefined;
-  return ESTIMATE_LETTERS[estimate - 1];
-}
-
-/** The three estimate Marks, in `ESTIMATE_MARK_IDS`' fixed declaration order (index + 1 === the
- * schema's `estimate` value, 1-3) — `EstimatePicker.tsx` builds its option list from this. */
-export const ESTIMATE_MARKS: Mark[] = ESTIMATE_MARK_IDS.map((id) => MARKS_BY_ID[id]);
 
 /** `actors.type` (`human`/`agent`/`system`) -> the matching actor-badge Mark's id — the one
  * lookup both the assignee picker and the activity trail (`ActivityTrail.tsx`, BOARD-09) use to

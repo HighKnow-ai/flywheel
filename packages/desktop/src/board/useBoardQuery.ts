@@ -65,9 +65,6 @@ export interface BoardItem {
   rank: string;
   priority: number;
   epicId: string | null;
-  /** S/M/L stored as a nullable ordinal 1-3 (D-12) — `undefined`/`null` means "no estimate set",
-   * rendered as no badge at all, never aggregated anywhere in the UI or a query. */
-  estimate?: number | null;
   /** Nullable FK to `actors.id` (BOARD-06) — `undefined`/`null` renders as "Unassigned". */
   assigneeId?: string | null;
   /** How many of this item's acceptance criteria are checked, out of its total (BOARD-02, D-08).
@@ -190,7 +187,6 @@ export interface BoardFilterInput {
   epicIds?: (string | null)[];
   assigneeIds?: (string | null)[];
   priorities?: number[];
-  estimates?: number[];
   /** Present (`true`) only while the has-worktree chip is on; ABSENT when off, never `false`. */
   hasWorktree?: true;
 }
@@ -217,10 +213,6 @@ export function toFilterInput(filter: BoardFilterDraft): BoardFilterInput | unde
   }
   if (filter.priorities.length > 0) {
     input.priorities = filter.priorities;
-    active = true;
-  }
-  if (filter.estimates.length > 0) {
-    input.estimates = filter.estimates;
     active = true;
   }
   if (filter.hasWorktree) {
@@ -428,19 +420,6 @@ export function useSetPriority(projectId: string | undefined) {
   });
 }
 
-/** Set a task's or an epic's estimate (`e`, D-12: nullable S/M/L). `estimate: null` clears it. */
-export function useSetEstimate(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { kind: BoardItemKind; id: string; estimate: number | null }) =>
-      invokeCommand<void>(input.kind === "epic" ? "epic_set_estimate" : "task_set_estimate", {
-        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
-        estimate: input.estimate,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
-  });
-}
-
 /** Set a task's or an epic's assignee (`a`, BOARD-06). `assigneeId: null` clears it
  * ("Unassigned"). */
 export function useSetAssignee(projectId: string | undefined) {
@@ -457,7 +436,7 @@ export function useSetAssignee(projectId: string | undefined) {
 
 /**
  * Reparent a task under an epic, or orphan it with `epicId: null` (`m`, `ParentPicker`,
- * G-01-EPIC-ASSIGN). Unlike `useSetStatus`/`useSetPriority`/`useSetEstimate`/`useSetAssignee`,
+ * G-01-EPIC-ASSIGN). Unlike `useSetStatus`/`useSetPriority`/`useSetAssignee`,
  * there is no epic-kind branch here — this action exists only for tasks, because the hierarchy is
  * fixed at three levels and an epic has no epic parent of its own.
  */

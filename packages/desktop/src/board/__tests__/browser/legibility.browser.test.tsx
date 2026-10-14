@@ -42,7 +42,6 @@ const ITEM: BoardItem = {
   rank: "a0",
   priority: 2,
   epicId: null,
-  estimate: 2,
   criteriaChecked: 1,
   criteriaTotal: 3,
 };

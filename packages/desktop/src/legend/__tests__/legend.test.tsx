@@ -260,12 +260,11 @@ describe("the legend tells the truth about the world 08.1 built", () => {
       priority: 5,
       epic: 5,
       criteria: 7,
-      estimate: 3,
       assignee: 4,
       project: 3,
       agent: 20,
     });
-    expect(MARKS).toHaveLength(57);
+    expect(MARKS).toHaveLength(54);
   });
 });
 
@@ -275,7 +274,7 @@ describe("the legend tells the truth about the world 08.1 built", () => {
  */
 describe("the legend can be used to tell its marks apart (08.1 finish-review closure)", () => {
   it("publishes no two marks under one heading with the same printed label", () => {
-    // Per channel: "Medium" is both a priority and an estimate, under two headings and two different glyphs.
+    // Per channel: the same word may sit under two headings with two different glyphs.
     // Two rows titled "Blocked" under Agent, wearing one shield, were the defect.
     const seen = new Map<string, string>();
     const clashes: string[] = [];
@@ -307,13 +306,9 @@ describe("the legend can be used to tell its marks apart (08.1 finish-review clo
     expect(offenders).toEqual([]);
   });
 
-  it("draws a swatch as the row draws the mark: the estimate letter, the triangle with its count, the fraction", () => {
+  it("draws a swatch as the row draws the mark: the triangle with its count, the fraction", () => {
     render(<Legend />);
     const swatch = (label: string) => rowFor(label).querySelector("[aria-hidden]") as HTMLElement;
-    // The estimate rows by id, because "Medium" is also a priority.
-    const estimateRows = screen.getAllByRole("listitem").filter((r) => /^[SML]:/.test(r.querySelector(".legend-meaning")?.textContent ?? ""));
-    expect(estimateRows.map((r) => (r.querySelector("[aria-hidden]") as HTMLElement).textContent)).toEqual(["S", "M", "L"]);
-    for (const row of estimateRows) expect(row.querySelector("[aria-hidden] svg"), "no icon on the row").toBeNull();
     expect(swatch("Commits ahead").querySelector("svg")).not.toBeNull();
     expect(swatch("Commits ahead").textContent).toBe("3");
     expect(swatch("Criteria checked/total").textContent).toBe("2/5");
@@ -328,8 +323,8 @@ describe("the legend is navigable (08.1 finish-review closure)", () => {
     render(<Legend />);
     const nav = screen.getByRole("navigation", { name: "Legend channels" });
     const channels = new Set(MARKS.map((m) => m.channel));
-    expect(channels.size).toBe(10);
-    expect(nav.querySelectorAll("a")).toHaveLength(10);
+    expect(channels.size).toBe(9);
+    expect(nav.querySelectorAll("a")).toHaveLength(9);
     expect(within(nav).queryAllByRole("listitem")).toHaveLength(0);
     for (const a of Array.from(nav.querySelectorAll("a"))) {
       expect(document.getElementById(a.getAttribute("href")!.slice(1)), a.textContent ?? "").not.toBeNull();

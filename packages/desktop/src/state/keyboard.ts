@@ -65,7 +65,6 @@ export type ActionId =
   | "collapse-row"
   | "open-status-picker"
   | "open-priority-picker"
-  | "open-estimate-picker"
   | "open-assignee-picker"
   | "open-epic-picker"
   | "reorder-up"
@@ -192,16 +191,14 @@ export const BINDINGS: Binding[] = [
   { id: "create-task", region: "board-list", key: "c", label: "Create Task" },
   { id: "open-status-picker", region: "board-list", key: "s", label: "Set Status" },
   { id: "open-priority-picker", region: "board-list", key: "p", label: "Set Priority" },
-  { id: "open-estimate-picker", region: "board-list", key: "e", label: "Set Estimate" },
   { id: "open-assignee-picker", region: "board-list", key: "a", label: "Set Assignee" },
-  // The four dimension pickers above took their own first letters, leaving `e` to estimate — so
-  // the epic picker is bound to `m` for "move under" (the action, not the noun), the only free
-  // mnemonic key left in the board-list region (G-01-EPIC-ASSIGN).
+  // The epic picker is bound to `m` for "move under" (the action, not the noun), a free mnemonic
+  // key in the board-list region (G-01-EPIC-ASSIGN).
   { id: "open-epic-picker", region: "board-list", key: "m", label: "Set Epic" },
   { id: "reorder-up", region: "board-list", key: "ArrowUp", meta: true, label: "Reorder up" },
   { id: "reorder-down", region: "board-list", key: "ArrowDown", meta: true, label: "Reorder down" },
   { id: "delete-item", region: "board-list", key: "Backspace", meta: true, label: "Delete" },
-  // `w`/`l` — neither collides with the nine letters above (`j k o c s p e a m`), verified at test
+  // `w`/`l` — neither collides with the eight letters above (`j k o c s p a m`), verified at test
   // time from this table rather than restated (02-03-PLAN.md Task 3).
   { id: "start-work", region: "board-list", key: "w", label: "Start Work" },
   // D-133: `r` is taken, `v` is the free letter that reads as review. Deliberately NOT in
@@ -245,9 +242,7 @@ export const BINDINGS: Binding[] = [
 
   // ---- Proposal tray (D-92/D-95, plan 05-07) — region-scoped so `a`/`d`/`Shift+A` here reuse
   // the exact permission-card vocabulary without colliding with it (a different region namespace
-  // entirely — `resolveBinding` matches on region, never on key alone). `e` is free in this
-  // region and matches the board's own `open-estimate-picker` mnemonic only by letter, not by
-  // region, which `resolveBinding` resolves correctly. `move-down`/`move-up` reuse the board
+  // entirely — `resolveBinding` matches on region, never on key alone). `move-down`/`move-up` reuse the board
   // list's own ids rather than a second "move" vocabulary — `bindingAllowedInLayer` below grants
   // them an extra allowance under the `"proposal-tray"` layer alongside their existing
   // board/quick-add one.

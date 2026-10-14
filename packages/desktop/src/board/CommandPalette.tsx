@@ -25,7 +25,6 @@ import { Legend } from "../legend/Legend";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "../projects/RegisterProjectFlow";
 import { StatusPicker } from "./pickers/StatusPicker";
 import { PriorityPicker } from "./pickers/PriorityPicker";
-import { EstimatePicker } from "./pickers/EstimatePicker";
 import { AssigneePicker } from "./pickers/AssigneePicker";
 import { ParentPicker, type ParentOption } from "./pickers/ParentPicker";
 import {
@@ -51,7 +50,6 @@ import {
   useProjects,
   useReorderItem,
   useSetAssignee,
-  useSetEstimate,
   useSetPriority,
   useSetStatus,
   useSetTaskEpic,
@@ -65,7 +63,6 @@ import { previousAuthoringStage } from "../session/SessionSurface";
 const OVERLAY_ACTION_IDS = new Set<ActionId>([
   "open-status-picker",
   "open-priority-picker",
-  "open-estimate-picker",
   "open-assignee-picker",
   "open-epic-picker",
   "delete-item",
@@ -131,7 +128,7 @@ function focusFirstChildButton(id: string) {
   document.getElementById(id)?.querySelector("button")?.focus();
 }
 
-type PaletteOverlay = "status" | "priority" | "estimate" | "assignee" | "epic" | "legend" | null;
+type PaletteOverlay = "status" | "priority" | "assignee" | "epic" | "legend" | null;
 
 export function CommandPalette() {
   const open = useUiStore((state) => state.paletteOpen);
@@ -191,7 +188,6 @@ export function CommandPalette() {
   const createIssue = useCreateIssue(effectiveProjectId);
   const setStatus = useSetStatus(effectiveProjectId);
   const setPriority = useSetPriority(effectiveProjectId);
-  const setEstimate = useSetEstimate(effectiveProjectId);
   const setAssignee = useSetAssignee(effectiveProjectId);
   const setTaskEpic = useSetTaskEpic(effectiveProjectId);
   const reorderItem = useReorderItem(effectiveProjectId);
@@ -253,9 +249,6 @@ export function CommandPalette() {
         break;
       case "open-priority-picker":
         if (selectedItem) setOverlay("priority");
-        break;
-      case "open-estimate-picker":
-        if (selectedItem) setOverlay("estimate");
         break;
       case "open-assignee-picker":
         if (selectedItem) setOverlay("assignee");
@@ -678,19 +671,6 @@ export function CommandPalette() {
             anchorRect={rect}
             onSelect={(priority) => {
               setPriority.mutate({ kind, id: selectedItem.id, priority });
-              closeOverlay();
-              close();
-            }}
-            onClose={closeOverlay}
-          />
-        );
-      case "estimate":
-        return (
-          <EstimatePicker
-            currentEstimate={selectedItem.estimate ?? null}
-            anchorRect={rect}
-            onSelect={(estimate) => {
-              setEstimate.mutate({ kind, id: selectedItem.id, estimate });
               closeOverlay();
               close();
             }}

@@ -1,12 +1,12 @@
 /**
  * One strip (01-UI-SPEC.md "Row Anatomy"): fixed-height, single-line, truncate-not-wrap, fields
- * in fixed left-to-right order (status glyph → key → title → estimate badge → epic pill →
+ * in fixed left-to-right order (status glyph → key → title → epic pill →
  * assignee avatar → criteria checked/total → priority glyph → actor-of-last-change). The status
  * glyph, key and title are never dropped at any supported window width (≥900px); the priority
  * glyph and the criteria count are never dropped by width either, but print nothing when they hold
- * no value (D-198.1, below) — the `.field-estimate`/`.field-epic-pill`/`.field-assignee`
- * container-query rules in `App.css` implement the progressive-disclosure ladder (estimate badge
- * drops last, epic pill and assignee avatar drop earlier) as the row's own inline size narrows;
+ * no value (D-198.1, below) — the `.field-epic-pill`/`.field-assignee`
+ * container-query rules in `App.css` implement the progressive-disclosure ladder (epic pill and
+ * assignee avatar drop) as the row's own inline size narrows;
  * `.board-row`'s `container-type: inline-size` is what makes those rules respond to the row
  * itself rather than the viewport. An epic renders as an ordinary strip in its own band
  * (01-UI-SPEC.md "Board list"); a task with no epic shows the muted "No epic" pill
@@ -17,10 +17,7 @@
  * exactly when the Done warning cannot fire, which is consistent with D-08 (issues never reach
  * `BoardRow` — they render in `IssuesLane.tsx`'s separate lane).
  *
- * The estimate badge (D-12) renders the letter itself (S/M/L), never the stored numeric ordinal
- * — the letters are the whole point of the "never aggregated" decision. It is simply absent (no
- * badge, no placeholder) for an item with no estimate set, same discipline the epic pill already
- * uses for `null`. The actor-of-last-change field (avatar + relative time) is not yet
+ * The actor-of-last-change field (avatar + relative time) is not yet
  * implemented — no activity trail exists until a later plan — and is simply not rendered, not
  * rendered as an empty placeholder, matching the precedent 01-03/01-04 documented for the same
  * reason; see this plan's SUMMARY "Known Stubs" section.
@@ -77,8 +74,6 @@ import type { CSSProperties, ComponentType, MouseEvent } from "react";
 import * as icons from "lucide-react";
 import {
   actorTypeMarkId,
-  estimateLetter,
-  estimateMarkId,
   MARKS_BY_ID,
   priorityMarkId,
   statusMarkId,
@@ -170,7 +165,6 @@ export interface BoardRowProps {
   onOpenDetail?: () => void;
   onOpenStatusPicker?: () => void;
   onOpenPriorityPicker?: () => void;
-  onOpenEstimatePicker?: () => void;
   onOpenAssigneePicker?: () => void;
   /** Activating the blocked pill — opens the item detail panel (which renders the
    * permission-request card automatically whenever a pending request exists, plan 02-06 Task 2),
@@ -205,7 +199,6 @@ export function BoardRow({
   onOpenDetail,
   onOpenStatusPicker,
   onOpenPriorityPicker,
-  onOpenEstimatePicker,
   onOpenAssigneePicker,
   onOpenBlocked,
   onOpenRecovery,
@@ -227,8 +220,6 @@ export function BoardRow({
   const epicUnresolvedMark = MARKS_BY_ID["epic-pill-unresolved"];
   const criteriaBadgeMark = MARKS_BY_ID["criteria-count-badge"];
   const proposalPendingMark = MARKS_BY_ID["proposal-pending"];
-  const estimateId = estimateMarkId(item.estimate);
-  const estimateMark = estimateId ? MARKS_BY_ID[estimateId] : undefined;
   const assignee = item.assigneeId ? actorsById?.[item.assigneeId] : undefined;
   const epic = item.epicId ? epicsById?.[item.epicId] : undefined;
   // Exactly three outcomes, never a fourth: no epic id -> "No epic"; an epic id that resolves in
@@ -288,11 +279,6 @@ export function BoardRow({
   function handlePriorityGlyphClick(event: MouseEvent<HTMLSpanElement>) {
     event.stopPropagation();
     onOpenPriorityPicker?.();
-  }
-
-  function handleEstimateBadgeClick(event: MouseEvent<HTMLSpanElement>) {
-    event.stopPropagation();
-    onOpenEstimatePicker?.();
   }
 
   function handleAssigneeAvatarClick(event: MouseEvent<HTMLSpanElement>) {
@@ -497,27 +483,6 @@ export function BoardRow({
       >
         {item.title}
       </span>
-      {estimateMark && (
-        <span
-          role="button"
-          className="field-estimate type-label tabular-nums"
-          aria-label={`Estimate: ${estimateMark.label}. Press to change.`}
-          title={estimateMark.meaning}
-          onClick={handleEstimateBadgeClick}
-          style={{
-            flexShrink: 0,
-            minWidth: 20,
-            textAlign: "center",
-            color: "var(--text-muted-strip)",
-            border: "1px solid var(--border-control)",
-            borderRadius: "var(--radius-mark)",
-            padding: "1px var(--space-xs)",
-            cursor: "pointer",
-          }}
-        >
-          {estimateLetter(item.estimate)}
-        </span>
-      )}
       {!isEpic && !hideEpicPill && (
         <span
           className="field-epic-pill type-label"
@@ -544,8 +509,8 @@ export function BoardRow({
         </span>
       )}
       {item.assigneeId && (
-        // An unassigned row prints no glyph: absent is not a value, the same discipline as the estimate
-        // badge and the change cue (A-03: a zero or an unknown renders nothing). Fourteen identical
+        // An unassigned row prints no glyph: absent is not a value, the same discipline as the epic pill
+        // and the change cue (A-03: a zero or an unknown renders nothing). Fourteen identical
         // "nobody" marks down a roster flatten the signals that do vary (08.1-14 finish review). The
         // picker is still one key (`a`), the palette and the detail panel away. D-198.1 extends the
         // same rule to the criteria count (`0/0`) and the priority glyph ("No priority") below.

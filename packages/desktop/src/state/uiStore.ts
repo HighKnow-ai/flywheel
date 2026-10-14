@@ -33,7 +33,6 @@ export interface BoardFilterDraft {
   epicIds: (string | null)[];
   assigneeIds: (string | null)[];
   priorities: number[];
-  estimates: number[];
   /** D-17: only items with an active worktree (epics: any child task has one, amendment A-04).
    * `false` is "this dimension is unfiltered" — there is no "only without a worktree" reading. */
   hasWorktree: boolean;
@@ -44,7 +43,6 @@ export const EMPTY_FILTER_DRAFT: BoardFilterDraft = {
   epicIds: [],
   assigneeIds: [],
   priorities: [],
-  estimates: [],
   hasWorktree: false,
 };
 
@@ -58,7 +56,6 @@ export function isFilterDraftActive(filter: BoardFilterDraft): boolean {
     filter.epicIds.length > 0 ||
     filter.assigneeIds.length > 0 ||
     filter.priorities.length > 0 ||
-    filter.estimates.length > 0 ||
     filter.hasWorktree
   );
 }
@@ -69,10 +66,10 @@ function toggleValue<T>(list: T[], value: T): T[] {
 
 /** Which row-level picker is open, if any (moved from `board/BoardView.tsx` — this plan's Task 1
  * folds the whole layer stack into this module so one place can answer "what layer is on top,"
- * per `state/keyboard.ts`'s layer model). One piece of state covers all four (status, priority,
- * estimate, assignee) rather than four parallel fields — they share the same
+ * per `state/keyboard.ts`'s layer model). One piece of state covers all of them (status, priority,
+ * assignee, epic, issue parent) rather than parallel fields — they share the same
  * open/anchor/close shape. */
-export type PickerKind = "status" | "priority" | "estimate" | "assignee" | "epic" | "issue-parent";
+export type PickerKind = "status" | "priority" | "assignee" | "epic" | "issue-parent";
 
 /** The in-flight Done-transition warning (D-08): moving an item to Done with unchecked criteria
  * warns but never blocks. The pending change is held here rather than applied optimistically —
@@ -261,7 +258,6 @@ interface UiState {
   toggleEpic: (epicId: string | null) => void;
   toggleAssignee: (assigneeId: string | null) => void;
   togglePriority: (priority: number) => void;
-  toggleEstimate: (estimate: number) => void;
   toggleHasWorktree: () => void;
   clearFilters: () => void;
   setSelectedItemId: (id: string | null) => void;
@@ -378,14 +374,6 @@ export const useUiStore = create<UiState>((set, get) => ({
       filterDraft: {
         ...state.filterDraft,
         priorities: toggleValue(state.filterDraft.priorities, priority),
-      },
-    })),
-
-  toggleEstimate: (estimate) =>
-    set((state) => ({
-      filterDraft: {
-        ...state.filterDraft,
-        estimates: toggleValue(state.filterDraft.estimates, estimate),
       },
     })),
 

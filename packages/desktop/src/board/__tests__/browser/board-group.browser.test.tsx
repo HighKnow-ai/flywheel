@@ -54,7 +54,7 @@ const OUT = "../../../../../../.impeccable/review";
 const OUT_FROM_ROOT = "../../.impeccable/review";
 const WIDTH = 1440;
 
-type Task = { id: string; epic_id: string | null; key: string; title: string; status: string; priority: number; estimate: number | null };
+type Task = { id: string; epic_id: string | null; key: string; title: string; status: string; priority: number };
 const tasks = data.tasks as Task[];
 const epics = data.epics as { id: string; key: string; title: string; status: string }[];
 
@@ -80,7 +80,7 @@ const epicsById = Object.fromEntries(epics.map((e) => [e.id, { id: e.id, key: e.
 
 const toItem = (t: Task): BoardItem => ({
   id: t.id, kind: "task", key: t.key, title: t.title, status: t.status, rank: "a0", priority: t.priority,
-  epicId: t.epic_id, estimate: t.estimate, criteriaChecked: 0, criteriaTotal: 0,
+  epicId: t.epic_id, criteriaChecked: 0, criteriaTotal: 0,
 });
 
 const projects: Project[] = (data.projects as { id: string; key_prefix: string; name: string; status: string }[]).map((p) => ({

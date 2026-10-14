@@ -2,7 +2,7 @@
  * The always-visible top-bar search field and filter chips (01-UI-SPEC.md "Search & filter" —
  * search lives in the bar, not behind the command palette, since it is a primary daily action;
  * `⌘F` and `/` both focus it). Chips cover every dimension BOARD-06 names: status, epic
- * (including "No epic"), assignee (including "Unassigned"), priority and estimate. The epic
+ * (including "No epic"), assignee (including "Unassigned") and priority. The epic
  * dimension is one disclosure button (`Epic ▾`) over the roster's chips, collapsed by default, so
  * the bar stays about one row however many epics a project has (the spec asks for "chips/dropdown").
  *
@@ -25,11 +25,9 @@
 import { useMemo, useRef, useState, type CSSProperties } from "react";
 import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 import {
-  ESTIMATE_MARKS,
   MARKS_BY_ID,
   PRIORITY_MARKS,
   STATUS_MARKS,
-  estimateLetter,
   priorityValueFromMarkId,
   statusValueFromMarkId,
 } from "../legend/marks";
@@ -83,7 +81,6 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
   const toggleEpic = useUiStore((state) => state.toggleEpic);
   const toggleAssignee = useUiStore((state) => state.toggleAssignee);
   const togglePriority = useUiStore((state) => state.togglePriority);
-  const toggleEstimate = useUiStore((state) => state.toggleEstimate);
   const toggleHasWorktree = useUiStore((state) => state.toggleHasWorktree);
   const clearFilters = useUiStore((state) => state.clearFilters);
 
@@ -201,25 +198,6 @@ export function FilterBar({ projectId, isFetching = false }: FilterBarProps) {
               style={chipStyle(selected)}
             >
               {mark.label}
-            </button>
-          );
-        })}
-      </div>
-
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
-        {ESTIMATE_MARKS.map((mark, index) => {
-          const value = index + 1;
-          const selected = filterDraft.estimates.includes(value);
-          return (
-            <button
-              key={mark.id}
-              type="button"
-              className="type-label control-edge"
-              aria-pressed={selected}
-              onClick={() => toggleEstimate(value)}
-              style={chipStyle(selected)}
-            >
-              {estimateLetter(value)}
             </button>
           );
         })}

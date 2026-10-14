@@ -99,7 +99,7 @@ function Page() {
       <ItemDetailPanel
         item={{
           id: TASK.id, kind: "task", key: TASK.key, title: TASK.title, status: TASK.status, projectId: TASK.project_id,
-          priority: (TASK as unknown as { priority: number }).priority, estimate: (TASK as unknown as { estimate: number }).estimate,
+          priority: (TASK as unknown as { priority: number }).priority,
         }}
         onClose={() => {}} onUpdateTitle={() => {}} onSetStatus={() => {}} onStartWork={() => {}} onReview={() => {}}
         trapped={false}

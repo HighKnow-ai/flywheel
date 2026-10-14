@@ -511,13 +511,13 @@ describe(`admin group, built, ${scheme} scheme`, () => {
     // Rows are hairline-separated.
     expect(toHex(getComputedStyle(row("Idle row")).borderBottomColor)).toBe(PALETTE.divider);
 
-    // A swatch is the mark as the row draws it: the triangle with its count, the estimate letter, the fraction.
+    // A swatch is the mark as the row draws it: the triangle with its count, the fraction.
     expect(swatch("Commits ahead").textContent).toBe("3");
     expect(swatch("Commits ahead").querySelector("svg")).toBeTruthy();
     expect(swatch("Criteria checked/total").textContent).toBe("2/5");
-    // The page has the title the dialog has, and an index of the ten channels.
+    // The page has the title the dialog has, and an index of the nine channels.
     expect(screen.getByRole("heading", { level: 1, name: "Legend" })).toBeTruthy();
-    expect(within(screen.getByRole("navigation", { name: "Legend channels" })).getAllByRole("link")).toHaveLength(10);
+    expect(within(screen.getByRole("navigation", { name: "Legend channels" })).getAllByRole("link")).toHaveLength(9);
     // Two rows titled "Blocked" are one row now.
     expect(screen.getAllByRole("listitem").filter((r) => r.querySelector(".type-body")?.textContent === "Blocked")).toHaveLength(1);
     // A channel heading is sticky and sits on the page's own ground, so a row never shows through it.

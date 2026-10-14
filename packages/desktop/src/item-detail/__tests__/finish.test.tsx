@@ -137,26 +137,23 @@ describe("an action is told apart from a value (08.1-15 closure, finding 3)", ()
 });
 
 describe("the property grid prints only values it has (08.1-15 closure, finding 6)", () => {
-  it("prints Priority and Estimate as label/value rows when the item carries them", () => {
-    renderPanel({ ...TASK, priority: 2, estimate: 3 });
+  it("prints Priority as a label/value row when the item carries it", () => {
+    renderPanel({ ...TASK, priority: 2 });
     const grid = screen.getByRole("dialog", { name: "FLY-1 detail" }).querySelector(".detail-props") as HTMLElement;
     expect(within(grid).getByText("Priority").nextElementSibling?.textContent).toBe("High");
-    expect(within(grid).getByText("Estimate").nextElementSibling?.textContent).toBe("L");
   });
 
   it("prints no row for a value it does not have, and no placeholder", () => {
     renderPanel(TASK);
     const grid = screen.getByRole("dialog", { name: "FLY-1 detail" }).querySelector(".detail-props") as HTMLElement;
     expect(within(grid).queryByText("Priority")).toBeNull();
-    expect(within(grid).queryByText("Estimate")).toBeNull();
     expect(grid.textContent).not.toMatch(/—|n\/a|none/i);
   });
 
-  it("prints `No priority` for the fact priority 0, and Estimate nothing for null", () => {
-    renderPanel({ ...TASK, priority: 0, estimate: null });
+  it("prints `No priority` for the fact priority 0", () => {
+    renderPanel({ ...TASK, priority: 0 });
     const grid = screen.getByRole("dialog", { name: "FLY-1 detail" }).querySelector(".detail-props") as HTMLElement;
     expect(within(grid).getByText("Priority").nextElementSibling?.textContent).toBe("No priority");
-    expect(within(grid).queryByText("Estimate")).toBeNull();
   });
 });
 

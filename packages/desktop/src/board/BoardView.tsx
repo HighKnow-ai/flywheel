@@ -48,7 +48,6 @@ import { DoneWarning } from "./DoneWarning";
 import { DeleteConfirm } from "./DeleteConfirm";
 import { StatusPicker } from "./pickers/StatusPicker";
 import { PriorityPicker } from "./pickers/PriorityPicker";
-import { EstimatePicker } from "./pickers/EstimatePicker";
 import { AssigneePicker } from "./pickers/AssigneePicker";
 import { ParentPicker, type ParentOption } from "./pickers/ParentPicker";
 import { ItemDetailPanel, type DetailItem } from "../item-detail/ItemDetailPanel";
@@ -86,7 +85,6 @@ import {
   useRecoverySummary,
   useReorderItem,
   useSetAssignee,
-  useSetEstimate,
   useSetIssueParent,
   useSetPriority,
   useSetStatus,
@@ -382,7 +380,6 @@ export function BoardView({
 
   const setStatus = useSetStatus(projectId);
   const setPriority = useSetPriority(projectId);
-  const setEstimate = useSetEstimate(projectId);
   const setAssignee = useSetAssignee(projectId);
   const setTaskEpic = useSetTaskEpic(projectId);
   const setIssueParent = useSetIssueParent(projectId);
@@ -872,7 +869,7 @@ export function BoardView({
     return selectableItems.some((r) => r.kind === "epic-header" && r.item.id === id);
   }
 
-  /** Opens any of the four row-level pickers (status/priority/estimate/assignee) for `id`,
+  /** Opens any of the four row-level pickers (status/priority/assignee) for `id`,
    * anchored to that row's real screen coordinates (`StatusPicker.tsx`'s doc comment explains
    * why a portal positioned from `getBoundingClientRect()` is required rather than CSS
    * `position: absolute` inside the row). Opening issues no command — only a selection made
@@ -984,9 +981,6 @@ export function BoardView({
         break;
       case "open-priority-picker":
         if (selectedId) openPickerFor("priority", selectedId);
-        break;
-      case "open-estimate-picker":
-        if (selectedId) openPickerFor("estimate", selectedId);
         break;
       case "open-assignee-picker":
         if (selectedId) openPickerFor("assignee", selectedId);
@@ -1368,10 +1362,6 @@ export function BoardView({
                     setSelectedId(row.item.id);
                     openPickerFor("priority", row.item.id);
                   }}
-                  onOpenEstimatePicker={() => {
-                    setSelectedId(row.item.id);
-                    openPickerFor("estimate", row.item.id);
-                  }}
                   onOpenAssigneePicker={() => {
                     setSelectedId(row.item.id);
                     openPickerFor("assignee", row.item.id);
@@ -1567,18 +1557,6 @@ export function BoardView({
                   onClose={closePicker}
                 />
               );
-            case "estimate":
-              return (
-                <EstimatePicker
-                  currentEstimate={pickedRow.estimate ?? null}
-                  anchorRect={pickerAnchor}
-                  onSelect={(estimate) => {
-                    setEstimate.mutate({ kind, id: pickedRow.id, estimate });
-                    closePicker();
-                  }}
-                  onClose={closePicker}
-                />
-              );
             case "assignee":
               return (
                 <AssigneePicker
@@ -1630,10 +1608,9 @@ export function BoardView({
               // Empty for an epic reached from the roster, whose status is not known here.
               status: selectedItem.status || undefined,
               projectId,
-              // A roster epic is a placeholder with no rank, and its priority/estimate are not known (see
+              // A roster epic is a placeholder with no rank, and its priority is not known (see
               // `rosterEpicItem`): print them only for a loaded row, never the placeholder's `0`.
               priority: selectedItem.rank ? selectedItem.priority : undefined,
-              estimate: selectedItem.rank ? selectedItem.estimate : undefined,
             } satisfies DetailItem
           }
           onClose={() => setDetailItemId(null)}

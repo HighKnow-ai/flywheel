@@ -154,13 +154,13 @@ function installTauriBridge() {
   };
 }
 
-type Task = { id: string; epic_id: string | null; key: string; title: string; status: string; priority: number; estimate: number | null };
+type Task = { id: string; epic_id: string | null; key: string; title: string; status: string; priority: number };
 const tasks = data.tasks as Task[];
 const epics = data.epics as { id: string; key: string; title: string; status: string }[];
 const epicsById = Object.fromEntries(epics.map((e) => [e.id, { id: e.id, key: e.key, title: e.title }]));
 const toItem = (t: Task): BoardItem => ({
   id: t.id, kind: "task", key: t.key, title: t.title, status: t.status, rank: "a0", priority: t.priority,
-  epicId: t.epic_id, estimate: t.estimate, criteriaChecked: 0, criteriaTotal: 0,
+  epicId: t.epic_id, criteriaChecked: 0, criteriaTotal: 0,
 });
 const progressFor = (epicId: string | null): EpicProgressDto => {
   const mine = tasks.filter((t) => t.epic_id === epicId);

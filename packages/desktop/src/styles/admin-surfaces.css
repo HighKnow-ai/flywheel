@@ -81,7 +81,7 @@
   top: calc(var(--space-lg) * -1);
 }
 
-/* The ten channels, as plain links in a wrapping line: type and a hairline, no chips. */
+/* The nine channels, as plain links in a wrapping line: type and a hairline, no chips. */
 .legend-index {
   display: flex;
   flex-wrap: wrap;

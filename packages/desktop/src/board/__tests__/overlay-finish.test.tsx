@@ -11,17 +11,16 @@ import { describe, expect, it } from "vitest";
 import appCss from "../../App.css?raw";
 import palette from "../CommandPalette.tsx?raw";
 import assignee from "../pickers/AssigneePicker.tsx?raw";
-import estimate from "../pickers/EstimatePicker.tsx?raw";
 import parent from "../pickers/ParentPicker.tsx?raw";
 import priority from "../pickers/PriorityPicker.tsx?raw";
 import status from "../pickers/StatusPicker.tsx?raw";
 
-const PICKERS = { assignee, estimate, parent, priority, status };
+const PICKERS = { assignee, parent, priority, status };
 
 /** Source with comment lines removed, so a comment explaining the old literal is not a finding. */
 const code = (source: string) => source.split("\n").filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join("\n");
 
-describe("the five pickers are popovers", () => {
+describe("the four pickers are popovers", () => {
   for (const [name, source] of Object.entries(PICKERS)) {
     it(`${name}: control-boundary edge, popover shadow, no scrim, no literal`, () => {
       const src = code(source);

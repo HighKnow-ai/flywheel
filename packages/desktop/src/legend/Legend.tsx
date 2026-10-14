@@ -13,7 +13,6 @@ const CHANNEL_LABELS: Record<MarkChannel, string> = {
   priority: "Priority",
   epic: "Epic",
   criteria: "Criteria",
-  estimate: "Estimate",
   assignee: "Assignee",
   project: "Project switcher",
   agent: "Agent",
@@ -149,7 +148,7 @@ export function Legend({ onClose }: LegendProps = {}) {
           </button>
         )}
       </header>
-      {/* One screen of marks per channel, ten channels: an index, so no mark is a long scroll away. Links, not a
+      {/* One screen of marks per channel, nine channels: an index, so no mark is a long scroll away. Links, not a
           list, so the registry's rows stay the only list items on the surface. */}
       <nav aria-label="Legend channels" className="legend-index type-label">
         {channels.map((channel) => (

@@ -29,7 +29,7 @@ import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { StatusPicker } from "../board/pickers/StatusPicker";
 import { ChevronDown } from "lucide-react";
-import { estimateLetter, MARKS_BY_ID, priorityMarkId, statusMarkId } from "../legend/marks";
+import { MARKS_BY_ID, priorityMarkId, statusMarkId } from "../legend/marks";
 import { AcceptanceCriteriaList } from "./AcceptanceCriteriaList";
 import { ActivityTrail } from "./ActivityTrail";
 import { ForgeSection } from "./ForgeSection";
@@ -52,9 +52,6 @@ export interface DetailItem {
   /** The item's priority (0-4, keyed as the keyboard map). `undefined` means NOT KNOWN (an epic
    * reached from the roster carries none), which prints no row; `0` is the fact "No priority". */
   priority?: number;
-  /** S/M/L as the stored ordinal 1-3. `null`/`undefined` is "no estimate set": no row, never a
-   * placeholder (the board row prints no badge for it either, D-12). */
-  estimate?: number | null;
 }
 
 export interface ItemDetailPanelProps {
@@ -118,8 +115,7 @@ export function ItemDetailPanel({
   // Printed only where there is a value to print. The panel receives no other property (assignee, epic and the
   // worktree facts have their own sections), and an unknown value prints nothing rather than a dash.
   const priorityMark = item.priority === undefined ? undefined : MARKS_BY_ID[priorityMarkId(item.priority)];
-  const estimate = estimateLetter(item.estimate);
-  const hasProps = (!isIssue && !!item.status) || !!priorityMark || !!estimate;
+  const hasProps = (!isIssue && !!item.status) || !!priorityMark;
 
   function commitTitle() {
     const trimmed = titleDraft.trim();
@@ -242,12 +238,6 @@ export function ItemDetailPanel({
                 <>
                   <dt className="type-body">Priority</dt>
                   <dd className="type-body">{priorityMark.label}</dd>
-                </>
-              )}
-              {estimate && (
-                <>
-                  <dt className="type-body">Estimate</dt>
-                  <dd className="type-body tabular-nums">{estimate}</dd>
                 </>
               )}
             </dl>
