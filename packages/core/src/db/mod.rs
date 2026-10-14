@@ -90,6 +90,19 @@ pub fn apply_pragmas(conn: &Connection) -> anyhow::Result<()> {
 /// "succeeded" but left a corrupt file is still an error here, not a silently-returned
 /// `Connection`.
 pub fn open_and_migrate(db_path: &Path, backups_dir: &Path) -> anyhow::Result<Connection> {
+    open_and_migrate_with(db_path, backups_dir, &MIGRATIONS)
+}
+
+/// [`open_and_migrate`] against an explicit migration set. The product always passes the full
+/// [`MIGRATIONS`]; a maintenance tool that must leave a database at the schema an installed older
+/// build still understands passes a truncated set built from [`migration_sources`] (plan 11-21,
+/// `file_board_items`). Everything else — the pre-migration backup, the restore on failure, the
+/// foreign-key check, the integrity check — is the same code path.
+pub fn open_and_migrate_with(
+    db_path: &Path,
+    backups_dir: &Path,
+    migrations: &Migrations<'_>,
+) -> anyhow::Result<Connection> {
     let backup_path = backup_database_file(db_path, backups_dir)
         .with_context(|| format!("failed to back up {db_path:?} before migrating"))?;
 
@@ -123,7 +136,7 @@ pub fn open_and_migrate(db_path: &Path, backups_dir: &Path) -> anyhow::Result<Co
     // silently dropped or misdirected a foreign key must be treated exactly like a `to_latest`
     // failure — routed through the SAME restore-and-refuse path below (D-18) — never surfaced as
     // a late, un-recovered error after the connection has already been handed back.
-    let migration_result: anyhow::Result<()> = MIGRATIONS
+    let migration_result: anyhow::Result<()> = migrations
         .to_latest(&mut conn)
         .map_err(anyhow::Error::from)
         .and_then(|()| {
