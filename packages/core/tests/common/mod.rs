@@ -1,6 +1,6 @@
 //! Shared fixture for `search_filter.rs` and `perf_seed_1000.rs` (01-08-PLAN.md Task 3):
 //! `seed_project` builds one project of `n` tasks spread across the five workflow states, with
-//! varied titles, priorities, estimates and assignees, so a search can discriminate between rows
+//! varied titles, priorities and assignees, so a search can discriminate between rows
 //! and a filter has something real to narrow (a thousand identical rows would make every latency
 //! and correctness assertion meaningless).
 //!
@@ -106,9 +106,8 @@ pub fn seed_title(i: usize) -> String {
 
 /// Create one project and `n` tasks spread evenly across the five workflow states
 /// (`i % 5` selects the status), with varied priority (`i % 5`, covering "No priority" through
-/// "Low"), estimate (`None` for one in four rows, otherwise S/M/L cycling), and assignee (cycling
-/// through unassigned, the seeded human actor and the seeded system actor). Returns the project
-/// id.
+/// "Low"), and assignee (cycling through unassigned, the seeded human actor and the seeded system
+/// actor). Returns the project id.
 #[allow(dead_code)]
 pub fn seed_project(conn: &mut Connection, n: usize) -> anyhow::Result<String> {
     let human_id = local_human_actor_id(conn)?;
@@ -127,7 +126,6 @@ pub fn seed_project(conn: &mut Connection, n: usize) -> anyhow::Result<String> {
         // status first, so overlapping rank values across bands never affect the total order.
         let rank = format!("{i:08}");
         let priority = (i % 5) as i64;
-        let estimate = if i % 4 == 0 { None } else { Some(((i % 3) + 1) as i64) };
         let assignee_id: Option<&str> = match i % 3 {
             0 => None,
             1 => Some(human_id.as_str()),
@@ -137,12 +135,9 @@ pub fn seed_project(conn: &mut Connection, n: usize) -> anyhow::Result<String> {
         tx.execute(
             "INSERT INTO tasks (
                 id, project_id, epic_id, key, title, description, status, rank, priority,
-                estimate, assignee_id, created_by, created_at, updated_at
-            ) VALUES (?1, ?2, NULL, ?3, ?4, NULL, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
-            params![
-                id, proj.id, key, title, status, rank, priority, estimate, assignee_id, human_id,
-                now
-            ],
+                assignee_id, created_by, created_at, updated_at
+            ) VALUES (?1, ?2, NULL, ?3, ?4, NULL, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
+            params![id, proj.id, key, title, status, rank, priority, assignee_id, human_id, now],
         )?;
     }
     tx.execute(

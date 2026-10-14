@@ -13,6 +13,8 @@ use std::time::{Duration, SystemTime};
 use core::db::backup::{backup_database_file, prune_backups, restore_from_backup};
 use core::db::{apply_pragmas, migration_sources, open_and_migrate};
 use core::domain::actor::local_human_actor_id;
+use core::domain::acceptance_criterion::create_criterion;
+use core::domain::epic::create_epic;
 use core::domain::project::create_project;
 use core::domain::task::create_task;
 use core::ids::new_id;
@@ -456,4 +458,225 @@ fn migration_0015_rebuild_preserves_self_referential_parent_link() {
         params![parent_proposal_id],
     )
     .expect("an UPDATE setting status = 'deferred' should now be accepted");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Migration 0023 (DRFT-05, D-14, D-15): `estimate` is dropped from `tasks` and `epics` by full
+// table rebuild.
+// ---------------------------------------------------------------------------------------------
+
+const TASK_COLS: &str = "id, project_id, epic_id, key, title, description, status, rank, priority, \
+                         assignee_id, created_by, created_at, updated_at";
+const EPIC_COLS: &str = "id, project_id, key, title, description, status, rank, priority, \
+                         assignee_id, integration_branch, archived_at, created_by, created_at, updated_at";
+const ANCHOR_COLS: &str = "criterion_id, path, side, line_start, line_end, sha, created_by, created_at";
+
+/// Every row of `sql` as debug-formatted values, so two snapshots compare byte-for-byte.
+fn dump(conn: &Connection, sql: &str) -> Vec<Vec<String>> {
+    let mut stmt = conn.prepare(sql).expect("dump query should prepare");
+    let width = stmt.column_count();
+    stmt.query_map([], |row| {
+        (0..width).map(|i| row.get::<_, rusqlite::types::Value>(i).map(|v| format!("{v:?}"))).collect()
+    })
+    .expect("dump query should run")
+    .collect::<Result<Vec<_>, _>>()
+    .expect("dump rows should read")
+}
+
+fn columns_of(conn: &Connection, table: &str) -> Vec<String> {
+    conn.prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
+        .expect("table_info should prepare")
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("table_info should run")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("table_info rows should read")
+}
+
+fn assert_estimate_gone(conn: &Connection) {
+    for table in ["tasks", "epics"] {
+        let cols = columns_of(conn, table);
+        assert!(!cols.is_empty(), "{table} must still exist after the rebuild");
+        assert!(
+            !cols.iter().any(|c| c == "estimate"),
+            "{table} must not retain the dropped column, found {cols:?}"
+        );
+        assert!(cols.iter().any(|c| c == "priority"), "{table} keeps priority (D-16)");
+    }
+}
+
+fn assert_foreign_keys_clean(conn: &Connection) {
+    let violations = dump(conn, "SELECT * FROM pragma_foreign_key_check");
+    assert!(violations.is_empty(), "PRAGMA foreign_key_check must return no rows, got {violations:?}");
+}
+
+/// D-15: Phase 16's RECD-04 is conditional on `criterion_anchors` rows surviving a `tasks`
+/// rebuild. This is that proof, named so RECD-04 can cite it. T-13-10, T-13-11.
+#[test]
+fn migration_0023_rebuild_preserves_criterion_anchors() {
+    let dir = scratch_dir();
+    let db_path = dir.path().join("flywheel.db");
+    let backups_dir = dir.path().join("backups");
+
+    let (task_id, criterion_id, tasks_before, epics_before, anchors_before) = {
+        let mut conn = build_n_minus_1_fixture(&db_path);
+        let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
+        let project = create_project(&mut conn, &actor_id, "Anchors", "/repo", "ANC", "main")
+            .expect("create_project should succeed");
+        let epic = create_epic(&mut conn, &project.id, &actor_id, "An epic", Some("with words"))
+            .expect("create_epic should succeed");
+        let task = create_task(&mut conn, &project.id, &actor_id, "An anchored task", Some(&epic.id))
+            .expect("create_task should succeed");
+        let criterion = create_criterion(&mut conn, &project.id, &actor_id, "task", &task.id, "It works", None)
+            .expect("create_criterion should succeed");
+
+        // Values that are about to be discarded, plus values that must survive untouched.
+        conn.execute("UPDATE tasks SET estimate = 2, priority = 3, status = 'in_review' WHERE id = ?1", params![task.id])
+            .expect("failed to seed the task");
+        conn.execute("UPDATE epics SET estimate = 3, priority = 1 WHERE id = ?1", params![epic.id])
+            .expect("failed to seed the epic");
+        conn.execute(
+            "INSERT INTO criterion_anchors (criterion_id, path, side, line_start, line_end, sha, created_by, created_at)
+             VALUES (?1, 'src/lib.rs', 'old', 12, 18, '0123456789abcdef0123456789abcdef01234567', ?2, '2026-02-03T04:05:06Z')",
+            params![criterion.id, actor_id],
+        )
+        .expect("failed to insert the fixture anchor");
+
+        let tasks_before = dump(&conn, &format!("SELECT {TASK_COLS} FROM tasks"));
+        let epics_before = dump(&conn, &format!("SELECT {EPIC_COLS} FROM epics"));
+        let anchors_before = dump(&conn, &format!("SELECT {ANCHOR_COLS} FROM criterion_anchors"));
+        assert_eq!(anchors_before.len(), 1);
+        (task.id, criterion.id, tasks_before, epics_before, anchors_before)
+    };
+
+    let conn = open_and_migrate(&db_path, &backups_dir).expect("open_and_migrate should apply 0023");
+
+    assert_estimate_gone(&conn);
+    assert_eq!(dump(&conn, &format!("SELECT {ANCHOR_COLS} FROM criterion_anchors")), anchors_before,
+        "the criterion_anchors row must survive the tasks rebuild byte-identical");
+    assert_eq!(dump(&conn, &format!("SELECT {TASK_COLS} FROM tasks")), tasks_before,
+        "every non-estimate task column must be byte-identical");
+    assert_eq!(dump(&conn, &format!("SELECT {EPIC_COLS} FROM epics")), epics_before,
+        "every non-estimate epic column must be byte-identical");
+
+    // The chain the rebuild must not break: anchor -> criterion -> task, still joinable.
+    let joined: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM criterion_anchors a
+               JOIN acceptance_criteria c ON c.id = a.criterion_id
+               JOIN tasks t ON t.id = c.parent_id
+              WHERE a.criterion_id = ?1 AND t.id = ?2",
+            params![criterion_id, task_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(joined, 1);
+    assert_foreign_keys_clean(&conn);
+
+    // D-18: the destructive rebuild ran behind a restorable pre-migration backup.
+    assert_eq!(backup_file_count(&backups_dir), 1, "the pre-migration backup must exist");
+}
+
+#[test]
+fn migration_0023_applies_to_a_fresh_database() {
+    let dir = scratch_dir();
+    let conn = open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups"))
+        .expect("a fresh database should migrate to latest");
+    assert_estimate_gone(&conn);
+    assert_foreign_keys_clean(&conn);
+}
+
+#[test]
+fn migration_0023_rebuilds_empty_tables_cleanly() {
+    let dir = scratch_dir();
+    let db_path = dir.path().join("flywheel.db");
+    drop(build_n_minus_1_fixture(&db_path));
+
+    let conn = open_and_migrate(&db_path, &dir.path().join("backups"))
+        .expect("an N-1 database with empty tasks and epics should migrate");
+    assert_estimate_gone(&conn);
+    for table in ["tasks", "epics"] {
+        let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
+    }
+    assert_foreign_keys_clean(&conn);
+}
+
+#[test]
+fn migration_0023_preserves_task_rank_order() {
+    let dir = scratch_dir();
+    let db_path = dir.path().join("flywheel.db");
+
+    let order_sql = "SELECT id FROM tasks ORDER BY rank ASC";
+    let before = {
+        let mut conn = build_n_minus_1_fixture(&db_path);
+        let actor_id = local_human_actor_id(&conn).unwrap();
+        let project = create_project(&mut conn, &actor_id, "Order", "/repo", "ORD", "main").unwrap();
+        // Created in one order, ranked in another, so rank order differs from insertion order.
+        // `create_task` parses existing ranks, so re-rank only after all five exist.
+        let ids: Vec<String> = (0..5)
+            .map(|i| create_task(&mut conn, &project.id, &actor_id, &format!("task {i}"), None).unwrap().id)
+            .collect();
+        for (id, rank) in ids.iter().zip(["e", "b", "d", "a", "c"]) {
+            conn.execute("UPDATE tasks SET rank = ?1 WHERE id = ?2", params![rank, id]).unwrap();
+        }
+        let before = dump(&conn, order_sql);
+        assert_eq!(before.len(), 5);
+        before
+    };
+
+    let conn = open_and_migrate(&db_path, &dir.path().join("backups")).unwrap();
+    assert_eq!(dump(&conn, order_sql), before, "rank order must be identical after the rebuild");
+    assert_eq!(
+        dump(&conn, "SELECT rank FROM tasks ORDER BY rank ASC"),
+        ["a", "b", "c", "d", "e"].map(|r| vec![format!("Text({r:?})")]).to_vec(),
+        "rank values themselves must be preserved"
+    );
+}
+
+/// The rebuild drops each table's FTS5 sync triggers along with the table; migration 0023 must
+/// re-create them and keep every `rowid`, or search silently goes stale (BOARD-06).
+#[test]
+fn migration_0023_keeps_search_in_sync() {
+    let dir = scratch_dir();
+    let db_path = dir.path().join("flywheel.db");
+    {
+        let mut conn = build_n_minus_1_fixture(&db_path);
+        let actor_id = local_human_actor_id(&conn).unwrap();
+        let project = create_project(&mut conn, &actor_id, "Search", "/repo", "SRC", "main").unwrap();
+        create_task(&mut conn, &project.id, &actor_id, "zebrafish before", None).unwrap();
+        create_epic(&mut conn, &project.id, &actor_id, "narwhal before", None).unwrap();
+    }
+
+    let mut conn = open_and_migrate(&db_path, &dir.path().join("backups")).unwrap();
+    let hits = |conn: &Connection, table: &str, word: &str| -> i64 {
+        conn.query_row(
+            &format!("SELECT COUNT(*) FROM {table}_fts WHERE {table}_fts MATCH ?1"),
+            params![word],
+            |r| r.get(0),
+        )
+        .unwrap()
+    };
+    // A row that existed before the rebuild is still found...
+    assert_eq!(hits(&conn, "tasks", "zebrafish"), 1);
+    assert_eq!(hits(&conn, "epics", "narwhal"), 1);
+
+    // ...and a row written after it is found too, through the re-created triggers.
+    let actor_id = local_human_actor_id(&conn).unwrap();
+    let project_id: String = conn.query_row("SELECT id FROM projects", [], |r| r.get(0)).unwrap();
+    create_task(&mut conn, &project_id, &actor_id, "quokka after", None).unwrap();
+    create_epic(&mut conn, &project_id, &actor_id, "axolotl after", None).unwrap();
+    assert_eq!(hits(&conn, "tasks", "quokka"), 1);
+    assert_eq!(hits(&conn, "epics", "axolotl"), 1);
+
+    // The three indexes per table that DROP TABLE destroyed are back.
+    let indexes: HashSet<String> = dump(
+        &conn,
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('tasks', 'epics')",
+    )
+    .into_iter()
+    .map(|r| r[0].trim_start_matches("Text(\"").trim_end_matches("\")").to_string())
+    .collect();
+    for expected in ["idx_epics_project_status_rank", "idx_tasks_project_status_rank", "idx_tasks_project_epic"] {
+        assert!(indexes.contains(expected), "expected index {expected:?}, found {indexes:?}");
+    }
 }

@@ -47,8 +47,8 @@ impl Fx {
             .execute(
                 "INSERT INTO tasks (
                     id, project_id, epic_id, key, title, description, status, rank, priority,
-                    estimate, assignee_id, created_by, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, 0, NULL, NULL, ?8, ?9, ?9)",
+                    assignee_id, created_by, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, 0, NULL, ?8, ?9, ?9)",
                 params![
                     id,
                     self.project_id,

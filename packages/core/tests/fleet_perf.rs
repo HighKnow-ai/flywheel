@@ -78,8 +78,8 @@ fn seed_and_migrate() -> Seeded {
                 let status = if t % 3 == 0 { "done" } else { "in_review" };
                 tx.execute(
                     "INSERT INTO tasks (id, project_id, epic_id, key, title, description, status, rank, priority,
-                        estimate, assignee_id, created_by, created_at, updated_at)
-                     VALUES (?1, ?2, NULL, ?3, ?4, NULL, ?5, ?6, 0, NULL, NULL, ?7, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
+                        assignee_id, created_by, created_at, updated_at)
+                     VALUES (?1, ?2, NULL, ?3, ?4, NULL, ?5, ?6, 0, NULL, ?7, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')",
                     params![task_id, project_id, format!("P{p}-{t}"), format!("task {p}-{t}"), status, format!("{t:08}"), actor_id],
                 )
                 .unwrap();

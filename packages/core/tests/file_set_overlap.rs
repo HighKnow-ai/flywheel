@@ -320,8 +320,8 @@ fn the_schema_refuses_a_form_outside_the_vocabulary() {
     let (conn, actor, project) = common::seeded_project();
     let now = "2026-01-01T00:00:00Z";
     conn.execute(
-        "INSERT INTO tasks (id, project_id, epic_id, key, title, description, status, rank, priority, estimate, assignee_id, created_by, created_at, updated_at)
-         VALUES (?1, ?2, NULL, 'FLY-1', 'T', NULL, 'todo', 'a', 0, NULL, NULL, ?3, ?4, ?4)",
+        "INSERT INTO tasks (id, project_id, epic_id, key, title, description, status, rank, priority, assignee_id, created_by, created_at, updated_at)
+         VALUES (?1, ?2, NULL, 'FLY-1', 'T', NULL, 'todo', 'a', 0, NULL, ?3, ?4, ?4)",
         params![core::ids::new_id(), project.id, actor, now],
     )
     .unwrap();
