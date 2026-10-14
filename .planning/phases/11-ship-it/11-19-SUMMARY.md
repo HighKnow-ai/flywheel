@@ -119,7 +119,7 @@ coverage:
         ref: "packages/desktop/src/projects/__tests__/project-rail.test.tsx#ProjectRail's Remove from Flywheel"
         status: pass
     human_judgment: true
-    rationale: "Whether the confirmation copy reads as 'not a delete' to a person, and how the new rail row looks beside Register Project, is a judgment no assertion makes. Queued in DEFERRED-REVIEW for plan 11-21 (not verified here)."
+    rationale: "Whether the confirmation copy reads as 'not a delete' to a person, and how the new rail row looks beside Register Project, is a judgment no assertion makes. Queued as D-REV-61 for plan 11-21 (not verified here)."
   - id: D7
     description: "D-REV-25 junk-epic detection query is under test, and run against a copy of the live board"
     verification:
@@ -281,8 +281,8 @@ See `key-decisions` above. Two worth restating: the filter is on listing reads o
 
 - **No UI path lists or restores a hidden project by id.** `project_restore` exists and is tested at the core level, but nothing in the renderer calls `projectRestore`. The UI route back is registering the repository again, which restores the project whose marker names that path. The **duplicate** `unreachable` project has a different id and its path's marker names the other project, so re-registering that path restores the active project, not the duplicate. Restoring the duplicate in the app needs a "hidden projects" list. Data is safe; the recovery is a command, not a button.
 - **Hiding a project with a live or blocked agent run removes that run from the fleet and the blocked queue** (that is the filter working as specified). Nothing stops the agent or refuses the hide. Not guarded, because the plan does not ask for it.
-- The rail row's look and the confirmation's wording are queued, not verified (coverage D6).
-- `DEFERRED-REVIEW.md` was not edited: updating D-REV-29, D-REV-25 and D-REV-04 is plan 11-21's job. D-REV-29's code half is done; D-REV-25 and D-REV-04 are measured, not fixed.
+- The rail row's look and the confirmation's wording are queued as `D-REV-61`, not verified (coverage D6). The missing restore surface is queued as `D-REV-62`.
+- Existing register entries D-REV-29, D-REV-25 and D-REV-04 were not edited: updating them is plan 11-21's job (only the two new entries above were appended). D-REV-29's code half is done; D-REV-25 and D-REV-04 are measured, not fixed.
 - Finding `one-1` (live counts on the rail) is in the same file and was **not** implemented and is not claimed; it stays with plan 11-21 as an owner decision.
 
 ## User Setup Required
@@ -291,9 +291,16 @@ None - no external service configuration required.
 
 ## Next Phase Readiness
 
-- Ready for 11-20 / 11-21. The register entries for D-REV-29 (implemented, with the limits above), D-REV-25 and D-REV-04 (measured, remedies queued as D-196 items) are the inputs 11-21 needs.
+- Ready for 11-20 / 11-21 (register entries D-REV-61 and D-REV-62 added). The register entries for D-REV-29 (implemented, with the limits above), D-REV-25 and D-REV-04 (measured, remedies queued as D-196 items) are the inputs 11-21 needs.
 - No blockers. Migration 0022 will apply on the next launch of any build containing it; existing rows are all shown.
 
 ---
 *Phase: 11-ship-it*
 *Completed: 2026-10-14*
+
+## Self-Check: PASSED
+
+- Created files exist: `0022_project_hidden.sql`, `project_hide.rs`.
+- Commits exist: `31076d7`, `ac0bf29`, `98c8dc2`.
+- Acceptance greps: `0022_project_hidden.sql` registered 1 time in `db/mod.rs`; `project_hide` in `main.rs` 1; `project_restore` in `capabilities/default.json` 1.
+- Phase 08 UAT screenshots clean (no browser suite run).
