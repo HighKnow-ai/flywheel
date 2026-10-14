@@ -174,3 +174,80 @@ fn folded_and_verbatim_vectors_are_each_oldest_first_and_concatenate_to_the_orig
     let original: Vec<&str> = entries.iter().map(|s| s.agent_run_id.as_str()).collect();
     assert_eq!(concatenated, original);
 }
+
+// --- FNC-05 (plan 13-02): the window left some summaries out, and the sentence says so -----------
+
+use core::compaction::SUMMARY_WINDOW;
+
+#[test]
+fn the_window_is_five_verbatim_plus_twenty_folded() {
+    assert_eq!(SUMMARY_WINDOW, 25);
+    assert_eq!(SUMMARY_WINDOW - core::compaction::VERBATIM_WINDOW, 20);
+}
+
+#[test]
+fn zero_summaries_still_have_no_boundary_sentence_at_all() {
+    let history = compact_summaries(&[]);
+    assert_eq!(history.boundary.board_total, 0);
+    assert_eq!(history.boundary.with_board_total(0).boundary_sentence(), None);
+}
+
+#[test]
+fn twenty_four_summaries_are_all_included_with_no_exclusion_clause() {
+    let history = compact_summaries(&entries(24));
+    assert_eq!(history.boundary.board_total, 24, "straight from the fold, nothing was left out");
+    assert_eq!(history.folded.len() + history.verbatim.len(), 24);
+    let sentence = history.boundary.with_board_total(24).boundary_sentence().unwrap();
+    assert_eq!(sentence, "Summaries 1-19 are folded; 20-24 are carried verbatim.");
+    assert!(!sentence.contains(" of 24"), "no exclusion clause below the window: {sentence}");
+}
+
+#[test]
+fn exactly_twenty_five_summaries_are_all_included_five_verbatim_plus_twenty_folded() {
+    let history = compact_summaries(&entries(SUMMARY_WINDOW));
+    assert_eq!(history.folded.len(), 20);
+    assert_eq!(history.verbatim.len(), 5);
+    let sentence = history.boundary.with_board_total(25).boundary_sentence().unwrap();
+    assert_eq!(sentence, "Summaries 1-20 are folded; 21-25 are carried verbatim.");
+}
+
+#[test]
+fn twenty_six_on_the_board_name_the_total_and_the_one_session_left_out() {
+    // The window handed the fold 25 rows; the board has 26.
+    let history = compact_summaries(&entries(SUMMARY_WINDOW));
+    let sentence = history.boundary.with_board_total(26).boundary_sentence().unwrap();
+    assert_eq!(
+        sentence,
+        "Summaries 1-20 are folded; 21-25 are carried verbatim. Summaries 2-26 of 26 read; 1 \
+         earlier session is on the task, readable from the task's own session history."
+    );
+    assert!(sentence.contains("of 26"));
+}
+
+#[test]
+fn two_hundred_forty_five_on_the_board_name_two_hundred_twenty_earlier_sessions() {
+    let history = compact_summaries(&entries(SUMMARY_WINDOW));
+    let sentence = history.boundary.with_board_total(245).boundary_sentence().unwrap();
+    assert!(sentence.contains("Summaries 221-245 of 245 read"), "sentence was: {sentence}");
+    assert!(sentence.contains("220 earlier sessions are on the task"), "sentence was: {sentence}");
+}
+
+#[test]
+fn the_sentence_never_enumerates_an_excluded_decision_id() {
+    let history = compact_summaries(&entries(SUMMARY_WINDOW));
+    let sentence = history.boundary.with_board_total(245).boundary_sentence().unwrap();
+    assert!(!sentence.contains("dec-"), "sentence was: {sentence}");
+}
+
+#[test]
+fn the_fold_is_still_lossless_over_a_long_list() {
+    // `compact_summaries` is unchanged by FNC-05: handed 200 entries it still keeps every decision
+    // and every changed path of every folded summary.
+    let entries = entries(200);
+    let history = compact_summaries(&entries);
+    assert_eq!(history.folded.len(), 195);
+    for (folded, original) in history.folded.iter().zip(&entries) {
+        assert_eq!(folded.decisions, original.decisions);
+        assert_eq!(folded.changed_files, original.changed_files);
+    }
+}

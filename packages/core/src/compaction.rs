@@ -13,6 +13,14 @@
 //! the failure this module refuses to become: "resist the temptation to save tokens by
 //! summarizing summaries." The only thing that decides what is kept whole and what is dropped
 //! whole is a summary's position in the list, oldest-first, never its content.
+//!
+//! The list this fold is handed is itself bounded (FNC-05, D-01): `context_packet::SUMMARIES_SQL`
+//! reads only the newest [`SUMMARY_WINDOW`] rows. The bound is on the fold's INPUT, so nothing in
+//! here changed — it stays lossless for decisions and file paths over whatever list it is given.
+//! The consequence is accepted and stated out loud (D-06): a decision older than [`SUMMARY_WINDOW`]
+//! can go unacknowledged without firing `DriftKind::UnacknowledgedDecision`, because the drift
+//! detector reads the same bounded list. The durable home for an old decision is the board, and
+//! CTX-06's registry.
 
 use crate::context_packet::SummaryEntry;
 use crate::domain::session_summary::DecisionEntry;
@@ -28,7 +36,12 @@ use serde::Serialize;
 pub const VERBATIM_WINDOW: usize = 5;
 
 /// The summary window (FNC-05, D-02): how many of a task's newest session summaries enter the
-/// context packet at all.
+/// context packet at all. Declared exactly once, beside [`VERBATIM_WINDOW`] and in the same D-69
+/// house style — a fixed count, never a parameter and never config. It reads as one sentence: the
+/// last 5 sessions whole, 20 more folded, the rest on the board. The folded count is
+/// `SUMMARY_WINDOW - VERBATIM_WINDOW`, derived by subtraction and never declared a second time.
+/// `context_packet::SUMMARIES_SQL` binds this value as its LIMIT; no byte, character or token
+/// ceiling exists anywhere.
 pub const SUMMARY_WINDOW: usize = 25;
 
 /// What survives the fold for one summary past the verbatim window (D-68). The narrative fields
@@ -50,9 +63,14 @@ pub struct CompactedSummary {
 /// reads as arithmetic rather than as an index calculation at the call site. `folded_range` and
 /// `verbatim_range` are `None` exactly when their respective count is `0` — an empty range is
 /// never represented as `Some((0, 0))` or any other placeholder pair.
+///
+/// `total` is how many summaries the fold was handed. `board_total` (FNC-05) is how many the task
+/// has on the board: equal to `total` straight out of [`compact_summaries`], and raised by
+/// [`CompactionBoundary::with_board_total`] once the caller knows the window left some out.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CompactionBoundary {
     pub total: usize,
+    pub board_total: usize,
     pub folded_count: usize,
     pub verbatim_count: usize,
     pub folded_range: Option<(usize, usize)>,
@@ -72,26 +90,58 @@ fn ordinal_range_str(range: (usize, usize)) -> String {
 }
 
 impl CompactionBoundary {
+    /// The same boundary, told how many summaries the task really has on the board (FNC-05, D-03).
+    /// Pure: a value in, a value out. It is read by a separate `COUNT`, never inferred from the
+    /// window, so nothing here rounds or clamps a size.
+    pub fn with_board_total(mut self, board_total: usize) -> Self {
+        self.board_total = board_total;
+        self
+    }
+
     /// The boundary as a sentence a person can say out loud (CTX-05), or `None` when nothing
-    /// folded — a task with four or five summaries has no boundary to name, because the window
-    /// is inclusive and the threshold value itself is entirely verbatim. Uses an ASCII hyphen,
-    /// never an en dash: this string is compared byte-for-byte by CTX-04's determinism
-    /// assertions and is rendered directly into a prompt.
+    /// folded and nothing was left out — a task with four or five summaries has no boundary to
+    /// name, because the window is inclusive and the threshold value itself is entirely verbatim.
+    /// When `board_total > total` (D-03) it adds a second clause stating the included ordinal range
+    /// against the board total, how many earlier sessions were left out, and one named way to reach
+    /// them. It never enumerates excluded decision ids: that list grows with task age and would
+    /// reintroduce the unbounded term one level down. A function of board state only (D-04). Uses
+    /// an ASCII hyphen, never an en dash: this string is compared byte-for-byte by CTX-04's
+    /// determinism assertions and is rendered directly into a prompt.
     pub fn boundary_sentence(&self) -> Option<String> {
-        if self.folded_count == 0 {
-            return None;
+        let fold = if self.folded_count == 0 {
+            None
+        } else {
+            let folded = self
+                .folded_range
+                .expect("folded_count > 0 implies folded_range is Some");
+            let verbatim = self
+                .verbatim_range
+                .expect("at least one summary total means verbatim is never empty");
+            Some(format!(
+                "Summaries {} are folded; {} are carried verbatim.",
+                ordinal_range_str(folded),
+                ordinal_range_str(verbatim)
+            ))
+        };
+
+        let left_out = self.board_total.saturating_sub(self.total);
+        let window = if left_out == 0 {
+            None
+        } else {
+            let noun = if left_out == 1 { "session is" } else { "sessions are" };
+            Some(format!(
+                "Summaries {} of {} read; {left_out} earlier {noun} on the task, readable from the \
+                 task's own session history.",
+                ordinal_range_str((left_out + 1, self.board_total)),
+                self.board_total
+            ))
+        };
+
+        match (fold, window) {
+            (None, None) => None,
+            (Some(sentence), None) | (None, Some(sentence)) => Some(sentence),
+            (Some(fold), Some(window)) => Some(format!("{fold} {window}")),
         }
-        let folded = self
-            .folded_range
-            .expect("folded_count > 0 implies folded_range is Some");
-        let verbatim = self
-            .verbatim_range
-            .expect("at least one summary total means verbatim is never empty");
-        Some(format!(
-            "Summaries {} are folded; {} are carried verbatim.",
-            ordinal_range_str(folded),
-            ordinal_range_str(verbatim)
-        ))
     }
 }
 
@@ -146,6 +196,7 @@ pub fn compact_summaries(summaries: &[SummaryEntry]) -> CompactedHistory {
 
     let boundary = CompactionBoundary {
         total,
+        board_total: total,
         folded_count,
         verbatim_count,
         folded_range,

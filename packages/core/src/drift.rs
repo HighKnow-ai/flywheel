@@ -11,8 +11,8 @@
 //! against changes. [`detect_drift`] is called fresh on every packet assembly; its result lives
 //! only as long as the call that produced it.
 //!
-//! Third, [`detect_drift`] is pure (the scope backstop at the bottom of this file is the one
-//! exception, and says so): its output is a function of its
+//! Third, [`detect_drift`] is pure (the scope backstop and [`decision_ids_on_record`] at the
+//! bottom of this file are the exceptions, and say so): its output is a function of its
 //! [`DriftInputs`] argument and nothing else — no database connection, no process spawn, no
 //! network call, no clock read. Two calls on the same inputs return equal vectors.
 
@@ -56,10 +56,11 @@ pub struct DriftWarning {
 /// empty pinned set).
 #[derive(Debug, Clone, Copy)]
 pub struct DriftInputs<'a> {
-    /// Every summary recorded for the task, oldest-first — the same list `ContextPacket.summaries`
-    /// carries. The claimed-files, staleness and read-back detectors all read only its LAST
-    /// element (the latest summary); the read-back detector also folds every element's own
-    /// `decisions` to build the full recorded-decision set.
+    /// The summaries in scope, oldest-first — the same bounded list `ContextPacket.summaries`
+    /// carries (at most `compaction::SUMMARY_WINDOW` of the task's newest), not every summary the
+    /// task has ever had. The claimed-files, staleness and read-back detectors all read only its
+    /// LAST element (the latest summary); the read-back detector also folds every element's own
+    /// `decisions` to build the recorded-decision set over the summaries in scope.
     pub summaries: &'a [SummaryEntry],
     /// The real changed-path list for the task's worktree, read without rename detection so a
     /// legitimately moved file appears under both its old and its new path. `None` means there is
@@ -76,6 +77,12 @@ pub struct DriftInputs<'a> {
     pub pinned_criterion_ids: Option<&'a [String]>,
     /// The task's current criterion-id set, in rank order.
     pub current_criterion_ids: &'a [String],
+    /// The subset of the latest summary's `acknowledged_decisions` that a bounded point lookup
+    /// ([`decision_ids_on_record`]) found on record in a summary OUTSIDE the in-scope window
+    /// (D-05). The read-back detector calls an echoed id fabricated only if it is in neither the
+    /// in-scope recorded set nor this list, so the window never manufactures a false
+    /// [`DriftKind::FabricatedDecisionEcho`]. Empty when the caller has no such ids.
+    pub echoed_ids_on_record_beyond_scope: &'a [String],
 }
 
 /// Detector 1 (D-72 item 1): the latest summary's claimed `changed_files` against the real
@@ -180,19 +187,21 @@ fn detect_criteria_revision(inputs: &DriftInputs) -> Option<DriftWarning> {
     Some(DriftWarning { kind: DriftKind::CriteriaRevisionMoved, sentence })
 }
 
-/// Detector 4 (D-73): the accumulated decision-id set across every summary against the latest
-/// summary's `acknowledged_decisions`. An on-record id never echoed fires
+/// Detector 4 (D-73): the accumulated decision-id set over the summaries in scope against the
+/// latest summary's `acknowledged_decisions`. An on-record id never echoed fires
 /// [`DriftKind::UnacknowledgedDecision`]; an echoed id matching no record fires
-/// [`DriftKind::FabricatedDecisionEcho`]. Checked in that order — an unechoed real decision is
+/// [`DriftKind::FabricatedDecisionEcho`] — where "on record" is the in-scope set plus
+/// `echoed_ids_on_record_beyond_scope` (D-05). A decision older than the window can therefore go
+/// unacknowledged without firing the first kind: an accepted, stated consequence (D-06) — the board
+/// is the durable home for old decisions. Checked in that order — an unechoed real decision is
 /// checked before a fabricated one, so a summary that both drops a real id and invents a fake one
 /// still returns exactly one warning, matching this module's "at most one warning per detector"
 /// contract. Both halves are pure id matching, never text comparison.
 fn detect_decision_read_back(inputs: &DriftInputs) -> Option<DriftWarning> {
     let latest = inputs.summaries.last()?;
 
-    // The full recorded-decision id set, first-seen order, across every summary — complete
-    // regardless of how many summaries have since folded under compaction, because compaction is
-    // lossless for decisions (this crate's own compaction contract).
+    // The recorded-decision id set, first-seen order, over the summaries in scope — the bounded
+    // window `context_packet::SUMMARIES_SQL` returns, not every summary the task has ever had.
     let mut recorded_ids: Vec<&str> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
     for summary in inputs.summaries {
@@ -216,7 +225,9 @@ fn detect_decision_read_back(inputs: &DriftInputs) -> Option<DriftWarning> {
         return Some(DriftWarning { kind: DriftKind::UnacknowledgedDecision, sentence });
     }
 
-    let recorded_set: HashSet<&str> = recorded_ids.into_iter().collect();
+    let mut recorded_set: HashSet<&str> = recorded_ids.into_iter().collect();
+    // D-05: an echoed id recorded in a summary the window dropped is real, not fabricated.
+    recorded_set.extend(inputs.echoed_ids_on_record_beyond_scope.iter().map(String::as_str));
     let fabricated: Vec<&str> = latest
         .acknowledged_decisions
         .iter()
@@ -315,6 +326,44 @@ pub fn scope_backstop_inputs(
         base_branch: worktree.base_branch,
         entries,
     }))
+}
+
+/// NOT pure, and not part of `detect_drift` — like the scope backstop around it, it reads the
+/// database. The caller resolves it BEFORE calling `detect_drift`, which is what keeps the
+/// detector itself a pure function of its inputs.
+///
+/// The bounded point lookup the read-back detector needs (D-05): which of `candidate_ids` are
+/// recorded in some summary of `task_id`, in-scope or not. ONE point lookup per candidate — a
+/// `LIMIT 1` existence check over the task's summaries' `decisions` JSON, the task id and the
+/// candidate id both bound as parameters, never interpolated (T-13-08). The candidates come from
+/// one summary row's `acknowledged_decisions`, so the number of lookups is bounded by that one row,
+/// never by task age. Returns only the ids it found, in first-seen order of `candidate_ids`.
+pub fn decision_ids_on_record(
+    conn: &rusqlite::Connection,
+    task_id: &str,
+    candidate_ids: &[String],
+) -> anyhow::Result<Vec<String>> {
+    use rusqlite::OptionalExtension;
+
+    let mut found: Vec<String> = Vec::new();
+    for id in candidate_ids {
+        if found.contains(id) {
+            continue;
+        }
+        let hit: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM session_summaries WHERE task_id = ?1 AND EXISTS \
+                 (SELECT 1 FROM json_each(session_summaries.decisions) \
+                 WHERE json_extract(value, '$.id') = ?2) LIMIT 1",
+                rusqlite::params![task_id, id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if hit.is_some() {
+            found.push(id.clone());
+        }
+    }
+    Ok(found)
 }
 
 /// Every path named by `git status --porcelain -z -uall`: `-z` keeps odd bytes unquoted and `-uall`

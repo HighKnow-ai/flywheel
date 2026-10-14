@@ -436,6 +436,19 @@ fn packet_extras_for(
     let real_changed_paths: Option<&[String]> =
         diff_stat.as_ref().map(|stat| stat.changed_paths.as_slice());
 
+    // D-05: the packet's summaries are the bounded window, so an id the latest summary echoes may
+    // be recorded in one the window dropped. Resolve it with one bounded point lookup per echoed id
+    // BEFORE the struct literal, so `detect_drift` stays pure and never falsely calls it fabricated.
+    let echoed_ids_on_record_beyond_scope: Vec<String> = match packet.summaries.last() {
+        Some(latest) => flywheel_core::drift::decision_ids_on_record(
+            conn,
+            task_id,
+            &latest.acknowledged_decisions,
+        )
+        .unwrap_or_default(),
+        None => Vec::new(),
+    };
+
     let inputs = flywheel_core::drift::DriftInputs {
         summaries: &packet.summaries,
         real_changed_paths,
@@ -443,6 +456,7 @@ fn packet_extras_for(
         working_tree_dirty,
         pinned_criterion_ids: pinned_criterion_ids.as_deref(),
         current_criterion_ids: &current_criterion_ids,
+        echoed_ids_on_record_beyond_scope: &echoed_ids_on_record_beyond_scope,
     };
     let drift = flywheel_core::drift::detect_drift(&inputs);
 

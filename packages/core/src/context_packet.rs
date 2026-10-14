@@ -30,7 +30,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::branch::{epic_integration_branch_name, task_branch_name};
-use crate::compaction::{CompactedSummary, CompactionBoundary};
+use crate::compaction::{CompactedSummary, CompactionBoundary, SUMMARY_WINDOW};
 use crate::domain::acceptance_criterion::{row_to_anchor, CriterionAnchor};
 use crate::domain::session_summary::DecisionEntry;
 use crate::domain::worktree::worktree_root;
@@ -165,20 +165,21 @@ pub struct ContextPacket {
     pub task_description: Option<String>,
     pub epic: Option<EpicSection>,
     pub criteria: Vec<CriterionEntry>,
+    /// At most `compaction::SUMMARY_WINDOW` summaries, the newest ones, oldest-first (FNC-05).
     pub summaries: Vec<SummaryEntry>,
     /// Where `render_prompt`'s Prior Sessions section splits older sessions from recent ones
     /// (CTX-05) — computed once, here, by folding this packet's own `summaries` list through
-    /// `crate::compaction`'s pure fold. A no-query, no-I/O derivation over data this function
-    /// already read. Kept alongside the full `summaries` list rather than replacing it: this is a
-    /// presentation of that list, not a substitute for it — the accumulated `decisions` list below
-    /// and a later plan's drift detectors both need every summary regardless of where the fold
-    /// falls.
+    /// `crate::compaction`'s pure fold, then told the task's true board total (FNC-05) so the
+    /// boundary sentence can name what the window left out. Kept alongside the `summaries` list
+    /// rather than replacing it: this is a presentation of that list, not a substitute for it — the
+    /// accumulated `decisions` list below and the drift detectors both read the same bounded list.
     pub compaction: CompactionBoundary,
-    /// Every decision entry from `summaries`, deduplicated by id (first occurrence wins, order
-    /// preserved) — a pure fold over data this function already read, issuing no additional
-    /// query (D-73). Complete regardless of how many summaries have folded under compaction,
-    /// because compaction is lossless for decisions — which is why the closing read-back can be
-    /// checked against this list at all.
+    /// Every decision entry from `summaries` — the summaries in scope, at most
+    /// `compaction::SUMMARY_WINDOW` of them — deduplicated by id (first occurrence wins, order
+    /// preserved). A pure fold over data this function already read, issuing no additional query
+    /// (D-73). Complete over that window regardless of how many of its summaries have folded,
+    /// because compaction is lossless for decisions. A decision older than the window is not here;
+    /// the board is its durable home (D-06).
     pub decisions: Vec<DecisionEntry>,
     /// Always `None` from [`assemble_context_packet`] itself (D-70/CTX-03) — this function makes
     /// no git call and its purity contract is unchanged by this field's existence. Populated only
@@ -216,9 +217,20 @@ const CRITERIA_SQL: &str = "SELECT ac.statement, ac.verification_hint, ac.checke
     WHERE ac.parent_type = 'task' AND ac.parent_id = ?1 AND ac.superseded_at IS NULL \
     ORDER BY ac.rank ASC, ac.id ASC";
 
+// FNC-05 (D-01): bounded at the INPUT. The inner statement takes the NEWEST `SUMMARY_WINDOW` rows —
+// `?2` is bound to `compaction::SUMMARY_WINDOW`, so the window is declared exactly once and never
+// interpolated into SQL text — and the outer one hands them back oldest-first, so the fold's
+// oldest-first contract is unchanged. `acknowledged_decisions` travels with the row for D-73's drift
+// machinery and is NEVER an inclusion filter (D-07).
 const SUMMARIES_SQL: &str = "SELECT agent_run_id, changed_files, changed_prose, remains, \
     next_session_must_know, decisions, acknowledged_decisions, diff_ref, auto_generated, \
-    created_at FROM session_summaries WHERE task_id = ?1 ORDER BY created_at ASC, id ASC";
+    created_at FROM (SELECT agent_run_id, changed_files, changed_prose, remains, \
+    next_session_must_know, decisions, acknowledged_decisions, diff_ref, auto_generated, \
+    created_at, id FROM session_summaries WHERE task_id = ?1 \
+    ORDER BY created_at DESC, id DESC LIMIT ?2) ORDER BY created_at ASC, id ASC";
+
+// The true board total, read separately so the boundary sentence states it exactly (D-03, D-04).
+const SUMMARIES_TOTAL_SQL: &str = "SELECT COUNT(*) FROM session_summaries WHERE task_id = ?1";
 
 const WORKTREE_ROW_SQL: &str = "SELECT branch, base_branch, path FROM worktrees WHERE task_id = ?1";
 
@@ -305,9 +317,13 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
         }
     }
 
+    let board_total: i64 = conn
+        .query_row(SUMMARIES_TOTAL_SQL, params![task_id], |row| row.get(0))
+        .context("failed to count the task's session summaries")?;
+
     let mut summaries_stmt = conn.prepare(SUMMARIES_SQL)?;
     let summaries = summaries_stmt
-        .query_map(params![task_id], |row| {
+        .query_map(params![task_id, SUMMARY_WINDOW as i64], |row| {
             let changed_files_json: String = row.get(1)?;
             let decisions_json: String = row.get(5)?;
             let acknowledged_json: String = row.get(6)?;
@@ -338,7 +354,9 @@ pub fn assemble_context_packet(conn: &Connection, task_id: &str) -> anyhow::Resu
     // Pure fold over `summaries` (this function's own already-read data) — no query, no I/O.
     // This is the one call site of the two the crate's own `<verify>` gate expects; the other
     // lives in `render_prompt`, which folds the same list again to produce the rendered split.
-    let compaction = crate::compaction::compact_summaries(&summaries).boundary;
+    let compaction = crate::compaction::compact_summaries(&summaries)
+        .boundary
+        .with_board_total(board_total as usize);
 
     // Walk `summaries` oldest-first (their own read order, above) and collect every decision
     // entry, deduplicated by id — first occurrence wins, order preserved. Pure transform over
@@ -636,7 +654,10 @@ pub fn render_prompt(packet: &ContextPacket, instruction: &str) -> String {
                 render_folded_summary_block(&mut out, i + 1, folded);
             }
 
-            if let Some(sentence) = history.boundary.boundary_sentence() {
+            // The fold above only saw the window; the packet's own boundary knows the true board
+            // total, so the sentence the reader sees names what was left out (D-03).
+            let boundary = history.boundary.with_board_total(packet.compaction.board_total);
+            if let Some(sentence) = boundary.boundary_sentence() {
                 out.push_str(&sentence);
                 out.push('\n');
             }
