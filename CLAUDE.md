@@ -48,13 +48,15 @@ Decided. Full rationale, alternatives considered, and sources live in `.planning
 | Desktop shell | Tauri v2 (Rust core) + bundled Node.js sidecar | Tauri 2.11.x | Rust owns sidecar supervision (spawn / health-check / restart / kill-on-exit). Sidecar owns driving agent sessions. Default-deny capabilities manifest per window. |
 | UI | React | 18/19 per `create-tauri-app` template | Every `@tauri-apps/api` invoke/listen goes through one thin adapter module so the same tree can later target a REST/WS relay. |
 | Sidecar runtime | Node.js LTS | 22.x/24.x — match what the Agent SDK supports | Packaged with `pkg`/`nexe` as `externalBin` in `tauri.conf.json`. |
-| Agent backend | `@anthropic-ai/claude-agent-sdk` | 0.3.x — pin exact, update deliberately | Uses the developer's local Claude Code credentials. Behind an adapter interface; Claude Code only in v1. |
+| Agent backend | Claude Code, behind an adapter interface. `@anthropic-ai/claude-agent-sdk` was the planned vehicle and is **not a dependency** | n/a | Uses the developer's local Claude Code credentials; Claude Code only in v1. The real mechanism: `packages/sidecar/src/claude-code-adapter.ts` spawns the developer's own `claude` binary, and the sidecar's only runtime dependency is `@modelcontextprotocol/sdk` 1.30.0. Do not add the SDK: its registry licence field is `SEE LICENSE IN README.md` and those terms were not read. |
 | Store of record | SQLite via `rusqlite` (`bundled` feature) | 0.40.x | One shared fleet-wide DB. WAL + `busy_timeout`. Migrations via `rusqlite_migration`. Sidecar never opens the DB — it asks the Rust core over IPC. |
 | Git — worktree lifecycle | System `git` CLI via `tokio::process::Command` | git ≥ 2.44 | create / remove / list / prune, branch topology, merges. Never `git2` for these. |
-| Git — hot-path reads | `git2` (libgit2) | current | diff / status / log / blob walks for the review UI only. |
+| Git — hot-path reads | `git2` (libgit2) — **not installed, in no Cargo.toml** | n/a | Review and diff reads currently go through `packages/core/src/git.rs`, which shells out to the system `git` CLI (called from `review.rs`). Path autocomplete must use `git ls-files`, not a libgit2 blob walk, until the owner decides to add the dependency. |
 | Scheduling | `tokio-cron-scheduler` in the Rust core | 0.15.x | Vendored now, cron-tick trigger type stubbed; no UI in v1. |
 | PTY | `node-pty` inside the sidecar | 1.1.0 | Only if headless `stream-json` mode is insufficient. Never terminate a PTY in Rust and relay bytes to Node. |
-| UI libraries | `@tanstack/react-query` v5 · `@tanstack/react-virtual` 3.14 · `react-diff-view` 3.3 · `@monaco-editor/react` · `@xyflow/react` 12.11 · Zustand or Jotai | | Server/DB state lives only in React Query; UI state only in Zustand/Jotai. Never blur the two. |
+| UI libraries | `@tanstack/react-query` v5 · `@tanstack/react-virtual` 3.14 · `react-diff-view` 3.3 · Zustand (all installed in `packages/desktop/package.json`) | | Server/DB state lives only in React Query; UI state only in Zustand. Never blur the two. |
+| UI — code editor | `@monaco-editor/react` — **not installed** | n/a | No phase may plan on reusing Monaco without an install line that actually runs; the v0.1.0 install line was never run. |
+| UI — graph canvas | `@xyflow/react` — **not installed** | n/a | Same rule: nothing in the tree imports it, and no phase may plan on reusing it without an install line that actually runs. |
 
 **Do not use:** ElectricSQL, Triplit, PGlite as primary store, raw Automerge/Yjs as the board schema, NodeGit, isomorphic-git, `git2` for worktree ops, `better-sqlite3` as the canonical DB, libSQL/Turso, egui/iced. The sync engine (PowerSync vs Zero) is deferred to the relay milestone.
 

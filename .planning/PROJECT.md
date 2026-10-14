@@ -106,10 +106,13 @@ leads and the visual round follows it, on the surfaces this milestone creates.
   — Phase 6. A running agent surfaces what it learns mid-session through a `propose_item` board
   tool, and the row lands in a distinct proposed state carrying its own rationale and a pointer to
   the turn that produced it. The no-promotion guarantee is **structural, not conventional**: a
-  source gate walks every `.rs`/`.tsx` file under `packages/core/src`, `packages/desktop/src-tauri/src`
-  and `packages/desktop/src` and fails if any module outside the four canonical-writer domain modules
-  issues a direct write against `epics`/`tasks`/`issues`/`acceptance_criteria`, bounding the staging
-  module to exactly three call sites (accept/merge/materialise). A 17-case adversarial corpus proves
+  source gate (`no_agent_reachable_module_writes_a_canonical_table`) walks every source file under
+  `packages/core/src`, `packages/desktop/src-tauri/src` and `packages/sidecar/src` and fails if any module
+  outside the four canonical-writer domain modules issues a direct write against
+  `epics`/`tasks`/`issues`/`acceptance_criteria`, bounding the staging module to exactly three call sites
+  (accept/merge/materialise). `packages/desktop/src` is reached only by
+  `the_no_promotion_gate_actually_reaches_the_frontend_tree`, which asserts the walker is not a `.rs`-only
+  no-op; it does not scan the frontend for canonical writes. A 17-case adversarial corpus proves
   zero canonical rows exist before an explicit human triage action, across every verb x target-type
   combination and both entry routes. Triage is a dedicated view (`TriageSurface.tsx`) with all four
   verbs plus two bulk paths, run provenance, a jump-to-turn control, and a duplicate annotation that
@@ -283,6 +286,10 @@ explicitly left to the competitive and architecture research to argue.
 | Two-sided acceptance for any gate change | Round ten passed every offline test it had and still bricked the product by turning `git --version` into a permission request. One-sided verification is not sufficient where a false positive is as damaging as a false negative | ✓ Validated (Phase 12) — the phase's acceptance clause required both a check that fails if the gate decides something it cannot justify and a check that fails if ordinary commands become permission requests; the live run asserted `git --version` stays ordinary as a hard assert, never a recordable outcome |
 | Build-vs-integrate for the PM core is deliberately open | Highest-leverage architectural fork; deferred to research rather than decided on instinct | ✓ Resolved by Phase 1 — **build**. The PM core is a Rust/`rusqlite` board owning its own schema, migrations and event log. Decided by shipping it, not by a separate research round; the integrate option is now closed without having been separately argued |
 | Flywheel ships under the HighKnow lightbulb-brain mark, for now | Owner decision 2026-10-07, taken to unblock Phase 8.1's app icon and direction round. One asset to produce, no naming or identity work. The alternative — Flywheel earning its own mark under HighKnow — matches the open-desktop/paid-cloud split and stays available if Flywheel ever gets a commercial identity of its own | ✓ Decided (2026-10-07), not yet built. `logo.svg` does NOT exist in the repository despite `01-UI-SPEC.md` stating the owner supplied it, so Phase 8.1 success criterion 2 ("the brand asset exists in the repository") starts from zero. This decision had been open since 2026-09-09 and was recorded nowhere: `01-UI-SPEC.md` Open Decision #1 pointed at `PRODUCT.md`, a file that does not exist in this project (the file is `PROJECT.md`), so the pointer dangled for a month |
+| **A-01** Criterion 2 reads "refactored, deleted, or allow-listed" (was "refactored or allow-listed") | `start_agent_run`'s raw `tasks.status` write is redundant once status is derived, so it is deleted rather than allow-listed (Phase 13 D-13) | ✓ Recorded (Phase 13) |
+| **A-02** Criterion 3's forbidden-word gate is a whole-word scan with two named idiom exclusions | The literal substring reading fails the build on idiomatic Rust (`with_capacity`, the timeout `deadline` in `proc.rs`); a whole-word match keeps all ten words and fires only on PM-shaped use (Phase 13 D-20) | ✓ Recorded (Phase 13) |
+| **A-03** D-122's forward-only rule is re-expressed as a floor on the deriver, and the floor does not bind human authority acts | Forward-only is a property of the derived candidate, not of the board: a human may still lower status deliberately (Phase 13 D-10, D-11) | ✓ Recorded (Phase 13) |
+| **A-04** The roadmap's research flag is answered: acknowledged decisions never drop from the context packet, and the bound is on the input, not the residue | `acknowledged_decisions` is drift machinery (D-73) and never affects inclusion; the window bounds what the fold reads, so the fold stays lossless over whatever it is given (Phase 13 D-01, D-07) | ✓ Recorded (Phase 13) |
 
 ## Evolution
 
