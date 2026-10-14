@@ -4,16 +4,16 @@ milestone: v0.1.0
 current_phase: 11
 current_phase_name: Ship It
 status: executing
-stopped_at: Completed 11-11-PLAN.md
-last_updated: "2026-10-13T23:02:29.618Z"
+stopped_at: Completed 11-08-PLAN.md
+last_updated: "2026-10-14T02:07:10.329Z"
 last_activity: 2026-10-13
 last_activity_desc: Phase 11 execution started
-state_head: 07be61523f6dc59d5225c128ab2261deca43aac6
+state_head: db466030c923162a525abeafc94f2662c93beb4f
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 250
-  completed_plans: 246
+  completed_plans: 247
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 11 (Ship It) — EXECUTING
-Plan: 11 of 21
+Plan: 12 of 21
 Status: Ready to execute
 Last activity: 2026-10-13 — Phase 11 execution started
 
@@ -308,6 +308,7 @@ Progress: [█░░░░░░░░░] 8% — 12 of 13 phases complete (228/
 | Phase 11 P22 | 25 min | 2 tasks | 13 files |
 | Phase 11 P06 | 20 min | 3 tasks | 9 files |
 | Phase 11 P11 | 40min | 2 tasks | 9 files |
+| Phase 11 P08 | 3h | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -712,6 +713,7 @@ Recent decisions affecting current work:
 - [Phase 11]: 11-18: the developer's turn keeps the brand colour; recorded in 08.1-UI-SPEC as an existing use D-199 did not decide, filed at 11-21 as an owner decision — Moving it to ink would remove the feed's only speaker channel; a replacement is a design call the owner has not made
 - [Phase 11]: 11-05: tauri-plugin-updater pinned =2.12.0; tauri stays =2.11.5 (D-181). update_install re-checks the live-run count after the download, before the install (D-188).
 - [Phase 11]: 11-06: update banner is position:fixed bottom-right (not a flex row); dismissal is a per-window version string; display count from fleet read, Rust refusal count shown when fleet read missed it
+- [Phase 11]: 11-08: v0.1.0 and v0.1.1 published unsigned; DIST-01 criterion 1 recorded UNMET (Gatekeeper), installed-client update NOT observed
 
 ### Pending Todos
 
@@ -774,6 +776,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-13T23:02:29.420Z
-Stopped at: Completed 11-11-PLAN.md
+Last session: 2026-10-14T02:07:10.130Z
+Stopped at: Completed 11-08-PLAN.md
 Resume file: None
