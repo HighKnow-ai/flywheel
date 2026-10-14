@@ -261,4 +261,108 @@ Not verified: a fully cold run of the *corrected* command from an empty `target/
 command ran against the tree the failed one had already built). The `v0.1.0` tag carries the corrected
 README. The stranger clone tested `main`, which still has the old README.
 
-<!-- gsd:write-continue -->
+## 6. v0.1.1, something to be offered (plan Task 4)
+
+Tag `v0.1.1` at `3024cc2` (the commit that recorded the evidence above: a real commit with a real
+subject, not an empty one). Release run passed on its first attempt, no re-run. It is on the same
+branch as `v0.1.0`, not on `main`, for the reason in section 2.
+
+| Field | Value |
+| --- | --- |
+| Name | `Flywheel v0.1.1` |
+| `isDraft` / `isPrerelease` | `false` / `false` |
+| Published | 2026-10-14T02:02:38Z |
+| `targetCommitish` | `3024cc295e123e30f1ec32e03bb0b02abdc6097a` |
+| Body (98 chars) | `- docs(11-08): record the v0.1.0 release, the unmet Gatekeeper criterion and the fresh-clone build` |
+| `gh release list` marks | `v0.1.1` as `Latest`; `v0.1.0` unmarked |
+
+Assets: `Flywheel_0.1.1_aarch64.dmg` 47,010,991 bytes; `Flywheel_aarch64.app.tar.gz` 48,115,357;
+`Flywheel_aarch64.app.tar.gz.sig` 408; `latest.json` 1,344.
+
+The body is one commit subject because the range is `v0.1.0..v0.1.1` and one commit separates them. That
+is thin, but it is what the banner will show as "what changed", and it is real.
+
+**Manifest at the stable URL**, `curl -fsSL https://github.com/HighKnow-ai/flywheel/releases/latest/download/latest.json`
+(HTTP 200): `version` `0.1.1`, `pub_date` 2026-10-14T02:02:45Z, `darwin-aarch64` present with a
+408-character `signature` (non-empty), `url`
+`https://github.com/HighKnow-ai/flywheel/releases/download/v0.1.1/Flywheel_aarch64.app.tar.gz`. The
+plan's node assertion printed `latest.json ok`.
+
+**Signature, verified cryptographically against the key compiled into `tauri.conf.json`** (the same
+`minisign-verify =0.2.5` tool as section 2):
+
+```
+tarball vs the .sig asset            : SIGNATURE VERIFIES (48115357 bytes)
+tarball vs latest.json signature     : SIGNATURE VERIFIES (48115357 bytes)   (field is byte-identical to the .sig asset)
+tarball vs the v0.1.0 signature      : SIGNATURE FAILS: InvalidSignature     (control, exit 1)
+```
+
+The tarball's `Info.plist` reports `CFBundleShortVersionString` `0.1.1`. This is the assertion the plan
+called decisive, and it was made on the downloaded bytes, not inferred from a green workflow.
+
+**Gatekeeper parity for v0.1.1 (criterion 1 again NOT MET).** The plan asked for
+`verify-gatekeeper.sh v0.1.1` to exit 0; the script does not exist. The same four commands on the
+extracted `v0.1.1` bundle give the same answers as section 3: `Signature=adhoc`,
+`TeamIdentifier=not set`, `codesign --verify` and `spctl` both "code has no resources but signature
+indicates they must be present", `stapler` "does not have a ticket stapled to it".
+
+### Does the installed v0.1.0 reach the endpoint?
+
+The installed `/Applications/Flywheel.app` (`0.1.0`) was started directly (isolated `HOME`, as in
+section 4) after `v0.1.1` was published, and its sockets were sampled every 0.5 s for 30 s with `lsof`.
+The `desktop` process held two established TLS connections:
+
+```
+desktop 86532 TCP 192.168.0.108:63997->4.237.22.38:443      (ESTABLISHED)   github.com resolves to 4.237.22.38
+desktop 86532 TCP 192.168.0.108:63998->185.199.111.133:443  (ESTABLISHED)   release-assets.githubusercontent.com resolves to 185.199.111.133
+```
+
+That is `github.com` followed by the release-asset host it redirects to, which is the path the compiled
+endpoint takes. It is consistent with the installed client fetching `latest.json`. It does **not**
+show that the response was parsed, that its signature verified, or that a banner was drawn. Plan Task 4
+step 3 expected the request to "leave a trace"; `update.rs` writes no log line (no `println`,
+`eprintln`, `log::` or `tracing::` in it), so a socket sample is the only trace there is. A log line
+on the check's outcome would make this step observable without a human. Not added: out of this plan's
+scope.
+
+## 7. Pending: the four human-check questions
+
+**PENDING the plan 11-21 owner pass. NOT verified. Nothing in this file observed any of them.**
+
+*Why a human:* WKWebView has no WebDriver, so no harness can observe what the installed app's renderer
+paints, and `update_install` is reachable only from the application's own UI. This is a physical reason,
+not a missing fixture. (D-REV-61 also notes the banner's DOM text is scriptable once an installed build
+exists; that scripted part was not attempted here.)
+
+Launch `/Applications/Flywheel.app` (version `0.1.0`), and report:
+
+1. Does a banner appear naming `0.1.1`, with the commit subjects from the release body as "what
+   changed"?
+2. Does dismissing it hide it, and does it stay hidden for that version?
+3. With an agent run live, does it say so and name the count, and is accept unavailable?
+4. With nothing running, does accepting it, then quitting and relaunching, give you a Flywheel whose
+   About panel reads `0.1.1` -- with no `.dmg` downloaded and nothing dragged anywhere?
+
+Item 4 is criterion 2 in one sentence. If it fails, the phase does not close on it, and this file says
+so plainly rather than implying it was observed.
+
+*Note for that pass:* `/Applications/Flywheel.app` now holds the unsigned `0.1.0` from the release. If
+the app is launched from Finder rather than from the executable, the Gatekeeper interaction in section 3
+comes first and is itself the pending D-REV-62 observation. Nothing in this plan clears the
+quarantine attribute for the owner; that is their step, and the one they would give a stranger.
+
+## 8. Summary of criteria
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| Repository public, stranger can read it | MET | section 1 (owner's act; unauthenticated 200s) |
+| `v0.1.0` exists with dmg, tarball, `.sig`, `latest.json`; not draft | MET | section 2 |
+| `v0.1.0` signed and **notarized** | **NOT MET** | plan 11-07 deferred (D-REV-60); section 3 |
+| DIST-01 criterion 1: no Gatekeeper warning | **NOT MET** | section 3; the dialog itself not observed (D-REV-62) |
+| Install from the `.dmg` to `/Applications`, bundle reports `0.1.0` | MET | section 4 |
+| Installed app starts, makes its DB, spawns its sidecar | MET (executable launch, not Finder) | section 4 |
+| Finder first launch | NOT OBSERVED | D-REV-62 |
+| DIST-02: `latest.json` offers `0.1.1`, signature non-empty and verifies | MET | section 6 |
+| DIST-02: installed client downloads, verifies and installs the update | NOT OBSERVED | section 7, D-REV-61 |
+| DIST-03: a stranger's HTTPS clone builds a bundle from the README | MET after a fix; the README as published on `main` is wrong until `2f6d9d0` merges | section 5 |
+| Tag not gated on the deferred-review register (D-195) | MET | tagged with the register open |

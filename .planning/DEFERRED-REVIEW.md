@@ -358,6 +358,39 @@ context to be answerable months later by someone who was not in the room:
     installed-client half), and how the banner LOOKS in the corner of a real window.
   risk_if_wrong: "Moderate for the update path (a user is stranded on an old build), low for the look. Releases are unsigned by Apple (D-REV-60); the update payload is verified by the Tauri updater key, a different trust root."
   automatable: "PARTLY. Install v0.1.0, publish v0.1.1, launch and read the banner from the DOM is scriptable once 11-08's installed build exists. How it looks is aesthetic judgement."
+  update_11-08: |
+    PRECONDITIONS NOW MET, ITEM STILL OPEN. v0.1.0 is installed at /Applications/Flywheel.app and v0.1.1 is
+    published and is `releases/latest` (2026-10-14). The v0.1.1 manifest and tarball signature were verified
+    from outside the app against the compiled key (minisign-verify =0.2.5; a one-byte-tampered tarball and a
+    v0.1.0 signature over the v0.1.1 tarball both FAIL, as controls). The installed v0.1.0 executable, started
+    with an isolated HOME, opened TLS connections to github.com and to release-assets.githubusercontent.com,
+    which is consistent with fetching latest.json; the response, the verification and the banner were NOT
+    seen. update.rs writes no log line, so a socket sample is the only trace. The four questions to ask are in
+    11-RELEASE-EVIDENCE.md section 7. A one-line log of update_check's outcome would turn "reached the
+    endpoint" into "parsed and verified" without a human; not added.
+
+- id: D-REV-62
+  phase: "11 - Ship It (plan 08, DIST-01 criterion 1)"
+  truth: "What a first-time user actually sees when they open the unsigned v0.1.0 from Finder after downloading it in a browser, and whether the documented workaround gets them in. The bundle is ad-hoc linker-signed only (Signature=adhoc, TeamIdentifier not set), `codesign --verify --deep --strict` and `spctl --assess` both fail with 'code has no resources but signature indicates they must be present', and no ticket is stapled."
+  status: open
+  why_deferred: |
+    Physical. The Gatekeeper dialog is drawn by the OS for a quarantined launch through LaunchServices; the
+    quarantine attribute is set by a browser; the dialog needs a click and possibly an administrator password
+    ('Open Anyway' in System Settings on this macOS). The 11-08 executor downloaded with curl (not
+    quarantined) and started the executable directly, which is not subject to the check, so it proves the
+    app runs and says nothing about the first-launch experience. A quarantined launch would also have
+    put a modal alert, with 'Move to Trash' among its buttons, on the owner's screen.
+  risk_if_wrong: |
+    Moderate, first-run only (see D-REV-60). INFERENCE, unverified: because the bundle's resources are not
+    sealed, the dialog is likely the 'is damaged and can't be opened' form rather than 'unidentified
+    developer', and the old right-click-Open override may not exist on this macOS. If so the README and
+    the release body should say how to get past it (xattr -cr, or ad-hoc re-signing, or Open Anyway)
+    because the workaround D-REV-60 names may not work. Nobody has told a stranger yet.
+  automatable: |
+    PARTLY. `xattr -w com.apple.quarantine` on a copy and a LaunchServices launch can reproduce the dialog,
+    and computer-use can read its text, but dismissing it safely needs the owner at the keyboard. Either way
+    the exact dialog wording and the working workaround are the owner's to confirm in plan 11-21.
+  update_11-08: "Raised by 11-08. See 11-RELEASE-EVIDENCE.md sections 3 and 4."
 
 ## Redemption protocol
 
@@ -1264,3 +1297,8 @@ At Phase 11, with an installed, usable build:
     `codesign --verify` against the downloaded artifact. Redeem by pushing a throwaway tag and
     reading the verification script's output, then deleting the tag and release - the same shape
     plans 11-04 and 11-05 both used successfully.
+  update_11-08: |
+    CONFIRMED first-hand on the released v0.1.0 (2026-10-14): `codesign -dv` reports Signature=adhoc,
+    TeamIdentifier=not set; `spctl --assess --type execute -vv` rejects it (exit 1); `stapler validate`
+    finds no ticket. Same for v0.1.1. Nothing was bypassed. The release is public and `releases/latest`
+    resolves to it, so the first-run cost described above is now live. See 11-RELEASE-EVIDENCE.md section 3.
