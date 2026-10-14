@@ -344,6 +344,13 @@ context to be answerable months later by someone who was not in the room:
   risk_if_wrong: "Low to moderate. A cramped or confusing layout does not lose work; the worst case is a gate reason clipped to two lines (the full text is in the DOM and in a measured cell) or the sheet needing a second pass."
   automatable: "PARTLY. The no-clipping and reachability half is already a WebKit test (dispatch-layout.browser.test.tsx). The click path through the packaged app and the judgement of how it looks are not."
   update_11-14: "Containment and reachability half CLOSED across every state the truth names: dispatch-layout.browser.test.tsx now measures the cell in eight states plus the Stop confirmation (nothing planned, planning in progress, draft, running with a stuck task, paused plan, paused gate with and without a reset time, warning gate) with its words present, every control inside the 64px row's cell and reachable by Option+Tab, and the sheet in five (draft with wave pickers and path fields, a path edit with a long core refusal, the wave picker, a failed Approve, a plan in force), light and dark. FOUND, not fixed (pre-existing, see deferred-items.md): a refused Approve renders its message at the end of the scrolling body, below the fold for any plan taller than the dialog; held as an `it.fails`. STILL NOT AUTOMATED, two separate things: (1) the click path through the PACKAGED app is scriptable once the installed build from 11-08 exists; no physical obstacle, route to 11-21. (2) how the sheet and row LOOK is aesthetic judgement and stays human."
+  update_11-21: |
+    Plan 11-21, 2026-10-14. Click path through the PACKAGED app driven (board copy, seeded draft and paused plans): the
+    epic cell showed "Draft plan, not started / Review plan" and "Paused / Resume / Stop / Open plan"; the sheet opened
+    (11-21-wave-plan-sheet-light.png and -dark.png); a typed path saved through the real command; a wave change wrote
+    dispatch_plan_tasks; Stop showed its inline confirmation and aborted the plan. NOT exercised: Plan fan-out (a real
+    planning run), Approve and start and Resume (they start runs and create worktrees in the owner's repository).
+    STILL HUMAN: how it looks, and the live runs (a real login).
 
 - id: D-REV-61
   phase: "11 - Ship It (plan 06, DIST-02, D-187, D-188)"
@@ -375,6 +382,15 @@ context to be answerable months later by someone who was not in the room:
     tokens in 11-20-appearance-dark.png). So the check ran, parsed and drew the offer. Nothing was clicked:
     dismissal, the live-run count and the install-on-relaunch result are not observed. Screenshot read, not a
     DOM assertion.
+  update_11-21: |
+    Plan 11-21, 2026-10-14. CLOSED by automation, on a `ditto` COPY of the installed 0.1.0 at a scratch path
+    (not /Applications, not the owner's HOME). Driven through the accessibility tree (scripts/release/ax-drive.js):
+    banner naming 0.1.1 with the release's commit subject; Install on relaunch staged it ("Flywheel 0.1.1 is installed.
+    Relaunch to use it.", Info.plist 0.1.1, executable hash changed); the relaunched copy's About panel reads
+    "Version 0.1.1 (0.1.1)" (11-21-about-after-update.png). With 2 running agent rows the banner read "2 agents running.
+    The update waits until they finish." and Install was disabled (11-21-update-live-runs.png); the agents were
+    database rows, not processes. Dismissal (Not now) hides the banner but it RETURNED after a relaunch: see D-REV-66.
+    Not the owner's own observation, and not an in-place update of /Applications.
 
 - id: D-REV-62
   phase: "11 - Ship It (plan 08, DIST-01 criterion 1)"
@@ -398,6 +414,16 @@ context to be answerable months later by someone who was not in the room:
     and computer-use can read its text, but dismissing it safely needs the owner at the keyboard. Either way
     the exact dialog wording and the working workaround are the owner's to confirm in plan 11-21.
   update_11-08: "Raised by 11-08. See 11-RELEASE-EVIDENCE.md sections 3 and 4."
+  update_11-21: |
+    Plan 11-21, 2026-10-14. REPRODUCED on a quarantined COPY (com.apple.quarantine written the way a browser writes it,
+    opened with `open`): the dialog is the "is damaged and can't be opened. You should move it to the Trash" form with
+    ONLY Move to Trash and Cancel, no Open button (11-21-gatekeeper-dialog.png; French system locale). So D-REV-60's
+    "right-click Open workaround" does not exist on this macOS for this bundle. `xattr -cr <app>` then `open` DID start
+    it. An ad-hoc re-sign (`codesign --force --deep -s -`) keeps the quarantine rejection but changes the dialog to
+    "Apple could not verify ... free of malware" (11-21-gatekeeper-dialog-adhoc-resigned.png), whose way through is
+    System Settings > Open Anyway (administrator password; not attempted). README and release notes say none of this.
+    Remedy filed (BI-41): document `xattr -cr`. A real browser download's quarantine record is richer than the
+    attribute written here.
 
 ## Redemption protocol
 
@@ -1064,6 +1090,10 @@ At Phase 11, with an installed, usable build:
   risk_if_wrong: "Low. The cell could clip or look crowded; no figure is wrong and no row is cleared by accident."
   automatable: "PARTLY. A harness run against a scratch FLYWHEEL_APP_DATA_DIR can call agent_run_acknowledge and assert fleet_list drops the row; the look cannot."
   update_11-15: "Dismiss half CLOSED: uat-12 section D-REV-49 completes one run and fails another, then acknowledges: each leaves fleet_list and the row count drops by exactly one per call; a live run is refused and stays; a repeat acknowledge reports no change; the other finished run is untouched. Same caveat as D-REV-48: the core function (agent_run::acknowledge_run) is driven, not the Tauri command. Mutation-checked: making acknowledge_run a no-op turned this section red and left the other three green. Token text at narrow width is now measured: the spend cell (98,765,432 in incl. cache, 8,765,432 out, $12.3456) stays inside its row and ellipsizes rather than overlapping at 900 and 1200 px, light and dark. STILL OPEN: (1) the real Tauri round trip from the button press to the row leaving (physical reason: no WebDriver for WKWebView); (2) whether the spend column, estimate footer and Dismiss buttons READ clearly (aesthetic judgement)."
+  update_11-21: |
+    Plan 11-21, 2026-10-14. Round trip OBSERVED on the installed app (board copy, accessibility-driven): Dismiss on a
+    failed run's row removed it from the fleet and set acknowledged_at; the other two rows were untouched. STILL
+    HUMAN: how the columns and Dismiss READ at row density (aesthetic judgement).
 
 - id: D-REV-50
   phase: "10 — Fleet Supervision (plan 10-05)"
@@ -1098,6 +1128,9 @@ At Phase 11, with an installed, usable build:
   risk_if_wrong: "Moderate for the shell half (a jump that lands on the board without the item open); low for the look."
   automatable: "PARTLY. A Playwright run against the Vite dev server with the adapter stubbed can mount App.tsx and assert the detail panel after the subject key is pressed; the look cannot."
   update_11-15: "Shell half CLOSED, twice. jump.test.tsx now mounts the real AppShell (through <App />) over a stubbed adapter: Enter and a click replace the fleet with that run's session and read that run's own log; Back returns to the fleet; the subject key (click and `b`) on a row in another project switches the current project, consumes the one-shot request and opens that item's detail panel for BET-7, not a stale item from the project that was showing; a jump into a project whose board loads in 600 ms waits (request held, nothing open) and then lands. fleet-jump.browser.test.tsx repeats the sequence in WebKit with real key presses (j, Enter, b) and real clicks, light and dark. Mutation-checked: dropping setCurrentProjectId, or making Back also close the fleet, turned both suites red. TWO FINDINGS, held as it.fails, logged in deferred-items.md: (a) Back returns to the fleet but with NO row selected, because the selection is local to FleetSurface which the shell unmounts while the session shows; (b) a finished run with an empty log opens a session reading 'Starting session...' above 'This run has ended'. NOT covered: the Tauri IPC behind any read (adapter stubbed), and that the packaged WKWebView delivers the same key events (Playwright's WebKit is not the shipped one). STILL HUMAN: how the key-as-button reads at row density (aesthetic judgement); the IPC and packaged-WKWebView join stays with the installed build (physical reason: no WebDriver for WKWebView)."
+  update_11-21: |
+    Plan 11-21, 2026-10-14. On the installed app (board copy) the subject-key button on a fleet row left the fleet and
+    showed the board but OPENED NO ITEM, on two tries 12 s apart: filed as D-REV-65. Enter-on-a-row and Back not driven.
 
 - id: D-REV-52
   phase: "10 — Fleet Supervision (plan 10-07)"
@@ -1225,6 +1258,9 @@ At Phase 11, with an installed, usable build:
     installs it. Nothing here ran the updater against a real signed release; update_check/update_install were
     tested through a fake source and the compiled config was read, not exercised. That needs two installed
     versions and is the physical half of DIST-02 (queued with plan 11-06's banner).
+  update_11-21: |
+    Plan 11-21, 2026-10-14. The installed-client half is now OBSERVED: the installed 0.1.0 (a copy) downloaded,
+    verified and installed 0.1.1 from releases/latest (see D-REV-61). Closed.
 
 - id: D-REV-58
   phase: "11 - Ship It (plan 11-10, residuals of D-REV-39 and D-REV-44)"
@@ -1334,6 +1370,33 @@ At Phase 11, with an installed, usable build:
     the active project, not the duplicate. Data is safe; recovery is a command, not a button.
   risk_if_wrong: "Moderate for 'a hidden project must not be a lost project': the project is intact in SQLite but unreachable from the surface without a developer."
   automatable: "YES once built: a hidden-projects list (Settings or the rail) calling projectRestore, with a jsdom test. A small plan; the owner may prefer to defer it past ship."
+
+- id: D-REV-65
+  phase: "11 — Ship It (plan 11-21, found on the installed build)"
+  truth: "On the installed v0.1.0, pressing the subject key on a fleet row lands on the board with that item's detail panel open."
+  status: open — defect observed
+  why_deferred: |
+    Not deferred: found. On a copy of the live board in the installed app, clicking `Open THRE-43 on the board` and
+    `Open THRE-33 on the board` on a fleet row switched from the fleet to the board and opened nothing, on two tries
+    with 7 s and 15 s of waiting. jest-dom and WebKit tests assert the panel opens (jump.test.tsx,
+    fleet-jump.browser.test.tsx, plan 11-15). The difference is the real data (907 tasks, epics whose tasks load on
+    expansion) and the real IPC. Cause not investigated; v0.1.0 may predate a fix, which the next installed build
+    would show.
+  risk_if_wrong: "Moderate: the cross-project jump is the fleet's way from 'this agent needs me' to the item."
+  automatable: "YES. Drive the installed app with scripts/release/ax-drive.js: open the fleet, press the key, assert the item's detail appears. Board item BI-43."
+
+- id: D-REV-66
+  phase: "11 — Ship It (plan 11-21, found on the installed build)"
+  truth: "Dismissing the update banner is remembered for that version, as plan 11-06 states."
+  status: open — owner decision
+  why_deferred: |
+    Observed: Not now hides the banner for the session; after quitting and relaunching with the same HOME the
+    banner returned. The dismissal lives in uiStore (`dismissedUpdateVersion`), which does not persist. The plan's
+    wording ("remembered for that version only") reads as persistent; the code remembers it for a session.
+  risk_if_wrong: "Low: a nag on every launch until the user updates."
+  needs: "An owner call: keep it (a banner that returns each launch is a reasonable nudge) or persist the version. Decision D6 in 11-OWNER-PASS.md; board item BI-49."
+  automatable: "YES once decided: persist the field and assert a relaunch."
+
 
 # Register integrity note, 2026-10-14 (orchestrator)
 #
