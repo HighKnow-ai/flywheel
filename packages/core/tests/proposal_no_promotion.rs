@@ -17,13 +17,14 @@ use core::domain::agent_run::{agent_actor_id, mark_abandoned};
 use core::domain::authoring_proposal::{
     accept_proposal, amend_proposal, apply_proposal_created, create_proposal,
     pending_proposals_for_run, reject_proposal, ProposalOutcome, ProposalPayload,
-    ProposalProvenance, ProposalUndecidable, ProposalVerb,
+    ProposalProvenance, ProposalTargetType, ProposalUndecidable, ProposalVerb,
 };
 use core::domain::authoring_session::{advance_stage, start_authoring_run};
 use core::domain::epic::create_epic;
 use core::domain::project::Project;
 use core::domain::task::{create_task, delete_task};
 use core::ids::new_id;
+use core::schema_classification::canonical_tables;
 use rusqlite::{params, Connection};
 
 // --- Shared source-scanning helpers (copied verbatim from `authoring_proposal.rs`'s own tail —
@@ -71,20 +72,37 @@ fn sources_under(dir: &Path) -> Vec<(PathBuf, String)> {
 
 // --- Gate 1: no agent-reachable module writes a canonical table directly (PROP-03) ---
 
-/// The five case-sensitive literal substrings naming a direct write to a canonical table: an
-/// INSERT into each of the four canonical tables, and an UPDATE of `acceptance_criteria` (the one
-/// canonical table this staging system ever amends in place, via `revise_criterion_in_tx`). This
-/// gate does not police `DELETE FROM <table>` — deletion is not a PROMOTION (turning a proposal
-/// into new board substance), which is the narrow thing D-100 exists to prove is impossible
-/// without triage; each canonical table's own `_in_tx` writer is still the only legitimate place a
-/// delete of that table happens, verified separately for `authoring_proposal.rs` by Gate 2 below.
-const CANONICAL_WRITE_PATTERNS: [&str; 5] = [
-    "INSERT INTO epics",
-    "INSERT INTO tasks",
-    "INSERT INTO issues",
-    "INSERT INTO acceptance_criteria",
-    "UPDATE acceptance_criteria",
-];
+/// The case-sensitive literal substrings naming a direct write to a canonical table: an INSERT
+/// into every table `core::schema_classification` classifies `Canonical`, plus an UPDATE of
+/// `acceptance_criteria` (the one canonical table this staging system ever amends in place, via
+/// `revise_criterion_in_tx`). DERIVED, not listed (FNC-02): a new canonical table is covered the
+/// moment it is classified, and `table_classification.rs` fails the build until it is. This gate
+/// does not police `DELETE FROM <table>` — deletion is not a PROMOTION (turning a proposal into
+/// new board substance), which is the narrow thing D-100 exists to prove is impossible without
+/// triage; each canonical table's own `_in_tx` writer is still the only legitimate place a delete
+/// of that table happens, verified separately for `authoring_proposal.rs` by Gate 2 below.
+fn canonical_write_patterns() -> Vec<String> {
+    let mut patterns: Vec<String> = canonical_tables().map(|table| format!("INSERT INTO {table}")).collect();
+    patterns.push("UPDATE acceptance_criteria".to_string());
+    patterns
+}
+
+#[test]
+fn the_derived_write_patterns_cover_every_canonical_table() {
+    let patterns = canonical_write_patterns();
+    let tables: Vec<&str> = canonical_tables().collect();
+    assert!(
+        !tables.is_empty() && !patterns.is_empty(),
+        "FNC-02: deriving the write patterns from the classification produced nothing, which would \
+         turn Gate 1 off"
+    );
+    for table in tables {
+        assert!(
+            patterns.iter().any(|p| p == &format!("INSERT INTO {table}")),
+            "FNC-02: canonical table {table:?} has no INSERT pattern in Gate 1"
+        );
+    }
+}
 
 /// The four canonical-writer modules that legitimately own the patterns above — allow-listed by
 /// exact path suffix. Nothing else in the three scanned trees may contain one of these patterns
@@ -105,6 +123,7 @@ fn no_agent_reachable_module_writes_a_canonical_table() {
         root.join("packages/sidecar/src"),
     ];
 
+    let write_patterns = canonical_write_patterns();
     let mut offenders = Vec::new();
     for dir in scan_dirs {
         for (path, body) in sources_under(&dir) {
@@ -123,8 +142,8 @@ fn no_agent_reachable_module_writes_a_canonical_table() {
                 if is_whole_line_comment(line) {
                     continue;
                 }
-                for forbidden in CANONICAL_WRITE_PATTERNS {
-                    if line.contains(forbidden) {
+                for forbidden in &write_patterns {
+                    if line.contains(forbidden.as_str()) {
                         offenders.push(format!("{}:{}: {}", path.display(), n + 1, line.trim()));
                     }
                 }
@@ -1110,6 +1129,87 @@ fn case_abandoned_run_pending_proposal_survives_and_new_event_is_refused() {
     });
 }
 
+// --- Record types that do not exist yet: prd, adr, cycle-assignment (FNC-02, T-13-23) ---
+//
+// Phases 14-18 add these as proposable targets. Until Phase 16 creates their record tables, the
+// proof that none of them reaches a canonical row is that the target type is refused at the staging
+// boundary, three independent ways: `ProposalTargetType::from_db_str` has no such variant,
+// `ProposalPayload` (the only thing `create_proposal` accepts) cannot express it,
+// `apply_proposal_created` ignores an event naming it, and the `target_type` CHECK in migration
+// 0015 refuses the row even if every Rust-side parse were bypassed.
+//
+// Phase 16 flips each case below from "refused at the boundary" to "staged, and requires triage"
+// by widening that CHECK and the enum. The assertion every case makes — zero canonical rows before
+// triage — is unchanged by that flip; only the route to it changes.
+
+fn prove_target_type_cannot_promote(label: &str, target_type: &str) {
+    // 1. The enum the staging path parses a stored or inbound target type with.
+    let parse_error = ProposalTargetType::from_db_str(target_type)
+        .expect_err(&format!("{label}: the staging vocabulary must not know {target_type:?} yet"));
+    assert!(
+        parse_error.to_string().contains("unknown proposal target_type"),
+        "{label}: expected the unknown-target_type refusal, got {parse_error}"
+    );
+
+    // 2. `create_proposal`'s route: it takes a typed `ProposalPayload`, so a payload naming this
+    //    kind cannot even be built; the schema CHECK is the second line behind that.
+    let payload = serde_json::json!({ "kind": target_type, "title": "Smuggled in as a record type" });
+    assert!(
+        serde_json::from_value::<ProposalPayload>(payload).is_err(),
+        "{label}: ProposalPayload must not parse a {target_type:?} payload"
+    );
+    with_scratch_runtime_dir(|| {
+        let (conn, human_actor_id, project, run_id) = ready_run();
+        let before = counts(&conn);
+        let refused = conn.execute(
+            "INSERT INTO authoring_proposals (
+                id, agent_run_id, project_id, epic_id, verb, target_type, target_id,
+                parent_proposal_id, position, payload, status, created_by, created_at
+            ) VALUES (?1, ?2, ?3, NULL, 'create', ?4, NULL, NULL, 'a0', '{}', 'pending', ?5, ?6)",
+            params![new_id(), run_id, project.id, target_type, human_actor_id, "2026-01-01T00:00:00Z"],
+        );
+        let message = refused.expect_err(&format!("{label}: the target_type CHECK must refuse the row")).to_string();
+        assert!(message.contains("CHECK"), "{label}: expected a CHECK refusal, got {message}");
+        assert_eq!(counts(&conn), before, "{label}: a refused staging row must leave every canonical count unchanged");
+    });
+
+    // 3. `apply_proposal_created`'s route: an inbound event naming it is ignored, nothing staged.
+    with_scratch_app_data_dir(|| {
+        let (mut conn, _human_actor_id, _project_id, _task_id, run_id) = seeded_execution_run();
+        let before = counts(&conn);
+        let event = serde_json::json!({
+            "type": "proposal_created",
+            "runId": run_id,
+            "verb": "create",
+            "targetType": target_type,
+            "payload": { "kind": target_type, "title": "Smuggled in as a record type" },
+            "rationale": "Adversarial: a record type that does not exist yet",
+        });
+        let outcome = apply_proposal_created(&mut conn, &event).expect("apply_proposal_created should not error");
+        assert_eq!(outcome, ProposalOutcome::Ignored, "{label}: the event must be ignored");
+        let staged: i64 = conn
+            .query_row("SELECT COUNT(*) FROM authoring_proposals", [], |row| row.get(0))
+            .expect("failed to count staged proposals");
+        assert_eq!(staged, 0, "{label}: nothing may be staged");
+        assert_eq!(counts(&conn), before, "{label}: no canonical row may appear");
+    });
+}
+
+fn case_prd_target_type_cannot_promote() {
+    prove_target_type_cannot_promote("a prd target type is refused at the staging boundary and writes no canonical row", "prd");
+}
+
+fn case_adr_target_type_cannot_promote() {
+    prove_target_type_cannot_promote("an adr target type is refused at the staging boundary and writes no canonical row", "adr");
+}
+
+fn case_cycle_assignment_target_type_cannot_promote() {
+    prove_target_type_cannot_promote(
+        "a cycle_assignment target type is refused at the staging boundary and writes no canonical row",
+        "cycle_assignment",
+    );
+}
+
 // --- The corpus table itself ---
 
 struct CorpusCase {
@@ -1168,13 +1268,16 @@ const CORPUS: &[CorpusCase] = &[
         label: "abandoned-run: a pending proposal survives abandonment and a new event is refused",
         run: case_abandoned_run_pending_proposal_survives_and_new_event_is_refused,
     },
+    CorpusCase { label: "prd target type cannot promote", run: case_prd_target_type_cannot_promote },
+    CorpusCase { label: "adr target type cannot promote", run: case_adr_target_type_cannot_promote },
+    CorpusCase { label: "cycle_assignment target type cannot promote", run: case_cycle_assignment_target_type_cannot_promote },
 ];
 
 #[test]
 fn corpus_declares_at_least_14_labelled_adversarial_cases() {
     assert!(
-        CORPUS.len() >= 14,
-        "expected at least 14 labelled corpus cases proving zero canonical rows before triage, found {}",
+        CORPUS.len() >= 20,
+        "expected at least 20 labelled corpus cases proving zero canonical rows before triage, found {}",
         CORPUS.len()
     );
 }
@@ -1193,4 +1296,82 @@ fn every_corpus_case_proves_zero_canonical_rows_before_triage() {
         }
     }
     assert!(failures.is_empty(), "one or more adversarial corpus cases failed:\n  {}", failures.join("\n  "));
+}
+
+// --- Gate 6: no SQL statement in core interpolates a table name (T-13-22) ---
+//
+// A table name built into SQL with `format!` is one caller-supplied string away from injection.
+// A const column list interpolated into a select list is legitimate and does not match this shape:
+// only a brace placed right after FROM, INTO, UPDATE or JOIN does.
+
+const TABLE_POSITION_KEYWORDS: [&str; 4] = ["FROM", "INTO", "UPDATE", "JOIN"];
+
+/// `(1-based line, trimmed line)` for every non-comment line, in a file that builds strings with
+/// `format!`/`write!`/`writeln!`, where an uppercase table-position keyword is followed by
+/// whitespace and then a single `{` (a `{{` is an escaped brace, not an interpolation).
+fn interpolated_table_name_lines(body: &str) -> Vec<(usize, String)> {
+    if !["format!(", "write!(", "writeln!("].iter().any(|m| body.contains(m)) {
+        return Vec::new();
+    }
+    let mut hits = Vec::new();
+    for (n, line) in body.lines().enumerate() {
+        if is_whole_line_comment(line) {
+            continue;
+        }
+        let bytes = line.as_bytes();
+        let hit = TABLE_POSITION_KEYWORDS.iter().any(|keyword| {
+            line.match_indices(keyword).any(|(at, _)| {
+                let preceded_by_word = at > 0 && (bytes[at - 1].is_ascii_alphanumeric() || bytes[at - 1] == b'_');
+                let rest = &line[at + keyword.len()..];
+                let after_space = rest.trim_start();
+                !preceded_by_word
+                    && after_space.len() < rest.len()
+                    && after_space.starts_with('{')
+                    && !after_space.starts_with("{{")
+            })
+        });
+        if hit {
+            hits.push((n + 1, line.trim().to_string()));
+        }
+    }
+    hits
+}
+
+#[test]
+fn no_sql_statement_interpolates_a_table_name() {
+    let dir = workspace_root().join("packages/core/src");
+    let mut offenders = Vec::new();
+    for (path, body) in sources_under(&dir) {
+        if path.extension().is_some_and(|e| e == "rs") {
+            for (n, line) in interpolated_table_name_lines(&body) {
+                offenders.push(format!("{}:{n}: {line}", path.display()));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "a SQL statement interpolates a table name. Write one fully static statement per table \
+         (an explicit `match` between them) instead. Offending lines:\n  {}",
+        offenders.join("\n  ")
+    );
+}
+
+#[test]
+fn the_table_name_interpolation_gate_fires_on_a_planted_violation() {
+    let planted = "fn q(table: &str) -> String {\n    format!(\"SELECT id FROM {table} WHERE id = ?1\")\n}\n";
+    assert_eq!(interpolated_table_name_lines(planted).len(), 1, "the matcher must catch FROM {{table}}");
+    for statement in ["INSERT INTO {table} (id)", "UPDATE {table} SET x = 1", "JOIN  {table} ON a = b"] {
+        let body = format!("fn q(table: &str) -> String {{ format!(\"{statement}\") }}\n");
+        assert_eq!(interpolated_table_name_lines(&body).len(), 1, "the matcher must catch {statement:?}");
+    }
+    // Shapes this crate uses legitimately must stay silent.
+    let silent = [
+        "fn q() -> String { format!(\"SELECT {COLUMNS} FROM tasks WHERE id = ?1\") }",
+        "fn q() -> String { format!(\"SELECT id FROM tasks WHERE {clause}\") }",
+        "fn q() -> String { format!(\"SELECT json FROM events -- {{braces}}\") }",
+        "// format!(\"FROM {table}\") in a comment",
+    ];
+    for body in silent {
+        assert!(interpolated_table_name_lines(body).is_empty(), "the matcher must stay silent on {body:?}");
+    }
 }

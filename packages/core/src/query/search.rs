@@ -131,16 +131,19 @@ pub fn search_items(
     Ok(BoardWindow { items, issues, counts })
 }
 
-/// The per-table `WHERE` every searched epics/tasks arm shares: project-scoped, then matched by
-/// either the case-insensitive key equality or the FTS5 phrase.
-const MATCH_WHERE: &str =
-    "(UPPER(key) = UPPER(:key_term) OR rowid IN (SELECT rowid FROM {table} WHERE {table} MATCH :fts_term))";
+/// The per-table `WHERE` each searched arm uses: matched by either the case-insensitive key
+/// equality or the FTS5 phrase. One fully static statement per table (FNC-02's convention: no SQL
+/// builds a table name in, so no statement is one caller-supplied string from injection).
+const EPICS_MATCH_WHERE: &str =
+    "(UPPER(key) = UPPER(:key_term) OR rowid IN (SELECT rowid FROM epics_fts WHERE epics_fts MATCH :fts_term))";
+const TASKS_MATCH_WHERE: &str =
+    "(UPPER(key) = UPPER(:key_term) OR rowid IN (SELECT rowid FROM tasks_fts WHERE tasks_fts MATCH :fts_term))";
 
 fn epics_from_clause() -> String {
     format_sql(&[
         "SELECT id, 'epic' AS kind, key, title, status, rank, priority, NULL AS epic_id,",
         " assignee_id FROM epics WHERE project_id = :project_id AND ",
-        &MATCH_WHERE.replace("{table}", "epics_fts"),
+        EPICS_MATCH_WHERE,
     ])
 }
 
@@ -148,7 +151,7 @@ fn tasks_from_clause() -> String {
     format_sql(&[
         "SELECT id, 'task' AS kind, key, title, status, rank, priority, epic_id,",
         " assignee_id FROM tasks WHERE project_id = :project_id AND ",
-        &MATCH_WHERE.replace("{table}", "tasks_fts"),
+        TASKS_MATCH_WHERE,
     ])
 }
 

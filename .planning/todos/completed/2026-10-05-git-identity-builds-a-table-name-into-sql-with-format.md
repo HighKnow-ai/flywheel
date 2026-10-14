@@ -27,3 +27,18 @@ grep gate, and removes the shape entirely rather than documenting an exception t
 
 If the grep gate does not currently cover this file, extend it so the convention is enforced
 across the whole crate rather than the part that happens to be scanned.
+
+## Resolution
+
+Resolved by plan 13-05 (Phase 13, FNC-02), 2026-10-14.
+
+- `git_identity.rs` no longer interpolates a table name into SQL. Its two surviving `format!` calls
+  (`--disambiguate={sha}` and the `--format=` argument) build git CLI arguments, not SQL. No code
+  change was needed in that file. Grep: `(FROM|INTO|UPDATE|JOIN)\s+\{` over `packages/core/src`
+  reports no non-comment line.
+- The convention is now a crate-wide gate, not a grep nobody runs:
+  `no_sql_statement_interpolates_a_table_name` in `packages/core/tests/proposal_no_promotion.rs`,
+  with `the_table_name_interpolation_gate_fires_on_a_planted_violation` proving the matcher fires.
+- The gate's first run found one real site elsewhere: `query/search.rs` built its two FTS5 table
+  names into a const template with `.replace("{table}", ...)`. Replaced with one static statement
+  per table.
