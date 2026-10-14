@@ -1611,7 +1611,17 @@ At Phase 11, with an installed, usable build:
 - id: D-REV-67
   phase: "11 — Ship It (plan 11-21, found while documenting the first-run workaround)"
   truth: "An installed client can reach the updater endpoint and find the newest release."
-  status: filed-to-board (2026-10-14, plan 11-21)
+  status: closed (2026-10-14, orchestrator — owner un-marked v0.1.1)
+  resolution_2026_10_14: |
+    RESOLVED the same day it was found. The owner chose to un-mark v0.1.1 as Pre-release while
+    leaving v0.1.0 Pre-release, which is the only fix that reaches ALREADY-INSTALLED clients:
+    the endpoint is compiled into every shipped binary, so editing tauri.conf.json would change
+    future builds only. Verified after the change: `curl -sIL` on
+    https://github.com/HighKnow-ai/flywheel/releases/latest/download/latest.json answers HTTP 200,
+    and the manifest it serves reads version 0.1.1 with platforms darwin-aarch64 and
+    darwin-aarch64-app and a non-empty signature. v0.1.0 remains Pre-release, so the signal that
+    first-run distribution is unsolved (D-REV-62, the "damaged" dialog) is unchanged.
+    Board task THRE-1136 is satisfied by this and can be closed on the board.
   prior_status: open — defect observed
   redeemed: "Found in this plan: `https://github.com/HighKnow-ai/flywheel/releases/latest/download/latest.json` answers 404 (`curl -sIL`, 2026-10-14) because GitHub's `latest` skips Pre-releases and both releases were marked Pre-release on 2026-10-14. While it holds, no installed client sees an update. NOT changed here: the Pre-release marking is the owner's choice. Board item THRE-1136 (priority 1). DIST-02 is unticked for this reason."
   board_items: "THRE-1136"
