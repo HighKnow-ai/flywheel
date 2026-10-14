@@ -22,7 +22,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { commands, page, userEvent } from "vitest/browser";
-import data from "../../../../../../.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json";
+import data from "../../../../../../.planning/milestones/v0.1.0-phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json";
 
 const T0 = Date.now() - 72_000; // the run started 72 seconds ago
 const at = (seconds: number) => new Date(T0 + seconds * 1000).toISOString();
@@ -59,7 +59,7 @@ const world = { events: FIXTURE_EVENTS as Record<string, unknown>[], requests: R
 vi.mock("../../../adapters/tauri", async (importOriginal) => {
   const real = await importOriginal<Record<string, unknown>>();
   const comp = (await import(
-    "../../../../../../.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json"
+    "../../../../../../.planning/milestones/v0.1.0-phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json"
   )).default as unknown as {
     criteria: { task_key: string; statement: string; verification_hint: string | null }[];
   };

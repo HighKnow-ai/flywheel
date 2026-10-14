@@ -1,13 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, globSync, readFileSync } from "node:fs";
 // The spec the allowlist mirrors, read as bytes. The test fails in both directions: code that spends the
 // brand where the spec is silent, and a use the allowlist names that the spec no longer does. Vite's `?raw`
 // refuses a path outside the package root, so the spec (a planning file) is read with node:fs instead.
 const HERE = decodeURIComponent(import.meta.url.replace(/^file:\/\//, ""));
+const REPO = HERE.slice(0, HERE.indexOf("/packages/desktop/"));
+const SPEC_DIR = "08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/08.1-UI-SPEC.md";
+// The spec lives under `.planning/phases/` while its milestone is open and moves to
+// `.planning/milestones/<version>-phases/` when `/gsd-new-milestone` archives it. Both are read, newest
+// first, so a milestone boundary cannot silently turn this guard off — a missing spec must FAIL the
+// test, never skip it. (It did go missing once, at the v0.1.0 archive.)
 const specSource = new TextDecoder().decode(
   readFileSync(
-    HERE.slice(0, HERE.indexOf("/packages/desktop/")) +
-      "/.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/08.1-UI-SPEC.md",
+    [
+      `${REPO}/.planning/phases/${SPEC_DIR}`,
+      ...globSync(`${REPO}/.planning/milestones/*-phases/${SPEC_DIR}`).sort().reverse(),
+    ].find(existsSync) ??
+      `${REPO}/.planning/phases/${SPEC_DIR}`,
   ),
 );
 

@@ -22,7 +22,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { commands, page, userEvent } from "vitest/browser";
-import data from "../../../../../../.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json";
+import data from "../../../../../../.planning/milestones/v0.1.0-phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json";
 
 // Read off a copy of the fleet database (never the live file): the real second registration is the SAME path.
 const REAL_REPO_PATH = "/Users/cymarechal/orca/workspaces/HighKnow-harness/threadfin";

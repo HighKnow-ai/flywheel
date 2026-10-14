@@ -28,7 +28,7 @@ import "../../../styles/tokens.css";
 import "../../../styles/type.css";
 import "../../../styles/motion.css";
 import "../../../App.css";
-import data from "../../../../../../.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json";
+import data from "../../../../../../.planning/milestones/v0.1.0-phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json";
 import { ItemDetailPanel } from "../../ItemDetailPanel";
 import { CommandPalette } from "../../../board/CommandPalette";
 import { resetUiState, useUiStore } from "../../../state/uiStore";

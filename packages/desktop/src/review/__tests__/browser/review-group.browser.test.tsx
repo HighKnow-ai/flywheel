@@ -18,13 +18,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { commands, page, userEvent } from "vitest/browser";
-import data from "../../../../../../.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json";
+import data from "../../../../../../.planning/milestones/v0.1.0-phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json";
 
 vi.mock("../../../adapters/tauri", async (importOriginal) => {
   const real = await importOriginal<Record<string, unknown>>();
   const fixture = await import("./review-fixture");
   const comp = (await import(
-    "../../../../../../.planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json"
+    "../../../../../../.planning/milestones/v0.1.0-phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/comp-data.json"
   )).default as unknown as {
     criteria: { id: string; task_key: string; statement: string; verification_hint: string | null; checked: number; rank: string }[];
     diffs: { real: { patch: string }[]; fixture: { path: string; patch: string } };
