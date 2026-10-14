@@ -148,6 +148,7 @@ fn credential_mode_as_str_and_parse_round_trip_for_both_modes() {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
+#[ignore = "hits the real macOS keychain; an unsigned test binary blocks ~60s on the access prompt. Run with: cargo test -- --ignored"]
 fn store_api_key_never_writes_the_secret_to_the_database() {
     skip_unless_keychain_accessible!();
     let _guard = KeychainRestoreGuard::capture();
@@ -166,6 +167,7 @@ fn store_api_key_never_writes_the_secret_to_the_database() {
 }
 
 #[test]
+#[ignore = "hits the real macOS keychain; an unsigned test binary blocks ~60s on the access prompt. Run with: cargo test -- --ignored"]
 fn has_api_key_reports_presence_without_returning_the_value() {
     skip_unless_keychain_accessible!();
     let _guard = KeychainRestoreGuard::capture();
@@ -180,6 +182,7 @@ fn has_api_key_reports_presence_without_returning_the_value() {
 }
 
 #[test]
+#[ignore = "hits the real macOS keychain; an unsigned test binary blocks ~60s on the access prompt. Run with: cargo test -- --ignored"]
 fn api_key_configured_at_is_read_from_a_database_setting_not_the_keychain() {
     skip_unless_keychain_accessible!();
     let _guard = KeychainRestoreGuard::capture();
@@ -206,6 +209,7 @@ fn api_key_configured_at_is_read_from_a_database_setting_not_the_keychain() {
 }
 
 #[test]
+#[ignore = "hits the real macOS keychain; an unsigned test binary blocks ~60s on the access prompt. Run with: cargo test -- --ignored"]
 fn clear_api_key_removes_the_keychain_entry_and_the_configured_at_date() {
     skip_unless_keychain_accessible!();
     let _guard = KeychainRestoreGuard::capture();
@@ -222,6 +226,7 @@ fn clear_api_key_removes_the_keychain_entry_and_the_configured_at_date() {
 }
 
 #[test]
+#[ignore = "hits the real macOS keychain; an unsigned test binary blocks ~60s on the access prompt. Run with: cargo test -- --ignored"]
 fn clear_api_key_on_an_already_absent_key_is_a_no_op_not_an_error() {
     skip_unless_keychain_accessible!();
     let _guard = KeychainRestoreGuard::capture();
@@ -349,6 +354,7 @@ fn resolve_credential_in_local_mode_returns_an_empty_environment() {
 }
 
 #[test]
+#[ignore = "hits the real macOS keychain; an unsigned test binary blocks ~60s on the access prompt. Run with: cargo test -- --ignored"]
 fn resolve_credential_falls_back_to_the_global_default_without_a_project_override() {
     // This test READS the real Keychain — `resolve_credential` in api_key mode does — so it needs
     // the same two protections every other Keychain-touching test in this file already takes, and
@@ -375,6 +381,7 @@ fn resolve_credential_falls_back_to_the_global_default_without_a_project_overrid
 }
 
 #[test]
+#[ignore = "hits the real macOS keychain; an unsigned test binary blocks ~60s on the access prompt. Run with: cargo test -- --ignored"]
 fn resolve_credential_in_api_key_mode_with_a_key_stored_returns_exactly_one_env_entry() {
     skip_unless_keychain_accessible!();
     let _guard = KeychainRestoreGuard::capture();
@@ -393,6 +400,7 @@ fn resolve_credential_in_api_key_mode_with_a_key_stored_returns_exactly_one_env_
 }
 
 #[test]
+#[ignore = "hits the real macOS keychain; an unsigned test binary blocks ~60s on the access prompt. Run with: cargo test -- --ignored"]
 fn resolve_credential_in_api_key_mode_with_no_key_stored_names_the_missing_key_rather_than_falling_back() {
     skip_unless_keychain_accessible!();
     let _guard = KeychainRestoreGuard::capture();
@@ -410,6 +418,7 @@ fn resolve_credential_in_api_key_mode_with_no_key_stored_names_the_missing_key_r
 }
 
 #[test]
+#[ignore = "hits the real macOS keychain; an unsigned test binary blocks ~60s on the access prompt. Run with: cargo test -- --ignored"]
 fn a_project_override_takes_precedence_over_the_global_default() {
     skip_unless_keychain_accessible!();
     let _guard = KeychainRestoreGuard::capture();
@@ -425,6 +434,7 @@ fn a_project_override_takes_precedence_over_the_global_default() {
 }
 
 #[test]
+#[ignore = "hits the real macOS keychain; an unsigned test binary blocks ~60s on the access prompt. Run with: cargo test -- --ignored"]
 fn changing_the_projects_mode_between_two_resolutions_yields_two_different_environments() {
     skip_unless_keychain_accessible!();
     let _guard = KeychainRestoreGuard::capture();
