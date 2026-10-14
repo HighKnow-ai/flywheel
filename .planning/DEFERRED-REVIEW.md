@@ -5,7 +5,7 @@ reviewed_at: 2026-10-14
 decision: "Owner, 2026-10-07: remove every user review until MVP completion; delay all of it to the end, when there is a usable product to review."
 redeem_at: "Redeemed 2026-10-14 in Phase 11 plan 11-21 (was: Phase 11 (Ship It) - one batch pass against a usable, installed build)."
 redeemed_by: "Phase 11 plan 11-21. Collation: .planning/phases/11-ship-it/11-OWNER-PASS.md. Survivors filed to the board by file_board_items (D-196, D-207)."
-items: 67
+items: 68
 dispositions: "closed-automated 17, closed-by-decision 9, accepted-by-design 2, owner-question 22 (unanswered), filed-to-board 16, closed 1 (D-REV-67, resolved after the redemption pass), open 1 (D-REV-68, filed after it); 17+9+2+22+16+1+1 = 68. Corrected 2026-10-14 by the orchestrator: the earlier line read 'filed-to-board 17' and totalled 67, counting D-REV-67 as filed when the body records it closed, and predating D-REV-68."
 ---
 
@@ -1665,7 +1665,7 @@ At Phase 11, with an installed, usable build:
     `cargo test` runs the tests WITHIN one binary on multiple threads by default. There is no
     `serial_test` dependency, no `#[serial]` attribute, no static mutex, and no `--test-threads=1`
     in any Cargo config. So two tests can set and remove the same process-global variable
-    concurrently, and the loser sees an unset or foreign worktree root. It passes locally (5 of 5
+    concurrently, and the loser sees an unset or foreign worktree root. It passes locally (11 of 11 across 8-thread and 1-thread runs; see below
     observed) and fails on the GitHub runner because the timing differs, which is exactly the
     signature of a race rather than a flake.
     Observed failing on `22c9dcc` three times in a row (CI push, Open core push, Open core on the

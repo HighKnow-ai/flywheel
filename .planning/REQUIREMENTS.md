@@ -317,13 +317,13 @@ Which phases cover which requirements. Populated during roadmap creation.
 | REVW-05 | Phase 8 | Complete |
 | DIST-01 | **Deferred to a later milestone** (owner decision 2026-10-14) | NOT met and not reclassified. Criterion 1 requires a Developer ID Application certificate and notarization, i.e. a paid Apple Developer Program membership; the owner declined on 2026-10-13 (D-REV-60). The shipped bundle is ad-hoc/linker-signed with no sealed resources, so macOS reports it "damaged and can't be opened" with no Open button - the right-click-Open workaround does not exist (D-REV-62). Mitigated, not solved: `v0.1.0` is Pre-release and the README documents `xattr -cr`. Plan 11-07 is `deferred` with 0 tasks executed and runs unchanged once an account exists. Evidence: `11-RELEASE-EVIDENCE.md` § 3, `11-OWNER-PASS.md` § 2.1, `11-VERIFICATION.md` |
 | DIST-02 | Phase 11 | Met — mechanism observed end to end (plan 11-21: banner named 0.1.1 on an installed 0.1.0, install-on-relaunch staged it, the relaunched build reported 0.1.1, and with live runs the banner refused). The endpoint briefly 404'd while both releases were Pre-release; resolved 2026-10-14 by un-marking v0.1.1, verified HTTP 200 serving a signed 0.1.1 manifest (D-REV-67). `latest.json` verified (`11-RELEASE-EVIDENCE.md` § 6); update observed by automation on a copy of the installed build (`11-OWNER-PASS.md` § 2.2), not by the owner |
-| DIST-03 | Phase 11 | Met on evidence — fresh HTTPS clone built after the README fix (`11-RELEASE-EVIDENCE.md` § 5); README commands match `ci.yml` command for command; merged to `main` as `9fa4543` (PR #3) carrying the corrected build command, the `xattr -cr` note and the `epic_context_packet` allowlist entry. CI on the final tree had NOT concluded at verification time, and the repeated `worktree_lifecycle` failure is a real race, not a flake (D-REV-68) |
-| DIST-04 | Phase 11 | Complete — `open-core.yml`, run 38346860235 |
+| DIST-03 | Phase 11 | **Met** — fresh HTTPS clone built after the README fix (`11-RELEASE-EVIDENCE.md` § 5); README commands match `ci.yml` `run:` lines in the same order; merged to `main` as `9fa4543` (PR #3) carrying the corrected build command, the `xattr -cr` note and the `epic_context_packet` allowlist entry. **CI has since concluded green on the default branch**: CI run 38523539751 and Open core run 38523539858 are both `success` at `9fa4543`, and `git diff 9fa4543 HEAD` is empty outside `.planning/`. The separate `worktree_lifecycle` race is a real defect tracked as D-REV-68; it did not block these runs |
+| DIST-04 | Phase 11 | Complete — `open-core.yml` run 38346860235, and again as run 38523539858 `success` on `main` at `9fa4543`: the job deletes `packages/relay-client`, strips its members line, then builds and tests. The only reference outside the crate is the `Cargo.toml:5` members line the job removes |
 
 **Coverage:**
 
 - v1 requirements: 93 total
-- Mapped to phases: 93 ✓
+- Mapped to phases: 92
 - Unmapped: 1 — **DIST-01**, deferred out of the v0.1.0 milestone on 2026-10-14 (owner declined the $99/yr Apple Developer account). It has no phase in the current roadmap and needs a named home in the next milestone; it is unticked and unmet, not dropped.
 - Duplicated across phases: 0
 
