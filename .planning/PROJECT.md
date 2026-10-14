@@ -32,6 +32,29 @@ acceptance criteria, prior session summaries and the diff so far. That asymmetry
 - **Success metric**: v1 — Cyril runs a full week of real work across his own projects from Flywheel without dropping back to a bare Claude Code terminal.
 - **Strategy notes**: Positioning and competitive landscape to be established by `.planning/research/` before requirements are frozen.
 
+## Current Milestone: v0.2.0 The Board Thinks With You
+
+**Goal:** Flywheel's interface becomes the place work is *shaped* with agents — PRDs, decisions,
+decomposition and review — instead of a form work is encoded into, and it looks like a tool worth
+returning to.
+
+**Target features:**
+- PRD as a first-class board record, drafted in a session where the agent challenges the user (SHAPE-01's Socratic arm raised to product level), signed off, carrying the acceptance bar, linked down to the epics that realise it
+- ADR as a first-class board record — proposed / accepted / superseded — linked to its PRD and the epics it constrains; an agent that hits a real fork mid-session proposes the decision rather than silently choosing
+- A phase (cycle) layer grouping epics, with progress and roadmap always on screen; the fixed epic→task→issue spine underneath is untouched so BOARD-01 still holds
+- Agent drafts, human accepts, everywhere: file-set declaration, acceptance criteria, task titles/bodies/decomposition, and status/priority/estimates all gain an agent-authored path. Design rule for the milestone: **no form a human fills that an agent could have drafted**
+- Agent-assisted review: the agent pre-reviews its own diff against the task's acceptance criteria and the user adjudicates, rather than reading the diff cold
+- A dark-first visual direction with high contrast and saturated accents, colour carrying real state signal (running, blocked, failed, merged), applied to the new IA once it exists
+- Carried unmet from v0.1.0: PLAN-01 (planner declares file-sets — the dependency that lets the hand-typed path form be deleted), AGNT-05 (live rate/session-limit observation), DIST-01 (signed, notarized macOS build — orphaned, mapped to no phase in any roadmap until now)
+
+**Why this milestone, in one line.** The encoding forms are not a design oversight — they are
+fallbacks for agentic paths that were coded but never proven live. The hand-typed file paths at
+`packages/desktop/src/dispatch/WavePlanSheet.tsx:201` exist precisely because PLAN-01 was never
+executed against a real planning run, and Phase 8's audit found every task with a worktree carries
+zero acceptance criteria because nobody uses a composer that is work. Phase 8.1 already spent 21
+plans on visual polish; what shipped is what the user is looking at. So information architecture
+leads and the visual round follows it, on the surfaces this milestone creates.
+
 ## Requirements
 
 ### Validated
@@ -184,6 +207,13 @@ acceptance criteria, prior session summaries and the diff so far. That asymmetry
   31–51s for a single walk in an unoptimised build). The whole workspace suite is green, but this one
   suite is most of its wall-clock and was twice misread in-phase as a hang. Bound the fixture.
 
+
+- [ ] **v0.2.0** PRD and ADR as first-class board records, authored with a challenging agent and linked to the epics they govern
+- [ ] **v0.2.0** A phase/cycle layer above epics, with roadmap and progress permanently visible
+- [ ] **v0.2.0** Every encoding form gains an agent-drafts/human-accepts path — file-sets, acceptance criteria, task decomposition, and status/priority/estimates
+- [ ] **v0.2.0** Agent-assisted review: the agent adjudicates its own diff against the task's criteria first
+- [ ] **v0.2.0** A dark-first, high-contrast visual direction where colour carries state, applied to the new IA
+
 ### Out of Scope
 
 - Scheduled automations ("every Monday, suggest what to work on") — deferred to a later milestone, but the generic trigger abstraction must make schedule-as-trigger-source a drop-in
@@ -281,4 +311,4 @@ This document evolves at phase transitions and milestone boundaries.
 > milestone review.
 
 ---
-*Last updated: 2026-10-12 after Phase 10*
+*Last updated: 2026-10-14 after starting milestone v0.2.0*
