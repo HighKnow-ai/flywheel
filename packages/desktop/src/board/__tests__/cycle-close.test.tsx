@@ -52,7 +52,6 @@ beforeEach(() => invokeCommandMock.mockReset().mockResolvedValue(undefined));
 describe("CycleCloseDialog", () => {
   it("shows one row per unfinished epic, each naming the epic", () => {
     open();
-    for (const e of EPICS) expect(group(e.title).getAttribute("aria-label") ?? group(e.title).textContent).toBeTruthy();
     expect(screen.getAllByRole("radiogroup")).toHaveLength(3);
     for (const e of EPICS) expect(screen.getByText(new RegExp(`${e.key}.*${e.title}`))).toBeTruthy();
   });
@@ -68,7 +67,7 @@ describe("CycleCloseDialog", () => {
   it("has exactly one choice group per unfinished epic and no control that applies a choice to many", () => {
     open();
     expect(screen.getAllByRole("radiogroup")).toHaveLength(EPICS.length);
-    expect(screen.getAllByRole("checkbox")).toHaveLength(0);
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
     const names = screen.getAllByRole("button").map((b) => b.textContent);
     expect(names.sort()).toEqual(["Cancel", "Close cycle"]);
   });

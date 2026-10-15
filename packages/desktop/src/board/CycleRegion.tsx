@@ -23,7 +23,8 @@
  * integer pair as-is (so there is no rounding rule to name), which can be read aloud and reproduced.
  * Carries `EpicHeaderRow`'s D-06 honesty rule up one level. No literal colour is declared.
  */
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
+import { CycleCloseDialog } from "./CycleCloseDialog";
 import { useCycleRegionQuery } from "./useCycleRegionQuery";
 
 const regionStyle: CSSProperties = {
@@ -59,6 +60,7 @@ const epicsLabel = (n: number) => (n === 0 ? "no epics yet" : plural(n, "epic", 
 
 export function CycleRegion({ projectId }: { projectId: string | undefined }) {
   const { data } = useCycleRegionQuery(projectId);
+  const [closing, setClosing] = useState(false);
   if (!data) return null;
 
   const cycle = data.active;
@@ -81,6 +83,14 @@ export function CycleRegion({ projectId }: { projectId: string | undefined }) {
               ? "No tasks in this cycle yet"
               : `${cycle.progress.tasksDone}/${cycle.progress.tasksTotal} tasks done`}
           </span>
+          {cycle.scopeDrift && (
+            <span className="type-body" data-cycle-scope-drift style={muted}>
+              {cycle.scopeDrift.sentence}
+            </span>
+          )}
+          <button type="button" className="type-body control-edge confirm-action" onClick={() => setClosing(true)}>
+            Close this cycle
+          </button>
         </div>
       ) : (
         <span className="type-body" style={{ color: "var(--text-muted-rack)" }}>
@@ -92,6 +102,11 @@ export function CycleRegion({ projectId }: { projectId: string | undefined }) {
           {data.later.map((line) => (
             <li key={line.id} className="type-body" data-cycle-line style={rowStyle}>
               <span style={{ flex: 1, minWidth: 0 }}>{line.goal}</span>
+              {line.scopeDrift && (
+                <span data-cycle-scope-drift style={muted}>
+                  {line.scopeDrift.sentence}
+                </span>
+              )}
               <span style={muted}>{epicsLabel(line.epicCount)}</span>
             </li>
           ))}
@@ -101,6 +116,17 @@ export function CycleRegion({ projectId }: { projectId: string | undefined }) {
         <p className="type-body" role="status" style={{ ...muted, margin: 0 }}>
           {`${plural(notShown, "more cycle", "more cycles")} ahead not shown (${data.total} open in all).`}
         </p>
+      )}
+      {closing && cycle && projectId && (
+        <CycleCloseDialog
+          projectId={projectId}
+          cycleId={cycle.id}
+          cycleGoal={cycle.goal}
+          epics={cycle.unfinishedEpics}
+          targets={data.later}
+          onDone={() => setClosing(false)}
+          onCancel={() => setClosing(false)}
+        />
       )}
     </section>
   );

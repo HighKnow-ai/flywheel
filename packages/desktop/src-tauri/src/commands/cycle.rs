@@ -37,8 +37,39 @@ impl From<flywheel_core::query::cycle_progress::CycleProgress> for CycleProgress
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UnfinishedEpicDto {
+    pub id: String,
+    pub key: String,
+    pub title: String,
+}
+
+/// The numbers and the one sentence built from them, so the renderer prints rather than re-words.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeDriftDto {
+    pub epics_added: u32,
+    pub epics_removed: u32,
+    pub sentence: String,
+}
+
+fn scope_drift_dto(conn: &rusqlite::Connection, cycle_id: &str) -> Result<Option<ScopeDriftDto>, String> {
+    use flywheel_core::query::cycle_scope::{cycle_scope_drift, cycle_scope_sentence};
+    let drift = cycle_scope_drift(conn, cycle_id).map_err(|e| ipc_error("cycle_region:scope_drift", e))?;
+    Ok(drift.map(|d| ScopeDriftDto {
+        epics_added: d.epics_added,
+        epics_removed: d.epics_removed,
+        sentence: cycle_scope_sentence(&d),
+    }))
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ActiveCycleDto {
     pub id: String,
+    /// The Cycle's unfinished epics, which closing it asks about one by one (RECD-10).
+    pub unfinished_epics: Vec<UnfinishedEpicDto>,
+    /// Scope change since the Cycle started, derived from the event log; absent when there is none.
+    pub scope_drift: Option<ScopeDriftDto>,
     pub key: String,
     pub goal: String,
     pub exit_criteria: Option<String>,
@@ -51,6 +82,7 @@ pub struct ActiveCycleDto {
 #[serde(rename_all = "camelCase")]
 pub struct CycleLineDto {
     pub id: String,
+    pub scope_drift: Option<ScopeDriftDto>,
     pub key: String,
     pub goal: String,
     pub epic_count: u32,
@@ -79,7 +111,15 @@ pub fn cycle_region(state: State<AppState>, project_id: String) -> Result<CycleR
         Some(cycle) => {
             let progress = flywheel_core::query::cycle_progress::cycle_progress(&conn, &cycle.id)
                 .map_err(|e| ipc_error("cycle_region:progress", e))?;
+            let unfinished_epics = flywheel_core::domain::cycle::unfinished_epics(&conn, &cycle.id)
+                .map_err(|e| ipc_error("cycle_region:unfinished", e))?
+                .into_iter()
+                .map(|e| UnfinishedEpicDto { id: e.id, key: e.key, title: e.title })
+                .collect();
+            let scope_drift = scope_drift_dto(&conn, &cycle.id)?;
             Some(ActiveCycleDto {
+                unfinished_epics,
+                scope_drift,
                 id: cycle.id,
                 key: cycle.key,
                 goal: cycle.goal,
@@ -95,13 +135,16 @@ pub fn cycle_region(state: State<AppState>, project_id: String) -> Result<CycleR
     let later = roster
         .ahead()
         .into_iter()
-        .map(|l| CycleLineDto {
-            id: l.cycle.id.clone(),
-            key: l.cycle.key.clone(),
-            goal: l.cycle.goal.clone(),
-            epic_count: l.epic_count,
+        .map(|l| {
+            Ok(CycleLineDto {
+                id: l.cycle.id.clone(),
+                scope_drift: scope_drift_dto(&conn, &l.cycle.id)?,
+                key: l.cycle.key.clone(),
+                goal: l.cycle.goal.clone(),
+                epic_count: l.epic_count,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, String>>()?;
     Ok(CycleRegionDto {
         active,
         later,
