@@ -53,11 +53,11 @@ Out-of-scope discoveries, logged and not fixed (executor scope boundary).
   authoring) still ignore the payload and invalidate their own project- or task-scoped key on every
   event, so a change in one project still wakes them. They are cheap, id-keyed reads and each now
   receives the typed payload, so narrowing any of them is a one-line change per hook. Not done here:
-  the plan scopes FNC-07 to the central subscription. status: open
+  the plan scopes FNC-07 to the central subscription. status: resolved by 13-15 (all 28 route through `useBoardChangedInvalidation`; a gate allows three callers)
 - **Account-wide dispatch queries do not refresh on a cross-project event.** `GATE_KEY` and `CAP_KEY`
   (`["board","dispatch","gate"|"cap"]`) are account-wide, and the cap carries a running-run count.
   They used to refresh through the bare `["board"]` prefix on every event; an event for another
   project now invalidates nothing (the criterion-5 requirement). The gate has its own
   `dispatch:gate_changed` event. The cap's running count can lag until the next same-project or
   broadcast event. Fix is a `subscribeBoardChanged` effect in `useDispatchCap`, which also means
-  adding the export to five dispatch test mocks. status: open
+  adding the export to five dispatch test mocks. status: resolved by 13-15 (`GATE_KEY` was left alone: it has its own `dispatch:gate_changed` event)

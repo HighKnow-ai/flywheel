@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 13
 current_phase_name: Nothing New Escapes The Fence
 status: executing
-stopped_at: Completed 13-13-PLAN.md
-last_updated: "2026-10-15T05:47:51.067Z"
+stopped_at: Completed 13-15-PLAN.md
+last_updated: "2026-10-15T05:57:58.005Z"
 last_activity: 2026-10-15
 last_activity_desc: Phase 13 execution started
-state_head: a9d70d466a995512fb79d0d03d7363287775e371
+state_head: 95e01d398a5874fa9b7a3fc303eeeaeb525503cd
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 18
-  completed_plans: 15
+  completed_plans: 16
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 13 (Nothing New Escapes The Fence) — EXECUTING
-Plan: 5 of 18
+Plan: 6 of 18
 Status: Ready to execute
 Last activity: 2026-10-15 — Phase 13 execution started
 
@@ -326,6 +326,7 @@ Last activity: 2026-10-15 — Phase 13 execution started
 | Phase 13 P14 | ~30min | 3 tasks | 6 files |
 | Phase 13 P16 | 20 min | 2 tasks | 5 files |
 | Phase 13 P13 | 25 min | 3 tasks | 5 files |
+| Phase 13 P15 | 8 min | 3 tasks | 28 files |
 
 ## Accumulated Context
 
@@ -752,6 +753,7 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-16: review-edge retry fires only when the found status is above the captured status and below the intended band (the plan's band-only guard is true for every refusal and would override a human's backward drag)
 - [Phase 13]: 13-16: task.done_with_unmet_criteria is appended only by derive_status_in_tx; TransitionOutcome.events_appended no longer counts it
 - [Phase 13]: 13-13: Gate 1 ownership is per table (CANONICAL_TABLE_OWNERS); allow-list entries exempt one exact normalised statement, not a file-wide prefix
+- [Phase 13]: 13-15: board:changed routing lives in one hook (useBoardChangedInvalidation) with project/viewed/account scopes; adoption gate allows three subscribeBoardChanged callers — One routing decision cannot drift across 28 sites; unroutable events fail open
 
 ### Pending Todos
 
@@ -815,6 +817,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T05:47:51.045Z
-Stopped at: Completed 13-13-PLAN.md
+Last session: 2026-10-15T05:57:57.983Z
+Stopped at: Completed 13-15-PLAN.md
 Resume file: None
