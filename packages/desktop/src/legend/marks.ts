@@ -541,9 +541,8 @@ export function priorityMarkId(priority: number): string {
 
 /**
  * The five status Marks, in the fixed declaration order above — the ONE place the renderer reads
- * a status option list from. `StatusPicker.tsx` builds its option list from this, never from a
- * second, hand-typed array of state names, so a sixth option cannot be added in the renderer
- * alone (BOARD-04).
+ * a status list from (the board's band headers and the legend). It is never re-typed as a second
+ array of state names, so a sixth state cannot be added in the renderer alone (BOARD-04).
  */
 export const STATUS_MARKS: Mark[] = MARKS.filter((mark) => mark.channel === "status");
 
@@ -557,7 +556,7 @@ export function statusValueFromMarkId(markId: string): string {
 /**
  * The five priority Marks, in `PRIORITY_MARK_IDS`' fixed declaration order (index === the
  * schema's `priority` value, 0-4) — `PriorityPicker.tsx` builds its option list from this, never
- * from a second, hand-typed array (mirrors `STATUS_MARKS`'s role for `StatusPicker.tsx`).
+ * from a second, hand-typed array (mirrors `STATUS_MARKS`'s role for the band headers).
  */
 export const PRIORITY_MARKS: Mark[] = PRIORITY_MARK_IDS.map((id) => MARKS_BY_ID[id]);
 

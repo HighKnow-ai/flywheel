@@ -66,28 +66,11 @@ function toggleValue<T>(list: T[], value: T): T[] {
 
 /** Which row-level picker is open, if any (moved from `board/BoardView.tsx` — this plan's Task 1
  * folds the whole layer stack into this module so one place can answer "what layer is on top,"
- * per `state/keyboard.ts`'s layer model). One piece of state covers all of them (status, priority,
+ * per `state/keyboard.ts`'s layer model). One piece of state covers all of them (priority,
  * assignee, epic, issue parent) rather than parallel fields — they share the same
- * open/anchor/close shape. */
-export type PickerKind = "status" | "priority" | "assignee" | "epic" | "issue-parent";
-
-/** The in-flight Done-transition warning (D-08): moving an item to Done with unchecked criteria
- * warns but never blocks. The pending change is held here rather than applied optimistically —
- * `DoneWarning`'s Escape "reverts the status change" by the mutation simply never having been
- * sent (01-UI-SPEC.md State Inventory). Moved from `board/BoardView.tsx`'s inline `useState`
- * generic for the same cross-tree reasoning `PickerKind` moved for: `state/keyboard.ts`'s layer
- * model needs to see it from outside `BoardView`'s own tree. */
-export interface PendingDone {
-  kind: BoardItemKind;
-  id: string;
-  status: string;
-  checked: number;
-  total: number;
-  /** The item's key, so the warning names the task it is about. */
-  key?: string;
-  /** The row's viewport rectangle when the request was raised, so the warning opens under it. */
-  anchorRect?: { top: number; left: number; bottom: number };
-}
+ * open/anchor/close shape. There is deliberately no `"status"` kind: a task's status is derived
+ * from git and forge state and read-only on the card (DRFT-04, D-19). */
+export type PickerKind = "priority" | "assignee" | "epic" | "issue-parent";
 
 /** What the fleet surface (Phase 10, D-163) is showing: the banded fleet list, or (plan 10-05) the
  * blocked queue. One field, one surface, two views; `null` means the fleet is closed. */
@@ -147,8 +130,6 @@ interface UiState {
    * opens it for a task, `⌘⇧N` for an epic; both funnel through `openQuickAdd` below so this pair
    * keeps a single writer. */
   quickAddKind: BoardItemKind;
-  /** The in-flight Done-transition warning, if any (D-08; moved from `BoardView`-local state). */
-  pendingDone: PendingDone | null;
   /**
    * A one-shot request that quick-add's own focus effect (`board/QuickAdd.tsx`) consumes
    * (G-01-4, 01-19-PLAN.md Task 1). This is what lets a row the virtualizer mounts *late* —
@@ -272,7 +253,6 @@ interface UiState {
    * `openQuickAdd` helper becomes a call to this so "which kind am I creating" keeps a single
    * writer even now that two fields are involved. */
   openQuickAdd: (kind: BoardItemKind) => void;
-  setPendingDone: (pending: PendingDone | null) => void;
   /** Clears `quickAddFocusPending`. Exactly one consumer calls this per raise — the component
    * that actually moved the cursor (`board/QuickAdd.tsx`'s focus effect) — so a request is
    * honoured once and never twice (G-01-4). */
@@ -330,7 +310,6 @@ export const useUiStore = create<UiState>((set, get) => ({
   groupingKey: "epic",
   setGroupingKey: (key) => set({ groupingKey: key }),
   quickAddKind: "task",
-  pendingDone: null,
   quickAddFocusPending: false,
   activeAgentRunId: null,
   activeAgentRunTaskId: null,
@@ -403,7 +382,6 @@ export const useUiStore = create<UiState>((set, get) => ({
   // preserves this function's existing single-writer property now that a third field is
   // involved (G-01-4, 01-19-PLAN.md Task 1).
   openQuickAdd: (kind) => set({ quickAddKind: kind, quickAddOpen: true, quickAddFocusPending: true }),
-  setPendingDone: (pending) => set({ pendingDone: pending }),
   clearQuickAddFocusPending: () => set({ quickAddFocusPending: false }),
   setActiveAgentRunId: (
     agentRunId,
@@ -462,7 +440,6 @@ export function resetUiState() {
     activePicker: null,
     quickAddOpen: false,
     quickAddKind: "task",
-    pendingDone: null,
     quickAddFocusPending: false,
     activeAgentRunId: null,
     activeAgentRunTaskId: null,

@@ -1,8 +1,8 @@
 /**
  * The expensive gate's capture step for surface group two (08.1 plan 15, D-24): the item detail
- * panel, the command palette and an open picker as the REAL components paint them in WebKit, in
+ * panel and the command palette as the REAL components paint them in WebKit, in
  * whichever colour scheme the config selected, into `.impeccable/review/` beside the approved comps,
- * named `detail-group-built-<scheme>-{panel,palette,picker}-1440x900`.
+ * named `detail-group-built-<scheme>-{panel,palette}-1440x900`. (The status picker capture left with the picker, DRFT-04 D-19.)
  *
  * The panel is the real task THRE-58 of the real board (its three criteria, its activity trail and its
  * worktree branch are the comp's own export, `comps/comp-data.json`). The real board has no agent runs
@@ -101,7 +101,7 @@ function Page() {
           id: TASK.id, kind: "task", key: TASK.key, title: TASK.title, status: TASK.status, projectId: TASK.project_id,
           priority: (TASK as unknown as { priority: number }).priority,
         }}
-        onClose={() => {}} onUpdateTitle={() => {}} onSetStatus={() => {}} onStartWork={() => {}} onReview={() => {}}
+        onClose={() => {}} onUpdateTitle={() => {}} onStartWork={() => {}} onReview={() => {}}
         trapped={false}
       />
       <CommandPalette />
@@ -179,9 +179,9 @@ describe(`item detail group, built, ${scheme} scheme`, () => {
     const props = panel.querySelector(".detail-props") as HTMLElement;
     expect(within(props).getByText("Priority").nextElementSibling?.textContent).toBe("No priority");
 
-    // Finding 3: a value is not a box, an action is. The status value has no edge; the lead action has the 2px ink edge.
-    const statusValue = within(panel).getByRole("button", { name: /in progress/i });
-    expect(getComputedStyle(statusValue).borderTopWidth, "the status value is unboxed").toBe("0px");
+    // Finding 3: a value is not a box, an action is. Status is derived, so it is a bare value with no control at all
+    // (DRFT-04, D-19); the lead action has the 2px ink edge.
+    expect(within(panel).queryByRole("button", { name: /in progress/i }), "status offers no control").toBeNull();
     const lead = within(panel).getByRole("button", { name: "Start Work" });
     expect(getComputedStyle(lead).borderTopWidth).toBe("2px");
     expect(toHex(getComputedStyle(lead).borderTopColor), "the lead's edge is the ink rule, not the brand").toBe(PALETTE.selectionRule);
@@ -224,29 +224,6 @@ describe(`item detail group, built, ${scheme} scheme`, () => {
     await settle();
     await page.screenshot({ path: `${OUT}/detail-group-built-${scheme}-panel-1440x900.png` });
     await writeHtml("detail-group-built");
-  });
-
-  it("a picker: the control boundary, the popover shadow, no scrim", async () => {
-    mount();
-    const panel = await screen.findByRole("dialog", { name: "THRE-58 detail" });
-    await userEvent.click(within(panel).getByRole("button", { name: /in progress/i }));
-    const menu = await screen.findByRole("menu", { name: "Set status" });
-    const style = getComputedStyle(menu);
-    expect(ratio(toHex(style.borderTopColor), PALETTE.surfaceDominant), "the picker's edge is the control boundary").toBeGreaterThanOrEqual(3);
-    expect(toHex(style.borderTopColor), "the popover's edge is the popover tier's").toBe(PALETTE.borderPopover);
-    expect(style.boxShadow, "the popover shadow resolves from the role").toContain(scheme === "dark" ? "rgba(0, 0, 0, 0.6)" : "rgba(31, 35, 40, 0.16)");
-    expect(document.querySelector('[role="dialog"][aria-label="Command palette"]'), "a popover dims nothing").toBeNull();
-    const chosen = within(menu).getByRole("menuitemradio", { checked: true });
-    expect(
-      chosen.getBoundingClientRect().left - menu.getBoundingClientRect().left,
-      "the chosen item's rule is inset from the popover's edge",
-    ).toBeGreaterThanOrEqual(6);
-    expect(toHex(getComputedStyle(chosen).borderLeftColor), "the chosen item carries the 2px ink rule").toBe(PALETTE.selectionRule);
-    expect(getComputedStyle(chosen).borderLeftWidth).toBe("2px");
-
-    await settle();
-    await page.screenshot({ path: `${OUT}/detail-group-built-${scheme}-picker-1440x900.png` });
-    await writeHtml("detail-group-picker");
   });
 
   it("the palette: the per-mode scrim and sheet shadow, a neutral highlighted command", async () => {

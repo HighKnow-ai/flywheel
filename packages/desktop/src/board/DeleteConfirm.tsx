@@ -8,7 +8,7 @@
  * caller — `BoardView.tsx` never issued a delete before this plan wired `⌘⌫`).
  *
  * Trapped via the same Radix primitives every other overlay in this codebase uses
- * (`pickers/StatusPicker.tsx`'s pattern) — `component_strategy: a-selfhost-radix`. Escape defaults
+ * (`pickers/PriorityPicker.tsx`'s pattern) — `component_strategy: a-selfhost-radix`. Escape defaults
  * to cancel (T-01-25's explicit requirement); the destructive "Delete" button is never
  * `autoFocus`ed, so a stray Enter press while the dialog is opening lands on Cancel, not Delete.
  * Cancel carries `autoFocus` itself as well as the scope's mount handler, because a reviewer found

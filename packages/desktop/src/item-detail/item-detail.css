@@ -63,27 +63,6 @@
   min-width: 0;
 }
 
-/*
- * A value that can be changed: its value and a caret, with no box. A box is what an ACTION wears
- * (`control-edge`), so the two are told apart by the edge alone, with no fill and no brand spent on either
- * (owner, 2026-10-08: no fills; 08.1-15 closure, finding 3).
- */
-.detail-value-control {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  background: transparent;
-  border: none;
-  padding: 0;
-  color: inherit;
-  cursor: pointer;
-}
-
-.detail-value-control:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
 /* The panel's own actions share one row; a kind with none (an issue) leaves no gap behind. */
 .detail-actions {
   display: flex;

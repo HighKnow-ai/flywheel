@@ -58,7 +58,7 @@ vi.mock("../../adapters/tauri", () => ({
 function renderPanel(item: DetailItem) {
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <ItemDetailPanel item={item} onClose={() => {}} onUpdateTitle={() => {}} onSetStatus={() => {}} />
+      <ItemDetailPanel item={item} onClose={() => {}} onUpdateTitle={() => {}} />
     </QueryClientProvider>,
   );
 }
@@ -101,14 +101,14 @@ const ruleText = (selector: string) => {
 };
 
 describe("an action is told apart from a value (08.1-15 closure, finding 3)", () => {
-  it("the status control is a value and a caret: no control edge, no box", () => {
+  it("status is a read-only value: no control of any kind, and no caret (DRFT-04, D-19)", () => {
     renderPanel(TASK);
-    const status = screen.getByRole("button", { name: /in progress/i });
-    expect(status.className).toContain("detail-value-control");
-    expect(status.className, "a value must not wear an action's edge").not.toContain("control-edge");
-    expect(status.querySelector("svg"), "the caret").not.toBeNull();
-    expect(ruleText(".detail-value-control")).toMatch(/border:\s*none/);
-    expect(ruleText(".detail-value-control")).toMatch(/background:\s*transparent/);
+    expect(screen.queryByRole("button", { name: /in progress/i })).toBeNull();
+    expect(screen.queryByRole("menu")).toBeNull();
+    const value = screen.getByText("In Progress");
+    expect(value.tagName).toBe("DD");
+    expect(value.querySelector("svg"), "no caret").toBeNull();
+    expect(detailCss, "the value-control rule is gone with the control").not.toContain("detail-value-control");
   });
 
   it("a task leads with Start Work and an epic with Continue Shaping; Review is never the lead", () => {

@@ -1,17 +1,19 @@
 /**
  * Behavior under test (01-04-PLAN.md Task 3 — the fixed hierarchy and the fixed workflow,
- * component bullet): the five band headers render in the fixed order, and the status picker
- * offers exactly five options — both sourced from the one fixed workflow state list
- * (`legend/marks.ts`'s `STATUS_MARKS`, itself asserted elsewhere to match
- * `core::domain::WORKFLOW_STATES`), never a second hand-typed list in either component.
+ * component bullet): the five band headers render in the fixed order, sourced from the one fixed
+ * workflow state list (`legend/marks.ts`'s `STATUS_MARKS`, itself asserted elsewhere to match
+ * `core::domain::WORKFLOW_STATES`), never a second hand-typed list.
+ *
+ * Phase 13 plan 07 (DRFT-04, D-19): status is derived from git and forge state, so it is read-only
+ * on the card. The picker that used to offer the five options is deleted; the cases below assert
+ * its absence and that the value is still shown.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
 import { showStatusBands } from "./lens";
-import { StatusPicker } from "../pickers/StatusPicker";
-import { STATUS_MARKS } from "../../legend/marks";
+import { BoardRow } from "../BoardRow";
 import type { BandCounts, BoardItem } from "../useBoardQuery";
 
 // Plan 02-06 Task 3 gave `BoardView` its own `subscribeBoardChanged` subscriber
@@ -42,7 +44,9 @@ const EMPTY_COUNTS: BandCounts = {
   done: 0,
 };
 
-const ANCHOR_RECT = { top: 0, left: 0, bottom: 0 };
+function makeItem(status: string): BoardItem {
+  return { id: "task-1", key: "FLY-1", title: "A task", status, rank: "10", priority: 0, epicId: null, kind: "task" };
+}
 
 function renderBoard(items: BoardItem[], counts: BandCounts) {
   const queryClient = new QueryClient();
@@ -64,42 +68,33 @@ describe("workflow — the fixed five states are structurally fixed in the rende
     expect(labels).toHaveLength(5);
   });
 
-  it("StatusPicker offers exactly five options, one per WORKFLOW_STATES entry", () => {
-    render(
-      <StatusPicker
-        currentStatus="backlog"
-        onSelect={() => {}}
-        onClose={() => {}}
-        anchorRect={ANCHOR_RECT}
-      />,
-    );
+  it("status is a read-only value on the card: stated in the row's name, offering no control", () => {
+    const { container } = render(<BoardRow item={makeItem("in_progress")} />);
 
-    const options = screen.getAllByRole("menuitemradio");
-    expect(options).toHaveLength(5);
-    expect(options).toHaveLength(STATUS_MARKS.length);
-
-    const labels = options.map((el) => el.textContent?.replace(/^\d/, ""));
-    expect(labels).toEqual([
-      "Backlog",
-      "Todo",
-      "In Progress",
-      "In Review",
-      "Done",
-    ]);
+    expect(screen.getByRole("listitem")).toHaveAccessibleName(/, In Progress,/);
+    expect(screen.queryByRole("button", { name: /^Status:/ })).toBeNull();
+    // The glyph is the first child of the row, hidden from assistive tech and inert under a click.
+    const glyph = container.querySelector(".board-row > span") as HTMLElement;
+    expect(glyph).toHaveAttribute("aria-hidden", "true");
+    fireEvent.click(glyph);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.queryByRole("menuitemradio")).toBeNull();
   });
 
-  it("StatusPicker marks the currently-selected status as checked, and no other option", () => {
-    render(
-      <StatusPicker
-        currentStatus="in_progress"
-        onSelect={() => {}}
-        onClose={() => {}}
-        anchorRect={ANCHOR_RECT}
-      />,
-    );
+  it("the `s` key no longer opens anything: the board has no status-setting binding", async () => {
+    const { resolveBinding } = await import("../../state/keyboard");
+    const event = new KeyboardEvent("keydown", { key: "s" });
+    expect(resolveBinding(event, "board-list")).toBeFalsy();
+  });
 
-    const checked = screen.getAllByRole("menuitemradio", { checked: true } as never);
-    expect(checked).toHaveLength(1);
-    expect(checked[0]).toHaveTextContent("In Progress");
+  it("the deleted picker is gone from the component tree and nothing imports it", async () => {
+    const boardView = (await import("../BoardView.tsx?raw")).default;
+    const boardRow = (await import("../BoardRow.tsx?raw")).default;
+    const palette = (await import("../CommandPalette.tsx?raw")).default;
+    const detail = (await import("../../item-detail/ItemDetailPanel.tsx?raw")).default;
+    for (const source of [boardView, boardRow, palette, detail]) {
+      expect(source).not.toMatch(/pickers\/Status/);
+      expect(source).not.toMatch(/useSetStatus|task_set_status|epic_set_status/);
+    }
   });
 });

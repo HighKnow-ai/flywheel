@@ -8,7 +8,7 @@
  * one pushed-delta cycle (E3's `partial` consideration) — this component itself is presentational:
  * it renders whatever pending set its caller passes and reports back through `onAnswer`.
  *
- * Reusing one component across two mount points is the pattern `ParentPicker`/`StatusPicker`
+ * Reusing one component across two mount points is the pattern `ParentPicker`/`PriorityPicker`
  * already established in this codebase (02-UI-SPEC.md's own citation) — do not build a second
  * card.
  *

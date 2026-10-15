@@ -1,14 +1,13 @@
 /**
  * Behavior under test (01-06-PLAN.md Task 3, component bullet): with zero criteria the list
  * renders its empty form (the inline composer opens on its own, mirroring the board's own
- * zero-item empty state) and the Done warning does not render; with two of three criteria
- * checked, the badge reads `2/3`.
+ * zero-item empty state); with two of three criteria checked, the badge reads `2/3`. (The Done
+ * warning left with the status picker that was its only entry point, DRFT-04 D-19.)
  */
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AcceptanceCriteriaList, type CriterionDto } from "../AcceptanceCriteriaList";
-import { DoneWarning } from "../../board/DoneWarning";
 
 const invokeCommandMock = vi.fn();
 
@@ -231,48 +230,5 @@ describe("Editing a criterion (D-76/D-77, plan 04-10)", () => {
     expect(screen.queryByLabelText("Edit criterion statement")).not.toBeInTheDocument();
     expect(invokeCommandMock).not.toHaveBeenCalledWith("criterion_revise", expect.anything());
     expect(screen.getByText("Handles empty input")).toBeInTheDocument();
-  });
-});
-
-describe("DoneWarning — never fires when there is nothing to warn about", () => {
-  it("renders nothing when the criteria total is zero", () => {
-    const { container } = render(
-      <DoneWarning checked={0} total={0} onConfirm={() => {}} onCancel={() => {}} />,
-    );
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("renders nothing when every criterion is already checked", () => {
-    const { container } = render(
-      <DoneWarning checked={3} total={3} onConfirm={() => {}} onCancel={() => {}} />,
-    );
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("renders the exact copy and confirms on Enter when criteria are unchecked", () => {
-    const onConfirm = vi.fn();
-    const onCancel = vi.fn();
-
-    render(<DoneWarning checked={2} total={3} onConfirm={onConfirm} onCancel={onCancel} />);
-
-    const dialog = screen.getByRole("alertdialog");
-    // Two of three are checked, so ONE is unchecked, and the copy says so in words (the old "2/3" read as two).
-    expect(screen.getByText("1 of 3 criteria unchecked. Mark Done anyway?")).toBeInTheDocument();
-
-    fireEvent.keyDown(dialog, { key: "Enter" });
-    expect(onConfirm).toHaveBeenCalledTimes(1);
-    expect(onCancel).not.toHaveBeenCalled();
-  });
-
-  it("cancels on Escape without confirming", () => {
-    const onConfirm = vi.fn();
-    const onCancel = vi.fn();
-
-    render(<DoneWarning checked={0} total={2} onConfirm={onConfirm} onCancel={onCancel} />);
-
-    const dialog = screen.getByRole("alertdialog");
-    fireEvent.keyDown(dialog, { key: "Escape" });
-    expect(onCancel).toHaveBeenCalledTimes(1);
-    expect(onConfirm).not.toHaveBeenCalled();
   });
 });

@@ -204,7 +204,7 @@ describe("menu-bridge (G-01-1)", () => {
     it("open-palette is refused, matching bindingAllowedInLayer under a picker", async () => {
       await renderApp();
       act(() => {
-        useUiStore.getState().setActivePicker({ kind: "status", id: "1" });
+        useUiStore.getState().setActivePicker({ kind: "priority", id: "1" });
       });
 
       emitMenuAction("open-palette");
@@ -388,7 +388,7 @@ describe("useMenuLayerSync (G-01-1, Task 3)", () => {
     invokeCommandMock.mockClear();
 
     act(() => {
-      useUiStore.getState().setActivePicker({ kind: "status", id: "1" });
+      useUiStore.getState().setActivePicker({ kind: "priority", id: "1" });
     });
     await waitFor(() => expect(menuSyncCalls().length).toBeGreaterThan(0));
 

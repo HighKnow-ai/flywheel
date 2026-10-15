@@ -20,7 +20,7 @@
  * `nextEscapeLayer`) is coordinated from the `useEffect` below, since it must be able to see
  * `state/uiStore.ts`'s `paletteOpen` even though `CommandPalette.tsx` mounts outside this tree.
  *
- * The whole layer stack — `activePicker`, `quickAddOpen`, `quickAddKind`, `pendingDone`, plus
+ * The whole layer stack — `activePicker`, `quickAddOpen`, `quickAddKind`, plus
  * `paletteOpen`/`detailItemId`/`deleteTarget` above — lives in `state/uiStore.ts`, not local
  * `useState`, so `state/keyboard.ts`'s layer model (`bindingAllowedInLayer`/`topLayer`) can see
  * the whole stack from outside this tree too (01-13-PLAN.md, G-01-FOCUS). This container's own
@@ -44,9 +44,7 @@ import { IssuesLane } from "./IssuesLane";
 import { TriageLane } from "./TriageLane";
 import { useProjectProposals } from "../authoring/useAuthoringQuery";
 import { QuickAdd } from "./QuickAdd";
-import { DoneWarning } from "./DoneWarning";
 import { DeleteConfirm } from "./DeleteConfirm";
-import { StatusPicker } from "./pickers/StatusPicker";
 import { PriorityPicker } from "./pickers/PriorityPicker";
 import { AssigneePicker } from "./pickers/AssigneePicker";
 import { ParentPicker, type ParentOption } from "./pickers/ParentPicker";
@@ -87,7 +85,6 @@ import {
   useSetAssignee,
   useSetIssueParent,
   useSetPriority,
-  useSetStatus,
   useSetTaskEpic,
   useUpdateItem,
 } from "./useBoardQuery";
@@ -353,11 +350,6 @@ export function BoardView({
   // (G-01-EPIC-ASSIGN, plan 01-15). Genuinely local — not layer state — so it stays as a plain
   // `useState`, not a `uiStore` field.
   const [quickAddIndented, setQuickAddIndented] = useState(false);
-  // D-08: moving an item to Done with unchecked criteria warns but never blocks. The pending
-  // change is held here rather than applied optimistically — `DoneWarning`'s Escape "reverts the
-  // status change" by the mutation simply never having been sent (01-UI-SPEC.md State Inventory).
-  const pendingDone = useUiStore((state) => state.pendingDone);
-  const setPendingDone = useUiStore((state) => state.setPendingDone);
   // The launch sheet (D-27, plan 02-04) is mounted once at the App.tsx level, a peer of
   // CommandPalette — this board only ever opens it by name (the task id), never imports the
   // sheet component itself, exactly as `detailItemId`/`activePicker` are opened by id above.
@@ -378,7 +370,6 @@ export function BoardView({
   const expandBand = useCollapseStore((state) => state.expand);
   const collapseBand = useCollapseStore((state) => state.collapse);
 
-  const setStatus = useSetStatus(projectId);
   const setPriority = useSetPriority(projectId);
   const setAssignee = useSetAssignee(projectId);
   const setTaskEpic = useSetTaskEpic(projectId);
@@ -837,43 +828,15 @@ export function BoardView({
     }
   }, [effectiveQuickAddOpen, collapsedByStatus, projectId, expandBand]);
 
-  /**
-   * The single point every status change funnels through, whether it originated from the
-   * row-level picker (`s`) or from the detail panel's own picker (D-08). Moving to Done with
-   * unchecked criteria (total > 0, checked < total) does not call the mutation immediately —
-   * it raises `DoneWarning` and waits for one keypress. Every other transition commits at once.
-   */
-  function requestStatusChange(kind: BoardItemKind, id: string, status: string) {
-    const item = selectableItems.find((r) => r.item.id === id)?.item;
-    const checked = item?.criteriaChecked ?? 0;
-    const total = item?.criteriaTotal ?? 0;
-    if (status === "done" && total > 0 && checked < total) {
-      // Anchored to the row it concerns, when that row is on screen (the same rect the pickers anchor to).
-      const rect = rowElRefs.current.get(id)?.getBoundingClientRect();
-      setPendingDone({
-        kind,
-        id,
-        status,
-        checked,
-        total,
-        key: item?.key,
-        anchorRect: rect ? { top: rect.top, left: rect.left, bottom: rect.bottom } : undefined,
-      });
-      return;
-    }
-    setStatus.mutate({ kind, id, status });
-  }
-
   /** A selection target built from the roster knows no status or priority to edit from the rack. */
   function isRosterEpic(id: string) {
     return selectableItems.some((r) => r.kind === "epic-header" && r.item.id === id);
   }
 
-  /** Opens any of the four row-level pickers (status/priority/assignee) for `id`,
-   * anchored to that row's real screen coordinates (`StatusPicker.tsx`'s doc comment explains
-   * why a portal positioned from `getBoundingClientRect()` is required rather than CSS
-   * `position: absolute` inside the row). Opening issues no command — only a selection made
-   * inside the picker does. */
+  /** Opens any of the row-level pickers (priority/assignee/epic) for `id`, anchored to that row's
+   * real screen coordinates (`PriorityPicker.tsx`'s doc comment explains why a portal positioned
+   * from `getBoundingClientRect()` is required rather than CSS `position: absolute` inside the
+   * row). Opening issues no command — only a selection made inside the picker does. */
   function openPickerFor(kind: PickerKind, id: string) {
     if (isRosterEpic(id)) return;
     const el = rowElRefs.current.get(id);
@@ -942,7 +905,7 @@ export function BoardView({
     const layer = topLayer({
       paletteOpen,
       detailOpen: detailItemId !== null,
-      pickerOpen: activePicker !== null || deleteTarget !== null || pendingDone !== null,
+      pickerOpen: activePicker !== null || deleteTarget !== null,
       quickAddOpen,
     });
     if (!bindingAllowedInLayer(binding.id, layer)) return;
@@ -975,9 +938,6 @@ export function BoardView({
         break;
       case "create-task":
         openQuickAdd("task");
-        break;
-      case "open-status-picker":
-        if (selectedId) openPickerFor("status", selectedId);
         break;
       case "open-priority-picker":
         if (selectedId) openPickerFor("priority", selectedId);
@@ -1092,11 +1052,10 @@ export function BoardView({
         paletteOpen: state.paletteOpen,
         detailOpen: state.detailItemId !== null,
         quickAddOpen: state.quickAddOpen,
-        // A row-level picker, `DeleteConfirm`, and `DoneWarning` all already own their own
-        // Escape (Radix `DismissableLayer`, or — for `DoneWarning` — its own self-focused
-        // Enter/Escape handling) — the ladder steps aside for any of them, exactly as it does
-        // for a picker (see `nextEscapeLayer`'s doc comment).
-        pickerOpen: state.activePicker !== null || state.deleteTarget !== null || state.pendingDone !== null,
+        // A row-level picker and `DeleteConfirm` both already own their own Escape (Radix
+        // `DismissableLayer`) — the ladder steps aside for either of them (see `nextEscapeLayer`'s
+        // doc comment).
+        pickerOpen: state.activePicker !== null || state.deleteTarget !== null,
         hasSelection: state.selectedItemId !== null,
       });
       if (!layer) return;
@@ -1354,10 +1313,6 @@ export function BoardView({
                     setSelectedId(row.item.id);
                     setDetailItemId(row.item.id);
                   }}
-                  onOpenStatusPicker={() => {
-                    setSelectedId(row.item.id);
-                    openPickerFor("status", row.item.id);
-                  }}
                   onOpenPriorityPicker={() => {
                     setSelectedId(row.item.id);
                     openPickerFor("priority", row.item.id);
@@ -1407,7 +1362,7 @@ export function BoardView({
             const layer = topLayer({
               paletteOpen,
               detailOpen: detailItemId !== null,
-              pickerOpen: activePicker !== null || deleteTarget !== null || pendingDone !== null,
+              pickerOpen: activePicker !== null || deleteTarget !== null,
               quickAddOpen,
             });
             if (layer !== "board" && layer !== "quick-add") return;
@@ -1533,18 +1488,6 @@ export function BoardView({
           const kind = pickedRow.kind ?? "task";
 
           switch (activePicker.kind) {
-            case "status":
-              return (
-                <StatusPicker
-                  currentStatus={pickedRow.status}
-                  anchorRect={pickerAnchor}
-                  onSelect={(status) => {
-                    requestStatusChange(kind, pickedRow.id, status);
-                    closePicker();
-                  }}
-                  onClose={closePicker}
-                />
-              );
             case "priority":
               return (
                 <PriorityPicker
@@ -1617,7 +1560,6 @@ export function BoardView({
           onUpdateTitle={(title) =>
             updateItem.mutate({ kind: selectedItem.kind ?? "task", id: selectedItem.id, title })
           }
-          onSetStatus={(status) => requestStatusChange(selectedItem.kind ?? "task", selectedItem.id, status)}
           onStartWork={() => setLaunchSheetTaskId(selectedItem.id)}
           onReview={() =>
             setReviewSurface({
@@ -1632,20 +1574,6 @@ export function BoardView({
           // release the trap while the palette owns focus so the panel stays open instead of
           // fighting Radix's `FocusScope` for it (01-13-PLAN.md, G-01-FOCUS instance 5).
           trapped={!paletteOpen}
-        />
-      )}
-
-      {pendingDone && (
-        <DoneWarning
-          checked={pendingDone.checked}
-          total={pendingDone.total}
-          itemKey={pendingDone.key}
-          anchorRect={pendingDone.anchorRect}
-          onConfirm={() => {
-            setStatus.mutate({ kind: pendingDone.kind, id: pendingDone.id, status: pendingDone.status });
-            setPendingDone(null);
-          }}
-          onCancel={() => setPendingDone(null)}
         />
       )}
 

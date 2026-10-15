@@ -63,7 +63,6 @@ export type ActionId =
   | "open-detail"
   | "expand-row"
   | "collapse-row"
-  | "open-status-picker"
   | "open-priority-picker"
   | "open-assignee-picker"
   | "open-epic-picker"
@@ -189,7 +188,6 @@ export const BINDINGS: Binding[] = [
   { id: "expand-row", region: "board-list", key: "ArrowRight", label: "Expand epic" },
   { id: "collapse-row", region: "board-list", key: "ArrowLeft", label: "Collapse epic" },
   { id: "create-task", region: "board-list", key: "c", label: "Create Task" },
-  { id: "open-status-picker", region: "board-list", key: "s", label: "Set Status" },
   { id: "open-priority-picker", region: "board-list", key: "p", label: "Set Priority" },
   { id: "open-assignee-picker", region: "board-list", key: "a", label: "Set Assignee" },
   // The epic picker is bound to `m` for "move under" (the action, not the noun), a free mnemonic
@@ -465,9 +463,9 @@ export const MENU_ACTION_IDS: readonly ActionId[] = [
 
 /** The layers a keystroke can be "under" — `"picker"` covers every surface that either traps
  * focus or arms a one-keypress decision that isn't itself a Radix focus trap: a row-level picker,
- * the delete confirmation, and the Done warning (`DoneWarning.tsx` self-focuses and owns its own
- * Enter/Escape; a global shortcut moving focus away would silently disarm it — the same reasoning
- * that already exempts a real picker from the Escape ladder below).
+ * and the delete confirmation (each owns its own Escape, and a global shortcut moving focus away
+ * would silently disarm it — the same reasoning that already exempts a real picker from the Escape
+ * ladder below).
  *
  * `"session-surface"`/`"permission-card"` are this plan's additions (02-UI-SPEC.md D-31/AGNT-06):
  * the live session surface and the permission-request card each get their own layer so
@@ -514,7 +512,7 @@ export function topLayer(state: LayerState): UiLayer {
 /** Whether `id` may fire while `layer` is on top. Exactly two rules. Rule one: `open-palette` is
  * the discoverability guarantee BOARD-07 rests on, so a trapped detail panel must never be able
  * to strand the user without it — allowed in every layer except `"picker"` (a real
- * picker/`DeleteConfirm`/`DoneWarning` already owns a single keypress of its own) and
+ * picker/`DeleteConfirm` already owns a single keypress of its own) and
  * `"palette"` itself. Rule two: every OTHER action id — global or board-list — is allowed only in
  * `"board"` and `"quick-add"`, the two layers that own no focus trap. Quick-add is permissive
  * here because it is an inline input inside the list, not a trapped scope — a bare letter typed
@@ -612,7 +610,7 @@ export function bindingAllowedInLayer(id: ActionId, layer: UiLayer): boolean {
   return layer === "board" || layer === "quick-add";
 }
 
-/** The six raw store fields the layer stack is built from — `layerStateFromStoreFields` below is
+/** The five raw store fields the layer stack is built from — `layerStateFromStoreFields` below is
  * the one place this shape is mapped into a `LayerState`, shared by `currentLayerState` (a
  * one-shot `getState()` read, no subscription) and `useTopLayer` (a live-subscribing hook,
  * 01-16-PLAN.md Task 3) so the field list exists exactly once. */
@@ -621,18 +619,16 @@ interface RawLayerFields {
   detailItemId: string | null;
   activePicker: unknown;
   deleteTarget: unknown;
-  pendingDone: unknown;
   quickAddOpen: boolean;
 }
 
 /** Maps the store's raw fields to a `LayerState`. `pickerOpen` is true while ANY of the row-level
- * pickers, the delete confirmation, or the Done warning is open (see `UiLayer`'s doc comment on
- * `"picker"`). */
+ * pickers or the delete confirmation is open (see `UiLayer`'s doc comment on `"picker"`). */
 function layerStateFromStoreFields(fields: RawLayerFields): LayerState {
   return {
     paletteOpen: fields.paletteOpen,
     detailOpen: fields.detailItemId !== null,
-    pickerOpen: fields.activePicker !== null || fields.deleteTarget !== null || fields.pendingDone !== null,
+    pickerOpen: fields.activePicker !== null || fields.deleteTarget !== null,
     quickAddOpen: fields.quickAddOpen,
   };
 }
@@ -647,7 +643,7 @@ function currentLayerState(): LayerState {
 
 /** Live-subscribing counterpart of `currentLayerState` — `state/menuSync.ts`'s
  * `useMenuLayerSync` (01-16-PLAN.md Task 3) reads this to drive the native menu bar's enable/
- * disable state. Subscribes to the same six store fields and returns `topLayer(...)` of them as
+ * disable state. Subscribes to the same five store fields and returns `topLayer(...)` of them as
  * a single `UiLayer` string: returning a primitive keeps the selector's result referentially
  * stable across renders that do not change the top layer, so it does not re-fire consumers on
  * every unrelated store write (e.g. a filter or search-term change). */
@@ -659,7 +655,6 @@ export function useTopLayer(): UiLayer {
         detailItemId: state.detailItemId,
         activePicker: state.activePicker,
         deleteTarget: state.deleteTarget,
-        pendingDone: state.pendingDone,
         quickAddOpen: state.quickAddOpen,
       }),
     ),

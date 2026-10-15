@@ -2,7 +2,7 @@
  * The expensive gate's capture step for surface group six (08.1 plan 19, D-24): the first-run state, the
  * unreachable project, the delete confirmation and the orphan recovery modal, as the REAL components paint them
  * in WebKit at 1440x900 in whichever colour scheme the config selected. Written into `.impeccable/review/` as
- * `states-group-built-<scheme>-{first-run,first-run-confirm,unreachable,delete-confirm,done-warning,recovery}-1440x900`.
+ * `states-group-built-<scheme>-{first-run,first-run-confirm,unreachable,delete-confirm,recovery}-1440x900`.
  *
  * No comp exists for this group, so these are reviewed against 08.1-UI-SPEC.md's contract, not an image.
  *
@@ -77,7 +77,6 @@ import "../../../styles/motion.css";
 import "../../../App.css";
 import { FirstRun } from "../../FirstRun";
 import { DeleteConfirm } from "../../DeleteConfirm";
-import { DoneWarning } from "../../DoneWarning";
 import { BoardRow } from "../../BoardRow";
 import { EpicHeaderRow } from "../../EpicHeaderRow";
 import { ProjectRail } from "../../../projects/ProjectRail";
@@ -420,44 +419,6 @@ describe(`states and confirms group, built, ${scheme} scheme${reduced ? ", reduc
     // Escape still cancels.
     await userEvent.keyboard("{Escape}");
     expect(onCancel).toHaveBeenCalled();
-  });
-
-  it("done warning over the real board: still the popover tier, no scrim, appears on frame one", async () => {
-    mountPage(
-      <>
-        <BoardBackdrop />
-      </>,
-    );
-    // The warning is anchored to the row it concerns, as BoardView hands it: the first real task row.
-    const row = document.querySelector<HTMLElement>(".board-row")!;
-    const at = row.getBoundingClientRect();
-    cleanup();
-    mountPage(
-      <>
-        <BoardBackdrop />
-        <DoneWarning
-          checked={1}
-          total={3}
-          itemKey="THRE-26"
-          anchorRect={{ top: at.top, left: at.left, bottom: at.bottom }}
-          onConfirm={() => {}}
-          onCancel={() => {}}
-        />
-      </>,
-    );
-    const warning = await screen.findByRole("alertdialog", { name: "Unchecked acceptance criteria" });
-    expect(warning.textContent).toContain("THRE-26 · 2 of 3 criteria unchecked. Mark Done anyway?");
-    const wr = warning.getBoundingClientRect();
-    const rowNow = document.querySelector<HTMLElement>(".board-row")!.getBoundingClientRect();
-    expect(wr.top, "the popover opens under its row, not at the bottom of the window").toBeGreaterThanOrEqual(rowNow.bottom);
-    expect(wr.top - rowNow.bottom, "and right under it").toBeLessThan(12);
-    const w = getComputedStyle(warning);
-    expect(toHex(w.borderTopColor)).toBe(PALETTE.borderPopover);
-    expect(w.animationName).toBe("none");
-    expect(w.opacity).toBe("1");
-    expect(toHex(getComputedStyle(screen.getByText(/Enter to confirm/)).color)).toBe(PALETTE.textMutedRack);
-    await settle();
-    await page.screenshot({ path: `${OUT}/states-group-built-${scheme}-done-warning-1440x900.png` });
   });
 
   it("orphan recovery over the real board: dialog tier, Kill All is the destructive text role with an icon, and it still blocks", async () => {

@@ -7,7 +7,7 @@
  * design time.
  *
  * Same Radix wiring as every other picker in this directory (`FocusScope` + `DismissableLayer`,
- * portalled to `document.body` — `StatusPicker.tsx`'s doc comment explains why: each virtualized
+ * portalled to `document.body` — `PriorityPicker.tsx`'s doc comment explains why: each virtualized
  * board row is its own CSS stacking context, so a portal positioned from the anchor's real screen
  * coordinates is what actually escapes it). When an option carries a `group`, a non-interactive
  * heading is rendered before each run of options sharing that group — plan 01-15 uses this to

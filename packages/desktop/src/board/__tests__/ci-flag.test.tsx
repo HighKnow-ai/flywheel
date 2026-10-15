@@ -79,6 +79,12 @@ describe("BoardRow CI-failure pill (D-124)", () => {
     expect(text).not.toMatch(/setStatus|task_set_status/);
   });
 
+  it("keeps the status glyph read-only beside the pill (DRFT-04, D-19): no button, no picker callback", () => {
+    render(<BoardRow item={makeItem()} ciFailed />);
+    expect(screen.getByRole("listitem")).toHaveAccessibleName(/, In Progress,/);
+    expect(screen.queryByRole("button", { name: /^Status:/ })).not.toBeInTheDocument();
+  });
+
   it("resolves the pill's glyph and word from the marks registry, naming no icon component directly", async () => {
     const source = await import("../BoardRow.tsx?raw");
     const text: string = source.default;

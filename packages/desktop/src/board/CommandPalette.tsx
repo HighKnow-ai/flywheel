@@ -4,7 +4,7 @@
  * memorised a single-letter binding. Opens over whatever surface currently has focus, fuzzy-
  * filters as the user types, moves selection with the arrow keys, executes on Enter, and closes
  * on Escape restoring focus to the triggering element (Radix `FocusScope`'s default unmount-
- * restore behavior — the same pattern `pickers/StatusPicker.tsx` already established).
+ * restore behavior — the same pattern `pickers/PriorityPicker.tsx` established).
  *
  * Mounted once, at the app-shell level (`App.tsx`), so it works on every screen — including
  * `FirstRun` (zero projects registered), where "Register Project…" is still the one live command.
@@ -23,7 +23,6 @@ import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { Legend } from "../legend/Legend";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "../projects/RegisterProjectFlow";
-import { StatusPicker } from "./pickers/StatusPicker";
 import { PriorityPicker } from "./pickers/PriorityPicker";
 import { AssigneePicker } from "./pickers/AssigneePicker";
 import { ParentPicker, type ParentOption } from "./pickers/ParentPicker";
@@ -51,7 +50,6 @@ import {
   useReorderItem,
   useSetAssignee,
   useSetPriority,
-  useSetStatus,
   useSetTaskEpic,
 } from "./useBoardQuery";
 import { authoringStageReturn } from "../adapters/tauri";
@@ -61,7 +59,6 @@ import { previousAuthoringStage } from "../session/SessionSurface";
  * confirmation via `BoardView.tsx`'s `deleteTarget` in `uiStore`) rather than completing
  * instantly — these must not also close the palette itself when selected. */
 const OVERLAY_ACTION_IDS = new Set<ActionId>([
-  "open-status-picker",
   "open-priority-picker",
   "open-assignee-picker",
   "open-epic-picker",
@@ -128,7 +125,7 @@ function focusFirstChildButton(id: string) {
   document.getElementById(id)?.querySelector("button")?.focus();
 }
 
-type PaletteOverlay = "status" | "priority" | "assignee" | "epic" | "legend" | null;
+type PaletteOverlay = "priority" | "assignee" | "epic" | "legend" | null;
 
 export function CommandPalette() {
   const open = useUiStore((state) => state.paletteOpen);
@@ -186,7 +183,6 @@ export function CommandPalette() {
   } = useRegisterProjectFlow();
   const registerNotice = useRegistrationErrorNotice(registerIsError, registerError);
   const createIssue = useCreateIssue(effectiveProjectId);
-  const setStatus = useSetStatus(effectiveProjectId);
   const setPriority = useSetPriority(effectiveProjectId);
   const setAssignee = useSetAssignee(effectiveProjectId);
   const setTaskEpic = useSetTaskEpic(effectiveProjectId);
@@ -243,9 +239,6 @@ export function CommandPalette() {
         break;
       case "collapse-row":
         if (selectedItem) useCollapseStore.getState().collapse(effectiveProjectId ?? "", groupCollapseKey("epic", selectedItem.id));
-        break;
-      case "open-status-picker":
-        if (selectedItem) setOverlay("status");
         break;
       case "open-priority-picker":
         if (selectedItem) setOverlay("priority");
@@ -651,19 +644,6 @@ export function CommandPalette() {
     const closeOverlay = () => setOverlay(null);
     const kind = selectedItem.kind ?? "task";
     switch (overlay) {
-      case "status":
-        return (
-          <StatusPicker
-            currentStatus={selectedItem.status}
-            anchorRect={rect}
-            onSelect={(status) => {
-              setStatus.mutate({ kind, id: selectedItem.id, status });
-              closeOverlay();
-              close();
-            }}
-            onClose={closeOverlay}
-          />
-        );
       case "priority":
         return (
           <PriorityPicker

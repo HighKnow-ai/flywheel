@@ -53,7 +53,9 @@ describe("BoardRow blocked indicator (D-37)", () => {
 
   it("leaves the row's own five-state status glyph unchanged — a blocked In Progress task still shows the In Progress glyph", () => {
     render(<BoardRow item={makeItem({ status: "in_progress" })} blocked />);
-    expect(screen.getByRole("button", { name: /^Status: In Progress\./ })).toBeInTheDocument();
+    // The glyph is a read-only value now (DRFT-04, D-19); the row's own name still states the status.
+    expect(screen.getByRole("listitem")).toHaveAccessibleName(/, In Progress,/);
+    expect(screen.queryByRole("button", { name: /^Status:/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Blocked/ })).toBeInTheDocument();
   });
 

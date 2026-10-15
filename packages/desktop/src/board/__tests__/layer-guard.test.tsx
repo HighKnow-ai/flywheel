@@ -252,7 +252,7 @@ describe("layer-guard", () => {
   it("cmd_k_does_not_open_the_palette_over_a_row_level_picker", () => {
     renderHarness();
     act(() => {
-      useUiStore.getState().setActivePicker({ kind: "status", id: "1" });
+      useUiStore.getState().setActivePicker({ kind: "priority", id: "1" });
     });
 
     fireEvent.keyDown(window, { key: "k", metaKey: true });

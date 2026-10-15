@@ -68,8 +68,8 @@ describe("board-list additions", () => {
     expect(existingLetters.has("l")).toBe(false);
     // Sanity check against the known Phase 1 set, so a change to that set is visible here too.
     // "r" ("continue-shaping", D-91, plan 05-10) is the one addition since this list was last
-    // updated.
-    expect([...existingLetters].sort()).toEqual(["a", "c", "j", "k", "m", "o", "p", "r", "s"]);
+    // updated; "s" left with the status picker (DRFT-04, D-19: status is derived, never set).
+    expect([...existingLetters].sort()).toEqual(["a", "c", "j", "k", "m", "o", "p", "r"]);
   });
 });
 

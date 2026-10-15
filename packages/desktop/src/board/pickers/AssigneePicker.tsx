@@ -5,7 +5,7 @@
  * (DATA-03), and the picker must say which is which without relying on colour alone
  * (`legend/marks.ts`'s `actorTypeMarkId`).
  *
- * Unlike `StatusPicker`/`PriorityPicker`/`EstimatePicker`, the option count is not fixed at
+ * Unlike `PriorityPicker`, the option count is not fixed at
  * design time (the actor roster grows), so this picker has no direct-digit shortcut — options
  * are reached by the trapped `Tab` order `FocusScope` already provides and activated with the
  * browser's own `Enter`/`Space` button semantics, exactly like every other button in this list.

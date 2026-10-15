@@ -1,5 +1,5 @@
 /**
- * 08.1 plan 15: the palette and the five pickers draw their boundary and elevation from the roles.
+ * 08.1 plan 15: the palette and the pickers draw their boundary and elevation from the roles.
  *
  * Plan 07 measured that these six drew their visible edge from `--divider` (1.16 to 1.43 against the
  * ground), a decorative hairline where a control needs 3:1, and that they hard-coded a black scrim and
@@ -13,14 +13,13 @@ import palette from "../CommandPalette.tsx?raw";
 import assignee from "../pickers/AssigneePicker.tsx?raw";
 import parent from "../pickers/ParentPicker.tsx?raw";
 import priority from "../pickers/PriorityPicker.tsx?raw";
-import status from "../pickers/StatusPicker.tsx?raw";
 
-const PICKERS = { assignee, parent, priority, status };
+const PICKERS = { assignee, parent, priority };
 
 /** Source with comment lines removed, so a comment explaining the old literal is not a finding. */
 const code = (source: string) => source.split("\n").filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join("\n");
 
-describe("the four pickers are popovers", () => {
+describe("the pickers are popovers", () => {
   for (const [name, source] of Object.entries(PICKERS)) {
     it(`${name}: control-boundary edge, popover shadow, no scrim, no literal`, () => {
       const src = code(source);

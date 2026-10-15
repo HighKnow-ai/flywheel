@@ -9,7 +9,6 @@
  *  4. The rules table is hairlines and spacing: no zebra, no tinted row.
  *  5. Every text field draws its boundary from the control role.
  *  6. Agent-authored proposal text reaches the DOM through React's text path only (T-08.1-51).
- *  7. DoneWarning sits on the popover tier.
  *
  * It reads the shipped stylesheet, not the DOM: jsdom stubs CSS, so a class name asserted on an element proves
  * nothing about the rule behind it (the lesson of the deleted `agent-pulse`, 08.1-17).
@@ -23,7 +22,6 @@ import tray from "../../authoring/ProposalTray.tsx?raw";
 import row from "../../authoring/ProposalRow.tsx?raw";
 import editor from "../../authoring/ProposalAmendEditor.tsx?raw";
 import legend from "../../legend/Legend.tsx?raw";
-import doneWarning from "../../board/DoneWarning.tsx?raw";
 
 const SOURCES = { settings, rules, triage, tray, row, editor, legend };
 
@@ -55,7 +53,7 @@ describe("the admin group draws its actions, it does not fill them", () => {
   });
 
   it("holds no literal colour, scrim or shadow, here or in any component of the group", () => {
-    for (const [name, source] of Object.entries({ ...SOURCES, css, doneWarning })) {
+    for (const [name, source] of Object.entries({ ...SOURCES, css })) {
       expect(code(source), name).not.toMatch(/rgba?\(|#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b(?![0-9a-zA-Z-])/);
     }
   });
@@ -157,8 +155,7 @@ describe("a chosen value is not an action", () => {
 
 describe("selection is the board's neutral rule, and no ring hangs off a prop", () => {
   it("no component in the group sets an inline outline", () => {
-    for (const [name, source] of Object.entries({ ...SOURCES, doneWarning })) {
-      if (name === "doneWarning") continue; // outline: "none" on a non-interactive container is not a ring
+    for (const [name, source] of Object.entries(SOURCES)) {
       expect(code(source), name).not.toMatch(/outline/);
     }
   });
@@ -227,13 +224,5 @@ describe("fields and text", () => {
     for (const source of [tray, row, editor, triage]) {
       expect(code(source)).not.toMatch(/dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML/);
     }
-  });
-});
-
-describe("overlays sit on their tier", () => {
-  it("the done warning is a popover: the popover shadow and the popover edge, no scrim", () => {
-    expect(code(doneWarning)).toMatch(/boxShadow: "var\(--shadow-popover\)"/);
-    expect(code(doneWarning)).toMatch(/border: "1px solid var\(--border-popover\)"/);
-    expect(code(doneWarning)).not.toMatch(/--scrim|--shadow-(dialog|sheet)|--border-(dialog|sheet)/);
   });
 });

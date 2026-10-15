@@ -127,9 +127,8 @@ function scrollTo(el: HTMLElement, top: number) {
 
 /** Selects a sticky band header by its label. `StatusBand` is the only element in the rack that
  * carries an `aria-expanded` attribute, so scanning for that attribute plus a text-content match
- * finds the header without also matching `BoardRow.tsx`'s status pill — which is ALSO labelled
- * with the band name ("Status: Backlog. Press to change.") and would match a bare
- * `getByRole("button", { name: /Backlog/ })` query against every backlog row in this fixture. */
+ * finds the header without leaning on the band name alone, which every backlog row's read-only
+ * status glyph ("Status: Backlog") repeats in this fixture. */
 function bandHeader(label: string): HTMLElement {
   const buttons = screen.getAllByRole("button");
   const match = buttons.find(
@@ -632,7 +631,7 @@ describe("prohibition 1 — G-01-1's layer guard, asserted at volume", () => {
   it("a_picker_layer_also_refuses_cmd_n_without_scrolling", () => {
     renderVolumeBoard();
     act(() => {
-      useUiStore.getState().setActivePicker({ kind: "status", id: "task-0" });
+      useUiStore.getState().setActivePicker({ kind: "priority", id: "task-0" });
     });
     const container = boardContainer();
     scrollTo(container, DEEP_SCROLL_OFFSET);

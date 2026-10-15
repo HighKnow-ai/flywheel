@@ -2,10 +2,10 @@
  * The item detail side panel (01-UI-SPEC.md "Item detail — side panel"): a 480px peer surface,
  * not a modal and not a full page. Opens on `Enter`/`o` on a selected row, closes on `Escape`
  * with focus returning to the row that opened it (handled by Radix `FocusScope`'s default
- * unmount-restore behavior — see `pickers/StatusPicker.tsx` for the same pattern).
+ * unmount-restore behavior — see `board/pickers/PriorityPicker.tsx` for the same pattern).
  *
- * Renders the inline-editable title and description, the status picker (tasks/epics only — an
- * issue has no status, D-07), the acceptance-criteria list (tasks and epics only, never for an
+ * Renders the inline-editable title and description, the status value, read-only (tasks/epics only — an
+ * issue has no status, D-07; status is derived, DRFT-04, D-19), the acceptance-criteria list (tasks and epics only, never for an
  * issue — D-07, BOARD-02), and the activity trail (tasks and epics only — `core::query::events`
  * only accepts `"task"`/`"epic"` as a trail's `parent_kind`; no surface opens this panel for an
  * issue yet, matching `AcceptanceCriteriaList`'s own `!isIssue` guard).
@@ -24,11 +24,9 @@
  * waiting on read as one linked record (Discretion #6 still holds: the SAME
  * `usePendingPermissionRequests(agentRunId)` query every mount point reads).
  */
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
-import { StatusPicker } from "../board/pickers/StatusPicker";
-import { ChevronDown } from "lucide-react";
 import { MARKS_BY_ID, priorityMarkId, statusMarkId } from "../legend/marks";
 import { AcceptanceCriteriaList } from "./AcceptanceCriteriaList";
 import { ActivityTrail } from "./ActivityTrail";
@@ -58,7 +56,6 @@ export interface ItemDetailPanelProps {
   item: DetailItem;
   onClose: () => void;
   onUpdateTitle: (title: string) => void;
-  onSetStatus?: (status: string) => void;
   /** Whether this panel's `FocusScope` traps Tab movement. Defaults to `true`. The command
    * palette (`board/CommandPalette.tsx`) renders OVER this panel by design (the Escape ladder's
    * fixed order, `state/keyboard.ts`) — the caller passes `false` while the palette is open, so
@@ -96,7 +93,6 @@ export function ItemDetailPanel({
   item,
   onClose,
   onUpdateTitle,
-  onSetStatus,
   trapped = true,
   onStartWork,
   onOpenRun,
@@ -104,11 +100,6 @@ export function ItemDetailPanel({
   onReview,
 }: ItemDetailPanelProps) {
   const [titleDraft, setTitleDraft] = useState(item.title);
-  const [statusPickerOpen, setStatusPickerOpen] = useState(false);
-  const [statusPickerAnchor, setStatusPickerAnchor] = useState<{ top: number; left: number; bottom: number } | null>(
-    null,
-  );
-  const statusButtonRef = useRef<HTMLButtonElement>(null);
   const isIssue = item.kind === "issue";
   const isTask = item.kind === "task";
   const statusMark = item.status ? MARKS_BY_ID[statusMarkId(item.status)] : undefined;
@@ -134,7 +125,7 @@ export function ItemDetailPanel({
   }
 
   function handlePanelKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape" && !statusPickerOpen) {
+    if (event.key === "Escape") {
       onClose();
     }
   }
@@ -142,11 +133,7 @@ export function ItemDetailPanel({
   return (
     <FocusScope trapped={trapped} asChild>
       <DismissableLayer
-        onEscapeKeyDown={(event) => {
-          if (statusPickerOpen) {
-            event.preventDefault();
-            return;
-          }
+        onEscapeKeyDown={() => {
           onClose();
         }}
         asChild
@@ -201,37 +188,7 @@ export function ItemDetailPanel({
               {!isIssue && item.status && (
                 <>
                   <dt className="type-body">Status</dt>
-                  <dd className="type-body" style={{ position: "relative" }}>
-                    {/* A VALUE, not an action: no box. A value plus its caret is how a field that can be changed
-                        reads, so it cannot be mistaken for the drawn verbs beneath (08.1-15 closure, finding 3). */}
-                    <button
-                      ref={statusButtonRef}
-                      type="button"
-                      aria-haspopup="menu"
-                      onClick={() => {
-                        const rect = statusButtonRef.current?.getBoundingClientRect();
-                        if (rect) {
-                          setStatusPickerAnchor({ top: rect.top, left: rect.left, bottom: rect.bottom });
-                        }
-                        setStatusPickerOpen(true);
-                      }}
-                      className="type-body detail-value-control"
-                    >
-                      {statusMark?.label ?? item.status}
-                      <ChevronDown size={12} strokeWidth={2} aria-hidden="true" />
-                    </button>
-                    {statusPickerOpen && item.status && statusPickerAnchor && (
-                      <StatusPicker
-                        currentStatus={item.status}
-                        anchorRect={statusPickerAnchor}
-                        onSelect={(status) => {
-                          onSetStatus?.(status);
-                          setStatusPickerOpen(false);
-                        }}
-                        onClose={() => setStatusPickerOpen(false)}
-                      />
-                    )}
-                  </dd>
+                  <dd className="type-body">{statusMark?.label ?? item.status}</dd>
                 </>
               )}
               {priorityMark && (

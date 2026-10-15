@@ -31,7 +31,7 @@ export interface IssuesLaneProps {
    * is looked up directly against this map (G-01-EPIC-ASSIGN, plan 01-15). */
   parentsById?: Record<string, { key: string; title: string; kind: string }>;
   /** Opens the parent picker for one issue, anchored to the button that was clicked — mirrors
-   * `BoardRow`'s own picker-opening callbacks (`onOpenStatusPicker` etc.), which also hand back
+   * `BoardRow`'s own picker-opening callbacks (`onOpenPriorityPicker` etc.), which also hand back
    * the element rather than reading `getBoundingClientRect()` themselves. */
   onOpenParentPicker?: (issue: IssueItem, anchorEl: HTMLElement) => void;
 }

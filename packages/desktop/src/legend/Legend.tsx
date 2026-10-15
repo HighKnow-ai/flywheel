@@ -191,7 +191,7 @@ export function Legend({ onClose }: LegendProps = {}) {
   }
 
   // Overlay mode — trapped/dismissable exactly like every other overlay in this codebase
-  // (`pickers/StatusPicker.tsx`'s pattern; `component_strategy: a-selfhost-radix`).
+  // (`pickers/PriorityPicker.tsx`'s pattern; `component_strategy: a-selfhost-radix`).
   return createPortal(
     <FocusScope trapped loop asChild>
       <DismissableLayer

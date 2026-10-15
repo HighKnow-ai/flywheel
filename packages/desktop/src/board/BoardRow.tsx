@@ -163,7 +163,6 @@ export interface BoardRowProps {
   hideEpicPill?: boolean;
   onSelect?: () => void;
   onOpenDetail?: () => void;
-  onOpenStatusPicker?: () => void;
   onOpenPriorityPicker?: () => void;
   onOpenAssigneePicker?: () => void;
   /** Activating the blocked pill — opens the item detail panel (which renders the
@@ -197,7 +196,6 @@ export function BoardRow({
   hideEpicPill = false,
   onSelect,
   onOpenDetail,
-  onOpenStatusPicker,
   onOpenPriorityPicker,
   onOpenAssigneePicker,
   onOpenBlocked,
@@ -271,11 +269,6 @@ export function BoardRow({
     onOpenCiFailed?.();
   }
 
-  function handleStatusGlyphClick(event: MouseEvent<HTMLSpanElement>) {
-    event.stopPropagation();
-    onOpenStatusPicker?.();
-  }
-
   function handlePriorityGlyphClick(event: MouseEvent<HTMLSpanElement>) {
     event.stopPropagation();
     onOpenPriorityPicker?.();
@@ -333,11 +326,11 @@ export function BoardRow({
       onClick={handleRowClick}
       onDoubleClick={onOpenDetail}
     >
+      {/* Read-only (DRFT-04, D-19): status is derived from git and forge state, so the glyph is a
+          value and offers no control. The row's own accessible name already states the status. */}
       <span
-        role="button"
-        aria-label={`Status: ${statusLabel}. Press to change.`}
-        onClick={handleStatusGlyphClick}
-        style={{ display: "inline-flex", flexShrink: 0, minWidth: 24, minHeight: 24, alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+        aria-hidden="true"
+        style={{ display: "inline-flex", flexShrink: 0, minWidth: 24, minHeight: 24, alignItems: "center", justifyContent: "center" }}
       >
         <Icon name={statusMark?.glyph ?? "Circle"} />
       </span>

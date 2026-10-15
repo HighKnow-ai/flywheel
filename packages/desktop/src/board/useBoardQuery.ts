@@ -347,23 +347,6 @@ export function useCreateIssue(projectId: string | undefined) {
   });
 }
 
-/**
- * Set a task's or an epic's workflow status by keystroke (`s` then `1`-`5`, StatusPicker). Which
- * command to call depends on `kind` — the picker itself never re-derives the state list, only
- * which entity-scoped command carries the change.
- */
-export function useSetStatus(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { kind: BoardItemKind; id: string; status: string }) =>
-      invokeCommand<void>(input.kind === "epic" ? "epic_set_status" : "task_set_status", {
-        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
-        status: input.status,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
-  });
-}
-
 /** Every actor (human, agent, system) — the `AssigneePicker`'s roster (BOARD-06). Actors are
  * seeded at migration time and rarely change, so this query has no need to poll. */
 export function useActors() {
@@ -393,7 +376,7 @@ export function useEpics(projectId: string | undefined) {
 
 /**
  * Move a task or an epic up/down by one position within its priority band (`⌘↑`/`⌘↓`, D-11,
- * BOARD-05). Mirrors `useSetStatus`'s kind-dispatch shape exactly.
+ * BOARD-05). Dispatches on `kind` to the matching entity-scoped command.
  */
 export function useReorderItem(projectId: string | undefined) {
   const queryClient = useQueryClient();
@@ -436,7 +419,7 @@ export function useSetAssignee(projectId: string | undefined) {
 
 /**
  * Reparent a task under an epic, or orphan it with `epicId: null` (`m`, `ParentPicker`,
- * G-01-EPIC-ASSIGN). Unlike `useSetStatus`/`useSetPriority`/`useSetAssignee`,
+ * G-01-EPIC-ASSIGN). Unlike `useSetPriority`/`useSetAssignee`,
  * there is no epic-kind branch here — this action exists only for tasks, because the hierarchy is
  * fixed at three levels and an epic has no epic parent of its own.
  */

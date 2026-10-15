@@ -79,7 +79,7 @@ describe("the palette's sections", () => {
 describe("a selected-item command and the open panel", () => {
   it("Open selected item is disabled with nothing selected and no panel open, like its siblings", async () => {
     const dialog = await openPalette();
-    for (const id of ["open-detail", "open-status-picker"] as const) {
+    for (const id of ["open-detail", "open-priority-picker"] as const) {
       const option = within(dialog).getByRole("option", { name: actionLabel(id) });
       expect(option.getAttribute("aria-disabled")).toBe("true");
     }
@@ -89,7 +89,7 @@ describe("a selected-item command and the open panel", () => {
     useUiStore.getState().setDetailItemId("task-1");
     const dialog = await openPalette();
     await waitFor(() => {
-      for (const id of ["open-detail", "open-status-picker", "open-priority-picker"] as const) {
+      for (const id of ["open-detail", "open-priority-picker", "open-assignee-picker"] as const) {
         expect(within(dialog).getByRole("option", { name: actionLabel(id) }).getAttribute("aria-disabled")).toBe("false");
       }
     });

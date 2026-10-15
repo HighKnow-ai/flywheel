@@ -1,7 +1,7 @@
 /**
  * 08.1 plan 19: what the states-and-confirms group's finish pass pins at the source level. jsdom cannot paint;
  * `browser/states-group.browser.test.tsx` measures the same decisions in WebKit. The group is the first-run
- * state, the unreachable project, the registration flow, and the delete, done-warning and orphan-recovery
+ * state, the unreachable project, the registration flow, and the delete and orphan-recovery
  * confirmations.
  *
  *  1. No brand fill and no destructive fill, anywhere in the group (owner decision 2026-10-08; AA).
@@ -21,10 +21,9 @@ import glyph from "../../assets/logo-glyph.svg?raw";
 import unreachable from "../../projects/ProjectUnreachable.tsx?raw";
 import register from "../../projects/RegisterProjectFlow.tsx?raw";
 import deleteConfirm from "../DeleteConfirm.tsx?raw";
-import doneWarning from "../DoneWarning.tsx?raw";
 import orphan from "../../recovery/OrphanRecoveryModal.tsx?raw";
 
-const SOURCES = { firstRun, unreachable, register, deleteConfirm, doneWarning, orphan };
+const SOURCES = { firstRun, unreachable, register, deleteConfirm, orphan };
 
 /** Comment lines out, so a doc comment may still say what the old code did. */
 const code = (text: string) =>
@@ -88,7 +87,6 @@ describe("the group draws its actions, it does not fill them", () => {
 
   it("no focus ring is driven by a prop in any component of the group (the roving-ring defect class)", () => {
     for (const [name, source] of Object.entries(SOURCES)) {
-      if (name === "doneWarning") continue; // outline: "none" on a non-interactive, programmatically focused container is not a ring
       expect(code(source), name).not.toMatch(/outline/);
     }
   });
@@ -117,14 +115,6 @@ describe("a destructive action is the destructive text role on an edge, icon-pai
     // The heading is the first element of the surface (a JSX comment may sit before it).
     expect(code(unreachable)).toMatch(/className="project-unreachable state-surface">\s*(\{\/\*[\s\S]*?\*\/\}\s*)?<h1/);
   });
-
-  it("DoneWarning names the task, says how many are unchecked in words, and is anchored to its row", () => {
-    expect(code(doneWarning)).toContain("criteria unchecked. Mark Done anyway?");
-    expect(code(doneWarning)).toMatch(/\{total - checked\} of \{total\} criteria unchecked/);
-    expect(code(doneWarning)).not.toMatch(/\{checked\}\/\{total\}/);
-    expect(code(doneWarning)).toMatch(/itemKey \? `\$\{itemKey\} · ` : ""/);
-    expect(code(doneWarning)).toMatch(/anchorRect\.bottom \+ 4/);
-  });
 });
 
 describe("the two modal confirmations are on the dialog tier", () => {
@@ -145,12 +135,6 @@ describe("the two modal confirmations are on the dialog tier", () => {
     expect(source).toContain('className="confirm-scrim"');
     expect(source).toMatch(/className="[^"]*confirm-dialog\b/);
     expect(code(source)).not.toMatch(/boxShadow|background:|border:\s*"1px solid var\(--divider\)"/);
-  });
-
-  it("DoneWarning stays on the popover tier, with no scrim, since D-08 warns and never blocks", () => {
-    expect(code(doneWarning)).toMatch(/boxShadow: "var\(--shadow-popover\)"/);
-    expect(code(doneWarning)).toMatch(/border: "1px solid var\(--border-popover\)"/);
-    expect(code(doneWarning)).not.toMatch(/--scrim/);
   });
 });
 

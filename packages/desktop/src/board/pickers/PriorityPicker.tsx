@@ -1,12 +1,12 @@
 /**
  * The priority picker (01-UI-SPEC.md "Keyboard Map" — `p` opens it for the selected item; `0`-`4`
  * select the level directly, matching the schema's own keyed values exactly — unlike
- * `StatusPicker`'s 1-indexed digits). Its option list is generated from `legend/marks.ts`'s
+ * the 1-indexed digits a status picker once used). Its option list is generated from `legend/marks.ts`'s
  * `PRIORITY_MARKS` — the same registry the row strip's priority glyph and the Legend surface
  * read — so a sixth level cannot be added here alone: this file contains no literal array of
  * priority names.
  *
- * Same Radix wiring as `StatusPicker.tsx` (`FocusScope` + `DismissableLayer`, portalled to
+ * Same Radix wiring as the other pickers (`FocusScope` + `DismissableLayer`, portalled to
  * `document.body` because every virtualized row is its own stacking context) — traps focus while
  * open, restores it to the row on close via Radix's default unmount-restore behaviour, and only
  * calls the core once a choice is made, never on open.
@@ -31,9 +31,11 @@ export interface PriorityPickerProps {
   currentPriority: number;
   onSelect: (priority: number) => void;
   onClose: () => void;
-  /** Viewport-relative anchor the picker opens beneath — see `StatusPicker.tsx`'s own doc
-   * comment for why this must be a portal positioned from real screen coordinates rather than
-   * CSS `position: absolute` inside the row. */
+  /** Viewport-relative anchor the picker opens beneath (the triggering row's
+   * `getBoundingClientRect()`). Required because every virtualized board row is its own CSS
+   * stacking context: content that overflows a row's box paints BEHIND the next row whatever its
+   * `z-index`, so the picker portals to `document.body` and positions from real screen
+   * coordinates instead of using `position: absolute` inside the row. */
   anchorRect: { top: number; left: number; bottom: number };
 }
 

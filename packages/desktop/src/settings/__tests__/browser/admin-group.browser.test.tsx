@@ -146,7 +146,6 @@ import { SettingsSurface } from "../../SettingsSurface";
 import { TriageSurface } from "../../../triage/TriageSurface";
 import { ProposalTray } from "../../../authoring/ProposalTray";
 import { Legend } from "../../../legend/Legend";
-import { DoneWarning } from "../../../board/DoneWarning";
 import { resetUiState } from "../../../state/uiStore";
 import { LIGHT, DARK } from "../../../theme/tokens";
 import { contrastRatio } from "../../../theme/contrast";
@@ -569,15 +568,5 @@ describe(`admin group, built, ${scheme} scheme`, () => {
     await settle();
     await page.screenshot({ path: `${OUT}/admin-group-built-${scheme}-legend-dialog-1440x900.png` });
     await writeHtml("admin-group-built-legend-dialog");
-  });
-
-  it("the done warning is a popover: the popover shadow and the popover edge, no scrim", async () => {
-    render(<DoneWarning checked={1} total={3} onConfirm={() => {}} onCancel={() => {}} />);
-    const warning = await screen.findByRole("alertdialog");
-    const s = getComputedStyle(warning);
-    expect(toHex(s.borderTopColor), "the popover tier's edge").toBe(PALETTE.borderPopover);
-    expect(s.boxShadow, "the popover shadow").toContain(scheme === "dark" ? "rgba(0, 0, 0, 0.6)" : "rgba(31, 35, 40, 0.16)");
-    expect(ratio(PALETTE.borderPopover, PALETTE.surfaceSecondary)).toBeGreaterThanOrEqual(3);
-    expect(s.borderTopLeftRadius).toBe("6px");
   });
 });
