@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 13
 current_phase_name: Nothing New Escapes The Fence
 status: executing
-stopped_at: Completed 13-06-PLAN.md
-last_updated: "2026-10-14T17:38:01.845Z"
+stopped_at: Completed 13-07-PLAN.md
+last_updated: "2026-10-15T00:44:34.730Z"
 last_activity: 2026-10-14
 last_activity_desc: Phase 13 execution started
-state_head: c36fd569f8af744f4d51860daa746167ef0d6c06
+state_head: f0783cd58a07d5c91fcdc39a83d7a8867bfff037
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 6
+  completed_plans: 7
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 13 (Nothing New Escapes The Fence) — EXECUTING
-Plan: 7 of 11
+Plan: 8 of 11
 Status: Ready to execute
 Last activity: 2026-10-14 — Phase 13 execution started
 
@@ -317,6 +317,7 @@ Last activity: 2026-10-14 — Phase 13 execution started
 | Phase 13 P04 | 15min | 3 tasks | 7 files |
 | Phase 13 P05 | 22 min | 3 tasks | 8 files |
 | Phase 13 P06 | 1h 30m | 3 tasks | 22 files |
+| Phase 13 P07 | 105 min | 4 tasks | 45 files |
 
 ## Accumulated Context
 
@@ -732,6 +733,7 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-04: a database ahead of the build is refused with both schema versions and the recovery action named; reversibility is backup-and-restore, never a down-migration — rusqlite_migration's bare 'migration number too high' message names nothing actionable; the restore-on-failure path is unchanged
 - [Phase 13]: 13-05: table classification is a const list checked against sqlite_master (no catch-all class); spine DDL pinned post-0023; no-promotion Gate 1 patterns derived from canonical_tables()
 - [Phase 13]: 13-06: accepted agent task proposals land at todo like hand-made tasks; backlog means only proposed-not-accepted. Priority suggestions carry their rationale and are applied by the accepting human inside the acceptance transaction.
+- [Phase 13]: 13-07: status derivation is level-based for worktree and merge and edge-based for in_review (owner, 2026-10-15, stay-lowered): a declined card is not raised by a tick while the forge is unchanged
 
 ### Pending Todos
 
@@ -795,6 +797,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-14T17:38:01.824Z
-Stopped at: Completed 13-06-PLAN.md
+Last session: 2026-10-15T00:44:34.712Z
+Stopped at: Completed 13-07-PLAN.md
 Resume file: None

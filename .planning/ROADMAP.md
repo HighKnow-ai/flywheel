@@ -174,7 +174,7 @@ paths", and D-69 explicitly rejected size ceilings because a ceiling moves the b
 the developer cannot see. Any bound must use fixed counts, link-based inclusion and a visible
 boundary sentence; "truncate at N tokens" is out. Whether acknowledged or superseded decisions drop
 from the folded residue is a deliberate decision to take before planning, not during.
-**Plans**: 6/11 plans executed, 6 waves
+**Plans**: 7/11 plans executed, 6 waves
 
 Plans:
 **Wave 1**
@@ -194,7 +194,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 13-07-PLAN.md — derived task status with an explicit floor; F5's raw write and `StatusPicker` deleted (DRFT-04, F5)
+- [x] 13-07-PLAN.md — derived task status with an explicit floor; F5's raw write and `StatusPicker` deleted (DRFT-04, F5)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -398,7 +398,7 @@ Phase 17 shares no file with Phase 16 and may run beside it; it may not be absor
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 13. Nothing New Escapes The Fence | 6/11 | In Progress|  |
+| 13. Nothing New Escapes The Fence | 7/11 | In Progress|  |
 | 14. Cycles On Screen, State In Colour | 0/0 | Not started | - |
 | 15. Nothing Typed That An Agent Could Draft | 0/0 | Not started | - |
 | 16. The Problem And The Decision Are Board Records | 0/0 | Not started | - |

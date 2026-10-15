@@ -49,7 +49,7 @@ own phases, which are read daily in this repository (owner decision, 2026-10-14)
 - [ ] **DRFT-01**: The planner declares each task's expected file-set, observed working against a live backend, and the hand-typed path field becomes an escape hatch rather than the path of record *(closes the carried PLAN-01)*
 - [ ] **DRFT-02**: Acceptance criteria are drafted by default when a task is created or started; a run on a task with no criteria routes through drafting first rather than proceeding without them
 - [ ] **DRFT-03**: An epic or task can be decomposed by an agent into child items with titles and bodies drafted, which the user accepts, rejects or amends individually
-- [ ] **DRFT-04**: A task's status is derived from git and forge state and is never drafted or written by an agent; the one non-derivable transition (backlog to todo) rides the acceptance of the task itself
+- [x] **DRFT-04**: A task's status is derived from git and forge state and is never drafted or written by an agent; the one non-derivable transition (backlog to todo) rides the acceptance of the task itself
 - [x] **DRFT-05**: `estimate` is removed from every required flow unless a consumer that reads it is named; an unread field is not drafted, shown as required, or asked for
 - [x] **DRFT-06**: Priority is offered only as an explicit, opt-in suggestion carrying its reasoning, never applied automatically and never required to start work
 - [ ] **DRFT-07**: The unit of acceptance is the field for a scalar and the item for a structure; no control anywhere accepts a set wholesale, and the absence of a bulk-accept path is enforced by a source test
@@ -184,7 +184,7 @@ Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROAD
 | DRFT-01 | Phase 15 | Pending |
 | DRFT-02 | Phase 15 | Pending |
 | DRFT-03 | Phase 15 | Pending |
-| DRFT-04 | Phase 13 | Pending |
+| DRFT-04 | Phase 13 | Complete |
 | DRFT-05 | Phase 13 | Complete |
 | DRFT-06 | Phase 13 | Complete |
 | DRFT-07 | Phase 15 | Pending |
