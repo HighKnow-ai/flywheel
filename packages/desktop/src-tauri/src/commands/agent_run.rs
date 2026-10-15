@@ -439,16 +439,32 @@ fn packet_extras_for(
         diff_stat.as_ref().map(|stat| stat.changed_paths.as_slice());
 
     // D-05: the packet's summaries are the bounded window, so an id the latest summary echoes may
-    // be recorded in one the window dropped. Resolve it with one bounded point lookup per echoed id
-    // BEFORE the struct literal, so `detect_drift` stays pure and never falsely calls it fabricated.
-    let echoed_ids_on_record_beyond_scope: Vec<String> = match packet.summaries.last() {
-        Some(latest) => flywheel_core::drift::decision_ids_on_record(
+    // be recorded in one the window dropped. Resolve it with ONE bounded statement BEFORE the
+    // struct literal, so `detect_drift` stays pure and never falsely calls it fabricated. Ids the
+    // window already holds are passed as `already_in_scope` and never looked up.
+    //
+    // A failed read is NOT "nothing on record": it leaves the lookup result `None`, which makes
+    // `detect_drift` omit the fabricated-echo detector for
+    // this assembly instead of recording a false `drift.detected` against the agent (T-13-12-02).
+    let in_scope_decision_ids: Vec<String> = packet
+        .summaries
+        .iter()
+        .flat_map(|summary| summary.decisions.iter().map(|decision| decision.id.clone()))
+        .collect();
+    let echoed_ids_on_record_beyond_scope: Option<Vec<String>> = match packet.summaries.last() {
+        Some(latest) => match flywheel_core::drift::decision_ids_on_record(
             conn,
             task_id,
             &latest.acknowledged_decisions,
-        )
-        .unwrap_or_default(),
-        None => Vec::new(),
+            &in_scope_decision_ids,
+        ) {
+            Ok(found) => Some(found),
+            Err(error) => {
+                eprintln!("decision read-back lookup failed; fabricated-echo detector omitted: {error:#}");
+                None
+            }
+        },
+        None => Some(Vec::new()),
     };
 
     let inputs = flywheel_core::drift::DriftInputs {
@@ -458,7 +474,7 @@ fn packet_extras_for(
         working_tree_dirty,
         pinned_criterion_ids: pinned_criterion_ids.as_deref(),
         current_criterion_ids: &current_criterion_ids,
-        echoed_ids_on_record_beyond_scope: &echoed_ids_on_record_beyond_scope,
+        echoed_ids_on_record_beyond_scope: echoed_ids_on_record_beyond_scope.as_deref(),
     };
     let drift = flywheel_core::drift::detect_drift(&inputs);
 

@@ -77,12 +77,17 @@ pub struct DriftInputs<'a> {
     pub pinned_criterion_ids: Option<&'a [String]>,
     /// The task's current criterion-id set, in rank order.
     pub current_criterion_ids: &'a [String],
-    /// The subset of the latest summary's `acknowledged_decisions` that a bounded point lookup
+    /// The subset of the latest summary's `acknowledged_decisions` that the bounded lookup
     /// ([`decision_ids_on_record`]) found on record in a summary OUTSIDE the in-scope window
     /// (D-05). The read-back detector calls an echoed id fabricated only if it is in neither the
     /// in-scope recorded set nor this list, so the window never manufactures a false
-    /// [`DriftKind::FabricatedDecisionEcho`]. Empty when the caller has no such ids.
-    pub echoed_ids_on_record_beyond_scope: &'a [String],
+    /// [`DriftKind::FabricatedDecisionEcho`].
+    ///
+    /// `None` means "the read-back lookup did not run" (it returned an error), NOT "nothing is on
+    /// record": the fabricated-echo half of the read-back detector stays silent for `None`, because
+    /// accusing an agent of fabrication on the strength of a read that failed would record a false
+    /// `drift.detected`. `Some(&[])` means the lookup ran and found nothing.
+    pub echoed_ids_on_record_beyond_scope: Option<&'a [String]>,
 }
 
 /// Detector 1 (D-72 item 1): the latest summary's claimed `changed_files` against the real
@@ -225,9 +230,11 @@ fn detect_decision_read_back(inputs: &DriftInputs) -> Option<DriftWarning> {
         return Some(DriftWarning { kind: DriftKind::UnacknowledgedDecision, sentence });
     }
 
+    // `None`: the lookup did not run, so "not on record" cannot be asserted for any id.
+    let beyond_scope = inputs.echoed_ids_on_record_beyond_scope?;
     let mut recorded_set: HashSet<&str> = recorded_ids.into_iter().collect();
     // D-05: an echoed id recorded in a summary the window dropped is real, not fabricated.
-    recorded_set.extend(inputs.echoed_ids_on_record_beyond_scope.iter().map(String::as_str));
+    recorded_set.extend(beyond_scope.iter().map(String::as_str));
     let fabricated: Vec<&str> = latest
         .acknowledged_decisions
         .iter()
@@ -328,42 +335,59 @@ pub fn scope_backstop_inputs(
     }))
 }
 
+/// The most candidate ids [`decision_ids_on_record`] will resolve in one call. It matches
+/// `compaction::SUMMARY_WINDOW`, so the detector can never be asked to resolve more ids than the
+/// window itself carries. The MCP `acknowledged_decisions` array has no `maxItems`, so an agent can
+/// echo any number of ids; the cap is what makes the lookup's cost independent of that, which is why
+/// it is a bound and not cosmetic.
+pub const MAX_ECHOED_DECISION_CANDIDATES: usize = crate::compaction::SUMMARY_WINDOW;
+
 /// NOT pure, and not part of `detect_drift` — like the scope backstop around it, it reads the
 /// database. The caller resolves it BEFORE calling `detect_drift`, which is what keeps the
 /// detector itself a pure function of its inputs.
 ///
-/// The bounded point lookup the read-back detector needs (D-05): which of `candidate_ids` are
-/// recorded in some summary of `task_id`, in-scope or not. ONE point lookup per candidate — a
-/// `LIMIT 1` existence check over the task's summaries' `decisions` JSON, the task id and the
-/// candidate id both bound as parameters, never interpolated (T-13-08). The candidates come from
-/// one summary row's `acknowledged_decisions`, so the number of lookups is bounded by that one row,
-/// never by task age. Returns only the ids it found, in first-seen order of `candidate_ids`.
+/// The bounded lookup the read-back detector needs (D-05): which of `candidate_ids` are recorded in
+/// some summary of `task_id`, in-scope or not. The candidates are first reduced in Rust: ids already
+/// in `already_in_scope` are dropped (the detector already counts those as recorded), duplicates are
+/// dropped keeping first-seen order, and the list is truncated to
+/// [`MAX_ECHOED_DECISION_CANDIDATES`]. What is left goes to the database as ONE statement — the
+/// candidate list a bound JSON array, the `LIMIT` a bound parameter, nothing interpolated (T-13-08).
+/// An empty list issues no statement. Returns only the ids it found, in first-seen order of
+/// `candidate_ids`.
+///
+/// Any read error is returned, never defaulted: the caller must omit the fabricated-echo detector
+/// rather than treat a failed read as "nothing on record".
 pub fn decision_ids_on_record(
     conn: &rusqlite::Connection,
     task_id: &str,
     candidate_ids: &[String],
+    already_in_scope: &[String],
 ) -> anyhow::Result<Vec<String>> {
-    use rusqlite::OptionalExtension;
-
-    let mut found: Vec<String> = Vec::new();
-    for id in candidate_ids {
-        if found.contains(id) {
-            continue;
-        }
-        let hit: Option<i64> = conn
-            .query_row(
-                "SELECT 1 FROM session_summaries WHERE task_id = ?1 AND EXISTS \
-                 (SELECT 1 FROM json_each(session_summaries.decisions) \
-                 WHERE json_extract(value, '$.id') = ?2) LIMIT 1",
-                rusqlite::params![task_id, id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if hit.is_some() {
-            found.push(id.clone());
-        }
+    let in_scope: HashSet<&str> = already_in_scope.iter().map(String::as_str).collect();
+    let mut seen: HashSet<&str> = HashSet::new();
+    let candidates: Vec<&String> = candidate_ids
+        .iter()
+        .filter(|id| !in_scope.contains(id.as_str()) && seen.insert(id.as_str()))
+        .take(MAX_ECHOED_DECISION_CANDIDATES)
+        .collect();
+    if candidates.is_empty() {
+        return Ok(Vec::new());
     }
-    Ok(found)
+
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT json_extract(d.value, '$.id') \
+         FROM session_summaries s, json_each(s.decisions) d \
+         WHERE s.task_id = ?1 AND json_extract(d.value, '$.id') IN (SELECT value FROM json_each(?2)) \
+         LIMIT ?3",
+    )?;
+    let hits: HashSet<String> = stmt
+        .query_map(
+            rusqlite::params![task_id, serde_json::to_string(&candidates)?, MAX_ECHOED_DECISION_CANDIDATES as i64],
+            |row| row.get::<_, String>(0),
+        )?
+        .collect::<Result<_, _>>()?;
+
+    Ok(candidates.into_iter().filter(|id| hits.contains(*id)).cloned().collect())
 }
 
 /// Every path named by `git status --porcelain -z -uall`: `-z` keeps odd bytes unquoted and `-uall`

@@ -491,7 +491,7 @@ fn ten_honest_cycles_fire_zero_drift_warnings_at_every_cycle() {
                 working_tree_dirty: false,
                 pinned_criterion_ids: Some(&current_criterion_ids),
                 current_criterion_ids: &current_criterion_ids,
-                echoed_ids_on_record_beyond_scope: &[],
+                echoed_ids_on_record_beyond_scope: Some(&[]),
             };
             let warnings = detect_drift(&inputs);
             assert!(

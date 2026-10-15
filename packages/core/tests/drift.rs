@@ -80,7 +80,7 @@ fn a_claimed_path_absent_from_the_real_list_fires_one_warning_naming_it() {
         working_tree_dirty: false,
         pinned_criterion_ids: None,
         current_criterion_ids: &current_criteria,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     let warnings = detect_drift(&inputs);
 
@@ -105,7 +105,7 @@ fn every_claimed_path_present_in_the_real_list_fires_nothing() {
         working_tree_dirty: false,
         pinned_criterion_ids: None,
         current_criterion_ids: &current_criteria,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     assert!(detect_drift(&inputs).is_empty());
 }
@@ -124,7 +124,7 @@ fn no_real_path_list_at_all_fires_nothing_for_claimed_files() {
         working_tree_dirty: false,
         pinned_criterion_ids: None,
         current_criterion_ids: &current_criteria,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     assert!(detect_drift(&inputs).is_empty());
 }
@@ -145,7 +145,7 @@ fn a_diff_ref_behind_the_current_head_fires_one_warning() {
         working_tree_dirty: false,
         pinned_criterion_ids: None,
         current_criterion_ids: &current_criteria,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     let warnings = detect_drift(&inputs);
     assert_eq!(warnings.len(), 1);
@@ -166,7 +166,7 @@ fn a_matching_ref_and_a_clean_tree_fires_nothing() {
         working_tree_dirty: false,
         pinned_criterion_ids: None,
         current_criterion_ids: &current_criteria,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     assert!(detect_drift(&inputs).is_empty());
 }
@@ -185,7 +185,7 @@ fn a_matching_ref_but_a_dirty_working_tree_fires_one_warning_naming_uncommitted_
         working_tree_dirty: true,
         pinned_criterion_ids: None,
         current_criterion_ids: &current_criteria,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     let warnings = detect_drift(&inputs);
     assert_eq!(warnings.len(), 1);
@@ -208,7 +208,7 @@ fn a_moved_criterion_id_fires_one_warning_naming_it() {
         working_tree_dirty: false,
         pinned_criterion_ids: Some(&pinned),
         current_criterion_ids: &current,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     let warnings = detect_drift(&inputs);
     assert_eq!(warnings.len(), 1);
@@ -231,7 +231,7 @@ fn a_matching_criteria_set_fires_nothing() {
         working_tree_dirty: false,
         pinned_criterion_ids: Some(&pinned),
         current_criterion_ids: &current,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     assert!(detect_drift(&inputs).is_empty());
 }
@@ -248,7 +248,7 @@ fn a_null_pin_never_fires_the_revision_detector_even_with_a_changed_current_set(
         working_tree_dirty: false,
         pinned_criterion_ids: None,
         current_criterion_ids: &current,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     assert!(detect_drift(&inputs).is_empty());
 }
@@ -273,7 +273,7 @@ fn an_unechoed_recorded_decision_fires_one_warning_naming_it() {
         working_tree_dirty: false,
         pinned_criterion_ids: None,
         current_criterion_ids: &current_criteria,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     let warnings = detect_drift(&inputs);
     assert_eq!(warnings.len(), 1);
@@ -296,7 +296,7 @@ fn an_echoed_id_matching_no_recorded_decision_fires_one_warning_naming_the_fabri
         working_tree_dirty: false,
         pinned_criterion_ids: None,
         current_criterion_ids: &current_criteria,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     let warnings = detect_drift(&inputs);
     assert_eq!(warnings.len(), 1);
@@ -319,7 +319,7 @@ fn every_id_echoed_with_no_extras_fires_nothing() {
         working_tree_dirty: false,
         pinned_criterion_ids: None,
         current_criterion_ids: &current_criteria,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     assert!(detect_drift(&inputs).is_empty());
 }
@@ -336,7 +336,7 @@ fn no_summaries_at_all_fires_nothing_for_the_read_back_detector() {
         working_tree_dirty: false,
         pinned_criterion_ids: None,
         current_criterion_ids: &current_criteria,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     assert!(detect_drift(&inputs).is_empty());
 }
@@ -360,7 +360,7 @@ fn two_calls_on_the_same_inputs_return_equal_vectors() {
         working_tree_dirty: true,
         pinned_criterion_ids: Some(&pinned),
         current_criterion_ids: &current,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
 
     let first = detect_drift(&inputs);
@@ -398,7 +398,7 @@ fn warnings_come_back_in_the_fixed_claimed_files_staleness_criteria_read_back_or
         working_tree_dirty: false,
         pinned_criterion_ids: Some(&pinned),
         current_criterion_ids: &current,
-        echoed_ids_on_record_beyond_scope: &[],
+        echoed_ids_on_record_beyond_scope: Some(&[]),
     };
     let warnings = detect_drift(&inputs);
     let kinds: Vec<DriftKind> = warnings.iter().map(|w| w.kind).collect();
@@ -529,7 +529,7 @@ fn a_claimed_path_the_real_diff_does_not_contain_produces_a_warning_in_the_assem
             working_tree_dirty: false,
             pinned_criterion_ids: None,
             current_criterion_ids: &current_criteria,
-            echoed_ids_on_record_beyond_scope: &[],
+            echoed_ids_on_record_beyond_scope: Some(&[]),
         };
         let drift = detect_drift(&inputs);
         assert_eq!(drift.len(), 1);
@@ -571,7 +571,7 @@ fn the_same_claim_produces_no_warning_once_the_path_really_exists_in_the_diff() 
             working_tree_dirty: false,
             pinned_criterion_ids: None,
             current_criterion_ids: &current_criteria,
-            echoed_ids_on_record_beyond_scope: &[],
+            echoed_ids_on_record_beyond_scope: Some(&[]),
         };
         let drift = detect_drift(&inputs);
         assert!(drift.is_empty(), "a claim that now matches the real diff must fire nothing");
@@ -984,7 +984,7 @@ fn read_back_warnings(conn: &rusqlite::Connection, task_id: &str, resolve_beyond
     let packet = assemble_context_packet(conn, task_id).expect("assembly should succeed");
     let latest = packet.summaries.last().expect("the task has summaries");
     let beyond = if resolve_beyond_scope {
-        decision_ids_on_record(conn, task_id, &latest.acknowledged_decisions)
+        decision_ids_on_record(conn, task_id, &latest.acknowledged_decisions, &in_scope_ids(&packet.summaries))
             .expect("decision_ids_on_record should succeed")
     } else {
         Vec::new()
@@ -997,9 +997,14 @@ fn read_back_warnings(conn: &rusqlite::Connection, task_id: &str, resolve_beyond
         working_tree_dirty: false,
         pinned_criterion_ids: None,
         current_criterion_ids: &current_criteria,
-        echoed_ids_on_record_beyond_scope: &beyond,
+        echoed_ids_on_record_beyond_scope: Some(&beyond),
     };
     detect_drift(&inputs)
+}
+
+/// The decision ids the packet's in-scope window already holds, as the production caller passes them.
+fn in_scope_ids(summaries: &[SummaryEntry]) -> Vec<String> {
+    summaries.iter().flat_map(|s| s.decisions.iter().map(|d| d.id.clone())).collect()
 }
 
 #[test]
@@ -1041,14 +1046,14 @@ fn decision_ids_on_record_returns_only_the_ids_it_finds_in_first_seen_order() {
         let task = task_with_windowed_summaries(&mut conn, &project.id, &actor_id, 3, &[]);
 
         let candidates = strings(&["D-NOPE", "D-X", "D-X", "D-ALSO-NOPE"]);
-        let found = decision_ids_on_record(&conn, &task, &candidates)
+        let found = decision_ids_on_record(&conn, &task, &candidates, &[])
             .expect("decision_ids_on_record should succeed");
         assert_eq!(found, strings(&["D-X"]));
 
         // Scoped to the task: another task's decision is not on this one's record.
         let other = create_task(&mut conn, &project.id, &actor_id, "Another task", None)
             .expect("create_task should succeed");
-        let none = decision_ids_on_record(&conn, &other.id, &strings(&["D-X"]))
+        let none = decision_ids_on_record(&conn, &other.id, &strings(&["D-X"]), &[])
             .expect("decision_ids_on_record should succeed");
         assert!(none.is_empty());
     });
@@ -1069,9 +1074,130 @@ fn detect_drift_stays_pure_with_a_beyond_scope_list() {
         working_tree_dirty: false,
         pinned_criterion_ids: None,
         current_criterion_ids: &current_criteria,
-        echoed_ids_on_record_beyond_scope: &beyond,
+        echoed_ids_on_record_beyond_scope: Some(&beyond),
     };
     let first = detect_drift(&inputs);
     assert!(first.is_empty());
     assert_eq!(first, detect_drift(&inputs));
+}
+
+// --- plan 13-12: the lookup is ONE bounded statement, and a failed read never accuses -------------
+
+use core::drift::MAX_ECHOED_DECISION_CANDIDATES;
+
+/// One task whose single summary records every id in `ids` as a decision.
+fn task_recording(conn: &mut rusqlite::Connection, project_id: &str, actor_id: &str, ids: &[String]) -> String {
+    let task = create_task(conn, project_id, actor_id, "Records many", None).expect("create_task should succeed");
+    ensure_worktree(conn, &task.id, actor_id).expect("ensure_worktree should succeed");
+    let run = start_agent_run(conn, &task.id, "acceptEdits", actor_id).expect("start_agent_run should succeed");
+    let fields = SummaryFields {
+        changed_files: Vec::new(),
+        changed_prose: None,
+        remains: None,
+        next_session_must_know: None,
+        decisions: ids.iter().map(|id| decision(id)).collect(),
+        acknowledged_decisions: Vec::new(),
+        diff_ref: None,
+        auto_generated: false,
+    };
+    create_summary(conn, &run.id, fields, actor_id).expect("create_summary should succeed");
+    task.id
+}
+
+fn ids(prefix: &str, n: usize) -> Vec<String> {
+    (0..n).map(|i| format!("{prefix}-{i:03}")).collect()
+}
+
+#[test]
+fn an_empty_candidate_list_returns_empty_without_touching_the_database() {
+    // A connection with no tables at all: any prepared statement would fail, so `Ok` proves none ran.
+    let bare = rusqlite::Connection::open_in_memory().expect("in-memory db");
+    let found = decision_ids_on_record(&bare, "any-task", &[], &[]).expect("empty input issues no statement");
+    assert!(found.is_empty());
+    // Candidates fully covered by the in-scope list reduce to empty too.
+    let covered = decision_ids_on_record(&bare, "any-task", &strings(&["D-A"]), &strings(&["D-A"]))
+        .expect("fully in-scope input issues no statement");
+    assert!(covered.is_empty());
+}
+
+#[test]
+fn duplicate_candidates_appear_at_most_once_in_first_seen_order() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = task_recording(&mut conn, &project.id, &actor_id, &strings(&["D-A", "D-B"]));
+        let found = decision_ids_on_record(&conn, &task, &strings(&["D-B", "D-A", "D-B", "D-A"]), &[])
+            .expect("lookup should succeed");
+        assert_eq!(found, strings(&["D-B", "D-A"]));
+    });
+}
+
+#[test]
+fn ids_the_window_already_holds_are_not_looked_up() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = task_recording(&mut conn, &project.id, &actor_id, &strings(&["D-A", "D-B"]));
+        let found = decision_ids_on_record(&conn, &task, &strings(&["D-A", "D-B"]), &strings(&["D-A"]))
+            .expect("lookup should succeed");
+        assert_eq!(found, strings(&["D-B"]));
+    });
+}
+
+#[test]
+fn the_candidate_cap_boundary_returns_exactly_the_cap_and_never_panics() {
+    with_scratch_worktree_root(|| {
+        let cap = MAX_ECHOED_DECISION_CANDIDATES;
+        let recorded = ids("D", cap + 10);
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = task_recording(&mut conn, &project.id, &actor_id, &recorded);
+
+        // exactly the cap: every one returned
+        let exact = decision_ids_on_record(&conn, &task, &recorded[..cap], &[]).expect("lookup");
+        assert_eq!(exact, recorded[..cap].to_vec());
+        // one fewer: at most that many
+        let fewer = decision_ids_on_record(&conn, &task, &recorded[..cap - 1], &[]).expect("lookup");
+        assert_eq!(fewer, recorded[..cap - 1].to_vec());
+        // one more: truncated to the cap, the extra id is never considered
+        let more = decision_ids_on_record(&conn, &task, &recorded[..cap + 1], &[]).expect("lookup");
+        assert_eq!(more.len(), cap);
+        assert_eq!(more, recorded[..cap].to_vec());
+        // far more than the cap: still bounded
+        let flood = decision_ids_on_record(&conn, &task, &recorded, &[]).expect("lookup");
+        assert_eq!(flood.len(), cap);
+    });
+}
+
+#[test]
+fn a_malformed_decisions_blob_is_an_error_not_an_empty_list() {
+    with_scratch_worktree_root(|| {
+        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
+        let task = task_recording(&mut conn, &project.id, &actor_id, &strings(&["D-A"]));
+        conn.execute("UPDATE session_summaries SET decisions = 'not json' WHERE task_id = ?1", [&task])
+            .expect("corrupt the blob");
+        let result = decision_ids_on_record(&conn, &task, &strings(&["D-A"]), &[]);
+        assert!(result.is_err(), "a failed read must surface as Err, got {result:?}");
+    });
+}
+
+#[test]
+fn a_none_lookup_result_omits_the_fabricated_echo_warning() {
+    let mut latest = summary(1);
+    latest.acknowledged_decisions = strings(&["D-OLD"]);
+    let summaries = vec![latest];
+    let current_criteria: Vec<String> = Vec::new();
+    let base = DriftInputs {
+        summaries: &summaries,
+        real_changed_paths: None,
+        head_ref: None,
+        working_tree_dirty: false,
+        pinned_criterion_ids: None,
+        current_criterion_ids: &current_criteria,
+        echoed_ids_on_record_beyond_scope: None,
+    };
+    assert!(detect_drift(&base).is_empty(), "None means the lookup did not run, not nothing on record");
+
+    // The two-sided half: the same echo with a lookup that RAN and found nothing is fabricated.
+    let ran = DriftInputs { echoed_ids_on_record_beyond_scope: Some(&[]), ..base };
+    let warnings = detect_drift(&ran);
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].kind, DriftKind::FabricatedDecisionEcho);
 }
