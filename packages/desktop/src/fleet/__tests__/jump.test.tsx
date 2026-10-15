@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { FleetListDto, FleetRowDto } from "../../adapters/tauri";
+import { activeSurface } from "../../state/keyboard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import appSource from "../../App.tsx?raw";
 import App from "../../App";
@@ -217,9 +218,18 @@ describe("the primary target: a row opens that run's session", () => {
     const { container } = await renderFleet([row({ agentRunId: "run-t" })]);
     fireEvent.click(rowFor(container, "run-t"));
     expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
-    // The shell's order: the session branch precedes the fleet branch...
-    expect(appSource.indexOf("activeAgentRunId ? (")).toBeGreaterThan(-1);
-    expect(appSource.indexOf("activeAgentRunId ? (")).toBeLessThan(appSource.indexOf("fleetSurface ? ("));
+    // The shell's order (`activeSurface`, plan 13-08): the session outranks the fleet...
+    expect(
+      activeSurface({
+        settingsOpen: false,
+        triageOpen: false,
+        reviewOpen: false,
+        sessionOpen: true,
+        fleetOpen: true,
+        worktreeInventoryOpen: false,
+        projectUnreachable: false,
+      }),
+    ).toBe("session");
     // ...so clearing the run, with the fleet field still set, leaves the fleet as the thing to render.
     act(() => useUiStore.getState().setActiveAgentRunId(null));
     const state = useUiStore.getState();

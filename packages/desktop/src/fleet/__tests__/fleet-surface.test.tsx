@@ -16,8 +16,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { FleetListDto, FleetRowDto } from "../../adapters/tauri";
 import { MARKS_BY_ID } from "../../legend/marks";
 import { RUN_STATUS_LABELS, RUN_STATUS_MARK_IDS } from "../../legend/runStatus";
+import { activeSurface } from "../../state/keyboard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import appSource from "../../App.tsx?raw";
 import { SessionSurface } from "../../session/SessionSurface";
 import { FleetSurface } from "../FleetSurface";
 
@@ -228,14 +228,19 @@ describe("the fleet opens under the session", () => {
     expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
   });
 
-  it("checks the session branch before the fleet branch in App's surface precedence", () => {
-    const source = appSource;
-    const session = source.indexOf(") : activeAgentRunId ? (");
-    const fleet = source.indexOf(") : fleetSurface ? (");
-    const unreachable = source.indexOf('project.status === "unreachable" ? (');
-    expect(session).toBeGreaterThan(-1);
-    expect(fleet).toBeGreaterThan(session);
-    expect(unreachable).toBeGreaterThan(fleet);
+  it("checks the session before the fleet, and the fleet before an unreachable project, in the surface precedence", () => {
+    // Moved from a source-position grep of `App.tsx` to the resolver itself (plan 13-08).
+    const none = {
+      settingsOpen: false,
+      triageOpen: false,
+      reviewOpen: false,
+      sessionOpen: false,
+      fleetOpen: false,
+      worktreeInventoryOpen: false,
+      projectUnreachable: false,
+    };
+    expect(activeSurface({ ...none, sessionOpen: true, fleetOpen: true })).toBe("session");
+    expect(activeSurface({ ...none, fleetOpen: true, projectUnreachable: true })).toBe("fleet");
   });
 });
 

@@ -32,6 +32,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import App from "../../App";
 import { BoardView } from "../BoardView";
 import { CommandPalette } from "../CommandPalette";
 import { FilterBar } from "../FilterBar";
@@ -53,11 +54,24 @@ vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeMenuAction: () => Promise.resolve(() => {}),
+  // `App`'s fleet watcher (plan 13-08's surface cases render `App` itself).
+  subscribeAgentEvent: () => Promise.resolve(() => {}),
+  fleetWatchRun: () => Promise.resolve(),
   openFolderDialog: () => openFolderDialogMock(),
   // `ItemDetailPanel`'s `GitFactsSection` (Phase 7 plan 07-01) calls these two directly, not
   // through `invokeCommand` — mocked here for the same reason `openFolderDialog` is.
   gitFacts: () => Promise.resolve(null),
   gitTruthFocusTask: () => Promise.resolve(),
+}));
+
+// Plan 13-08 (FNC-06): the content-area surfaces `App.tsx` chooses between, stubbed to a labelled
+// marker so the case below can assert WHICH one `activeSurface` put on screen without mounting five
+// full surfaces. None of the harness cases above render `App`, so these stubs touch nothing else.
+vi.mock("../../settings/SettingsSurface", () => ({ SettingsSurface: () => <div>settings-surface-stub</div> }));
+vi.mock("../../session/SessionSurface", () => ({ SessionSurface: () => <div>session-surface-stub</div> }));
+vi.mock("../../fleet/FleetSurface", () => ({ FleetSurface: () => <div>fleet-surface-stub</div> }));
+vi.mock("../../fleet/WorktreeInventory", () => ({
+  WorktreeInventory: () => <div>worktree-inventory-stub</div>,
 }));
 
 const EMPTY_COUNTS: BandCounts = { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 };
@@ -296,6 +310,36 @@ describe("layer-guard", () => {
     expect(useUiStore.getState().detailItemId).toBeNull();
     expect(useUiStore.getState().quickAddOpen).toBe(true);
     expect(useUiStore.getState().quickAddKind).toBe("task");
+  });
+
+  describe("the surface decision comes from activeSurface", () => {
+    // Overlaps are set through `setState`, not the store's setters: the setters keep the fleet and
+    // the inventory mutually exclusive, which would hide the precedence being asserted here.
+    it("settings_wins_over_an_open_session", async () => {
+      useUiStore.setState({ settingsOpen: true, activeAgentRunId: "run-1" });
+      render(<App />);
+      expect(await screen.findByText("settings-surface-stub")).toBeInTheDocument();
+      expect(screen.queryByText("session-surface-stub")).not.toBeInTheDocument();
+    });
+
+    it("an_open_session_wins_over_the_fleet_so_closing_it_lands_back_on_the_fleet", async () => {
+      useUiStore.setState({ activeAgentRunId: "run-1", fleetSurface: { view: "fleet" } });
+      render(<App />);
+      expect(await screen.findByText("session-surface-stub")).toBeInTheDocument();
+      expect(screen.queryByText("fleet-surface-stub")).not.toBeInTheDocument();
+
+      act(() => {
+        useUiStore.getState().setActiveAgentRunId(null);
+      });
+      expect(await screen.findByText("fleet-surface-stub")).toBeInTheDocument();
+    });
+
+    it("the fleet wins over the worktree inventory", async () => {
+      useUiStore.setState({ fleetSurface: { view: "fleet" }, worktreeInventoryOpen: true });
+      render(<App />);
+      expect(await screen.findByText("fleet-surface-stub")).toBeInTheDocument();
+      expect(screen.queryByText("worktree-inventory-stub")).not.toBeInTheDocument();
+    });
   });
 
   describe("the pure layer model", () => {

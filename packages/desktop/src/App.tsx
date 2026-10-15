@@ -24,7 +24,7 @@ import { OrphanRecoveryModal } from "./recovery/OrphanRecoveryModal";
 import { SessionSurface } from "./session/SessionSurface";
 import { LaunchOverlapToast } from "./shell/LaunchOverlapToast";
 import { SettingsSurface } from "./settings/SettingsSurface";
-import { dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
+import { activeSurface, dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { useMenuLayerSync } from "./state/menuSync";
 import { isFilterDraftActive, useUiStore } from "./state/uiStore";
 import { TriageSurface } from "./triage/TriageSurface";
@@ -298,6 +298,91 @@ function AppShell() {
 
   const project =
     projectsQuery.data.find((candidate) => candidate.id === currentProjectId) ?? projectsQuery.data[0];
+  // Which surface fills the content area is one modelled value (`state/keyboard.ts`'s
+  // `activeSurface`, Phase 13 plan 13-08, FNC-06) — the precedence order and its reasoning live
+  // there, beside `topLayer`. This is the one place that knows what "open" means for each store
+  // field; the string ids use truthiness, exactly as the conditional this replaced did.
+  const surface = activeSurface({
+    settingsOpen,
+    triageOpen: Boolean(triageSurfaceProjectId),
+    reviewOpen: reviewSurface !== null,
+    sessionOpen: Boolean(activeAgentRunId),
+    fleetOpen: fleetSurface !== null,
+    worktreeInventoryOpen,
+    projectUnreachable: project.status === "unreachable",
+  });
+  function renderSurface(): React.ReactNode {
+    switch (surface) {
+      case "settings":
+        // D-39: same "pushed into, popped back out of" shell as the session surface.
+        return <SettingsSurface onBack={() => setSettingsOpen(false)} />;
+      case "triage":
+        if (!triageSurfaceProjectId) return null;
+        return (
+          <TriageSurface
+            projectId={triageSurfaceProjectId}
+            epicsById={triageEpicsById}
+            onClose={() => setTriageSurfaceProjectId(null)}
+            onOpenSession={(agentRunId, epicId, logOffset) => {
+              setTriageSurfaceProjectId(null);
+              setActiveAgentRunId(agentRunId, null, null, epicId, logOffset);
+            }}
+          />
+        );
+      case "review":
+        if (!reviewSurface) return null;
+        return (
+          <Suspense fallback={null}>
+            <ReviewSurface
+              scope={reviewSurface.scope}
+              itemId={reviewSurface.itemId}
+              label={reviewSurface.label}
+              fromTask={reviewSurface.fromTask}
+              onBack={() => setReviewSurface(null)}
+              onOpenSession={(agentRunId, epicId, logOffset) => {
+                const taskId = reviewSurface.scope === "task" ? reviewSurface.itemId : null;
+                setReviewSurface(null);
+                setActiveAgentRunId(agentRunId, taskId, null, epicId, logOffset);
+              }}
+            />
+          </Suspense>
+        );
+      case "session":
+        if (!activeAgentRunId) return null;
+        return (
+          <SessionSurface
+            agentRunId={activeAgentRunId}
+            taskId={activeAgentRunTaskId}
+            authoringStage={activeAgentRunAuthoringStage}
+            epicId={activeAgentRunEpicId}
+            initialFeedOffset={activeAgentRunInitialLogOffset}
+            initialStatus={activeAgentRunInitialStatus}
+            onBack={() => setActiveAgentRunId(null)}
+          />
+        );
+      case "fleet":
+        return (
+          <Suspense fallback={null}>
+            <FleetSurface onClose={() => setFleetSurface(null)} />
+          </Suspense>
+        );
+      case "worktree-inventory":
+        return (
+          <Suspense fallback={null}>
+            <WorktreeInventory onClose={() => setWorktreeInventoryOpen(false)} />
+          </Suspense>
+        );
+      case "project-unreachable":
+        return <ProjectUnreachable project={project} />;
+      case "board":
+        return <Board projectId={project.id} projectName={project.name} />;
+      default: {
+        // A `UiSurface` variant without an arm above is a compile error here, not a silent blank.
+        const unhandled: never = surface;
+        return unhandled;
+      }
+    }
+  }
   return (
     <>
       <div id="app-root" className="rack-ground" style={{ display: "flex", height: "100%" }}>
@@ -308,77 +393,7 @@ function AppShell() {
         />
         {updateBannerNode}
         <div style={{ flex: 1, minHeight: 0 }}>
-          {settingsOpen ? (
-            // D-39: same "pushed into, popped back out of" shell as the session surface below —
-            // checked first, since Settings may be opened regardless of whatever the board
-            // content area was showing underneath it (an active session, an unreachable project).
-            <SettingsSurface onBack={() => setSettingsOpen(false)} />
-          ) : triageSurfaceProjectId ? (
-            // D-103: same "pushed into, popped back out of" shell as the session surface below —
-            // checked ahead of it so the route control (`board/TriageLane.tsx`'s header) always
-            // reaches the surface even though, today, it can only be set while the board itself is
-            // showing (neither Settings nor a session is open).
-            <TriageSurface
-              projectId={triageSurfaceProjectId}
-              epicsById={triageEpicsById}
-              onClose={() => setTriageSurfaceProjectId(null)}
-              onOpenSession={(agentRunId, epicId, logOffset) => {
-                setTriageSurfaceProjectId(null);
-                setActiveAgentRunId(agentRunId, null, null, epicId, logOffset);
-              }}
-            />
-          ) : reviewSurface ? (
-            // Phase 8: pushed into from the item detail panel, popped back out of on "← Board" or
-            // Escape. Checked after the triage branch and before the session branch; the board's
-            // own filters and selection live in the store and are untouched underneath.
-            <Suspense fallback={null}>
-              <ReviewSurface
-                scope={reviewSurface.scope}
-                itemId={reviewSurface.itemId}
-                label={reviewSurface.label}
-                fromTask={reviewSurface.fromTask}
-                onBack={() => setReviewSurface(null)}
-                onOpenSession={(agentRunId, epicId, logOffset) => {
-                  const taskId = reviewSurface.scope === "task" ? reviewSurface.itemId : null;
-                  setReviewSurface(null);
-                  setActiveAgentRunId(agentRunId, taskId, null, epicId, logOffset);
-                }}
-              />
-            </Suspense>
-          ) : activeAgentRunId ? (
-            // D-31: pushed into from a task, popped back out of on "← Board" — the board itself
-            // (and its own state — filters, selection, scroll) is untouched underneath this.
-            <SessionSurface
-              agentRunId={activeAgentRunId}
-              taskId={activeAgentRunTaskId}
-              authoringStage={activeAgentRunAuthoringStage}
-              epicId={activeAgentRunEpicId}
-              initialFeedOffset={activeAgentRunInitialLogOffset}
-              initialStatus={activeAgentRunInitialStatus}
-              onBack={() => setActiveAgentRunId(null)}
-            />
-          ) : fleetSurface ? (
-            // Phase 10 (D-163): checked BELOW the session branch on purpose. A session opened from
-            // the fleet only sets `activeAgentRunId`, so the session's own "← Board" (which calls
-            // `setActiveAgentRunId(null)`) lands back on the fleet, which is where draining a queue
-            // needs to land. Do not copy the triage surface's clear-itself-before-opening-a-session.
-            <Suspense fallback={null}>
-              <FleetSurface onClose={() => setFleetSurface(null)} />
-            </Suspense>
-          ) : worktreeInventoryOpen ? (
-            // Plan 10-08 (WORK-07): beside the fleet branch, below the session branch, for the same
-            // reason: a session opened from here would land back on this view.
-            <Suspense fallback={null}>
-              <WorktreeInventory onClose={() => setWorktreeInventoryOpen(false)} />
-            </Suspense>
-          ) : project.status === "unreachable" ? (
-            // D-16: an unreachable project's marker no longer matches its cached path — this
-            // surface replaces the board entirely and offers only explicit relocation, never a
-            // board rendered against a repository Flywheel can no longer verify.
-            <ProjectUnreachable project={project} />
-          ) : (
-            <Board projectId={project.id} projectName={project.name} />
-          )}
+          {renderSurface()}
         </div>
       </div>
       <CommandPalette />
