@@ -157,6 +157,28 @@ describe("FleetSurface bands", () => {
     expect((within(abandoned).getByText("Abandoned") as HTMLElement).getAttribute("data-state-class")).toBe("needs-you");
   });
 
+  it("washes the two classes that ask something of the developer, and only those (Phase 14 plan 09)", async () => {
+    // Observed on the demonstration board: a wash behind every state made five of six rows a pastel plate, so the
+    // plate stopped telling the needs-you band from the running one. Needs-you and failed carry it; running, merged
+    // and the quiet states are ink, glyph and word.
+    const states = ["blocked", "abandoned", "failed", "running", "completed", "interrupted"] as const;
+    fleetListMock.mockResolvedValue(
+      list(
+        states.map((state, i) =>
+          row({ agentRunId: `r-${state}`, taskKey: `ALP-${i + 1}`, fleetState: state, runStatus: state, endedAt: new Date().toISOString() }),
+        ),
+      ),
+    );
+    renderFleet();
+    await screen.findByText("NEEDS YOU");
+    const washed = states.filter((state) => {
+      const item = document.querySelector(`[data-fleet-state="${state}"]`) as HTMLElement;
+      const badge = within(item).getByText(RUN_STATUS_LABELS[state]) as HTMLElement;
+      return (badge.getAttribute("style") ?? "").includes("-wash");
+    });
+    expect(washed).toEqual(["blocked", "abandoned", "failed"]);
+  });
+
   it("shows the project as a column on every row and never groups by it", async () => {
     fleetListMock.mockResolvedValue(
       list([
