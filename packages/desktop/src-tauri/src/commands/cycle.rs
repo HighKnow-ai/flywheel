@@ -7,10 +7,10 @@
 //! `CYCLE_ROSTER_CEILING`. `total` / `listed` / `truncated` are the roster's own facts and the
 //! renderer MUST print them when `truncated` is true; this command invents no second window.
 
-use serde::Serialize;
-use tauri::State;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, State};
 
-use crate::commands::ipc_error;
+use crate::commands::{emit_board_changed, ipc_error, project_of};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize)]
@@ -109,4 +109,58 @@ pub fn cycle_region(state: State<AppState>, project_id: String) -> Result<CycleR
         listed: roster.cycles.len() as u32,
         truncated: roster.truncated,
     })
+}
+
+/// One epic's answer when closing a Cycle. The webview sends one of these per unfinished epic and
+/// the core refuses a close that lacks one for any of them; there is no field that applies a choice
+/// to a set of epics (DRFT-07).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpicChoiceDto {
+    pub epic_id: String,
+    #[serde(flatten)]
+    pub choice: EpicChoiceKindDto,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "choice", rename_all = "snake_case")]
+pub enum EpicChoiceKindDto {
+    MoveTo {
+        #[serde(rename = "targetCycleId")]
+        target_cycle_id: String,
+    },
+    Unassign,
+    LeaveHere,
+}
+
+/// Close a Cycle. The actor is resolved here from the store, never accepted from the webview, and
+/// the writer re-checks it is human inside its own transaction (FNC-03).
+#[tauri::command]
+pub fn cycle_close(
+    state: State<AppState>,
+    app: AppHandle,
+    cycle_id: String,
+    choices: Vec<EpicChoiceDto>,
+) -> Result<(), String> {
+    use flywheel_core::domain::cycle::{close_cycle, EpicChoice, EpicDisposition};
+    let mut conn = state.db.lock().map_err(|e| ipc_error("cycle_close:lock", e))?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
+        .map_err(|e| ipc_error("cycle_close:actor", e))?;
+    let choices: Vec<EpicChoice> = choices
+        .into_iter()
+        .map(|c| EpicChoice {
+            epic_id: c.epic_id,
+            disposition: match c.choice {
+                EpicChoiceKindDto::MoveTo { target_cycle_id } => EpicDisposition::MoveTo(target_cycle_id),
+                EpicChoiceKindDto::Unassign => EpicDisposition::Unassign,
+                EpicChoiceKindDto::LeaveHere => EpicDisposition::LeaveHere,
+            },
+        })
+        .collect();
+    close_cycle(&mut conn, &cycle_id, &choices, &actor_id).map_err(|e| ipc_error("cycle_close:close", e))?;
+    let project_id = project_of(&conn, "cycles", &cycle_id);
+    drop(conn);
+
+    emit_board_changed(&app, project_id.as_deref(), "cycle", Some(cycle_id.as_str()));
+    Ok(())
 }

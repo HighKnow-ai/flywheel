@@ -86,6 +86,7 @@ pub(crate) fn project_of(conn: &rusqlite::Connection, table: &str, id: &str) -> 
         }
         "permission_rules" => "SELECT project_id FROM permission_rules WHERE id = ?1",
         "authoring_proposals" => "SELECT project_id FROM authoring_proposals WHERE id = ?1",
+        "cycles" => "SELECT project_id FROM cycles WHERE id = ?1",
         _ => return None,
     };
     conn.query_row(sql, [id], |r| r.get::<_, String>(0)).ok()

@@ -417,6 +417,74 @@ pub fn close_cycle(
     choices: &[EpicChoice],
     actor_id: &str,
 ) -> anyhow::Result<()> {
-    let _ = (conn, cycle_id, choices, actor_id);
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    assert_human_actor_in_tx(&tx, actor_id)?;
+
+    let (project_id, state): (String, String) = tx
+        .query_row("SELECT project_id, state FROM cycles WHERE id = ?1", params![cycle_id], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .optional()?
+        .ok_or_else(|| anyhow!("cycle {cycle_id:?} does not exist"))?;
+    if state == "closed" {
+        anyhow::bail!("cycle {cycle_id:?} is already closed");
+    }
+
+    let unfinished = unfinished_epics(&tx, cycle_id)?;
+    let mut seen: Vec<&str> = Vec::new();
+    for choice in choices {
+        if !unfinished.iter().any(|e| e.id == choice.epic_id) {
+            anyhow::bail!("epic {:?} is not an unfinished epic of cycle {cycle_id:?}; nothing to decide for it", choice.epic_id);
+        }
+        if seen.contains(&choice.epic_id.as_str()) {
+            anyhow::bail!("epic {:?} was given more than one disposition", choice.epic_id);
+        }
+        seen.push(&choice.epic_id);
+        if let EpicDisposition::MoveTo(target) = &choice.disposition {
+            let target_state: Option<String> = tx
+                .query_row("SELECT state FROM cycles WHERE id = ?1", params![target], |row| row.get(0))
+                .optional()?;
+            match target_state.as_deref() {
+                None => anyhow::bail!("target cycle {target:?} does not exist"),
+                Some("closed") => anyhow::bail!("target cycle {target:?} is closed and cannot receive work"),
+                _ if target == cycle_id => anyhow::bail!("an epic cannot be moved into the cycle being closed"),
+                _ => {}
+            }
+        }
+    }
+
+    for epic in &unfinished {
+        let Some(choice) = choices.iter().find(|c| c.epic_id == epic.id) else {
+            anyhow::bail!(
+                "cannot close cycle {cycle_id:?}: epic {} ({}) has no disposition; every unfinished epic is \
+                 decided individually, rather than accepting the set wholesale (DRFT-07)",
+                epic.key, epic.id
+            );
+        };
+        let (name, target) = match &choice.disposition {
+            EpicDisposition::MoveTo(target) => {
+                assign_epic_in_tx(&tx, &epic.id, target, actor_id, &now)?;
+                ("move_to", Some(target.as_str()))
+            }
+            EpicDisposition::Unassign => {
+                remove_epic_in_tx(&tx, &epic.id, actor_id, &now)?;
+                ("unassign", None)
+            }
+            EpicDisposition::LeaveHere => ("leave_here", None),
+        };
+        let payload = serde_json::json!({
+            "choice": name, "target_cycle_id": target, "label": format!("Decided {} when closing the cycle: {name}", epic.key),
+        });
+        append_cycle_event(&tx, &project_id, cycle_id, Some(&epic.id), actor_id, "cycle.epic_disposed", &payload, &now)?;
+    }
+
+    tx.execute("UPDATE cycles SET state = 'closed', updated_at = ?2 WHERE id = ?1", params![cycle_id, now])
+        .context("failed to close cycle")?;
+    let payload = serde_json::json!({
+        "field": "state", "before": state, "after": "closed", "label": "Closed the cycle",
+    });
+    append_cycle_event(&tx, &project_id, cycle_id, None, actor_id, "cycle.closed", &payload, &now)?;
+    tx.commit().context("failed to commit close_cycle transaction")?;
     Ok(())
 }

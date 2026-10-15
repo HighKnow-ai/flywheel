@@ -167,6 +167,7 @@ fn main() {
             commands::board::board_search,
             commands::board::board_epic_progress,
             commands::cycle::cycle_region,
+            commands::cycle::cycle_close,
             commands::actor::actor_list,
             commands::criterion::criterion_create,
             commands::criterion::criterion_update,
