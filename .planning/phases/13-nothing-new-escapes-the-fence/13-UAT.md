@@ -3,27 +3,33 @@ status: testing
 phase: 13-nothing-new-escapes-the-fence
 source: [13-VERIFICATION.md]
 started: 2026-10-15T15:30:00Z
-updated: 2026-10-15T15:30:00Z
+updated: 2026-10-15T16:00:00Z
 ---
 
 ## Current Test
 
-number: 1
-name: Decide the two criterion clauses that cannot exist until Phase 16, neither covered by an override
+number: 2
+name: Confirm the criterion-1 override still reads as intended, given BL-6
 expected: |
-  Owner either accepts an override for each (as was done for the cycle chain and the live run) or
-  adds the obligation to Phase 16's success criteria. Today Phase 16 SC4/SC5 mention neither
-  `assert_human_actor_in_tx` nor the scale fixture, so nothing downstream forces them.
-
-  (a) "accepting an ADR" refuses an agent at the database — criterion 2, FNC-03
-  (b) the 40-ADR / 30 KB PRD scale fixture — criterion 4
+  Owner confirms the handoff to Phase 14 will be written into Phase 14's criteria, or amends the
+  override reason. The override says the cycle-table FK clause "moved to Phase 14 success
+  criterion 1" — but Phase 14 SC1 does not contain it.
 awaiting: user response
 
 ## Tests
 
 ### 1. Decide the two criterion clauses that cannot exist until Phase 16, neither covered by an override
 expected: Owner either accepts an override for each, or adds the obligation to Phase 16's success criteria. Phase 16 SC4/SC5 currently mention neither `assert_human_actor_in_tx` nor the scale fixture, so nothing downstream forces them. Clause (a) is "accepting an ADR refuses an agent at the database" (criterion 2, FNC-03); clause (b) is the 40-ADR / 30 KB PRD scale fixture (criterion 4). Both objects (ADR table, PRD table) do not exist yet, so no code can satisfy either today.
-result: [pending]
+result: pass
+reported: "1"
+resolution: |
+  Owner chose option 1 — add both clauses to Phase 16's success criteria rather than accept
+  overrides, so the obligation survives in a place that is checked when the ADR and PRD tables
+  land. Neither clause is overridden in Phase 13; both are now enforced downstream.
+  - Clause (a) appended to Phase 16 success criterion 4 (the ADR state/writer criterion).
+  - Clause (b) appended to Phase 16 success criterion 5 (the bounded-packet criterion).
+  Each carries a provenance note naming Phase 13, the reason it could not be asserted there,
+  and the owner ruling date (2026-10-15).
 
 ### 2. Confirm the criterion-1 override still reads as intended, given BL-6
 expected: Owner confirms the handoff to Phase 14 will be written into Phase 14's criteria, or amends the override reason. The override's stated destination — "clause moved to Phase 14 success criterion 1" — is not true in `ROADMAP.md`: Phase 14 SC1 at line 237 does not carry the cycle-table FK clause. Fix is one sentence appended to Phase 14 SC1.
@@ -40,9 +46,9 @@ result: [pending]
 ## Summary
 
 total: 4
-passed: 0
+passed: 1
 issues: 0
-pending: 4
+pending: 3
 skipped: 0
 blocked: 0
 
