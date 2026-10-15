@@ -11,7 +11,8 @@
     "tauri": "tauri",
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:browser:dark": "vitest run --config vitest.browser.dark.config.ts",
-    "test:browser:motion": "vitest run --config vitest.browser.motion.config.ts"
+    "test:browser:motion": "vitest run --config vitest.browser.motion.config.ts",
+    "test:browser:forced-colors": "vitest run --config vitest.browser.forced-colors.config.ts"
   },
   "dependencies": {
     "@radix-ui/react-dismissable-layer": "1.1.19",

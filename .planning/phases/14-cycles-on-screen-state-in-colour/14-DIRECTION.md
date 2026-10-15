@@ -141,6 +141,32 @@ the proof, and it is the point of having the proof.
 Under every deficiency, and equally for a person with typical vision, the state is identified by its glyph and its word first; the wash
 and the ink are the faster channel and not a sufficient one (D-15, criterion 3).
 
+### Forced colors
+
+Measured by plan 14-08 in `vitest.browser.forced-colors.config.ts` and `board/__tests__/browser/forced-colors.browser.test.tsx`
+(22 tests, one run per arm of the browser suite).
+
+**The engine is Chromium, not WebKit.** Forced colors is a Windows mechanism and the Windows shell renders in WebView2, which is Chromium. The
+other browser arms use WebKit for the macOS shell. Under WebKit with `forcedColors: "active"` the media query reports true and
+nothing is substituted (the computed `color` stayed `rgb(150, 103, 8)`), so a WebKit arm would pass whether or not the product
+survives. The test asserts the substitution itself (the ink equals `CanvasText` and is not the class token), not only the media query, and
+fails under WebKit with the claim set. The arm runs only this test: the rest of the browser suite measures painted colour, which forced
+colors removes by definition.
+
+**What the system does to a state.** All five class inks, the glyphs and the edge borders collapse to `CanvasText`; the wash
+background collapses to `Canvas` and so paints nothing; the edge variant keeps its 1px solid border on all four sides (the engine forces the
+border colour, it does not drop the border). The five states are therefore told apart by glyph and word alone, which the test asserts for
+all ten pairs.
+
+**The fallback is a measured no-op.** Nothing was added to `styles/tokens.css`, so the per-mode parse in `contrast.test.ts` still slices
+the same two blocks. The glyph is drawn (14 by 14), the word or the accessible name survives, the edge variant's boundary survives, and
+the pairs are told apart, all with no `forced-colors` rule. The wash is the one channel lost, and it is acceptable only because a wash
+is never the sole carrier of a state (D-15): that stays true as a constraint on any caller, not only on the component.
+
+**Hand-off to 14-09.** The needs-decision and CI-failed chips in `BoardRow.tsx`, which still spend `--destructive-strip`, were measured in
+the same arm: under forced colors each keeps its glyph, its word and its 1px solid border (forced to `CanvasText`), exactly as the edge
+variant does, so the pending rewire to `StateBadge` does not need a forced-colors fix. Asserted in the same file.
+
 ## Ground lightness floor
 
 Filled by plan 14-09, from 14-08's measurements. It will state the lightness the dark ground must reach for a dark wash to read at
