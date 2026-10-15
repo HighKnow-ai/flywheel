@@ -11,6 +11,7 @@ pub mod authoring;
 pub mod board;
 pub mod change_flags;
 pub mod criterion;
+pub mod cycle;
 pub mod dispatch;
 pub mod epic;
 pub mod events;

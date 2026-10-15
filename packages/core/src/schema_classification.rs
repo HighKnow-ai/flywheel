@@ -42,6 +42,8 @@ pub const TABLE_CLASSES: &[(&str, TableClass)] = &[
     ("authoring_proposals_fts", TableClass::SearchIndex),
     // Diff anchors pinned to a criterion; written by the criterion writer.
     ("criterion_anchors", TableClass::Canonical),
+    // The Cycle: the scope-boxed, undated grouping layer above the epic.
+    ("cycles", TableClass::Canonical),
     // Task-to-task ordering edges of a dispatch plan.
     ("dispatch_edges", TableClass::Runtime),
     // Membership of a task in a dispatch plan.

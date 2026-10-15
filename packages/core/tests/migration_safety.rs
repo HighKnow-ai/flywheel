@@ -40,29 +40,41 @@ fn backup_file_count(backups_dir: &std::path::Path) -> usize {
 /// Build the N-1 fixture: every migration source except the newest, applied to a fresh scratch
 /// file. Returns the open connection, positioned at `user_version = N-1`.
 fn build_n_minus_1_fixture(db_path: &std::path::Path) -> Connection {
+    build_fixture_through(db_path, migration_sources().len() - 1)
+}
+
+/// The fixture the migration 0023 tests start from: migrations 0001 to 0022 only. A test about what
+/// 0023 does to existing data must start before 0023, so it names that boundary rather than reading
+/// "the newest" (which moved the moment 0024 landed).
+fn build_pre_0023_fixture(db_path: &std::path::Path) -> Connection {
+    const MIGRATIONS_BEFORE_0023: usize = 22;
+    build_fixture_through(db_path, MIGRATIONS_BEFORE_0023)
+}
+
+/// Apply the first `count` migration sources to a fresh scratch file.
+fn build_fixture_through(db_path: &std::path::Path, count: usize) -> Connection {
     let all_sources = migration_sources();
     assert!(
         all_sources.len() >= 2,
         "this suite assumes at least two migrations exist to have a meaningful N-1 fixture"
     );
-    let n_minus_1_sources = &all_sources[..all_sources.len() - 1];
+    let fixture_sources = &all_sources[..count];
 
     let mut conn = Connection::open(db_path).expect("failed to create the scratch file");
     apply_pragmas(&conn).expect("failed to apply pragmas to the fixture connection");
 
     let fixture_migrations =
-        Migrations::new(n_minus_1_sources.iter().map(|src| M::up(src)).collect());
+        Migrations::new(fixture_sources.iter().map(|src| M::up(src)).collect());
     fixture_migrations
         .to_latest(&mut conn)
-        .expect("the N-1 fixture migrations should apply cleanly");
+        .expect("the fixture migrations should apply cleanly");
 
     let user_version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("failed to read user_version");
     assert_eq!(
-        user_version,
-        (all_sources.len() - 1) as i64,
-        "the fixture must report user_version = N-1 before the real migration runs"
+        user_version, count as i64,
+        "the fixture must report the user_version of the migrations it applied before the real migration runs"
     );
 
     conn
@@ -518,7 +530,7 @@ fn migration_0023_rebuild_preserves_criterion_anchors() {
     let backups_dir = dir.path().join("backups");
 
     let (task_id, criterion_id, tasks_before, epics_before, anchors_before) = {
-        let mut conn = build_n_minus_1_fixture(&db_path);
+        let mut conn = build_pre_0023_fixture(&db_path);
         let actor_id = local_human_actor_id(&conn).expect("seeded human actor should exist");
         let project = create_project(&mut conn, &actor_id, "Anchors", "/repo", "ANC", "main")
             .expect("create_project should succeed");
@@ -589,7 +601,7 @@ fn migration_0023_applies_to_a_fresh_database() {
 fn migration_0023_rebuilds_empty_tables_cleanly() {
     let dir = scratch_dir();
     let db_path = dir.path().join("flywheel.db");
-    drop(build_n_minus_1_fixture(&db_path));
+    drop(build_pre_0023_fixture(&db_path));
 
     let conn = open_and_migrate(&db_path, &dir.path().join("backups"))
         .expect("an N-1 database with empty tasks and epics should migrate");
@@ -608,7 +620,7 @@ fn migration_0023_preserves_task_rank_order() {
 
     let order_sql = "SELECT id FROM tasks ORDER BY rank ASC";
     let before = {
-        let mut conn = build_n_minus_1_fixture(&db_path);
+        let mut conn = build_pre_0023_fixture(&db_path);
         let actor_id = local_human_actor_id(&conn).unwrap();
         let project = create_project(&mut conn, &actor_id, "Order", "/repo", "ORD", "main").unwrap();
         // Created in one order, ranked in another, so rank order differs from insertion order.
@@ -658,7 +670,7 @@ fn migration_0023_keeps_search_in_sync() {
     let dir = scratch_dir();
     let db_path = dir.path().join("flywheel.db");
     {
-        let mut conn = build_n_minus_1_fixture(&db_path);
+        let mut conn = build_pre_0023_fixture(&db_path);
         let actor_id = local_human_actor_id(&conn).unwrap();
         let project = create_project(&mut conn, &actor_id, "Search", "/repo", "SRC", "main").unwrap();
         let gap_task = create_task(&mut conn, &project.id, &actor_id, "gapfill task", None).unwrap();

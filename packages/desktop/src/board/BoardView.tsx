@@ -37,6 +37,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type Keyboard
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { BoardRow, ROW_HEIGHT_BY_KIND, type RowKind } from "./BoardRow";
 import { StatusBand } from "./StatusBand";
+import { CycleRegion } from "./CycleRegion";
 import { EpicHeaderRow, rollUpChangeFlags } from "./EpicHeaderRow";
 import { ChallengeRow } from "./ChallengeRow";
 import { summaryLine } from "./summaryLine";
@@ -1152,6 +1153,7 @@ export function BoardView({
           {summaryText}
         </p>
       )}
+      <CycleRegion projectId={projectId} />
       {epicRosterNotice && (
         <div
           role="status"

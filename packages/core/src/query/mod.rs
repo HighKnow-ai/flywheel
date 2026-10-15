@@ -25,6 +25,7 @@
 pub mod agent_runs;
 pub mod authoring;
 pub mod change_flags;
+pub mod cycle_progress;
 pub mod epic_progress;
 pub mod events;
 pub mod filter;

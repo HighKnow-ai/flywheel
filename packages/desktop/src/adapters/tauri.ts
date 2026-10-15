@@ -1570,6 +1570,36 @@ export async function boardEpicProgress(projectId: string): Promise<EpicProgress
 }
 
 /**
+ * The Cycle region's numbers (Phase 14 plan 14-01, RECD-09) — mirrors `commands/cycle.rs`
+ * field-for-field. `active: null` means the project has no active Cycle, which the region says in
+ * words. `progress` is folded at read time from every task of every epic in the Cycle; no
+ * percentage crosses IPC, so any percentage the UI draws is computed from the integer pair.
+ */
+export interface CycleProgressDto {
+  epics: number;
+  tasksTotal: number;
+  tasksDone: number;
+  agentsRunning: number;
+  agentsBlocked: number;
+}
+
+export interface CycleRegionDto {
+  active: {
+    id: string;
+    key: string;
+    goal: string;
+    exitCriteria: string | null;
+    state: string;
+    rank: string;
+    progress: CycleProgressDto;
+  } | null;
+}
+
+export async function cycleRegion(projectId: string): Promise<CycleRegionDto> {
+  return invokeCommand<CycleRegionDto>("cycle_region", { projectId });
+}
+
+/**
  * The fixed forge vocabulary (D-119) — `null` clears a project's override back to detection. Thin
  * typed wrapper over `settings_set_project_forge`.
  */
