@@ -408,14 +408,35 @@ pub fn delete_epic_in_tx(tx: &rusqlite::Transaction, actor_id: &str, epic_id: &s
 /// a no-op: `Ok` is returned, `updated_at` is left untouched, and no event is appended. An
 /// invalid status is rejected by the schema CHECK constraint in migration `0002_board_schema.sql`
 /// — this function performs no application-layer allow-list of its own (BOARD-04, T-01-15).
+///
+/// Opens its own transaction around [`set_epic_status_in_tx`].
+///
+/// `epics.status` has one writer, [`set_epic_status_in_tx`]. Its only machine caller is the epic
+/// deriver (`status_derivation::derive_epic_status_in_tx`, D-13). No IPC command reaches it any
+/// more (D-14 deleted `epic_set_status`), so no human-reachable path remains: the only direct
+/// callers are seeding and tests.
 pub fn set_epic_status(
     conn: &mut Connection,
     actor_id: &str,
     epic_id: &str,
     new_status: &str,
 ) -> anyhow::Result<()> {
-    let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    set_epic_status_in_tx(&tx, actor_id, epic_id, new_status)?;
+    tx.commit().context("failed to commit set_epic_status transaction")?;
+    Ok(())
+}
+
+/// The statement body [`set_epic_status`] issues, for a caller already holding a transaction (the
+/// epic deriver, which composes it with the task derivation). Same no-op-on-redundant guarantee.
+/// Does not commit.
+pub fn set_epic_status_in_tx(
+    tx: &rusqlite::Transaction,
+    actor_id: &str,
+    epic_id: &str,
+    new_status: &str,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
 
     let (project_id, current_status): (String, String) = tx
         .query_row(
@@ -426,7 +447,6 @@ pub fn set_epic_status(
         .with_context(|| format!("epic {epic_id:?} not found"))?;
 
     if current_status == new_status {
-        tx.commit().context("failed to commit no-op set_epic_status transaction")?;
         return Ok(());
     }
 
@@ -436,7 +456,7 @@ pub fn set_epic_status(
     )
     .context("failed to set epic status")?;
 
-    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "status",
         "before": current_status,
@@ -444,7 +464,7 @@ pub fn set_epic_status(
         "label": format!("Changed status from {current_status} to {new_status}"),
     });
     append_event(
-        &tx,
+        tx,
         &project_id,
         "local",
         sequence,
@@ -457,8 +477,6 @@ pub fn set_epic_status(
         &payload,
         &now,
     )?;
-
-    tx.commit().context("failed to commit set_epic_status transaction")?;
     Ok(())
 }
 

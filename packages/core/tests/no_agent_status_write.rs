@@ -70,25 +70,29 @@ const SCAN_ROOTS: [&str; 3] = ["packages/core/src", "packages/desktop/src-tauri/
 /// The one file allowed to hold the statement: the shared status writer.
 const THE_WRITER: &str = "packages/core/src/domain/task.rs";
 
+/// The epic equivalent (D-13): `epics.status` has one writer too, `set_epic_status_in_tx`, reached
+/// through the epic deriver. There is no human-reachable path left (D-14).
+const THE_EPIC_WRITER: &str = "packages/core/src/domain/epic.rs";
+
 /// The matcher both the real gate and the planted-violation test drive. Skips whole-line comments
 /// and migrations. Same normalising shape as `priority_is_opt_in.rs`: the code lines are joined,
 /// whitespace is collapsed and the text lowercased, so letter case and line breaks are no way
 /// around it. Every `update tasks set` is then cut at the next ` where ` (or closing `"`) and
 /// flagged when `status` is assigned anywhere in that SET list, so column order is no way around
 /// it either. Pushes one `{path}: raw tasks.status write: {SET list}` per offending statement.
-fn scan_body_for_raw_status_writes(path: &Path, body: &str, hits: &mut Vec<String>) {
+fn scan_body_for_raw_status_writes(path: &Path, body: &str, table: &str, hits: &mut Vec<String>) {
     if path.to_string_lossy().contains("src/db/migrations/") {
         return;
     }
     let code = body.lines().filter(|l| !is_whole_line_comment(l)).collect::<Vec<_>>().join(" ");
     let normal = code.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
-    const STMT: &str = "update tasks set";
-    for (i, _) in normal.match_indices(STMT) {
-        let rest = &normal[i + STMT.len()..];
+    let stmt = format!("update {table} set");
+    for (i, _) in normal.match_indices(&stmt) {
+        let rest = &normal[i + stmt.len()..];
         let set_list = rest.split(" where ").next().unwrap_or(rest).split('"').next().unwrap_or(rest);
         let compact: String = set_list.chars().filter(|c| !c.is_whitespace()).collect();
         if compact.starts_with("status=") || compact.contains(",status=") {
-            hits.push(format!("{}: raw tasks.status write:{}", path.display(), set_list));
+            hits.push(format!("{}: raw {table}.status write:{}", path.display(), set_list));
         }
     }
 }
@@ -101,7 +105,7 @@ fn no_module_outside_set_task_status_in_tx_writes_tasks_status() {
         let files = sources_under(&root.join(rel));
         assert!(!files.is_empty(), "{rel} yielded no source files: the gate would be scanning nothing");
         for (path, body) in files {
-            scan_body_for_raw_status_writes(&path, &body, &mut hits);
+            scan_body_for_raw_status_writes(&path, &body, "tasks", &mut hits);
         }
     }
     hits.sort();
@@ -116,9 +120,44 @@ fn no_module_outside_set_task_status_in_tx_writes_tasks_status() {
     assert_eq!(hits.len(), 1, "the writer itself must still exist, exactly once: {hits:?}");
 }
 
+/// The epic path: exactly one `UPDATE epics SET status`, inside `set_epic_status_in_tx` (D-13).
+#[test]
+fn no_module_outside_set_epic_status_in_tx_writes_epics_status() {
+    let root = workspace_root();
+    let mut hits = Vec::new();
+    for rel in SCAN_ROOTS {
+        for (path, body) in sources_under(&root.join(rel)) {
+            scan_body_for_raw_status_writes(&path, &body, "epics", &mut hits);
+        }
+    }
+    hits.sort();
+    let outside: Vec<&String> = hits.iter().filter(|h| !h.contains(THE_EPIC_WRITER)).collect();
+    assert!(
+        outside.is_empty(),
+        "a raw `UPDATE epics SET status` exists outside {THE_EPIC_WRITER}. `epics.status` has one \
+         writer, `set_epic_status_in_tx`, reached through the epic deriver (D-13). Offenders:\n{}",
+        outside.iter().map(|h| h.as_str()).collect::<Vec<_>>().join("\n")
+    );
+    assert_eq!(hits.len(), 1, "the epic writer itself must still exist, exactly once: {hits:?}");
+}
+
+#[test]
+fn the_epic_status_write_gate_fires_on_a_planted_raw_update() {
+    let planted = "tx.execute(\"UPDATE epics SET updated_at = ?1, status = ?2 WHERE id = ?3\", p);";
+    let mut hits = Vec::new();
+    scan_body_for_raw_status_writes(Path::new("packages/core/src/domain/planted.rs"), planted, "epics", &mut hits);
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    let mut other = Vec::new();
+    scan_body_for_raw_status_writes(Path::new("src/x.rs"), planted, "tasks", &mut other);
+    assert!(other.is_empty(), "an epics statement is not a tasks write: {other:?}");
+    let mut touch = Vec::new();
+    scan_body_for_raw_status_writes(Path::new("src/x.rs"), "\"UPDATE epics SET integration_branch = ?1 WHERE id = ?2\"", "epics", &mut touch);
+    assert!(touch.is_empty(), "no status column: {touch:?}");
+}
+
 fn status_hits(path: &str, body: &str) -> Vec<String> {
     let mut hits = Vec::new();
-    scan_body_for_raw_status_writes(Path::new(path), body, &mut hits);
+    scan_body_for_raw_status_writes(Path::new(path), body, "tasks", &mut hits);
     hits
 }
 

@@ -22,6 +22,15 @@
 //! [`is_review_edge`]), exactly as the edge detector it replaced did: a human move stands until
 //! the forge state changes again. Do not "tidy" this into uniform level-based.
 //!
+//! Fourth, **the epic level rides the same floor** (D-13, extending D-08 one level up).
+//! `epics.status` has one writer too, [`derive_epic_status_in_tx`]: the candidate comes from the
+//! epic's tasks ([`derive_epic_candidate`]) and is written as `max(candidate, current)` through
+//! the same [`band_rank`] comparison, so `done` is terminal there for the same reason. An epic
+//! with no tasks is left where it is - zero tasks is not "all tasks done". It is derived after its
+//! task inside [`derive_status_in_tx`], so it has no trigger point of its own: no scheduler, no
+//! cron entry, no interval. A manual epic status control stays rejected (14-CONTEXT Deferred
+//! Ideas); a human who lowers an epic is respected by the floor, as at the task level (A-03).
+//!
 //! Callers: `forge::transitions::apply_forge_observation` (the forge edge), the desktop scheduler's
 //! cold tick (tasks the forge read does not cover), and `domain::worktree` create and remove (the
 //! `todo -> in_progress` edge). None of them writes a status of its own.
@@ -30,6 +39,7 @@ use anyhow::Context;
 use chrono::Utc;
 use rusqlite::{params, Connection, Transaction};
 
+use crate::domain::epic::set_epic_status_in_tx;
 use crate::domain::event::{append_event, next_sequence};
 use crate::domain::task::set_task_status_in_tx;
 use crate::forge::transitions::EVENT_DONE_WITH_UNMET_CRITERIA;
@@ -103,6 +113,26 @@ pub enum Derivation {
 /// `review_edge` is true only on the call where the forge state changed into an open request —
 /// see [`is_review_edge`]. The caller that observed the change is the only one who knows.
 pub fn derive_status_in_tx(
+    tx: &Transaction,
+    task_id: &str,
+    actor_id: &str,
+    expected_status: Option<&str>,
+    review_edge: bool,
+) -> anyhow::Result<Derivation> {
+    let outcome = derive_task_status_in_tx(tx, task_id, actor_id, expected_status, review_edge)?;
+    // The epic is derived after its task in the same transaction, so the two levels cannot
+    // disagree within a tick. A refused write changed nothing, so there is nothing to follow.
+    if !matches!(outcome, Derivation::Refused { .. }) {
+        let epic_id: Option<String> =
+            tx.query_row("SELECT epic_id FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))?;
+        if let Some(epic_id) = epic_id {
+            derive_epic_status_in_tx(tx, &epic_id, actor_id)?;
+        }
+    }
+    Ok(outcome)
+}
+
+fn derive_task_status_in_tx(
     tx: &Transaction,
     task_id: &str,
     actor_id: &str,
@@ -209,16 +239,63 @@ pub fn derive_status(
     Ok(outcome)
 }
 
-/// The epic candidate for a task status distribution (D-13). Stub.
-pub fn derive_epic_candidate(_by_status: &[(String, u32)]) -> Option<&'static str> {
-    None
+/// The epic candidate for a task status distribution (D-13). Pure: no connection, no clock.
+///
+/// `in_progress` if any task is; `in_review` when every task is `in_review` or `done` and at
+/// least one is `in_review`; `done` when every task is `done`; `todo` when any task is `todo`;
+/// `backlog` otherwise. **`None` when the epic has no tasks**: zero tasks is not "all tasks done",
+/// and an empty epic promoted to `done` would be the board lying. The caller leaves such an epic
+/// where it is.
+pub fn derive_epic_candidate(by_status: &[(String, u32)]) -> Option<&'static str> {
+    let count = |status: &str| -> u32 {
+        by_status.iter().filter(|(s, _)| s == status).map(|(_, n)| *n).sum()
+    };
+    let total: u32 = by_status.iter().map(|(_, n)| *n).sum();
+    if total == 0 {
+        None
+    } else if count("in_progress") > 0 {
+        Some("in_progress")
+    } else if count("done") == total {
+        Some("done")
+    } else if count("in_review") + count("done") == total {
+        Some("in_review")
+    } else if count("todo") > 0 {
+        Some("todo")
+    } else {
+        Some("backlog")
+    }
 }
 
-/// Derive and write an epic's status inside the caller's transaction (D-13). Stub.
+/// Derive and, where the floor allows, write the status of `epic_id` inside the caller's
+/// transaction (D-13). The same floor as the task level: `max(candidate, current)` over
+/// [`BAND_ORDER`] via [`band_rank`], so `done` is terminal and a status a human set stands until
+/// the tasks' own candidate is higher. Nothing is written, and no event appended, when the
+/// resolved band equals the current one or the epic has no tasks.
 pub fn derive_epic_status_in_tx(
-    _tx: &Transaction,
-    _epic_id: &str,
-    _actor_id: &str,
+    tx: &Transaction,
+    epic_id: &str,
+    actor_id: &str,
 ) -> anyhow::Result<Derivation> {
-    Ok(Derivation::Unchanged)
+    let current: String = tx
+        .query_row("SELECT status FROM epics WHERE id = ?1", params![epic_id], |row| row.get(0))
+        .with_context(|| format!("epic {epic_id:?} not found"))?;
+    let Some(current_rank) = band_rank(&current) else {
+        return Ok(Derivation::Unchanged);
+    };
+
+    let by_status = tx
+        .prepare("SELECT status, COUNT(*) FROM tasks WHERE epic_id = ?1 GROUP BY status")?
+        .query_map(params![epic_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to count the epic's tasks by status")?;
+    let Some(candidate) = derive_epic_candidate(&by_status) else {
+        return Ok(Derivation::Unchanged);
+    };
+    let winner = BAND_ORDER[band_rank(candidate).unwrap_or(0).max(current_rank)];
+    if winner == current {
+        return Ok(Derivation::Unchanged);
+    }
+
+    set_epic_status_in_tx(tx, actor_id, epic_id, winner)?;
+    Ok(Derivation::Wrote(winner.to_string()))
 }
