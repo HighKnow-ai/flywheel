@@ -80,9 +80,66 @@ beside it.
 
 ## CVD thresholds
 
-Filled by plan 14-08. It will state the colour-vision-deficiency simulation used, the minimum separation between each pair of the
-five classes that must hold under each simulated deficiency, the measured separation of the shipped values, and which pairs rely on
-the glyph and the word alone because hue cannot separate them.
+Written by plan 14-08, VIS-03. Implemented in `theme/cvd.ts` with no dependency; asserted by `theme/__tests__/cvd.test.ts` over every
+unordered pair of the five classes (ten pairs), for the `text` and the `wash` role, in both modes, under each of the three deficiencies.
+
+| Choice | Decision | Why | Rejected |
+|---|---|---|---|
+| Simulation | Machado, Oliveira and Fernandes 2009, severity 1.0, one 3x3 matrix per deficiency applied in linear sRGB | Physiologically based, the model most simulation tools use; nine coefficients per deficiency, so it is a few lines. Every row sums to 1, so a grey is unchanged (asserted). | Brettel-Vienot-Mollon 1997: needs a per-deficiency half-plane test and an LMS conversion, more code for a result close to Machado at full severity. The older Vienot 1999 matrices: protanopia and deuteranopia only, tritanopia left out, and tritanopia is a pair the plan names. |
+| Metric | CIE76 colour difference (Euclidean distance in CIELAB, D65) between the two SIMULATED colours | A perceptual space, so the number is comparable across hues; about ten lines; the text and the wash floors below are both stated in it. | CIEDE2000: a hundred lines of corrections whose point is fine hue and lightness weighting near neutrals, and it divides lightness differences on near-white by about 1.7, which would only make the wash numbers look worse without changing a verdict about people. WCAG contrast: a luminance ratio throws away exactly the hue distance this measures. Euclidean distance in RGB: not perceptual. |
+| Text floor | **10** | Two ink colours in the same line of text must be told apart without placing them side by side. Differences below about 5 are read as one colour with a variation, and 10 is where two category colours stay separable at 14px and in a one-pixel outline. | 2.3 (the just-noticeable difference): that is the floor for detecting a difference side by side, not for naming a category. 20 and above: the four hues of the vocabulary cannot be spread that far in both modes while each keeps its 4.5:1 floor. |
+| Wash floor | **2.3**, the classical just-noticeable difference | A wash is a faint ground tint held to the luminance budget of the weakest text role, so it is a reinforcing channel and never the identifier: the glyph and the word identify. It need only be a perceptible difference, and below the just-noticeable difference it would not be one. | A floor equal to the text floor: the wash cannot reach it and still leave every text role AA on it (see Ground lightness floor). |
+
+The quiet class has no wash: its wash is the transparent rest value, so the ground stands in for it and the pair is "tinted against not
+tinted".
+
+**Rounding, by one rule.** A simulated colour is rounded to the nearest 8-bit channel; the metric is computed from those channels and rounded to two decimals; a
+pair passes when that rounded value is greater than or equal to the floor. `cvd.test.ts` builds a pair at each floor out of greys (one
+8-bit step either side) and asserts the pass and the fail, so each floor is a measured edge and not an untested constant.
+
+### What was measured, and what moved
+
+Before any value moved, 7 of the 120 asserted pair-under-deficiency checks failed (text: 1; wash: 6). All seven were real:
+
+| Mode | Role | Pair | Deficiency | Separation | Floor |
+|---|---|---|---|---|---|
+| light | text | needs-you `#966708` / failed `#db1f2f` | deuteranopia | 5.68 | 10 |
+| light | wash | running `#edfafd` / merged `#faf7fd` | protanopia | 0.60 | 2.3 |
+| light | wash | running `#edfafd` / merged `#faf7fd` | deuteranopia | 0.73 | 2.3 |
+| light | wash | needs-you `#fef6e7` / failed `#fef6f7` | tritanopia | 1.46 | 2.3 |
+| light | wash | running `#edfafd` / failed `#fef6f7` | protanopia | 2.24 | 2.3 |
+| dark | wash | failed `#240508` / quiet (ground `#0a0a0a`) | protanopia | 1.28 | 2.3 |
+| dark | wash | needs-you `#130d01` / failed `#240508` | deuteranopia | 1.49 | 2.3 |
+
+The floors were fixed before the numbers were seen, and no floor moved. The values moved:
+
+- **Light failed text `#db1f2f` to `#bb1b28`.** A saturated red and an amber collapse to two olive browns of nearly the same lightness under
+  deuteranopia, and hue is all that separated them. Only lightness is left to separate them, so the red goes darker: same hue and
+  saturation (355 / 75), lightness stepped down until the separation cleared the floor with a margin (11.2, against 5.7). The
+  darker red still clears AA by a wide margin (5.93 on the worst ground). The lighter direction cannot work: `#e12d3c`, where the
+  separation first clears 10, is 4.21:1.
+- **The four light washes** moved by 1.2 to 3.0 CIE76 units and **the four dark washes** by 0.5 to 2.5, found by a bounded search: each wash
+  free to move within 15 degrees of its hue (25 in dark), subject to every text role at 4.5:1 and every non-text role at 3:1 on it,
+  minimising the shortfall against a 2.5 target and then the distance from the previous value. The shortfall went to zero in both
+  modes. The changes are small because the constraint is tight, and they cost nothing that the proofs in `contrast.test.ts` do not still hold.
+
+Measured separations of the shipped values (minimum over the three deficiencies; the deficiency that sets it is in the test's failure
+message when a pair fails):
+
+| Mode | Role | Nearest pair | Separation |
+|---|---|---|---|
+| light | text | running / quiet, protanopia | 10.9 |
+| light | text | needs-you / failed, deuteranopia | 11.2 |
+| dark | text | merged / quiet, tritanopia | 19.3 |
+| light | wash | running / failed, protanopia | 2.6 |
+| dark | wash | needs-you / failed, protanopia | 2.6 |
+
+The text pairs of the light mode sit within one unit of the floor on two pairs. That is where a hue shift in the next tuning pass can break
+the proof, and it is the point of having the proof.
+
+**Which pairs rely on the glyph and the word alone.** None fails its floor, but a wash at 2.6 is a perceptible difference and nothing more.
+Under every deficiency, and equally for a person with typical vision, the state is identified by its glyph and its word first; the wash
+and the ink are the faster channel and not a sufficient one (D-15, criterion 3).
 
 ## Ground lightness floor
 

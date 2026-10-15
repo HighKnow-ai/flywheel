@@ -11,7 +11,7 @@
  * `(L1 + 0.05) / (L2 + 0.05)` contrast ratio (lighter colour first).
  */
 
-function hexToRgb(hex: string): [number, number, number] {
+export function hexToRgb(hex: string): [number, number, number] {
   const normalized = hex.replace("#", "");
   const r = parseInt(normalized.slice(0, 2), 16);
   const g = parseInt(normalized.slice(2, 4), 16);
@@ -19,7 +19,7 @@ function hexToRgb(hex: string): [number, number, number] {
   return [r, g, b];
 }
 
-function linearize(channel: number): number {
+export function linearize(channel: number): number {
   const c = channel / 255;
   return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 }

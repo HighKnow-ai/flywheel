@@ -89,27 +89,33 @@
    * below are WCAG, measured with theme/contrast.ts; plan 14-09 tunes them on the demonstration board.
    *
    *   class      text            mark            edge            wash     weakest existing text on wash
-   *   needs-you  #966708 4.61    #bd810a 3.10    #b68420 3.10    #fef6e7  #9a6700 4.53
-   *   running    #10798e 4.71    #149cb8 3.02    #2c9aaf 3.08    #edfafd  #9a6700 4.56
-   *   failed     #db1f2f 4.60    #e9636e 3.02    #d67179 3.01    #fef6f7  #9a6700 4.58
-   *   merged     #9150d3 4.56    #ab78dd 3.03    #a37ec8 3.07    #faf7fd  #9a6700 4.59
+   *   needs-you  #966708 4.61    #bd810a 3.10    #b68420 3.10    #fefcec  #9a6700 4.72
+   *   running    #10798e 4.71    #149cb8 3.02    #2c9aaf 3.08    #f0f9fa  #9a6700 4.55
+   *   failed     #bb1b28 5.93    #e9636e 3.02    #d67179 3.01    #fdf6f4  #9a6700 4.56
+   *   merged     #9150d3 4.56    #ab78dd 3.03    #a37ec8 3.07    #f8f6ff  #9a6700 4.55
    * text is measured on the needs-you wash (its worst ground); mark and edge on the selected row
    * surface #f5f7f9 (their worst).
+   *
+   * Plan 14-08 moved SIX values here on evidence from theme/cvd.ts (the colour-vision proofs in
+   * theme/__tests__/cvd.test.ts): the failed text, from #db1f2f (5.7 apart from needs-you under
+   * deuteranopia, floor 10) to #bb1b28, and the four washes by 1 to 3 CIE76 units each, from #fef6e7 /
+   * #edfafd / #fef6f7 / #faf7fd (pairs as close as 0.6 under protanopia, floor 2.3). Reasons and the
+   * measured separations are in 14-DIRECTION.md "CVD thresholds".
    */
   --state-needs-you-text: #966708;
-  --state-needs-you-wash: #fef6e7;
+  --state-needs-you-wash: #fefcec;
   --state-needs-you-edge: #b68420;
   --state-needs-you-mark: #bd810a;
   --state-running-text: #10798e;
-  --state-running-wash: #edfafd;
+  --state-running-wash: #f0f9fa;
   --state-running-edge: #2c9aaf;
   --state-running-mark: #149cb8;
-  --state-failed-text: #db1f2f;
-  --state-failed-wash: #fef6f7;
+  --state-failed-text: #bb1b28;
+  --state-failed-wash: #fdf6f4;
   --state-failed-edge: #d67179;
   --state-failed-mark: #e9636e;
   --state-merged-text: #9150d3;
-  --state-merged-wash: #faf7fd;
+  --state-merged-wash: #f8f6ff;
   --state-merged-edge: #a37ec8;
   --state-merged-mark: #ab78dd;
   /*
@@ -229,27 +235,29 @@
      * the ground): a stronger one needs that lift raised first. Plan 14-09 judges whether it shows.
      *
      *   class      text            mark            edge            wash     weakest existing text on wash
-     *   needs-you  #aa7409 4.72    #835a07 3.11    #7e5b16 3.08    #130d01  brand-lift 4.59
-     *   running    #1289a1 4.64    #0e6a7c 3.05    #1f6b7a 3.12    #021012  brand-lift 4.59
-     *   failed     #e33b49 4.52    #c01b29 3.11    #ae323d 3.01    #240508  brand-lift 4.53
-     *   merged     #9c60d7 4.59    #8237cd 3.06    #7a49ab 3.05    #140821  brand-lift 4.59
+     *   needs-you  #aa7409 4.72    #835a07 3.11    #7e5b16 3.08    #140f07  brand-lift 4.52
+     *   running    #1289a1 4.63    #0e6a7c 3.05    #1f6b7a 3.12    #071213  brand-lift 4.51
+     *   failed     #e33b49 4.51    #c01b29 3.11    #ae323d 3.01    #250001  brand-lift 4.62
+     *   merged     #9c60d7 4.59    #8237cd 3.06    #7a49ab 3.05    #15081f  brand-lift 4.59
      * text is measured on the selected row surface #101010 (its worst ground); mark and edge on the
      * same surface (their worst). Quiet is the dark muted ink and control boundary.
+     * Plan 14-08 moved the four dark washes by 0.5 to 2.5 CIE76 units (from #130d01 / #021012 / #240508 /
+     * #140821): the failed wash was 1.3 from the ground under protanopia, floor 2.3. See 14-DIRECTION.md.
      */
     --state-needs-you-text: #aa7409;
-    --state-needs-you-wash: #130d01;
+    --state-needs-you-wash: #140f07;
     --state-needs-you-edge: #7e5b16;
     --state-needs-you-mark: #835a07;
     --state-running-text: #1289a1;
-    --state-running-wash: #021012;
+    --state-running-wash: #071213;
     --state-running-edge: #1f6b7a;
     --state-running-mark: #0e6a7c;
     --state-failed-text: #e33b49;
-    --state-failed-wash: #240508;
+    --state-failed-wash: #250001;
     --state-failed-edge: #ae323d;
     --state-failed-mark: #c01b29;
     --state-merged-text: #9c60d7;
-    --state-merged-wash: #140821;
+    --state-merged-wash: #15081f;
     --state-merged-edge: #7a49ab;
     --state-merged-mark: #8237cd;
     --state-quiet-text: #8b8b8b;
