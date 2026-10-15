@@ -36,10 +36,10 @@ import {
   worktreeRemovalCheck,
   worktreeRemove,
   worktreeSummary,
-  type BoardChangedPayload,
   type EpicProgressDto,
   type LogWindowDto,
 } from "../adapters/tauri";
+import { useBoardChangedInvalidation } from "./useBoardChangedInvalidation";
 import { EMPTY_FILTER_DRAFT, useUiStore, type BoardFilterDraft } from "../state/uiStore";
 
 export interface Project {
@@ -503,37 +503,11 @@ export function useDeleteItem(projectId: string | undefined) {
  * guess can only lose events. Two events in one tick invalidate twice.
  */
 export function useBoardChangedSubscription(projectId?: string) {
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    // `payload` may be undefined or the wrong shape: it crossed a process boundary.
-    subscribeBoardChanged((payload?: Partial<BoardChangedPayload>) => {
-      const scope = payload?.projectId;
-      if (typeof scope !== "string") {
-        queryClient.invalidateQueries({ queryKey: ["board"] });
-        queryClient.invalidateQueries({ queryKey: ["epics"] });
-        return;
-      }
-      if (scope !== projectId) return;
-      queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) });
-      queryClient.invalidateQueries({ queryKey: epicsQueryKey(projectId) });
-      queryClient.invalidateQueries({ queryKey: ["board", "dispatch"] });
-    }).then((fn) => {
-      if (cancelled) {
-        fn();
-      } else {
-        unlisten = fn;
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [queryClient, projectId]);
+  useBoardChangedInvalidation(
+    { kind: "project", projectId },
+    [boardQueryKey(projectId), epicsQueryKey(projectId), ["board", "dispatch"]],
+    { unroutableKeys: [["board"], ["epics"]] },
+  );
 }
 
 /** `usePendingPermissionRequests`' query key, keyed by `agentRunId` — the one shared query BOTH
@@ -1054,25 +1028,10 @@ export function forgeFlagsQueryKey(projectId: string | undefined) {
  * entirely (no project selected yet).
  */
 export function useForgeFlags(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    if (!projectId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: forgeFlagsQueryKey(projectId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [projectId, queryClient]);
+  useBoardChangedInvalidation(
+    { kind: "project", projectId },
+    projectId ? [forgeFlagsQueryKey(projectId)] : [],
+  );
 
   return useQuery({
     queryKey: forgeFlagsQueryKey(projectId),
@@ -1099,31 +1058,11 @@ const CHANGE_FLAGS_REFRESH_WINDOW_MS = 1000;
  * `undefined` disables the query (no project selected yet).
  */
 export function useChangeFlags(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    if (!projectId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    let pending: ReturnType<typeof setTimeout> | undefined;
-
-    subscribeBoardChanged(() => {
-      if (pending !== undefined) return;
-      pending = setTimeout(() => {
-        pending = undefined;
-        void queryClient.invalidateQueries({ queryKey: changeFlagsQueryKey(projectId) });
-      }, CHANGE_FLAGS_REFRESH_WINDOW_MS);
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-      if (pending !== undefined) clearTimeout(pending);
-    };
-  }, [projectId, queryClient]);
+  useBoardChangedInvalidation(
+    { kind: "project", projectId },
+    projectId ? [changeFlagsQueryKey(projectId)] : [],
+    { debounceMs: CHANGE_FLAGS_REFRESH_WINDOW_MS },
+  );
 
   return useQuery({
     queryKey: changeFlagsQueryKey(projectId),

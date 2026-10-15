@@ -8,12 +8,17 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useBoardChangedSubscription } from "../useBoardQuery";
+import { changeFlagsQueryKey, useChangeFlags } from "../useBoardQuery";
+import { useBoardChangedInvalidation } from "../useBoardChangedInvalidation";
+import { useUiStore } from "../../state/uiStore";
 
 type Handler = (payload?: unknown) => void;
 let handlers: Handler[] = [];
+const changeFlagsSpy = vi.hoisted(() => vi.fn((..._args: unknown[]) => Promise.resolve([])));
 
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: () => Promise.resolve(undefined),
+  boardChangeFlags: (...args: unknown[]) => changeFlagsSpy(...args),
   subscribeBoardChanged: (handler: Handler) => {
     handlers.push(handler);
     return Promise.resolve(() => {
@@ -103,5 +108,113 @@ describe("board:changed routing", () => {
       { projectId: VIEWED, entity: "epic", id: "e1" },
     );
     expect(spy).toHaveBeenCalledTimes(6);
+  });
+});
+
+// The shared hook (plan 13-15): the routing decision every keyed reader now goes through.
+describe("useBoardChangedInvalidation — shared routing", () => {
+  const PROJ = "proj-1";
+
+  function mountWith(render: () => void) {
+    const queryClient = new QueryClient();
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    renderHook(render, { wrapper });
+    return spy;
+  }
+
+  const mountChangeFlags = () => mountWith(() => void useChangeFlags(PROJ));
+
+  /** Fire, then let the 1s change-flags debounce window elapse. */
+  async function fireAndFlush(...payloads: unknown[]) {
+    await waitFor(() => expect(handlers).toHaveLength(1));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      for (const payload of payloads) handlers.forEach((h) => h(payload));
+      vi.advanceTimersByTime(1500);
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  beforeEach(() => {
+    changeFlagsSpy.mockClear();
+    useUiStore.setState({ currentProjectId: null });
+  });
+
+  it("a foreign-project event wakes useChangeFlags not at all: zero invalidations, zero git-spawning reads", async () => {
+    const spy = mountChangeFlags();
+    await waitFor(() => expect(changeFlagsSpy).toHaveBeenCalledTimes(1)); // the mount fetch only
+    await fireAndFlush({ projectId: "proj-2", entity: "task", id: "t1" });
+    expect(spy).toHaveBeenCalledTimes(0);
+    expect(changeFlagsSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a same-project event invalidates change-flags exactly once after the debounce window", async () => {
+    const spy = mountChangeFlags();
+    await fireAndFlush(
+      { projectId: PROJ, entity: "task", id: "t1" },
+      { projectId: PROJ, entity: "task", id: "t2" },
+    );
+    expect(keys(spy)).toEqual([changeFlagsQueryKey(PROJ)]);
+  });
+
+  it("a projectId: null broadcast invalidates useChangeFlags", async () => {
+    const spy = mountChangeFlags();
+    await fireAndFlush({ projectId: null, entity: "git_facts", id: null });
+    expect(keys(spy)).toEqual([changeFlagsQueryKey(PROJ)]);
+  });
+
+  it("a malformed payload fails open", async () => {
+    const spy = mountChangeFlags();
+    await fireAndFlush({ projectId: 7 });
+    expect(keys(spy)).toEqual([changeFlagsQueryKey(PROJ)]);
+  });
+
+  it("a project id that is a strict prefix of the mounted one does not match", async () => {
+    const spy = mountChangeFlags();
+    await fireAndFlush({ projectId: "proj", entity: "task", id: "t1" });
+    expect(spy).toHaveBeenCalledTimes(0);
+  });
+
+  it("an empty keys array registers no listener", async () => {
+    mountWith(() => useBoardChangedInvalidation({ kind: "account" }, []));
+    await Promise.resolve();
+    expect(handlers).toHaveLength(0);
+  });
+
+  it("a project scope with an undefined projectId registers no listener", async () => {
+    mountWith(() => useBoardChangedInvalidation({ kind: "project", projectId: undefined }, [["x"]]));
+    await Promise.resolve();
+    expect(handlers).toHaveLength(0);
+  });
+
+  it("two events in one tick on a non-debounced subscriber invalidate twice, in arrival order", async () => {
+    const spy = mountWith(() => useBoardChangedInvalidation({ kind: "project", projectId: PROJ }, [["k"]]));
+    await fire({ projectId: PROJ }, { projectId: null });
+    expect(keys(spy)).toEqual([["k"], ["k"]]);
+  });
+
+  it("a viewed scope follows the viewed project", async () => {
+    useUiStore.setState({ currentProjectId: PROJ });
+    const spy = mountWith(() => useBoardChangedInvalidation({ kind: "viewed" }, [["k"]]));
+    await fire({ projectId: "proj-2" });
+    expect(spy).toHaveBeenCalledTimes(0);
+    await fire({ projectId: PROJ });
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a viewed scope with no project selected falls open", async () => {
+    const spy = mountWith(() => useBoardChangedInvalidation({ kind: "viewed" }, [["k"]]));
+    await fire({ projectId: "proj-2" });
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("an account scope is never filtered", async () => {
+    const spy = mountWith(() => useBoardChangedInvalidation({ kind: "account" }, [["cap"]]));
+    await fire({ projectId: "anything" });
+    expect(keys(spy)).toEqual([["cap"]]);
   });
 });
