@@ -197,10 +197,20 @@ const REJECTED_PROPOSALS_SQL: &str = "SELECT target_type, payload, rejection_rea
 // summary reads back alongside the stage it reached. LEFT, not INNER: a run still in flight when
 // this packet is assembled carries no exit_summary_id yet, and that must not drop the run from the
 // list.
+//
+// Bounded (plan 13-12, FNC-05): `ORDER BY ... DESC LIMIT ?2` keeps the NEWEST runs, and the result
+// stays newest-first, which is the order `render_epic_prompt` prints — so no outer re-sort wraps
+// it (unlike `context_packet.rs`'s oldest-first `SUMMARIES_SQL`).
 const PRIOR_AUTHORING_RUNS_SQL: &str = "SELECT ar.id, ar.started_at, ar.ended_at, \
     ar.authoring_stage, ss.changed_prose \
     FROM agent_runs ar LEFT JOIN session_summaries ss ON ss.id = ar.exit_summary_id \
-    WHERE ar.epic_id = ?1 ORDER BY ar.started_at DESC, ar.id DESC";
+    WHERE ar.epic_id = ?1 ORDER BY ar.started_at DESC, ar.id DESC LIMIT ?2";
+
+/// The most prior authoring runs one epic packet carries. An epic accumulates one authoring run per
+/// session over its whole lifetime, so this read used to grow with epic age; the FNC-05 criterion
+/// ("no unbounded read of summaries, decisions or records remains") carries no epic-packet
+/// carve-out. Nothing in the rendered prompt states a run count, so the cap contradicts no text.
+pub const PRIOR_AUTHORING_RUNS_LIMIT: usize = 10;
 
 /// Pull the payload's title/statement/assumption text alone, for the folded (pre-window) half of
 /// the rejected set — the narrative half of the payload (a description, a verification hint, an
@@ -371,7 +381,7 @@ pub fn assemble_epic_context_packet(
 
     let mut runs_stmt = conn.prepare(PRIOR_AUTHORING_RUNS_SQL)?;
     let prior_authoring_runs = runs_stmt
-        .query_map(params![epic_id], |row| {
+        .query_map(params![epic_id, PRIOR_AUTHORING_RUNS_LIMIT as i64], |row| {
             Ok(AuthoringRunEntry {
                 id: row.get(0)?,
                 started_at: row.get(1)?,

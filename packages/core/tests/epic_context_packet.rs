@@ -20,7 +20,8 @@ use core::domain::project::create_project;
 use core::domain::task::create_task;
 use core::domain::worktree::ensure_worktree;
 use core::epic_context_packet::{
-    assemble_epic_context_packet, render_epic_prompt, CONTEXT_PACKET_READ_LIMIT, REJECTED_VERBATIM_WINDOW,
+    assemble_epic_context_packet, render_epic_prompt, CONTEXT_PACKET_READ_LIMIT, PRIOR_AUTHORING_RUNS_LIMIT,
+    REJECTED_VERBATIM_WINDOW,
 };
 use rusqlite::{params, Connection};
 
@@ -711,6 +712,39 @@ fn five_consecutive_assemblies_are_equal_byte_identical_and_write_nothing() {
     }
 }
 
+/// An epic with `n` authoring runs, `started_at` rising with the ordinal; returns the epic id.
+fn epic_with_authoring_runs(conn: &mut Connection, project_id: &str, actor_id: &str, n: usize) -> String {
+    let epic = create_epic(conn, project_id, actor_id, &format!("Epic with {n} runs"), None)
+        .expect("create_epic should succeed");
+    for ordinal in 1..=n {
+        let run = start_authoring_run(conn, project_id, Some(&epic.id), "readOnly", actor_id)
+            .expect("start_authoring_run should succeed");
+        conn.execute(
+            "UPDATE agent_runs SET started_at = ?1 WHERE id = ?2",
+            params![format!("2026-05-01T00:{ordinal:02}:00Z"), run.id],
+        )
+        .expect("failed to date a seeded authoring run");
+    }
+    epic.id
+}
+
+#[test]
+fn prior_authoring_runs_are_bounded_and_keep_the_newest() {
+    let (mut conn, actor_id, project) = seeded_project();
+    let total = PRIOR_AUTHORING_RUNS_LIMIT + 5;
+    let over = epic_with_authoring_runs(&mut conn, &project.id, &actor_id, total);
+    let under = epic_with_authoring_runs(&mut conn, &project.id, &actor_id, PRIOR_AUTHORING_RUNS_LIMIT - 4);
+
+    let packet = assemble_epic_context_packet(&conn, &project.id, Some(&over)).expect("assembly should succeed");
+    assert_eq!(packet.prior_authoring_runs.len(), PRIOR_AUTHORING_RUNS_LIMIT);
+    let oldest_kept = format!("2026-05-01T00:{:02}:00Z", total - PRIOR_AUTHORING_RUNS_LIMIT + 1);
+    assert_eq!(packet.prior_authoring_runs[0].started_at, format!("2026-05-01T00:{total:02}:00Z"));
+    assert_eq!(packet.prior_authoring_runs.last().unwrap().started_at, oldest_kept);
+
+    let packet = assemble_epic_context_packet(&conn, &project.id, Some(&under)).expect("assembly should succeed");
+    assert_eq!(packet.prior_authoring_runs.len(), PRIOR_AUTHORING_RUNS_LIMIT - 4);
+}
+
 // --- Task 3(b): boundedness as a crate-wide gate over `packages/core/src/query`.
 
 /// Deliberate, named exceptions to the "every `SELECT` in `packages/core/src/query` carries a
@@ -728,16 +762,10 @@ fn five_consecutive_assemblies_are_equal_byte_identical_and_write_nothing() {
 /// `compaction::SUMMARY_WINDOW`. Only that file's genuinely cardinality-one or one-row-bounded
 /// reads are named below, each with its reason.
 ///
-/// WR-02 (plan 05-09 code review): the scanner below now ALSO covers `epic_context_packet.rs` —
-/// this file's own review finding was exactly the class this gate exists to catch structurally
-/// ("silently outside the scanner's directory scope"), so leaving it unscanned after fixing the
-/// two reads the review named would just relocate the same blind spot one file over. Every OTHER
-/// still-unbounded read already in `epic_context_packet.rs` at the time of this fix is named below
-/// with its own bounding justification — `PRIOR_AUTHORING_RUNS_SQL` is the one exception: it is
-/// the same "grows once per session over an epic's lifetime" shape `ANSWERED_ASSUMPTIONS_SQL`/
-/// `REJECTED_PROPOSALS_SQL` were, genuinely unbounded today, and deliberately NOT silently swept
-/// into this allowlist without a fix — it is named here, honestly, as a recorded, tracked debt
-/// (mirroring `SUMMARIES_SQL`'s own precedent above) rather than left for the scanner to miss.
+/// WR-02 (plan 05-09 code review): the scanner below also covers `epic_context_packet.rs`, which
+/// sat silently outside the scanner's directory scope. Every still-unbounded read in that file is
+/// named below with its own bounding justification; its authoring-run read carries a LIMIT and is
+/// not listed (plan 13-12).
 const ALLOWED_UNBOUNDED_SELECTS: &[&str] = &[
     "WORKTREE_SUMMARY_SQL",     // agent_runs.rs — filtered on worktrees.task_id, a UNIQUE column
     "CRITERIA_JOIN",            // mod.rs — a correlated subquery LEFT JOINed into a LIMIT'd outer query
@@ -766,9 +794,6 @@ const ALLOWED_UNBOUNDED_SELECTS: &[&str] = &[
                                   // the same un-LIMIT'd-by-design shape AGENT_TASK_CRITERIA_SQL uses
     "TASK_CRITERIA_SQL",         // epic_context_packet.rs — bounded by one task's own current-revision
                                   // criteria count, the same shape AGENT_TASK_CRITERIA_SQL uses
-    "PRIOR_AUTHORING_RUNS_SQL",  // epic_context_packet.rs — GENUINELY UNBOUNDED, a recorded debt (see
-                                  // this constant's own doc comment above), not a bounded-some-other-way
-                                  // exception — left here so the gate stays honest about what it tolerates
     "board_epic_progress",      // epic_progress.rs (phase 08.1 plan 05) — three GROUP BY aggregates, DELIBERATELY
                                  // un-LIMIT'd: a row window is the defect that plan fixes (the unscoped board
                                  // read is 200 of 920 rows). Bounded by epics x 5 statuses, and by an explicit
