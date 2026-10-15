@@ -16,7 +16,9 @@
 //! `revise_criterion` — so its unlocked-branch behaviour is unchanged from before this plan.
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
+
+use super::{emit_board_changed, project_of};
 
 use crate::state::AppState;
 
@@ -83,11 +85,6 @@ fn validate_hint(hint: &Option<String>) -> Result<(), String> {
     Ok(())
 }
 
-fn emit_board_changed(app: &AppHandle, id: &str) {
-    app.emit("board:changed", serde_json::json!({ "entity": "criterion", "id": id }))
-        .ok();
-}
-
 /// Create a criterion on a task or an epic (D-07). `parent_type` other than `"task"`/`"epic"` is
 /// rejected by the schema's CHECK constraint, not by this handler (BOARD-02, T-01-01).
 #[tauri::command]
@@ -122,7 +119,7 @@ pub fn criterion_create(
     drop(conn);
 
     let dto: CriterionDto = criterion.into();
-    emit_board_changed(&app, &dto.id);
+    emit_board_changed(&app, Some(project_id.as_str()), "criterion", Some(dto.id.as_str()));
     Ok(dto)
 }
 
@@ -172,10 +169,11 @@ pub fn criterion_update(
         resolved_hint,
     )
     .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "acceptance_criteria", &criterion_id);
     drop(conn);
 
     let dto: CriterionDto = criterion.into();
-    emit_board_changed(&app, &dto.id);
+    emit_board_changed(&app, project_id.as_deref(), "criterion", Some(dto.id.as_str()));
     Ok(dto)
 }
 
@@ -212,10 +210,11 @@ pub fn criterion_revise(
         verification_hint.as_deref(),
     )
     .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "acceptance_criteria", &criterion_id);
     drop(conn);
 
     let dto: CriterionDto = criterion.into();
-    emit_board_changed(&app, &dto.id);
+    emit_board_changed(&app, project_id.as_deref(), "criterion", Some(dto.id.as_str()));
     Ok(dto)
 }
 
@@ -240,10 +239,11 @@ pub fn criterion_toggle(state: State<AppState>, app: AppHandle, criterion_id: St
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let criterion = flywheel_core::domain::acceptance_criterion::toggle_criterion(&mut conn, &actor_id, &criterion_id)
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "acceptance_criteria", &criterion_id);
     drop(conn);
 
     let dto: CriterionDto = criterion.into();
-    emit_board_changed(&app, &dto.id);
+    emit_board_changed(&app, project_id.as_deref(), "criterion", Some(dto.id.as_str()));
     Ok(dto)
 }
 
@@ -268,10 +268,11 @@ pub fn criterion_reorder(
         next_rank.as_deref(),
     )
     .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "acceptance_criteria", &criterion_id);
     drop(conn);
 
     let dto: CriterionDto = criterion.into();
-    emit_board_changed(&app, &dto.id);
+    emit_board_changed(&app, project_id.as_deref(), "criterion", Some(dto.id.as_str()));
     Ok(dto)
 }
 
@@ -280,11 +281,13 @@ pub fn criterion_reorder(
 pub fn criterion_delete(state: State<AppState>, app: AppHandle, criterion_id: String) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    // Read before the delete: the row (and its project) is gone afterwards.
+    let project_id = project_of(&conn, "acceptance_criteria", &criterion_id);
     flywheel_core::domain::acceptance_criterion::delete_criterion(&mut conn, &actor_id, &criterion_id)
         .map_err(|e| e.to_string())?;
     drop(conn);
 
-    emit_board_changed(&app, &criterion_id);
+    emit_board_changed(&app, project_id.as_deref(), "criterion", Some(criterion_id.as_str()));
     Ok(())
 }
 

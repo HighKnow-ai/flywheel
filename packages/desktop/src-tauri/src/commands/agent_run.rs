@@ -39,7 +39,9 @@ use flywheel_core::domain::session_summary::{DecisionEntry, SessionSummary};
 use flywheel_core::dispatch::ReadinessRefusal;
 use rusqlite::{Connection, Transaction};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
+
+use super::{emit_board_changed, project_of, project_of_locked};
 
 use crate::state::AppState;
 
@@ -1001,11 +1003,8 @@ pub(crate) fn launch_run_for_task(
         |request| send_gated_spawn(state, &repo_path, request),
     )?;
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "task", "id": task_id }),
-    )
-    .ok();
+    let project_id = project_of_locked(&state.db, "tasks", task_id);
+    emit_board_changed(app, project_id.as_deref(), "task", Some(task_id));
 
     Ok(AgentRunDto {
         id: outcome.run_id,
@@ -1153,13 +1152,10 @@ pub fn agent_run_stop(
 
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let dto = stop_agent_run_recording_first(&mut conn, &agent_run_id, move || interrupt_result)?;
+    let project_id = project_of(&conn, "agent_runs", &agent_run_id);
     drop(conn);
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "agent_run", "id": agent_run_id }),
-    )
-    .ok();
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
 
     Ok(dto)
 }
@@ -1257,13 +1253,10 @@ pub fn agent_run_discard(
 
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let dto = stop_agent_run_recording_first(&mut conn, &agent_run_id, move || interrupt_result)?;
+    let project_id = project_of(&conn, "agent_runs", &agent_run_id);
     drop(conn);
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "agent_run", "id": agent_run_id }),
-    )
-    .ok();
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
 
     Ok(dto)
 }
@@ -1517,6 +1510,7 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
         }
         _ => None,
     };
+    let project_id = project_of(&conn, "agent_runs", run_id);
     drop(conn);
 
     match outcome {
@@ -1525,10 +1519,7 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
         }
         PermissionRequestOutcome::Pending { db_request_id } => {
             sidecar.register_pending_permission_request(&db_request_id, run_id, request_id);
-            let _ = app.emit(
-                "board:changed",
-                serde_json::json!({ "entity": "agent_run", "id": run_id }),
-            );
+            emit_board_changed(app, project_id.as_deref(), "agent_run", Some(run_id));
             if let Some(t) = transition {
                 crate::notify::push(t);
             }
@@ -1557,6 +1548,7 @@ pub fn handle_inbound_session_closed(app: &AppHandle, event: &serde_json::Value)
     };
     let run_id = event.get("runId").and_then(|v| v.as_str());
     let transition = run_id.and_then(|id| closed_transition(&conn, id, &outcome));
+    let project_id = run_id.and_then(|id| project_of(&conn, "agent_runs", id));
     drop(conn);
 
     let changed = matches!(
@@ -1565,10 +1557,7 @@ pub fn handle_inbound_session_closed(app: &AppHandle, event: &serde_json::Value)
             | flywheel_core::domain::agent_run::SessionClosedOutcome::BackfilledTerminal
     );
     if let (true, Some(run_id)) = (changed, run_id) {
-        let _ = app.emit(
-            "board:changed",
-            serde_json::json!({ "entity": "agent_run", "id": run_id }),
-        );
+        emit_board_changed(app, project_id.as_deref(), "agent_run", Some(run_id));
     }
     if let Some(t) = transition {
         crate::notify::push(t);
@@ -1611,6 +1600,7 @@ pub fn handle_inbound_summary_reported(app: &AppHandle, event: &serde_json::Valu
             .ok(),
         _ => None,
     };
+    let project_id = run_id.and_then(|id| project_of(&conn, "agent_runs", id));
     drop(conn);
 
     if let (
@@ -1622,15 +1612,9 @@ pub fn handle_inbound_summary_reported(app: &AppHandle, event: &serde_json::Valu
         // `handle_inbound_permission_request`'s own one-call-per-entity convention (this file,
         // above), so the run's own row and the item-detail panel's runs/summaries sections both
         // refetch.
-        let _ = app.emit(
-            "board:changed",
-            serde_json::json!({ "entity": "agent_run", "id": run_id }),
-        );
+        emit_board_changed(app, project_id.as_deref(), "agent_run", Some(run_id));
         if let Some(task_id) = task_id {
-            let _ = app.emit(
-                "board:changed",
-                serde_json::json!({ "entity": "task", "id": task_id }),
-            );
+            emit_board_changed(app, project_id.as_deref(), "task", Some(&task_id));
         }
     }
 }
@@ -1710,6 +1694,7 @@ pub fn agent_run_answer_permission(
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
 
     let instruction = answer_permission_request(&mut conn, &request_id, &decision, &actor_id)?;
+    let project_id = project_of(&conn, "agent_runs", &instruction.run_id);
     drop(conn);
 
     if let Some(sidecar) = state.sidecar.as_ref() {
@@ -1718,11 +1703,7 @@ pub fn agent_run_answer_permission(
             .map_err(|e| e.to_string())?;
     }
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "agent_run", "id": instruction.run_id }),
-    )
-    .ok();
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&instruction.run_id));
 
     Ok(())
 }
@@ -1769,15 +1750,13 @@ pub fn permission_rule_revoke(state: State<AppState>, app: AppHandle, rule_id: S
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    // Read before the revoke: the row (and its project) is gone afterwards.
+    let project_id = project_of(&conn, "permission_rules", &rule_id);
     flywheel_core::domain::permission_rule::revoke_rule(&mut conn, &rule_id, &actor_id)
         .map_err(|e| e.to_string())?;
     drop(conn);
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "permission_rule", "id": rule_id }),
-    )
-    .ok();
+    emit_board_changed(&app, project_id.as_deref(), "permission_rule", Some(&rule_id));
 
     Ok(())
 }
@@ -2125,13 +2104,10 @@ pub fn agent_run_acknowledge(
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     flywheel_core::domain::agent_run::acknowledge_run(&conn, &agent_run_id)
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "agent_runs", &agent_run_id);
     drop(conn);
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "agent_run", "id": agent_run_id }),
-    )
-    .ok();
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
 
     Ok(())
 }
@@ -2186,7 +2162,8 @@ pub fn agent_run_acknowledge_many(
     let results = acknowledge_many(&conn, agent_run_ids);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "agent_run" })).ok();
+    // A batch can span projects, and no single project is honest here: broadcast.
+    emit_board_changed(&app, None, "agent_run", None);
 
     results
 }
@@ -2303,13 +2280,10 @@ pub fn worktree_remove(
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::worktree::remove_worktree_for_task(&mut conn, &task_id, &actor_id)
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "tasks", &task_id);
     drop(conn);
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "worktree", "id": task_id }),
-    )
-    .ok();
+    emit_board_changed(&app, project_id.as_deref(), "worktree", Some(&task_id));
 
     Ok(())
 }
@@ -2338,11 +2312,8 @@ pub fn worktree_recreate(state: State<AppState>, app: AppHandle, task_id: String
             .map_err(|e| e.to_string())?;
     }
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "worktree", "id": task_id }),
-    )
-    .ok();
+    let project_id = project_of_locked(&state.db, "tasks", &task_id);
+    emit_board_changed(&app, project_id.as_deref(), "worktree", Some(&task_id));
 
     Ok(())
 }
@@ -2362,13 +2333,10 @@ pub fn worktree_forget_record(state: State<AppState>, app: AppHandle, task_id: S
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::worktree::forget_worktree_record(&mut conn, &task_id, &actor_id)
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "tasks", &task_id);
     drop(conn);
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "worktree", "id": task_id }),
-    )
-    .ok();
+    emit_board_changed(&app, project_id.as_deref(), "worktree", Some(&task_id));
 
     Ok(())
 }
@@ -2487,6 +2455,7 @@ pub fn orphan_kill(
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let outcome = flywheel_core::domain::agent_run::kill_orphan(&mut conn, &agent_run_id, &actor_id)
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "agent_runs", &agent_run_id);
     drop(conn);
 
     {
@@ -2495,11 +2464,7 @@ pub fn orphan_kill(
         retain_pending_orphan_unless_killed(&mut pending, &agent_run_id, outcome.killed);
     }
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "agent_run", "id": agent_run_id }),
-    )
-    .ok();
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
 
     Ok(OrphanKillDto { killed: outcome.killed, pid: outcome.pid, detail: outcome.detail })
 }

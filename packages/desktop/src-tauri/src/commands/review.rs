@@ -32,7 +32,9 @@
 //! diff blocks no other command handler, and holding the lock across it is not expressible.
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
+
+use super::{emit_board_changed, project_of, project_of_locked};
 
 use super::criterion::CriterionDto;
 use super::ipc_error;
@@ -345,8 +347,8 @@ pub fn criterion_check_with_anchor(
         check_criterion_with_anchor(&mut conn, &actor_id, &criterion_id, anchor, &head_sha)
             .map_err(|e| ipc_error("criterion_check_with_anchor:write", e))?;
     }
-    app.emit("board:changed", serde_json::json!({ "entity": "criterion", "id": criterion_id }))
-        .ok();
+    let project_id = project_of_locked(&state.db, "acceptance_criteria", &criterion_id);
+    emit_board_changed(&app, project_id.as_deref(), "criterion", Some(&criterion_id));
     Ok(())
 }
 
@@ -477,18 +479,19 @@ pub fn review_merge_task(
     let mut conn = state.db.lock().map_err(|e| ipc_error("review_merge_task:relock", e))?;
     let recorded = flywheel_core::domain::actor::local_human_actor_id(&conn)
         .and_then(|actor_id| merge::record_merge_event(&mut conn, &plan, &outcome, &actor_id));
+    let project_id = project_of(&conn, "tasks", &task_id);
     drop(conn);
     if let Err(e) = recorded {
         eprintln!("merge of task {task_id} ({outcome:?}) was not recorded on the board: {e:#}");
         // A conflict landed nothing, so its outcome stands; a landed merge without its event
         // would not show as integrated, and the sheet must say exactly that.
         if matches!(outcome, MergeOutcome::Merged { .. }) {
-            app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id })).ok();
+            emit_board_changed(&app, project_id.as_deref(), "task", Some(&task_id));
             return Err("eventNotRecorded".to_string());
         }
     }
 
-    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id })).ok();
+    emit_board_changed(&app, project_id.as_deref(), "task", Some(&task_id));
     Ok(match outcome {
         MergeOutcome::Merged { merge_commit } => MergeOutcomeDto::Merged {
             epic_key: plan.epic_key,
@@ -573,10 +576,11 @@ pub fn review_request_changes(
     let outcome = flywheel_core::domain::actor::local_human_actor_id(&conn).and_then(|actor_id| {
         flywheel_core::domain::task::request_changes(&mut conn, &actor_id, &task_id)
     });
+    let project_id = project_of(&conn, "tasks", &task_id);
     drop(conn);
     let result = request_changes_result(outcome);
     if result.is_ok() {
-        app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id })).ok();
+        emit_board_changed(&app, project_id.as_deref(), "task", Some(&task_id));
     }
     result
 }

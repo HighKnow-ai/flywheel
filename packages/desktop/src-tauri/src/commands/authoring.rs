@@ -35,7 +35,9 @@
 
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
+
+use super::{emit_board_changed, project_of};
 
 use crate::commands::agent_run::CriterionDto;
 use crate::state::AppState;
@@ -366,11 +368,7 @@ pub fn authoring_run_start(
         }
     }
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "agent_run", "id": run.id }),
-    )
-    .ok();
+    emit_board_changed(&app, Some(project_id.as_str()), "agent_run", Some(&run.id));
 
     Ok(AuthoringRunDto {
         id: run.id,
@@ -778,18 +776,11 @@ pub fn authoring_proposal_accept(
         flywheel_core::domain::authoring_proposal::accept_proposal(&mut conn, &proposal_id, &human_actor_id)
             .map_err(|e| e.to_string())?;
 
+    let project_id = project_of(&conn, "authoring_proposals", &proposal_id);
     drop(conn);
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "task", "id": outcome.materialised_id }),
-    )
-    .ok();
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "agent_run", "id": outcome.proposal.agent_run_id }),
-    )
-    .ok();
+    emit_board_changed(&app, project_id.as_deref(), "task", Some(&outcome.materialised_id));
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&outcome.proposal.agent_run_id));
 
     Ok(())
 }
@@ -823,15 +814,11 @@ pub fn authoring_subtree_accept(
         )
         .map_err(|e| e.to_string())?;
 
+    let project_id = project_of(&conn, "authoring_proposals", &root_proposal_id);
     drop(conn);
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "task", "id": outcome.root_materialised_id }),
-    )
-    .ok();
-    app.emit("board:changed", serde_json::json!({ "entity": "agent_run", "id": agent_run_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "task", Some(&outcome.root_materialised_id));
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
 
     Ok(())
 }
@@ -898,11 +885,11 @@ pub fn authoring_proposal_merge(
     let agent_run_id = outcome.proposal.agent_run_id.clone();
     let issue_id = outcome.issue_id.clone();
 
+    let project_id = project_of(&conn, "authoring_proposals", &proposal_id);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "issue", "id": issue_id })).ok();
-    app.emit("board:changed", serde_json::json!({ "entity": "agent_run", "id": agent_run_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "issue", Some(&issue_id));
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
 
     Ok(MergeOutcomeDto { proposal: outcome.proposal.into(), issue_id, issue_key })
 }
@@ -928,10 +915,10 @@ pub fn authoring_proposal_defer(
     .map_err(|e| e.to_string())?;
 
     let agent_run_id = proposal.agent_run_id.clone();
+    let project_id = project_of(&conn, "authoring_proposals", &proposal_id);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "agent_run", "id": agent_run_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
 
     Ok(proposal.into())
 }
@@ -974,11 +961,8 @@ pub fn authoring_proposals_reject_bulk(
     drop(conn);
 
     if outcome.decided > 0 {
-        app.emit(
-            "board:changed",
-            serde_json::json!({ "entity": "authoring_proposal", "id": "bulk_reject" }),
-        )
-        .ok();
+        // A bulk batch can span projects, and no single project is honest here: broadcast.
+        emit_board_changed(&app, None, "authoring_proposal", Some("bulk_reject"));
     }
 
     Ok(BulkDecisionDto { decided: outcome.decided, skipped: outcome.skipped })
@@ -1006,11 +990,8 @@ pub fn authoring_proposals_defer_bulk(
     drop(conn);
 
     if outcome.decided > 0 {
-        app.emit(
-            "board:changed",
-            serde_json::json!({ "entity": "authoring_proposal", "id": "bulk_defer" }),
-        )
-        .ok();
+        // A bulk batch can span projects, and no single project is honest here: broadcast.
+        emit_board_changed(&app, None, "authoring_proposal", Some("bulk_defer"));
     }
 
     Ok(BulkDecisionDto { decided: outcome.decided, skipped: outcome.skipped })
@@ -1041,13 +1022,10 @@ pub fn authoring_proposal_reject(
     )
     .map_err(|e| e.to_string())?;
 
+    let project_id = project_of(&conn, "authoring_proposals", &proposal_id);
     drop(conn);
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "agent_run", "id": proposal.agent_run_id }),
-    )
-    .ok();
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&proposal.agent_run_id));
 
     if let Some(sidecar) = state.sidecar.as_ref() {
         let turn = flywheel_core::domain::authoring_session::ProposalDecisionTurn::Rejected {
@@ -1095,13 +1073,10 @@ pub fn authoring_proposal_amend(
     )
     .map_err(|e| e.to_string())?;
 
+    let project_id = project_of(&conn, "authoring_proposals", &proposal_id);
     drop(conn);
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "agent_run", "id": outcome.proposal.agent_run_id }),
-    )
-    .ok();
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&outcome.proposal.agent_run_id));
 
     if let Some(sidecar) = state.sidecar.as_ref() {
         let turn = flywheel_core::domain::authoring_session::ProposalDecisionTurn::Amended {
@@ -1153,13 +1128,10 @@ pub fn authoring_stage_advance(
     )
     .map_err(|e| e.to_string())?;
 
+    let project_id = project_of(&conn, "agent_runs", &agent_run_id);
     drop(conn);
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "agent_run", "id": agent_run_id }),
-    )
-    .ok();
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
 
     if let Some(instruction) = instruction {
         if let Some(sidecar) = state.sidecar.as_ref() {
@@ -1198,13 +1170,10 @@ pub fn authoring_stage_return(
     )
     .map_err(|e| e.to_string())?;
 
+    let project_id = project_of(&conn, "agent_runs", &agent_run_id);
     drop(conn);
 
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "agent_run", "id": agent_run_id }),
-    )
-    .ok();
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
 
     Ok(resolved.as_str().to_string())
 }
@@ -1374,13 +1343,11 @@ pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Valu
             None
         };
 
+    let project_id = project_of(&conn, "agent_runs", run_id);
     drop(conn);
 
     if let flywheel_core::domain::authoring_proposal::ProposalOutcome::Created(ref proposal) = outcome {
-        let _ = app.emit(
-            "board:changed",
-            serde_json::json!({ "entity": "agent_run", "id": proposal.agent_run_id }),
-        );
+        emit_board_changed(app, project_id.as_deref(), "agent_run", Some(&proposal.agent_run_id));
     }
 
     let Some(request_id) = request_id else { return };

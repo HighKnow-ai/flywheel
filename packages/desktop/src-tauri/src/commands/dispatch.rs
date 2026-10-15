@@ -21,7 +21,9 @@
 
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
+
+use super::{emit_board_changed, project_of_locked};
 
 use super::ipc_error;
 use crate::state::AppState;
@@ -186,7 +188,11 @@ fn plan_dto_unlocked(state: &AppState, plan_id: &str) -> Result<DispatchPlanDto,
 }
 
 fn notify(app: &AppHandle, plan_id: &str) {
-    app.emit("board:changed", serde_json::json!({ "entity": "dispatch_plan", "id": plan_id })).ok();
+    // Every caller has released the lock by now, so taking it here cannot deadlock.
+    let project_id = app
+        .try_state::<AppState>()
+        .and_then(|state| project_of_locked(&state.db, "dispatch_plans", plan_id));
+    emit_board_changed(app, project_id.as_deref(), "dispatch_plan", Some(plan_id));
 }
 
 /// Build a draft plan over an epic's tasks from their currently declared sets, with no planning
@@ -602,7 +608,8 @@ pub fn execute_dispatch_actions(app: &AppHandle) {
                 eprintln!("dispatch tick: {failure}");
             }
             if !report.actions.is_empty() {
-                app.emit("board:changed", serde_json::json!({ "entity": "dispatch_plan" })).ok();
+                // One pass can act on plans in several projects: broadcast.
+                emit_board_changed(app, None, "dispatch_plan", None);
             }
         }
         Err(err) => eprintln!("dispatch tick: {err:#}"),
@@ -731,7 +738,8 @@ pub fn dispatch_plan_generate(
 ) -> Result<PlanningRunDto, String> {
     validate_id("epic", &epic_id)?;
     let dto = start_planning_run(&state, &epic_id)?;
-    app.emit("board:changed", serde_json::json!({ "entity": "agent_run", "id": dto.run_id })).ok();
+    let project_id = project_of_locked(&state.db, "epics", &epic_id);
+    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&dto.run_id));
     Ok(dto)
 }
 

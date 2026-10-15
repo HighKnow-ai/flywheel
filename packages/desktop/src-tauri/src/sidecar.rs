@@ -917,14 +917,12 @@ fn handle_inbound_git_lock_exhausted(app: &AppHandle, event: &serde_json::Value)
                 &actor.id,
             )
         });
+    let project_id = crate::commands::project_of(&conn, "agent_runs", run_id);
     drop(conn);
 
     match result {
         Ok(()) => {
-            let _ = app.emit(
-                "board:changed",
-                serde_json::json!({ "entity": "agent_run", "id": run_id }),
-            );
+            crate::commands::emit_board_changed(app, project_id.as_deref(), "agent_run", Some(run_id));
         }
         Err(err) => {
             eprintln!("failed to record a git lock exhaustion for run {run_id}: {err:#}");
@@ -1018,7 +1016,8 @@ fn handle_inbound_submit_plan(app: &AppHandle, event: &serde_json::Value) {
         Err(_) => Err("the database lock was poisoned".to_string()),
     };
     if let Ok(plan_id) = &result {
-        let _ = app.emit("board:changed", serde_json::json!({ "entity": "dispatch_plan", "id": plan_id }));
+        let project_id = crate::commands::project_of_locked(&state.db, "dispatch_plans", plan_id);
+        crate::commands::emit_board_changed(app, project_id.as_deref(), "dispatch_plan", Some(plan_id));
     }
     let _ = sidecar.relay_authoring_proposal_answer(
         run_id,
@@ -1073,7 +1072,8 @@ fn handle_inbound_scope_denied(app: &AppHandle, event: &serde_json::Value) {
     drop(conn);
     match result {
         Ok(Some(task_id)) => {
-            let _ = app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }));
+            let project_id = crate::commands::project_of_locked(&state.db, "tasks", &task_id);
+            crate::commands::emit_board_changed(app, project_id.as_deref(), "task", Some(&task_id));
         }
         Ok(None) => {}
         Err(err) => eprintln!("failed to record a scope refusal: {err:#}"),
@@ -1128,10 +1128,8 @@ fn handle_inbound_scope_backstop(app: &AppHandle, event: &serde_json::Value) {
         drop(conn);
         match result {
             Ok(appended) if appended > 0 => {
-                let _ = app.emit(
-                    "board:changed",
-                    serde_json::json!({ "entity": "task", "id": inputs.task_id }),
-                );
+                let project_id = crate::commands::project_of_locked(&state.db, "tasks", &inputs.task_id);
+                crate::commands::emit_board_changed(&app, project_id.as_deref(), "task", Some(&inputs.task_id));
             }
             Ok(_) => {}
             Err(err) => eprintln!("scope backstop could not record its findings for run {run_id}: {err:#}"),

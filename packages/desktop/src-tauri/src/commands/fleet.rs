@@ -12,6 +12,8 @@
 use serde::Serialize;
 use tauri::State;
 
+use super::emit_board_changed;
+
 use super::ipc_error;
 use crate::state::AppState;
 
@@ -379,7 +381,8 @@ pub async fn worktree_measure(
             });
         }
     }
-    let _ = tauri::Emitter::emit(&app, "board:changed", serde_json::json!({ "entity": "worktree_size" }));
+    // The fleet inventory spans every project: broadcast.
+    emit_board_changed(&app, None, "worktree_size", None);
     Ok(out)
 }
 
@@ -453,7 +456,8 @@ pub async fn worktree_reclaim(
     .map_err(|e| ipc_error("worktree_reclaim:join", e))?
     .map_err(|e| ipc_error("worktree_reclaim:git", e))?;
 
-    let _ = tauri::Emitter::emit(&app, "board:changed", serde_json::json!({ "entity": "worktree" }));
+    // A reclaim batch can span projects, and no single project is honest here: broadcast.
+    emit_board_changed(&app, None, "worktree", None);
     Ok(outcomes.into_iter().map(ReclaimOutcomeDto::from).collect())
 }
 

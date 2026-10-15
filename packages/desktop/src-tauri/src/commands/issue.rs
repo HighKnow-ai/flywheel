@@ -3,7 +3,9 @@
 //! `board:changed` after a successful mutation (D-04).
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
+
+use super::{emit_board_changed, project_of};
 
 use crate::state::AppState;
 
@@ -104,8 +106,7 @@ pub fn issue_create(
     drop(conn);
 
     let dto: IssueDto = issue.into();
-    app.emit("board:changed", serde_json::json!({ "entity": "issue", "id": dto.id }))
-        .ok();
+    emit_board_changed(&app, Some(project_id.as_str()), "issue", Some(dto.id.as_str()));
     Ok(dto)
 }
 
@@ -133,11 +134,11 @@ pub fn issue_update(
         body.as_deref(),
     )
     .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "issues", &issue_id);
     drop(conn);
 
     let dto: IssueDto = issue.into();
-    app.emit("board:changed", serde_json::json!({ "entity": "issue", "id": dto.id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "issue", Some(dto.id.as_str()));
     Ok(dto)
 }
 
@@ -150,12 +151,13 @@ pub fn issue_delete(
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    // Read before the delete: the row (and its project) is gone afterwards.
+    let project_id = project_of(&conn, "issues", &issue_id);
     flywheel_core::domain::issue::delete_issue(&mut conn, &actor_id, &issue_id)
         .map_err(|e| e.to_string())?;
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "issue", "id": issue_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "issue", Some(issue_id.as_str()));
     Ok(())
 }
 
@@ -176,10 +178,10 @@ pub fn issue_reorder(
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::issue::reorder_issue(&mut conn, &actor_id, &issue_id, direction)
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "issues", &issue_id);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "issue", "id": issue_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "issue", Some(issue_id.as_str()));
     Ok(())
 }
 
@@ -207,9 +209,9 @@ pub fn issue_set_parent(
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::issue::set_parent(&mut conn, &actor_id, &issue_id, parent)
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "issues", &issue_id);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "issue", "id": issue_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "issue", Some(issue_id.as_str()));
     Ok(())
 }

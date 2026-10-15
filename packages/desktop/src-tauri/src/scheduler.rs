@@ -5,7 +5,7 @@
 //! call).
 //!
 //! Each job locks `AppState.db`, calls the matching sync `flywheel_core::git_facts` function,
-//! DROPS the lock, then emits the shared board-invalidation event (see [`emit_board_changed`])
+//! DROPS the lock, then emits the shared board-invalidation event (see [`emit_git_facts_changed`])
 //! at most once per tick — only when a digest of what it just read actually changed, following
 //! `sidecar.rs`'s `handle_inbound_git_lock_exhausted`
 //! idiom exactly: a failure is an `eprintln!` value, never a panic, never an early return that
@@ -38,7 +38,7 @@ use flywheel_core::git_facts::{
     git_facts_for_task, tracked_worktrees, GitFacts, TrackedWorktree, COLD_TICK_SECS,
     FETCH_INTERVAL_SECS, FORGE_POLL_SECS, HOT_TICK_SECS,
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tokio_cron_scheduler::{Job, JobScheduler};
 
 use crate::state::AppState;
@@ -121,10 +121,15 @@ fn read_and_record_change(conn: &rusqlite::Connection, task_id: &str) -> bool {
     changed
 }
 
-/// The one emit site in this module for the shared `app.emit` board-invalidation event — both the
-/// hot and cold tick share this, so neither literally duplicates the event name in source text.
-fn emit_board_changed(app: &AppHandle) {
-    let _ = app.emit("board:changed", serde_json::json!({ "entity": "git_facts" }));
+/// The one emit site in this module for the shared board-invalidation event — every tick shares
+/// this, so none of them names the event string. A tick still emits AT MOST ONCE (the digest
+/// discipline); `projects` is every project whose tasks changed during it, each `None` standing
+/// for a task whose project could not be resolved. Exactly one resolved project scopes the event
+/// to it; anything else — several projects, or an unresolvable one — broadcasts, so no reader is
+/// left stale.
+fn emit_git_facts_changed(app: &AppHandle, projects: HashSet<Option<String>>) {
+    let scope = if projects.len() == 1 { projects.into_iter().next().flatten() } else { None };
+    crate::commands::emit_board_changed(app, scope.as_deref(), "git_facts", None);
 }
 
 /// D-114's hot tier: every worktree with a live agent session, unioned with whichever task's
@@ -161,10 +166,10 @@ fn run_hot_tick(app: &AppHandle) {
         }
     };
 
-    let mut any_changed = false;
+    let mut changed_projects: HashSet<Option<String>> = HashSet::new();
     for task_id in &task_ids {
         if read_and_record_change(&conn, task_id) {
-            any_changed = true;
+            changed_projects.insert(crate::commands::project_of(&conn, "tasks", task_id));
         }
         // LINK-10/D-115: notice a hand-typed commit on this task's branch. Follows
         // `sidecar.rs`'s `handle_inbound_git_lock_exhausted` idiom exactly — a failure is an
@@ -174,7 +179,9 @@ fn run_hot_tick(app: &AppHandle) {
         // board-invalidation emit fires.
         if let Some(actor_id) = &outside_commit_actor_id {
             match flywheel_core::git_facts::record_outside_commits(&mut conn, task_id, actor_id) {
-                Ok(count) if count > 0 => any_changed = true,
+                Ok(count) if count > 0 => {
+                    changed_projects.insert(crate::commands::project_of(&conn, "tasks", task_id));
+                }
                 Ok(_) => {}
                 Err(err) => eprintln!(
                     "git-truth hot tick: failed to notice outside commits for task {task_id}: {err:#}"
@@ -184,8 +191,8 @@ fn run_hot_tick(app: &AppHandle) {
     }
     drop(conn);
 
-    if any_changed {
-        emit_board_changed(app);
+    if !changed_projects.is_empty() {
+        emit_git_facts_changed(app, changed_projects);
     }
 }
 
@@ -232,10 +239,10 @@ fn run_cold_tick(app: &AppHandle) {
         }
     };
 
-    let mut any_changed = false;
+    let mut changed_projects: HashSet<Option<String>> = HashSet::new();
     for task_id in &task_ids {
         if read_and_record_change(&conn, task_id) {
-            any_changed = true;
+            changed_projects.insert(crate::commands::project_of(&conn, "tasks", task_id));
         }
         // DRFT-04/D-12: the status deriver rides this tick (no second job) for the tasks the forge
         // read does not cover — chiefly a worktree that exists for a card still at `todo`. The tick
@@ -244,7 +251,9 @@ fn run_cold_tick(app: &AppHandle) {
         // board-invalidation emit below; it is not a second channel.
         if let Some(actor_id) = &outside_commit_actor_id {
             match derive_in_own_transaction(&mut conn, actor_id, task_id) {
-                Ok(flywheel_core::status_derivation::Derivation::Wrote(_)) => any_changed = true,
+                Ok(flywheel_core::status_derivation::Derivation::Wrote(_)) => {
+                    changed_projects.insert(crate::commands::project_of(&conn, "tasks", task_id));
+                }
                 Ok(_) => {}
                 Err(err) => eprintln!(
                     "git-truth cold tick: failed to derive status for task {task_id}: {err:#}"
@@ -254,7 +263,9 @@ fn run_cold_tick(app: &AppHandle) {
         // LINK-10/D-115: see the matching comment in `run_hot_tick` — identical discipline.
         if let Some(actor_id) = &outside_commit_actor_id {
             match flywheel_core::git_facts::record_outside_commits(&mut conn, task_id, actor_id) {
-                Ok(count) if count > 0 => any_changed = true,
+                Ok(count) if count > 0 => {
+                    changed_projects.insert(crate::commands::project_of(&conn, "tasks", task_id));
+                }
                 Ok(_) => {}
                 Err(err) => eprintln!(
                     "git-truth cold tick: failed to notice outside commits for task {task_id}: {err:#}"
@@ -264,8 +275,8 @@ fn run_cold_tick(app: &AppHandle) {
     }
     drop(conn);
 
-    if any_changed {
-        emit_board_changed(app);
+    if !changed_projects.is_empty() {
+        emit_git_facts_changed(app, changed_projects);
     }
 }
 
@@ -555,10 +566,14 @@ fn run_forge_tick(app: &AppHandle) {
         return;
     };
     let any_changed = apply_forge_results(&mut conn, &results, &actor_id);
+    // `apply_forge_results` reports only whether anything changed, not which task, so the scope is
+    // the projects of every task this poll covered: a superset of the change, never a subset.
+    let polled_projects: HashSet<Option<String>> =
+        results.iter().map(|r| crate::commands::project_of(&conn, "tasks", &r.task_id)).collect();
     drop(conn);
 
     if any_changed {
-        emit_board_changed(app);
+        emit_git_facts_changed(app, polled_projects);
     }
 }
 

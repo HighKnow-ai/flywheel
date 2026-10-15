@@ -26,7 +26,9 @@
 
 use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
+
+use super::{emit_board_changed, project_of_locked};
 
 use super::ipc_error;
 use crate::state::AppState;
@@ -243,11 +245,7 @@ pub fn forge_open_request(
 
     match result {
         Ok(request) => {
-            app.emit(
-                "board:changed",
-                serde_json::json!({ "entity": "task", "id": task_id }),
-            )
-            .ok();
+            emit_board_changed(&app, Some(project_id.as_str()), "task", Some(&task_id));
             Ok(ForgeRequestDto::from(&request))
         }
         Err(flywheel_core::forge::ForgeError::CliNotInstalled { cli }) => {
@@ -421,7 +419,9 @@ pub fn forge_open_epic_request(
             EpicRequestOutcomeDto::PushedButNotOpened { branch }
         }
     };
-    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": epic_id })).ok();
+    // No lock is held here: the board reads above released it before any git or forge work.
+    let project_id = project_of_locked(&state.db, "epics", &epic_id);
+    emit_board_changed(&app, project_id.as_deref(), "epic", Some(&epic_id));
     Ok(dto)
 }
 

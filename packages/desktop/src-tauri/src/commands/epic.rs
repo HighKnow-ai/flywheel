@@ -3,7 +3,9 @@
 //! and emits `board:changed` after a successful mutation (D-04).
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
+
+use super::{emit_board_changed, project_of};
 
 use crate::state::AppState;
 
@@ -138,8 +140,7 @@ pub fn epic_create(
     drop(conn);
 
     let dto: EpicDto = epic.into();
-    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": dto.id }))
-        .ok();
+    emit_board_changed(&app, Some(project_id.as_str()), "epic", Some(dto.id.as_str()));
     Ok(dto)
 }
 
@@ -167,11 +168,11 @@ pub fn epic_update(
         description.as_deref(),
     )
     .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "epics", &epic_id);
     drop(conn);
 
     let dto: EpicDto = epic.into();
-    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": dto.id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "epic", Some(dto.id.as_str()));
     Ok(dto)
 }
 
@@ -180,12 +181,13 @@ pub fn epic_delete(state: State<AppState>, app: AppHandle, epic_id: String) -> R
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    // Read before the delete: the row (and its project) is gone afterwards.
+    let project_id = project_of(&conn, "epics", &epic_id);
     flywheel_core::domain::epic::delete_epic(&mut conn, &actor_id, &epic_id)
         .map_err(|e| e.to_string())?;
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": epic_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "epic", Some(epic_id.as_str()));
     Ok(())
 }
 
@@ -201,10 +203,10 @@ pub fn epic_set_status(
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::epic::set_epic_status(&mut conn, &actor_id, &epic_id, &status)
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "epics", &epic_id);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": epic_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "epic", Some(epic_id.as_str()));
     Ok(())
 }
 
@@ -225,10 +227,10 @@ pub fn epic_reorder(
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::epic::reorder_epic(&mut conn, &actor_id, &epic_id, direction)
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "epics", &epic_id);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": epic_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "epic", Some(epic_id.as_str()));
     Ok(())
 }
 
@@ -245,10 +247,10 @@ pub fn epic_set_priority(
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::epic::set_priority(&mut conn, &actor_id, &epic_id, priority)
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "epics", &epic_id);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": epic_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "epic", Some(epic_id.as_str()));
     Ok(())
 }
 
@@ -265,9 +267,9 @@ pub fn epic_set_assignee(
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::epic::set_assignee(&mut conn, &actor_id, &epic_id, assignee_id.as_deref())
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "epics", &epic_id);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "epic", "id": epic_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "epic", Some(epic_id.as_str()));
     Ok(())
 }

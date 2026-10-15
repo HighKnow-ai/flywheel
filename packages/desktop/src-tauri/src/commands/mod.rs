@@ -74,8 +74,30 @@ pub(crate) fn project_of(conn: &rusqlite::Connection, table: &str, id: &str) -> 
         "issues" => "SELECT project_id FROM issues WHERE id = ?1",
         "agent_runs" => "SELECT project_id FROM agent_runs WHERE id = ?1",
         "worktrees" => "SELECT project_id FROM worktrees WHERE id = ?1",
+        "acceptance_criteria" => {
+            "SELECT CASE parent_type \
+                 WHEN 'task' THEN (SELECT project_id FROM tasks WHERE id = parent_id) \
+                 ELSE (SELECT project_id FROM epics WHERE id = parent_id) END \
+             FROM acceptance_criteria WHERE id = ?1"
+        }
+        "dispatch_plans" => {
+            "SELECT e.project_id FROM dispatch_plans p JOIN epics e ON e.id = p.epic_id WHERE p.id = ?1"
+        }
+        "permission_rules" => "SELECT project_id FROM permission_rules WHERE id = ?1",
         "authoring_proposals" => "SELECT project_id FROM authoring_proposals WHERE id = ?1",
         _ => return None,
     };
     conn.query_row(sql, [id], |r| r.get::<_, String>(0)).ok()
+}
+
+/// [`project_of`] for a caller that holds no connection. Takes the lock itself, so it must NEVER
+/// be called while the caller already holds `db` (a re-lock on the same thread deadlocks). A
+/// poisoned lock resolves to `None`: the emit helper then broadcasts, so the event is never lost.
+pub(crate) fn project_of_locked(
+    db: &std::sync::Mutex<rusqlite::Connection>,
+    table: &str,
+    id: &str,
+) -> Option<String> {
+    let conn = db.lock().ok()?;
+    project_of(&conn, table, id)
 }

@@ -13,7 +13,9 @@
 
 use rusqlite::Connection;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
+
+use super::{emit_board_changed, project_of};
 
 use super::ipc_error;
 use crate::state::AppState;
@@ -123,7 +125,8 @@ pub fn task_file_set_set(
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
         .map_err(|e| ipc_error("task_file_set_set:actor", e))?;
     let stored = set_task_file_set(&mut conn, &task_id, &entries, &actor_id)?;
-    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id })).ok();
+    let project_id = project_of(&conn, "tasks", &task_id);
+    emit_board_changed(&app, project_id.as_deref(), "task", Some(&task_id));
     Ok(stored)
 }
 
@@ -221,7 +224,8 @@ pub fn task_file_set_widen(
         .map_err(|e| ipc_error("task_file_set_widen:actor", e))?;
     let result = widen_task_file_set(&mut conn, &task_id, &entry, &actor_id, fold_case)?;
     if result.status != "refused" {
-        app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id })).ok();
+        let project_id = project_of(&conn, "tasks", &task_id);
+        emit_board_changed(&app, project_id.as_deref(), "task", Some(&task_id));
     }
     Ok(result)
 }
