@@ -4,6 +4,10 @@ title: task_set_status and epic_set_status remain IPC-reachable with no caller
 area: desktop
 severity: minor
 resolves_phase: 14
+resolved: 2026-10-15T00:00:00.000Z
+status: resolved
+resolution_plan: 14-05
+resolution_commit: 6abeb1f3
 files:
   - packages/desktop/src-tauri/src/commands/task.rs
   - packages/desktop/src-tauri/src/commands/epic.rs
@@ -43,3 +47,7 @@ handler roster gate (13-04) is edited once.
 - `epic_set_status` is unregistered or retained to match whatever epic status becomes.
 - The 13-04 handler roster test is updated in the same diff (it pins the command count
   exactly, in both directions).
+
+## Resolution
+
+Closed by plan 14-05 (commit 6abeb1f3).

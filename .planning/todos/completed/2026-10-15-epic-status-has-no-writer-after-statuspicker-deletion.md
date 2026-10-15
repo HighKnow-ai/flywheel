@@ -4,6 +4,10 @@ title: Epic status has no writer after StatusPicker deletion
 area: desktop
 severity: major
 resolves_phase: 14
+resolved: 2026-10-15T00:00:00.000Z
+status: resolved
+resolution_plan: 14-05
+resolution_commit: 650035ca
 files:
   - packages/desktop/src/board/pickers/StatusPicker.tsx:deleted
   - packages/desktop/src-tauri/src/commands/epic.rs
@@ -46,3 +50,7 @@ by requirement traceability. This todo is the only record.
   human control on the Phase 14 surface.
 - Whichever is chosen, `epic_set_status`'s reachability matches it (see the companion todo
   on orphaned status commands).
+
+## Resolution
+
+Closed by plan 14-05 (commit 650035ca).
