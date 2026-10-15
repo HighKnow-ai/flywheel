@@ -72,7 +72,7 @@ The remaining **ten (F1, F3…F11)** are placed here; each is named in the phase
 | F1 | 13 | The 10-proposal cap hits authoring runs and its refusal names `report_summary`, a tool an authoring session does not have |
 | F4 | 13 | `set_priority` / `set_estimate` have no `_in_tx` form (narrowed by decision 8 to whichever writer survives the field audit) |
 | F5 | 13 | `start_agent_run` writes `tasks.status` directly, past the Phase 6 gate — must be refactored or allow-listed with a reason before the gate widens |
-| F6 | 13 | Run kind is inferred from column shape in four places; `agent_runs.kind` replaces it |
+| F6 | 13 | Run kind is inferred from column shape in four places; it now has one definition, `RunKind::classify`, mirrored by `RUN_KIND_*_PREDICATE` in SQL (the `agent_runs.kind` column was deliberately not added — see PROJECT.md A-07) |
 | F7 | 13 | An older build cannot open a newer DB; "reversible" means backup-and-restore and no test covers `DatabaseTooFarAhead` |
 | F8 | 13 | The `board:changed` payload is discarded, so every subscriber invalidates on every event (FNC-07) |
 | F9 | 13 | Surfaces are chosen by a nested ternary outside the keyboard layer model (FNC-06) |
@@ -391,7 +391,7 @@ with the reason):
 | DRFT-04 (status derived, never agent-written) | 13 | It is an authority property before it is a drafting one: it needs F5 (`start_agent_run` writing `tasks.status` past the gate) fixed and the FNC-03 human-only gate widened, both of which land here |
 | DRFT-05 (`estimate` out of required flows) | 13 | A deletion, and the hook the PM long tail arrives through (`SUM(estimate)` per Cycle is velocity in one query) — it belongs with FNC-04's forbidden-identifier gate, before the Cycle layer exists |
 | DRFT-06 (priority opt-in only) | 13 | Same deletion pass; what survives of it is the writer F4 adds, not an engine |
-| DRFT-09 (per-run proposal cap) | 13 | It is run-kind policy: it lands with `agent_runs.kind` (F6) and the F1 repair. Distinct from DRFT-08, the per-project attention cap, which is a different quantity and stays in 15 |
+| DRFT-09 (per-run proposal cap) | 13 | It is run-kind policy: it lands with the F6 run-kind definition (`RunKind::classify`; no `agent_runs.kind` column, see PROJECT.md A-07) and the F1 repair. Distinct from DRFT-08, the per-project attention cap, which is a different quantity and stays in 15 |
 | DRFT-01 (planner declares file-sets; closes PLAN-01) | 15 | Its live measurement starts on day one of Phase 13 and runs in parallel, because it has the longest feedback loop — but the requirement completes only when the file-set editor exists and the hand-typed field becomes an escape hatch, which cannot happen before the live artifact does. Mapped to 15 only; Phase 13 carries the measurement, not the requirement |
 | RECD-08, 09, 10 (the Cycle layer) | 14 | The Cycle is the first visible surface and has zero agent dependency, so it is the first consumer of state colour; PRD and ADR need the cap policy and link-on-accept from 15 and cannot lead |
 | RECD-13 (a Cycle may hold epics from several PRDs) | 16 | It is a statement about PRD↔epic linkage, which cannot be asserted until PRDs exist |
