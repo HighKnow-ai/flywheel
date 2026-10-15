@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 13
 current_phase_name: Nothing New Escapes The Fence
 status: executing
-stopped_at: Completed 13-07-PLAN.md
-last_updated: "2026-10-15T00:44:34.730Z"
+stopped_at: Completed 13-08-PLAN.md
+last_updated: "2026-10-15T00:49:41.839Z"
 last_activity: 2026-10-14
 last_activity_desc: Phase 13 execution started
-state_head: f0783cd58a07d5c91fcdc39a83d7a8867bfff037
+state_head: d751a5dfc2af2db53b14c373977240e0833af612
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 7
+  completed_plans: 8
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 13 (Nothing New Escapes The Fence) — EXECUTING
-Plan: 8 of 11
+Plan: 9 of 11
 Status: Ready to execute
 Last activity: 2026-10-14 — Phase 13 execution started
 
@@ -318,6 +318,7 @@ Last activity: 2026-10-14 — Phase 13 execution started
 | Phase 13 P05 | 22 min | 3 tasks | 8 files |
 | Phase 13 P06 | 1h 30m | 3 tasks | 22 files |
 | Phase 13 P07 | 105 min | 4 tasks | 45 files |
+| Phase 13 P08 | 6 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -734,6 +735,7 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-05: table classification is a const list checked against sqlite_master (no catch-all class); spine DDL pinned post-0023; no-promotion Gate 1 patterns derived from canonical_tables()
 - [Phase 13]: 13-06: accepted agent task proposals land at todo like hand-made tasks; backlog means only proposed-not-accepted. Priority suggestions carry their rationale and are applied by the accepting human inside the acceptance transaction.
 - [Phase 13]: 13-07: status derivation is level-based for worktree and merge and edge-based for in_review (owner, 2026-10-15, stay-lowered): a declined card is not raised by a tick while the forge is unchanged
+- [Phase 13]: 13-08: surface is a flat union resolved by precedence in keyboard.ts (activeSurface), not a stack; string ids map by truthiness to preserve the old ternary exactly
 
 ### Pending Todos
 
@@ -797,6 +799,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T00:44:34.712Z
-Stopped at: Completed 13-07-PLAN.md
+Last session: 2026-10-15T00:49:41.820Z
+Stopped at: Completed 13-08-PLAN.md
 Resume file: None
