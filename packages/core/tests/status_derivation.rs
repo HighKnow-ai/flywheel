@@ -331,7 +331,9 @@ fn a_refused_forge_edge_leaves_the_skipped_trace_in_the_activity_trail() {
         is_draft: false,
         target_branch: "main".into(),
     };
-    let outcome = apply_forge_observation(&mut f.conn, &t, Some(&request), &f.system, Some("backlog"))
+    // The tick captured `in_progress`; the card is at `todo`, i.e. a person dragged it back. A
+    // card that moved forward since the capture would be repaired instead (WR-07).
+    let outcome = apply_forge_observation(&mut f.conn, &t, Some(&request), &f.system, Some("in_progress"))
         .expect("apply");
     assert_eq!(outcome.status_changed_to, None);
     assert_eq!(f.status(&t), "todo");

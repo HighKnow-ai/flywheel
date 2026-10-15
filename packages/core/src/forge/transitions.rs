@@ -40,7 +40,7 @@ use rusqlite::{params, Connection};
 use crate::domain::event::{append_event, next_sequence};
 use crate::forge::{CiResult, ForgeRequest, ForgeState};
 use crate::query::forge::latest_forge_baseline;
-use crate::status_derivation::{derive_status_in_tx, is_review_edge, Derivation};
+use crate::status_derivation::{band_rank, derive_status_in_tx, is_review_edge, Derivation};
 
 /// A pull or merge request's lifecycle state changed since the last observation (LINK-07).
 pub const EVENT_FORGE_STATE_CHANGED: &str = "forge.state_changed";
@@ -102,6 +102,17 @@ fn state_changed_label(after: ForgeState, number: Option<i64>) -> String {
     }
 }
 
+/// Is a refused review edge a refusal the system caused, repairable by one retry? True only when
+/// the found status is strictly below the intended band (`band_rank(actual) < band_rank(intended)`)
+/// AND strictly above the status the write expected, i.e. the card advanced since the capture
+/// rather than being dragged back. Any status outside the band order is `false`.
+fn lost_edge_is_repairable(expected: Option<&str>, actual: &str, intended: &str) -> bool {
+    match (expected.and_then(band_rank), band_rank(actual), band_rank(intended)) {
+        (Some(was), Some(found), Some(want)) => was < found && found < want,
+        _ => false,
+    }
+}
+
 /// Apply one forge observation for `task_id` against the restart-safe baseline (D-121). Opens
 /// exactly one transaction: reads the baseline, appends its own events, hands the status question
 /// to `status_derivation::derive_status_in_tx` (which owns the column), and commits.
@@ -118,6 +129,10 @@ fn state_changed_label(after: ForgeState, number: Option<i64>) -> String {
 /// status write unless the task is still at `s`, for a caller (the scheduler's forge tick) that
 /// read the status, released its lock, polled a network call, then re-acquired to write — the
 /// status it captured before releasing may no longer be true by the time this function runs.
+/// The precondition is a compare-and-swap that refuses; on a review edge it then retries once,
+/// against the found status, when the refusal found the card moved FORWARD but still below the
+/// intended band - a refusal the system caused. A card a person dragged back, or moved to or past
+/// the intended band, is never written (see `lost_edge_is_repairable`).
 pub fn apply_forge_observation(
     conn: &mut Connection,
     task_id: &str,
@@ -190,7 +205,25 @@ pub fn apply_forge_observation(
     // event above, inside the same transaction, so its read of the forge baseline already sees
     // this observation. Whether this call is the review edge is known only here.
     let review_edge = forge_changed && is_review_edge(baseline.state, observed_state);
-    match derive_status_in_tx(&tx, task_id, actor_id, expected_status, review_edge)? {
+    let first = derive_status_in_tx(&tx, task_id, actor_id, expected_status, review_edge)?;
+    // WR-07: the review edge fires on this tick only (the baseline just advanced), so a refusal
+    // here would strand the card at `in_progress` beside an open request until the merge. Before
+    // `ensure_worktree`, `record_worktree_removed` and the cold tick also moved cards, only a
+    // person could win the poll window and D4 accepted the lost edge; now the refusal is often
+    // the system's own doing. So retry - at most once, never a loop - against the status the
+    // write actually found, but only when the card MOVED FORWARD since the status was captured
+    // and is still strictly below the intended band. A card found below the captured status is
+    // a person dragging it back; a card at or above the intended band needs no write. Neither is
+    // overridden. An unknown status on any side means no retry.
+    let outcome = match first {
+        Derivation::Refused { intended, actual }
+            if review_edge && lost_edge_is_repairable(expected_status, &actual, &intended) =>
+        {
+            derive_status_in_tx(&tx, task_id, actor_id, Some(&actual), review_edge)?
+        }
+        other => other,
+    };
+    match outcome {
         Derivation::Unchanged => {}
         Derivation::Wrote(new_status) => {
             // The `task.done_with_unmet_criteria` event for a merge is appended by the deriver
