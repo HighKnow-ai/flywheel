@@ -174,7 +174,7 @@ paths", and D-69 explicitly rejected size ceilings because a ceiling moves the b
 the developer cannot see. Any bound must use fixed counts, link-based inclusion and a visible
 boundary sentence; "truncate at N tokens" is out. Whether acknowledged or superseded decisions drop
 from the folded residue is a deliberate decision to take before planning, not during.
-**Plans**: 16/18 plans executed, 8 waves — 11/11 executed, 7 gap-closure plans pending (waves 7-8)
+**Plans**: 17/18 plans executed, 8 waves — 11/11 executed, 7 gap-closure plans pending (waves 7-8)
 
 Plans:
 **Wave 1**
@@ -213,7 +213,7 @@ Plans:
 - [x] 13-14-PLAN.md — the PM gate fires on compound identifiers; the status gate survives column order and line breaks; the migration 0023 rowid guard becomes behavioural (FNC-04, FNC-03, DRFT-04, DRFT-05)
 - [x] 13-15-PLAN.md — one shared `board:changed` routing hook adopted at all 29 sites with a one-caller gate; the account-wide dispatch cap refreshes again (FNC-07)
 - [x] 13-16-PLAN.md — one producer for `done_with_unmet_criteria`; a review edge lost to a system-caused CAS refusal is retried once (DRFT-04 — confirmed correctness defects WR-06/WR-07, not a criterion gap)
-- [ ] 13-17-PLAN.md — the too-far-ahead refusal touches no file; one ordinal base per boundary clause; the `SURFACE_LAYERS` orphan deleted (FNC-06; WR-01/WR-10/IN-03 are confirmed defects, not criterion gaps)
+- [x] 13-17-PLAN.md — the too-far-ahead refusal touches no file; one ordinal base per boundary clause; the `SURFACE_LAYERS` orphan deleted (FNC-06; WR-01/WR-10/IN-03 are confirmed defects, not criterion gaps)
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
@@ -415,7 +415,7 @@ Phase 17 shares no file with Phase 16 and may run beside it; it may not be absor
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 13. Nothing New Escapes The Fence | 16/18 | In Progress|  |
+| 13. Nothing New Escapes The Fence | 17/18 | In Progress|  |
 | 14. Cycles On Screen, State In Colour | 0/0 | Not started | - |
 | 15. Nothing Typed That An Agent Could Draft | 0/0 | Not started | - |
 | 16. The Problem And The Decision Are Board Records | 0/0 | Not started | - |

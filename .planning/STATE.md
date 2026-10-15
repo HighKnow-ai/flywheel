@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 13
 current_phase_name: Nothing New Escapes The Fence
 status: executing
-stopped_at: Completed 13-15-PLAN.md
-last_updated: "2026-10-15T05:57:58.005Z"
+stopped_at: Completed 13-17-PLAN.md
+last_updated: "2026-10-15T06:17:42.792Z"
 last_activity: 2026-10-15
 last_activity_desc: Phase 13 execution started
-state_head: 95e01d398a5874fa9b7a3fc303eeeaeb525503cd
+state_head: 52df5ccf1d1e39e0fbb51af3f588e30a2cfcebb5
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 18
-  completed_plans: 16
+  completed_plans: 17
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 13 (Nothing New Escapes The Fence) — EXECUTING
-Plan: 6 of 18
+Plan: 7 of 18
 Status: Ready to execute
 Last activity: 2026-10-15 — Phase 13 execution started
 
@@ -327,6 +327,7 @@ Last activity: 2026-10-15 — Phase 13 execution started
 | Phase 13 P16 | 20 min | 2 tasks | 5 files |
 | Phase 13 P13 | 25 min | 3 tasks | 5 files |
 | Phase 13 P15 | 8 min | 3 tasks | 28 files |
+| Phase 13 P17 | 25 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -754,6 +755,7 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-16: task.done_with_unmet_criteria is appended only by derive_status_in_tx; TransitionOutcome.events_appended no longer counts it
 - [Phase 13]: 13-13: Gate 1 ownership is per table (CANONICAL_TABLE_OWNERS); allow-list entries exempt one exact normalised statement, not a file-wide prefix
 - [Phase 13]: 13-15: board:changed routing lives in one hook (useBoardChangedInvalidation) with project/viewed/account scopes; adoption gate allows three subscribeBoardChanged callers — One routing decision cannot drift across 28 sites; unroutable events fail open
+- [Phase 13]: 13-17: too-far-ahead refusal is decided from a read-only Migrations::current_version check before any backup; SURFACE_LAYERS deleted, App.tsx switch ending in never is the single UiSurface exhaustiveness check; boundary sentence window clause is count-only — Removes the fs::copy over a possibly-live WAL file; avoids a keyboard behaviour change across five surfaces; one ordinal base per clause
 
 ### Pending Todos
 
@@ -817,6 +819,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T05:57:57.983Z
-Stopped at: Completed 13-15-PLAN.md
+Last session: 2026-10-15T06:17:42.770Z
+Stopped at: Completed 13-17-PLAN.md
 Resume file: None
