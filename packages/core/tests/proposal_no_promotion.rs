@@ -72,65 +72,110 @@ fn sources_under(dir: &Path) -> Vec<(PathBuf, String)> {
 
 // --- Gate 1: no agent-reachable module writes a canonical table directly (PROP-03) ---
 
-/// The case-sensitive literal substrings naming a direct write to a canonical table: an INSERT
-/// into every table `core::schema_classification` classifies `Canonical`, plus an UPDATE of
-/// `acceptance_criteria` (the one canonical table this staging system ever amends in place, via
-/// `revise_criterion_in_tx`). DERIVED, not listed (FNC-02): a new canonical table is covered the
-/// moment it is classified, and `table_classification.rs` fails the build until it is. This gate
-/// does not police `DELETE FROM <table>` — deletion is not a PROMOTION (turning a proposal into
-/// new board substance), which is the narrow thing D-100 exists to prove is impossible without
-/// triage; each canonical table's own `_in_tx` writer is still the only legitimate place a delete
-/// of that table happens, verified separately for `authoring_proposal.rs` by Gate 2 below.
+/// Each Canonical table paired with the ONE module that owns writes to it (path suffix). A write
+/// to a table from any other file is an offender unless it is an exact-statement entry in
+/// [`ALLOWED_CANONICAL_UPDATE_SITES`]. Per table, not per file: owning `issues` does not grant
+/// `tasks`, which is the hole that let two raw `UPDATE issues` statements sit past this gate.
+/// `every_canonical_table_has_exactly_one_owner` fails the build when `TABLE_CLASSES` gains a
+/// Canonical table without a row here.
+const CANONICAL_TABLE_OWNERS: [(&str, &str); 5] = [
+    ("tasks", "src/domain/task.rs"),
+    ("epics", "src/domain/epic.rs"),
+    ("issues", "src/domain/issue.rs"),
+    ("acceptance_criteria", "src/domain/acceptance_criterion.rs"),
+    ("criterion_anchors", "src/domain/acceptance_criterion.rs"),
+];
+
+fn owner_of(table: &str) -> Option<&'static str> {
+    CANONICAL_TABLE_OWNERS.iter().find(|(t, _)| *t == table).map(|(_, owner)| *owner)
+}
+
+/// The lowercase insert-shaped statements that write a row of `table`. The gate matches against
+/// whitespace-collapsed, lowercased text, so these are spelled once, in that form.
+fn table_insert_patterns(table: &str) -> [String; 3] {
+    [
+        format!("insert into {table}"),
+        format!("insert or replace into {table}"),
+        format!("replace into {table}"),
+    ]
+}
+
+/// Every insert-shaped pattern for every table `core::schema_classification` classifies
+/// `Canonical`. DERIVED, not listed (FNC-02): a new canonical table is covered the moment it is
+/// classified, and `table_classification.rs` fails the build until it is. This gate does not
+/// police `DELETE FROM <table>` — deletion is not a PROMOTION (turning a proposal into new board
+/// substance), which is the narrow thing D-100 exists to prove is impossible without triage; each
+/// canonical table's own `_in_tx` writer is still the only legitimate place a delete of that
+/// table happens, verified separately for `authoring_proposal.rs` by Gate 2 below.
 fn canonical_write_patterns() -> Vec<String> {
-    let mut patterns: Vec<String> = canonical_tables().map(|table| format!("INSERT INTO {table}")).collect();
-    patterns.push("UPDATE acceptance_criteria".to_string());
-    patterns
+    canonical_tables().flat_map(table_insert_patterns).collect()
+}
+
+/// `update <table> set` for every Canonical table — derived from the same classification, so the
+/// UPDATE side is covered by default exactly as the INSERT side is.
+fn canonical_update_patterns() -> Vec<String> {
+    canonical_tables().map(|table| format!("update {table} set")).collect()
+}
+
+/// Whatever is wrong with a derivation: empty tables, or a missing pattern for a table. An empty
+/// result is the only healthy one.
+fn derivation_gaps(tables: &[&str], inserts: &[String], updates: &[String]) -> Vec<String> {
+    let mut gaps = Vec::new();
+    if tables.is_empty() || inserts.is_empty() {
+        gaps.push("the INSERT side derived nothing, which would turn Gate 1 off".to_string());
+    }
+    if tables.is_empty() || updates.is_empty() {
+        gaps.push("the UPDATE side derived nothing, which would turn Gate 1 off".to_string());
+    }
+    for table in tables {
+        if !inserts.contains(&format!("insert into {table}")) {
+            gaps.push(format!("canonical table {table:?} has no INSERT pattern in Gate 1"));
+        }
+        if !updates.contains(&format!("update {table} set")) {
+            gaps.push(format!("canonical table {table:?} has no UPDATE pattern in Gate 1"));
+        }
+    }
+    gaps
 }
 
 #[test]
 fn the_derived_write_patterns_cover_every_canonical_table() {
-    let patterns = canonical_write_patterns();
     let tables: Vec<&str> = canonical_tables().collect();
-    assert!(
-        !tables.is_empty() && !patterns.is_empty(),
-        "FNC-02: deriving the write patterns from the classification produced nothing, which would \
-         turn Gate 1 off"
-    );
-    for table in tables {
-        assert!(
-            patterns.iter().any(|p| p == &format!("INSERT INTO {table}")),
-            "FNC-02: canonical table {table:?} has no INSERT pattern in Gate 1"
-        );
+    let gaps = derivation_gaps(&tables, &canonical_write_patterns(), &canonical_update_patterns());
+    assert!(gaps.is_empty(), "FNC-02: deriving the write patterns from the classification failed:\n  {}", gaps.join("\n  "));
+}
+
+#[test]
+fn an_empty_derivation_fails_loudly_on_both_sides() {
+    let gaps = derivation_gaps(&[], &[], &[]);
+    assert!(gaps.iter().any(|g| g.contains("INSERT side") && g.contains("turn Gate 1 off")), "{gaps:?}");
+    assert!(gaps.iter().any(|g| g.contains("UPDATE side") && g.contains("turn Gate 1 off")), "{gaps:?}");
+    let one_sided = derivation_gaps(&["tasks"], &canonical_write_patterns(), &[]);
+    assert!(one_sided.iter().any(|g| g.contains("UPDATE")), "{one_sided:?}");
+}
+
+#[test]
+fn every_canonical_table_has_exactly_one_owner() {
+    let classified: Vec<&str> = canonical_tables().collect();
+    for table in &classified {
+        let owners = CANONICAL_TABLE_OWNERS.iter().filter(|(t, _)| t == table).count();
+        assert_eq!(owners, 1, "canonical table {table:?} must name exactly one owner in CANONICAL_TABLE_OWNERS (found {owners})");
+    }
+    for (table, owner) in CANONICAL_TABLE_OWNERS {
+        assert!(classified.contains(&table), "CANONICAL_TABLE_OWNERS names {table:?} ({owner}), which is not classified Canonical");
     }
 }
 
-/// The four canonical-writer modules that legitimately own the patterns above — allow-listed by
-/// exact path suffix. Nothing else in the three scanned trees may contain one of these patterns
-/// outside a comment.
-const CANONICAL_WRITER_SUFFIXES: [&str; 4] = [
-    "src/domain/task.rs",
-    "src/domain/epic.rs",
-    "src/domain/issue.rs",
-    "src/domain/acceptance_criterion.rs",
-];
-
-/// The raw statements that rewrite a row of the two parent tables in place. Gate 1 used to match
-/// only inserts and one update, which is why two raw parent-touches sat past it undetected (F5).
-const CANONICAL_UPDATE_PATTERNS: [&str; 2] = ["UPDATE tasks SET", "UPDATE epics SET"];
-
-/// The two modules that own `UPDATE tasks SET` / `UPDATE epics SET` (`epic.rs` detaches a deleted
-/// epic's tasks). Any other file holding one is an offender unless it is in
-/// [`ALLOWED_CANONICAL_UPDATE_SITES`].
-const CANONICAL_UPDATE_OWNERS: [&str; 2] = ["src/domain/task.rs", "src/domain/epic.rs"];
-
-/// Statements that write past the owners on purpose: (path suffix, pattern, reason). A hit is
-/// skipped only on an exact (path, pattern) match, and `every_allowlisted_update_site_still_exists`
-/// fails if an entry goes stale. The reasons are also recorded in
-/// `.planning/phases/13-nothing-new-escapes-the-fence/13-AUTHORITY-ALLOWLIST.md`.
+/// Statements that write past their table's owner on purpose: (path suffix, FULL statement,
+/// reason). A hit is exempt only when the statement at that spot is exactly the entry's — a second
+/// `UPDATE tasks SET …` in the same file is still an offender — and
+/// `every_allowlisted_update_site_still_exists` fails if an entry goes stale. The reasons are also
+/// recorded in `.planning/phases/13-nothing-new-escapes-the-fence/13-AUTHORITY-ALLOWLIST.md`, in
+/// the same order.
 const ALLOWED_CANONICAL_UPDATE_SITES: &[(&str, &str, &str)] = &[
     (
         "src/domain/acceptance_criterion.rs",
-        "UPDATE tasks SET",
+        "update tasks set updated_at = ?1 where id = ?2",
         "an `updated_at` touch of the criterion's own parent inside the criterion-check transaction — not a \
      promotion (it creates no board substance) and not a status write (the status column is \
      untouched, and `no_agent_status_write.rs` independently proves that). Refactoring it into \
@@ -138,17 +183,70 @@ const ALLOWED_CANONICAL_UPDATE_SITES: &[(&str, &str, &str)] = &[
     ),
     (
         "src/domain/acceptance_criterion.rs",
-        "UPDATE epics SET",
+        "update epics set updated_at = ?1 where id = ?2",
         "an `updated_at` touch of the criterion's own parent inside the criterion-check transaction — not a \
      promotion (it creates no board substance) and not a status write (the status column is \
      untouched, and `no_agent_status_write.rs` independently proves that). Refactoring it into \
      `task.rs`/`epic.rs` would add a cross-module call for a timestamp and is deliberately not done.",
     ),
+    (
+        "src/domain/task.rs",
+        "update issues set task_id = null, updated_at = ?1 where task_id = ?2",
+        "detaching a deleted task's child issues inside the task-delete transaction. Not a promotion (it creates no \
+     board substance) and not an issue-content write (title, body, rank and parentage are `issue.rs`'s); \
+     routing it through `issue.rs` would add a cross-module call inside the delete transaction for a NULL-out.",
+    ),
+    (
+        "src/domain/epic.rs",
+        "update tasks set epic_id = null, updated_at = ?1 where epic_id = ?2",
+        "detaching a deleted epic's child tasks inside the epic-delete transaction. Not a promotion (it creates no \
+     board substance) and not a status write (the status column is untouched); `tasks.epic_id` is a NO ACTION FK, \
+     so the NULL-out must run in the same transaction as the `DELETE FROM epics`. This is the statement the \
+     pre-13-13 \"epic.rs owns UPDATE tasks\" file-level rule used to exempt silently.",
+    ),
+    (
+        "src/domain/epic.rs",
+        "update issues set epic_id = null, updated_at = ?1 where epic_id = ?2",
+        "same as the issue row above, for an epic parent.",
+    ),
 ];
 
+/// Collapse a run of code lines to the form the gate matches on: joined with a space, every run of
+/// whitespace one space, lowercased — so `INSERT  INTO\n  tasks` and `insert into tasks` are the
+/// same text. Same shape as `priority_is_opt_in.rs` and `no_agent_status_write.rs`.
+fn normalise_sql(code_lines: &[&str]) -> String {
+    code_lines.join(" ").split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// Byte offsets in `normal` where `pattern` starts and ends on an identifier boundary, so
+/// `insert into tasks` does not match `insert into tasks_fts`. A bare `replace into` that is the
+/// tail of `insert or replace into` is not a second hit.
+fn statement_hits(normal: &str, pattern: &str) -> Vec<usize> {
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    normal
+        .match_indices(pattern)
+        .filter(|(at, _)| {
+            let before = normal[..*at].chars().next_back();
+            let after = normal[at + pattern.len()..].chars().next();
+            !before.is_some_and(is_ident)
+                && !after.is_some_and(is_ident)
+                && !(pattern.starts_with("replace into") && normal[..*at].ends_with("insert or "))
+        })
+        .map(|(at, _)| at)
+        .collect()
+}
+
+/// True when `rest` (normalised text from a hit onward) begins with exactly `statement` and the
+/// statement ends there — at the closing quote, a `;`, or the end of the body — not mid-statement.
+fn starts_with_exact_statement(rest: &str, statement: &str) -> bool {
+    rest.strip_prefix(statement).is_some_and(|tail| tail.chars().next().is_none_or(|c| c == '"' || c == ';'))
+}
+
 /// The matcher both the real gate and the planted-violation test drive: every line of `body` (at
-/// `path`) that writes a canonical table outside its owner. Skips whole-line comments and
-/// migrations.
+/// `path`) that writes a canonical table outside its owner, one offender per line. Matches against
+/// whitespace-normalised, lowercased text, so case and line breaks do not hide a statement; a
+/// statement split across lines is reported at the line it starts on. Skips whole-line comments
+/// and migrations.
 fn canonical_write_offenders(path: &str, body: &str) -> Vec<String> {
     if path.contains("/migrations/") {
         // Schema DDL is not an agent-reachable write path — also naturally excluded by
@@ -156,26 +254,45 @@ fn canonical_write_offenders(path: &str, body: &str) -> Vec<String> {
         // case a future `.rs`-based migration helper ever lands under that directory.
         return Vec::new();
     }
-    let writer_owns_inserts = CANONICAL_WRITER_SUFFIXES.iter().any(|s| path.ends_with(s));
-    let owns_updates = CANONICAL_UPDATE_OWNERS.iter().any(|s| path.ends_with(s));
-    let insert_patterns = canonical_write_patterns();
-    let mut offenders = Vec::new();
+    let mut normal = String::new();
+    let mut line_starts: Vec<(usize, usize)> = Vec::new(); // (byte offset in `normal`, 1-based line)
     for (n, line) in body.lines().enumerate() {
         if is_whole_line_comment(line) {
             continue;
         }
-        let mut hit = !writer_owns_inserts && insert_patterns.iter().any(|p| line.contains(p.as_str()));
-        if !owns_updates {
-            hit |= CANONICAL_UPDATE_PATTERNS.iter().any(|pattern| {
-                line.contains(pattern)
-                    && !ALLOWED_CANONICAL_UPDATE_SITES.iter().any(|(suffix, allowed, _)| path.ends_with(suffix) && allowed == pattern)
-            });
+        let piece = normalise_sql(&[line]);
+        if piece.is_empty() {
+            continue;
         }
-        if hit {
-            offenders.push(format!("{path}:{}: {}", n + 1, line.trim()));
+        if !normal.is_empty() {
+            normal.push(' ');
+        }
+        line_starts.push((normal.len(), n + 1));
+        normal.push_str(&piece);
+    }
+    let line_of = |at: usize| line_starts.iter().rev().find(|(offset, _)| *offset <= at).map_or(0, |(_, n)| *n);
+
+    let mut by_line: std::collections::BTreeMap<usize, String> = std::collections::BTreeMap::new();
+    for table in canonical_tables() {
+        if owner_of(table).is_some_and(|owner| path.ends_with(owner)) {
+            continue;
+        }
+        for pattern in table_insert_patterns(table) {
+            for at in statement_hits(&normal, &pattern) {
+                by_line.entry(line_of(at)).or_insert_with(|| pattern.clone());
+            }
+        }
+        let update = format!("update {table} set");
+        for at in statement_hits(&normal, &update) {
+            let allowed = ALLOWED_CANONICAL_UPDATE_SITES.iter().any(|(suffix, statement, _)| {
+                path.ends_with(suffix) && starts_with_exact_statement(&normal[at..], &normalise_sql(&[statement]))
+            });
+            if !allowed {
+                by_line.entry(line_of(at)).or_insert_with(|| update.clone());
+            }
         }
     }
-    offenders
+    by_line.into_iter().map(|(n, pattern)| format!("{path}:{n}: {pattern}")).collect()
 }
 
 #[test]
@@ -193,6 +310,8 @@ fn no_agent_reachable_module_writes_a_canonical_table() {
             offenders.extend(canonical_write_offenders(&path.to_string_lossy(), &body));
         }
     }
+    // Sorted so the failure text is identical across filesystem walk orders.
+    offenders.sort();
 
     assert!(
         offenders.is_empty(),
@@ -205,29 +324,63 @@ fn no_agent_reachable_module_writes_a_canonical_table() {
 
 #[test]
 fn the_canonical_update_gate_fires_on_a_planted_parent_touch() {
-    let planted = "tx.execute(\"UPDATE tasks SET updated_at = ?1 WHERE id = ?2\", params![now, id])?;\n";
-    assert_eq!(
-        canonical_write_offenders("packages/core/src/domain/planted.rs", planted).len(),
-        1,
-        "a raw parent-touch outside the owners and the allow-list must be exactly one offender"
-    );
-    assert!(
-        canonical_write_offenders("packages/core/src/domain/task.rs", planted).is_empty(),
-        "the owning module is not an offender"
-    );
+    let offenders = |path: &str, body: &str| canonical_write_offenders(path, body).len();
+    let touch = "tx.execute(\"UPDATE tasks SET updated_at = ?1 WHERE id = ?2\", params![now, id])?;\n";
+    assert_eq!(offenders("packages/core/src/domain/planted.rs", touch), 1, "a raw parent-touch outside the owner must be exactly one offender");
+    assert_eq!(offenders("packages/core/src/domain/task.rs", touch), 0, "the owning module is not an offender");
+    assert_eq!(offenders("packages/core/src/domain/issue.rs", touch), 1, "owning `issues` does not grant `tasks`");
+
+    // The issue-detach statements are offenders anywhere but their exact allow-list entry.
+    let detach = "tx.execute(\"UPDATE issues SET epic_id = NULL, updated_at = ?1 WHERE epic_id = ?2\", params![now, id])?;\n";
+    assert_eq!(offenders("packages/core/src/domain/planted.rs", detach), 1);
+    assert_eq!(offenders("packages/core/src/domain/issue.rs", detach), 0, "the per-table owner");
+    assert_eq!(offenders("packages/core/src/domain/epic.rs", detach), 0, "the allow-listed detach");
+
+    // Case and whitespace do not hide a write.
+    let planted = "packages/core/src/domain/planted.rs";
+    for body in [
+        "tx.execute(\"insert into tasks (id) values (?1)\", [id])?;\n",
+        "tx.execute(\"INSERT   INTO   tasks (id) VALUES (?1)\", [id])?;\n",
+        "tx.execute(\"INSERT\n  INTO tasks (id) VALUES (?1)\", [id])?;\n",
+        "tx.execute(\"INSERT OR REPLACE INTO tasks (id) VALUES (?1)\", [id])?;\n",
+        "tx.execute(\"REPLACE INTO tasks (id) VALUES (?1)\", [id])?;\n",
+        "tx.execute(\"UPDATE tasks\n  SET status = 'done'\", [])?;\n",
+        "tx.execute(\"update tasks set status = 'done'\", [])?;\n",
+    ] {
+        assert_eq!(offenders(planted, body), 1, "must be exactly one offender: {body:?}");
+    }
+
+    // Adjacency: a canonical name that prefixes another identifier is not that table.
+    for body in [
+        "tx.execute(\"INSERT INTO tasks_fts (rowid) VALUES (?1)\", [id])?;\n",
+        "tx.execute(\"INSERT INTO epics_fts (rowid) VALUES (?1)\", [id])?;\n",
+        "tx.execute(\"UPDATE epics_fts SET title = ?1\", [t])?;\n",
+    ] {
+        assert_eq!(offenders(planted, body), 0, "an FTS mirror is not a canonical table: {body:?}");
+    }
+
+    // One line holding both an INSERT and an UPDATE is one offender for that line.
+    let both = "let _ = (\"INSERT INTO tasks (id) VALUES (1)\", \"UPDATE tasks SET x = 1\");\n";
+    assert_eq!(offenders(planted, both), 1, "one offender per line");
+    // Comments stay silent.
+    assert_eq!(offenders(planted, "// INSERT INTO tasks (id) VALUES (1)\n"), 0);
 }
 
 #[test]
 fn every_allowlisted_update_site_still_exists() {
     let root = workspace_root();
-    for (suffix, pattern, reason) in ALLOWED_CANONICAL_UPDATE_SITES {
-        assert!(!reason.is_empty(), "allow-list entry ({suffix}, {pattern}) records no reason");
+    for (suffix, statement, reason) in ALLOWED_CANONICAL_UPDATE_SITES {
+        assert!(!reason.is_empty(), "allow-list entry ({suffix}, {statement}) records no reason");
         let path = root.join("packages/core").join(suffix);
         let body = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("allow-list entry ({suffix}, {pattern}) names a file that does not exist: {e}"));
+            .unwrap_or_else(|e| panic!("allow-list entry ({suffix}, {statement}) names a file that does not exist: {e}"));
+        let code: Vec<&str> = body.lines().filter(|l| !is_whole_line_comment(l)).collect();
+        let normal = normalise_sql(&code);
+        let wanted = normalise_sql(&[statement]);
+        let occurrences = normal.matches(wanted.as_str()).count();
         assert!(
-            body.lines().any(|l| !is_whole_line_comment(l) && l.contains(pattern)),
-            "allow-list entry ({suffix}, {pattern}) is stale — the statement is gone, so the entry \
+            occurrences >= 1,
+            "allow-list entry ({suffix}, {statement}) is stale — the statement is gone, so the entry \
              would silently widen the gate for the next one"
         );
     }
