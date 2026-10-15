@@ -87,7 +87,7 @@ own phases, which are read daily in this repository (owner decision, 2026-10-14)
 - [x] **FNC-04**: A source gate fails the build on the vocabulary of the PM long tail — velocity, burndown, capacity, sprint, deadline, overdue, rollover — so the Cycle layer cannot drift into Jira by accretion
 - [x] **FNC-05**: The context packet is bounded by fixed counts and link relevance with the boundary visible to the user; no unbounded read of summaries, decisions or records remains, and the bound is asserted by a scale test
 - [x] **FNC-06**: Which surface is showing is one modelled value inside the keyboard layer model, not a nested conditional outside it
-- [ ] **FNC-07**: A board change notifies only the readers it affects, rather than invalidating every subscriber on every event
+- [x] **FNC-07**: A board change notifies only the readers it affects, rather than invalidating every subscriber on every event
 
 ## Carried from v0.1.0
 
@@ -213,7 +213,7 @@ Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROAD
 | FNC-04 | Phase 13 | Complete |
 | FNC-05 | Phase 13 | Complete |
 | FNC-06 | Phase 13 | Complete |
-| FNC-07 | Phase 13 | Pending |
+| FNC-07 | Phase 13 | Complete |
 
 **Placement notes:**
 

@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 13
 current_phase_name: Nothing New Escapes The Fence
 status: executing
-stopped_at: Completed 13-09-PLAN.md
-last_updated: "2026-10-15T01:28:32.663Z"
+stopped_at: Completed 13-10-PLAN.md
+last_updated: "2026-10-15T01:45:05.373Z"
 last_activity: 2026-10-14
 last_activity_desc: Phase 13 execution started
-state_head: b835e8f0d5c15f2537a489183e4cbced5311cf79
+state_head: abf66fdd32e4340dff761015e0a8240c7ea7d56e
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 13 (Nothing New Escapes The Fence) — EXECUTING
-Plan: 10 of 11
+Plan: 11 of 11
 Status: Ready to execute
 Last activity: 2026-10-14 — Phase 13 execution started
 
@@ -320,6 +320,7 @@ Last activity: 2026-10-14 — Phase 13 execution started
 | Phase 13 P07 | 105 min | 4 tasks | 45 files |
 | Phase 13 P08 | 6 min | 2 tasks | 6 files |
 | Phase 13 P09 | 55 min | 3 tasks | 7 files |
+| Phase 13 P10 | 20 min | 3 tasks | 19 files |
 
 ## Accumulated Context
 
@@ -738,6 +739,8 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-07: status derivation is level-based for worktree and merge and edge-based for in_review (owner, 2026-10-15, stay-lowered): a declined card is not raised by a tick while the forge is unchanged
 - [Phase 13]: 13-08: surface is a flat union resolved by precedence in keyboard.ts (activeSurface), not a stack; string ids map by truthiness to preserve the old ternary exactly
 - [Phase 13]: 13-09: authority writers refuse any non-human actor by reading actors.type in the write transaction; amend_proposal deliberately ungated
+- [Phase 13]: 13-10: board:changed is emitted only through commands::emit_board_changed with a { projectId, entity, id } payload; the renderer routes by projectId and broadcasts null or malformed payloads
+- [Phase 13]: 13-10: a scheduler tick still emits at most once; one resolved project scopes it, several or unresolved broadcast
 
 ### Pending Todos
 
@@ -801,6 +804,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T01:28:32.644Z
-Stopped at: Completed 13-09-PLAN.md
+Last session: 2026-10-15T01:45:05.352Z
+Stopped at: Completed 13-10-PLAN.md
 Resume file: None
