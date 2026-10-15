@@ -208,3 +208,17 @@ pub fn derive_status(
     tx.commit().context("failed to commit derive_status transaction")?;
     Ok(outcome)
 }
+
+/// The epic candidate for a task status distribution (D-13). Stub.
+pub fn derive_epic_candidate(_by_status: &[(String, u32)]) -> Option<&'static str> {
+    None
+}
+
+/// Derive and write an epic's status inside the caller's transaction (D-13). Stub.
+pub fn derive_epic_status_in_tx(
+    _tx: &Transaction,
+    _epic_id: &str,
+    _actor_id: &str,
+) -> anyhow::Result<Derivation> {
+    Ok(Derivation::Unchanged)
+}

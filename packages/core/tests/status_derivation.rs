@@ -24,8 +24,10 @@ use core::forge::transitions::{
 use core::forge::{CiResult, ForgeRequest, ForgeState};
 use core::ids::new_id;
 use core::query::events::activity_trail;
+use core::domain::epic::{create_epic, set_epic_status};
 use core::status_derivation::{
-    band_rank, derive_candidate, derive_status, is_review_edge, Derivation, BAND_ORDER,
+    band_rank, derive_candidate, derive_epic_candidate, derive_epic_status_in_tx, derive_status,
+    is_review_edge, Derivation, BAND_ORDER,
 };
 use rusqlite::{params, Connection};
 
@@ -535,4 +537,144 @@ fn a_refusal_with_no_new_forge_fact_is_not_retried() {
     f.observe_expecting(&t, ForgeState::Merged, Some("backlog"));
     assert_eq!(f.status(&t), "in_progress", "a standing level is the cold tick's to re-apply");
     assert_eq!(f.events_of(&t, EVENT_FORGE_STATUS_WRITE_SKIPPED), 1, "only the first refusal left a trace");
+}
+
+// ---------------------------------------------------------------------------------------------
+// The epic level (D-13, plan 14-05): the same floor, one level up.
+// ---------------------------------------------------------------------------------------------
+
+fn dist(pairs: &[(&str, u32)]) -> Vec<(String, u32)> {
+    pairs.iter().map(|(s, n)| (s.to_string(), *n)).collect()
+}
+
+#[test]
+fn an_epic_whose_tasks_are_all_backlog_derives_backlog() {
+    assert_eq!(derive_epic_candidate(&dist(&[("backlog", 3)])), Some("backlog"));
+}
+
+#[test]
+fn an_epic_with_a_todo_task_and_no_further_progress_derives_todo() {
+    assert_eq!(derive_epic_candidate(&dist(&[("backlog", 1), ("todo", 2)])), Some("todo"));
+}
+
+#[test]
+fn an_epic_with_an_in_progress_task_derives_in_progress_whatever_the_rest_are() {
+    assert_eq!(
+        derive_epic_candidate(&dist(&[("backlog", 1), ("in_progress", 1), ("done", 4)])),
+        Some("in_progress")
+    );
+}
+
+#[test]
+fn an_epic_whose_tasks_are_all_in_review_or_done_derives_in_review() {
+    assert_eq!(derive_epic_candidate(&dist(&[("in_review", 1), ("done", 2)])), Some("in_review"));
+}
+
+#[test]
+fn an_epic_whose_tasks_are_all_done_derives_done() {
+    assert_eq!(derive_epic_candidate(&dist(&[("done", 3)])), Some("done"));
+}
+
+#[test]
+fn an_epic_with_no_tasks_has_no_candidate_and_is_not_promoted() {
+    assert_eq!(derive_epic_candidate(&[]), None);
+    assert_eq!(derive_epic_candidate(&dist(&[("done", 0)])), None);
+
+    let mut f = fx();
+    let epic = create_epic(&mut f.conn, &f.project_id, &f.human, "Empty", None).unwrap();
+    assert_eq!(f.derive_epic(&epic.id), Derivation::Unchanged);
+    assert_eq!(f.epic_status(&epic.id), "backlog");
+}
+
+#[test]
+fn two_epic_candidates_over_identical_inputs_are_identical() {
+    let d = dist(&[("todo", 1), ("done", 1)]);
+    for _ in 0..3 {
+        assert_eq!(derive_epic_candidate(&d), derive_epic_candidate(&d));
+    }
+}
+
+impl Fx {
+    fn epic_task(&mut self, epic_id: &str, title: &str) -> String {
+        create_task(&mut self.conn, &self.project_id, &self.human, title, Some(epic_id)).unwrap().id
+    }
+
+    fn epic_status(&self, epic_id: &str) -> String {
+        self.conn.query_row("SELECT status FROM epics WHERE id = ?1", [epic_id], |r| r.get(0)).unwrap()
+    }
+
+    fn epic_status_events(&self, epic_id: &str) -> usize {
+        activity_trail(&self.conn, "epic", epic_id, 500, 0)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.event_type == "epic.status_changed")
+            .count()
+    }
+
+    fn derive_epic(&mut self, epic_id: &str) -> Derivation {
+        let tx = self.conn.transaction().unwrap();
+        let outcome = derive_epic_status_in_tx(&tx, epic_id, &self.system).expect("derive epic");
+        tx.commit().unwrap();
+        outcome
+    }
+}
+
+#[test]
+fn an_epic_follows_its_tasks_forward_and_a_second_derivation_is_silent() {
+    let mut f = fx();
+    let epic = create_epic(&mut f.conn, &f.project_id, &f.human, "Follows", None).unwrap().id;
+    let a = f.epic_task(&epic, "A");
+    let b = f.epic_task(&epic, "B");
+    f.set(&a, "in_progress");
+    assert_eq!(f.derive_epic(&epic), Derivation::Wrote("in_progress".into()));
+    assert_eq!(f.epic_status(&epic), "in_progress");
+    assert_eq!(f.derive_epic(&epic), Derivation::Unchanged);
+    assert_eq!(f.epic_status_events(&epic), 1, "an unchanged tick appends no event");
+
+    f.set(&a, "done");
+    f.set(&b, "done");
+    assert_eq!(f.derive_epic(&epic), Derivation::Wrote("done".into()));
+    assert_eq!(f.epic_status_events(&epic), 2);
+}
+
+#[test]
+fn a_done_epic_stays_done_when_a_task_regresses() {
+    let mut f = fx();
+    let epic = create_epic(&mut f.conn, &f.project_id, &f.human, "Terminal", None).unwrap().id;
+    let a = f.epic_task(&epic, "A");
+    f.set(&a, "done");
+    assert_eq!(f.derive_epic(&epic), Derivation::Wrote("done".into()));
+
+    f.set(&a, "in_progress");
+    assert_eq!(f.derive_epic(&epic), Derivation::Unchanged);
+    assert_eq!(f.epic_status(&epic), "done");
+}
+
+#[test]
+fn a_human_lowered_epic_is_not_raised_back_by_the_deriver() {
+    let mut f = fx();
+    let epic = create_epic(&mut f.conn, &f.project_id, &f.human, "Lowered", None).unwrap().id;
+    let a = f.epic_task(&epic, "A");
+    f.set(&a, "done");
+    assert_eq!(f.derive_epic(&epic), Derivation::Wrote("done".into()));
+
+    // The human deliberately lowers the epic; its task is now in progress again.
+    set_epic_status(&mut f.conn, &f.human, &epic, "in_progress").unwrap();
+    f.set(&a, "in_progress");
+    assert_eq!(f.derive_epic(&epic), Derivation::Unchanged);
+    assert_eq!(f.epic_status(&epic), "in_progress", "the floor compares against the value the human set");
+
+    // ...but the deriver still moves it on once the tasks' own candidate is higher.
+    f.set(&a, "done");
+    assert_eq!(f.derive_epic(&epic), Derivation::Wrote("done".into()));
+}
+
+#[test]
+fn deriving_a_task_derives_its_epic_in_the_same_transaction() {
+    let mut f = fx();
+    let epic = create_epic(&mut f.conn, &f.project_id, &f.human, "Rides", None).unwrap().id;
+    let t = f.epic_task(&epic, "Started");
+    f.give_worktree(&t);
+    assert_eq!(f.derive(&t), Derivation::Wrote("in_progress".into()));
+    assert_eq!(f.epic_status(&epic), "in_progress", "no second trigger point was needed");
 }
