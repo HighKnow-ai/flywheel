@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 14
 current_phase_name: Cycles On Screen, State In Colour
 status: executing
-stopped_at: Completed 14-08-PLAN.md
-last_updated: "2026-10-15T13:17:54.269Z"
+stopped_at: Completed 14-09-PLAN.md
+last_updated: "2026-10-15T13:38:35.677Z"
 last_activity: 2026-10-15
 last_activity_desc: Phase 14 execution started
-state_head: df8e8185841aa18c98de035fcddf7840d2f2518c
+state_head: 582105fccca7e51ca17be154e9e14c8b46db6b58
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 28
-  completed_plans: 26
+  completed_plans: 27
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 14 (Cycles On Screen, State In Colour) — EXECUTING
-Plan: 9 of 10
+Plan: 10 of 10
 Status: Ready to execute
 Last activity: 2026-10-15 — Phase 14 execution started
 
@@ -338,6 +338,7 @@ Last activity: 2026-10-15 — Phase 14 execution started
 | Phase 14 P06 | 75 min | 3 tasks | 19 files |
 | Phase 14 P07 | 12 min | 3 tasks | 17 files |
 | Phase 14 P08 | 35 min | 3 tasks | 10 files |
+| Phase 14 P09 | 25 min | 2 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -781,6 +782,8 @@ Recent decisions affecting current work:
 - [Phase 14]: [Phase 14-07] StateBadge gained an optional pulse prop so the running glyph keeps agent-pulse; needs-decision and CI-failed pills in BoardRow are in the vocabulary but not yet rewired (follow-on).
 - [Phase 14]: 14-08: CVD floors fixed before measurement (ink pairs 10, wash pairs 2.3, CIE76 on Machado 2009 simulation); seven pair checks failed, nine values moved, no floor moved
 - [Phase 14]: 14-08: forced-colors arm runs in Chromium (WebView2), not WebKit, which reports the query and substitutes nothing; the fallback is a measured no-op
+- [Phase 14]: 14-09: needs-you and failed carry a wash in list rows (StateBadge.rowVariant); running, merged and quiet are ink. One value moved: light needs-you wash #fefcec to #fffad3. Dark needs-you wash cannot be made visible inside the envelope (best 4.79 vs 4.43); left for Phase 18.
+- [Phase 14]: 14-09: the epic roster container ladder rungs are 1160 and 940 (were 900 and 640) and the shed distribution strip is !important; the Cycle region is clamped (two-line goal, one-line later Cycles) with contain: inline-size.
 
 ### Pending Todos
 
@@ -844,6 +847,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T13:17:54.240Z
-Stopped at: Completed 14-08-PLAN.md
+Last session: 2026-10-15T13:38:35.650Z
+Stopped at: Completed 14-09-PLAN.md
 Resume file: None

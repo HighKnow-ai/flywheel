@@ -72,10 +72,10 @@ own phases, which are read daily in this repository (owner decision, 2026-10-14)
 
 - [x] **VIS-01**: State is carried by a single component that is the only consumer of the state colour tokens, rendering a glyph and a name alongside the colour, so that colour is the fastest channel and never the only one — enforced by a source gate, not by convention
 - [x] **VIS-02**: The direction that introduces saturated state colour supersedes D-11 by name, in a recorded decision with a SUPERSEDES table; the specification, the brand allowlist and the tests that enforce them are amended in the same change
-- [ ] **VIS-03**: Every pair of state colours remains distinguishable under simulated protanopia, deuteranopia and tritanopia, asserted by test
-- [ ] **VIS-04**: Every text role is contrast-checked against every surface tint it can appear on, in both modes, asserted by test against the shipped stylesheet bytes
+- [x] **VIS-03**: Every pair of state colours remains distinguishable under simulated protanopia, deuteranopia and tritanopia, asserted by test
+- [x] **VIS-04**: Every text role is contrast-checked against every surface tint it can appear on, in both modes, asserted by test against the shipped stylesheet bytes
 - [ ] **VIS-05**: The interface is designed dark-first and follows the operating system's setting; the light mode is derived from the dark design rather than the reverse
-- [ ] **VIS-06**: A seeded demonstration board exists carrying every state live — running, blocked, failed, awaiting review, proposals pending, an epic mid-flight, and a realistic item count — and design work is judged on it, never on fixture rows
+- [x] **VIS-06**: A seeded demonstration board exists carrying every state live — running, blocked, failed, awaiting review, proposals pending, an epic mid-flight, and a realistic item count — and design work is judged on it, never on fixture rows
 - [ ] **VIS-07**: Each new surface is signed off by the owner looking at the built application, with a screenshot recorded; adopting a comp does not satisfy this
 - [ ] **VIS-08**: The interface is calm when nothing needs the user and loud only where something does; the proportion of the surface carrying saturated colour is budgeted and checked
 
@@ -201,10 +201,10 @@ Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROAD
 | ARVW-06 | Phase 17 | Pending |
 | VIS-01 | Phase 14 | Complete |
 | VIS-02 | Phase 14 | Complete |
-| VIS-03 | Phase 14 | Pending |
-| VIS-04 | Phase 14 | Pending |
+| VIS-03 | Phase 14 | Complete |
+| VIS-04 | Phase 14 | Complete |
 | VIS-05 | Phase 18 | Pending |
-| VIS-06 | Phase 14 | Pending |
+| VIS-06 | Phase 14 | Complete |
 | VIS-07 | Phase 14 | Pending |
 | VIS-08 | Phase 18 | Pending |
 | FNC-01 | Phase 13 | Complete |
