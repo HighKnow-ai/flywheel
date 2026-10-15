@@ -70,8 +70,8 @@ own phases, which are read daily in this repository (owner decision, 2026-10-14)
 
 ### Visual direction
 
-- [ ] **VIS-01**: State is carried by a single component that is the only consumer of the state colour tokens, rendering a glyph and a name alongside the colour, so that colour is the fastest channel and never the only one — enforced by a source gate, not by convention
-- [ ] **VIS-02**: The direction that introduces saturated state colour supersedes D-11 by name, in a recorded decision with a SUPERSEDES table; the specification, the brand allowlist and the tests that enforce them are amended in the same change
+- [x] **VIS-01**: State is carried by a single component that is the only consumer of the state colour tokens, rendering a glyph and a name alongside the colour, so that colour is the fastest channel and never the only one — enforced by a source gate, not by convention
+- [x] **VIS-02**: The direction that introduces saturated state colour supersedes D-11 by name, in a recorded decision with a SUPERSEDES table; the specification, the brand allowlist and the tests that enforce them are amended in the same change
 - [ ] **VIS-03**: Every pair of state colours remains distinguishable under simulated protanopia, deuteranopia and tritanopia, asserted by test
 - [ ] **VIS-04**: Every text role is contrast-checked against every surface tint it can appear on, in both modes, asserted by test against the shipped stylesheet bytes
 - [ ] **VIS-05**: The interface is designed dark-first and follows the operating system's setting; the light mode is derived from the dark design rather than the reverse
@@ -199,8 +199,8 @@ Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROAD
 | ARVW-04 | Phase 17 | Pending |
 | ARVW-05 | Phase 17 | Pending |
 | ARVW-06 | Phase 17 | Pending |
-| VIS-01 | Phase 14 | Pending |
-| VIS-02 | Phase 14 | Pending |
+| VIS-01 | Phase 14 | Complete |
+| VIS-02 | Phase 14 | Complete |
 | VIS-03 | Phase 14 | Pending |
 | VIS-04 | Phase 14 | Pending |
 | VIS-05 | Phase 18 | Pending |
