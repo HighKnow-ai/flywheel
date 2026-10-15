@@ -167,7 +167,10 @@ button.control-edge:hover:not(:disabled) {
   column-gap: var(--space-md);
 }
 
-@container epic-header (max-width: 900px) {
+/* 1140 = the full template's 976px of fixed columns, gaps and padding plus a 164px title: the title the 900px
+   rung below already leaves once the strip is gone (900 - 740). It was 900, which left the title 22px at the
+   default window's 1016px pane (Phase 14 plan 09, found on the running application). */
+@container epic-header (max-width: 1140px) {
   .field-epic-distribution {
     display: none;
   }
