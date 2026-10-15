@@ -36,6 +36,10 @@ const regionStyle: CSSProperties = {
   borderBottom: "1px solid var(--divider)",
   background: "var(--surface-secondary)",
   color: "var(--text-primary-rack)",
+  // The region's width is its container's, never its content's. The application shell sizes its content child
+  // to max-content (a flex item with no `min-width: 0`), so a long unwrapped goal would widen the whole board
+  // past the window. Size containment makes the region's intrinsic width zero and leaves its used width alone.
+  contain: "inline-size",
 };
 
 const rowStyle: CSSProperties = {
