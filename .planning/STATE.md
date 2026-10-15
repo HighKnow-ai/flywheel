@@ -24,7 +24,7 @@ milestone_name: The Board Thinks With You
 See: .planning/PROJECT.md (updated 2026-10-12)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 13 — Nothing New Escapes The Fence
+**Current focus:** Phase 14 — Cycles On Screen, State In Colour
 
 ## Current Position
 
