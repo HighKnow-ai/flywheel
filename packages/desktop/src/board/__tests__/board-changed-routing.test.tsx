@@ -34,12 +34,14 @@ function mount() {
   return spy;
 }
 
-async function fire(payload?: unknown) {
+async function fire(...payloads: unknown[]) {
   await waitFor(() => expect(handlers).toHaveLength(1));
-  handlers.forEach((h) => h(payload));
+  for (const payload of payloads) handlers.forEach((h) => h(payload));
 }
 
 const keys = (spy: ReturnType<typeof mount>) => spy.mock.calls.map((c) => (c[0] as { queryKey: unknown }).queryKey);
+
+const BROADCAST = [["board"], ["epics"]];
 
 beforeEach(() => {
   handlers = [];
@@ -52,6 +54,13 @@ describe("board:changed routing", () => {
     expect(keys(spy)).toEqual(expect.arrayContaining([["board", VIEWED], ["epics", VIEWED]]));
   });
 
+  it("an event for the viewed project touches no other project's keys and no bare prefix", async () => {
+    const spy = mount();
+    await fire({ projectId: VIEWED, entity: "task", id: "t1" });
+    // The fan-out keys are keyed by epic, not by project, so they ride the viewed-project branch.
+    expect(keys(spy)).toEqual([["board", VIEWED], ["epics", VIEWED], ["board", "dispatch"]]);
+  });
+
   it("an event for a different project invalidates nothing at all", async () => {
     const spy = mount();
     await fire({ projectId: "project-b", entity: "task", id: "t1" });
@@ -61,6 +70,38 @@ describe("board:changed routing", () => {
   it("an event with a null projectId broadcasts to every project's board and epics", async () => {
     const spy = mount();
     await fire({ projectId: null, entity: "git_facts", id: null });
-    expect(keys(spy)).toEqual([["board"], ["epics"]]);
+    expect(keys(spy)).toEqual(BROADCAST);
+  });
+
+  it("an event with no projectId key at all broadcasts rather than dropping", async () => {
+    const spy = mount();
+    await fire({ entity: "task", id: "t1" });
+    expect(keys(spy)).toEqual(BROADCAST);
+  });
+
+  it("a malformed payload (non-string projectId, missing entity, no payload) broadcasts rather than throwing", async () => {
+    const spy = mount();
+    await fire({ projectId: 42 }, { projectId: {}, id: 3 }, undefined, "not an object");
+    expect(keys(spy)).toEqual([...BROADCAST, ...BROADCAST, ...BROADCAST, ...BROADCAST]);
+  });
+
+  it("two events for the viewed project in the same tick each invalidate — nothing is coalesced", async () => {
+    const spy = mount();
+    await fire(
+      { projectId: VIEWED, entity: "task", id: "t1" },
+      { projectId: VIEWED, entity: "task", id: "t2" },
+    );
+    expect(spy).toHaveBeenCalledTimes(6);
+    expect(keys(spy).filter((k) => JSON.stringify(k) === JSON.stringify(["board", VIEWED]))).toHaveLength(2);
+  });
+
+  it("an interleaved foreign event neither invalidates nor reorders the viewed project's events", async () => {
+    const spy = mount();
+    await fire(
+      { projectId: VIEWED, entity: "task", id: "t1" },
+      { projectId: "project-b", entity: "task", id: "t9" },
+      { projectId: VIEWED, entity: "epic", id: "e1" },
+    );
+    expect(spy).toHaveBeenCalledTimes(6);
   });
 });
