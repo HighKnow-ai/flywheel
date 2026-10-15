@@ -189,6 +189,24 @@ describe("the Cycle region realises the structure of 14-HIERARCHY.md", () => {
     expect(visibleRows.length, "epic rows fully on screen under the region").toBeGreaterThanOrEqual(3);
   });
 
+  it.each([1016, 1200])("leaves the roster's lead row a readable title at a %ipx board pane (the default window's pane is 1016)", async (width) => {
+    // The roster keeps the hierarchy lead (14-HIERARCHY.md section 1). Found on the running application at the
+    // default window: every roster title read "1..." because the container ladder only shed the distribution strip
+    // at 900px, while the full template's fixed columns, gaps and padding already take 976px, leaving the title the
+    // difference. 160px is the title the ladder's own 900px rung leaves (900 - 740 of fixed columns); this holds the
+    // full-width rung to the same floor.
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <div style={{ height: 560, width }}>
+          <BoardView projectId="proj-1" items={[]} issues={[]} counts={EMPTY_COUNTS} onCreateTask={() => {}} />
+        </div>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(document.querySelectorAll(".epic-header-row").length).toBeGreaterThanOrEqual(3));
+    const title = document.querySelector<HTMLElement>(".epic-header-row .type-heading")!;
+    expect(title.getBoundingClientRect().width, "roster title width").toBeGreaterThanOrEqual(160);
+  });
+
   it("is a sibling above the virtualizer, not a descendant of the element carrying the board-view class", async () => {
     const region = await renderBoard();
     const list = document.querySelector(".board-view")!;
