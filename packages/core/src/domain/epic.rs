@@ -178,6 +178,10 @@ pub fn create_epic_in_tx(
         )
         .context("failed to allocate the next project key")?;
 
+    // Unlike a task (created at `todo`, where `backlog` is a legacy band with no producer), an
+    // epic IS still created at `backlog` by a human. The band means different things for the two
+    // types, deliberately; what an epic's status should be is the owner's open Phase 14 decision
+    // (`13-VERIFICATION.md` `human_verification`), not settled here.
     tx.execute(
         "INSERT INTO epics (
             id, project_id, key, title, description, status, rank, priority,

@@ -543,7 +543,12 @@ export interface SurfaceState {
   projectUnreachable: boolean;
 }
 
-/** The single surface showing, in the precedence order the content area has always encoded. */
+/** The single surface showing, in the precedence order the content area has always encoded.
+ *
+ * The one exhaustiveness check over `UiSurface` is `App.tsx`'s flat `switch` on this value, which
+ * ends in `never`: a new member that is not handled there fails the build. Per-surface keyboard
+ * layers are registered by each surface component (`useRegionBindings("…-surface", …)`), not
+ * mapped here. */
 export function activeSurface(state: SurfaceState): UiSurface {
   // D-39: checked first — Settings may be opened over an active session or an unreachable project.
   if (state.settingsOpen) return "settings";
@@ -564,19 +569,6 @@ export function activeSurface(state: SurfaceState): UiSurface {
   if (state.projectUnreachable) return "project-unreachable";
   return "board";
 }
-
-/** The keyboard layer each surface registers, or `null` for a surface that owns none today. A
- * `Record` over `UiSurface`, so adding a surface without deciding its layer is a build failure. */
-export const SURFACE_LAYERS: Record<UiSurface, UiLayer | null> = {
-  board: "board",
-  settings: null,
-  triage: "triage-surface",
-  review: "review-surface",
-  session: "session-surface",
-  fleet: "fleet-surface",
-  "worktree-inventory": null,
-  "project-unreachable": null,
-};
 
 /** Whether `id` may fire while `layer` is on top. Exactly two rules. Rule one: `open-palette` is
  * the discoverability guarantee BOARD-07 rests on, so a trapped detail panel must never be able

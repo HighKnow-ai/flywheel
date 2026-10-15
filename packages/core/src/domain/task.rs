@@ -58,10 +58,11 @@ pub fn create_task(
 /// inside a transaction it already owns. `create_task`'s own body and signature are otherwise
 /// unchanged; this is the same statements, callable from inside the caller's transaction.
 ///
-/// Band semantics (D-18): a new task is created at `todo`. `backlog` now means exactly "proposed
-/// by an agent, not yet accepted"; typing a task is the human act and there is no second
-/// acceptance to wait for. A task materialised from an accepted agent proposal also lands here,
-/// because acceptance IS the human act for that path.
+/// Band semantics (D-18): a new task is created at `todo` (`CREATED_BAND`). `backlog` is a legacy band
+/// with no producer: an agent's proposal is not a task at all, it lives in
+/// `authoring_proposals` until accepted, and an accepted proposal also lands at `todo` because
+/// acceptance IS the human act for that path. Human-typed rows already left at `backlog` are not
+/// migrated; the band stays a valid `BAND_ORDER` member that the status deriver's floor reads.
 pub fn create_task_in_tx(
     tx: &Transaction,
     project_id: &str,

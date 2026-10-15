@@ -6,7 +6,7 @@
  * which surface wins would discard work the user cannot see was discarded.
  */
 import { describe, expect, it } from "vitest";
-import { SURFACE_LAYERS, activeSurface, type SurfaceState, type UiSurface } from "../keyboard";
+import { activeSurface, type SurfaceState } from "../keyboard";
 
 const NONE: SurfaceState = {
   settingsOpen: false,
@@ -53,29 +53,5 @@ describe("activeSurface precedence", () => {
   it("is deterministic", () => {
     const s = state({ reviewOpen: true, fleetOpen: true });
     expect(activeSurface(s)).toBe(activeSurface(s));
-  });
-});
-
-describe("SURFACE_LAYERS", () => {
-  it("has an entry for every UiSurface variant", () => {
-    const variants = [
-      "board",
-      "settings",
-      "triage",
-      "review",
-      "session",
-      "fleet",
-      "worktree-inventory",
-      "project-unreachable",
-    ] as const satisfies readonly UiSurface[];
-    expect(Object.keys(SURFACE_LAYERS).sort()).toEqual([...variants].sort());
-  });
-  it("maps the surfaces that own a layer to it", () => {
-    expect(SURFACE_LAYERS.session).toBe("session-surface");
-    expect(SURFACE_LAYERS.triage).toBe("triage-surface");
-    expect(SURFACE_LAYERS.review).toBe("review-surface");
-    expect(SURFACE_LAYERS.fleet).toBe("fleet-surface");
-    expect(SURFACE_LAYERS.board).toBe("board");
-    expect(SURFACE_LAYERS.settings).toBeNull();
   });
 });
