@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 14
 current_phase_name: Cycles On Screen, State In Colour
 status: executing
-stopped_at: Completed 14-04-PLAN.md
-last_updated: "2026-10-15T11:52:48.817Z"
+stopped_at: Completed 14-05-PLAN.md
+last_updated: "2026-10-15T12:12:52.512Z"
 last_activity: 2026-10-15
 last_activity_desc: Phase 14 execution started
-state_head: 514038eac31e7873769538ca330f4675fff455bd
+state_head: c7844b4f30eac0f15cf26978f57a6f8c1abe8a84
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 28
-  completed_plans: 22
+  completed_plans: 23
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 14 (Cycles On Screen, State In Colour) — EXECUTING
-Plan: 5 of 10
+Plan: 6 of 10
 Status: Ready to execute
 Last activity: 2026-10-15 — Phase 14 execution started
 
@@ -334,6 +334,7 @@ Last activity: 2026-10-15 — Phase 14 execution started
 | Phase 14 P02 | 70 min | 3 tasks | 9 files |
 | Phase 14 P03 | 90 min | 3 tasks | 4 files |
 | Phase 14 P04 | 40 min | 3 tasks | 10 files |
+| Phase 14 P05 | 25 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -770,6 +771,8 @@ Recent decisions affecting current work:
 - [Phase 14]: 14-03: the demo board's live rows are protected from launch reconciliation by a trigger in the demo database only; the launch reconciler otherwise rewrites every processless running/blocked row to abandoned
 - [Phase 14]: 14-03: demo board ids are writer-minted ULIDs; determinism is items, order, ranks, keys and states (id-free fingerprint), and the script re-seeds target/demo-board each run
 - [Phase 14]: 14-04: state tokens are --state-<class>-<role>; awaiting review has its own Eye mark replacing the In Review reuse; dark washes are capped to a faint tint by the dark brand text lift
+- [Phase 14]: 14-05 D-13: epic status derived from its tasks under the task deriver's floor; an epic with no tasks is left alone
+- [Phase 14]: 14-05 D-14: epic_set_status and task_set_status deleted; handler roster pinned exactly at 144 (was 146)
 
 ### Pending Todos
 
@@ -833,6 +836,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T11:52:48.790Z
-Stopped at: Completed 14-04-PLAN.md
+Last session: 2026-10-15T12:12:52.485Z
+Stopped at: Completed 14-05-PLAN.md
 Resume file: None
