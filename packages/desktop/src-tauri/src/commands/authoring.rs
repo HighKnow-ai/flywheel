@@ -760,6 +760,23 @@ pub fn authoring_proposal_limit_notices(
     Ok(notices.into_iter().map(ProposalLimitNoticeDto::from).collect())
 }
 
+/// The `board:changed` entity an accepted proposal materialised, derived from the proposal's
+/// `target_type` instead of a hard-coded `"task"`. This is NOT a criterion gap: the renderer routes
+/// only on `projectId`, so nothing behaves differently today. It is a correctness fix against the
+/// `{ projectId, entity, id }` payload contract FNC-07 introduced, whose `entity` must be true.
+fn board_entity_for(target_type: &str) -> &'static str {
+    match target_type {
+        "task" => "task",
+        "epic" => "epic",
+        "criterion" => "criterion",
+        "assumption" => "assumption",
+        "issue" => "issue",
+        // The historical default, NOT a correct answer: a target type added after this match was
+        // written lands here and is labelled "task" until it gets its own arm above.
+        _ => "task",
+    }
+}
+
 /// Accept a pending proposal (D-92/D-96) — the ONLY path that ever turns a staged proposal into a
 /// real board row. Resolves the local human actor SERVER-SIDE (never from the renderer, matching
 /// every other command in this workspace), calls straight through to
@@ -782,7 +799,12 @@ pub fn authoring_proposal_accept(
     let project_id = project_of(&conn, "authoring_proposals", &proposal_id);
     drop(conn);
 
-    emit_board_changed(&app, project_id.as_deref(), "task", Some(&outcome.materialised_id));
+    emit_board_changed(
+        &app,
+        project_id.as_deref(),
+        board_entity_for(&outcome.proposal.target_type),
+        Some(&outcome.materialised_id),
+    );
     emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&outcome.proposal.agent_run_id));
 
     Ok(())
@@ -809,18 +831,23 @@ pub fn authoring_subtree_accept(
     )
     .map_err(|e| e.to_string())?;
 
-    let agent_run_id: String = conn
+    let (agent_run_id, root_target_type): (String, String) = conn
         .query_row(
-            "SELECT agent_run_id FROM authoring_proposals WHERE id = ?1",
+            "SELECT agent_run_id, target_type FROM authoring_proposals WHERE id = ?1",
             rusqlite::params![root_proposal_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|e| e.to_string())?;
 
     let project_id = project_of(&conn, "authoring_proposals", &root_proposal_id);
     drop(conn);
 
-    emit_board_changed(&app, project_id.as_deref(), "task", Some(&outcome.root_materialised_id));
+    emit_board_changed(
+        &app,
+        project_id.as_deref(),
+        board_entity_for(&root_target_type),
+        Some(&outcome.root_materialised_id),
+    );
     emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
 
     Ok(())
@@ -1426,4 +1453,21 @@ pub fn handle_inbound_board_read_request(app: &AppHandle, event: &serde_json::Va
     .map_err(|e| e.to_string());
 
     let _ = sidecar.relay_authoring_read_answer(run_id, request_id, result);
+}
+
+#[cfg(test)]
+mod board_entity_tests {
+    use super::board_entity_for;
+
+    #[test]
+    fn board_entity_matches_every_known_target_type() {
+        for known in ["task", "epic", "criterion", "assumption", "issue"] {
+            assert_eq!(board_entity_for(known), known);
+        }
+    }
+
+    #[test]
+    fn board_entity_falls_back_to_task_for_an_unknown_target_type() {
+        assert_eq!(board_entity_for("milestone"), "task");
+    }
 }
