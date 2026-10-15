@@ -39,7 +39,7 @@ own phases, which are read daily in this repository (owner decision, 2026-10-14)
 - [ ] **RECD-07**: An agent that reaches a genuine decision fork proposes an ADR naming at least two options with their trade-offs, rate-limited per run, checked against existing ADRs for duplicates before surfacing; a provisional choice may proceed without blocking the run
 - [x] **RECD-08**: A Cycle groups epics and is scope-boxed and undated — it has a goal, an ordering and exit criteria, and it has no dates, no capacity and no velocity
 - [x] **RECD-09**: The current Cycle's progress and the roadmap ahead of it are visible without navigating to them, folded from the real task counts of every epic rather than from a paged window
-- [ ] **RECD-10**: Closing a Cycle prompts for the disposition of unfinished epics rather than silently moving them, and a Cycle whose scope changed after it started says so
+- [x] **RECD-10**: Closing a Cycle prompts for the disposition of unfinished epics rather than silently moving them, and a Cycle whose scope changed after it started says so
 - [ ] **RECD-11**: Accepted ADRs that constrain an epic, and the PRD bar items for that epic, enter the agent's context packet — bounded by fixed counts and link relevance, pinned to the revision that was read, with the inclusion boundary stated to the user in the CTX-05 style
 - [ ] **RECD-12**: A PRD or ADR revision that changed after an agent read it is surfaced as a contradiction in the next session's prompt, extending CTX-06 rather than duplicating it
 - [ ] **RECD-13**: A Cycle may hold epics from more than one PRD, and a PRD may span more than one Cycle
@@ -177,7 +177,7 @@ Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROAD
 | RECD-07 | Phase 16 | Pending |
 | RECD-08 | Phase 14 | Complete |
 | RECD-09 | Phase 14 | Complete |
-| RECD-10 | Phase 14 | Pending |
+| RECD-10 | Phase 14 | Complete |
 | RECD-11 | Phase 16 | Pending |
 | RECD-12 | Phase 16 | Pending |
 | RECD-13 | Phase 16 | Pending |
