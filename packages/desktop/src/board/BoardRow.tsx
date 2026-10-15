@@ -357,21 +357,10 @@ export function BoardRow({
           aria-label={`${recoveryMark?.label ?? "Needs Decision"}. Press to view.`}
           title={recoveryMark?.meaning}
           onClick={handleRecoveryPillClick}
-          className="type-label"
-          style={{
-            display: "inline-flex",
-            flexShrink: 0,
-            alignItems: "center",
-            gap: 2,
-            color: "var(--destructive-strip)",
-            border: "1px solid var(--destructive-strip)",
-            borderRadius: "var(--radius-chrome)",
-            padding: "1px var(--space-xs)",
-            cursor: "pointer",
-          }}
+          style={{ display: "inline-flex", flexShrink: 0, cursor: "pointer" }}
         >
-          <Icon name={recoveryMark?.glyph ?? "TriangleAlert"} size={12} />
-          {recoveryMark?.label ?? "Needs Decision"}
+          {/* A state (D-15 puts it in needs-you beside Blocked), so the one component draws it; it spent --destructive-strip before Phase 14 plan 09. */}
+          <StateBadge state="needs_decision" variant="edge" />
         </span>
       )}
       {ciFailed && (
@@ -385,21 +374,9 @@ export function BoardRow({
           aria-label={`${ciFailedMark?.label ?? "CI failed"}. Press to view.`}
           title={ciFailedMark?.meaning}
           onClick={handleCiFailedPillClick}
-          className="type-label"
-          style={{
-            display: "inline-flex",
-            flexShrink: 0,
-            alignItems: "center",
-            gap: 2,
-            color: "var(--destructive-strip)",
-            border: "1px solid var(--destructive-strip)",
-            borderRadius: "var(--radius-chrome)",
-            padding: "1px var(--space-xs)",
-            cursor: "pointer",
-          }}
+          style={{ display: "inline-flex", flexShrink: 0, cursor: "pointer" }}
         >
-          <Icon name={ciFailedMark?.glyph ?? "CircleX"} size={12} />
-          {ciFailedMark?.label ?? "CI failed"}
+          <StateBadge state="ci_failed" variant="edge" />
         </span>
       )}
       {aheadCount > 0 && (

@@ -88,6 +88,8 @@ describe("BoardRow CI-failure pill (D-124)", () => {
   it("resolves the pill's glyph and word from the marks registry, naming no icon component directly", async () => {
     const source = await import("../BoardRow.tsx?raw");
     const text: string = source.default;
-    expect(text).toMatch(/ciFailedMark\?\.glyph/);
+    // Since Phase 14 plan 09 the glyph and word come from the registry through StateBadge, not from this file.
+    expect(text).toMatch(/<StateBadge state="ci_failed"/);
+    expect(text).not.toMatch(/ciFailedMark\?\.glyph/);
   });
 });

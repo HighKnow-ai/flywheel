@@ -65,13 +65,14 @@ describe("BoardRow Needs Decision pill (D-46)", () => {
     expect(blockedPill.compareDocumentPosition(recoveryPill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("the two pills' computed colours are not equal", () => {
+  it("the two pills are told apart by glyph and word, not colour: both are needs-you (D-15, Phase 14 plan 09)", () => {
     render(<BoardRow item={makeItem()} blocked needsDecision />);
     const blockedPill = screen.getByRole("button", { name: /^Blocked/ });
     const recoveryPill = screen.getByRole("button", { name: /Needs Decision/ });
-    const blockedColor = getComputedStyle(blockedPill).color;
-    const recoveryColor = getComputedStyle(recoveryPill).color;
-    expect(blockedColor).not.toBe(recoveryColor);
+    expect(blockedPill.querySelector("[data-state-class]")?.getAttribute("data-state-class")).toBe("needs-you");
+    expect(recoveryPill.querySelector("[data-state-class]")?.getAttribute("data-state-class")).toBe("needs-you");
+    expect(blockedPill.textContent).not.toBe(recoveryPill.textContent);
+    expect(blockedPill.querySelector("svg")?.innerHTML).not.toBe(recoveryPill.querySelector("svg")?.innerHTML);
   });
 
   it("appends 'Needs Decision' to the row's accessible name when the pill is present", () => {
@@ -115,7 +116,9 @@ describe("BoardRow Needs Decision pill (D-46)", () => {
   it("resolves the pill's glyph and word from the marks registry, naming no icon component directly", async () => {
     const source = await import("../BoardRow.tsx?raw");
     const text: string = source.default;
-    expect(text).toMatch(/recoveryMark\?\.glyph/);
+    // Since Phase 14 plan 09 the glyph and word come from the registry through StateBadge, not from this file.
+    expect(text).toMatch(/<StateBadge state="needs_decision"/);
+    expect(text).not.toMatch(/recoveryMark\?\.glyph/);
   });
 });
 
