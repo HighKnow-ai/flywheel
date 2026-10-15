@@ -1,4 +1,5 @@
-//! `epic_create` / `epic_update` / `epic_delete` / `epic_set_status` — the epic mutation surface.
+//! `epic_create` / `epic_update` / `epic_delete` — the epic mutation surface. Epic status has no
+//! command: it is derived from the epic's tasks (D-13) and is not IPC-writable (D-14).
 //! Every handler resolves `actor_id` server-side (T-01-04, never from a renderer-supplied claim)
 //! and emits `board:changed` after a successful mutation (D-04).
 
@@ -185,25 +186,6 @@ pub fn epic_delete(state: State<AppState>, app: AppHandle, epic_id: String) -> R
     let project_id = project_of(&conn, "epics", &epic_id);
     flywheel_core::domain::epic::delete_epic(&mut conn, &actor_id, &epic_id)
         .map_err(|e| e.to_string())?;
-    drop(conn);
-
-    emit_board_changed(&app, project_id.as_deref(), "epic", Some(epic_id.as_str()));
-    Ok(())
-}
-
-#[tauri::command]
-pub fn epic_set_status(
-    state: State<AppState>,
-    app: AppHandle,
-    epic_id: String,
-    status: String,
-) -> Result<(), String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::epic::set_epic_status(&mut conn, &actor_id, &epic_id, &status)
-        .map_err(|e| e.to_string())?;
-    let project_id = project_of(&conn, "epics", &epic_id);
     drop(conn);
 
     emit_board_changed(&app, project_id.as_deref(), "epic", Some(epic_id.as_str()));

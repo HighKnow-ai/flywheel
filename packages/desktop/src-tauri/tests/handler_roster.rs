@@ -18,6 +18,22 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// The exact number of commands in the `generate_handler!` roster (D-14). Pinned so the IPC
+/// surface cannot grow or shrink silently: a stray `*_set_status` writer, or a lost command, moves
+/// this number and fails the build. Move it in the same diff as any intended change to the roster.
+const ROSTER_COUNT: usize = 144;
+
+/// `Err` unless `roster` holds exactly `pin` entries, in either direction.
+fn check_roster_pin(roster: &BTreeSet<Command>, pin: usize) -> Result<(), String> {
+    match roster.len() {
+        n if n == pin => Ok(()),
+        n => Err(format!(
+            "the roster holds {n} commands but ROSTER_COUNT pins {pin}; if the change is intended, \
+             move the pin in the same diff"
+        )),
+    }
+}
+
 /// `(module, function)`, the shape of a `commands::<module>::<function>` roster entry.
 type Command = (String, String);
 
@@ -119,11 +135,14 @@ fn every_tauri_command_is_registered_in_generate_handler() {
     let roster = parse_roster(&main_src);
 
     assert!(
-        declared.len() > 100,
-        "collected only {} commands from src/commands; the extractor is broken, not the roster",
+        declared.len() == ROSTER_COUNT,
+        "collected {} commands from src/commands but ROSTER_COUNT pins {ROSTER_COUNT}",
         declared.len()
     );
-    assert!(roster.len() > 100, "parsed only {} roster entries; the extractor is broken", roster.len());
+    assert!(ROSTER_COUNT > 100, "ROSTER_COUNT is {ROSTER_COUNT}; a pin that small means the extractor is broken");
+    if let Err(e) = check_roster_pin(&roster, ROSTER_COUNT) {
+        panic!("{e}");
+    }
 
     let (missing, orphaned) = diff(&declared, &roster);
     assert!(
@@ -165,4 +184,24 @@ pub fn forgotten_command() {}
     let stale = "generate_handler![ commands::planted::registered_one, commands::planted::ghost ]";
     let (_, orphaned) = diff(&collect_commands("planted", "#[tauri::command]\npub fn registered_one() {}\n"), &parse_roster(stale));
     assert_eq!(orphaned, vec![("planted".to_string(), "ghost".to_string())]);
+}
+
+fn synthetic_roster(n: usize) -> BTreeSet<Command> {
+    let entries: Vec<String> = (0..n).map(|i| format!("commands::planted::c{i}")).collect();
+    parse_roster(&format!("generate_handler![{}]", entries.join(", ")))
+}
+
+#[test]
+fn the_roster_pin_fails_when_the_roster_grows_by_one() {
+    assert!(check_roster_pin(&synthetic_roster(ROSTER_COUNT + 1), ROSTER_COUNT).is_err());
+}
+
+#[test]
+fn the_roster_pin_fails_when_the_roster_shrinks_by_one() {
+    assert!(check_roster_pin(&synthetic_roster(ROSTER_COUNT - 1), ROSTER_COUNT).is_err());
+}
+
+#[test]
+fn the_roster_pin_passes_on_an_exact_match() {
+    assert!(check_roster_pin(&synthetic_roster(ROSTER_COUNT), ROSTER_COUNT).is_ok());
 }

@@ -166,27 +166,6 @@ pub fn task_delete(state: State<AppState>, app: AppHandle, task_id: String) -> R
     Ok(())
 }
 
-/// Set a task's workflow status. Rejected by the schema CHECK constraint if `status` is outside
-/// the fixed five (BOARD-04, T-01-15) — this handler performs no application-layer allow-list of
-/// its own. `actor_id` is resolved server-side; emits `board:changed` after commit (D-04).
-#[tauri::command]
-pub fn task_set_status(
-    state: State<AppState>,
-    app: AppHandle,
-    task_id: String,
-    status: String,
-) -> Result<(), String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::task::set_task_status(&mut conn, &actor_id, &task_id, &status)
-        .map_err(|e| e.to_string())?;
-    let project_id = project_of(&conn, "tasks", &task_id);
-    drop(conn);
-
-    emit_board_changed(&app, project_id.as_deref(), "task", Some(task_id.as_str()));
-    Ok(())
-}
-
 /// Move a task up or down by one position within its priority band (`⌘↑`/`⌘↓`, D-11, BOARD-05).
 /// `direction` must be `"up"` or `"down"` — parsed by `ReorderDirection::parse`, rejected
 /// otherwise. `actor_id` is resolved server-side; emits `board:changed` after commit (D-04).
