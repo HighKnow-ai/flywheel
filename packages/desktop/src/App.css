@@ -167,12 +167,21 @@ button.control-edge:hover:not(:disabled) {
   column-gap: var(--space-md);
 }
 
-/* 1140 = the full template's 976px of fixed columns, gaps and padding plus a 164px title: the title the 900px
-   rung below already leaves once the strip is gone (900 - 740). It was 900, which left the title 22px at the
-   default window's 1016px pane (Phase 14 plan 09, found on the running application). */
-@container epic-header (max-width: 1140px) {
+/*
+ * The ladder's rungs are set from the template's own arithmetic, so the title (which keeps the slack) never falls
+ * under 160px, the title the original first rung left. The widths are the CELL's (the pane less its scrollbar), and
+ * the title element is 18px narrower than its column (the disclosure chevron and its gap).
+ *   full:            220 + 200 + 3x56 + 260 of columns, 6 gaps of 16 and 32 of padding = 976; title = W - 976
+ *   no strip:        220 + 3x56 + 260, 5 gaps and the padding                        = 760; title = W - 760
+ *   no strip, no dispatch: 140 + 3x56, 4 gaps and the padding                        = 404; title = W - 404
+ * so the strip goes at 1160 (976 + 18 + 160, rounded up) and the dispatch cell at 940 (760 + 18 + 160, rounded up). The rungs were 900 and 640, which at
+ * the default window's 1016px pane left the title 22px wide, and the strip they meant to shed carries an inline
+ * `display: flex` a class rule cannot beat, so it is `!important` here: the template lost a column and the cell stayed.
+ * (Phase 14 plan 09, both found on the running application and pinned in board/__tests__/browser/cycle-region.)
+ */
+@container epic-header (max-width: 1160px) {
   .field-epic-distribution {
-    display: none;
+    display: none !important;
   }
 
   .epic-header-row {
@@ -182,7 +191,7 @@ button.control-edge:hover:not(:disabled) {
 
 /* The dispatch controls are a field (plan 09-09): they give way before the title does. Two classes of
    specificity, so the cell's own `display: flex` cannot win on stylesheet order. */
-@container epic-header (max-width: 640px) {
+@container epic-header (max-width: 940px) {
   .epic-header-row .field-epic-dispatch {
     display: none;
   }

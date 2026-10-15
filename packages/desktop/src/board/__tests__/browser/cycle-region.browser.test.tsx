@@ -189,7 +189,7 @@ describe("the Cycle region realises the structure of 14-HIERARCHY.md", () => {
     expect(visibleRows.length, "epic rows fully on screen under the region").toBeGreaterThanOrEqual(3);
   });
 
-  it.each([716, 900, 921, 1016, 1141, 1200])(
+  it.each([716, 900, 936, 960, 1016, 1180, 1200])(
     "keeps the roster row whole and its title readable at a %ipx board pane (716 is the 900px window minimum, 1016 the default window)",
     async (width) => {
       // The roster keeps the hierarchy lead (14-HIERARCHY.md section 1). Found on the running application at the default
@@ -219,8 +219,10 @@ describe("the Cycle region realises the structure of 14-HIERARCHY.md", () => {
         .map((cell) => cell.textContent);
       expect(strays, "cells that fell out of the row's single line").toEqual([]);
       // The template and the cells must agree: a rung that drops a column has to drop the cell that owned it.
+      // The ladder reads the CELL's width (the pane less the scrollbar), not the pane's.
+      const cellWidth = row.closest<HTMLElement>(".epic-header-cell")!.clientWidth;
       const strip = row.querySelector<HTMLElement>(".field-epic-distribution")!;
-      expect(cs(strip).display === "none", "distribution strip hidden exactly when the ladder has shed it").toBe(width <= 1140);
+      expect(cs(strip).display === "none", "distribution strip hidden exactly when the ladder has shed it").toBe(cellWidth <= 1160);
     },
   );
 
