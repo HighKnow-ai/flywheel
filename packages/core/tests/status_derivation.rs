@@ -447,3 +447,90 @@ fn one_producer_appends_the_unmet_criteria_event() {
     assert_eq!(forge, 0, "the forge path must not append the event; the deriver does");
     assert_eq!(deriver, 1, "exactly one append call site lives in the deriver");
 }
+
+// ---------------------------------------------------------------------------------------------
+// WR-07: a review edge lost to a system-caused compare-and-swap refusal is retried once
+// (plan 13-16, task 2). The edge fires on one tick only, so without the retry the card would sit
+// at `in_progress` with an open request until the merge.
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn a_review_edge_lost_to_a_system_move_is_repaired_once_in_the_same_transaction() {
+    let mut f = fx();
+    let t = f.task("Lost edge");
+    f.give_worktree(&t);
+    f.derive(&t); // ensure_worktree moved the card to in_progress inside the poll window
+    assert_eq!(f.status(&t), "in_progress");
+    let before = f.status_events(&t);
+
+    // The forge tick captured `todo` before releasing its lock.
+    f.observe_expecting(&t, ForgeState::Open, Some("todo"));
+
+    assert_eq!(f.status(&t), "in_review", "the edge fires once; losing it would strand the card");
+    assert_eq!(f.status_events(&t) - before, 1, "one in-transaction write, not two");
+    assert_eq!(f.events_of(&t, EVENT_FORGE_STATUS_WRITE_SKIPPED), 0, "the repair left nothing skipped");
+}
+
+#[test]
+fn a_review_edge_is_not_retried_against_a_card_a_human_moved_backwards() {
+    let mut f = fx();
+    let t = f.task("Dragged back");
+    f.give_worktree(&t);
+    f.derive(&t);
+    f.set(&t, "in_review");
+    f.set(&t, "todo"); // the human drags the card back while the poll is in flight
+    let before = f.status_events(&t);
+
+    // The tick had captured `in_progress`; the card is now below it.
+    f.observe_expecting(&t, ForgeState::Open, Some("in_progress"));
+
+    assert_eq!(f.status(&t), "todo", "a person's move stands");
+    assert_eq!(f.events_of(&t, EVENT_FORGE_STATUS_WRITE_SKIPPED), 1);
+    assert_eq!(f.status_events(&t), before, "the tick appended no task.status_changed event");
+}
+
+#[test]
+fn a_review_edge_does_not_pull_a_card_a_human_moved_forward_back_down() {
+    let mut f = fx();
+    let t = f.task("Already done");
+    f.give_worktree(&t);
+    f.derive(&t);
+    f.set(&t, "done");
+    let before = f.status_events(&t);
+
+    f.observe_expecting(&t, ForgeState::Open, Some("todo"));
+
+    assert_eq!(f.status(&t), "done");
+    assert_eq!(f.status_events(&t), before, "the tick appended no task.status_changed event");
+}
+
+#[test]
+fn a_review_edge_finding_the_intended_band_already_has_nothing_to_write() {
+    let mut f = fx();
+    let t = f.task("Already in review");
+    f.give_worktree(&t);
+    f.derive(&t);
+    f.set(&t, "in_review");
+    let before = f.status_events(&t);
+
+    f.observe_expecting(&t, ForgeState::Open, Some("todo"));
+
+    assert_eq!(f.status(&t), "in_review");
+    assert_eq!(f.status_events(&t), before);
+    assert_eq!(f.events_of(&t, EVENT_FORGE_STATUS_WRITE_SKIPPED), 0);
+}
+
+#[test]
+fn a_refusal_with_no_new_forge_fact_is_not_retried() {
+    let mut f = fx();
+    let t = f.task("Standing merge");
+    f.give_worktree(&t);
+    f.derive(&t);
+    f.observe_expecting(&t, ForgeState::Merged, Some("backlog")); // refused, baseline advances
+    assert_eq!(f.status(&t), "in_progress");
+
+    // Same merge observed again: forge_changed is false, so there is no fact to repair with.
+    f.observe_expecting(&t, ForgeState::Merged, Some("backlog"));
+    assert_eq!(f.status(&t), "in_progress", "a standing level is the cold tick's to re-apply");
+    assert_eq!(f.events_of(&t, EVENT_FORGE_STATUS_WRITE_SKIPPED), 1, "only the first refusal left a trace");
+}
