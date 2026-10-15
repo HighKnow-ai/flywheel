@@ -230,6 +230,27 @@ describe("the Cycle region realises the structure of 14-HIERARCHY.md", () => {
     }
   });
 
+  it("never widens the shell that holds it: a goal's length is not an intrinsic width (found on the running application)", async () => {
+    // The application shell is a flex row whose content child is `flex: 1` with no `min-width: 0`, so a flex item
+    // sizes to the max-content of whatever is inside it. A 400-character goal on one clamped line is exactly that,
+    // and it pushed the whole board (filter bar and close control included) past the window's right edge.
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <div data-shell style={{ display: "flex", height: 560, width: 1200 }}>
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <BoardView projectId="proj-1" items={[]} issues={[]} counts={EMPTY_COUNTS} onCreateTask={() => {}} />
+          </div>
+        </div>
+      </QueryClientProvider>,
+    );
+    const region = await screen.findByRole("region", { name: "Current cycle" });
+    const shell = document.querySelector<HTMLElement>("[data-shell]")!;
+    expect(shell.scrollWidth, "the shell scrolls sideways").toBeLessThanOrEqual(shell.clientWidth);
+    expect(region.getBoundingClientRect().right, "the region runs past the shell").toBeLessThanOrEqual(shell.getBoundingClientRect().right + 1);
+    const close = screen.getByRole("button", { name: "Close this cycle" });
+    expect(close.getBoundingClientRect().right, "the close control is off screen").toBeLessThanOrEqual(shell.getBoundingClientRect().right + 1);
+  });
+
   it("clears its contrast obligation on every text element, from the engine's computed colours on the region's own surface", async () => {
     const region = await renderBoard();
     const surface = hex(cs(region).backgroundColor);
