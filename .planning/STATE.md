@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 14
 current_phase_name: Cycles On Screen, State In Colour
 status: executing
-stopped_at: Completed 14-01-PLAN.md
-last_updated: "2026-10-15T10:28:03.432Z"
+stopped_at: Completed 14-02-PLAN.md
+last_updated: "2026-10-15T11:23:21.724Z"
 last_activity: 2026-10-15
 last_activity_desc: Phase 14 execution started
-state_head: d357bcb7f30d503c645c57c753b3993edb23a960
+state_head: 4ba5a281bb77ec1e1756a04ffd7aa485db934d36
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 28
-  completed_plans: 19
+  completed_plans: 20
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 14 (Cycles On Screen, State In Colour) — EXECUTING
-Plan: 2 of 10
+Plan: 3 of 10
 Status: Ready to execute
 Last activity: 2026-10-15 — Phase 14 execution started
 
@@ -331,6 +331,7 @@ Last activity: 2026-10-15 — Phase 14 execution started
 | Phase 13 P17 | 25 min | 3 tasks | 9 files |
 | Phase 13 P18 | 10 min | 2 tasks | 3 files |
 | Phase 14 P01 | continuation | 3 tasks | 19 files |
+| Phase 14 P02 | 70 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -762,6 +763,8 @@ Recent decisions affecting current work:
 - [Phase 13]: A-06: PM vocabulary gate matches identifier components; .sql scan question left open
 - [Phase 13]: A-07 (owner decision, 2026-10-15): agent_runs.kind column not added; RunKind::classify is the one definition
 - [Phase 14]: 14-01: Cycle table keeps REFERENCES on project_id/created_by (option B, owner 2026-10-15); undated bars scheduling columns not audit timestamps
+- [Phase 14]: 14-02: Cycle roster reads open (planned/active) Cycles only, ordered rank then id; ahead() = planned Cycles ranked after the active one
+- [Phase 14]: 14-02: Cycle region draws no percentage; the fold's integer pair is printed as-is
 
 ### Pending Todos
 
@@ -825,6 +828,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T10:28:03.393Z
-Stopped at: Completed 14-01-PLAN.md
+Last session: 2026-10-15T11:23:21.697Z
+Stopped at: Completed 14-02-PLAN.md
 Resume file: None
