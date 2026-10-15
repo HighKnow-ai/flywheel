@@ -148,6 +148,25 @@ all (14-04 measured the dark washes at 1.02 to 1.04 against the ground, capped b
 result, and the count of simultaneously saturated rows on the demonstration board that the prohibition (the board must not read as
 a permanent alarm) is checked against.
 
+### Measured by plan 14-08 (VIS-04)
+
+Every text role in `contrast.test.ts` (twelve: seven pre-existing, five state inks) is now measured on every surface, and the four tinted
+state washes are surfaces (nine in all, the quiet wash being the transparent ground). Every mark and edge is held to 3:1 on the same nine.
+Measured against the shipped stylesheet's own block for each mode, not a transcribed value; a role missing from one block, or spelled
+in anything but lowercase six-digit hex, is a drift error.
+
+| Mode | Weakest text pair | Weakest non-text pair | What bounds the wash |
+|---|---|---|---|
+| light | `blockedTextRack` `#9a6700` on the selected row surface, 4.53 (on a wash: 4.55, merged and running) | `stateFailedEdge` on the selected row surface, 3.01 | `blockedTextRack`, then `textPlaceholder` |
+| dark | the brand text lift `accentTextRack` `#5175e1` on the selected row surface and on the running wash, 4.51 | `stateFailedEdge` on the running wash, 3.01 | the brand text lift, then the state inks themselves |
+
+The limit is what 14-04 found and this plan confirms by search: the ground lightness a wash can reach is set by the weakest EXISTING text
+role. Light washes sit 1.03 to 1.07 from the ground and dark washes 1.02 to 1.04. Widening that is a change to `blockedTextRack` or to the
+brand text lift, which this plan does not touch. A second limit now sits on the same budget: **the CVD margin of the light washes is thin.** With
+each wash held within 15 degrees of its hue, the best the search found keeps every pair 2.5 or more apart (shipped: 2.6, floor 2.3); freeing the hue
+reaches more, but only by turning the failed wash orange and the merged wash blue, which is not a tuning. So a stronger wash is not
+free of cost on the colour-vision proof either, and plan 14-09 must re-run `cvd.test.ts` after any wash it moves.
+
 ---
 
 ## What this document does not decide

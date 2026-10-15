@@ -57,6 +57,10 @@ const SURFACES: Role[] = [
   "rowSurfaceHover",
   "rowSurfaceSelected",
   "rowSurfaceSelectedUnfocused",
+  // Phase 14 plan 08 (VIS-04): a state wash is a ground in its own right, so every role in the lists above
+  // is measured on it by the loops below. The quiet wash is the transparent rest value, as `rowSurface`
+  // is, so it is the ground and not a separate surface.
+  ...STATE_CLASSES.filter((c) => c !== "Quiet").map((c) => stateRole(c, "Wash")),
 ];
 
 /** The selected band's gap to the ground that shipped with the 08.1-14 closure: a floor, not a target. */
@@ -494,5 +498,100 @@ describe("block-aware drift check (a wrong dark value cannot hide behind a right
     const { textMutedRack: _dropped, ...darkMissingOne } = PALETTES.dark;
     expect(roleSetErrors({ light: PALETTES.light, dark: darkMissingOne })).not.toEqual([]);
     expect(roleSetErrors({ light: PALETTES.light, dark: PALETTES.dark })).toEqual([]);
+  });
+});
+
+/** `css` with one declaration inside the ROOT (light) block rewritten, or removed when `value` is null. */
+function withLightDeclaration(css: string, role: Role, value: string | null): string {
+  const at = css.search(DARK_BLOCK_START);
+  const declaration = new RegExp(`${escapeRe(toProp(role))}:\\s*${escapeRe(PALETTES.light[role])}\\s*;`);
+  const head = css.slice(0, at);
+  expect(head, `root block does not declare ${toProp(role)}`).toMatch(declaration);
+  return head.replace(declaration, () => (value === null ? "" : `${toProp(role)}: ${value};`)) + css.slice(at);
+}
+
+const STATE_ROLES = Object.keys(PALETTES.light).filter((k) => k.startsWith("state")) as Role[];
+
+describe("a state role declared in only one block is rejected, in both directions (VIS-04, empty)", () => {
+  it("there are twenty state roles to guard", () => {
+    expect(STATE_ROLES).toHaveLength(20);
+  });
+
+  it.each(STATE_ROLES)("a root block that omits %s is rejected, and the dark block is unaffected", (role) => {
+    const corrupted = withLightDeclaration(tokensCssSource, role, null);
+    expect(driftErrors("light", corrupted), `omitted light ${role} went undetected`).not.toEqual([]);
+    expect(driftErrors("dark", corrupted)).toEqual([]);
+  });
+
+  it.each(STATE_ROLES)("a wrong light value for %s is rejected, and dark is unaffected", (role) => {
+    const corrupted = withLightDeclaration(tokensCssSource, role, "#010203");
+    expect(driftErrors("light", corrupted), `light ${role} drift went undetected`).not.toEqual([]);
+    expect(driftErrors("dark", corrupted)).toEqual([]);
+  });
+});
+
+/**
+ * The encoding rule (VIS-04, encoding). The comparison is byte equality on the text the stylesheet ships:
+ * `#FFF`, `#AA7409`, `rgb(170, 116, 9)` and `hsl(...)` are the same colour to an engine and four different
+ * strings to this test, and each is a drift error rather than a match. The one non-hex value a state may
+ * declare is the quiet wash, the transparent rest value, spelled exactly as `--row-surface` spells it.
+ */
+const TRANSPARENT = "rgba(0, 0, 0, 0)";
+function encodingErrors(mode: Mode, css: string): string[] {
+  return [...declarations(mode, css)]
+    .filter(([name]) => name.startsWith("--state-"))
+    .filter(([name, value]) => !(/^#[0-9a-f]{6}$/.test(value) || (name === "--state-quiet-wash" && value === TRANSPARENT)))
+    .map(([name, value]) => `${mode}: ${name} is spelled ${JSON.stringify(value)}; byte equality on the shipped text needs a lowercase six-digit hex`);
+}
+
+describe("state values are lowercase six-digit hex in the shipped text (VIS-04, encoding)", () => {
+  it.each(MODES)("the %s block spells every state declaration that way", (mode) => {
+    expect(declarations(mode, tokensCssSource).size, "the block parsed to nothing").toBeGreaterThan(20);
+    expect(encodingErrors(mode, tokensCssSource)).toEqual([]);
+  });
+
+  it.each([
+    ["uppercase", "#AA7409"],
+    ["three-digit", "#a70"],
+    ["functional rgb", "rgb(170, 116, 9)"],
+    ["functional hsl", "hsl(40, 90%, 35%)"],
+  ])("a %s spelling of a state colour is a drift error, not a match", (_name, spelling) => {
+    const corrupted = withDarkDeclaration(tokensCssSource, "stateNeedsYouText", spelling);
+    expect(encodingErrors("dark", corrupted)).toHaveLength(1);
+    expect(driftErrors("dark", corrupted)).not.toEqual([]);
+    expect(encodingErrors("light", corrupted)).toEqual([]);
+  });
+
+  it("the transparent quiet wash is spelled one way only", () => {
+    const corrupted = withDarkDeclaration(tokensCssSource, "stateQuietWash", "transparent");
+    expect(encodingErrors("dark", corrupted)).toHaveLength(1);
+  });
+});
+
+/**
+ * The floors are real edges (VIS-04, adjacency). A pair is built at each floor with the file's own
+ * constructor: the grey that `bandAtGap` returns as the first one at or over the floor, then the next
+ * grey one 8-bit step toward the ground, which must fall under it. The loops above use
+ * `toBeGreaterThanOrEqual`, so a pair exactly at a floor passes and one step under fails.
+ */
+describe("the contrast floors are edges, asserted on both sides", () => {
+  const grey = (hex: string): number => parseInt(hex.slice(1, 3), 16);
+  const hexGrey = (n: number): string => "#" + n.toString(16).padStart(2, "0").repeat(3);
+
+  it.each([
+    ["text, 4.5:1", AA_TEXT],
+    ["non-text, 3:1", NON_TEXT],
+  ] as const)("%s: the first grey at the floor passes and the next step toward the ground fails", (_name, floor) => {
+    const at = bandAtGap("#ffffff", "#000000", floor);
+    expect(contrastRatio(at, "#ffffff"), `${at} is the first grey at ${floor}`).toBeGreaterThanOrEqual(floor);
+    const lighter = hexGrey(grey(at) + 1);
+    expect(contrastRatio(lighter, "#ffffff"), `${lighter} is one step under ${floor}`).toBeLessThan(floor);
+  });
+
+  it("the same edge holds on the dark ground (lightening toward the ink)", () => {
+    const at = bandAtGap("#000000", "#ffffff", AA_TEXT);
+    expect(contrastRatio(at, "#000000")).toBeGreaterThanOrEqual(AA_TEXT);
+    const darker = hexGrey(grey(at) - 1);
+    expect(contrastRatio(darker, "#000000")).toBeLessThan(AA_TEXT);
   });
 });
