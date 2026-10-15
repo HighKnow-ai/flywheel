@@ -55,6 +55,18 @@ const listStyle: CSSProperties = {
 
 const muted: CSSProperties = { flex: "none", color: "var(--text-muted-rack)" };
 
+// A goal is written by a person and has no length limit, so the region bounds how much of it the EYE gets
+// (the loud level two lines, each quiet line one) and never how much the document holds: the full text stays
+// in the DOM and in `title`. Without this a roadmap-paragraph goal filled the pane and pushed the roster, which
+// keeps the lead (14-HIERARCHY.md section 1), off screen. Plan 14-09, found on the demonstration board.
+const clampTwoLines: CSSProperties = { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" };
+const oneLine: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+
+// Level 1 is two rows: the goal beside the one control, then the facts that give it a position. Facts wrap
+// rather than clip: a clipped count is the one thing a counting surface cannot do.
+const levelOneStyle: CSSProperties = { display: "flex", flexDirection: "column", gap: "var(--space-xs)" };
+const factsStyle: CSSProperties = { display: "flex", flexWrap: "wrap", columnGap: "var(--space-md)" };
+
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const epicsLabel = (n: number) => (n === 0 ? "no epics yet" : plural(n, "epic", "epics"));
 
@@ -69,28 +81,32 @@ export function CycleRegion({ projectId }: { projectId: string | undefined }) {
   return (
     <section aria-label="Current cycle" data-cycle-region style={regionStyle}>
       {cycle ? (
-        <div style={rowStyle}>
-          <span className="type-heading" style={{ flex: 1, minWidth: 0 }}>
-            {cycle.goal}
-          </span>
-          <span className="type-body" style={muted}>
-            {epicsLabel(cycle.progress.epics)}
-            {cycle.progress.agentsRunning > 0 ? `, ${cycle.progress.agentsRunning} running` : ""}
-            {cycle.progress.agentsBlocked > 0 ? `, ${cycle.progress.agentsBlocked} blocked` : ""}
-          </span>
-          <span className="type-body" data-cycle-progress style={muted}>
-            {cycle.progress.tasksTotal === 0
-              ? "No tasks in this cycle yet"
-              : `${cycle.progress.tasksDone}/${cycle.progress.tasksTotal} tasks done`}
-          </span>
-          {cycle.scopeDrift && (
-            <span className="type-body" data-cycle-scope-drift style={muted}>
-              {cycle.scopeDrift.sentence}
+        <div style={levelOneStyle}>
+          <div style={{ ...rowStyle, alignItems: "flex-start" }}>
+            <span className="type-heading" title={cycle.goal} style={{ flex: 1, minWidth: 0, ...clampTwoLines }}>
+              {cycle.goal}
             </span>
-          )}
-          <button type="button" className="type-body control-edge confirm-action" onClick={() => setClosing(true)}>
-            Close this cycle
-          </button>
+            <button type="button" className="type-body control-edge confirm-action" style={{ flex: "none" }} onClick={() => setClosing(true)}>
+              Close this cycle
+            </button>
+          </div>
+          <div className="type-body" style={factsStyle}>
+            <span style={muted}>
+              {epicsLabel(cycle.progress.epics)}
+              {cycle.progress.agentsRunning > 0 ? `, ${cycle.progress.agentsRunning} running` : ""}
+              {cycle.progress.agentsBlocked > 0 ? `, ${cycle.progress.agentsBlocked} blocked` : ""}
+            </span>
+            <span data-cycle-progress style={muted}>
+              {cycle.progress.tasksTotal === 0
+                ? "No tasks in this cycle yet"
+                : `${cycle.progress.tasksDone}/${cycle.progress.tasksTotal} tasks done`}
+            </span>
+            {cycle.scopeDrift && (
+              <span data-cycle-scope-drift style={muted}>
+                {cycle.scopeDrift.sentence}
+              </span>
+            )}
+          </div>
         </div>
       ) : (
         <span className="type-body" style={{ color: "var(--text-muted-rack)" }}>
@@ -101,7 +117,9 @@ export function CycleRegion({ projectId }: { projectId: string | undefined }) {
         <ul aria-label="Later cycles" style={listStyle}>
           {data.later.map((line) => (
             <li key={line.id} className="type-body" data-cycle-line style={rowStyle}>
-              <span style={{ flex: 1, minWidth: 0 }}>{line.goal}</span>
+              <span title={line.goal} style={{ flex: 1, minWidth: 0, ...oneLine }}>
+                {line.goal}
+              </span>
               {line.scopeDrift && (
                 <span data-cycle-scope-drift style={muted}>
                   {line.scopeDrift.sentence}
