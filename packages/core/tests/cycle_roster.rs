@@ -131,8 +131,8 @@ fn two_cycles_with_equal_rank_come_back_in_the_same_order_every_read() {
 #[test]
 fn a_closed_cycle_is_not_ahead_and_not_on_the_roster() {
     let mut fx = Fx::new();
-    let pid = fx.project_id.clone();
-    fx.bulk_cycles(&pid, 1, "closed");
+    let closed = fx.cycle("closed");
+    fx.conn.execute("UPDATE cycles SET state = 'closed' WHERE id = ?1", params![closed]).expect("close");
     let _planned = fx.cycle("planned");
 
     let roster = cycle_roster(&fx.conn, &fx.project_id).expect("roster");

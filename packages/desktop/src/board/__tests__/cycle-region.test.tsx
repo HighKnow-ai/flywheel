@@ -3,7 +3,7 @@
  * an absence in words, and sits outside the virtualized list.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
 import { CycleRegion } from "../CycleRegion";
@@ -32,7 +32,12 @@ const ACTIVE_CYCLE = {
   rank: "1",
   progress: { epics: 2, tasksTotal: 10, tasksDone: 3, agentsRunning: 0, agentsBlocked: 0 },
 };
-const ACTIVE: CycleRegionDto = { active: ACTIVE_CYCLE };
+const NO_ROSTER = { later: [], total: 1, listed: 1, truncated: false };
+const ACTIVE: CycleRegionDto = { active: ACTIVE_CYCLE, ...NO_ROSTER };
+const LATER = [
+  { id: "c2", key: "FLY-10", goal: "Reviews land", epicCount: 3 },
+  { id: "c3", key: "FLY-11", goal: "Relay", epicCount: 0 },
+];
 
 function respondWith(region: CycleRegionDto) {
   invokeCommandMock.mockImplementation((command: string) => {
@@ -63,17 +68,48 @@ describe("CycleRegion", () => {
   });
 
   it("states an absence in words when no cycle is active", async () => {
-    respondWith({ active: null });
+    respondWith({ active: null, later: [], total: 0, listed: 0, truncated: false });
     renderWith(<CycleRegion projectId="proj-1" />);
     expect(await screen.findByText("No cycle is active.")).toBeTruthy();
   });
 
   it("says so in words, not as a zero, when the cycle holds no tasks", async () => {
     respondWith({
+      ...ACTIVE,
       active: { ...ACTIVE_CYCLE, progress: { ...ACTIVE_CYCLE.progress, tasksTotal: 0, tasksDone: 0 } },
     });
     renderWith(<CycleRegion projectId="proj-1" />);
     expect(await screen.findByText("No tasks in this cycle yet")).toBeTruthy();
+  });
+
+  it("renders each later cycle as one line with its goal and epic count, in order", async () => {
+    respondWith({ ...ACTIVE, later: LATER, total: 3, listed: 3 });
+    renderWith(<CycleRegion projectId="proj-1" />);
+    const list = await screen.findByRole("list", { name: "Later cycles" });
+    const lines = within(list).getAllByRole("listitem");
+    expect(lines.map((l) => l.textContent)).toEqual(["Reviews land3 epics", "Relayno epics yet"]);
+  });
+
+  it("shows the roadmap ahead even when no cycle is active", async () => {
+    respondWith({ active: null, later: LATER, total: 2, listed: 2, truncated: false });
+    renderWith(<CycleRegion projectId="proj-1" />);
+    expect(await screen.findByText("No cycle is active.")).toBeTruthy();
+    expect(screen.getByText("Reviews land")).toBeTruthy();
+  });
+
+  it("prints how many cycles are not shown, naming the real total, when truncated", async () => {
+    respondWith({ ...ACTIVE, later: LATER, total: 503, listed: 500, truncated: true });
+    renderWith(<CycleRegion projectId="proj-1" />);
+    const notice = await screen.findByRole("status");
+    expect(notice.textContent).toContain("3 more cycles ahead not shown");
+    expect(notice.textContent).toContain("503");
+  });
+
+  it("prints no truncation line when the roster is complete", async () => {
+    respondWith({ ...ACTIVE, later: LATER, total: 3, listed: 3 });
+    renderWith(<CycleRegion projectId="proj-1" />);
+    await screen.findByRole("list", { name: "Later cycles" });
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("is mounted on the board outside the element carrying className board-view", async () => {

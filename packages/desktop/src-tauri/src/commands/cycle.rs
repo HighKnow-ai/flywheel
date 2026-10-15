@@ -3,8 +3,9 @@
 //! `flywheel_core::query::cycle_progress`, a read-time fold over every task of every epic in the
 //! Cycle, never from the board's row window and never from a stored percentage (D-08).
 //!
-//! This tracer returns the active Cycle only; later Cycles and the roster's `truncated` fact join
-//! this DTO in plan 14-02.
+//! `later` is the roadmap ahead of the active Cycle (plan 14-02, D-02): single lines, bounded by
+//! `CYCLE_ROSTER_CEILING`. `total` / `listed` / `truncated` are the roster's own facts and the
+//! renderer MUST print them when `truncated` is true; this command invents no second window.
 
 use serde::Serialize;
 use tauri::State;
@@ -46,11 +47,26 @@ pub struct ActiveCycleDto {
     pub progress: CycleProgressDto,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CycleLineDto {
+    pub id: String,
+    pub key: String,
+    pub goal: String,
+    pub epic_count: u32,
+}
+
 /// `active: null` when the project has no active Cycle: a stated absence, not an error.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CycleRegionDto {
     pub active: Option<ActiveCycleDto>,
+    /// Planned Cycles ranked after the active one, in rank order, one line each.
+    pub later: Vec<CycleLineDto>,
+    /// Open (planned or active) Cycles that exist, the rows the roster read, and whether they differ.
+    pub total: i64,
+    pub listed: u32,
+    pub truncated: bool,
 }
 
 #[tauri::command]
@@ -74,5 +90,23 @@ pub fn cycle_region(state: State<AppState>, project_id: String) -> Result<CycleR
             })
         }
     };
-    Ok(CycleRegionDto { active })
+    let roster = flywheel_core::domain::cycle::cycle_roster(&conn, &project_id)
+        .map_err(|e| ipc_error("cycle_region:roster", e))?;
+    let later = roster
+        .ahead()
+        .into_iter()
+        .map(|l| CycleLineDto {
+            id: l.cycle.id.clone(),
+            key: l.cycle.key.clone(),
+            goal: l.cycle.goal.clone(),
+            epic_count: l.epic_count,
+        })
+        .collect();
+    Ok(CycleRegionDto {
+        active,
+        later,
+        total: roster.total,
+        listed: roster.cycles.len() as u32,
+        truncated: roster.truncated,
+    })
 }

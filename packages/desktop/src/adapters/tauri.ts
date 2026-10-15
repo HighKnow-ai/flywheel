@@ -1593,6 +1593,20 @@ export interface CycleRegionDto {
     rank: string;
     progress: CycleProgressDto;
   } | null;
+  /** Planned Cycles ranked after the active one, in rank order (plan 14-02, D-02). */
+  later: CycleLineDto[];
+  /** The roster's own facts: open Cycles that exist, rows it read, and whether they differ. When
+   * `truncated` is true the region MUST say how many are not shown (D-87's shape, never swallowed). */
+  total: number;
+  listed: number;
+  truncated: boolean;
+}
+
+export interface CycleLineDto {
+  id: string;
+  key: string;
+  goal: string;
+  epicCount: number;
 }
 
 export async function cycleRegion(projectId: string): Promise<CycleRegionDto> {

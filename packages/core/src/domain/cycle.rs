@@ -13,6 +13,7 @@
 //! - `cycle.epic_assigned`  — stream `cycle` (the NEW Cycle), `epic_id` set; payload `before`/`after`
 //!   hold the epic's previous and new Cycle ids, so a move between Cycles is one event.
 //! - `cycle.epic_removed`   — stream `cycle` (the OLD Cycle), `epic_id` set.
+//! - `cycle.reordered`      — stream `cycle`, one rank rewritten. Not a scope event.
 
 use anyhow::{anyhow, Context};
 use chrono::Utc;
@@ -21,9 +22,9 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use crate::domain::actor::assert_human_actor_in_tx;
 use crate::domain::event::{append_event, next_sequence};
 use crate::ids::new_id;
-use crate::ranking::rank_after;
+use crate::ranking::{rank_after, rank_before, rank_between, ReorderDirection};
 
-/// [`list_cycles`]'s ceiling: far above any realistic roster of Cycles, never a page size and never
+/// [`cycle_roster`]'s ceiling: far above any realistic roster of Cycles, never a page size and never
 /// configuration (D-69). Paired with [`CycleRoster::truncated`], a fact a caller must render and
 /// never swallow, so the read is bounded without going silent.
 pub const CYCLE_ROSTER_CEILING: i64 = 500;
@@ -40,13 +41,30 @@ pub struct Cycle {
     pub rank: String,
 }
 
-/// [`list_cycles`]'s return shape, mirroring `EpicRoster`: the bounded page, the TRUE count, and
+/// One roster line: the Cycle and how many epics it holds, counted in SQL, never as the length of
+/// anything loaded.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CycleLine {
+    pub cycle: Cycle,
+    pub epic_count: u32,
+}
+
+/// [`cycle_roster`]'s return shape, mirroring `EpicRoster`: the bounded page, the TRUE count, and
 /// whether the two differ.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CycleRoster {
-    pub cycles: Vec<Cycle>,
+    pub cycles: Vec<CycleLine>,
     pub total: i64,
     pub truncated: bool,
+}
+
+impl CycleRoster {
+    /// The roadmap ahead of the current Cycle: `planned` Cycles ranked after the `active` one, or
+    /// every `planned` Cycle when none is active. The roster is already in rank order.
+    pub fn ahead(&self) -> Vec<&CycleLine> {
+        let after = self.cycles.iter().position(|l| l.cycle.state == "active").map_or(0, |i| i + 1);
+        self.cycles[after..].iter().filter(|l| l.cycle.state == "planned").collect()
+    }
 }
 
 fn map_cycle(row: &rusqlite::Row) -> rusqlite::Result<Cycle> {
@@ -240,19 +258,90 @@ pub fn active_cycle(conn: &Connection, project_id: &str) -> anyhow::Result<Optio
     .context("failed to read the active cycle")
 }
 
-/// The project's Cycles in their persisted order, up to [`CYCLE_ROSTER_CEILING`].
-pub fn list_cycles(conn: &Connection, project_id: &str) -> anyhow::Result<CycleRoster> {
+/// The project's open Cycles (`planned` and `active`; a `closed` Cycle is not part of the roadmap)
+/// in rank order, up to [`CYCLE_ROSTER_CEILING`], with each Cycle's epic count.
+///
+/// Order is `rank` ascending, then `id`. The tie-break is not decoration: `ranking.rs`'s fractional
+/// index makes an equal rank unlikely, not impossible, and a roster whose order changes between
+/// reads is a surface the owner cannot trust. The epic count is a correlated subquery, so the whole
+/// roster is one statement over `idx_epics_cycle`, never one per Cycle.
+///
+/// The ceiling and `COUNT(*)` follow `list_epics`: `truncated` is the true total exceeding the rows
+/// returned, so a caller that ignores it is the bug, and the renderer must print it.
+pub fn cycle_roster(conn: &Connection, project_id: &str) -> anyhow::Result<CycleRoster> {
     let mut stmt = conn.prepare(
-        "SELECT id, project_id, key, goal, exit_criteria, state, rank FROM cycles \
-         WHERE project_id = ?1 ORDER BY rank ASC LIMIT ?2",
+        "SELECT c.id, c.project_id, c.key, c.goal, c.exit_criteria, c.state, c.rank, \
+                (SELECT COUNT(*) FROM epics e WHERE e.cycle_id = c.id) \
+         FROM cycles c WHERE c.project_id = ?1 AND c.state != 'closed' \
+         ORDER BY c.rank ASC, c.id ASC LIMIT ?2",
     )?;
     let cycles = stmt
-        .query_map(params![project_id, CYCLE_ROSTER_CEILING], map_cycle)?
+        .query_map(params![project_id, CYCLE_ROSTER_CEILING], |row| {
+            Ok(CycleLine { cycle: map_cycle(row)?, epic_count: row.get(7)? })
+        })?
         .collect::<Result<Vec<_>, _>>()
-        .context("failed to list the project's cycles")?;
+        .context("failed to read the project's cycle roster")?;
     let total: i64 = conn
-        .query_row("SELECT COUNT(*) FROM cycles WHERE project_id = ?1", params![project_id], |row| row.get(0))
-        .context("failed to count the project's cycles")?;
+        .query_row(
+            "SELECT COUNT(*) FROM cycles WHERE project_id = ?1 AND state != 'closed'",
+            params![project_id],
+            |row| row.get(0),
+        )
+        .context("failed to count the project's open cycles")?;
     let truncated = total > cycles.len() as i64;
     Ok(CycleRoster { cycles, total, truncated })
+}
+
+/// Move a Cycle one place up or down among the project's Cycles. One rank rewritten between its
+/// neighbours' (`ranking.rs`'s fractional index), never a renumbering pass, in one transaction with
+/// the rank read, following `reorder_epic`. A Cycle already at the end of its direction is a no-op.
+pub fn reorder_cycle(
+    conn: &mut Connection,
+    actor_id: &str,
+    cycle_id: &str,
+    direction: ReorderDirection,
+) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let (project_id, rank): (String, String) = tx
+        .query_row("SELECT project_id, rank FROM cycles WHERE id = ?1", params![cycle_id], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .optional()?
+        .ok_or_else(|| anyhow!("cycle {cycle_id:?} does not exist"))?;
+
+    // Two neighbours in the direction of travel: the one to hop over and the one beyond it.
+    let (cmp, dir) = match direction {
+        ReorderDirection::Up => ("<", "DESC"),
+        ReorderDirection::Down => (">", "ASC"),
+    };
+    let sql = format!(
+        "SELECT rank FROM cycles WHERE project_id = ?1 AND (rank, id) {cmp} (?2, ?3) \
+         ORDER BY rank {dir}, id {dir} LIMIT 2"
+    );
+    let neighbours: Vec<String> = tx
+        .prepare(&sql)?
+        .query_map(params![project_id, rank, cycle_id], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the neighbouring cycles")?;
+    let new_rank = match (direction, neighbours.as_slice()) {
+        (_, []) => None,
+        (ReorderDirection::Up, [prev]) => Some(rank_before(Some(prev))?),
+        (ReorderDirection::Up, [prev, prev_prev, ..]) => Some(rank_between(prev_prev, prev)?),
+        (ReorderDirection::Down, [next]) => Some(rank_after(Some(next))?),
+        (ReorderDirection::Down, [next, next_next, ..]) => Some(rank_between(next, next_next)?),
+    };
+    let Some(new_rank) = new_rank else {
+        tx.commit().context("failed to commit no-op reorder_cycle transaction")?;
+        return Ok(());
+    };
+
+    tx.execute("UPDATE cycles SET rank = ?2, updated_at = ?3 WHERE id = ?1", params![cycle_id, new_rank, now])
+        .context("failed to reorder cycle")?;
+    let payload = serde_json::json!({
+        "field": "rank", "before": rank, "after": new_rank, "label": "Reordered the cycle",
+    });
+    append_cycle_event(&tx, &project_id, cycle_id, None, actor_id, "cycle.reordered", &payload, &now)?;
+    tx.commit().context("failed to commit reorder_cycle transaction")?;
+    Ok(())
 }
