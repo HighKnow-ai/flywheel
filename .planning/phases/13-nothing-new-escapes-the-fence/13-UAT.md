@@ -3,17 +3,17 @@ status: testing
 phase: 13-nothing-new-escapes-the-fence
 source: [13-VERIFICATION.md]
 started: 2026-10-15T15:30:00Z
-updated: 2026-10-15T16:00:00Z
+updated: 2026-10-15T16:15:00Z
 ---
 
 ## Current Test
 
-number: 2
-name: Confirm the criterion-1 override still reads as intended, given BL-6
+number: 3
+name: Epic status after the StatusPicker deletion
 expected: |
-  Owner confirms the handoff to Phase 14 will be written into Phase 14's criteria, or amends the
-  override reason. The override says the cycle-table FK clause "moved to Phase 14 success
-  criterion 1" — but Phase 14 SC1 does not contain it.
+  Owner records derive-from-tasks or a dedicated epic control. Already filed by the owner and
+  deferred to Phase 14 (todos dated 2026-10-15); DRFT-04's text is "a task's status", so the
+  scoping is legitimate. Carried so it is not lost.
 awaiting: user response
 
 ## Tests
@@ -33,7 +33,18 @@ resolution: |
 
 ### 2. Confirm the criterion-1 override still reads as intended, given BL-6
 expected: Owner confirms the handoff to Phase 14 will be written into Phase 14's criteria, or amends the override reason. The override's stated destination — "clause moved to Phase 14 success criterion 1" — is not true in `ROADMAP.md`: Phase 14 SC1 at line 237 does not carry the cycle-table FK clause. Fix is one sentence appended to Phase 14 SC1.
-result: [pending]
+result: pass
+reported: "(1)"
+resolution: |
+  Owner chose option 1 — append the clause to Phase 14 success criterion 2 rather than amend the
+  override reason. SC2 is already the Cycle topology criterion ("an epic belongs to at most one
+  Cycle, Cycles never nest"), so the FK-chain assertion is the same class of claim and sits
+  beside it; SC1's subject is what the user sees plus the column allowlist, where a referential
+  integrity assertion would be missed.
+  Residual, deliberately left: the Phase 13 override prose still reads "moved to Phase 14 success
+  criterion 1" while the clause now lives in SC2. Off by one criterion, same phase. Owner was
+  offered the one-word correction and did not take it; recorded here so it is not mistaken for an
+  oversight. Tracked as BL-6.
 
 ### 3. Epic status after the StatusPicker deletion
 expected: Owner records derive-from-tasks or a dedicated epic control. Already filed by the owner and deferred to Phase 14 (todos dated 2026-10-15); DRFT-04's text is "a task's status", so the scoping is legitimate. Carried here only so it is not lost.
@@ -46,9 +57,9 @@ result: [pending]
 ## Summary
 
 total: 4
-passed: 1
+passed: 2
 issues: 0
-pending: 3
+pending: 2
 skipped: 0
 blocked: 0
 
