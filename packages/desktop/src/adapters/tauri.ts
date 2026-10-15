@@ -24,14 +24,27 @@ export async function invokeCommand<TResult>(
 }
 
 /**
+ * The wire shape of `board:changed`, built on the Rust side by `commands::emit_board_changed`
+ * (FNC-07). `projectId` is `null` for an event with no project scope — a broadcast. Declared here
+ * because this module is the single seam. Treat it as untrusted at the boundary: a reader must
+ * route a malformed payload as a broadcast, never drop it.
+ */
+export interface BoardChangedPayload {
+  projectId: string | null;
+  entity: string;
+  id: string | null;
+}
+
+/**
  * Subscribe to the `board:changed` event the Rust core emits after every committed
  * mutation (D-04). The handler should invalidate/refetch the affected queries — the UI
- * must never trust its own optimistic write as the source of truth.
+ * must never trust its own optimistic write as the source of truth. The typed payload names
+ * the project the change happened in, so a handler can leave other projects' views alone.
  */
 export async function subscribeBoardChanged(
-  handler: () => void,
+  handler: (payload: BoardChangedPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen("board:changed", () => handler());
+  return listen<BoardChangedPayload>("board:changed", (event) => handler(event.payload));
 }
 
 /**

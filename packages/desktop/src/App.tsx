@@ -69,7 +69,7 @@ function Board({ projectId, projectName }: { projectId: string; projectName: str
 
   // Subscribes exactly once to the core's board:changed push channel (D-04) — the UI never
   // trusts its own mutation as already resolved.
-  useBoardChangedSubscription();
+  useBoardChangedSubscription(projectId);
 
   // Distinguishes the two empty-window states purely from this component's own filter/search UI
   // state (01-UI-SPEC.md "State Inventory") — `BandCounts` alone cannot make this distinction,

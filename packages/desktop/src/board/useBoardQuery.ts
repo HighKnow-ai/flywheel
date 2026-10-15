@@ -36,6 +36,7 @@ import {
   worktreeRemovalCheck,
   worktreeRemove,
   worktreeSummary,
+  type BoardChangedPayload,
   type EpicProgressDto,
   type LogWindowDto,
 } from "../adapters/tauri";
@@ -485,29 +486,41 @@ export function useDeleteItem(projectId: string | undefined) {
 }
 
 /**
- * Subscribes EXACTLY ONCE to the core's `board:changed` push channel and invalidates both the
- * board window's `["board"]` prefix and the epic roster's `["epics"]` prefix in the handler
- * (D-04) — the UI must never treat its own mutation as already resolved: creating a task
- * refreshes the board because the core emitted `board:changed`, and creating, renaming or
- * deleting an epic — from anywhere: the quick-add, the command palette, a future agent writer —
- * refreshes the chip list, the epic pill and the picker options through this same push (G-01-2).
+ * Subscribes EXACTLY ONCE to the core's `board:changed` push channel and routes each event by its
+ * `projectId` (D-04, FNC-07) — the UI must never treat its own mutation as already resolved:
+ * creating a task refreshes the board because the core emitted `board:changed`, and creating,
+ * renaming or deleting an epic — from anywhere: the quick-add, the command palette, a future agent
+ * writer — refreshes the chip list, the epic pill and the picker options through this same push.
  *
- * This is not an optimisation: without the `["epics"]` invalidation, a newly created epic would
- * not appear in the filter chips until an unrelated refetch happened to evict the cache. Both
- * invalidations use the bare, project-id-less prefix — `board:changed`'s payload does not carry
- * enough to narrow either one to a single project, and a stale roster for a project the user is
- * about to switch back to is exactly the failure this is preventing.
+ * Routing: an event for the viewed project invalidates that project's board and epic-roster keys
+ * (plus the `["board", "dispatch"]` fan-out keys, which are keyed by epic, not by project); an event
+ * for any OTHER project invalidates nothing, so a change in one project no longer re-fetches an
+ * unrelated project's views; an event whose `projectId` is `null`, absent or malformed BROADCASTS
+ * to the bare `["board"]` / `["epics"]` prefixes — an unroutable event that invalidated nothing
+ * would leave a stale board, which is strictly worse than an over-broad refresh.
+ *
+ * No coalescing, debounce or timer: the event rate has not been measured, and a window sized on a
+ * guess can only lose events. Two events in one tick invalidate twice.
  */
-export function useBoardChangedSubscription() {
+export function useBoardChangedSubscription(projectId?: string) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
 
-    subscribeBoardChanged(() => {
-      queryClient.invalidateQueries({ queryKey: ["board"] });
-      queryClient.invalidateQueries({ queryKey: ["epics"] });
+    // `payload` may be undefined or the wrong shape: it crossed a process boundary.
+    subscribeBoardChanged((payload?: Partial<BoardChangedPayload>) => {
+      const scope = payload?.projectId;
+      if (typeof scope !== "string") {
+        queryClient.invalidateQueries({ queryKey: ["board"] });
+        queryClient.invalidateQueries({ queryKey: ["epics"] });
+        return;
+      }
+      if (scope !== projectId) return;
+      queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) });
+      queryClient.invalidateQueries({ queryKey: epicsQueryKey(projectId) });
+      queryClient.invalidateQueries({ queryKey: ["board", "dispatch"] });
     }).then((fn) => {
       if (cancelled) {
         fn();
@@ -520,7 +533,7 @@ export function useBoardChangedSubscription() {
       cancelled = true;
       unlisten?.();
     };
-  }, [queryClient]);
+  }, [queryClient, projectId]);
 }
 
 /** `usePendingPermissionRequests`' query key, keyed by `agentRunId` — the one shared query BOTH

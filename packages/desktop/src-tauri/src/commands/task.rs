@@ -1,7 +1,9 @@
 //! `task_create` — the tracer's one mutating command (D-09 quick-add path).
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
+
+use super::{emit_board_changed, project_of};
 
 use crate::state::AppState;
 
@@ -89,11 +91,7 @@ pub fn task_create(
     drop(conn);
 
     let dto: TaskDto = task.into();
-    app.emit(
-        "board:changed",
-        serde_json::json!({ "entity": "task", "id": dto.id }),
-    )
-    .ok();
+    emit_board_changed(&app, Some(project_id.as_str()), "task", Some(dto.id.as_str()));
 
     Ok(dto)
 }
@@ -138,11 +136,11 @@ pub fn task_update(
         description.as_deref(),
     )
     .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "tasks", &task_id);
     drop(conn);
 
     let dto: TaskDto = task.into();
-    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": dto.id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "task", Some(dto.id.as_str()));
     Ok(dto)
 }
 
@@ -158,12 +156,13 @@ pub fn task_update(
 pub fn task_delete(state: State<AppState>, app: AppHandle, task_id: String) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    // Read before the delete: the row (and its project) is gone afterwards.
+    let project_id = project_of(&conn, "tasks", &task_id);
     flywheel_core::domain::task::delete_task(&mut conn, &actor_id, &task_id)
         .map_err(|e| e.to_string())?;
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "task", Some(task_id.as_str()));
     Ok(())
 }
 
@@ -181,10 +180,10 @@ pub fn task_set_status(
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::task::set_task_status(&mut conn, &actor_id, &task_id, &status)
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "tasks", &task_id);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "task", Some(task_id.as_str()));
     Ok(())
 }
 
@@ -205,10 +204,10 @@ pub fn task_reorder(
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::task::reorder_task(&mut conn, &actor_id, &task_id, direction)
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "tasks", &task_id);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "task", Some(task_id.as_str()));
     Ok(())
 }
 
@@ -226,10 +225,10 @@ pub fn task_set_priority(
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::task::set_priority(&mut conn, &actor_id, &task_id, priority)
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "tasks", &task_id);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "task", Some(task_id.as_str()));
     Ok(())
 }
 
@@ -247,10 +246,10 @@ pub fn task_set_assignee(
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::task::set_assignee(&mut conn, &actor_id, &task_id, assignee_id.as_deref())
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "tasks", &task_id);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "task", Some(task_id.as_str()));
     Ok(())
 }
 
@@ -271,9 +270,9 @@ pub fn task_set_epic(
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::task::set_epic(&mut conn, &actor_id, &task_id, epic_id.as_deref())
         .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "tasks", &task_id);
     drop(conn);
 
-    app.emit("board:changed", serde_json::json!({ "entity": "task", "id": task_id }))
-        .ok();
+    emit_board_changed(&app, project_id.as_deref(), "task", Some(task_id.as_str()));
     Ok(())
 }

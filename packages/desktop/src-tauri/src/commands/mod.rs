@@ -41,3 +41,41 @@ pub(crate) fn ipc_error(context: &str, e: impl std::fmt::Display) -> String {
     eprintln!("{context}: {e:#}");
     format!("failed:{context}")
 }
+
+/// The ONE place in this crate that names the `board:changed` event string (FNC-07, F8). The
+/// payload is `{ projectId, entity, id }` — camelCase, the DTO mirror convention — so the renderer
+/// can route a change to the readers it affects instead of invalidating every subscriber on every
+/// event. `project_id: None` serialises `projectId` as JSON `null` and means "broadcast": an
+/// emitter with genuinely no project scope says so explicitly, and the renderer refreshes
+/// everything rather than dropping the event. `tests/board_changed_payload.rs` fails the build if
+/// any other module names the event string, or calls this without declaring its scope.
+pub fn emit_board_changed(
+    app: &tauri::AppHandle,
+    project_id: Option<&str>,
+    entity: &str,
+    id: Option<&str>,
+) {
+    use tauri::Emitter;
+    app.emit(
+        "board:changed",
+        serde_json::json!({ "projectId": project_id, "entity": entity, "id": id }),
+    )
+    .ok();
+}
+
+/// The project a row belongs to, read on a connection the caller already holds so a notification
+/// never opens a second one. `table` is one of the fixed literals below (never caller-supplied
+/// text); any other table, or a row that no longer exists, resolves to `None`, which the emit
+/// helper turns into a broadcast. Read BEFORE a delete — the row is gone afterwards.
+pub(crate) fn project_of(conn: &rusqlite::Connection, table: &str, id: &str) -> Option<String> {
+    let sql = match table {
+        "tasks" => "SELECT project_id FROM tasks WHERE id = ?1",
+        "epics" => "SELECT project_id FROM epics WHERE id = ?1",
+        "issues" => "SELECT project_id FROM issues WHERE id = ?1",
+        "agent_runs" => "SELECT project_id FROM agent_runs WHERE id = ?1",
+        "worktrees" => "SELECT project_id FROM worktrees WHERE id = ?1",
+        "authoring_proposals" => "SELECT project_id FROM authoring_proposals WHERE id = ?1",
+        _ => return None,
+    };
+    conn.query_row(sql, [id], |r| r.get::<_, String>(0)).ok()
+}
