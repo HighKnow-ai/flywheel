@@ -19,6 +19,7 @@ use crate::domain::epic::ensure_epic_integration_branch;
 use crate::domain::event::{append_event, next_sequence};
 use crate::git;
 use crate::ids::new_id;
+use crate::status_derivation::derive_status_in_tx;
 
 /// A worktree row, as read back after [`ensure_worktree`] resolves it (either freshly created or
 /// reused unchanged).
@@ -183,6 +184,12 @@ pub fn ensure_worktree(conn: &mut Connection, task_id: &str, actor_id: &str) -> 
         &payload,
         &now,
     )?;
+
+    // D-09/D-12: the worktree is the `todo -> in_progress` signal, so the band moves in the same
+    // transaction as the row that causes it. `expected_status: None` — this call holds no
+    // lock-release window between reading the status and writing it.
+    derive_status_in_tx(&tx, task_id, actor_id, None, false)
+        .context("failed to derive the task's status after creating its worktree")?;
 
     tx.commit().context("failed to commit ensure_worktree transaction")?;
 
@@ -377,6 +384,13 @@ fn record_worktree_removed(
         &payload,
         &now,
     )?;
+
+    // D-12: removal is the other worktree edge. Removing a worktree is never a reason to un-start
+    // work, so the deriver's floor holds an `in_progress` card where it is; the call is here so a
+    // standing merge or a pending edge is not missed behind a row that no longer exists.
+    // `expected_status: None` — this transaction holds the write lock from its first statement.
+    derive_status_in_tx(&tx, task_id, actor_id, None, false)
+        .context("failed to derive the task's status after removing its worktree")?;
 
     tx.commit().context("failed to commit remove_worktree_for_task transaction")?;
     Ok(())

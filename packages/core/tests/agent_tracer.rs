@@ -1,7 +1,8 @@
 //! The end-to-end tracer check (plan 02-01 Task 1): a real worktree, a real branch, the
 //! `triggers`/`worktrees`/`agent_runs` rows linked together, and the task moved to `in_progress`
-//! attributed to the seeded agent actor — one real path through every layer this phase's schema
-//! and domain functions touch, not a per-layer unit test.
+//! by its worktree's creation (derived, DRFT-04 — never attributed to the agent actor) — one real
+//! path through every layer this phase's schema and domain functions touch, not a per-layer unit
+//! test.
 
 mod common;
 
@@ -83,7 +84,9 @@ fn start_work_creates_worktree_branch_and_linked_rows() {
     // accepted mode string for a started run — this call passed "acceptEdits" above.
     assert_eq!(agent_run_permission_mode, "acceptEdits");
 
-    // The task moved to in_progress, attributed to the agent actor.
+    // The task moved to in_progress because its worktree now exists (DRFT-04, D-09) — derived, not
+    // written by the agent. The move belongs to the act that created the worktree, so it is
+    // attributed to the actor who pressed Start Work, never to the agent actor.
     let agent_id = agent_actor_id(&conn).expect("agent actor should be seeded");
     let (task_status,): (String,) = conn
         .query_row(
@@ -94,18 +97,17 @@ fn start_work_creates_worktree_branch_and_linked_rows() {
         .expect("task row should exist");
     assert_eq!(task_status, "in_progress");
 
-    let (status_change_actor,): (String,) = conn
-        .query_row(
-            "SELECT actor_id FROM events WHERE task_id = ?1 AND event_type = 'task.status_changed' \
-             ORDER BY id DESC LIMIT 1",
-            rusqlite::params![task.id],
-            |row| Ok((row.get(0)?,)),
-        )
-        .expect("a task.status_changed event should exist");
-    assert_eq!(
-        status_change_actor, agent_id,
-        "the status-change event must be attributed to the agent actor, not the human"
-    );
+    let status_change_actors: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT actor_id FROM events WHERE task_id = ?1 AND event_type = 'task.status_changed'")
+            .expect("prepare");
+        stmt.query_map(rusqlite::params![task.id], |row| row.get(0))
+            .expect("query")
+            .map(Result::unwrap)
+            .collect()
+    };
+    assert_eq!(status_change_actors, vec![human_actor_id.clone()], "exactly one derived move, by the human");
+    assert!(!status_change_actors.contains(&agent_id), "an agent never writes a status (DRFT-04)");
 
     // session_log_path(run_id) is what log_path stores.
     let expected_log_path = session_log_path(&run.id)

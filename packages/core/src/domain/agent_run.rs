@@ -137,11 +137,12 @@ pub fn agent_actor_id(conn: &Connection) -> anyhow::Result<String> {
 /// Ensures the task's worktree exists first (create-or-reuse, `domain::worktree::ensure_worktree`
 /// — its own inner transaction, committed before this function opens its own). Then, in ONE
 /// transaction: creates a `user_action` trigger, inserts the `agent_runs` row with
-/// `status = 'running'`, sets the task's status to `in_progress` if it is not already —
-/// attributed to the AGENT actor (D-29) — and appends `agent_run.started` plus, when the status
-/// actually changed, a `task.status_changed` event. `human_actor_id` is recorded as the actor who
-/// *initiated* the trigger (D-29 still applies to the task status change itself, which is always
-/// attributed to the agent actor, not the human).
+/// `status = 'running'` and appends `agent_run.started`. `human_actor_id` is recorded as the actor
+/// who *initiated* the trigger (D-29).
+///
+/// This function writes no task status, and no agent-attributed path does (DRFT-04, D-13): a run
+/// only starts once a worktree exists, and the worktree's creation is what moves the card to
+/// `in_progress`, through `status_derivation`. Starting a run is not a status signal.
 ///
 /// D-REV-39 IN-02: the fan-out dispatcher passes the SYSTEM actor here, never the local human. A
 /// start initiated by the system actor is automatic, and says so the way the automatic merge does
@@ -169,12 +170,8 @@ pub fn start_agent_run(
         .query_row("SELECT type = 'system' FROM actors WHERE id = ?1", params![human_actor_id], |r| r.get(0))
         .with_context(|| format!("initiating actor {human_actor_id:?} not found"))?;
 
-    let (project_id, current_status): (String, String) = tx
-        .query_row(
-            "SELECT project_id, status FROM tasks WHERE id = ?1",
-            params![task_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
+    let project_id: String = tx
+        .query_row("SELECT project_id FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
         .with_context(|| format!("task {task_id:?} not found"))?;
 
     let trigger_id = create_user_action_trigger(&tx, &project_id, task_id, human_actor_id, &now)?;
@@ -227,36 +224,6 @@ pub fn start_agent_run(
         &started_payload,
         &now,
     )?;
-
-    if current_status != "in_progress" {
-        tx.execute(
-            "UPDATE tasks SET status = 'in_progress', updated_at = ?1 WHERE id = ?2",
-            params![now, task_id],
-        )
-        .context("failed to move task to in_progress")?;
-
-        let status_sequence = next_sequence(&tx, &project_id, "local")?;
-        let status_payload = serde_json::json!({
-            "field": "status",
-            "before": current_status,
-            "after": "in_progress",
-            "label": "Changed status from ".to_string() + &current_status + " to in_progress",
-        });
-        append_event(
-            &tx,
-            &project_id,
-            "local",
-            status_sequence,
-            "task",
-            task_id,
-            Some(task_id),
-            None,
-            &agent_id,
-            "task.status_changed",
-            &status_payload,
-            &now,
-        )?;
-    }
 
     tx.commit().context("failed to commit start_agent_run transaction")?;
 

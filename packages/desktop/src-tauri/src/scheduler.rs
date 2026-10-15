@@ -189,6 +189,20 @@ fn run_hot_tick(app: &AppHandle) {
     }
 }
 
+/// One status derivation in a transaction of its own (D-12): the cold tick has no other write to
+/// compose with it, so each task commits or rolls back alone and a failure on one task never
+/// holds up the rest of the tick.
+fn derive_in_own_transaction(
+    conn: &mut rusqlite::Connection,
+    actor_id: &str,
+    task_id: &str,
+) -> anyhow::Result<flywheel_core::status_derivation::Derivation> {
+    let tx = conn.transaction()?;
+    let outcome = flywheel_core::status_derivation::derive_status_in_tx(&tx, task_id, actor_id, None, false)?;
+    tx.commit()?;
+    Ok(outcome)
+}
+
 /// D-114's cold tier: every tracked worktree, regardless of hot-tier membership.
 fn run_cold_tick(app: &AppHandle) {
     let Some(state) = app.try_state::<AppState>() else {
@@ -208,7 +222,8 @@ fn run_cold_tick(app: &AppHandle) {
     };
 
     // LINK-10/D-115: the system actor, resolved once per tick in Rust (never passed in from the
-    // renderer — T-01-04). Feeds the one outside-commit-detection call site below.
+    // renderer — T-01-04). Feeds the outside-commit-detection call site and the status deriver
+    // below.
     let outside_commit_actor_id = match system_actor(&conn) {
         Ok(actor) => Some(actor.id),
         Err(err) => {
@@ -221,6 +236,20 @@ fn run_cold_tick(app: &AppHandle) {
     for task_id in &task_ids {
         if read_and_record_change(&conn, task_id) {
             any_changed = true;
+        }
+        // DRFT-04/D-12: the status deriver rides this tick (no second job) for the tasks the forge
+        // read does not cover — chiefly a worktree that exists for a card still at `todo`. The tick
+        // holds the connection throughout, so there is no lock-release window and
+        // `expected_status` is honestly `None`. A real move folds into the same digest-gated
+        // board-invalidation emit below; it is not a second channel.
+        if let Some(actor_id) = &outside_commit_actor_id {
+            match derive_in_own_transaction(&mut conn, actor_id, task_id) {
+                Ok(flywheel_core::status_derivation::Derivation::Wrote(_)) => any_changed = true,
+                Ok(_) => {}
+                Err(err) => eprintln!(
+                    "git-truth cold tick: failed to derive status for task {task_id}: {err:#}"
+                ),
+            }
         }
         // LINK-10/D-115: see the matching comment in `run_hot_tick` — identical discipline.
         if let Some(actor_id) = &outside_commit_actor_id {
