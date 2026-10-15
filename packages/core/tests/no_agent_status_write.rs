@@ -247,3 +247,32 @@ fn a_cold_tick_derives_every_tracked_worktree_once() {
         }
     });
 }
+
+// --- D-19: the picker is a deletion, and a deletion can be asserted ---
+
+/// Close the loop from the Rust side (D-19): the human-reachable status control is gone from the
+/// desktop tree, and nothing imports it. A refusal in a component would have to be interrogated;
+/// an absent file cannot be.
+#[test]
+fn no_status_picker_component_exists_in_the_desktop_tree() {
+    let deleted = "StatusPicker";
+    let mut found_files = Vec::new();
+    let mut importers = Vec::new();
+    for (path, body) in sources_under(&workspace_root().join("packages/desktop/src")) {
+        let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        if stem == deleted {
+            found_files.push(path.display().to_string());
+        }
+        for (n, line) in body.lines().enumerate() {
+            let t = line.trim_start();
+            if t.starts_with("//") || t.starts_with('*') || t.starts_with("/*") {
+                continue;
+            }
+            if line.contains(deleted) {
+                importers.push(format!("{}:{}: {}", path.display(), n + 1, line.trim()));
+            }
+        }
+    }
+    assert!(found_files.is_empty(), "the status picker file is back: {found_files:?}");
+    assert!(importers.is_empty(), "something outside a comment still names the status picker:\n{}", importers.join("\n"));
+}
