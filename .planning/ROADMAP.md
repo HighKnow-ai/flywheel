@@ -174,7 +174,7 @@ paths", and D-69 explicitly rejected size ceilings because a ceiling moves the b
 the developer cannot see. Any bound must use fixed counts, link-based inclusion and a visible
 boundary sentence; "truncate at N tokens" is out. Whether acknowledged or superseded decisions drop
 from the folded residue is a deliberate decision to take before planning, not during.
-**Plans**: 18/18 plans executed, 8 waves — 11/11 executed, 7 gap-closure plans pending (waves 7-8)
+**Plans**: 18/18 plans executed, 8 waves — 11 build plans + 7 gap-closure plans, all executed
 
 Plans:
 **Wave 1**
