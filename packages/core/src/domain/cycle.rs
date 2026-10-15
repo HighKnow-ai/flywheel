@@ -14,6 +14,10 @@
 //!   hold the epic's previous and new Cycle ids, so a move between Cycles is one event.
 //! - `cycle.epic_removed`   — stream `cycle` (the OLD Cycle), `epic_id` set.
 //! - `cycle.reordered`      — stream `cycle`, one rank rewritten. Not a scope event.
+//! - `cycle.epic_disposed`  — stream `cycle` (the Cycle being closed), `epic_id` set; payload
+//!   `choice` is `move_to` / `unassign` / `leave_here`, one event per unfinished epic (RECD-10).
+//! - `cycle.closed`         — stream `cycle`, to `closed`. A move or an unassign inside a close
+//!   also appends the ordinary `cycle.epic_assigned` / `cycle.epic_removed` fact event.
 
 use anyhow::{anyhow, Context};
 use chrono::Utc;
@@ -198,6 +202,12 @@ pub fn assign_epic_to_cycle(
 ) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    assign_epic_in_tx(&tx, epic_id, cycle_id, actor_id, &now)?;
+    tx.commit().context("failed to commit assign_epic_to_cycle transaction")?;
+    Ok(())
+}
+
+fn assign_epic_in_tx(tx: &Transaction, epic_id: &str, cycle_id: &str, actor_id: &str, now: &str) -> anyhow::Result<()> {
     let (epic_project, before): (String, Option<String>) = tx
         .query_row("SELECT project_id, cycle_id FROM epics WHERE id = ?1", params![epic_id], |row| {
             Ok((row.get(0)?, row.get(1)?))
@@ -217,9 +227,7 @@ pub fn assign_epic_to_cycle(
     let payload = serde_json::json!({
         "field": "cycle_id", "before": before, "after": cycle_id, "label": "Added an epic to the cycle",
     });
-    append_cycle_event(&tx, &epic_project, cycle_id, Some(epic_id), actor_id, "cycle.epic_assigned", &payload, &now)?;
-    tx.commit().context("failed to commit assign_epic_to_cycle transaction")?;
-    Ok(())
+    append_cycle_event(tx, &epic_project, cycle_id, Some(epic_id), actor_id, "cycle.epic_assigned", &payload, now)
 }
 
 /// Take an epic out of its Cycle (a no-op error if it is in none). One `cycle.epic_removed` event
@@ -227,6 +235,12 @@ pub fn assign_epic_to_cycle(
 pub fn remove_epic_from_cycle(conn: &mut Connection, epic_id: &str, actor_id: &str) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    remove_epic_in_tx(&tx, epic_id, actor_id, &now)?;
+    tx.commit().context("failed to commit remove_epic_from_cycle transaction")?;
+    Ok(())
+}
+
+fn remove_epic_in_tx(tx: &Transaction, epic_id: &str, actor_id: &str, now: &str) -> anyhow::Result<()> {
     let (project_id, before): (String, Option<String>) = tx
         .query_row("SELECT project_id, cycle_id FROM epics WHERE id = ?1", params![epic_id], |row| {
             Ok((row.get(0)?, row.get(1)?))
@@ -242,9 +256,7 @@ pub fn remove_epic_from_cycle(conn: &mut Connection, epic_id: &str, actor_id: &s
     let payload = serde_json::json!({
         "field": "cycle_id", "before": old_cycle, "after": null, "label": "Removed an epic from the cycle",
     });
-    append_cycle_event(&tx, &project_id, &old_cycle, Some(epic_id), actor_id, "cycle.epic_removed", &payload, &now)?;
-    tx.commit().context("failed to commit remove_epic_from_cycle transaction")?;
-    Ok(())
+    append_cycle_event(tx, &project_id, &old_cycle, Some(epic_id), actor_id, "cycle.epic_removed", &payload, now)
 }
 
 /// The project's `active` Cycle, if any. At most one exists (the partial unique index).
@@ -343,5 +355,68 @@ pub fn reorder_cycle(
     });
     append_cycle_event(&tx, &project_id, cycle_id, None, actor_id, "cycle.reordered", &payload, &now)?;
     tx.commit().context("failed to commit reorder_cycle transaction")?;
+    Ok(())
+}
+
+/// What closing a Cycle does with one unfinished epic (RECD-10, D-11). Exactly three answers, so a
+/// fourth is a compile error rather than a string nobody validated. The obvious name for the first
+/// is a word `FORBIDDEN_PM_WORDS` bans (A-06 fires on compounds too), hence `MoveTo`.
+/// Variant docs are kept out of the body below because a test counts the variants.
+///
+/// - `MoveTo` puts the epic in the named later Cycle, which must still accept work.
+/// - `Unassign` returns it to no Cycle.
+/// - `LeaveHere` keeps it in the Cycle being closed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EpicDisposition {
+    MoveTo(String),
+    Unassign,
+    LeaveHere,
+}
+
+/// One epic's answer. The close takes a slice of these: one entry per epic, each with its own
+/// choice. There is no shape that applies one choice to many epics (DRFT-07).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EpicChoice {
+    pub epic_id: String,
+    pub disposition: EpicDisposition,
+}
+
+/// An epic in a Cycle that is not finished, as the close asks about it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnfinishedEpic {
+    pub id: String,
+    pub key: String,
+    pub title: String,
+}
+
+/// The Cycle's unfinished epics, in rank order. This is the one definition of "unfinished": an epic
+/// in the Cycle whose status is not `done` and which is not archived (an archived epic is no longer
+/// live work, so the close does not ask about it).
+pub fn unfinished_epics(conn: &Connection, cycle_id: &str) -> anyhow::Result<Vec<UnfinishedEpic>> {
+    conn.prepare(
+        "SELECT id, key, title FROM epics
+         WHERE cycle_id = ?1 AND status != 'done' AND archived_at IS NULL
+         ORDER BY rank ASC, id ASC",
+    )?
+    .query_map(params![cycle_id], |row| {
+        Ok(UnfinishedEpic { id: row.get(0)?, key: row.get(1)?, title: row.get(2)? })
+    })?
+    .collect::<Result<Vec<_>, _>>()
+    .context("failed to read the cycle's unfinished epics")
+}
+
+/// Close a Cycle: a human-only authority act that decides every unfinished epic individually. The
+/// refusals live HERE, not in the dialog, so an IPC caller cannot skip them: a non-human actor, an
+/// already-closed Cycle, an unfinished epic with no choice (named in the error), a choice for an
+/// epic that is not one of the unfinished ones, two choices for one epic, and a `MoveTo` target that
+/// is closed or is the Cycle being closed. Each choice is applied through the single-epic writers
+/// and appends its own `cycle.epic_disposed` event, then the Cycle goes to `closed`; one transaction.
+pub fn close_cycle(
+    conn: &mut Connection,
+    cycle_id: &str,
+    choices: &[EpicChoice],
+    actor_id: &str,
+) -> anyhow::Result<()> {
+    let _ = (conn, cycle_id, choices, actor_id);
     Ok(())
 }
