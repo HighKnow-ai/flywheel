@@ -169,10 +169,32 @@ variant does, so the pending rewire to `StateBadge` does not need a forced-color
 
 ## Ground lightness floor
 
-Filled by plan 14-09, from 14-08's measurements. It will state the lightness the dark ground must reach for a dark wash to read at
-all (14-04 measured the dark washes at 1.02 to 1.04 against the ground, capped by the dark brand text lift), the tuned values that
-result, and the count of simultaneously saturated rows on the demonstration board that the prohibition (the board must not read as
-a permanent alarm) is checked against.
+Settled by plan 14-09, on the demonstration board, from 14-08's measurements. **The floor is confirmed, not revised, and the board is the
+new evidence: it shows what the limit costs.** The limit is still set by the weakest EXISTING text role (14-08 below): `blockedTextRack` in
+light, the dark brand text lift in dark. Nothing in this plan touched either, so no floor constant moved (asserted over the plan's commit range).
+
+What the board adds is that the WCAG ratio is the wrong unit for "can it be seen". A wash held under every text floor sits 1.02 to 1.07 from
+the ground by contrast ratio and can still be a long way off by colour difference, because the ratio ignores chroma. Measured as CIE76
+(`theme/cvd.ts`'s metric) against the ground, and pinned by `theme/__tests__/wash-visibility.test.ts`:
+
+| Mode | needs-you | running | failed | merged | Read on the real fleet |
+|---|---|---|---|---|---|
+| light, before | 8.25 | 4.15 | 3.76 | 5.40 | needs-you a faint ivory chip; the others barely a tint |
+| light, **shipped** | **20.0** | 4.15 | 3.76 | 5.40 | needs-you plainly a plate; failed a faint pink; running and merged stay ink |
+| dark, shipped (unmoved) | 4.43 | 4.14 | 16.93 | 15.31 | failed a visible plate; needs-you and running a tint you must look for |
+
+**Dark needs-you cannot be fixed inside the envelope, and that is stated plainly.** A search over every 8-bit colour within 15 degrees of the
+class hue that clears every text and non-text role at 4.5 and 3 on it, and keeps every wash pair and every wash-against-ground pair 2.5 or more
+apart under all three deficiencies, found at best 4.79 against the 4.43 shipped. A move that raises a tint from "hard to see" to "slightly less hard
+to see" is not a tuning and was not made. The cause is arithmetic: amber needs both the red and the green channel, and each spends the luminance
+budget the brand text lift leaves (4.51 on the running wash, floor 4.5). What would change it is outside this phase: raising the dark brand text lift,
+or drawing the wash on a surface with a different contrast budget than a text chip. That is Phase 18's dark-first work. Until then a dark needs-you
+state is carried by its ink, glyph and word, which is what D-15 says every state is carried by anyway.
+
+**The same search found that the light needs-you wash had room.** The most any colour within 15 degrees of the hue could be, with every floor held,
+was 25.5 from the ground; 20.0 (`#fffad3`, weakest text role `#9a6700` at 4.61, wash pairs still 2.60 or more apart)
+is the value shipped, as the strongest the search found up to a 20 cap and a visibly plate-like one on the board. The other three light washes had no
+room (running 4.15, failed 3.76 are their own maxima; merged could reach 6.12) and did not move.
 
 ### Measured by plan 14-08 (VIS-04)
 
@@ -194,6 +216,114 @@ reaches more, but only by turning the failed wash orange and the merged wash blu
 free of cost on the colour-vision proof either, and plan 14-09 must re-run `cvd.test.ts` after any wash it moves.
 
 ---
+
+## Settled on the demonstration board (plan 14-09)
+
+**The board.** `target/demo-board/appdata/flywheel.db`, re-seeded by `scripts/demo-board.sh` at the start of the plan (5 Cycles, 278 epics, 760 tasks,
+the seeder's `SEEDED` line unchanged from 14-03). Lead epic `FLY-1015` (14-03), active Cycle `FLY-1`. The real application was launched against it (the
+debug build, its frontend from the dev server; the release binary on disk predates Phase 14 and was not used) and looked at in both appearances.
+Dark is the machine's own; light was reached by switching the system appearance for the capture and switching it back. Nothing below was judged on a
+fixture row or a swatch sheet.
+
+**Rounds.** Four: (1) the Cycle region, (2) the epic roster's container ladder, (3) the ladder's cell-width correction and its shed-cell fix, (4) the washes.
+Each ended with the gate envelope re-run. The last round changed one token value (the light needs-you wash) and one rule (the fleet draws needs-you and
+failed on a wash). The first three changed no colour value: what the board showed was wrong there was structure.
+
+### Which classes carry a wash
+
+A wash is the loudest of the four roles, and its job is to make a row findable. Decided per class, and each decision made against the alternative seen on
+the board (a wash behind all five on the fleet, which was looked at in both appearances before it was rejected).
+
+| Class | Wash | Reason | The rejected alternative, as seen |
+|---|---|---|---|
+| needs-you | **yes** | the class that asks the developer to act. Three of the fleet's six rows. It is the one place a plate pays for itself. | Ink only, seen in dark before any wash was drawn: the amber glyph and word read clearly, so the case for a plate is findability and not legibility. |
+| failed | **yes** | something broke and he has not seen it yet. One row. | Ink only, seen in dark: legible. The wash adds a plate that is visible in dark (16.9) and faint in light (3.8), the right way round for a class that must not be missed on a dark board. |
+| running | no, ink only | the agent works and nothing is asked. At fleet density this is the majority state, so a plate on each is a coloured field the eye learns to ignore. | A wash behind both running rows made the RUNNING band the same weight as NEEDS YOU, and the band header stopped being the thing that told them apart. |
+| merged | no, ink only | the work landed; a fact, not an ask. No row on the demonstration fleet or the board draws it, so there is nothing to see it on: decided on the class's meaning and recorded as not exercised. | Not seen. |
+| quiet | no (the transparent rest value, as 14-04 set it) | a state that does not need the developer is not painted as if it did. | n/a |
+
+This is enforced, not advised: `legend/StateBadge.tsx` exports `rowVariant(state)`, which returns `wash` for needs-you and failed and `text` for
+everything else, `FleetSurface` draws through it, and tests pin both. All four washes keep their values, because `cvd.test.ts` and `contrast.test.ts`
+assert them as a set of ten pairs and four surfaces: making a class's wash transparent to say "no wash" would collapse two washes to one value and
+fail the CVD pair floor, which is lowering a gate to express a design. The wash tokens are a vocabulary; `rowVariant` is the decision about use.
+
+### Which values moved
+
+One. Light needs-you wash `#fefcec` to `#fffad3` in `styles/tokens.css` and `theme/tokens.ts` in one commit. Every other value (ink, edge, mark, the other
+seven washes) is unmoved, on the evidence of the board: the inks read at 4.6:1 and better on both grounds, the edge chip (Blocked, Needs Decision) is
+clear, and 14-08's CVD margins are intact. The dark brand text lift and `blockedTextRack` were not touched. No floor constant changed.
+
+### The count of simultaneously saturated rows
+
+Counted on the seeded board, in the application, not estimated. A row is saturated when it draws a state that is not quiet. The count does not depend on
+the appearance (a row carries a state or it does not); what the appearance changes is how much of the saturation is SEEN, and that is in the table above.
+
+| Surface | Rows | Saturated | Which |
+|---|---|---|---|
+| Fleet, All agents | 6 | **6** (of 6) | needs-you 3 (blocked, awaiting review, abandoned), running 2, failed 1; 4 on a wash |
+| Board, epic roster | 278 epics | **0** | an epic row draws no state; its running count is a plain figure |
+| Board, task rows | 760 tasks | **2** | Blocked on FLY-1020, Needs Decision on FLY-1031; the most on one screen with both epics open was 2 |
+| Review-queue rail | 2 counts | 2 | Blocked (amber) and Needs decision (red, see below) |
+
+On the board that is 2 of 1038 rows, 0.19 percent: it does not read as an incident dashboard, and the 14-04 prohibition holds there. On the fleet, every
+row is a state by construction (the surface lists agents), and the answer is the shape: half of it is needs-you, the running rows are calm ink, and one
+red. That ratio is the seeded one, not a measured fleet; a real fleet of thirty running agents is thirty cyan inks and no plates, which is why running
+is ink only. **Not exercised:** `ci_failed` (nothing seeded), `merged` (no surface draws it), the proposal mark on a task row.
+
+### Three findings from the live surface that are not value tuning, and what was done
+
+1. **A real Cycle goal has no length limit, and the demonstration board's goals are whole roadmap paragraphs.** The region filled the window with a 10-line
+   goal and four 4-line later Cycles and left one roster row on screen. Fixed in `CycleRegion.tsx` (loud goal two lines, each later Cycle one, the full text
+   stays in the document and in `title`). The seeder's goal text running on into `Mode: mvp Depends on: ... Success Criteria` is a seeder defect (it takes
+   the rest of the roadmap line); not fixed here, it is not in this plan's files and the clamp makes it harmless to the region.
+2. **The application shell sizes its content child to max-content** (`App.tsx` line 395 is a flex item with no `min-width: 0`), so the first clamped goal
+   pushed the whole board, filter bar and close control included, past the window edge. The region now carries `contain: inline-size`. The shell itself is
+   still the root cause for any future wide intrinsic content; not changed (not this plan's file).
+3. **The epic roster's container ladder was wrong at the default window.** At the 1016px pane every roster title read `1...` (22px), and the strip the
+   ladder meant to shed carries an inline `display: flex` a class rule cannot beat, so below 900px the template lost a column and the cell stayed. Rungs
+   moved from 900 and 640 to 1160 and 940 from the template's own arithmetic (in `App.css`), the shed is `!important`, and a browser test holds the title to
+   160px and the row to one line at seven widths from 716 to 1200. This is the roster, the thing the statement says leads; leaving it at `1...` would have made
+   the region's judgement meaningless.
+
+**14-03's open question.** Does the application show running and blocked on first launch? **Yes.** After the launch, `agent_runs` held running 2, blocked 1,
+abandoned 1, completed 1, failed 1 (the seeded set, intact), the fleet listed Blocked, Awaiting review, Abandoned, Running x2 and Failed, and the board showed the
+Blocked chip on FLY-1020. The residue 14-03 predicted is real: every launch writes three false `agent_run.abandoned` events for the three live runs before the
+trigger cancels the status write (7 in the demonstration database after two launches: 1 seeded, 6 false). Cosmetic, as 14-03 said. The board's own summary line
+says "1 agent running" where the fleet lists two: the second run is an authoring-session run that belongs to no epic in the Cycle.
+
+**The needs-decision and CI-failed pills.** Rewired through `StateBadge` (`edge` variant, as Blocked is). Needs Decision now draws amber beside Blocked, in both
+appearances, on the real board. **One sibling is not fixed and should be filed:** the review-queue rail's "Needs decision" count (`ProjectRail`) still draws red
+beside the amber "Blocked" count, the same fact in a different class beside its own pill. It is a count figure, not a pill, in another file, and the plan did
+not name it.
+
+## The Cycle region against 14-HIERARCHY.md (plan 14-09)
+
+Judged by the statement's section-4 procedure, on the demonstration board, in dark in the running application and in light in the running application, with
+four later Cycles present, at the default 1200 by 800 window. In the order done: squint, name the levels, cover the colour, read the figure, test the absences.
+
+**Before shaping (both appearances).** Step 1 failed: the eye landed on the region's loud goal and the region as a whole outweighed the roster, which was a single
+row at the bottom edge. Step 2 failed: the later Cycles were four-line paragraphs and read as a second block, not a quiet level. Steps 3 and 4 passed (the region
+carries no colour; the figure read `7/27 tasks done`). The roster itself read `1...` (see finding 3).
+
+**What changed.** The loud goal clamped to two lines beside the close control, the facts (counts, fraction, scope drift) on their own row beneath it, each later Cycle
+one line with an ellipsis, the region's width made its container's, and the roster ladder repaired. Spacing, type step, weight and position only; no state token.
+
+**After.** 1. Squint: the eye lands on the two-line goal, then the roster rows under it, and six roster rows fit beneath the region; the roster is not outweighed.
+2. Levels: loud = the goal, quiet = four one-line Cycles at body weight, frame = the container and its one divider, no box, icon or banner. 3. Colour covered:
+the levels hold in type, weight and spacing. 4. The figure says where the work stands and nothing else. 5. Absences: not forced in the application (the demonstration
+board has an active Cycle with epics and tasks); held by the existing 14-01/14-02 tests in words ("No cycle is active.", "No tasks in this cycle yet", "no epics yet").
+
+**The region now realises the statement's structure, in both appearances, with these named for plan 14-10:**
+- **The perceptual half is the owner's.** Whether it reads as the focal arrangement at his own density is not asserted by anything here (`verification: backstop`).
+- **The later Cycles are in primary ink, not muted.** The statement's table puts them at the body step, which is what they are, but beside a roster of bold titles
+  four full-ink body lines are the busiest part of the region. If the owner's squint test lands on them, the statement allows muting (it names muted ink for the frame,
+  not for Level 2), so that is a statement amendment and not a bug.
+- **Step 5 was not exercised in the running application.**
+- **The ordering constraint is not fully met in git history, and cannot be.** `14-HIERARCHY.md`'s first commit (`f853e244`, 18:45) is NOT an ancestor of
+  `CycleRegion.tsx`'s first commit (`a5c6f7d7`, plan 14-01, 18:20): 14-01 created the file as a minimal slice (goal at the heading step, a muted fraction, a divider)
+  twenty-five minutes before the statement was written. The statement does predate every commit that shaped the three levels (`8db0e8d8` onward, this plan's included),
+  but the plan's own verification command asserts the stronger thing and exits 1. History is not rewritten to satisfy it. The weaker, true claim is recorded here for
+  the verdict.
 
 ## What this document does not decide
 
