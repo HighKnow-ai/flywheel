@@ -20,7 +20,30 @@ Out-of-scope discoveries, logged and not fixed (executor scope boundary).
 - **A second raw `UPDATE tasks SET status` exists outside `set_task_status_in_tx`.**
   `packages/core/src/domain/agent_run.rs:233` sets `in_progress` when a run starts. It predates this
   plan; plan 13-06's acceptance grep expects exactly one such statement and does not account for it.
-  Not touched. status: open
+  Not touched. status: resolved (deleted by plan 13-07, commit 2606840)
 - **`PriorityPicker` has no mount inside `ItemDetailPanel`.** The detail panel prints the priority
   row read-only; the picker is mounted from `BoardView` and the command palette. Plan 13-06 asked
   only that the picker stay reachable, which it is, so nothing was added. status: open
+
+## 13-07
+
+- **Epic status now has no UI writer.** `StatusPicker.tsx` served epics as well as tasks, and the
+  plan deletes it outright (D-19) without saying what happens to an epic's `status`. The only path
+  that ever moved an epic's status was the picker; `epic_set_status` (a Tauri command) and
+  `set_epic_status` (core) remain, but nothing in the renderer calls them. Epics are therefore frozen
+  at the status they were created with. Needs a decision: derive epic status from its tasks, or give
+  epics their own control. Not added here: the plan scopes DRFT-04 to a task's status. status: open
+- **`task_set_status` and `epic_set_status` are still registered Tauri commands.** No renderer code
+  calls them any more (`useSetStatus` is deleted), but they remain in `main.rs`'s `generate_handler!`
+  and `capabilities/default.json`'s roster. A source gate on the Rust tree cannot see a renderer
+  `invoke("task_set_status")` typed by hand. Deleting the commands (and the `set_task_status` public
+  function they wrap, once nothing else uses it) is outside this plan's file list. status: open
+- **`worktree_lifecycle` is flaky under parallel test threads.** Both tests set the process-wide
+  `FLYWHEEL_WORKTREE_ROOT` with no lock (the comment claims "single-threaded per binary", which
+  libtest does not do), so one test's scratch directory is dropped under the other. About half of
+  runs fail with `failed to write the dirty file: NotFound`; `RUST_TEST_THREADS=1` passes every
+  time. Predates this plan; the sibling suites (`forge_live_chain.rs`, `forge_request_body.rs`) carry
+  the lock that fixes it. status: open
+- **`BoardRow`'s status glyph is now `aria-hidden`.** The row's own accessible name already states
+  the status, so the glyph announces nothing twice. Logged only so the next accessibility pass knows
+  it was a choice. status: resolved
