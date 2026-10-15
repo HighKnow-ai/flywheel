@@ -3,17 +3,17 @@ gsd_state_version: "1.0"
 milestone: v0.2.0
 current_phase: 13
 current_phase_name: Nothing New Escapes The Fence
-status: executing
-stopped_at: Completed 13-10-PLAN.md
-last_updated: "2026-10-15T01:45:05.373Z"
+status: verifying
+stopped_at: Completed 13-11-PLAN.md
+last_updated: "2026-10-15T02:49:00.174Z"
 last_activity: 2026-10-14
 last_activity_desc: Phase 13 execution started
-state_head: abf66fdd32e4340dff761015e0a8240c7ea7d56e
+state_head: ce7f491c1605c1b27dc5baa551fd05dc3d0e922e
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
 milestone_name: The Board Thinks With You
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 
 Phase: 13 (Nothing New Escapes The Fence) — EXECUTING
 Plan: 11 of 11
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-14 — Phase 13 execution started
 
 ## Performance Metrics
@@ -321,6 +321,7 @@ Last activity: 2026-10-14 — Phase 13 execution started
 | Phase 13 P08 | 6 min | 2 tasks | 6 files |
 | Phase 13 P09 | 55 min | 3 tasks | 7 files |
 | Phase 13 P10 | 20 min | 3 tasks | 19 files |
+| Phase 13 P11 | 65 min | 4 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -741,6 +742,7 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-09: authority writers refuse any non-human actor by reading actors.type in the write transaction; amend_proposal deliberately ungated
 - [Phase 13]: 13-10: board:changed is emitted only through commands::emit_board_changed with a { projectId, entity, id } payload; the renderer routes by projectId and broadcasts null or malformed payloads
 - [Phase 13]: 13-10: a scheduler tick still emits at most once; one resolved project scopes it, several or unresolved broadcast
+- [Phase 13]: 13-11: proposal cap is per run kind (execution 10, planning 30, authoring 60) as const fn constants, never settings; planning refuses generically; D-109 amended as A-05
 
 ### Pending Todos
 
@@ -804,6 +806,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T01:45:05.352Z
-Stopped at: Completed 13-10-PLAN.md
+Last session: 2026-10-15T02:49:00.154Z
+Stopped at: Completed 13-11-PLAN.md
 Resume file: None

@@ -54,7 +54,7 @@ own phases, which are read daily in this repository (owner decision, 2026-10-14)
 - [x] **DRFT-06**: Priority is offered only as an explicit, opt-in suggestion carrying its reasoning, never applied automatically and never required to start work
 - [ ] **DRFT-07**: The unit of acceptance is the field for a scalar and the item for a structure; no control anywhere accepts a set wholesale, and the absence of a bulk-accept path is enforced by a source test
 - [ ] **DRFT-08**: Open drafts are capped per project with visible back-pressure, so a drafting run cannot accumulate an unreviewable queue
-- [ ] **DRFT-09**: The per-run proposal cap does not throttle a legitimate decomposition, and a run that hits its cap is refused with wording that fits the kind of session it is *(the current cap of 10 applies to authoring runs by accident, and its refusal text names a tool an authoring session does not have)*
+- [x] **DRFT-09**: The per-run proposal cap does not throttle a legitimate decomposition, and a run that hits its cap is refused with wording that fits the kind of session it is *(the current cap of 10 applies to authoring runs by accident, and its refusal text names a tool an authoring session does not have)*
 - [ ] **DRFT-10**: Acceptance criteria can be drafted for a task that already exists and was created by hand, not only for a task an agent proposed in the same session
 - [ ] **DRFT-11**: The product measures what fraction of drafted items are revised after acceptance, derived from the event log, so reflex acceptance is distinguishable from good drafting rather than assumed
 - [ ] **DRFT-12**: Rate and session limits from the backend are detected, backed off from, and surfaced rather than retried blindly, observed against a real limit *(the carried AGNT-05)*
@@ -189,7 +189,7 @@ Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROAD
 | DRFT-06 | Phase 13 | Complete |
 | DRFT-07 | Phase 15 | Pending |
 | DRFT-08 | Phase 15 | Pending |
-| DRFT-09 | Phase 13 | Pending |
+| DRFT-09 | Phase 13 | Complete |
 | DRFT-10 | Phase 15 | Pending |
 | DRFT-11 | Phase 15 | Pending |
 | DRFT-12 | Phase 15 | Pending |

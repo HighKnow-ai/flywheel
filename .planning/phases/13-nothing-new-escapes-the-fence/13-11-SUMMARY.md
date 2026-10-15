@@ -261,3 +261,7 @@ This is the last plan of Phase 13. The phase is ready for verification. Two owne
 ---
 *Phase: 13-nothing-new-escapes-the-fence*
 *Completed: 2026-10-15*
+
+## Self-Check: PASSED
+
+Created files and all seven plan commits (`71f6eae`, `2fad2bb`, `333f586`, `7ffcfc7`, `e87c702`, `193463e`, `ce7f491`) verified present; `A-05` is in PROJECT.md.
