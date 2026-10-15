@@ -33,6 +33,14 @@ const CYCLES_DDL_PIN: &str =
 const ISSUES_DDL_PIN: &str =
     r#"CREATE TABLE issues ( id TEXT PRIMARY KEY NOT NULL CHECK (length(id) = 26), project_id TEXT NOT NULL REFERENCES projects(id), epic_id TEXT REFERENCES epics(id), task_id TEXT REFERENCES tasks(id), key TEXT NOT NULL, title TEXT NOT NULL, body TEXT, kind TEXT NOT NULL CHECK (kind IN ('bug', 'idea', 'question', 'risk')), rank TEXT NOT NULL, created_by TEXT NOT NULL REFERENCES actors(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL )"#;
 
+/// Every table whose normalised DDL is pinned, declared once.
+const PINNED_TABLES: [(&str, &str); 4] = [
+    ("epics", EPICS_DDL_PIN),
+    ("tasks", TASKS_DDL_PIN),
+    ("issues", ISSUES_DDL_PIN),
+    ("cycles", CYCLES_DDL_PIN),
+];
+
 /// (column, parent table) pairs `pragma_foreign_key_list('epics')` reports, sorted by column.
 const FOREIGN_KEY_PARENTS_ABOVE_EPICS: &[(&str, &str)] =
     &[("assignee_id", "actors"), ("created_by", "actors"), ("cycle_id", "cycles"), ("project_id", "projects")];
@@ -78,12 +86,7 @@ fn diff_message(table: &str, pinned: &str, actual: &str) -> String {
 #[test]
 fn the_spine_ddl_is_pinned() {
     let (conn, _dir) = migrated_scratch_db();
-    for (table, pinned) in [
-        ("epics", EPICS_DDL_PIN),
-        ("tasks", TASKS_DDL_PIN),
-        ("issues", ISSUES_DDL_PIN),
-        ("cycles", CYCLES_DDL_PIN),
-    ] {
+    for (table, pinned) in PINNED_TABLES {
         let actual = normalised_table_ddl(&conn, table);
         assert_eq!(pinned, actual, "{}", diff_message(table, pinned, &actual));
     }
@@ -91,14 +94,18 @@ fn the_spine_ddl_is_pinned() {
 
 #[test]
 fn the_spine_pin_fires_on_a_planted_ddl_change() {
-    let (conn, _dir) = migrated_scratch_db();
-    // `ALTER TABLE ... ADD COLUMN` is legal on `issues`, and this scratch database is discarded.
-    conn.execute_batch("ALTER TABLE issues ADD COLUMN planted TEXT").expect("planting a column should succeed");
-    assert_ne!(
-        ISSUES_DDL_PIN,
-        normalised_table_ddl(&conn, "issues"),
-        "the pin did not notice an added column, so it would not notice an erosion either"
-    );
+    // `ALTER TABLE ... ADD COLUMN` is legal on both tables, and each scratch database is discarded.
+    // `cycles` is the allowlist half of phase 14 criterion 1: ANY added column fails, whatever its name.
+    for (table, pinned) in PINNED_TABLES.into_iter().filter(|(table, _)| matches!(*table, "issues" | "cycles")) {
+        let (conn, _dir) = migrated_scratch_db();
+        conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN planted TEXT"))
+            .expect("planting a column should succeed");
+        assert_ne!(
+            pinned,
+            normalised_table_ddl(&conn, table),
+            "the pin did not notice an added column on `{table}`, so it would not notice an erosion either"
+        );
+    }
 }
 
 #[test]

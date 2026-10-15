@@ -4,8 +4,8 @@
 //! an identifier COMPONENT (`sprint`, `sprint_id`, `overdueCount`, `velocity_per_week`,
 //! `story_points_total`) in `packages/core/src`, `packages/desktop/src` (which holds the desktop
 //! `__tests__` trees) or `packages/core/tests` fails `cargo test -p core`, with exactly two named
-//! idiom exclusions. `.sql` is deliberately not scanned (see `SCANNED_EXTENSIONS`). Planning
-//! documents are never scanned.
+//! idiom exclusions. Migrations (`.sql`) are scanned too (D-21, see `SCANNED_EXTENSIONS`); a SQL `--`
+//! comment is not a whole-line comment to this gate, so it counts. Planning documents are never scanned.
 //!
 //! Self-contained per this repo's own precedent (`proposal_no_promotion.rs`): carries its own
 //! copies of `workspace_root`/`is_whole_line_comment`/`sources_under`. No env var, `cfg` switch,
@@ -31,14 +31,14 @@ fn is_whole_line_comment(line: &str) -> bool {
 
 /// The file extensions the gate scans.
 ///
-/// `.sql` is deliberately absent. Scanning migrations is a recorded Deferred Idea in
-/// `13-CONTEXT.md` ("the spine pin and the table-classification test already cover schema change"),
-/// and a locked deferral is not this gate's to reverse. Counter-argument for the owner: the spine
-/// pin covers the `CREATE TABLE` text of `epics`/`tasks`/`issues` only and table classification
-/// covers table NAMES, so a new table's `sprint_length_days` column passes all three gates.
-/// Reversal is one token: add `"sql"` here and bump the array length (the walker-reach test follows
-/// this const). It fires on nothing today: no corpus word appears in any of the 23 migrations.
-const SCANNED_EXTENSIONS: [&str; 3] = ["rs", "ts", "tsx"];
+/// `.sql` joined in phase 14 (D-21), reversing the phase 13 deferral. The deferral's own
+/// counter-argument named the hole: the spine pin covers the `CREATE TABLE` text of
+/// `epics`/`tasks`/`issues`/`cycles` only and table classification covers table NAMES, so a new
+/// table's `sprint_length_days` column passed all three gates (PROJECT.md A-06). Now a corpus word
+/// used as a column name in any migration fails the build. It fires on nothing today: no corpus word
+/// appears in any migration. Reversal is one token plus the array length (the walker-reach test
+/// follows this const).
+const SCANNED_EXTENSIONS: [&str; 4] = ["rs", "ts", "tsx", "sql"];
 
 fn sources_under(dir: &Path) -> Vec<(PathBuf, String)> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -242,6 +242,21 @@ fn the_gate_fires_on_a_corpus_word_used_as_a_compound_identifier_component() {
 }
 
 #[test]
+fn the_gate_catches_a_corpus_word_used_as_a_column_in_a_migration_and_leaves_a_clean_one_alone() {
+    let path = "packages/core/src/db/migrations/0099_planted.sql";
+    assert_eq!(
+        offenders_for(path, "CREATE TABLE t (\n    id TEXT,\n    sprint_length_days INTEGER\n);"),
+        1,
+        "a corpus word as a column name in a migration must fail"
+    );
+    assert_eq!(
+        offenders_for(path, "CREATE TABLE t (\n    id TEXT,\n    goal TEXT NOT NULL,\n    created_at TEXT NOT NULL\n);"),
+        0,
+        "a migration naming no corpus word must stay open"
+    );
+}
+
+#[test]
 fn the_gate_is_silent_on_each_named_idiom_exclusion() {
     assert_eq!(offenders_for("src/x.rs", "let v = Vec::with_capacity(8);"), 0, "with_capacity idiom");
     assert_eq!(
@@ -261,4 +276,71 @@ fn the_gate_is_silent_on_each_named_idiom_exclusion() {
     );
     assert_eq!(offenders_for("src/x.rs", "// sprint"), 0, "whole-line comment");
     assert_eq!(offenders_for("src/x.rs", "// the sprint is over"), 0, "whole-line comment");
+}
+
+// --- Criterion 1 of phase 14: the Cycle table carries no scheduling column ---
+//
+// This file is the one file excluded from its own scan, which is what lets a forbidden-name corpus
+// be spelled here. The ten-word corpus above already holds two of the concepts criterion 1 names
+// (capacity, velocity), and since SQL is scanned those already fail every migration. These
+// fragments cover the two it does NOT hold: a calendar point and a span of work time.
+// Matched against whole `_`-separated components of a column name, so `updated_at` is not read as
+// containing `date`.
+
+const CALENDAR_POINT_COMPONENTS: [&str; 10] =
+    ["start", "starts", "end", "ends", "begin", "finish", "date", "day", "week", "month"];
+const WORK_SPAN_COMPONENTS: [&str; 8] = ["duration", "length", "span", "days", "hours", "weeks", "interval", "period"];
+
+/// The audit pair every table here carries. RECD-08's "undated" bars scheduling columns, not audit
+/// metadata (owner confirmed 2026-10-15).
+const AUDIT_COLUMNS: [&str; 2] = ["created_at", "updated_at"];
+
+fn migrated_scratch_db() -> (rusqlite::Connection, tempfile::TempDir) {
+    let dir = tempfile::tempdir().expect("failed to create scratch dir");
+    let conn = core::db::open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups"))
+        .expect("open_and_migrate should succeed");
+    (conn, dir)
+}
+
+fn cycle_columns(conn: &rusqlite::Connection) -> Vec<String> {
+    conn.prepare("SELECT name FROM pragma_table_info('cycles')")
+        .expect("pragma_table_info should prepare")
+        .query_map([], |row| row.get(0))
+        .expect("pragma_table_info should run")
+        .collect::<Result<_, _>>()
+        .expect("pragma_table_info rows should read")
+}
+
+fn scheduling_columns(columns: &[String]) -> Vec<String> {
+    columns
+        .iter()
+        .filter(|name| !AUDIT_COLUMNS.contains(&name.as_str()))
+        .filter(|name| {
+            name.split('_').any(|part| {
+                CALENDAR_POINT_COMPONENTS.contains(&part) || WORK_SPAN_COMPONENTS.contains(&part)
+            })
+        })
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn the_cycle_table_carries_no_scheduling_column() {
+    let (conn, _dir) = migrated_scratch_db();
+    let columns = cycle_columns(&conn);
+    assert!(!columns.is_empty(), "the cycles table has no columns, so this check read nothing");
+    assert_eq!(scheduling_columns(&columns), Vec::<String>::new(), "RECD-08: a Cycle is undated");
+    for audit in AUDIT_COLUMNS {
+        assert!(columns.iter().any(|c| c == audit), "the audit column `{audit}` must stay on cycles");
+    }
+}
+
+#[test]
+fn the_scheduling_column_check_fires_on_a_planted_column() {
+    let (conn, _dir) = migrated_scratch_db();
+    conn.execute_batch("ALTER TABLE cycles ADD COLUMN start_date TEXT; ALTER TABLE cycles ADD COLUMN duration_days INTEGER;")
+        .expect("planting columns on a scratch database should succeed");
+    let mut caught = scheduling_columns(&cycle_columns(&conn));
+    caught.sort();
+    assert_eq!(caught, vec!["duration_days".to_string(), "start_date".to_string()]);
 }
