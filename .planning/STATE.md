@@ -2,18 +2,18 @@
 gsd_state_version: "1.0"
 milestone: v0.2.0
 current_phase: 13
-current_phase_name: nothing-new-escapes-the-fence
+current_phase_name: Nothing New Escapes The Fence
 status: executing
-stopped_at: Completed 13-11-PLAN.md
-last_updated: "2026-10-15T04:10:16.176Z"
-last_activity: 2026-10-14
+stopped_at: Completed 13-12-PLAN.md
+last_updated: "2026-10-15T04:31:32.624Z"
+last_activity: 2026-10-15
 last_activity_desc: Phase 13 execution started
-state_head: e2d84849066937aa7052c0c535c1d2737604abea
+state_head: 8c449933af84b28a5a17f66a1f3bdd95dd5fd314
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 18
-  completed_plans: 11
+  completed_plans: 12
 milestone_name: The Board Thinks With You
 ---
 
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 
 ## Current Position
 
-Phase: 13 (nothing-new-escapes-the-fence) — READY TO EXECUTE
-Plan: 11 of 11
+Phase: 13 (Nothing New Escapes The Fence) — EXECUTING
+Plan: 2 of 18
 Status: Ready to execute
-Last activity: 2026-10-14 — Phase 13 execution started
+Last activity: 2026-10-15 — Phase 13 execution started
 
 ## Performance Metrics
 
@@ -322,6 +322,7 @@ Last activity: 2026-10-14 — Phase 13 execution started
 | Phase 13 P09 | 55 min | 3 tasks | 7 files |
 | Phase 13 P10 | 20 min | 3 tasks | 19 files |
 | Phase 13 P11 | 65 min | 4 tasks | 12 files |
+| Phase 13 P12 | 40 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -743,6 +744,7 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-10: board:changed is emitted only through commands::emit_board_changed with a { projectId, entity, id } payload; the renderer routes by projectId and broadcasts null or malformed payloads
 - [Phase 13]: 13-10: a scheduler tick still emits at most once; one resolved project scopes it, several or unresolved broadcast
 - [Phase 13]: 13-11: proposal cap is per run kind (execution 10, planning 30, authoring 60) as const fn constants, never settings; planning refuses generically; D-109 amended as A-05
+- [Phase 13]: 13-12: MAX_ECHOED_DECISION_CANDIDATES derives from compaction::SUMMARY_WINDOW; PRIOR_AUTHORING_RUNS_LIMIT = 10; DriftInputs beyond-scope field is Option (None = lookup did not run)
 
 ### Pending Todos
 
@@ -806,6 +808,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T02:49:00.154Z
-Stopped at: Completed 13-11-PLAN.md
+Last session: 2026-10-15T04:31:32.603Z
+Stopped at: Completed 13-12-PLAN.md
 Resume file: None
