@@ -58,6 +58,72 @@
   --blocked-text-rack: #9a6700;
 
   /*
+   * --- The state vocabulary (Phase 14, D-15 to D-18). ---
+   * Five classes, defined by what the developer must DO about a state, times four roles, one per way
+   * the product draws: `text` (ink), `wash` (a tinted ground), `edge` (a full 1px boundary, never a 2px
+   * side stripe: A-06 reserves that for selection) and `mark` (a glyph or dot). Spelling:
+   * --state-<class>-<role>. These are custom PROPERTIES; the `.state-*` CSS classes in
+   * states-and-confirms.css are a different namespace and are not touched.
+   *
+   * Membership (the ONE consumer, legend/StateBadge.tsx, owns the lookup):
+   *   needs-you  blocked, awaiting review, abandoned, needs-decision, proposals pending. Abandoned is
+   *              here because `bandForState` already groups it with blocked in the fleet's NEEDS YOU
+   *              band, and a band header and a colour must not teach different things. It does NOT
+   *              reuse the failed role: an unsupervised session is not an error.
+   *   running    running.
+   *   failed     failed, CI failed.
+   *   merged     merged.
+   *   quiet      completed, interrupted, and any value the vocabulary does not know: glyph, word and
+   *              muted ink, no saturation. The quiet class is load-bearing: a state that does not need
+   *              the developer is not painted as if it did.
+   * The five task workflow statuses (backlog to done) gain NO colour here (D-16).
+   * Colour carries state, not hierarchy (14-HIERARCHY.md § 3).
+   *
+   * Derived by search, not by eye, the way the dark brand lift was: per class a hue and a saturation
+   * held across modes (needs-you 40/90, running 190/80, failed 355/75, merged 270/60), lightness
+   * stepped 1% at a time. WASH first: from the ground toward the ink until the weakest existing text
+   * role on it was about to fall under 4.5 (kept 0.02 clear). TEXT: first step that clears 4.5 on the
+   * worst of the five surfaces AND the four washes. MARK: first step that clears 3:1 on the worst
+   * surface (its own non-text floor, not borrowed from text). EDGE: as mark, with saturation 20
+   * points lower, so a 1px outline around text reads calmer than the glyph beside it. The ratios
+   * below are WCAG, measured with theme/contrast.ts; plan 14-09 tunes them on the demonstration board.
+   *
+   *   class      text            mark            edge            wash     weakest existing text on wash
+   *   needs-you  #966708 4.61    #bd810a 3.10    #b68420 3.10    #fef6e7  #9a6700 4.53
+   *   running    #10798e 4.71    #149cb8 3.02    #2c9aaf 3.08    #edfafd  #9a6700 4.56
+   *   failed     #db1f2f 4.60    #e9636e 3.02    #d67179 3.01    #fef6f7  #9a6700 4.58
+   *   merged     #9150d3 4.56    #ab78dd 3.03    #a37ec8 3.07    #faf7fd  #9a6700 4.59
+   * text is measured on the needs-you wash (its worst ground); mark and edge on the selected row
+   * surface #f5f7f9 (their worst).
+   */
+  --state-needs-you-text: #966708;
+  --state-needs-you-wash: #fef6e7;
+  --state-needs-you-edge: #b68420;
+  --state-needs-you-mark: #bd810a;
+  --state-running-text: #10798e;
+  --state-running-wash: #edfafd;
+  --state-running-edge: #2c9aaf;
+  --state-running-mark: #149cb8;
+  --state-failed-text: #db1f2f;
+  --state-failed-wash: #fef6f7;
+  --state-failed-edge: #d67179;
+  --state-failed-mark: #e9636e;
+  --state-merged-text: #9150d3;
+  --state-merged-wash: #faf7fd;
+  --state-merged-edge: #a37ec8;
+  --state-merged-mark: #ab78dd;
+  /*
+   * Quiet: no saturation anywhere. Text and mark are the muted ink (same value as --text-muted-rack,
+   * restated because the typed mirror compares literals), the edge is the control boundary, and the
+   * wash is the transparent rest value --row-surface uses: quiet needs no tint, and a tint here would
+   * read as a state that wants attention.
+   */
+  --state-quiet-text: #59636e;
+  --state-quiet-wash: rgba(0, 0, 0, 0);
+  --state-quiet-edge: #7a828c;
+  --state-quiet-mark: #59636e;
+
+  /*
    * Board row states. Selection is a rule plus a background shift (D-12), never a brand colour.
    * The shift is as strong as AA allows and no stronger: every text and data-channel role is
    * asserted 4.5:1 on all of these, and the weakest text role (blocked, 4.87 on the ground in
@@ -155,6 +221,41 @@
     --success-text-rack: #3fb950;
     --destructive-text-rack: #f85149;
     --blocked-text-rack: #d29922;
+
+    /*
+     * State vocabulary, dark (same derivation as the light block, searched upward from the ground
+     * with lightness stepped 1%). The dark WASH is bounded by the weakest existing text role, the
+     * brand text lift (4.55 on #0f0f0f), so a dark wash can only be a faint tint (1.02 to 1.04 on
+     * the ground): a stronger one needs that lift raised first. Plan 14-09 judges whether it shows.
+     *
+     *   class      text            mark            edge            wash     weakest existing text on wash
+     *   needs-you  #aa7409 4.72    #835a07 3.11    #7e5b16 3.08    #130d01  brand-lift 4.59
+     *   running    #1289a1 4.64    #0e6a7c 3.05    #1f6b7a 3.12    #021012  brand-lift 4.59
+     *   failed     #e33b49 4.52    #c01b29 3.11    #ae323d 3.01    #240508  brand-lift 4.53
+     *   merged     #9c60d7 4.59    #8237cd 3.06    #7a49ab 3.05    #140821  brand-lift 4.59
+     * text is measured on the selected row surface #101010 (its worst ground); mark and edge on the
+     * same surface (their worst). Quiet is the dark muted ink and control boundary.
+     */
+    --state-needs-you-text: #aa7409;
+    --state-needs-you-wash: #130d01;
+    --state-needs-you-edge: #7e5b16;
+    --state-needs-you-mark: #835a07;
+    --state-running-text: #1289a1;
+    --state-running-wash: #021012;
+    --state-running-edge: #1f6b7a;
+    --state-running-mark: #0e6a7c;
+    --state-failed-text: #e33b49;
+    --state-failed-wash: #240508;
+    --state-failed-edge: #ae323d;
+    --state-failed-mark: #c01b29;
+    --state-merged-text: #9c60d7;
+    --state-merged-wash: #140821;
+    --state-merged-edge: #7a49ab;
+    --state-merged-mark: #8237cd;
+    --state-quiet-text: #8b8b8b;
+    --state-quiet-wash: rgba(0, 0, 0, 0);
+    --state-quiet-edge: #707070;
+    --state-quiet-mark: #8b8b8b;
 
     --row-surface: rgba(0, 0, 0, 0);
     --row-surface-hover: #0c0c0c;

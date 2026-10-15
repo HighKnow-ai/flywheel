@@ -43,6 +43,50 @@ export interface Palette {
   destructiveTextRack: string;
   /** Blocked: an agent is waiting on the owner. */
   blockedTextRack: string;
+  /**
+   * The state vocabulary (Phase 14, D-15 to D-18): five classes times four roles, spelled
+   * `--state-<class>-<role>`. Only legend/StateBadge.tsx may draw with them.
+   */
+  /** needs-you: ink: 4.5:1 on every surface and every state wash. */
+  stateNeedsYouText: string;
+  /** needs-you: a tinted ground; every text role keeps 4.5:1 drawn on it. */
+  stateNeedsYouWash: string;
+  /** needs-you: a full 1px boundary (never a 2px side stripe): 3:1 on every surface. */
+  stateNeedsYouEdge: string;
+  /** needs-you: a glyph or dot, on its own 3:1 non-text floor. */
+  stateNeedsYouMark: string;
+  /** running: ink: 4.5:1 on every surface and every state wash. */
+  stateRunningText: string;
+  /** running: a tinted ground; every text role keeps 4.5:1 drawn on it. */
+  stateRunningWash: string;
+  /** running: a full 1px boundary (never a 2px side stripe): 3:1 on every surface. */
+  stateRunningEdge: string;
+  /** running: a glyph or dot, on its own 3:1 non-text floor. */
+  stateRunningMark: string;
+  /** failed: ink: 4.5:1 on every surface and every state wash. */
+  stateFailedText: string;
+  /** failed: a tinted ground; every text role keeps 4.5:1 drawn on it. */
+  stateFailedWash: string;
+  /** failed: a full 1px boundary (never a 2px side stripe): 3:1 on every surface. */
+  stateFailedEdge: string;
+  /** failed: a glyph or dot, on its own 3:1 non-text floor. */
+  stateFailedMark: string;
+  /** merged: ink: 4.5:1 on every surface and every state wash. */
+  stateMergedText: string;
+  /** merged: a tinted ground; every text role keeps 4.5:1 drawn on it. */
+  stateMergedWash: string;
+  /** merged: a full 1px boundary (never a 2px side stripe): 3:1 on every surface. */
+  stateMergedEdge: string;
+  /** merged: a glyph or dot, on its own 3:1 non-text floor. */
+  stateMergedMark: string;
+  /** quiet: ink: 4.5:1 on every surface and every state wash. */
+  stateQuietText: string;
+  /** quiet: a tinted ground; every text role keeps 4.5:1 drawn on it. */
+  stateQuietWash: string;
+  /** quiet: a full 1px boundary (never a 2px side stripe): 3:1 on every surface. */
+  stateQuietEdge: string;
+  /** quiet: a glyph or dot, on its own 3:1 non-text floor. */
+  stateQuietMark: string;
   rowSurface: string;
   rowSurfaceHover: string;
   rowSurfaceSelected: string;
@@ -74,6 +118,26 @@ export const LIGHT: Palette = {
   successTextRack: "#1a7f37",
   destructiveTextRack: "#cf222e",
   blockedTextRack: "#9a6700",
+  stateNeedsYouText: "#966708",
+  stateNeedsYouWash: "#fef6e7",
+  stateNeedsYouEdge: "#b68420",
+  stateNeedsYouMark: "#bd810a",
+  stateRunningText: "#10798e",
+  stateRunningWash: "#edfafd",
+  stateRunningEdge: "#2c9aaf",
+  stateRunningMark: "#149cb8",
+  stateFailedText: "#db1f2f",
+  stateFailedWash: "#fef6f7",
+  stateFailedEdge: "#d67179",
+  stateFailedMark: "#e9636e",
+  stateMergedText: "#9150d3",
+  stateMergedWash: "#faf7fd",
+  stateMergedEdge: "#a37ec8",
+  stateMergedMark: "#ab78dd",
+  stateQuietText: "#59636e",
+  stateQuietWash: "rgba(0, 0, 0, 0)",
+  stateQuietEdge: "#7a828c",
+  stateQuietMark: "#59636e",
   rowSurface: "rgba(0, 0, 0, 0)",
   rowSurfaceHover: "#fafbfc",
   rowSurfaceSelected: "#f5f7f9",
@@ -103,6 +167,26 @@ export const DARK: Palette = {
   successTextRack: "#3fb950",
   destructiveTextRack: "#f85149",
   blockedTextRack: "#d29922",
+  stateNeedsYouText: "#aa7409",
+  stateNeedsYouWash: "#130d01",
+  stateNeedsYouEdge: "#7e5b16",
+  stateNeedsYouMark: "#835a07",
+  stateRunningText: "#1289a1",
+  stateRunningWash: "#021012",
+  stateRunningEdge: "#1f6b7a",
+  stateRunningMark: "#0e6a7c",
+  stateFailedText: "#e33b49",
+  stateFailedWash: "#240508",
+  stateFailedEdge: "#ae323d",
+  stateFailedMark: "#c01b29",
+  stateMergedText: "#9c60d7",
+  stateMergedWash: "#140821",
+  stateMergedEdge: "#7a49ab",
+  stateMergedMark: "#8237cd",
+  stateQuietText: "#8b8b8b",
+  stateQuietWash: "rgba(0, 0, 0, 0)",
+  stateQuietEdge: "#707070",
+  stateQuietMark: "#8b8b8b",
   rowSurface: "rgba(0, 0, 0, 0)",
   rowSurfaceHover: "#0c0c0c",
   rowSurfaceSelected: "#101010",

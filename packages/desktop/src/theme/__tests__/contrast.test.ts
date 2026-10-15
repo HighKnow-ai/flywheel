@@ -21,6 +21,11 @@ const NON_TEXT = 3;
 
 type Role = keyof Palette;
 
+/** The state vocabulary's five classes (Phase 14, D-15) and the `Palette` key of one of their roles. */
+const STATE_CLASSES = ["NeedsYou", "Running", "Failed", "Merged", "Quiet"] as const;
+const stateRole = (cls: (typeof STATE_CLASSES)[number], role: "Text" | "Wash" | "Edge" | "Mark"): Role =>
+  `state${cls}${role}` as Role;
+
 /** Roles that paint text. Each must clear 4.5:1 on every surface text can sit on. */
 const TEXT_ROLES: Role[] = [
   "textPrimaryRack",
@@ -30,10 +35,20 @@ const TEXT_ROLES: Role[] = [
   "successTextRack",
   "destructiveTextRack",
   "blockedTextRack",
+  ...STATE_CLASSES.map((c) => stateRole(c, "Text")),
 ];
 
 /** Roles that paint a fill or an edge. Each must clear 3:1 (WCAG 1.4.11). */
-const NON_TEXT_ROLES: Role[] = ["accentNontext", "focusRing", "borderControl", "borderPopover", "borderDialog", "borderSheet"];
+const NON_TEXT_ROLES: Role[] = [
+  "accentNontext",
+  "focusRing",
+  "borderControl",
+  "borderPopover",
+  "borderDialog",
+  "borderSheet",
+  // The state vocabulary's `mark` carries its own 3:1 floor; `edge` is a 1px boundary (D-18).
+  ...STATE_CLASSES.flatMap((c) => [stateRole(c, "Mark"), stateRole(c, "Edge")]),
+];
 
 /** Every opaque ground a row's text can land on. `rowSurface` is transparent, so it is the ground. */
 const SURFACES: Role[] = [
@@ -164,6 +179,31 @@ for (const mode of MODES) {
           ).toBeGreaterThanOrEqual(NON_TEXT);
         }
       }
+    });
+
+    // Phase 14 plan 04. A wash is a ground in its own right: every text role in the product, state inks
+    // included, must still clear AA drawn on it. The quiet wash is the transparent rest value (no tint).
+    it("every state wash keeps every text role at 4.5:1, and the five inks and washes are pairwise distinct", () => {
+      const washes = STATE_CLASSES.filter((c) => c !== "Quiet").map((c) => stateRole(c, "Wash"));
+      for (const wash of washes) {
+        for (const role of TEXT_ROLES) {
+          expect(
+            contrastRatio(p[role], p[wash]),
+            `${mode}: ${role} ${p[role]} on ${wash} ${p[wash]}`,
+          ).toBeGreaterThanOrEqual(AA_TEXT);
+        }
+      }
+      for (const part of ["Text", "Wash"] as const) {
+        const values = STATE_CLASSES.map((c) => p[stateRole(c, part)]);
+        expect(new Set(values).size, `${mode}: state ${part} values must be pairwise distinct`).toBe(values.length);
+      }
+    });
+
+    it("the quiet class is the muted ink and carries no tint", () => {
+      expect(p.stateQuietText).toBe(p.textMutedRack);
+      expect(p.stateQuietMark).toBe(p.textMutedRack);
+      expect(p.stateQuietEdge).toBe(p.borderControl);
+      expect(p.stateQuietWash).toBe(p.rowSurface);
     });
 
     it("the control boundary clears 3:1 on ground and surface", () => {
@@ -323,6 +363,7 @@ describe("dark carries what light carries (08.1-15 closure)", () => {
 const SAME_BY_DESIGN: Partial<Record<Role, string>> = {
   accentNontext: "the pinned brand fill (progress); the dark lift applies to brand TEXT only",
   rowSurface: "the transparent rest state",
+  stateQuietWash: "the quiet class has no tint: the transparent rest value, as rowSurface",
 };
 
 /**
