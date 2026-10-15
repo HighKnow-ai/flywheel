@@ -246,7 +246,37 @@ the token work are established patterns in this repository. The direction docume
 states get washes, the CVD thresholds, the ground lightness floor) are a design artifact *of* this
 phase, tuned on the demo board, not a research round before it. OS-following and dark-first are
 already settled (REQUIREMENTS decisions 1 and 13).
-**Plans**: TBD
+**Plans**: 10 plans, 6 waves — tracer-first, with the hierarchy statement and the demonstration board before the visual work and the owner's verdict last
+
+Plans:
+**Wave 1**
+
+- [ ] 14-01-PLAN.md — tracer: the `cycles` table, the folded progress and the region end-to-end, with the spine pin, the table classification and the column allowlist edited in the same diff (RECD-08, RECD-09)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 14-02-PLAN.md — the hierarchy statement written first, the roadmap ahead as single lines, and the fold proven equal to a full count at 900+ tasks (RECD-09)
+- [ ] 14-03-PLAN.md — the demonstration board, seeded from Flywheel's own `.planning/` with every state live (VIS-06)
+- [ ] 14-04-PLAN.md — the state vocabulary: five classes, four roles, one component, one source gate (VIS-01)
+- [ ] 14-05-PLAN.md — epic status derived from its tasks; the two unused IPC status commands deleted and the roster pinned (RECD-08, folded todos)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 14-06-PLAN.md — closing a Cycle asks per unfinished epic; scope drift derived from the event log (RECD-10)
+- [ ] 14-07-PLAN.md — D-11 superseded by name; `RUN_STATUS_COLOR_ROLES` deleted and the spec, allowlist and tests amended in the same change (VIS-01, VIS-02)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 14-08-PLAN.md — CVD pairs, per-mode contrast against the shipped stylesheet bytes, and forced colors in a real engine (VIS-03, VIS-04)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 14-09-PLAN.md — tuned on the demonstration board; the built region realises the hierarchy statement (VIS-06, VIS-03, VIS-04)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 14-10-PLAN.md — the owner's verdict on the running application, with the screenshot recorded (VIS-07)
+
 **UI hint**: yes
 
 ### Phase 15: Nothing Typed That An Agent Could Draft
