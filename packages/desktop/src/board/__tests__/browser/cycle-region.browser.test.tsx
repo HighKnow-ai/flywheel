@@ -189,23 +189,40 @@ describe("the Cycle region realises the structure of 14-HIERARCHY.md", () => {
     expect(visibleRows.length, "epic rows fully on screen under the region").toBeGreaterThanOrEqual(3);
   });
 
-  it.each([1016, 1200])("leaves the roster's lead row a readable title at a %ipx board pane (the default window's pane is 1016)", async (width) => {
-    // The roster keeps the hierarchy lead (14-HIERARCHY.md section 1). Found on the running application at the
-    // default window: every roster title read "1..." because the container ladder only shed the distribution strip
-    // at 900px, while the full template's fixed columns, gaps and padding already take 976px, leaving the title the
-    // difference. 160px is the title the ladder's own 900px rung leaves (900 - 740 of fixed columns); this holds the
-    // full-width rung to the same floor.
-    render(
-      <QueryClientProvider client={new QueryClient()}>
-        <div style={{ height: 560, width }}>
-          <BoardView projectId="proj-1" items={[]} issues={[]} counts={EMPTY_COUNTS} onCreateTask={() => {}} />
-        </div>
-      </QueryClientProvider>,
-    );
-    await waitFor(() => expect(document.querySelectorAll(".epic-header-row").length).toBeGreaterThanOrEqual(3));
-    const title = document.querySelector<HTMLElement>(".epic-header-row .type-heading")!;
-    expect(title.getBoundingClientRect().width, "roster title width").toBeGreaterThanOrEqual(160);
-  });
+  it.each([716, 900, 921, 1016, 1141, 1200])(
+    "keeps the roster row whole and its title readable at a %ipx board pane (716 is the 900px window minimum, 1016 the default window)",
+    async (width) => {
+      // The roster keeps the hierarchy lead (14-HIERARCHY.md section 1). Found on the running application at the default
+      // window: every roster title read "1..." and, once the ladder shed the distribution strip, the row broke into two
+      // lines. Two defects in the container ladder (App.css): its first rung came at 900px although the full template's
+      // fixed columns, gaps and padding already take 976px, and the strip it meant to shed carries an inline
+      // `display: flex` that a class rule cannot beat, so the template lost a column and the cell stayed. 160px is the
+      // title the ladder's own first rung left at 900px (900 - 740 of fixed columns); this holds every rung to it.
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <div style={{ height: 560, width }}>
+            <BoardView projectId="proj-1" items={[]} issues={[]} counts={EMPTY_COUNTS} onCreateTask={() => {}} />
+          </div>
+        </QueryClientProvider>,
+      );
+      await waitFor(() => expect(document.querySelectorAll(".epic-header-row").length).toBeGreaterThanOrEqual(3));
+      const row = document.querySelector<HTMLElement>(".epic-header-row")!;
+      const title = row.querySelector<HTMLElement>(".type-heading")!;
+      expect(title.getBoundingClientRect().width, "roster title width").toBeGreaterThanOrEqual(160);
+      const box = row.getBoundingClientRect();
+      const strays = Array.from(row.children)
+        .filter((cell) => cs(cell).display !== "none")
+        .filter((cell) => {
+          const r = cell.getBoundingClientRect();
+          return r.bottom > box.bottom + 1 || r.right > box.right + 1;
+        })
+        .map((cell) => cell.textContent);
+      expect(strays, "cells that fell out of the row's single line").toEqual([]);
+      // The template and the cells must agree: a rung that drops a column has to drop the cell that owned it.
+      const strip = row.querySelector<HTMLElement>(".field-epic-distribution")!;
+      expect(cs(strip).display === "none", "distribution strip hidden exactly when the ladder has shed it").toBe(width <= 1140);
+    },
+  );
 
   it("is a sibling above the virtualizer, not a descendant of the element carrying the board-view class", async () => {
     const region = await renderBoard();
