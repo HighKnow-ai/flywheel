@@ -98,7 +98,9 @@ fn no_module_outside_set_task_status_in_tx_writes_tasks_status() {
     let root = workspace_root();
     let mut hits = Vec::new();
     for rel in SCAN_ROOTS {
-        for (path, body) in sources_under(&root.join(rel)) {
+        let files = sources_under(&root.join(rel));
+        assert!(!files.is_empty(), "{rel} yielded no source files: the gate would be scanning nothing");
+        for (path, body) in files {
             scan_body_for_raw_status_writes(&path, &body, &mut hits);
         }
     }
