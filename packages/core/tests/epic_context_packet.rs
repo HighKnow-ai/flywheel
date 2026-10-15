@@ -818,6 +818,16 @@ const ALLOWED_UNBOUNDED_SELECTS: &[&str] = &[
                                  // at most one row by construction, the get_epic_for_agent shape
     "epic_header",              // authoring.rs (plan 11-22) — query_row keyed by epics.id (PRIMARY KEY);
                                  // at most one row by construction, the get_epic_for_agent shape
+    "cycle_progress",           // cycle_progress.rs (plan 14-01) — three reads, each already an
+                                 // allowlisted shape: COUNT(*) over one Cycle's epics with no GROUP BY
+                                 // (always one row, the BLOCKED_COUNT_SQL/RECOVERY_COUNT_SQL shape), and
+                                 // two GROUP BY aggregates over the fixed task-status and agent-run-status
+                                 // domains (the board_band_counts/search_band_counts shape).
+                                 // DELIBERATELY un-LIMIT'd, for the same reason board_epic_progress is:
+                                 // RECD-09 requires the Cycle fold to be a FULL count, and plan 14-02
+                                 // proves it equal to an independent COUNT(*) over 940 tasks and strictly
+                                 // larger than the 200-row page. A LIMIT here would reintroduce exactly
+                                 // the row window that requirement exists to forbid.
 ];
 
 fn strip_comment_lines(source: &str) -> String {
