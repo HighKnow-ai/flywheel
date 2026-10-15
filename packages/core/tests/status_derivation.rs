@@ -17,7 +17,10 @@ use std::process::Command;
 use core::domain::acceptance_criterion::create_criterion;
 use core::domain::actor::system_actor;
 use core::domain::task::{create_task, request_changes, set_task_status, ChangesRequestOutcome};
-use core::forge::transitions::{apply_forge_observation, EVENT_FORGE_STATUS_WRITE_SKIPPED};
+use core::domain::worktree::ensure_worktree;
+use core::forge::transitions::{
+    apply_forge_observation, EVENT_DONE_WITH_UNMET_CRITERIA, EVENT_FORGE_STATUS_WRITE_SKIPPED,
+};
 use core::forge::{CiResult, ForgeRequest, ForgeState};
 use core::ids::new_id;
 use core::query::events::activity_trail;
@@ -157,6 +160,32 @@ impl Fx {
         };
         let observed = (state != ForgeState::None).then_some(&request);
         apply_forge_observation(&mut self.conn, task_id, observed, &self.system, None).expect("observe");
+    }
+
+    /// One forge observation with an explicit compare-and-swap precondition. `Some("backlog")`
+    /// is a stale expectation for any card above it, so the status write is refused while the
+    /// state-change event still advances the baseline - the lost-race shape of WR-06 and WR-07.
+    fn observe_expecting(&mut self, task_id: &str, state: ForgeState, expected: Option<&str>) {
+        let request = ForgeRequest {
+            state,
+            ci: CiResult::None,
+            number: 1,
+            title: "Request #1".into(),
+            url: "https://example.invalid/pr/1".into(),
+            ci_url: None,
+            is_draft: false,
+            target_branch: "main".into(),
+        };
+        let observed = (state != ForgeState::None).then_some(&request);
+        apply_forge_observation(&mut self.conn, task_id, observed, &self.system, expected).expect("observe");
+    }
+
+    fn events_of(&self, task_id: &str, event_type: &str) -> usize {
+        activity_trail(&self.conn, "task", task_id, 500, 0)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.event_type == event_type)
+            .count()
     }
 
     fn derive(&mut self, task_id: &str) -> Derivation {
@@ -312,4 +341,109 @@ fn a_refused_forge_edge_leaves_the_skipped_trace_in_the_activity_trail() {
         .filter(|e| e.event_type == EVENT_FORGE_STATUS_WRITE_SKIPPED)
         .count();
     assert_eq!(skipped, 1);
+}
+
+// ---------------------------------------------------------------------------------------------
+// WR-06: `task.done_with_unmet_criteria` is recorded by the deriver, so every route to `done`
+// records it (plan 13-16, task 1).
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn the_cold_tick_reaching_done_with_an_unmet_criterion_records_one_event() {
+    let mut f = fx();
+    let t = f.task("Cold merge");
+    create_criterion(&mut f.conn, &f.project_id, &f.human, "task", &t, "Unchecked", None).expect("criterion");
+    f.observe_expecting(&t, ForgeState::Merged, Some("backlog"));
+    assert_eq!(f.events_of(&t, EVENT_DONE_WITH_UNMET_CRITERIA), 0, "the refused write recorded nothing");
+    assert_eq!(f.derive(&t), Derivation::Wrote("done".into()));
+    assert_eq!(f.events_of(&t, EVENT_DONE_WITH_UNMET_CRITERIA), 1);
+}
+
+#[test]
+fn the_forge_path_reaching_done_with_an_unmet_criterion_still_records_exactly_one_event() {
+    let mut f = fx();
+    let t = f.task("Forge merge");
+    create_criterion(&mut f.conn, &f.project_id, &f.human, "task", &t, "Unchecked", None).expect("criterion");
+    f.observe(&t, ForgeState::Merged);
+    assert_eq!(f.status(&t), "done");
+    assert_eq!(f.events_of(&t, EVENT_DONE_WITH_UNMET_CRITERIA), 1);
+}
+
+static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+fn ensure_worktree_reaching_done_with_an_unmet_criterion_records_one_event() {
+    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let scratch = tempfile::tempdir().expect("scratch worktree root");
+    // SAFETY: the mutex above serialises every caller in this binary and the var is cleared below.
+    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", scratch.path()) };
+    let mut f = fx();
+    let t = f.task("Worktree after merge");
+    create_criterion(&mut f.conn, &f.project_id, &f.human, "task", &t, "Unchecked", None).expect("criterion");
+    f.observe_expecting(&t, ForgeState::Merged, Some("backlog"));
+    assert_eq!(f.status(&t), "todo");
+    let created = ensure_worktree(&mut f.conn, &t, &f.human);
+    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
+    created.expect("ensure_worktree");
+    assert_eq!(f.status(&t), "done", "a standing merge is re-derived on the worktree edge");
+    assert_eq!(f.events_of(&t, EVENT_DONE_WITH_UNMET_CRITERIA), 1);
+}
+
+#[test]
+fn reaching_done_with_every_criterion_checked_records_no_unmet_event() {
+    let mut f = fx();
+    let t = f.task("All checked");
+    f.observe_expecting(&t, ForgeState::Merged, Some("backlog"));
+    assert_eq!(f.derive(&t), Derivation::Wrote("done".into()));
+    assert_eq!(f.events_of(&t, EVENT_DONE_WITH_UNMET_CRITERIA), 0);
+}
+
+#[test]
+fn an_unchanged_or_refused_derivation_records_no_unmet_event() {
+    let mut f = fx();
+    let t = f.task("Not done");
+    create_criterion(&mut f.conn, &f.project_id, &f.human, "task", &t, "Unchecked", None).expect("criterion");
+    assert_eq!(f.derive(&t), Derivation::Unchanged);
+    f.give_worktree(&t);
+    let outcome = derive_status(&mut f.conn, &f.system, &t, Some("backlog")).expect("derive");
+    assert!(matches!(outcome, Derivation::Refused { .. }));
+    assert_eq!(f.events_of(&t, EVENT_DONE_WITH_UNMET_CRITERIA), 0);
+}
+
+#[test]
+fn a_merge_refused_by_the_compare_and_swap_then_the_cold_tick_records_the_unmet_event_once() {
+    let mut f = fx();
+    let t = f.task("Refused then cold tick");
+    create_criterion(&mut f.conn, &f.project_id, &f.human, "task", &t, "Unchecked", None).expect("criterion");
+    f.give_worktree(&t);
+    f.derive(&t);
+    // The forge tick observed the merge, but the card moved after its status was captured.
+    f.observe_expecting(&t, ForgeState::Merged, Some("backlog"));
+    assert_eq!(f.status(&t), "in_progress", "the compare-and-swap refused the write");
+    assert_eq!(f.events_of(&t, EVENT_DONE_WITH_UNMET_CRITERIA), 0);
+    // The merge is now a standing level; the next cold tick re-derives done from it.
+    assert_eq!(f.derive(&t), Derivation::Wrote("done".into()));
+    assert_eq!(f.status(&t), "done");
+    assert_eq!(f.events_of(&t, EVENT_DONE_WITH_UNMET_CRITERIA), 1);
+}
+
+/// Count the lines of `rel` that use the event constant, excluding whole-line comments, the
+/// `pub const` definition and `use` lines - what remains is the append call sites.
+fn unmet_event_call_sites(rel: &str) -> usize {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(rel);
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read {path:?}: {e}"))
+        .lines()
+        .map(str::trim_start)
+        .filter(|l| !l.starts_with("//") && !l.starts_with("pub const") && !l.starts_with("use "))
+        .filter(|l| l.contains("EVENT_DONE_WITH_UNMET_CRITERIA"))
+        .count()
+}
+
+#[test]
+fn one_producer_appends_the_unmet_criteria_event() {
+    let deriver = unmet_event_call_sites("src/status_derivation.rs");
+    let forge = unmet_event_call_sites("src/forge/transitions.rs");
+    assert_eq!(forge, 0, "the forge path must not append the event; the deriver does");
+    assert_eq!(deriver, 1, "exactly one append call site lives in the deriver");
 }
