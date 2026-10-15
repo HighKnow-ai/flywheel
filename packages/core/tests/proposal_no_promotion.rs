@@ -114,6 +114,53 @@ const CANONICAL_WRITER_SUFFIXES: [&str; 4] = [
     "src/domain/acceptance_criterion.rs",
 ];
 
+/// The raw statements that rewrite a row of the two parent tables in place. Gate 1 used to match
+/// only inserts and one update, which is why two raw parent-touches sat past it undetected (F5).
+const CANONICAL_UPDATE_PATTERNS: [&str; 2] = ["UPDATE tasks SET", "UPDATE epics SET"];
+
+/// The two modules that own `UPDATE tasks SET` / `UPDATE epics SET` (`epic.rs` detaches a deleted
+/// epic's tasks). Any other file holding one is an offender unless it is in
+/// [`ALLOWED_CANONICAL_UPDATE_SITES`].
+const CANONICAL_UPDATE_OWNERS: [&str; 2] = ["src/domain/task.rs", "src/domain/epic.rs"];
+
+/// Statements that write past the owners on purpose: (path suffix, pattern, reason). A hit is
+/// skipped only on an exact (path, pattern) match, and `every_allowlisted_update_site_still_exists`
+/// fails if an entry goes stale. The reasons are also recorded in
+/// `.planning/phases/13-nothing-new-escapes-the-fence/13-AUTHORITY-ALLOWLIST.md`.
+const ALLOWED_CANONICAL_UPDATE_SITES: &[(&str, &str, &str)] = &[];
+
+/// The matcher both the real gate and the planted-violation test drive: every line of `body` (at
+/// `path`) that writes a canonical table outside its owner. Skips whole-line comments and
+/// migrations.
+fn canonical_write_offenders(path: &str, body: &str) -> Vec<String> {
+    if path.contains("/migrations/") {
+        // Schema DDL is not an agent-reachable write path — also naturally excluded by
+        // `sources_under`'s own rs/ts/tsx extension filter, this is a defensive second line in
+        // case a future `.rs`-based migration helper ever lands under that directory.
+        return Vec::new();
+    }
+    let writer_owns_inserts = CANONICAL_WRITER_SUFFIXES.iter().any(|s| path.ends_with(s));
+    let owns_updates = CANONICAL_UPDATE_OWNERS.iter().any(|s| path.ends_with(s));
+    let insert_patterns = canonical_write_patterns();
+    let mut offenders = Vec::new();
+    for (n, line) in body.lines().enumerate() {
+        if is_whole_line_comment(line) {
+            continue;
+        }
+        let mut hit = !writer_owns_inserts && insert_patterns.iter().any(|p| line.contains(p.as_str()));
+        if !owns_updates {
+            hit |= CANONICAL_UPDATE_PATTERNS.iter().any(|pattern| {
+                line.contains(pattern)
+                    && !ALLOWED_CANONICAL_UPDATE_SITES.iter().any(|(suffix, allowed, _)| path.ends_with(suffix) && allowed == pattern)
+            });
+        }
+        if hit {
+            offenders.push(format!("{path}:{}: {}", n + 1, line.trim()));
+        }
+    }
+    offenders
+}
+
 #[test]
 fn no_agent_reachable_module_writes_a_canonical_table() {
     let root = workspace_root();
@@ -123,31 +170,10 @@ fn no_agent_reachable_module_writes_a_canonical_table() {
         root.join("packages/sidecar/src"),
     ];
 
-    let write_patterns = canonical_write_patterns();
     let mut offenders = Vec::new();
     for dir in scan_dirs {
         for (path, body) in sources_under(&dir) {
-            let path_str = path.to_string_lossy();
-            if CANONICAL_WRITER_SUFFIXES.iter().any(|s| path_str.ends_with(s)) {
-                continue; // the canonical writer itself legitimately owns this statement
-            }
-            // Schema DDL (`packages/core/src/db/migrations/*.sql`) is not an agent-reachable write
-            // path — also naturally excluded by `sources_under`'s own rs/ts/tsx extension filter,
-            // this check is a defensive second line in case a future `.rs`-based migration helper
-            // ever lands under that directory.
-            if path_str.contains("/migrations/") {
-                continue;
-            }
-            for (n, line) in body.lines().enumerate() {
-                if is_whole_line_comment(line) {
-                    continue;
-                }
-                for forbidden in &write_patterns {
-                    if line.contains(forbidden.as_str()) {
-                        offenders.push(format!("{}:{}: {}", path.display(), n + 1, line.trim()));
-                    }
-                }
-            }
+            offenders.extend(canonical_write_offenders(&path.to_string_lossy(), &body));
         }
     }
 
@@ -158,6 +184,36 @@ fn no_agent_reachable_module_writes_a_canonical_table() {
          a local INSERT/UPDATE. Offending lines:\n  {}",
         offenders.join("\n  ")
     );
+}
+
+#[test]
+fn the_canonical_update_gate_fires_on_a_planted_parent_touch() {
+    let planted = "tx.execute(\"UPDATE tasks SET updated_at = ?1 WHERE id = ?2\", params![now, id])?;\n";
+    assert_eq!(
+        canonical_write_offenders("packages/core/src/domain/planted.rs", planted).len(),
+        1,
+        "a raw parent-touch outside the owners and the allow-list must be exactly one offender"
+    );
+    assert!(
+        canonical_write_offenders("packages/core/src/domain/task.rs", planted).is_empty(),
+        "the owning module is not an offender"
+    );
+}
+
+#[test]
+fn every_allowlisted_update_site_still_exists() {
+    let root = workspace_root();
+    for (suffix, pattern, reason) in ALLOWED_CANONICAL_UPDATE_SITES {
+        assert!(!reason.is_empty(), "allow-list entry ({suffix}, {pattern}) records no reason");
+        let path = root.join("packages/core").join(suffix);
+        let body = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("allow-list entry ({suffix}, {pattern}) names a file that does not exist: {e}"));
+        assert!(
+            body.lines().any(|l| !is_whole_line_comment(l) && l.contains(pattern)),
+            "allow-list entry ({suffix}, {pattern}) is stale — the statement is gone, so the entry \
+             would silently widen the gate for the next one"
+        );
+    }
 }
 
 // --- Gate 2: at most three functions in the staging module reach a canonical writer (PROP-03) ---
