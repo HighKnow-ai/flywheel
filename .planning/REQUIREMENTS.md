@@ -76,7 +76,7 @@ own phases, which are read daily in this repository (owner decision, 2026-10-14)
 - [x] **VIS-04**: Every text role is contrast-checked against every surface tint it can appear on, in both modes, asserted by test against the shipped stylesheet bytes
 - [ ] **VIS-05**: The interface is designed dark-first and follows the operating system's setting; the light mode is derived from the dark design rather than the reverse
 - [x] **VIS-06**: A seeded demonstration board exists carrying every state live — running, blocked, failed, awaiting review, proposals pending, an epic mid-flight, and a realistic item count — and design work is judged on it, never on fixture rows
-- [ ] **VIS-07**: Each new surface is signed off by the owner looking at the built application, with a screenshot recorded; adopting a comp does not satisfy this
+- [x] **VIS-07**: Each new surface is signed off by the owner looking at the built application, with a screenshot recorded; adopting a comp does not satisfy this
 - [ ] **VIS-08**: The interface is calm when nothing needs the user and loud only where something does; the proportion of the surface carrying saturated colour is budgeted and checked
 
 ### Integrity and fencing
@@ -205,7 +205,7 @@ Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROAD
 | VIS-04 | Phase 14 | Complete |
 | VIS-05 | Phase 18 | Pending |
 | VIS-06 | Phase 14 | Complete |
-| VIS-07 | Phase 14 | Pending |
+| VIS-07 | Phase 14 | Complete |
 | VIS-08 | Phase 18 | Pending |
 | FNC-01 | Phase 13 | Complete |
 | FNC-02 | Phase 13 | Complete |
