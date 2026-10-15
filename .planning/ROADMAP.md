@@ -246,7 +246,7 @@ the token work are established patterns in this repository. The direction docume
 states get washes, the CVD thresholds, the ground lightness floor) are a design artifact *of* this
 phase, tuned on the demo board, not a research round before it. OS-following and dark-first are
 already settled (REQUIREMENTS decisions 1 and 13).
-**Plans**: 2/10 plans executed, 6 waves — tracer-first, with the hierarchy statement and the demonstration board before the visual work and the owner's verdict last
+**Plans**: 3/10 plans executed, 6 waves — tracer-first, with the hierarchy statement and the demonstration board before the visual work and the owner's verdict last
 
 Plans:
 **Wave 1**
@@ -256,7 +256,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 14-02-PLAN.md — the hierarchy statement written first, the roadmap ahead as single lines, and the fold proven equal to a full count at 900+ tasks (RECD-09)
-- [ ] 14-03-PLAN.md — the demonstration board, seeded from Flywheel's own `.planning/` with every state live (VIS-06)
+- [x] 14-03-PLAN.md — the demonstration board, seeded from Flywheel's own `.planning/` with every state live (VIS-06)
 - [ ] 14-04-PLAN.md — the state vocabulary: five classes, four roles, one component, one source gate (VIS-01)
 - [ ] 14-05-PLAN.md — epic status derived from its tasks; the two unused IPC status commands deleted and the roster pinned (RECD-08, folded todos)
 
@@ -446,7 +446,7 @@ Phase 17 shares no file with Phase 16 and may run beside it; it may not be absor
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 13. Nothing New Escapes The Fence | 18/18 | Complete    | 2026-10-15 |
-| 14. Cycles On Screen, State In Colour | 2/10 | In Progress|  |
+| 14. Cycles On Screen, State In Colour | 3/10 | In Progress|  |
 | 15. Nothing Typed That An Agent Could Draft | 0/0 | Not started | - |
 | 16. The Problem And The Decision Are Board Records | 0/0 | Not started | - |
 | 17. Pre-Reviewed, Never Pre-Approved | 0/0 | Not started | - |
