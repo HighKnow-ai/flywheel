@@ -82,6 +82,10 @@ export function useWorktreeInventory() {
  * subscription lives exactly as long as at least one consumer is mounted. */
 const subscriptions = new Map<QueryClient, { consumers: number; stop: () => void }>();
 
+// The one raw `subscribeBoardChanged` caller outside `board/useBoardChangedInvalidation`: this is a
+// module-level, reference-counted subscription (not a React hook, so the shared hook cannot be
+// called from it), and all three keys it invalidates are account-wide, so routing on `projectId`
+// would be wrong. It is the `{ kind: "account" }` decision expressed in a non-hook context.
 function startInvalidation(queryClient: QueryClient): () => void {
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: fleetQueryKey() });

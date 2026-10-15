@@ -281,7 +281,7 @@ describe("epic roster liveness (board:changed)", () => {
    * subscriber too (plan 02-06 Task 3's `useBlockedSummary`), which is exactly why this file
    * tracks every handler rather than just one. */
   function Subscriber() {
-    useBoardChangedSubscription();
+    useBoardChangedSubscription("proj-1");
     return null;
   }
 

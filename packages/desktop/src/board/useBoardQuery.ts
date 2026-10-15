@@ -32,7 +32,6 @@ import {
   sessionSummariesForTask,
   startAuthoringRun,
   subscribeAgentEvent,
-  subscribeBoardChanged,
   worktreeRemovalCheck,
   worktreeRemove,
   worktreeSummary,
@@ -535,18 +534,17 @@ export function pendingPermissionRequestsQueryKey(agentRunId: string) {
  */
 export function usePendingPermissionRequests(agentRunId: string | null | undefined) {
   const queryClient = useQueryClient();
+  useBoardChangedInvalidation(
+    { kind: "viewed" },
+    agentRunId ? [pendingPermissionRequestsQueryKey(agentRunId)] : [],
+  );
 
   useEffect(() => {
     if (!agentRunId) return undefined;
     const queryKey = pendingPermissionRequestsQueryKey(agentRunId);
-    let unlistenBoard: (() => void) | undefined;
     let unlistenAgent: (() => void) | undefined;
     let cancelled = false;
 
-    subscribeBoardChanged(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
-      if (cancelled) fn();
-      else unlistenBoard = fn;
-    });
     subscribeAgentEvent(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
       if (cancelled) fn();
       else unlistenAgent = fn;
@@ -554,7 +552,6 @@ export function usePendingPermissionRequests(agentRunId: string | null | undefin
 
     return () => {
       cancelled = true;
-      unlistenBoard?.();
       unlistenAgent?.();
     };
   }, [agentRunId, queryClient]);
@@ -580,26 +577,9 @@ function latestAgentRunIdQueryKey(taskId: string) {
  * `subscribeBoardChanged` (Start Work's own `board:changed` emit, D-04) — never polled.
  */
 export function useLatestAgentRunId(taskId: string | undefined) {
-  const queryClient = useQueryClient();
   const queryKey = taskId ? latestAgentRunIdQueryKey(taskId) : (["latest-agent-run", "none"] as const);
 
-  useEffect(() => {
-    if (!taskId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: latestAgentRunIdQueryKey(taskId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [taskId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, taskId ? [latestAgentRunIdQueryKey(taskId)] : []);
 
   return useQuery({
     queryKey,
@@ -622,25 +602,8 @@ export function blockedSummaryQueryKey(projectId: string | undefined) {
  * polled. `undefined` disables the query entirely (no project selected yet).
  */
 export function useBlockedSummary(projectId: string | undefined) {
-  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!projectId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: blockedSummaryQueryKey(projectId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [projectId, queryClient]);
+  useBoardChangedInvalidation({ kind: "project", projectId }, projectId ? [blockedSummaryQueryKey(projectId)] : []);
 
   return useQuery({
     queryKey: blockedSummaryQueryKey(projectId),
@@ -667,25 +630,8 @@ export function recoverySummaryQueryKey(projectId: string | undefined) {
  * yet).
  */
 export function useRecoverySummary(projectId: string | undefined) {
-  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!projectId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: recoverySummaryQueryKey(projectId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [projectId, queryClient]);
+  useBoardChangedInvalidation({ kind: "project", projectId }, projectId ? [recoverySummaryQueryKey(projectId)] : []);
 
   return useQuery({
     queryKey: recoverySummaryQueryKey(projectId),
@@ -819,24 +765,9 @@ function agentRunsQueryKey(taskId: string) {
  * non-null `acknowledgedAt`.
  */
 export function useAgentRuns(taskId: string | undefined) {
-  const queryClient = useQueryClient();
   const queryKey = taskId ? agentRunsQueryKey(taskId) : (["agent-runs", "none"] as const);
 
-  useEffect(() => {
-    if (!taskId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: agentRunsQueryKey(taskId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [taskId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, taskId ? [agentRunsQueryKey(taskId)] : []);
 
   return useQuery({
     queryKey,
@@ -859,26 +790,11 @@ function taskSessionSummariesQueryKey(taskId: string) {
  * `undefined` disables the query entirely.
  */
 export function useTaskSessionSummaries(taskId: string | undefined) {
-  const queryClient = useQueryClient();
   const queryKey = taskId
     ? taskSessionSummariesQueryKey(taskId)
     : (["task-session-summaries", "none"] as const);
 
-  useEffect(() => {
-    if (!taskId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: taskSessionSummariesQueryKey(taskId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [taskId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, taskId ? [taskSessionSummariesQueryKey(taskId)] : []);
 
   return useQuery({
     queryKey,
@@ -906,24 +822,9 @@ function worktreeSummaryQueryKey(taskId: string) {
  * a local optimistic flag.
  */
 export function useWorktreeSummary(taskId: string | undefined) {
-  const queryClient = useQueryClient();
   const queryKey = taskId ? worktreeSummaryQueryKey(taskId) : (["worktree-summary", "none"] as const);
 
-  useEffect(() => {
-    if (!taskId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: worktreeSummaryQueryKey(taskId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [taskId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, taskId ? [worktreeSummaryQueryKey(taskId)] : []);
 
   return useQuery({
     queryKey,
@@ -945,24 +846,9 @@ export function gitFactsQueryKey(taskId: string) {
  * polling interval and no second push channel here.
  */
 export function useGitFacts(taskId: string | undefined) {
-  const queryClient = useQueryClient();
   const queryKey = taskId ? gitFactsQueryKey(taskId) : (["git-facts", "none"] as const);
 
-  useEffect(() => {
-    if (!taskId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: gitFactsQueryKey(taskId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [taskId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, taskId ? [gitFactsQueryKey(taskId)] : []);
 
   return useQuery({
     queryKey,
@@ -986,24 +872,9 @@ export function forgeRequestQueryKey(taskId: string) {
  * so a value here is never served stale even between two pushes.
  */
 export function useForgeRequest(taskId: string | undefined) {
-  const queryClient = useQueryClient();
   const queryKey = taskId ? forgeRequestQueryKey(taskId) : (["forge-request", "none"] as const);
 
-  useEffect(() => {
-    if (!taskId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: forgeRequestQueryKey(taskId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [taskId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, taskId ? [forgeRequestQueryKey(taskId)] : []);
 
   return useQuery({
     queryKey,
@@ -1085,25 +956,8 @@ export function scopeFlagsQueryKey(projectId: string | undefined) {
  * coalescing window. A task with no refusal is absent from the data. `undefined` disables it.
  */
 export function useScopeFlags(projectId: string | undefined) {
-  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!projectId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: scopeFlagsQueryKey(projectId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [projectId, queryClient]);
+  useBoardChangedInvalidation({ kind: "project", projectId }, projectId ? [scopeFlagsQueryKey(projectId)] : []);
 
   return useQuery({
     queryKey: scopeFlagsQueryKey(projectId),
@@ -1125,25 +979,8 @@ export function epicProgressQueryKey(projectId: string | undefined) {
  * query for the board and never one per epic (D-16's rule). `undefined` disables the query.
  */
 export function useEpicProgress(projectId: string | undefined, enabled = true) {
-  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!projectId || !enabled) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: epicProgressQueryKey(projectId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [projectId, enabled, queryClient]);
+  useBoardChangedInvalidation({ kind: "project", projectId }, projectId && enabled ? [epicProgressQueryKey(projectId)] : []);
 
   return useQuery({
     queryKey: epicProgressQueryKey(projectId),

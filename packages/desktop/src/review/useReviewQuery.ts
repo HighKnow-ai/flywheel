@@ -3,8 +3,8 @@
  * `useForgeRequest`: own query key, one `subscribeBoardChanged` effect that invalidates it,
  * `staleTime: 0`. No polling interval — the push-then-invalidate channel is the only refresh path.
  */
-import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
 import {
   forgeEpicRequestDraft,
   forgeRequestForEpic,
@@ -15,7 +15,6 @@ import {
   reviewFiles,
   reviewMergePrecheck,
   reviewRequestChanges,
-  subscribeBoardChanged,
   type ReviewScopeDto,
 } from "../adapters/tauri";
 
@@ -34,23 +33,8 @@ export function reviewPatchQueryKey(
 
 /** The scope's file list — one git read on open. */
 export function useReviewFiles(scope: ReviewScopeDto, itemId: string | undefined) {
-  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!itemId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: ["review-files", scope, itemId] }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [scope, itemId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, itemId ? [["review-files", scope, itemId]] : []);
 
   return useQuery({
     queryKey: itemId ? reviewFilesQueryKey(scope, itemId) : (["review-files", "none"] as const),
@@ -69,23 +53,8 @@ export function useReviewPatch(
   oldPath: string | null,
   enabled: boolean,
 ) {
-  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!enabled) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: reviewPatchQueryKey(scope, itemId, path, oldPath) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [scope, itemId, path, oldPath, enabled, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, enabled ? [reviewPatchQueryKey(scope, itemId, path, oldPath)] : []);
 
   return useQuery({
     queryKey: reviewPatchQueryKey(scope, itemId, path, oldPath),
@@ -103,23 +72,8 @@ export function reviewCriteriaStateQueryKey(scope: ReviewScopeDto, itemId: strin
 
 /** Every current criterion of the item with its anchor and staleness (REVW-03). */
 export function useReviewCriteriaState(scope: ReviewScopeDto, itemId: string | undefined) {
-  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!itemId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: reviewCriteriaStateQueryKey(scope, itemId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [scope, itemId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, itemId ? [reviewCriteriaStateQueryKey(scope, itemId)] : []);
 
   return useQuery({
     queryKey: itemId ? reviewCriteriaStateQueryKey(scope, itemId) : (["review-criteria-state", "none"] as const),
@@ -137,24 +91,9 @@ export function mergePrecheckQueryKey(taskId: string) {
  * free. `staleTime: 0` re-runs it whenever a new observer mounts (the confirm sheet opening), so
  * the will-conflict hint is as fresh as the sheet; the merge itself re-runs the dry run anyway. */
 export function useMergePrecheck(taskId: string | undefined, enabled: boolean) {
-  const queryClient = useQueryClient();
   const active = enabled && Boolean(taskId);
 
-  useEffect(() => {
-    if (!active || !taskId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: mergePrecheckQueryKey(taskId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [active, taskId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, active && taskId ? [mergePrecheckQueryKey(taskId)] : []);
 
   return useQuery({
     queryKey: taskId ? mergePrecheckQueryKey(taskId) : (["review-merge-precheck", "none"] as const),
@@ -172,24 +111,9 @@ export function changesRequestQueryKey(taskId: string) {
  * (A-08(a)). A read in the exact shape of `useMergePrecheck`: board-changed invalidates its own key,
  * `staleTime: 0`. `enabled` is whether anything is showing it. */
 export function useChangesRequest(taskId: string | undefined, enabled: boolean) {
-  const queryClient = useQueryClient();
   const active = enabled && Boolean(taskId);
 
-  useEffect(() => {
-    if (!active || !taskId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: changesRequestQueryKey(taskId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [active, taskId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, active && taskId ? [changesRequestQueryKey(taskId)] : []);
 
   return useQuery({
     queryKey: taskId ? changesRequestQueryKey(taskId) : (["review-changes-request", "none"] as const),
@@ -221,24 +145,9 @@ export function epicRequestQueryKey(epicId: string) {
 /** The epic's request draft and the named reason it cannot be proposed (REVW-05) — a read, so
  * `enabled` is whether anything is showing it. */
 export function useEpicRequestDraft(epicId: string | undefined, enabled: boolean) {
-  const queryClient = useQueryClient();
   const active = enabled && Boolean(epicId);
 
-  useEffect(() => {
-    if (!active || !epicId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: epicRequestDraftQueryKey(epicId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [active, epicId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, active && epicId ? [epicRequestDraftQueryKey(epicId)] : []);
 
   return useQuery({
     queryKey: epicId ? epicRequestDraftQueryKey(epicId) : (["review-epic-request-draft", "none"] as const),
@@ -255,24 +164,9 @@ export function epicTaskRollupQueryKey(epicId: string) {
 /** Each task of the epic with its criteria counts (D-132) — a read, so `enabled` is whether an
  * epic-scope rail is showing it. */
 export function useEpicTaskRollup(epicId: string | undefined, enabled: boolean) {
-  const queryClient = useQueryClient();
   const active = enabled && Boolean(epicId);
 
-  useEffect(() => {
-    if (!active || !epicId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: epicTaskRollupQueryKey(epicId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [active, epicId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, active && epicId ? [epicTaskRollupQueryKey(epicId)] : []);
 
   return useQuery({
     queryKey: epicId ? epicTaskRollupQueryKey(epicId) : (["review-epic-task-rollup", "none"] as const),
@@ -284,24 +178,9 @@ export function useEpicTaskRollup(epicId: string | undefined, enabled: boolean) 
 
 /** The epic's existing request, read live from the forge. */
 export function useEpicRequest(epicId: string | undefined, enabled = true) {
-  const queryClient = useQueryClient();
   const active = enabled && Boolean(epicId);
 
-  useEffect(() => {
-    if (!active || !epicId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() =>
-      queryClient.invalidateQueries({ queryKey: epicRequestQueryKey(epicId) }),
-    ).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [active, epicId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, active && epicId ? [epicRequestQueryKey(epicId)] : []);
 
   return useQuery({
     queryKey: epicId ? epicRequestQueryKey(epicId) : (["review-epic-request", "none"] as const),

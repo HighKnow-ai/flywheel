@@ -15,9 +15,9 @@
  * ever re-requesting a growing, unbounded window (Performance Contract: "never renders an
  * unbounded trail at once").
  */
-import { useEffect } from "react";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { invokeCommand, subscribeBoardChanged } from "../adapters/tauri";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { invokeCommand } from "../adapters/tauri";
+import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
 import { useActors } from "../board/useBoardQuery";
 import "./item-detail.css";
 
@@ -94,7 +94,6 @@ function relativeTime(iso: string): string {
 }
 
 export function ActivityTrail({ parentType, parentId }: ActivityTrailProps) {
-  const queryClient = useQueryClient();
   const queryKey = trailQueryKey(parentType, parentId);
 
   const trailQuery = useInfiniteQuery({
@@ -122,14 +121,7 @@ export function ActivityTrail({ parentType, parentId }: ActivityTrailProps) {
   // Any mutation anywhere (title edit, status change, a criterion toggled) appends a new event —
   // the trail must invalidate on the same `board:changed` push every other surface already
   // subscribes to (D-04), never trusting a stale cache as the source of truth.
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    subscribeBoardChanged(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
-      unlisten = fn;
-    });
-    return () => unlisten?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parentType, parentId]);
+  useBoardChangedInvalidation({ kind: "viewed" }, [queryKey]);
 
   const ascendingEvents = trailQuery.data?.pages.flat() ?? [];
   // Reversed for display only (newest-first) — the query itself stays ascending by event id

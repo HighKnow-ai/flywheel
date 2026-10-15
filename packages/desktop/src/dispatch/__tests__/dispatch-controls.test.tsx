@@ -22,6 +22,7 @@ vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
   return {
     ...actual,
+    subscribeBoardChanged: () => Promise.resolve(() => {}),
     dispatchPlanGet: (epicId: string) => getMock(epicId),
     dispatchPlanningRun: (epicId: string) => runMock(epicId),
     dispatchPlanGenerate: (epicId: string) => generateMock(epicId),

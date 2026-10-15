@@ -22,6 +22,7 @@ const calls = vi.hoisted(() => ({ edit: vi.fn(), approve: vi.fn() }));
 
 vi.mock(import("../../adapters/tauri"), async (importOriginal) => ({
   ...(await importOriginal()),
+  subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeDispatchGateChanged: () => Promise.resolve(() => {}),
   dispatchPlanEdit: (...args: unknown[]) => calls.edit(...args),
   dispatchPlanApprove: (...args: unknown[]) => calls.approve(...args),

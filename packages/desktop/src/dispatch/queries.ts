@@ -5,6 +5,7 @@
  */
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
 import {
   dispatchGateState,
   dispatchPlanGet,
@@ -63,6 +64,9 @@ export function useDispatchGate(enabled = true) {
 
 /** The cap and what is actually running against it, as `settings_get` reports them. */
 export function useDispatchCap(enabled = true) {
+  // Account-wide: the running-run count moves on any project's event, and the central subscription
+  // no longer wakes this key for a foreign one (FNC-07).
+  useBoardChangedInvalidation({ kind: "account" }, enabled ? [CAP_KEY] : []);
   return useQuery<DispatchCapDto>({
     queryKey: CAP_KEY,
     queryFn: async () => (await getSettings()).dispatchCap,

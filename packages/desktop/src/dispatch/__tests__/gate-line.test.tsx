@@ -18,6 +18,7 @@ vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
   return {
     ...actual,
+    subscribeBoardChanged: () => Promise.resolve(() => {}),
     dispatchGateState: () => gateMock(),
     dispatchGateResumeNow: () => resumeNowMock(),
     dispatchAdvanceNow: (planId: string) => advanceMock(planId),

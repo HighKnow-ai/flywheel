@@ -17,9 +17,9 @@
  * as the grant it undoes; this table relies on that happening elsewhere rather than writing to the
  * activity trail itself.
  */
-import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { listPermissionRules, revokePermissionRule, subscribeBoardChanged, type PermissionRuleDto } from "../adapters/tauri";
+import { listPermissionRules, revokePermissionRule, type PermissionRuleDto } from "../adapters/tauri";
+import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
 import type { Project } from "../board/useBoardQuery";
 import "../styles/admin-surfaces.css";
 
@@ -96,20 +96,7 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
   // the board through the same `board:changed` push every other surface already subscribes to
   // (D-04) — this table never trusts its own write as already resolved, matching every other hook
   // in `useBoardQuery.ts`.
-  useEffect(() => {
-    if (projects.length === 0) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeBoardChanged(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryClient, projectIds.join(",")]);
+  useBoardChangedInvalidation({ kind: "account" }, projects.length > 0 ? [queryKey] : []);
 
   const revokeMutation = useMutation({
     mutationFn: (ruleId: string) => revokePermissionRule(ruleId),

@@ -19,8 +19,8 @@
  * `board/TriageLane.tsx` all read/write through the hooks below, never the transport's own typed
  * wrappers directly (and, transitively, never its raw invoke seam either).
  */
-import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
 import {
   acceptAuthoringProposal,
   acceptAuthoringSubtree,
@@ -34,7 +34,6 @@ import {
   mergeAuthoringProposal,
   rejectAuthoringProposal,
   rejectAuthoringProposalsBulk,
-  subscribeBoardChanged,
   type ProposalWindowDto,
 } from "../adapters/tauri";
 
@@ -51,24 +50,8 @@ export function authoringProposalsQueryKey(agentRunId: string) {
  * why `agent:event` is deliberately excluded.
  */
 export function useRunProposals(agentRunId: string | null | undefined) {
-  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!agentRunId) return undefined;
-    const queryKey = authoringProposalsQueryKey(agentRunId);
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    subscribeBoardChanged(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [agentRunId, queryClient]);
+  useBoardChangedInvalidation({ kind: "viewed" }, agentRunId ? [authoringProposalsQueryKey(agentRunId)] : []);
 
   return useQuery({
     queryKey: authoringProposalsQueryKey(agentRunId ?? "none"),
@@ -91,24 +74,8 @@ export function projectProposalsQueryKey(projectId: string) {
  * query entirely, mirroring `useRunProposals`' own gated-mount pattern.
  */
 export function useProjectProposals(projectId: string | null | undefined) {
-  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!projectId) return undefined;
-    const queryKey = projectProposalsQueryKey(projectId);
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    subscribeBoardChanged(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [projectId, queryClient]);
+  useBoardChangedInvalidation({ kind: "project", projectId }, projectId ? [projectProposalsQueryKey(projectId)] : []);
 
   return useQuery<ProposalWindowDto>({
     queryKey: projectProposalsQueryKey(projectId ?? "none"),
@@ -200,24 +167,8 @@ export function deferredProposalsQueryKey(projectId: string) {
  * `board:changed`-only invalidation discipline). `null`/`undefined` disables the query entirely.
  */
 export function useDeferredProposals(projectId: string | null | undefined) {
-  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!projectId) return undefined;
-    const queryKey = deferredProposalsQueryKey(projectId);
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    subscribeBoardChanged(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [projectId, queryClient]);
+  useBoardChangedInvalidation({ kind: "project", projectId }, projectId ? [deferredProposalsQueryKey(projectId)] : []);
 
   return useQuery<ProposalWindowDto>({
     queryKey: deferredProposalsQueryKey(projectId ?? "none"),
@@ -232,25 +183,9 @@ export function useDeferredProposals(projectId: string | null | undefined) {
  * [`useProjectProposals`]' gated-mount and `board:changed`-only invalidation shape.
  */
 export function useProposalLimitNotices(projectId: string | null | undefined) {
-  const queryClient = useQueryClient();
   const queryKey = ["authoring-proposal-limit-notices", projectId ?? "none"] as const;
 
-  useEffect(() => {
-    if (!projectId) return undefined;
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-
-    subscribeBoardChanged(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, queryClient]);
+  useBoardChangedInvalidation({ kind: "project", projectId }, projectId ? [queryKey] : []);
 
   return useQuery({
     queryKey,
