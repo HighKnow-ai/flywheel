@@ -633,8 +633,26 @@ fn migration_0023_preserves_task_rank_order() {
     );
 }
 
+/// Titles of the base rows the FTS index points at for `word`, resolved through `rowid`. A bare
+/// `COUNT(*)` over the FTS table cannot tell a hit that resolves to the right row from one that
+/// resolves to a different row or to none; joining back to the base table can.
+/// `table` is a fixed test-local literal, as at the other `format!` sites in this file.
+fn fts_match_base_titles(conn: &Connection, table: &str, word: &str) -> Vec<String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT b.title FROM {table}_fts f JOIN {table} b ON b.rowid = f.rowid \
+             WHERE {table}_fts MATCH ?1 ORDER BY b.title"
+        ))
+        .unwrap();
+    stmt.query_map(params![word], |r| r.get::<_, String>(0)).unwrap().map(|t| t.unwrap()).collect()
+}
+
 /// The rebuild drops each table's FTS5 sync triggers along with the table; migration 0023 must
 /// re-create them and keep every `rowid`, or search silently goes stale (BOARD-06).
+///
+/// The fixture creates a rowid GAP (three rows, the first deleted) so the survivors do not sit at
+/// rowid 1: a copy that omitted `rowid` would renumber a lone row to 1 and a count-only assertion
+/// would still pass. The join in `fts_match_base_titles` is what makes the carry observable.
 #[test]
 fn migration_0023_keeps_search_in_sync() {
     let dir = scratch_dir();
@@ -643,30 +661,39 @@ fn migration_0023_keeps_search_in_sync() {
         let mut conn = build_n_minus_1_fixture(&db_path);
         let actor_id = local_human_actor_id(&conn).unwrap();
         let project = create_project(&mut conn, &actor_id, "Search", "/repo", "SRC", "main").unwrap();
+        let gap_task = create_task(&mut conn, &project.id, &actor_id, "gapfill task", None).unwrap();
         create_task(&mut conn, &project.id, &actor_id, "zebrafish before", None).unwrap();
+        create_task(&mut conn, &project.id, &actor_id, "pelican before", None).unwrap();
+        let gap_epic = create_epic(&mut conn, &project.id, &actor_id, "gapfill epic", None).unwrap();
         create_epic(&mut conn, &project.id, &actor_id, "narwhal before", None).unwrap();
+        create_epic(&mut conn, &project.id, &actor_id, "heron before", None).unwrap();
+        conn.execute("DELETE FROM tasks WHERE id = ?1", params![gap_task.id]).unwrap();
+        conn.execute("DELETE FROM epics WHERE id = ?1", params![gap_epic.id]).unwrap();
+        let min_rowid: i64 = conn.query_row("SELECT MIN(rowid) FROM tasks", [], |r| r.get(0)).unwrap();
+        assert!(min_rowid > 1, "the fixture must leave a rowid gap, got min rowid {min_rowid}");
     }
 
     let mut conn = open_and_migrate(&db_path, &dir.path().join("backups")).unwrap();
-    let hits = |conn: &Connection, table: &str, word: &str| -> i64 {
-        conn.query_row(
-            &format!("SELECT COUNT(*) FROM {table}_fts WHERE {table}_fts MATCH ?1"),
-            params![word],
-            |r| r.get(0),
-        )
-        .unwrap()
-    };
-    // A row that existed before the rebuild is still found...
-    assert_eq!(hits(&conn, "tasks", "zebrafish"), 1);
-    assert_eq!(hits(&conn, "epics", "narwhal"), 1);
+    // A row that existed before the rebuild is still found, and resolves to its own base row...
+    assert_eq!(fts_match_base_titles(&conn, "tasks", "zebrafish"), vec!["zebrafish before".to_string()]);
+    assert_eq!(fts_match_base_titles(&conn, "tasks", "pelican"), vec!["pelican before".to_string()]);
+    assert_eq!(fts_match_base_titles(&conn, "epics", "narwhal"), vec!["narwhal before".to_string()]);
+    assert_eq!(fts_match_base_titles(&conn, "epics", "heron"), vec!["heron before".to_string()]);
+    assert!(fts_match_base_titles(&conn, "tasks", "gapfill").is_empty(), "a deleted row must not be searchable");
 
     // ...and a row written after it is found too, through the re-created triggers.
     let actor_id = local_human_actor_id(&conn).unwrap();
     let project_id: String = conn.query_row("SELECT id FROM projects", [], |r| r.get(0)).unwrap();
     create_task(&mut conn, &project_id, &actor_id, "quokka after", None).unwrap();
     create_epic(&mut conn, &project_id, &actor_id, "axolotl after", None).unwrap();
-    assert_eq!(hits(&conn, "tasks", "quokka"), 1);
-    assert_eq!(hits(&conn, "epics", "axolotl"), 1);
+    assert_eq!(fts_match_base_titles(&conn, "tasks", "quokka"), vec!["quokka after".to_string()]);
+    assert_eq!(fts_match_base_titles(&conn, "epics", "axolotl"), vec!["axolotl after".to_string()]);
+
+    // FTS5's own check that the index and the content table agree.
+    conn.execute("INSERT INTO tasks_fts(tasks_fts) VALUES('integrity-check')", [])
+        .expect("tasks_fts integrity-check");
+    conn.execute("INSERT INTO epics_fts(epics_fts) VALUES('integrity-check')", [])
+        .expect("epics_fts integrity-check");
 
     // The three indexes per table that DROP TABLE destroyed are back.
     let indexes: HashSet<String> = dump(
@@ -679,4 +706,28 @@ fn migration_0023_keeps_search_in_sync() {
     for expected in ["idx_epics_project_status_rank", "idx_tasks_project_status_rank", "idx_tasks_project_epic"] {
         assert!(indexes.contains(expected), "expected index {expected:?}, found {indexes:?}");
     }
+}
+
+/// The two-sided half of WR-02's fix: a guard that only ever runs against a correct migration proves
+/// nothing. Here the FTS row sits at rowid 2 while its text lives on base rowid 1 — the exact shape
+/// a rebuild that dropped the `rowid` carry leaves behind. The old count-only assertion passes; the
+/// join assertion must not.
+#[test]
+fn the_fts_rowid_join_detects_an_index_that_points_at_the_wrong_row() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE tasks (id TEXT, title TEXT);
+         CREATE VIRTUAL TABLE tasks_fts USING fts5(title);
+         INSERT INTO tasks (rowid, id, title) VALUES (1, 'a', 'zebrafish');
+         INSERT INTO tasks_fts (rowid, title) VALUES (2, 'zebrafish');",
+    )
+    .unwrap();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM tasks_fts WHERE tasks_fts MATCH 'zebrafish'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(count, 1, "the old count-only assertion would have passed");
+    assert!(
+        fts_match_base_titles(&conn, "tasks", "zebrafish").is_empty(),
+        "the join assertion must fail to resolve a hit whose rowid has no base row"
+    );
 }
