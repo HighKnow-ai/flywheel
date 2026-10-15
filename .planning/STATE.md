@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 14
 current_phase_name: Cycles On Screen, State In Colour
 status: executing
-stopped_at: Completed 14-03-PLAN.md
-last_updated: "2026-10-15T11:44:57.291Z"
+stopped_at: Completed 14-04-PLAN.md
+last_updated: "2026-10-15T11:52:48.817Z"
 last_activity: 2026-10-15
 last_activity_desc: Phase 14 execution started
-state_head: e0b641a3be5b20fc87a14a0b7a9052ad2fc65ebb
+state_head: 514038eac31e7873769538ca330f4675fff455bd
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 28
-  completed_plans: 21
+  completed_plans: 22
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 14 (Cycles On Screen, State In Colour) — EXECUTING
-Plan: 4 of 10
+Plan: 5 of 10
 Status: Ready to execute
 Last activity: 2026-10-15 — Phase 14 execution started
 
@@ -333,6 +333,7 @@ Last activity: 2026-10-15 — Phase 14 execution started
 | Phase 14 P01 | continuation | 3 tasks | 19 files |
 | Phase 14 P02 | 70 min | 3 tasks | 9 files |
 | Phase 14 P03 | 90 min | 3 tasks | 4 files |
+| Phase 14 P04 | 40 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -768,6 +769,7 @@ Recent decisions affecting current work:
 - [Phase 14]: 14-02: Cycle region draws no percentage; the fold's integer pair is printed as-is
 - [Phase 14]: 14-03: the demo board's live rows are protected from launch reconciliation by a trigger in the demo database only; the launch reconciler otherwise rewrites every processless running/blocked row to abandoned
 - [Phase 14]: 14-03: demo board ids are writer-minted ULIDs; determinism is items, order, ranks, keys and states (id-free fingerprint), and the script re-seeds target/demo-board each run
+- [Phase 14]: 14-04: state tokens are --state-<class>-<role>; awaiting review has its own Eye mark replacing the In Review reuse; dark washes are capped to a faint tint by the dark brand text lift
 
 ### Pending Todos
 
@@ -831,6 +833,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T11:44:57.261Z
-Stopped at: Completed 14-03-PLAN.md
+Last session: 2026-10-15T11:52:48.790Z
+Stopped at: Completed 14-04-PLAN.md
 Resume file: None
