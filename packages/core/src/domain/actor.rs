@@ -88,8 +88,11 @@ pub fn list_actors(conn: &Connection) -> anyhow::Result<Vec<Actor>> {
 /// The type is read from the `actors` table inside the SAME transaction as the write that follows,
 /// so it cannot be bypassed by a caller holding a stale or invented notion of who it is. This
 /// generalises the precedent `start_agent_run` already uses to refuse the system actor. Every
-/// authority transition (checking a criterion, sending reviewed work back, accepting, merging,
+/// authority transition (checking a criterion, sending reviewed work back, accepting,
 /// rejecting or deferring a proposal) calls it as the first statement after its transaction opens.
+/// Branch merge is not among them: it records its event through `merge::record_merge_event`,
+/// which does not call this helper, and the reason is recorded in `13-AUTHORITY-ALLOWLIST.md`
+/// under "Deliberately outside FNC-03".
 ///
 /// The comparison is exact: `'human'` is the only accepting value, so the `system` actor is
 /// refused as surely as an agent. An id present in no row (which includes the empty string) is

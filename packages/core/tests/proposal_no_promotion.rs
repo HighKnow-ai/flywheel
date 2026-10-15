@@ -378,12 +378,27 @@ fn every_allowlisted_update_site_still_exists() {
         let normal = normalise_sql(&code);
         let wanted = normalise_sql(&[statement]);
         let occurrences = normal.matches(wanted.as_str()).count();
-        assert!(
-            occurrences >= 1,
-            "allow-list entry ({suffix}, {statement}) is stale — the statement is gone, so the entry \
-             would silently widen the gate for the next one"
+        assert_eq!(
+            occurrences, 1,
+            "allow-list entry ({suffix}, {statement}) must match exactly one statement, found {occurrences}: \
+             zero means it is stale and would silently widen the gate for the next one; two means a copy \
+             of the statement now rides the same exemption"
         );
     }
+}
+
+#[test]
+fn a_second_statement_in_an_allowlisted_file_is_still_an_offender() {
+    let path = "packages/core/src/domain/acceptance_criterion.rs";
+    let allowed = "tx.execute(\"UPDATE tasks SET updated_at = ?1 WHERE id = ?2\", params![now, id])?;\n";
+    let second = "tx.execute(\"UPDATE tasks SET status = 'done' WHERE id = ?1\", params![id])?;\n";
+    assert!(canonical_write_offenders(path, allowed).is_empty(), "the allow-listed statement alone is not an offender");
+    let offenders = canonical_write_offenders(path, &format!("{allowed}{second}"));
+    assert_eq!(offenders.len(), 1, "only the second statement is an offender: {offenders:?}");
+    assert!(offenders[0].contains(":2:"), "the offender is the status statement on line 2: {offenders:?}");
+    // A longer statement that merely begins with the allow-listed one is not exempt either.
+    let longer = "tx.execute(\"UPDATE tasks SET updated_at = ?1 WHERE id = ?2 AND status = 'done'\", params![now, id])?;\n";
+    assert_eq!(canonical_write_offenders(path, longer).len(), 1, "a prefix of the allow-listed statement is not the statement");
 }
 
 // --- Gate 2: at most three functions in the staging module reach a canonical writer (PROP-03) ---
