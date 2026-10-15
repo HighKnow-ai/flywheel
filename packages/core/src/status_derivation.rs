@@ -27,9 +27,12 @@
 //! `todo -> in_progress` edge). None of them writes a status of its own.
 
 use anyhow::Context;
+use chrono::Utc;
 use rusqlite::{params, Connection, Transaction};
 
+use crate::domain::event::{append_event, next_sequence};
 use crate::domain::task::set_task_status_in_tx;
+use crate::forge::transitions::EVENT_DONE_WITH_UNMET_CRITERIA;
 use crate::forge::ForgeState;
 use crate::git_facts::git_facts_for_task;
 use crate::query::forge::latest_forge_baseline;
@@ -137,7 +140,58 @@ pub fn derive_status_in_tx(
     }
 
     set_task_status_in_tx(tx, actor_id, task_id, winner)?;
+    if winner == "done" {
+        record_unmet_criteria(tx, task_id, actor_id)?;
+    }
     Ok(Derivation::Wrote(winner.to_string()))
+}
+
+/// D-123: a card reaching `done` with acceptance criteria still unchecked is surfaced as one
+/// `task.done_with_unmet_criteria` event, never closed quietly and never by touching a criterion
+/// row. It is appended here, at the one seam every route to `done` passes through (the forge
+/// tick, the cold tick, worktree create and remove), so no route can drop it (WR-06). This is the
+/// only producer of the event - `tests/status_derivation.rs` pins that by reading the source.
+fn record_unmet_criteria(tx: &Transaction, task_id: &str, actor_id: &str) -> anyhow::Result<()> {
+    let unmet_count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM acceptance_criteria \
+             WHERE parent_type = 'task' AND parent_id = ?1 \
+             AND checked = 0 AND superseded_at IS NULL",
+            params![task_id],
+            |row| row.get(0),
+        )
+        .context("failed to count unmet acceptance criteria")?;
+    if unmet_count == 0 {
+        return Ok(());
+    }
+
+    let (project_id, epic_id): (String, Option<String>) = tx
+        .query_row(
+            "SELECT project_id, epic_id FROM tasks WHERE id = ?1",
+            params![task_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("task {task_id:?} not found"))?;
+    let payload = serde_json::json!({
+        "unmet_count": unmet_count,
+        "label": format!("Merged with {unmet_count} unresolved acceptance criteria"),
+    });
+    let sequence = next_sequence(tx, &project_id, "local")?;
+    append_event(
+        tx,
+        &project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        epic_id.as_deref(),
+        actor_id,
+        EVENT_DONE_WITH_UNMET_CRITERIA,
+        &payload,
+        &Utc::now().to_rfc3339(),
+    )?;
+    Ok(())
 }
 
 /// [`derive_status_in_tx`] in a transaction of its own, for a caller with no other writes to

@@ -867,15 +867,21 @@ mod forge_tick_tests {
             "a refused status write must never append a task.status_changed event"
         );
 
-        // D4: the baseline still advances to Merged on the refusal, so the next tick never
-        // retries the overwrite 120 seconds later.
+        // D4: the baseline still advances to Merged on the refusal, so the forge tick never
+        // re-observes an edge. That does NOT protect the human's move for long: `merged` is now a
+        // standing LEVEL, and the next cold tick re-derives `done` from it with
+        // `expected_status: None`, so the compare-and-swap shields the move for at most
+        // `COLD_TICK_SECS` and the move is then re-applied. This test deliberately asserts only
+        // the instant right after the forge write; the re-application is covered by the deriver's
+        // own tests (`tests/status_derivation.rs`). Whether a human move should stand against a
+        // merge is a product decision this test does not settle.
         let baseline = flywheel_core::query::forge::latest_forge_baseline(&conn, &task_id)
             .expect("baseline read should succeed");
         assert_eq!(
             baseline.state,
             flywheel_core::forge::ForgeState::Merged,
-            "the baseline must advance to Merged even on a refused write, so the next tick \
-             re-observes no edge and never retries the overwrite"
+            "the baseline must advance to Merged even on a refused write, so the forge tick \
+             re-observes no edge"
         );
     }
 

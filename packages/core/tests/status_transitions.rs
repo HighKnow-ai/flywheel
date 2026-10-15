@@ -448,7 +448,10 @@ fn merged_with_unmet_criteria_names_the_count_and_touches_no_criterion_row() {
     .expect("merge observation should succeed");
 
     assert_eq!(outcome.status_changed_to, Some("done".to_string()));
-    assert_eq!(outcome.events_appended, 2, "one state-change event plus one unmet-criteria event");
+    assert_eq!(
+        outcome.events_appended, 1,
+        "only the state-change event is this function's own; the deriver appends the unmet-criteria event"
+    );
     assert_eq!(count_events_of_type(&conn, &task.id, EVENT_DONE_WITH_UNMET_CRITERIA), 1);
 
     let checked_count: i64 = conn

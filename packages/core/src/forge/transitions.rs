@@ -46,8 +46,8 @@ use crate::status_derivation::{derive_status_in_tx, is_review_edge, Derivation};
 pub const EVENT_FORGE_STATE_CHANGED: &str = "forge.state_changed";
 /// CI newly failed since the last observation (D-124) — never a status writer.
 pub const EVENT_FORGE_CI_FAILED: &str = "forge.ci_failed";
-/// A merge carried a task to Done while it still had unmet acceptance criteria (D-123) — names
-/// the count; touches no criterion row.
+/// A task reached Done while it still had unmet acceptance criteria (D-123) — names the count;
+/// touches no criterion row. Appended only by `status_derivation::derive_status_in_tx`.
 pub const EVENT_DONE_WITH_UNMET_CRITERIA: &str = "task.done_with_unmet_criteria";
 /// A status write that would otherwise have fired was refused because `expected_status`
 /// (quick task 261005-mn5) no longer matched the task's current status — the trace a human reads
@@ -57,10 +57,9 @@ pub const EVENT_DONE_WITH_UNMET_CRITERIA: &str = "task.done_with_unmet_criteria"
 pub const EVENT_FORGE_STATUS_WRITE_SKIPPED: &str = "forge.status_write_skipped";
 
 /// What one call to [`apply_forge_observation`] did. `events_appended` counts only the events
-/// this function itself writes directly (a state-change event, a done-with-unmet-criteria event,
-/// and/or a CI-failure event — zero to three, not mutually exclusive on one call); the
-/// `task.status_changed` event the transaction-scoped status writer appends on a real status
-/// write is not counted here.
+/// this function itself writes directly (a state-change event, a skipped-write trace and/or a
+/// CI-failure event); the `task.status_changed` and `task.done_with_unmet_criteria` events the
+/// deriver appends on a real status write are not counted here.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransitionOutcome {
     pub status_changed_to: Option<String>,
@@ -194,44 +193,10 @@ pub fn apply_forge_observation(
     match derive_status_in_tx(&tx, task_id, actor_id, expected_status, review_edge)? {
         Derivation::Unchanged => {}
         Derivation::Wrote(new_status) => {
-            status_changed_to = Some(new_status.clone());
-
-            if new_status == "done" {
-                let unmet_count: i64 = tx
-                    .query_row(
-                        "SELECT COUNT(*) FROM acceptance_criteria \
-                         WHERE parent_type = 'task' AND parent_id = ?1 \
-                         AND checked = 0 AND superseded_at IS NULL",
-                        params![task_id],
-                        |row| row.get(0),
-                    )
-                    .context("failed to count unmet acceptance criteria")?;
-
-                if unmet_count > 0 {
-                    let unmet_payload = serde_json::json!({
-                        "unmet_count": unmet_count,
-                        "label": format!(
-                            "Merged with {unmet_count} unresolved acceptance criteria"
-                        ),
-                    });
-                    let unmet_sequence = next_sequence(&tx, &project_id, "local")?;
-                    append_event(
-                        &tx,
-                        &project_id,
-                        "local",
-                        unmet_sequence,
-                        "task",
-                        task_id,
-                        Some(task_id),
-                        epic_id.as_deref(),
-                        actor_id,
-                        EVENT_DONE_WITH_UNMET_CRITERIA,
-                        &unmet_payload,
-                        &now,
-                    )?;
-                    events_appended += 1;
-                }
-            }
+            // The `task.done_with_unmet_criteria` event for a merge is appended by the deriver
+            // itself (`status_derivation::derive_status_in_tx`), not here, so every route to
+            // `done` records it and none can drop it (WR-06).
+            status_changed_to = Some(new_status);
         }
         // Someone moved the card after the status this observation captured. Only a refusal on a
         // forge change leaves a trace here: a refusal on a level (a worktree, a standing merge) is
