@@ -174,7 +174,7 @@ paths", and D-69 explicitly rejected size ceilings because a ceiling moves the b
 the developer cannot see. Any bound must use fixed counts, link-based inclusion and a visible
 boundary sentence; "truncate at N tokens" is out. Whether acknowledged or superseded decisions drop
 from the folded residue is a deliberate decision to take before planning, not during.
-**Plans**: 17/18 plans executed, 8 waves — 11/11 executed, 7 gap-closure plans pending (waves 7-8)
+**Plans**: 18/18 plans executed, 8 waves — 11/11 executed, 7 gap-closure plans pending (waves 7-8)
 
 Plans:
 **Wave 1**
@@ -217,7 +217,7 @@ Plans:
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
-- [ ] 13-18-PLAN.md — `CLAUDE.md` rows 50/53/56 reconciled with the tree; amendments A-06 and A-07 recorded; the F6 wording corrected (DRFT-09, FNC-04 — documentation reconciliation)
+- [x] 13-18-PLAN.md — `CLAUDE.md` rows 50/53/56 reconciled with the tree; amendments A-06 and A-07 recorded; the F6 wording corrected (DRFT-09, FNC-04 — documentation reconciliation)
 
 *Accepted overrides, closable by nobody but the owner and planned nowhere above: the criterion-1
 cycle-table FK chain (moved to Phase 14 success criterion 1) and the criterion-6 live planning run
@@ -415,7 +415,7 @@ Phase 17 shares no file with Phase 16 and may run beside it; it may not be absor
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 13. Nothing New Escapes The Fence | 17/18 | In Progress|  |
+| 13. Nothing New Escapes The Fence | 18/18 | In Progress|  |
 | 14. Cycles On Screen, State In Colour | 0/0 | Not started | - |
 | 15. Nothing Typed That An Agent Could Draft | 0/0 | Not started | - |
 | 16. The Problem And The Decision Are Board Records | 0/0 | Not started | - |
