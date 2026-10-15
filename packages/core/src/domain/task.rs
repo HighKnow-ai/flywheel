@@ -641,6 +641,7 @@ pub fn request_changes(
     task_id: &str,
 ) -> anyhow::Result<ChangesRequestOutcome> {
     let tx = conn.transaction()?;
+    crate::domain::actor::assert_human_actor_in_tx(&tx, actor_id)?;
     let unchecked = match changes_request_state(&tx, task_id)? {
         ChangesRequestState::Refused(why) => return Ok(ChangesRequestOutcome::Refused(why)),
         ChangesRequestState::SentBack(_) => return Ok(ChangesRequestOutcome::AlreadySentBack),

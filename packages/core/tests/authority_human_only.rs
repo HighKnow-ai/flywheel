@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use core::domain::acceptance_criterion::{
     check_criterion_with_anchor, create_criterion, toggle_criterion, AnchorInput,
 };
-use core::domain::actor::{local_human_actor_id, system_actor};
+use core::domain::actor::{assert_human_actor, assert_human_actor_in_tx, local_human_actor_id, system_actor};
 use core::domain::agent_run::agent_actor_id;
 use core::domain::authoring_proposal::{
     accept_proposal, accept_subtree, create_proposal, defer_proposal, defer_proposals_bulk, merge_proposal,
@@ -319,6 +319,31 @@ fn an_empty_actor_id_is_refused_as_not_found_never_defaulted_to_the_local_human(
     assert_refused_everywhere(Who::Empty, "not found");
 }
 
+// --- the helper itself, both directions ---
+
+#[test]
+fn the_helper_accepts_only_a_human_and_names_what_it_refused() {
+    let (mut conn, human, _project) = common::seeded_project();
+    let agent = agent_actor_id(&conn).unwrap();
+    let system = system_actor(&conn).unwrap().id;
+
+    assert_human_actor(&conn, &human).expect("a human actor must pass");
+
+    let tx = conn.transaction().unwrap();
+    assert_human_actor_in_tx(&tx, &human).expect("a human actor must pass inside a transaction");
+
+    let agent_err = format!("{:#}", assert_human_actor_in_tx(&tx, &agent).unwrap_err());
+    assert!(agent_err.contains(&agent) && agent_err.contains("agent"), "must name the id and its type: {agent_err}");
+
+    let system_err = format!("{:#}", assert_human_actor_in_tx(&tx, &system).unwrap_err());
+    assert!(system_err.contains(&system) && system_err.contains("system"), "must name the id and its type: {system_err}");
+
+    for missing in ["", "no-such-actor"] {
+        let err = format!("{:#}", assert_human_actor_in_tx(&tx, missing).unwrap_err());
+        assert!(err.contains("not found"), "{missing:?} must be refused as not found: {err}");
+    }
+}
+
 // ============================================================================================
 // Source half — no agent-reachable module calls an authority writer
 // ============================================================================================
@@ -459,6 +484,7 @@ fn the_sidecar_tree_is_scanned_and_nothing_in_it_is_allow_listed() {
         ALLOWED_CALLERS.iter().all(|a| !a.suffix.contains("packages/sidecar/")),
         "no file under packages/sidecar/src may call an authority writer"
     );
+    assert!(ALLOWED_CALLERS.iter().all(|a| !a.reason.is_empty()), "every allow-list entry records why it is allowed");
 }
 
 #[test]

@@ -5,7 +5,7 @@
 //! `events.actor_id`'s NOT NULL foreign key meaningful rather than merely trusted.
 
 use anyhow::Context;
-use rusqlite::Connection;
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 /// One row of the `actors` table (DATA-03).
 #[derive(Debug, Clone, PartialEq)]
@@ -80,4 +80,40 @@ pub fn list_actors(conn: &Connection) -> anyhow::Result<Vec<Actor>> {
         })?
         .collect::<Result<Vec<_>, _>>();
     rows.context("failed to list actors")
+}
+
+/// FNC-03's database-level refusal: succeed only if `actor_id` names an `actors` row whose `type`
+/// is exactly `'human'`.
+///
+/// The type is read from the `actors` table inside the SAME transaction as the write that follows,
+/// so it cannot be bypassed by a caller holding a stale or invented notion of who it is. This
+/// generalises the precedent `start_agent_run` already uses to refuse the system actor. Every
+/// authority transition (checking a criterion, sending reviewed work back, accepting, merging,
+/// rejecting or deferring a proposal) calls it as the first statement after its transaction opens.
+///
+/// The comparison is exact: `'human'` is the only accepting value, so the `system` actor is
+/// refused as surely as an agent. An id present in no row (which includes the empty string) is
+/// refused with a distinct "not found" message, never defaulted to [`local_human_actor_id`].
+///
+/// Not called from reads, from proposal staging (`create_proposal` / `apply_proposal_created` are
+/// the agent's legitimate route), or from the status deriver (it runs as the system actor and is
+/// not an authority act).
+///
+/// One authority transition does not exist yet: accepting an ADR. Its home is Phase 16, and it
+/// must call this helper as its first statement.
+pub fn assert_human_actor_in_tx(tx: &Transaction, actor_id: &str) -> anyhow::Result<()> {
+    check_human(tx.query_row("SELECT type FROM actors WHERE id = ?1", params![actor_id], |row| row.get(0)).optional()?, actor_id)
+}
+
+/// [`assert_human_actor_in_tx`] for a caller that is not inside a transaction.
+pub fn assert_human_actor(conn: &Connection, actor_id: &str) -> anyhow::Result<()> {
+    check_human(conn.query_row("SELECT type FROM actors WHERE id = ?1", params![actor_id], |row| row.get(0)).optional()?, actor_id)
+}
+
+fn check_human(actor_type: Option<String>, actor_id: &str) -> anyhow::Result<()> {
+    match actor_type.as_deref() {
+        Some("human") => Ok(()),
+        Some(other) => anyhow::bail!("authority refused: actor {actor_id:?} is a {other:?} actor, and only a human may do this"),
+        None => anyhow::bail!("authority refused: actor {actor_id:?} not found"),
+    }
 }

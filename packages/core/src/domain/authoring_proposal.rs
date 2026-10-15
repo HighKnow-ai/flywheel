@@ -1025,6 +1025,7 @@ fn accept_proposal_in_tx(
     human_actor_id: &str,
     now: &str,
 ) -> anyhow::Result<AcceptOutcome> {
+    crate::domain::actor::assert_human_actor_in_tx(tx, human_actor_id)?;
     let proposal = fetch_proposal(tx, proposal_id)?;
 
     if proposal.status == "accepted" {
@@ -1178,6 +1179,7 @@ fn merge_proposal_in_tx(
     target: &MergeTarget,
     now: &str,
 ) -> anyhow::Result<MergeOutcome> {
+    crate::domain::actor::assert_human_actor_in_tx(tx, actor_id)?;
     let proposal = fetch_proposal(tx, proposal_id)?;
 
     if proposal.status == "merged" {
@@ -1291,6 +1293,7 @@ fn defer_proposal_in_tx(
     proposal_id: &str,
     now: &str,
 ) -> anyhow::Result<Proposal> {
+    crate::domain::actor::assert_human_actor_in_tx(tx, actor_id)?;
     let existing = fetch_proposal(tx, proposal_id)?;
 
     if existing.status == "deferred" {
@@ -1364,6 +1367,7 @@ fn reject_proposal_in_tx(
     reason: Option<&str>,
     now: &str,
 ) -> anyhow::Result<Proposal> {
+    crate::domain::actor::assert_human_actor_in_tx(tx, human_actor_id)?;
     let existing = fetch_proposal(tx, proposal_id)?;
     anyhow::ensure!(
         existing.status == "pending",
@@ -1667,6 +1671,9 @@ pub fn accept_subtree(
 ) -> anyhow::Result<AcceptSubtreeOutcome> {
     let now = chrono::Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    // Checked here as well as in `accept_proposal_in_tx`: an already-decided subtree would never
+    // reach it, and an agent must be refused whether or not there is anything left to accept.
+    crate::domain::actor::assert_human_actor_in_tx(&tx, human_actor_id)?;
 
     let root = fetch_proposal(&tx, root_proposal_id)?;
     anyhow::ensure!(
@@ -1753,6 +1760,8 @@ pub fn reject_proposals_bulk(
         "cannot bulk-reject more than {MAX_LIMIT} proposals at once, got {}",
         proposal_ids.len()
     );
+    // Before the empty-slice early return: an agent is refused even when there is nothing to decide.
+    crate::domain::actor::assert_human_actor(conn, actor_id)?;
     if proposal_ids.is_empty() {
         return Ok(BulkDecisionOutcome { decided: 0, skipped: Vec::new() });
     }
@@ -1792,6 +1801,8 @@ pub fn defer_proposals_bulk(
         "cannot bulk-defer more than {MAX_LIMIT} proposals at once, got {}",
         proposal_ids.len()
     );
+    // Before the empty-slice early return: an agent is refused even when there is nothing to decide.
+    crate::domain::actor::assert_human_actor(conn, actor_id)?;
     if proposal_ids.is_empty() {
         return Ok(BulkDecisionOutcome { decided: 0, skipped: Vec::new() });
     }

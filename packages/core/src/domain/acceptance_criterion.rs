@@ -705,6 +705,7 @@ fn write_checked(
 ) -> anyhow::Result<AcceptanceCriterion> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+    crate::domain::actor::assert_human_actor_in_tx(&tx, actor_id)?;
 
     let (parent_type, parent_id, statement, verification_hint, checked, rank, created_at, revision, revision_of, superseded_at): (
         String,
