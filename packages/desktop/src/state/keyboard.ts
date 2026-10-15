@@ -509,6 +509,75 @@ export function topLayer(state: LayerState): UiLayer {
   return "board";
 }
 
+/** Which full-pane surface the content area shows — one modelled value, resolved by
+ * `activeSurface` below, so the answer lives beside `topLayer` instead of in a nested conditional
+ * in `App.tsx` (Phase 13 plan 13-08, FNC-06). A flat union resolved by precedence, not a stack:
+ * closing a surface returns to whatever the remaining state resolves to. */
+export type UiSurface =
+  // The default: the board, rendered when nothing above it is open.
+  | "board"
+  // D-39: Settings may be opened regardless of what the content area was showing underneath it.
+  | "settings"
+  // D-103: the triage surface, checked ahead of the session so the route control always reaches it.
+  | "triage"
+  // Phase 8: pushed into from the item detail panel; checked after triage and before the session.
+  | "review"
+  // D-31: the live session surface, pushed into from a task.
+  | "session"
+  // Phase 10 (D-163): the fleet surface.
+  | "fleet"
+  // Plan 10-08 (WORK-07): the worktree inventory, beside the fleet.
+  | "worktree-inventory"
+  // D-16: an unreachable project replaces the board entirely and offers only relocation.
+  | "project-unreachable";
+
+/** The booleans `activeSurface` decides from. Booleans, not the store's nullable ids, so the
+ * resolver stays pure; the one caller (`App.tsx`) knows what "open" means for each store field. */
+export interface SurfaceState {
+  settingsOpen: boolean;
+  triageOpen: boolean;
+  reviewOpen: boolean;
+  sessionOpen: boolean;
+  fleetOpen: boolean;
+  worktreeInventoryOpen: boolean;
+  projectUnreachable: boolean;
+}
+
+/** The single surface showing, in the precedence order the content area has always encoded. */
+export function activeSurface(state: SurfaceState): UiSurface {
+  // D-39: checked first — Settings may be opened over an active session or an unreachable project.
+  if (state.settingsOpen) return "settings";
+  // D-103: checked ahead of the session so the route control (`board/TriageLane.tsx`'s header)
+  // always reaches the surface.
+  if (state.triageOpen) return "triage";
+  // Phase 8: after triage, before the session; the board's own filters and selection are untouched.
+  if (state.reviewOpen) return "review";
+  // D-31: the board underneath (filters, selection, scroll) is untouched while this is open.
+  if (state.sessionOpen) return "session";
+  // Phase 10 (D-163): BELOW the session on purpose. A session opened from the fleet only sets the
+  // session id, so the session's own "← Board" lands back on the fleet, which is where draining a
+  // queue needs to land. Do not copy the triage surface's clear-itself-before-opening-a-session.
+  if (state.fleetOpen) return "fleet";
+  // Plan 10-08 (WORK-07): beside the fleet, below the session, for the same reason.
+  if (state.worktreeInventoryOpen) return "worktree-inventory";
+  // D-16: never a board rendered against a repository Flywheel can no longer verify.
+  if (state.projectUnreachable) return "project-unreachable";
+  return "board";
+}
+
+/** The keyboard layer each surface registers, or `null` for a surface that owns none today. A
+ * `Record` over `UiSurface`, so adding a surface without deciding its layer is a build failure. */
+export const SURFACE_LAYERS: Record<UiSurface, UiLayer | null> = {
+  board: "board",
+  settings: null,
+  triage: "triage-surface",
+  review: "review-surface",
+  session: "session-surface",
+  fleet: "fleet-surface",
+  "worktree-inventory": null,
+  "project-unreachable": null,
+};
+
 /** Whether `id` may fire while `layer` is on top. Exactly two rules. Rule one: `open-palette` is
  * the discoverability guarantee BOARD-07 rests on, so a trapped detail panel must never be able
  * to strand the user without it — allowed in every layer except `"picker"` (a real
