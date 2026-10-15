@@ -95,7 +95,7 @@ fn parse_resolved_git_line(stdout: &str) -> Option<String> {
 /// process-spawn/IO overhead across ten concurrently-retrying children — DERIVED from
 /// `RETRY_MAX_ATTEMPTS`/`RETRY_BASE_MS` rather than a literal, so a later change to the retry curve
 /// changes this timeout with it instead of silently making this test flaky.
-fn stress_deadline() -> Duration {
+fn stress_timeout() -> Duration {
     let base_curve_ms: u64 = (1..RETRY_MAX_ATTEMPTS)
         .map(|failed_attempt| RETRY_BASE_MS.saturating_mul(1u64 << (failed_attempt - 1)))
         .sum();
@@ -215,11 +215,11 @@ fn ten_concurrent_commits_into_one_repository_keep_every_commit_and_every_worktr
         }
         drop(tx);
 
-        let timeout_at = stress_deadline();
-        let deadline_instant = started + timeout_at;
+        let timeout_at = stress_timeout();
+        let give_up_at = started + timeout_at;
         let mut summaries: Vec<(usize, String, ChildSummary)> = Vec::with_capacity(WORKTREE_COUNT);
         for _ in 0..WORKTREE_COUNT {
-            let remaining = deadline_instant.saturating_duration_since(Instant::now());
+            let remaining = give_up_at.saturating_duration_since(Instant::now());
             let (i, branch, wait_result) = rx.recv_timeout(remaining).unwrap_or_else(|_| {
                 panic!("timed out waiting for a child to finish within the derived timeout_at {timeout_at:?}")
             });
@@ -325,11 +325,11 @@ fn companion_no_shim_ten_concurrent_commits_is_evidence_only_and_never_a_gate() 
         }
         drop(tx);
 
-        let timeout_at = stress_deadline();
-        let deadline_instant = started + timeout_at;
+        let timeout_at = stress_timeout();
+        let give_up_at = started + timeout_at;
         let mut landed = 0usize;
         for _ in 0..WORKTREE_COUNT {
-            let remaining = deadline_instant.saturating_duration_since(Instant::now());
+            let remaining = give_up_at.saturating_duration_since(Instant::now());
             let Ok((i, branch, wait_result)) = rx.recv_timeout(remaining) else {
                 println!(
                     "NO_SHIM_LANDED={landed}/{WORKTREE_COUNT} (a child timed out — evidence only, not a failure)"

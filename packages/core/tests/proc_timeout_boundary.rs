@@ -19,7 +19,7 @@ fn sh(script: &str) -> Command {
 }
 
 #[test]
-fn a_child_exiting_zero_just_before_its_deadline_reports_success_and_its_stdout() {
+fn a_child_exiting_zero_just_before_its_timeout_reports_success_and_its_stdout() {
     // A short sleep against a generous timeout: the exit-before-timeout path without a margin
     // that fork+exec and scheduler jitter on a loaded runner can eat (WR-10). Repeated anyway.
     for _ in 0..10 {
@@ -36,7 +36,7 @@ fn a_child_exiting_zero_just_before_its_deadline_reports_success_and_its_stdout(
 }
 
 #[test]
-fn a_child_exiting_non_zero_just_before_its_deadline_reports_that_status() {
+fn a_child_exiting_non_zero_just_before_its_timeout_reports_that_status() {
     for _ in 0..10 {
         let out = output_with_timeout(
             &mut sh("sleep 0.05; exit 7"),

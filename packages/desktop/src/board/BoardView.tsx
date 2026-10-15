@@ -274,7 +274,7 @@ export interface BoardViewProps {
  * cases no signal covers (a group fetch that fails, a filter that hides the item): the request is
  * cleared and the board stays as it was, rather than waiting forever and firing at some later,
  * unrelated moment. */
-const PENDING_FOCUS_DEADLINE_MS = 4000;
+const PENDING_FOCUS_TIMEOUT_MS = 4000;
 
 interface AnchorRect {
   top: number;
@@ -743,7 +743,7 @@ export function BoardView({
     const timer = setTimeout(() => {
       // Only this request: a newer one replaced the id and this timer with it.
       if (useUiStore.getState().pendingFocusItemId === pendingFocusItemId) consumePendingFocusItemId();
-    }, PENDING_FOCUS_DEADLINE_MS);
+    }, PENDING_FOCUS_TIMEOUT_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingFocusItemId]);

@@ -1,8 +1,11 @@
 //! FNC-04 (D-20, D-21, D-23, D-24, A-02): the forbidden-PM-vocabulary source gate.
 //!
-//! The Cycle layer must not drift into Jira by accretion. Any whole-word use of the ten words below
-//! in `packages/core/src`, `packages/desktop/src` (which holds the desktop `__tests__` trees) or
-//! `packages/core/tests` fails `cargo test -p core`. Planning documents are never scanned.
+//! The Cycle layer must not drift into Jira by accretion. Any use of one of the ten words below as
+//! an identifier COMPONENT (`sprint`, `sprint_id`, `overdueCount`, `velocity_per_week`,
+//! `story_points_total`) in `packages/core/src`, `packages/desktop/src` (which holds the desktop
+//! `__tests__` trees) or `packages/core/tests` fails `cargo test -p core`, with exactly two named
+//! idiom exclusions. `.sql` is deliberately not scanned (see `SCANNED_EXTENSIONS`). Planning
+//! documents are never scanned.
 //!
 //! Self-contained per this repo's own precedent (`proposal_no_promotion.rs`): carries its own
 //! copies of `workspace_root`/`is_whole_line_comment`/`sources_under`. No env var, `cfg` switch,
@@ -26,6 +29,17 @@ fn is_whole_line_comment(line: &str) -> bool {
     line.trim_start().starts_with("//")
 }
 
+/// The file extensions the gate scans.
+///
+/// `.sql` is deliberately absent. Scanning migrations is a recorded Deferred Idea in
+/// `13-CONTEXT.md` ("the spine pin and the table-classification test already cover schema change"),
+/// and a locked deferral is not this gate's to reverse. Counter-argument for the owner: the spine
+/// pin covers the `CREATE TABLE` text of `epics`/`tasks`/`issues` only and table classification
+/// covers table NAMES, so a new table's `sprint_length_days` column passes all three gates.
+/// Reversal is one token: add `"sql"` here and bump the array length (the walker-reach test follows
+/// this const). It fires on nothing today: no corpus word appears in any of the 23 migrations.
+const SCANNED_EXTENSIONS: [&str; 3] = ["rs", "ts", "tsx"];
+
 fn sources_under(dir: &Path) -> Vec<(PathBuf, String)> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -35,7 +49,7 @@ fn sources_under(dir: &Path) -> Vec<(PathBuf, String)> {
                 walk(&path, out);
             } else if path
                 .extension()
-                .is_some_and(|e| e == "rs" || e == "ts" || e == "tsx")
+                .is_some_and(|e| SCANNED_EXTENSIONS.iter().any(|x| e == *x))
             {
                 out.push(path);
             }
@@ -93,16 +107,17 @@ const IDIOM_EXCLUSIONS: [IdiomExclusion; 2] = [
     },
 ];
 
-fn is_word_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
-}
-
-/// True when `line_lower` holds `word` with a non-word character (or a line edge) on both sides.
-fn has_whole_word(line_lower: &str, word: &str) -> bool {
+/// True when `word` occurs in `line_lower` starting at an identifier-component boundary. The
+/// character AFTER the word is unconstrained, so `story_points_total` holds `story_point`.
+///
+/// A boundary before byte `i` is: the line start; a preceding character that is not alphabetic
+/// (`_`, a digit, punctuation, whitespace); or an ASCII uppercase character at `i` in `original`
+/// (the camelCase transition, `overdueCount` / `teamCapacity`). `line_lower` is the ASCII-lowercased
+/// `original`, so byte offsets agree between the two.
+fn has_word_prefix_at_boundary(line_lower: &str, original: &str, word: &str) -> bool {
     line_lower.match_indices(word).any(|(i, _)| {
         let before = line_lower[..i].chars().next_back();
-        let after = line_lower[i + word.len()..].chars().next();
-        !before.is_some_and(is_word_char) && !after.is_some_and(is_word_char)
+        !before.is_some_and(char::is_alphabetic) || original.as_bytes()[i].is_ascii_uppercase()
     })
 }
 
@@ -117,7 +132,7 @@ fn scan_body_for_pm_words(path: &Path, body: &str, offenders: &mut Vec<String>) 
         // ASCII lowercasing keeps byte offsets stable for the boundary checks.
         let lower = line.to_ascii_lowercase();
         let offending = FORBIDDEN_PM_WORDS.iter().any(|word| {
-            has_whole_word(&lower, word)
+            has_word_prefix_at_boundary(&lower, line, word)
                 && !IDIOM_EXCLUSIONS.iter().any(|e| {
                     e.literal.contains(word)
                         && lower.contains(e.literal)
@@ -152,7 +167,7 @@ fn no_pm_vocabulary_in_core_or_desktop_source() {
 
     assert!(
         offenders.is_empty(),
-        "FNC-04: PM vocabulary found in source. Forbidden whole words: {FORBIDDEN_PM_WORDS:?}. \
+        "FNC-04: PM vocabulary found in source. Forbidden identifier-component prefixes: {FORBIDDEN_PM_WORDS:?}. \
          Only these idiom exclusions exist: {}. Offending lines:\n  {}",
         IDIOM_EXCLUSIONS
             .iter()
@@ -174,7 +189,7 @@ fn the_pm_vocabulary_gate_walker_reaches_every_scanned_tree() {
         assert!(!collected.is_empty(), "the walker collected no sources under {rel} — the gate is dead coverage there");
         all.extend(collected.into_iter().map(|(p, _)| p));
     }
-    for ext in ["rs", "ts", "tsx"] {
+    for ext in SCANNED_EXTENSIONS {
         assert!(
             all.iter().any(|p| p.extension().is_some_and(|e| e == ext)),
             "the walker reached no .{ext} file across the scanned trees"
@@ -216,13 +231,34 @@ fn the_gate_fires_on_a_planted_violation() {
 }
 
 #[test]
+fn the_gate_fires_on_a_corpus_word_used_as_a_compound_identifier_component() {
+    assert_eq!(offenders_for("src/x.rs", "let sprint_id = 3;"), 1, "snake_case suffix");
+    assert_eq!(offenders_for("src/x.ts", "const overdueCount = 3;"), 1, "camelCase suffix");
+    assert_eq!(offenders_for("src/x.rs", "let velocity_per_week = 3;"), 1, "snake_case chain");
+    // Criterion 3's wording ("a build containing `story_point` ... fails") covers the plural; A-02
+    // bought whole-word matching to survive `Vec::with_capacity`, it did not license compounds.
+    assert_eq!(offenders_for("src/x.rs", "let story_points_total = 3;"), 1, "plural compound");
+    assert_eq!(offenders_for("src/x.ts", "const teamCapacity = 3;"), 1, "corpus word after a camelCase transition");
+}
+
+#[test]
 fn the_gate_is_silent_on_each_named_idiom_exclusion() {
-    assert_eq!(offenders_for("src/x.rs", "Vec::with_capacity(8)"), 0, "with_capacity idiom");
-    assert_eq!(offenders_for("src/x.rs", "let n = story_points_total;"), 0, "identifier containing a corpus word");
+    assert_eq!(offenders_for("src/x.rs", "let v = Vec::with_capacity(8);"), 0, "with_capacity idiom");
     assert_eq!(
-        offenders_for("packages/core/src/proc.rs", "let deadline = Instant::now() + timeout;"),
+        offenders_for("packages/core/src/proc.rs", "let timeout_at = deadline;"),
         0,
         "timeout deadline in proc.rs"
     );
+    assert_eq!(
+        offenders_for("packages/core/src/other.rs", "let timeout_at = deadline;"),
+        1,
+        "the same line elsewhere is an offender"
+    );
+    assert_eq!(
+        offenders_for("src/x.rs", "let v = Vec::with_capacity(sprint_capacity);"),
+        1,
+        "the per-line exclusion does not shield a PM use sharing the line with the excluded literal"
+    );
+    assert_eq!(offenders_for("src/x.rs", "// sprint"), 0, "whole-line comment");
     assert_eq!(offenders_for("src/x.rs", "// the sprint is over"), 0, "whole-line comment");
 }
