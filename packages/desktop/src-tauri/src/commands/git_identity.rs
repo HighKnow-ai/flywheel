@@ -59,13 +59,14 @@ pub fn git_identifier_resolve(state: State<AppState>, raw: String) -> Result<Git
 
     Ok(match outcome {
         flywheel_core::git_identity::ResolveOutcome::Resolved(resolution) => {
-            let title_table = if resolution.item_kind == "epic" { "epics" } else { "tasks" };
+            // Both arms were always literals, so this was never injectable; two static statements
+            // keep the table-name interpolation gate (Gate 6) honest about the tree it scans.
+            let title_sql = match resolution.item_kind.as_str() {
+                "epic" => "SELECT title FROM epics WHERE id = ?1",
+                _ => "SELECT title FROM tasks WHERE id = ?1",
+            };
             let item_title: String = conn
-                .query_row(
-                    &format!("SELECT title FROM {title_table} WHERE id = ?1"),
-                    [&resolution.item_id],
-                    |row| row.get(0),
-                )
+                .query_row(title_sql, [&resolution.item_id], |row| row.get(0))
                 .map_err(|e| e.to_string())?;
             GitIdentityOutcomeDto::Resolved {
                 resolution: GitIdentityResolutionDto {

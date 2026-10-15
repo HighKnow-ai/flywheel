@@ -2619,8 +2619,15 @@ mod tests {
     fn build_preview_dto_performs_no_insert_update_or_delete() {
         let (conn, task_id) = seeded_conn_with_task(true);
         let count = |table: &str| -> i64 {
-            conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
-                .expect("count query should succeed")
+            // One static statement per table (Gate 6 forbids interpolating a table name).
+            let sql = match table {
+                "triggers" => "SELECT COUNT(*) FROM triggers",
+                "worktrees" => "SELECT COUNT(*) FROM worktrees",
+                "agent_runs" => "SELECT COUNT(*) FROM agent_runs",
+                "events" => "SELECT COUNT(*) FROM events",
+                other => panic!("count: no static statement for table {other:?}"),
+            };
+            conn.query_row(sql, [], |row| row.get(0)).expect("count query should succeed")
         };
         // `events` is included here (plan 04-12, T-04-32): `record_drift_warnings` is called from
         // `agent_run_start` only, never from this preview path — a row count before/after is the

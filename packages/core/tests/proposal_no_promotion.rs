@@ -1544,7 +1544,10 @@ fn every_corpus_case_proves_zero_canonical_rows_before_triage() {
     assert!(failures.is_empty(), "one or more adversarial corpus cases failed:\n  {}", failures.join("\n  "));
 }
 
-// --- Gate 6: no SQL statement in core interpolates a table name (T-13-22) ---
+// --- Gate 6: no SQL statement in the Rust trees interpolates a table name (T-13-22) ---
+//
+// Scans the same three trees as Gate 1: `packages/core/src`, `packages/desktop/src-tauri/src` and
+// `packages/sidecar/src` (Rust files only).
 //
 // A table name built into SQL with `format!` is one caller-supplied string away from injection.
 // A const column list interpolated into a select list is legitimate and does not match this shape:
@@ -1585,15 +1588,27 @@ fn interpolated_table_name_lines(body: &str) -> Vec<(usize, String)> {
 
 #[test]
 fn no_sql_statement_interpolates_a_table_name() {
-    let dir = workspace_root().join("packages/core/src");
+    let root = workspace_root();
+    let scan_dirs = [
+        root.join("packages/core/src"),
+        root.join("packages/desktop/src-tauri/src"),
+        root.join("packages/sidecar/src"),
+    ];
     let mut offenders = Vec::new();
-    for (path, body) in sources_under(&dir) {
-        if path.extension().is_some_and(|e| e == "rs") {
-            for (n, line) in interpolated_table_name_lines(&body) {
-                offenders.push(format!("{}:{n}: {line}", path.display()));
+    let mut scanned = 0;
+    for dir in scan_dirs {
+        for (path, body) in sources_under(&dir) {
+            // `.rs` only: a TypeScript template literal is not a Rust `format!`.
+            if path.extension().is_some_and(|e| e == "rs") {
+                scanned += 1;
+                for (n, line) in interpolated_table_name_lines(&body) {
+                    offenders.push(format!("{}:{n}: {line}", path.display()));
+                }
             }
         }
     }
+    assert!(scanned > 50, "Gate 6 scanned only {scanned} Rust files across the three trees — a broken path would turn it off");
+    offenders.sort();
     assert!(
         offenders.is_empty(),
         "a SQL statement interpolates a table name. Write one fully static statement per table \
@@ -1606,6 +1621,9 @@ fn no_sql_statement_interpolates_a_table_name() {
 fn the_table_name_interpolation_gate_fires_on_a_planted_violation() {
     let planted = "fn q(table: &str) -> String {\n    format!(\"SELECT id FROM {table} WHERE id = ?1\")\n}\n";
     assert_eq!(interpolated_table_name_lines(planted).len(), 1, "the matcher must catch FROM {{table}}");
+    // The exact shape `git_identity.rs` had before it was split into two static statements.
+    let git_identity = "let t = conn.query_row(\n    &format!(\"SELECT title FROM {title_table} WHERE id = ?1\"),\n    [&id], |r| r.get(0))?;\n";
+    assert_eq!(interpolated_table_name_lines(git_identity).len(), 1, "the matcher must catch FROM {{title_table}}");
     for statement in ["INSERT INTO {table} (id)", "UPDATE {table} SET x = 1", "JOIN  {table} ON a = b"] {
         let body = format!("fn q(table: &str) -> String {{ format!(\"{statement}\") }}\n");
         assert_eq!(interpolated_table_name_lines(&body).len(), 1, "the matcher must catch {statement:?}");
