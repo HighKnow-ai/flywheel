@@ -11,8 +11,9 @@
 use std::fs;
 use std::path::Path;
 
-use core::db::{migration_sources, open_and_migrate};
+use core::db::{migration_sources, open_and_migrate, open_and_migrate_with};
 use rusqlite::Connection;
+use rusqlite_migration::{Migrations, M};
 
 /// A migrated scratch database, closed, whose `user_version` has been set ahead of this build's
 /// migration count — the state an older build sees after a newer build has run.
@@ -67,10 +68,23 @@ fn a_database_ahead_of_this_build_is_refused_with_the_mismatch_named() {
     );
 }
 
+/// Sorted names of everything in `backups_dir` (empty when it does not exist). The assertion whose
+/// absence let WR-01 ship: an identical backup copy is invisible to a byte comparison of the live
+/// file, but it is a new entry here.
+fn backups_dir_entries(backups_dir: &Path) -> Vec<String> {
+    let Ok(rd) = fs::read_dir(backups_dir) else { return Vec::new() };
+    let mut names: Vec<String> =
+        rd.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    names.sort();
+    names
+}
+
 #[test]
 fn the_refused_database_is_left_byte_for_byte_intact() {
     let f = ahead_fixture();
     let before = fs::read(&f.db_path).expect("read db before");
+    let mtime_before = fs::metadata(&f.db_path).expect("stat before").modified().expect("mtime");
+    let entries_before = backups_dir_entries(&f.backups_dir);
 
     assert!(open_and_migrate(&f.db_path, &f.backups_dir).is_err());
 
@@ -78,10 +92,53 @@ fn the_refused_database_is_left_byte_for_byte_intact() {
     let after = fs::read(&f.db_path).expect("read db after");
     assert_eq!(before.len(), after.len(), "a refused open must not truncate or grow the file");
     assert!(before == after, "a refused open must not rewrite, repair or downgrade any byte");
+    let mtime_after = fs::metadata(&f.db_path).expect("stat after").modified().expect("mtime");
+    assert_eq!(mtime_before, mtime_after, "a refused open must not touch the live file at all");
 
-    // The recovery action names the backups directory, so it must actually hold a backup.
-    let backups = fs::read_dir(&f.backups_dir).expect("backups dir exists").count();
-    assert!(backups >= 1, "the pre-migration backup the error points at must exist");
+    // No backup, hence no restore: nothing was written, so there is nothing to copy back over a
+    // file a newer build may hold open.
+    assert_eq!(
+        backups_dir_entries(&f.backups_dir),
+        entries_before,
+        "a refused open must not add a file to the backups directory"
+    );
+}
+
+#[test]
+fn repeated_refused_opens_do_not_grow_the_backups_directory() {
+    let f = ahead_fixture();
+    let entries_before = backups_dir_entries(&f.backups_dir);
+
+    for _ in 0..10 {
+        assert!(open_and_migrate(&f.db_path, &f.backups_dir).is_err());
+    }
+
+    assert_eq!(backups_dir_entries(&f.backups_dir), entries_before);
+}
+
+#[test]
+fn a_genuine_mid_migration_failure_still_takes_a_backup_and_restores_it() {
+    let dir = tempfile::tempdir().expect("scratch dir");
+    let db_path = dir.path().join("flywheel.db");
+    let backups_dir = dir.path().join("backups");
+    drop(open_and_migrate(&db_path, &backups_dir).expect("the real migration set applies cleanly"));
+    let before = fs::read(&db_path).expect("read db before");
+
+    // The real set plus one malformed migration: a failure that may have half-run.
+    let mut sources = migration_sources();
+    sources.push("THIS IS NOT SQL;");
+    let bad = Migrations::new(sources.into_iter().map(M::up).collect());
+
+    let err = open_and_migrate_with(&db_path, &backups_dir, &bad)
+        .err()
+        .expect("a malformed migration must fail");
+
+    assert!(format!("{err:#}").contains("restored the pre-migration backup"), "{err:#}");
+    assert!(
+        !backups_dir_entries(&backups_dir).is_empty(),
+        "the genuine-failure branch must still take a backup"
+    );
+    assert!(fs::read(&db_path).expect("read db after") == before, "the live file must be restored");
 }
 
 #[test]

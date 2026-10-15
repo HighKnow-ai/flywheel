@@ -7,8 +7,10 @@ pub mod backup;
 
 use anyhow::Context;
 use once_cell::sync::Lazy;
-use rusqlite::{Connection, OptionalExtension};
-use rusqlite_migration::{Error as MigrationError, MigrationDefinitionError, Migrations, M};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
+use rusqlite_migration::{
+    Error as MigrationError, MigrationDefinitionError, Migrations, SchemaVersion, M,
+};
 use std::path::{Path, PathBuf};
 
 use self::backup::{backup_database_file, prune_backups, restore_from_backup, DEFAULT_BACKUP_RETENTION};
@@ -79,18 +81,20 @@ pub fn apply_pragmas(conn: &Connection) -> anyhow::Result<()> {
 /// Open the database at `db_path`, backing it up to `backups_dir` first (D-18), applying the
 /// connection pragmas, and running every pending migration.
 ///
-/// A failed migration is never auto-repaired, auto-deleted, or opened anyway: on a `to_latest`
-/// error, the connection is dropped, the pre-migration backup [`backup_database_file`] wrote is
-/// restored over the live file with [`restore_from_backup`], and the original migration error is
-/// returned wrapped with that fact — the caller (the Tauri `setup` hook) aborts startup rather
-/// than proceeding. This restore is the reversibility mechanism (D-18), not a hand-written
+/// A migration that may have half-run is never auto-repaired, auto-deleted, or opened anyway: on a
+/// `to_latest` error, the connection is dropped, the pre-migration backup [`backup_database_file`]
+/// wrote is restored over the live file with [`restore_from_backup`], and the original migration
+/// error is returned wrapped with that fact — the caller (the Tauri `setup` hook) aborts startup
+/// rather than proceeding. This restore is the reversibility mechanism (D-18), not a hand-written
 /// down-migration.
 ///
-/// The same holds across builds: an older build cannot open a newer database at all (its
-/// `user_version` is ahead of the compiled migration set, and no down-migration exists to walk it
-/// back). So reversibility for a schema change means restoring the pre-migration backup this
-/// function wrote before the newer build migrated, never undoing the change in place. That refusal
-/// is tested by `tests/migration_schema_too_far_ahead.rs`.
+/// An older build cannot open a newer database at all (its `user_version` is ahead of the compiled
+/// migration set, and no down-migration exists to walk it back). That refusal is decided BEFORE any
+/// filesystem write — no backup, no restore, no `fs::copy` over the live file (WR-01) — because no
+/// SQL has run, so nothing can have half-run, and a newer build may be holding the file open under
+/// a live WAL connection. Reversibility for a schema change means restoring the pre-migration
+/// backup the newer build wrote before it migrated, never undoing the change in place. Tested by
+/// `tests/migration_schema_too_far_ahead.rs`.
 ///
 /// On a successful migration, old backups are pruned to [`DEFAULT_BACKUP_RETENTION`] (T-01-18)
 /// and `PRAGMA integrity_check` is run before the connection is handed back — a migration that
@@ -102,9 +106,6 @@ pub fn open_and_migrate(db_path: &Path, backups_dir: &Path) -> anyhow::Result<Co
 
 /// The sentence that makes `rusqlite_migration`'s bare "migration number that is too high" usable
 /// (F7): the two numbers and the one recovery action. `None` for every other migration failure.
-///
-/// The supported version is measured by applying `migrations` to a throwaway in-memory database,
-/// because [`Migrations`] exposes no length; that only runs on this refusal path.
 fn schema_ahead_context(
     migrations: &Migrations<'_>,
     err: &anyhow::Error,
@@ -115,6 +116,16 @@ fn schema_ahead_context(
         Some(MigrationError::MigrationDefinition(MigrationDefinitionError::DatabaseTooFarAhead)) => {}
         _ => return None,
     }
+    schema_ahead_message(migrations, db_user_version, backups_dir)
+}
+
+/// The supported version is measured by applying `migrations` to a throwaway in-memory database,
+/// because [`Migrations`] exposes no length; that only runs on a refusal path.
+fn schema_ahead_message(
+    migrations: &Migrations<'_>,
+    db_user_version: i64,
+    backups_dir: &Path,
+) -> Option<String> {
     let mut probe = Connection::open_in_memory().ok()?;
     migrations.to_latest(&mut probe).ok()?;
     let supported: i64 = probe.query_row("PRAGMA user_version", [], |row| row.get(0)).ok()?;
@@ -123,6 +134,37 @@ fn schema_ahead_context(
          {db_user_version}, written by a newer build; install the newer build, or restore a \
          backup from {backups_dir:?}"
     ))
+}
+
+/// Refuse a database whose `user_version` is ahead of `migrations`, touching nothing (WR-01).
+///
+/// Uses a READ-ONLY connection and [`Migrations::current_version`], so the comparison runs against
+/// the same migration set `to_latest` will use and cannot disagree with it. This deliberately does
+/// not try to detect whether another process holds the file: the hazard (writing under a newer
+/// build's live WAL connection) is removed by not writing at all, so there is nothing to detect.
+fn refuse_if_schema_ahead(
+    db_path: &Path,
+    backups_dir: &Path,
+    migrations: &Migrations<'_>,
+) -> anyhow::Result<()> {
+    if !db_path.exists() {
+        return Ok(());
+    }
+    let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .with_context(|| format!("failed to open {db_path:?} read-only to check its schema version"))?;
+    if let SchemaVersion::Outside(on_disk) =
+        migrations.current_version(&conn).context("failed to read the database schema version")?
+    {
+        let on_disk = on_disk.get() as i64;
+        let msg = schema_ahead_message(migrations, on_disk, backups_dir)
+            .unwrap_or_else(|| format!("the database is at schema version {on_disk}, ahead of this build"));
+        return Err(anyhow::Error::from(MigrationError::MigrationDefinition(
+            MigrationDefinitionError::DatabaseTooFarAhead,
+        ))
+        .context(msg)
+        .context(format!("refused to open {db_path:?}: nothing was backed up, restored or modified")));
+    }
+    Ok(())
 }
 
 /// [`open_and_migrate`] against an explicit migration set. The product always passes the full
@@ -135,6 +177,9 @@ pub fn open_and_migrate_with(
     backups_dir: &Path,
     migrations: &Migrations<'_>,
 ) -> anyhow::Result<Connection> {
+    // Decided before every filesystem write (WR-01): see `refuse_if_schema_ahead`.
+    refuse_if_schema_ahead(db_path, backups_dir, migrations)?;
+
     let backup_path = backup_database_file(db_path, backups_dir)
         .with_context(|| format!("failed to back up {db_path:?} before migrating"))?;
 
