@@ -1583,9 +1583,26 @@ export interface CycleProgressDto {
   agentsBlocked: number;
 }
 
+export interface ScopeDriftDto {
+  epicsAdded: number;
+  epicsRemoved: number;
+  /** The core's sentence ("2 epics added, 1 removed since this Cycle started"); print it as-is. */
+  sentence: string;
+}
+
+export interface UnfinishedEpicDto {
+  id: string;
+  key: string;
+  title: string;
+}
+
 export interface CycleRegionDto {
   active: {
     id: string;
+    /** The epics closing this Cycle asks about, one by one (RECD-10). */
+    unfinishedEpics: UnfinishedEpicDto[];
+    /** `null` when the Cycle's scope has not changed since it started: absent, never zero. */
+    scopeDrift: ScopeDriftDto | null;
     key: string;
     goal: string;
     exitCriteria: string | null;
@@ -1604,6 +1621,7 @@ export interface CycleRegionDto {
 
 export interface CycleLineDto {
   id: string;
+  scopeDrift: ScopeDriftDto | null;
   key: string;
   goal: string;
   epicCount: number;
@@ -1611,6 +1629,19 @@ export interface CycleLineDto {
 
 export async function cycleRegion(projectId: string): Promise<CycleRegionDto> {
   return invokeCommand<CycleRegionDto>("cycle_region", { projectId });
+}
+
+/**
+ * One epic's answer when closing a Cycle (RECD-10, D-11): exactly three choices. There is no shape
+ * here that applies one choice to several epics; the core refuses a close missing an answer.
+ */
+export type EpicChoiceDto =
+  | { epicId: string; choice: "move_to"; targetCycleId: string }
+  | { epicId: string; choice: "unassign" }
+  | { epicId: string; choice: "leave_here" };
+
+export async function cycleClose(cycleId: string, choices: EpicChoiceDto[]): Promise<void> {
+  return invokeCommand<void>("cycle_close", { cycleId, choices });
 }
 
 /**

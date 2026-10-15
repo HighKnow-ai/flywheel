@@ -3,7 +3,7 @@
  * an absence in words, and sits outside the virtualized list.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BoardView } from "../BoardView";
 import { CycleRegion } from "../CycleRegion";
@@ -25,6 +25,8 @@ vi.mock("../../adapters/tauri", () => ({
 
 const ACTIVE_CYCLE = {
   id: "c1",
+  unfinishedEpics: [],
+  scopeDrift: null,
   key: "FLY-9",
   goal: "Ship the board",
   exitCriteria: null,
@@ -35,8 +37,8 @@ const ACTIVE_CYCLE = {
 const NO_ROSTER = { later: [], total: 1, listed: 1, truncated: false };
 const ACTIVE: CycleRegionDto = { active: ACTIVE_CYCLE, ...NO_ROSTER };
 const LATER = [
-  { id: "c2", key: "FLY-10", goal: "Reviews land", epicCount: 3 },
-  { id: "c3", key: "FLY-11", goal: "Relay", epicCount: 0 },
+  { id: "c2", key: "FLY-10", goal: "Reviews land", epicCount: 3, scopeDrift: null },
+  { id: "c3", key: "FLY-11", goal: "Relay", epicCount: 0, scopeDrift: null },
 ];
 
 function respondWith(region: CycleRegionDto) {
@@ -120,6 +122,43 @@ describe("CycleRegion", () => {
     renderWith(<CycleRegion projectId="proj-1" />);
     await screen.findByRole("list", { name: "Later cycles" });
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  const DRIFT = { epicsAdded: 2, epicsRemoved: 1, sentence: "2 epics added, 1 removed since this Cycle started" };
+
+  it("prints the scope-drift sentence, numbers and all, on the active cycle's own row", async () => {
+    respondWith({ ...ACTIVE, active: { ...ACTIVE_CYCLE, scopeDrift: DRIFT } });
+    renderWith(<CycleRegion projectId="proj-1" />);
+    expect(await screen.findByText("2 epics added, 1 removed since this Cycle started")).toBeTruthy();
+  });
+
+  it("prints the scope-drift sentence on a later cycle's line", async () => {
+    respondWith({
+      ...ACTIVE,
+      later: [{ ...LATER[0], scopeDrift: { epicsAdded: 0, epicsRemoved: 1, sentence: "1 epic removed since this Cycle started" } }, LATER[1]],
+    });
+    renderWith(<CycleRegion projectId="proj-1" />);
+    const line = (await screen.findAllByText(/Reviews land/))[0].closest("li") as HTMLElement;
+    expect(within(line).getByText("1 epic removed since this Cycle started")).toBeTruthy();
+  });
+
+  it("prints no drift sentence at all when there is no drift", async () => {
+    respondWith(ACTIVE);
+    renderWith(<CycleRegion projectId="proj-1" />);
+    await screen.findByText("Ship the board");
+    expect(screen.queryByText(/since this Cycle started/i)).toBeNull();
+    expect(screen.queryByText(/changed/i)).toBeNull();
+  });
+
+  it("opens the close dialog with one row per unfinished epic from the region's data", async () => {
+    respondWith({
+      ...ACTIVE,
+      active: { ...ACTIVE_CYCLE, unfinishedEpics: [{ id: "e1", key: "FLY-1", title: "Alpha" }] },
+      later: LATER,
+    });
+    renderWith(<CycleRegion projectId="proj-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Close this cycle" }));
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(1);
   });
 
   it("is mounted on the board outside the element carrying className board-view", async () => {
