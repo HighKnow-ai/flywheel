@@ -37,8 +37,8 @@ own phases, which are read daily in this repository (owner decision, 2026-10-14)
 - [ ] **RECD-05**: An ADR is a first-class board record with states proposed, accepted, rejected and superseded; the body of an accepted ADR is immutable, and `rejected` is retained as negative knowledge so the same decision is not re-proposed
 - [ ] **RECD-06**: Superseding an ADR is atomic — the superseded record and its successor change state in one transaction, and no state exists in which both are accepted
 - [ ] **RECD-07**: An agent that reaches a genuine decision fork proposes an ADR naming at least two options with their trade-offs, rate-limited per run, checked against existing ADRs for duplicates before surfacing; a provisional choice may proceed without blocking the run
-- [ ] **RECD-08**: A Cycle groups epics and is scope-boxed and undated — it has a goal, an ordering and exit criteria, and it has no dates, no capacity and no velocity
-- [ ] **RECD-09**: The current Cycle's progress and the roadmap ahead of it are visible without navigating to them, folded from the real task counts of every epic rather than from a paged window
+- [x] **RECD-08**: A Cycle groups epics and is scope-boxed and undated — it has a goal, an ordering and exit criteria, and it has no dates, no capacity and no velocity
+- [x] **RECD-09**: The current Cycle's progress and the roadmap ahead of it are visible without navigating to them, folded from the real task counts of every epic rather than from a paged window
 - [ ] **RECD-10**: Closing a Cycle prompts for the disposition of unfinished epics rather than silently moving them, and a Cycle whose scope changed after it started says so
 - [ ] **RECD-11**: Accepted ADRs that constrain an epic, and the PRD bar items for that epic, enter the agent's context packet — bounded by fixed counts and link relevance, pinned to the revision that was read, with the inclusion boundary stated to the user in the CTX-05 style
 - [ ] **RECD-12**: A PRD or ADR revision that changed after an agent read it is surfaced as a contradiction in the next session's prompt, extending CTX-06 rather than duplicating it
@@ -175,8 +175,8 @@ Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROAD
 | RECD-05 | Phase 16 | Pending |
 | RECD-06 | Phase 16 | Pending |
 | RECD-07 | Phase 16 | Pending |
-| RECD-08 | Phase 14 | Pending |
-| RECD-09 | Phase 14 | Pending |
+| RECD-08 | Phase 14 | Complete |
+| RECD-09 | Phase 14 | Complete |
 | RECD-10 | Phase 14 | Pending |
 | RECD-11 | Phase 16 | Pending |
 | RECD-12 | Phase 16 | Pending |

@@ -246,12 +246,12 @@ the token work are established patterns in this repository. The direction docume
 states get washes, the CVD thresholds, the ground lightness floor) are a design artifact *of* this
 phase, tuned on the demo board, not a research round before it. OS-following and dark-first are
 already settled (REQUIREMENTS decisions 1 and 13).
-**Plans**: 10 plans, 6 waves — tracer-first, with the hierarchy statement and the demonstration board before the visual work and the owner's verdict last
+**Plans**: 1/10 plans executed, 6 waves — tracer-first, with the hierarchy statement and the demonstration board before the visual work and the owner's verdict last
 
 Plans:
 **Wave 1**
 
-- [ ] 14-01-PLAN.md — tracer: the `cycles` table, the folded progress and the region end-to-end, with the spine pin, the table classification and the column allowlist edited in the same diff (RECD-08, RECD-09)
+- [x] 14-01-PLAN.md — tracer: the `cycles` table, the folded progress and the region end-to-end, with the spine pin, the table classification and the column allowlist edited in the same diff (RECD-08, RECD-09)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -446,7 +446,7 @@ Phase 17 shares no file with Phase 16 and may run beside it; it may not be absor
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 13. Nothing New Escapes The Fence | 18/18 | Complete    | 2026-10-15 |
-| 14. Cycles On Screen, State In Colour | 0/0 | Not started | - |
+| 14. Cycles On Screen, State In Colour | 1/10 | In Progress|  |
 | 15. Nothing Typed That An Agent Could Draft | 0/0 | Not started | - |
 | 16. The Problem And The Decision Are Board Records | 0/0 | Not started | - |
 | 17. Pre-Reviewed, Never Pre-Approved | 0/0 | Not started | - |

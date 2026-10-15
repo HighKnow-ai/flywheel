@@ -2,18 +2,18 @@
 gsd_state_version: "1.0"
 milestone: v0.2.0
 current_phase: 14
-current_phase_name: cycles-on-screen-state-in-colour
+current_phase_name: Cycles On Screen, State In Colour
 status: executing
-stopped_at: Phase 14 context gathered
-last_updated: "2026-10-15T09:02:22.865Z"
+stopped_at: Completed 14-01-PLAN.md
+last_updated: "2026-10-15T10:28:03.432Z"
 last_activity: 2026-10-15
-last_activity_desc: Phase 14 planning complete
-state_head: f5230f2a2edbe3673e872e2e8591408b0dc1060d
+last_activity_desc: Phase 14 execution started
+state_head: d357bcb7f30d503c645c57c753b3993edb23a960
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 28
-  completed_plans: 18
+  completed_plans: 19
 milestone_name: The Board Thinks With You
 ---
 
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 
 ## Current Position
 
-Phase: 14 (cycles-on-screen-state-in-colour) — READY TO EXECUTE
-Plan: Not started
+Phase: 14 (Cycles On Screen, State In Colour) — EXECUTING
+Plan: 2 of 10
 Status: Ready to execute
-Last activity: 2026-10-15 — Phase 14 planning complete
+Last activity: 2026-10-15 — Phase 14 execution started
 
 ## Performance Metrics
 
@@ -330,6 +330,7 @@ Last activity: 2026-10-15 — Phase 14 planning complete
 | Phase 13 P15 | 8 min | 3 tasks | 28 files |
 | Phase 13 P17 | 25 min | 3 tasks | 9 files |
 | Phase 13 P18 | 10 min | 2 tasks | 3 files |
+| Phase 14 P01 | continuation | 3 tasks | 19 files |
 
 ## Accumulated Context
 
@@ -760,6 +761,7 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-17: too-far-ahead refusal is decided from a read-only Migrations::current_version check before any backup; SURFACE_LAYERS deleted, App.tsx switch ending in never is the single UiSurface exhaustiveness check; boundary sentence window clause is count-only — Removes the fs::copy over a possibly-live WAL file; avoids a keyboard behaviour change across five surfaces; one ordinal base per clause
 - [Phase 13]: A-06: PM vocabulary gate matches identifier components; .sql scan question left open
 - [Phase 13]: A-07 (owner decision, 2026-10-15): agent_runs.kind column not added; RunKind::classify is the one definition
+- [Phase 14]: 14-01: Cycle table keeps REFERENCES on project_id/created_by (option B, owner 2026-10-15); undated bars scheduling columns not audit timestamps
 
 ### Pending Todos
 
@@ -823,6 +825,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T08:02:03.366Z
-Stopped at: Phase 14 context gathered
-Resume file: .planning/phases/14-cycles-on-screen-state-in-colour/14-CONTEXT.md
+Last session: 2026-10-15T10:28:03.393Z
+Stopped at: Completed 14-01-PLAN.md
+Resume file: None
