@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 13
 current_phase_name: Nothing New Escapes The Fence
 status: executing
-stopped_at: Completed 13-14-PLAN.md
-last_updated: "2026-10-15T04:59:08.772Z"
+stopped_at: Completed 13-16-PLAN.md
+last_updated: "2026-10-15T05:31:59.396Z"
 last_activity: 2026-10-15
 last_activity_desc: Phase 13 execution started
-state_head: ef3ee1563e7b73bf5281e6de3a66525d0666cb75
+state_head: 7b3ac937b7295d75aa74539be36c732160000ca8
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 18
-  completed_plans: 13
+  completed_plans: 14
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-12)
 ## Current Position
 
 Phase: 13 (Nothing New Escapes The Fence) — EXECUTING
-Plan: 3 of 18
+Plan: 4 of 18
 Status: Ready to execute
 Last activity: 2026-10-15 — Phase 13 execution started
 
@@ -324,6 +324,7 @@ Last activity: 2026-10-15 — Phase 13 execution started
 | Phase 13 P11 | 65 min | 4 tasks | 12 files |
 | Phase 13 P12 | 40 min | 3 tasks | 6 files |
 | Phase 13 P14 | ~30min | 3 tasks | 6 files |
+| Phase 13 P16 | 20 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -747,6 +748,8 @@ Recent decisions affecting current work:
 - [Phase 13]: 13-11: proposal cap is per run kind (execution 10, planning 30, authoring 60) as const fn constants, never settings; planning refuses generically; D-109 amended as A-05
 - [Phase 13]: 13-12: MAX_ECHOED_DECISION_CANDIDATES derives from compaction::SUMMARY_WINDOW; PRIOR_AUTHORING_RUNS_LIMIT = 10; DriftInputs beyond-scope field is Option (None = lookup did not run)
 - [Phase 13]: 13-14: rename pre-existing deadline identifiers rather than add PM-gate idiom exclusions past D-20's two; .sql scanning left for owner via SCANNED_EXTENSIONS
+- [Phase 13]: 13-16: review-edge retry fires only when the found status is above the captured status and below the intended band (the plan's band-only guard is true for every refusal and would override a human's backward drag)
+- [Phase 13]: 13-16: task.done_with_unmet_criteria is appended only by derive_status_in_tx; TransitionOutcome.events_appended no longer counts it
 
 ### Pending Todos
 
@@ -810,6 +813,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T04:59:08.750Z
-Stopped at: Completed 13-14-PLAN.md
+Last session: 2026-10-15T05:31:59.375Z
+Stopped at: Completed 13-16-PLAN.md
 Resume file: None
