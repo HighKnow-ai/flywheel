@@ -19,7 +19,9 @@
  * container and no paging or expand control here (D-02 invents no second windowing rule). When the core
  * says `truncated`, the sentence below states how many are not shown, as `BoardView`'s
  * `epicRosterNotice` does for epics. The figure is a position, not a score: no trend, comparison or
- * target is drawn beside it. No literal colour is declared.
+ * target is drawn beside it, and no percentage is drawn at all: the printed figure is the fold's
+ * integer pair as-is (so there is no rounding rule to name), which can be read aloud and reproduced.
+ * Carries `EpicHeaderRow`'s D-06 honesty rule up one level. No literal colour is declared.
  */
 import type { CSSProperties } from "react";
 import { useCycleRegionQuery } from "./useCycleRegionQuery";

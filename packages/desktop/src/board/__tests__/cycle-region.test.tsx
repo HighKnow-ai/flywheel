@@ -73,6 +73,16 @@ describe("CycleRegion", () => {
     expect(await screen.findByText("No cycle is active.")).toBeTruthy();
   });
 
+  it("prints the fold's integer pair as-is at a count above one board page", async () => {
+    respondWith({
+      ...ACTIVE,
+      active: { ...ACTIVE_CYCLE, progress: { ...ACTIVE_CYCLE.progress, tasksTotal: 940, tasksDone: 412 } },
+    });
+    renderWith(<CycleRegion projectId="proj-1" />);
+    expect(await screen.findByText("412/940 tasks done")).toBeTruthy();
+    expect(document.querySelector("[data-cycle-region]")!.textContent).not.toMatch(/%/);
+  });
+
   it("says so in words, not as a zero, when the cycle holds no tasks", async () => {
     respondWith({
       ...ACTIVE,

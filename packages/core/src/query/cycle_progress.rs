@@ -9,6 +9,12 @@
 //! No percentage is returned and none is stored anywhere: the region draws whatever it draws from
 //! the integer pair `tasks_done` / `tasks_total`, at render time.
 //!
+//! A Cycle with no epics, or whose epics hold no tasks, answers zeroes, never an error and never an
+//! absent value: at this level a Cycle with no tasks genuinely has zero tasks, and the renderer says
+//! so in words (`EpicProgress::criteria` is an `Option` because one level down absent and zero differ;
+//! here they do not). `tests/cycle_progress.rs` pins the totals against an independent full count
+//! over a board larger than a page.
+//!
 //! Every statement is a literal bound through `params![]` (T-01-01/T-01-23).
 
 use anyhow::Context;
