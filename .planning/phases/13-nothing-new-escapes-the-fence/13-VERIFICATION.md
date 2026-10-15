@@ -6,7 +6,16 @@ score: 2/6 roadmap criteria fully verified (4 partial)
 covered_files: [".planning/REQUIREMENTS.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-01-PLAN.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-01-SUMMARY.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-02-PLAN.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-02-SUMMARY.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-03-PLAN.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-03-SUMMARY.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-04-PLAN.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-04-SUMMARY.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-05-PLAN.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-05-SUMMARY.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-06-PLAN.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-06-SUMMARY.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-07-PLAN.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-07-SUMMARY.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-08-PLAN.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-08-SUMMARY.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-09-PLAN.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-09-SUMMARY.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-10-PLAN.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-10-SUMMARY.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-11-PLAN.md", ".planning/phases/13-nothing-new-escapes-the-fence/13-11-SUMMARY.md", "packages/core/src/compaction.rs", "packages/core/src/context_packet.rs", "packages/core/src/domain/actor.rs", "packages/core/src/domain/agent_run.rs", "packages/core/src/domain/authoring_proposal.rs", "packages/core/src/drift.rs", "packages/core/src/schema_classification.rs", "packages/core/src/status_derivation.rs", "packages/core/tests/authority_human_only.rs", "packages/core/tests/context_packet_bound.rs", "packages/core/tests/pm_vocabulary_gate.rs", "packages/core/tests/spine_pin.rs", "packages/core/tests/table_classification.rs", "packages/desktop/src/board/useBoardQuery.ts", "packages/desktop/src/state/keyboard.ts"]
 covered_digest: "v1:sha256:90ccbd048c3543d1f84ca84a920fa1d8a871b26f060091af56b86ff0391b2121"
 behavior_unverified: 0
-overrides_applied: 0
+overrides_applied: 2
+overrides:
+  - must_have: "the foreign-key chain above epics ends at the cycle table, which has no parent, and no other table references it"
+    reason: "No cycles table exists until Phase 14; the spine-pin mechanism that will assert it is in place and will fail the moment epics.cycle_id is added. Clause moved to Phase 14 success criterion 1."
+    accepted_by: "Cyril Marechal"
+    accepted_at: "2026-10-15T00:00:00Z"
+  - must_have: "A live, credential-spending planning run exists as a recorded artifact showing the planner naming real files"
+    reason: "Requires the owner's own credentials and cannot be produced by an agent. Serves DRFT-01, whose home is Phase 15; the hand-typed path field stays until the artifact exists."
+    accepted_by: "Cyril Marechal"
+    accepted_at: "2026-10-15T00:00:00Z"
 gaps:
   - truth: "Criterion 4: No unbounded read of summaries, decisions or records remains"
     status: failed
