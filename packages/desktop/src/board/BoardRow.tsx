@@ -58,10 +58,8 @@
  * own row (`isEpic`), in the `field-epic-pill` slot that field is never used for on an epic row
  * (the epic-pill field renders nothing for an epic — an epic has no epic of its own), which is
  * what keeps it from ever occupying the same row real estate as the two corner pills near the
- * status glyph. It reuses `--accent-text-strip` — the strip-stock sibling of `--accent-text-rack`,
- * already the "agent, non-blocking" informational role everywhere else in this product (the
- * authoring-stage indicator, the proposal tray's own target-type label) — never the blocked role
- * two pills above already carry, and no new token was added.
+ * status glyph. Since Phase 14 it is drawn by `legend/StateBadge.tsx` in the needs-you class (D-15),
+ * not in the brand: the count is a state, not progress.
  *
  * Phase 7 plan 07-08 Task 2 adds a fourth signal, the CI-failure pill (D-124): trailing the
  * Blocked/Needs Decision pair when present, or trailing the status glyph alone otherwise — built
@@ -78,6 +76,7 @@ import {
   priorityMarkId,
   statusMarkId,
 } from "../legend/marks";
+import { StateBadge } from "../legend/StateBadge";
 import type { Actor, BoardItem, EpicSummary } from "./useBoardQuery";
 
 /** The four row kinds the rack renders (08.1 amendment A-03). */
@@ -343,21 +342,10 @@ export function BoardRow({
           aria-label={`${blockedMark?.label ?? "Blocked"}. Press to view the pending request.`}
           title={blockedMark?.meaning}
           onClick={handleBlockedPillClick}
-          className="type-label"
-          style={{
-            display: "inline-flex",
-            flexShrink: 0,
-            alignItems: "center",
-            gap: 2,
-            color: "var(--blocked-text-strip)",
-            border: "1px solid var(--blocked-text-strip)",
-            borderRadius: "var(--radius-chrome)",
-            padding: "1px var(--space-xs)",
-            cursor: "pointer",
-          }}
+          style={{ display: "inline-flex", flexShrink: 0, cursor: "pointer" }}
         >
-          <Icon name={blockedMark?.glyph ?? "ShieldAlert"} size={12} />
-          {blockedMark?.label ?? "Blocked"}
+          {/* A state, so it is drawn by the one component (Phase 14, D-17): the edge variant is a full 1px boundary, never a side stripe. */}
+          <StateBadge state="blocked" variant="edge" />
         </span>
       )}
       {needsDecision && (
@@ -489,15 +477,14 @@ export function BoardRow({
         // D-82 (plan 05-08 Task 3): the epic-pill field slot is never used for an epic row itself
         // (an epic has no epic of its own, see `!isEpic` above) — reused here rather than adding a
         // new field, so this signal never competes with the Blocked/Needs Decision pills near the
-        // status glyph for the same row space. Not a `blocked`-role colour (D-46: a pending
-        // proposal burns no money) — `--accent-text-strip`, the same "agent, informational" role
-        // `--accent-text-rack` already carries elsewhere in this product.
+        // status glyph for the same row space. A pending proposal is in the needs-you class (D-15),
+        // drawn by the one state component; it was the brand's `--accent-text-strip` until Phase 14.
         <span
           className="field-epic-pill type-label tabular-nums"
           title={proposalPendingMark?.meaning}
-          style={{ display: "inline-flex", alignItems: "center", gap: 2, flexShrink: 0, color: "var(--accent-text-strip)" }}
+          style={{ display: "inline-flex", alignItems: "center", gap: 2, flexShrink: 0 }}
         >
-          <Icon name={proposalPendingMark?.glyph ?? "FileClock"} size={12} />
+          <StateBadge state="proposals_pending" hideLabel />
           {pendingProposalCount}
         </span>
       )}

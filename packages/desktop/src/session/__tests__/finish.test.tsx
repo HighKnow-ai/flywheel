@@ -223,7 +223,7 @@ describe("the two things this group must not lose", () => {
   it("SessionSurface still omits the pulse class under reduced motion rather than freezing the glyph", () => {
     expect(surface).toMatch(/const pulsing = status === "running" && !prefersReducedMotion\(\)/);
     expect(feedRow).toMatch(/export function prefersReducedMotion/);
-    expect(surface).toMatch(/className=\{pulsing \? "agent-pulse" : undefined\}/);
+    expect(surface).toMatch(/<StateBadge state=\{status\} pulse=\{pulsing\} \/>/);
   });
 
   it("no raw-HTML rendering path reaches agent output", () => {

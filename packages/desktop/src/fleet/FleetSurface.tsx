@@ -23,15 +23,11 @@
  * lifting it, because a key that clears the selected row one keystroke from Enter is how a finished run
  * gets cleared by accident. Dismiss stays a focusable button.
  */
-import { useEffect, useState, type ComponentType, type MouseEvent } from "react";
-import * as icons from "lucide-react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { acknowledgeAgentRun, agentRunAcknowledgeMany, type FleetActivityDto, type FleetRowDto } from "../adapters/tauri";
-import { MARKS_BY_ID } from "../legend/marks";
+import { StateBadge } from "../legend/StateBadge";
 import {
   FLEET_BANDS,
-  RUN_STATUS_COLOR_ROLES,
-  RUN_STATUS_LABELS,
-  RUN_STATUS_MARK_IDS,
   bandForState,
   formatAge,
   formatCostUsd,
@@ -48,14 +44,6 @@ import { useUiStore } from "../state/uiStore";
 import { BlockedQueue } from "./BlockedQueue";
 import { useBlockedQueue, useFleet } from "./useFleet";
 import "../styles/admin-surfaces.css";
-
-type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
-
-function Icon({ name, size = 14 }: { name: string; size?: number }) {
-  const Component = (icons as unknown as Record<string, IconComponent>)[name];
-  if (!Component) return null;
-  return <Component size={size} strokeWidth={2} />;
-}
 
 function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
@@ -296,7 +284,6 @@ export function FleetRowView({
   onOpenSubject?: (row: FleetRowDto) => void;
 }) {
   const state: FleetState = isFleetState(row.fleetState) ? row.fleetState : "running";
-  const mark = MARKS_BY_ID[RUN_STATUS_MARK_IDS[state]];
   const pulsing = state === "running" && !prefersReducedMotion();
   const subject = subjectLabel(row);
   const age = formatAge(ageSince(row, state), now);
@@ -324,15 +311,8 @@ export function FleetRowView({
         borderBottom: "1px solid var(--divider)",
       }}
     >
-      <span
-        className="type-label"
-        data-field="state"
-        style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", color: RUN_STATUS_COLOR_ROLES[state] }}
-      >
-        <span aria-hidden="true" className={pulsing ? "agent-pulse" : undefined} style={{ display: "inline-flex" }}>
-          <Icon name={mark?.glyph ?? "Circle"} />
-        </span>
-        {RUN_STATUS_LABELS[state]}
+      <span data-field="state" style={{ display: "inline-flex" }}>
+        <StateBadge state={state} pulse={pulsing} />
       </span>
       <span data-field="project" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {row.projectName}

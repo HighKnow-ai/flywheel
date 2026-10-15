@@ -1,11 +1,12 @@
 /**
  * The ONE run-status vocabulary (Phase 10 plan 10-01, RESEARCH Finding 14): the words, `agent`-channel
- * mark ids and colour roles for a run's status, plus the fleet's derived `awaiting_review` state and its
+ * mark ids for a run's status, plus the fleet's derived `awaiting_review` state and its
  * three bands. The runs section, the session surface and the fleet surface all import from here;
  * none declares its own copy, so a seventh state or a re-worded label is a one-file change.
  *
- * Never colour alone (T-02-17): every state is a glyph (via its mark id in `legend/marks.ts`) plus a word
- * plus a colour role, and a state's colour is the same role wherever it is drawn.
+ * Never colour alone (T-02-17): every state is a glyph (via its mark id in `legend/marks.ts`) plus a word.
+ * The colour is not declared here: `legend/StateBadge.tsx` draws a state in its class's colour (Phase 14, D-17),
+ * so a state's colour is the same wherever it is drawn.
  *
  * This module also owns the three formatters the session surface and the runs section used to declare
  * separately (elapsed time, token count, dollar cost), so a figure reads the same on every surface.
@@ -40,20 +41,6 @@ export const RUN_STATUS_MARK_IDS: Record<FleetState, string> = {
   interrupted: "run-interrupted",
   abandoned: "run-abandoned",
   awaiting_review: "run-awaiting-review",
-};
-
-/** 02-UI-SPEC.md "Run Status", extended by 03-UI-SPEC.md "Color Additions" (`abandoned` reuses the role
- * `failed` already spends, told apart by glyph and word). `interrupted` is the muted role, never an
- * error role: a user-initiated stop is a normal outcome, not a failure (D-169). `awaiting_review` is
- * ink: it needs the user but is neither an alarm nor an error. */
-export const RUN_STATUS_COLOR_ROLES: Record<FleetState, string> = {
-  running: "var(--accent-text-rack)",
-  blocked: "var(--blocked-text-rack)",
-  completed: "var(--success-text-rack)",
-  failed: "var(--destructive-text-rack)",
-  interrupted: "var(--text-muted-rack)",
-  abandoned: "var(--destructive-text-rack)",
-  awaiting_review: "var(--text-primary-rack)",
 };
 
 export const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "interrupted", "abandoned"];

@@ -79,10 +79,11 @@ describe("BoardRow blocked indicator (D-37)", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("resolves the pill's glyph and word from the marks registry, naming no icon component directly, and never references a notification API", async () => {
+  it("draws the pill through the one state component, which resolves glyph and word from the marks registry, and never references a notification API", async () => {
     const source = await import("../BoardRow.tsx?raw");
     const text: string = source.default;
-    expect(text).toMatch(/blockedMark\?\.glyph/);
+    expect(text).toMatch(/<StateBadge state="blocked" variant="edge" \/>/);
+    expect(text).not.toMatch(/blockedMark\?\.glyph/);
     expect(text).not.toMatch(/notification|notify/i);
   });
 });

@@ -161,3 +161,14 @@ describe("StateBadge: the glyph and the word come from the published registry", 
     expect(code).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
   });
 });
+
+describe("StateBadge: the pulse (Phase 14 plan 07, the one continuous-motion exception)", () => {
+  it("pulses the glyph only when asked, and the glyph stays hidden from assistive tech either way", () => {
+    const { container, rerender } = render(<StateBadge state="running" />);
+    expect(container.querySelector(".agent-pulse")).toBeNull();
+    rerender(<StateBadge state="running" pulse />);
+    const glyph = container.querySelector(".agent-pulse") as HTMLElement;
+    expect(glyph.getAttribute("aria-hidden")).toBe("true");
+    expect(screen.getByText("Running")).toBeTruthy();
+  });
+});

@@ -49,10 +49,9 @@ import { ProposalTray } from "../authoring/ProposalTray";
 import { useRunProposals } from "../authoring/useAuthoringQuery";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { MARKS_BY_ID } from "../legend/marks";
+import { StateBadge } from "../legend/StateBadge";
 import {
-  RUN_STATUS_COLOR_ROLES,
   RUN_STATUS_LABELS,
-  RUN_STATUS_MARK_IDS,
   TERMINAL_STATUSES,
   formatCostUsd,
   formatCount,
@@ -86,19 +85,8 @@ function Icon({ name, size = 14 }: { name: string; size?: number }) {
  * preference rather than merely zeroed, so the glyph stays static rather than freezing mid-pulse —
  * but it is never removed, the running state must stay legible either way. */
 function RunStatusBadge({ status }: { status: RunStatus }) {
-  const mark = MARKS_BY_ID[RUN_STATUS_MARK_IDS[status]];
   const pulsing = status === "running" && !prefersReducedMotion();
-  return (
-    <span
-      className="type-label"
-      style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", color: RUN_STATUS_COLOR_ROLES[status] }}
-    >
-      <span aria-hidden="true" className={pulsing ? "agent-pulse" : undefined} style={{ display: "inline-flex" }}>
-        <Icon name={mark?.glyph ?? "Circle"} />
-      </span>
-      {RUN_STATUS_LABELS[status]}
-    </span>
-  );
+  return <StateBadge state={status} pulse={pulsing} />;
 }
 
 /** The most recent numeric value found under any of `fields`, scanning newest-to-oldest — the
@@ -226,9 +214,9 @@ export function previousAuthoringStage(stage: string): string | undefined {
 
 /** The stage indicator (D-88, plan 05-03) — its own independently-rendering sibling of
  * `StatusStrip`, mounted the same way (never woven into `FeedRow.tsx`). Shows all three stages in
- * their fixed order with the current one marked (current = `--accent-text-rack`, the same role
- * `RUN_STATUS_COLOR_ROLES.running` already reuses; the others = `--text-muted-rack`) — no new colour
- * token, reusing the existing agent signal vocabulary block. */
+ * their fixed order with the current one marked (current = `--accent-text-rack`, the brand text role the
+ * specification permits for "the live authoring stage"; the others = `--text-muted-rack`) — no new colour
+ * token. The run badge above no longer shares this role: it is drawn by `legend/StateBadge.tsx` (Phase 14, D-17). */
 function AuthoringStageIndicator({ stage }: { stage: string }) {
   return (
     <span

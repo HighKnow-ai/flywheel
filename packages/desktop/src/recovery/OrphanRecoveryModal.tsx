@@ -35,10 +35,10 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader, OctagonX } from "lucide-react";
+import { OctagonX } from "lucide-react";
 import { orphanKill, type PendingOrphanDto } from "../adapters/tauri";
 import { pendingOrphansQueryKey, usePendingOrphans } from "../board/useBoardQuery";
-import { MARKS_BY_ID } from "../legend/marks";
+import { StateBadge } from "../legend/StateBadge";
 import "../styles/states-and-confirms.css";
 
 function isNonEmptyString(value: unknown): value is string {
@@ -170,7 +170,6 @@ export function OrphanRecoveryModal() {
 
   const count = rows.length;
   const heading = `Flywheel found ${count} agent process${count === 1 ? "" : "es"} still running from a previous session.`;
-  const runningMark = MARKS_BY_ID["run-running"];
   const pulsing = !prefersReducedMotion();
   const anyUnresolved = rows.some((row) => !row.failed);
 
@@ -237,12 +236,9 @@ export function OrphanRecoveryModal() {
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
-                    <span
-                      aria-hidden="true"
-                      className={pulsing ? "agent-pulse" : undefined}
-                      style={{ color: "var(--accent-text-rack)", flexShrink: 0, display: "inline-flex" }}
-                    >
-                      <Loader size={16} strokeWidth={2} aria-label={runningMark?.label} />
+                    {/* The glyph is the running class's mark, named "Running" for a screen reader; the sentence beside it is the visible word. */}
+                    <span style={{ flexShrink: 0, display: "inline-flex" }}>
+                      <StateBadge state="running" variant="mark" hideLabel pulse={pulsing} />
                     </span>
                     <span className="type-label" style={{ color: "var(--text-primary-rack)" }}>
                       Running (from a previous session)

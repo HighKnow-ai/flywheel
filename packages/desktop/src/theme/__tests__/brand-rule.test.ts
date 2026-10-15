@@ -30,8 +30,9 @@ const specSource = new TextDecoder().decode(
  */
 
 /**
- * THE allowlist. It mirrors § "The brand rule" in 08.1-UI-SPEC.md: eight permitted uses (seven by D-199, the developer's turn by D-203)
- * plus the two existing uses plan 11-18 recorded without deciding. `spec` is a phrase that must appear in that section, so
+ * THE allowlist. It mirrors § "The brand rule" in 08.1-UI-SPEC.md: the permitted uses D-199 and D-203 widened it to, less the two
+ * Phase 14 voided (the run status and the pending-proposal count; the state vocabulary owns both, see VOIDED below), plus the
+ * existing text-selection use plan 11-18 recorded without deciding. `spec` is a phrase that must appear in that section, so
  * widening the code without widening the document is a failing test. Widen both together, or neither.
  *
  * `count` is the number of occurrences outside comments; a new use in an already-listed file changes it and fails.
@@ -40,29 +41,31 @@ const USE = {
   progress: { spec: "the progress fill" },
   commitsAhead: { spec: "the commits-ahead annotation text" },
   textAction: { spec: "text links and text actions" },
-  runStatus: { spec: "the run status" },
   authoringStage: { spec: "the live authoring stage" },
   // Decided by D-203 (owner, 2026-10-14): colour is the feed's only channel telling the two speakers apart.
   developerTurn: { spec: "the developer's own turn in the authoring feed" },
-  // Recorded by plan 11-18, not decided by D-199 (the spec says so in its own words).
-  proposalCount: { spec: "the pending-proposal count on an epic row" },
   selection: { spec: "the text-selection highlight" },
 } as const;
 
 const BRAND_USES: Record<string, { count: number; uses: (keyof typeof USE)[] }> = {
   "App.css": { count: 1, uses: ["selection"] },
-  "board/BoardRow.tsx": { count: 2, uses: ["commitsAhead", "proposalCount"] },
+  "board/BoardRow.tsx": { count: 1, uses: ["commitsAhead"] },
   "board/BoardView.tsx": { count: 1, uses: ["textAction"] },
   "board/EpicHeaderRow.tsx": { count: 2, uses: ["progress", "commitsAhead"] },
   "board/TriageLane.tsx": { count: 2, uses: ["textAction"] },
   "item-detail/ActivityTrail.tsx": { count: 1, uses: ["textAction"] },
   "item-detail/ForgeSection.tsx": { count: 3, uses: ["textAction"] },
-  "legend/runStatus.ts": { count: 1, uses: ["runStatus"] },
-  "recovery/OrphanRecoveryModal.tsx": { count: 1, uses: ["runStatus"] },
   "review/EpicRequestSheet.tsx": { count: 1, uses: ["textAction"] },
   "session/FeedRow.tsx": { count: 1, uses: ["developerTurn"] },
   "session/SessionSurface.tsx": { count: 1, uses: ["authoringStage"] },
 };
+
+/**
+ * Uses Phase 14 (D-17, `14-DIRECTION.md` § SUPERSEDES) took away from the brand. The specification keeps their text as history,
+ * so each phrase still appears in it, and each must appear ONLY struck through (`~~` immediately before it). Narrowing the document
+ * without the allowlist, or quietly un-striking a use, fails here.
+ */
+const VOIDED = ["the run status", "the pending-proposal count on an epic row"];
 
 /** The token definitions themselves are not uses. */
 const DEFINITIONS = new Set(["styles/tokens.css", "theme/tokens.ts"]);
@@ -122,6 +125,20 @@ describe("the brand rule (08.1-UI-SPEC.md, widened by D-199 and D-203)", () => {
     const named = new Set(Object.values(BRAND_USES).flatMap((u) => u.uses));
     for (const key of named) {
       expect(section, `08.1-UI-SPEC.md § The brand rule does not name "${USE[key].spec}"`).toContain(USE[key].spec);
+    }
+  });
+
+  it("keeps every use Phase 14 voided struck through in the spec, and out of the allowlist", () => {
+    const spec = specSource.replace(/\s+/g, " ");
+    const section = spec.slice(spec.indexOf("The brand rule (D-12)"));
+    const claimed = new Set<string>(Object.values(BRAND_USES).flatMap((u) => u.uses.map((k) => USE[k].spec)));
+    for (const phrase of VOIDED) {
+      const pieces = section.split(phrase);
+      expect(pieces.length, `08.1-UI-SPEC.md § The brand rule no longer mentions the voided use "${phrase}"`).toBeGreaterThan(1);
+      for (const before of pieces.slice(0, -1)) {
+        expect(before.endsWith("~~"), `"${phrase}" is in 08.1-UI-SPEC.md § The brand rule without being struck through`).toBe(true);
+      }
+      expect(claimed.has(phrase), `the allowlist still claims the voided use "${phrase}"`).toBe(false);
     }
   });
 

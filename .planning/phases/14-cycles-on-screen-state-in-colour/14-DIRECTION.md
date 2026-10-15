@@ -70,6 +70,8 @@ consumer and needs no `BRAND_USES` entry. That is why the allowlist only shrinks
 when any other production file does. The component takes a state value and a variant (`text`, `wash`, `edge`, `mark`) and cannot
 draw without a glyph and either a word or an accessible name carrying it.
 
+The component also takes `pulse`, which puts the `agent-pulse` class on the glyph: the one continuous-motion exception (a process alive right now). The caller omits it under reduced motion, as the three run badges did before the rewire.
+
 Awaiting review has its own mark (`run-awaiting-review`, Eye). It REPLACES D-170's reuse of the In Review mark rather than sitting
 beside it, so the status channel keeps In Review for a task and the run channel has its own glyph (D-19). `run-merged` is registered
 beside it.

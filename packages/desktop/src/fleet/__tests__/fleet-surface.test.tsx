@@ -2,7 +2,7 @@
  * Behavior under test (Phase 10 plan 10-01, FLEET-01/FLEET-04, D-164/D-169/D-170):
  * - The three band headers render in the fixed order, and only for bands that hold a row.
  * - Each of the six run states plus awaiting review renders its own word beside its mark.
- * - `interrupted` renders on the muted role and under DONE / FAILED; `abandoned` under NEEDS YOU.
+ * - `interrupted` renders in the quiet class and under DONE / FAILED; `abandoned` in needs-you and under NEEDS YOU.
  * - The project is a column on every row, never a grouping.
  * - A run with no task is still a row (an authoring run, a planning run, a run with no subject).
  * - The empty state renders its copy, no band header and a zero count; one run renders one header.
@@ -134,7 +134,7 @@ describe("FleetSurface bands", () => {
     expect(new Set(words).size).toBe(7);
   });
 
-  it("puts interrupted under DONE / FAILED on the muted role, and abandoned under NEEDS YOU", async () => {
+  it("puts interrupted under DONE / FAILED in the quiet class, and abandoned under NEEDS YOU in needs-you", async () => {
     fleetListMock.mockResolvedValue(
       list([
         row({ agentRunId: "r-int", fleetState: "interrupted", runStatus: "interrupted", endedAt: new Date().toISOString() }),
@@ -149,9 +149,12 @@ describe("FleetSurface bands", () => {
     expect(abandoned.closest("[data-band]")?.getAttribute("data-band")).toBe("needs-you");
     const doneBandHeader = interrupted.closest("section")?.querySelector("h2")?.textContent;
     expect(doneBandHeader).toBe("DONE / FAILED");
-    const style = (within(interrupted).getByText("Interrupted") as HTMLElement).getAttribute("style") ?? "";
-    expect(style).toContain("--text-muted-rack");
-    expect(style).not.toContain("--destructive-text-rack");
+    // Every state is drawn by the one component (D-17): the class is on the badge, and `interrupted` is
+    // quiet, never an error role (D-169).
+    const interruptedBadge = within(interrupted).getByText("Interrupted") as HTMLElement;
+    expect(interruptedBadge.getAttribute("data-state-class")).toBe("quiet");
+    expect(interruptedBadge.getAttribute("style") ?? "").not.toContain("destructive");
+    expect((within(abandoned).getByText("Abandoned") as HTMLElement).getAttribute("data-state-class")).toBe("needs-you");
   });
 
   it("shows the project as a column on every row and never groups by it", async () => {

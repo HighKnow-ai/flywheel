@@ -26,8 +26,7 @@
  * 02-06's component — the ONE card, now living under the specific row it answers for rather than
  * as a generic panel-level mount (`ItemDetailPanel.tsx`'s prior compact mount, moved here).
  */
-import { useEffect, useRef, useState, type ComponentType } from "react";
-import * as icons from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import {
   acknowledgeAgentRun,
   answerPermissionRequest,
@@ -35,11 +34,8 @@ import {
   type SessionSummaryDto,
 } from "../adapters/tauri";
 import { useAgentRuns, usePendingPermissionRequests, useTaskSessionSummaries } from "../board/useBoardQuery";
-import { MARKS_BY_ID } from "../legend/marks";
+import { StateBadge } from "../legend/StateBadge";
 import {
-  RUN_STATUS_COLOR_ROLES,
-  RUN_STATUS_LABELS,
-  RUN_STATUS_MARK_IDS,
   TERMINAL_STATUSES,
   formatCostUsd,
   isRunStatus,
@@ -59,16 +55,6 @@ interface AcknowledgeState {
   error: string | null;
 }
 
-type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
-
-/** Resolve a Lucide icon by name — the same by-name pattern every other surface in this codebase
- * uses, so no icon component is ever named directly (this file's own structural verify gate). */
-function Icon({ name, size = 14 }: { name: string; size?: number }) {
-  const Component = (icons as unknown as Record<string, IconComponent>)[name];
-  if (!Component) return null;
-  return <Component size={size} strokeWidth={2} />;
-}
-
 function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -78,19 +64,8 @@ function prefersReducedMotion(): boolean {
  * `SessionSurface.tsx`'s own `RunStatusBadge`, duplicated locally per this file's own doc
  * comment above. */
 function RunStatusBadge({ status }: { status: RunStatus }) {
-  const mark = MARKS_BY_ID[RUN_STATUS_MARK_IDS[status]];
   const pulsing = status === "running" && !prefersReducedMotion();
-  return (
-    <span
-      className="type-label"
-      style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-xs)", color: RUN_STATUS_COLOR_ROLES[status] }}
-    >
-      <span aria-hidden="true" className={pulsing ? "agent-pulse" : undefined} style={{ display: "inline-flex" }}>
-        <Icon name={mark?.glyph ?? "Circle"} />
-      </span>
-      {RUN_STATUS_LABELS[status]}
-    </span>
-  );
+  return <StateBadge state={status} pulse={pulsing} />;
 }
 
 /** A relative "Xm/Xh/Xd ago" label, the absolute timestamp carried in the entry's own `title`

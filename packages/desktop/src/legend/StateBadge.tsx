@@ -81,9 +81,11 @@ export interface StateBadgeProps {
   variant?: StateBadgeVariant;
   /** Do not draw the word; the glyph then carries it as an accessible name. The word is never dropped silently. */
   hideLabel?: boolean;
+  /** Pulse the glyph (`agent-pulse`): the one continuous-motion exception, for a process alive right now. The caller omits it under reduced motion. */
+  pulse?: boolean;
 }
 
-export function StateBadge({ state, variant = "text", hideLabel = false }: StateBadgeProps) {
+export function StateBadge({ state, variant = "text", hideLabel = false, pulse = false }: StateBadgeProps) {
   const entry = own(state);
   const cls = entry?.cls ?? "quiet";
   const mark = MARKS_BY_ID[entry?.markId ?? UNKNOWN_MARK_ID];
@@ -108,7 +110,11 @@ export function StateBadge({ state, variant = "text", hideLabel = false }: State
   }
 
   const glyph = (
-    <span aria-hidden="true" style={{ display: "inline-flex", color: variant === "mark" ? token(cls, "mark") : undefined }}>
+    <span
+      aria-hidden="true"
+      className={pulse ? "agent-pulse" : undefined}
+      style={{ display: "inline-flex", color: variant === "mark" ? token(cls, "mark") : undefined }}
+    >
       <Icon name={mark.glyph} />
     </span>
   );
