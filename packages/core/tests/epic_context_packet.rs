@@ -4,8 +4,9 @@
 //! silently rather than loudly (determinism, extended to a second scope, and boundedness as a
 //! crate-wide gate) — both get a structural assertion here, not a comment.
 //!
-//! The `unbounded_reads` gate below scans `packages/core/src/query`, `epic_context_packet.rs` and
-//! (since plan 13-02, FNC-05) `context_packet.rs`: `SUMMARIES_SQL` is no longer a tolerated debt, it
+//! The `unbounded_reads` gate below scans `packages/core/src/query` and every entry of
+//! `SCANNED_SINGLE_FILES` (`epic_context_packet.rs`, `context_packet.rs` since plan 13-02, `drift.rs` since
+//! plan 13-12, all FNC-05): `SUMMARIES_SQL` is no longer a tolerated debt, it
 //! carries a LIMIT. `epic_roster`'s `EPIC_ROSTER_CEILING` exemption was closed by plan 05-04 Task 2.
 //! The gate exists so a further unbounded read is never added silently to any of those files.
 
@@ -937,6 +938,20 @@ fn scan_source_for_unbounded_selects(label: &str, source: &str, offenders: &mut 
     }
 }
 
+/// Single files scanned by the gate below, in addition to every `.rs` file under `src/query`.
+///
+/// Deliberately NOT a derived walk of the whole of `packages/core/src` (plan 13-12): that tree holds
+/// dozens of pre-existing un-`LIMIT`ed reads outside this phase's scope, so a derived walk would
+/// either need every one of them allow-listed in this diff (the hand-maintained list again, only
+/// longer) or fail the build on code no plan in this phase touches. The set is derived where that
+/// is cheap (a new `src/query` module is covered automatically) and explicit where it is not. The
+/// next file to enter the gate costs one line here.
+const SCANNED_SINGLE_FILES: [&str; 3] = [
+    "src/epic_context_packet.rs", // WR-02: sat in the same blind spot context_packet.rs did
+    "src/context_packet.rs",      // FNC-05 (13-02): SUMMARIES_SQL passes by carrying a LIMIT
+    "src/drift.rs",               // FNC-05 (13-12): decision_ids_on_record's json_each lookup shipped unbounded here
+];
+
 #[test]
 fn unbounded_reads_in_query_module_and_epic_context_packet_are_all_named_in_the_allowlist() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -952,20 +967,20 @@ fn unbounded_reads_in_query_module_and_epic_context_packet_are_all_named_in_the_
         scan_file_for_unbounded_selects(&path, &mut offenders);
     }
 
-    // WR-02: `epic_context_packet.rs` sat in the identical blind spot `context_packet.rs` is
-    // explicitly, deliberately NOT swept into (see this file's own module doc comment and
-    // `ALLOWED_UNBOUNDED_SELECTS`'s doc comment) — silently outside this gate's directory scope.
-    // Scanned here, one file, with the same logic, so a fourth unbounded read is never added
-    // silently to THIS file either.
-    scan_file_for_unbounded_selects(&manifest_dir.join("src/epic_context_packet.rs"), &mut offenders);
-
-    // FNC-05: `context_packet.rs` is no longer exempt. `SUMMARIES_SQL` passes by carrying a LIMIT.
-    scan_file_for_unbounded_selects(&manifest_dir.join("src/context_packet.rs"), &mut offenders);
+    for relative in SCANNED_SINGLE_FILES {
+        let path = manifest_dir.join(relative);
+        assert!(
+            path.is_file(),
+            "{relative} is named in SCANNED_SINGLE_FILES but is not on disk: a rename must update \
+             the list, not silently shrink the gate"
+        );
+        scan_file_for_unbounded_selects(&path, &mut offenders);
+    }
 
     assert!(
         offenders.is_empty(),
-        "unbounded, unallowlisted SELECT(s) found under packages/core/src/query or in \
-         epic_context_packet.rs or context_packet.rs:\n{}",
+        "unbounded, unallowlisted SELECT(s) found under packages/core/src/query or in a \
+         SCANNED_SINGLE_FILES entry:\n{}",
         offenders.join("\n")
     );
 }
@@ -984,6 +999,25 @@ const SUMMARIES_TOTAL_SQL: &str = \"SELECT COUNT(*) FROM session_summaries WHERE
     scan_source_for_unbounded_selects("planted.rs", planted, &mut offenders);
     assert_eq!(offenders.len(), 1, "expected exactly the planted violation, got {offenders:?}");
     assert!(offenders[0].contains("PLANTED_UNBOUNDED_SQL"), "offender was {offenders:?}");
+
+    // The shape the old `drift::decision_ids_on_record` shipped in: a `pub fn` (not a const) whose
+    // literal is a `json_each` lookup with no LIMIT. Without this half the clean-tree gate passes
+    // on a scanner that never looked at `drift.rs`.
+    let planted_fn = "\
+pub fn planted_decision_lookup(conn: &Connection) -> anyhow::Result<bool> {
+    let hit = conn.query_row(
+        \"SELECT 1 FROM session_summaries WHERE task_id = ?1 AND EXISTS \\
+         (SELECT 1 FROM json_each(session_summaries.decisions) WHERE json_extract(value, '$.id') = ?2)\",
+        [],
+        |row| row.get::<_, i64>(0),
+    );
+    Ok(hit.is_ok())
+}
+";
+    let mut fn_offenders = Vec::new();
+    scan_source_for_unbounded_selects("drift.rs", planted_fn, &mut fn_offenders);
+    assert_eq!(fn_offenders.len(), 1, "expected exactly the planted lookup, got {fn_offenders:?}");
+    assert!(fn_offenders[0].contains("drift.rs: planted_decision_lookup"), "offender was {fn_offenders:?}");
 }
 
 #[test]
