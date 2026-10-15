@@ -14,7 +14,7 @@
 //! second is a hard assert here, never a tolerated outcome.
 //!
 //! Self-contained per this repo's precedent (`pm_vocabulary_gate.rs`): carries its own copies of
-//! `workspace_root`/`is_whole_line_comment`/`sources_under`. No env var, `cfg` switch or `#[ignore]`
+//! `workspace_root`/`is_whole_line_comment`/`sources_under`. No env var, `cfg` switch or skip attribute
 //! turns anything here off.
 
 mod common;

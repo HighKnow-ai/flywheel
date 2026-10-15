@@ -127,7 +127,24 @@ const CANONICAL_UPDATE_OWNERS: [&str; 2] = ["src/domain/task.rs", "src/domain/ep
 /// skipped only on an exact (path, pattern) match, and `every_allowlisted_update_site_still_exists`
 /// fails if an entry goes stale. The reasons are also recorded in
 /// `.planning/phases/13-nothing-new-escapes-the-fence/13-AUTHORITY-ALLOWLIST.md`.
-const ALLOWED_CANONICAL_UPDATE_SITES: &[(&str, &str, &str)] = &[];
+const ALLOWED_CANONICAL_UPDATE_SITES: &[(&str, &str, &str)] = &[
+    (
+        "src/domain/acceptance_criterion.rs",
+        "UPDATE tasks SET",
+        "an `updated_at` touch of the criterion's own parent inside the criterion-check transaction — not a \
+     promotion (it creates no board substance) and not a status write (the status column is \
+     untouched, and `no_agent_status_write.rs` independently proves that). Refactoring it into \
+     `task.rs`/`epic.rs` would add a cross-module call for a timestamp and is deliberately not done.",
+    ),
+    (
+        "src/domain/acceptance_criterion.rs",
+        "UPDATE epics SET",
+        "an `updated_at` touch of the criterion's own parent inside the criterion-check transaction — not a \
+     promotion (it creates no board substance) and not a status write (the status column is \
+     untouched, and `no_agent_status_write.rs` independently proves that). Refactoring it into \
+     `task.rs`/`epic.rs` would add a cross-module call for a timestamp and is deliberately not done.",
+    ),
+];
 
 /// The matcher both the real gate and the planted-violation test drive: every line of `body` (at
 /// `path`) that writes a canonical table outside its owner. Skips whole-line comments and

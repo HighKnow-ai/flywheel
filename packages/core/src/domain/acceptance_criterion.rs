@@ -774,6 +774,7 @@ fn write_checked(
             .context("failed to clear the criterion's anchor on uncheck")?;
     }
 
+    // Allow-listed raw parent touch: see `ALLOWED_CANONICAL_UPDATE_SITES` in tests/proposal_no_promotion.rs.
     let touch_result: rusqlite::Result<usize> = match parent_type.as_str() {
         "task" => tx.execute(
             "UPDATE tasks SET updated_at = ?1 WHERE id = ?2",
