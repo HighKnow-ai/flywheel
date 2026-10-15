@@ -119,7 +119,7 @@ export const LIGHT: Palette = {
   destructiveTextRack: "#cf222e",
   blockedTextRack: "#9a6700",
   stateNeedsYouText: "#966708",
-  stateNeedsYouWash: "#fefcec",
+  stateNeedsYouWash: "#fffad3",
   stateNeedsYouEdge: "#b68420",
   stateNeedsYouMark: "#bd810a",
   stateRunningText: "#10798e",

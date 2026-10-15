@@ -89,12 +89,18 @@
    * below are WCAG, measured with theme/contrast.ts; plan 14-09 tunes them on the demonstration board.
    *
    *   class      text            mark            edge            wash     weakest existing text on wash
-   *   needs-you  #966708 4.61    #bd810a 3.10    #b68420 3.10    #fefcec  #9a6700 4.72
+   *   needs-you  #966708 4.61    #bd810a 3.10    #b68420 3.10    #fffad3  #9a6700 4.61
    *   running    #10798e 4.71    #149cb8 3.02    #2c9aaf 3.08    #f0f9fa  #9a6700 4.55
    *   failed     #bb1b28 5.93    #e9636e 3.02    #d67179 3.01    #fdf6f4  #9a6700 4.56
    *   merged     #9150d3 4.56    #ab78dd 3.03    #a37ec8 3.07    #f8f6ff  #9a6700 4.55
    * text is measured on the needs-you wash (its worst ground); mark and edge on the selected row
    * surface #f5f7f9 (their worst).
+   *
+   * Plan 14-09 moved ONE value, on the demonstration board: the light needs-you wash, from #fefcec to #fffad3
+   * (8.3 to 20.0 CIE76 from the ground). On the real fleet it read as a faint ivory chip behind the one class that asks
+   * something of the developer. A bounded search found every colour within 15 degrees of the hue that still clears every
+   * text and non-text floor and the CVD wash floor; this is the strongest of them up to 20, and the weakest text role on
+   * it is #9a6700 at 4.61. Reasons and the other washes (which could not move) are in 14-DIRECTION.md.
    *
    * Plan 14-08 moved SIX values here on evidence from theme/cvd.ts (the colour-vision proofs in
    * theme/__tests__/cvd.test.ts): the failed text, from #db1f2f (5.7 apart from needs-you under
@@ -103,7 +109,7 @@
    * measured separations are in 14-DIRECTION.md "CVD thresholds".
    */
   --state-needs-you-text: #966708;
-  --state-needs-you-wash: #fefcec;
+  --state-needs-you-wash: #fffad3;
   --state-needs-you-edge: #b68420;
   --state-needs-you-mark: #bd810a;
   --state-running-text: #10798e;

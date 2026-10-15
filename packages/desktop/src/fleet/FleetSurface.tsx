@@ -25,7 +25,7 @@
  */
 import { useEffect, useState, type MouseEvent } from "react";
 import { acknowledgeAgentRun, agentRunAcknowledgeMany, type FleetActivityDto, type FleetRowDto } from "../adapters/tauri";
-import { StateBadge } from "../legend/StateBadge";
+import { StateBadge, rowVariant } from "../legend/StateBadge";
 import {
   FLEET_BANDS,
   bandForState,
@@ -312,7 +312,7 @@ export function FleetRowView({
       }}
     >
       <span data-field="state" style={{ display: "inline-flex" }}>
-        <StateBadge state={state} pulse={pulsing} />
+        <StateBadge state={state} variant={rowVariant(state)} pulse={pulsing} />
       </span>
       <span data-field="project" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {row.projectName}

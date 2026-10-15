@@ -56,6 +56,18 @@ export const STATE_VOCABULARY: Record<string, StateEntry> = {
  */
 const UNKNOWN_MARK_ID = "status-backlog";
 
+/**
+ * The variant a LIST ROW draws a state in (Phase 14 plan 09, decided on the demonstration board). Needs-you and failed
+ * carry a wash, because those are the two classes that ask something of the developer; running, merged and the quiet
+ * states are ink, glyph and word. With a wash behind all of them, five of six fleet rows read as a pastel plate and the
+ * plate stopped telling the needs-you band from the running one. A wash is never the only carrier (D-15, and forced
+ * colors discards it), so this chooses emphasis and removes no information.
+ */
+export function rowVariant(state: string): StateBadgeVariant {
+  const cls = stateClassOf(state);
+  return cls === "needs-you" || cls === "failed" ? "wash" : "text";
+}
+
 const own = (state: string): StateEntry | undefined =>
   Object.prototype.hasOwnProperty.call(STATE_VOCABULARY, state) ? STATE_VOCABULARY[state] : undefined;
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { STATE_VOCABULARY, StateBadge, stateClassOf } from "../StateBadge";
+import { STATE_VOCABULARY, StateBadge, rowVariant, stateClassOf } from "../StateBadge";
 import { MARKS, MARKS_BY_ID } from "../marks";
 import { RUN_STATUS_MARK_IDS } from "../runStatus";
 import badgeSource from "../StateBadge.tsx?raw";
@@ -170,5 +170,22 @@ describe("StateBadge: the pulse (Phase 14 plan 07, the one continuous-motion exc
     const glyph = container.querySelector(".agent-pulse") as HTMLElement;
     expect(glyph.getAttribute("aria-hidden")).toBe("true");
     expect(screen.getByText("Running")).toBeTruthy();
+  });
+});
+
+describe("rowVariant: which states a list row washes (Phase 14 plan 09)", () => {
+  it("washes every needs-you and failed state, and nothing else the vocabulary knows", () => {
+    for (const state of Object.keys(STATE_VOCABULARY)) {
+      const cls = stateClassOf(state);
+      expect(rowVariant(state), state).toBe(cls === "needs-you" || cls === "failed" ? "wash" : "text");
+    }
+    expect(rowVariant("blocked")).toBe("wash");
+    expect(rowVariant("ci_failed")).toBe("wash");
+    expect(rowVariant("running")).toBe("text");
+    expect(rowVariant("merged")).toBe("text");
+  });
+
+  it("leaves a value the vocabulary does not know as ink", () => {
+    expect(rowVariant("something-new")).toBe("text");
   });
 });
