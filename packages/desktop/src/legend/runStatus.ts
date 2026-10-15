@@ -29,9 +29,9 @@ export const RUN_STATUS_LABELS: Record<FleetState, string> = {
   awaiting_review: "Awaiting review",
 };
 
-/** `agent_runs.status` / fleet state -> the published mark id (`legend/marks.ts`). `awaiting_review`
- * deliberately reuses the `status` channel's In Review mark (D-170): the `agent` channel keeps meaning
- * "what the process did", the review signal stays a board concept, and the legend gains no entry. */
+/** `agent_runs.status` / fleet state -> the published mark id (`legend/marks.ts`). `awaiting_review` has its
+ * own `agent`-channel mark since Phase 14 (D-19); it used to reuse the `status` channel's In Review mark
+ * (D-170), which left the state undefined in the registry in its own right. */
 export const RUN_STATUS_MARK_IDS: Record<FleetState, string> = {
   running: "run-running",
   blocked: "blocked-indicator",
@@ -39,7 +39,7 @@ export const RUN_STATUS_MARK_IDS: Record<FleetState, string> = {
   failed: "run-failed",
   interrupted: "run-interrupted",
   abandoned: "run-abandoned",
-  awaiting_review: "status-in-review",
+  awaiting_review: "run-awaiting-review",
 };
 
 /** 02-UI-SPEC.md "Run Status", extended by 03-UI-SPEC.md "Color Additions" (`abandoned` reuses the role

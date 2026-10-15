@@ -118,8 +118,10 @@ describe("StateBadge: the four draw variants are the four roles", () => {
     expect(el.style.borderWidth).toBe("1px");
     expect(el.style.borderStyle).toBe("solid");
     expect(el.style.borderColor).toBe("var(--state-running-edge)");
-    expect(el.style.borderLeftWidth).toBe("");
-    expect(el.style.borderLeftColor).toBe("");
+    // Every side is the same 1px: a shorthand width expands to all four, so no side can be a 2px stripe.
+    for (const side of ["Top", "Right", "Bottom", "Left"] as const) {
+      expect(el.style[`border${side}Width`], side).toBe("1px");
+    }
   });
 
   it("as a mark paints the glyph in the mark role and leaves the word to inherit", () => {

@@ -506,6 +506,25 @@ export const MARKS: Mark[] = [
     meaning:
       "A staged proposal awaiting your accept/reject/amend decision. It is not a blocked state: only a run that is spending money blocks.",
   },
+  // Phase 14 plan 04 (D-19). The state vocabulary names two states the registry did not yet define. Awaiting
+  // review REPLACES the old reuse of the status channel's In Review mark (D-170): the state now has a mark in
+  // its own right, so the agent channel can say it without borrowing a task-status shape. Merged shares the
+  // GitMerge glyph with the criteria channel's Integrated on purpose: it is the same fact, a branch folded
+  // into its target, and two glyphs for one fact would be the undocumented variation the registry forbids.
+  {
+    id: "run-awaiting-review",
+    channel: "agent",
+    glyph: "Eye",
+    label: "Awaiting review",
+    meaning: "The agent finished and its task is not yet Done: the diff is waiting for you to read it.",
+  },
+  {
+    id: "run-merged",
+    channel: "agent",
+    glyph: "GitMerge",
+    label: "Merged",
+    meaning: "This work's branch has been merged into its target. Nothing is left to do with it.",
+  },
 ];
 
 /**

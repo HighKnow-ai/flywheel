@@ -267,8 +267,8 @@ describe("the activity column", () => {
 });
 
 describe("the vocabulary", () => {
-  it("maps awaiting review to the status channel's In Review mark and defines every mark id it names", () => {
-    expect(RUN_STATUS_MARK_IDS.awaiting_review).toBe("status-in-review");
+  it("maps awaiting review to its own agent-channel mark (D-19) and defines every mark id it names", () => {
+    expect(RUN_STATUS_MARK_IDS.awaiting_review).toBe("run-awaiting-review");
     for (const id of Object.values(RUN_STATUS_MARK_IDS)) {
       expect(MARKS_BY_ID[id], id).toBeDefined();
     }

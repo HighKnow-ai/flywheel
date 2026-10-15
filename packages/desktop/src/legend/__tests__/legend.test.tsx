@@ -57,14 +57,15 @@ describe("MARKS registry", () => {
  * banner's own glyph (D-45), the abandoned-run badge's own glyph (D-49), the row-level "Needs
  * Decision" rollup pill's own glyph (D-46), the destructive-action gate card's own stop-sign glyph
  * (D-56), the three-stage authoring machine's own marks, the proposal tray's pending-proposal mark
- * (D-88), the board row's CI-failure pill (D-124), and the board row's two graded change
+ * (D-88), the board row's CI-failure pill (D-124), the state vocabulary's two new marks, awaiting review and
+ * merged (Phase 14 plan 04, D-19), and the board row's two graded change
  * annotations — commits ahead and uncommitted changes (D-15) — and the board row's scope-refusal
  * count (D-153).
  */
 describe("agent channel", () => {
   const agentMarks = MARKS.filter((m) => m.channel === "agent");
 
-  it("has exactly twenty entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md/05-03-PLAN.md/07-08-PLAN.md/08.1-01-PLAN.md specify", () => {
+  it("has exactly twenty-two entries with the exact ids/glyphs/labels 02-UI-SPEC.md/03-UI-SPEC.md/05-03-PLAN.md/07-08-PLAN.md/08.1-01-PLAN.md specify", () => {
     const expected = [
       { id: "run-running", glyph: "Loader", label: "Running" },
       { id: "run-completed", glyph: "CircleCheckBig", label: "Completed" },
@@ -86,8 +87,10 @@ describe("agent channel", () => {
       { id: "worktree-reclaimable", glyph: "Recycle", label: "Reclaimable" },
       { id: "worktree-in-use", glyph: "Activity", label: "In use" },
       { id: "worktree-keep", glyph: "Lock", label: "Keep" },
+      { id: "run-awaiting-review", glyph: "Eye", label: "Awaiting review" },
+      { id: "run-merged", glyph: "GitMerge", label: "Merged" },
     ];
-    expect(agentMarks).toHaveLength(20);
+    expect(agentMarks).toHaveLength(22);
     for (const exp of expected) {
       const mark = agentMarks.find((m) => m.id === exp.id);
       expect(mark, `missing agent mark "${exp.id}"`).toBeDefined();
@@ -153,6 +156,19 @@ describe("Legend surface", () => {
       expect(row, `legend row for "${id}" not found`).toBeDefined();
     },
   );
+});
+
+describe("the state vocabulary's marks (Phase 14 plan 04, D-19)", () => {
+  it.each([
+    ["run-awaiting-review", "Awaiting review"],
+    ["run-merged", "Merged"],
+  ])("defines %s and renders it in the legend with its printed word, with Legend.tsx unchanged", (id, label) => {
+    const mark = MARKS.find((m) => m.id === id);
+    expect(mark, `missing mark "${id}"`).toBeDefined();
+    expect(mark?.meaning.length).toBeGreaterThan(0);
+    render(<Legend />);
+    expect(screen.getAllByRole("listitem").find((r) => r.textContent?.includes(label)), `legend row for "${id}"`).toBeDefined();
+  });
 });
 
 /** Comment lines out, so a doc comment may still say what the old code did. */
@@ -262,9 +278,9 @@ describe("the legend tells the truth about the world 08.1 built", () => {
       criteria: 7,
       assignee: 4,
       project: 3,
-      agent: 20,
+      agent: 22,
     });
-    expect(MARKS).toHaveLength(54);
+    expect(MARKS).toHaveLength(56);
   });
 });
 
