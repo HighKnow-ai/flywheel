@@ -218,7 +218,7 @@ fn twenty_six_on_the_board_name_the_total_and_the_one_session_left_out() {
     let sentence = history.boundary.with_board_total(26).boundary_sentence().unwrap();
     assert_eq!(
         sentence,
-        "Summaries 1-20 are folded; 21-25 are carried verbatim. Summaries 2-26 of 26 read; 1 \
+        "Summaries 1-20 are folded; 21-25 are carried verbatim. 25 of 26 summaries read; 1 \
          earlier session is on the task, readable from the task's own session history."
     );
     assert!(sentence.contains("of 26"));
@@ -228,8 +228,32 @@ fn twenty_six_on_the_board_name_the_total_and_the_one_session_left_out() {
 fn two_hundred_forty_five_on_the_board_name_two_hundred_twenty_earlier_sessions() {
     let history = compact_summaries(&entries(SUMMARY_WINDOW));
     let sentence = history.boundary.with_board_total(245).boundary_sentence().unwrap();
-    assert!(sentence.contains("Summaries 221-245 of 245 read"), "sentence was: {sentence}");
+    assert!(sentence.contains("25 of 245 summaries read"), "sentence was: {sentence}");
     assert!(sentence.contains("220 earlier sessions are on the task"), "sentence was: {sentence}");
+}
+
+/// WR-10: one ordinal base per clause. The fold clause's two ranges (`1-20`, `21-25`) are
+/// window-relative and match the rendered `### Session N` headings; the window clause must state
+/// counts only, so no `N-M` range may follow it against the board total.
+#[test]
+fn the_window_clause_carries_no_ordinal_range() {
+    fn ranges(text: &str) -> usize {
+        let b = text.as_bytes();
+        (1..b.len().saturating_sub(1))
+            .filter(|&i| b[i] == b'-' && b[i - 1].is_ascii_digit() && b[i + 1].is_ascii_digit())
+            .count()
+    }
+    // The window handed the fold 25 rows; the board has 200.
+    let history = compact_summaries(&entries(SUMMARY_WINDOW));
+    let sentence = history.boundary.with_board_total(200).boundary_sentence().unwrap();
+    assert_eq!(
+        sentence,
+        "Summaries 1-20 are folded; 21-25 are carried verbatim. 25 of 200 summaries read; 175 \
+         earlier sessions are on the task, readable from the task's own session history."
+    );
+    let (fold, window) = sentence.split_once("verbatim. ").expect("two clauses");
+    assert_eq!(ranges(fold), 2, "the fold clause keeps its window-relative ranges: {sentence}");
+    assert_eq!(ranges(window), 0, "two counting bases in one breath: {sentence}");
 }
 
 #[test]

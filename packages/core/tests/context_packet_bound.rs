@@ -167,7 +167,7 @@ fn the_packet_names_its_own_inclusion_boundary_and_the_true_board_total() {
             .compaction
             .boundary_sentence()
             .expect("a windowed task has a boundary sentence");
-        assert!(sentence.contains("176-200 of 200"), "sentence was: {sentence}");
+        assert!(sentence.contains("25 of 200 summaries read"), "sentence was: {sentence}");
         assert!(sentence.contains("175 earlier sessions"), "sentence was: {sentence}");
 
         // The prompt carries the sentence the user reads, and never enumerates excluded ids.

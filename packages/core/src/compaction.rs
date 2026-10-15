@@ -101,9 +101,13 @@ impl CompactionBoundary {
     /// The boundary as a sentence a person can say out loud (CTX-05), or `None` when nothing
     /// folded and nothing was left out — a task with four or five summaries has no boundary to
     /// name, because the window is inclusive and the threshold value itself is entirely verbatim.
-    /// When `board_total > total` (D-03) it adds a second clause stating the included ordinal range
-    /// against the board total, how many earlier sessions were left out, and one named way to reach
-    /// them. It never enumerates excluded decision ids: that list grows with task age and would
+    /// When `board_total > total` (D-03) it adds a second clause stating how many summaries were
+    /// read out of the board total, how many earlier sessions were left out, and one named way to
+    /// reach them. One ordinal base per clause (WR-10): the fold clause is window-relative, to match
+    /// the rendered `### Session N` headings the reader is looking at; the window clause states
+    /// counts only, never an ordinal range against the board total (renumbering the headings to
+    /// board ordinals was the alternative, and would make the headings disagree with
+    /// `CompactionInfo`'s own window-relative fields). It never enumerates excluded decision ids: that list grows with task age and would
     /// reintroduce the unbounded term one level down. A function of board state only (D-04). Uses
     /// an ASCII hyphen, never an en dash: this string is compared byte-for-byte by CTX-04's
     /// determinism assertions and is rendered directly into a prompt.
@@ -130,10 +134,9 @@ impl CompactionBoundary {
         } else {
             let noun = if left_out == 1 { "session is" } else { "sessions are" };
             Some(format!(
-                "Summaries {} of {} read; {left_out} earlier {noun} on the task, readable from the \
+                "{} of {} summaries read; {left_out} earlier {noun} on the task, readable from the \
                  task's own session history.",
-                ordinal_range_str((left_out + 1, self.board_total)),
-                self.board_total
+                self.total, self.board_total
             ))
         };
 
