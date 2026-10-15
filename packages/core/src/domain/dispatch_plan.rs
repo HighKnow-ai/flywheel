@@ -19,6 +19,7 @@ use crate::dispatch::{
     decode_paths, edges_for_plan, encode_paths, normalise_waves, planned_tasks, DispatchEdge,
     DISPATCH_PLAN_STATES, DISPATCH_TASK_STATES,
 };
+use crate::domain::agent_run::{RunKind, RUN_KIND_PLANNING_PREDICATE};
 use crate::domain::event::{append_event, next_sequence};
 use crate::ids::new_id;
 
@@ -972,9 +973,12 @@ pub fn resolve_planning_run(conn: &Connection, run_id: &str) -> Result<PlanningR
         )
         .optional()
         .map_err(|e| SubmissionRefusal::Storage(format!("{e}")))?;
-    let Some((Some(epic_id), None, None, status, actor_id)) = row else {
+    let Some((Some(epic_id), task_id, stage, status, actor_id)) = row else {
         return Err(SubmissionRefusal::NotPlanningRun);
     };
+    if RunKind::classify(task_id.as_deref(), Some(&epic_id), stage.as_deref()).ok() != Some(RunKind::Planning) {
+        return Err(SubmissionRefusal::NotPlanningRun);
+    }
     if status != "running" {
         return Err(SubmissionRefusal::RunNotRunning { status });
     }
@@ -1187,10 +1191,10 @@ pub fn check_can_plan(conn: &Connection, epic_id: &str) -> anyhow::Result<()> {
     )? {
         bail!("epic {epic_id:?} already has a live plan; finish or discard it before planning again");
     }
-    if exists(
+    if exists(&format!(
         "SELECT COUNT(*) FROM agent_runs
-          WHERE epic_id = ?1 AND task_id IS NULL AND authoring_stage IS NULL AND status IN ('running', 'blocked')",
-    )? {
+          WHERE epic_id = ?1 AND {RUN_KIND_PLANNING_PREDICATE} AND status IN ('running', 'blocked')"
+    ))? {
         bail!("epic {epic_id:?} is already being planned by a running planning run");
     }
     if !exists("SELECT COUNT(*) FROM tasks WHERE epic_id = ?1 AND status IN ('backlog', 'todo')")? {

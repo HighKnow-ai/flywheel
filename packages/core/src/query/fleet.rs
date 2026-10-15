@@ -26,6 +26,7 @@ use std::path::Path;
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::domain::agent_run::RunKind;
 use crate::domain::worktree::{porcelain_entries, reclaim_eligibility, ReclaimDisposition};
 use crate::merge::{integrated_merge_commit, merge_commit_is_reachable};
 
@@ -143,12 +144,12 @@ fn subject_kind(
     epic_id: &Option<String>,
     authoring_stage: &Option<String>,
 ) -> FleetSubjectKind {
-    if task_id.is_some() {
-        FleetSubjectKind::Task
-    } else if authoring_stage.is_none() && epic_id.is_some() {
-        FleetSubjectKind::Epic
-    } else {
-        FleetSubjectKind::Authoring
+    match RunKind::classify(task_id.as_deref(), epic_id.as_deref(), authoring_stage.as_deref()) {
+        Ok(RunKind::Execution) => FleetSubjectKind::Task,
+        Ok(RunKind::Planning) => FleetSubjectKind::Epic,
+        // An unscoped run is drawn as the subject-less shape, as it always was; the fleet must
+        // render every row, so the classifier's error is not propagated here.
+        Ok(RunKind::Authoring) | Err(_) => FleetSubjectKind::Authoring,
     }
 }
 

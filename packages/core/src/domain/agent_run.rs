@@ -90,6 +90,83 @@ pub fn run_subject(conn: &Connection, agent_run_id: &str) -> anyhow::Result<RunS
     })
 }
 
+/// What KIND of session an `agent_runs` row is — the one definition (plan 13-11, F6). Before it,
+/// every site that needed the kind (the planning-run guard, the planning-run read, the authoring
+/// run list, the running-authoring-run read, the fleet subject, the plan-submission authority) wrote
+/// its own copy of "which columns are null" and they could disagree.
+///
+/// Precedence, in this order: a non-null `authoring_stage` is [`RunKind::Authoring`] whatever the
+/// scope; else a non-null `task_id` is [`RunKind::Execution`]; else a non-null `epic_id` is
+/// [`RunKind::Planning`]; else the run belongs to nothing and [`RunKind::classify`] errors rather
+/// than guess.
+///
+/// There is deliberately NO `kind` column on `agent_runs`. The defect F6 names is the duplication,
+/// which this removes; a queryable column would also need a table rebuild to carry a CHECK
+/// constraint, and `agent_runs` is referenced by `permission_requests`, `session_summaries`,
+/// `authoring_proposals`, `dispatch_plan_tasks` and `task_file_set_entries`. Revisit when a
+/// requirement needs to `GROUP BY` run kind in SQL.
+///
+/// The SQL half, which mirrors this classifier's corresponding arms and must be changed together
+/// with it:
+/// - [`RUN_KIND_PLANNING_PREDICATE`] for `Planning`
+/// - [`RUN_KIND_AUTHORING_PREDICATE`] for `Authoring`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunKind {
+    /// A session working one task in its worktree.
+    Execution,
+    /// The pre-dispatch pass that orders an epic's tasks into a plan.
+    Planning,
+    /// An epic-authoring conversation (it carries a stage).
+    Authoring,
+}
+
+impl RunKind {
+    /// Classify from the three columns that carry the kind. See the type's doc for the precedence.
+    pub fn classify(
+        task_id: Option<&str>,
+        epic_id: Option<&str>,
+        authoring_stage: Option<&str>,
+    ) -> anyhow::Result<RunKind> {
+        if authoring_stage.is_some() {
+            Ok(RunKind::Authoring)
+        } else if task_id.is_some() {
+            Ok(RunKind::Execution)
+        } else if epic_id.is_some() {
+            Ok(RunKind::Planning)
+        } else {
+            anyhow::bail!("agent run is unscoped: no stage, no task and no epic")
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RunKind::Execution => "execution",
+            RunKind::Planning => "planning",
+            RunKind::Authoring => "authoring",
+        }
+    }
+}
+
+/// SQL mirror of [`RunKind::classify`]'s `Planning` arm, to be spliced into a `WHERE` that already
+/// scopes by `epic_id`. Change it together with the classifier.
+pub const RUN_KIND_PLANNING_PREDICATE: &str = "task_id IS NULL AND authoring_stage IS NULL";
+
+/// SQL mirror of [`RunKind::classify`]'s `Authoring` arm. Change it together with the classifier.
+pub const RUN_KIND_AUTHORING_PREDICATE: &str = "authoring_stage IS NOT NULL";
+
+/// The kind of `agent_run_id`, read off its row — for callers that hold only an id.
+pub fn run_kind_for(conn: &Connection, agent_run_id: &str) -> anyhow::Result<RunKind> {
+    let (task_id, epic_id, stage): (Option<String>, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT task_id, epic_id, authoring_stage FROM agent_runs WHERE id = ?1",
+            params![agent_run_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
+    RunKind::classify(task_id.as_deref(), epic_id.as_deref(), stage.as_deref())
+        .with_context(|| format!("agent_run {agent_run_id:?}"))
+}
+
 /// The six values `agent_runs.status`'s CHECK constraint accepts (migration
 /// `0003_agent_runtime.sql`, `Abandoned` added by migration `0006_recovery_statuses.sql`, D-49).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

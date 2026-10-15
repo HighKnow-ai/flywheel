@@ -24,6 +24,7 @@ use serde::Serialize;
 use crate::domain::authoring_proposal::{
     pending_proposals_for_run, row_to_proposal, Proposal, PROPOSAL_COLUMNS,
 };
+use crate::domain::agent_run::RUN_KIND_AUTHORING_PREDICATE;
 use crate::domain::epic::EpicSummary;
 use crate::epic_context_packet::TaskRosterEntry;
 
@@ -557,7 +558,7 @@ pub struct RecentAuthoringRun {
     pub ended_at: Option<String>,
 }
 
-/// The newest-first, bounded list of authoring runs (`authoring_stage IS NOT NULL`) — every run
+/// The newest-first, bounded list of authoring runs ([`RUN_KIND_AUTHORING_PREDICATE`]) — every run
 /// `start_authoring_run` has ever created, whether still running or already closed, so a run the
 /// comparison wants to measure is found by asking the board, never by hand-copying an id off a UI
 /// surface. Bounded by [`resolve_limit`] on its own first line, exactly like every other read in
@@ -570,11 +571,13 @@ pub fn list_recent_authoring_runs(
 ) -> anyhow::Result<Vec<RecentAuthoringRun>> {
     let resolved_limit = resolve_limit(limit);
 
-    let sql = "SELECT id, project_id, epic_id, status, authoring_stage, started_at, ended_at \
-         FROM agent_runs WHERE authoring_stage IS NOT NULL \
-         ORDER BY started_at DESC, id DESC LIMIT ?1";
+    let sql = format!(
+        "SELECT id, project_id, epic_id, status, authoring_stage, started_at, ended_at \
+         FROM agent_runs WHERE {RUN_KIND_AUTHORING_PREDICATE} \
+         ORDER BY started_at DESC, id DESC LIMIT ?1"
+    );
 
-    let mut stmt = conn.prepare(sql)?;
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt
         .query_map(params![resolved_limit], |row| {
             Ok(RecentAuthoringRun {

@@ -703,13 +703,17 @@ pub(crate) fn planning_run_for_epic(
     conn: &rusqlite::Connection,
     epic_id: &str,
 ) -> Result<Option<PlanningRunDto>, String> {
-    // The same shape `check_can_plan` refuses a second run on: epic-scoped, no task, no stage.
+    // The same kind `check_can_plan` refuses a second run on: see `RUN_KIND_PLANNING_PREDICATE`.
+    let sql = format!(
+        "SELECT id FROM agent_runs
+          WHERE epic_id = ?1 AND {}
+            AND status IN ('running', 'blocked')
+          ORDER BY started_at DESC LIMIT 1",
+        flywheel_core::domain::agent_run::RUN_KIND_PLANNING_PREDICATE
+    );
     let run_id: Option<String> = conn
         .query_row(
-            "SELECT id FROM agent_runs
-              WHERE epic_id = ?1 AND task_id IS NULL AND authoring_stage IS NULL
-                AND status IN ('running', 'blocked')
-              ORDER BY started_at DESC LIMIT 1",
+            &sql,
             [epic_id],
             |r| r.get(0),
         )

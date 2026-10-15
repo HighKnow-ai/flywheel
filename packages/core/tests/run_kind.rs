@@ -202,7 +202,7 @@ fn the_two_predicates_agree_with_classify_for_every_fixture_run() {
 
 #[test]
 fn check_can_plan_refuses_a_second_planning_run_but_not_because_of_an_authoring_run() {
-    let mut f = fixture();
+    let f = fixture();
     // Close the planning run so only the authoring run is live on the epic: planning must be allowed.
     f.conn
         .execute("UPDATE agent_runs SET status = 'completed' WHERE id = ?1", params![f.planning])
@@ -214,7 +214,6 @@ fn check_can_plan_refuses_a_second_planning_run_but_not_because_of_an_authoring_
         .unwrap();
     let err = check_can_plan(&f.conn, &f.epic_id).unwrap_err();
     assert!(format!("{err:#}").contains("already being planned"), "got: {err:#}");
-    let _ = &mut f;
 }
 
 #[test]

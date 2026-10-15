@@ -180,17 +180,20 @@ fn proposal_dto_with_duplicate_label(
 /// The run currently `running`/`blocked` for `epic_id`, if any (plan 05-10) — the ONE place "is
 /// this epic already being shaped" is answered, shared by [`authoring_run_start`]'s own
 /// defensive re-check and [`authoring_run_for_epic`]'s door-level pre-flight read, so the two can
-/// never disagree about what counts as "already running". `authoring_stage IS NOT NULL` is what
-/// scopes this to an authoring run specifically — an ordinary task-execution run never carries a
-/// stage, and shares no identity space with an epic id regardless.
+/// never disagree about what counts as "already running". `RUN_KIND_AUTHORING_PREDICATE` is what
+/// scopes this to an authoring run specifically (the one definition of run kind, in `agent_run`).
 pub(crate) fn find_running_authoring_run(
     conn: &rusqlite::Connection,
     epic_id: &str,
 ) -> Result<Option<AuthoringRunDto>, String> {
-    conn.query_row(
+    let sql = format!(
         "SELECT id, epic_id, status, authoring_stage FROM agent_runs \
-         WHERE epic_id = ?1 AND authoring_stage IS NOT NULL AND status IN ('running', 'blocked') \
+         WHERE epic_id = ?1 AND {} AND status IN ('running', 'blocked') \
          ORDER BY started_at DESC LIMIT 1",
+        flywheel_core::domain::agent_run::RUN_KIND_AUTHORING_PREDICATE
+    );
+    conn.query_row(
+        &sql,
         rusqlite::params![epic_id],
         |row| {
             Ok(AuthoringRunDto {
@@ -1227,16 +1230,22 @@ pub fn authoring_turn_send(
     }
 
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let (authoring_stage, status): (Option<String>, String) = conn
+    let (task_id, epic_id, authoring_stage, status): (Option<String>, Option<String>, Option<String>, String) = conn
         .query_row(
-            "SELECT authoring_stage, status FROM agent_runs WHERE id = ?1",
+            "SELECT task_id, epic_id, authoring_stage, status FROM agent_runs WHERE id = ?1",
             rusqlite::params![agent_run_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .map_err(|e| e.to_string())?;
     drop(conn);
 
-    if authoring_stage.is_none() {
+    let is_authoring = flywheel_core::domain::agent_run::RunKind::classify(
+        task_id.as_deref(),
+        epic_id.as_deref(),
+        authoring_stage.as_deref(),
+    )
+    .is_ok_and(|kind| kind == flywheel_core::domain::agent_run::RunKind::Authoring);
+    if !is_authoring {
         return Err("agent run is not an authoring session — it has no conversation to join".to_string());
     }
     let can_receive_turn = matches!(status.as_str(), "running" | "blocked");
