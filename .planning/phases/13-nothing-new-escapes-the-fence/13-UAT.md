@@ -1,20 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 13-nothing-new-escapes-the-fence
 source: [13-VERIFICATION.md]
 started: 2026-10-15T15:30:00Z
-updated: 2026-10-15T16:15:00Z
+updated: 2026-10-15T16:40:00Z
 ---
 
 ## Current Test
 
-number: 3
-name: Epic status after the StatusPicker deletion
-expected: |
-  Owner records derive-from-tasks or a dedicated epic control. Already filed by the owner and
-  deferred to Phase 14 (todos dated 2026-10-15); DRFT-04's text is "a task's status", so the
-  scoping is legitimate. Carried so it is not lost.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -48,18 +42,33 @@ resolution: |
 
 ### 3. Epic status after the StatusPicker deletion
 expected: Owner records derive-from-tasks or a dedicated epic control. Already filed by the owner and deferred to Phase 14 (todos dated 2026-10-15); DRFT-04's text is "a task's status", so the scoping is legitimate. Carried here only so it is not lost.
-result: [pending]
+result: pass
+reported: "confirmed"
+resolution: |
+  Owner confirmed the deferral to Phase 14 stands, and did not pick a shape now — neither
+  derive-from-tasks nor a dedicated epic control is recorded as the decision yet. Phase 13's
+  scoping of the StatusPicker deletion to TASK status is correct on DRFT-04's own text ("a
+  task's status"); no Phase 13 criterion is weakened by leaving epic status open.
+  Open for Phase 14: how an epic's status is set. Not a Phase 13 gap.
 
 ### 4. Read the boundary sentence for a 200-summary task as the agent prompt shows it
 expected: After 13-17 (one ordinal base per clause) the numbers reconcile with the `### Session N` headings beside them. Current text for the 200-summary fixture: "Summaries 1-20 are folded; 21-25 are carried verbatim. 25 of 200 summaries read; 175 earlier sessions are on the task, readable from the task's own session history." Prompt clarity is a human judgement; the earlier mixed-ordinal defect was fixed in code and tests but never read by a person.
-result: [pending]
+result: pass
+reported: "pass"
+resolution: |
+  Owner read the sentence in its rendered context and accepted it. Confirmed while presenting:
+  `render_verbatim_summary_block` / `render_folded_summary_block` in `context_packet.rs` number
+  the `### Session N` headings 1..25 window-relative, so the fold clause's `1-20` / `21-25`
+  match the headings the reader sees, and the window clause carries counts only (`25 of 200`,
+  `175 earlier`). WR-10 is closed on a human reading, not only on the mechanical
+  `ranges(fold)==2 / ranges(window)==0` assertion.
 
 ## Summary
 
 total: 4
-passed: 2
+passed: 4
 issues: 0
-pending: 2
+pending: 0
 skipped: 0
 blocked: 0
 
