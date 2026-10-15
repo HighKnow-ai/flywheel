@@ -71,18 +71,24 @@ const SCAN_ROOTS: [&str; 3] = ["packages/core/src", "packages/desktop/src-tauri/
 const THE_WRITER: &str = "packages/core/src/domain/task.rs";
 
 /// The matcher both the real gate and the planted-violation test drive. Skips whole-line comments
-/// and migrations; compares case-insensitively so `update tasks set status` is no way around it.
-/// Pushes `{path}:{line}: {trimmed line}` per offending line.
+/// and migrations. Same normalising shape as `priority_is_opt_in.rs`: the code lines are joined,
+/// whitespace is collapsed and the text lowercased, so letter case and line breaks are no way
+/// around it. Every `update tasks set` is then cut at the next ` where ` (or closing `"`) and
+/// flagged when `status` is assigned anywhere in that SET list, so column order is no way around
+/// it either. Pushes one `{path}: raw tasks.status write: {SET list}` per offending statement.
 fn scan_body_for_raw_status_writes(path: &Path, body: &str, hits: &mut Vec<String>) {
     if path.to_string_lossy().contains("src/db/migrations/") {
         return;
     }
-    for (n, line) in body.lines().enumerate() {
-        if is_whole_line_comment(line) {
-            continue;
-        }
-        if line.to_ascii_lowercase().contains("update tasks set status") {
-            hits.push(format!("{}:{}: {}", path.display(), n + 1, line.trim()));
+    let code = body.lines().filter(|l| !is_whole_line_comment(l)).collect::<Vec<_>>().join(" ");
+    let normal = code.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    const STMT: &str = "update tasks set";
+    for (i, _) in normal.match_indices(STMT) {
+        let rest = &normal[i + STMT.len()..];
+        let set_list = rest.split(" where ").next().unwrap_or(rest).split('"').next().unwrap_or(rest);
+        let compact: String = set_list.chars().filter(|c| !c.is_whitespace()).collect();
+        if compact.starts_with("status=") || compact.contains(",status=") {
+            hits.push(format!("{}: raw tasks.status write:{}", path.display(), set_list));
         }
     }
 }
@@ -96,6 +102,7 @@ fn no_module_outside_set_task_status_in_tx_writes_tasks_status() {
             scan_body_for_raw_status_writes(&path, &body, &mut hits);
         }
     }
+    hits.sort();
     let outside: Vec<&String> = hits.iter().filter(|h| !h.contains(THE_WRITER)).collect();
     assert!(
         outside.is_empty(),
@@ -107,21 +114,43 @@ fn no_module_outside_set_task_status_in_tx_writes_tasks_status() {
     assert_eq!(hits.len(), 1, "the writer itself must still exist, exactly once: {hits:?}");
 }
 
+fn status_hits(path: &str, body: &str) -> Vec<String> {
+    let mut hits = Vec::new();
+    scan_body_for_raw_status_writes(Path::new(path), body, &mut hits);
+    hits
+}
+
 #[test]
 fn the_status_write_gate_fires_on_a_planted_raw_update() {
-    let mut hits = Vec::new();
     let planted = "fn sneaky(tx: &Transaction) {\n    // UPDATE tasks SET status = 'done' (a comment is not a write)\n    tx.execute(\"UPDATE tasks SET status = 'in_progress' WHERE id = ?1\", [id]).unwrap();\n}\n";
-    scan_body_for_raw_status_writes(Path::new("packages/core/src/domain/planted.rs"), planted, &mut hits);
+    let hits = status_hits("packages/core/src/domain/planted.rs", planted);
     assert_eq!(hits.len(), 1, "exactly the one real statement, not the comment: {hits:?}");
-    assert!(hits[0].contains("planted.rs:3"));
+    assert!(hits[0].contains("planted.rs"));
 
-    let mut migration = Vec::new();
-    scan_body_for_raw_status_writes(
-        Path::new("packages/core/src/db/migrations/0099_x.rs"),
-        planted,
-        &mut migration,
-    );
+    let migration = status_hits("packages/core/src/db/migrations/0099_x.rs", planted);
     assert!(migration.is_empty(), "migrations are skipped");
+
+    // WR-03: `status` anywhere in the SET list, not only first.
+    let reordered = "tx.execute(\"UPDATE tasks SET updated_at = ?1, status = ?2 WHERE id = ?3\", p);";
+    assert_eq!(status_hits("src/x.rs", reordered).len(), 1, "status after another column");
+
+    let split = "tx.execute(\n    \"UPDATE tasks\n     SET updated_at = ?1,\n         status = ?2\n     WHERE id = ?3\",\n    p);";
+    assert_eq!(status_hits("src/x.rs", split).len(), 1, "statement split across three lines");
+
+    let lower_split = "update tasks\n  set status = 'done'\n  where id = ?1";
+    assert_eq!(status_hits("src/x.rs", lower_split).len(), 1, "lowercase and split");
+
+    // The allow-listed `updated_at`-only touch (`acceptance_criterion.rs`) is not a status write.
+    let touch = "\"UPDATE tasks SET updated_at = ?1 WHERE id = ?2\"";
+    assert_eq!(status_hits("src/x.rs", touch).len(), 0, "no status column");
+
+    // Two statements in one body: only the status one is flagged, and its SET list does not bleed
+    // into the neighbour.
+    let two = "\"UPDATE tasks SET rank = ?1 WHERE id = ?2\"; \"UPDATE tasks SET title = ?1 WHERE id = ?2\"";
+    assert_eq!(status_hits("src/x.rs", two).len(), 0, "neighbouring statements stay silent");
+
+    let comment = "// UPDATE tasks SET updated_at = ?1, status = ?2 WHERE id = ?3";
+    assert_eq!(status_hits("src/x.rs", comment).len(), 0, "whole-line comment");
 }
 
 // --- The trigger points and the deleted write ---
