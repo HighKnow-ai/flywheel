@@ -1,5 +1,5 @@
 //! Plan 06-05 (PROP-05, D-109/D-110/D-111): Task 1 — the fixed, non-configurable
-//! `PROPOSAL_LIMIT_PER_RUN` boundary, the precision property that a refusal never increments the
+//! `PROPOSAL_LIMIT_PER_EXECUTION_RUN` boundary, the precision property that a refusal never increments the
 //! count it is compared against, and the event-per-refusal assertion. Task 2 extends this file
 //! with the notice a human reads, re-derived from those events on every read (D-112). Mirrors
 //! `proposal_channel.rs`'s own fixture discipline (a task-EXECUTION `agent_runs` row seeded
@@ -10,7 +10,7 @@ mod common;
 
 use core::domain::agent_run::agent_actor_id;
 use core::domain::authoring_proposal::{
-    apply_proposal_created, reject_proposal, ProposalOutcome, PROPOSAL_LIMIT_PER_RUN,
+    apply_proposal_created, reject_proposal, ProposalOutcome, PROPOSAL_LIMIT_PER_EXECUTION_RUN,
 };
 use core::domain::task::create_task;
 use core::ids::new_id;
@@ -150,14 +150,14 @@ fn count_limit_exhausted_events(conn: &Connection, run_id: &str) -> i64 {
 
 #[test]
 fn proposal_limit_per_run_is_exactly_ten() {
-    assert_eq!(PROPOSAL_LIMIT_PER_RUN, 10);
+    assert_eq!(PROPOSAL_LIMIT_PER_EXECUTION_RUN, 10);
 }
 
 #[test]
 fn staging_the_tenth_proposal_succeeds_and_the_run_holds_exactly_ten_rows() {
     with_scratch_app_data_dir(|| {
         let (mut conn, _human_actor_id, _project_id, _task_id, run_id) = seeded_execution_run();
-        for i in 0..PROPOSAL_LIMIT_PER_RUN {
+        for i in 0..PROPOSAL_LIMIT_PER_EXECUTION_RUN {
             let event = task_create_event(&run_id, &format!("Finding {i}"), "rationale");
             let outcome = apply_proposal_created(&mut conn, &event).unwrap();
             assert!(
@@ -165,7 +165,7 @@ fn staging_the_tenth_proposal_succeeds_and_the_run_holds_exactly_ten_rows() {
                 "expected Created for proposal {i}, got {outcome:?}"
             );
         }
-        assert_eq!(count_run_proposals(&conn, &run_id), PROPOSAL_LIMIT_PER_RUN as i64);
+        assert_eq!(count_run_proposals(&conn, &run_id), PROPOSAL_LIMIT_PER_EXECUTION_RUN as i64);
     });
 }
 
@@ -173,7 +173,7 @@ fn staging_the_tenth_proposal_succeeds_and_the_run_holds_exactly_ten_rows() {
 fn staging_an_eleventh_proposal_is_refused_and_creates_no_row() {
     with_scratch_app_data_dir(|| {
         let (mut conn, _human_actor_id, _project_id, _task_id, run_id) = seeded_execution_run();
-        for i in 0..PROPOSAL_LIMIT_PER_RUN {
+        for i in 0..PROPOSAL_LIMIT_PER_EXECUTION_RUN {
             let event = task_create_event(&run_id, &format!("Finding {i}"), "rationale");
             apply_proposal_created(&mut conn, &event).unwrap();
         }
@@ -183,14 +183,14 @@ fn staging_an_eleventh_proposal_is_refused_and_creates_no_row() {
         assert_eq!(
             outcome,
             ProposalOutcome::LimitExhausted {
-                limit: PROPOSAL_LIMIT_PER_RUN,
-                count: PROPOSAL_LIMIT_PER_RUN as i64
+                limit: PROPOSAL_LIMIT_PER_EXECUTION_RUN,
+                count: PROPOSAL_LIMIT_PER_EXECUTION_RUN as i64
             },
-            "the 11th attempt must observe a count of exactly {PROPOSAL_LIMIT_PER_RUN}"
+            "the 11th attempt must observe a count of exactly {PROPOSAL_LIMIT_PER_EXECUTION_RUN}"
         );
         assert_eq!(
             count_run_proposals(&conn, &run_id),
-            PROPOSAL_LIMIT_PER_RUN as i64,
+            PROPOSAL_LIMIT_PER_EXECUTION_RUN as i64,
             "the 11th attempt must create no row"
         );
     });
@@ -200,7 +200,7 @@ fn staging_an_eleventh_proposal_is_refused_and_creates_no_row() {
 fn ten_consecutive_refusals_leave_the_run_at_exactly_ten_rows_and_ten_events() {
     with_scratch_app_data_dir(|| {
         let (mut conn, _human_actor_id, _project_id, _task_id, run_id) = seeded_execution_run();
-        for i in 0..PROPOSAL_LIMIT_PER_RUN {
+        for i in 0..PROPOSAL_LIMIT_PER_EXECUTION_RUN {
             let event = task_create_event(&run_id, &format!("Finding {i}"), "rationale");
             apply_proposal_created(&mut conn, &event).unwrap();
         }
@@ -216,7 +216,7 @@ fn ten_consecutive_refusals_leave_the_run_at_exactly_ten_rows_and_ten_events() {
 
         assert_eq!(
             count_run_proposals(&conn, &run_id),
-            PROPOSAL_LIMIT_PER_RUN as i64,
+            PROPOSAL_LIMIT_PER_EXECUTION_RUN as i64,
             "ten refusals must never move the row count past the limit"
         );
         assert_eq!(
@@ -255,7 +255,7 @@ fn the_count_includes_every_row_regardless_of_status_or_verb() {
             panic!("expected Created for the delete-verb proposal");
         };
 
-        assert_eq!(count_run_proposals(&conn, &run_id), PROPOSAL_LIMIT_PER_RUN as i64);
+        assert_eq!(count_run_proposals(&conn, &run_id), PROPOSAL_LIMIT_PER_EXECUTION_RUN as i64);
 
         // Rejecting two of the earlier rows must NOT free the run's budget — the count that
         // matters is "ever staged," never "still pending."
@@ -267,14 +267,14 @@ fn the_count_includes_every_row_regardless_of_status_or_verb() {
         assert_eq!(
             outcome,
             ProposalOutcome::LimitExhausted {
-                limit: PROPOSAL_LIMIT_PER_RUN,
-                count: PROPOSAL_LIMIT_PER_RUN as i64
+                limit: PROPOSAL_LIMIT_PER_EXECUTION_RUN,
+                count: PROPOSAL_LIMIT_PER_EXECUTION_RUN as i64
             },
             "rejecting rows must not lower the observed count"
         );
         assert_eq!(
             count_run_proposals(&conn, &run_id),
-            PROPOSAL_LIMIT_PER_RUN as i64,
+            PROPOSAL_LIMIT_PER_EXECUTION_RUN as i64,
             "rejecting two rows must not free the run's budget"
         );
     });
@@ -286,7 +286,7 @@ fn two_different_runs_in_the_same_project_each_get_their_own_budget_of_ten() {
         let (mut conn, human_actor_id, project_id, _task_id, run_a) = seeded_execution_run();
         let (_task_b, run_b) = seed_second_run_same_project(&mut conn, &project_id, &human_actor_id);
 
-        for i in 0..PROPOSAL_LIMIT_PER_RUN {
+        for i in 0..PROPOSAL_LIMIT_PER_EXECUTION_RUN {
             let event = task_create_event(&run_a, &format!("Run A finding {i}"), "rationale");
             apply_proposal_created(&mut conn, &event).unwrap();
         }
@@ -297,7 +297,7 @@ fn two_different_runs_in_the_same_project_each_get_their_own_budget_of_ten() {
             "run A must be over budget, got {refused_a:?}"
         );
 
-        for i in 0..PROPOSAL_LIMIT_PER_RUN {
+        for i in 0..PROPOSAL_LIMIT_PER_EXECUTION_RUN {
             let event = task_create_event(&run_b, &format!("Run B finding {i}"), "rationale");
             let outcome = apply_proposal_created(&mut conn, &event).unwrap();
             assert!(
@@ -312,7 +312,7 @@ fn two_different_runs_in_the_same_project_each_get_their_own_budget_of_ten() {
 fn a_refusal_still_commits_its_limit_exhausted_event() {
     with_scratch_app_data_dir(|| {
         let (mut conn, _human_actor_id, _project_id, _task_id, run_id) = seeded_execution_run();
-        for i in 0..PROPOSAL_LIMIT_PER_RUN {
+        for i in 0..PROPOSAL_LIMIT_PER_EXECUTION_RUN {
             apply_proposal_created(&mut conn, &task_create_event(&run_id, &format!("Finding {i}"), "rationale"))
                 .unwrap();
         }
@@ -329,8 +329,8 @@ fn a_refusal_still_commits_its_limit_exhausted_event() {
         assert_eq!(event_type, "proposal.limit_exhausted");
 
         let payload: serde_json::Value = serde_json::from_str(&payload_json).unwrap();
-        assert_eq!(payload["limit"], serde_json::json!(PROPOSAL_LIMIT_PER_RUN));
-        assert_eq!(payload["count"], serde_json::json!(PROPOSAL_LIMIT_PER_RUN));
+        assert_eq!(payload["limit"], serde_json::json!(PROPOSAL_LIMIT_PER_EXECUTION_RUN));
+        assert_eq!(payload["count"], serde_json::json!(PROPOSAL_LIMIT_PER_EXECUTION_RUN));
         assert_eq!(payload["targetType"], serde_json::json!("task"));
         assert_eq!(payload["title"], serde_json::json!("Refused finding"));
     });
@@ -344,7 +344,7 @@ fn a_refusal_still_commits_its_limit_exhausted_event() {
 fn a_run_with_three_refusals_yields_exactly_one_notice_with_refused_count_three() {
     with_scratch_app_data_dir(|| {
         let (mut conn, _human_actor_id, project_id, _task_id, run_id) = seeded_execution_run();
-        for i in 0..PROPOSAL_LIMIT_PER_RUN {
+        for i in 0..PROPOSAL_LIMIT_PER_EXECUTION_RUN {
             apply_proposal_created(&mut conn, &task_create_event(&run_id, &format!("Finding {i}"), "rationale"))
                 .unwrap();
         }
@@ -358,7 +358,7 @@ fn a_run_with_three_refusals_yields_exactly_one_notice_with_refused_count_three(
         let notice = &notices[0];
         assert_eq!(notice.agent_run_id, run_id);
         assert_eq!(notice.refused_count, 3);
-        assert_eq!(notice.limit, PROPOSAL_LIMIT_PER_RUN as i64);
+        assert_eq!(notice.limit, PROPOSAL_LIMIT_PER_EXECUTION_RUN as i64);
         assert!(
             notice.first_refused_at <= notice.last_refused_at,
             "first_refused_at must not sort after last_refused_at"
@@ -373,7 +373,7 @@ fn two_runs_in_one_project_yield_two_notices() {
         let (_task_b, run_b) = seed_second_run_same_project(&mut conn, &project_id, &human_actor_id);
 
         for run_id in [&run_a, &run_b] {
-            for i in 0..PROPOSAL_LIMIT_PER_RUN {
+            for i in 0..PROPOSAL_LIMIT_PER_EXECUTION_RUN {
                 apply_proposal_created(&mut conn, &task_create_event(run_id, &format!("Finding {i}"), "rationale"))
                     .unwrap();
             }
@@ -404,7 +404,7 @@ fn the_notice_read_is_clamped_to_max_limit() {
             run_ids.push(run_id);
         }
         for run_id in &run_ids {
-            for i in 0..PROPOSAL_LIMIT_PER_RUN {
+            for i in 0..PROPOSAL_LIMIT_PER_EXECUTION_RUN {
                 apply_proposal_created(&mut conn, &task_create_event(run_id, &format!("Finding {i}"), "rationale"))
                     .unwrap();
             }
@@ -427,7 +427,7 @@ fn the_notice_read_is_clamped_to_max_limit() {
 fn a_second_call_to_proposal_limit_notices_returns_the_same_values() {
     with_scratch_app_data_dir(|| {
         let (mut conn, _human_actor_id, project_id, _task_id, run_id) = seeded_execution_run();
-        for i in 0..PROPOSAL_LIMIT_PER_RUN {
+        for i in 0..PROPOSAL_LIMIT_PER_EXECUTION_RUN {
             apply_proposal_created(&mut conn, &task_create_event(&run_id, &format!("Finding {i}"), "rationale"))
                 .unwrap();
         }

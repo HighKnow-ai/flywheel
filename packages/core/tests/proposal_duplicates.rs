@@ -76,8 +76,10 @@ fn seed_agent_run(conn: &mut Connection, project_id: &str, human_actor_id: &str)
 /// perturbing the exact bm25 IDF statistics `DUPLICATE_BM25_THRESHOLD` was measured and pinned
 /// against (found the hard way — a previous version of this fix did exactly that and flipped an
 /// unrelated-pair case into a false positive). `triggers.target_task_id`/`target_epic_id` are both
-/// nullable and the table's own CHECK only forbids both being NON-null together, so a trigger (and
-/// the `agent_runs` row it backs) with NEITHER set is a valid row, not a workaround.
+/// nullable and the table's own CHECK only forbids both being NON-null together, so a trigger with
+/// NEITHER set is a valid row. Plan 13-11 (F6): the `agent_runs` row it backs must still belong to
+/// something -- `RunKind::classify` errors on an unscoped run rather than guess its cap -- so the
+/// row carries an authoring stage, the cheapest scope that needs no task or epic row.
 fn seed_throwaway_run(conn: &mut Connection, project_id: &str, actor_id: &str) -> String {
     let agent_actor = agent_actor_id(conn).expect("seeded agent actor should exist");
     let now = "2026-01-01T00:00:00Z";
@@ -99,7 +101,7 @@ fn seed_throwaway_run(conn: &mut Connection, project_id: &str, actor_id: &str) -
             external_session_id, permission_mode, cost_usd, tokens_in, tokens_out, log_path,
             started_at, ended_at, authoring_stage
         ) VALUES (?1, NULL, NULL, NULL, ?2, ?3, 'claude_code', ?4, 'running', NULL, 'default', \
-            NULL, NULL, NULL, ?5, ?6, NULL, NULL)",
+            NULL, NULL, NULL, ?5, ?6, NULL, 'decompose')",
         params![run_id, project_id, trigger_id, agent_actor, format!("/tmp/log-{run_id}.jsonl"), now],
     )
     .expect("failed to insert throwaway agent_run");

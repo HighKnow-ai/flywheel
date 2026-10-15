@@ -19,8 +19,8 @@
 //! (`query::authoring::resolve_duplicate_candidate_label`) and folds it into the relayed answer —
 //! present only when the staged proposal actually carries a `duplicate_of`, so a plain staging
 //! answer with no candidate is byte-identical to what it was before this plan. Its
-//! `LimitExhausted` arm relays a loud `Err` naming the limit and pointing the agent at
-//! `report_summary`'s `remains` field, never a silent drop. `authoring_proposal_limit_notices`
+//! `LimitExhausted` arm relays a loud `Err` naming the limit and ending in the core's per-kind
+//! `proposal_limit_refusal` clause (plan 13-11), never a silent drop. `authoring_proposal_limit_notices`
 //! (below) is the tray-side read for those refusals — DERIVED from the
 //! `proposal.limit_exhausted` events on every call, never a second stored copy of the notice.
 //!
@@ -1353,6 +1353,12 @@ pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Valu
         };
 
     let project_id = project_of(&conn, "agent_runs", run_id);
+    // Plan 13-11 (F1): the refusal's closing clause is the CORE's, chosen by the run's kind, read
+    // while the connection is still locked. A run that cannot be classified was refused before it
+    // could be counted, so the generic clause is only a floor, never a reachable branch.
+    let refusal_clause = flywheel_core::domain::agent_run::run_kind_for(&conn, run_id)
+        .map(flywheel_core::domain::authoring_proposal::proposal_limit_refusal)
+        .unwrap_or(flywheel_core::domain::authoring_proposal::PROPOSAL_LIMIT_REFUSAL_GENERIC);
     drop(conn);
 
     if let flywheel_core::domain::authoring_proposal::ProposalOutcome::Created(ref proposal) = outcome {
@@ -1381,8 +1387,7 @@ pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Valu
         flywheel_core::domain::authoring_proposal::ProposalOutcome::LimitExhausted { limit, count } => {
             Err(format!(
                 "proposal limit reached: this run has already staged {count} of {limit} allowed \
-                 proposals — this one was NOT staged. Call report_summary and put it in the \
-                 remains field instead."
+                 proposals — this one was NOT staged; {refusal_clause}"
             ))
         }
     };

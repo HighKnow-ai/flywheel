@@ -44,13 +44,15 @@
 //! The threshold this flag is compared against lives as a single constant in `query::search`
 //! (`DUPLICATE_BM25_THRESHOLD`) — never a second copy of the comparison anywhere in this module.
 //!
-//! Plan 06-05 (PROP-05, D-109/D-110/D-111/D-112): [`PROPOSAL_LIMIT_PER_RUN`] fixes how many
-//! proposals ONE agent run may EVER stage at 10 — a compile-time constant, never a settings key,
-//! a `projects` column or an environment override. [`create_proposal_in_tx`] counts the run's own
+//! Plan 06-05 (PROP-05, D-109/D-110/D-111/D-112), amended by plan 13-11 (DRFT-09, A-05): the
+//! ceiling on how many proposals ONE agent run may EVER stage is [`proposal_limit`] of the run's
+//! [`RunKind`] — execution 10 (D-109's value, unchanged), planning 30, authoring 60 — compile-time
+//! constants selected by a `const fn`, never a settings key, a `projects` column or an
+//! environment override. [`create_proposal_in_tx`] counts the run's own
 //! rows with a plain `COUNT(*)` (every status, every verb — a rejected proposal still consumed a
 //! human's attention) inside the SAME transaction as the INSERT that would otherwise run: at or
-//! past the limit, no row is inserted, one `proposal.limit_exhausted` event is appended instead,
-//! and [`ProposalOutcome::LimitExhausted`] is returned. The event still commits — a refusal is
+//! past the run's own limit, no row is inserted, one `proposal.limit_exhausted` event is appended
+//! instead, and [`ProposalOutcome::LimitExhausted`] is returned. The event still commits — a refusal is
 //! never a silent rollback (T-06-22) — and `query::authoring::proposal_limit_notices` derives the
 //! human-facing notice from these events on every read, never a second stored copy.
 
@@ -58,6 +60,7 @@ use anyhow::Context;
 use rusqlite::{named_params, params, Connection, OptionalExtension, Row, Transaction};
 use serde::{Deserialize, Serialize};
 
+use crate::domain::agent_run::{run_kind_for, RunKind};
 use crate::domain::event::{append_event, next_sequence};
 use crate::ids::new_id;
 use crate::ranking::rank_after;
@@ -332,14 +335,59 @@ impl ProposalProvenance {
 /// never drift apart.
 pub const MAX_PROPOSAL_RATIONALE_LEN: usize = 1000;
 
-/// Plan 06-05 (PROP-05, D-109): the fixed ceiling on how many proposals ONE agent run may EVER
-/// stage — deliberately a compile-time constant, never a settings key, a `projects` column or an
-/// environment override, following D-69's own precedent (the verbatim-summary window was fixed at
-/// 5 rather than exposed, because a knob nobody tunes still has to be tested at every value). The
-/// 10th proposal a run stages succeeds; the 11th is refused — see
-/// [`ProposalOutcome::LimitExhausted`] and [`create_proposal_in_tx`]'s own in-transaction
-/// `COUNT(*)` check.
-pub const PROPOSAL_LIMIT_PER_RUN: usize = 10;
+/// Plan 06-05 (PROP-05, D-109), amended by plan 13-11 (DRFT-09, A-05): the execution-run ceiling,
+/// the one value D-109 argued for. The 10th proposal an execution run stages succeeds; the 11th is
+/// refused. Kept as a named constant so no call site re-derives the bare number.
+pub const PROPOSAL_LIMIT_PER_EXECUTION_RUN: usize = 10;
+
+/// Plan 13-11 (DRFT-09, F1, owner decision 2026-10-15): the fixed ceiling on how many proposals ONE
+/// agent run of this [`RunKind`] may EVER stage. Deliberately compile-time constants selected by a
+/// `const fn`, never a settings key, a `projects` column or an environment override, following
+/// D-69's own precedent (the verbatim-summary window was fixed at 5 rather than exposed, because a
+/// knob nobody tunes still has to be tested at every value).
+///
+/// - `Execution` 10: D-109's value, unchanged.
+/// - `Planning` 30: nominal. No shipped tool lets a planning run stage a proposal today.
+/// - `Authoring` 60: clears the one observed datum, a 42-draft decomposition, with headroom. 100 was
+///   rejected: 100 pending items in one run is the unreviewable queue the research round warns
+///   against.
+///
+/// The Nth proposal succeeds and the N+1th is refused — see [`ProposalOutcome::LimitExhausted`]
+/// and [`create_proposal_in_tx`]'s own in-transaction `COUNT(*)` check.
+pub const fn proposal_limit(kind: RunKind) -> usize {
+    match kind {
+        RunKind::Execution => PROPOSAL_LIMIT_PER_EXECUTION_RUN,
+        RunKind::Planning => 30,
+        RunKind::Authoring => 60,
+    }
+}
+
+/// What a refused run is told to do with the item it could not stage, for a planning run. Names no
+/// tool and no capability: the sidecar pre-approves only `submit_plan` for planning runs, so a
+/// planning-specific sentence would be unreachable through any shipped flow, untestable end to end
+/// and bound to rot (owner decision 2026-10-15). Write one against a real flow if planning runs
+/// ever gain `propose_item`.
+pub const PROPOSAL_LIMIT_REFUSAL_GENERIC: &str = "stop proposing; this run can stage no more";
+
+/// F1: the clause that ends a refusal, naming an action THIS kind of session can actually take
+/// with the item it could not stage. The full sentence is "has already staged N of LIMIT allowed
+/// proposals — this one was NOT staged; {clause}", composed by the two doors that relay it
+/// ([`create_proposal`] and the desktop's inbound proposal handler) around this one source, so the
+/// wording can never drift between them.
+///
+/// An execution session genuinely has `report_summary`. An authoring session does not (its tools
+/// are the `propose_*`/`amend_*`/`delete_*` write family and four reads), so naming it would leave
+/// the model with no honest next move; it can, however, tell the developer in its reply.
+pub const fn proposal_limit_refusal(kind: RunKind) -> &'static str {
+    match kind {
+        RunKind::Execution => "call report_summary and put it in the remains field instead",
+        RunKind::Authoring => {
+            "stop staging and list the items you could not stage in your reply to the developer, \
+             so they can be taken up in a new session"
+        }
+        RunKind::Planning => PROPOSAL_LIMIT_REFUSAL_GENERIC,
+    }
+}
 
 /// Stage one proposal for `agent_run_id` (D-80/D-81/D-92). **`project_id`, `epic_id` and the
 /// acting actor are resolved from the `agent_runs` row INSIDE this transaction** — this function's
@@ -383,10 +431,17 @@ pub fn create_proposal(
         ProposalOutcome::Created(proposal) => Ok(proposal),
         // Plan 06-05 (D-111): reported as a real `Err`, never silently dropped and never folded
         // into `Ignored` (which means something different — malformed input, not "over budget").
-        ProposalOutcome::LimitExhausted { limit, count } => Err(anyhow::anyhow!(
-            "run {agent_run_id:?} has already staged {count} of {limit} allowed proposals — this \
-             one was NOT staged; call report_summary and put it in the remains field instead"
-        )),
+        ProposalOutcome::LimitExhausted { limit, count } => {
+            // The kind is immutable and already classified inside the refused transaction (an
+            // unscoped run errors there before it can be refused), so this read cannot disagree.
+            let clause = run_kind_for(conn, agent_run_id)
+                .map(proposal_limit_refusal)
+                .unwrap_or(PROPOSAL_LIMIT_REFUSAL_GENERIC);
+            Err(anyhow::anyhow!(
+                "run {agent_run_id:?} has already staged {count} of {limit} allowed proposals — this \
+                 one was NOT staged; {clause}"
+            ))
+        }
         other => Err(anyhow::anyhow!(
             "create_proposal_in_tx returned an unexpected outcome for a direct create_proposal \
              call: {other:?}"
@@ -404,13 +459,24 @@ fn create_proposal_in_tx(
     provenance: ProposalProvenance,
     now: &str,
 ) -> anyhow::Result<ProposalOutcome> {
-    let (project_id, epic_id, actor_id, run_task_id): (String, Option<String>, String, Option<String>) = tx
+    let (project_id, epic_id, actor_id, run_task_id, run_stage): (
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+    ) = tx
         .query_row(
-            "SELECT project_id, epic_id, actor_id, task_id FROM agent_runs WHERE id = ?1",
+            "SELECT project_id, epic_id, actor_id, task_id, authoring_stage FROM agent_runs WHERE id = ?1",
             params![agent_run_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         )
         .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
+    // Plan 13-11 (F1/F6): the kind comes from the row already in scope, through the one classifier —
+    // not a second query and not another inference from column shape.
+    let kind = RunKind::classify(run_task_id.as_deref(), epic_id.as_deref(), run_stage.as_deref())
+        .with_context(|| format!("agent_run {agent_run_id:?}"))?;
+    let limit = proposal_limit(kind);
 
     // Plan 06-05 (PROP-05, D-109/D-110): the count of every row THIS run has EVER staged —
     // regardless of status or verb, a rejected/deferred row still consumed a human's triage
@@ -426,7 +492,7 @@ fn create_proposal_in_tx(
         )
         .context("failed to count this run's staged proposals")?;
 
-    if staged_count >= PROPOSAL_LIMIT_PER_RUN as i64 {
+    if staged_count >= limit as i64 {
         // D-111/D-112/T-06-22: refused OUT LOUD, never a silent drop — one event per refusal, so
         // the trail records what was turned away (the refused proposal's own target type and
         // title), not merely that a refusal happened. No existence check before this append: that
@@ -434,14 +500,15 @@ fn create_proposal_in_tx(
         let sequence = next_sequence(tx, &project_id, "local")?;
         let event_payload = serde_json::json!({
             "field": "authoring_proposal",
-            "limit": PROPOSAL_LIMIT_PER_RUN,
+            "limit": limit,
             "count": staged_count,
             "targetType": payload.target_type().as_str(),
             "title": payload.label(),
             "label": format!(
                 "Refused a new {} proposal — this run already holds {staged_count} staged \
-                 proposals (limit {PROPOSAL_LIMIT_PER_RUN})",
-                payload.target_type().as_str()
+                 proposals (limit {limit}); {}",
+                payload.target_type().as_str(),
+                proposal_limit_refusal(kind)
             ),
         });
         append_event(
@@ -458,7 +525,7 @@ fn create_proposal_in_tx(
             &event_payload,
             now,
         )?;
-        return Ok(ProposalOutcome::LimitExhausted { limit: PROPOSAL_LIMIT_PER_RUN, count: staged_count });
+        return Ok(ProposalOutcome::LimitExhausted { limit, count: staged_count });
     }
 
     let tail_position: Option<String> = tx
@@ -614,9 +681,9 @@ pub enum ProposalOutcome {
     /// One row was staged, attributed to the run's own project/epic/actor.
     Created(Proposal),
     /// Plan 06-05 (PROP-05, D-109/D-110/D-111): this run has already staged
-    /// [`PROPOSAL_LIMIT_PER_RUN`] proposals — no row was inserted, and one
+    /// [`proposal_limit`] proposals for its kind — no row was inserted, and one
     /// `proposal.limit_exhausted` event was appended instead (still committed: a refusal is never
-    /// a silent rollback). Carries both the fixed `limit` and the run's own observed `count` so
+    /// a silent rollback). Carries both the kind's own `limit` and the run's own observed `count` so
     /// the caller can name both in its refusal message without re-reading either.
     LimitExhausted { limit: usize, count: i64 },
 }

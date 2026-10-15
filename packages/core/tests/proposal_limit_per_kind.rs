@@ -380,3 +380,42 @@ fn the_notice_reports_the_runs_own_kind_specific_limit() {
         }
     });
 }
+
+// --- the edges the classifier adds --------------------------------------------------------------
+
+/// A run that belongs to nothing is a bug to surface (F6), not a run to give the execution cap.
+#[test]
+fn an_unscoped_run_is_refused_loudly_rather_than_defaulted_to_a_cap() {
+    with_scratch_dirs(|| {
+        let (mut conn, human_actor_id, project) = common::seeded_project();
+        let agent_actor = agent_actor_id(&conn).unwrap();
+        let trigger_id = new_id();
+        conn.execute(
+            "INSERT INTO triggers (id, project_id, target_task_id, target_epic_id, source, created_by, created_at)
+             VALUES (?1, ?2, NULL, NULL, 'user_action', ?3, 'now')",
+            params![trigger_id, project.id, human_actor_id],
+        )
+        .unwrap();
+        let run_id = new_id();
+        conn.execute(
+            "INSERT INTO agent_runs (id, task_id, epic_id, project_id, trigger_id, actor_id, status, permission_mode, log_path, started_at, authoring_stage)
+             VALUES (?1, NULL, NULL, ?2, ?3, ?4, 'running', 'default', ?5, 'now', NULL)",
+            params![run_id, project.id, trigger_id, agent_actor, format!("/tmp/log-{run_id}.jsonl")],
+        )
+        .unwrap();
+
+        let err = stage(&mut conn, &run_id, 0, None).expect_err("an unscoped run stages nothing");
+        assert!(format!("{err:#}").contains("unscoped"), "{err:#}");
+        assert_eq!(row_count(&conn, &run_id), 0);
+        assert!(refusal_event_payloads(&conn, &run_id).is_empty(), "this is an error, not a cap refusal");
+    });
+}
+
+/// The authoring clause must point at something an authoring session can really do, and nothing it
+/// cannot: it has no `report_summary`, but it does speak to the developer.
+#[test]
+fn the_authoring_clause_points_at_the_developer_reply() {
+    let clause = proposal_limit_refusal(RunKind::Authoring);
+    assert!(clause.contains("reply"), "{clause}");
+    assert!(!clause.contains("report_summary") && !clause.contains("remains"), "{clause}");
+}
