@@ -175,6 +175,29 @@ impl FakeForge {
     }
 }
 
+/// The ONE way a standalone test reads a request through the live path: the lookup and the
+/// "was the fake reached" guard travel together, so a new test cannot assert on a result without
+/// having proved it came from the stub. If the `PATH` substitution failed, this test exercised a
+/// real `gh`/`glab` on the developer's machine instead of the harness's fake, and a harness that
+/// can pass without reaching its own fake proves nothing (T-07-12-01 / T-15-09).
+/// `assert_open_to_merged_chain` carries the same guard inline because it asserts after
+/// `create_request_at`, not after a lookup.
+fn observe_branch(
+    fake: &FakeForge,
+    forge: Forge,
+    repo_path: &Path,
+    branch: &str,
+) -> Result<Option<core::forge::ForgeRequest>, ForgeError> {
+    let observed = request_for_branch_at(forge, repo_path, branch);
+    assert!(
+        fake.invoked(),
+        "the fake must have been invoked before any result is trusted — the PATH substitution \
+         failed, so this test reached a real gh/glab on this machine instead of the harness's \
+         stub, and a harness that can pass without reaching its own fake proves nothing"
+    );
+    observed
+}
+
 /// Generate the `gh` stub's shell source with `dir`'s absolute path baked into its text exactly
 /// as `forge_degrade.rs`'s own sabotage stub bakes its marker path — `.replace`, not `format!`,
 /// because the JSON this stub emits is otherwise a brace-escaping minefield under `format!`.
@@ -490,7 +513,7 @@ fn github_branch_with_no_request_yields_no_request_and_no_transition() {
 
         with_fake_forge_clis(|fake| {
             fake.set_state("NONE");
-            let observed = request_for_branch_at(forge, &repo_path, &draft.head_branch)
+            let observed = observe_branch(fake, forge, &repo_path, &draft.head_branch)
                 .expect("request_for_branch_at should succeed");
             assert!(observed.is_none(), "a branch the fake reports no request for must yield None");
 
@@ -512,7 +535,7 @@ fn github_request_with_no_ci_run_normalises_to_no_ci_result() {
         with_fake_forge_clis(|fake| {
             fake.set_state("OPEN");
             fake.set_ci("none");
-            let observed = request_for_branch_at(forge, &repo_path, &draft.head_branch)
+            let observed = observe_branch(fake, forge, &repo_path, &draft.head_branch)
                 .expect("request_for_branch_at should succeed")
                 .expect("a request must be found");
             assert_eq!(observed.ci, CiResult::None);
@@ -528,7 +551,7 @@ fn github_two_requests_select_the_newest_by_created_timestamp_through_the_live_p
         with_fake_forge_clis(|fake| {
             fake.set_state("OPEN");
             fake.set_entries(2);
-            let observed = request_for_branch_at(forge, &repo_path, &draft.head_branch)
+            let observed = observe_branch(fake, forge, &repo_path, &draft.head_branch)
                 .expect("request_for_branch_at should succeed")
                 .expect("a request must be found");
             assert_eq!(
@@ -597,7 +620,7 @@ fn gitlab_branch_with_no_request_yields_no_request_and_never_calls_view() {
 
         with_fake_forge_clis(|fake| {
             fake.set_state("NONE");
-            let observed = request_for_branch_at(forge, &repo_path, &draft.head_branch)
+            let observed = observe_branch(fake, forge, &repo_path, &draft.head_branch)
                 .expect("request_for_branch_at should succeed");
             assert!(observed.is_none(), "a branch the fake reports no request for must yield None");
             assert!(fake.argv_has_token("list"), "mr list must still have been invoked");
@@ -624,7 +647,7 @@ fn gitlab_request_with_no_head_pipeline_normalises_to_no_ci_result() {
         with_fake_forge_clis(|fake| {
             fake.set_state("opened");
             fake.set_ci("none");
-            let observed = request_for_branch_at(forge, &repo_path, &draft.head_branch)
+            let observed = observe_branch(fake, forge, &repo_path, &draft.head_branch)
                 .expect("request_for_branch_at should succeed")
                 .expect("a request must be found");
             assert_eq!(observed.ci, CiResult::None);
@@ -640,7 +663,7 @@ fn gitlab_two_requests_select_the_newest_by_created_timestamp_through_the_live_p
         with_fake_forge_clis(|fake| {
             fake.set_state("opened");
             fake.set_entries(2);
-            let observed = request_for_branch_at(forge, &repo_path, &draft.head_branch)
+            let observed = observe_branch(fake, forge, &repo_path, &draft.head_branch)
                 .expect("request_for_branch_at should succeed")
                 .expect("a request must be found");
             assert_eq!(
@@ -795,7 +818,7 @@ fn epic_request_pushed_but_not_opened_is_a_partial_outcome_not_a_success() {
 
         assert!(remote_tip(c.remote.path(), INTEGRATION).is_some(), "the branch landed on the remote");
         assert!(fake.argv_has_token("create"), "the create call was attempted");
-        let after = request_for_branch_at(c.forge, &c.repo_path, INTEGRATION).expect("lookup");
+        let after = observe_branch(fake, c.forge, &c.repo_path, INTEGRATION).expect("lookup");
         assert!(after.is_none(), "no request exists");
     });
 }
