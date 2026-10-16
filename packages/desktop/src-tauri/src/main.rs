@@ -177,6 +177,8 @@ fn main() {
             commands::criterion::criterion_list,
             commands::criterion::criterion_revise,
             commands::criterion::criterion_revisions,
+            commands::criterion::task_criterion_coverage,
+            commands::criterion::task_criteria_waive,
             commands::events::events_activity_trail,
             commands::events::events_since_cursor,
             commands::file_set::task_file_set_get,

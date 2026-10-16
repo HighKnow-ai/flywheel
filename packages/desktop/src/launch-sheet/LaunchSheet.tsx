@@ -26,6 +26,8 @@ import {
   previewEpicContextPacket,
   startAgentRun,
   startAuthoringRun,
+  taskCriterionCoverage,
+  waiveTaskCriteria,
   type CompactionBoundaryDto,
   type ContextPacketDto,
   type DecisionDto,
@@ -38,6 +40,8 @@ import {
   type TaskRosterEntryDto,
   type AssumptionEntryDto,
 } from "../adapters/tauri";
+import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
+import { AcceptanceCriteriaList } from "../item-detail/AcceptanceCriteriaList";
 import "../session/session.css";
 
 const MONO_FONT_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
@@ -72,6 +76,23 @@ const PREMISE_PLACEHOLDER_REOPENED_EPIC = "What do you want to change about this
 
 function launchSheetPreviewQueryKey(taskId: string) {
   return ["launch-sheet-preview", taskId] as const;
+}
+
+/** D-12's coverage read, one query per task. Re-read on `board:changed` like every other board read. */
+function criterionCoverageQueryKey(taskId: string) {
+  return ["task-criterion-coverage", taskId] as const;
+}
+
+/** D-11: why Start Work is blocked, in words. A pending draft is not a contract (D-12 keeps it from
+ * being drafted twice, not from needing a decision). */
+function noContractSentence(pendingDraftCount: number) {
+  const lead = "This task has no acceptance criteria";
+  const why = "a run against no contract is what the criteria freeze at Start Work exists to prevent";
+  if (pendingDraftCount > 0) {
+    const noun = pendingDraftCount === 1 ? "drafted criterion is" : "drafted criteria are";
+    return `${lead} yet: ${pendingDraftCount} ${noun} waiting for your decision. Start Work unlocks once one is decided; ${why}.`;
+  }
+  return `${lead}. Write one below, or proceed without; ${why}.`;
 }
 
 /** A row-shaped placeholder for the near-instant window between the sheet mounting and the
@@ -628,6 +649,19 @@ export function LaunchSheet({
     enabled: !isAuthoring && taskId !== null,
   });
 
+  // D-11/D-12: the gate. Fail open — a coverage read that errors blocks nothing (T-15-30), and only a
+  // definite "no current criteria" routes through drafting. The sheet never recomputes the definition.
+  const coverageQuery = useQuery({
+    queryKey: taskId ? criterionCoverageQueryKey(taskId) : ["task-criterion-coverage", "none"],
+    queryFn: () => taskCriterionCoverage(taskId as string),
+    enabled: !isAuthoring && taskId !== null,
+  });
+  useBoardChangedInvalidation({ kind: "viewed" }, !isAuthoring && taskId ? [criterionCoverageQueryKey(taskId)] : []);
+  const [waived, setWaived] = useState(false);
+  const waivingRef = useRef(false);
+  const coverage = coverageQuery.data;
+  const needsContract = !isAuthoring && !waived && coverage !== undefined && coverage.currentCount === 0;
+
   const epicPreviewQuery = useQuery({
     // `epicId ?? "none"` keys the fresh-epic case distinctly from any real epic id — two
     // different projects' fresh-epic previews still share this key, which is fine: neither
@@ -648,6 +682,8 @@ export function LaunchSheet({
       startingRef.current = false;
       setError(null);
       setOverlapWarning(null);
+      setWaived(false);
+      waivingRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId, isAuthoring, authoringEpicId, authoringProjectId]);
@@ -658,7 +694,23 @@ export function LaunchSheet({
     onClose();
   }
 
+  /** D-13: the escape hatch. One recorded call, no confirmation (a task no lint will pass must still
+   * be startable); the ref makes two synchronous activations one call. */
+  function handleWaive() {
+    if (waivingRef.current) return;
+    waivingRef.current = true;
+    waiveTaskCriteria(taskId as string)
+      .then(() => setWaived(true))
+      .catch((err: unknown) => {
+        waivingRef.current = false;
+        setError(err instanceof Error ? err.message : String(err));
+      });
+  }
+
   function handleSubmit() {
+    // D-11: Start Work is blocked, not the task. Guarded here, not only on the button, because Enter
+    // reaches this function from `handleDialogKeyDown` too.
+    if (needsContract) return;
     // The synchronous-tick guard (WR-03, see startingRef's own doc comment above) — checked and
     // set BEFORE the `starting` state guard, since the ref is what is actually safe against two
     // activations racing in the same tick; `starting` state still drives the disabled button and
@@ -768,6 +820,15 @@ export function LaunchSheet({
                 </p>
               )}
               {!isAuthoring && taskPacket && <PacketBody packet={taskPacket} />}
+              {/* D-02: the SAME criteria form the item panel uses, composed — not a sheet-local editor. */}
+              {needsContract && (
+                <AcceptanceCriteriaList
+                  parentType="task"
+                  parentId={taskId as string}
+                  projectId={coverage?.projectId ?? undefined}
+                  autoOpenWhenEmpty
+                />
+              )}
               {isAuthoring && epicPacket && <EpicPacketBody packet={epicPacket} />}
               {error && (
                 <p className="type-body" style={{ color: "var(--destructive-text-rack)" }}>
@@ -858,6 +919,27 @@ export function LaunchSheet({
                 </p>
               )}
 
+              {needsContract && coverage && (
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-sm)" }}>
+                  <p
+                    role="note"
+                    aria-label="No acceptance criteria"
+                    className="type-body"
+                    style={{ flex: 1, margin: 0, color: "var(--text-muted-rack)" }}
+                  >
+                    {noContractSentence(coverage.pendingDraftCount)}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleWaive}
+                    title="Starts the run with no contract. Recorded on the task's activity trail."
+                    className="session-text-action type-body"
+                  >
+                    Proceed without criteria
+                  </button>
+                </div>
+              )}
+
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-sm)" }}>
                 <button
                   type="button"
@@ -869,7 +951,7 @@ export function LaunchSheet({
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={starting}
+                  disabled={starting || needsContract}
                   className="control-edge session-action session-action-lead type-body"
                 >
                   {submitLabel}

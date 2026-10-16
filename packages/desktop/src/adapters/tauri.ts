@@ -2006,6 +2006,29 @@ export async function repoTrackedPaths(planId: string): Promise<TrackedPathsDto>
   return invokeCommand<TrackedPathsDto>("repo_tracked_paths", { planId });
 }
 
+/** D-12: counts and a boolean, never statements. `hasCoverage` is the Rust core's definition of "no
+ * criteria" (zero current AND zero pending drafts); the renderer never recomputes it. A NULL
+ * verification hint IS the judgement-only flag (D-24), so that count is derived there too. */
+export interface CriterionCoverageDto {
+  currentCount: number;
+  pendingDraftCount: number;
+  hasCoverage: boolean;
+  judgementOnlyCount: number;
+  /** The task's project, from the core: what the composed criteria form needs to create a criterion. */
+  projectId: string | null;
+}
+
+/** Thin wrapper over `task_criterion_coverage`. Read-only. */
+export async function taskCriterionCoverage(taskId: string): Promise<CriterionCoverageDto> {
+  return invokeCommand<CriterionCoverageDto>("task_criterion_coverage", { taskId });
+}
+
+/** D-13: a deliberate "proceed without criteria". Appends one `task.criteria_waived` event; writes
+ * no status. Thin wrapper over `task_criteria_waive`. */
+export async function waiveTaskCriteria(taskId: string): Promise<void> {
+  await invokeCommand<void>("task_criteria_waive", { taskId });
+}
+
 // ---------------------------------------------------------------------------------------------
 // Phase 9 plan 09-09: the fan-out surface. Every verdict below (a sequencing edge, the paths that
 // earned it, a refusal, a gate reason) is the Rust core's. The renderer displays these DTOs and

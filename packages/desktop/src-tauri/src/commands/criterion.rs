@@ -312,3 +312,40 @@ pub fn criterion_list(state: State<AppState>, parent_type: String, parent_id: St
             .map_err(|e| e.to_string())?;
     Ok(criteria.into_iter().map(CriterionDto::from).collect())
 }
+
+/// [`flywheel_core::query::criterion_coverage::CriterionCoverage`] plus the task's project, which
+/// the launch sheet's composed criteria form needs to create a criterion (the packet does not carry
+/// it, and the renderer must not guess it from whichever project happens to be viewed).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskCriterionCoverageDto {
+    #[serde(flatten)]
+    pub coverage: flywheel_core::query::criterion_coverage::CriterionCoverage,
+    pub project_id: Option<String>,
+}
+
+/// D-12: whether a task has criteria coverage (current criteria or a pending draft), and how many
+/// of its current criteria are judgement-only. Counts and a boolean only — the statements come from
+/// the bounded `criterion_list`. Read-only: no `board:changed` emission.
+#[tauri::command]
+pub fn task_criterion_coverage(state: State<AppState>, task_id: String) -> Result<TaskCriterionCoverageDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let coverage = flywheel_core::query::criterion_coverage::criterion_coverage(&conn, &task_id)
+        .map_err(|e| e.to_string())?;
+    Ok(TaskCriterionCoverageDto { coverage, project_id: project_of(&conn, "tasks", &task_id) })
+}
+
+/// D-13: a deliberate "proceed without criteria". The actor is resolved server-side (T-15-28) and
+/// the core asserts human actorhood in-transaction; the one effect is a `task.criteria_waived`
+/// event — never a `tasks.status` write.
+#[tauri::command]
+pub fn task_criteria_waive(state: State<AppState>, app: AppHandle, task_id: String) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::acceptance_criterion::waive_criteria(&mut conn, &actor_id, &task_id)
+        .map_err(|e| e.to_string())?;
+    let project_id = project_of(&conn, "tasks", &task_id);
+    drop(conn);
+    emit_board_changed(&app, project_id.as_deref(), "task", Some(task_id.as_str()));
+    Ok(())
+}

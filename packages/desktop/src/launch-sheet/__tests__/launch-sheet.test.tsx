@@ -25,6 +25,12 @@ vi.mock("../../adapters/tauri", async () => {
       previewEpicMock(projectId, epicId),
     startAuthoringRun: (projectId: string, epicId?: string | null, premise?: string | null) =>
       startAuthoringMock(projectId, epicId, premise),
+    // Phase 15 plan 06: the criteria gate reads coverage and re-reads it on `board:changed`. These
+    // tests are about everything else, so the task has criteria and the gate stays out of the way
+    // (the gate itself is pinned in `criteria-route.test.tsx`).
+    taskCriterionCoverage: () =>
+      Promise.resolve({ currentCount: 1, pendingDraftCount: 0, hasCoverage: true, judgementOnlyCount: 0, projectId: "p" }),
+    subscribeBoardChanged: () => Promise.resolve(() => {}),
   };
 });
 
