@@ -11,7 +11,10 @@
 //! null is plan 15-02's `undeclared` marker (D-21): it yields `undeclared: true` with no entries,
 //! which is not the same answer as a declaration of an empty list.
 
-use rusqlite::Connection;
+use anyhow::Context;
+use rusqlite::{params, Connection};
+
+use crate::domain::file_set::{EVENT_FILE_SET_DECLARED, EVENT_FILE_SET_WIDENED};
 
 /// The most older declarations one read returns, declared once. A task's set is rewritten a handful
 /// of times in a plan's life; a task edited past this is told so by `history_truncated`.
@@ -44,7 +47,56 @@ pub struct FileSetProvenance {
     pub history_truncated: bool,
 }
 
-/// RED skeleton: the read is not written yet, so every task reads as undeclared-by-nobody.
-pub fn file_set_provenance(_conn: &Connection, _task_id: &str) -> anyhow::Result<Option<FileSetProvenance>> {
-    Ok(None)
+const DECLARATIONS_SQL: &str = "SELECT a.id, a.type, a.display_name, e.occurred_at, e.event_type, e.payload \
+    FROM events e JOIN actors a ON a.id = e.actor_id \
+    WHERE e.task_id = ?1 AND e.event_type IN (?2, ?3) \
+    ORDER BY e.id DESC LIMIT ?4";
+
+fn strings(value: &serde_json::Value) -> Vec<String> {
+    value
+        .as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
+
+/// `None` when the task has no declaration event at all: nobody declared it, so nobody is credited.
+pub fn file_set_provenance(conn: &Connection, task_id: &str) -> anyhow::Result<Option<FileSetProvenance>> {
+    let mut stmt = conn.prepare(DECLARATIONS_SQL).context("failed to prepare the file-set provenance read")?;
+    // One for the latest, the limit for the history, one more to learn whether the history was cut.
+    let bound = (FILE_SET_HISTORY_LIMIT + 2) as i64;
+    let rows = stmt
+        .query_map(params![task_id, EVENT_FILE_SET_DECLARED, EVENT_FILE_SET_WIDENED, bound], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, String>(5)?,
+            ))
+        })
+        .context("failed to read the file-set declarations")?;
+    let mut declarations = Vec::new();
+    for row in rows {
+        let (actor_id, actor_kind, actor_name, declared_at, event_type, payload) =
+            row.context("failed to read a file-set declaration row")?;
+        let payload: serde_json::Value = serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null);
+        declarations.push(FileSetDeclaration {
+            agent_drafted: actor_kind == "agent",
+            actor_id,
+            actor_kind,
+            actor_name,
+            declared_at,
+            event_type,
+            before: strings(&payload["before"]),
+            entries: strings(&payload["after"]),
+            undeclared: payload["after"].is_null(),
+        });
+    }
+    let mut declarations = declarations.into_iter();
+    let Some(latest) = declarations.next() else { return Ok(None) };
+    let mut history: Vec<FileSetDeclaration> = declarations.collect();
+    let history_truncated = history.len() > FILE_SET_HISTORY_LIMIT;
+    history.truncate(FILE_SET_HISTORY_LIMIT);
+    Ok(Some(FileSetProvenance { latest, history, history_truncated }))
 }
