@@ -779,6 +779,18 @@ export class Harness {
    * that the resolved value cannot reach the developer's personal Claude Code configuration AND
    * that the composed directory's own contents carry nothing behavioural.
    *
+   * Honors `FLYWHEEL_UAT_CREDENTIAL_SOURCE_DIR` as the directory the credential is linked FROM,
+   * defaulting to {@link PERSONAL_CLAUDE_CONFIG_DIR} when unset so every existing caller is
+   * unchanged. It exists because a NON-personal account cannot be a link source as it stands: a
+   * Claude Code team account keeps its credential in the macOS keychain, under service
+   * `Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[0:8]>`, and writes no `.credentials.json`
+   * file at all - so its own config directory presents nothing this function can link, and a fresh
+   * scratch directory hashes to a keychain service that does not exist and comes up logged out.
+   * Point this at a directory holding ONLY that one exported credential; the composed target stays
+   * a clean room, and the account whose window is spent is no longer forced to be the developer's
+   * personal one (plan 15-04, Task 3 - the burn must not drain the window the measurement itself
+   * is running in).
+   *
    * Honors `FLYWHEEL_UAT_CLAUDE_CONFIG_DIR` as a DURABLE override — a directory a human has
    * already staged, outside this process — and falls back to a fresh scratch directory under
    * `this.root` when unset. This harness NEVER copies, moves, reads or writes the contents of any
@@ -809,7 +821,10 @@ export class Harness {
   cleanClaudeConfigEnv() {
     const override = process.env.FLYWHEEL_UAT_CLAUDE_CONFIG_DIR;
     const configDir = override ?? path.join(this.root, "claude-config");
-    const composition = composeIsolatedClaudeConfigDir({ targetConfigDir: configDir });
+    const composition = composeIsolatedClaudeConfigDir({
+      targetConfigDir: configDir,
+      sourceConfigDir: process.env.FLYWHEEL_UAT_CREDENTIAL_SOURCE_DIR || undefined,
+    });
     const result = { CLAUDE_CONFIG_DIR: composition.configDir };
     assertClaudeConfigIsolated(result, { configDir: composition.configDir });
     this.lastComposedClaudeConfig = composition;
