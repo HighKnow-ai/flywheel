@@ -47,7 +47,7 @@ own phases, which are read daily in this repository (owner decision, 2026-10-14)
 ### Drafting: the end of encoding work
 
 - [ ] **DRFT-01**: The planner declares each task's expected file-set, observed working against a live backend, and the hand-typed path field becomes an escape hatch rather than the path of record *(closes the carried PLAN-01)*
-- [ ] **DRFT-02**: Acceptance criteria are drafted by default when a task is created or started; a run on a task with no criteria routes through drafting first rather than proceeding without them
+- [x] **DRFT-02**: Acceptance criteria are drafted by default when a task is created or started; a run on a task with no criteria routes through drafting first rather than proceeding without them
 - [ ] **DRFT-03**: An epic or task can be decomposed by an agent into child items with titles and bodies drafted, which the user accepts, rejects or amends individually
 - [x] **DRFT-04**: A task's status is derived from git and forge state and is never drafted or written by an agent; the one non-derivable transition (backlog to todo) rides the acceptance of the task itself
 - [x] **DRFT-05**: `estimate` is removed from every required flow unless a consumer that reads it is named; an unread field is not drafted, shown as required, or asked for
@@ -55,7 +55,7 @@ own phases, which are read daily in this repository (owner decision, 2026-10-14)
 - [ ] **DRFT-07**: The unit of acceptance is the field for a scalar and the item for a structure; no control anywhere accepts a set wholesale, and the absence of a bulk-accept path is enforced by a source test
 - [ ] **DRFT-08**: Open drafts are capped per project with visible back-pressure, so a drafting run cannot accumulate an unreviewable queue
 - [x] **DRFT-09**: The per-run proposal cap does not throttle a legitimate decomposition, and a run that hits its cap is refused with wording that fits the kind of session it is *(the current cap of 10 applies to authoring runs by accident, and its refusal text names a tool an authoring session does not have)*
-- [ ] **DRFT-10**: Acceptance criteria can be drafted for a task that already exists and was created by hand, not only for a task an agent proposed in the same session
+- [x] **DRFT-10**: Acceptance criteria can be drafted for a task that already exists and was created by hand, not only for a task an agent proposed in the same session
 - [ ] **DRFT-11**: The product measures what fraction of drafted items are revised after acceptance, derived from the event log, so reflex acceptance is distinguishable from good drafting rather than assumed
 - [ ] **DRFT-12**: Rate and session limits from the backend are detected, backed off from, and surfaced rather than retried blindly, observed against a real limit *(the carried AGNT-05)*
 
@@ -182,7 +182,7 @@ Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROAD
 | RECD-12 | Phase 16 | Pending |
 | RECD-13 | Phase 16 | Pending |
 | DRFT-01 | Phase 15 | Pending |
-| DRFT-02 | Phase 15 | Pending |
+| DRFT-02 | Phase 15 | Complete |
 | DRFT-03 | Phase 15 | Pending |
 | DRFT-04 | Phase 13 | Complete |
 | DRFT-05 | Phase 13 | Complete |
@@ -190,7 +190,7 @@ Populated by the roadmapper on 2026-10-14. Phase detail lives in `.planning/ROAD
 | DRFT-07 | Phase 15 | Pending |
 | DRFT-08 | Phase 15 | Pending |
 | DRFT-09 | Phase 13 | Complete |
-| DRFT-10 | Phase 15 | Pending |
+| DRFT-10 | Phase 15 | Complete |
 | DRFT-11 | Phase 15 | Pending |
 | DRFT-12 | Phase 15 | Pending |
 | ARVW-01 | Phase 17 | Pending |

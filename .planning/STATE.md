@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 15
 current_phase_name: Nothing Typed That An Agent Could Draft
 status: executing
-stopped_at: Completed 15-05-PLAN.md
-last_updated: "2026-10-16T05:36:15.906Z"
+stopped_at: Completed 15-06-PLAN.md
+last_updated: "2026-10-16T06:03:45.189Z"
 last_activity: 2026-10-16
 last_activity_desc: Phase 15 execution started
-state_head: fd44f0fa2a7e79e68db3c073f90cdf734e78a2a7
+state_head: f4ec0d1a39c08d3b0803b0d43759516bd2e78149
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 38
-  completed_plans: 32
+  completed_plans: 33
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-16)
 ## Current Position
 
 Phase: 15 (Nothing Typed That An Agent Could Draft) — EXECUTING
-Plan: 5 of 10
+Plan: 6 of 10
 Status: Ready to execute
 Last activity: 2026-10-16 — Phase 15 execution started
 
@@ -345,6 +345,7 @@ Last activity: 2026-10-16 — Phase 15 execution started
 | Phase 15 P02 | 45min | 3 tasks | 14 files |
 | Phase 15 P03 | 13 min | 3 tasks | 7 files |
 | Phase 15 P05 | 40 min | 3 tasks | 11 files |
+| Phase 15 P06 | 24 min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -798,6 +799,7 @@ Recent decisions affecting current work:
 - [Phase 15]: 15-03: the account-limit harness reports offline verification as passed and reserves observed for a LiveObservation from a live sidecar — A constructed Rejected line must never read as an observed one (D-32, T-15-11)
 - [Phase 15]: 15-05: provenance field is agent_drafted (wire draftedByAgent) so the plan's own drafted_by grep stays meaningful — The acceptance grep for drafted_by would match drafted_by_agent
 - [Phase 15]: 15-05: chip autocomplete lists the project repo_path's tracked files, not the epic worktree's — One git ls-files on a path that always exists; branch-only files are typed in full
+- [Phase 15]: 15-06: a pending criterion draft blocks a second draft but not the Start Work gate; the coverage gate fails open on a read error
 
 ### Pending Todos
 
@@ -866,6 +868,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-16T05:36:15.872Z
-Stopped at: Completed 15-05-PLAN.md
+Last session: 2026-10-16T06:03:45.157Z
+Stopped at: Completed 15-06-PLAN.md
 Resume file: None

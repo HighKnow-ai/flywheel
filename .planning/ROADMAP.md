@@ -305,7 +305,7 @@ read tools versus `Bash` is unverified. Also needed before planning: the per-fie
 (provisional versus explicit) and the values for the open-drafts cap, since no measured acceptance
 behaviour for this product exists yet — the only datum is 1 of 42 amended, which cannot distinguish
 good drafting from reflex acceptance. Instrument first, tune after.
-**Plans**: 4/10 plans executed
+**Plans**: 5/10 plans executed
 
 Plans:
 **Wave 1**
@@ -321,7 +321,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 15-06-PLAN.md — The launch sheet's drafting route, the derived judgement-only count, and the non-blocking lint advice on human text
+- [x] 15-06-PLAN.md — The launch sheet's drafting route, the derived judgement-only count, and the non-blocking lint advice on human text
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -480,7 +480,7 @@ Phase 17 shares no file with Phase 16 and may run beside it; it may not be absor
 |-------|----------------|--------|-----------|
 | 13. Nothing New Escapes The Fence | 18/18 | Complete    | 2026-10-15 |
 | 14. Cycles On Screen, State In Colour | 10/10 | Complete    | 2026-10-16 |
-| 15. Nothing Typed That An Agent Could Draft | 4/10 | In Progress|  |
+| 15. Nothing Typed That An Agent Could Draft | 5/10 | In Progress|  |
 | 16. The Problem And The Decision Are Board Records | 0/0 | Not started | - |
 | 17. Pre-Reviewed, Never Pre-Approved | 0/0 | Not started | - |
 | 18. Dark By Design, Calm When Healthy | 0/0 | Not started | - |

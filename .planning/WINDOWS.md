@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 20
+open_count: 21
 waived_count: 0
 fixed_count: 10
-total_count: 30
-last_updated: 2026-10-14T15:19:34.570Z
+total_count: 31
+last_updated: 2026-10-16T06:02:44.428Z
 ---
 
 # Broken Windows Ledger
@@ -45,6 +45,7 @@ last_updated: 2026-10-14T15:19:34.570Z
 | 28 | 08 | unmet-truth | packages/desktop/src/review/ReviewSurface.tsx |  | Epic scope shows the epic's own criteria only; the roll-up of its tasks (D-132) has no data source (08-06's rail builds none, no command lists an epic's tasks with criteria counts) | fixed |  | 2026-10-06T05:55:53.998Z | 2026-10-06T07:12:00.016Z |
 | 29 | 08.1 | unrun-verify | .planning/phases/08.1-visual-polish-brand-assets-and-confirmed-motion-inserted/comps/mission-control.html |  | detect.mjs ran degraded (parser modules missing); selection-rule finding unevaluated | open |  | 2026-10-07T12:04:02.798Z |  |
 | 30 | 13 | stub | .planning/phases/13-nothing-new-escapes-the-fence/13-LIVE-PLANNING-RUN.md |  | Criterion 6 live planning run not yet recorded; deliberate placeholder, DRFT-01 (Phase 15) cannot retire the hand-typed path field until it exists | open |  | 2026-10-14T15:19:34.570Z |  |
+| 31 | 15 | deviation | packages/desktop/src/launch-sheet/LaunchSheet.tsx |  | 15-06: launch sheet gates Start Work and composes the criteria form but issues no drafting request; a pending criterion draft has no in-sheet decision surface | open |  | 2026-10-16T06:02:44.428Z |  |
 
 ````json
 [
@@ -406,6 +407,18 @@ last_updated: 2026-10-14T15:19:34.570Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-10-14T15:19:34.570Z",
+    "resolved_at": null
+  },
+  {
+    "id": 31,
+    "kind": "deviation",
+    "phase": "15",
+    "file": "packages/desktop/src/launch-sheet/LaunchSheet.tsx",
+    "line": null,
+    "description": "15-06: launch sheet gates Start Work and composes the criteria form but issues no drafting request; a pending criterion draft has no in-sheet decision surface",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-10-16T06:02:44.428Z",
     "resolved_at": null
   }
 ]
