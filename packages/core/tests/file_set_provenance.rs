@@ -184,3 +184,43 @@ fn the_history_read_is_bounded_and_says_when_it_cut() {
     let small = file_set_provenance(&g.conn, &g.tasks[0].0).unwrap().unwrap();
     assert!(!small.history_truncated);
 }
+
+// --- plan approval is the accept (D-18, T-15-26) ---------------------------------------------
+
+#[test]
+fn approving_a_plan_freezes_the_edges_but_stages_nothing_and_keeps_the_planners_attribution() {
+    let mut f = fx(2);
+    let (k0, k1) = (f.tasks[0].1.clone(), f.tasks[1].1.clone());
+    let plan_id = store_submitted_plan(
+        &mut f.conn,
+        &f.run_id,
+        &f.epic_id,
+        &SubmittedPlan {
+            tasks: vec![planned(&k0, &["src/a.rs"], false), planned(&k1, &["src/a.rs", "docs/"], false)],
+            excluded: Vec::new(),
+        },
+        &f.agent,
+        NOW,
+    )
+    .expect("the plan is stored");
+
+    // Live at draft time, restrictive only: F10's observation, stated as intended behaviour.
+    let live = core::domain::file_set::list_entries_for_task(&f.conn, &f.tasks[0].0).unwrap();
+    assert_eq!(live.len(), 1, "the declared set is readable before approval");
+    let declared = |c: &Connection| -> i64 {
+        c.query_row("SELECT COUNT(*) FROM events WHERE event_type = 'task.file_set_declared'", [], |r| r.get(0)).unwrap()
+    };
+    let before = declared(&f.conn);
+    assert_eq!(before, 2);
+
+    core::domain::dispatch_plan::approve_plan_with(&mut f.conn, &plan_id, &f.human, false, "2026-10-16T01:00:00Z")
+        .expect("a draft plan approves");
+
+    assert_eq!(declared(&f.conn), before, "approval freezes; it does not re-declare anything");
+    let edges: i64 = f.conn.query_row("SELECT COUNT(*) FROM dispatch_edges WHERE plan_id = ?1", [&plan_id], |r| r.get(0)).unwrap();
+    assert_eq!(edges, 1, "the colliding pair was frozen");
+    for (task_id, _) in &f.tasks {
+        let p = file_set_provenance(&f.conn, task_id).unwrap().unwrap();
+        assert!(p.latest.agent_drafted, "the human's approval did not take authorship of the planner's set");
+    }
+}
