@@ -1068,8 +1068,44 @@ pub fn delete_criteria_for_parent(
 /// D-13: the event a deliberate no-criteria start appends.
 pub const EVENT_CRITERIA_WAIVED: &str = "task.criteria_waived";
 
-/// RED stub — see the next commit.
-pub fn waive_criteria(_conn: &mut Connection, _actor_id: &str, _task_id: &str) -> anyhow::Result<()> {
+/// D-13: a developer's deliberate "proceed without criteria". Appends exactly one
+/// [`EVENT_CRITERIA_WAIVED`] event attributed to the human and writes nothing else — in
+/// particular no `tasks.status`: `status_derivation.rs` stays the one status writer, and the
+/// waiver is a measurable fact in the log, not a state of the task. Human-only, asserted in the
+/// same transaction as the append.
+pub fn waive_criteria(conn: &mut Connection, actor_id: &str, task_id: &str) -> anyhow::Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    crate::domain::actor::assert_human_actor_in_tx(&tx, actor_id)?;
+    let (project_id, epic_id): (String, Option<String>) = tx
+        .query_row(
+            "SELECT project_id, epic_id FROM tasks WHERE id = ?1",
+            params![task_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .with_context(|| format!("task {task_id:?} not found"))?;
+    let payload = serde_json::json!({
+        "field": "acceptance_criteria",
+        "before": "required",
+        "after": "waived",
+        "label": "Started work without acceptance criteria",
+    });
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        epic_id.as_deref(),
+        actor_id,
+        EVENT_CRITERIA_WAIVED,
+        &payload,
+        &now,
+    )?;
+    tx.commit().context("failed to commit waive_criteria transaction")?;
     Ok(())
 }
 
