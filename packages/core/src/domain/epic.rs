@@ -650,6 +650,32 @@ pub fn set_epic_priority_in_tx(
     Ok(())
 }
 
+/// Move an epic into a Cycle, or out of one when `cycle_id` is `None`.
+///
+/// `epics` is a Canonical table and this module is its single declared owner
+/// (`CANONICAL_TABLE_OWNERS` in `tests/proposal_no_promotion.rs`), so PROP-03/D-100 requires the
+/// column write to live here rather than in `domain/cycle.rs`, even though Cycle membership is
+/// `cycle.rs`'s concept. Owning `cycles` does not grant `epics`.
+///
+/// Deliberately writes the column and nothing else: it appends no event, because the membership
+/// fact belongs to the Cycle's own stream, and `cycle.rs` appends `cycle.epic_assigned` /
+/// `cycle.epic_removed` inside the SAME transaction it passes in here. Does not commit — the
+/// caller's transaction owns that. `status` is untouched, which is what `no_agent_status_write.rs`
+/// independently proves.
+pub fn set_epic_cycle_in_tx(
+    tx: &rusqlite::Transaction,
+    epic_id: &str,
+    cycle_id: Option<&str>,
+    now: &str,
+) -> anyhow::Result<()> {
+    tx.execute(
+        "UPDATE epics SET cycle_id = ?1, updated_at = ?2 WHERE id = ?3",
+        params![cycle_id, now, epic_id],
+    )
+    .context("failed to set the epic's cycle")?;
+    Ok(())
+}
+
 /// Set an epic's assignee — mirrors `task.rs::set_assignee` exactly (T-01-21: an id naming no
 /// actor row is rejected by the `assignee_id` foreign key, not by an application-layer check).
 pub fn set_assignee(

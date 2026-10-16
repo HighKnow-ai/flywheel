@@ -78,12 +78,13 @@ fn sources_under(dir: &Path) -> Vec<(PathBuf, String)> {
 /// `tasks`, which is the hole that let two raw `UPDATE issues` statements sit past this gate.
 /// `every_canonical_table_has_exactly_one_owner` fails the build when `TABLE_CLASSES` gains a
 /// Canonical table without a row here.
-const CANONICAL_TABLE_OWNERS: [(&str, &str); 5] = [
+const CANONICAL_TABLE_OWNERS: [(&str, &str); 6] = [
     ("tasks", "src/domain/task.rs"),
     ("epics", "src/domain/epic.rs"),
     ("issues", "src/domain/issue.rs"),
     ("acceptance_criteria", "src/domain/acceptance_criterion.rs"),
     ("criterion_anchors", "src/domain/acceptance_criterion.rs"),
+    ("cycles", "src/domain/cycle.rs"),
 ];
 
 fn owner_of(table: &str) -> Option<&'static str> {

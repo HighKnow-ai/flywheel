@@ -24,6 +24,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::domain::actor::assert_human_actor_in_tx;
+use crate::domain::epic::set_epic_cycle_in_tx;
 use crate::domain::event::{append_event, next_sequence};
 use crate::ids::new_id;
 use crate::ranking::{rank_after, rank_before, rank_between, ReorderDirection};
@@ -222,8 +223,8 @@ fn assign_epic_in_tx(tx: &Transaction, epic_id: &str, cycle_id: &str, actor_id: 
         anyhow::bail!("epic {epic_id:?} and cycle {cycle_id:?} belong to different projects");
     }
 
-    tx.execute("UPDATE epics SET cycle_id = ?2, updated_at = ?3 WHERE id = ?1", params![epic_id, cycle_id, now])
-        .context("failed to assign epic to cycle")?;
+    // `epics` is owned by `domain/epic.rs` (PROP-03/D-100): owning `cycles` does not grant `epics`.
+    set_epic_cycle_in_tx(tx, epic_id, Some(cycle_id), now)?;
     let payload = serde_json::json!({
         "field": "cycle_id", "before": before, "after": cycle_id, "label": "Added an epic to the cycle",
     });
@@ -251,8 +252,8 @@ fn remove_epic_in_tx(tx: &Transaction, epic_id: &str, actor_id: &str, now: &str)
         anyhow::bail!("epic {epic_id:?} is not in a cycle");
     };
 
-    tx.execute("UPDATE epics SET cycle_id = NULL, updated_at = ?2 WHERE id = ?1", params![epic_id, now])
-        .context("failed to remove epic from cycle")?;
+    // `epics` is owned by `domain/epic.rs` (PROP-03/D-100): owning `cycles` does not grant `epics`.
+    set_epic_cycle_in_tx(tx, epic_id, None, now)?;
     let payload = serde_json::json!({
         "field": "cycle_id", "before": old_cycle, "after": null, "label": "Removed an epic from the cycle",
     });
