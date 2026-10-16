@@ -838,7 +838,7 @@ fn case_create_criterion_parented_to_an_already_accepted_task() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "Retry budget is configurable".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Retries 3 times before it fails".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
             ProposalProvenance::NONE,
@@ -972,7 +972,7 @@ fn case_amend_criterion_leaves_every_canonical_count_unchanged() {
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "Original statement".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Returns the original statement".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
             ProposalProvenance::NONE,
@@ -984,7 +984,7 @@ fn case_amend_criterion_leaves_every_canonical_count_unchanged() {
             &mut conn,
             &criterion_proposal.id,
             &human_actor_id,
-            ProposalPayload::Criterion { statement: "Corrected statement".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Returns the corrected statement".to_string(), verification_hint: None },
         )
         .expect("amend_proposal should succeed");
         assert_eq!(amend_outcome.proposal.status, "pending", "{label}");
@@ -1113,7 +1113,7 @@ fn case_criterion_parented_to_a_still_pending_task_proposal() {
             &run_id,
             ProposalVerb::Create,
             ProposalPayload::Criterion {
-                statement: "Drafted before the parent is decided".to_string(),
+                statement: "Shows a draft made before the parent is decided".to_string(),
                 verification_hint: None,
             },
             None,
@@ -1197,7 +1197,7 @@ fn case_ordering_child_accepted_before_parent_materialises_parent_exactly_once()
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "Child A, will be accepted".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Shows child A, accepted".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
             ProposalProvenance::NONE,
@@ -1207,7 +1207,7 @@ fn case_ordering_child_accepted_before_parent_materialises_parent_exactly_once()
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "Sibling B, stays undecided".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Shows sibling B, undecided".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
             ProposalProvenance::NONE,

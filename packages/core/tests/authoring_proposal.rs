@@ -195,7 +195,7 @@ fn accepting_a_create_criterion_proposal_whose_parent_is_already_accepted_writes
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "Must work".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Returns an error for an empty title".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
             ProposalProvenance::NONE,
@@ -233,7 +233,7 @@ fn accepting_a_create_criterion_proposal_whose_parent_is_still_pending_accepts_t
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "Must work".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Returns an error for an empty title".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
             ProposalProvenance::NONE,
@@ -306,7 +306,7 @@ fn accepting_an_amend_criterion_proposal_against_an_unlocked_criterion_updates_i
             &mut conn,
             &run_id,
             ProposalVerb::Amend,
-            ProposalPayload::Criterion { statement: "Revised text".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Returns the revised text".to_string(), verification_hint: None },
             Some(&criterion.id),
             None,
             ProposalProvenance::NONE,
@@ -323,7 +323,7 @@ fn accepting_an_amend_criterion_proposal_against_an_unlocked_criterion_updates_i
                 r.get(0)
             })
             .unwrap();
-        assert_eq!(statement, "Revised text");
+        assert_eq!(statement, "Returns the revised text");
         assert_eq!(count_criteria(&conn), 1, "no revision row for an unlocked edit");
     });
 }
@@ -356,7 +356,7 @@ fn accepting_an_amend_criterion_proposal_against_a_locked_criterion_appends_a_re
                 &run.id,
                 ProposalVerb::Amend,
                 ProposalPayload::Criterion {
-                    statement: "Revised text".to_string(),
+                    statement: "Returns the revised text".to_string(),
                     verification_hint: None,
                 },
                 Some(&criterion.id),
@@ -391,7 +391,7 @@ fn accepting_an_amend_criterion_proposal_against_a_locked_criterion_appends_a_re
                     |r| r.get(0),
                 )
                 .unwrap();
-            assert_eq!(successor_statement, "Revised text");
+            assert_eq!(successor_statement, "Returns the revised text");
         });
     });
 }
@@ -565,7 +565,7 @@ fn rejecting_a_task_proposal_leaves_its_pending_child_criterion_proposal_pending
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "Child".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Returns the child result".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
             ProposalProvenance::NONE,
@@ -843,7 +843,7 @@ fn accepting_a_subtree_accepts_the_task_and_its_pending_criteria_in_staging_posi
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "First".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Returns the first item".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
             ProposalProvenance::NONE,
@@ -853,7 +853,7 @@ fn accepting_a_subtree_accepts_the_task_and_its_pending_criteria_in_staging_posi
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "Second".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Returns the second item".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
             ProposalProvenance::NONE,
@@ -868,8 +868,8 @@ fn accepting_a_subtree_accepts_the_task_and_its_pending_criteria_in_staging_posi
 
         let criteria = list_current_criteria(&conn, "task", &outcome.root_materialised_id).unwrap();
         assert_eq!(criteria.len(), 2);
-        assert_eq!(criteria[0].statement, "First");
-        assert_eq!(criteria[1].statement, "Second");
+        assert_eq!(criteria[0].statement, "Returns the first item");
+        assert_eq!(criteria[1].statement, "Returns the second item");
         assert!(criteria[0].rank < criteria[1].rank, "rank must preserve staging position order");
     });
 }
@@ -921,7 +921,7 @@ fn a_subtree_accept_skips_children_that_are_already_decided_rather_than_erroring
             &run_id,
             ProposalVerb::Create,
             ProposalPayload::Criterion {
-                statement: "Already accepted individually".to_string(),
+                statement: "Returns what was already accepted individually".to_string(),
                 verification_hint: None,
             },
             None,
@@ -933,7 +933,7 @@ fn a_subtree_accept_skips_children_that_are_already_decided_rather_than_erroring
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "Still pending".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Shows the pending state".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
             ProposalProvenance::NONE,
@@ -967,7 +967,7 @@ fn two_drafted_criteria_with_identical_statements_stage_and_materialise_as_two_d
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "Must be fast".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Returns within 200 ms".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
             ProposalProvenance::NONE,
@@ -977,7 +977,7 @@ fn two_drafted_criteria_with_identical_statements_stage_and_materialise_as_two_d
             &mut conn,
             &run_id,
             ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "Must be fast".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "Returns within 200 ms".to_string(), verification_hint: None },
             None,
             Some(&task_proposal.id),
             ProposalProvenance::NONE,

@@ -200,7 +200,7 @@ fn accepting_a_parentless_criterion_proposal_returns_a_typed_error_not_a_silent_
         &mut conn,
         &run.id,
         ProposalVerb::Create,
-        ProposalPayload::Criterion { statement: "must work".to_string(), verification_hint: None },
+        ProposalPayload::Criterion { statement: "Returns an error for an empty title".to_string(), verification_hint: None },
         None,
         None,
         ProposalProvenance::NONE,

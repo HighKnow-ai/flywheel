@@ -14,6 +14,7 @@ pub mod dispatch_exec;
 pub mod domain;
 pub mod drift;
 pub mod epic_context_packet;
+pub mod criterion_lint;
 pub mod file_set;
 pub mod forge;
 pub mod git;

@@ -442,6 +442,9 @@ pub fn create_proposal(
                  one was NOT staged; {clause}"
             ))
         }
+        // Phase 15 (D-22): the refusal text is relayed verbatim — the drafting agent redrafts from
+        // it in the same run. Same shape as the `LimitExhausted` arm above: a real `Err`.
+        ProposalOutcome::LintRefused { reason } => Err(anyhow::anyhow!("{reason}")),
         other => Err(anyhow::anyhow!(
             "create_proposal_in_tx returned an unexpected outcome for a direct create_proposal \
              call: {other:?}"
@@ -569,6 +572,20 @@ fn create_proposal_in_tx(
         );
     }
 
+    // Phase 15 (D-22/D-23, DRFT-02): the deterministic lint, at the one statement site every
+    // drafting caller reaches (authoring run, execution run, launch sheet, inbound
+    // `proposal_created`), after every payload guard and BEFORE the INSERT — so "a failing draft is
+    // never persisted" is a fact the database establishes, not a render condition. The refusal
+    // appends NO event: nothing was turned away for a budget reason, the draft simply never
+    // happened. It rejects and never repairs; the statement is returned verbatim.
+    if let ProposalPayload::Criterion { statement, .. } = &payload {
+        if matches!(verb, ProposalVerb::Create | ProposalVerb::Amend) {
+            if let Err(refusal) = crate::criterion_lint::lint_statement(statement) {
+                return Ok(ProposalOutcome::LintRefused { reason: refusal.to_string() });
+            }
+        }
+    }
+
     let id = new_id();
     let target_type = payload.target_type();
     let payload_json = serde_json::to_string(&payload).context("failed to serialise proposal payload")?;
@@ -686,6 +703,12 @@ pub enum ProposalOutcome {
     /// a silent rollback). Carries both the kind's own `limit` and the run's own observed `count` so
     /// the caller can name both in its refusal message without re-reading either.
     LimitExhausted { limit: usize, count: i64 },
+    /// Phase 15 (D-22/D-23, DRFT-02): a drafted criterion failed the deterministic lint
+    /// ([`crate::criterion_lint::lint_statement`]). No row was inserted and no event was appended:
+    /// unlike a cap refusal, nothing was turned away for a budget reason — the draft never
+    /// happened, so it consumes neither the run's cap nor the project's. `reason` is the
+    /// refusal rendered through `Display`, carrying the refused statement verbatim.
+    LintRefused { reason: String },
 }
 
 /// Apply one inbound `proposal_created` event (the sidecar's own wire shape, mirroring
@@ -946,10 +969,27 @@ fn materialise_proposal(
             Ok(epic.id)
         }
         ("create", ProposalPayload::Criterion { statement, verification_hint }) => {
-            let parent = parent_outcome.ok_or_else(|| {
-                anyhow::anyhow!("criterion proposal {:?} carries no parent_proposal_id", proposal.id)
-            })?;
-            let parent_type = parent.proposal.target_type.as_str();
+            // F3 (phase 15, D-10): a parent proposal is no longer a precondition. Without one, the
+            // proposal's own `target_id` names an EXISTING task or epic (a hand-made task, long
+            // before the session) and routes through this same arm — never a second entry point.
+            let (parent_type, parent_id): (&str, &str) = match parent_outcome {
+                Some(parent) => (parent.proposal.target_type.as_str(), parent.materialised_id.as_str()),
+                None => {
+                    let target_id = proposal.target_id.as_deref();
+                    let resolved = match target_id {
+                        Some(id) if target_row_exists(tx, ProposalTargetType::Task, id)? => Some(("task", id)),
+                        Some(id) if target_row_exists(tx, ProposalTargetType::Epic, id)? => Some(("epic", id)),
+                        _ => None,
+                    };
+                    resolved.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "criterion proposal {:?} carries no parent_proposal_id and no target_id \
+                             naming an existing task or epic",
+                            proposal.id
+                        )
+                    })?
+                }
+            };
             anyhow::ensure!(
                 matches!(parent_type, "task" | "epic"),
                 "criterion proposal {:?}'s parent proposal targets {parent_type:?}, expected task \
@@ -961,7 +1001,7 @@ fn materialise_proposal(
                 &proposal.project_id,
                 &proposal.created_by,
                 parent_type,
-                &parent.materialised_id,
+                parent_id,
                 statement,
                 verification_hint.as_deref(),
                 now,

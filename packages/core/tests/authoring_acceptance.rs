@@ -316,7 +316,7 @@ fn criterion_3_accepts_rejects_and_amends_each_item_individually() {
             &criterion_proposals[4].id,
             &actor_id,
             ProposalPayload::Criterion {
-                statement: "The developer's own wording".to_string(),
+                statement: "Returns the developer's own wording".to_string(),
                 verification_hint: None,
             },
         )
@@ -331,7 +331,7 @@ fn criterion_3_accepts_rejects_and_amends_each_item_individually() {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(materialised_statement, "The developer's own wording");
+        assert_eq!(materialised_statement, "Returns the developer's own wording");
         assert_ne!(materialised_statement, "task-03-criterion-01", "never the agent's original text");
 
         // Accept one task subtree (task-02) — its already-rejected criterion is skipped, its
@@ -562,7 +562,7 @@ fn two_byte_identical_criterion_statements_stay_two_distinct_rows() {
         )
         .expect("propose task B");
 
-        const SHARED_STATEMENT: &str = "Byte-identical criterion text on two different tasks";
+        const SHARED_STATEMENT: &str = "Returns byte-identical criterion text on two different tasks";
         let criterion_a = create_proposal(
             &mut conn,
             &run.id,

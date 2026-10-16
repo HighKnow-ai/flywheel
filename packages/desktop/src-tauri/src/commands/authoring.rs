@@ -1417,6 +1417,9 @@ pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Valu
                  proposals — this one was NOT staged; {refusal_clause}"
             ))
         }
+        // Phase 15 (D-22): the lint refusal reaches the waiting tool call verbatim, so the agent
+        // can redraft in the same run. Nothing was staged and no event was appended.
+        flywheel_core::domain::authoring_proposal::ProposalOutcome::LintRefused { reason } => Err(reason),
     };
     let _ = sidecar.relay_authoring_proposal_answer(run_id, request_id, result);
 }
