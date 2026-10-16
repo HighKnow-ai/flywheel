@@ -829,6 +829,12 @@ const ALLOWED_UNBOUNDED_SELECTS: &[&str] = &[
                                  // proves it equal to an independent COUNT(*) over 940 tasks and strictly
                                  // larger than the 200-row page. A LIMIT here would reintroduce exactly
                                  // the row window that requirement exists to forbid.
+    "provisional_values_for",   // provisional_values.rs (plan 15-07) — query_row keyed by tasks.id or
+                                 // epics.id (PRIMARY KEY); at most one row, the task_header/epic_header
+                                 // shape. Its pending-amendment read is the separately LIMIT'd
+                                 // TASK_AMENDMENTS_SQL/EPIC_AMENDMENTS_SQL
+    "criterion_coverage",       // criterion_coverage.rs (plan 15-07) — two COUNT(*) reads with no GROUP BY,
+                                 // always one row each, the BLOCKED_COUNT_SQL/RECOVERY_COUNT_SQL shape
 ];
 
 fn strip_comment_lines(source: &str) -> String {
