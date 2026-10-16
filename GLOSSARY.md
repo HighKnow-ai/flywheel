@@ -37,12 +37,18 @@ The prose statement that tells you a Milestone or Epic is done.
 _Avoid_: Definition of done, success criteria
 
 **ADR**:
-A record of a hard-to-reverse decision with a real trade-off behind it, linked to the Milestone, Epic or Story where the decision came up.
+A record of a hard-to-reverse decision with a real trade-off behind it, kept with the project's code and linked to the Milestone, Epic or Story where the decision came up.
 _Avoid_: Decision log, design doc
 
 **Proposal**:
-A change suggested by an agent to any board record (create, amend, reorder or retire it) that has no effect until the developer accepts it.
+A change suggested by an agent to any board record, ADR or glossary term (create, amend, reorder or retire it) that has no effect until the developer accepts it.
 _Avoid_: Issue, suggestion, draft
+
+## Agent work
+
+**Gated action**:
+An action an agent may take only with the developer's explicit, one-off approval, because it leaves the Story's worktree or can't be undone; never covered by a standing rule.
+_Avoid_: Destructive action, dangerous command
 
 ## People
 

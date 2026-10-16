@@ -1,7 +1,8 @@
 # Architecture
 
 Flywheel is a desktop application that supervises many AI coding agents across git worktrees, with
-a project board as the store of record. Product context and the stack
+a project board as the store of record for work; knowledge about the code (ADRs, glossary) lives in
+the managed project's repo and the board only links to it (ADR 0002). Product context and the stack
 choices live in `CLAUDE.md`; the full stack rationale is `docs/research/STACK.md`. This
 document records what is true in the tree today and stays short on purpose.
 
