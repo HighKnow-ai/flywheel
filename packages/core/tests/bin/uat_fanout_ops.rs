@@ -37,6 +37,14 @@
 //!   uat_fanout_ops plan-submit <run_id> <submission_json> resolve the run, then the production
 //!                                                         `store_submitted_plan`; a refusal prints {"refused": text}
 //!   uat_fanout_ops plan-readback <plan_id>                stored tasks, entries (in order), events, preview edges
+//!
+//! The account-limit arm (`scripts/uat/uat-15-account-limit.mjs`, phase 15 plan 03) reuses it to drive the
+//! gate through its production entry points; the script owns no gate logic:
+//!   uat_fanout_ops gate-setup <repo_path>                 a project, a task and one real `running` run
+//!   uat_fanout_ops gate-apply <run_id> <event_json> <now> `LimitSignal::from_event`, then
+//!                                                         `apply_rate_limit_signal_for_run`, with every
+//!                                                         `agent_runs.status` read before and after
+//!   uat_fanout_ops gate-read <now>                        `read_gate` as the dispatcher tick reads it
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -54,6 +62,10 @@ use core::domain::epic::create_epic;
 use core::domain::file_set::{arm_scope_marker_with, declare_file_set, list_entries_for_task, repo_is_case_insensitive};
 use core::domain::project::register_project;
 use core::domain::settings::set_dispatch_max_parallel;
+use core::limit_gate::{
+    apply_rate_limit_signal_for_run, may_advance, may_spawn, read_gate, GateState, LimitSignal,
+    EVENT_DISPATCH_GATE_CHANGED,
+};
 use core::domain::task::create_task;
 use core::domain::worktree::worktree_for_task;
 use core::file_set::{entry_path, parse_entry};
@@ -151,6 +163,21 @@ fn launch(db: &Mutex<Connection>, task_id: &str) -> Result<(), String> {
     });
     println!("{}", json!({ "event": "spawn-request", "taskId": task_id, "request": request }));
     Ok(())
+}
+
+/// Every run's `(id, status)`, in id order, for the before/after comparison the gate must leave untouched.
+fn run_statuses(conn: &Connection) -> Vec<serde_json::Value> {
+    let mut stmt = conn.prepare("SELECT id, status FROM agent_runs ORDER BY id").unwrap_or_else(|e| fail(&format!("prepare: {e}")));
+    stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .unwrap_or_else(|e| fail(&format!("query: {e}")))
+        .filter_map(Result::ok)
+        .map(|(id, status)| json!({ "id": id, "status": status }))
+        .collect()
+}
+
+fn gate_event_count(conn: &Connection) -> i64 {
+    conn.query_row("SELECT COUNT(*) FROM events WHERE event_type = ?1", [EVENT_DISPATCH_GATE_CHANGED], |r| r.get(0))
+        .unwrap_or_else(|e| fail(&format!("gate events: {e}")))
 }
 
 fn main() {
@@ -368,6 +395,68 @@ fn main() {
                 })
                 .collect();
             println!("{}", json!({ "tasks": tasks, "edges": edges }));
+        }
+        "gate-setup" => {
+            let repo = arg(&args, 1, "gate-setup <repo_path>");
+            let mut conn = open_conn();
+            let human = local_human_actor_id(&conn).unwrap_or_else(|e| fail(&format!("human: {e:#}")));
+            let project = register_project(&mut conn, &human, Path::new(&repo), "Limit", "LIM")
+                .unwrap_or_else(|e| fail(&format!("register_project: {e:#}")));
+            let task = create_task(&mut conn, &project.id, &human, "Work that meets the account limit", None)
+                .unwrap_or_else(|e| fail(&format!("create_task: {e:#}")));
+            let system = system_actor(&conn).unwrap_or_else(|e| fail(&format!("system actor: {e:#}"))).id;
+            let run = start_agent_run(&mut conn, &task.id, DISPATCH_PERMISSION_MODE, &system)
+                .unwrap_or_else(|e| fail(&format!("start_agent_run: {e:#}")));
+            let worktree_path: String = conn
+                .query_row("SELECT path FROM worktrees WHERE id = ?1", [run.worktree_id.as_deref().unwrap_or("")], |r| r.get(0))
+                .unwrap_or_else(|e| fail(&format!("worktree path: {e}")));
+            println!(
+                "{}",
+                json!({
+                    "projectId": project.id, "taskId": task.id, "runId": run.id,
+                    "worktreePath": worktree_path, "runStatus": run_statuses(&conn),
+                })
+            );
+        }
+        "gate-apply" => {
+            let usage = "gate-apply <run_id> <event_json> <now_epoch_secs>";
+            let (run_id, event_json, now) = (arg(&args, 1, usage), arg(&args, 2, usage), arg(&args, 3, usage));
+            let event: serde_json::Value =
+                serde_json::from_str(&event_json).unwrap_or_else(|e| fail(&format!("event_json: {e}")));
+            let now: i64 = now.parse().unwrap_or_else(|_| fail("now must be epoch seconds"));
+            let mut conn = open_conn();
+            let statuses_before = run_statuses(&conn);
+            // An event that is not a limit signal is a result, not an error: the script asserts on it.
+            let Some(signal) = LimitSignal::from_event(&event) else {
+                println!("{}", json!({ "signal": null, "statusesBefore": statuses_before }));
+                return;
+            };
+            let change = apply_rate_limit_signal_for_run(&mut conn, &run_id, &signal, now)
+                .unwrap_or_else(|e| fail(&format!("apply_rate_limit_signal_for_run: {e:#}")));
+            println!(
+                "{}",
+                json!({
+                    "signal": { "tier": format!("{:?}", signal.tier).to_lowercase(), "window": signal.window, "resetsAt": signal.resets_at },
+                    "changed": change.changed,
+                    "before": change.before,
+                    "after": change.after,
+                    "message": change.after.message(),
+                    "maySpawn": may_spawn(&change.after),
+                    "mayAdvance": may_advance(&change.after),
+                    "gateEvents": gate_event_count(&conn),
+                    "statusesBefore": statuses_before,
+                    "statusesAfter": run_statuses(&conn),
+                })
+            );
+        }
+        "gate-read" => {
+            let now: i64 = arg(&args, 1, "gate-read <now_epoch_secs>").parse().unwrap_or_else(|_| fail("now must be epoch seconds"));
+            let conn = open_conn();
+            let gate: GateState = read_gate(&conn, now).unwrap_or_else(|e| fail(&format!("read_gate: {e:#}")));
+            println!(
+                "{}",
+                json!({ "gate": gate, "message": gate.message(), "maySpawn": may_spawn(&gate), "mayAdvance": may_advance(&gate) })
+            );
         }
         other => fail(&format!("unknown subcommand {other:?}; see the header of uat_fanout_ops.rs")),
     }
