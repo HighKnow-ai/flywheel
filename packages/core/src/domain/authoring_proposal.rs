@@ -152,7 +152,18 @@ pub enum ProposalPayload {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         priority: Option<i64>,
     },
-    Criterion { statement: String, verification_hint: Option<String> },
+    /// `pinned_revision` (phase 15, D-26): for an `amend` draft, the `revision` of the criterion the
+    /// draft was computed against, resolved SERVER-SIDE inside [`create_proposal_in_tx`] — never
+    /// accepted from a caller, the same discipline as `origin_log_offset`. Always `None` for a
+    /// `create` draft: there is no parent criterion to pin. `serde(default)` is what lets every
+    /// payload stored before this field existed deserialise unchanged, so it needs no migration
+    /// and no rebuild of `authoring_proposals`; it is skipped on the wire while absent.
+    Criterion {
+        statement: String,
+        verification_hint: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pinned_revision: Option<i64>,
+    },
     Assumption { assumption: String, answer: String },
     /// D-97/D-98 (plan 06-01): an execution-run's `propose_item` call staging an issue. The field
     /// is named `issue_kind`, NOT `kind` — this enum's own `#[serde(tag = "kind")]` already claims
@@ -215,7 +226,7 @@ impl ProposalPayload {
         match self {
             ProposalPayload::Epic { title, description, .. } => (title, description.as_deref()),
             ProposalPayload::Task { title, description, .. } => (title, description.as_deref()),
-            ProposalPayload::Criterion { statement, verification_hint } => {
+            ProposalPayload::Criterion { statement, verification_hint, .. } => {
                 (statement, verification_hint.as_deref())
             }
             ProposalPayload::Assumption { assumption, answer } => (assumption, Some(answer.as_str())),
@@ -1063,7 +1074,7 @@ fn materialise_proposal(
             }
             Ok(epic.id)
         }
-        ("create", ProposalPayload::Criterion { statement, verification_hint }) => {
+        ("create", ProposalPayload::Criterion { statement, verification_hint, .. }) => {
             // F3 (phase 15, D-10): a parent proposal is no longer a precondition. Without one, the
             // proposal's own `target_id` names an EXISTING task or epic (a hand-made task, long
             // before the session) and routes through this same arm — never a second entry point.
@@ -1126,7 +1137,7 @@ fn materialise_proposal(
             )?;
             Ok(issue.id)
         }
-        ("amend", ProposalPayload::Criterion { statement, verification_hint }) => {
+        ("amend", ProposalPayload::Criterion { statement, verification_hint, .. }) => {
             let target_id = require_target(proposal)?;
             ensure_target_exists(tx, proposal, ProposalTargetType::Criterion, target_id)?;
             // T-05-06-02: the ONLY mechanism through which an amend reaches a criterion — never a
@@ -1680,7 +1691,7 @@ fn validate_payload(payload: &ProposalPayload) -> anyhow::Result<()> {
                 );
             }
         }
-        ProposalPayload::Criterion { statement, verification_hint } => {
+        ProposalPayload::Criterion { statement, verification_hint, .. } => {
             anyhow::ensure!(
                 !statement.is_empty() && statement.len() <= MAX_PROPOSAL_TEXT_LEN,
                 "statement must be 1-{MAX_PROPOSAL_TEXT_LEN} characters, got {} characters",

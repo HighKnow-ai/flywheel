@@ -271,7 +271,7 @@ fn mark_abandoned_on_an_authoring_run_writes_a_fallback_summary_inside_its_own_t
         &mut conn,
         &run.id,
         ProposalVerb::Create,
-        ProposalPayload::Criterion { statement: "Returns an error for an empty title".to_string(), verification_hint: None },
+        ProposalPayload::Criterion { statement: "Returns an error for an empty title".to_string(), verification_hint: None, pinned_revision: None },
         None,
         None,
         ProposalProvenance::NONE,

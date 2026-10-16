@@ -559,7 +559,7 @@ fn main() {
             if proposal_id.is_empty() || statement.is_empty() {
                 fail("usage: uat_authoring_ops amend-criterion <proposal_id> <statement>");
             }
-            let payload = ProposalPayload::Criterion { statement, verification_hint: None };
+            let payload = ProposalPayload::Criterion { statement, verification_hint: None, pinned_revision: None };
             let outcome = amend_proposal(&mut conn, &proposal_id, &human_actor_id, payload)
                 .unwrap_or_else(|err| fail(&format!("could not amend the proposal: {err:#}")));
             print_json(serde_json::json!({ "originalLabel": outcome.original_label }));

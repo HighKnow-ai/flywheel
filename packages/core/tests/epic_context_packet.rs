@@ -677,6 +677,7 @@ fn five_consecutive_assemblies_are_equal_byte_identical_and_write_nothing() {
             ProposalPayload::Criterion {
                 statement: format!("rejected-criterion-{n:02}"),
                 verification_hint: None,
+                pinned_revision: None,
             },
             "rejected",
             &actor_id,

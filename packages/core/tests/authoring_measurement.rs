@@ -79,7 +79,7 @@ fn accepted_task_and_criterion_proposals_are_both_counted() {
         &mut conn,
         &run.id,
         ProposalVerb::Create,
-        ProposalPayload::Criterion { statement: "Shows criterion A".to_string(), verification_hint: None },
+        ProposalPayload::Criterion { statement: "Shows criterion A".to_string(), verification_hint: None, pinned_revision: None },
         None,
         Some(&task_a.id),
         ProposalProvenance::NONE,
@@ -89,7 +89,7 @@ fn accepted_task_and_criterion_proposals_are_both_counted() {
         &mut conn,
         &run.id,
         ProposalVerb::Create,
-        ProposalPayload::Criterion { statement: "Shows criterion B".to_string(), verification_hint: None },
+        ProposalPayload::Criterion { statement: "Shows criterion B".to_string(), verification_hint: None, pinned_revision: None },
         None,
         Some(&task_a.id),
         ProposalProvenance::NONE,
@@ -139,7 +139,7 @@ fn an_amended_then_accepted_criterion_counts_toward_amended_before_accept_and_a_
         &mut conn,
         &run.id,
         ProposalVerb::Create,
-        ProposalPayload::Criterion { statement: "Returns the original wording".to_string(), verification_hint: None },
+        ProposalPayload::Criterion { statement: "Returns the original wording".to_string(), verification_hint: None, pinned_revision: None },
         None,
         Some(&task.id),
         ProposalProvenance::NONE,
@@ -149,7 +149,7 @@ fn an_amended_then_accepted_criterion_counts_toward_amended_before_accept_and_a_
         &mut conn,
         &run.id,
         ProposalVerb::Create,
-        ProposalPayload::Criterion { statement: "Returns the plain wording".to_string(), verification_hint: None },
+        ProposalPayload::Criterion { statement: "Returns the plain wording".to_string(), verification_hint: None, pinned_revision: None },
         None,
         Some(&task.id),
         ProposalProvenance::NONE,
@@ -160,7 +160,7 @@ fn an_amended_then_accepted_criterion_counts_toward_amended_before_accept_and_a_
         &mut conn,
         &amended_criterion.id,
         &actor_id,
-        ProposalPayload::Criterion { statement: "Returns the developer's own wording".to_string(), verification_hint: None },
+        ProposalPayload::Criterion { statement: "Returns the developer's own wording".to_string(), verification_hint: None, pinned_revision: None },
     )
     .expect("amend the staged criterion");
     accept_proposal(&mut conn, &amended_criterion.id, &actor_id).expect("accept the amended criterion");
@@ -354,7 +354,7 @@ fn an_amendment_older_than_the_bound_still_counts_toward_amended_before_accept()
         &mut conn,
         &run.id,
         ProposalVerb::Create,
-        ProposalPayload::Criterion { statement: "Returns the original wording".to_string(), verification_hint: None },
+        ProposalPayload::Criterion { statement: "Returns the original wording".to_string(), verification_hint: None, pinned_revision: None },
         None,
         Some(&task.id),
         ProposalProvenance::NONE,
@@ -365,7 +365,7 @@ fn an_amendment_older_than_the_bound_still_counts_toward_amended_before_accept()
         &mut conn,
         &amended_criterion.id,
         &actor_id,
-        ProposalPayload::Criterion { statement: "Returns the amended wording".to_string(), verification_hint: None },
+        ProposalPayload::Criterion { statement: "Returns the amended wording".to_string(), verification_hint: None, pinned_revision: None },
     )
     .expect("amend the staged criterion");
 

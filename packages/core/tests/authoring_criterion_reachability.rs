@@ -97,6 +97,7 @@ fn a_fresh_epic_session_reaches_propose_criterion_through_the_id_list_proposals_
         ProposalPayload::Criterion {
             statement: "Shows the reachability check result".to_string(),
             verification_hint: None,
+            pinned_revision: None,
         },
         None,
         Some(returned_id),

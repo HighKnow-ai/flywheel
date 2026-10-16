@@ -196,6 +196,7 @@ fn criterion_2_lands_directly_on_the_board_never_as_a_file() {
                     ProposalPayload::Criterion {
                         statement: format!("task-{i:02}-criterion-{j:02}"),
                         verification_hint: None,
+                        pinned_revision: None,
                     },
                     None,
                     Some(&task_proposal.id),
@@ -275,6 +276,7 @@ fn criterion_3_accepts_rejects_and_amends_each_item_individually() {
                     ProposalPayload::Criterion {
                         statement: format!("task-{i:02}-criterion-{j:02}"),
                         verification_hint: None,
+                        pinned_revision: None,
                     },
                     None,
                     Some(&task.id),
@@ -318,6 +320,7 @@ fn criterion_3_accepts_rejects_and_amends_each_item_individually() {
             ProposalPayload::Criterion {
                 statement: "Returns the developer's own wording".to_string(),
                 verification_hint: None,
+                pinned_revision: None,
             },
         )
         .expect("amend the staged row");
@@ -412,7 +415,7 @@ fn criterion_4_reopening_an_epic_primes_the_challenge_against_what_it_already_co
             &mut conn,
             &run_02.id,
             ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "criterion-01".to_string(), verification_hint: None },
+            ProposalPayload::Criterion { statement: "criterion-01".to_string(), verification_hint: None, pinned_revision: None },
             None,
             Some(&task_proposal.id),
             ProposalProvenance::NONE,
@@ -570,6 +573,7 @@ fn two_byte_identical_criterion_statements_stay_two_distinct_rows() {
             ProposalPayload::Criterion {
                 statement: SHARED_STATEMENT.to_string(),
                 verification_hint: None,
+                pinned_revision: None,
             },
             None,
             Some(&task_a.id),
@@ -583,6 +587,7 @@ fn two_byte_identical_criterion_statements_stay_two_distinct_rows() {
             ProposalPayload::Criterion {
                 statement: SHARED_STATEMENT.to_string(),
                 verification_hint: None,
+                pinned_revision: None,
             },
             None,
             Some(&task_b.id),
