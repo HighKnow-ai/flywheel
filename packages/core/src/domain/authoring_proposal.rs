@@ -362,6 +362,19 @@ pub const fn proposal_limit(kind: RunKind) -> usize {
     }
 }
 
+/// Phase 15 (DRFT-08, D-14/D-15): the ceiling on how many EXPLICIT-TIER drafts (criteria, and later
+/// file-sets — the things an agent executes against) may sit `pending` in ONE project at once.
+/// The 30th stages; the 31st is refused with [`ProposalOutcome::LimitExhausted`]. Roughly a
+/// six-task epic fully drafted: above the 1-of-42 datum's batch size and below the
+/// forty-in-one-sitting shape PITFALLS calls worst.
+///
+/// **A first setting to instrument against, not a tuned one** — D-27's post-accept revision rate is
+/// what argues for changing it. Declared exactly once, never a settings key, never a `projects`
+/// column, never an environment override (D-69's house style and [`proposal_limit`]'s own form).
+/// Provisional-tier drafts (titles, bodies, priority suggestions) confirm themselves at Start Work
+/// and cost no attention, so they neither count toward it nor are refused by it (D-14).
+pub const OPEN_DRAFTS_PER_PROJECT: usize = 30;
+
 /// What a refused run is told to do with the item it could not stage, for a planning run. Names no
 /// tool and no capability: the sidecar pre-approves only `submit_plan` for planning runs, so a
 /// planning-specific sentence would be unreachable through any shipped flow, untestable end to end
