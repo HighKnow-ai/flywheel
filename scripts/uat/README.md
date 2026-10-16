@@ -1108,3 +1108,98 @@ Driving the **packaged** macOS application. WKWebView exposes no WebDriver endpo
 `tauri-driver` supports Linux and Windows only, so the last mile of item 3 is a human opening
 `npm --prefix packages/desktop run tauri dev`. Everything that surface does, other than being
 inside a signed bundle, is covered above.
+
+## Item 8b — the account limit (`uat-15-account-limit.mjs`), and why criterion 6 is still open
+
+`uat-15-account-limit.mjs --live` is the only arm that can observe ROADMAP criterion 6's clause
+(a) — a real backend rate or session limit, seen rather than inferred. It has now been attempted
+three times, on 2026-10-16, and has never reached a tier. **Criterion 6 remains open**, and
+`limit_gate.rs`'s module-header sentence that no hard limit has ever been observed in this project
+is still true and still there. No artifact exists, and no fixture was generated.
+
+Each attempt failed for a *different* reason, which is why this is worth recording rather than
+retrying.
+
+**Attempt 1 — the instrument asked for the wrong thing.** The burn prompt asked its lanes to write
+essay FILES. Flywheel's own `scope-hook.js` refused every `Write`, because the scratch task declares
+no file-set. The lanes burned nothing and went looking for Flywheel MCP tools. That is the product
+working correctly and the instrument being wrong; `87231e67` rewrote the burn as text-only, with no
+tool of any kind.
+
+**Attempt 2 — the observer was the first casualty.** The run was driven by a Claude Code executor
+agent whose own API calls shared the subscription window its lanes were draining. The agent died at
+HTTP 429 before the sidecar's `rate_limit` event could be read. Capacity was genuinely spent, the
+window genuinely drained, and the instrument captured nothing. **A burn whose own driver is the
+first casualty cannot record its own result.** The fix is structural and costs nothing: `--live` is
+a plain Node process that makes zero API calls of its own, so it must be run from a terminal, never
+from inside an agent session. `FLYWHEEL_UAT_CREDENTIAL_SOURCE_DIR` (see `sidecar-harness.mjs`) was
+added in the same spirit, so the window spent need not be the developer's personal one.
+
+**Attempt 3 — the lanes never produced a token.** Run from a terminal, with the observer safely out
+of the burn path, all four lanes initialised and then streamed nothing. Twenty-five minutes, zero
+assistant words in any lane transcript, no `stop_reason`, no `session_closed` — so the respawn loop
+never fired and `spawns` stayed `1/1/1/1` for the whole run. `five_hour_utilization` was never
+populated, because not one tier-carrying event ever arrived. The sidecar's own lifecycle log records
+`watchdog_started` and `backend_spawned` per lane and then nothing at all.
+
+This was reproduced identically on two different accounts (a personal `claude_max` and a
+`claude_team` seat), which rules out anything account-specific.
+
+### What attempt 3 is NOT, each ruled out by direct test
+
+| Theory | Test | Result |
+|---|---|---|
+| The account was rate-limited | `claude -p "Reply with exactly: OK"` on the same credential | `result: "OK"`, 3.4s, `api_error_status: null` |
+| Org plugin/skill sync stalls a cold config dir | both accounts sync; probe on each still answered | not the cause |
+| The `SessionStart` hook hangs | ran `sessionstart-hook.js` with a real payload | exit 0 in 23ms |
+| MCP permission-server init blocks the first turn | `claude -p` with `--permission-prompt-tool` and a socket nothing listens on | `result: "OK"`, 6s |
+| The composed clean room, worktree cwd or `--settings` file | `claude -p` inside the live run's OWN config dir, worktree and settings | `result: "OK"`, 6s |
+
+That last row matters most: identical `CLAUDE_CONFIG_DIR`, identical cwd, identical `--settings`,
+identical `--permission-mode bypassPermissions`. Six seconds to a complete answer. Nothing the
+harness builds is wrong.
+
+### The cause, found by running that check
+
+Two differences survived between a six-second probe and a lane that streams nothing: the
+`watchdog.js` wrapper the sidecar spawns around `claude`, and the burn prompt itself.
+
+The first hypothesis was **stdout pipe backpressure** — events freeze exactly where streaming would
+begin, which fits a blocked writer. It is wrong, and the check that killed it was free: drive one
+lane through the same path with a prompt whose reply is one word. The short reply **stalled
+identically** — 12 events, no `session_closed`, nothing after. Output volume is not the variable.
+
+What the short-reply probe surfaced instead is the actual cause, in the lane's own event text:
+
+    Warning: no stdin data received in 3s, proceeding without it
+
+**The lane inherits a stdin pipe that is never written to and never closed.** The chain:
+
+- `claude-code-adapter.ts:1556` (`startSession`) spawns the watchdog with **default stdio**, so
+  the child gets a stdin *pipe*. That path contains no stdin handling at all.
+- `watchdog.ts:176` spawns the backend with `stdio: ["inherit", "pipe", "pipe"]`, deliberately, so
+  the backend inherits whatever stdin the wrapper has — which is that pipe.
+- Nothing ever writes to it, and nothing ever calls `end()` on it. `claude` waits on stdin even
+  with a positional `-p` prompt, warns at three seconds, and then never produces its turn.
+
+The `"inherit"` in the watchdog is load-bearing and correct: the **authoring** path
+(`claude-code-adapter.ts:1896`) passes no positional prompt and writes the opening turn to the
+child's own stdin, holding it open on purpose. That path works. `startSession` is the one that
+passes a positional prompt and then leaves the pipe open and silent forever.
+
+So the fix is one line, in one place every non-authoring caller routes through — end the child's
+stdin immediately after the `startSession` spawn, leaving the authoring path untouched. It is not
+applied here: plan 15-04 Task 3 is authorised to change `limit_gate.rs`'s header comment and
+nothing else in `packages/`, and this is a production dispatch path. It is filed as a board issue
+instead.
+
+### Why this finding is worth more than the measurement it blocked
+
+This is not a UAT defect. `startSession` is the path **every ordinary Flywheel agent run uses** —
+the burn lane is simply the first caller whose failure was quiet enough to notice. A dispatched task
+that silently never takes its turn, with its watchdog reporting a healthy spawn and the gate seeing
+no state change, is a far more serious bug than an unexercised `Rejected` tier.
+
+Criterion 6 stays open, and correctly so: no tier was observed, so no artifact exists, no fixture
+was generated, and `limit_gate.rs`'s sentence stays. Do not spend another window on `--live` until
+the stdin fix lands — all three attempts above cost real capacity, and the fourth would too.
