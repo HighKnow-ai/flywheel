@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 15
 current_phase_name: Nothing Typed That An Agent Could Draft
 status: executing
-stopped_at: Completed 15-03-PLAN.md
-last_updated: "2026-10-16T04:52:44.834Z"
+stopped_at: Completed 15-05-PLAN.md
+last_updated: "2026-10-16T05:36:15.906Z"
 last_activity: 2026-10-16
 last_activity_desc: Phase 15 execution started
-state_head: ed80418c4c989ce2b6f89e6b652500b58f5ef657
+state_head: fd44f0fa2a7e79e68db3c073f90cdf734e78a2a7
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 38
-  completed_plans: 31
+  completed_plans: 32
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-16)
 ## Current Position
 
 Phase: 15 (Nothing Typed That An Agent Could Draft) — EXECUTING
-Plan: 4 of 10
+Plan: 5 of 10
 Status: Ready to execute
 Last activity: 2026-10-16 — Phase 15 execution started
 
@@ -344,6 +344,7 @@ Last activity: 2026-10-16 — Phase 15 execution started
 | Phase 15 P01 | 112 min | 3 tasks | 16 files |
 | Phase 15 P02 | 45min | 3 tasks | 14 files |
 | Phase 15 P03 | 13 min | 3 tasks | 7 files |
+| Phase 15 P05 | 40 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -795,6 +796,8 @@ Recent decisions affecting current work:
 - [Phase 15]: 15-02: undeclared is a submission flag plus a null-after task.file_set_declared event, no column; the planning prompt carries a bounded git ls-files listing
 - [Phase 15]: 15-03: held_by_limit is a STATE_VOCABULARY key on blocked's class and mark; StateClass stays at five (D-34) — Phase 18 owns the signal budget; a limit hold reads as needs-you without spending a class
 - [Phase 15]: 15-03: the account-limit harness reports offline verification as passed and reserves observed for a LiveObservation from a live sidecar — A constructed Rejected line must never read as an observed one (D-32, T-15-11)
+- [Phase 15]: 15-05: provenance field is agent_drafted (wire draftedByAgent) so the plan's own drafted_by grep stays meaningful — The acceptance grep for drafted_by would match drafted_by_agent
+- [Phase 15]: 15-05: chip autocomplete lists the project repo_path's tracked files, not the epic worktree's — One git ls-files on a path that always exists; branch-only files are typed in full
 
 ### Pending Todos
 
@@ -859,6 +862,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-16T04:52:44.802Z
-Stopped at: Completed 15-03-PLAN.md
+Last session: 2026-10-16T05:36:15.872Z
+Stopped at: Completed 15-05-PLAN.md
 Resume file: None
