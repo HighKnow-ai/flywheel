@@ -48,7 +48,10 @@
     "security_asvs_level": 1,
     "security_block_on": "high",
     "_auto_chain_active": false,
-    "use_worktrees": false
+    "use_worktrees": false,
+    "test_gate_timeout": 900,
+    "build_command": "cargo check --workspace",
+    "test_command": "cargo test -p core --lib --test spine_pin --test pm_vocabulary_gate --test migration_safety --test table_classification --test db_bootstrap && cargo test -p desktop --test handler_roster --test board_changed_payload && cd packages/desktop && npx vitest run"
   },
   "ship": {
     "pr_body_sections": [
