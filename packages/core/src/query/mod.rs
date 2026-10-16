@@ -35,6 +35,7 @@ pub mod file_set_provenance;
 pub mod fleet;
 pub mod forge;
 pub mod permissions;
+pub mod provisional_values;
 pub mod recovery;
 pub mod scope;
 pub mod search;

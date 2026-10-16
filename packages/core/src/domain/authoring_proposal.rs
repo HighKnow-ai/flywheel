@@ -128,6 +128,57 @@ impl ProposalTargetType {
     }
 }
 
+impl ProposalTargetType {
+    /// Every variant, so a test can walk the vocabulary. Adding a variant without extending this
+    /// array and [`acceptance_tier`] fails the build (the latter is an exhaustive `match`).
+    pub const ALL: [ProposalTargetType; 5] = [
+        ProposalTargetType::Epic,
+        ProposalTargetType::Task,
+        ProposalTargetType::Criterion,
+        ProposalTargetType::Assumption,
+        ProposalTargetType::Issue,
+    ];
+}
+
+/// Phase 15 (D-01): how a staged draft becomes board state.
+///
+/// - `Explicit`: a human accepts it by name. The things an agent EXECUTES AGAINST (criteria, and
+///   later file-sets) stay under human authority.
+/// - `Provisional`: it lands ghosted in the one item form and confirms itself when the human starts
+///   the work (D-03); reject is the undo (D-04). Titles, bodies and priority suggestions.
+///
+/// The two tiers never meet in one row, which is what lets Start Work's confirm touch only the
+/// provisional tier and need no exemption from the no-bulk-accept gate (D-07).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AcceptanceTier {
+    Explicit,
+    Provisional,
+}
+
+/// D-01, declared exactly once. An exhaustive `match` with no wildcard: a new
+/// [`ProposalTargetType`] cannot compile until it is given a tier. The project cap
+/// ([`OPEN_DRAFTS_PER_PROJECT`]) and Start Work's confirm both read this, never a literal list.
+pub const fn acceptance_tier(target_type: ProposalTargetType) -> AcceptanceTier {
+    match target_type {
+        ProposalTargetType::Criterion => AcceptanceTier::Explicit,
+        ProposalTargetType::Task
+        | ProposalTargetType::Epic
+        | ProposalTargetType::Assumption
+        | ProposalTargetType::Issue => AcceptanceTier::Provisional,
+    }
+}
+
+/// The tier of a stored `target_type` string. `file_set` is the explicit-tier target the schema's
+/// CHECK does not admit yet (D-14 reserves it); it is named here so the cap counts it the day it
+/// lands. Anything unrecognised counts as explicit: a count that over-reaches throttles drafting,
+/// one that under-reaches lets the pile grow past the cap.
+fn acceptance_tier_of_db_str(target_type: &str) -> AcceptanceTier {
+    match ProposalTargetType::from_db_str(target_type) {
+        Ok(known) => acceptance_tier(known),
+        Err(_) => AcceptanceTier::Explicit,
+    }
+}
+
 /// One proposal's content, serialised into `authoring_proposals.payload` as JSON with a `kind`
 /// discriminant. Every variant carries DISCRETE NAMED fields — never one prose blob folding a
 /// drafted criterion or assumption into another row's field, the structural form of this phase's
@@ -591,19 +642,30 @@ fn create_proposal_in_tx(
     // EXPLICIT-TIER rows only; a provisional-tier payload (title, body, priority) neither counts nor
     // is refused. A rejected row is not pending, so a decision frees exactly one slot. A lint
     // refusal below inserts nothing, so it can never have consumed one. This is the one place the
-    // explicit-tier corpus is spelled; the file-set tier joins the `IN (...)` list, not a second
-    // comparison. The refusal shape is the per-run cap's own: one event that COMMITS (T-06-22), no
-    // run status written, the run not paused (`limit_gate.rs`: stopping in-flight work is not what
+    // explicit-tier corpus is read, through [`acceptance_tier`], not a literal list of target types.
+    // The refusal shape is the per-run cap's own: one event that COMMITS (T-06-22), no run status
+    // written, the run not paused (`limit_gate.rs`: stopping in-flight work is not what
     // a limit asks for).
-    if payload.target_type() == ProposalTargetType::Criterion {
-        let open_drafts: i64 = tx
-            .query_row(
-                "SELECT COUNT(*) FROM authoring_proposals WHERE project_id = ?1 AND status = 'pending' \
-                 AND target_type IN ('criterion', 'file_set')",
-                params![project_id],
-                |row| row.get(0),
+    if acceptance_tier(payload.target_type()) == AcceptanceTier::Explicit {
+        // Grouped by `target_type` and summed in Rust so the tier definition stays
+        // [`acceptance_tier`]'s alone; the `(project_id, status)` index bounds the scan and the
+        // group count is at most the size of the target-type vocabulary.
+        let mut by_type = tx
+            .prepare(
+                "SELECT target_type, COUNT(*) FROM authoring_proposals \
+                 WHERE project_id = ?1 AND status = 'pending' GROUP BY target_type",
             )
-            .context("failed to count the project's open explicit-tier drafts")?;
+            .context("failed to prepare the open-drafts count")?;
+        let open_drafts: i64 = by_type
+            .query_map(params![project_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+            .context("failed to count the project's open explicit-tier drafts")?
+            .collect::<Result<Vec<_>, _>>()
+            .context("failed to read the project's open explicit-tier drafts")?
+            .into_iter()
+            .filter(|(target_type, _)| acceptance_tier_of_db_str(target_type) == AcceptanceTier::Explicit)
+            .map(|(_, n)| n)
+            .sum();
+        drop(by_type);
         if open_drafts >= OPEN_DRAFTS_PER_PROJECT as i64 {
             let sequence = next_sequence(tx, &project_id, "local")?;
             let event_payload = serde_json::json!({
