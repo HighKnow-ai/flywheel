@@ -116,7 +116,9 @@ export function ItemDetailPanel({
   // When two amendments suggest one field, the later one is what Start Work leaves, so it is the one shown.
   const ghostFor = (field: ProvisionalValueDto["field"]): ProvisionalValueDto | undefined => {
     const forField = provisional.filter((v) => v.field === field);
-    return forField[forField.length - 1];
+    const last = forField[forField.length - 1];
+    // A later amendment that restores the canonical value leaves nothing to confirm for the field.
+    return last && last.proposed !== last.current ? last : undefined;
   };
   const titleGhost = ghostFor("title");
   const descriptionGhost = ghostFor("description");

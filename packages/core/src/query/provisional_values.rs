@@ -121,6 +121,14 @@ pub fn provisional_values_for(
         .query_row(current_sql, params![parent_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .with_context(|| format!("{parent_type} {parent_id:?} not found"))?;
 
+    // Confirmation applies the amendments in this order, each over the last, so the ghost follows
+    // the same walk: `effective_*` is what the field will hold once every earlier amendment is
+    // applied, and a value is a suggestion only if it moves that. The ghost therefore always
+    // matches what Start Work will leave. An amend payload always restates a title, and a later
+    // proposal restating a stale one reverts an earlier suggestion; that shows here as its own
+    // ghost rather than happening silently at confirm time.
+    let (mut effective_title, mut effective_description, mut effective_priority) =
+        (title.clone(), description.clone(), priority);
     let mut values = Vec::new();
     for a in amendments {
         let (p_title, p_description, p_priority) = match &a.payload {
@@ -138,19 +146,20 @@ pub fn provisional_values_for(
                 actor_name: a.actor_name.clone(),
             });
         };
-        // An amend payload always carries a title (the agent restates it), so a restated title that
-        // equals the canonical one is not a suggestion.
-        if *p_title != title {
+        if *p_title != effective_title {
             push("title", p_title.clone(), Some(title.clone()));
+            effective_title = p_title.clone();
         }
         if let Some(d) = p_description {
-            if description.as_deref() != Some(d.as_str()) {
+            if effective_description.as_deref() != Some(d.as_str()) {
                 push("description", d.clone(), description.clone());
+                effective_description = Some(d.clone());
             }
         }
         if let Some(p) = p_priority {
-            if *p != priority {
+            if *p != effective_priority {
                 push("priority", p.to_string(), Some(priority.to_string()));
+                effective_priority = *p;
             }
         }
     }

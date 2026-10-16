@@ -1481,6 +1481,20 @@ pub fn accept_proposal(
     Ok(outcome)
 }
 
+/// STUB (RED): the real confirm lands in the next commit.
+pub fn refuse_explicit_tier(_target_type: &str) -> anyhow::Result<()> {
+    Ok(())
+}
+
+/// STUB (RED): the real confirm lands in the next commit.
+pub fn confirm_provisional_values_for_task(
+    _conn: &mut Connection,
+    _actor_id: &str,
+    _task_id: &str,
+) -> anyhow::Result<usize> {
+    Ok(0)
+}
+
 /// The at-most-one-parent-at-a-time target [`merge_proposal`] attaches a child issue to —
 /// mirrors [`crate::domain::issue::IssueParent`]'s own guarantee (`Task`/`Epic`, never both) so a
 /// caller cannot name two parents for the same merge.

@@ -10,7 +10,8 @@ mod common;
 
 use core::domain::agent_run::agent_actor_id;
 use core::domain::authoring_proposal::{
-    acceptance_tier, create_proposal, reject_proposal, AcceptanceTier, ProposalOutcome, ProposalPayload,
+    acceptance_tier, accept_proposal, confirm_provisional_values_for_task, create_proposal, refuse_explicit_tier,
+    reject_proposal, AcceptanceTier, ProposalOutcome, ProposalPayload,
     ProposalProvenance, ProposalTargetType, ProposalVerb, OPEN_DRAFTS_PER_PROJECT,
 };
 use core::domain::task::create_task;
@@ -278,3 +279,249 @@ fn no_provisional_column_reached_the_schema() {
 
 #[allow(dead_code)]
 fn _outcome_is_used(_: ProposalOutcome) {}
+
+// =================================================================================================
+// Task 3: Start Work confirms every provisional value on that task, through the canonical writers.
+// =================================================================================================
+
+fn count(conn: &Connection, sql: &str) -> i64 {
+    conn.query_row(sql, [], |row| row.get(0)).unwrap()
+}
+
+fn task_row(conn: &Connection, id: &str) -> (String, Option<String>, i64, String) {
+    conn.query_row(
+        "SELECT title, description, priority, updated_at FROM tasks WHERE id = ?1",
+        params![id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    )
+    .unwrap()
+}
+
+fn status_of(conn: &Connection, proposal_id: &str) -> String {
+    conn.query_row("SELECT status FROM authoring_proposals WHERE id = ?1", params![proposal_id], |r| r.get(0)).unwrap()
+}
+
+/// The three provisional values the plan names, as an agent would stage them: each later payload
+/// restates the title the earlier ones set, so the sequence is coherent.
+fn stage_three(conn: &mut Connection, run: &str, task_id: &str) -> (String, String, String) {
+    let t = stage_amend(conn, run, task_id, "A sharper title", None, None);
+    let d = stage_amend(conn, run, task_id, "A sharper title", Some("Explains why it exists."), None);
+    let p = stage_amend(conn, run, task_id, "A sharper title", None, Some(1));
+    (t, d, p)
+}
+
+#[test]
+fn confirming_lands_title_description_and_priority_through_the_canonical_writers() {
+    let (mut conn, human, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &human, "Old title", None).unwrap();
+    let run = seeded_run(&mut conn, &project.id, &human, "Run");
+    let (t, d, p) = stage_three(&mut conn, &run, &task.id);
+
+    let confirmed = confirm_provisional_values_for_task(&mut conn, &human, &task.id).unwrap();
+    assert_eq!(confirmed, 3);
+
+    let (title, description, priority, _) = task_row(&conn, &task.id);
+    assert_eq!(title, "A sharper title");
+    assert_eq!(description.as_deref(), Some("Explains why it exists."));
+    assert_eq!(priority, 1);
+    for id in [&t, &d, &p] {
+        assert_eq!(status_of(&conn, id), "accepted");
+    }
+    assert!(provisional_values_for(&conn, "task", &task.id).unwrap().is_empty());
+}
+
+#[test]
+fn the_priority_is_attributed_to_the_human_who_started_the_work() {
+    let (mut conn, human, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &human, "Old", None).unwrap();
+    let run = seeded_run(&mut conn, &project.id, &human, "Run");
+    stage_amend(&mut conn, &run, &task.id, "Old", None, Some(1));
+
+    confirm_provisional_values_for_task(&mut conn, &human, &task.id).unwrap();
+
+    let actor: String = conn
+        .query_row(
+            "SELECT actor_id FROM events WHERE event_type = 'task.priority_changed' AND task_id = ?1",
+            params![task.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(actor, human, "the agent proposed the value, the human wrote it");
+}
+
+#[test]
+fn a_rejected_provisional_title_is_not_applied_and_stays_rejected() {
+    let (mut conn, human, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &human, "Old title", None).unwrap();
+    let run = seeded_run(&mut conn, &project.id, &human, "Run");
+    let title = stage_amend(&mut conn, &run, &task.id, "Rejected title", None, None);
+    let body = stage_amend(&mut conn, &run, &task.id, "Old title", Some("A body"), None);
+    reject_proposal(&mut conn, &title, &human, None).unwrap();
+
+    let confirmed = confirm_provisional_values_for_task(&mut conn, &human, &task.id).unwrap();
+
+    assert_eq!(confirmed, 1);
+    let (t, d, _, _) = task_row(&conn, &task.id);
+    assert_eq!(t, "Old title");
+    assert_eq!(d.as_deref(), Some("A body"));
+    assert_eq!(status_of(&conn, &title), "rejected");
+    assert_eq!(status_of(&conn, &body), "accepted");
+}
+
+#[test]
+fn a_task_with_no_provisional_values_writes_nothing_and_appends_no_event() {
+    let (mut conn, human, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &human, "Untouched", None).unwrap();
+    let before = task_row(&conn, &task.id);
+    let events = count(&conn, "SELECT COUNT(*) FROM events");
+
+    assert_eq!(confirm_provisional_values_for_task(&mut conn, &human, &task.id).unwrap(), 0);
+
+    assert_eq!(task_row(&conn, &task.id), before, "updated_at and every field unchanged");
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM events"), events);
+}
+
+#[test]
+fn a_pending_criterion_is_never_confirmed_and_the_explicit_tier_is_refused_by_name() {
+    let (mut conn, human, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &human, "Task", None).unwrap();
+    let run = seeded_run(&mut conn, &project.id, &human, "Run");
+    let crit = create_proposal(
+        &mut conn, &run, ProposalVerb::Create, criterion(1), Some(&task.id), None, ProposalProvenance::NONE,
+    )
+    .unwrap();
+    stage_amend(&mut conn, &run, &task.id, "New", None, None);
+
+    assert_eq!(confirm_provisional_values_for_task(&mut conn, &human, &task.id).unwrap(), 1);
+    assert_eq!(status_of(&conn, &crit.id), "pending", "Start Work never decides a criterion");
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM acceptance_criteria"), 0);
+
+    // The guard itself: an explicit-tier proposal reaching the confirm is a loud error naming the tier.
+    let err = refuse_explicit_tier("criterion").expect_err("explicit tier must be refused");
+    assert!(err.to_string().contains("explicit"), "{err}");
+    assert!(refuse_explicit_tier("task").is_ok());
+    assert!(refuse_explicit_tier("epic").is_ok());
+    // And an unknown / reserved target is treated as explicit, never confirmed.
+    assert!(refuse_explicit_tier("file_set").is_err());
+}
+
+#[test]
+fn confirming_twice_confirms_once() {
+    let (mut conn, human, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &human, "Old", None).unwrap();
+    let run = seeded_run(&mut conn, &project.id, &human, "Run");
+    stage_amend(&mut conn, &run, &task.id, "New", None, None);
+
+    assert_eq!(confirm_provisional_values_for_task(&mut conn, &human, &task.id).unwrap(), 1);
+    let after_first = task_row(&conn, &task.id);
+    let events = count(&conn, "SELECT COUNT(*) FROM events");
+    assert_eq!(confirm_provisional_values_for_task(&mut conn, &human, &task.id).unwrap(), 0);
+    assert_eq!(task_row(&conn, &task.id), after_first);
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM events"), events);
+}
+
+#[test]
+fn an_agent_actor_cannot_confirm() {
+    let (mut conn, human, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &human, "Old", None).unwrap();
+    let run = seeded_run(&mut conn, &project.id, &human, "Run");
+    let id = stage_amend(&mut conn, &run, &task.id, "New", None, None);
+    let agent = agent_actor_id(&conn).unwrap();
+
+    assert!(confirm_provisional_values_for_task(&mut conn, &agent, &task.id).is_err());
+    assert_eq!(status_of(&conn, &id), "pending");
+    assert_eq!(task_row(&conn, &task.id).0, "Old");
+}
+
+#[test]
+fn a_later_amendment_restating_a_stale_title_is_shown_not_applied_silently() {
+    // The ghost walks the same order confirm applies: a second proposal that restates the original
+    // title reverts the first, and the read says so, so what is shown is what Start Work leaves.
+    let (mut conn, human, project) = common::seeded_project();
+    let task = create_task(&mut conn, &project.id, &human, "Original", None).unwrap();
+    let run = seeded_run(&mut conn, &project.id, &human, "Run");
+    stage_amend(&mut conn, &run, &task.id, "Renamed", None, None);
+    stage_amend(&mut conn, &run, &task.id, "Original", Some("Body"), None);
+
+    let titles: Vec<String> = provisional_values_for(&conn, "task", &task.id)
+        .unwrap()
+        .into_iter()
+        .filter(|v| v.field == "title")
+        .map(|v| v.proposed)
+        .collect();
+    assert_eq!(titles, vec!["Renamed", "Original"]);
+    confirm_provisional_values_for_task(&mut conn, &human, &task.id).unwrap();
+    assert_eq!(task_row(&conn, &task.id).0, "Original");
+}
+
+// --- structural: one task id, no second writer, no timer, reachable from no UI control ----------
+
+fn source(rel: &str) -> String {
+    std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel)).unwrap()
+}
+
+/// The body of `fn <name>` from its signature to the next top-level `\n}\n`.
+fn body_of(src: &str, name: &str) -> String {
+    let start = src.find(&format!("pub fn {name}")).or_else(|| src.find(&format!("fn {name}"))).unwrap();
+    let rest = &src[start..];
+    rest[..rest.find("\n}\n").unwrap()].to_string()
+}
+
+#[test]
+fn the_confirm_takes_one_task_id_and_issues_no_write_of_its_own() {
+    let src = source("src/domain/authoring_proposal.rs");
+    let sig_at = src.find("pub fn confirm_provisional_values_for_task").unwrap();
+    let signature = &src[sig_at..src[sig_at..].find("{").unwrap() + sig_at];
+    assert!(signature.contains("task_id: &str"), "{signature}");
+    assert!(!signature.contains("&[") && !signature.contains("Vec<"), "no collection: {signature}");
+
+    for name in ["confirm_provisional_values_for_task", "confirm_provisional_values_in_tx"] {
+        let body = body_of(&src, name);
+        for forbidden in ["INSERT INTO tasks", "UPDATE tasks", "INSERT INTO epics", "UPDATE epics"] {
+            assert!(!body.contains(forbidden), "{name} must not write {forbidden}");
+        }
+    }
+    // The only way it decides anything is through the one accept path, and it asserts the tier first.
+    let in_tx = body_of(&src, "confirm_provisional_values_in_tx");
+    assert!(in_tx.contains("accept_proposal_in_tx"));
+    assert!(in_tx.contains("refuse_explicit_tier"));
+    for timer in ["expires_at", "undo_until", "setTimeout", "setInterval"] {
+        assert!(!in_tx.contains(timer), "{timer}");
+    }
+}
+
+#[test]
+fn start_agent_run_confirms_in_its_own_transaction_for_a_human_only() {
+    let src = source("src/domain/agent_run.rs");
+    let body = body_of(&src, "start_agent_run");
+    assert!(body.contains("confirm_provisional_values_in_tx(&tx, human_actor_id, task_id"), "{body}");
+    let at = body.find("confirm_provisional_values_in_tx").unwrap();
+    assert!(body[..at].contains("if !automatic"), "the system actor's automatic start must not confirm");
+    assert!(
+        body.find("INSERT INTO agent_runs").unwrap() > at,
+        "the confirm lands before the run row that freezes criteria exists"
+    );
+}
+
+#[test]
+fn no_ui_control_invokes_the_confirm() {
+    fn walk(dir: &std::path::Path, hits: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|n| n == "node_modules") {
+                    continue;
+                }
+                walk(&path, hits);
+            } else if let Ok(text) = std::fs::read_to_string(&path) {
+                if text.contains("confirm_provisional") {
+                    hits.push(path.display().to_string());
+                }
+            }
+        }
+    }
+    let ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../desktop/src");
+    let mut hits = Vec::new();
+    walk(&ui, &mut hits);
+    assert!(hits.is_empty(), "{hits:?}");
+}
