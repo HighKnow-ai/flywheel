@@ -68,6 +68,51 @@ function Icon({ name, size = 14 }: { name: string; size?: number }) {
   return <Component size={size} strokeWidth={2} />;
 }
 
+/** D-25: how long typing must pause before the lint is asked. The lint is a pure function of text this
+ * component already holds, so the advice below is component state and never enters React Query. */
+const ADVICE_DEBOUNCE_MS = 250;
+
+/**
+ * The criterion lint, as advice (D-25). `null` until it has something to say; cleared the moment the
+ * field is inactive or empty. It only ever READS — no save path consults it, so a human's text is
+ * never refused — and a failed or malformed answer is no advice rather than an error.
+ */
+function useLintAdvice(statement: string, active: boolean): string | null {
+  const [advice, setAdvice] = useState<string | null>(null);
+  useEffect(() => {
+    const text = statement.trim();
+    if (!active || text.length === 0) {
+      setAdvice(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      Promise.resolve(invokeCommand<string | null>("criterion_lint_advice", { statement: text }))
+        .then((sentence) => {
+          if (!cancelled) setAdvice(typeof sentence === "string" ? sentence : null);
+        })
+        .catch(() => {
+          if (!cancelled) setAdvice(null);
+        });
+    }, ADVICE_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [statement, active]);
+  return active ? advice : null;
+}
+
+/** The advice note: muted ink, `role="note"` (not `alert`: it must not interrupt), no hover needed. */
+function LintAdvice({ advice }: { advice: string | null }) {
+  if (!advice) return null;
+  return (
+    <p role="note" aria-label="Criterion advice" className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+      {advice}
+    </p>
+  );
+}
+
 function criteriaQueryKey(parentType: string, parentId: string) {
   return ["criteria", parentType, parentId] as const;
 }
@@ -303,6 +348,9 @@ export function AcceptanceCriteriaList({
   useEffect(() => {
     if (editingId) editStatementInputRef.current?.focus();
   }, [editingId]);
+
+  const addAdvice = useLintAdvice(draftStatement, addStep !== "idle");
+  const editAdvice = useLintAdvice(editDraftStatement, editingId !== null);
 
   const checkedCount = criteria.filter((c) => c.checked).length;
 
@@ -542,6 +590,7 @@ export function AcceptanceCriteriaList({
                       padding: "var(--space-xs) var(--space-sm)",
                     }}
                   />
+                  <LintAdvice advice={editAdvice} />
                 </span>
               ) : (
                 <span style={{ display: "flex", flexDirection: "column", flex: "1 1 10rem", minWidth: 0 }}>
@@ -648,6 +697,7 @@ export function AcceptanceCriteriaList({
             }}
           />
         )}
+        <LintAdvice advice={addAdvice} />
       </div>
     </section>
   );

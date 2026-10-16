@@ -349,3 +349,41 @@ pub fn task_criteria_waive(state: State<AppState>, app: AppHandle, task_id: Stri
     emit_board_changed(&app, project_id.as_deref(), "task", Some(task_id.as_str()));
     Ok(())
 }
+
+/// D-25: the criterion lint shown to a human as advice. Pure — no `State<AppState>`, no database, no
+/// event — so it cannot fail for a reason unrelated to the text, and nothing it returns can refuse or
+/// block a save: `criterion_create` and `criterion_revise` never consult it. Returns the core's own
+/// refusal sentence (the words an agent's draft is refused by) with the echo of the statement cut
+/// off, since the developer is looking at it. `None` means no rule fired, never that the criterion
+/// is good. Over-long input gets no advice; those writes are refused on length by the handlers above.
+#[tauri::command]
+pub fn criterion_lint_advice(statement: String) -> Option<String> {
+    if statement.len() > MAX_STATEMENT_LEN {
+        return None;
+    }
+    flywheel_core::criterion_lint::lint_statement(statement.trim()).err().map(|refusal| {
+        let text = refusal.to_string();
+        match text.split_once(" Statement: ") {
+            Some((sentence, _echo)) => sentence.to_string(),
+            None => text,
+        }
+    })
+}
+
+#[cfg(test)]
+mod lint_advice_tests {
+    use super::criterion_lint_advice;
+
+    #[test]
+    fn a_compound_statement_gets_the_cores_sentence_without_the_echo() {
+        let advice = criterion_lint_advice("Rejects an empty title and logs the refusal".to_string()).unwrap();
+        assert!(advice.starts_with("criterion refused as compound"), "{advice}");
+        assert!(!advice.contains("Statement:") && !advice.contains("logs the refusal"), "{advice}");
+    }
+
+    #[test]
+    fn a_clean_or_oversized_statement_gets_no_advice() {
+        assert_eq!(criterion_lint_advice("Rejects an empty title with a named error".to_string()), None);
+        assert_eq!(criterion_lint_advice("and ".repeat(1_000)), None);
+    }
+}
