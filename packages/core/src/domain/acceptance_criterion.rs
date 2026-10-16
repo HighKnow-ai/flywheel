@@ -1065,6 +1065,14 @@ pub fn delete_criteria_for_parent(
     Ok(())
 }
 
+/// D-13: the event a deliberate no-criteria start appends.
+pub const EVENT_CRITERIA_WAIVED: &str = "task.criteria_waived";
+
+/// RED stub — see the next commit.
+pub fn waive_criteria(_conn: &mut Connection, _actor_id: &str, _task_id: &str) -> anyhow::Result<()> {
+    Ok(())
+}
+
 /// List EVERY criterion for `(parent_type, parent_id)` — the full-history read, revision-1 rows,
 /// superseded rows and current rows alike — ordered by rank then id, the order a refetch always
 /// reproduces, unaffected by toggling any of them. A parent with zero criteria returns an empty
