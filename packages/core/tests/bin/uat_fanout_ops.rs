@@ -28,6 +28,15 @@
 //!   uat_fanout_ops tick                      (prints one `spawn-request` line per spawn, then `pass`)
 //!   uat_fanout_ops session-closed <event_json>
 //!   uat_fanout_ops state <plan_id>
+//!
+//! The planner-file-set arm (`scripts/uat/uat-14-planner-file-set.mjs`, phase 15 plan 02) reuses this
+//! bridge for the PLANNING half of the same machinery, so nothing about `submit_plan` is re-implemented
+//! in the script:
+//!   uat_fanout_ops plan-setup <repo_path> <tasks_json>    tasks_json: [{"title": "..."}, ...]
+//!   uat_fanout_ops plan-start <epic_id>                   the production `begin_planning_run` (real prompt)
+//!   uat_fanout_ops plan-submit <run_id> <submission_json> resolve the run, then the production
+//!                                                         `store_submitted_plan`; a refusal prints {"refused": text}
+//!   uat_fanout_ops plan-readback <plan_id>                stored tasks, entries (in order), events, preview edges
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -37,7 +46,10 @@ use core::context_packet::{assemble_context_packet, render_prompt, DISPATCHED_CO
 use core::dispatch_exec::run_pass;
 use core::domain::actor::{local_human_actor_id, system_actor};
 use core::domain::agent_run::{apply_session_closed, start_agent_run};
-use core::domain::dispatch_plan::{approve_and_start, create_plan_for_epic, edit_draft_plan, read_plan, DraftEdit};
+use core::domain::dispatch_plan::{
+    approve_and_start, create_plan_for_epic, edit_draft_plan, preview_edges_with, read_plan, resolve_planning_run,
+    store_submitted_plan, DraftEdit, SubmittedPlan,
+};
 use core::domain::epic::create_epic;
 use core::domain::file_set::{arm_scope_marker_with, declare_file_set, list_entries_for_task, repo_is_case_insensitive};
 use core::domain::project::register_project;
@@ -246,6 +258,116 @@ fn main() {
                     "integrationBranch": integration, "tasks": tasks,
                 })
             );
+        }
+        "plan-setup" => {
+            let usage = "plan-setup <repo_path> <tasks_json>";
+            let (repo, tasks_json) = (arg(&args, 1, usage), arg(&args, 2, usage));
+            let specs: Vec<serde_json::Value> =
+                serde_json::from_str(&tasks_json).unwrap_or_else(|e| fail(&format!("tasks_json: {e}")));
+            let mut conn = open_conn();
+            let human = local_human_actor_id(&conn).unwrap_or_else(|e| fail(&format!("human: {e:#}")));
+            let project = register_project(&mut conn, &human, Path::new(&repo), "Planner", "PLN")
+                .unwrap_or_else(|e| fail(&format!("register_project: {e:#}")));
+            let epic = create_epic(&mut conn, &project.id, &human, "Plan the fan-out", Some("Measure the planner's file-set declarations"))
+                .unwrap_or_else(|e| fail(&format!("create_epic: {e:#}")));
+            let mut tasks = Vec::new();
+            for spec in &specs {
+                let title = spec["title"].as_str().unwrap_or_else(|| fail("task needs a title"));
+                let task = create_task(&mut conn, &project.id, &human, title, Some(&epic.id))
+                    .unwrap_or_else(|e| fail(&format!("create_task: {e:#}")));
+                let key: String = conn
+                    .query_row("SELECT key FROM tasks WHERE id = ?1", [&task.id], |r| r.get(0))
+                    .unwrap_or_else(|e| fail(&format!("task key: {e}")));
+                tasks.push(json!({ "taskId": task.id, "key": key, "title": title }));
+            }
+            println!("{}", json!({ "projectId": project.id, "epicId": epic.id, "tasks": tasks }));
+        }
+        "plan-start" => {
+            let epic_id = arg(&args, 1, "plan-start <epic_id>");
+            let conn = open_conn();
+            let human = local_human_actor_id(&conn).unwrap_or_else(|e| fail(&format!("human: {e:#}")));
+            let db = Mutex::new(conn);
+            // "default": the same mode `commands/dispatch.rs::PLANNING_PERMISSION_MODE` launches with.
+            let start = core::dispatch_exec::begin_planning_run(&db, &epic_id, &human, "default")
+                .unwrap_or_else(|e| fail(&format!("begin_planning_run: {e:#}")));
+            println!(
+                "{}",
+                json!({
+                    "runId": start.run_id,
+                    "worktreePath": start.worktree_path,
+                    "repoPath": start.repo_path,
+                    "prompt": start.prompt,
+                })
+            );
+        }
+        "plan-submit" => {
+            let usage = "plan-submit <run_id> <submission_json>";
+            let (run_id, submission) = (arg(&args, 1, usage), arg(&args, 2, usage));
+            let plan: SubmittedPlan =
+                serde_json::from_str(&submission).unwrap_or_else(|e| fail(&format!("submission_json: {e}")));
+            let mut conn = open_conn();
+            // Mirrors `sidecar.rs::process_inbound_submit_plan`: authority first, then the one writer.
+            let outcome = resolve_planning_run(&conn, &run_id).map_err(|r| r.to_string()).and_then(|run| {
+                store_submitted_plan(&mut conn, &run.run_id, &run.epic_id, &plan, &run.actor_id, &chrono::Utc::now().to_rfc3339())
+                    .map_err(|r| r.to_string())
+            });
+            match outcome {
+                Ok(plan_id) => println!("{}", json!({ "planId": plan_id })),
+                Err(refused) => println!("{}", json!({ "refused": refused })),
+            }
+        }
+        "plan-readback" => {
+            let plan_id = arg(&args, 1, "plan-readback <plan_id>");
+            let conn = open_conn();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT dpt.task_id, t.key, dpt.state, dpt.wave FROM dispatch_plan_tasks dpt
+                       JOIN tasks t ON t.id = dpt.task_id WHERE dpt.plan_id = ?1 ORDER BY dpt.wave, t.rank, t.id",
+                )
+                .unwrap_or_else(|e| fail(&format!("prepare: {e}")));
+            let rows: Vec<(String, String, String, i64)> = stmt
+                .query_map([&plan_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+                .unwrap_or_else(|e| fail(&format!("query: {e}")))
+                .filter_map(Result::ok)
+                .collect();
+            let key_of: BTreeMap<String, String> = rows.iter().map(|(id, key, _, _)| (id.clone(), key.clone())).collect();
+            let mut tasks = Vec::new();
+            for (task_id, key, state, wave) in &rows {
+                let files: Vec<String> = list_entries_for_task(&conn, task_id)
+                    .unwrap_or_else(|e| fail(&format!("entries: {e:#}")))
+                    .iter()
+                    .map(|e| entry_path(e).to_string())
+                    .collect();
+                let mut ev = conn
+                    .prepare(
+                        "SELECT e.payload, a.type FROM events e JOIN actors a ON a.id = e.actor_id
+                          WHERE e.task_id = ?1 AND e.event_type = ?2 ORDER BY e.sequence",
+                    )
+                    .unwrap_or_else(|e| fail(&format!("prepare events: {e}")));
+                let events: Vec<serde_json::Value> = ev
+                    .query_map(rusqlite::params![task_id, core::domain::file_set::EVENT_FILE_SET_DECLARED], |r| {
+                        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                    })
+                    .unwrap_or_else(|e| fail(&format!("events: {e}")))
+                    .filter_map(Result::ok)
+                    .map(|(payload, actor_type)| {
+                        let p: serde_json::Value = serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null);
+                        json!({ "after": p["after"], "label": p["label"], "actorType": actor_type })
+                    })
+                    .collect();
+                tasks.push(json!({ "key": key, "state": state, "wave": wave, "files": files, "events": events }));
+            }
+            let edges: Vec<serde_json::Value> = preview_edges_with(&conn, &plan_id, false)
+                .unwrap_or_else(|e| fail(&format!("preview_edges: {e:#}")))
+                .iter()
+                .map(|e| {
+                    json!({
+                        "before": key_of.get(&e.before_task_id), "after": key_of.get(&e.after_task_id),
+                        "cause": e.cause, "collidingPaths": e.colliding_paths,
+                    })
+                })
+                .collect();
+            println!("{}", json!({ "tasks": tasks, "edges": edges }));
         }
         other => fail(&format!("unknown subcommand {other:?}; see the header of uat_fanout_ops.rs")),
     }
