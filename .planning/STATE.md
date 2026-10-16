@@ -1,17 +1,17 @@
 ---
 gsd_state_version: "1.0"
 milestone: v0.2.0
-current_phase: 14
-current_phase_name: Cycles On Screen, State In Colour
-status: verifying
-stopped_at: Completed 14-10-PLAN.md
-last_updated: "2026-10-15T23:08:43.958Z"
-last_activity: 2026-10-15
-last_activity_desc: Phase 14 execution started
-state_head: e6ae435d9a116baaef6e493650aecb026ea66747
+current_phase: 15
+current_phase_name: Nothing Typed That An Agent Could Draft
+status: planning
+stopped_at: Phase 14 complete, ready to plan Phase 15
+last_updated: "2026-10-16T00:41:47.098Z"
+last_activity: 2026-10-16
+last_activity_desc: Phase 14 complete, transitioned to Phase 15
+state_head: a46116f20ed7349a93ac46f65c5017d84b3cf400
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 28
   completed_plans: 28
 milestone_name: The Board Thinks With You
@@ -21,23 +21,23 @@ milestone_name: The Board Thinks With You
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-12)
+See: .planning/PROJECT.md (updated 2026-10-16)
 
 **Core value:** Every unit of agent work is anchored to a structured board item with real acceptance criteria — never a chat blob.
-**Current focus:** Phase 14 — Cycles On Screen, State In Colour
+**Current focus:** Phase 15 — Nothing Typed That An Agent Could Draft
 
 ## Current Position
 
-Phase: 14 (Cycles On Screen, State In Colour) — EXECUTING
-Plan: 10 of 10
-Status: Phase complete — ready for verification
-Last activity: 2026-10-15 — Phase 14 execution started
+Phase: 15 — Nothing Typed That An Agent Could Draft
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-16 — Phase 14 complete, transitioned to Phase 15
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 212
+- Total plans completed: 222
 - Average duration: —
 - Total execution time: —
 
@@ -56,6 +56,7 @@ Last activity: 2026-10-15 — Phase 14 execution started
 | 08 | 15 | - | - |
 | 10 | 9 | - | - |
 | 13 | 18 | - | - |
+| 14 | 10 | - | - |
 
 **Recent Trend:**
 
@@ -811,7 +812,7 @@ Recent decisions affecting current work:
 - ✅ **RESOLVED by plan 05-04 — `epic_roster` is no longer unbounded.** Two ceilings, not one cap: `domain::epic::list_epics` is now bounded at `EPIC_ROSTER_CEILING` (5000) with a surfaced `truncated` flag (D-16), closing `01-SECURITY.md` AR-01-04's re-rate trigger without reopening G-01-2's raw-ULID regression; the agent's own reads (`query::authoring`) are separately bounded by the existing `DEFAULT_LIMIT`/`MAX_LIMIT` clamp every other agent-reachable read already uses.
 - ⚠️ **[Phase 01] The chosen visual direction has not yet been seen as designed.** `01-UI-REVIEW.md` (18/24) found two of Flight Progress Strips' own signature moves absent: sticky band headers (specified, asserted by three code comments, implemented nowhere) and the selected strip "breaking the plane" (tint overlay only). Tracked in Phase 10.1. Relevant because the owner's judgement that the direction "reads as dated" is currently a judgement on an incomplete execution of it.
 - ✅ **[Phase 03] RESOLVED by 03-19 (G-03-3).** The destructive gate previously refused rather than asked for every command an agent ran through Bash. `pretooluse-hook.ts` now defers to the shim's own permission socket whenever it can prove the shim will intercept the command (`shimWillIntercept`), denying outright only for the class the shim structurally cannot see. Live-measured this session: a bare `git push --delete` now raises a real `permission_request` carrying `destructiveCategory: branch-deletion`, which never happened before. See the NEW finding immediately below — the full sustained-block-then-deny flow surfaced a SEPARATE, unresolved issue during this same measurement.
-- ⚠️ **[Phase 01] Process defect, will recur every phase needing human verification.** The verifier's `human_needed` branch writes `{phase}-UAT.md`, but `UAT.md` is also declared in `covered_files` and hashed into `covered_digest` — so a verification that asks for human testing invalidates its own fingerprint and reads `stale` forever after. `/gsd-verify-work` then routes to itself, which cannot clear it. Broken this round by regenerating verification with `status: passed` after UAT passed; the durable fix is to stop fingerprinting verify-step *outputs* as verification *inputs*.
+- ⚠️ **[Phase 01] Process defect, will recur every phase needing human verification.** The verifier's `human_needed` branch writes `{phase}-UAT.md`, but `UAT.md` is also declared in `covered_files` and hashed into `covered_digest` — so a verification that asks for human testing invalidates its own fingerprint and reads `stale` forever after. `/gsd-verify-work` then routes to itself, which cannot clear it. Broken this round by regenerating verification with `status: passed` after UAT passed; the durable fix is to stop fingerprinting verify-step *outputs* as verification *inputs*. **Recurred at Phase 14 (2026-10-16) for a SECOND, independent reason, so the fix is wider than first stated:** `14-VERIFICATION.md` read `stale` both because real covered code changed after the report was written (`acca627d` edited `packages/core/src/domain/cycle.rs` while closing code-review findings) and because `allCurrentArtifactsCovered()` additionally requires every current `*-PLAN.md` and `*-SUMMARY.md` in the phase directory to appear in `covered_files` — the Phase 14 report listed 11 files and could therefore never have gone green on digest alone. Cleared the honest way this time (re-ran `gsd-verifier` against the post-fix code, 12/12, `covered_files` now 39 entries) rather than by hand-setting the field. Note the first cause is not a defect at all — code changing after verification SHOULD invalidate it; what is defective is that `/gsd-verify-work`'s only stale handler routes to itself, so the workflow cannot clear a staleness it is guaranteed to encounter whenever code review runs after verification.
 - ⚠️ **[Phase 03] Session-termination finding investigated — root-cause-identified (03-20/03-21).** 03-19's ~15-16s session-termination finding was root-caused by the dedicated follow-up spike it recommended: `03-SESSION-LIFECYCLE-FINDINGS.md` records **Disposition: root-cause-identified**, H1 CONFIRMED — the watchdog's own heartbeat-staleness kill (`DEFAULT_HEARTBEAT_STALE_MS=15000`) correctly reaped an unsupervised session (`--heartbeat=off`: terminated at `elapsed_ms=7397`, `closeOrigin: watchdog-heartbeat-stale`), while a production-shaped `--heartbeat=on` run sustained the block for the full 90s window with zero termination artifacts — the product was never at fault; the prior measurement harness was. Plan 03-21 took Branch B (harness-only doc fix; no change to `watchdog.ts`'s stale-kill condition) and added a repeatable acceptance command (`uat-06-permission-block-lifecycle.mjs --heartbeat=on --answer-after=60000 --decision=deny`, `honoured=true`) proving a supervised session survives a 60+ second unanswered destructive-gate block and honours the eventual answer. **AGNT-07 is NOT Complete**: a separate, broader bypass class was found afterwards (`03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`) and the requirement was walked back to Gaps Found in `db18b0e`. Still genuinely open per the findings document's own "What this does not claim": reproduction inside a packaged `.app` (only the dev-mode sidecar bundle was driven), on a machine other than the one measured, and against a `claude` version other than 2.1.267 remain untested; H1a (whether 03-19's specific `FLYWHEEL_HEARTBEAT_STALE_MS=120000` override reached the watchdog) was not directly retested with a non-default value.
 - ✅ **RESOLVED by Phase 12 — AGNT-07's `PATH`-reorder bypass class is closed at a different layer.** The round-six/round-ten bypasses were all variations on one theme: the raw-text classifier in `packages/shim/src/main.rs` can always be out-argued, because it only ever runs if the shim wins a `PATH` name lookup it cannot guarantee winning. Phase 12 stopped trying to win that lookup. Layer 3 (git's own `pre-push` hook, installed via `core.hooksPath`) refuses branch deletion, force-push and history rewrite from inside the real `git` process, after `PATH` resolution, with the shim absent from `PATH` entirely — and `packages/shim/src/main.rs` is now fenced by a committed string-literal baseline test so the classifier cannot be quietly widened for an eleventh round. 22/22 non-backstop truths verified; three live-session truths accepted by human review 2026-10-02.
 - ⚠️ **[Phase 12] Four destructive categories are still Layer-2-only.** `hard-reset`, `force-clean`, `recursive-delete` and `default-branch-push` have no git-native interception layer, so they still rest on P1 — the premise Phase 12 proved Flywheel cannot guarantee by default. The `SessionStart`/`CLAUDE_ENV_FILE` hook restores P1 by construction and measured `restored` live, but on one macOS machine against `claude 2.1.285` in `bypassPermissions`, with two upstream caveats still open (`anthropics/claude-code#27987` sourcing bug on some builds; `anthropics/claude-code#19357` contradictory official docs, closed "not planned"). Either a second interception layer or a second independent measurement is owed before these four can be called closed.
@@ -820,6 +821,7 @@ Recent decisions affecting current work:
 - Live gate (uat-08-socratic-authoring.mjs) now PASSES: run 01M3QQQM4GAYB2Y9RQMJDRWAX0 exited 0 on 2026-09-30 — the first clean live pass the phase has produced. SHAPE-01 challenged=true noWorkPlanned=refused; SHAPE-02 board-counts delta=6 (before epics:0/tasks:0/criteria:0, after epics:1/tasks:1/criteria:4) via acceptPath=task-subtree; SHAPE-03/04 reject and amend each exercised individually; SHAPE-05 informational (needs a second session, proven structurally by authoring_acceptance.rs::criterion_4_*). The answer-bank fallback ratio was 0/9 — nine real developer answers, zero generic fallbacks, against 6/6 generic the run before. Enabled by three instrument closures (260929-lq1 stale-snapshot decision targets; 260929-nxq the question extractor and withheld-consent classifier plus SHAPE-02's board-row delta; 260929-p61 the developer-answer handoff that made the answer bank unreachable from the live arm). The 2026-09-29 backend_refusal/invalid_request death at the distillation turn did NOT recur and is judged transient. REMAINING: the SHAPE-01 challenge-quality and SHAPE-03 draft-usefulness verdict lines in 05-LIVE-CHALLENGE-TRANSCRIPT.md are still UNJUDGED — a human read of the conversation, which no script can certify.
 - 08-08: epic scope has no roll-up of its tasks (D-132); needs a core query and command, logged in WINDOWS.md as an unmet truth
 - Do not SIGTERM packages/core/tests/credentials.rs: it hangs on the real macOS Keychain and a kill leaves its fixture key in com.highknow.flywheel/anthropic-api-key (11-10 removed one; owner should confirm no real key was lost).
+- ⚠️ **[Phase 14] A silent-write contract moved from structure to convention.** `acca627d` made the `epics.cycle_id` write a `pub` helper (`epic::set_epic_cycle_in_tx`) that deliberately appends no event. Criterion 2's scope-drift clause derives drift FROM the event log, so the invariant "every Cycle membership change leaves an event" is now carried by the helper's two callers rather than by the write being private to `cycle.rs`. Correct today — `cycle.rs` is its only caller and `cycle_scope_drift` is green — but nothing fails if a third caller forgets. One gate test asserting `cycle.rs` is its sole caller restores the structural guarantee. Raised by the Phase 14 re-verification as an advisory, not a gap.
 - DIST-02: the updater URL answers 404 while v0.1.0 and v0.1.1 are marked Pre-release (D-REV-67, THRE-1136); owner decision needed
 
 ### Quick Tasks Completed
@@ -849,6 +851,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T23:08:43.931Z
-Stopped at: Completed 14-10-PLAN.md
+Last session: 2026-10-16
+Stopped at: Phase 14 complete, ready to plan Phase 15
 Resume file: None

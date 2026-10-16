@@ -138,6 +138,17 @@ leads and the visual round follows it, on the surfaces this milestone creates.
   What was NOT observed: macOS actually drawing a banner, and the first-run permission prompt (D-REV-52,
   D-REV-53) — both physically unautomatable and queued in `DEFERRED-REVIEW.md`.
 
+- ✓ **A cycle layer above epics, with roadmap and progress always on screen** — Phase 14. The current
+  Cycle's goal and its folded progress are permanently visible, the planned Cycles ahead read as single
+  lines, and closing a Cycle asks per unfinished epic rather than silently moving work. The fold is
+  proven equal to a full count at 900+ tasks, scope drift is derived from the event log rather than
+  stored, and the `cycles` table was added through the spine pin, the table classification and the
+  column allowlist in one diff — so the fixed epic→task→issue spine underneath is untouched and
+  BOARD-01 still holds. 12/12 must-haves verified, two of them by recorded owner acceptance
+  (`14-UAT.md`): that `merged` is defined, tokenised and CVD/contrast-proven but drawn on no surface,
+  and that the hierarchy statement predates the commits that shaped the region without being a git
+  ancestor of the first tracer commit.
+
 ### Active
 
 - [ ] Board-native work model: epics, tasks and issues are the primary artifact, replacing `.planning/` files as the store of record for phase structure
@@ -212,10 +223,16 @@ leads and the visual round follows it, on the surfaces this milestone creates.
 
 
 - [ ] **v0.2.0** PRD and ADR as first-class board records, authored with a challenging agent and linked to the epics they govern
-- [ ] **v0.2.0** A phase/cycle layer above epics, with roadmap and progress permanently visible
 - [ ] **v0.2.0** Every encoding form gains an agent-drafts/human-accepts path — file-sets, acceptance criteria, task decomposition, and status/priority/estimates
 - [ ] **v0.2.0** Agent-assisted review: the agent adjudicates its own diff against the task's criteria first
 - [ ] **v0.2.0** A dark-first, high-contrast visual direction where colour carries state, applied to the new IA
+  — **the vocabulary landed in Phase 14, the application has not.** Five state classes, four roles and
+  one component (`StateBadge`) ship behind a source gate, CVD-proven and contrast-checked per mode, with
+  colour never the only channel. What is still owed is the second half of the sentence: Phase 14 measured
+  2 saturated rows of 1038 on the board surface (0.19%) and the owner accepted that reading, so the
+  direction currently lives on the fleet surface. Applying it across every surface the milestone builds
+  is Phase 18, which also carries the one value that could not be made visible inside the contrast
+  envelope (the dark needs-you wash, best 4.79 against 4.43 shipped).
 
 ### Out of Scope
 
@@ -293,6 +310,7 @@ explicitly left to the competitive and architecture research to argue.
 | **A-05** D-109 amended (owner decision, 2026-10-15): the proposal cap is per run kind, with the execution value unchanged at 10 | The 10-per-run cap applied to authoring runs by accident and would have throttled a 42-draft decomposition. Values are compile-time constants selected by a `const fn` (execution 10, planning 30, authoring 60), never settings; 100 for authoring was rejected because 100 pending items in one run is the unreviewable queue the research round warns against (Phase 13 DRFT-09) | ✓ Recorded (Phase 13) |
 | **A-06** A-02 extended: criterion 3's forbidden-word gate matches a corpus word used as an identifier COMPONENT (prefix at an identifier boundary), not only as a standalone whole word, so `sprint_id`, `overdueCount`, `velocity_per_week` and `story_points_total` fail the build | A-02 bought whole-word matching so `Vec::with_capacity` would not fail the build, and that exclusion is unchanged; it did not license compound identifiers, and criterion 3's own wording is "a build containing `story_point` … fails", which the plural satisfies. Phase 14 adds schema, which is where the blind spot bites. Still open, not settled by this row: `.sql` files remain unscanned (deferred by `13-CONTEXT.md`; `SCANNED_EXTENSIONS` in `pm_vocabulary_gate.rs` makes reversal a one-token edit), and the counter-argument stands — a Phase 14 `cycles` table with a `sprint_length_days` column passes the spine pin, table classification and the PM gate today (Phase 13 FNC-04, plan 13-14) | ✓ Recorded (Phase 13) |
 | **A-07** F6 amended (owner decision, 2026-10-15): the `agent_runs.kind` column is NOT added; run kind has one definition in code, `RunKind::classify`, with `RUN_KIND_*_PREDICATE` mirroring it in SQL | That satisfies F6's intent ("run kind is inferred from column shape in four places" becomes one definition) without a schema change. A column means another `tasks`/`agent_runs` rebuild on a spine this phase pinned, for a value already derivable from the row; DRFT-09's own text concerns not throttling and refusal wording and names no column, so it is met on its text. The column stays available at the cost of one migration if a query ever needs to filter on kind without the predicate (Phase 13 DRFT-09, plan 13-11) | ✓ Recorded (Phase 13) |
+| State colour is budgeted, not applied as a blanket wash | Phase 14's plan 14-09 washed all five state classes across the fleet and the result was "a pastel plate" — colour everywhere carries no signal. The ruling: `needs-you` and `failed` carry a row wash; `running`, `merged` and `quiet` stay ink-only, and the direction is measured as a percentage of saturated rows rather than asserted | ✓ Validated (Phase 14) — colour reads as state because it is scarce. The cost is that the board surface itself measures 0.19% saturated and the signal effectively lives on the fleet; the owner accepted that reading in UAT, and Phase 18 owns raising it per-surface without returning to the pastel plate |
 
 ## Evolution
 
@@ -321,4 +339,4 @@ This document evolves at phase transitions and milestone boundaries.
 > milestone review.
 
 ---
-*Last updated: 2026-10-14 after starting milestone v0.2.0*
+*Last updated: 2026-10-16 after Phase 14*

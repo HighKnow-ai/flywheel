@@ -141,7 +141,7 @@ mapped requirements and deliberately **not** an orphan.
 **Shipped (v0.1.0, phases 1-12):** complete; detail archived at `.planning/milestones/v0.1.0-phases/`.
 
 - [x] **Phase 13: Nothing New Escapes The Fence** - The spine, the gates and the packet are closed-world before a single new record type exists, the ten carried defects are paid, and the unread fields are gone (completed 2026-10-15)
-- [ ] **Phase 14: Cycles On Screen, State In Colour** - The current Cycle and the roadmap ahead are always visible, and every state carries saturated colour that is never the only channel
+- [x] **Phase 14: Cycles On Screen, State In Colour** - The current Cycle and the roadmap ahead are always visible, and every state carries saturated colour that is never the only channel (completed 2026-10-16)
 - [ ] **Phase 15: Nothing Typed That An Agent Could Draft** - File-sets, criteria and decomposition arrive drafted and are accepted one item at a time, proven against a live backend
 - [ ] **Phase 16: The Problem And The Decision Are Board Records** - A PRD with closed slots and a signed bar, and ADRs an agent proposes at a real fork, both reaching the agent's context bounded and revision-pinned
 - [ ] **Phase 17: Pre-Reviewed, Never Pre-Approved** - An agent with no memory of writing the code reports evidence per criterion, and only a human ever marks one satisfied
@@ -446,7 +446,7 @@ Phase 17 shares no file with Phase 16 and may run beside it; it may not be absor
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 13. Nothing New Escapes The Fence | 18/18 | Complete    | 2026-10-15 |
-| 14. Cycles On Screen, State In Colour | 10/10 | In Progress|  |
+| 14. Cycles On Screen, State In Colour | 10/10 | Complete    | 2026-10-16 |
 | 15. Nothing Typed That An Agent Could Draft | 0/0 | Not started | - |
 | 16. The Problem And The Decision Are Board Records | 0/0 | Not started | - |
 | 17. Pre-Reviewed, Never Pre-Approved | 0/0 | Not started | - |
