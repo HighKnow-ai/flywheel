@@ -64,6 +64,29 @@ describe("StateBadge: glyph, word and the class's ink, all present", () => {
   });
 });
 
+describe("StateBadge: the vocabulary is five classes and no more (Phase 15 plan 03, D-34)", () => {
+  it("has exactly the five named classes across every key, so a new key that invents a class fails here", () => {
+    const classes = new Set(Object.values(STATE_VOCABULARY).map((entry) => entry.cls));
+    expect([...classes].sort()).toEqual(["failed", "merged", "needs-you", "quiet", "running"]);
+    expect(classes.size).toBe(5);
+  });
+
+  it("puts a task held by the account limit in blocked's own class and mark: a key, not a class", () => {
+    expect(STATE_VOCABULARY.held_by_limit).toEqual(STATE_VOCABULARY.blocked);
+    expect(stateClassOf("held_by_limit")).toBe("needs-you");
+    expect(rowVariant("held_by_limit")).toBe("wash");
+  });
+
+  it("draws the caller's own word beside the glyph when given a label, and keeps it as the accessible name when hidden", () => {
+    const { container, rerender } = render(<StateBadge state="held_by_limit" label="Held by the account limit" />);
+    expect(screen.getByText("Held by the account limit")).toBeTruthy();
+    expect(badge(container).dataset.stateClass).toBe("needs-you");
+    expect(container.querySelector("svg")).not.toBeNull();
+    rerender(<StateBadge state="held_by_limit" label="Held by the account limit" hideLabel />);
+    expect(screen.getByRole("img", { name: "Held by the account limit" })).toBeTruthy();
+  });
+});
+
 describe("StateBadge: a state the vocabulary does not know", () => {
   it("renders the quiet class with its raw value as the word, a glyph, and does not throw", () => {
     const { container } = render(<StateBadge state="warming_up" />);
