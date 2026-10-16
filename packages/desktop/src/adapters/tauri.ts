@@ -2197,3 +2197,21 @@ export async function projectHide(projectId: string): Promise<void> {
 export async function projectRestore(projectId: string): Promise<Project[]> {
   return invokeCommand<Project[]>("project_restore", { projectId });
 }
+
+/** One agent suggestion for one field of one item (DRFT-03). `proposed` and `current` are text; a
+ * priority is its integer as text. `proposalId` is what the existing reject takes: one proposal can
+ * suggest several fields, and rejecting it declines all of them. Mirrors `ProvisionalValue`. */
+export interface ProvisionalValueDto {
+  proposalId: string;
+  field: "title" | "description" | "priority";
+  proposed: string;
+  current: string | null;
+  runId: string;
+  actorName: string;
+}
+
+/** The item's pending provisional suggestions, in staging order. Read-only. Thin wrapper over
+ * `item_provisional_values`; declining one reuses `rejectAuthoringProposal`. */
+export async function itemProvisionalValues(parentType: string, parentId: string): Promise<ProvisionalValueDto[]> {
+  return invokeCommand<ProvisionalValueDto[]>("item_provisional_values", { parentType, parentId });
+}

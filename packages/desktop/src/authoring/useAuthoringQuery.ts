@@ -31,6 +31,7 @@ import {
   authoringProposalsPending,
   deferAuthoringProposal,
   deferAuthoringProposalsBulk,
+  itemProvisionalValues,
   mergeAuthoringProposal,
   rejectAuthoringProposal,
   rejectAuthoringProposalsBulk,
@@ -257,5 +258,37 @@ export function useDeferProposalsBulk(projectId: string | null | undefined) {
       invalidatePending();
       queryClient.invalidateQueries({ queryKey: deferredProposalsQueryKey(projectId ?? "none") });
     },
+  });
+}
+
+/** The key for an item's provisional (ghosted) suggestions. */
+export function itemProvisionalValuesQueryKey(taskId: string) {
+  return ["item-provisional-values", taskId] as const;
+}
+
+/**
+ * The agent suggestions pending for one task's title, body and priority (DRFT-03). Server state, so
+ * it lives here and never in component state; the in-progress title draft stays in the panel.
+ * `null`/`undefined` disables the query. Read-only: nothing here writes.
+ */
+export function useItemProvisionalValues(taskId: string | null | undefined) {
+  useBoardChangedInvalidation({ kind: "viewed" }, taskId ? [itemProvisionalValuesQueryKey(taskId)] : []);
+  return useQuery({
+    queryKey: itemProvisionalValuesQueryKey(taskId ?? "none"),
+    queryFn: () => itemProvisionalValues("task", taskId as string),
+    enabled: Boolean(taskId),
+  });
+}
+
+/**
+ * D-04: reject IS the undo for a provisional value. Reuses the existing `authoring_proposal_reject`
+ * through [`rejectAuthoringProposal`] and adds no verb of its own; only the invalidated key differs
+ * from [`useRejectProposal`], because the ghost is read per item, not per run.
+ */
+export function useRejectProvisionalValue(taskId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (proposalId: string) => rejectAuthoringProposal(proposalId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: itemProvisionalValuesQueryKey(taskId ?? "none") }),
   });
 }

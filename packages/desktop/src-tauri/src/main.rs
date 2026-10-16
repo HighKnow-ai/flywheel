@@ -250,6 +250,7 @@ fn main() {
             commands::authoring::authoring_proposals_reject_bulk,
             commands::authoring::authoring_proposals_defer_bulk,
             commands::authoring::authoring_proposal_reject,
+            commands::authoring::item_provisional_values,
             commands::authoring::authoring_proposal_amend,
             commands::authoring::authoring_stage_advance,
             commands::authoring::authoring_stage_return,

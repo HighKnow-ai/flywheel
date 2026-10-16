@@ -1460,6 +1460,22 @@ pub fn handle_inbound_board_read_request(app: &AppHandle, event: &serde_json::Va
     let _ = sidecar.relay_authoring_read_answer(run_id, request_id, result);
 }
 
+/// DRFT-03 (D-02): the suggestions an agent has pending for one item's title, body and priority,
+/// each beside the canonical value, in staging order. Derived from `authoring_proposals`; nothing is
+/// stored and nothing is written, so this emits no `board:changed`. Rejecting one goes through the
+/// existing `authoring_proposal_reject` (D-04: reject is the undo) and confirming happens only at
+/// Start Work, inside the core: neither has a command of its own here.
+#[tauri::command]
+pub fn item_provisional_values(
+    state: State<AppState>,
+    parent_type: String,
+    parent_id: String,
+) -> Result<Vec<flywheel_core::query::provisional_values::ProvisionalValue>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    flywheel_core::query::provisional_values::provisional_values_for(&conn, &parent_type, &parent_id)
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod board_entity_tests {
     use super::board_entity_for;

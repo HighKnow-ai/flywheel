@@ -15,6 +15,12 @@
  * (`App.tsx`) decides which layout to render this inside; this component only owns its own
  * 480px content.
  *
+ * Plan 15-07 (DRFT-03, D-02): an agent's suggested title, body and priority are GHOSTED into these same
+ * fields, not shown beside them in a second surface. A ghost is visual only: nothing is written on
+ * render, hover or focus. Focusing the title adopts the suggestion as the draft, and the human's own
+ * Enter or edit commits it through `onUpdateTitle` like any typed title. Reject is the undo (D-04) and
+ * is offered per field; Start Work confirms what is left, inside the core.
+ *
  * Plan 02-08 inserts two more task-only sections above the Activity Trail, in this order:
  * `WorktreeSummary` (the task's git identity) then `RunsSection` (every run on this task, newest
  * first). Both are absent until they have something to show (State Inventory "No worktree/runs
@@ -24,10 +30,12 @@
  * waiting on read as one linked record (Discretion #6 still holds: the SAME
  * `usePendingPermissionRequests(agentRunId)` query every mount point reads).
  */
-import { useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { MARKS_BY_ID, priorityMarkId, statusMarkId } from "../legend/marks";
+import { useItemProvisionalValues, useRejectProvisionalValue } from "../authoring/useAuthoringQuery";
+import type { ProvisionalValueDto } from "../adapters/tauri";
 import { AcceptanceCriteriaList } from "./AcceptanceCriteriaList";
 import { ActivityTrail } from "./ActivityTrail";
 import { ForgeSection } from "./ForgeSection";
@@ -102,11 +110,35 @@ export function ItemDetailPanel({
   const [titleDraft, setTitleDraft] = useState(item.title);
   const isIssue = item.kind === "issue";
   const isTask = item.kind === "task";
+  // Server state (React Query); the title draft above stays component state, never blurred (CLAUDE.md).
+  const provisional = useItemProvisionalValues(isTask ? item.id : null).data ?? [];
+  const rejectProvisional = useRejectProvisionalValue(item.id);
+  // When two amendments suggest one field, the later one is what Start Work leaves, so it is the one shown.
+  const ghostFor = (field: ProvisionalValueDto["field"]): ProvisionalValueDto | undefined => {
+    const forField = provisional.filter((v) => v.field === field);
+    return forField[forField.length - 1];
+  };
+  const titleGhost = ghostFor("title");
+  const descriptionGhost = ghostFor("description");
+  const priorityGhost = ghostFor("priority");
+  const [titleEditing, setTitleEditing] = useState(false);
+  // True while the draft is the agent's suggestion adopted on focus and not yet touched by the human:
+  // leaving the field then must write nothing (a focus is not a decision), Enter is the explicit commit.
+  const adoptedUntouched = useRef(false);
+  // One reject per proposal, however many activations land before the mutation settles.
+  const rejecting = useRef(new Set<string>());
+  const reject = (proposalId: string) => {
+    if (rejecting.current.has(proposalId)) return;
+    rejecting.current.add(proposalId);
+    rejectProvisional.mutate(proposalId, { onError: () => rejecting.current.delete(proposalId) });
+  };
+  const showTitleGhost = !!titleGhost && !titleEditing;
   const statusMark = item.status ? MARKS_BY_ID[statusMarkId(item.status)] : undefined;
   // Printed only where there is a value to print. The panel receives no other property (assignee, epic and the
   // worktree facts have their own sections), and an unknown value prints nothing rather than a dash.
   const priorityMark = item.priority === undefined ? undefined : MARKS_BY_ID[priorityMarkId(item.priority)];
-  const hasProps = (!isIssue && !!item.status) || !!priorityMark;
+  const ghostPriorityMark = priorityGhost ? MARKS_BY_ID[priorityMarkId(Number(priorityGhost.proposed))] : undefined;
+  const hasProps = (!isIssue && !!item.status) || !!priorityMark || !!ghostPriorityMark;
 
   function commitTitle() {
     const trimmed = titleDraft.trim();
@@ -115,10 +147,31 @@ export function ItemDetailPanel({
     }
   }
 
+  function handleTitleFocus() {
+    if (!titleGhost) return;
+    setTitleDraft(titleGhost.proposed);
+    setTitleEditing(true);
+    adoptedUntouched.current = true;
+  }
+
+  function handleTitleBlur() {
+    setTitleEditing(false);
+    if (adoptedUntouched.current) {
+      // Focus alone adopted the suggestion; the human never touched it, so nothing is written.
+      adoptedUntouched.current = false;
+      setTitleDraft(item.title);
+      return;
+    }
+    commitTitle();
+  }
+
   function handleTitleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Enter" || (event.key === "Enter" && event.metaKey)) {
+      // Enter on an adopted suggestion is the human's own commit.
+      adoptedUntouched.current = false;
       event.currentTarget.blur();
     } else if (event.key === "Escape") {
+      adoptedUntouched.current = false;
       setTitleDraft(item.title);
       event.currentTarget.blur();
     }
@@ -174,13 +227,32 @@ export function ItemDetailPanel({
             </header>
 
             <input
-              className="type-heading detail-title"
+              className={`type-heading detail-title${showTitleGhost ? " detail-title-ghost" : ""}`}
               aria-label="Title"
-              value={titleDraft}
-              onChange={(event) => setTitleDraft(event.target.value)}
-              onBlur={commitTitle}
+              value={showTitleGhost ? titleGhost.proposed : titleDraft}
+              onChange={(event) => {
+                adoptedUntouched.current = false;
+                setTitleDraft(event.target.value);
+              }}
+              onFocus={handleTitleFocus}
+              onBlur={handleTitleBlur}
               onKeyDown={handleTitleKeyDown}
             />
+            {showTitleGhost && (
+              <p className="type-body detail-ghost-note">
+                <span>
+                  Suggested by {titleGhost.actorName}. Now: {titleGhost.current ?? item.title}
+                </span>
+                <button
+                  type="button"
+                  className="type-body detail-ghost-reject"
+                  aria-label="Reject suggested title"
+                  onClick={() => reject(titleGhost.proposalId)}
+                >
+                  Reject
+                </button>
+              </p>
+            )}
           </div>
 
           {hasProps && (
@@ -191,13 +263,48 @@ export function ItemDetailPanel({
                   <dd className="type-body">{statusMark?.label ?? item.status}</dd>
                 </>
               )}
-              {priorityMark && (
+              {(priorityMark || ghostPriorityMark) && (
                 <>
                   <dt className="type-body">Priority</dt>
-                  <dd className="type-body">{priorityMark.label}</dd>
+                  <dd className="type-body">
+                    {priorityMark?.label}
+                    {priorityGhost && ghostPriorityMark && (
+                      <span className="detail-ghost-priority">
+                        Suggested: {ghostPriorityMark.label}
+                        <button
+                          type="button"
+                          className="type-body detail-ghost-reject"
+                          aria-label="Reject suggested priority"
+                          onClick={() => reject(priorityGhost.proposalId)}
+                        >
+                          Reject
+                        </button>
+                      </span>
+                    )}
+                  </dd>
                 </>
               )}
             </dl>
+          )}
+
+          {descriptionGhost && (
+            <section className="detail-ghost" aria-label="Suggested description">
+              <p className="type-label detail-ghost-note">
+                <span>Suggested description by {descriptionGhost.actorName}</span>
+                <button
+                  type="button"
+                  className="type-body detail-ghost-reject"
+                  aria-label="Reject suggested description"
+                  onClick={() => reject(descriptionGhost.proposalId)}
+                >
+                  Reject
+                </button>
+              </p>
+              <p className="type-body detail-ghost-text">{descriptionGhost.proposed}</p>
+              {descriptionGhost.current && (
+                <p className="type-body detail-ghost-current">Now: {descriptionGhost.current}</p>
+              )}
+            </section>
           )}
 
           <div className="detail-actions">

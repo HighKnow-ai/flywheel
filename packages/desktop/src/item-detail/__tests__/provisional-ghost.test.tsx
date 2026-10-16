@@ -5,10 +5,11 @@
  * written on render, hover or focus. The explicit tier (criteria) is never ghosted.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ItemDetailPanel, type DetailItem } from "../ItemDetailPanel";
 import panelSource from "../ItemDetailPanel.tsx?raw";
+import { MARKS_BY_ID, priorityMarkId } from "../../legend/marks";
 
 type Ghost = {
   proposalId: string;
@@ -128,7 +129,8 @@ describe("a provisional title", () => {
     const title = (await screen.findByLabelText("Title")) as HTMLInputElement;
     await waitFor(() => expect(title.value).toBe("Sharper title"));
 
-    fireEvent.focus(title);
+    // A real focus, so the Enter handler's `blur()` has something to blur (jsdom ignores it otherwise).
+    act(() => title.focus());
     fireEvent.keyDown(title, { key: "Enter" });
     expect(onUpdateTitle).toHaveBeenCalledTimes(1);
     expect(onUpdateTitle).toHaveBeenCalledWith("Sharper title");
@@ -141,7 +143,7 @@ describe("a provisional title", () => {
 
     fireEvent.click(reject);
     fireEvent.click(reject);
-    expect(rejectMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(rejectMock).toHaveBeenCalledTimes(1));
     expect(rejectMock.mock.calls[0][0]).toBe("prop-title");
 
     ghosts = [];
@@ -157,8 +159,9 @@ describe("a provisional priority and description", () => {
     renderPanel();
     const row = (await screen.findByText("Priority")).closest("dt")!.nextElementSibling as HTMLElement;
     await waitFor(() => expect(row.querySelector(".detail-ghost-priority")).not.toBeNull());
-    expect(row.textContent).toContain("Medium");
-    expect(row.querySelector(".detail-ghost-priority")!.textContent).toContain("Urgent");
+    // Both labels come from the published registry, never a literal.
+    expect(row.textContent).toContain(MARKS_BY_ID[priorityMarkId(2)].label);
+    expect(row.querySelector(".detail-ghost-priority")!.textContent).toContain(MARKS_BY_ID[priorityMarkId(4)].label);
     expect(screen.getByRole("button", { name: "Reject suggested priority" })).toBeInTheDocument();
   });
 
@@ -167,7 +170,7 @@ describe("a provisional priority and description", () => {
     renderPanel();
     expect(await screen.findByText("Explains the why.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Reject suggested description" }));
-    expect(rejectMock).toHaveBeenCalledWith("prop-desc", undefined);
+    await waitFor(() => expect(rejectMock).toHaveBeenCalledWith("prop-desc", undefined));
   });
 });
 
