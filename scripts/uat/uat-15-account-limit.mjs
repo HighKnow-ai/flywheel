@@ -378,43 +378,100 @@ async function offlineBody(harness) {
 // --live  (written here, RUN by plan 15-04)
 // -------------------------------------------------------------------------------------------
 
-const BURN_PROMPT =
-  "Write a file named notes-1.md containing a 1500 word essay on a topic of your choice. Then write notes-2.md " +
-  "on a different topic, then notes-3.md, and keep going with a new file and a new topic each time. Never stop " +
-  "and never ask a question: the only way this task ends is that it is interrupted.";
+// Text only, no tools: the first live attempt (2026-10-16) asked for essay FILES and the product's own
+// FLYWHEEL-SCOPE hook refused every Write (the scratch task has no declared file-set), so the sessions burned
+// nothing and went looking for Flywheel MCP tools. One long reply per spawn, respawned by the loop below.
+const burnPrompt = (lane) =>
+  `Do not use any tool of any kind, and do not ask a question. This is lane ${lane}. Reply directly with the longest ` +
+  "continuous essay you can produce, on a topic of your choice, at least 20000 words, in plain prose with no headings " +
+  "and no summary. Do not stop early and do not wrap up: keep writing new paragraphs until you are cut off.";
 
-async function liveBody(harness, { artifactPath, fixturePath, maxMinutes }) {
+/** The five-hour window's utilization as the wire reported it, or undefined. Read from the raw line only. */
+function fiveHourUtilization(rawLine) {
+  try {
+    const line = JSON.parse(rawLine);
+    return line[noticeKey(line)]?.unifiedWindows?.five_hour?.utilization;
+  } catch {
+    return undefined;
+  }
+}
+
+async function liveBody(harness, { artifactPath, fixturePath, maxMinutes, sessions }) {
   if (!probeClaudeAvailable()) throw new Error("the real `claude` binary is not resolvable - this mode needs a live backend session");
   if (!fs.existsSync(SIDECAR_ENTRY)) throw new Error(`${SIDECAR_ENTRY} not found - run \`npm --prefix packages/sidecar run build\``);
   const runOps = scratchBridge(harness);
   const setup = runOps("gate-setup", createScratchRepo(harness.root));
 
-  const env = { ...harness.sessionEnv(setup.runId, "main"), ...harness.cleanClaudeConfigEnv() };
-  step(`isolation: CLAUDE_CONFIG_DIR=${env.CLAUDE_CONFIG_DIR}`);
+  // Lane 0 is the run row the gate transition is applied to; extra lanes only add burn rate (a serial
+  // session cannot drain a window inside the time it has left). Each lane is its own sidecar run id.
+  const lanes = Array.from({ length: sessions }, (_, i) => {
+    const runId = i === 0 ? setup.runId : `${setup.runId}-s${i}`;
+    const env = { ...harness.sessionEnv(runId, "main"), ...harness.cleanClaudeConfigEnv() };
+    return { lane: i, runId, env, spawns: 0 };
+  });
+  step(`isolation: CLAUDE_CONFIG_DIR=${lanes[0].env.CLAUDE_CONFIG_DIR}`);
   const sidecar = await harness.startSidecar();
   const startedAt = new Date().toISOString();
+  const laneIds = new Set(lanes.map((l) => l.runId));
+  const carriesTier = (e) => laneIds.has(e.runId) && (e.type === "rate_limit" || e.rateLimitTier !== undefined);
+  const tierOf = (e) => e.tier ?? e.rateLimitTier;
+  const isRejected = (e) => carriesTier(e) && tierOf(e) === "rejected";
 
-  step(`spawning a real claude session to burn the window (up to ${maxMinutes} minutes)`);
-  await sidecar.request({
-    op: "spawn",
-    runId: setup.runId,
-    worktreePath: setup.worktreePath,
-    prompt: BURN_PROMPT,
-    permissionMode: "bypassPermissions",
-    env,
-  });
+  const spawnLane = async (l) => {
+    l.spawns += 1;
+    l.spawnedAtEventCount = sidecar.events.length;
+    await sidecar.request({
+      op: "spawn",
+      runId: l.runId,
+      worktreePath: setup.worktreePath,
+      prompt: burnPrompt(l.lane),
+      permissionMode: "bypassPermissions",
+      env: l.env,
+    });
+  };
 
-  const carriesTier = (e) => e.runId === setup.runId && (e.type === "rate_limit" || e.rateLimitTier !== undefined);
-  const deadline = Date.now() + maxMinutes * 60_000;
-  while (Date.now() < deadline && !sidecar.events.some((e) => carriesTier(e) && (e.tier ?? e.rateLimitTier) === "rejected")) {
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
+  step(`spawning ${sessions} real claude session(s) to burn the window (up to ${maxMinutes} minutes)`);
+  for (const l of lanes) {
+    await spawnLane(l);
+    // Staggered: four cold starts at once contended on the shared credential for ten minutes in the first attempt.
+    await new Promise((resolve) => setTimeout(resolve, 20_000));
   }
-  await sidecar.request({ op: "interrupt", runId: setup.runId }).catch(() => {});
+
+  const deadline = Date.now() + maxMinutes * 60_000;
+  let lastUtil;
+  let lastReport = 0;
+  let seenCount = 0;
+  while (Date.now() < deadline && !sidecar.events.some(isRejected)) {
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    for (const e of sidecar.events.slice(seenCount)) {
+      if (!carriesTier(e)) continue;
+      const util = fiveHourUtilization(e.raw);
+      if (util !== lastUtil || tierOf(e) !== "open") {
+        step(`${e.at} lane-event tier=${tierOf(e)} status=${e.status ?? "-"} five_hour_utilization=${util ?? "?"}`);
+        lastUtil = util;
+      }
+    }
+    seenCount = sidecar.events.length;
+    // A lane whose session ended (the model stopped, or it errored) is respawned: a closed lane burns nothing.
+    for (const l of lanes) {
+      const closed = sidecar.events.slice(l.spawnedAtEventCount).some((e) => e.runId === l.runId && e.type === "session_closed");
+      if (closed && l.spawns < 500 && !sidecar.events.some(isRejected)) {
+        const why = sidecar.events.slice(l.spawnedAtEventCount).find((e) => e.runId === l.runId && e.type === "session_closed");
+        step(`lane ${l.lane} closed (${why?.raw ?? "?"}); respawn #${l.spawns}`);
+        await spawnLane(l);
+      }
+    }
+    if (Date.now() - lastReport > 60_000) {
+      lastReport = Date.now();
+      step(`${Math.round((deadline - Date.now()) / 60_000)} min left; events=${sidecar.events.length}; spawns=${lanes.map((l) => l.spawns).join("/")}; five_hour_utilization=${lastUtil ?? "?"}`);
+    }
+  }
+  for (const l of lanes) await sidecar.request({ op: "interrupt", runId: l.runId }).catch(() => {});
 
   const limitEvents = sidecar.events.filter(carriesTier);
-  const observation = LiveObservation.fromSidecar(sidecar, setup.runId);
+  const observation = LiveObservation.fromSidecar(sidecar, setup.runId) ?? LiveObservation.fromSidecar(sidecar, lanes.find((l) => limitEvents.some((e) => e.runId === l.runId))?.runId);
   const ledger = new Ledger();
-  const rejectedEvent = limitEvents.find((e) => (e.tier ?? e.rateLimitTier) === "rejected");
+  const rejectedEvent = limitEvents.find(isRejected);
   let transition;
   if (observation) {
     ledger.observed("a", observation, observation.detail);
@@ -434,14 +491,24 @@ async function liveBody(harness, { artifactPath, fixturePath, maxMinutes }) {
     ledger.fill("no limit was received, so there is nothing to back off from");
   }
 
-  // The artifact holds ONLY the lines that carried a limit tier, never the transcript (T-15-15).
+  // The artifact holds ONLY the lines around a limit tier, never the transcript (T-15-15): every tier-carrying
+  // event, plus the three events either side of the rejection on its own run.
   const rawLines = limitEvents.map((e) => e.raw).filter((r) => typeof r === "string");
+  const around = rejectedEvent
+    ? sidecar.events.filter((e) => e.runId === rejectedEvent.runId && Math.abs(e.seq - rejectedEvent.seq) <= 3)
+    : [];
+  const model = sidecar.events.find((e) => typeof e.model === "string" || /"model"/.test(e.raw ?? ""))?.raw;
   const artifact = {
     capturedAt: new Date().toISOString(),
     startedAt,
     claudeVersion: claudeVersionString(),
+    runId: setup.runId,
+    sessions,
+    spawns: lanes.map((l) => l.spawns),
+    firstEventRaw: model,
     rawLines,
-    observedTiers: limitEvents.map((e) => ({ at: e.at, tier: e.tier ?? e.rateLimitTier, window: e.rateLimitType, resetsAt: e.resetsAt })),
+    aroundTheRejection: around,
+    observedTiers: limitEvents.map((e) => ({ at: e.at, runId: e.runId, type: e.type, tier: tierOf(e), window: e.rateLimitType, resetsAt: e.resetsAt })),
     gateTransition: transition,
   };
   fs.mkdirSync(path.dirname(path.resolve(artifactPath)), { recursive: true });
@@ -450,11 +517,20 @@ async function liveBody(harness, { artifactPath, fixturePath, maxMinutes }) {
     assert.ok(rawLines.length > 0, "no raw wire line carried a limit tier");
     return `wrote ${artifactPath} (${rawLines.length} raw wire lines)`;
   });
-  fs.writeFileSync(
-    fixturePath,
-    `${JSON.stringify({ derivedFrom: path.basename(artifactPath), capturedAt: artifact.capturedAt, lines: rawLines.map((l) => JSON.parse(l)) }, null, 2)}\n`,
-  );
-  step(`wrote the derived fixture: ${fixturePath}`);
+  // The fixture exists only for a REAL rejection: a warning or an open reading is not the tier it is named for.
+  if (rejectedEvent) {
+    const note =
+      `A real capture, not a constructed shape. Run ${setup.runId}, ${artifact.capturedAt.slice(0, 10)}, claude ${artifact.claudeVersion}. ` +
+      "Each entry in `events` is a sidecar event verbatim as the live sidecar emitted it (its `raw` field is the wire line); " +
+      "none was hand-edited. Generated by scripts/uat/uat-15-account-limit.mjs --live.";
+    fs.writeFileSync(
+      fixturePath,
+      `${JSON.stringify({ note, derivedFrom: path.basename(artifactPath), capturedAt: artifact.capturedAt, runId: setup.runId, events: [rejectedEvent] }, null, 2)}\n`,
+    );
+    step(`wrote the derived fixture: ${fixturePath}`);
+  } else {
+    step("no Rejected tier was observed: no fixture written");
+  }
   process.stdout.write(`\n${renderReport(ledger)}\n`);
   if (ledger.anyFailed()) throw new Error("the live measurement failed - see the report above");
 }
@@ -464,7 +540,7 @@ async function liveBody(harness, { artifactPath, fixturePath, maxMinutes }) {
 // -------------------------------------------------------------------------------------------
 
 const USAGE =
-  "usage: uat-15-account-limit.mjs --self-test | --offline | --live --artifact <file> --fixture <file> [--max-minutes <n>]\n" +
+  "usage: uat-15-account-limit.mjs --self-test | --offline | --live --artifact <file> --fixture <file> [--max-minutes <n>] [--sessions <n>]\n" +
   "  --self-test  pure, offline, no child process - the honesty rule and the capture's translation\n" +
   "  --offline    zero tokens - replays the committed real capture through the production seam\n" +
   "  --live       a real claude session driven into the window limit (COSTS SUBSCRIPTION CAPACITY)\n";
@@ -495,12 +571,13 @@ if (argv.includes("--self-test")) {
 } else if (argv.includes("--live")) {
   const [artifactPath, fixturePath] = [flag("--artifact"), flag("--fixture")];
   const maxMinutes = Number(flag("--max-minutes") ?? 90);
-  if (!artifactPath || !fixturePath || !Number.isFinite(maxMinutes) || maxMinutes <= 0) {
+  const sessions = Number(flag("--sessions") ?? 1);
+  if (!artifactPath || !fixturePath || !Number.isFinite(maxMinutes) || maxMinutes <= 0 || !Number.isInteger(sessions) || sessions < 1) {
     process.stderr.write(`--live needs --artifact <file> and --fixture <file> (checked before any capacity is spent)\n${USAGE}`);
     process.exit(2);
   }
   await run("UAT 15 - account limit (LIVE, spends subscription capacity)", () =>
-    withScratchRoot("uat-15-live", (h) => liveBody(h, { artifactPath, fixturePath, maxMinutes })),
+    withScratchRoot("uat-15-live", (h) => liveBody(h, { artifactPath, fixturePath, maxMinutes, sessions })),
   );
 } else {
   process.stderr.write(USAGE);
