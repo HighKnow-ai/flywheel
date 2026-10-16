@@ -510,7 +510,7 @@ fn create_proposal_in_tx(
     tx: &Transaction,
     agent_run_id: &str,
     verb: ProposalVerb,
-    payload: ProposalPayload,
+    mut payload: ProposalPayload,
     target_id: Option<&str>,
     parent_proposal_id: Option<&str>,
     provenance: ProposalProvenance,
@@ -690,6 +690,24 @@ fn create_proposal_in_tx(
                 return Ok(ProposalOutcome::LintRefused { reason: refusal.to_string() });
             }
         }
+    }
+
+    // Phase 15 (D-26): pin the revision this amend draft is computed against, in the same
+    // transaction as the INSERT. Resolved HERE from the target row — whatever `pinned_revision` a
+    // caller's payload carried is overwritten, so an agent cannot forge or dodge it — and always
+    // `None` for a `create` (no parent criterion exists to pin) or an unresolvable target.
+    if let ProposalPayload::Criterion { pinned_revision, .. } = &mut payload {
+        *pinned_revision = match (verb, target_id) {
+            (ProposalVerb::Amend, Some(target)) => tx
+                .query_row(
+                    "SELECT revision FROM acceptance_criteria WHERE id = ?1",
+                    params![target],
+                    |row| row.get(0),
+                )
+                .optional()
+                .context("failed to read the target criterion's revision")?,
+            _ => None,
+        };
     }
 
     let id = new_id();
@@ -957,6 +975,38 @@ impl std::fmt::Display for ProposalUndecidable {
 
 impl std::error::Error for ProposalUndecidable {}
 
+/// Phase 15 (D-26): an `amend` criterion draft was computed against a revision of its target that
+/// has since moved. The four fields ARE the diff a human needs to redraft — what the draft saw,
+/// what is there now — with no new diff machinery, no content hash of a read-set and no event
+/// sequence comparison (D-26 rejected all three by name). A typed, downcastable error following
+/// [`ProposalUndecidable`]'s shape; the proposal is left `pending` and nothing is written.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StaleDraftRefusal {
+    pub proposal_id: String,
+    pub pinned_revision: i64,
+    pub current_revision: i64,
+    pub pinned_statement: String,
+    pub current_statement: String,
+}
+
+impl std::fmt::Display for StaleDraftRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "authoring_proposal {:?} was drafted against criterion revision {} but the criterion is \
+             now at revision {} — not accepted. Drafted against: \"{}\". Now reads: \"{}\". \
+             Redraft it, or reject this one.",
+            self.proposal_id,
+            self.pinned_revision,
+            self.current_revision,
+            self.pinned_statement,
+            self.current_statement
+        )
+    }
+}
+
+impl std::error::Error for StaleDraftRefusal {}
+
 /// Read one `authoring_proposals` row by id, inside the caller's own transaction — the single
 /// query every mutating function in this module reads through, so the 17-column projection has
 /// exactly one shape here (mirrors [`PROPOSAL_COLUMNS`]'s own "one definition in the crate"
@@ -1216,6 +1266,52 @@ fn materialise_proposal(
     }
 }
 
+/// Phase 15 (D-26): refuse to accept an `amend` criterion draft whose pinned revision no longer
+/// matches the head of its target's revision chain. Reads D-77's existing `revision` /
+/// `revision_of` / `superseded_at` trio and nothing else, and fires on a moved revision only —
+/// never on any other board change. A draft with no pin (every row staged before this check
+/// existed, and every `create`) passes untouched, and so does a target that no longer exists:
+/// [`materialise_proposal`] raises [`ProposalUndecidable`] for that, which is the right error.
+fn check_pinned_revision(tx: &Transaction, proposal: &Proposal) -> anyhow::Result<()> {
+    let ProposalPayload::Criterion { pinned_revision: Some(pinned), .. } = &proposal.payload else {
+        return Ok(());
+    };
+    let (true, Some(target_id)) = (proposal.verb == "amend", proposal.target_id.as_deref()) else {
+        return Ok(());
+    };
+    let target: Option<(String, String)> = tx
+        .query_row(
+            "SELECT statement, COALESCE(revision_of, id) FROM acceptance_criteria WHERE id = ?1",
+            params![target_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .context("failed to read the target criterion before accepting an amend")?;
+    let Some((pinned_statement, chain_root)) = target else {
+        return Ok(());
+    };
+    let (current_revision, current_statement): (i64, String) = tx
+        .query_row(
+            "SELECT revision, statement FROM acceptance_criteria \
+             WHERE (id = ?1 OR revision_of = ?1) AND superseded_at IS NULL \
+             ORDER BY revision DESC LIMIT 1",
+            params![chain_root],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .context("failed to read the head of the target criterion's revision chain")?;
+    if current_revision != *pinned {
+        return Err(StaleDraftRefusal {
+            proposal_id: proposal.id.clone(),
+            pinned_revision: *pinned,
+            current_revision,
+            pinned_statement,
+            current_statement,
+        }
+        .into());
+    }
+    Ok(())
+}
+
 /// Accept one proposal, inside a transaction the caller already owns — [`accept_proposal`] and
 /// [`accept_subtree`] both call this, so the implied-parent walk and the idempotent-already-
 /// accepted branch exist in exactly one place. Reads the row FRESH from the database every call
@@ -1257,6 +1353,8 @@ fn accept_proposal_in_tx(
         Some(parent_id) => Some(accept_proposal_in_tx(tx, parent_id, human_actor_id, now)?),
         None => None,
     };
+
+    check_pinned_revision(tx, &proposal)?;
 
     let materialised_id = materialise_proposal(tx, &proposal, parent_outcome.as_ref(), human_actor_id, now)?;
 
@@ -1767,7 +1865,7 @@ pub fn amend_proposal(
     conn: &mut Connection,
     proposal_id: &str,
     human_actor_id: &str,
-    payload: ProposalPayload,
+    mut payload: ProposalPayload,
 ) -> anyhow::Result<AmendOutcome> {
     validate_payload(&payload)?;
     let now = chrono::Utc::now().to_rfc3339();
@@ -1789,6 +1887,16 @@ pub fn amend_proposal(
         existing.payload.target_type().as_str(),
         payload.target_type().as_str()
     );
+
+    // Phase 15 (D-26): a human's edit of the wording does not change what the draft was computed
+    // against, so the pin survives the replacement payload (which the editor never carries).
+    if let (
+        ProposalPayload::Criterion { pinned_revision: existing_pin, .. },
+        ProposalPayload::Criterion { pinned_revision: new_pin, .. },
+    ) = (&existing.payload, &mut payload)
+    {
+        *new_pin = *existing_pin;
+    }
 
     let original_label = existing.payload.label().to_string();
     let original_payload_json =

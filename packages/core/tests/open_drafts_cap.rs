@@ -50,6 +50,7 @@ fn criterion(n: usize) -> ProposalPayload {
     ProposalPayload::Criterion {
         statement: format!("Returns {n} rows for page {n}"),
         verification_hint: None,
+        pinned_revision: None,
     }
 }
 

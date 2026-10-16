@@ -49,7 +49,7 @@ fn seeded_run(conn: &mut Connection, project_id: &str, human_actor_id: &str) -> 
 }
 
 fn criterion(statement: &str) -> ProposalPayload {
-    ProposalPayload::Criterion { statement: statement.to_string(), verification_hint: None }
+    ProposalPayload::Criterion { statement: statement.to_string(), verification_hint: None, pinned_revision: None }
 }
 
 fn count(conn: &Connection, sql: &str) -> i64 {
