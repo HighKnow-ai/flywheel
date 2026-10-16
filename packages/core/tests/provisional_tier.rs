@@ -10,7 +10,7 @@ mod common;
 
 use core::domain::agent_run::agent_actor_id;
 use core::domain::authoring_proposal::{
-    acceptance_tier, accept_proposal, confirm_provisional_values_for_task, create_proposal, refuse_explicit_tier,
+    acceptance_tier, confirm_provisional_values_for_task, create_proposal, refuse_explicit_tier,
     reject_proposal, AcceptanceTier, ProposalOutcome, ProposalPayload,
     ProposalProvenance, ProposalTargetType, ProposalVerb, OPEN_DRAFTS_PER_PROJECT,
 };

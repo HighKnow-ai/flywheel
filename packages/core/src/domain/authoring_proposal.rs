@@ -1481,18 +1481,65 @@ pub fn accept_proposal(
     Ok(outcome)
 }
 
-/// STUB (RED): the real confirm lands in the next commit.
-pub fn refuse_explicit_tier(_target_type: &str) -> anyhow::Result<()> {
+/// D-07's guard: Start Work's confirm decides the PROVISIONAL tier only. An explicit-tier draft (a
+/// criterion, and later a file-set) reaching the confirm is a loud error, never a silent skip: the
+/// no-bulk-accept gate stays narrow only while this holds, so a blur between the two tiers must fail
+/// where it is introduced. A `target_type` this build does not recognise counts as explicit, the
+/// same fail-safe [`acceptance_tier_of_db_str`] applies.
+pub fn refuse_explicit_tier(target_type: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        acceptance_tier_of_db_str(target_type) == AcceptanceTier::Provisional,
+        "a {target_type:?} draft is explicit-tier (D-01): Start Work confirms the provisional tier \
+         only, and a human accepts this one by name"
+    );
     Ok(())
 }
 
-/// STUB (RED): the real confirm lands in the next commit.
-pub fn confirm_provisional_values_for_task(
-    _conn: &mut Connection,
-    _actor_id: &str,
-    _task_id: &str,
+/// Confirm, inside the caller's transaction, every provisional value pending on `task_id` (D-03).
+///
+/// Each pending provisional-tier `amend` proposal, in staging `position` order, is decided through
+/// [`accept_proposal_in_tx`] and so materialises through the canonical writers `tasks` already owns,
+/// exactly as a human accept does. This function issues no write of its own: an agent-authored
+/// value reaching the board by any other route would break the no-promotion guarantee. The read it
+/// iterates is already tier-filtered and each proposal's tier is asserted again before it is
+/// accepted. A value the human rejected is no longer pending and is not read; a task with nothing
+/// pending returns `0` having written and appended nothing.
+pub(crate) fn confirm_provisional_values_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    task_id: &str,
+    now: &str,
 ) -> anyhow::Result<usize> {
-    Ok(0)
+    crate::domain::actor::assert_human_actor_in_tx(tx, actor_id)?;
+    let pending = crate::query::provisional_values::pending_provisional_amendments(tx, "task", task_id)?;
+    let mut confirmed = 0;
+    for amendment in pending {
+        let proposal = fetch_proposal(tx, &amendment.proposal_id)?;
+        refuse_explicit_tier(&proposal.target_type)?;
+        accept_proposal_in_tx(tx, &amendment.proposal_id, actor_id, now)?;
+        confirmed += 1;
+    }
+    Ok(confirmed)
+}
+
+/// Starting work on `task_id` confirms the provisional values on it (DRFT-03, D-03, D-04).
+///
+/// Takes ONE task id and nothing else: never a list, never a selection, and reachable from no UI
+/// control of its own. It is a consequence of the human's own Start Work act, called from
+/// `start_agent_run` in the same transaction that inserts the run row, which is what freezes the
+/// task's criteria (BOARD-03), so the freeze point and the confirm point are one site. Reject is
+/// the undo until then; afterwards the values are ordinary board state edited the ordinary way, with
+/// no timer, no window and no expiry row. Returns how many proposals were confirmed.
+pub fn confirm_provisional_values_for_task(
+    conn: &mut Connection,
+    actor_id: &str,
+    task_id: &str,
+) -> anyhow::Result<usize> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    let confirmed = confirm_provisional_values_in_tx(&tx, actor_id, task_id, &now)?;
+    tx.commit().context("failed to commit the provisional confirm")?;
+    Ok(confirmed)
 }
 
 /// The at-most-one-parent-at-a-time target [`merge_proposal`] attaches a child issue to —
