@@ -402,6 +402,41 @@ pub const fn proposal_limit_refusal(kind: RunKind) -> &'static str {
     }
 }
 
+/// What an agent is told to do when the PROJECT cap (not its own run's cap) refused a draft: the
+/// pile of undecided drafts is the human's to drain, so more drafting only deepens it.
+pub const PROJECT_CAP_REFUSAL: &str =
+    "stop drafting and tell the developer there are undecided drafts waiting on them";
+
+/// The sentence that relays a [`ProposalOutcome::LimitExhausted`] to the drafting agent, shared by
+/// both relay doors ([`create_proposal`] and the desktop's inbound handler) so the wording cannot
+/// drift. The outcome carries only `limit` and `count`, not which cap fired; this re-reads the run's
+/// own row count to tell them apart — the per-run cap is checked first, so a run at its own limit
+/// is the run cap and anything else is the project cap. Call it after the refusing transaction
+/// committed: neither count moves on a refusal.
+pub fn limit_refusal_text(conn: &Connection, agent_run_id: &str, limit: usize, count: i64) -> String {
+    let kind = run_kind_for(conn, agent_run_id).ok();
+    let run_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM authoring_proposals WHERE agent_run_id = ?1",
+            params![agent_run_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    match kind {
+        Some(kind) if run_count < proposal_limit(kind) as i64 => format!(
+            "this project already holds {count} of {limit} allowed pending drafts awaiting a human — \
+             this one was NOT staged; {PROJECT_CAP_REFUSAL}"
+        ),
+        _ => {
+            let clause = kind.map(proposal_limit_refusal).unwrap_or(PROPOSAL_LIMIT_REFUSAL_GENERIC);
+            format!(
+                "run {agent_run_id:?} has already staged {count} of {limit} allowed proposals — this \
+                 one was NOT staged; {clause}"
+            )
+        }
+    }
+}
+
 /// Stage one proposal for `agent_run_id` (D-80/D-81/D-92). **`project_id`, `epic_id` and the
 /// acting actor are resolved from the `agent_runs` row INSIDE this transaction** — this function's
 /// own signature carries no `project_id`/`epic_id` parameter, so a caller cannot attribute a
@@ -446,14 +481,9 @@ pub fn create_proposal(
         // into `Ignored` (which means something different — malformed input, not "over budget").
         ProposalOutcome::LimitExhausted { limit, count } => {
             // The kind is immutable and already classified inside the refused transaction (an
-            // unscoped run errors there before it can be refused), so this read cannot disagree.
-            let clause = run_kind_for(conn, agent_run_id)
-                .map(proposal_limit_refusal)
-                .unwrap_or(PROPOSAL_LIMIT_REFUSAL_GENERIC);
-            Err(anyhow::anyhow!(
-                "run {agent_run_id:?} has already staged {count} of {limit} allowed proposals — this \
-                 one was NOT staged; {clause}"
-            ))
+            // unscoped run errors there before it can be refused), so the helper's reads cannot
+            // disagree. It also tells the per-run cap from the project cap (phase 15, D-16).
+            Err(anyhow::anyhow!("{}", limit_refusal_text(conn, agent_run_id, limit, count)))
         }
         // Phase 15 (D-22): the refusal text is relayed verbatim — the drafting agent redrafts from
         // it in the same run. Same shape as the `LimitExhausted` arm above: a real `Err`.
@@ -542,6 +572,58 @@ fn create_proposal_in_tx(
             now,
         )?;
         return Ok(ProposalOutcome::LimitExhausted { limit, count: staged_count });
+    }
+
+    // Phase 15 (DRFT-08, D-14..D-16): the project-scoped open-drafts cap, in the SAME transaction
+    // as the INSERT it guards, and after the per-run cap so the two never both fire. `project_id`
+    // came from the `agent_runs` row above, never from a caller argument (T-15-02). Counts PENDING
+    // EXPLICIT-TIER rows only; a provisional-tier payload (title, body, priority) neither counts nor
+    // is refused. A rejected row is not pending, so a decision frees exactly one slot. A lint
+    // refusal below inserts nothing, so it can never have consumed one. This is the one place the
+    // explicit-tier corpus is spelled; the file-set tier joins the `IN (...)` list, not a second
+    // comparison. The refusal shape is the per-run cap's own: one event that COMMITS (T-06-22), no
+    // run status written, the run not paused (`limit_gate.rs`: stopping in-flight work is not what
+    // a limit asks for).
+    if payload.target_type() == ProposalTargetType::Criterion {
+        let open_drafts: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM authoring_proposals WHERE project_id = ?1 AND status = 'pending' \
+                 AND target_type IN ('criterion', 'file_set')",
+                params![project_id],
+                |row| row.get(0),
+            )
+            .context("failed to count the project's open explicit-tier drafts")?;
+        if open_drafts >= OPEN_DRAFTS_PER_PROJECT as i64 {
+            let sequence = next_sequence(tx, &project_id, "local")?;
+            let event_payload = serde_json::json!({
+                "field": "authoring_proposal",
+                "scope": "project",
+                "limit": OPEN_DRAFTS_PER_PROJECT,
+                "count": open_drafts,
+                "targetType": payload.target_type().as_str(),
+                "title": payload.label(),
+                "label": format!(
+                    "Refused a new {} draft — this project already holds {open_drafts} pending \
+                     drafts awaiting a human (limit {OPEN_DRAFTS_PER_PROJECT}); {PROJECT_CAP_REFUSAL}",
+                    payload.target_type().as_str(),
+                ),
+            });
+            append_event(
+                tx,
+                &project_id,
+                "local",
+                sequence,
+                "agent_run",
+                agent_run_id,
+                run_task_id.as_deref(),
+                epic_id.as_deref(),
+                &actor_id,
+                "proposal.limit_exhausted",
+                &event_payload,
+                now,
+            )?;
+            return Ok(ProposalOutcome::LimitExhausted { limit: OPEN_DRAFTS_PER_PROJECT, count: open_drafts });
+        }
     }
 
     let tail_position: Option<String> = tx

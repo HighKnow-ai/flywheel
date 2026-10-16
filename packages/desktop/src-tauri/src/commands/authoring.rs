@@ -1383,9 +1383,14 @@ pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Valu
     // Plan 13-11 (F1): the refusal's closing clause is the CORE's, chosen by the run's kind, read
     // while the connection is still locked. A run that cannot be classified was refused before it
     // could be counted, so the generic clause is only a floor, never a reachable branch.
-    let refusal_clause = flywheel_core::domain::agent_run::run_kind_for(&conn, run_id)
-        .map(flywheel_core::domain::authoring_proposal::proposal_limit_refusal)
-        .unwrap_or(flywheel_core::domain::authoring_proposal::PROPOSAL_LIMIT_REFUSAL_GENERIC);
+    // Phase 15 (D-16): the same core helper tells the per-run cap from the project cap, so the
+    // sentence a refused agent reads names the cap that actually fired.
+    let limit_text = match outcome {
+        flywheel_core::domain::authoring_proposal::ProposalOutcome::LimitExhausted { limit, count } => {
+            Some(flywheel_core::domain::authoring_proposal::limit_refusal_text(&conn, run_id, limit, count))
+        }
+        _ => None,
+    };
     drop(conn);
 
     if let flywheel_core::domain::authoring_proposal::ProposalOutcome::Created(ref proposal) = outcome {
@@ -1411,11 +1416,8 @@ pub fn handle_inbound_proposal_created(app: &AppHandle, event: &serde_json::Valu
         flywheel_core::domain::authoring_proposal::ProposalOutcome::TerminalRun => {
             Err("this run has already reached a terminal status".to_string())
         }
-        flywheel_core::domain::authoring_proposal::ProposalOutcome::LimitExhausted { limit, count } => {
-            Err(format!(
-                "proposal limit reached: this run has already staged {count} of {limit} allowed \
-                 proposals — this one was NOT staged; {refusal_clause}"
-            ))
+        flywheel_core::domain::authoring_proposal::ProposalOutcome::LimitExhausted { .. } => {
+            Err(format!("proposal limit reached: {}", limit_text.unwrap_or_default()))
         }
         // Phase 15 (D-22): the lint refusal reaches the waiting tool call verbatim, so the agent
         // can redraft in the same run. Nothing was staged and no event was appended.
