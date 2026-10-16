@@ -724,7 +724,7 @@ ${failureSection}${nonConversationSection}${credentialPathSection}${verdictsSect
 function resolveEvidencePath() {
   const dir =
     process.env.FLYWHEEL_UAT_EVIDENCE_DIR ??
-    path.join(REPO_ROOT, ".planning", "phases", "05-socratic-epic-authoring");
+    path.join(REPO_ROOT, "target", "uat-evidence");
   fs.mkdirSync(dir, { recursive: true });
   return path.join(dir, EVIDENCE_FILE_NAME);
 }
@@ -6168,7 +6168,7 @@ const PROPOSAL_LIST_TOOL_NAME_FRAGMENT = "proposal_list";
  * the id the Anthropic stream already puts on every `tool_use`/`tool_result` block. The grounding
  * is deliberately stated as ASYMMETRIC, because it is: the `tool_result` side is grounded in a REAL
  * captured block from this repository's own history
- * (`.planning/phases/03-nothing-lost-nothing-left-running/03-27-SUMMARY.md` line 110 shows the live
+ * (`planning-archive:.planning/phases/03-nothing-lost-nothing-left-running/03-27-SUMMARY.md` line 110 shows the live
  * CLI emitting `"tool_use_id":"toolu_..."`), while the `tool_use` side's `id` is grounded only in
  * the content-block schema that `tool_use_id` must reference — no capture of a live `tool_use`
  * block exists in this repository. This asymmetry is exactly WHY the absent-id path
@@ -8434,7 +8434,7 @@ async function runReplayCheckScenario(scenarioName) {
       // A synthetic evidence sheet — written for inspection, but NEVER through `resolveEvidencePath()`
       // and NEVER anywhere near the phase directory (G-05-2's own guard against laundering a
       // scripted run as a live one). Written under the harness's OWN scratch root, never
-      // `.planning/` — one per scenario, so a human debugging a failure reads the dialogue rather
+      // the repository — one per scenario, so a human debugging a failure reads the dialogue rather
       // than reconstructing it.
       const scratchEvidenceDir = path.join(harness.root, "evidence");
       fs.mkdirSync(scratchEvidenceDir, { recursive: true });

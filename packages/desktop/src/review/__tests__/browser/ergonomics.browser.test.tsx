@@ -210,6 +210,6 @@ describe("UAT 2 — the epic roll-up beneath the epic's own criteria", () => {
     state.longFile = true;
     renderSurface("epic");
     await screen.findByRole("region", { name: "Task criteria roll-up" });
-    await page.screenshot({ path: "../../../../../../.planning/phases/08-review-and-merge-inside-flywheel/uat-screenshots/uat-02-epic-rail-1440x900.png" });
+    await page.screenshot({ path: "../../../../../../target/uat-screenshots/uat-02-epic-rail-1440x900.png" });
   });
 });

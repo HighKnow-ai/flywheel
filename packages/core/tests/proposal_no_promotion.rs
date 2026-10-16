@@ -171,7 +171,7 @@ fn every_canonical_table_has_exactly_one_owner() {
 /// reason). A hit is exempt only when the statement at that spot is exactly the entry's — a second
 /// `UPDATE tasks SET …` in the same file is still an offender — and
 /// `every_allowlisted_update_site_still_exists` fails if an entry goes stale. The reasons are also
-/// recorded in `.planning/phases/13-nothing-new-escapes-the-fence/13-AUTHORITY-ALLOWLIST.md`, in
+/// recorded in `planning-archive:.planning/phases/13-nothing-new-escapes-the-fence/13-AUTHORITY-ALLOWLIST.md`, in
 /// the same order.
 const ALLOWED_CANONICAL_UPDATE_SITES: &[(&str, &str, &str)] = &[
     (

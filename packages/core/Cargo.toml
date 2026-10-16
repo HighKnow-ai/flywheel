@@ -47,12 +47,6 @@ path = "tests/bin/seed_criteria.rs"
 name = "file_board_items"
 path = "tests/bin/file_board_items.rs"
 
-# Dev-only: seeds the phase-14 demonstration board from Flywheel's own `.planning/` into a SEPARATE
-# database (`scripts/demo-board.sh`). Ships nothing and refuses to run without FLYWHEEL_APP_DATA_DIR.
-[[bin]]
-name = "demo_board"
-path = "tests/bin/demo_board.rs"
-
 [dependencies]
 rusqlite = { version = "0.40", features = ["bundled", "serde_json", "chrono"] }
 rusqlite_migration = "2.6"

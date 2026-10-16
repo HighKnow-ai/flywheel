@@ -162,7 +162,7 @@ const CRITERIA_SCENARIO_READ_BACK_PROPOSAL_ID = "01FAKECRITERIONPARENTIDA01";
  * before the full proposal deadline gap G-05-6's own live run waited out.
  *
  * `truncation-repro` replays the exact shape of the 2026-09-24 live run that produced an
- * unjudgeable transcript (`.planning/debug/uat-08-live-transcript-unjudgeable.md`, Evidence
+ * unjudgeable transcript (`planning-archive:.planning/debug/uat-08-live-transcript-unjudgeable.md`, Evidence
  * E4/E5): turn 1 is a pre-tool-call preamble, a tool call, then a narration block that references
  * the tool's own result; turn 2 opens with a promise that ends at a colon — the exact point the
  * old one-event capture stopped reading — followed by a SEPARATE block carrying the three

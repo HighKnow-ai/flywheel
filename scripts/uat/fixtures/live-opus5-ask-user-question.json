@@ -1,5 +1,5 @@
 {
-  "capturedFrom": "the preserved session JSONL of live run 01M3DNC0G9CYAWSD8DYEGTRP8C (.planning/phases/05-socratic-epic-authoring/05-ASK-USER-QUESTION-CAPTURE.json is the committed verbatim capture artifact this fixture is copied from, unmodified)",
+  "capturedFrom": "the preserved session JSONL of live run 01M3DNC0G9CYAWSD8DYEGTRP8C (planning-archive:.planning/phases/05-socratic-epic-authoring/05-ASK-USER-QUESTION-CAPTURE.json is the committed verbatim capture artifact this fixture is copied from, unmodified)",
   "capturedAt": "2026-09-26",
   "runId": "01M3DNC0G9CYAWSD8DYEGTRP8C",
   "capturedWith": "Read verbatim from Claude Code's own session log inside the preserved scratch root of live run 01M3DNC0G9CYAWSD8DYEGTRP8C — FULL FIDELITY, not a 200-character stderr prefix like the sibling live-opus5-unmodelled-shapes.json fixture. The scratch root only survived because plan 05-36's preserve-on-failure fix landed first; nothing here is truncated, reconstructed or retyped.",

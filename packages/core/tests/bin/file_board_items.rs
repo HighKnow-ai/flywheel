@@ -1,6 +1,6 @@
 //! File the Phase 11 register's survivors onto the board (plan 11-21, D-196, D-207).
 //!
-//! Reads a JSON payload (`.planning/phases/11-ship-it/11-21-board-payload.json`) of epics, each
+//! Reads a JSON payload (`planning-archive:.planning/phases/11-ship-it/11-21-board-payload.json`) of epics, each
 //! with tasks (carrying acceptance criteria) and issues, and creates them through the board's own
 //! write verbs: `epic::create_epic`, `task::create_task` + `update_task` + `set_priority`,
 //! `issue::create_issue`, `acceptance_criterion::create_criterion`. No hand-rolled SQL writes, so

@@ -32,7 +32,7 @@
  * produced the bypass-class finding this script measures, under a brief that fenced live `claude`
  * sessions but did not fence real destructive git commands — see the "Incident recorded during
  * this investigation" section of
- * `.planning/phases/03-nothing-lost-nothing-left-running/03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`. D-63
+ * `planning-archive:.planning/phases/03-nothing-lost-nothing-left-running/03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`. D-63
  * (`03-CONTEXT.md`) exists so that lesson is a binding decision, not a comment someone can forget:
  * verification of this gate never executes the destructive command against a real remote or a real
  * worktree; where execution is genuinely required — as it is here — the brief names a throwaway

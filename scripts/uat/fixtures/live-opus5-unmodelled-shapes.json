@@ -1,5 +1,5 @@
 {
-  "capturedFrom": ".planning/phases/05-socratic-epic-authoring/05-LIVE-RUN-01M3C48C-FAILED.log",
+  "capturedFrom": "scripts/uat/fixtures/live-opus5-unmodelled-shapes.log",
   "capturedAt": "2026-09-25",
   "runId": "01M3C48C3PV1NSGHERBZ587YB1",
   "capturedWith": "Recovered from a failed live UAT run's own stderr log — not a deliberate capture. The run this fixture is frozen from timed out and failed (05-LIVE-RUN-01M3C48C-FAILED.log). These twelve lines were the harness's own unrecognised-sidecar-event stderr slices, emitted while the run was still in progress.",

@@ -13,8 +13,7 @@ import base from "./vitest.browser.config.ts";
  * Select it with `npm --prefix packages/desktop run test:browser:dark`.
  *
  * Note for anyone running the whole arm: the Phase 8 review tests write fixed-path UAT
- * screenshots into `.planning/`. Run under this config they overwrite the light ones; restore
- * them with `git checkout` before committing.
+ * screenshots into `target/uat-screenshots/` (git-ignored). Run under this config they overwrite the light ones.
  */
 export default mergeConfig(
   base,

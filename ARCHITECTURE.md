@@ -1,8 +1,8 @@
 # Architecture
 
 Flywheel is a desktop application that supervises many AI coding agents across git worktrees, with
-a project board as the store of record. Product context lives in `.planning/PROJECT.md`. The
-reasons behind the stack choices live in `.claude/CLAUDE.md` under "Technology Stack". This
+a project board as the store of record. Product context and the stack
+choices live in `CLAUDE.md`; the full stack rationale is `docs/research/STACK.md`. This
 document records what is true in the tree today and stays short on purpose.
 
 ## 1. Process topology

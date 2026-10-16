@@ -162,12 +162,13 @@ its own mark under the HighKnow name stays available if it ever gets a commercia
 own. Only the app icon, the About item and the first-run and project-rail surfaces render a logo.
 
 (The visual world itself was settled on 2026-09-09 in an Impeccable direction round and lives in
-`.planning/phases/01-the-board-is-the-store-of-record/01-UI-SPEC.md`, not here — a visual world is
+`planning-archive:.planning/phases/01-the-board-is-the-store-of-record/01-UI-SPEC.md`, not here — a visual world is
 not product truth.)
 
 ## Evidence on Hand
 
-- Real project artifacts to design against: this repository's own `.planning/` structure — a real
+- Real project artifacts to design against: this repository's former `.planning/` structure (git tag
+  `planning-archive`) — a real
   roadmap of 11 phases, 93 requirements, and phase context documents. This is genuine content of
   exactly the shape the board must hold, and it is the honest source for demonstration data.
 - **No customers, benchmarks, pricing, testimonials, uptime figures, or performance measurements

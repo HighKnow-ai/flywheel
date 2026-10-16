@@ -204,7 +204,7 @@ describe("UAT 1 — diff legibility at review width", () => {
     await expandEveryFile();
     // The only remaining human question is aesthetic ("does this tint fight the token colour for
     // ME"), and it is answerable from an image rather than from driving the app.
-    await page.screenshot({ path: "../../../../../../.planning/phases/08-review-and-merge-inside-flywheel/uat-screenshots/uat-01-review-diff-1440x900.png" });
+    await page.screenshot({ path: "../../../../../../target/uat-screenshots/uat-01-review-diff-1440x900.png" });
   });
 });
 

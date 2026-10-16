@@ -1,5 +1,3 @@
-.planning/research/.cache/
-
 # Rust
 /target/
 packages/*/target/

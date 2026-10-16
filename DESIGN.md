@@ -95,7 +95,7 @@ components:
 > **Provenance.** Written once, at the end of Phase 8.1, from the shipped code (`styles/tokens.css`,
 > `styles/motion.css`, `styles/type.css`, `App.css`, the group stylesheets and the components) and the
 > closure sections of the twenty-one Phase 8.1 plans, not from the plan. Where the contract
-> (`.planning/phases/08.1-*/08.1-UI-SPEC.md`) and the build disagree, the build is the subject and the
+> (`planning-archive:.planning/phases/08.1-*/08.1-UI-SPEC.md`) and the build disagree, the build is the subject and the
 > disagreement is listed under "Contract versus the built world" below. The frontmatter is normative for
 > every value; prose names a role and does not restate a hex. Light and dark are separate keys because
 > the product authors a value per mode (a token declared identically in both modes fails

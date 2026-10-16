@@ -30,8 +30,8 @@ export default defineConfig({
     // `settings/__tests__/finish.test.tsx` pin the legend's overlay tier and the group's action, choice and row rules.
     // `styles/states-and-confirms.css` joined in 08.1-19 for the same reason: `board/__tests__/states-finish.test.tsx`
     // pins the group's drawn actions, destructive text role and dialog tier, and an empty `?raw` would make them vacuous.
-    // `theme/__tests__/brand-rule.test.ts` (11-18, D-199) scans every shipped stylesheet for brand-token and
-    // side-border use, so the last entry below is a catch-all: a stubbed (empty) `?raw` would pass vacuously.
+    // The last entry below is a catch-all, so no test that reads a shipped stylesheet through `?raw` can
+    // pass vacuously against a stubbed (empty) one.
     css: {
       include: [/styles\/tokens\.css/, /styles\/motion\.css/, /src\/App\.css/, /item-detail\/item-detail\.css/, /review\/review\.css/, /session\/session\.css/, /styles\/admin-surfaces\.css/, /styles\/states-and-confirms\.css/, /src\/.*\.css$/],
     },
