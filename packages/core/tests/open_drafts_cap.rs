@@ -223,7 +223,7 @@ fn rust_sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
 }
 
 #[test]
-fn the_cap_is_a_compile_time_30_declared_once_and_read_from_one_list() {
+fn the_cap_is_a_compile_time_30_declared_once_and_reads_the_tier_function() {
     const _: () = assert!(OPEN_DRAFTS_PER_PROJECT == 30);
 
     let mut files = Vec::new();
@@ -235,9 +235,10 @@ fn the_cap_is_a_compile_time_30_declared_once_and_read_from_one_list() {
                 continue;
             }
             declarations += line.matches("OPEN_DRAFTS_PER_PROJECT: usize").count();
-            tier_lists += line.matches("IN ('criterion', 'file_set')").count();
+            // Plan 15-07: the corpus is `acceptance_tier`'s, so the cap spells no list of its own.
+            tier_lists += line.matches("IN ('criterion'").count();
         }
     }
     assert_eq!(declarations, 1, "the cap is declared exactly once");
-    assert_eq!(tier_lists, 1, "the explicit-tier corpus is one declared list, so file-sets join it without a second comparison");
+    assert_eq!(tier_lists, 0, "the cap reads `acceptance_tier`, not a literal list of target types");
 }

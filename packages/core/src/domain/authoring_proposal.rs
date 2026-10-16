@@ -1827,6 +1827,12 @@ const MAX_PROPOSAL_TEXT_LEN: usize = 1000;
 /// `MAX_TITLE_LEN` (500) and `commands/criterion.rs`'s `MAX_STATEMENT_LEN`/`MAX_HINT_LEN` (1000) —
 /// so an amendment cannot introduce text the agent's own tool would have been refused for
 /// (T-05-06-05).
+///
+/// D-07's mixed-tier refusal (a payload carrying a provisional-tier field AND an explicit-tier one)
+/// has no shape to refuse: every [`ProposalPayload`] variant maps to exactly one
+/// [`acceptance_tier`], and that `match` is exhaustive, so a variant that blurred the tiers would
+/// have to be added there first, where `tests/provisional_tier.rs` fails the build until it is
+/// given a tier.
 fn validate_payload(payload: &ProposalPayload) -> anyhow::Result<()> {
     match payload {
         ProposalPayload::Epic { title, description, priority }
