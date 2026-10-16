@@ -29,6 +29,7 @@ import {
   type DispatchPlanDto,
   type DispatchTaskDto,
 } from "../adapters/tauri";
+import { StateBadge } from "../legend/StateBadge";
 import { dispatchPlanKey, errorText, useDispatchPlan } from "./queries";
 import "../session/session.css";
 import "./dispatch.css";
@@ -154,7 +155,13 @@ function OpenSheet({ epicId, onClose }: { epicId: string; onClose: () => void })
         <div className="wave-plan-task-head">
           <span className="type-label wave-plan-key">{task.taskKey}</span>
           <span className="type-body wave-plan-title">{task.title}</span>
-          {!isDraft && <span className="type-label wave-plan-state">{stateLabel(task.state)}</span>}
+          {!isDraft &&
+            (task.state === "held_by_limit" ? (
+              // The one wave-plan state drawn in a class (D-34): a limit hold reads as needs-you, like blocked.
+              <StateBadge state={task.state} variant="wash" label={stateLabel(task.state)} />
+            ) : (
+              <span className="type-label wave-plan-state">{stateLabel(task.state)}</span>
+            ))}
           {isDraft && task.state !== "skipped" && (
             <select
               aria-label={`Wave for ${task.taskKey}`}

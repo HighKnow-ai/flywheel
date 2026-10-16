@@ -38,6 +38,9 @@ interface StateEntry {
  */
 export const STATE_VOCABULARY: Record<string, StateEntry> = {
   blocked: { cls: "needs-you", markId: "blocked-indicator" },
+  // The dispatcher's task state under a paused account-limit gate (Phase 15 plan 03, D-34): a vocabulary KEY
+  // on blocked's class and mark, not a sixth class.
+  held_by_limit: { cls: "needs-you", markId: "blocked-indicator" },
   awaiting_review: { cls: "needs-you", markId: "run-awaiting-review" },
   abandoned: { cls: "needs-you", markId: "run-abandoned" },
   needs_decision: { cls: "needs-you", markId: "recovery-needed" },
@@ -91,17 +94,19 @@ export interface StateBadgeProps {
   /** A run status, a fleet state, or one of the other states in `STATE_VOCABULARY`. Anything else renders quiet. */
   state: string;
   variant?: StateBadgeVariant;
+  /** The caller's own word, for a state whose registry label would mislead (a task held by the account limit is not "Blocked"). */
+  label?: string;
   /** Do not draw the word; the glyph then carries it as an accessible name. The word is never dropped silently. */
   hideLabel?: boolean;
   /** Pulse the glyph (`agent-pulse`): the one continuous-motion exception, for a process alive right now. The caller omits it under reduced motion. */
   pulse?: boolean;
 }
 
-export function StateBadge({ state, variant = "text", hideLabel = false, pulse = false }: StateBadgeProps) {
+export function StateBadge({ state, variant = "text", label, hideLabel = false, pulse = false }: StateBadgeProps) {
   const entry = own(state);
   const cls = entry?.cls ?? "quiet";
   const mark = MARKS_BY_ID[entry?.markId ?? UNKNOWN_MARK_ID];
-  const word = entry ? (isFleetState(state) ? RUN_STATUS_LABELS[state] : mark.label) : state || "Unknown";
+  const word = label ?? (entry ? (isFleetState(state) ? RUN_STATUS_LABELS[state] : mark.label) : state || "Unknown");
 
   const style: CSSProperties = {
     display: "inline-flex",
