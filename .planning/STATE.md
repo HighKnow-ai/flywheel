@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 15
 current_phase_name: Nothing Typed That An Agent Could Draft
 status: executing
-stopped_at: Completed 15-02-PLAN.md
-last_updated: "2026-10-16T04:37:40.027Z"
+stopped_at: Completed 15-03-PLAN.md
+last_updated: "2026-10-16T04:52:44.834Z"
 last_activity: 2026-10-16
 last_activity_desc: Phase 15 execution started
-state_head: 399997e3a2722ab3189819b22b74faf7ed60fe7e
+state_head: ed80418c4c989ce2b6f89e6b652500b58f5ef657
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 38
-  completed_plans: 30
+  completed_plans: 31
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-16)
 ## Current Position
 
 Phase: 15 (Nothing Typed That An Agent Could Draft) — EXECUTING
-Plan: 3 of 10
+Plan: 4 of 10
 Status: Ready to execute
 Last activity: 2026-10-16 — Phase 15 execution started
 
@@ -343,6 +343,7 @@ Last activity: 2026-10-16 — Phase 15 execution started
 | Phase 14 P10 | 20min | 2 tasks | 6 files |
 | Phase 15 P01 | 112 min | 3 tasks | 16 files |
 | Phase 15 P02 | 45min | 3 tasks | 14 files |
+| Phase 15 P03 | 13 min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -792,6 +793,8 @@ Recent decisions affecting current work:
 - [Phase 15]: Phase 15-01: lint refusal appends no event; project cap is checked after the per-run cap and before validation and lint — A lint refusal is not a budget occurrence (nothing was turned away); the cap placement follows the plan, so a draft at the cap gets LimitExhausted rather than LintRefused
 - [Phase 15]: Phase 15-01: amend drafts pin the target's revision server-side; an in-place edit of an unlocked criterion does not trip the pin — D-26 names the existing revision counter as the only signal; D-28's revision rate is the instrument that would show the gap matters
 - [Phase 15]: 15-02: undeclared is a submission flag plus a null-after task.file_set_declared event, no column; the planning prompt carries a bounded git ls-files listing
+- [Phase 15]: 15-03: held_by_limit is a STATE_VOCABULARY key on blocked's class and mark; StateClass stays at five (D-34) — Phase 18 owns the signal budget; a limit hold reads as needs-you without spending a class
+- [Phase 15]: 15-03: the account-limit harness reports offline verification as passed and reserves observed for a LiveObservation from a live sidecar — A constructed Rejected line must never read as an observed one (D-32, T-15-11)
 
 ### Pending Todos
 
@@ -856,6 +859,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-16T04:37:39.996Z
-Stopped at: Completed 15-02-PLAN.md
+Last session: 2026-10-16T04:52:44.802Z
+Stopped at: Completed 15-03-PLAN.md
 Resume file: None
