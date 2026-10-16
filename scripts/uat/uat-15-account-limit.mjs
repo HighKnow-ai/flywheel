@@ -510,6 +510,15 @@ async function liveBody(harness, { artifactPath, fixturePath, maxMinutes, sessio
     aroundTheRejection: around,
     observedTiers: limitEvents.map((e) => ({ at: e.at, runId: e.runId, type: e.type, tier: tierOf(e), window: e.rateLimitType, resetsAt: e.resetsAt })),
     gateTransition: transition,
+    // D-32 in the artifact's own bytes, not only in the stdout report: the tier that closes
+    // criterion 6 is `rejected`, and an artifact a later reader opens on its own must say so
+    // about itself. Written unconditionally, so the honest case is never the one that forgot.
+    verdict: rejectedEvent
+      ? "Criterion 6 (limit half) is CLOSED: a real backend `Rejected` tier was observed in a live run."
+      : "Criterion 6 is NOT CLOSED. The observed tier was " +
+        (limitEvents.map((e) => tierOf(e)).join(", ") || "none") +
+        ", not `rejected`. Per D-32 only the `Rejected` tier closes this criterion; a `warning` " +
+        "observation does not.",
   };
   fs.mkdirSync(path.dirname(path.resolve(artifactPath)), { recursive: true });
   fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`);
