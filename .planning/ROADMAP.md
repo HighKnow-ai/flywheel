@@ -308,15 +308,35 @@ good drafting from reflex acceptance. Instrument first, tune after.
 **Plans**: 10 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 15-01-PLAN.md — Tracer: the core drafting write path and its three refusals (lint, project cap, stale-revision pin), with F3 closed
 - [ ] 15-02-PLAN.md — The planner's file-set declaration goes live: the invoked-guard instrument, a `git ls-files` briefing, `undeclared`, and the offline harness
 - [ ] 15-03-PLAN.md — The account-limit gate's numeric contracts, the `blocked` surface with no sixth state class, and the offline replay harness
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 15-04-PLAN.md — The two live burns behind one blocking-human decision: the planner measurement and the deliberate limit burn, with artifacts and a derived fixture
 - [ ] 15-05-PLAN.md — The file-set chip editor, provenance derived from the event actor, and the unprefilled escape hatch
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 15-06-PLAN.md — The launch sheet's drafting route, the derived judgement-only count, and the non-blocking lint advice on human text
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 15-07-PLAN.md — The provisional tier: values ghosted into the one item form, confirmed at Start Work, rejectable per field
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 15-08-PLAN.md — No bulk accept anywhere: `accept_subtree` deleted across both sides, plus three two-sided source gates
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 15-09-PLAN.md — The open-drafts gauge and the windowed post-accept revision rate, side by side on the project
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
 - [ ] 15-10-PLAN.md — Staged Socratic questioning, the four folded todos retired with assertions, and the owner's demo-board verdict
 
 **UI hint**: yes
