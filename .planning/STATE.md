@@ -4,16 +4,16 @@ milestone: v0.2.0
 current_phase: 15
 current_phase_name: Nothing Typed That An Agent Could Draft
 status: executing
-stopped_at: Completed 15-06-PLAN.md
-last_updated: "2026-10-16T06:03:45.189Z"
+stopped_at: Completed 15-07-PLAN.md
+last_updated: "2026-10-16T11:19:26.167Z"
 last_activity: 2026-10-16
 last_activity_desc: Phase 15 execution started
-state_head: f4ec0d1a39c08d3b0803b0d43759516bd2e78149
+state_head: 138761dae4414076157a3fec21304a1971560e39
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 38
-  completed_plans: 33
+  completed_plans: 35
 milestone_name: The Board Thinks With You
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-16)
 ## Current Position
 
 Phase: 15 (Nothing Typed That An Agent Could Draft) — EXECUTING
-Plan: 6 of 10
+Plan: 2 of 10
 Status: Ready to execute
 Last activity: 2026-10-16 — Phase 15 execution started
 
@@ -346,6 +346,7 @@ Last activity: 2026-10-16 — Phase 15 execution started
 | Phase 15 P03 | 13 min | 3 tasks | 7 files |
 | Phase 15 P05 | 40 min | 3 tasks | 11 files |
 | Phase 15 P06 | 24 min | 3 tasks | 13 files |
+| Phase 15 P07 | 72min | 3 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -800,6 +801,7 @@ Recent decisions affecting current work:
 - [Phase 15]: 15-05: provenance field is agent_drafted (wire draftedByAgent) so the plan's own drafted_by grep stays meaningful — The acceptance grep for drafted_by would match drafted_by_agent
 - [Phase 15]: 15-05: chip autocomplete lists the project repo_path's tracked files, not the epic worktree's — One git ls-files on a path that always exists; branch-only files are typed in full
 - [Phase 15]: 15-06: a pending criterion draft blocks a second draft but not the Start Work gate; the coverage gate fails open on a read error
+- [Phase 15]: 15-07: Start Work confirms provisional values inside start_agent_run's own transaction, for a human actor only; ghosts walk amendments in confirm order and are task-only — The run-row insert is what freezes criteria (BOARD-03), so freeze and confirm share one site; an epic has no Start Work to confirm it
 
 ### Pending Todos
 
@@ -868,6 +870,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-16T06:03:45.157Z
-Stopped at: Completed 15-06-PLAN.md
+Last session: 2026-10-16T11:19:26.135Z
+Stopped at: Completed 15-07-PLAN.md
 Resume file: None
