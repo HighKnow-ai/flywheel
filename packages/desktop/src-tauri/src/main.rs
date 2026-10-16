@@ -183,6 +183,8 @@ fn main() {
             commands::file_set::task_file_set_set,
             commands::file_set::task_file_set_widen,
             commands::file_set::board_scope_flags,
+            commands::file_set::task_file_set_provenance,
+            commands::file_set::repo_tracked_paths,
             commands::dispatch::dispatch_plan_create,
             commands::dispatch::dispatch_plan_get,
             commands::dispatch::dispatch_plan_edit,

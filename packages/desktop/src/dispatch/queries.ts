@@ -11,12 +11,16 @@ import {
   dispatchPlanGet,
   dispatchPlanningRun,
   getSettings,
+  repoTrackedPaths,
   subscribeDispatchGateChanged,
+  taskFileSetProvenance,
   type DispatchCapDto,
 } from "../adapters/tauri";
 
 export const dispatchPlanKey = (epicId: string) => ["board", "dispatch", "plan", epicId] as const;
 export const planningRunKey = (epicId: string) => ["board", "dispatch", "planning-run", epicId] as const;
+export const fileSetProvenanceKey = (taskId: string) => ["board", "dispatch", "file-set-provenance", taskId] as const;
+export const trackedPathsKey = (planId: string) => ["repo", "tracked-paths", planId] as const;
 export const GATE_KEY = ["board", "dispatch", "gate"] as const;
 export const CAP_KEY = ["board", "dispatch", "cap"] as const;
 
@@ -71,5 +75,21 @@ export function useDispatchCap(enabled = true) {
     queryKey: CAP_KEY,
     queryFn: async () => (await getSettings()).dispatchCap,
     enabled,
+  });
+}
+
+/** Who declared this task's file-set, derived by the core from the event log. Server state, so React Query. */
+export function useFileSetProvenance(taskId: string) {
+  return useQuery({ queryKey: fileSetProvenanceKey(taskId), queryFn: () => taskFileSetProvenance(taskId) });
+}
+
+/** The repository's tracked paths for autocomplete. Not under `board`, so a board change does not
+ * re-run `git ls-files`; only editing a draft needs it. */
+export function useTrackedPaths(planId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: trackedPathsKey(planId),
+    queryFn: () => repoTrackedPaths(planId),
+    enabled,
+    staleTime: 60_000,
   });
 }

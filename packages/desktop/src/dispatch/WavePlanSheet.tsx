@@ -12,7 +12,14 @@
  * its own, because a second implementation in the renderer is exactly the drift this phase exists to
  * prevent. Every call goes through the single adapter module.
  *
- * Approve is the only action that starts dispatch. A plan that is not a draft is read-only.
+ * Approve is the only action that starts dispatch, and it is also the file-sets' accept: the declared
+ * sets are live from the moment the planner submits them (restrictive only), and approval freezes
+ * what they sequence (D-18). A plan that is not a draft is read-only.
+ *
+ * A task's files have two editors over ONE value: the chip row (the draft, corrected) and the
+ * hand-typed textarea (the escape hatch, never prefilled). Both write through `edit(taskId, { entries })`.
+ * Who declared the set, and whether that was the planner, is the core's derivation from the event
+ * log (D-19); the renderer shows the boolean it is given.
  */
 import { useState } from "react";
 import { createPortal } from "react-dom";
@@ -30,7 +37,14 @@ import {
   type DispatchTaskDto,
 } from "../adapters/tauri";
 import { StateBadge } from "../legend/StateBadge";
-import { dispatchPlanKey, errorText, useDispatchPlan } from "./queries";
+import {
+  dispatchPlanKey,
+  errorText,
+  fileSetProvenanceKey,
+  useDispatchPlan,
+  useFileSetProvenance,
+  useTrackedPaths,
+} from "./queries";
 import "../session/session.css";
 import "./dispatch.css";
 
@@ -72,7 +86,7 @@ function OpenSheet({ epicId, onClose }: { epicId: string; onClose: () => void })
   const plan = planQuery.data ?? null;
   const isDraft = plan?.status === "draft";
 
-  // Text typed into a task's files field and not yet saved, by task id.
+  // Text typed into a task's hand-typed files field and not yet saved, by task id. Never prefilled.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [refusal, setRefusal] = useState<{ taskId: string; text: string } | null>(null);
   const [whyText, setWhyText] = useState<Record<string, string>>({});
@@ -88,20 +102,26 @@ function OpenSheet({ epicId, onClose }: { epicId: string; onClose: () => void })
     queryClient.setQueryData(dispatchPlanKey(epicId), next);
   }
 
-  async function edit(taskId: string, change: { wave?: number; entries?: string[] }) {
-    if (!plan || busy) return;
+  /** Resolves true when the core accepted the edit, so a caller can keep what it typed on a refusal. */
+  async function edit(taskId: string, change: { wave?: number; entries?: string[] }, clearDraft = false) {
+    if (!plan || busy) return false;
     setBusy(true);
     try {
       accept(await dispatchPlanEdit(plan.id, [{ taskId, ...change }]));
       setRefusal(null);
+      void queryClient.invalidateQueries({ queryKey: fileSetProvenanceKey(taskId) });
+      return true;
     } catch (error) {
       // The core refused: show its words and leave the displayed set as stored.
       setRefusal({ taskId, text: errorText(error) });
+      return false;
     } finally {
-      setDrafts((d) => {
-        const { [taskId]: _dropped, ...rest } = d;
-        return rest;
-      });
+      if (clearDraft) {
+        setDrafts((d) => {
+          const { [taskId]: _dropped, ...rest } = d;
+          return rest;
+        });
+      }
       setBusy(false);
     }
   }
@@ -148,8 +168,9 @@ function OpenSheet({ epicId, onClose }: { epicId: string; onClose: () => void })
   const titleOf = (taskId: string) => taskById.get(taskId)?.title ?? "";
 
   function renderTask(task: DispatchTaskDto) {
-    const lines = drafts[task.taskId] ?? task.entries.join("\n");
-    const dirty = drafts[task.taskId] !== undefined && drafts[task.taskId] !== task.entries.join("\n");
+    const lines = drafts[task.taskId] ?? "";
+    const dirty = lines.trim() !== "";
+    const editable = isDraft && task.state !== "skipped";
     return (
       <li key={task.taskId} aria-label={`${task.taskKey} ${task.title}`} className="wave-plan-task">
         <div className="wave-plan-task-head">
@@ -203,40 +224,46 @@ function OpenSheet({ epicId, onClose }: { epicId: string; onClose: () => void })
         {task.entries.length === 0 && task.state !== "skipped" && (
           <p className="type-label wave-plan-note">No files declared, so this task runs alone.</p>
         )}
-        {isDraft && task.state !== "skipped" ? (
-          <div className="wave-plan-files">
-            <textarea
-              aria-label={`Files for ${task.taskKey}`}
-              value={lines}
-              rows={Math.max(2, lines.split("\n").length)}
-              disabled={busy}
-              onChange={(event) => setDrafts((d) => ({ ...d, [task.taskId]: event.target.value }))}
-              className="control-edge session-field launch-field type-body wave-plan-textarea"
-            />
-            <button
-              type="button"
-              aria-label={`Save files for ${task.taskKey}`}
-              disabled={busy || !dirty}
-              onClick={() =>
-                void edit(task.taskId, {
-                  entries: lines.split("\n").map((l) => l.trim()).filter((l) => l.length > 0),
-                })
-              }
-              className="control-edge session-action type-label"
-            >
-              Save files
-            </button>
-          </div>
-        ) : (
-          task.entries.length > 0 && (
-            <ul className="wave-plan-entries">
-              {task.entries.map((entry) => (
-                <li key={entry}>
-                  <code className="type-label">{entry}</code>
-                </li>
-              ))}
-            </ul>
-          )
+        {plan && (
+          <FileSetChips
+            planId={plan.id}
+            task={task}
+            editable={editable}
+            busy={busy}
+            onChange={(entries) => edit(task.taskId, { entries })}
+          />
+        )}
+        {editable && (
+          <>
+            <p className="type-label wave-plan-note">
+              Or type the paths by hand, one per line. This replaces the declared files when you save.
+            </p>
+            <div className="wave-plan-files">
+              <textarea
+                aria-label={`Files for ${task.taskKey}`}
+                value={lines}
+                rows={Math.max(2, lines.split("\n").length)}
+                disabled={busy}
+                onChange={(event) => setDrafts((d) => ({ ...d, [task.taskId]: event.target.value }))}
+                className="control-edge session-field launch-field type-body wave-plan-textarea"
+              />
+              <button
+                type="button"
+                aria-label={`Save files for ${task.taskKey}`}
+                disabled={busy || !dirty}
+                onClick={() =>
+                  void edit(
+                    task.taskId,
+                    { entries: lines.split("\n").map((l) => l.trim()).filter((l) => l.length > 0) },
+                    true,
+                  )
+                }
+                className="control-edge session-action type-label"
+              >
+                Save files
+              </button>
+            </div>
+          </>
         )}
         {refusal?.taskId === task.taskId && (
           <p role="alert" className="type-label wave-plan-refusal">
@@ -346,6 +373,12 @@ function OpenSheet({ epicId, onClose }: { epicId: string; onClose: () => void })
             </div>
 
             <div className="wave-plan-footer">
+              {isDraft && (
+                <p className="type-label wave-plan-approve-note">
+                  Approving accepts the declared file-sets as they now stand and freezes the colliding paths that
+                  sequence the waves.
+                </p>
+              )}
               <button type="button" onClick={onClose} className="control-edge session-action type-body">
                 {isDraft ? "Cancel" : "Close"}
               </button>
@@ -365,5 +398,118 @@ function OpenSheet({ epicId, onClose }: { epicId: string; onClose: () => void })
       </DismissableLayer>
     </FocusScope>,
     document.body,
+  );
+}
+
+/** The most suggestions the add control offers at once. */
+const SUGGESTION_LIMIT = 50;
+
+/**
+ * One task's declared files as chips, with the planner's mark, the undeclared sentence and (for a
+ * draft) the add control. It decides nothing about what a legal entry is: a typed value goes to
+ * `onChange` as it is, and the core's refusal text is what the sheet shows. Suggestions come from
+ * `git ls-files` through the adapter and are only suggestions.
+ */
+function FileSetChips({
+  planId,
+  task,
+  editable,
+  busy,
+  onChange,
+}: {
+  planId: string;
+  task: DispatchTaskDto;
+  editable: boolean;
+  busy: boolean;
+  onChange: (entries: string[]) => Promise<boolean>;
+}) {
+  const provenance = useFileSetProvenance(task.taskId).data ?? null;
+  const tracked = useTrackedPaths(planId, editable).data;
+  const [typed, setTyped] = useState("");
+
+  const needle = typed.trim().toLowerCase();
+  const suggestions =
+    needle === "" || !tracked ? [] : tracked.paths.filter((p) => p.toLowerCase().includes(needle)).slice(0, SUGGESTION_LIMIT);
+  const undeclared = provenance?.undeclared === true && task.entries.length === 0;
+  const listId = `tracked-paths-${task.taskId}`;
+
+  async function add() {
+    const value = typed.trim();
+    if (value === "" || busy) return;
+    if (await onChange([...task.entries, value])) setTyped("");
+  }
+
+  return (
+    <div className="wave-plan-chip-block">
+      {task.entries.length > 0 && (
+        <div className="wave-plan-chip-row">
+          <ul aria-label={`Declared files for ${task.taskKey}`} className="wave-plan-chips">
+            {task.entries.map((entry, index) => (
+              <li key={entry} className="wave-plan-chip">
+                <code className="type-label">{entry}</code>
+                {editable && (
+                  <button
+                    type="button"
+                    aria-label={`Remove ${entry} from ${task.taskKey}`}
+                    disabled={busy}
+                    onClick={() => void onChange(task.entries.filter((_, i) => i !== index))}
+                    className="wave-plan-chip-remove type-label"
+                  >
+                    ×
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {provenance?.draftedByAgent === true && (
+            <span className="type-label wave-plan-chip-mark">drafted by the planner</span>
+          )}
+        </div>
+      )}
+      {undeclared && (
+        <p className="type-label wave-plan-note">
+          The planner could not determine which files this task touches.
+          {editable ? " Add them here or type them below." : ""}
+        </p>
+      )}
+      {editable && (
+        <div className="wave-plan-files">
+          <input
+            type="text"
+            list={listId}
+            aria-label={`Add a file to ${task.taskKey}`}
+            value={typed}
+            disabled={busy}
+            onChange={(event) => setTyped(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void add();
+              }
+            }}
+            className="control-edge session-field launch-field type-body wave-plan-chip-input"
+          />
+          <datalist id={listId}>
+            {suggestions.map((path) => (
+              <option key={path} value={path} />
+            ))}
+          </datalist>
+          <button
+            type="button"
+            aria-label={`Add file to ${task.taskKey}`}
+            disabled={busy || typed.trim() === ""}
+            onClick={() => void add()}
+            className="control-edge session-action type-label"
+          >
+            Add
+          </button>
+        </div>
+      )}
+      {editable && tracked && tracked.notShown > 0 && (
+        <p className="type-label wave-plan-note">
+          {`${tracked.notShown} tracked paths are not offered as suggestions; type them in full.`}
+        </p>
+      )}
+    </div>
   );
 }

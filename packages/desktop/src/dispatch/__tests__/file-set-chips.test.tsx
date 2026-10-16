@@ -82,7 +82,7 @@ describe("the file-set chips", () => {
   it("draws one chip per stored entry in stored order and marks the row once when the planner declared it", async () => {
     const row = await loaded(plan());
     await waitFor(() => expect(within(row).getByText("drafted by the planner")).toBeInTheDocument());
-    expect(chipsOf(row).map((c) => c.textContent?.replace(/Remove.*/, "").trim())).toEqual(["src/a.rs", "docs/"]);
+    expect(chipsOf(row).map((c) => c.querySelector("code")?.textContent)).toEqual(["src/a.rs", "docs/"]);
     expect(within(row).getAllByText("drafted by the planner")).toHaveLength(1);
   });
 

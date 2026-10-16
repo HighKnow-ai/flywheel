@@ -23,6 +23,9 @@ vi.mock("../../adapters/tauri", async () => {
     dispatchPlanEdit: (planId: string, edits: unknown) => editMock(planId, edits),
     dispatchPlanApprove: (planId: string) => approveMock(planId),
     dispatchWhy: (planId: string, a: string, b: string) => whyMock(planId, a, b),
+    // The chip row's reads (plan 15-05) are covered by file-set-chips.test.tsx; here they say nothing.
+    taskFileSetProvenance: () => Promise.resolve(null),
+    repoTrackedPaths: () => Promise.resolve({ paths: [], notShown: 0 }),
   };
 });
 
@@ -99,8 +102,13 @@ describe("WavePlanSheet", () => {
     expect(within(wave1).getByRole("listitem", { name: "FLY-1 Parse the header" })).toBeInTheDocument();
     expect(within(wave1).getByRole("listitem", { name: "FLY-2 Render the header" })).toBeInTheDocument();
     expect(within(wave2).getByRole("listitem", { name: "FLY-3 Write the docs" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Files for FLY-2")).toHaveValue("src/a.rs\nsrc/b.rs");
-    expect(screen.getByLabelText("Files for FLY-3")).toHaveValue("docs/");
+    // The declared entries are chips; the hand-typed field beside them is never prefilled (D-20).
+    const chips = (name: string) =>
+      within(screen.getByRole("list", { name })).getAllByRole("listitem").map((c) => c.querySelector("code")?.textContent);
+    expect(chips("Declared files for FLY-2")).toEqual(["src/a.rs", "src/b.rs"]);
+    expect(chips("Declared files for FLY-3")).toEqual(["docs/"]);
+    expect(screen.getByLabelText("Files for FLY-2")).toHaveValue("");
+    expect(screen.getByLabelText("Files for FLY-3")).toHaveValue("");
   });
 
   it("shows a sequenced pair with both task titles and the colliding path from the response", async () => {
@@ -135,7 +143,8 @@ describe("WavePlanSheet", () => {
     fireEvent.change(field, { target: { value: "src/*.rs" } });
     fireEvent.click(screen.getByRole("button", { name: "Save files for FLY-2" }));
     expect(await screen.findByText(/globs are not accepted/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Files for FLY-2")).toHaveValue("src/a.rs\nsrc/b.rs");
+    const stored = within(screen.getByRole("list", { name: "Declared files for FLY-2" })).getAllByRole("listitem");
+    expect(stored.map((c) => c.querySelector("code")?.textContent)).toEqual(["src/a.rs", "src/b.rs"]);
   });
 
   it("issues exactly one edit call carrying the new wave number when a task is moved", async () => {

@@ -95,6 +95,61 @@
   color: var(--text-primary-rack);
 }
 
+.wave-plan-chip-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.wave-plan-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-sm);
+}
+
+.wave-plan-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.wave-plan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--divider);
+  color: var(--text-primary-rack);
+}
+
+.wave-plan-chip-remove {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-muted-rack);
+}
+
+.wave-plan-chip-mark {
+  color: var(--text-muted-rack);
+  font-style: italic;
+}
+
+.wave-plan-chip-input {
+  flex: 1;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.wave-plan-approve-note {
+  margin: 0 auto 0 0;
+  align-self: center;
+  color: var(--text-muted-rack);
+}
+
 .wave-plan-pair {
   display: flex;
   flex-direction: column;

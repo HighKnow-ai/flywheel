@@ -1967,6 +1967,45 @@ export async function boardScopeFlags(projectId: string): Promise<ScopeFlagDto[]
   return invokeCommand<ScopeFlagDto[]>("board_scope_flags", { projectId });
 }
 
+/** One declaration of a task's file-set — mirrors `commands::file_set::FileSetDeclarationDto`.
+ * `draftedByAgent` is the Rust core's verdict, derived from the declaring event's actor; the
+ * renderer displays it and never works it out. `undeclared` means the planner said it could not
+ * determine the set, which is not the same as an empty one. */
+export interface FileSetDeclarationDto {
+  actorName: string;
+  draftedByAgent: boolean;
+  declaredAt: string;
+  before: string[];
+  entries: string[];
+  undeclared: boolean;
+}
+
+/** The latest declaration of a task's set, flat, with the older ones in `history` (newest first,
+ * bounded; `historyTruncated` says when it was cut) — mirrors `FileSetProvenanceDto`. */
+export interface FileSetProvenanceDto extends FileSetDeclarationDto {
+  history: FileSetDeclarationDto[];
+  historyTruncated: boolean;
+}
+
+/** Who declared a task's file-set, from the event log. `null` when nobody declared it. Read-only;
+ * a task id and nothing else. Thin wrapper over `task_file_set_provenance`. */
+export async function taskFileSetProvenance(taskId: string): Promise<FileSetProvenanceDto | null> {
+  return invokeCommand<FileSetProvenanceDto | null>("task_file_set_provenance", { taskId });
+}
+
+/** The repository's tracked paths for autocomplete — mirrors `TrackedPathsDto`. `notShown` counts the
+ * paths the bounded list left out. */
+export interface TrackedPathsDto {
+  paths: string[];
+  notShown: number;
+}
+
+/** The plan's repository's tracked paths (`git ls-files`, so tracked files only). Read-only; a plan
+ * id and nothing else. Thin wrapper over `repo_tracked_paths`. */
+export async function repoTrackedPaths(planId: string): Promise<TrackedPathsDto> {
+  return invokeCommand<TrackedPathsDto>("repo_tracked_paths", { planId });
+}
+
 // ---------------------------------------------------------------------------------------------
 // Phase 9 plan 09-09: the fan-out surface. Every verdict below (a sequencing edge, the paths that
 // earned it, a refusal, a gate reason) is the Rust core's. The renderer displays these DTOs and

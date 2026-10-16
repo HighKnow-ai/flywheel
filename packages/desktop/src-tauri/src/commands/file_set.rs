@@ -254,6 +254,99 @@ pub fn board_scope_flags(
     Ok(counts.into_iter().map(|c| ScopeFlagDto { task_id: c.task_id, count: c.count }).collect())
 }
 
+/// One declaration of a task's file-set, as the log recorded it. `draftedByAgent` on the wire is the core's
+/// verdict (the declaring actor's kind), never something the renderer works out for itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileSetDeclarationDto {
+    pub actor_name: String,
+    #[serde(rename = "draftedByAgent")]
+    pub agent_drafted: bool,
+    pub declared_at: String,
+    pub before: Vec<String>,
+    pub entries: Vec<String>,
+    pub undeclared: bool,
+}
+
+/// The latest declaration of a task's set flat, plus the older ones. A task nobody declared has no
+/// provenance at all (the command returns `None`), so no author is invented for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileSetProvenanceDto {
+    #[serde(flatten)]
+    pub latest: FileSetDeclarationDto,
+    pub history: Vec<FileSetDeclarationDto>,
+    pub history_truncated: bool,
+}
+
+fn declaration_dto(d: flywheel_core::query::file_set_provenance::FileSetDeclaration) -> FileSetDeclarationDto {
+    FileSetDeclarationDto {
+        actor_name: d.actor_name,
+        agent_drafted: d.agent_drafted,
+        declared_at: d.declared_at,
+        before: d.before,
+        entries: d.entries,
+        undeclared: d.undeclared,
+    }
+}
+
+/// Who declared a task's file-set and whether an agent did, derived from the event log (D-19).
+/// Read-only; a task id and nothing else.
+#[tauri::command]
+pub fn task_file_set_provenance(
+    state: State<AppState>,
+    task_id: String,
+) -> Result<Option<FileSetProvenanceDto>, String> {
+    validate_task_id(&task_id)?;
+    let conn = state.db.lock().map_err(|e| ipc_error("task_file_set_provenance:lock", e))?;
+    let provenance = flywheel_core::query::file_set_provenance::file_set_provenance(&conn, &task_id)
+        .map_err(|e| ipc_error("task_file_set_provenance:read", e))?;
+    Ok(provenance.map(|p| FileSetProvenanceDto {
+        latest: declaration_dto(p.latest),
+        history: p.history.into_iter().map(declaration_dto).collect(),
+        history_truncated: p.history_truncated,
+    }))
+}
+
+/// The most tracked paths one autocomplete read returns. A repository bigger than this is told so
+/// through `not_shown`; the list is never silently cut.
+pub const MAX_TRACKED_PATHS: usize = 5000;
+
+/// The repository's tracked paths for the file-set chip editor's autocomplete.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackedPathsDto {
+    pub paths: Vec<String>,
+    /// How many tracked paths were left out because the list is bounded.
+    pub not_shown: usize,
+}
+
+pub(crate) fn bound_tracked_paths(mut paths: Vec<String>) -> TrackedPathsDto {
+    let not_shown = paths.len().saturating_sub(MAX_TRACKED_PATHS);
+    paths.truncate(MAX_TRACKED_PATHS);
+    TrackedPathsDto { paths, not_shown }
+}
+
+/// The plan's repository's tracked paths, for autocomplete. The mechanism is `git ls-files` through
+/// `flywheel_core::git::tracked_files` (a deadline-watched system `git` child): tracked files only, so
+/// gitignored output and untracked secrets are never offered, and no libgit2 or filesystem walk is
+/// involved (CLAUDE.md). Takes a plan id and nothing else; the repository path is resolved here.
+#[tauri::command]
+pub fn repo_tracked_paths(state: State<AppState>, plan_id: String) -> Result<TrackedPathsDto, String> {
+    if !flywheel_core::ids::is_ulid(&plan_id) {
+        return Err(format!("plan id must be a 26-character ULID, got {plan_id:?}"));
+    }
+    // Short lock for the path, dropped before the git subprocess runs (D-REV-39 WR-07).
+    let repo_path = {
+        let conn = state.db.lock().map_err(|e| ipc_error("repo_tracked_paths:lock", e))?;
+        flywheel_core::domain::dispatch_plan::plan_repo_path(&conn, &plan_id)
+            .map_err(|e| ipc_error("repo_tracked_paths:repo", e))?
+    };
+    let paths = flywheel_core::git::tracked_files(std::path::Path::new(&repo_path))
+        .map_err(|e| ipc_error("repo_tracked_paths:ls-files", e))?;
+    Ok(bound_tracked_paths(paths))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,6 +639,56 @@ mod tests {
         assert!(signature.contains("project_id"));
         for banned in ["path", "task_id", "limit", "actor"] {
             assert!(!signature.contains(banned), "no {banned} argument: {signature}");
+        }
+    }
+
+    #[test]
+    fn a_tracked_path_list_over_the_bound_is_cut_and_says_how_many_were_left_out() {
+        let all: Vec<String> = (0..MAX_TRACKED_PATHS + 3).map(|i| format!("f/{i}.rs")).collect();
+        let bounded = bound_tracked_paths(all);
+        assert_eq!(bounded.paths.len(), MAX_TRACKED_PATHS);
+        assert_eq!(bounded.not_shown, 3);
+        assert_eq!(bound_tracked_paths(vec!["a.rs".into()]).not_shown, 0);
+    }
+
+    #[test]
+    fn the_provenance_wire_flattens_the_latest_declaration_and_names_the_agent_flag_for_the_renderer() {
+        let dto = FileSetProvenanceDto {
+            latest: FileSetDeclarationDto {
+                actor_name: "Claude".into(),
+                agent_drafted: true,
+                declared_at: "t".into(),
+                before: vec![],
+                entries: vec!["a.rs".into()],
+                undeclared: false,
+            },
+            history: vec![],
+            history_truncated: false,
+        };
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(json["draftedByAgent"], true);
+        assert_eq!(json["entries"], serde_json::json!(["a.rs"]));
+        assert_eq!(json["historyTruncated"], false);
+    }
+
+    #[test]
+    fn the_provenance_and_tracked_path_handlers_take_an_id_and_nothing_else() {
+        let source = include_str!("file_set.rs");
+        let code: Vec<&str> = source.lines().filter(|l| !l.trim_start().starts_with("//")).collect();
+        for (name, id) in [("pub fn task_file_set_provenance(", "task_id"), ("pub fn repo_tracked_paths(", "plan_id")] {
+            let start = code.iter().position(|l| l.trim_start().starts_with(name)).expect(name);
+            let mut signature = String::new();
+            for line in &code[start..] {
+                signature.push_str(line);
+                signature.push(' ');
+                if line.contains('{') {
+                    break;
+                }
+            }
+            assert!(signature.contains(id), "{name}: {signature}");
+            for banned in ["actor", "worktree", "repo_path", "pattern"] {
+                assert!(!signature.contains(banned), "{name} must not take {banned}: {signature}");
+            }
         }
     }
 }
