@@ -120,6 +120,10 @@ printf '│ 👁  MANUAL UAT 10-live — phase-6 agent backlog loop, live (spend
 printf '│          ↳ node scripts/uat/uat-10-agent-backlog.mjs --live\n'
 printf '│ 👁  MANUAL UAT 11-live — CLAUDE_ENV_FILE ordering, PATH shadow restoration, ask-branch (spends tokens)\n'
 printf '│          ↳ node scripts/uat/uat-11-env-file-ordering.mjs\n'
+printf '│ 👁  MANUAL UAT 14-live — planner file-set declaration against a real claude planning run (spends tokens)\n'
+printf '│          ↳ node scripts/uat/uat-14-planner-file-set.mjs --live --artifact <file>\n'
+printf '│ 👁  MANUAL UAT 15-live — drive a real session into the account window limit (spends the subscription window)\n'
+printf '│          ↳ node scripts/uat/uat-15-account-limit.mjs --live --artifact <file> --fixture <file> --max-minutes 90\n'
 printf '└────────────────────────────────────────────────────────────────────────────\n'
 
 exit "$FAILED"
