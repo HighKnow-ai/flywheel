@@ -103,9 +103,26 @@ test("the submit_plan tool is registered with a schema that names tasks, files, 
 test("the wire payload carries the submission and no run, project, epic or plan id", () => {
   const payload = server.buildSubmitPlanPayload(SUBMISSION);
   assert.equal(payload.kind, "submit_plan");
-  assert.deepEqual(payload.tasks, SUBMISSION.tasks);
+  // `undeclared` is always on the wire and defaults to false.
+  assert.deepEqual(payload.tasks, SUBMISSION.tasks.map((t) => ({ ...t, undeclared: false })));
   assert.deepEqual(payload.excluded, SUBMISSION.excluded);
   assert.ok(!/"runId"|"projectId"|"epicId"|"planId"/.test(JSON.stringify(payload)));
+});
+
+test("undeclared passes through on a task, is described to the model, and must be a boolean", () => {
+  const payload = server.buildSubmitPlanPayload({
+    tasks: [{ key: "FLY-1", files: [], wave: 1, rationale: "cannot tell", undeclared: true }],
+  });
+  assert.equal(payload.tasks[0].undeclared, true);
+  assert.deepEqual(payload.tasks[0].files, []);
+  const def = server.submitPlanToolDefinition;
+  assert.equal(def.inputSchema.properties.tasks.items.properties.undeclared.type, "boolean");
+  assert.match(def.description, /undeclared/);
+  assert.match(def.description, /invented file set is worse than none/);
+  assert.throws(
+    () => server.buildSubmitPlanPayload({ tasks: [{ key: "FLY-1", files: [], wave: 1, undeclared: "yes" }] }),
+    /undeclared/,
+  );
 });
 
 test("a malformed submission throws before any socket write", () => {
@@ -141,7 +158,7 @@ test(
     const submitted = events.find((e) => e.type === "plan_submitted");
     assert.equal(submitted.runId, runId, "identity comes from the session, never the model");
     assert.equal(typeof submitted.requestId, "string");
-    assert.deepEqual(submitted.tasks, SUBMISSION.tasks);
+    assert.deepEqual(submitted.tasks, SUBMISSION.tasks.map((t) => ({ ...t, undeclared: false })));
     assert.deepEqual(submitted.excluded, SUBMISSION.excluded);
 
     // Not answered yet: the agent's call must still be waiting.

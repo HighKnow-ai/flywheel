@@ -575,6 +575,11 @@ pub fn render_epic_prompt(packet: &EpicContextPacket, premise: Option<&str>) -> 
     out
 }
 
+/// The most tracked paths a planning prompt lists (D-69 house style: one declared count, never a
+/// byte or token ceiling). A repository with more says how many it left out, so the model knows its
+/// listing is partial and searches rather than assuming a path does not exist.
+pub const PLANNING_LISTING_CEILING: usize = 2000;
+
 /// Plan 09-08 (PLAN-01, D-147): the briefing the pre-dispatch planning run is spawned with — the
 /// epic's goal, every task with its key, title and criteria, then the instruction to read the
 /// repository as it is NOW and call `submit_plan`. Pure and deterministic over the packet, like
@@ -585,7 +590,11 @@ pub fn render_epic_prompt(packet: &EpicContextPacket, premise: Option<&str>) -> 
 /// only compare what is declared: manifests and lockfiles (several tasks that add a dependency each
 /// legitimately touch the same one), and a stated reason for every task left out (so none vanishes
 /// quietly).
-pub fn render_planning_prompt(packet: &EpicContextPacket) -> String {
+///
+/// `file_listing` is the repository's tracked paths, produced by the caller from `git ls-files`
+/// ([`crate::git::tracked_files`]) so this function stays pure. It is listed up to
+/// [`PLANNING_LISTING_CEILING`] and the prompt states how many were not shown.
+pub fn render_planning_prompt(packet: &EpicContextPacket, file_listing: &[String]) -> String {
     let mut out = String::new();
 
     out.push_str("## Epic\n\n");
@@ -611,6 +620,22 @@ pub fn render_planning_prompt(packet: &EpicContextPacket) -> String {
         }
     }
 
+    out.push_str("\n## Files In This Repository\n\n");
+    if file_listing.is_empty() {
+        out.push_str("(no tracked files)\n");
+    }
+    for path in file_listing.iter().take(PLANNING_LISTING_CEILING) {
+        out.push_str(path);
+        out.push('\n');
+    }
+    if file_listing.len() > PLANNING_LISTING_CEILING {
+        out.push_str(&format!(
+            "\n{} more tracked paths are not shown here; search the working directory for anything \
+             you do not see above.\n",
+            file_listing.len() - PLANNING_LISTING_CEILING
+        ));
+    }
+
     out.push_str("\n## Your Task\n\n");
     out.push_str(
         "You are planning how the tasks above can run at the same time. Read the repository as it is \
@@ -626,6 +651,13 @@ pub fn render_planning_prompt(packet: &EpicContextPacket) -> String {
          root. Prefer exact files; use a directory prefix only when the task really owns the directory. \
          A file list that is too small voids the guarantee that tasks in one wave cannot collide, so \
          when in doubt include the file.\n\n",
+    );
+    out.push_str(
+        "The `## Files In This Repository` section above lists what exists; treat it as the authority \
+         for paths. When you cannot determine which files a task will modify, set `undeclared` to true \
+         on that task and give it an empty `files` list. That is the honest answer and the task stays \
+         in the plan; an invented file set is worse than none, because the overlap check would trust \
+         it.\n\n",
     );
     out.push_str(
         "Declare manifests and lockfiles (`Cargo.toml`, `Cargo.lock`, `package.json`, \

@@ -350,7 +350,7 @@ export interface ProposalCreatedEvent extends AgentEventBase {
 export interface PlanSubmittedEvent extends AgentEventBase {
   type: "plan_submitted";
   requestId: string;
-  tasks: Array<{ key: string; files: string[]; wave: number; rationale: string }>;
+  tasks: Array<{ key: string; files: string[]; wave: number; rationale: string; undeclared: boolean }>;
   excluded: Array<{ key: string; reason: string }>;
 }
 

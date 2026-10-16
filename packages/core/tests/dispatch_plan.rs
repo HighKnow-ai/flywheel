@@ -602,6 +602,7 @@ fn st(key: &str, files: &[&str], wave: u32) -> SubmittedTask {
         files: files.iter().map(|f| f.to_string()).collect(),
         wave,
         rationale: format!("because {key}"),
+        undeclared: false,
     }
 }
 
@@ -735,13 +736,13 @@ fn an_oversized_submission_is_refused() {
     let k0 = s.tasks[0].1.clone();
     let many: Vec<String> = (0..201).map(|i| format!("f{i}.rs")).collect();
     let big = SubmittedPlan {
-        tasks: vec![SubmittedTask { key: k0.clone(), files: many, wave: 1, rationale: String::new() }],
+        tasks: vec![SubmittedTask { key: k0.clone(), files: many, wave: 1, rationale: String::new(), undeclared: false }],
         excluded: vec![],
     };
     assert!(matches!(submit(&mut s, &big), Err(SubmissionRefusal::TooLarge(_))));
     let long = "x".repeat(1025);
     let big = SubmittedPlan {
-        tasks: vec![SubmittedTask { key: k0, files: vec![long], wave: 1, rationale: String::new() }],
+        tasks: vec![SubmittedTask { key: k0, files: vec![long], wave: 1, rationale: String::new(), undeclared: false }],
         excluded: vec![],
     };
     assert!(matches!(submit(&mut s, &big), Err(SubmissionRefusal::TooLarge(_))));
@@ -1096,7 +1097,10 @@ fn a_run_started_this_way_can_submit_and_the_draft_references_it() {
 fn roster_prompt(fx: &Git) -> String {
     let conn = fx.conn();
     let packet = assemble_epic_context_packet(&conn, &fx.project_id, Some(&fx.epic_id)).unwrap();
-    render_planning_prompt(&packet)
+    // The listing a real start reads: the tracked files of the epic's worktree, which carries the
+    // same tree as the project checkout it branches from.
+    let listing = core::git::tracked_files(fx.repo.path()).unwrap();
+    render_planning_prompt(&packet, &listing)
 }
 
 #[test]

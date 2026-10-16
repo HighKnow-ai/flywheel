@@ -894,6 +894,11 @@ pub struct SubmittedTask {
     pub wave: u32,
     #[serde(default)]
     pub rationale: String,
+    /// The planner could not determine this task's file-set and says so (D-21). It is the one case
+    /// in which an empty `files` list is accepted: an empty set and an undecidable one are not the
+    /// same thing. Carried on the submission and recorded as an event, never as a column.
+    #[serde(default)]
+    pub undeclared: bool,
 }
 
 /// A task the planning run chose to leave out, with the reason the user will read.
@@ -1033,8 +1038,16 @@ pub fn store_submitted_plan(
 
     let mut seen = std::collections::HashSet::new();
     let mut included: Vec<(crate::dispatch::PlannedTask, String)> = Vec::new();
+    let mut undeclared_ids: Vec<String> = Vec::new();
     for task in &plan.tasks {
-        if task.files.is_empty() {
+        if task.undeclared && !task.files.is_empty() {
+            return Err(SubmissionRefusal::Malformed(format!(
+                "task {} is marked `undeclared` but also lists files; either give its files or mark it \
+                 `undeclared` with an empty file list, not both",
+                task.key
+            )));
+        }
+        if task.files.is_empty() && !task.undeclared {
             return Err(SubmissionRefusal::EmptyFileList { key: task.key.clone() });
         }
         if task.files.len() > MAX_SUBMITTED_ENTRIES
@@ -1063,6 +1076,9 @@ pub fn store_submitted_plan(
                 cause,
             })?;
             entries.push(entry);
+        }
+        if task.undeclared {
+            undeclared_ids.push(task_id.clone());
         }
         included.push((
             crate::dispatch::PlannedTask { task_id, wave: task.wave, rank, entries },
@@ -1132,6 +1148,12 @@ pub fn store_submitted_plan(
         if unique { SubmissionRefusal::LivePlanExists } else { storage(e) }
     })?;
     for task in &planned {
+        if undeclared_ids.contains(&task.task_id) {
+            // Declares nothing, so it contributes no overlap edge; it stays in `planned` with its
+            // wave (D-21) and the log records why its set is empty.
+            append_undeclared_event(&tx, &project_id, epic_id, &task.task_id, actor_id, now).map_err(storage)?;
+            continue;
+        }
         crate::domain::file_set::declare_file_set_in_tx(&tx, &task.task_id, &task.entries, actor_id, now).map_err(storage)?;
     }
     replace_plan_tasks_in_tx(&tx, &plan_id, &inputs).map_err(storage)?;
@@ -1172,6 +1194,44 @@ pub fn store_submitted_plan(
     .map_err(storage)?;
     tx.commit().map_err(storage)?;
     Ok(plan_id)
+}
+
+/// Record that the planner could not determine `task_id`'s file-set. Same event name and
+/// `{field, before, after, label}` shape as a declaration so the history and the provenance chip
+/// read one source (D-19); `after` is null where a declaration carries its entries.
+fn append_undeclared_event(
+    tx: &Transaction,
+    project_id: &str,
+    epic_id: &str,
+    task_id: &str,
+    actor_id: &str,
+    now: &str,
+) -> anyhow::Result<()> {
+    let before: Vec<String> = crate::domain::file_set::list_entries_for_task(tx, task_id)?
+        .iter()
+        .map(|e| crate::file_set::entry_path(e).to_string())
+        .collect();
+    let sequence = next_sequence(tx, project_id, "local")?;
+    append_event(
+        tx,
+        project_id,
+        "local",
+        sequence,
+        "task",
+        task_id,
+        Some(task_id),
+        Some(epic_id),
+        actor_id,
+        crate::domain::file_set::EVENT_FILE_SET_DECLARED,
+        &serde_json::json!({
+            "field": "file_set",
+            "before": before,
+            "after": null,
+            "label": "The planner could not determine this task's file-set",
+        }),
+        now,
+    )
+    .map(|_| ())
 }
 
 // ---------------------------------------------------------------------------------------------

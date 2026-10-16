@@ -331,6 +331,9 @@ pub fn begin_planning_run_with(
     // The repository's case flag is a `git config` subprocess, so it is read here, before the lock
     // is taken again, and handed to `record_state` (which runs inside the run's transaction).
     let case_insensitive = crate::domain::file_set::repo_is_case_insensitive(&canonical);
+    // Likewise the listing: a `git ls-files` subprocess, read with no lock held (CLAUDE.md: never a
+    // libgit2 blob walk, never a filesystem walk that would include ignored build output).
+    let file_listing = crate::git::tracked_files(&canonical)?;
 
     let mut conn = lock(db)?;
     let run_id = crate::domain::dispatch_plan::start_planning_run_row(
@@ -341,7 +344,7 @@ pub fn begin_planning_run_with(
         |run_id| record_state(run_id, &canonical, case_insensitive),
     )?;
     let packet = crate::epic_context_packet::assemble_epic_context_packet(&conn, &project_id, Some(epic_id))?;
-    let prompt = crate::epic_context_packet::render_planning_prompt(&packet);
+    let prompt = crate::epic_context_packet::render_planning_prompt(&packet, &file_listing);
     Ok(PlanningRunStart {
         run_id,
         epic_id: epic_id.to_string(),

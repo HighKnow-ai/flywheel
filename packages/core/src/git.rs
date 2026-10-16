@@ -122,6 +122,19 @@ pub fn git_output_at(repo_path: &Path, args: &[&str]) -> anyhow::Result<Output> 
     spawn_git(repo_path, args)
 }
 
+/// Every tracked path in the repository holding `repo_path`, repository-relative, in `git ls-files`
+/// order. `-z` so a path with a newline or non-ASCII bytes arrives unquoted. Tracked files only:
+/// gitignored build output and untracked secrets are never listed (T-15-08).
+pub fn tracked_files(repo_path: &Path) -> anyhow::Result<Vec<String>> {
+    let output = git_at(repo_path, &["ls-files", "-z"])?;
+    Ok(output
+        .stdout
+        .split(|b| *b == 0)
+        .filter(|p| !p.is_empty())
+        .map(|p| String::from_utf8_lossy(p).into_owned())
+        .collect())
+}
+
 /// Create a worktree at `worktree_path` on a new branch `branch`, based on `base_ref`, inside
 /// `repo_path`. Refuses (without spawning `git worktree add`) when:
 /// - `worktree_path` equals `repo_path` (PROC-02 adjacency)

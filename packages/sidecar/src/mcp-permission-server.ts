@@ -291,7 +291,7 @@ export interface BoardReadRequestPayload {
 export interface SubmitPlanPayload {
   kind: "submit_plan";
   requestId: string;
-  tasks: Array<{ key: string; files: string[]; wave: number; rationale: string }>;
+  tasks: Array<{ key: string; files: string[]; wave: number; rationale: string; undeclared: boolean }>;
   excluded: Array<{ key: string; reason: string }>;
 }
 
@@ -1307,7 +1307,10 @@ export const submitPlanToolDefinition = {
   description:
     "Hand Flywheel the file-set and wave for each task of the epic you were asked to plan, once. " +
     "This does NOT start any agent and does NOT approve anything: it stores a draft the developer " +
-    "reviews and can edit first. If the call returns an error, correct what it names and call again.",
+    "reviews and can edit first. If you cannot determine which files a task will modify, set " +
+    "`undeclared` to true on it with an empty `files` list: that is the honest answer, and an " +
+    "invented file set is worse than none. If the call returns an error, correct what it names " +
+    "and call again.",
   inputSchema: {
     type: "object",
     properties: {
@@ -1325,6 +1328,11 @@ export const submitPlanToolDefinition = {
             },
             wave: { type: "integer", minimum: 1 },
             rationale: { type: "string" },
+            undeclared: {
+              type: "boolean",
+              description:
+                "True when you cannot determine this task's file set. Give an empty `files` list with it; do not guess paths.",
+            },
           },
           required: ["key", "files", "wave", "rationale"],
         },
@@ -1354,7 +1362,7 @@ export function buildSubmitPlanPayload(args: {
     throw new Error("submit_plan requires a tasks array");
   }
   const tasks = args.tasks.map((raw: unknown, index: number) => {
-    const t = (raw ?? {}) as { key?: unknown; files?: unknown; wave?: unknown; rationale?: unknown };
+    const t = (raw ?? {}) as { key?: unknown; files?: unknown; wave?: unknown; rationale?: unknown; undeclared?: unknown };
     if (typeof t.key !== "string" || t.key.trim().length === 0) {
       throw new Error(`submit_plan task ${index} requires a non-empty key`);
     }
@@ -1365,7 +1373,16 @@ export function buildSubmitPlanPayload(args: {
     if (typeof t.wave !== "number" || !Number.isInteger(t.wave)) {
       throw new Error(`submit_plan task ${key} requires wave to be an integer`);
     }
-    return { key, files: t.files as string[], wave: t.wave, rationale: typeof t.rationale === "string" ? t.rationale : "" };
+    if (t.undeclared !== undefined && typeof t.undeclared !== "boolean") {
+      throw new Error(`submit_plan task ${key} requires undeclared to be a boolean`);
+    }
+    return {
+      key,
+      files: t.files as string[],
+      wave: t.wave,
+      rationale: typeof t.rationale === "string" ? t.rationale : "",
+      undeclared: t.undeclared === true,
+    };
   });
   const rawExcluded = args.excluded === undefined ? [] : args.excluded;
   if (!Array.isArray(rawExcluded)) {
