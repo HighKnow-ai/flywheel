@@ -27,7 +27,7 @@ after(() => {
 });
 
 function copyBundle() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gsd-packaged-sidecar-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-packaged-sidecar-"));
   scratchDirs.push(dir);
   const copy = path.join(dir, "Flywheel.app");
   execFileSync("cp", ["-R", APP, copy]);

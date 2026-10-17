@@ -5,7 +5,7 @@
 //! parameter. Spawning, the tick and merging belong to the later dispatcher plans, which must be
 //! able to call these while holding the database lock without waiting on anything.
 //!
-//! GSD-core, the model for the pairwise check, downgrades the WHOLE wave to sequential on any
+//! The naive pairwise check downgrades the WHOLE wave to sequential on any
 //! collision. D-158 downgrades only the colliding pair: [`edges_for_plan`] emits one edge per
 //! colliding pair and nothing for anyone else.
 

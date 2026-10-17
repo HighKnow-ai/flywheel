@@ -25,13 +25,12 @@ acceptance criteria, prior session summaries and the diff so far. That asymmetry
 
 ### Constraints
 
-- **Architecture**: No v1 decision may foreclose scheduled automations, team collaboration, the mobile/web relay, or additional agent backends — Explicitly stated as a hard requirement: "I don't want the code structure or architecture to limit me in any way later." These are cheap to accommodate now and near-impossible to retrofit.
+- **Architecture**: Don't knowingly foreclose scheduled automations, team collaboration, the mobile/web relay, or additional agent backends ("I don't want the code structure or architecture to limit me in any way later"). Until the MVP passes its one-week test this is a constraint on design choices only: no scaffolding or proof work is built for those futures.
 - **Execution model**: Local-first. Agents run on the developer's machine using their existing local agent credentials — Credentials must never leave the desk; this is also what makes the OSS desktop app independently useful.
 - **Agent backend**: Claude Code only in v1, behind an adapter interface — Ship one backend well; prove the seam without paying for a second auth/streaming/tooling integration.
 - **Surface**: Desktop only in v1 — Smallest v1 that proves the loop. Mobile and web are a separate milestone.
 - **Licensing**: Desktop ADE open source; cloud/relay/teams commercial — The open/paid boundary must fall on a clean module seam in the codebase, not be retrofitted later.
 - **Naming**: Product is "Flywheel" by HighKnow — "Harness" collides directly with Harness.io, a large company in the identical category (developer tooling / SDLC automation).
-- **Tech stack**: Undecided; desktop shell (Tauri vs Electron vs native) deferred to research — Load-bearing choice; must be argued against process supervision needs, node-based agent CLIs, and future web parity rather than assumed.
 
 ## Technology Stack
 
@@ -54,14 +53,20 @@ Decided. Full rationale, alternatives considered, and sources live in `docs/rese
 
 **Do not use:** ElectricSQL, Triplit, PGlite as primary store, raw Automerge/Yjs as the board schema, NodeGit, isomorphic-git, `git2` for worktree ops, `better-sqlite3` as the canonical DB, libSQL/Turso, egui/iced. The sync engine (PowerSync vs Zero) is deferred to the relay milestone.
 
-## Conventions
-
-Conventions not yet established. Will populate as patterns emerge during development.
-
 ## Architecture
 
-Architecture not yet mapped. Follow existing patterns found in the codebase.
+See `ARCHITECTURE.md` at the repo root.
 
-## Project Skills
+## Agent skills
 
-No project skills found. Add skills to any of: `.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, `.github/skills/`, or `.codex/skills/` with a `SKILL.md` index file.
+### Issue tracker
+
+Issues are tracked in GitHub Issues on `HighKnow-ai/flywheel`, through the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one root `GLOSSARY.md` and one root `docs/adr/`. See `docs/agents/domain.md`.

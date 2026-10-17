@@ -983,7 +983,7 @@ invoked; this section is the self-conducted substitute, stated explicitly rather
 claimed, exactly as `01-02`/`01-03`/`01-04` documented for the same limitation. A live `tauri dev`
 capture was not attempted this session (no confirmed GUI display in this execution context);
 the review below is a structural/behavioral read of the built surface against `01-UI-SPEC.md` and
-`craft-floor.md`'s Verify/Refuse checklist — deferred to `/gsd-verify-work` for a live walkthrough,
+`craft-floor.md`'s Verify/Refuse checklist — deferred to a live human walkthrough,
 matching the precedent `01-04`'s coverage item D4 set.
 
 - **Detector:** `node ~/.claude/plugins/cache/impeccable/impeccable/4.0.4/skills/impeccable/scripts/detect.mjs
@@ -1025,7 +1025,7 @@ matching the precedent `01-04`'s coverage item D4 set.
 - **Live `tauri dev` walkthrough** — Task 2's `<human-check>` block (create three criteria with
   hints, check two, confirm the strip shows `2/3` without a rack re-render, move to Done and
   confirm the warning + one-keypress completion, confirm an issue has no criteria section) was
-  not run live this session — see coverage note above, deferred to `/gsd-verify-work`.
+  not run live this session — see coverage note above, deferred to a live human walkthrough.
 
 ## What the next plan inherits
 
@@ -1112,7 +1112,7 @@ invoked; this section is the self-conducted substitute, stated explicitly rather
 claimed, exactly as `01-02`/`01-03`/`01-04`/`01-06` documented for the same limitation. A live
 `tauri dev` capture was not attempted this session (no confirmed GUI display in this execution
 context); the review below is a structural/behavioral read of the built surface against
-`01-UI-SPEC.md` and `craft-floor.md`'s Verify/Refuse checklist — deferred to `/gsd-verify-work`
+`01-UI-SPEC.md` and `craft-floor.md`'s Verify/Refuse checklist — deferred to a live human walkthrough
 for a live walkthrough, matching the precedent `01-04`'s coverage item D4 and `01-06`'s own
 deferral set.
 
@@ -1155,7 +1155,7 @@ deferral set.
   for an issue. A later plan can wire it once issues gain their own selection model.
 - **Live `tauri dev` walkthrough.** Task 2's `<human-check>` block (press `p`/`e`/`a` on a strip,
   hold `⌘` and press `↓` three times, narrow to 900px, confirm no band header shows a total of
-  sizes) was not run live this session — see coverage note above, deferred to `/gsd-verify-work`.
+  sizes) was not run live this session — see coverage note above, deferred to a live human walkthrough.
 - **The activity trail** — `ItemDetailPanel.tsx`'s section boundary still reserves the space;
   `01-10` owns it, unchanged by this plan.
 
@@ -1243,7 +1243,7 @@ subagents named in Task 2's acceptance criteria could not be literally invoked, 
 `.impeccable/review/` screenshots were captured this session — this section is the
 self-conducted substitute, stated explicitly rather than silently claimed, exactly as
 `01-02`/`01-03`/`01-04`/`01-06`/`01-07` documented for the same limitation. Deferred to
-`/gsd-verify-work` for a live walkthrough, matching every prior plan's own deferral.
+a live human walkthrough, matching every prior plan's own deferral.
 
 - **Detector:** `node ~/.claude/plugins/cache/impeccable/impeccable/4.0.4/skills/impeccable/scripts/detect.mjs
   --json packages/desktop/src/board/FilterBar.tsx packages/desktop/src/board/BoardView.tsx`
@@ -1293,7 +1293,7 @@ self-conducted substitute, stated explicitly rather than silently claimed, exact
 - **Live `tauri dev` walkthrough.** Task 2's `<human-check>` block (type into the search field
   against a seeded 1,000-item project, apply a status+assignee filter together, clear the search,
   set a filter matching nothing, scroll the full list) was not run live this session — see
-  coverage note above, deferred to `/gsd-verify-work`, matching every prior plan's own deferral
+  coverage note above, deferred to a live human walkthrough, matching every prior plan's own deferral
   for this exact no-GUI-display limitation.
 - **List-scroll 60fps and keystroke-to-paint-under-250ms** (01-UI-SPEC.md Performance Contract)
   are UAT-only checks per that same document ("No automated e2e harness exists yet... treat as a
@@ -1491,7 +1491,7 @@ None that block this plan's own goal.
 - **Live `tauri dev` walkthrough** (Task 3's own `<human-check>` block — a full mouse-untouched
   session creating every item type, setting every field, reordering, searching, filtering, opening
   the legend from `⌘K`, and deleting an item) was not run live this session, matching every prior
-  plan's own deferral to `/gsd-verify-work` for the same no-confirmed-GUI-display limitation.
+  plan's own deferral to a live human walkthrough for the same no-confirmed-GUI-display limitation.
 - **Project-rail UI does not exist yet** (a later plan's surface per 01-UI-SPEC.md's own Surface
   Inventory). `⌘1`-`⌘9` and "Go to Project" are fully wired against `state/uiStore.ts`'s new
   `currentProjectId`, and `AppShell` in `App.tsx` now resolves the active project from it — but
@@ -1597,7 +1597,7 @@ Verify/Refuse checklist and the standing direction contract (`packages/desktop/i
 
 Screenshots of a long trail, a single-entry trail and the "Load more" boundary were not captured
 (no confirmed GUI display in this execution context, matching `01-02` through `01-09`'s own
-documented limitation) — deferred to `/gsd-verify-work`, same precedent as every prior plan's own
+documented limitation) — deferred to a live human walkthrough, same precedent as every prior plan's own
 `<human-check>` block.
 
 ## Known Stubs
@@ -1622,7 +1622,7 @@ None that block this plan's own goal. Every entry the trail renders comes from a
   only.
 - **Live `tauri dev` walkthrough** (this plan's own `<human-check>` block: create a task, rename
   it, change its status twice, add and check a criterion, then open it and read the trail) was not
-  run live this session, matching every prior plan's own deferral to `/gsd-verify-work` for the
+  run live this session, matching every prior plan's own deferral to a live human walkthrough for the
   same no-confirmed-GUI-display limitation.
 
 ## What the next plan inherits
@@ -1717,7 +1717,7 @@ None that block this plan's own goal. Every entry the trail renders comes from a
 
 **Screenshots were captured this time** — the first plan in this phase able to, per its own
 Craft floor review sections above (`01-02` through `01-10` all documented "no confirmed GUI
-display in this execution context" and deferred to `/gsd-verify-work`). This plan's executor ran
+display in this execution context" and deferred to a live human walkthrough). This plan's executor ran
 `npm run dev` (the Vite dev server alone, no Tauri shell) behind a headless Chromium
 (`playwright`), with `window.__TAURI_INTERNALS__.invoke` mocked via `page.addInitScript` to return
 canned `project_list`/`board_list`/`actor_list`/`project_register`/`project_relocate` responses —
@@ -1761,7 +1761,7 @@ script under `/tmp`, never committed to the repository).
   relaunch to see it go unreachable, then relocate it) was not run against a real Tauri shell this
   session — the headless-Chromium screenshots above prove the UI renders and responds correctly
   against a mocked IPC bridge, but not against the real Rust core or a real filesystem move.
-  Deferred to `/gsd-verify-work`, same precedent as every prior plan's own `<human-check>` block.
+  Deferred to a live human walkthrough, same precedent as every prior plan's own `<human-check>` block.
 
 ## What the next plan inherits
 
@@ -1845,7 +1845,7 @@ no GUI display available, matching most Phase 1 plans' own precedent, e.g. `01-0
 `01-10`). `npm --prefix packages/desktop run test`/`run build` and `cargo test -p core`/`-p
 desktop` are this plan's actual evidence; the plan's own `<verification>` block's manual step
 (press Start Work, read the briefing, cancel, confirm nothing was created) is deferred to
-`/gsd-verify-work` per `workflow.human_verify_mode: end-of-phase`, the same pattern 02-01/02-02/
+a live human walkthrough at the end of the phase, the same pattern 02-01/02-02/
 02-03 used for their own manual steps.
 
 ## Known Stubs
@@ -2257,8 +2257,7 @@ The Impeccable detector (`detect.mjs --json`) was run directly against
 Tauri shell or headless-Chromium screenshot pass was run this session (no GUI display available to
 this executor, matching every prior Phase 3 plan's own precedent) — `npm --prefix packages/desktop
 run test` (413/413) and `cargo test --workspace` (0 failed across every suite) are this plan's
-actual evidence; final visual confirmation is deferred to `/gsd-verify-work` per
-`workflow.human_verify_mode: end-of-phase`.
+actual evidence; final visual confirmation is deferred to a live human walkthrough at the end of the phase.
 
 ## Known Stubs
 

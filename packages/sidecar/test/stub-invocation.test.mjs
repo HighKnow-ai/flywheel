@@ -69,7 +69,7 @@ function copyStubInto(dir) {
  * binary (`target/<profile>/flywheel-sidecar`), not somewhere under `packages/`. */
 function scratchUnderBuildOutput() {
   fs.mkdirSync(BUILD_OUTPUT_DIR, { recursive: true });
-  const dir = fs.mkdtempSync(path.join(BUILD_OUTPUT_DIR, "gsd-stub-invocation-"));
+  const dir = fs.mkdtempSync(path.join(BUILD_OUTPUT_DIR, "flywheel-stub-invocation-"));
   scratchDirs.push(dir);
   return dir;
 }
@@ -77,7 +77,7 @@ function scratchUnderBuildOutput() {
 /** A scratch directory with no ancestor holding the `packages/sidecar/dist` marker at all — an OS
  * temporary directory, entirely outside the repository tree. */
 function scratchOutsideRepository() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gsd-stub-invocation-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-stub-invocation-"));
   scratchDirs.push(dir);
   return dir;
 }
