@@ -1,6 +1,6 @@
 /**
  * D-151 (phase 09, plan 09-01): the file-set scope gate. A standalone Node entry point invoked per
- * matched `PreToolUse` call — `writeHookSettings`'s third entry (`claude-code-adapter.ts`),
+ * matched `PreToolUse` call — `writeHookSettings`'s scope-gate entry (`claude-code-adapter.ts`),
  * matching `SCOPE_GATE_MATCHER` (`Write|Edit|MultiEdit|NotebookEdit`). The structure is
  * `stage-gate-hook.ts`'s: the hook payload is read from stdin and fully drained before anything is
  * decided; THIS session's `FLYWHEEL_RUN_ID` / `FLYWHEEL_RUNTIME_DIR` come from the hook's own
@@ -177,7 +177,7 @@ function refusalReason(decision: Record<string, unknown>): string {
 }
 
 async function main(): Promise<void> {
-  // Drained fully before any decision (the `pretooluse-hook.ts` / `stage-gate-hook.ts` discipline).
+  // Drained fully before any decision (the `stage-gate-hook.ts` discipline).
   const raw = await readStdin();
 
   // Identity: this hook's OWN environment, never the stdin payload (T-09-01-03).

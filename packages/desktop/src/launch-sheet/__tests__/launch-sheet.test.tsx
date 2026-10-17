@@ -69,63 +69,20 @@ describe("LaunchSheet", () => {
     );
   });
 
-  it("renders the four mode labels with Accept Edits selected by default", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
-    startMock.mockReset();
+  it("offers no permission-mode choice and starts every run in acceptEdits (ADR 0001)", async () => {
+    previewMock.mockReset().mockResolvedValue(makePacket());
+    startMock.mockReset().mockResolvedValue({ id: "run-1", taskId: "task-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
     await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
 
-    const acceptEdits = screen.getByRole("radio", { name: "Accept Edits" });
-    const plan = screen.getByRole("radio", { name: "Plan" });
-    const askEveryTime = screen.getByRole("radio", { name: "Ask Every Time" });
-    const bypass = screen.getByRole("radio", { name: "Bypass Permissions" });
+    expect(screen.queryByRole("radiogroup", { name: "Permission mode" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
 
-    expect(acceptEdits).toBeInTheDocument();
-    expect(plan).toBeInTheDocument();
-    expect(askEveryTime).toBeInTheDocument();
-    expect(bypass).toBeInTheDocument();
-    expect(acceptEdits).toHaveAttribute("aria-checked", "true");
-    expect(plan).toHaveAttribute("aria-checked", "false");
-  });
-
-  it.each([
-    ["Accept Edits", "acceptEdits"],
-    ["Plan", "plan"],
-    ["Ask Every Time", "default"],
-    ["Bypass Permissions", "bypassPermissions"],
-  ])("submits %s as the adapter value %s, with no relabeling", async (label, value) => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
-    startMock.mockReset().mockResolvedValue({ id: "run-1", taskId: "task-1", status: "running", permissionMode: value });
-    renderSheet();
-
-    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
-
-    fireEvent.click(screen.getByRole("radio", { name: label }));
     fireEvent.click(screen.getByRole("button", { name: "Start Work" }));
 
     await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
-    expect(startMock).toHaveBeenCalledWith("task-1", value, "");
-  });
-
-  it("A-08(c): Bypass Permissions alone is marked destructive, and alone prints what it does once chosen", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
-    renderSheet();
-    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
-
-    const consequence = /won't ask before editing files or running commands/;
-    const marked = screen.getAllByRole("radio").filter((r) => r.classList.contains("launch-mode-destructive"));
-    expect(marked.map((r) => r.textContent)).toEqual(["Bypass Permissions"]);
-    expect(screen.queryByText(consequence)).not.toBeInTheDocument();
-
-    for (const label of ["Plan", "Ask Every Time"]) {
-      fireEvent.click(screen.getByRole("radio", { name: label }));
-      expect(screen.queryByText(consequence)).not.toBeInTheDocument();
-    }
-    fireEvent.click(screen.getByRole("radio", { name: "Bypass Permissions" }));
-    expect(screen.getByText(consequence)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("radio", { name: "Accept Edits" }));
-    expect(screen.queryByText(consequence)).not.toBeInTheDocument();
+    expect(startMock).toHaveBeenCalledWith("task-1", "acceptEdits", "");
   });
 
   it("Cancel leaves the start command uncalled", async () => {

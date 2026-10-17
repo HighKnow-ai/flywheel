@@ -1,7 +1,7 @@
 /**
- * A direct unit test of `writeHookSettings`'s settings shape: the `Bash` destructive-gate entry
- * always, plus the file-set scope entry when `includeScopeGate` is set (plan 09-01, D-151), driven
- * against a scratch runtime directory.
+ * A direct unit test of `writeHookSettings`'s settings shape: no tool-call entry by default, and
+ * the file-set scope entry when `includeScopeGate` is set (plan 09-01, D-151), driven against a
+ * scratch runtime directory.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -15,43 +15,43 @@ function scratchRuntimeDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "flywheel-execution-hook-settings-"));
 }
 
-test("writeHookSettings without the scope flag writes exactly one PreToolUse entry whose matcher is Bash", () => {
+test("writeHookSettings without the scope flag writes no tool-call hook entry", () => {
   const runtimeDir = scratchRuntimeDir();
-  const runId = "run-execution-hook-settings-false";
-
-  const settingsPath = writeHookSettings(runtimeDir, runId);
+  const settingsPath = writeHookSettings(runtimeDir, "run-execution-hook-settings-false");
   assert.ok(settingsPath, "expected writeHookSettings to return a path");
 
   const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-  const entries = settings.hooks.PreToolUse;
-  assert.equal(entries.length, 1, "expected exactly one PreToolUse entry");
-  assert.equal(entries[0].matcher, "Bash");
+  assert.deepEqual(settings.hooks.PreToolUse, [], "expected no tool-call hook entry");
 });
 
 // Plan 09-01 (D-151): the scope PreToolUse entry. `includeScopeGate` defaults to false.
 
-test("writeHookSettings(true) adds exactly one scope entry after the Bash entry", () => {
+test("writeHookSettings(true) writes exactly the scope entry", () => {
   const runtimeDir = scratchRuntimeDir();
   const settingsPath = writeHookSettings(runtimeDir, "run-scope-only", true);
   assert.ok(settingsPath, "expected writeHookSettings to return a path");
 
   const entries = JSON.parse(fs.readFileSync(settingsPath, "utf8")).hooks.PreToolUse;
-  assert.equal(entries.length, 2, "expected the Bash entry plus the scope entry");
-  assert.equal(entries[0].matcher, "Bash");
-  assert.equal(entries[1].matcher, SCOPE_GATE_MATCHER);
-  assert.equal(entries[1].hooks.length, 1);
-  assert.equal(entries[1].hooks[0].type, "command");
+  assert.equal(entries.length, 1, "expected only the scope entry");
+  assert.equal(entries[0].matcher, SCOPE_GATE_MATCHER);
+  assert.equal(entries[0].hooks.length, 1);
+  assert.equal(entries[0].hooks[0].type, "command");
   assert.ok(
-    entries[1].hooks[0].command.includes(scopeHookScriptPath()),
+    entries[0].hooks[0].command.includes(scopeHookScriptPath()),
     "the scope entry must run the compiled scope hook script",
   );
 });
 
-test("the scope flag leaves the Bash entry and SessionStart byte-identical", () => {
+test("no settings entry matches Bash", () => {
+  const runtimeDir = scratchRuntimeDir();
+  const entries = JSON.parse(fs.readFileSync(writeHookSettings(runtimeDir, "run-no-bash", true), "utf8")).hooks.PreToolUse;
+  assert.equal(entries.some((e) => e.matcher === "Bash"), false);
+});
+
+test("the scope flag leaves SessionStart byte-identical", () => {
   const runtimeDir = scratchRuntimeDir();
   const without = JSON.parse(fs.readFileSync(writeHookSettings(runtimeDir, "run-w1", false), "utf8"));
   const withScope = JSON.parse(fs.readFileSync(writeHookSettings(runtimeDir, "run-w2", true), "utf8"));
-  assert.deepEqual(withScope.hooks.PreToolUse.slice(0, 1), without.hooks.PreToolUse);
   assert.deepEqual(withScope.hooks.SessionStart, without.hooks.SessionStart);
 });
 

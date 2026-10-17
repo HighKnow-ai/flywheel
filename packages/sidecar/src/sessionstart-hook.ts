@@ -5,13 +5,12 @@
  * (`code.claude.com/docs/en/hooks`, "CLAUDE_ENV_FILE" section — the official worked example is
  * literally a PATH prepend: `echo 'export PATH="$PATH:./node_modules/.bin"' >> "$CLAUDE_ENV_FILE"`).
  * `CLAUDE_ENV_FILE` is scoped to `SessionStart`/`Setup`/`CwdChanged`/`FileChanged` hooks only — it
- * is NOT available inside `PreToolUse`, which is why this is a second, independent hook
- * registration (`writeHookSettings`'s new `SessionStart` key, below) rather than an addition to
- * `pretooluse-hook.ts`.
+ * is NOT available inside tool-call hooks, which is why this is its own hook registration
+ * (`writeHookSettings`'s `SessionStart` key).
  *
- * **Derivation, not a second guess:** the shim directory is `dirname(process.env.FLYWHEEL_SHIM_BIN)`
- * — the SAME derivation `shimWillIntercept` (`pretooluse-hook.ts`) already uses to prove the
- * environment for the `PreToolUse` hook, never a second, independently-computed path.
+ * **Derivation, not a second guess:** the shim directory is `dirname(process.env.FLYWHEEL_SHIM_BIN)`,
+ * the value the adapter already derived from the shim's own `PATH` prefix, never a second,
+ * independently-computed path.
  *
  * **`[CITED]`, not `[VERIFIED]` (12-RESEARCH.md).** Whether `CLAUDE_ENV_FILE` is actually sourced
  * AFTER the shell snapshot — the ordering this whole mechanism depends on — is not proven by
@@ -23,16 +22,13 @@
  * Settings guide and Hooks guide about this variable's role, closed "not planned", no maintainer
  * resolution.
  *
- * **Why this hook's failure mode is a silent no-op, deliberately NOT `pretooluse-hook.ts`'s
- * fail-closed deny.** That hook denies on any uncertainty because it makes a permission decision —
- * letting an unproven environment through would silently widen the destructive-action gate. This
- * hook makes NO decision at all; its only effect is a best-effort PATH restoration. A throw here
- * would surface as a `SessionStart` hook error and could abort session startup, turning a
- * best-effort improvement into an outage — a far worse outcome than leaving today's unreliable PATH
- * premise exactly as unreliable as it already is (`docs/destructive-gate-trust-boundary.md`'s
- * "## Round ten"). Do NOT "fix" this into fail-closed by analogy with its sibling hook; the two have
- * no permission decision in common to be consistent about. The whole body below is wrapped in one
- * try/catch whose catch swallows to a silent no-op — no throw, no stdout, no stderr, exit 0.
+ * **Why this hook's failure mode is a silent no-op, not a fail-closed deny.** This hook makes NO
+ * permission decision; its only effect is a best-effort PATH restoration. A throw here would
+ * surface as a `SessionStart` hook error and could abort session startup, turning a best-effort
+ * improvement into an outage — a far worse outcome than leaving an unreliable PATH premise exactly
+ * as unreliable as it already is. Do NOT "fix" this into fail-closed by analogy with the gate
+ * hooks. The whole body below is wrapped in one try/catch whose catch swallows to a silent no-op —
+ * no throw, no stdout, no stderr, exit 0.
  */
 import { appendFileSync } from "node:fs";
 import { delimiter as pathDelimiter, dirname } from "node:path";

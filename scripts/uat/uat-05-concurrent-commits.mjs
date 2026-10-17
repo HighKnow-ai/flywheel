@@ -50,8 +50,8 @@ function fanoutScript(count) {
 # Ten concurrent committers against ONE repository (WORK-04/WORK-05).
 #
 # Every git invocation here is BARE and stays inside the "safe" classification set, so the
-# PreToolUse hook and the shim both let it through and what is actually exercised is the
-# concurrency guarantee rather than the destructive gate. In particular this avoids \`git -C\`
+# shim lets it through and what is actually exercised is the concurrency guarantee rather than
+# the destructive gate. In particular this avoids \`git -C\`
 # (the classifier reads it as uncategorized, i.e. fail-closed destructive) by cd-ing instead.
 set -u
 cd "$(dirname "$0")"

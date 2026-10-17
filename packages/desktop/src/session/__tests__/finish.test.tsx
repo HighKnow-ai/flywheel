@@ -169,42 +169,15 @@ describe("the launch sheet is a sheet on the per-mode overlay roles", () => {
     expect(css).not.toMatch(/animation|transition|opacity/);
   });
 
-  it("draws its fields and its modes from the control role, never the hairline", () => {
+  it("draws its fields from the control role, never the hairline", () => {
     // The hairline stays where it separates regions (header, footer, the compaction marker) and in the
     // loading skeleton's bars; a control's own edge is never drawn from it.
     const hairlines = code(launchSheet).split("\n").filter((line) => line.includes("--divider"));
     expect(hairlines.length).toBeGreaterThan(0);
     for (const line of hairlines) expect(line, line).toMatch(/border(Top|Bottom):|background:/);
     expect(launchSheet.match(/control-edge session-field launch-field/g)?.length).toBe(1);
-    expect(launchSheet).toContain("control-edge launch-mode");
   });
 
-  it("the chosen mode is told by an ink edge, a 2px ink foot rule and weight, not by the brand, a surface shift or a 2px box", () => {
-    const body = rule('.launch-mode[aria-checked="true"]');
-    expect(body).toMatch(/border-color:\s*var\(--selection-rule\)/);
-    expect(body).toMatch(/box-shadow:\s*inset 0 -2px 0 var\(--selection-rule\)/);
-    expect(body).toMatch(/font-weight:\s*600/);
-    expect(body).not.toMatch(/accent|row-surface/);
-  });
-});
-
-describe("A-08(c): Bypass Permissions is the destructive text role, never a fill", () => {
-  it("the stylesheet gives it the destructive text colour and no background, border or brand", () => {
-    const body = rule(".launch-mode.launch-mode-destructive");
-    expect(body).toMatch(/color:\s*var\(--destructive-text-rack\)/);
-    expect(body).not.toMatch(/background|border|accent|destructive-strip/);
-  });
-
-  it("an unchosen one hovers on the quiet inset wash, not App.css's --divider (4.2:1 in dark)", () => {
-    const hover = rule('.launch-mode.launch-mode-destructive[aria-checked="false"]:hover:not(:disabled)');
-    expect(hover).toMatch(/background:\s*transparent/);
-    expect(hover).toMatch(/box-shadow:\s*inset 0 0 0 1000px var\(--row-surface-hover\)/);
-  });
-
-  it("the sheet applies the class to the bypass mode only, and prints the consequence line for it", () => {
-    expect(code(launchSheet)).toMatch(/option\.value === BYPASS_MODE \? " launch-mode-destructive"/);
-    expect(code(launchSheet)).toMatch(/permissionMode === BYPASS_MODE &&/);
-  });
 });
 
 describe("focus rings", () => {

@@ -6,7 +6,7 @@
  *   1. Is P1 restored? `sessionstart-hook.ts` (plan 12-03) writes the shim's shadow directory onto
  *      `CLAUDE_ENV_FILE`, Claude Code's own documented PATH-restoration mechanism — but whether
  *      that file is actually SOURCED AFTER the shell snapshot, on the installed `claude` binary in
- *      headless mode, is `[CITED]` in `docs/destructive-gate-trust-boundary.md`, never `[VERIFIED]`.
+ *      headless mode, is `[CITED]` in the retired trust-boundary doc, never `[VERIFIED]`.
  *      This script measures the ordering directly: it compares the FIRST segment of the agent's
  *      own command shell's `PATH` against the shim directory for this run.
  *   2. Is an ordinary command still ordinary? `git --version` must still just run — a tool_result
@@ -20,8 +20,7 @@
  *      an invisible process into a fact.
  *
  * Every probe asserts on a file ITS OWN command wrote, inside the harness scratch directory —
- * never on the agent's narration of what it ran (`destructive-gate.test.mjs`'s own standing rule,
- * applied here to a live item). Probe 2 is the one exception: "ordinary" is a property of the
+ * never on the agent's narration of what it ran (a standing rule for live items). Probe 2 is the one exception: "ordinary" is a property of the
  * SESSION's event stream (a `tool_result` arrives, no `permission_request` interrupts it), not a
  * file, so it is asserted against the sidecar's own events exactly as `uat-07-launcher-shape-gate.mjs`
  * asserts its own harmless-probe property.

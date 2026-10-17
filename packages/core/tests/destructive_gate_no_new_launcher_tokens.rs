@@ -1,7 +1,7 @@
 //! Phase 12, plan 12-01 Task 2 (T-12-01): pins `packages/shim/src/main.rs`'s double-quoted
 //! string-literal set to a committed baseline. A forbidden-token list only ever catches the token
 //! someone thought of — this is the enumerate-and-hope pattern rounds five through nine of
-//! `docs/destructive-gate-trust-boundary.md` fought and is exactly what this phase's own scope
+//! the retired trust-boundary doc fought and is exactly what this phase's own scope
 //! fence exists to stop. A whole-set pin catches ANY new recognition token the classifier gains,
 //! including a launcher or wrapper token nobody has thought of yet, and turns a legitimate
 //! addition (e.g. a future `--gate-push` entry point) into a deliberate, reviewed baseline diff in
@@ -165,7 +165,7 @@ fn shim_main_string_literals_match_baseline() {
          ({}).\n\
          A new literal here — including any new launcher or wrapper recognition token — is the \
          specific regression this gate exists to catch (rounds five through nine of \
-         docs/destructive-gate-trust-boundary.md). If this is a deliberate, reviewed addition \
+         the retired trust-boundary doc). If this is a deliberate, reviewed addition \
          (e.g. a new --gate-push entry point), regenerate the baseline and justify the diff in \
          the commit message.\n\
          UNEXPECTED (present in main.rs, absent from baseline): {:?}\n\

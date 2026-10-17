@@ -339,8 +339,7 @@ proposal row in the authoring tray and the triage surface is the challenge row's
   authoring run, Accept subtree on a triage row (so every triage row has exactly one lead).
 - **Text action:** a caret and no box, for the lower-ranked answer (Deny on a routine permission card).
 - **Destructive:** the destructive text role on a 2px edge with an icon, never a fill (Delete, Kill All,
-  worktree Remove). `Bypass Permissions` in the launch sheet takes the same text role plus a one-line
-  consequence printed when it is chosen.
+  worktree Remove).
 
 ### Inputs, chips and pickers
 

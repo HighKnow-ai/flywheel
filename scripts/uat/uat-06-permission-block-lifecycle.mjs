@@ -20,8 +20,7 @@
  * It is now false in the best way: uat-03 is supervised by default, so nothing but these two
  * deliberate opt-outs (this arm and `uat-01-supervisor-kill.sh`) runs unsupervised any more.
  *
- * Does NOT touch `packages/core/src/destructive.rs`, `packages/shim/src/main.rs`, or
- * `packages/sidecar/src/pretooluse-hook.ts`. Does NOT modify `uat-03-destructive-gate.mjs`, which
+ * Does NOT touch `packages/core/src/destructive.rs` or `packages/shim/src/main.rs`. Does NOT modify `uat-03-destructive-gate.mjs`, which
  * keeps its own copy of the incidental-permission-request drain loop on purpose (a verified
  * artifact of the previous verification round) — this script imports the shared, generalised copy
  * from `lib/sidecar-harness.mjs` instead.
@@ -49,7 +48,7 @@ import {
 const DOOMED_BRANCH = "uat-doomed-branch";
 
 /** How long to wait for the deliberate permission_request to be raised at all — a real turn was
- * measured at 2-11 seconds in `destructive-gate.test.mjs`; generous margin for a live model call. */
+ * measured at 2-11 seconds; generous margin for a live model call. */
 const REQUEST_DEADLINE_MS = 120_000;
 
 /** How long to watch, WITHOUT answering, once the deliberate request has arrived — resolves early
