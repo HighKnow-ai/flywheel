@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "packages/core",
-    "packages/relay-client",
     "packages/desktop/src-tauri",
     "packages/shim",
 ]
