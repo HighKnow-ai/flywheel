@@ -4,8 +4,10 @@ name: CI
 # prerequisites listed in README.md. The commands below are the README's
 # "Building from source" commands, in the same order.
 
+# A PR branch runs once, on pull_request; push only covers main itself.
 on:
   push:
+    branches: [main]
   pull_request:
 
 concurrency:

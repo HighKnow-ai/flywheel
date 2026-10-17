@@ -13,10 +13,15 @@ use core::domain::epic::create_epic;
 use core::domain::task::create_task;
 use core::domain::worktree::ensure_worktree;
 
+/// `cargo test` runs this binary's two tests concurrently, and `FLYWHEEL_WORKTREE_ROOT` is
+/// process-global: unserialized, one test's root vanished under the other mid-write (NotFound).
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: tests in this crate run single-threaded per binary and this helper always clears
-    // the var before returning.
+    // SAFETY: `ENV_LOCK` serializes every test in this binary, and this helper always clears the
+    // var before returning.
     unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
     let result = f();
     unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };

@@ -72,10 +72,10 @@ can check, not intentions.
   manifest line that names it, outside its own directory, is `"packages/relay-client"` in the root
   `Cargo.toml` `members` list. (`Cargo.lock` records it as a workspace package, which is derived
   from that list.)
-- The application is fully functional with the crate **absent**. The CI workflow
-  `.github/workflows/open-core.yml` deletes `packages/relay-client`, removes it from `members`, and
-  runs the full build and test suite (DIST-04, D-193). If any open-source code came to depend on the
-  seam, that job fails.
+- The application is meant to be fully functional with the crate **absent**. A CI workflow
+  (`open-core.yml`, DIST-04, D-193) used to prove it by deleting the crate and re-running the whole
+  suite; it was removed because the MVP plan deletes the crate itself, and nothing checks the
+  boundary until then.
 - The commercial side lives in no file of this repository. When it exists, it attaches here: the
   client reads the event-log cursor from `packages/core` (§4) and posts batches to a configured
   relay URL, off by default.
