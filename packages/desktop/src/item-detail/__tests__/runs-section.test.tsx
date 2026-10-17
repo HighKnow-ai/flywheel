@@ -389,7 +389,6 @@ describe("RunsSection — session summary card (plan 04-09 Task 3)", () => {
       remains: "Nothing left.",
       nextSessionMustKnow: "Watch out for the flaky test.",
       decisions: [],
-      folded: false,
       ...overrides,
     };
   }

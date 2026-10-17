@@ -140,15 +140,15 @@ impl ProposalTargetType {
     ];
 }
 
-/// Phase 15 (D-01): how a staged draft becomes board state.
+/// Phase 15 (D-01): which staged drafts count against the project's open-drafts cap.
 ///
-/// - `Explicit`: a human accepts it by name. The things an agent EXECUTES AGAINST (criteria, and
-///   later file-sets) stay under human authority.
-/// - `Provisional`: it lands ghosted in the one item form and confirms itself when the human starts
-///   the work (D-03); reject is the undo (D-04). Titles, bodies and priority suggestions.
+/// - `Explicit`: the things an agent EXECUTES AGAINST (criteria, and later file-sets); counted by
+///   [`OPEN_DRAFTS_PER_PROJECT`].
+/// - `Provisional`: titles, bodies and priority suggestions; neither counted nor refused by the cap.
 ///
-/// The two tiers never meet in one row, which is what lets Start Work's confirm touch only the
-/// provisional tier and need no exemption from the no-bulk-accept gate (D-07).
+/// Every draft, of either tier, still reaches the board only through a human accept or amend. The
+/// Start Work auto-confirm that once decided the `Provisional` tier was deleted with the rest of the
+/// provisional tier; only the cap's classification survives here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AcceptanceTier {
     Explicit,
@@ -157,7 +157,7 @@ pub enum AcceptanceTier {
 
 /// D-01, declared exactly once. An exhaustive `match` with no wildcard: a new
 /// [`ProposalTargetType`] cannot compile until it is given a tier. The project cap
-/// ([`OPEN_DRAFTS_PER_PROJECT`]) and Start Work's confirm both read this, never a literal list.
+/// ([`OPEN_DRAFTS_PER_PROJECT`]) reads this, never a literal list.
 pub const fn acceptance_tier(target_type: ProposalTargetType) -> AcceptanceTier {
     match target_type {
         ProposalTargetType::Criterion => AcceptanceTier::Explicit,
@@ -433,8 +433,8 @@ pub const fn proposal_limit(kind: RunKind) -> usize {
 /// **A first setting to instrument against, not a tuned one** — D-27's post-accept revision rate is
 /// what argues for changing it. Declared exactly once, never a settings key, never a `projects`
 /// column, never an environment override (D-69's house style and [`proposal_limit`]'s own form).
-/// Provisional-tier drafts (titles, bodies, priority suggestions) confirm themselves at Start Work
-/// and cost no attention, so they neither count toward it nor are refused by it (D-14).
+/// Provisional-tier drafts (titles, bodies, priority suggestions) neither count toward it nor are
+/// refused by it (D-14).
 pub const OPEN_DRAFTS_PER_PROJECT: usize = 30;
 
 /// What a refused run is told to do with the item it could not stage, for a planning run. Names no
@@ -1481,67 +1481,6 @@ pub fn accept_proposal(
     Ok(outcome)
 }
 
-/// D-07's guard: Start Work's confirm decides the PROVISIONAL tier only. An explicit-tier draft (a
-/// criterion, and later a file-set) reaching the confirm is a loud error, never a silent skip: the
-/// no-bulk-accept gate stays narrow only while this holds, so a blur between the two tiers must fail
-/// where it is introduced. A `target_type` this build does not recognise counts as explicit, the
-/// same fail-safe [`acceptance_tier_of_db_str`] applies.
-pub fn refuse_explicit_tier(target_type: &str) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        acceptance_tier_of_db_str(target_type) == AcceptanceTier::Provisional,
-        "a {target_type:?} draft is explicit-tier (D-01): Start Work confirms the provisional tier \
-         only, and a human accepts this one by name"
-    );
-    Ok(())
-}
-
-/// Confirm, inside the caller's transaction, every provisional value pending on `task_id` (D-03).
-///
-/// Each pending provisional-tier `amend` proposal, in staging `position` order, is decided through
-/// [`accept_proposal_in_tx`] and so materialises through the canonical writers `tasks` already owns,
-/// exactly as a human accept does. This function issues no write of its own: an agent-authored
-/// value reaching the board by any other route would break the no-promotion guarantee. The read it
-/// iterates is already tier-filtered and each proposal's tier is asserted again before it is
-/// accepted. A value the human rejected is no longer pending and is not read; a task with nothing
-/// pending returns `0` having written and appended nothing.
-pub(crate) fn confirm_provisional_values_in_tx(
-    tx: &Transaction,
-    actor_id: &str,
-    task_id: &str,
-    now: &str,
-) -> anyhow::Result<usize> {
-    crate::domain::actor::assert_human_actor_in_tx(tx, actor_id)?;
-    let pending = crate::query::provisional_values::pending_provisional_amendments(tx, "task", task_id)?;
-    let mut confirmed = 0;
-    for amendment in pending {
-        let proposal = fetch_proposal(tx, &amendment.proposal_id)?;
-        refuse_explicit_tier(&proposal.target_type)?;
-        accept_proposal_in_tx(tx, &amendment.proposal_id, actor_id, now)?;
-        confirmed += 1;
-    }
-    Ok(confirmed)
-}
-
-/// Starting work on `task_id` confirms the provisional values on it (DRFT-03, D-03, D-04).
-///
-/// Takes ONE task id and nothing else: never a list, never a selection, and reachable from no UI
-/// control of its own. It is a consequence of the human's own Start Work act, called from
-/// `start_agent_run` in the same transaction that inserts the run row, which is what freezes the
-/// task's criteria (BOARD-03), so the freeze point and the confirm point are one site. Reject is
-/// the undo until then; afterwards the values are ordinary board state edited the ordinary way, with
-/// no timer, no window and no expiry row. Returns how many proposals were confirmed.
-pub fn confirm_provisional_values_for_task(
-    conn: &mut Connection,
-    actor_id: &str,
-    task_id: &str,
-) -> anyhow::Result<usize> {
-    let now = chrono::Utc::now().to_rfc3339();
-    let tx = conn.transaction()?;
-    let confirmed = confirm_provisional_values_in_tx(&tx, actor_id, task_id, &now)?;
-    tx.commit().context("failed to commit the provisional confirm")?;
-    Ok(confirmed)
-}
-
 /// The at-most-one-parent-at-a-time target [`merge_proposal`] attaches a child issue to —
 /// mirrors [`crate::domain::issue::IssueParent`]'s own guarantee (`Task`/`Epic`, never both) so a
 /// caller cannot name two parents for the same merge.
@@ -1892,8 +1831,8 @@ const MAX_PROPOSAL_TEXT_LEN: usize = 1000;
 /// D-07's mixed-tier refusal (a payload carrying a provisional-tier field AND an explicit-tier one)
 /// has no shape to refuse: every [`ProposalPayload`] variant maps to exactly one
 /// [`acceptance_tier`], and that `match` is exhaustive, so a variant that blurred the tiers would
-/// have to be added there first, where `tests/provisional_tier.rs` fails the build until it is
-/// given a tier.
+/// have to be added there first, where the exhaustive `match` fails the build until it is given a
+/// tier.
 fn validate_payload(payload: &ProposalPayload) -> anyhow::Result<()> {
     match payload {
         ProposalPayload::Epic { title, description, priority }
