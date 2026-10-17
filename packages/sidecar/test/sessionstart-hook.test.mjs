@@ -128,7 +128,7 @@ test("degrade arm: a shim directory containing a space is quoted in the emitted 
 
 test("settings-shape arm: writeHookSettings carries a SessionStart entry alongside an untouched PreToolUse entry", () => {
   const runtimeDir = scratchDir();
-  const settingsPath = writeHookSettings(runtimeDir, "run-sessionstart-shape", false);
+  const settingsPath = writeHookSettings(runtimeDir, "run-sessionstart-shape");
   assert.ok(settingsPath, "expected writeHookSettings to return a path");
 
   const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
@@ -141,13 +141,3 @@ test("settings-shape arm: writeHookSettings carries a SessionStart entry alongsi
   assert.ok(sessionStart[0].hooks[0].command.endsWith("sessionstart-hook.js"));
 });
 
-test("settings-shape arm: the authoring-stage-gate PreToolUse array length is unchanged by the SessionStart addition", () => {
-  const runtimeDir = scratchDir();
-  const settingsPath = writeHookSettings(runtimeDir, "run-sessionstart-shape-stage-gate", true);
-  const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-  // 2 is the PreToolUse count writeHookSettings(true) produced before this plan
-  // (execution-hook-settings.test.mjs's own "exactly two PreToolUse entries" assertion) — this
-  // test's job is proving the SessionStart addition did not perturb that count.
-  assert.equal(settings.hooks.PreToolUse.length, 2);
-  assert.equal(settings.hooks.SessionStart.length, 1);
-});
