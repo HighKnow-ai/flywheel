@@ -61,18 +61,18 @@ fn spawn_and_kill(args: &[&str]) {
     );
 }
 
-fn task_count(conn: &rusqlite::Connection) -> i64 {
-    conn.query_row("SELECT COUNT(*) FROM tasks", [], |row| row.get(0))
-        .expect("failed to count tasks")
+fn milestone_count(conn: &rusqlite::Connection) -> i64 {
+    conn.query_row("SELECT COUNT(*) FROM milestones", [], |row| row.get(0))
+        .expect("failed to count Milestones")
 }
 
 fn created_event_count(conn: &rusqlite::Connection) -> i64 {
     conn.query_row(
-        "SELECT COUNT(*) FROM events WHERE event_type = 'task.created'",
+        "SELECT COUNT(*) FROM events WHERE event_type = 'milestone.created'",
         [],
         |row| row.get(0),
     )
-    .expect("failed to count task.created events")
+    .expect("failed to count milestone.created events")
 }
 
 fn integrity_check(conn: &rusqlite::Connection) -> String {
@@ -86,7 +86,7 @@ fn journal_mode(conn: &rusqlite::Connection) -> String {
 }
 
 #[test]
-fn killing_after_commits_preserves_every_committed_task_and_event() {
+fn killing_after_commits_preserves_every_committed_milestone_and_event() {
     let dir = scratch_dir();
     let db_path = dir.path().join("flywheel.db");
     let backups_dir = dir.path().join("backups");
@@ -102,14 +102,14 @@ fn killing_after_commits_preserves_every_committed_task_and_event() {
         .expect("reopening after the kill should succeed");
 
     assert_eq!(
-        task_count(&conn),
+        milestone_count(&conn),
         5,
-        "every task committed before the kill must still be present"
+        "every Milestone committed before the kill must still be present"
     );
     assert_eq!(
         created_event_count(&conn),
         5,
-        "every task.created event committed before the kill must still be present"
+        "every milestone.created event committed before the kill must still be present"
     );
     assert_eq!(integrity_check(&conn), "ok");
     assert_eq!(journal_mode(&conn).to_lowercase(), "wal");
@@ -131,9 +131,9 @@ fn killing_mid_transaction_leaves_neither_the_row_nor_its_event() {
         .expect("reopening after the kill should succeed");
 
     assert_eq!(
-        task_count(&conn),
+        milestone_count(&conn),
         0,
-        "the mid-transaction task row must not have been committed"
+        "the mid-transaction Milestone row must not have been committed"
     );
     assert_eq!(
         created_event_count(&conn),

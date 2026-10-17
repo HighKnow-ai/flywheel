@@ -1,49 +1,44 @@
-//! `start_agent_run` / `close_agent_run` / `apply_session_closed` (D-29, D-30, D-34, DATA-04): the
-//! transactional-outbox write that turns "Start Work" into a trigger row, an `agent_runs` row, and
-//! — when the task isn't already `in_progress` — a task status change attributed to the agent
-//! actor, all inside one transaction.
+//! A Story's agent sessions — the `sessions` table (D-29, D-30, D-34, DATA-04): `start_agent_run`,
+//! `close_agent_run`, `apply_session_closed`, the Stop and abandon paths and the launch reconciler.
+//! Every session belongs to exactly one Story and runs in that Story's worktree; it is always a
+//! fresh session, never `claude --resume`.
 //!
-//! Nothing in this module ever moves a task OUT of `in_progress` — that is `close_agent_run`'s
-//! (and, per G-02-4, `apply_session_closed`'s) explicit non-behavior, matching this phase's
-//! load-bearing prohibition: an agent must never move a task out of `in_progress` and must never
-//! check off its own acceptance criteria. D-29 locks it: "Starting a session moves the task to In
-//! Progress; nothing ever moves it out." This is stated a second time here — deliberately —
-//! because an earlier revision of `02-UAT.md`'s own impact note read this the other way round,
-//! naming that transition as `close_agent_run`'s responsibility. That reading is backwards; this
-//! doc comment and D-29 are the authoritative statement, not that note.
+//! Nothing in this module writes a Story state, and no session can accept its own criteria:
+//! `story::set_story_state` and `acceptance_criterion::accept_criterion` are the only writers of
+//! those, and neither is reachable from here.
 //!
-//! `apply_session_closed` (G-02-4) is the terminal-event applier — the missing link between the
-//! sidecar's `session_closed` event and the run's row. `close_agent_run` was always correct and
-//! thoroughly unit-tested; what was missing was a caller. `apply_session_closed` is that caller,
-//! and it also owns the idempotency decision D-35's explicit-Stop path requires: a terminal event
-//! must never overwrite a status `interrupt_agent_run` already wrote, and must never append a
-//! second terminal event for the same run.
+//! `apply_session_closed` (G-02-4) is the terminal-event applier — the link between the sidecar's
+//! `session_closed` event and the session's row. It also owns the idempotency decision D-35's
+//! explicit-Stop path requires: a terminal event must never overwrite a status
+//! `interrupt_agent_run` already wrote, and must never append a second terminal event for the same
+//! session.
+//!
+//! The Rust names keep the `agent_run` spelling of the plumbing this module was kept from; the
+//! table they read and write is `sessions`.
 
 use anyhow::Context;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::domain::event::{append_event, next_sequence};
-use crate::domain::trigger::create_user_action_trigger;
 use crate::domain::worktree::ensure_worktree;
-use crate::drift::DriftWarning;
 use crate::ids::{is_ulid, new_id};
 use crate::runtime_protocol::{self, KillRecordRead};
 use crate::session_log::session_log_path;
 
-/// The prompt a task run starts with while the MVP's Context packet does not exist yet: issue #38
-/// deleted the old packet builder, and the packet is rebuilt by a later Story. The task's key,
-/// title and description, its current acceptance criteria in rank order (the revisions the run's
-/// pin records), then the operator's instruction when there is one. A stand-in, not the packet.
-pub fn stand_in_launch_prompt(conn: &Connection, task_id: &str, instruction: &str) -> anyhow::Result<String> {
+/// The prompt a Story session starts with while the MVP's Context packet does not exist yet: issue
+/// #38 deleted the old packet builder, and the packet is rebuilt by a later Story. The Story's key,
+/// title and description, its acceptance criteria in order, then the operator's instruction when
+/// there is one. A stand-in, not the packet.
+pub fn stand_in_launch_prompt(conn: &Connection, story_id: &str, instruction: &str) -> anyhow::Result<String> {
     let (key, title, description): (String, String, Option<String>) = conn
         .query_row(
-            "SELECT key, title, description FROM tasks WHERE id = ?1",
-            params![task_id],
+            "SELECT key, title, description FROM stories WHERE id = ?1",
+            params![story_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
-        .with_context(|| format!("task {task_id:?} not found"))?;
-    let criteria = crate::domain::acceptance_criterion::list_current_criteria(conn, "task", task_id)?;
+        .with_context(|| format!("Story {story_id:?} not found"))?;
+    let criteria = crate::domain::acceptance_criterion::criteria_for_story(conn, story_id)?;
 
     let mut out = format!("# {key}: {title}\n");
     if let Some(description) = description.filter(|d| !d.trim().is_empty()) {
@@ -62,144 +57,33 @@ pub fn stand_in_launch_prompt(conn: &Connection, task_id: &str, instruction: &st
     Ok(out)
 }
 
-/// One `agent_runs` row, as read back immediately after [`start_agent_run`] or
-/// [`start_authoring_run`] commits.
-///
-/// D-84's assumption-delta promote: `task_id` is `Option<String>` because a run's subject is no
-/// longer always a task — an authoring session (`domain::authoring_session::start_authoring_run`)
-/// carries `epic_id` instead, or neither while a fresh epic is still being shaped. [`run_subject`]
-/// is the ONE read path for "what is this run about"; a call site that needs to answer that
-/// question should call it rather than reading `.task_id`/`.epic_id` directly.
+/// One `sessions` row, as read back immediately after [`start_agent_run`] commits.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentRun {
     pub id: String,
     pub worktree_id: Option<String>,
-    pub task_id: Option<String>,
-    pub epic_id: Option<String>,
+    pub story_id: String,
     pub project_id: String,
-    pub trigger_id: String,
     pub adapter: String,
     pub actor_id: String,
     pub status: AgentRunStatus,
     pub external_session_id: Option<String>,
     pub permission_mode: String,
     pub log_path: String,
-    pub authoring_stage: Option<String>,
 }
 
-/// What an `agent_runs` row is ABOUT (D-84's assumption-delta promote) — the one read path every
-/// call site that needs to answer "what is this run about" should use, rather than reading
-/// `.task_id`/`.epic_id` off a row directly. A run can never carry both (the schema's own
-/// `CHECK (NOT (task_id IS NOT NULL AND epic_id IS NOT NULL))` in migration
-/// `0010_authoring_runs.sql` makes the third combination unrepresentable), so this enum's three
-/// variants are exhaustive.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RunSubject {
-    Task(String),
-    Epic(String),
-    Unbound,
+/// The Story a session works and that Story's Epic — the scope every session event carries.
+fn session_scope(tx: &Connection, agent_run_id: &str) -> anyhow::Result<Option<(String, String, String)>> {
+    tx.query_row(
+        "SELECT r.project_id, r.story_id, s.epic_id FROM sessions r JOIN stories s ON s.id = r.story_id WHERE r.id = ?1",
+        params![agent_run_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .optional()
+    .context("failed to read the session's Story")
 }
 
-/// Resolve `agent_run_id`'s subject (D-84) by reading `task_id`/`epic_id` straight off the row —
-/// the one place in this crate that turns those two nullable columns into a single answer.
-pub fn run_subject(conn: &Connection, agent_run_id: &str) -> anyhow::Result<RunSubject> {
-    let (task_id, epic_id): (Option<String>, Option<String>) = conn
-        .query_row(
-            "SELECT task_id, epic_id FROM agent_runs WHERE id = ?1",
-            params![agent_run_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
-
-    Ok(match (task_id, epic_id) {
-        (Some(task_id), None) => RunSubject::Task(task_id),
-        (None, Some(epic_id)) => RunSubject::Epic(epic_id),
-        (None, None) => RunSubject::Unbound,
-        (Some(_), Some(_)) => unreachable!(
-            "agent_runs' own CHECK constraint forbids a row carrying both task_id and epic_id"
-        ),
-    })
-}
-
-/// What KIND of session an `agent_runs` row is — the one definition (plan 13-11, F6). Before it,
-/// every site that needed the kind (the planning-run guard, the planning-run read, the authoring
-/// run list, the running-authoring-run read, the fleet subject, the plan-submission authority) wrote
-/// its own copy of "which columns are null" and they could disagree.
-///
-/// Precedence, in this order: a non-null `authoring_stage` is [`RunKind::Authoring`] whatever the
-/// scope; else a non-null `task_id` is [`RunKind::Execution`]; else a non-null `epic_id` is
-/// [`RunKind::Planning`]; else the run belongs to nothing and [`RunKind::classify`] errors rather
-/// than guess.
-///
-/// There is deliberately NO `kind` column on `agent_runs`. The defect F6 names is the duplication,
-/// which this removes; a queryable column would also need a table rebuild to carry a CHECK
-/// constraint, and `agent_runs` is referenced by `permission_requests`, `session_summaries`,
-/// `authoring_proposals`, `dispatch_plan_tasks` and `task_file_set_entries`. Revisit when a
-/// requirement needs to `GROUP BY` run kind in SQL.
-///
-/// The SQL half, which mirrors this classifier's corresponding arms and must be changed together
-/// with it:
-/// - [`RUN_KIND_PLANNING_PREDICATE`] for `Planning`
-/// - [`RUN_KIND_AUTHORING_PREDICATE`] for `Authoring`
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RunKind {
-    /// A session working one task in its worktree.
-    Execution,
-    /// The pre-dispatch pass that orders an epic's tasks into a plan.
-    Planning,
-    /// An epic-authoring conversation (it carries a stage).
-    Authoring,
-}
-
-impl RunKind {
-    /// Classify from the three columns that carry the kind. See the type's doc for the precedence.
-    pub fn classify(
-        task_id: Option<&str>,
-        epic_id: Option<&str>,
-        authoring_stage: Option<&str>,
-    ) -> anyhow::Result<RunKind> {
-        if authoring_stage.is_some() {
-            Ok(RunKind::Authoring)
-        } else if task_id.is_some() {
-            Ok(RunKind::Execution)
-        } else if epic_id.is_some() {
-            Ok(RunKind::Planning)
-        } else {
-            anyhow::bail!("agent run is unscoped: no stage, no task and no epic")
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            RunKind::Execution => "execution",
-            RunKind::Planning => "planning",
-            RunKind::Authoring => "authoring",
-        }
-    }
-}
-
-/// SQL mirror of [`RunKind::classify`]'s `Planning` arm, to be spliced into a `WHERE` that already
-/// scopes by `epic_id`. Change it together with the classifier.
-pub const RUN_KIND_PLANNING_PREDICATE: &str = "task_id IS NULL AND authoring_stage IS NULL";
-
-/// SQL mirror of [`RunKind::classify`]'s `Authoring` arm. Change it together with the classifier.
-pub const RUN_KIND_AUTHORING_PREDICATE: &str = "authoring_stage IS NOT NULL";
-
-/// The kind of `agent_run_id`, read off its row — for callers that hold only an id.
-pub fn run_kind_for(conn: &Connection, agent_run_id: &str) -> anyhow::Result<RunKind> {
-    let (task_id, epic_id, stage): (Option<String>, Option<String>, Option<String>) = conn
-        .query_row(
-            "SELECT task_id, epic_id, authoring_stage FROM agent_runs WHERE id = ?1",
-            params![agent_run_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
-    RunKind::classify(task_id.as_deref(), epic_id.as_deref(), stage.as_deref())
-        .with_context(|| format!("agent_run {agent_run_id:?}"))
-}
-
-/// The six values `agent_runs.status`'s CHECK constraint accepts (migration
-/// `0003_agent_runtime.sql`, `Abandoned` added by migration `0006_recovery_statuses.sql`, D-49).
+/// The six values `sessions.status`'s CHECK constraint accepts (the baseline migration, D-49).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentRunStatus {
     Running,
@@ -226,7 +110,7 @@ impl AgentRunStatus {
     }
 }
 
-/// Resolve the id of the seeded agent actor (migration `0003_agent_runtime.sql`'s `type = 'agent'`
+/// Resolve the id of the seeded agent actor (the baseline's `type = 'agent'`
 /// row, display name "Claude Code") — every agent-started run is attributed to this actor, never
 /// to the human who clicked Start Work (D-29).
 pub fn agent_actor_id(conn: &Connection) -> anyhow::Result<String> {
@@ -240,32 +124,23 @@ pub fn agent_actor_id(conn: &Connection) -> anyhow::Result<String> {
     Ok(id)
 }
 
-/// Start a new agent run against `task_id` (D-30: always a fresh run, never `--resume`).
+/// Start a new session on `story_id` (D-30: always a fresh session, never `--resume`).
 ///
-/// Ensures the task's worktree exists first (create-or-reuse, `domain::worktree::ensure_worktree`
+/// Ensures the Story's worktree exists first (create-or-reuse, `domain::worktree::ensure_worktree`
 /// — its own inner transaction, committed before this function opens its own). Then, in ONE
-/// transaction: creates a `user_action` trigger, inserts the `agent_runs` row with
-/// `status = 'running'` and appends `agent_run.started`. `human_actor_id` is recorded as the actor
-/// who *initiated* the trigger (D-29).
+/// transaction: inserts the `sessions` row with `status = 'running'` and appends
+/// `agent_run.started`, attributed to the agent actor.
 ///
-/// This function writes no task status, and no agent-attributed path does (DRFT-04, D-13): a run
-/// only starts once a worktree exists, and the worktree's creation is what moves the card to
-/// `in_progress`, through `status_derivation`. Starting a run is not a status signal.
-///
-/// D-REV-39 IN-02: the fan-out dispatcher passes the SYSTEM actor here, never the local human. A
-/// start initiated by the system actor is automatic, and says so the way the automatic merge does
-/// (D-156): the worktree, the trigger and the other events name the system actor, the trigger's
-/// `config` carries `{"automatic":true}`, and the `agent_run.started` payload carries `automatic:
-/// true`. The flag is derived from the actor's type rather than passed beside it, so the two cannot
-/// disagree.
+/// This function writes no Story state (DRFT-04, D-13): starting a session is not a state signal.
+/// Ready → Running is the developer's act, through `story::set_story_state`.
 pub fn start_agent_run(
     conn: &mut Connection,
-    task_id: &str,
+    story_id: &str,
     permission_mode: &str,
     human_actor_id: &str,
 ) -> anyhow::Result<AgentRun> {
-    let worktree = ensure_worktree(conn, task_id, human_actor_id)
-        .with_context(|| format!("failed to ensure a worktree for task {task_id:?}"))?;
+    let worktree = ensure_worktree(conn, story_id, human_actor_id)
+        .with_context(|| format!("failed to ensure a worktree for Story {story_id:?}"))?;
 
     let agent_id = agent_actor_id(conn)?;
     let now = Utc::now().to_rfc3339();
@@ -274,50 +149,32 @@ pub fn start_agent_run(
 
     let tx = conn.transaction()?;
 
-    let automatic: bool = tx
-        .query_row("SELECT type = 'system' FROM actors WHERE id = ?1", params![human_actor_id], |r| r.get(0))
+    tx.query_row("SELECT 1 FROM actors WHERE id = ?1", params![human_actor_id], |r| r.get::<_, i64>(0))
         .with_context(|| format!("initiating actor {human_actor_id:?} not found"))?;
 
-    let project_id: String = tx
-        .query_row("SELECT project_id FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
-        .with_context(|| format!("task {task_id:?} not found"))?;
-
-    let trigger_id = create_user_action_trigger(&tx, &project_id, task_id, human_actor_id, &now)?;
-    if automatic {
-        tx.execute("UPDATE triggers SET config = '{\"automatic\":true}' WHERE id = ?1", params![trigger_id])
-            .context("failed to flag the trigger automatic")?;
-    }
+    let (project_id, epic_id): (String, String) = tx
+        .query_row("SELECT project_id, epic_id FROM stories WHERE id = ?1", params![story_id], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .with_context(|| format!("Story {story_id:?} not found"))?;
 
     tx.execute(
-        "INSERT INTO agent_runs (
-            id, worktree_id, task_id, project_id, trigger_id, adapter, actor_id, status,
+        "INSERT INTO sessions (
+            id, story_id, worktree_id, project_id, adapter, actor_id, status,
             external_session_id, permission_mode, cost_usd, tokens_in, tokens_out, log_path,
             started_at, ended_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, 'claude_code', ?6, 'running', NULL, ?7, NULL, NULL, NULL, ?8, ?9, NULL)",
-        params![
-            run_id,
-            worktree.id,
-            task_id,
-            project_id,
-            trigger_id,
-            agent_id,
-            permission_mode,
-            log_path,
-            now,
-        ],
+        ) VALUES (?1, ?2, ?3, ?4, 'claude_code', ?5, 'running', NULL, ?6, NULL, NULL, NULL, ?7, ?8, NULL)",
+        params![run_id, story_id, worktree.id, project_id, agent_id, permission_mode, log_path, now],
     )
-    .context("failed to insert agent_runs row")?;
+    .context("failed to insert the sessions row")?;
 
     let sequence = next_sequence(&tx, &project_id, "local")?;
-    let mut started_payload = serde_json::json!({
+    let started_payload = serde_json::json!({
         "field": "agent_run",
         "before": null,
         "after": run_id,
         "label": "Started agent run",
     });
-    if automatic {
-        started_payload["automatic"] = serde_json::Value::Bool(true);
-    }
     append_event(
         &tx,
         &project_id,
@@ -325,8 +182,8 @@ pub fn start_agent_run(
         sequence,
         "agent_run",
         &run_id,
-        Some(task_id),
-        None,
+        Some(story_id),
+        Some(&epic_id),
         &agent_id,
         "agent_run.started",
         &started_payload,
@@ -338,136 +195,21 @@ pub fn start_agent_run(
     Ok(AgentRun {
         id: run_id,
         worktree_id: Some(worktree.id),
-        task_id: Some(task_id.to_string()),
-        epic_id: None,
+        story_id: story_id.to_string(),
         project_id,
-        trigger_id,
         adapter: "claude_code".to_string(),
         actor_id: agent_id,
         status: AgentRunStatus::Running,
         external_session_id: None,
         permission_mode: permission_mode.to_string(),
         log_path,
-        authoring_stage: None,
     })
-}
-
-/// Record, on the run row, which criterion revisions its briefing actually carried (D-78, plan
-/// 04-10). Serialises `criterion_ids` to a JSON array (`serde_json::to_string`) and writes it to
-/// `agent_runs.criteria_revision_pin` in ONE statement, guarded `WHERE criteria_revision_pin IS
-/// NULL` so a second call for the same run is a no-op: the pin records exactly what the run was
-/// started with, and overwriting it later would be the retroactive rewrite D-40 protects against.
-/// Never opens a transaction of its own — a single guarded `UPDATE` is already atomic.
-pub fn pin_criteria_revisions(
-    conn: &mut Connection,
-    agent_run_id: &str,
-    criterion_ids: &[String],
-) -> anyhow::Result<()> {
-    let pin =
-        serde_json::to_string(criterion_ids).context("failed to serialise criteria_revision_pin")?;
-    conn.execute(
-        "UPDATE agent_runs SET criteria_revision_pin = ?1 WHERE id = ?2 AND criteria_revision_pin IS NULL",
-        params![pin, agent_run_id],
-    )
-    .context("failed to write criteria_revision_pin")?;
-    Ok(())
-}
-
-/// Read back the criterion-revision pin for `agent_run_id` (D-78, plan 04-10). `None` when the
-/// column is `NULL` — a run that predates this column, or one whose pin write has not landed —
-/// `Some(vec![])` when it holds an empty JSON array (the task had zero criteria at start). The
-/// distinction is load-bearing for plan 04-11's third drift detector, which must not fire on a
-/// pre-pinning run.
-pub fn criteria_revision_pin_for_run(
-    conn: &Connection,
-    agent_run_id: &str,
-) -> anyhow::Result<Option<Vec<String>>> {
-    let raw: Option<String> = conn
-        .query_row(
-            "SELECT criteria_revision_pin FROM agent_runs WHERE id = ?1",
-            params![agent_run_id],
-            |row| row.get(0),
-        )
-        .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
-    match raw {
-        None => Ok(None),
-        Some(json) => {
-            let ids: Vec<String> = serde_json::from_str(&json)
-                .context("failed to parse criteria_revision_pin as a JSON array")?;
-            Ok(Some(ids))
-        }
-    }
-}
-
-/// Give a fired drift detector a durable activity-trail trace, without making it stored derived
-/// state (D-72/D-73/D-74/D-75, plan 04-12). Takes a `&Transaction` so it runs inside the CALLER's
-/// transaction, like [`set_run_blocked`] and `domain::session_summary::synthesize_fallback_summary`
-/// already do — that is what makes "the trail and the run's own start state commit together"
-/// a property of the database rather than of call ordering.
-///
-/// For each warning, one `events` row: stream type `drift`, `agent_run_id` as the stream id, the
-/// run's own `task_id` denormalised (so the existing per-task activity trail query picks it up
-/// with no change), event type `drift.detected`, and a payload carrying the warning's `kind` (its
-/// `Debug` name — the same string [`crate::drift::DriftKind`]'s `Serialize` impl would produce for
-/// a fieldless enum) and its `sentence` verbatim under `"label"` too, so
-/// `domain::event::render_description` renders EXACTLY the sentence the agent was shown — one
-/// sentence, composed once in `drift.rs`, reused everywhere (D-19).
-///
-/// An empty `warnings` slice appends nothing and returns `0` — never an empty marker event, which
-/// would make "has this task drifted" a question about payload contents rather than about row
-/// existence. Returns how many events were appended.
-pub fn record_drift_warnings(
-    tx: &Transaction,
-    agent_run_id: &str,
-    warnings: &[DriftWarning],
-    actor_id: &str,
-    now: &str,
-) -> anyhow::Result<usize> {
-    if warnings.is_empty() {
-        return Ok(0);
-    }
-
-    let (project_id, task_id): (String, String) = tx
-        .query_row(
-            "SELECT project_id, task_id FROM agent_runs WHERE id = ?1",
-            params![agent_run_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .with_context(|| format!("agent_run {agent_run_id:?} not found"))?;
-
-    for warning in warnings {
-        let sequence = next_sequence(tx, &project_id, "local")?;
-        let kind = format!("{:?}", warning.kind);
-        let payload = serde_json::json!({
-            "kind": kind,
-            "sentence": warning.sentence,
-            "label": warning.sentence,
-        });
-        append_event(
-            tx,
-            &project_id,
-            "local",
-            sequence,
-            "drift",
-            agent_run_id,
-            Some(&task_id),
-            None,
-            actor_id,
-            "drift.detected",
-            &payload,
-            now,
-        )?;
-    }
-
-    Ok(warnings.len())
 }
 
 /// The statement body [`close_agent_run`] issues, factored out so [`apply_session_closed`] can run
 /// it inside ITS OWN transaction — alongside the fallback-summary presence check — rather than
-/// calling `close_agent_run`'s `&mut Connection` entry point, which would open a second, separate
-/// transaction and break "the status update and the summary insert commit together or not at
-/// all" (T-04-07). `close_agent_run`'s own body and signature are otherwise unchanged; this is the
-/// same statements, callable from inside a transaction the caller already owns.
+/// opening a second, separate transaction and breaking "the status update and the summary insert
+/// commit together or not at all" (T-04-07).
 fn close_agent_run_in_tx(
     tx: &Transaction,
     run_id: &str,
@@ -478,28 +220,17 @@ fn close_agent_run_in_tx(
 ) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
 
-    // D-84's assumption-delta promote (plan 05-09): `task_id`/`epic_id` are both `Option<String>`
-    // — a run this closes may be an authoring session with no task at all.
-    let existing: Option<(String, Option<String>, Option<String>, Option<String>)> = tx
-        .query_row(
-            "SELECT project_id, task_id, epic_id, worktree_id FROM agent_runs WHERE id = ?1",
-            params![run_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .optional()
-        .context("failed to read agent_runs row before close")?;
-
-    let Some((project_id, task_id, epic_id, _worktree_id)) = existing else {
+    let Some((project_id, story_id, epic_id)) = session_scope(tx, run_id)? else {
         return Ok(());
     };
 
     let agent_id = agent_actor_id(tx)?;
 
     tx.execute(
-        "UPDATE agent_runs SET status = ?1, cost_usd = ?2, tokens_in = ?3, tokens_out = ?4, ended_at = ?5 WHERE id = ?6",
+        "UPDATE sessions SET status = ?1, cost_usd = ?2, tokens_in = ?3, tokens_out = ?4, ended_at = ?5 WHERE id = ?6",
         params![status.as_str(), cost_usd, tokens_in, tokens_out, now, run_id],
     )
-    .context("failed to close agent run")?;
+    .context("failed to close the session")?;
 
     let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
@@ -515,8 +246,8 @@ fn close_agent_run_in_tx(
         sequence,
         "agent_run",
         run_id,
-        task_id.as_deref(),
-        epic_id.as_deref(),
+        Some(&story_id),
+        Some(&epic_id),
         &agent_id,
         "agent_run.closed",
         &payload,
@@ -526,15 +257,12 @@ fn close_agent_run_in_tx(
     Ok(())
 }
 
-/// Write a run's terminal status and `ended_at`, and append the matching event. Never touches
-/// `tasks.status` — moving a task out of `in_progress` is a human/board decision, never something
-/// this module (or an agent) does for itself.
+/// Write a session's terminal status and `ended_at`, and append the matching event. Never touches
+/// the Story's state.
 ///
 /// Called only by test code today (production's one caller, `apply_session_closed`, runs
-/// [`close_agent_run_in_tx`] directly inside its own transaction instead — see that function's
-/// doc comment). Opens and commits its own transaction; never synthesizes a fallback summary,
-/// since that behavior belongs to `apply_session_closed`'s own call site, not to every caller of
-/// this lower-level statement body.
+/// [`close_agent_run_in_tx`] directly inside its own transaction). Never synthesizes a fallback
+/// summary, since that behavior belongs to `apply_session_closed`'s own call site.
 pub fn close_agent_run(
     conn: &mut Connection,
     run_id: &str,
@@ -550,24 +278,12 @@ pub fn close_agent_run(
 }
 
 /// D-53/plan 03-13: append exactly ONE `git.lock_exhausted` event when a shimmed `git`
-/// invocation's retry budget is fully exhausted — never one event per individual collision,
-/// which is precisely the noise D-53 rejects (`git_retry::with_lock_retry`'s own "silent unless
-/// exhausted" contract). `actor_id` is resolved by the CALLER — the sidecar reader loop resolves
-/// the seeded SYSTEM actor (`crate::domain::actor::system_actor`), per `03-UI-SPEC.md`'s "Git
-/// lock-exhaustion entry": "attributed to the system actor... the `assignee-system` mark" — a git
-/// lock collision is Flywheel's own retry machinery giving up, not something the agent decided to
-/// do, and the trail's actor mark is exactly what visually distinguishes this failure class from
-/// an ordinary agent error (the objective's own framing: "an exhausted budget is a real failure
-/// that must not be indistinguishable from an ordinary agent error").
+/// invocation's retry budget is fully exhausted — never one event per individual collision.
+/// `actor_id` is resolved by the CALLER (the sidecar reader loop resolves the system actor: a git
+/// lock collision is Flywheel's own retry machinery giving up, not something the agent decided).
 ///
-/// Writes NO row on `agent_runs` and changes no status — unlike every neighbouring function in
-/// this file, which all write a status alongside their event: an exhausted git lock is a fact
-/// about ONE command, not a verdict on the run's outcome. Calling this twice for two separate
-/// exhaustions appends two events; there is no de-duplication and no suppression.
-///
-/// A `run_id` matching no `agent_runs` row is a silent no-op (mirrors `close_agent_run`'s own
-/// "unknown run" handling) — the shared sidecar reader loop must never treat this as a hard
-/// failure that could abandon the loop for every other run (CR-03).
+/// Writes NO row on `sessions` and changes no status. A `run_id` matching no session is a silent
+/// no-op — the shared sidecar reader loop must never treat this as a hard failure (CR-03).
 pub fn record_lock_exhaustion(
     conn: &mut Connection,
     run_id: &str,
@@ -579,26 +295,12 @@ pub fn record_lock_exhaustion(
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
-    let existing: Option<(String, String)> = tx
-        .query_row(
-            "SELECT project_id, task_id FROM agent_runs WHERE id = ?1",
-            params![run_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()
-        .context("failed to read agent_runs row before recording a lock exhaustion")?;
-
-    let Some((project_id, task_id)) = existing else {
-        tx.commit()
-            .context("failed to commit no-op record_lock_exhaustion transaction")?;
+    let Some((project_id, story_id, epic_id)) = session_scope(&tx, run_id)? else {
+        tx.commit().context("failed to commit no-op record_lock_exhaustion transaction")?;
         return Ok(());
     };
 
     let sequence = next_sequence(&tx, &project_id, "local")?;
-    // The payload builder already holds the human-renderable `label` (D-19) — called here rather
-    // than constructing a second copy of the sentence, which is what keeps the event and the
-    // rendered Activity Trail entry (`render_description` reads `payload.label` verbatim) from
-    // ever drifting apart.
     let payload = crate::git_retry::exhaustion_event_payload(repository, command, attempts);
     append_event(
         &tx,
@@ -607,55 +309,38 @@ pub fn record_lock_exhaustion(
         sequence,
         "agent_run",
         run_id,
-        Some(&task_id),
-        None,
+        Some(&story_id),
+        Some(&epic_id),
         actor_id,
         "git.lock_exhausted",
         &payload,
         &now,
     )?;
 
-    tx.commit()
-        .context("failed to commit record_lock_exhaustion transaction")?;
+    tx.commit().context("failed to commit record_lock_exhaustion transaction")?;
     Ok(())
 }
 
-/// What handling one `session_closed` event did to the run's row (G-02-4). Kept as an enum return
-/// value — mirroring `commands::agent_run::PermissionRequestOutcome`'s own reasoning — so this
-/// decision is unit-testable against a bare `Connection` without a real spawned sidecar.
+/// What handling one `session_closed` event did to the session's row (G-02-4).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SessionClosedOutcome {
-    /// The run reached this terminal status for the first time — `close_agent_run` was called and
-    /// exactly one terminal event was appended.
+    /// The session reached this terminal status for the first time — exactly one terminal event
+    /// was appended.
     Closed(AgentRunStatus),
-    /// The run was already in a terminal status and the event carried no figure the row was
-    /// missing — nothing was written at all.
+    /// The session was already terminal and the event carried no figure the row was missing.
     AlreadyTerminal,
-    /// The run was already in a terminal status, but the event carried at least one figure (cost
-    /// or a token count) an empty column was missing — that figure alone was backfilled. The
-    /// status and end time were left exactly as they were, and no second terminal event was
-    /// appended.
+    /// The session was already terminal, but the event carried at least one figure (cost or a
+    /// token count) an empty column was missing — that figure alone was backfilled.
     BackfilledTerminal,
-    /// The event's run id is a well-formed identifier but matches no `agent_runs` row.
+    /// The event's run id is well formed but matches no `sessions` row.
     UnknownRun,
-    /// The event was not a terminal `session_closed` event, or its run id was absent/malformed, or
-    /// its `reason` did not map to a known status — nothing was read and nothing was written.
+    /// Not a terminal `session_closed` event, or its run id was absent/malformed, or its `reason`
+    /// did not map to a known status — nothing was read and nothing was written.
     Ignored,
 }
 
-/// Apply one sidecar `session_closed` event to the run's row (G-02-4) — the production caller
-/// `close_agent_run` never had. This is the missing link: the sidecar has always emitted this
-/// event and the reader loop has always persisted and forwarded it, but nothing ever mapped it
-/// onto `agent_runs` until this function existed.
-///
-/// `close_agent_run`'s own body and signature are UNCHANGED by this function's existence — it is
-/// correct, documented and thoroughly unit-tested, and what was missing was a caller, not a change
-/// to its contract. The idempotency guard against overwriting an explicit Stop lives here, in the
-/// new caller, rather than inside `close_agent_run` itself, so a proven contract is not modified
-/// for a concern that belongs to its caller.
-///
-/// Never moves `tasks.status` — same as `close_agent_run`, per D-29 and this module's own doc
-/// comment above.
+/// Apply one sidecar `session_closed` event to the session's row (G-02-4). Never moves the
+/// Story's state.
 pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) -> anyhow::Result<SessionClosedOutcome> {
     if event.get("type").and_then(|v| v.as_str()) != Some("session_closed") {
         return Ok(SessionClosedOutcome::Ignored);
@@ -664,15 +349,11 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
     let Some(run_id) = event.get("runId").and_then(|v| v.as_str()) else {
         return Ok(SessionClosedOutcome::Ignored);
     };
-    // Reject a malformed run id BEFORE any database statement is issued (T-02G-18-01) — a run id
-    // read off a sidecar stdout line is exactly as trusted as any other value crossing that
-    // process boundary, never more.
+    // Reject a malformed run id BEFORE any database statement is issued (T-02G-18-01).
     if !is_ulid(run_id) {
         return Ok(SessionClosedOutcome::Ignored);
     }
 
-    // Map the event's own reason vocabulary to a status. Any value this adapter did not name is
-    // ignored outright — never guess a default (G-02-4's own explicit instruction).
     let status = match event.get("reason").and_then(|v| v.as_str()) {
         Some("completed") => AgentRunStatus::Completed,
         Some("failed") => AgentRunStatus::Failed,
@@ -680,8 +361,7 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
         _ => return Ok(SessionClosedOutcome::Ignored),
     };
 
-    // A missing figure stays absent and is never coerced to zero (T-02G-18-04) — the sidecar's own
-    // `ResultEvent`/`SessionClosedEvent.result` contract (packages/sidecar/src/adapter.ts).
+    // A missing figure stays absent and is never coerced to zero (T-02G-18-04).
     let result = event.get("result");
     let cost_usd = result.and_then(|r| r.get("totalCostUsd")).and_then(serde_json::Value::as_f64);
     let tokens_in = result.and_then(|r| r.get("inputTokens")).and_then(serde_json::Value::as_i64);
@@ -689,24 +369,20 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
 
     let existing: Option<(String, Option<f64>, Option<i64>, Option<i64>)> = conn
         .query_row(
-            "SELECT status, cost_usd, tokens_in, tokens_out FROM agent_runs WHERE id = ?1",
+            "SELECT status, cost_usd, tokens_in, tokens_out FROM sessions WHERE id = ?1",
             params![run_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
-        .context("failed to read agent_runs row before applying session_closed")?;
+        .context("failed to read the sessions row before applying session_closed")?;
 
     let Some((current_status, current_cost, current_tokens_in, current_tokens_out)) = existing else {
         return Ok(SessionClosedOutcome::UnknownRun);
     };
 
     if matches!(current_status.as_str(), "completed" | "failed" | "interrupted" | "abandoned") {
-        // `interrupt_agent_run` has already recorded the user's explicit Stop (D-35) — the
-        // terminal event for that same run arrives afterwards. Overwriting the status or end time
-        // here would both destroy the user-initiated outcome and append a second terminal event
-        // (T-02G-18-02, T-02G-18-03) — but the cost the run actually incurred is still worth
-        // recording, so an empty column is backfilled, and only an empty column, when the event
-        // carries a figure for it.
+        // An explicit Stop already recorded the outcome (D-35): never overwrite it, never append a
+        // second terminal event — but backfill an empty cost column the event can fill.
         let backfill_cost = current_cost.is_none() && cost_usd.is_some();
         let backfill_tokens_in = current_tokens_in.is_none() && tokens_in.is_some();
         let backfill_tokens_out = current_tokens_out.is_none() && tokens_out.is_some();
@@ -716,30 +392,23 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
         }
 
         conn.execute(
-            "UPDATE agent_runs SET
+            "UPDATE sessions SET
                 cost_usd = COALESCE(cost_usd, ?1),
                 tokens_in = COALESCE(tokens_in, ?2),
                 tokens_out = COALESCE(tokens_out, ?3)
              WHERE id = ?4",
             params![cost_usd, tokens_in, tokens_out, run_id],
         )
-        .context("failed to backfill terminal agent_runs figures")?;
+        .context("failed to backfill terminal session figures")?;
         return Ok(SessionClosedOutcome::BackfilledTerminal);
     }
 
-    // Own ONE transaction covering both the status write and the fallback-summary presence
-    // check (T-04-07): `close_agent_run`'s public `&mut Connection` entry point is deliberately
-    // NOT called here, because it opens and commits its own transaction, which would let the
-    // status update land while a crash before the summary insert left the run terminal with no
-    // summary at all — exactly the gap D-64 exists to close. `close_agent_run_in_tx` is the same
-    // statement body, run inside this function's own transaction instead.
+    // ONE transaction covering both the status write and the fallback-summary presence check
+    // (T-04-07), so a session is never terminal without a summary.
     let tx = conn.transaction()?;
 
     close_agent_run_in_tx(&tx, run_id, status, cost_usd, tokens_in, tokens_out)?;
 
-    // If the agent already recorded its own summary (via `report_summary`, plan 04-03), leave it
-    // exactly as it is — never write a second, synthesized row over an agent-authored one. Only
-    // an ABSENT summary triggers the fallback (D-64).
     if crate::domain::session_summary::latest_summary_for_run(&tx, run_id)?.is_none() {
         crate::domain::session_summary::synthesize_fallback_summary(&tx, run_id, status.as_str())?;
     }
@@ -748,88 +417,60 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
     Ok(SessionClosedOutcome::Closed(status))
 }
 
-/// The run statuses a user may acknowledge (D-165, 10-04). A live run (`running`, `blocked`) is
-/// absent on purpose: it can be stopped but not dismissed. `abandoned` stays because the recovery
-/// surface acknowledges it exactly as before; `interrupted` is here because D-165 as first written
-/// omitted it, which would have left an interrupted row unable ever to leave the fleet.
+/// The session statuses a user may acknowledge (D-165, 10-04). A live session (`running`,
+/// `blocked`) is absent on purpose: it can be stopped but not dismissed.
 pub const ACKNOWLEDGEABLE_STATUSES: [&str; 4] = ["abandoned", "completed", "failed", "interrupted"];
 
-/// Stamp `acknowledged_at` on a finished run, the ONE statement that does so (Finding 13: the
-/// command and a test fixture used to carry separate copies, and they had drifted). The status
-/// guard is inside the statement, so a live run is refused whoever the caller is, and an already
-/// acknowledged run keeps its first timestamp. Returns whether a row changed; an unknown id is
-/// `Ok(false)`. It changes no status and appends no event, as the inline statement it replaces did
-/// not — so the activity trail is unchanged.
+/// Stamp `acknowledged_at` on a finished session, the ONE statement that does so. The status guard
+/// is inside the statement, so a live session is refused whoever the caller is, and an already
+/// acknowledged session keeps its first timestamp. Returns whether a row changed.
 pub fn acknowledge_run(conn: &Connection, agent_run_id: &str) -> anyhow::Result<bool> {
     let [a, b, c, d] = ACKNOWLEDGEABLE_STATUSES;
     let changed = conn
         .execute(
-            "UPDATE agent_runs SET acknowledged_at = ?1
+            "UPDATE sessions SET acknowledged_at = ?1
              WHERE id = ?2 AND acknowledged_at IS NULL AND status IN (?3, ?4, ?5, ?6)",
             params![Utc::now().to_rfc3339(), agent_run_id, a, b, c, d],
         )
-        .context("failed to acknowledge the run")?;
+        .context("failed to acknowledge the session")?;
     Ok(changed == 1)
 }
 
-/// Move a run to `blocked` (AGNT-06, D-37) inside the CALLER'S transaction — never opens its own.
-/// Called only from `domain::permission_request::create_pending_request`'s own transaction, so a
-/// blocked run and its pending request row are written together or not at all; there is no
-/// window where one exists without the other.
+/// Move a session to `blocked` (AGNT-06, D-37) inside the CALLER'S transaction — called only from
+/// `domain::permission_request::create_pending_request`, so a blocked session and its pending
+/// request are written together or not at all.
 pub fn set_run_blocked(tx: &Transaction, agent_run_id: &str) -> anyhow::Result<()> {
-    tx.execute(
-        "UPDATE agent_runs SET status = 'blocked' WHERE id = ?1",
-        params![agent_run_id],
-    )
-    .context("failed to move the run to blocked")?;
+    tx.execute("UPDATE sessions SET status = 'blocked' WHERE id = ?1", params![agent_run_id])
+        .context("failed to move the session to blocked")?;
     Ok(())
 }
 
-/// Move a run back to `running` inside the CALLER'S transaction — the exact inverse of
-/// [`set_run_blocked`], called only from `domain::permission_request::answer_request`'s own
-/// transaction.
+/// Move a session back to `running` inside the CALLER'S transaction — the exact inverse of
+/// [`set_run_blocked`], called only from `domain::permission_request::answer_request`.
 pub fn clear_run_blocked(tx: &Transaction, agent_run_id: &str) -> anyhow::Result<()> {
-    tx.execute(
-        "UPDATE agent_runs SET status = 'running' WHERE id = ?1",
-        params![agent_run_id],
-    )
-    .context("failed to clear the run's blocked status")?;
+    tx.execute("UPDATE sessions SET status = 'running' WHERE id = ?1", params![agent_run_id])
+        .context("failed to clear the session's blocked status")?;
     Ok(())
 }
 
-/// The statement body [`interrupt_agent_run`] issues, factored out so a caller composing a
-/// terminal transition with the presence-checked fallback-summary insert (D-64, CTX-01) can run
-/// BOTH inside ONE transaction it owns — exactly the shape [`close_agent_run_in_tx`] already gives
-/// `apply_session_closed` for the natural-close variant, mirrored here for the Stop/Discard
-/// variant. Its production caller is `commands::agent_run::stop_agent_run_in_tx` (packages/desktop
-/// src-tauri), which composes this with `session_summary::synthesize_fallback_summary` on the same
-/// `&Transaction` — never calling this module's `&mut Connection` entry point below, which would
-/// open and commit a second, independent transaction and reopen the crash-window gap D-64 closed
-/// for the natural-close path (04-VERIFICATION.md gap #1).
-///
-/// Both early-return branches (unknown run, already-terminal run) become a plain `Ok(())` here —
-/// this function never commits and never rolls back anything; the caller owns the transaction's
-/// lifetime and decides whether it ultimately commits.
-pub fn interrupt_agent_run_in_tx(
-    tx: &Transaction,
-    agent_run_id: &str,
-    actor_id: &str,
-) -> anyhow::Result<()> {
+/// The statement body [`interrupt_agent_run`] issues, factored out so the Stop/Discard path
+/// (`commands::agent_run::stop_agent_run_in_tx`) can compose it with the presence-checked fallback
+/// summary inside ONE transaction it owns (D-64, CTX-01). Unknown and already-terminal sessions are
+/// a plain `Ok(())`; the caller owns the transaction's lifetime.
+pub fn interrupt_agent_run_in_tx(tx: &Transaction, agent_run_id: &str, actor_id: &str) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
 
-    // D-84's assumption-delta promote (plan 05-09): a run Stop reaches may be an authoring
-    // session — `task_id` is `Option<String>`, and `epic_id` is read alongside it so the event's
-    // label can name the epic instead of a task that does not exist for this run.
-    let existing: Option<(String, Option<String>, Option<String>, String)> = tx
+    let existing: Option<(String, String, String, String, String)> = tx
         .query_row(
-            "SELECT project_id, task_id, epic_id, status FROM agent_runs WHERE id = ?1",
+            "SELECT r.project_id, r.story_id, s.epic_id, s.key, r.status
+             FROM sessions r JOIN stories s ON s.id = r.story_id WHERE r.id = ?1",
             params![agent_run_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         )
         .optional()
-        .context("failed to read agent_runs row before interrupt")?;
+        .context("failed to read the sessions row before interrupt")?;
 
-    let Some((project_id, task_id, epic_id, current_status)) = existing else {
+    let Some((project_id, story_id, epic_id, story_key, current_status)) = existing else {
         return Ok(());
     };
 
@@ -839,39 +480,17 @@ pub fn interrupt_agent_run_in_tx(
     }
 
     tx.execute(
-        "UPDATE agent_runs SET status = 'interrupted', ended_at = ?1 WHERE id = ?2",
+        "UPDATE sessions SET status = 'interrupted', ended_at = ?1 WHERE id = ?2",
         params![now, agent_run_id],
     )
-    .context("failed to interrupt agent run")?;
-
-    // D-35's premise ("interrupt, then force the whole process group") holds unchanged for a
-    // conversation — it is a statement about processes, not about worktrees. Only the event's own
-    // label text differs by subject (plan 05-09): a task run names the task key it stopped, an
-    // authoring run names the epic it was shaping (or "a new epic" for one still unbound).
-    let label = match &task_id {
-        Some(task_id) => {
-            let task_key: String = tx
-                .query_row("SELECT key FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
-                .context("failed to read task key for the interrupt event's label")?;
-            format!("Stopped agent run on {task_key}")
-        }
-        None => match &epic_id {
-            Some(epic_id) => {
-                let epic_key: String = tx
-                    .query_row("SELECT key FROM epics WHERE id = ?1", params![epic_id], |row| row.get(0))
-                    .context("failed to read epic key for the interrupt event's label")?;
-                format!("Stopped an epic-authoring session on {epic_key}")
-            }
-            None => "Stopped an epic-authoring session for a new epic".to_string(),
-        },
-    };
+    .context("failed to interrupt the session")?;
 
     let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "agent_run",
         "before": current_status,
         "after": "interrupted",
-        "label": label,
+        "label": format!("Stopped agent run on {story_key}"),
     });
     append_event(
         tx,
@@ -880,8 +499,8 @@ pub fn interrupt_agent_run_in_tx(
         sequence,
         "agent_run",
         agent_run_id,
-        task_id.as_deref(),
-        epic_id.as_deref(),
+        Some(&story_id),
+        Some(&epic_id),
         actor_id,
         "agent_run.interrupted",
         &payload,
@@ -891,24 +510,10 @@ pub fn interrupt_agent_run_in_tx(
     Ok(())
 }
 
-/// Move a `running`/`blocked` run to `interrupted` and set `ended_at` (D-35, PROC-06 — the
-/// database half of "stop means interrupt, then force"). A run already in a terminal state
-/// (`completed`/`failed`/`interrupted`) is a no-op — idempotent, matching the sidecar adapter's
-/// own idempotent `interruptSession`/`killSession` (`packages/sidecar/src/claude-code-adapter.ts`)
-/// — and never writes a second terminal event. An unknown `agent_run_id` is also a harmless no-op:
-/// the caller (`agent_run_stop`) already sent the sidecar its interrupt request by the time this
-/// runs, and a run whose row somehow doesn't exist has nothing left to reconcile.
-///
-/// Never touches `tasks.status`: D-29 states nothing ever moves a task out of `in_progress` in
-/// this phase, and D-35 states an interrupted run is a normal user-initiated outcome, not an
-/// error. Performs NO git operation of any kind, directly or via `crate::git` — the worktree is
-/// left exactly as the agent left it (PROC-06's "nothing committed on the user's behalf").
-///
-/// Delegates to [`interrupt_agent_run_in_tx`], opening and committing its own transaction —
-/// mirrors [`close_agent_run`]'s identical delegating shape over [`close_agent_run_in_tx`]. Kept
-/// for callers (and tests) that don't need to compose the interrupt with anything else inside a
-/// caller-owned transaction; the production Stop/Discard path composes the in-tx sibling directly
-/// instead (see that function's doc comment).
+/// Move a `running`/`blocked` session to `interrupted` and set `ended_at` (D-35, PROC-06 — the
+/// database half of "stop means interrupt, then force"). Idempotent on a terminal session and a
+/// no-op on an unknown one. Never touches the Story's state and performs no git operation: the
+/// worktree is left exactly as the agent left it.
 pub fn interrupt_agent_run(conn: &mut Connection, agent_run_id: &str, actor_id: &str) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
     interrupt_agent_run_in_tx(&tx, agent_run_id, actor_id)?;
@@ -916,71 +521,38 @@ pub fn interrupt_agent_run(conn: &mut Connection, agent_run_id: &str, actor_id: 
     Ok(())
 }
 
-/// Mark a run `abandoned` (D-49) — the launch reconciler's own verb, never called by a live
-/// session. A run that was `running` when the app died is written here, not by the dying process
-/// itself: nothing observes a SIGKILL of the whole app tree from the inside.
+/// Mark a session `abandoned` (D-49) — the launch reconciler's own verb, never called by a live
+/// session. Already-terminal and unknown sessions are a no-op returning `Ok(false)`.
 ///
-/// Already-terminal is a no-op returning `Ok(false)` — extends the SAME terminal set
-/// [`apply_session_closed`] and [`interrupt_agent_run`] already guard against overwriting
-/// (`completed`/`failed`/`interrupted`/`abandoned`), so a second reconciliation pass over an
-/// already-`abandoned` run writes nothing and appends no second event (idempotent, matching
-/// `<behavior>`'s "a run that already reached a real terminal status is never overwritten by a
-/// reconciler"). An unknown `run_id` is also a harmless `Ok(false)` — there is nothing left to
-/// reconcile.
-///
-/// On a real transition: `UPDATE agent_runs SET status = 'abandoned', ended_at = ?` and appends
-/// `agent_run.abandoned`, carrying `reason` in the payload when the caller supplied one (the
-/// watchdog's own kill-record reason, plan 03-06). Returns `Ok(true)` only when it actually wrote.
-///
-/// Plan 05-09 closes the `STATE.md` warning this function carried since Phase 4: "`mark_abandoned`
-/// is a third terminal path that writes no summary." Phase 4's own reasoning for excluding it — a
-/// run nobody watched die may have nothing worth summarising, since its fallback would be
-/// synthesised from a diff that may be empty — does not survive contact with D-84's second run
-/// kind: an authoring run's fallback is synthesised from staged proposals and the stage reached,
-/// both of which are facts that exist whether or not anyone was watching. Rather than leave this
-/// the one terminal path with different behaviour for the two run kinds, the rule is made uniform:
-/// on a REAL transition, [`crate::domain::session_summary::synthesize_fallback_summary`] runs
-/// inside THIS SAME transaction, guarded by the identical presence check every other terminal path
-/// already uses (never overwriting an agent-authored summary that somehow landed first). A crash
-/// between the status write and the summary insert now rolls back both, exactly as every other
-/// terminal path already guarantees.
-pub fn mark_abandoned(
-    conn: &mut Connection,
-    run_id: &str,
-    actor_id: &str,
-    reason: Option<&str>,
-) -> anyhow::Result<bool> {
+/// On a real transition it writes the status and `ended_at`, appends `agent_run.abandoned`
+/// (carrying `reason` when the caller supplied one) and, inside the same transaction, the stub
+/// summary when the session left none (T-05-09-01): no terminal status exists without a summary.
+pub fn mark_abandoned(conn: &mut Connection, run_id: &str, actor_id: &str, reason: Option<&str>) -> anyhow::Result<bool> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
-    // D-84's assumption-delta promote (plan 05-09): the run this reconciles may be an authoring
-    // session — `task_id` is `Option<String>`, `epic_id` read alongside it.
-    let existing: Option<(String, String, Option<String>, Option<String>)> = tx
+    let existing: Option<(String, String, String, String)> = tx
         .query_row(
-            "SELECT status, project_id, task_id, epic_id FROM agent_runs WHERE id = ?1",
+            "SELECT r.status, r.project_id, r.story_id, s.epic_id
+             FROM sessions r JOIN stories s ON s.id = r.story_id WHERE r.id = ?1",
             params![run_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
-        .context("failed to read agent_runs row before marking abandoned")?;
+        .context("failed to read the sessions row before marking it abandoned")?;
 
-    let Some((current_status, project_id, task_id, epic_id)) = existing else {
-        tx.commit().context("failed to commit no-op mark_abandoned transaction (run not found)")?;
+    let Some((current_status, project_id, story_id, epic_id)) = existing else {
+        tx.commit().context("failed to commit no-op mark_abandoned transaction (session not found)")?;
         return Ok(false);
     };
 
     if matches!(current_status.as_str(), "completed" | "failed" | "interrupted" | "abandoned") {
-        // Already terminal — idempotent no-op, no second terminal event.
-        tx.commit()
-            .context("failed to commit no-op mark_abandoned transaction (already terminal)")?;
+        tx.commit().context("failed to commit no-op mark_abandoned transaction (already terminal)")?;
         return Ok(false);
     }
 
-    tx.execute(
-        "UPDATE agent_runs SET status = 'abandoned', ended_at = ?1 WHERE id = ?2",
-        params![now, run_id],
-    )
-    .context("failed to mark agent run abandoned")?;
+    tx.execute("UPDATE sessions SET status = 'abandoned', ended_at = ?1 WHERE id = ?2", params![now, run_id])
+        .context("failed to mark the session abandoned")?;
 
     let sequence = next_sequence(&tx, &project_id, "local")?;
     let payload = serde_json::json!({
@@ -997,17 +569,14 @@ pub fn mark_abandoned(
         sequence,
         "agent_run",
         run_id,
-        task_id.as_deref(),
-        epic_id.as_deref(),
+        Some(&story_id),
+        Some(&epic_id),
         actor_id,
         "agent_run.abandoned",
         &payload,
         &now,
     )?;
 
-    // T-05-09-01 (plan 05-09): no terminal status exists without a summary, for THIS path too —
-    // an abandoned run gets a fallback summary written inside this same transaction, guarded by
-    // the same presence check every other terminal path already uses.
     if crate::domain::session_summary::latest_summary_for_run(&tx, run_id)?.is_none() {
         crate::domain::session_summary::synthesize_fallback_summary(&tx, run_id, "abandoned")?;
     }
@@ -1016,115 +585,49 @@ pub fn mark_abandoned(
     Ok(true)
 }
 
-/// Every `agent_runs` row still `running` or `blocked` when [`reconcile_agent_runs`] runs, joined
-/// to its task (or, for an authoring run, its epic — D-84 made `agent_runs.task_id` nullable) for
-/// the modal's key/title (plan 03-06, plan 05-09's CR-01 fix) — one query rather than one round
-/// trip per row. Both joins are `LEFT JOIN`s: an authoring run's `task_id` is NULL and can never
-/// satisfy an inner join against `tasks`, and symmetrically a task run's `epic_id` is NULL —
-/// exactly one of the two label pairs resolves per row. Compile-time literal, no string
-/// interpolation (repository convention, `01-SECURITY.md`).
+/// Every session still `running` or `blocked` when [`reconcile_agent_runs`] runs, joined to its
+/// Story for the recovery modal's key and title — one query, a compile-time literal.
 const IN_FLIGHT_AGENT_RUNS_SELECT_SQL: &str = "
-    SELECT ar.id, ar.task_id, ar.epic_id, ar.project_id, ar.external_session_id,
-           t.key, t.title, e.key, e.title
-    FROM agent_runs ar
-    LEFT JOIN tasks t ON t.id = ar.task_id
-    LEFT JOIN epics e ON e.id = ar.epic_id
-    WHERE ar.status IN ('running', 'blocked')
+    SELECT r.id, r.story_id, r.project_id, r.external_session_id, s.key, s.title
+    FROM sessions r
+    JOIN stories s ON s.id = r.story_id
+    WHERE r.status IN ('running', 'blocked')
 ";
 
-/// One `agent_runs` row [`reconcile_agent_runs`] found genuinely alive at launch (PROC-05, D-46).
-/// Written to no status at all — a status write for a process that is still running would be the
-/// board lying about a live fact — so this is the ONLY record of it; the user's decision (kill,
-/// via [`kill_orphan`], the only verb offered per D-30 and `03-UI-SPEC.md`'s discretion item 1)
-/// is what resolves it.
-///
-/// Exactly one of (`task_id`/`task_key`/`task_title`) or (`epic_id`/`epic_key`/`epic_title`) is
-/// populated (plan 05-09's CR-01 fix, D-84): a task-execution run carries the former, an
-/// epic-authoring run carries the latter — never both, never neither, since
-/// `IN_FLIGHT_AGENT_RUNS_SELECT_SQL`'s two `LEFT JOIN`s always resolve exactly one side.
+/// One session [`reconcile_agent_runs`] found genuinely alive at launch (PROC-05, D-46). Written to
+/// no status at all — a status write for a process that is still running would be the board lying
+/// about a live fact — so this is the ONLY record of it; the user's kill decision resolves it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiveOrphan {
     pub run_id: String,
-    pub task_id: Option<String>,
-    pub task_key: Option<String>,
-    pub task_title: Option<String>,
-    pub epic_id: Option<String>,
-    pub epic_key: Option<String>,
-    pub epic_title: Option<String>,
+    pub story_id: String,
+    pub story_key: String,
+    pub story_title: String,
     pub project_id: String,
     pub external_session_id: Option<String>,
     pub pid: i32,
     pub started_at: String,
 }
 
-/// The launch-time three-way classification (PROC-05, D-46, D-49, D-50): every `agent_runs` row
-/// still `running` or `blocked` when this runs is sorted into exactly one of killed-by-its-
-/// watchdog, dead-without-a-kill-record, or genuinely-still-alive — never resumed, never
-/// repaired, matching `domain::worktree::reconcile_worktrees`'s and `domain::project::
-/// reconcile_projects`'s own surface-never-repair shape.
-///
-/// For each in-flight row, in this order:
-/// 1. A kill record exists ([`runtime_protocol::read_kill_record`] returns `Found`): the
-///    watchdog already explained why it terminated this run's process group. Written to
-///    `abandoned` carrying the record's own `reason`, its runtime files cleared
-///    ([`runtime_protocol::clear_run_runtime_files`]), and NOT a live orphan.
-/// 2. No kill record (`Absent`) OR an unparseable one (`Malformed`) — a malformed record is
-///    deliberately treated exactly like an absent one rather than as a kill (D-50's own honesty
-///    contract: the copy this produces falls back to the weaker "dead, no reason known" claim
-///    instead of inventing one it cannot prove). Reads the run's own descriptor next. Missing,
-///    or its pid/start-time pair no longer alive per [`runtime_protocol::process_is_alive`]:
-///    written to `abandoned` with `None` (no reason), runtime files cleared, NOT a live orphan.
-/// 3. Otherwise the descriptor's own process is genuinely alive: nothing is written at all. The
-///    row stays exactly `running`/`blocked` in the database, and a [`LiveOrphan`] is pushed onto
-///    the returned vector instead.
-///
-/// Relies entirely on [`mark_abandoned`]'s own already-terminal guard for idempotency — this
-/// function never re-implements it. Combined with the SQL filter above (a row already
-/// `completed`/`failed`/`interrupted`/`abandoned` is never even selected), calling this twice
-/// over unchanged state writes nothing and appends no second event. One transaction per changed
-/// row, exactly as `reconcile_projects`/`reconcile_worktrees` both achieve, because
-/// [`mark_abandoned`] opens and commits its own transaction per call.
-///
-/// No function in this module (nor any it calls) starts, resumes, re-attaches to, or re-spawns
-/// any process — asserted structurally by this plan's own source-scanning `<verify>` gate over
-/// this function's body: nothing is silently resumed.
+/// The launch-time three-way classification (PROC-05, D-46, D-49, D-50): every session still
+/// `running` or `blocked` is sorted into killed-by-its-watchdog (abandoned with the kill record's
+/// reason), dead-without-a-record (abandoned, no reason), or genuinely-still-alive (left exactly as
+/// it is and returned as a [`LiveOrphan`]). A malformed kill record reads as "no evidence of a
+/// kill", never as "killed". Never resumes, re-attaches to or re-spawns any process; idempotent
+/// through [`mark_abandoned`]'s own terminal guard.
 pub fn reconcile_agent_runs(conn: &mut Connection, actor_id: &str) -> anyhow::Result<Vec<LiveOrphan>> {
     #[allow(clippy::type_complexity)]
-    let in_flight: Vec<(
-        String,
-        Option<String>,
-        Option<String>,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    )> = {
+    let in_flight: Vec<(String, String, String, Option<String>, String, String)> = {
         let mut stmt = conn
             .prepare(IN_FLIGHT_AGENT_RUNS_SELECT_SQL)
-            .context("failed to prepare the in-flight agent_runs reconciliation query")?;
+            .context("failed to prepare the in-flight sessions reconciliation query")?;
         let rows = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, Option<String>>(7)?,
-                    row.get::<_, Option<String>>(8)?,
-                ))
-            })
-            .context("failed to query in-flight agent_runs for reconciliation")?;
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)))
+            .context("failed to query in-flight sessions for reconciliation")?;
         rows.collect::<Result<Vec<_>, _>>()
-            .context("failed to read an in-flight agent_runs row during reconciliation")?
+            .context("failed to read an in-flight sessions row during reconciliation")?
     };
 
-    // One listing of every descriptor on disk, up front — cheaper than one directory read per
-    // row, and `list_run_descriptors` already tolerates a malformed entry by skipping it.
     let descriptors: std::collections::HashMap<String, runtime_protocol::RunDescriptor> =
         runtime_protocol::list_run_descriptors()
             .into_iter()
@@ -1133,42 +636,23 @@ pub fn reconcile_agent_runs(conn: &mut Connection, actor_id: &str) -> anyhow::Re
 
     let mut live_orphans = Vec::new();
 
-    for (
-        run_id,
-        task_id,
-        epic_id,
-        project_id,
-        external_session_id,
-        task_key,
-        task_title,
-        epic_key,
-        epic_title,
-    ) in in_flight
-    {
+    for (run_id, story_id, project_id, external_session_id, story_key, story_title) in in_flight {
         match runtime_protocol::read_kill_record(&run_id) {
             KillRecordRead::Found(record) => {
                 mark_abandoned(conn, &run_id, actor_id, Some(&record.reason))?;
                 runtime_protocol::clear_run_runtime_files(&run_id);
                 continue;
             }
-            KillRecordRead::Absent | KillRecordRead::Malformed(_) => {
-                // Fall through to the descriptor-based liveness check below — a malformed
-                // record is read as "no evidence of a kill," never as "killed".
-            }
+            KillRecordRead::Absent | KillRecordRead::Malformed(_) => {}
         }
 
         match descriptors.get(&run_id) {
-            Some(descriptor)
-                if runtime_protocol::process_is_alive(descriptor.pid, descriptor.start_time) =>
-            {
+            Some(descriptor) if runtime_protocol::process_is_alive(descriptor.pid, descriptor.start_time) => {
                 live_orphans.push(LiveOrphan {
                     run_id,
-                    task_id,
-                    task_key,
-                    task_title,
-                    epic_id,
-                    epic_key,
-                    epic_title,
+                    story_id,
+                    story_key,
+                    story_title,
                     project_id,
                     external_session_id,
                     pid: descriptor.pid,

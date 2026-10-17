@@ -31,10 +31,10 @@ pub const PRE_PUSH_MARKER: &str = "flywheel-pre-push-gate";
 /// [`install_commit_msg_hook`]/[`uninstall_commit_msg_hook`].
 pub const COMMIT_MSG_MARKER: &str = "flywheel-commit-msg-trailer";
 
-/// The commit-msg trailer key naming the originating task (D-125/D-126, LINK-03). The single
+/// The commit-msg trailer key naming the originating Story (D-125/D-126, LINK-03). The single
 /// declaration both the writer in this file and plan 07-05's reader import — there is no second
 /// copy of this literal anywhere in the workspace.
-pub const TRAILER_TASK_KEY: &str = "Flywheel-Task";
+pub const TRAILER_STORY_KEY: &str = "Flywheel-Story";
 
 /// The commit-msg trailer key naming the originating agent run (D-125/D-126, LINK-03) — the value
 /// is the committing environment's `FLYWHEEL_RUN_ID`, or the literal `manual` when that variable
@@ -153,9 +153,9 @@ exit 0
 
 /// Render the `commit-msg` hook script text — a pure function, no I/O, mirroring
 /// [`pre_push_hook_script`]'s own structure: one baked absolute git path, no `PATH` search inside
-/// the hook. Stamps the two trailer keys named by [`TRAILER_TASK_KEY`]/[`TRAILER_RUN_KEY`] onto
+/// the hook. Stamps the two trailer keys named by [`TRAILER_STORY_KEY`]/[`TRAILER_RUN_KEY`] onto
 /// the commit message file (`$1`) when and only when the current branch is namespaced under
-/// `flywheel/` and extraction yields a non-empty task key — `core.hooksPath` is repository-wide
+/// `flywheel/` and extraction yields a non-empty Story key — `core.hooksPath` is repository-wide
 /// (no `extensions.worktreeConfig`), so this hook also fires for the developer's main checkout,
 /// and the branch-name guard below is what keeps that checkout untouched (Pitfall 2, D-126).
 pub fn commit_msg_hook_script(real_git: &Path) -> String {
@@ -174,24 +174,24 @@ case "$branch" in
   *) exit 0 ;;
 esac
 
-# Extract the task key the same way branch::task_branch_name encoded it:
-# flywheel/<key>[-<slug>], key = [a-z0-9]+-[0-9]+. A branch that does not match (notably
-# flywheel/epic/...) yields an empty key here -- a trailer naming the wrong task is worse than no
+# Extract the Story key the same way branch::story_branch_name encoded it:
+# flywheel/<key>[-<slug>], key = [a-z0-9]+-[0-9]+. A branch that does not match (a
+# hand-made flywheel/ branch) yields an empty key here -- a trailer naming the wrong Story is worse than no
 # trailer at all, so an empty extraction also exits 0 writing nothing.
-task_key=$(printf '%s' "$branch" | sed -n 's#^flywheel/\([a-z0-9]\{{1,\}}-[0-9]\{{1,\}}\).*#\1#p')
-if [ -z "$task_key" ]; then
+story_key=$(printf '%s' "$branch" | sed -n 's#^flywheel/\([a-z0-9]\{{1,\}}-[0-9]\{{1,\}}\).*#\1#p')
+if [ -z "$story_key" ]; then
   exit 0
 fi
 
 "$FLYWHEEL_REAL_GIT" interpret-trailers --if-exists doNothing --in-place \
-  --trailer "{task_trailer_key}: $task_key" \
+  --trailer "{story_trailer_key}: $story_key" \
   --trailer "{run_trailer_key}: ${{FLYWHEEL_RUN_ID:-manual}}" \
   -- "$1"
 exit $?
 "#,
         marker = COMMIT_MSG_MARKER,
         real_git = shell_quote(real_git),
-        task_trailer_key = TRAILER_TASK_KEY,
+        story_trailer_key = TRAILER_STORY_KEY,
         run_trailer_key = TRAILER_RUN_KEY,
     )
 }

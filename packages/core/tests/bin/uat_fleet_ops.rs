@@ -40,15 +40,25 @@
 //!   uat_fleet_ops acknowledge <run_id>
 //!   uat_fleet_ops answer <request_id> <allow|deny>
 //!   uat_fleet_ops make-reclaimable <project_id> <title>
-//!   uat_fleet_ops reclaim <task_id>...      (prints {"event":"reclaim-start","ms":N} then the result)
+//!   uat_fleet_ops reclaim <story_id>...     (prints {"event":"reclaim-start","ms":N} then the result)
 
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use core::domain::agent_run::{close_agent_run, start_agent_run, AgentRunStatus};
-use core::domain::{actor, permission_request, project, task, worktree};
+use core::domain::story::{self, StoryState};
+use core::domain::{actor, epic, milestone, permission_request, project, worktree};
 use rusqlite::Connection;
 use serde_json::json;
+
+/// A Story to hang a session or a worktree off: a Milestone and an Epic, then the Story, as a
+/// developer would create them.
+fn new_story(conn: &mut Connection, project_id: &str, actor_id: &str, title: &str) -> story::Story {
+    let m = milestone::create_milestone(conn, project_id, actor_id, "UAT milestone", None)
+        .unwrap_or_else(|e| fail(&format!("create_milestone: {e:#}")));
+    let e = epic::create_epic(conn, actor_id, &m.id, "UAT epic").unwrap_or_else(|e| fail(&format!("create_epic: {e:#}")));
+    story::create_story(conn, actor_id, &e.id, title).unwrap_or_else(|e| fail(&format!("create_story: {e:#}")))
+}
 
 fn fail(message: &str) -> ! {
     eprintln!("{message}");
@@ -121,11 +131,10 @@ fn main() {
             require_env("FLYWHEEL_WORKTREE_ROOT", "start_agent_run would create a worktree under ~/Flywheel/");
             let mut conn = open_conn();
             let actor_id = human(&conn);
-            let t = task::create_task(&mut conn, &project_id, &actor_id, &title, None)
-                .unwrap_or_else(|e| fail(&format!("create_task: {e:#}")));
-            let run = start_agent_run(&mut conn, &t.id, "default", &actor_id)
+            let s = new_story(&mut conn, &project_id, &actor_id, &title);
+            let run = start_agent_run(&mut conn, &s.id, "default", &actor_id)
                 .unwrap_or_else(|e| fail(&format!("start_agent_run: {e:#}")));
-            println!("{}", json!({ "taskId": t.id, "runId": run.id }));
+            println!("{}", json!({ "storyId": s.id, "runId": run.id }));
         }
         "block-run" => {
             let run_id = arg(&args, 1, "block-run <run_id>");
@@ -236,18 +245,17 @@ fn main() {
             require_env("FLYWHEEL_WORKTREE_ROOT", "ensure_worktree would create a worktree under ~/Flywheel/");
             let mut conn = open_conn();
             let actor_id = human(&conn);
-            let t = task::create_task(&mut conn, &project_id, &actor_id, &title, None)
-                .unwrap_or_else(|e| fail(&format!("create_task: {e:#}")));
-            let wt = worktree::ensure_worktree(&mut conn, &t.id, &actor_id)
+            let s = new_story(&mut conn, &project_id, &actor_id, &title);
+            let wt = worktree::ensure_worktree(&mut conn, &s.id, &actor_id)
                 .unwrap_or_else(|e| fail(&format!("ensure_worktree: {e:#}")));
-            task::set_task_status(&mut conn, &actor_id, &t.id, "done")
-                .unwrap_or_else(|e| fail(&format!("set_task_status: {e:#}")));
-            println!("{}", json!({ "taskId": t.id, "path": wt.path }));
+            story::set_story_state(&mut conn, &actor_id, &s.id, StoryState::Dropped)
+                .unwrap_or_else(|e| fail(&format!("set_story_state: {e:#}")));
+            println!("{}", json!({ "storyId": s.id, "path": wt.path }));
         }
         "reclaim" => {
             let ids: Vec<String> = args.iter().skip(1).cloned().collect();
             if ids.is_empty() {
-                fail("usage: uat_fleet_ops reclaim <task_id>...");
+                fail("usage: uat_fleet_ops reclaim <story_id>...");
             }
             require_env("FLYWHEEL_WORKTREE_ROOT", "reclaim removes worktrees and the default root is ~/Flywheel/");
             // The actor is resolved on one connection, the batch runs on another, as the command does.
@@ -260,7 +268,7 @@ fn main() {
                 .into_iter()
                 .map(|o| {
                     json!({
-                        "taskId": o.task_id,
+                        "storyId": o.story_id,
                         "removed": o.removed,
                         "reason": o.reason.map(|r| r.as_str().to_string()),
                         "error": o.error,

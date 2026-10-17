@@ -32,7 +32,7 @@ pub struct EventRow {
     pub sequence: i64,
     pub stream_type: String,
     pub stream_id: String,
-    pub task_id: Option<String>,
+    pub story_id: Option<String>,
     pub epic_id: Option<String>,
     pub actor_id: String,
     pub event_type: String,
@@ -73,7 +73,7 @@ fn row_to_event(row: &Row) -> rusqlite::Result<EventRow> {
         sequence: row.get(3)?,
         stream_type: row.get(4)?,
         stream_id: row.get(5)?,
-        task_id: row.get(6)?,
+        story_id: row.get(6)?,
         epic_id: row.get(7)?,
         actor_id: row.get(8)?,
         event_type,
@@ -83,27 +83,27 @@ fn row_to_event(row: &Row) -> rusqlite::Result<EventRow> {
     })
 }
 
-const TASK_TRAIL_SQL: &str = "SELECT id, project_id, origin, sequence, stream_type, stream_id, \
-    task_id, epic_id, actor_id, event_type, payload, occurred_at \
-    FROM events WHERE task_id = ?1 ORDER BY id ASC LIMIT ?2 OFFSET ?3";
+const STORY_TRAIL_SQL: &str = "SELECT id, project_id, origin, sequence, stream_type, stream_id, \
+    story_id, epic_id, actor_id, event_type, payload, occurred_at \
+    FROM events WHERE story_id = ?1 ORDER BY id ASC LIMIT ?2 OFFSET ?3";
 
 const EPIC_TRAIL_SQL: &str = "SELECT id, project_id, origin, sequence, stream_type, stream_id, \
-    task_id, epic_id, actor_id, event_type, payload, occurred_at \
+    story_id, epic_id, actor_id, event_type, payload, occurred_at \
     FROM events WHERE epic_id = ?1 ORDER BY id ASC LIMIT ?2 OFFSET ?3";
 
-// `TASK_TRAIL_SQL`/`EPIC_TRAIL_SQL` spell the same column list literally, each its own complete
+// `STORY_TRAIL_SQL`/`EPIC_TRAIL_SQL` spell the same column list literally, each its own complete
 // string — no runtime SQL construction anywhere in this module, so the two can only drift from
 // [`row_to_event`]'s expected column order if a future edit touches both by hand; `activity_trail.rs`'s
 // tests exercise both branches directly, which would catch that drift immediately.
 
-/// A task's or an epic's own chronological trail (BOARD-09) — its own events plus, because
-/// `acceptance_criterion` events are denormalised onto their parent's `task_id`/`epic_id` column
+/// A Story's or an Epic's own chronological trail (BOARD-09) — its own events plus, because
+/// `acceptance_criterion` events are denormalised onto their parent's `story_id`/`epic_id` column
 /// at write time (D-19), its acceptance criteria's events too. One indexed query, no union, no
 /// per-row follow-up. Ordered ascending by `id` — a ULID, chronological by construction, so no
 /// separate timestamp sort is needed (01-RESEARCH.md Pattern 2). Bounded by `limit` with an
 /// `offset` cursor (D-03) — never the whole trail at once.
 ///
-/// `parent_kind` must be `"task"` or `"epic"`; anything else is a caller bug and returns an
+/// `parent_kind` must be `"story"` or `"epic"`; anything else is a caller bug and returns an
 /// error rather than silently matching zero rows.
 pub fn activity_trail(
     conn: &Connection,
@@ -113,10 +113,10 @@ pub fn activity_trail(
     offset: i64,
 ) -> anyhow::Result<Vec<EventRow>> {
     let sql = match parent_kind {
-        "task" => TASK_TRAIL_SQL,
+        "story" => STORY_TRAIL_SQL,
         "epic" => EPIC_TRAIL_SQL,
         other => {
-            anyhow::bail!("activity_trail: parent_kind must be \"task\" or \"epic\", got {other:?}")
+            anyhow::bail!("activity_trail: parent_kind must be \"story\" or \"epic\", got {other:?}")
         }
     };
     let mut stmt = conn.prepare(sql)?;
@@ -128,7 +128,7 @@ pub fn activity_trail(
 
 const EVENTS_SINCE_CURSOR_SQL: &str =
     "SELECT id, project_id, origin, sequence, stream_type, stream_id, \
-     task_id, epic_id, actor_id, event_type, payload, occurred_at \
+     story_id, epic_id, actor_id, event_type, payload, occurred_at \
      FROM events WHERE project_id = ?1 AND origin = ?2 AND sequence > ?3 \
      ORDER BY sequence ASC LIMIT ?4";
 

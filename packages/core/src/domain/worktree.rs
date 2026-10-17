@@ -1,11 +1,10 @@
 //! Worktree create-or-reuse (WORK-01, WORK-08, D-30): `ensure_worktree` is the ONE call site that
-//! resolves whether a task's worktree already exists, and if not, creates it. Never rely on git's
+//! resolves whether a Story's worktree already exists, and if not, creates it. Never rely on git's
 //! own error to detect a duplicate (RESEARCH.md Pitfall 2) — this module always checks the
 //! `worktrees` table first.
 //!
-//! `worktrees.task_id` carries a UNIQUE constraint (migration `0003_agent_runtime.sql`) — the
-//! promoted-primary-noun decision (plan 02-01's `<assumption_delta_decision>`): a worktree is
-//! created once per task and reused by every subsequent run.
+//! `worktrees.story_id` carries a UNIQUE constraint: a worktree is a durable resource owned by one
+//! Story, created once and reused by every session of that Story.
 
 use std::path::{Path, PathBuf};
 
@@ -14,19 +13,17 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-use crate::branch::task_branch_name;
-use crate::domain::epic::ensure_epic_integration_branch;
+use crate::branch::story_branch_name;
 use crate::domain::event::{append_event, next_sequence};
 use crate::git;
 use crate::ids::new_id;
-use crate::status_derivation::derive_status_in_tx;
 
 /// A worktree row, as read back after [`ensure_worktree`] resolves it (either freshly created or
 /// reused unchanged).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Worktree {
     pub id: String,
-    pub task_id: String,
+    pub story_id: String,
     pub project_id: String,
     pub path: String,
     pub branch: String,
@@ -37,7 +34,7 @@ pub struct Worktree {
 fn row_to_worktree(row: &rusqlite::Row) -> rusqlite::Result<Worktree> {
     Ok(Worktree {
         id: row.get(0)?,
-        task_id: row.get(1)?,
+        story_id: row.get(1)?,
         project_id: row.get(2)?,
         path: row.get(3)?,
         branch: row.get(4)?,
@@ -47,20 +44,20 @@ fn row_to_worktree(row: &rusqlite::Row) -> rusqlite::Result<Worktree> {
 }
 
 const WORKTREE_SELECT_SQL: &str =
-    "SELECT id, task_id, project_id, path, branch, base_branch, status FROM worktrees WHERE task_id = ?1";
+    "SELECT id, story_id, project_id, path, branch, base_branch, status FROM worktrees WHERE story_id = ?1";
 
 /// Every `worktrees` row currently `status = 'active'` — [`reconcile_worktrees`]'s own candidate
 /// set. Only `active` rows are ever examined (a row already `stale`/`merged`/`abandoned` is left
 /// alone), matching `<behavior>`'s "only active rows are candidates" rule.
 const ACTIVE_WORKTREES_SELECT_SQL: &str =
-    "SELECT id, task_id, project_id, path, branch, base_branch, status FROM worktrees WHERE status = 'active'";
+    "SELECT id, story_id, project_id, path, branch, base_branch, status FROM worktrees WHERE status = 'active'";
 
-/// The existing worktree row for `task_id`, if one has ever been created — the existence check
+/// The existing worktree row for `story_id`, if one has ever been created — the existence check
 /// `ensure_worktree` performs BEFORE opening a transaction or touching git (RESEARCH.md Pitfall 2).
-pub fn worktree_for_task(conn: &Connection, task_id: &str) -> anyhow::Result<Option<Worktree>> {
-    conn.query_row(WORKTREE_SELECT_SQL, params![task_id], row_to_worktree)
+pub fn worktree_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Option<Worktree>> {
+    conn.query_row(WORKTREE_SELECT_SQL, params![story_id], row_to_worktree)
         .optional()
-        .context("failed to look up the worktree for this task")
+        .context("failed to look up the worktree for this Story")
 }
 
 /// The Flywheel-managed worktree root (D-23): `~/Flywheel/`, unless `FLYWHEEL_WORKTREE_ROOT` is
@@ -69,58 +66,41 @@ pub fn worktree_root() -> PathBuf {
     git::worktree_root_from_env()
 }
 
-/// Resolve the base ref a task's worktree should branch from (D-25, D-26, WORK-02). Exactly two
-/// shapes, selected purely by `task.epic_id` — no configuration input, no caller-supplied
-/// override, no planner or agent choice:
-/// - `task.epic_id` is `Some` → `domain::epic::ensure_epic_integration_branch`'s resolved value
-///   (lazily cutting the integration branch from the project's trunk tip on first use, D-25).
-/// - `task.epic_id` is `None` → the project's own `default_branch` (D-26).
+/// Resolve the base ref a Story's worktree branches from (D-26, WORK-02): the project's own
+/// `default_branch`, the branch a Story is merged back into (docs/mvp-spec.md §2: "Merged means the
+/// merge commit is on the base branch"). No configuration input, no caller-supplied override, no
+/// planner or agent choice.
 ///
 /// This is the ONE call site in this crate that resolves a base ref for worktree creation —
 /// `ensure_worktree` calls this and nothing else.
-pub fn base_ref_for_task(conn: &mut Connection, task_id: &str, actor_id: &str) -> anyhow::Result<String> {
-    let (project_id, epic_id): (String, Option<String>) = conn
-        .query_row(
-            "SELECT project_id, epic_id FROM tasks WHERE id = ?1",
-            params![task_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .with_context(|| format!("task {task_id:?} not found"))?;
-
-    match epic_id {
-        Some(epic_id) => ensure_epic_integration_branch(conn, &epic_id, actor_id),
-        None => {
-            let default_branch: String = conn
-                .query_row(
-                    "SELECT default_branch FROM projects WHERE id = ?1",
-                    params![project_id],
-                    |row| row.get(0),
-                )
-                .with_context(|| format!("project {project_id:?} not found"))?;
-            Ok(default_branch)
-        }
-    }
+pub fn base_ref_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<String> {
+    conn.query_row(
+        "SELECT p.default_branch FROM stories s JOIN projects p ON p.id = s.project_id WHERE s.id = ?1",
+        params![story_id],
+        |row| row.get(0),
+    )
+    .with_context(|| format!("Story {story_id:?} not found"))
 }
 
-/// Create-or-reuse a task's worktree (D-30). Performs the existence SELECT before opening any
+/// Create-or-reuse a Story's worktree (D-30). Performs the existence SELECT before opening any
 /// transaction; when a row already exists, returns it untouched and issues no second
-/// `git worktree add`. Otherwise: derives the branch name (`branch::task_branch_name`), resolves
-/// the base ref via [`base_ref_for_task`]'s two-shape resolution (D-25/D-26), computes the
-/// worktree path as `worktree_root()/{project.key_prefix}/{task.key}/`, calls
+/// `git worktree add`. Otherwise: derives the branch name (`branch::story_branch_name`), resolves
+/// the base ref via [`base_ref_for_story`] (D-26), computes the
+/// worktree path as `worktree_root()/{project.key_prefix}/{story.key}/`, calls
 /// `git::worktree_add`, then opens one transaction that inserts the `worktrees` row and appends a
 /// `worktree.created` event.
-pub fn ensure_worktree(conn: &mut Connection, task_id: &str, actor_id: &str) -> anyhow::Result<Worktree> {
-    if let Some(existing) = worktree_for_task(conn, task_id)? {
+pub fn ensure_worktree(conn: &mut Connection, story_id: &str, actor_id: &str) -> anyhow::Result<Worktree> {
+    if let Some(existing) = worktree_for_story(conn, story_id)? {
         return Ok(existing);
     }
 
-    let (project_id, task_key, task_title): (String, String, String) = conn
+    let (project_id, story_key, story_title): (String, String, String) = conn
         .query_row(
-            "SELECT project_id, key, title FROM tasks WHERE id = ?1",
-            params![task_id],
+            "SELECT project_id, key, title FROM stories WHERE id = ?1",
+            params![story_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
-        .with_context(|| format!("task {task_id:?} not found"))?;
+        .with_context(|| format!("Story {story_id:?} not found"))?;
 
     let (repo_path, key_prefix): (String, String) = conn
         .query_row(
@@ -130,10 +110,10 @@ pub fn ensure_worktree(conn: &mut Connection, task_id: &str, actor_id: &str) -> 
         )
         .with_context(|| format!("project {project_id:?} not found"))?;
 
-    let branch = task_branch_name(&task_key, &task_title);
-    let base_branch = base_ref_for_task(conn, task_id, actor_id)?;
+    let branch = story_branch_name(&story_key, &story_title);
+    let base_branch = base_ref_for_story(conn, story_id)?;
 
-    let worktree_path = worktree_root().join(&key_prefix).join(&task_key);
+    let worktree_path = worktree_root().join(&key_prefix).join(&story_key);
 
     if worktree_path.exists() {
         anyhow::bail!(
@@ -148,7 +128,7 @@ pub fn ensure_worktree(conn: &mut Connection, task_id: &str, actor_id: &str) -> 
         &branch,
         &base_branch,
     )
-    .with_context(|| format!("failed to create worktree for task {task_id:?}"))?;
+    .with_context(|| format!("failed to create worktree for Story {story_id:?}"))?;
 
     let id = new_id();
     let now = Utc::now().to_rfc3339();
@@ -157,9 +137,9 @@ pub fn ensure_worktree(conn: &mut Connection, task_id: &str, actor_id: &str) -> 
     let tx = conn.transaction()?;
     tx.execute(
         "INSERT INTO worktrees (
-            id, task_id, project_id, path, branch, base_branch, status, created_by, created_at
+            id, story_id, project_id, path, branch, base_branch, status, created_by, created_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?8)",
-        params![id, task_id, project_id, worktree_path_str, branch, base_branch, actor_id, now],
+        params![id, story_id, project_id, worktree_path_str, branch, base_branch, actor_id, now],
     )
     .context("failed to insert worktree row")?;
 
@@ -177,7 +157,7 @@ pub fn ensure_worktree(conn: &mut Connection, task_id: &str, actor_id: &str) -> 
         sequence,
         "worktree",
         &id,
-        Some(task_id),
+        Some(story_id),
         None,
         actor_id,
         "worktree.created",
@@ -185,17 +165,11 @@ pub fn ensure_worktree(conn: &mut Connection, task_id: &str, actor_id: &str) -> 
         &now,
     )?;
 
-    // D-09/D-12: the worktree is the `todo -> in_progress` signal, so the band moves in the same
-    // transaction as the row that causes it. `expected_status: None` — this call holds no
-    // lock-release window between reading the status and writing it.
-    derive_status_in_tx(&tx, task_id, actor_id, None, false)
-        .context("failed to derive the task's status after creating its worktree")?;
-
     tx.commit().context("failed to commit ensure_worktree transaction")?;
 
     Ok(Worktree {
         id,
-        task_id: task_id.to_string(),
+        story_id: story_id.to_string(),
         project_id,
         path: worktree_path_str,
         branch,
@@ -219,7 +193,7 @@ pub struct PorcelainEntry {
 /// per line, preserving git's own ordering — no filtering, no sorting, no deduplication. This is
 /// the sole caller of `git::git_status_porcelain` (WORK-03's one-porcelain-read-site contract);
 /// every caller that needs a dirty-tree read (the desktop command's fresh-at-open-time check, and
-/// [`remove_worktree_for_task`]'s own re-read) goes through this function.
+/// [`remove_worktree_for_story`]'s own re-read) goes through this function.
 pub fn porcelain_entries(worktree_path: &Path) -> anyhow::Result<Vec<PorcelainEntry>> {
     let raw = git::git_status_porcelain(worktree_path)?;
     Ok(raw
@@ -234,8 +208,8 @@ pub fn porcelain_entries(worktree_path: &Path) -> anyhow::Result<Vec<PorcelainEn
         .collect())
 }
 
-/// Remove a task's worktree (WORK-03, D-41/D-42/D-43). Bails when no `worktrees` row exists for
-/// `task_id`. **Re-reads `git status --porcelain` itself** via [`porcelain_entries`] — never
+/// Remove a Story's worktree (WORK-03, D-41/D-42/D-43). Bails when no `worktrees` row exists for
+/// `story_id`. **Re-reads `git status --porcelain` itself** via [`porcelain_entries`] — never
 /// trusts a caller-supplied dirty check — and bails naming the dirty count on ANY non-empty
 /// result. This closes the check-then-act window between a renderer's earlier
 /// `worktree_remove_check` read and this call: the renderer's check is advisory UI only, this
@@ -244,38 +218,38 @@ pub fn porcelain_entries(worktree_path: &Path) -> anyhow::Result<Vec<PorcelainEn
 /// transaction deletes the `worktrees` row and appends a `worktree.removed` event shaped like
 /// `ensure_worktree`'s own `worktree.created` payload (`reconcile_projects`'s
 /// `field`/`before`/`after`/`label` idiom).
-pub fn remove_worktree_for_task(
+pub fn remove_worktree_for_story(
     conn: &mut Connection,
-    task_id: &str,
+    story_id: &str,
     actor_id: &str,
 ) -> anyhow::Result<()> {
-    remove_worktree(conn, task_id, actor_id, false)
+    remove_worktree(conn, story_id, actor_id, false)
 }
 
-/// [`remove_worktree_for_task`] with one more refusal: a run that is `running` or `blocked` on the
-/// task or in the worktree stops the removal, checked immediately before `git worktree remove`
+/// [`remove_worktree_for_story`] with one more refusal: a session that is `running` or `blocked` on
+/// the Story or in the worktree stops the removal, checked immediately before `git worktree remove`
 /// (WR-04). The batch reclaim uses this because its eligibility read can be seconds stale by the
-/// time the removal runs, and an agent started in a Done task's worktree in between has written
+/// time the removal runs, and an agent started in a closed Story's worktree in between has written
 /// nothing yet, so the porcelain check cannot see it. The single-worktree remove keeps its
 /// established behaviour (its callers and tests remove worktrees whose runs are still recorded as
 /// live). This narrows the window to the gap between the query and the `git` call; it does not
 /// close it -- that would need a marker `agent_run_start` refuses against.
-pub fn remove_worktree_for_task_refusing_live_run(
+pub fn remove_worktree_for_story_refusing_live_run(
     conn: &mut Connection,
-    task_id: &str,
+    story_id: &str,
     actor_id: &str,
 ) -> anyhow::Result<()> {
-    remove_worktree(conn, task_id, actor_id, true)
+    remove_worktree(conn, story_id, actor_id, true)
 }
 
 fn remove_worktree(
     conn: &mut Connection,
-    task_id: &str,
+    story_id: &str,
     actor_id: &str,
     refuse_live_run: bool,
 ) -> anyhow::Result<()> {
-    let worktree = worktree_for_task(conn, task_id)?
-        .ok_or_else(|| anyhow::anyhow!("no worktree exists for task {task_id:?}"))?;
+    let worktree = worktree_for_story(conn, story_id)?
+        .ok_or_else(|| anyhow::anyhow!("no worktree exists for Story {story_id:?}"))?;
 
     let repo_path: String = conn
         .query_row(
@@ -285,9 +259,9 @@ fn remove_worktree(
         )
         .with_context(|| format!("project {:?} not found", worktree.project_id))?;
 
-    let task_key: String = conn
-        .query_row("SELECT key FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
-        .with_context(|| format!("task {task_id:?} not found"))?;
+    let story_key: String = conn
+        .query_row("SELECT key FROM stories WHERE id = ?1", params![story_id], |row| row.get(0))
+        .with_context(|| format!("Story {story_id:?} not found"))?;
 
     // Re-read porcelain HERE, never trusting the renderer's own earlier check (D-43's "no
     // check-then-act window" requirement) — a dirty tree refuses unconditionally.
@@ -303,14 +277,14 @@ fn remove_worktree(
     if refuse_live_run {
         let live_run: bool = conn
             .query_row(
-                "SELECT EXISTS (SELECT 1 FROM agent_runs
-                    WHERE (task_id = ?1 OR worktree_id = ?2) AND status IN ('running', 'blocked'))",
-                params![task_id, worktree.id],
+                "SELECT EXISTS (SELECT 1 FROM sessions
+                    WHERE (story_id = ?1 OR worktree_id = ?2) AND status IN ('running', 'blocked'))",
+                params![story_id, worktree.id],
                 |row| row.get(0),
             )
             .context("failed to check for a live run before removing the worktree")?;
         if live_run {
-            anyhow::bail!("worktree_remove refused: an agent run is live in the worktree for task {task_id:?}");
+            anyhow::bail!("worktree_remove refused: an agent run is live in the worktree for Story {story_id:?}");
         }
     }
 
@@ -323,16 +297,16 @@ fn remove_worktree(
         } else {
             "the directory is gone but git reported an error, so the worktree record was kept"
         };
-        return Err(e.context(format!("failed to remove worktree for task {task_id:?}: {on_disk}")));
+        return Err(e.context(format!("failed to remove worktree for Story {story_id:?}: {on_disk}")));
     }
 
     // Past this point the directory is gone, so a database failure is its own outcome (WR-05).
-    record_worktree_removed(conn, &worktree, task_id, &task_key, actor_id).map_err(|e| {
+    record_worktree_removed(conn, &worktree, story_id, &story_key, actor_id).map_err(|e| {
         anyhow::anyhow!("the worktree directory was removed but its record was not updated: {e:#}")
     })
 }
 
-/// The database half of [`remove_worktree_for_task`]: decouple runs, delete the row, append the
+/// The database half of [`remove_worktree_for_story`]: decouple runs, delete the row, append the
 /// `worktree.removed` event, in one transaction. The transaction takes the write lock up front
 /// (`Immediate`): the batch reclaim runs on a second writer connection, and a deferred transaction
 /// that reads before it writes fails with `SQLITE_BUSY_SNAPSHOT` -- which `busy_timeout` does not
@@ -340,22 +314,20 @@ fn remove_worktree(
 fn record_worktree_removed(
     conn: &mut Connection,
     worktree: &Worktree,
-    task_id: &str,
-    task_key: &str,
+    story_id: &str,
+    story_key: &str,
     actor_id: &str,
 ) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 
-    // `agent_runs.worktree_id` is a NULLABLE `REFERENCES worktrees(id)` (unlike
-    // `agent_runs.task_id`, which is NOT NULL) — a run's history belongs to its task forever, but
-    // its worktree is this function's own to reclaim. Decouple any run that pointed at this
-    // worktree BEFORE deleting the row, or SQLite's `foreign_keys = ON` raises a raw `FOREIGN KEY
-    // constraint failed` the moment a task has ever had Start Work pressed on it (found by plan
-    // 03-05's own two-step order test, not anticipated by plan 03-01: no prior test exercised
-    // worktree removal on a worktree an agent run had actually used).
+    // `sessions.worktree_id` is a NULLABLE `REFERENCES worktrees(id)` (unlike `sessions.story_id`,
+    // which is NOT NULL) — a session's history belongs to its Story forever, but its worktree is
+    // this function's own to reclaim. Decouple any session that pointed at this worktree BEFORE
+    // deleting the row, or SQLite's `foreign_keys = ON` raises a raw `FOREIGN KEY constraint
+    // failed` the moment a Story has ever had a session.
     tx.execute(
-        "UPDATE agent_runs SET worktree_id = NULL WHERE worktree_id = ?1",
+        "UPDATE sessions SET worktree_id = NULL WHERE worktree_id = ?1",
         params![worktree.id],
     )
     .context("failed to decouple agent runs from the worktree being removed")?;
@@ -368,7 +340,7 @@ fn record_worktree_removed(
         "field": "worktree",
         "before": worktree.branch,
         "after": null,
-        "label": format!("Removed worktree for {task_key}"),
+        "label": format!("Removed worktree for {story_key}"),
     });
     append_event(
         &tx,
@@ -377,7 +349,7 @@ fn record_worktree_removed(
         sequence,
         "worktree",
         &worktree.id,
-        Some(task_id),
+        Some(story_id),
         None,
         actor_id,
         "worktree.removed",
@@ -385,14 +357,7 @@ fn record_worktree_removed(
         &now,
     )?;
 
-    // D-12: removal is the other worktree edge. Removing a worktree is never a reason to un-start
-    // work, so the deriver's floor holds an `in_progress` card where it is; the call is here so a
-    // standing merge or a pending edge is not missed behind a row that no longer exists.
-    // `expected_status: None` — this transaction holds the write lock from its first statement.
-    derive_status_in_tx(&tx, task_id, actor_id, None, false)
-        .context("failed to derive the task's status after removing its worktree")?;
-
-    tx.commit().context("failed to commit remove_worktree_for_task transaction")?;
+    tx.commit().context("failed to commit remove_worktree_for_story transaction")?;
     Ok(())
 }
 
@@ -413,7 +378,7 @@ fn record_worktree_removed(
 /// this is what makes a second run over an unchanged filesystem a true no-op, and what keeps a
 /// worktree that went `missing` and then reappeared on disk at `missing`: reconciliation never
 /// moves a row back to `active` on its own (that is the user's Recreate decision,
-/// [`recreate_worktree_for_task`]). On a real change, one transaction updates `status` — and
+/// [`recreate_worktree_for_story`]). On a real change, one transaction updates `status` — and
 /// nothing else; `path`/`branch`/`base_branch` are structurally out of reach of this function's
 /// `UPDATE` statement — and appends one `worktree.missing` event whose payload carries a
 /// human-renderable `label` (D-19) for the activity trail.
@@ -460,7 +425,7 @@ pub fn reconcile_worktrees(conn: &mut Connection, actor_id: &str) -> anyhow::Res
             sequence,
             "worktree",
             &worktree.id,
-            Some(&worktree.task_id),
+            Some(&worktree.story_id),
             None,
             actor_id,
             "worktree.missing",
@@ -476,11 +441,11 @@ pub fn reconcile_worktrees(conn: &mut Connection, actor_id: &str) -> anyhow::Res
 
 /// Re-run worktree creation on a `missing` row, against the SAME recorded `branch`/`base_branch`
 /// (D-45's Recreate decision, plan 03-UI-SPEC.md). Never allocates a new branch name and never
-/// calls [`base_ref_for_task`] — that function lazily CUTS an epic integration branch as a side
+/// calls [`base_ref_for_story`] — that function lazily CUTS an epic integration branch as a side
 /// effect, and recreating a worktree must reproduce the recorded topology rather than mint new git
 /// history.
 ///
-/// Refuses (via `bail!`, naming the actual status) when no row exists for `task_id` or when the
+/// Refuses (via `bail!`, naming the actual status) when no row exists for `story_id` or when the
 /// row's status is not `missing` — this can never be used as a second worktree-creation path for
 /// a healthy worktree. Probes with [`git::rev_parse_verify`] first: when the recorded branch still
 /// exists (the realistic case — only the working directory was deleted), checks it out with the
@@ -490,17 +455,17 @@ pub fn reconcile_worktrees(conn: &mut Connection, actor_id: &str) -> anyhow::Res
 /// function, which is owned by other plans in earlier waves). On success, updates the row back to
 /// `active` and appends `worktree.recreated` in one transaction; a failed git call leaves the row
 /// at `missing` untouched — a failed recreate is not a decision made.
-pub fn recreate_worktree_for_task(
+pub fn recreate_worktree_for_story(
     conn: &mut Connection,
-    task_id: &str,
+    story_id: &str,
     actor_id: &str,
 ) -> anyhow::Result<Worktree> {
-    let worktree = worktree_for_task(conn, task_id)?
-        .ok_or_else(|| anyhow::anyhow!("no worktree exists for task {task_id:?}"))?;
+    let worktree = worktree_for_story(conn, story_id)?
+        .ok_or_else(|| anyhow::anyhow!("no worktree exists for Story {story_id:?}"))?;
 
     if worktree.status != "missing" {
         anyhow::bail!(
-            "recreate_worktree_for_task refused: worktree for task {task_id:?} has status \
+            "recreate_worktree_for_story refused: worktree for Story {story_id:?} has status \
              {:?}, expected \"missing\"",
             worktree.status
         );
@@ -537,10 +502,10 @@ pub fn recreate_worktree_for_task(
         // refuse anyway, since `worktree_add`'s own guard rejects an already-existing branch.
         let worktree_path_str = worktree_path.to_string_lossy().into_owned();
         git::git_at(repo_path, &["worktree", "add", &worktree_path_str, &worktree.branch])
-            .with_context(|| format!("failed to recreate worktree for task {task_id:?}"))?;
+            .with_context(|| format!("failed to recreate worktree for Story {story_id:?}"))?;
     } else {
         git::worktree_add(repo_path, worktree_path, &worktree.branch, &worktree.base_branch)
-            .with_context(|| format!("failed to recreate worktree for task {task_id:?}"))?;
+            .with_context(|| format!("failed to recreate worktree for Story {story_id:?}"))?;
     }
 
     let now = Utc::now().to_rfc3339();
@@ -563,7 +528,7 @@ pub fn recreate_worktree_for_task(
         sequence,
         "worktree",
         &worktree.id,
-        Some(task_id),
+        Some(story_id),
         None,
         actor_id,
         "worktree.recreated",
@@ -571,23 +536,23 @@ pub fn recreate_worktree_for_task(
         &now,
     )?;
 
-    tx.commit().context("failed to commit recreate_worktree_for_task transaction")?;
+    tx.commit().context("failed to commit recreate_worktree_for_story transaction")?;
 
     Ok(Worktree { status: "active".to_string(), ..worktree })
 }
 
 /// Delete a `missing` row's record with no filesystem call of any kind (D-45's "Remove Record"
 /// decision) — there is nothing on disk to touch, since the directory is already gone. Refuses
-/// (via `bail!`, naming the actual status) when no row exists for `task_id` or when the row's
+/// (via `bail!`, naming the actual status) when no row exists for `story_id` or when the row's
 /// status is not `missing`; the only removal path for a REAL, on-disk worktree remains
-/// [`remove_worktree_for_task`]'s porcelain-checked one.
-pub fn forget_worktree_record(conn: &mut Connection, task_id: &str, actor_id: &str) -> anyhow::Result<()> {
-    let worktree = worktree_for_task(conn, task_id)?
-        .ok_or_else(|| anyhow::anyhow!("no worktree exists for task {task_id:?}"))?;
+/// [`remove_worktree_for_story`]'s porcelain-checked one.
+pub fn forget_worktree_record(conn: &mut Connection, story_id: &str, actor_id: &str) -> anyhow::Result<()> {
+    let worktree = worktree_for_story(conn, story_id)?
+        .ok_or_else(|| anyhow::anyhow!("no worktree exists for Story {story_id:?}"))?;
 
     if worktree.status != "missing" {
         anyhow::bail!(
-            "forget_worktree_record refused: worktree for task {task_id:?} has status {:?}, \
+            "forget_worktree_record refused: worktree for Story {story_id:?} has status {:?}, \
              expected \"missing\"",
             worktree.status
         );
@@ -596,11 +561,11 @@ pub fn forget_worktree_record(conn: &mut Connection, task_id: &str, actor_id: &s
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
-    // Same FK hazard as `remove_worktree_for_task` above: `agent_runs.worktree_id` is nullable
-    // and must be decoupled before the `worktrees` row is deleted, or a task that ever had an
+    // Same FK hazard as `remove_worktree_for_story` above: `sessions.worktree_id` is nullable
+    // and must be decoupled before the `worktrees` row is deleted, or a Story that ever had an
     // agent run in this worktree raises a raw `FOREIGN KEY constraint failed` here too.
     tx.execute(
-        "UPDATE agent_runs SET worktree_id = NULL WHERE worktree_id = ?1",
+        "UPDATE sessions SET worktree_id = NULL WHERE worktree_id = ?1",
         params![worktree.id],
     )
     .context("failed to decouple agent runs from the worktree record being forgotten")?;
@@ -622,7 +587,7 @@ pub fn forget_worktree_record(conn: &mut Connection, task_id: &str, actor_id: &s
         sequence,
         "worktree",
         &worktree.id,
-        Some(task_id),
+        Some(story_id),
         None,
         actor_id,
         "worktree.record_forgotten",
@@ -718,7 +683,7 @@ pub fn set_open_command_template(
     Ok(())
 }
 
-/// Resolve `task_id`'s worktree-open argv for `surface` (D-130, T-07-04-01). The template is
+/// Resolve `story_id`'s worktree-open argv for `surface` (D-130, T-07-04-01). The template is
 /// split on runs of ASCII whitespace into argv elements — the one splitting site this module
 /// uses — which collapses whitespace runs and yields no empty elements. The worktree path is
 /// substituted INSIDE whichever element contains [`WORKTREE_PATH_TOKEN`], never splitting that
@@ -730,11 +695,11 @@ pub fn set_open_command_template(
 /// template can therefore be interpreted as a command separator by anything spawning it (the
 /// whole mitigation for T-07-04-01).
 ///
-/// Errors naming `task_id` when no `worktrees` row exists for it — never returns an argv
+/// Errors naming `story_id` when no `worktrees` row exists for it — never returns an argv
 /// carrying an empty path.
-pub fn resolve_open_argv(conn: &Connection, task_id: &str, surface: OpenSurface) -> anyhow::Result<Vec<String>> {
-    let worktree = worktree_for_task(conn, task_id)?
-        .ok_or_else(|| anyhow::anyhow!("no worktree exists for task {task_id:?}"))?;
+pub fn resolve_open_argv(conn: &Connection, story_id: &str, surface: OpenSurface) -> anyhow::Result<Vec<String>> {
+    let worktree = worktree_for_story(conn, story_id)?
+        .ok_or_else(|| anyhow::anyhow!("no worktree exists for Story {story_id:?}"))?;
 
     let template = open_command_template(conn, surface)?;
 
@@ -765,13 +730,13 @@ pub fn resolve_open_argv(conn: &Connection, task_id: &str, surface: OpenSurface)
 /// `worktrees.status` also allows `stale` and `merged` in its CHECK constraint. **Nothing writes
 /// either, on purpose (D-178):** reclaimability is derived from facts already recorded, so there is
 /// no stored judgement to go stale. The only writers of that column are [`reconcile_worktrees`] and
-/// [`recreate_worktree_for_task`], writing `active` or `missing`.
+/// [`recreate_worktree_for_story`], writing `active` or `missing`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReclaimReason {
-    /// The task is Done.
-    TaskDone,
-    /// The task branch is integrated into its epic integration branch.
+    /// The Story is Merged.
     Merged,
+    /// The Story is Dropped.
+    Dropped,
     /// A run against this worktree is running.
     AgentRunning,
     /// A run against this worktree is blocked on a permission request.
@@ -782,22 +747,22 @@ pub enum ReclaimReason {
     ProjectUnreachable,
     /// The row exists but its directory does not.
     DirectoryMissing,
-    /// The task is still open and its branch is not integrated: nothing says the work is finished.
-    TaskOpen,
+    /// The Story is neither merged nor dropped: nothing says the work is finished.
+    StoryOpen,
 }
 
 impl ReclaimReason {
     /// The wire word the renderer matches on.
     pub fn as_str(self) -> &'static str {
         match self {
-            ReclaimReason::TaskDone => "task_done",
             ReclaimReason::Merged => "merged",
+            ReclaimReason::Dropped => "dropped",
             ReclaimReason::AgentRunning => "agent_running",
             ReclaimReason::Blocked => "blocked",
             ReclaimReason::UncommittedChanges => "uncommitted_changes",
             ReclaimReason::ProjectUnreachable => "project_unreachable",
             ReclaimReason::DirectoryMissing => "directory_missing",
-            ReclaimReason::TaskOpen => "task_open",
+            ReclaimReason::StoryOpen => "story_open",
         }
     }
 }
@@ -831,17 +796,15 @@ impl ReclaimDisposition {
 /// THE definition of a reclaimable worktree: the inventory read and plan 10-09's reclaim both call
 /// this, so the list and the action cannot disagree. Pure: plain values in, no connection, no git.
 ///
-/// A worktree is reclaimable when its task is Done **or** its branch is integrated, AND no run is
-/// live against it, AND its tree is clean. `live_run` is the status of a running or blocked run
-/// against the task, if any; `dirty` is whether `porcelain_entries` found anything.
+/// A worktree is reclaimable when its Story is closed (Merged or Dropped), AND no session is live
+/// against it, AND its tree is clean. `live_run` is the status of a running or blocked session on
+/// the Story, if any; `dirty` is whether `porcelain_entries` found anything.
 ///
 /// Precedence, so exactly one reason is ever shown: project unreachable, then directory missing,
-/// then a live run, then a dirty tree, then the reclaimable reasons -- and when both reclaimable
-/// reasons hold, **task done wins over merged** (the board's explicit decision outranks a derived
-/// git fact). A worktree satisfying neither is kept as `TaskOpen`.
+/// then a live session, then a dirty tree, then the closed Story's state. A worktree whose Story is
+/// open is kept as `StoryOpen`.
 pub fn reclaim_eligibility(
-    task_status: &str,
-    integrated: bool,
+    story_state: &str,
     live_run: Option<&str>,
     dirty: bool,
     project_status: &str,
@@ -860,12 +823,10 @@ pub fn reclaim_eligibility(
     if dirty {
         return ReclaimDisposition::Keep(ReclaimReason::UncommittedChanges);
     }
-    if task_status == "done" {
-        ReclaimDisposition::Reclaimable(ReclaimReason::TaskDone)
-    } else if integrated {
-        ReclaimDisposition::Reclaimable(ReclaimReason::Merged)
-    } else {
-        ReclaimDisposition::Keep(ReclaimReason::TaskOpen)
+    match story_state {
+        "merged" => ReclaimDisposition::Reclaimable(ReclaimReason::Merged),
+        "dropped" => ReclaimDisposition::Reclaimable(ReclaimReason::Dropped),
+        _ => ReclaimDisposition::Keep(ReclaimReason::StoryOpen),
     }
 }
 
@@ -958,19 +919,19 @@ pub fn worktree_size_limited(path: &Path, max_entries: usize, max_depth: usize) 
 /// reclaimable. `error` is `None` unless the removal or the lookup failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReclaimOutcome {
-    pub task_id: String,
+    pub story_id: String,
     pub removed: bool,
     pub reason: Option<ReclaimReason>,
     pub error: Option<String>,
 }
 
-/// Reclaim the named task worktrees, one outcome per distinct id, in submitted order.
+/// Reclaim the named Stories' worktrees, one outcome per distinct id, in submitted order.
 ///
 /// Per row, the disposition is re-derived NOW -- from the board and from git, through
 /// [`crate::query::fleet::finish_worktree_inventory`], which applies [`reclaim_eligibility`], the
 /// same function the inventory list uses -- so a selection that went stale between the list and this
 /// call (an agent started in the worktree, the tree was edited) is refused, not obeyed. Only a
-/// `Reclaimable` row reaches [`remove_worktree_for_task_refusing_live_run`], which is the unchanged
+/// `Reclaimable` row reaches [`remove_worktree_for_story_refusing_live_run`], which is the unchanged
 /// removal plus a live-run re-check made right before `git worktree remove`: its own
 /// `git status --porcelain` re-read stays the final guard, and **no parameter exists here or there
 /// that could skip it**. Do not add a `force` flag.
@@ -978,26 +939,26 @@ pub struct ReclaimOutcome {
 /// One refusal never fails the batch: every failure is recorded as that row's outcome and the loop
 /// goes on, which is why this returns a vector and not a `Result`.
 ///
-/// This holds no lock of its own, but `remove_worktree_for_task` runs `git worktree remove` on
+/// This holds no lock of its own, but `remove_worktree_for_story` runs `git worktree remove` on
 /// whatever `conn` it is given, so the caller must pass a connection that is NOT behind the
 /// application's shared mutex.
-pub fn reclaim_worktrees(conn: &mut Connection, task_ids: &[String], actor_id: &str) -> Vec<ReclaimOutcome> {
+pub fn reclaim_worktrees(conn: &mut Connection, story_ids: &[String], actor_id: &str) -> Vec<ReclaimOutcome> {
     let mut seen = std::collections::HashSet::new();
     let mut outcomes = Vec::new();
-    for task_id in task_ids {
-        if !seen.insert(task_id.as_str()) {
+    for story_id in story_ids {
+        if !seen.insert(story_id.as_str()) {
             continue;
         }
         let failed = |error: String| ReclaimOutcome {
-            task_id: task_id.clone(),
+            story_id: story_id.clone(),
             removed: false,
             reason: None,
             error: Some(error),
         };
-        let input = match crate::query::fleet::worktree_inventory_input_for_task(conn, task_id) {
+        let input = match crate::query::fleet::worktree_inventory_input_for_story(conn, story_id) {
             Ok(Some(input)) => input,
             Ok(None) => {
-                outcomes.push(failed(format!("no worktree exists for task {task_id:?}")));
+                outcomes.push(failed(format!("no worktree exists for Story {story_id:?}")));
                 continue;
             }
             Err(e) => {
@@ -1014,15 +975,15 @@ pub fn reclaim_worktrees(conn: &mut Connection, task_ids: &[String], actor_id: &
         };
         let ReclaimDisposition::Reclaimable(reason) = disposition else {
             outcomes.push(ReclaimOutcome {
-                task_id: task_id.clone(),
+                story_id: story_id.clone(),
                 removed: false,
                 reason: Some(disposition.reason()),
                 error: None,
             });
             continue;
         };
-        outcomes.push(match remove_worktree_for_task_refusing_live_run(conn, task_id, actor_id) {
-            Ok(()) => ReclaimOutcome { task_id: task_id.clone(), removed: true, reason: Some(reason), error: None },
+        outcomes.push(match remove_worktree_for_story_refusing_live_run(conn, story_id, actor_id) {
+            Ok(()) => ReclaimOutcome { story_id: story_id.clone(), removed: true, reason: Some(reason), error: None },
             Err(e) => failed(format!("{e:#}")),
         });
     }

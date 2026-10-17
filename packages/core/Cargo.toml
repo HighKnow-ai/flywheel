@@ -23,22 +23,6 @@ path = "tests/bin/uat_session_env.rs"
 name = "uat_fleet_ops"
 path = "tests/bin/uat_fleet_ops.rs"
 
-[[bin]]
-name = "uat_fanout_ops"
-path = "tests/bin/uat_fanout_ops.rs"
-
-[[bin]]
-name = "forge_probe"
-path = "tests/bin/forge_probe.rs"
-
-[[bin]]
-name = "seed_criteria"
-path = "tests/bin/seed_criteria.rs"
-
-[[bin]]
-name = "file_board_items"
-path = "tests/bin/file_board_items.rs"
-
 [dependencies]
 rusqlite = { version = "0.40", features = ["bundled", "serde_json", "chrono"] }
 rusqlite_migration = "2.6"

@@ -34,8 +34,8 @@ pub fn next_sequence(tx: &Transaction, project_id: &str, origin: &str) -> anyhow
 ///
 /// No code path updates or deletes an `events` row after its transaction commits — this is the
 /// single write point every domain mutation calls, and it is the only function in this crate
-/// that inserts into `events`. `task_id`/`epic_id` are denormalised here at write time (even for
-/// a criterion-stream event, whose parent is a task or epic) so the activity trail is one
+/// that inserts into `events`. `story_id`/`epic_id` are denormalised here at write time (even for
+/// a criterion-stream event, whose parent is a Story) so a record's timeline is one
 /// indexed query (D-19).
 #[allow(clippy::too_many_arguments)]
 pub fn append_event(
@@ -45,7 +45,7 @@ pub fn append_event(
     sequence: i64,
     stream_type: &str,
     stream_id: &str,
-    task_id: Option<&str>,
+    story_id: Option<&str>,
     epic_id: Option<&str>,
     actor_id: &str,
     event_type: &str,
@@ -56,7 +56,7 @@ pub fn append_event(
     tx.execute(
         "INSERT INTO events (
             id, project_id, origin, sequence, stream_type, stream_id,
-            task_id, epic_id, actor_id, event_type, payload, occurred_at
+            story_id, epic_id, actor_id, event_type, payload, occurred_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             event_id,
@@ -65,7 +65,7 @@ pub fn append_event(
             sequence,
             stream_type,
             stream_id,
-            task_id,
+            story_id,
             epic_id,
             actor_id,
             event_type,
@@ -80,7 +80,7 @@ pub fn append_event(
 /// Build the one-line human sentence the activity trail shows for one event (BOARD-09, D-19).
 ///
 /// Every domain mutation function in this crate already writes a `"label"` string into its
-/// `payload` at the moment the event is appended (e.g. `task.rs::set_task_status`'s
+/// `payload` at the moment the event is appended (e.g. `story.rs::set_story_state`'s
 /// `"label": format!("Changed status from {current_status} to {new_status}")`) — that label is
 /// itself built from the payload's own `"field"`/`"before"`/`"after"` values at write time, so
 /// reading it back here is what D-19 means by "event payloads must be designed for human

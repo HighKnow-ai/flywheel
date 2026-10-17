@@ -11,81 +11,67 @@
 /// What membership in a class means, and who may write the table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TableClass {
-    /// Board substance. An agent may never write it directly; only the owning domain module's
-    /// `_in_tx` writer, reached through a human action, does. This is the no-promotion gate's
-    /// subject (`tests/proposal_no_promotion.rs`).
+    /// Board substance. An agent never writes it directly: it reaches the board only through a
+    /// Proposal the developer accepts, applied by the owning domain module's writer.
     Canonical,
-    /// Agent-proposed rows that wait for human triage. Agents may stage here; nothing here is
-    /// board substance until a human accepts it.
+    /// Agent-proposed rows that wait for the developer's decision. Agents may file here; nothing
+    /// here is board substance until the developer accepts it.
     Staging,
-    /// Rows the core writes as a consequence of running agents, worktrees and plans.
+    /// Rows the core writes as a consequence of running sessions and worktrees, plus the Task
+    /// checklist a Story's agent keeps current itself (docs/mvp-spec.md §4.3).
     Runtime,
     /// Identity, projects, settings, the event log and its counters.
     Infrastructure,
     /// FTS5 virtual tables. They carry no independent substance; triggers on the canonical tables
     /// keep them in step. Their implicit shadow tables (`_data`, `_idx`, `_content`, `_docsize`,
-    /// `_config`) are not listed: SQLite creates them and no migration can name them.
+    /// `_config`) are not listed: SQLite creates them and no migration can name them. The baseline
+    /// has none; the class stays so a search index added later is classified, not improvised.
     SearchIndex,
 }
 
 /// Every table in the migrated schema, sorted by name, each with its reason.
 pub const TABLE_CLASSES: &[(&str, TableClass)] = &[
-    // Scoring rows of an epic or task; amended in place only by their domain writer.
+    // Testable statements a Story must satisfy; acceptance is the developer's act.
     ("acceptance_criteria", TableClass::Canonical),
     // Identity of whoever acted: the local human, the system, each agent.
     ("actors", TableClass::Infrastructure),
-    // One row per agent run; the core writes it as it starts, ends and abandons runs.
-    ("agent_runs", TableClass::Runtime),
-    // Agent-proposed epics, tasks, issues and criteria awaiting human triage.
-    ("authoring_proposals", TableClass::Staging),
-    // FTS5 index over the staged proposals.
-    ("authoring_proposals_fts", TableClass::SearchIndex),
-    // Diff anchors pinned to a criterion; written by the criterion writer.
-    ("criterion_anchors", TableClass::Canonical),
-    // The Cycle: the scope-boxed, undated grouping layer above the epic.
-    ("cycles", TableClass::Canonical),
-    // Task-to-task ordering edges of a dispatch plan.
-    ("dispatch_edges", TableClass::Runtime),
-    // Membership of a task in a dispatch plan.
-    ("dispatch_plan_tasks", TableClass::Runtime),
-    // A fan-out plan the core builds and executes.
-    ("dispatch_plans", TableClass::Runtime),
-    // The epic: the top of the spine.
+    // Links from a Milestone, Epic or Story to an ADR kept in the managed repo.
+    ("adr_links", TableClass::Canonical),
+    // Runs of record of a Check, each tied to the commit it ran against; written by Flywheel.
+    ("check_runs", TableClass::Runtime),
+    // The executable test attached to a criterion; only the developer edits it.
+    ("checks", TableClass::Canonical),
+    // The Epic: a capability inside one Milestone, with its spec and exit test.
     ("epics", TableClass::Canonical),
-    // FTS5 index over epics.
-    ("epics_fts", TableClass::SearchIndex),
     // Per-stream counters that give events their order.
     ("event_sequence_counters", TableClass::Infrastructure),
     // The append-only event log.
     ("events", TableClass::Infrastructure),
-    // The issue: board substance beside epics and tasks.
-    ("issues", TableClass::Canonical),
-    // FTS5 index over issues.
-    ("issues_fts", TableClass::SearchIndex),
-    // A tool-permission request an agent raised and a human answers.
+    // The Milestone: an outcome with an exit test; the Roadmap is their rank order.
+    ("milestones", TableClass::Canonical),
+    // A tool-permission request a session raised and a human answers.
     ("permission_requests", TableClass::Runtime),
-    // Standing allow/deny rules the core consults.
+    // Standing "always allow <pattern>" rules, keyed by (project, tool, pattern).
     ("permission_rules", TableClass::Runtime),
     // Registered repositories.
     ("projects", TableClass::Infrastructure),
-    // What a finished session reported, kept so a fresh session can reconstitute.
+    // Agent-suggested changes awaiting the developer's decision.
+    ("proposals", TableClass::Staging),
+    // What a session left for the next one, so a fresh session can reconstitute.
     ("session_summaries", TableClass::Runtime),
+    // One row per Story session; the core writes it as it starts, ends and abandons sessions.
+    ("sessions", TableClass::Runtime),
     // Application settings.
     ("settings", TableClass::Infrastructure),
-    // The files a task is expected to touch; feeds overlap detection.
-    ("task_file_set_entries", TableClass::Runtime),
-    // The task: the unit of agent work.
-    ("tasks", TableClass::Canonical),
-    // FTS5 index over tasks.
-    ("tasks_fts", TableClass::SearchIndex),
-    // What caused a run: a user action today; schedule and webhook reserved by the schema.
-    ("triggers", TableClass::Runtime),
-    // A git worktree owned by a task.
+    // The Story: the unit of agent work, inside one Epic.
+    ("stories", TableClass::Canonical),
+    // A Story's checklist, written and kept current by its agent through the board tool.
+    ("tasks", TableClass::Runtime),
+    // The worktree a Story owns.
     ("worktrees", TableClass::Runtime),
 ];
 
-/// The `Canonical` members of [`TABLE_CLASSES`], in declaration order. The no-promotion gate
-/// derives its write patterns from this, so a new canonical table is covered by default.
+/// The `Canonical` members of [`TABLE_CLASSES`], in declaration order.
 pub fn canonical_tables() -> impl Iterator<Item = &'static str> {
     TABLE_CLASSES
         .iter()
