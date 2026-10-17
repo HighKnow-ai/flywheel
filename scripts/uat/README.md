@@ -4,8 +4,9 @@ The live and offline UAT scripts. Each one drives the real sidecar and the real 
 data, so a guarantee is measured by code rather than claimed (`docs/mvp-spec.md` §9).
 
 - **Offline, zero tokens, run in CI on every PR** (`.github/workflows/ci.yml`, step "Offline UAT"):
-  `harness-supervision-gate.mjs` (both modes), `uat-12-fleet-live-reads.mjs`,
-  `uat-13-fan-out-live.mjs`. None needs a `claude` binary or any credential.
+  `harness-supervision-gate.mjs` (both modes) and `uat-12-fleet-live-reads.mjs`. Neither needs a
+  `claude` binary or any credential. (Item 13, the fan-out run, was deleted with the fan-out
+  dispatcher at the schema cut, issue #44.)
 - **Manual, pre-release only:** items 1, 3, 5, 6, 7 and 11. Items 3, 5, 6, 7 and 11's live arm
   spend real tokens.
 
@@ -28,7 +29,6 @@ bash scripts/uat/run-all.sh          # add --no-build to skip the prerequisite b
 | 7 — Launcher-wrapped destructive command, measured live (AGNT-07, D-62 item 2) | `uat-07-launcher-shape-gate.mjs` | **PASS** — properties A, B and C all held |
 | 11 — `CLAUDE_ENV_FILE` ordering, PATH shadow restoration, ask-branch (AGNT-07) | `uat-11-env-file-ordering.mjs` (`--selftest` is zero tokens) | **Manual** — the live run spends tokens |
 | 12 — Fleet live reads: log tail, dismiss, blocked queue, reclaim (D-REV-48/49/50/55) | `uat-12-fleet-live-reads.mjs` | **PASS** — zero tokens, CI |
-| 13 — Whole fan-out with only the model faked: cap, commit, merge, wave-two base (D-REV-34) | `uat-13-fan-out-live.mjs` | **PASS** — zero tokens, CI; uses `packages/sidecar/test/fake-claude.mjs` |
 
 ### Supervision — why every live item outlives the watchdog, and why that is not each item's job
 
@@ -273,7 +273,6 @@ Costs real tokens, same as items 3, 5 and 6.
 | `lib/long-lived-backend.mjs` | Backend stub for item 1 and the supervision gate, so the leaf outlives the stale window |
 | `packages/core/tests/bin/uat_session_env.rs` | Builds the spawn environment from the **production** functions; also `--touch-heartbeat` |
 | `packages/core/tests/bin/uat_fleet_ops.rs` | Bridge binary for item 12 — calls the core functions behind the fleet commands against scratch data |
-| `packages/core/tests/bin/uat_fanout_ops.rs` | Bridge binary for item 13 — drives the real dispatcher tick against a scratch database and repository |
 | `scripts/uat/fixtures/` | Frozen, real, zero-cost captures replayed offline by the sidecar tests and `lib/sidecar-harness.mjs` (e.g. the unauthenticated CLI first-turn stream) — read at module load, never retyped |
 | `scripts/uat/fixtures/live-opus5-unmodelled-shapes.json` | The frozen real capture (200-character prefixes) of the reasoning-only assistant message and the `rate_limit_event` line live run `01M3C48C3PV1NSGHERBZ587YB1` emitted and the adapter did not model, with mechanical anti-drift/anti-invention gates |
 | `scripts/uat/fixtures/live-opus5-ask-user-question.json` | Unlike its sibling fixture above, this one is FULL FIDELITY — read from Claude Code's own session log inside a preserved scratch root of live run `01M3DNC0G9CYAWSD8DYEGTRP8C`, not from a 200-character stderr prefix. References the committed capture artifact `planning-archive:.planning/phases/05-socratic-epic-authoring/05-ASK-USER-QUESTION-CAPTURE.json` in the phase directory, never an absolute scratch path |
@@ -286,12 +285,11 @@ rather than reimplementing what `sidecar.rs` assembles.
 
 # UAT arms outside this directory
 
-Two UAT arms live beside the code they measure, not here. Neither runs in CI.
+One UAT arm lives beside the code it measures, not here. It does not run in CI.
 
 | Arm | Harness | How to run |
 |---|---|---|
 | Real-browser arm (WebKit, the engine behind the macOS WKWebView shell) | `packages/desktop/src/**/*.browser.test.tsx` via `vitest.browser.config.ts` — today `fleet/__tests__/browser/fleet-jump.browser.test.tsx` and `fleet-group.browser.test.tsx` | `npm --prefix packages/desktop run test:browser` (once: `npx --prefix packages/desktop playwright install webkit`) |
-| Live forge — an epic request opened twice against real GitHub (Phase 08 item 4, REVW-05) | `packages/core/tests/forge_live_github.rs`, `#[ignore]`d because it opens a real pull request | `FLYWHEEL_UAT_GITHUB_REPO=<owner>/flywheel-uat cargo test -p core --test forge_live_github -- --ignored --nocapture` (once: `gh repo create flywheel-uat --private --add-readme`) |
 
 jsdom has no layout engine and does not synthesise real key events, so the browser arm asks the
 questions jsdom would pass vacuously. The Phase 08 review-surface browser tests this section used to

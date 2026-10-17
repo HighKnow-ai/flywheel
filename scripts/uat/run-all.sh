@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Run every scriptable UAT item and print a result table. The offline, zero-token items (the
-# supervision gate, 11's self-test, 12 and 13) also run in CI; items 1, 3, 5, 6a, 6b and 7 are the
+# supervision gate, 11's self-test and 12) also run in CI; items 1, 3, 5, 6a, 6b and 7 are the
 # manual pre-release ones (docs/mvp-spec.md section 9). Live arms that need extra arguments are
 # listed in the table as MANUAL with their command.
 #
@@ -19,7 +19,7 @@ done
 
 if [ "$BUILD" = "1" ]; then
   printf '▸ Building prerequisites (pass --no-build to skip)\n'
-  cargo build -p core --bin uat_session_env --bin uat_fleet_ops --bin uat_fanout_ops -p flywheel-shim 2>&1 | tail -2
+  cargo build -p core --bin uat_session_env --bin uat_fleet_ops -p flywheel-shim 2>&1 | tail -2
   npm --prefix packages/sidecar run build >/dev/null 2>&1 || {
     printf '  ⚠ sidecar build failed — scripts needing it will skip\n'
   }
@@ -88,8 +88,6 @@ run_item "UAT 11 — env-file-ordering verdict functions, self-test only (zero t
   node scripts/uat/uat-11-env-file-ordering.mjs --selftest
 run_item "UAT 12 — fleet live reads: log tail, dismiss, blocked queue, reclaim (D-REV-48/49/50/55, zero tokens)" \
   node scripts/uat/uat-12-fleet-live-reads.mjs
-run_item "UAT 13 — whole fan-out, only the model faked: cap, commit, merge, wave-two base (D-REV-34, zero tokens)" \
-  node scripts/uat/uat-13-fan-out-live.mjs
 
 printf '\n\n┌─ UAT results ─────────────────────────────────────────────────────────────\n'
 FAILED=0
