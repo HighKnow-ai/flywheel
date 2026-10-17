@@ -5,7 +5,7 @@
 //! The Tauri commands those items name (`fleet_list`, `fleet_blocked_queue`, `agent_run_acknowledge`,
 //! `agent_run_answer_permission`, `worktree_reclaim`) live in the desktop crate, which needs an
 //! `AppHandle` and a cold build of 13 minutes. Each is a thin wrapper over a function in THIS crate,
-//! so this binary calls that function, the same way `uat_authoring_ops` does for authoring:
+//! so this binary calls that function, the same way the other `uat_*` bridges do:
 //!
 //!   fleet_list                  -> `query::fleet::fleet_rows`, then `session_log::read_tail` per LIVE
 //!                                  row (a four-line copy of the private `attach_activity` in

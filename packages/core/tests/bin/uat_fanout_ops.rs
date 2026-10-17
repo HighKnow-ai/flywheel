@@ -29,22 +29,6 @@
 //!   uat_fanout_ops tick                      (prints one `spawn-request` line per spawn, then `pass`)
 //!   uat_fanout_ops session-closed <event_json>
 //!   uat_fanout_ops state <plan_id>
-//!
-//! The planner-file-set arm (`scripts/uat/uat-14-planner-file-set.mjs`, phase 15 plan 02) reuses this
-//! bridge for the PLANNING half of the same machinery, so nothing about `submit_plan` is re-implemented
-//! in the script:
-//!   uat_fanout_ops plan-setup <repo_path> <tasks_json>    tasks_json: [{"title": "..."}, ...]
-//!   uat_fanout_ops plan-submit <run_id> <submission_json> resolve the run, then the production
-//!                                                         `store_submitted_plan`; a refusal prints {"refused": text}
-//!   uat_fanout_ops plan-readback <plan_id>                stored tasks, entries (in order), events, preview edges
-//!
-//! The account-limit arm (`scripts/uat/uat-15-account-limit.mjs`, phase 15 plan 03) reuses it to drive the
-//! gate through its production entry points; the script owns no gate logic:
-//!   uat_fanout_ops gate-setup <repo_path>                 a project, a task and one real `running` run
-//!   uat_fanout_ops gate-apply <run_id> <event_json> <now> `LimitSignal::from_event`, then
-//!                                                         `apply_rate_limit_signal_for_run`, with every
-//!                                                         `agent_runs.status` read before and after
-//!   uat_fanout_ops gate-read <now>                        `read_gate` as the dispatcher tick reads it
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -53,18 +37,11 @@ use std::sync::Mutex;
 use core::dispatch_exec::{run_pass, DISPATCHED_COMMIT_INSTRUCTION};
 use core::domain::actor::{local_human_actor_id, system_actor};
 use core::domain::agent_run::{apply_session_closed, stand_in_launch_prompt, start_agent_run};
-use core::domain::dispatch_plan::{
-    approve_and_start, create_plan_for_epic, edit_draft_plan, preview_edges_with, read_plan, resolve_planning_run,
-    store_submitted_plan, DraftEdit, SubmittedPlan,
-};
+use core::domain::dispatch_plan::{approve_and_start, create_plan_for_epic, edit_draft_plan, read_plan, DraftEdit};
 use core::domain::epic::create_epic;
 use core::domain::file_set::{arm_scope_marker_with, declare_file_set, list_entries_for_task, repo_is_case_insensitive};
 use core::domain::project::register_project;
 use core::domain::settings::set_dispatch_max_parallel;
-use core::limit_gate::{
-    apply_rate_limit_signal_for_run, may_advance, may_spawn, read_gate, GateState, LimitSignal,
-    EVENT_DISPATCH_GATE_CHANGED,
-};
 use core::domain::task::create_task;
 use core::domain::worktree::worktree_for_task;
 use core::file_set::{entry_path, parse_entry};
@@ -161,21 +138,6 @@ fn launch(db: &Mutex<Connection>, task_id: &str) -> Result<(), String> {
     });
     println!("{}", json!({ "event": "spawn-request", "taskId": task_id, "request": request }));
     Ok(())
-}
-
-/// Every run's `(id, status)`, in id order, for the before/after comparison the gate must leave untouched.
-fn run_statuses(conn: &Connection) -> Vec<serde_json::Value> {
-    let mut stmt = conn.prepare("SELECT id, status FROM agent_runs ORDER BY id").unwrap_or_else(|e| fail(&format!("prepare: {e}")));
-    stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-        .unwrap_or_else(|e| fail(&format!("query: {e}")))
-        .filter_map(Result::ok)
-        .map(|(id, status)| json!({ "id": id, "status": status }))
-        .collect()
-}
-
-fn gate_event_count(conn: &Connection) -> i64 {
-    conn.query_row("SELECT COUNT(*) FROM events WHERE event_type = ?1", [EVENT_DISPATCH_GATE_CHANGED], |r| r.get(0))
-        .unwrap_or_else(|e| fail(&format!("gate events: {e}")))
 }
 
 fn main() {
@@ -282,160 +244,6 @@ fn main() {
                     "status": plan.status, "waveCursor": plan.wave_cursor, "liveRuns": runs,
                     "integrationBranch": integration, "tasks": tasks,
                 })
-            );
-        }
-        "plan-setup" => {
-            let usage = "plan-setup <repo_path> <tasks_json>";
-            let (repo, tasks_json) = (arg(&args, 1, usage), arg(&args, 2, usage));
-            let specs: Vec<serde_json::Value> =
-                serde_json::from_str(&tasks_json).unwrap_or_else(|e| fail(&format!("tasks_json: {e}")));
-            let mut conn = open_conn();
-            let human = local_human_actor_id(&conn).unwrap_or_else(|e| fail(&format!("human: {e:#}")));
-            let project = register_project(&mut conn, &human, Path::new(&repo), "Planner", "PLN")
-                .unwrap_or_else(|e| fail(&format!("register_project: {e:#}")));
-            let epic = create_epic(&mut conn, &project.id, &human, "Plan the fan-out", Some("Measure the planner's file-set declarations"))
-                .unwrap_or_else(|e| fail(&format!("create_epic: {e:#}")));
-            let mut tasks = Vec::new();
-            for spec in &specs {
-                let title = spec["title"].as_str().unwrap_or_else(|| fail("task needs a title"));
-                let task = create_task(&mut conn, &project.id, &human, title, Some(&epic.id))
-                    .unwrap_or_else(|e| fail(&format!("create_task: {e:#}")));
-                let key: String = conn
-                    .query_row("SELECT key FROM tasks WHERE id = ?1", [&task.id], |r| r.get(0))
-                    .unwrap_or_else(|e| fail(&format!("task key: {e}")));
-                tasks.push(json!({ "taskId": task.id, "key": key, "title": title }));
-            }
-            println!("{}", json!({ "projectId": project.id, "epicId": epic.id, "tasks": tasks }));
-        }
-        "plan-submit" => {
-            let usage = "plan-submit <run_id> <submission_json>";
-            let (run_id, submission) = (arg(&args, 1, usage), arg(&args, 2, usage));
-            let plan: SubmittedPlan =
-                serde_json::from_str(&submission).unwrap_or_else(|e| fail(&format!("submission_json: {e}")));
-            let mut conn = open_conn();
-            // Mirrors `sidecar.rs::process_inbound_submit_plan`: authority first, then the one writer.
-            let outcome = resolve_planning_run(&conn, &run_id).map_err(|r| r.to_string()).and_then(|run| {
-                store_submitted_plan(&mut conn, &run.run_id, &run.epic_id, &plan, &run.actor_id, &chrono::Utc::now().to_rfc3339())
-                    .map_err(|r| r.to_string())
-            });
-            match outcome {
-                Ok(plan_id) => println!("{}", json!({ "planId": plan_id })),
-                Err(refused) => println!("{}", json!({ "refused": refused })),
-            }
-        }
-        "plan-readback" => {
-            let plan_id = arg(&args, 1, "plan-readback <plan_id>");
-            let conn = open_conn();
-            let mut stmt = conn
-                .prepare(
-                    "SELECT dpt.task_id, t.key, dpt.state, dpt.wave FROM dispatch_plan_tasks dpt
-                       JOIN tasks t ON t.id = dpt.task_id WHERE dpt.plan_id = ?1 ORDER BY dpt.wave, t.rank, t.id",
-                )
-                .unwrap_or_else(|e| fail(&format!("prepare: {e}")));
-            let rows: Vec<(String, String, String, i64)> = stmt
-                .query_map([&plan_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
-                .unwrap_or_else(|e| fail(&format!("query: {e}")))
-                .filter_map(Result::ok)
-                .collect();
-            let key_of: BTreeMap<String, String> = rows.iter().map(|(id, key, _, _)| (id.clone(), key.clone())).collect();
-            let mut tasks = Vec::new();
-            for (task_id, key, state, wave) in &rows {
-                let files: Vec<String> = list_entries_for_task(&conn, task_id)
-                    .unwrap_or_else(|e| fail(&format!("entries: {e:#}")))
-                    .iter()
-                    .map(|e| entry_path(e).to_string())
-                    .collect();
-                let mut ev = conn
-                    .prepare(
-                        "SELECT e.payload, a.type FROM events e JOIN actors a ON a.id = e.actor_id
-                          WHERE e.task_id = ?1 AND e.event_type = ?2 ORDER BY e.sequence",
-                    )
-                    .unwrap_or_else(|e| fail(&format!("prepare events: {e}")));
-                let events: Vec<serde_json::Value> = ev
-                    .query_map(rusqlite::params![task_id, core::domain::file_set::EVENT_FILE_SET_DECLARED], |r| {
-                        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-                    })
-                    .unwrap_or_else(|e| fail(&format!("events: {e}")))
-                    .filter_map(Result::ok)
-                    .map(|(payload, actor_type)| {
-                        let p: serde_json::Value = serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null);
-                        json!({ "after": p["after"], "label": p["label"], "actorType": actor_type })
-                    })
-                    .collect();
-                tasks.push(json!({ "key": key, "state": state, "wave": wave, "files": files, "events": events }));
-            }
-            let edges: Vec<serde_json::Value> = preview_edges_with(&conn, &plan_id, false)
-                .unwrap_or_else(|e| fail(&format!("preview_edges: {e:#}")))
-                .iter()
-                .map(|e| {
-                    json!({
-                        "before": key_of.get(&e.before_task_id), "after": key_of.get(&e.after_task_id),
-                        "cause": e.cause, "collidingPaths": e.colliding_paths,
-                    })
-                })
-                .collect();
-            println!("{}", json!({ "tasks": tasks, "edges": edges }));
-        }
-        "gate-setup" => {
-            let repo = arg(&args, 1, "gate-setup <repo_path>");
-            let mut conn = open_conn();
-            let human = local_human_actor_id(&conn).unwrap_or_else(|e| fail(&format!("human: {e:#}")));
-            let project = register_project(&mut conn, &human, Path::new(&repo), "Limit", "LIM")
-                .unwrap_or_else(|e| fail(&format!("register_project: {e:#}")));
-            let task = create_task(&mut conn, &project.id, &human, "Work that meets the account limit", None)
-                .unwrap_or_else(|e| fail(&format!("create_task: {e:#}")));
-            let system = system_actor(&conn).unwrap_or_else(|e| fail(&format!("system actor: {e:#}"))).id;
-            let run = start_agent_run(&mut conn, &task.id, DISPATCH_PERMISSION_MODE, &system)
-                .unwrap_or_else(|e| fail(&format!("start_agent_run: {e:#}")));
-            let worktree_path: String = conn
-                .query_row("SELECT path FROM worktrees WHERE id = ?1", [run.worktree_id.as_deref().unwrap_or("")], |r| r.get(0))
-                .unwrap_or_else(|e| fail(&format!("worktree path: {e}")));
-            println!(
-                "{}",
-                json!({
-                    "projectId": project.id, "taskId": task.id, "runId": run.id,
-                    "worktreePath": worktree_path, "runStatus": run_statuses(&conn),
-                })
-            );
-        }
-        "gate-apply" => {
-            let usage = "gate-apply <run_id> <event_json> <now_epoch_secs>";
-            let (run_id, event_json, now) = (arg(&args, 1, usage), arg(&args, 2, usage), arg(&args, 3, usage));
-            let event: serde_json::Value =
-                serde_json::from_str(&event_json).unwrap_or_else(|e| fail(&format!("event_json: {e}")));
-            let now: i64 = now.parse().unwrap_or_else(|_| fail("now must be epoch seconds"));
-            let mut conn = open_conn();
-            let statuses_before = run_statuses(&conn);
-            // An event that is not a limit signal is a result, not an error: the script asserts on it.
-            let Some(signal) = LimitSignal::from_event(&event) else {
-                println!("{}", json!({ "signal": null, "statusesBefore": statuses_before }));
-                return;
-            };
-            let change = apply_rate_limit_signal_for_run(&mut conn, &run_id, &signal, now)
-                .unwrap_or_else(|e| fail(&format!("apply_rate_limit_signal_for_run: {e:#}")));
-            println!(
-                "{}",
-                json!({
-                    "signal": { "tier": format!("{:?}", signal.tier).to_lowercase(), "window": signal.window, "resetsAt": signal.resets_at },
-                    "changed": change.changed,
-                    "before": change.before,
-                    "after": change.after,
-                    "message": change.after.message(),
-                    "maySpawn": may_spawn(&change.after),
-                    "mayAdvance": may_advance(&change.after),
-                    "gateEvents": gate_event_count(&conn),
-                    "statusesBefore": statuses_before,
-                    "statusesAfter": run_statuses(&conn),
-                })
-            );
-        }
-        "gate-read" => {
-            let now: i64 = arg(&args, 1, "gate-read <now_epoch_secs>").parse().unwrap_or_else(|_| fail("now must be epoch seconds"));
-            let conn = open_conn();
-            let gate: GateState = read_gate(&conn, now).unwrap_or_else(|e| fail(&format!("read_gate: {e:#}")));
-            println!(
-                "{}",
-                json!({ "gate": gate, "message": gate.message(), "maySpawn": may_spawn(&gate), "mayAdvance": may_advance(&gate) })
             );
         }
         other => fail(&format!("unknown subcommand {other:?}; see the header of uat_fanout_ops.rs")),
