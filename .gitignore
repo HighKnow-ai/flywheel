@@ -27,3 +27,4 @@ packages/sidecar/.runtime-cache/
 updater.key
 updater.password
 *.key
+.context/

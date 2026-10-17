@@ -20,6 +20,18 @@ _Avoid_: Feature, PRD
 A thin vertical slice of user-visible behaviour within an Epic; the unit of work an agent executes in its own worktree.
 _Avoid_: Ticket, task (for the executable unit)
 
+**Story state**:
+Where a Story is in its life: Shaping, Ready, Running, In review, then Merged or Dropped. What its session is doing is not part of the state.
+_Avoid_: Status (for the lifecycle), column
+
+**Dropped**:
+The end state of a Story the developer has decided not to finish; its record stays readable and it counts as closed for its Epic.
+_Avoid_: Cancelled, abandoned, closed
+
+**Epic state**:
+Where an Epic is in its life: Shaping, Ready, In progress, then Done once the developer confirms its Exit test.
+_Avoid_: Status, complete
+
 **Task**:
 A checklist step inside a Story that the agent works through and keeps up to date; not a board item of its own.
 _Avoid_: Subtask, todo
@@ -59,6 +71,18 @@ A batch of numbered questions the agent asks during a Stage, each with a recomme
 _Avoid_: Turn, interview, questionnaire
 
 ## Agent work
+
+**Waiting on you**:
+A session that is live but can't go on until the developer answers it: a Gated action, a permission request, or an open shaping question.
+_Avoid_: Blocked, paused
+
+**Stopped**:
+A Running Story with no live session that never handed off for review; its worktree is intact and it can be resumed.
+_Avoid_: Failed, interrupted, abandoned
+
+**Needs you**:
+The ranked list of everything waiting on the developer across a project, with the most urgent first.
+_Avoid_: Inbox, queue, notifications
 
 **Gated action**:
 An action an agent may take only with the developer's explicit, one-off approval, because it leaves the Story's worktree or can't be undone; never covered by a standing rule.
