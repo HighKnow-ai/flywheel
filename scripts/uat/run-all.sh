@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 #
-# Run every scriptable live UAT item across phases and print a result table. Phase 3 items (1, 3,
-# 5, 6a, 6b, 7) and Phase 5's item 8 (05-10-PLAN.md Task 3) all join this one runner rather than
-# each phase inventing its own.
-#
-# The two visual items (2 and 4) are not run here — they need a human looking at a window. They are
-# listed in the table as MANUAL with the command that stands each one up.
+# Run every scriptable UAT item and print a result table. The offline, zero-token items (the
+# supervision gate, 11's self-test, 12 and 13) also run in CI; items 1, 3, 5, 6a, 6b and 7 are the
+# manual pre-release ones (docs/mvp-spec.md section 9). Live arms that need extra arguments are
+# listed in the table as MANUAL with their command.
 #
 # Exit code: 0 when every scriptable item passed or skipped, 1 when any failed.
 
@@ -21,7 +19,7 @@ done
 
 if [ "$BUILD" = "1" ]; then
   printf '▸ Building prerequisites (pass --no-build to skip)\n'
-  cargo build -p core --bin uat_session_env --bin uat_seed_ui --bin uat_authoring_ops --bin uat_fleet_ops --bin uat_fanout_ops -p flywheel-shim 2>&1 | tail -2
+  cargo build -p core --bin uat_session_env --bin uat_fleet_ops --bin uat_fanout_ops -p flywheel-shim 2>&1 | tail -2
   npm --prefix packages/sidecar run build >/dev/null 2>&1 || {
     printf '  ⚠ sidecar build failed — scripts needing it will skip\n'
   }
@@ -86,12 +84,6 @@ run_item "UAT 6b — unanswered destructive request, production-shaped (heartbea
   node scripts/uat/uat-06-permission-block-lifecycle.mjs --heartbeat=on
 run_item "UAT 7 — launcher-wrapped destructive command, measured live (D-62 item 2)" \
   node scripts/uat/uat-07-launcher-shape-gate.mjs
-run_item "UAT 8 — Socratic epic authoring, driven live (Phase 5 roadmap criteria)" \
-  node scripts/uat/uat-08-socratic-authoring.mjs
-run_item "UAT 9 — Product Kill Criterion, in-app vs terminal-paced (05-17-PLAN.md)" \
-  node scripts/uat/uat-09-product-kill-criterion.mjs
-run_item "UAT 10 — phase-6 agent backlog loop, offline (all PROP ids, zero tokens)" \
-  node scripts/uat/uat-10-agent-backlog.mjs --offline
 run_item "UAT 11 — env-file-ordering verdict functions, self-test only (zero tokens; live run is MANUAL below)" \
   node scripts/uat/uat-11-env-file-ordering.mjs --selftest
 run_item "UAT 12 — fleet live reads: log tail, dismiss, blocked queue, reclaim (D-REV-48/49/50/55, zero tokens)" \
@@ -99,7 +91,7 @@ run_item "UAT 12 — fleet live reads: log tail, dismiss, blocked queue, reclaim
 run_item "UAT 13 — whole fan-out, only the model faked: cap, commit, merge, wave-two base (D-REV-34, zero tokens)" \
   node scripts/uat/uat-13-fan-out-live.mjs
 
-printf '\n\n┌─ UAT results (Phases 3 and 5) ────────────────────────────────────────────\n'
+printf '\n\n┌─ UAT results ─────────────────────────────────────────────────────────────\n'
 FAILED=0
 for i in "${!NAMES[@]}"; do
   case "${RESULTS[$i]}" in
@@ -112,18 +104,8 @@ for i in "${!NAMES[@]}"; do
   # The full output of a FAILING item, named right where someone reads the failure.
   [ "${RESULTS[$i]}" = "FAIL" ] && printf '│          ↳ full output: %s\n' "${LOGS[$i]}"
 done
-printf '│ 👁  MANUAL UAT 2 — orphan recovery modal blocks the board\n'
-printf '│          ↳ bash scripts/uat/uat-ui-setup.sh orphan\n'
-printf '│ 👁  MANUAL UAT 4 — destructive card renders correctly\n'
-printf '│          ↳ bash scripts/uat/uat-ui-setup.sh destructive\n'
-printf '│ 👁  MANUAL UAT 10-live — phase-6 agent backlog loop, live (spends tokens)\n'
-printf '│          ↳ node scripts/uat/uat-10-agent-backlog.mjs --live\n'
 printf '│ 👁  MANUAL UAT 11-live — CLAUDE_ENV_FILE ordering, PATH shadow restoration, ask-branch (spends tokens)\n'
 printf '│          ↳ node scripts/uat/uat-11-env-file-ordering.mjs\n'
-printf '│ 👁  MANUAL UAT 14-live — planner file-set declaration against a real claude planning run (spends tokens)\n'
-printf '│          ↳ node scripts/uat/uat-14-planner-file-set.mjs --live --artifact <file>\n'
-printf '│ 👁  MANUAL UAT 15-live — drive a real session into the account window limit (spends the subscription window)\n'
-printf '│          ↳ node scripts/uat/uat-15-account-limit.mjs --live --artifact <file> --fixture <file> --max-minutes 90\n'
 printf '└────────────────────────────────────────────────────────────────────────────\n'
 
 exit "$FAILED"

@@ -49,6 +49,17 @@ jobs:
 
       - run: cargo build --workspace
 
+      # The offline UAT (docs/mvp-spec.md §9): zero tokens, no `claude` binary, no credentials. The
+      # job holds no secret. Needs packages/sidecar/dist (build:dist above) and the uat_session_env,
+      # uat_fleet_ops, uat_fanout_ops and flywheel-shim binaries (cargo build --workspace above).
+      # A SKIP exits 3, so it fails this step rather than passing silently.
+      - name: Offline UAT (harness-supervision-gate, uat-12, uat-13)
+        run: |
+          node scripts/uat/harness-supervision-gate.mjs --mode=supervised
+          node scripts/uat/harness-supervision-gate.mjs --mode=unsupervised
+          node scripts/uat/uat-12-fleet-live-reads.mjs
+          node scripts/uat/uat-13-fan-out-live.mjs
+
       - run: cargo test --workspace
 
       - run: npm --prefix packages/desktop test

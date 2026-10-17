@@ -9,7 +9,7 @@
 //! row this tool touches carries the same event an application-produced one does.
 //!
 //! Usage: `seed_criteria <delete-probes|seed-worktree-tasks|both> [--i-mean-the-real-database]`.
-//! Unlike `uat_seed_ui`, this tool is MEANT to be pointed at the real fleet database, so when
+//! Unlike the scratch-only `uat_*` bridges, this tool is MEANT to be pointed at the real fleet database, so when
 //! `FLYWHEEL_APP_DATA_DIR` is absent it proceeds against the default app-data location only with
 //! the explicit flag, and exits non-zero otherwise. The deletion guard is an exact-match
 //! allowlist ([`PROBE_STATEMENTS`]); any other row is skipped and named, so a mistyped argument

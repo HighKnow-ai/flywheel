@@ -20,10 +20,6 @@ name = "uat_session_env"
 path = "tests/bin/uat_session_env.rs"
 
 [[bin]]
-name = "uat_seed_ui"
-path = "tests/bin/uat_seed_ui.rs"
-
-[[bin]]
 name = "uat_fleet_ops"
 path = "tests/bin/uat_fleet_ops.rs"
 
