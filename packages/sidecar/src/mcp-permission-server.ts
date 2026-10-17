@@ -70,11 +70,10 @@ export interface PermissionRequestPayload {
  * from {@link PermissionRequestPayload} on the wire (the routine payload never carries a `kind`
  * field at all). `runId` is the shim's own `FLYWHEEL_RUN_ID`; every other field is notice-specific
  * (`attempt`/`max`/`repository`/`command` for a retry, `repository`/`command`/`attempts` for an
- * exhaustion, `path`/`tool`/`toolUseId`/`outsideWorktree` for a `scope_denied` sent by
- * `scope-hook.ts`) — carried through verbatim rather than typed per-kind here, since this module has no
+ * exhaustion) — carried through verbatim rather than typed per-kind here, since this module has no
  * opinion on what a notice's payload means, only on routing it to `onNotice` unanswered. */
 export interface PermissionNoticePayload {
-  kind: "git_retry" | "git_lock_exhausted" | "scope_denied";
+  kind: "git_retry" | "git_lock_exhausted";
   runId: string;
   [field: string]: unknown;
 }

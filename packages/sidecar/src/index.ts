@@ -19,8 +19,6 @@ interface SpawnRequest {
   worktreePath: string;
   prompt: string;
   permissionMode: string;
-  /** Phase 09 review CR-01: the run's scope marker is armed; the adapter refuses to start it unenforced. */
-  scopeArmed?: boolean;
   env?: Record<string, string>;
 }
 
@@ -150,7 +148,6 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
           worktreePath: request.worktreePath,
           prompt: request.prompt,
           permissionMode: request.permissionMode,
-          scopeArmed: request.scopeArmed === true,
           env: request.env,
           onEvent: emitEvent,
         })

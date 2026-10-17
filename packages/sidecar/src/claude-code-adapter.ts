@@ -92,17 +92,9 @@ export function watchdogEntryPath(): string {
   return fileURLToPath(new URL("./watchdog.js", import.meta.url));
 }
 
-/** The compiled standalone file-set scope hook script's absolute path (D-151, plan 09-01) —
- * resolved relative to THIS compiled module's own location, the same sibling-file idiom
- * [`permissionServerScriptPath`]/[`watchdogEntryPath`] already use. */
-export function scopeHookScriptPath(): string {
-  return fileURLToPath(new URL("./scope-hook.js", import.meta.url));
-}
-
 /** The compiled standalone `SessionStart` hook script's absolute path (phase 12, plan 12-03) —
  * resolved relative to THIS compiled module's own location, the same sibling-file idiom
- * [`scopeHookScriptPath`] already uses. RED-phase stub: the
- * `SessionStart` entry it will be wired into `writeHookSettings` is added in the GREEN commit. */
+ * [`watchdogEntryPath`] already uses. */
 export function sessionStartHookScriptPath(): string {
   return fileURLToPath(new URL("./sessionstart-hook.js", import.meta.url));
 }
@@ -114,8 +106,8 @@ function permissionSettingsPath(runtimeDir: string, runId: string): string {
   return path.join(runtimeDir, "settings", `${runId}.json`);
 }
 
-/** Derive `FLYWHEEL_SHIM_BIN` (plan 03-07) — the absolute shim path `scope-hook.ts` shells out to
- * and `sessionstart-hook.ts` derives the shim directory from — from the FIRST `PATH` segment `flywheel_core::shim::
+/** Derive `FLYWHEEL_SHIM_BIN` (plan 03-07) — the absolute shim path `sessionstart-hook.ts`
+ * derives the shim directory from — from the FIRST `PATH` segment `flywheel_core::shim::
  * shim_env_for_run` already prefixed onto this spawn's environment (D-51). That directory holds a
  * hard-linked/copied entry named `git`/`git.exe`, which IS the compiled shim binary — invoking it
  * with `--classify-command` never dispatches through the `argv[0]`-stem match at all (checked
@@ -123,8 +115,8 @@ function permissionSettingsPath(runtimeDir: string, runId: string): string {
  * of the same binary. Deliberately reads the value back rather than re-resolving a second,
  * independently-computed path to the same binary. Returns `undefined` — never throws — when `PATH`
  * carries no shim prefix or the derived candidate does not exist on disk (a session spawned
- * without the D-51 shim installed, e.g. some unit tests): an armed scope gate refuses to start
- * without it (`scopeGateUnavailable`), and the `SessionStart` hook is a no-op without it. */
+ * without the D-51 shim installed, e.g. some unit tests): the `SessionStart` hook is a no-op
+ * without it. */
 function shimBinFromEnv(env: NodeJS.ProcessEnv): string | undefined {
   const pathValue = env.PATH;
   if (!pathValue) return undefined;
@@ -135,82 +127,19 @@ function shimBinFromEnv(env: NodeJS.ProcessEnv): string | undefined {
   return fs.existsSync(candidate) ? candidate : undefined;
 }
 
-/** D-151 (plan 09-01): the scope-gate `PreToolUse` matcher — every file-writing tool, by name. ONE
- * constant (single-list discipline). `MultiEdit` is absent from the installed CLI's tool list at the
- * time of writing (09-RESEARCH.md M5) but the list varies by CLI version, so the name stays in the
- * regex defensively: matching a tool that does not exist costs nothing, missing one that does is a
- * hole. Reads are deliberately NOT matched — reading outside the declared set is how an agent
- * understands the code it is changing. `Bash` is not matched either: a write made through it is
- * outside this gate and is covered by the detective backstop, not by this entry. Exported so
- * `execution-hook-settings.test.mjs` can compile it as a real `RegExp`. */
-export const SCOPE_GATE_MATCHER = "Write|Edit|MultiEdit|NotebookEdit";
-
-/** One argument, quoted for the shell the agent runs a hook command through: single quotes on POSIX
- * (nothing inside is special), double quotes on Windows. */
-function shellQuote(arg: string): string {
-  return process.platform === "win32" ? `"${arg}"` : `'${arg.replace(/'/g, `'\\''`)}'`;
-}
-
-/** The scope gate's hook command (phase 09 review CR-01). Both paths are quoted, so a space in the
- * install directory cannot split them. `|| exit 2` makes EVERY failure to run the hook a block:
- * only exit 2 stops a tool call, and `node` reports a missing or unreadable script as exit 1, which
- * lets the write through. The hook's own verdicts pass through unchanged: 0 allows, 2 denies. */
-export function scopeHookCommand(execPath: string, scriptPath: string): string {
-  return `${shellQuote(execPath)} ${shellQuote(scriptPath)} || exit 2`;
-}
-
-/** Why an ARMED run's scope gate cannot be enforced, or `undefined` when it can. The scope gate has
- * no second layer (the Bash gate has the PATH shim), so every way its wiring can be absent is a
- * refusal to start rather than a run that proceeds with an armed marker and no hooks. */
-function scopeGateUnavailable(
-  env: NodeJS.ProcessEnv,
-  settingsPath: string | undefined,
-): string | undefined {
-  if (!env.FLYWHEEL_RUNTIME_DIR) {
-    return "FLYWHEEL_RUNTIME_DIR is not set, so the scope gate's hook settings cannot be written";
-  }
-  if (settingsPath === undefined) {
-    return `the scope gate's hook settings could not be written under ${env.FLYWHEEL_RUNTIME_DIR}/settings`;
-  }
-  if (!fs.existsSync(scopeHookScriptPath())) {
-    return `the scope hook script is missing at ${scopeHookScriptPath()}`;
-  }
-  if (!env.FLYWHEEL_SHIM_BIN) {
-    return "FLYWHEEL_SHIM_BIN is not set, so the scope hook has no shim to check the declared file-set with";
-  }
-  return undefined;
-}
-
-/** Write `<runtimeDir>/settings/<runId>.json` — the run's tool-call hooks plus a `SessionStart`
- * entry (`sessionStartHookScriptPath()`, no `matcher` field) — and return its path. There is no
- * `Bash` entry: the old "prove interception" hook was deleted (ADR 0001), so the tool-call array is
- * empty unless the scope gate is included.
- *
- * `includeScopeGate` (phase 09, plan 09-01, D-151): appends an entry on `SCOPE_GATE_MATCHER` that
- * wires `scope-hook.ts`. Defaults to `false`; the `SessionStart` entry is untouched in every
- * branch. The execution-session path passes `true`.
+/** Write `<runtimeDir>/settings/<runId>.json` — the run's `SessionStart` entry
+ * (`sessionStartHookScriptPath()`, no `matcher` field) and an empty tool-call array — and return its
+ * path. There is no `Bash` entry: the old "prove interception" hook was deleted (ADR 0001), and the
+ * file-set scope gate went with the file-set fence (issue #44).
  *
  * A write failure here degrades to "no hook injected for this session" (logged, never thrown) —
  * the shim (D-51/D-58) is that path's load-bearing guarantee, so a settings-write failure must not
  * refuse an entire task-execution session over this defense-in-depth layer. */
-export function writeHookSettings(
-  runtimeDir: string,
-  runId: string,
-  includeScopeGate: boolean = false,
-): string | undefined {
+export function writeHookSettings(runtimeDir: string, runId: string): string | undefined {
   try {
     const settingsPath = permissionSettingsPath(runtimeDir, runId);
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
     const preToolUse: Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }> = [];
-    // D-151 (plan 09-01): the file-set scope gate. Execution runs only. Deliberately NO `timeout` field on this entry: a
-    // timed-out `PreToolUse` hook does not block the call, so a short timeout would be a silent
-    // bypass (09-RESEARCH.md Pattern 3); the hook keeps its own work bounded instead.
-    if (includeScopeGate) {
-      preToolUse.push({
-        matcher: SCOPE_GATE_MATCHER,
-        hooks: [{ type: "command", command: scopeHookCommand(process.execPath, scopeHookScriptPath()) }],
-      });
-    }
     const settings = {
       hooks: {
         PreToolUse: preToolUse,
@@ -485,7 +414,7 @@ function summedInputTokens(usage: ClaudeStreamUsage | undefined): number | undef
 
 /**
  * D-53/plan 03-13: map one parsed shim NOTICE payload to exactly one {@link AgentEvent} —
- * `git_retry`, `git_lock_exhausted` or `scope_denied` — or `undefined` for a `kind` this function does not
+ * `git_retry` or `git_lock_exhausted` — or `undefined` for a `kind` this function does not
  * recognise (dropped, never forwarded as `unknown`: this is reached ONLY from the shim's own
  * notice wire shape, never the backend's stream-json, so there is no raw line worth preserving
  * for an unrecognised notice kind). `raw` is always the serialised notice JSON itself — never
@@ -519,18 +448,6 @@ export function noticeToAgentEvent(
       repository: typeof payload.repository === "string" ? payload.repository : "",
       command: typeof payload.command === "string" ? payload.command : "",
       attempts: typeof payload.attempts === "number" ? payload.attempts : 0,
-    };
-  }
-  if (payload.kind === "scope_denied") {
-    // `runId` is the session closure's, passed in by the caller — the notice's own `runId` is never
-    // read (T-09-02-01).
-    return {
-      ...base,
-      type: "scope_denied",
-      path: typeof payload.path === "string" ? payload.path : "",
-      tool: typeof payload.tool === "string" ? payload.tool : "",
-      toolUseId: typeof payload.toolUseId === "string" ? payload.toolUseId : "",
-      outsideWorktree: payload.outsideWorktree === true,
     };
   }
   return undefined;
@@ -1145,7 +1062,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       FLYWHEEL_PERMISSION_SOCKET: permissionServer.socketPath,
     };
 
-    // plan 03-07 (D-55): FLYWHEEL_SHIM_BIN is how `scope-hook.ts` and `sessionstart-hook.ts` find
+    // plan 03-07 (D-55): FLYWHEEL_SHIM_BIN is how `sessionstart-hook.ts` finds
     // the shim — reached from the SAME per-run shim directory
     // `flywheel_core::shim::shim_env_for_run` already prefixed onto `PATH` (D-51), never a second,
     // independently-resolved path to the compiled shim binary.
@@ -1157,36 +1074,9 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     // plan 03-07 (D-55): write this run's `--settings` file BEFORE building argv, so the hook can
     // be wired into the very first invocation — a write failure degrades to "no hook injected for
     // this session" (writeHookSettings's own doc comment), never a refused spawn.
-    // Plan 09-01 (D-151): the third argument is `true` — an execution run IS scope-gated. The Rust
-    // core writes the run's scope marker (armed or unarmed) before this spawn; an unarmed marker
-    // makes the hook a no-op, so a task with no declared file-set runs exactly as it did before.
     const settingsPath = env.FLYWHEEL_RUNTIME_DIR
-      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId, true)
+      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId)
       : undefined;
-
-    // Phase 09 review CR-01: an ARMED run is refused, not started, when its scope gate cannot be
-    // enforced. Rust wrote an armed marker before this spawn; without the hook wired in, every
-    // write would be permitted and nothing recorded. The terminal `session_closed` (failed) is what
-    // makes the Rust core close this run's row, so the refusal frees its dispatcher slot and leaves
-    // the task with no live run; it is the same event a backend that never spawned produces.
-    if (options.scopeArmed === true) {
-      const why = scopeGateUnavailable(env, settingsPath);
-      if (why !== undefined) {
-        const reason = `refusing to start an armed run unenforced: ${why}`;
-        permissionServer.close();
-        options.onEvent({
-          runId: options.runId,
-          seq: 0,
-          at: new Date().toISOString(),
-          raw: `session_closed: failed`,
-          type: "session_closed",
-          reason: "failed",
-          closeOrigin: "unattributed",
-          detail: reason,
-        });
-        throw new Error(reason);
-      }
-    }
 
     const mcpConfig = JSON.stringify({
       mcpServers: {

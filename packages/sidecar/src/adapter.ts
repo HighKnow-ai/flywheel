@@ -261,19 +261,6 @@ export interface GitLockExhaustedEvent extends AgentEventBase {
   attempts: number;
 }
 
-/** PLAN-05 (phase 09 plan 09-02): the scope hook's "I refused a write" report, relayed over the
- * SAME permission socket as a fire-and-forget notice. `path` is repository-relative (or absolute when
- * `outsideWorktree` is true — the Rust side keeps only its file name). `runId` comes from the session
- * closure, never from the notice body (T-09-02-01). Best effort by construction: the close-time
- * backstop in `packages/core/src/drift.rs` is what makes a lost notice still surface. */
-export interface ScopeDeniedEvent extends AgentEventBase {
-  type: "scope_denied";
-  path: string;
-  tool: string;
-  toolUseId: string;
-  outsideWorktree: boolean;
-}
-
 /**
  * G-05-7 (plan 05-37): a reasoning-only assistant message — the backend's own `thinking` content
  * block, found with no `tool_use`/`tool_result`/`text` block ahead of it in the same message.
@@ -341,7 +328,6 @@ export type AgentEvent =
   | SessionClosedEvent
   | GitRetryEvent
   | GitLockExhaustedEvent
-  | ScopeDeniedEvent
   | ThinkingEvent
   | RateLimitEvent;
 
@@ -380,10 +366,6 @@ export interface StartSessionOptions {
   worktreePath: string;
   prompt: string;
   permissionMode: string;
-  /** Phase 09 review CR-01: the Rust core wrote an ARMED scope marker for this run. The adapter
-   * must then refuse to start unless it can wire the scope gate in (fail closed); an unarmed run
-   * (no declared file-set, D-150) is unaffected. Absent means unarmed. */
-  scopeArmed?: boolean;
   /** Additional environment variables to merge over `process.env` for the spawned child —
    * resolved credentials arrive here from the Rust core and are never read from disk by the
    * sidecar itself. */
