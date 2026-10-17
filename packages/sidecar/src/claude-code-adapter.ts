@@ -92,37 +92,30 @@ export function watchdogEntryPath(): string {
   return fileURLToPath(new URL("./watchdog.js", import.meta.url));
 }
 
-/** The compiled standalone `PreToolUse` hook script's absolute path (plan 03-07, D-55) — resolved
- * relative to THIS compiled module's own location, the same sibling-file idiom
- * [`permissionServerScriptPath`]/[`watchdogEntryPath`] already use. */
-export function pretoolUseHookScriptPath(): string {
-  return fileURLToPath(new URL("./pretooluse-hook.js", import.meta.url));
-}
-
 /** The compiled standalone file-set scope hook script's absolute path (D-151, plan 09-01) —
  * resolved relative to THIS compiled module's own location, the same sibling-file idiom
- * [`pretoolUseHookScriptPath`] already uses. */
+ * [`permissionServerScriptPath`]/[`watchdogEntryPath`] already use. */
 export function scopeHookScriptPath(): string {
   return fileURLToPath(new URL("./scope-hook.js", import.meta.url));
 }
 
 /** The compiled standalone `SessionStart` hook script's absolute path (phase 12, plan 12-03) —
  * resolved relative to THIS compiled module's own location, the same sibling-file idiom
- * [`pretoolUseHookScriptPath`] already uses. RED-phase stub: the
+ * [`scopeHookScriptPath`] already uses. RED-phase stub: the
  * `SessionStart` entry it will be wired into `writeHookSettings` is added in the GREEN commit. */
 export function sessionStartHookScriptPath(): string {
   return fileURLToPath(new URL("./sessionstart-hook.js", import.meta.url));
 }
 
-/** Where a per-run `--settings` JSON injecting the `PreToolUse` hook is written (plan 03-07):
+/** Where a per-run `--settings` JSON injecting the session's hooks is written (plan 03-07):
  * `<runtimeDir>/settings/<runId>.json`, alongside `runtime_protocol.rs`'s own per-run file
  * conventions (`runs/<runId>.json`, `shim/<runId>/`). */
 function permissionSettingsPath(runtimeDir: string, runId: string): string {
   return path.join(runtimeDir, "settings", `${runId}.json`);
 }
 
-/** Derive `FLYWHEEL_SHIM_BIN` (plan 03-07) — the absolute path `pretooluse-hook.ts` shells out to
- * in `--classify-command` mode — from the FIRST `PATH` segment `flywheel_core::shim::
+/** Derive `FLYWHEEL_SHIM_BIN` (plan 03-07) — the absolute shim path `scope-hook.ts` shells out to
+ * and `sessionstart-hook.ts` derives the shim directory from — from the FIRST `PATH` segment `flywheel_core::shim::
  * shim_env_for_run` already prefixed onto this spawn's environment (D-51). That directory holds a
  * hard-linked/copied entry named `git`/`git.exe`, which IS the compiled shim binary — invoking it
  * with `--classify-command` never dispatches through the `argv[0]`-stem match at all (checked
@@ -130,9 +123,8 @@ function permissionSettingsPath(runtimeDir: string, runId: string): string {
  * of the same binary. Deliberately reads the value back rather than re-resolving a second,
  * independently-computed path to the same binary. Returns `undefined` — never throws — when `PATH`
  * carries no shim prefix or the derived candidate does not exist on disk (a session spawned
- * without the D-51 shim installed, e.g. some unit tests): the hook itself fails closed on a
- * missing `FLYWHEEL_SHIM_BIN`, so an absent value here is a safe degradation, never a silent
- * bypass of the destructive-action gate. */
+ * without the D-51 shim installed, e.g. some unit tests): an armed scope gate refuses to start
+ * without it (`scopeGateUnavailable`), and the `SessionStart` hook is a no-op without it. */
 function shimBinFromEnv(env: NodeJS.ProcessEnv): string | undefined {
   const pathValue = env.PATH;
   if (!pathValue) return undefined;
@@ -143,7 +135,7 @@ function shimBinFromEnv(env: NodeJS.ProcessEnv): string | undefined {
   return fs.existsSync(candidate) ? candidate : undefined;
 }
 
-/** D-151 (plan 09-01): the second `PreToolUse` matcher — every file-writing tool, by name. ONE
+/** D-151 (plan 09-01): the scope-gate `PreToolUse` matcher — every file-writing tool, by name. ONE
  * constant (single-list discipline). `MultiEdit` is absent from the installed CLI's tool list at the
  * time of writing (09-RESEARCH.md M5) but the list varies by CLI version, so the name stays in the
  * regex defensively: matching a tool that does not exist costs nothing, missing one that does is a
@@ -189,15 +181,14 @@ function scopeGateUnavailable(
   return undefined;
 }
 
-/** Write `<runtimeDir>/settings/<runId>.json` — the exact `PreToolUse`/`matcher: "Bash"` shape
- * RESEARCH.md confirmed working live against the real `claude` binary this session (§ "The hook
- * mechanism verified working this session"), EXTENDED (phase 12, plan 12-03) with a `SessionStart`
- * entry (`sessionStartHookScriptPath()`, no `matcher` field) — and return its path.
+/** Write `<runtimeDir>/settings/<runId>.json` — the run's tool-call hooks plus a `SessionStart`
+ * entry (`sessionStartHookScriptPath()`, no `matcher` field) — and return its path. There is no
+ * `Bash` entry: the old "prove interception" hook was deleted (ADR 0001), so the tool-call array is
+ * empty unless the scope gate is included.
  *
- * `includeScopeGate` (phase 09, plan 09-01, D-151): appends a second `PreToolUse` entry on
- * `SCOPE_GATE_MATCHER` that wires `scope-hook.ts`. Defaults to `false`, so a caller that does not
- * pass it gets the one-entry array; the `SessionStart` entry is untouched in every branch. The
- * execution-session path passes `true`.
+ * `includeScopeGate` (phase 09, plan 09-01, D-151): appends an entry on `SCOPE_GATE_MATCHER` that
+ * wires `scope-hook.ts`. Defaults to `false`; the `SessionStart` entry is untouched in every
+ * branch. The execution-session path passes `true`.
  *
  * A write failure here degrades to "no hook injected for this session" (logged, never thrown) —
  * the shim (D-51/D-58) is that path's load-bearing guarantee, so a settings-write failure must not
@@ -210,12 +201,7 @@ export function writeHookSettings(
   try {
     const settingsPath = permissionSettingsPath(runtimeDir, runId);
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-    const preToolUse: Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }> = [
-      {
-        matcher: "Bash",
-        hooks: [{ type: "command", command: `${process.execPath} ${pretoolUseHookScriptPath()}` }],
-      },
-    ];
+    const preToolUse: Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }> = [];
     // D-151 (plan 09-01): the file-set scope gate. Execution runs only. Deliberately NO `timeout` field on this entry: a
     // timed-out `PreToolUse` hook does not block the call, so a short timeout would be a silent
     // bypass (09-RESEARCH.md Pattern 3); the hook keeps its own work bounded instead.
@@ -230,7 +216,7 @@ export function writeHookSettings(
         PreToolUse: preToolUse,
         // Phase 12 plan 12-03: writes the shim's shadow directory onto CLAUDE_ENV_FILE
         // (sessionstart-hook.ts's own module doc). No `matcher` field — SessionStart is not
-        // tool-scoped. The PreToolUse array above is unchanged by this addition.
+        // tool-scoped.
         SessionStart: [
           {
             hooks: [
@@ -305,7 +291,7 @@ function writeRunDescriptor(runtimeDir: string, runId: string, wrapperPid: numbe
  * configuration, T-02-02). Both are optional purely so this function's own unit tests (and any
  * future adapter that does not yet wire the gate) can call it with the bare two fields.
  *
- * `settingsPath` (plan 03-07, D-55) is independently optional — it injects the `PreToolUse` hook
+ * `settingsPath` (plan 03-07, D-55) is independently optional — it injects the hook
  * settings file `writeHookSettings` wrote, via the CLI's own `--settings <file>` flag (RESEARCH.md
  * "The hook mechanism verified working this session"). Appended on its own, never paired with
  * anything else, so a caller that has a permission-prompt-tool pair but no settings file (or vice
@@ -1159,8 +1145,8 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       FLYWHEEL_PERMISSION_SOCKET: permissionServer.socketPath,
     };
 
-    // plan 03-07 (D-55): FLYWHEEL_SHIM_BIN is how `pretooluse-hook.ts` finds a binary it can shell
-    // out to in `--classify-command` mode — reached from the SAME per-run shim directory
+    // plan 03-07 (D-55): FLYWHEEL_SHIM_BIN is how `scope-hook.ts` and `sessionstart-hook.ts` find
+    // the shim — reached from the SAME per-run shim directory
     // `flywheel_core::shim::shim_env_for_run` already prefixed onto `PATH` (D-51), never a second,
     // independently-resolved path to the compiled shim binary.
     const shimBin = shimBinFromEnv(env);

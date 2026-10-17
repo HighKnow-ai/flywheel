@@ -126,14 +126,13 @@ test("degrade arm: a shim directory containing a space is quoted in the emitted 
   assert.equal(parse.status, 0, `sh -n failed to parse the emitted line: ${parse.stderr}`);
 });
 
-test("settings-shape arm: writeHookSettings carries a SessionStart entry alongside an untouched PreToolUse entry", () => {
+test("settings-shape arm: writeHookSettings carries a SessionStart entry and no tool-call entry", () => {
   const runtimeDir = scratchDir();
   const settingsPath = writeHookSettings(runtimeDir, "run-sessionstart-shape");
   assert.ok(settingsPath, "expected writeHookSettings to return a path");
 
   const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-  assert.equal(settings.hooks.PreToolUse.length, 1);
-  assert.equal(settings.hooks.PreToolUse[0].matcher, "Bash");
+  assert.deepEqual(settings.hooks.PreToolUse, []);
 
   const sessionStart = settings.hooks.SessionStart;
   assert.equal(sessionStart.length, 1);

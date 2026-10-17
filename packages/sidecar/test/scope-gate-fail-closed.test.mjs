@@ -152,7 +152,7 @@ test("writeHookSettings wires the scope entry through that quoted, fail-closed c
   const settingsPath = writeHookSettings(scratch("settings"), "run-quoted", true);
   const entries = JSON.parse(fs.readFileSync(settingsPath, "utf8")).hooks.PreToolUse;
   assert.equal(
-    entries[1].hooks[0].command,
+    entries[0].hooks[0].command,
     adapterModule.scopeHookCommand(process.execPath, scopeHookScriptPath()),
   );
 });

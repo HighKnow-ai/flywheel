@@ -207,7 +207,7 @@ fn set_repo_path(tx: &Transaction, project_id: &str, repo_path: &str) -> anyhow:
 /// Install the Layer 3 pre-push gate (phase 12, plan 12-02) at `repo_path` for `project_id`,
 /// rendering every non-`Installed` outcome on stderr instead of ever propagating it as a failure
 /// — no `?`, no early return: a repository Flywheel cannot gate is still a repository Flywheel
-/// can manage, and the degradation is recorded in `docs/destructive-gate-trust-boundary.md`'s
+/// can manage, and the degradation is recorded in the retired trust-boundary doc's
 /// refusal residual rows, never silently absorbed. This is the ONE place that renders this
 /// outcome for both mutation paths that can change a project's `repo_path` —
 /// [`register_project`] and [`relocate_project`] both call it, so they cannot drift from each

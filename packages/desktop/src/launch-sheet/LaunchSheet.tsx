@@ -27,23 +27,9 @@ import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidatio
 import { AcceptanceCriteriaList } from "../item-detail/AcceptanceCriteriaList";
 import "../session/session.css";
 
-/** The four permission-mode values (D-36), labelled exactly as 02-UI-SPEC.md's segmented control
- * specifies — one-to-one onto the adapter's mode values, no relabeling in between. `Accept Edits`
- * is first (and therefore the default selection, D-36). */
-const PERMISSION_MODE_OPTIONS: readonly { value: string; label: string }[] = [
-  { value: "acceptEdits", label: "Accept Edits" },
-  { value: "plan", label: "Plan" },
-  { value: "default", label: "Ask Every Time" },
-  { value: "bypassPermissions", label: "Bypass Permissions" },
-];
-
-/** A-08(c): the one mode that switches the permission card off. Its label takes the destructive TEXT role
- * (the device `Deny` uses; no fill), and choosing it prints what it does, in the register of the rest of the
- * sheet: factual, no scolding. */
-const BYPASS_MODE = "bypassPermissions";
-const BYPASS_CONSEQUENCE = "The agent won't ask before editing files or running commands this run.";
-
-const DEFAULT_PERMISSION_MODE = PERMISSION_MODE_OPTIONS[0].value;
+/** The permission mode every run started from this sheet uses (ADR 0001). Flywheel picks the mode;
+ * the sheet offers no choice. */
+const RUN_PERMISSION_MODE = "acceptEdits";
 
 const INSTRUCTION_PLACEHOLDER = "Anything else the agent should know for this run? (optional)";
 
@@ -83,7 +69,6 @@ export interface LaunchSheetProps {
 
 export function LaunchSheet({ taskId, onClose, onStarted }: LaunchSheetProps) {
   const [instruction, setInstruction] = useState("");
-  const [permissionMode, setPermissionMode] = useState(DEFAULT_PERMISSION_MODE);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overlapWarning, setOverlapWarning] = useState<string | null>(null);
@@ -116,11 +101,10 @@ export function LaunchSheet({ taskId, onClose, onStarted }: LaunchSheetProps) {
 
   // Reset the per-open draft state whenever the sheet opens for a (possibly different) task —
   // reopening on a task that already has a worktree must not carry over a previous task's typed
-  // instruction or mode choice.
+  // instruction.
   useEffect(() => {
     if (taskId !== null) {
       setInstruction("");
-      setPermissionMode(DEFAULT_PERMISSION_MODE);
       setStarting(false);
       startingRef.current = false;
       setError(null);
@@ -162,7 +146,7 @@ export function LaunchSheet({ taskId, onClose, onStarted }: LaunchSheetProps) {
     startingRef.current = true;
     setStarting(true);
     setError(null);
-    startAgentRun(taskId as string, permissionMode, instruction)
+    startAgentRun(taskId as string, RUN_PERMISSION_MODE, instruction)
       .then((run) => {
         setOverlapWarning(run.overlapWarning ?? null);
         onStarted(run.id, run.overlapWarning ?? null);
@@ -278,30 +262,6 @@ export function LaunchSheet({ taskId, onClose, onStarted }: LaunchSheetProps) {
                 rows={3}
                 className="control-edge session-field launch-field type-body"
               />
-
-              <div role="radiogroup" aria-label="Permission mode" style={{ display: "flex", gap: "var(--space-xs)" }}>
-                {PERMISSION_MODE_OPTIONS.map((option) => {
-                  const selected = option.value === permissionMode;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      onClick={() => setPermissionMode(option.value)}
-                      className={`control-edge launch-mode type-label${option.value === BYPASS_MODE ? " launch-mode-destructive" : ""}`}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {permissionMode === BYPASS_MODE && (
-                <p role="status" className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
-                  {BYPASS_CONSEQUENCE}
-                </p>
-              )}
 
               {needsContract && coverage && (
                 <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-sm)" }}>

@@ -3,10 +3,8 @@
 //! `core::git_hooks::interception_layers_for` is a `match` with no wildcard arm over
 //! `DestructiveCategory` — adding a category without naming a layer for it fails to compile, so
 //! this file's job is to prove the TABLE's claims are honest, not that the match is exhaustive
-//! (the compiler already guarantees that). Five properties: every category has at least one named
-//! layer (totality); every layer name the table uses is a real heading in
-//! `docs/destructive-gate-trust-boundary.md` (no claim with no spec behind it); the table is not
-//! degenerate (at least one multi-layer category, at least one single-layer category); the
+//! (the compiler already guarantees that). Four properties: every category has at least one named
+//! layer (totality); the table is not degenerate (at least one multi-layer category, at least one single-layer category); the
 //! generated `pre-push` script's own text names exactly the category strings the table maps to the
 //! pre-push layer, and none of the ones it maps to the shim layer alone (what keeps the table
 //! honest about the script rather than aspirational); and (phase 12, plan 12-06 gap closure) every
@@ -30,39 +28,11 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn trust_boundary_doc() -> String {
-    let path = workspace_root().join("docs/destructive-gate-trust-boundary.md");
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()))
-}
-
 #[test]
 fn every_destructive_category_has_at_least_one_named_layer() {
     for category in DestructiveCategory::all() {
         let layers = interception_layers_for(category);
         assert!(!layers.is_empty(), "DestructiveCategory::{category:?} has no interception layer named for it");
-    }
-}
-
-#[test]
-fn every_named_layer_is_a_real_section_heading_in_the_trust_boundary_doc() {
-    let doc = trust_boundary_doc();
-
-    let mut distinct_layers: Vec<&'static str> = DestructiveCategory::all()
-        .into_iter()
-        .flat_map(interception_layers_for)
-        .copied()
-        .collect();
-    distinct_layers.sort();
-    distinct_layers.dedup();
-
-    assert!(!distinct_layers.is_empty(), "expected at least one layer name across all categories");
-
-    for layer in distinct_layers {
-        let heading = format!("## {layer}");
-        assert!(
-            doc.contains(&heading),
-            "layer name {layer:?} (as heading {heading:?}) was not found verbatim in docs/destructive-gate-trust-boundary.md"
-        );
     }
 }
 

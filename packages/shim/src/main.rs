@@ -107,7 +107,7 @@
 //!   CANNOT DETERMINE what words the text forms (a `$`, a backtick, or a letter-adjacent glob) and
 //!   therefore refuses to report an absence it cannot prove. Its `false` is a claim of PROVEN
 //!   absence, and that claim is sound only for DETERMINATE text — see
-//!   `docs/destructive-gate-trust-boundary.md`'s C1-C4 contract for the exact scope.
+//!   the retired trust-boundary doc's C1-C4 contract for the exact scope.
 //! - `namesGatedProgram` is `text_names_gated_program`: does the raw text (or its C1 quote-removed
 //!   form) name one of the two programs `install_for_run` shadows (`git`, `rm`)? Not enumeration —
 //!   that pair is closed and owned by another module entirely.
@@ -121,8 +121,7 @@
 //! destructive arm's own fail-closed shape.
 //!
 //! **What this binary is trusted to prove, and what it structurally cannot see, is recorded in
-//! `docs/destructive-gate-trust-boundary.md`** (D-62 item 3) — read it before changing this file's
-//! dispatch or classification behaviour.
+//! the retired trust-boundary doc** (D-62 item 3; superseded by ADR 0001, still in git history).
 
 //! **`--scope-check <marker-path> <absolute-target-path>` (plan 09-01, D-151):** checked BEFORE the
 //! `argv[0]`-stem dispatch, alongside the other argv modes. The run-time half of PLAN-04: the Node
@@ -1122,7 +1121,7 @@ fn text_can_shadow_path_resolution(text: &str) -> bool {
 /// all — every `'` and every `"` character is dropped outright, and every backslash `\` is dropped
 /// along with the character immediately following it, which is pushed verbatim (a trailing
 /// backslash at the end of input is dropped with nothing following it). **C1 — quote removal,
-/// performed context-free** (`docs/destructive-gate-trust-boundary.md`): this is deliberately
+/// performed context-free** (the retired trust-boundary doc): this is deliberately
 /// unfaithful to any single shell's grammar. The text handed to this scanner may be re-parsed by a
 /// NESTED shell at a depth this function has no way to know — inside an outer `sh -c '…'` payload,
 /// for example — so a context-sensitive removal that correctly left a backslash literal inside
@@ -1185,7 +1184,7 @@ fn raw_text_contains_word(chars: &[char], word: &str) -> bool {
 /// boundary) on both sides — [`raw_text_contains_word`] applied to a single token's own character
 /// slice instead of the whole raw text. Exact token equality (`token == word`) is the special case
 /// where the token IS the word; this is the general, promoted form of wrapper-token recognition
-/// **C6** (`docs/destructive-gate-trust-boundary.md`) is built on — the word-boundary treatment
+/// **C6** (the retired trust-boundary doc) is built on — the word-boundary treatment
 /// `git`/`rm` ([`text_names_gated_program`]) and the six `KEYWORD_TRIGGERS`
 /// ([`raw_text_can_shadow_path_resolution`]) have had since plan 03-24, which `env`/`command`
 /// lacked until round eight. A path prefix (`/usr/bin/env`) is recognised because `/` is not an
@@ -1198,7 +1197,7 @@ fn token_names_word(token: &str, word: &str) -> bool {
 
 /// True when `token`'s own word formation cannot be determined — reuses **C3**'s own named
 /// character set (`$`, a backtick, `*`, `?`, `[`, `{`, `}`,
-/// `docs/destructive-gate-trust-boundary.md`) deliberately, so the two scanners can never drift
+/// the retired trust-boundary doc) deliberately, so the two scanners can never drift
 /// apart: a character that can complete or reassemble a keyword in the middle of ordinary text is
 /// equally capable of reassembling a wrapper's own flag or `--unset` NAME argument. Unlike
 /// [`raw_text_word_formation_is_indeterminate`] (C3), this makes NO adjacency test: at a flag or
@@ -1229,7 +1228,7 @@ fn token_word_formation_is_indeterminate(token: &str) -> bool {
 /// costs an ungated force-push.
 ///
 /// **Soundness class, narrowed by CR-01/plan 03-33
-/// (`docs/destructive-gate-trust-boundary.md`):** a `false` means neither `git` nor `rm` appears
+/// (the retired trust-boundary doc):** a `false` means neither `git` nor `rm` appears
 /// as a word-bounded literal in the raw text or in [`shell_quote_removed`]'s output — and NOTHING
 /// MORE. It does NOT mean the shell will not FORM one of those words: `{gi,}t push --force`
 /// classifies `namesGatedProgram:false` (no contiguous literal `git`), even though bash resolves
@@ -1243,7 +1242,7 @@ fn token_word_formation_is_indeterminate(token: &str) -> bool {
 /// closed — see the trust-boundary document's `## Named residuals` table.
 ///
 /// **C2 — union matching over the raw text and the quote-removed text**
-/// (`docs/destructive-gate-trust-boundary.md`): the name is matched against BOTH the raw
+/// (the retired trust-boundary doc): the name is matched against BOTH the raw
 /// characters and [`shell_quote_removed`]'s output, and a match in either form is a match — round
 /// five's `g""it` splits the name only in the raw form, and the quote-removed form is what catches
 /// it. `raw_text_contains_word`'s own boundary rule is preserved over BOTH forms, since deleting
@@ -1275,7 +1274,7 @@ fn text_names_gated_program(text: &str) -> bool {
 /// safe branch needs this raw form.
 ///
 /// **C2 — union matching over the raw text and the quote-removed text**
-/// (`docs/destructive-gate-trust-boundary.md`): each keyword is matched against BOTH the raw
+/// (the retired trust-boundary doc): each keyword is matched against BOTH the raw
 /// characters and [`shell_quote_removed`]'s output, and a match in either form is a match — round
 /// five's `e""val`/`e\val` split the keyword only in the raw form, and the quote-removed form is
 /// what catches it.
@@ -1289,7 +1288,7 @@ fn raw_text_can_shadow_path_resolution(text: &str) -> bool {
 }
 
 /// **C3 — indeterminate word formation reports "can shadow"**
-/// (`docs/destructive-gate-trust-boundary.md`, WR-03 ruling): a CLOSED, POSITIVE ENUMERATION of
+/// (the retired trust-boundary doc, WR-03 ruling): a CLOSED, POSITIVE ENUMERATION of
 /// four NAMED bash word-formation mechanisms — not a general inversion. Operates on
 /// [`shell_quote_removed`]'s output and returns `true` when that text contains: (1) a `$` anywhere
 /// (parameter expansion, command substitution, arithmetic expansion, ANSI-C `$'…'` quoting); (2) a
@@ -1304,7 +1303,7 @@ fn raw_text_can_shadow_path_resolution(text: &str) -> bool {
 ///
 /// This enumeration explicitly does NOT cover tilde expansion, process substitution's own
 /// `<(`/`>(` forms, or any future word-formation construct outside this named list. A mechanism
-/// outside the four is a boundary failure (`docs/destructive-gate-trust-boundary.md`'s "The rule
+/// outside the four is a boundary failure (the retired trust-boundary doc's "The rule
 /// for round six"), not a gap this function silently excuses.
 ///
 /// This function never claims a shadow construct was FOUND — it reports that the scan CANNOT
@@ -1353,12 +1352,12 @@ fn raw_text_word_formation_is_indeterminate(text: &str) -> bool {
 }
 
 /// **C6 — a PATH-defeating wrapper token is recognised by word-boundary containment, over both
-/// text forms** (`docs/destructive-gate-trust-boundary.md`, plan 03-35, round eight): true when a
+/// text forms** (the retired trust-boundary doc, plan 03-35, round eight): true when a
 /// TOKEN containing a word-bounded `env` or `command` ([`token_names_word`]) appears ANYWHERE in
 /// `text` — over both the raw form and [`shell_quote_removed`]'s output, the SAME C2 union C1-C5
 /// already use — followed, among its own recognised flag run, by the wrapper's own PATH-defeating
 /// or indeterminate flag. C6 SUPERSEDES round seven's C5 (`raw_text_names_opaque_env_reparse`,
-/// superseded — see `docs/destructive-gate-trust-boundary.md`'s "Named residuals" table): C5
+/// superseded — see the retired trust-boundary doc's "Named residuals" table): C5
 /// recognised the wrapper token by exact string equality, which four rounds in a row (five through
 /// eight) each defeated by a fresh word-formation mechanism that produced the token without
 /// producing the literal string — brace expansion (`{env,}`), a path prefix (`/usr/bin/env`). C6 is
@@ -1490,7 +1489,7 @@ struct ClassifiedInvocation {
     /// the shim at all, even though the token itself has no `/`).
     ///
     /// **C4 — the bare-name fact resolves quoting but never refuses on indeterminacy**
-    /// (`docs/destructive-gate-trust-boundary.md`): `shadowable` is widened by C1's quote removal
+    /// (the retired trust-boundary doc): `shadowable` is widened by C1's quote removal
     /// — `text_can_shadow_path_resolution` applied to BOTH the raw text and its quote-removed form
     /// — because a shadow keyword that survives quote removal genuinely defeats the `PATH` search
     /// Layer 2 depends on. It is deliberately NOT widened by C3's indeterminacy (a
@@ -1540,7 +1539,7 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
     // Computed ONCE over the whole trimmed text, not per-segment: the shadowing constructs this
     // detects (a function definition, an alias, `PATH=`, …) affect name resolution for the REST of
     // the command text they appear in, not just their own segment. `quote_removed` is C1's
-    // context-free quote/backslash removal (`docs/destructive-gate-trust-boundary.md`), computed
+    // context-free quote/backslash removal (the retired trust-boundary doc), computed
     // exactly once here and reused by both the `shadowable` and `text_can_shadow` bindings below.
     let quote_removed = shell_quote_removed(trimmed);
     // C4: widened by quote removal (a shadow keyword surviving it genuinely defeats a real `PATH`
@@ -1555,7 +1554,7 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
         || raw_text_can_shadow_path_resolution(trimmed)
         || text_can_shadow_path_resolution(&quote_removed)
         || raw_text_word_formation_is_indeterminate(trimmed)
-        // C6 (docs/destructive-gate-trust-boundary.md, plan 03-35, round eight): a PATH-defeating
+        // C6 (the retired trust-boundary doc, plan 03-35, round eight): a PATH-defeating
         // `env`/`command` wrapper token, recognised by word-boundary containment rather than exact
         // string equality, detected by presence anywhere in the raw or quote-removed text — closes
         // round eight's word-formation gap (brace expansion, a path prefix) in

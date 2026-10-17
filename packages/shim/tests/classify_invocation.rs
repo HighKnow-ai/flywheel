@@ -506,7 +506,7 @@ fn concurrent_classifications_agree_with_serial_ones() {
     );
 }
 
-// --- Plan 03-37 (round nine): `docs/destructive-gate-trust-boundary.md` stated C6's charged
+// --- Plan 03-37 (round nine): the retired trust-boundary doc stated C6's charged
 // friction class narrower than C6's own measured behaviour (03-REVIEW.md WR-A). These tests prove
 // the corrected, broader class against the compiled binary. Every payload below is a
 // classification string only — never executed — per D-63.
@@ -640,7 +640,7 @@ fn round_nine_quote_removed_form_is_load_bearing() {
     // produces round nine's plain-prose false positive
     // (`round_nine_plain_prose_wrapper_flag_adjacency_denies`). A future author implementing the
     // co-location narrowing or the original-quoted-span narrowing named in
-    // `docs/destructive-gate-trust-boundary.md`'s `## Named residuals` table (the "DECLINED (round
+    // the retired trust-boundary doc's `## Named residuals` table (the "DECLINED (round
     // nine, plan 03-37)" row) must see THIS test go red rather than silently reopening a bypass
     // rounds seven and eight already closed.
     let nested_env = classify(r#"sh -c 'env -S "-P /tmp git push --force"'"#);

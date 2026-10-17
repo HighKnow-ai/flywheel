@@ -72,7 +72,7 @@ FLYWHEEL_REAL_GIT={real_git}
 FLYWHEEL_SHIM_BIN={shim_bin}
 FLYWHEEL_WORKTREE_ROOT={worktree_root}
 
-# Territory check, first (the round-ten discipline: see docs/destructive-gate-trust-boundary.md).
+# Territory check, first (the round-ten discipline).
 # Git runs pre-push with the working directory already set to the root of the pushing working
 # tree, so $PWD is the pushing worktree's own path. A push from outside Flywheel's own worktree
 # root is not this layer's business — gating it would repeat round ten's own failure class.
@@ -537,17 +537,13 @@ pub fn uninstall_commit_msg_hook(repo_path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The two interception-layer names this module's coverage table returns, spelled EXACTLY as
-/// `docs/destructive-gate-trust-boundary.md`'s own `## Layer N — ` headings — a reader must be
-/// able to move between the document and this code without translating.
+/// The two interception-layer names this module's coverage table returns.
 const LAYER_2_SHIM: &str = "Layer 2 — the shim's runtime interception";
 const LAYER_3_PRE_PUSH: &str = "Layer 3 — git's own pre-push hook";
 
 /// Every interception layer that covers `category` — a `match` with no wildcard arm, so adding a
 /// variant to [`DestructiveCategory`] fails to compile until a layer is named for it (the
-/// totality invariant `destructive_gate_layer_coverage.rs` asserts). Mirrors
-/// `docs/destructive-gate-trust-boundary.md`'s "## The layer-to-corpus map" row added by this
-/// phase, and its "## Named residuals" rows for the single-layer categories.
+/// totality invariant `destructive_gate_layer_coverage.rs` asserts).
 pub fn interception_layers_for(category: DestructiveCategory) -> &'static [&'static str] {
     use DestructiveCategory::*;
     match category {
