@@ -70,7 +70,7 @@ describe("LaunchSheet", () => {
   });
 
   it("offers no permission-mode choice and starts every run in acceptEdits (ADR 0001)", async () => {
-    previewMock.mockReset().mockResolvedValue(makePacket());
+    headerMock.mockReset().mockResolvedValue(makeHeader());
     startMock.mockReset().mockResolvedValue({ id: "run-1", taskId: "task-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
