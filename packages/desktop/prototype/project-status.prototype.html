@@ -1,0 +1,419 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throw away. Lives only on the branch `prototype/project-status`. It is never merged.
+
+  Question (wayfinder ticket "What does 'clear project status at a glance' look like on the board?"):
+  when Cyril opens a project, what should he see straight away?
+
+  Plan: four structurally different variants of the project screen, switchable via `?variant=A|B|C|D`
+  and the floating bar (or the ← → keys). It's one standalone file with mock data in the new model
+  (GLOSSARY.md). Open it by double-clicking.
+
+  Why a standalone file and not the existing `/board` route: ADR 0003 rewrites the record domain, so
+  the current board's data (cycles, issues, provisional tier) is the old model. Mounting these variants
+  on it would mean faking the new model on top of the old one. The shell (project sidebar, title bar)
+  copies the real app's sidebar so the variants aren't judged in a vacuum.
+
+  Assumptions this file makes (each one is something to react to, not a decision):
+    - Story states: Shaping · Ready · Running · Waiting on you · In review · Merged (+ Stopped).
+    - Epic states: Shaping · Ready · In progress · Done.
+    - Milestone progress = Epics done / Epics, plus the exit test shown as prose (it's prose by definition).
+    - "Needs you" = Gated action requests + Stories in review + pending Proposals (grouped by record)
+      + stalled/stopped sessions. It outranks every other status (ticket "How are agent permissions
+      gated in the MVP?").
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project Status Prototype</title>
+<style>
+@font-face { font-family: "Archivo Variable"; src: url("../public/fonts/Archivo-Variable.ttf") format("truetype-variations"); font-weight: 100 900; }
+:root {
+  --ground: #ffffff; --surface: #f6f8fa; --rule: #d1d9e0; --edge: #7a828c;
+  --ink: #1f2328; --muted: #59636e; --brand: #3c64dd; --brand-text: #3c64dd;
+  --done: #1a7f37; --failed: #cf222e; --blocked: #9a6700;
+  --needs-wash: #fff8e5; --needs-edge: #d4a72c; --run-wash: #eef2fd;
+  --hover: #fafbfc;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0a0a0a; --surface: #0f0f0f; --rule: #2c2c2c; --edge: #707070;
+    --ink: #ededed; --muted: #8b8b8b; --brand: #3c64dd; --brand-text: #5175e1;
+    --done: #3fb950; --failed: #f85149; --blocked: #d29922;
+    --needs-wash: #1c1708; --needs-edge: #6b5413; --run-wash: #0e1426; --hover: #0c0c0c;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0a0a0a; --surface: #0f0f0f; --rule: #2c2c2c; --edge: #707070;
+  --ink: #ededed; --muted: #8b8b8b; --brand: #3c64dd; --brand-text: #5175e1;
+  --done: #3fb950; --failed: #f85149; --blocked: #d29922;
+  --needs-wash: #1c1708; --needs-edge: #6b5413; --run-wash: #0e1426; --hover: #0c0c0c;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--ground); color: var(--ink); font: 13px/1.4 "Archivo Variable", system-ui, sans-serif; }
+.mono { font-family: ui-monospace, monospace; font-size: 11.5px; }
+.muted { color: var(--muted); }
+.micro { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.label { font-size: 11px; }
+h1 { font-size: 15px; font-weight: 600; margin: 0; }
+h2 { font-size: 13px; font-weight: 600; margin: 0; }
+a { color: var(--brand-text); text-decoration: none; cursor: pointer; }
+button { font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--edge); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+button.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+button.small { padding: 1px 7px; font-size: 11px; }
+
+/* shell */
+.app { display: grid; grid-template-columns: 220px 1fr; height: 100vh; }
+.side { background: var(--surface); border-right: 1px solid var(--rule); padding: 38px 0 12px; overflow: auto; }
+.side .proj { display: flex; align-items: center; gap: 8px; padding: 6px 16px; cursor: pointer; }
+.side .proj.on { background: var(--ground); box-shadow: inset 2px 0 0 var(--ink); font-weight: 600; }
+.side .badge { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--blocked); }
+.side .sec { padding: 14px 16px 6px; }
+.titlebar { height: 38px; border-bottom: 1px solid var(--rule); display: flex; align-items: center; padding: 0 20px; gap: 12px; }
+.main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.content { overflow: auto; flex: 1; padding-bottom: 80px; }
+
+/* shared marks */
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.s-needs { color: var(--blocked); } .d-needs { background: var(--blocked); }
+.s-run { color: var(--brand-text); } .d-run { background: var(--brand); animation: pulse 1.6s ease-in-out infinite; }
+.s-review { color: var(--blocked); } .d-review { background: transparent; box-shadow: inset 0 0 0 2px var(--blocked); }
+.s-merged { color: var(--done); } .d-merged { background: var(--done); }
+.s-stopped { color: var(--failed); } .d-stopped { background: var(--failed); }
+.s-quiet { color: var(--muted); } .d-quiet { background: transparent; box-shadow: inset 0 0 0 1.5px var(--edge); }
+@keyframes pulse { 50% { opacity: .35; } }
+.bar { height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; display: flex; }
+.bar > i { display: block; height: 100%; }
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; border: 1px solid var(--rule); border-radius: 3px; padding: 1px 6px; white-space: nowrap; }
+.needs-card { background: var(--needs-wash); border: 1px solid var(--needs-edge); }
+.row { display: flex; align-items: center; gap: 10px; }
+.grow { flex: 1; min-width: 0; }
+.ellip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* switcher (not part of the design) */
+.switcher { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 50;
+  display: flex; align-items: center; gap: 4px; background: #111; color: #fff; border-radius: 999px;
+  padding: 6px 8px; box-shadow: 0 6px 24px rgba(0,0,0,.35); font: 600 12px system-ui, sans-serif; outline: 2px dashed #f0f; outline-offset: 3px; }
+.switcher button { background: none; border: none; color: #fff; font-size: 15px; padding: 2px 10px; }
+.switcher span { min-width: 280px; text-align: center; }
+
+/* ---------- Variant A: Needs-you first (inbox-led) ---------- */
+.A { padding: 20px 28px; max-width: 1100px; }
+.A .ms { display: flex; gap: 24px; align-items: flex-start; padding-bottom: 16px; border-bottom: 1px solid var(--rule); }
+.A .needs { margin-top: 20px; }
+.A .needs .item { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: start; padding: 10px 12px; border-radius: 6px; margin-top: 6px; }
+.A .agents { margin-top: 24px; }
+.A .agent { display: grid; grid-template-columns: 14px 260px 1fr 70px; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--rule); }
+.A .epics { margin-top: 24px; }
+.A .epic { display: grid; grid-template-columns: 1fr 220px 110px; gap: 16px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--rule); }
+
+/* ---------- Variant B: Milestone roster (Epics as rows, Stories inline) ---------- */
+.B { padding: 0 0 20px; }
+.B .mshead { padding: 18px 28px; border-bottom: 1px solid var(--rule); background: var(--surface); }
+.B .needsline { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.B .epic { border-bottom: 1px solid var(--rule); }
+.B .ehead { display: grid; grid-template-columns: 1fr 260px 120px; gap: 16px; align-items: center; padding: 12px 28px; min-height: 64px; }
+.B .story { display: grid; grid-template-columns: 14px minmax(220px, 1.3fr) 130px 1.6fr 140px; gap: 12px; align-items: center; padding: 0 28px 0 48px; height: 34px; border-top: 1px solid var(--rule); }
+.B .story.hot { background: var(--needs-wash); }
+.B .story:hover { background: var(--hover); }
+.B .story.hot:hover { background: var(--needs-wash); }
+
+/* ---------- Variant C: Story flow (columns by state, Epic swimlanes) ---------- */
+.C { padding: 16px 20px; }
+.C .strip { display: flex; align-items: center; gap: 20px; padding: 10px 14px; border: 1px solid var(--rule); border-radius: 6px; }
+.C .board { display: grid; grid-template-columns: 1.15fr repeat(5, 1fr); gap: 0; margin-top: 16px; min-width: 1050px; }
+.C .colh { padding: 8px 10px; border-bottom: 1px solid var(--rule); position: sticky; top: 0; background: var(--ground); }
+.C .colh.needs { background: var(--needs-wash); border-bottom-color: var(--needs-edge); }
+.C .lane { grid-column: 1 / -1; padding: 10px 10px 4px; display: flex; gap: 10px; align-items: center; border-top: 1px solid var(--rule); }
+.C .cell { padding: 4px 6px 10px; min-height: 40px; border-left: 1px solid var(--rule); }
+.C .cell.needs { background: var(--needs-wash); }
+.C .cell:first-of-type { border-left: none; }
+.C .card { border: 1px solid var(--rule); background: var(--ground); border-radius: 6px; padding: 7px 8px; margin-top: 6px; }
+.C .card.hot { border-color: var(--needs-edge); }
+
+/* ---------- Variant D: Briefing (the screen says it in sentences) ---------- */
+.D { padding: 28px 40px; max-width: 860px; }
+.D .lead { font-size: 20px; line-height: 1.45; font-weight: 400; }
+.D .lead b { font-weight: 600; }
+.D .exit { margin-top: 18px; padding: 12px 14px; border-left: 2px solid var(--rule); color: var(--muted); }
+.D .step { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--rule); align-items: start; }
+.D .num { width: 20px; height: 20px; border-radius: 50%; background: var(--blocked); color: var(--ground); font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+.D .timeline { margin-top: 28px; }
+.D .tl { display: grid; grid-template-columns: 60px 14px 1fr; gap: 10px; padding: 5px 0; align-items: baseline; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <div class="main">
+    <div class="titlebar"><h1 id="ptitle"></h1><span class="muted label" id="psub"></span><span class="grow"></span><button class="small">⌘K</button><button class="small primary">Shape an Epic</button></div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+<div class="switcher" id="switcher"><button id="prev" title="Previous (←)">←</button><span id="vlabel"></span><button id="next" title="Next (→)">→</button></div>
+
+<script>
+// ---------------- mock data, new model ----------------
+const projects = [
+  { name: "Flywheel", needs: 6, on: true },
+  { name: "cymarechal.dev", needs: 1 },
+  { name: "invoice-cli", needs: 0 },
+  { name: "dotfiles", needs: 0 },
+];
+
+const milestone = {
+  name: "MVP: a week without the terminal",
+  exitTest: "Cyril runs one week of real work across his own projects from Flywheel without dropping back to a bare Claude Code terminal.",
+  next: "Daily driver: two projects at once",
+};
+
+// Story state: shaping | ready | running | waiting | review | merged | stopped
+const epics = [
+  { name: "Agents work without a permission wall", state: "Done", stories: [
+    { name: "Inside-worktree actions run without asking", state: "merged", crit: [4,4], tasks: [5,5] },
+    { name: "Gated actions ask every time, never remembered", state: "merged", crit: [3,3], tasks: [4,4] },
+    { name: "Remembered rules keyed by project and pattern", state: "merged", crit: [3,3], tasks: [3,3] },
+  ]},
+  { name: "Waiting on you is never silent", state: "In progress", stories: [
+    { name: "Gated action request surfaces on board and sidebar", state: "waiting", crit: [2,4], tasks: [3,5],
+      agent: { doing: "wants to run  git push origin story/gated-surface", for: "4m", kind: "gated" } },
+    { name: "OS notification for a waiting session", state: "review", crit: [3,3], tasks: [4,4], diff: "+212 −38 · 7 files" },
+    { name: "Heartbeat shows a live session is alive", state: "running", crit: [1,3], tasks: [2,6],
+      agent: { doing: "editing packages/sidecar/src/heartbeat.ts", for: "18m" } },
+  ]},
+  { name: "Shape an Epic into Stories", state: "In progress", stories: [
+    { name: "Grilling round writes each answer to the Epic spec", state: "running", crit: [2,5], tasks: [3,7],
+      agent: { doing: "running  cargo test -p core spec_writer", for: "6m" } },
+    { name: "Stories come out attached to their Epic", state: "stopped", crit: [0,3], tasks: [1,4],
+      agent: { doing: "session ended: model refusal mid-turn. Spec and Tasks saved; nothing lost.", for: "22m ago", kind: "stopped" } },
+    { name: "Criteria proposed per Story, with a Check", state: "ready", crit: [0,4], tasks: [0,0] },
+  ]},
+  { name: "Readable session feed", state: "Ready", stories: [
+    { name: "Agent turns render as markdown", state: "ready", crit: [0,3], tasks: [0,0] },
+    { name: "Hide hook and rate-limit noise", state: "ready", crit: [0,2], tasks: [0,0] },
+  ]},
+  { name: "Clear project status at a glance", state: "Shaping", stories: [], shaping: "Grilling round 2 of ~4, 3 questions waiting for you" },
+];
+
+const proposals = [
+  { on: "Shape an Epic into Stories", count: 4, gist: "2 new Stories, 1 criterion amended, 1 ADR offered (Stories own their worktree)" },
+  { on: "Readable session feed", count: 2, gist: "1 criterion added, 1 Story split in two" },
+];
+
+const timeline = [
+  ["10:42", "merged", "Remembered rules keyed by project and pattern merged (3/3 criteria)"],
+  ["10:31", "needs", "Gated action requested: git push on “Gated action request surfaces…”"],
+  ["10:20", "stopped", "Session stopped on “Stories come out attached…”: model refusal"],
+  ["10:05", "review", "“OS notification for a waiting session” ready for review"],
+  ["09:48", "run", "Started “Heartbeat shows a live session is alive”"],
+  ["09:30", "quiet", "4 Proposals filed on “Shape an Epic into Stories”"],
+];
+
+// ---------------- helpers ----------------
+const STATE = {
+  shaping: ["Shaping", "quiet"], ready: ["Ready", "quiet"], running: ["Running", "run"],
+  waiting: ["Waiting on you", "needs"], review: ["In review", "review"], merged: ["Merged", "merged"], stopped: ["Stopped", "stopped"],
+};
+const mark = s => `<span class="dot d-${STATE[s][1]}"></span>`;
+const stateWord = s => `<span class="s-${STATE[s][1]}">${STATE[s][0]}</span>`;
+const allStories = epics.flatMap(e => e.stories.map(s => ({ ...s, epic: e.name })));
+const count = st => allStories.filter(s => s.state === st).length;
+const epicsDone = epics.filter(e => e.state === "Done").length;
+const esc = s => s.replace(/</g, "&lt;");
+
+// Story-state bar for an Epic: merged | review | running | waiting | stopped | ready
+function stackBar(stories, w) {
+  const order = [["merged","var(--done)"],["review","var(--blocked)"],["waiting","var(--blocked)"],["running","var(--brand)"],["stopped","var(--failed)"]];
+  const n = stories.length || 1;
+  return `<div class="bar" style="width:${w||'100%'}">${order.map(([st,c]) => {
+    const k = stories.filter(s => s.state === st).length;
+    return k ? `<i style="width:${100*k/n}%;background:${c};${st==='review'?'opacity:.55':''}"></i>` : "";
+  }).join("")}</div>`;
+}
+function epicCounts(e) {
+  if (!e.stories.length) return `<span class="muted label">${e.shaping || "no Stories yet"}</span>`;
+  const m = e.stories.filter(s => s.state === "merged").length;
+  return `<span class="label muted">${m} of ${e.stories.length} Stories merged</span>`;
+}
+
+// Everything that needs Cyril, already ranked: gated > stopped > review > proposals > shaping questions
+function needsList() {
+  const out = [];
+  allStories.filter(s => s.state === "waiting").forEach(s => out.push({ kind: "Gated action", icon: "⏸", title: s.name, epic: s.epic, detail: s.agent.doing, age: s.agent.for, actions: ["Allow once", "Deny"] }));
+  allStories.filter(s => s.state === "stopped").forEach(s => out.push({ kind: "Session stopped", icon: "■", title: s.name, epic: s.epic, detail: s.agent.doing, age: s.agent.for, actions: ["Resume in a new session"] }));
+  allStories.filter(s => s.state === "review").forEach(s => out.push({ kind: "Review", icon: "◐", title: s.name, epic: s.epic, detail: `${s.crit[0]}/${s.crit[1]} criteria met · ${s.diff}`, age: "37m", actions: ["Open review"] }));
+  proposals.forEach(p => out.push({ kind: `${p.count} Proposals`, icon: "＋", title: p.on, epic: "", detail: p.gist, age: "", actions: ["Triage"] }));
+  epics.filter(e => e.shaping).forEach(e => out.push({ kind: "Shaping", icon: "?", title: e.name, epic: "", detail: e.shaping, age: "", actions: ["Continue shaping"] }));
+  return out;
+}
+
+// ---------------- shell ----------------
+document.getElementById("side").innerHTML =
+  `<div class="sec micro">Projects</div>` +
+  projects.map(p => `<div class="proj ${p.on ? "on" : ""}"><span class="dot ${p.needs ? "d-needs" : "d-quiet"}"></span>${p.name}${p.needs ? `<span class="badge">${p.needs}</span>` : ""}</div>`).join("") +
+  `<div class="sec micro" style="margin-top:12px">Running everywhere</div>` +
+  `<div class="proj label muted"><span class="dot d-run"></span>2 sessions · Flywheel</div>` +
+  `<div class="proj label muted"><span class="dot d-run"></span>1 session · cymarechal.dev</div>`;
+document.getElementById("ptitle").textContent = "Flywheel";
+document.getElementById("psub").textContent = "~/cymarechal/flywheel · main";
+
+// ---------------- Variant A ----------------
+function A() {
+  const n = needsList();
+  const running = allStories.filter(s => s.agent);
+  return `<div class="A">
+    <div class="ms">
+      <div class="grow">
+        <div class="micro">Milestone</div>
+        <h2 style="font-size:17px;margin-top:2px">${milestone.name}</h2>
+        <div class="muted" style="margin-top:4px;max-width:620px">Exit test: ${milestone.exitTest}</div>
+      </div>
+      <div style="width:240px">
+        <div class="row label"><span class="grow">${epicsDone} of ${epics.length} Epics done</span><span class="muted">${count("merged")} Stories merged</span></div>
+        <div style="margin-top:6px">${stackBar(allStories)}</div>
+      </div>
+    </div>
+
+    <div class="needs">
+      <div class="row"><h2 class="s-needs">Needs you</h2><span class="muted label">${n.length} items, most urgent first</span></div>
+      ${n.map(i => `<div class="item needs-card">
+        <span style="font-size:13px" class="s-needs">${i.icon}</span>
+        <div class="grow">
+          <div><span class="micro" style="color:var(--blocked)">${i.kind}</span> · <b>${esc(i.title)}</b>${i.epic ? ` <span class="muted label">in ${i.epic}</span>` : ""}</div>
+          <div class="${i.kind === "Gated action" ? "mono" : "muted label"}" style="margin-top:3px">${esc(i.detail)}</div>
+        </div>
+        <div class="row">${i.age ? `<span class="muted label">${i.age}</span>` : ""}${i.actions.map((a, k) => `<button class="small ${k === 0 ? "primary" : ""}">${a}</button>`).join("")}</div>
+      </div>`).join("")}
+    </div>
+
+    <div class="agents">
+      <div class="row"><h2>Agents</h2><span class="muted label">${count("running")} running · ${count("waiting")} waiting · ${count("stopped")} stopped</span></div>
+      ${running.map(s => `<div class="agent">${mark(s.state)}<span class="ellip"><b>${s.name}</b></span><span class="mono muted ellip">${esc(s.agent.doing)}</span><span class="muted label" style="text-align:right">${s.agent.for}</span></div>`).join("")}
+    </div>
+
+    <div class="epics">
+      <h2>Epics</h2>
+      ${epics.map(e => `<div class="epic"><div><b>${e.name}</b> <span class="muted label">· ${e.state}</span></div><div>${e.stories.length ? stackBar(e.stories) : ""}</div><div style="text-align:right">${epicCounts(e)}</div></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+// ---------------- Variant B ----------------
+function B() {
+  const n = needsList();
+  return `<div class="B">
+    <div class="mshead">
+      <div class="row">
+        <div class="grow">
+          <div class="micro">Milestone · next: ${milestone.next}</div>
+          <h2 style="font-size:17px;margin-top:2px">${milestone.name}</h2>
+        </div>
+        <div style="width:300px">${stackBar(allStories)}<div class="label muted" style="margin-top:4px">${epicsDone}/${epics.length} Epics done · ${count("merged")}/${allStories.length} Stories merged</div></div>
+      </div>
+      <div class="muted" style="margin-top:6px;max-width:760px">Exit test: ${milestone.exitTest}</div>
+      <div class="needsline">${n.map(i => `<span class="pill needs-card"><span class="s-needs">${i.icon}</span>${i.kind}: ${esc(i.title.length > 34 ? i.title.slice(0, 33) + "…" : i.title)}</span>`).join("")}</div>
+    </div>
+    ${epics.map(e => {
+      const hot = e.stories.some(s => ["waiting", "review", "stopped"].includes(s.state)) || e.shaping;
+      return `<div class="epic">
+      <div class="ehead">
+        <div><div class="row"><b style="font-size:14px">${e.name}</b>${hot ? `<span class="dot d-needs"></span>` : ""}</div><div class="label muted">${e.state}${proposals.find(p => p.on === e.name) ? ` · <span class="s-needs">${proposals.find(p => p.on === e.name).count} Proposals waiting</span>` : ""}${e.shaping ? ` · <span class="s-needs">${e.shaping}</span>` : ""}</div></div>
+        <div>${e.stories.length ? stackBar(e.stories) : ""}</div>
+        <div style="text-align:right">${epicCounts(e)}</div>
+      </div>
+      ${e.stories.map(s => `<div class="story ${["waiting", "stopped", "review"].includes(s.state) ? "hot" : ""}">
+        ${mark(s.state)}
+        <span class="ellip">${s.name}</span>
+        <span class="label">${stateWord(s.state)}</span>
+        <span class="${s.agent ? "mono" : "label"} muted ellip">${s.agent ? esc(s.agent.doing) : s.diff || ""}</span>
+        <span class="label muted" style="text-align:right">${s.state === "waiting" ? `<button class="small primary">Allow once</button>` : s.state === "review" ? `<button class="small primary">Review</button>` : s.state === "stopped" ? `<button class="small">Resume</button>` : `criteria ${s.crit[0]}/${s.crit[1]} · tasks ${s.tasks[0]}/${s.tasks[1]}`}</span>
+      </div>`).join("")}
+    </div>`;
+    }).join("")}
+  </div>`;
+}
+
+// ---------------- Variant C ----------------
+function C() {
+  const cols = [["waiting", "Needs you"], ["running", "Running"], ["review", "In review"], ["ready", "Ready"], ["merged", "Merged"]];
+  const inCol = (s, c) => c === "waiting" ? ["waiting", "stopped"].includes(s.state) : s.state === c;
+  return `<div class="C">
+    <div class="strip">
+      <div><div class="micro">Milestone</div><b>${milestone.name}</b></div>
+      <div style="width:200px">${stackBar(allStories)}</div>
+      <span class="label muted">${epicsDone}/${epics.length} Epics · ${count("merged")}/${allStories.length} Stories</span>
+      <span class="grow muted label ellip" title="${milestone.exitTest}">Exit test: ${milestone.exitTest}</span>
+      <span class="pill needs-card">＋ ${proposals.reduce((a, p) => a + p.count, 0)} Proposals</span>
+    </div>
+    <div style="overflow:auto">
+    <div class="board">
+      <div class="colh micro">Epic</div>
+      ${cols.map(([c, l]) => `<div class="colh micro ${c === "waiting" ? "needs" : ""}">${l} <span style="font-weight:400">${allStories.filter(s => inCol(s, c)).length}</span></div>`).join("")}
+      ${epics.map(e => `
+        <div class="cell" style="border-top:1px solid var(--rule)"><b>${e.name}</b><div class="label muted">${e.state}</div>${e.shaping ? `<div class="label s-needs" style="margin-top:4px">? ${e.shaping}</div>` : ""}${proposals.find(p => p.on === e.name) ? `<div class="label s-needs" style="margin-top:4px">＋ ${proposals.find(p => p.on === e.name).count} Proposals</div>` : ""}</div>
+        ${cols.map(([c]) => `<div class="cell ${c === "waiting" ? "needs" : ""}" style="border-top:1px solid var(--rule)">${e.stories.filter(s => inCol(s, c)).map(s => `
+          <div class="card ${["waiting", "stopped"].includes(s.state) ? "hot" : ""}">
+            <div class="row">${mark(s.state)}<span class="label" style="font-weight:600">${s.name}</span></div>
+            ${s.agent ? `<div class="mono muted" style="margin-top:4px;font-size:10.5px">${esc(s.agent.doing)}</div>` : ""}
+            <div class="row label muted" style="margin-top:5px"><span class="grow">criteria ${s.crit[0]}/${s.crit[1]}</span>${s.state === "waiting" ? `<button class="small primary">Allow once</button>` : s.state === "stopped" ? `<button class="small">Resume</button>` : s.state === "review" ? `<button class="small primary">Review</button>` : s.agent ? s.agent.for : ""}</div>
+          </div>`).join("")}</div>`).join("")}
+      `).join("")}
+    </div></div>
+  </div>`;
+}
+
+// ---------------- Variant D ----------------
+function D() {
+  const n = needsList();
+  return `<div class="D">
+    <div class="micro">${milestone.name}</div>
+    <p class="lead" style="margin-top:8px"><b>${epicsDone} of ${epics.length} Epics</b> are done and <b>${count("merged")} of ${allStories.length} Stories</b> have merged.
+    <b>${count("running")} agents are working</b>, <span class="s-needs"><b>${n.length} things are waiting on you</b></span>, and ${count("ready")} Stories are ready to start.</p>
+    <div class="exit">Exit test: ${milestone.exitTest}</div>
+
+    <h2 style="margin-top:28px">Waiting on you</h2>
+    ${n.map((i, k) => `<div class="step"><span class="num">${k + 1}</span>
+      <div><div><b>${i.kind}</b> on ${esc(i.title)}</div><div class="${i.kind === "Gated action" ? "mono" : "muted"}" style="margin-top:3px">${esc(i.detail)}</div></div>
+      <div class="row">${i.actions.map((a, j) => `<button class="small ${j === 0 ? "primary" : ""}">${a}</button>`).join("")}</div></div>`).join("")}
+
+    <h2 style="margin-top:28px">Working now</h2>
+    ${allStories.filter(s => s.state === "running").map(s => `<div class="row" style="padding:6px 0">${mark(s.state)}<span><b>${s.name}</b> <span class="muted">is</span> <span class="mono">${esc(s.agent.doing)}</span> <span class="muted label">· ${s.agent.for}</span></span></div>`).join("")}
+
+    <div class="timeline">
+      <h2>Since you last looked <span class="muted label" style="font-weight:400">(09:30)</span></h2>
+      ${timeline.map(([t, k, txt]) => `<div class="tl"><span class="muted label">${t}</span><span class="dot d-${k}" style="${k === "run" ? "animation:none" : ""}"></span><span>${txt}</span></div>`).join("")}
+    </div>
+  </div>`;
+}
+
+// ---------------- switcher ----------------
+const VARIANTS = [
+  ["A", "Needs you first (inbox-led)", A],
+  ["B", "Milestone roster (Epics → Stories)", B],
+  ["C", "Story flow (columns by state)", C],
+  ["D", "Briefing (in sentences)", D],
+];
+function current() {
+  const v = new URLSearchParams(location.search).get("variant");
+  return Math.max(0, VARIANTS.findIndex(x => x[0] === v));
+}
+function render(i) {
+  const [k, label, fn] = VARIANTS[i];
+  document.getElementById("content").innerHTML = fn();
+  document.getElementById("vlabel").textContent = `${k} (${label})`;
+  const u = new URL(location.href); u.searchParams.set("variant", k); history.replaceState(null, "", u);
+}
+function step(d) { render((current() + d + VARIANTS.length) % VARIANTS.length); }
+document.getElementById("prev").onclick = () => step(-1);
+document.getElementById("next").onclick = () => step(1);
+addEventListener("keydown", e => {
+  if (e.target.closest("input,textarea,[contenteditable]")) return;
+  if (e.key === "ArrowLeft") step(-1);
+  if (e.key === "ArrowRight") step(1);
+});
+render(current());
+</script>
+</body>
+</html>
