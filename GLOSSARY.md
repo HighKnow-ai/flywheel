@@ -12,6 +12,10 @@ _Avoid_: Plan, schedule
 An outcome the project is working towards, defined by an exit test rather than a date.
 _Avoid_: Cycle, phase, sprint, release
 
+**Current Milestone**:
+The first Milestone in Roadmap order that is neither done nor dropped; reordering the Roadmap is how the developer changes it.
+_Avoid_: Active milestone, focus
+
 **Epic**:
 A capability within a Milestone, described by a short spec covering the problem, the scope and what is out of scope.
 _Avoid_: Feature, PRD
@@ -63,7 +67,7 @@ Turning a board record into something an agent can execute by having an agent ch
 _Avoid_: Authoring, planning, grooming
 
 **Stage**:
-One step of shaping an Epic (challenge the spec, slice it into Stories, write the Acceptance criteria), which the developer closes once it has no open question and no undecided Proposal.
+One step of shaping a record, which the developer closes once it has no open question and no undecided Proposal; an Epic has three (challenge the spec, slice it into Stories, write the Acceptance criteria), a Milestone has one (challenge the exit test).
 _Avoid_: Phase, step
 
 **Round**:
