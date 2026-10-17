@@ -1,8 +1,7 @@
 //! Four fact-based drift detectors (D-72, D-73, D-75, CTX-06) — one fire case and one non-fire
 //! case per detector, plus the purity and ordering guarantees (Task 1). No database anywhere in
 //! that section — `SummaryEntry` values are constructed directly, since `detect_drift` needs no
-//! database at all. `04-PATTERNS.md` names this file as having no in-crate analog and borrows
-//! `compaction.rs`'s pure-fold, fixture-free style as its structural template. Task 2 extends
+//! database at all, in a pure, fixture-free style. Task 2 extends
 //! this file with the packet-rendering behaviours (real board state, `common::seeded_project`),
 //! and Task 3 extends it again with the clears-without-a-write proof, following
 //! `session_summary_lifecycle.rs`'s `seeded_git_project`/`start_agent_run` fixture shape.

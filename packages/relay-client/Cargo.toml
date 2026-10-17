@@ -1,8 +1,0 @@
-[package]
-name = "relay-client"
-version = "0.1.0"
-edition = "2021"
-description = "Inert open-core seam for a future hosted relay client (ARCHITECTURE.md §8). Holds no logic in this phase and has zero dependencies."
-
-[lib]
-name = "relay_client"

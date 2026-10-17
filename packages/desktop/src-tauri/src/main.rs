@@ -40,10 +40,6 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         // D-175: granted to the Rust core only. No notification permission is added to the window.
         .plugin(tauri_plugin_notification::init())
-        // D-186/D-188: self-update, driven by `commands::update` from the Rust core only. No `updater:`
-        // permission is added to the window. Registered on the builder, not in `.setup()`, where
-        // `panic = "abort"` would turn a failed registration into a crash with no message.
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .menu(|app| menu::build_menu(app))
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
@@ -177,8 +173,6 @@ fn main() {
             commands::criterion::criterion_lint_advice,
             commands::events::events_activity_trail,
             commands::events::events_since_cursor,
-            commands::file_set::task_file_set_get,
-            commands::file_set::task_file_set_set,
             commands::file_set::task_file_set_widen,
             commands::file_set::board_scope_flags,
             commands::file_set::task_file_set_provenance,
@@ -197,8 +191,6 @@ fn main() {
             commands::dispatch::retry_task,
             commands::dispatch::skip_task,
             commands::menu::menu_set_action_enabled,
-            commands::update::update_check,
-            commands::update::update_install,
             commands::agent_run::agent_run_start,
             commands::agent_run::agent_run_log_window,
             commands::agent_run::agent_run_raw_window,

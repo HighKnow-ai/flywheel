@@ -15,9 +15,9 @@ drives individual Claude Code sessions through the Agent SDK. A React renderer
 
 ## 2. Workspace members
 
-The Cargo workspace has four members: `packages/core` (domain crate: schema, persistence, git,
-dispatch), `packages/desktop/src-tauri` (the Tauri application), `packages/shim` (the
-`flywheel-shim` binary) and `packages/relay-client` (the inert open-core seam, see §8).
+The Cargo workspace has three members: `packages/core` (domain crate: schema, persistence, git,
+dispatch), `packages/desktop/src-tauri` (the Tauri application) and `packages/shim` (the
+`flywheel-shim` binary).
 `packages/sidecar` is deliberately **not** a Cargo workspace member: it is an npm package whose
 compiled output is staged into the application bundle (§7).
 
@@ -67,17 +67,9 @@ The open-source desktop application is complete without any hosted service. The 
 (relay server, auth, billing, hosted infrastructure) attaches at one seam. These are claims a build
 can check, not intentions.
 
-- `packages/relay-client` is the only seam for a future hosted relay. It holds no logic and has
-  zero dependencies. Its own notes are in `packages/relay-client/README.md`.
-- No workspace member depends on it. No `Cargo.toml` lists it under a dependencies table. The only
-  manifest line that names it, outside its own directory, is `"packages/relay-client"` in the root
-  `Cargo.toml` `members` list. (`Cargo.lock` records it as a workspace package, which is derived
-  from that list.)
-- The application is meant to be fully functional with the crate **absent**. A CI workflow
-  (`open-core.yml`, DIST-04, D-193) used to prove it by deleting the crate and re-running the whole
-  suite; it was removed because the MVP plan deletes the crate itself, and nothing checks the
-  boundary until then.
-- The commercial side lives in no file of this repository. When it exists, it attaches here: the
-  client reads the event-log cursor from `packages/core` (§4) and posts batches to a configured
+- No relay client exists in this repository. The inert `packages/relay-client` placeholder crate
+  was deleted by the MVP plan (`docs/mvp-spec.md` §9); its history stays in git.
+- The commercial side lives in no file of this repository. When it exists, it attaches here: a
+  relay client reads the event-log cursor from `packages/core` (§4) and posts batches to a configured
   relay URL, off by default.
 - No feature of the open-source application is gated behind an account or a network service.

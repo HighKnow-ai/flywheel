@@ -282,15 +282,6 @@ pub fn start_agent_run(
         .query_row("SELECT project_id FROM tasks WHERE id = ?1", params![task_id], |row| row.get(0))
         .with_context(|| format!("task {task_id:?} not found"))?;
 
-    // D-03: Start Work confirms the provisional values pending on this task (an agent's suggested
-    // title, body and priority) in the same transaction that inserts the run row below, which is what
-    // freezes the task's criteria (BOARD-03): one act, one site. The run's briefing is read after this
-    // commits, so the agent starts from the confirmed text. A system actor's automatic start is not a
-    // human decision and confirms nothing; the values stay pending for a human to decide.
-    if !automatic {
-        crate::domain::authoring_proposal::confirm_provisional_values_in_tx(&tx, human_actor_id, task_id, &now)?;
-    }
-
     let trigger_id = create_user_action_trigger(&tx, &project_id, task_id, human_actor_id, &now)?;
     if automatic {
         tx.execute("UPDATE triggers SET config = '{\"automatic\":true}' WHERE id = ?1", params![trigger_id])
