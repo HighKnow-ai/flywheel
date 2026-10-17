@@ -12,7 +12,6 @@
 
 mod common;
 
-use std::path::PathBuf;
 
 use core::domain::actor::system_actor;
 use core::domain::agent_run::agent_actor_id;
@@ -236,35 +235,4 @@ fn a_closed_cycle_leaves_the_roster_and_frees_the_active_slot() {
     assert!(!roster.truncated && roster.total < CYCLE_ROSTER_CEILING);
     assert!(active_cycle(&fx.conn, &fx.project_id).unwrap().is_none());
     start_cycle(&mut fx.conn, &keep, &fx.actor_id.clone()).expect("the next Cycle can now start");
-}
-
-// ---- the command layer: what an IPC caller can and cannot say ----
-
-fn command_source() -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../desktop/src-tauri/src/commands/cycle.rs");
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
-}
-
-fn code_lines(src: &str) -> String {
-    src.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n")
-}
-
-#[test]
-fn the_ipc_command_resolves_the_actor_itself_and_accepts_none_from_the_webview() {
-    let src = code_lines(&command_source());
-    let sig_start = src.find("pub fn cycle_close(").expect("a cycle_close command exists");
-    let sig = &src[sig_start..sig_start + src[sig_start..].find(") ->").expect("signature end")];
-    assert!(!sig.contains("actor"), "the webview must not name the actor: {sig}");
-    assert!(src[sig_start..].contains("local_human_actor_id"), "the command resolves the actor from the store");
-    assert!(src[sig_start..].contains("close_cycle"), "and routes through the writer that refuses");
-}
-
-#[test]
-fn the_ipc_dto_has_no_shape_that_applies_one_choice_to_many_epics() {
-    let src = code_lines(&command_source());
-    let lower = src.to_lowercase();
-    for banned in ["epic_ids", "apply_to_all", "applytoall", "select_all", "selectall", "\"all\""] {
-        assert!(!lower.contains(banned), "DRFT-07: no control accepts a set wholesale ({banned})");
-    }
-    assert!(src.contains("Vec<EpicChoiceDto>"), "one entry per epic, each carrying its own choice");
 }

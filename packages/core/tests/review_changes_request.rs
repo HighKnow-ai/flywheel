@@ -10,11 +10,9 @@
 
 mod common;
 
-use core::context_packet::{assemble_context_packet, render_prompt, REVIEW_FEEDBACK_LEAD};
 use core::domain::acceptance_criterion::{
-    create_criterion, revise_criterion, toggle_criterion, AcceptanceCriterion,
+    create_criterion, toggle_criterion, AcceptanceCriterion,
 };
-use core::domain::agent_run::start_agent_run;
 use core::domain::event::{append_event, next_sequence};
 use core::domain::task::{
     changes_request_state, create_task, pending_changes_request, request_changes, set_task_status,
@@ -209,30 +207,6 @@ fn refusal_categories_use_the_camel_case_wire_strings() {
 }
 
 #[test]
-fn only_current_revisions_count_and_a_superseded_one_never_appears() {
-    // Revising a criterion needs a locked task (an agent_runs row), which needs a real worktree.
-    let dir = tempfile::tempdir().unwrap();
-    // SAFETY: this is the only test in this binary that touches the worktree root.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let (mut conn, actor, project, _repo) = common::seeded_git_project();
-    let task = create_task(&mut conn, &project.id, &actor, "Revised", None).unwrap();
-    let c1 = create_criterion(&mut conn, &project.id, &actor, "task", &task.id, "Original wording", None)
-        .unwrap();
-    create_criterion(&mut conn, &project.id, &actor, "task", &task.id, THRE_58[1], None).unwrap();
-    start_agent_run(&mut conn, &task.id, "acceptEdits", &actor).unwrap();
-    revise_criterion(&mut conn, &actor, &c1.id, "Revised wording", None).unwrap();
-    set_task_status(&mut conn, &actor, &task.id, "in_progress").unwrap();
-
-    let outcome = request_changes(&mut conn, &actor, &task.id).unwrap();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-
-    assert_eq!(outcome, ChangesRequestOutcome::Requested { count: 2 }, "a revision counts once");
-    let packet = assemble_context_packet(&conn, &task.id).unwrap();
-    let statements = packet.review_feedback.expect("feedback").statements;
-    assert_eq!(statements, vec!["Revised wording".to_string(), THRE_58[1].to_string()]);
-}
-
-#[test]
 fn the_state_machine_ready_sent_back_resubmitted_and_resolved() {
     let mut f = fixture("in_review", 3);
     assert!(matches!(changes_request_state(&f.conn, &f.task_id).unwrap(), ChangesRequestState::Ready(l) if l.len() == 3));
@@ -268,78 +242,6 @@ fn a_second_request_while_sent_back_appends_nothing() {
     assert_eq!(again, ChangesRequestOutcome::AlreadySentBack);
     assert_eq!(total_events(&f.conn, &f.task_id), before, "a double click cannot double-record");
     assert_eq!(events_of(&f.conn, &f.task_id, EVENT_CHANGES_REQUESTED).len(), 1);
-}
-
-#[test]
-fn the_packet_carries_exactly_the_unchecked_statements_in_rank_order_and_the_prompt_renders_them() {
-    let mut f = fixture("in_progress", 3);
-    // Check the middle criterion: it must drop out of the reason.
-    toggle_criterion(&mut f.conn, &f.actor, &f.criteria[1].id).unwrap();
-    request_changes(&mut f.conn, &f.actor, &f.task_id).unwrap();
-
-    let packet = assemble_context_packet(&f.conn, &f.task_id).unwrap();
-    let feedback = packet.review_feedback.clone().expect("a declined task carries feedback");
-    assert_eq!(feedback.statements, vec![THRE_58[0].to_string(), THRE_58[2].to_string()]);
-    assert!(packet.drift.is_empty(), "the decline never travels as drift");
-
-    let prompt = render_prompt(&packet, "");
-    assert!(prompt.contains("## Review Feedback"), "{prompt}");
-    assert!(prompt.contains(REVIEW_FEEDBACK_LEAD));
-    let section: &str = prompt.split("## Review Feedback").nth(1).unwrap();
-    assert!(section.contains(&format!("- {}", THRE_58[0])));
-    assert!(section.contains(&format!("- {}", THRE_58[2])));
-    // Placed before Epic Context / Acceptance Criteria (and so before everything after Warnings).
-    assert!(prompt.find("## Review Feedback").unwrap() < prompt.find("## Acceptance Criteria").unwrap());
-}
-
-#[test]
-fn the_section_sits_after_warnings_and_before_epic_context() {
-    use core::context_packet::EpicSection;
-    use core::drift::{DriftKind, DriftWarning};
-    let mut f = fixture("in_progress", 3);
-    request_changes(&mut f.conn, &f.actor, &f.task_id).unwrap();
-    let mut packet = assemble_context_packet(&f.conn, &f.task_id).unwrap();
-    packet.epic = Some(EpicSection { title: "An epic".into(), description: None });
-    packet.drift = vec![DriftWarning { kind: DriftKind::ClaimedFilesMismatch, sentence: "A warning.".into() }];
-
-    let prompt = render_prompt(&packet, "");
-    let warnings = prompt.find("## Warnings").expect("warnings");
-    let feedback = prompt.find("## Review Feedback").expect("feedback");
-    let epic = prompt.find("## Epic Context").expect("epic");
-    assert!(warnings < feedback && feedback < epic, "{prompt}");
-}
-
-#[test]
-fn a_task_never_declined_has_no_feedback_and_assembles_byte_identically() {
-    let f = fixture("in_progress", 3);
-    let a = assemble_context_packet(&f.conn, &f.task_id).unwrap();
-    let b = assemble_context_packet(&f.conn, &f.task_id).unwrap();
-    assert_eq!(a, b);
-    assert!(a.review_feedback.is_none());
-    let prompt = render_prompt(&a, "");
-    assert!(!prompt.contains("Review Feedback"));
-    assert_eq!(prompt, render_prompt(&b, ""));
-}
-
-#[test]
-fn a_declined_task_demoted_to_todo_keeps_its_feedback_until_every_criterion_is_checked() {
-    let mut f = fixture("in_progress", 3);
-    request_changes(&mut f.conn, &f.actor, &f.task_id).unwrap();
-    set_task_status(&mut f.conn, &f.actor, &f.task_id, "todo").unwrap();
-
-    // The marker is not status-gated: the packet still carries the reason ...
-    let packet = assemble_context_packet(&f.conn, &f.task_id).unwrap();
-    assert_eq!(packet.review_feedback.expect("still carried").statements.len(), 3);
-    // ... while the surface-facing state says it is not in flight.
-    assert_eq!(
-        changes_request_state(&f.conn, &f.task_id).unwrap(),
-        ChangesRequestState::Refused(ChangesRequestRefusal::NotInFlight)
-    );
-
-    for c in f.criteria.clone() {
-        toggle_criterion(&mut f.conn, &f.actor, &c.id).unwrap();
-    }
-    assert!(assemble_context_packet(&f.conn, &f.task_id).unwrap().review_feedback.is_none());
 }
 
 #[test]

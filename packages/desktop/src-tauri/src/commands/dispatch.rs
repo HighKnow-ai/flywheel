@@ -19,7 +19,6 @@
 //! must never read as a reviewed merge: Phase 8's per-task review gate is not mandatory during
 //! fan-out (D-156), and the audit trail says so.
 
-use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
@@ -597,7 +596,7 @@ pub fn execute_dispatch_actions(app: &AppHandle) {
             app,
             task_id,
             DISPATCH_PERMISSION_MODE,
-            flywheel_core::context_packet::DISPATCHED_COMMIT_INSTRUCTION,
+            flywheel_core::dispatch_exec::DISPATCHED_COMMIT_INSTRUCTION,
             crate::commands::agent_run::CrossTaskConflict::Refuse,
         )
         .map(|_| ())
@@ -613,192 +612,6 @@ pub fn execute_dispatch_actions(app: &AppHandle) {
             }
         }
         Err(err) => eprintln!("dispatch tick: {err:#}"),
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Plan 09-08: the pre-dispatch planning pass.
-// ---------------------------------------------------------------------------------------------
-
-/// A planning run uses the default permission mode (the authoring precedent): a tool call that is not
-/// pre-approved, which is everything but `submit_plan`, blocks and surfaces as a permission request
-/// instead of running.
-pub const PLANNING_PERMISSION_MODE: &str = "default";
-
-/// The sidecar `spawn` request a planning run is launched with: the ordinary `spawn` op with the
-/// epic integration worktree as its working directory and `planning: true`, which makes the sidecar
-/// pre-approve `submit_plan` and nothing else. No task id: a planning run has none.
-pub(crate) fn planning_spawn_request(
-    run_id: &str,
-    worktree_path: &std::path::Path,
-    prompt: &str,
-    env: &impl Serialize,
-) -> serde_json::Value {
-    serde_json::json!({
-        "id": run_id,
-        "op": "spawn",
-        "runId": run_id,
-        "worktreePath": worktree_path.to_string_lossy(),
-        "prompt": prompt,
-        "permissionMode": PLANNING_PERMISSION_MODE,
-        "planning": true,
-        "env": env,
-    })
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanningRunDto {
-    pub run_id: String,
-    pub epic_id: String,
-}
-
-/// End a planning run that was recorded but could not be launched, so it does not sit `running`
-/// forever holding a slot.
-fn fail_planning_start(state: &AppState, run_id: &str, why: String) -> String {
-    if let Ok(mut conn) = state.db.lock() {
-        let _ = flywheel_core::domain::agent_run::close_agent_run(
-            &mut conn,
-            run_id,
-            flywheel_core::domain::agent_run::AgentRunStatus::Failed,
-            None,
-            None,
-            None,
-        );
-    }
-    why
-}
-
-/// Start the pre-dispatch planning run for an epic: refuse what cannot be planned, prepare the
-/// integration worktree, record the run, then launch it through the ONE gated spawn path. The
-/// credential is resolved before any run exists (D-39). Not gated by the parallel cap: this is the
-/// user's own action, and the run still holds a slot while it runs.
-pub(crate) fn start_planning_run(state: &AppState, epic_id: &str) -> Result<PlanningRunDto, String> {
-    let (human, mut env) = {
-        let conn = state.db.lock().map_err(|e| ipc_error("dispatch_plan_generate:lock", e))?;
-        let human = flywheel_core::domain::actor::local_human_actor_id(&conn)
-            .map_err(|e| ipc_error("dispatch_plan_generate:actor", e))?;
-        let project_id: String = conn
-            .query_row("SELECT project_id FROM epics WHERE id = ?1", [epic_id], |r| r.get(0))
-            .map_err(|e| ipc_error("dispatch_plan_generate:epic", e))?;
-        let env = crate::sidecar::resolved_env_for_run(&conn, &project_id)
-            .map_err(|e| ipc_error("dispatch_plan_generate:credential", e))?;
-        (human, env)
-    };
-    let start = flywheel_core::dispatch_exec::begin_planning_run(&state.db, epic_id, &human, PLANNING_PERMISSION_MODE)
-        .map_err(|e| ipc_error("dispatch_plan_generate:begin", e))?;
-    if let Err(e) = crate::sidecar::merge_shim_env_for_run(&mut env, &start.run_id) {
-        return Err(fail_planning_start(state, &start.run_id, ipc_error("dispatch_plan_generate:shim", e)));
-    }
-    let request = planning_spawn_request(&start.run_id, &start.worktree_path, &start.prompt, &env);
-    if let Err(e) = crate::commands::agent_run::send_gated_spawn(state, &start.repo_path, &request) {
-        return Err(fail_planning_start(state, &start.run_id, ipc_error("dispatch_plan_generate:spawn", e)));
-    }
-    Ok(PlanningRunDto { run_id: start.run_id, epic_id: start.epic_id })
-}
-
-/// The epic's running planning run, if any: the window between "Generate" and the first valid
-/// submission, in which a run exists and no plan row does.
-pub(crate) fn planning_run_for_epic(
-    conn: &rusqlite::Connection,
-    epic_id: &str,
-) -> Result<Option<PlanningRunDto>, String> {
-    // The same kind `check_can_plan` refuses a second run on: see `RUN_KIND_PLANNING_PREDICATE`.
-    let sql = format!(
-        "SELECT id FROM agent_runs
-          WHERE epic_id = ?1 AND {}
-            AND status IN ('running', 'blocked')
-          ORDER BY started_at DESC LIMIT 1",
-        flywheel_core::domain::agent_run::RUN_KIND_PLANNING_PREDICATE
-    );
-    let run_id: Option<String> = conn
-        .query_row(
-            &sql,
-            [epic_id],
-            |r| r.get(0),
-        )
-        .optional()
-        .map_err(|e| ipc_error("dispatch_planning_run:read", e))?;
-    Ok(run_id.map(|run_id| PlanningRunDto { run_id, epic_id: epic_id.to_string() }))
-}
-
-/// Is a planning run in progress for this epic? The window between Generate and the first valid
-/// submission has a run and no plan row, so the plan read alone cannot show it. Read-only.
-#[tauri::command]
-pub fn dispatch_planning_run(state: State<AppState>, epic_id: String) -> Result<Option<PlanningRunDto>, String> {
-    validate_id("epic", &epic_id)?;
-    let conn = state.db.lock().map_err(|e| ipc_error("dispatch_planning_run:lock", e))?;
-    planning_run_for_epic(&conn, &epic_id)
-}
-
-/// Ask for a fan-out plan on an epic: a short, read-only agent run reads the repository as it is NOW
-/// and stores a draft with a file-set and a wave on every task and a reason for anything left out.
-/// It approves nothing and starts no task; the user reviews and edits the draft first. Human-only.
-#[tauri::command]
-pub fn dispatch_plan_generate(
-    state: State<AppState>,
-    app: AppHandle,
-    epic_id: String,
-) -> Result<PlanningRunDto, String> {
-    validate_id("epic", &epic_id)?;
-    let dto = start_planning_run(&state, &epic_id)?;
-    let project_id = project_of_locked(&state.db, "epics", &epic_id);
-    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&dto.run_id));
-    Ok(dto)
-}
-
-#[cfg(test)]
-mod planning_tests {
-    use super::*;
-
-    /// A migrated database holding one epic with one backlog task, returned with the human actor.
-    fn epic_fixture() -> (rusqlite::Connection, String, String) {
-        let dir = tempfile::tempdir().expect("scratch dir");
-        let mut conn = flywheel_core::db::open_and_migrate(&dir.path().join("f.db"), &dir.path().join("backups"))
-            .expect("open_and_migrate");
-        std::mem::forget(dir);
-        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
-        let project = flywheel_core::domain::project::create_project(&mut conn, &human, "P", "/repo", "FLY", "main").unwrap();
-        let epic = flywheel_core::domain::epic::create_epic(&mut conn, &project.id, &human, "Epic", None).unwrap();
-        flywheel_core::domain::task::create_task(&mut conn, &project.id, &human, "T", Some(&epic.id)).unwrap();
-        (conn, epic.id, human)
-    }
-
-    #[test]
-    fn the_spawn_request_marks_the_run_as_planning_and_names_no_task() {
-        let request = planning_spawn_request(
-            "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            std::path::Path::new("/tmp/epic-worktree"),
-            "plan it",
-            &serde_json::json!({ "A": "b" }),
-        );
-        assert_eq!(request["op"], "spawn");
-        assert_eq!(request["runId"], "01ARZ3NDEKTSV4RRFFQ69G5FAV");
-        assert_eq!(request["worktreePath"], "/tmp/epic-worktree");
-        assert_eq!(request["prompt"], "plan it");
-        assert_eq!(request["permissionMode"], PLANNING_PERMISSION_MODE);
-        assert_eq!(request["planning"], true);
-        assert_eq!(request["env"]["A"], "b");
-        assert!(request.get("taskId").is_none());
-    }
-
-    #[test]
-    fn a_planning_run_is_not_returned_by_the_running_authoring_run_lookup() {
-        let (mut conn, epic_id, human) = epic_fixture();
-        let run_id = flywheel_core::domain::dispatch_plan::start_planning_run_row(
-            &mut conn,
-            &epic_id,
-            &human,
-            PLANNING_PERMISSION_MODE,
-            |_| Ok(()),
-        )
-        .expect("the planning run starts");
-        let status: String = conn.query_row("SELECT status FROM agent_runs WHERE id = ?1", [&run_id], |r| r.get(0)).unwrap();
-        assert_eq!(status, "running");
-        assert!(
-            crate::commands::authoring::find_running_authoring_run(&conn, &epic_id).unwrap().is_none(),
-            "a planning run must never be mistaken for an authoring session"
-        );
     }
 }
 
@@ -904,32 +717,5 @@ mod surface_tests {
         let dto = plan_dto(&conn, &plan_id, false).unwrap();
         assert!(dto.edges_frozen);
         assert_eq!(dto.edges.len(), 1);
-    }
-
-    #[test]
-    fn a_running_planning_run_is_reported_for_its_epic_until_it_ends() {
-        let (mut conn, epic_id, human, _) = two_task_epic();
-        assert!(planning_run_for_epic(&conn, &epic_id).unwrap().is_none());
-        let run_id = flywheel_core::domain::dispatch_plan::start_planning_run_row(
-            &mut conn,
-            &epic_id,
-            &human,
-            PLANNING_PERMISSION_MODE,
-            |_| Ok(()),
-        )
-        .unwrap();
-        let found = planning_run_for_epic(&conn, &epic_id).unwrap().expect("the run is reported");
-        assert_eq!(found.run_id, run_id);
-        assert_eq!(found.epic_id, epic_id);
-        flywheel_core::domain::agent_run::close_agent_run(
-            &mut conn,
-            &run_id,
-            flywheel_core::domain::agent_run::AgentRunStatus::Failed,
-            None,
-            None,
-            None,
-        )
-        .unwrap();
-        assert!(planning_run_for_epic(&conn, &epic_id).unwrap().is_none(), "an ended run is not in progress");
     }
 }

@@ -6,7 +6,7 @@
 //! phase's fastest feedback loop precisely because it needs none.
 
 use core::compaction::compact_summaries;
-use core::context_packet::SummaryEntry;
+use core::domain::session_summary::SummaryEntry;
 use core::domain::session_summary::DecisionEntry;
 
 /// Build a `SummaryEntry` for ordinal `n` — `agent_run_id`/`created_at` derived from the ordinal

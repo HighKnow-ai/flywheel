@@ -9,14 +9,10 @@
 
 mod common;
 
-use core::context_packet::{
-    assemble_context_packet, assemble_context_packet_with_extras, render_prompt, PacketExtras,
-    SummaryEntry,
-};
+use core::domain::session_summary::SummaryEntry;
 use core::domain::agent_run::{
     close_agent_run, mark_abandoned, record_drift_warnings, start_agent_run, AgentRunStatus,
 };
-use core::domain::epic::create_epic;
 use core::domain::session_summary::{create_summary, DecisionEntry, SummaryFields};
 use core::domain::task::create_task;
 use core::domain::worktree::{ensure_worktree, reconcile_worktrees};
@@ -417,175 +413,9 @@ fn warnings_come_back_in_the_fixed_claimed_files_staleness_criteria_read_back_or
 // Task 2: the warning reaches the agent, at the top of the briefing
 // ============================================================================================
 
-#[test]
-fn two_warnings_render_both_sentences_before_the_epic_heading() {
-    let (mut conn, actor_id, project) = common::seeded_project();
-    let epic = create_epic(&mut conn, &project.id, &actor_id, "An epic", None)
-        .expect("create_epic should succeed");
-    let task = create_task(&mut conn, &project.id, &actor_id, "Warned task", Some(&epic.id))
-        .expect("create_task should succeed");
-
-    let warnings = vec![
-        DriftWarning {
-            kind: DriftKind::ClaimedFilesMismatch,
-            sentence: "first warning sentence".to_string(),
-        },
-        DriftWarning {
-            kind: DriftKind::StaleSinceLastSummary,
-            sentence: "second warning sentence".to_string(),
-        },
-    ];
-    let packet = assemble_context_packet_with_extras(
-        &conn,
-        &task.id,
-        PacketExtras { diff: None, drift: warnings },
-    )
-    .expect("assembly should succeed");
-
-    let prompt = render_prompt(&packet, "");
-    let warnings_pos = prompt.find("## Warnings").expect("warnings heading must be present");
-    let epic_pos = prompt.find("## Epic Context").expect("epic heading must be present");
-    assert!(warnings_pos < epic_pos, "warnings heading must appear before the epic heading");
-    assert!(prompt.contains("first warning sentence"));
-    assert!(prompt.contains("second warning sentence"));
-}
-
-#[test]
-fn no_warnings_renders_no_warnings_heading_at_all() {
-    let (mut conn, actor_id, project) = common::seeded_project();
-    let task = create_task(&mut conn, &project.id, &actor_id, "Quiet task", None)
-        .expect("create_task should succeed");
-
-    let packet = assemble_context_packet_with_extras(
-        &conn,
-        &task.id,
-        PacketExtras { diff: None, drift: Vec::new() },
-    )
-    .expect("assembly should succeed");
-
-    let prompt = render_prompt(&packet, "");
-    assert!(!prompt.contains("## Warnings"));
-}
-
-#[test]
-fn two_renders_of_the_same_packet_are_byte_identical_with_warnings_present() {
-    let (mut conn, actor_id, project) = common::seeded_project();
-    let task = create_task(&mut conn, &project.id, &actor_id, "Determinism task", None)
-        .expect("create_task should succeed");
-
-    let warnings = vec![DriftWarning {
-        kind: DriftKind::CriteriaRevisionMoved,
-        sentence: "criteria moved sentence".to_string(),
-    }];
-    let packet = assemble_context_packet_with_extras(
-        &conn,
-        &task.id,
-        PacketExtras { diff: None, drift: warnings },
-    )
-    .expect("assembly should succeed");
-
-    let first = render_prompt(&packet, "");
-    let second = render_prompt(&packet, "");
-    assert_eq!(first, second);
-}
-
 // ============================================================================================
 // Task 3: the warning clears the moment the underlying fact clears — no write, ever
 // ============================================================================================
-
-fn claim_only_fields(claimed_path: &str) -> SummaryFields {
-    SummaryFields {
-        changed_files: vec![claimed_path.to_string()],
-        changed_prose: None,
-        remains: None,
-        next_session_must_know: None,
-        decisions: Vec::new(),
-        acknowledged_decisions: Vec::new(),
-        diff_ref: None,
-        auto_generated: false,
-    }
-}
-
-#[test]
-fn a_claimed_path_the_real_diff_does_not_contain_produces_a_warning_in_the_assembled_packet() {
-    with_scratch_worktree_root(|| {
-        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Ghost claim", None)
-            .expect("create_task should succeed");
-        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
-        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
-        create_summary(&mut conn, &run.id, claim_only_fields("ghost.txt"), &actor_id)
-            .expect("create_summary should succeed");
-
-        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
-        // The real diff does not contain the claimed path.
-        let real_paths: Vec<String> = vec!["real.txt".to_string()];
-        let current_criteria: Vec<String> = Vec::new();
-        let inputs = DriftInputs {
-            summaries: &packet.summaries,
-            real_changed_paths: Some(&real_paths),
-            head_ref: None,
-            working_tree_dirty: false,
-            pinned_criterion_ids: None,
-            current_criterion_ids: &current_criteria,
-            echoed_ids_on_record_beyond_scope: Some(&[]),
-        };
-        let drift = detect_drift(&inputs);
-        assert_eq!(drift.len(), 1);
-        assert_eq!(drift[0].kind, DriftKind::ClaimedFilesMismatch);
-
-        let packet = assemble_context_packet_with_extras(
-            &conn,
-            &task.id,
-            PacketExtras { diff: None, drift },
-        )
-        .expect("assembly with extras should succeed");
-        let prompt = render_prompt(&packet, "");
-        assert!(prompt.contains("## Warnings"));
-        assert!(prompt.contains("ghost.txt"));
-    });
-}
-
-#[test]
-fn the_same_claim_produces_no_warning_once_the_path_really_exists_in_the_diff() {
-    with_scratch_worktree_root(|| {
-        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Ghost claim clears", None)
-            .expect("create_task should succeed");
-        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
-        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
-        create_summary(&mut conn, &run.id, claim_only_fields("ghost.txt"), &actor_id)
-            .expect("create_summary should succeed");
-
-        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
-        // No write happened to the summary row between the two assemblies — only the real-diff
-        // fact fed into `detect_drift` changed, proving the warning clears by itself.
-        let real_paths: Vec<String> = vec!["ghost.txt".to_string()];
-        let current_criteria: Vec<String> = Vec::new();
-        let inputs = DriftInputs {
-            summaries: &packet.summaries,
-            real_changed_paths: Some(&real_paths),
-            head_ref: None,
-            working_tree_dirty: false,
-            pinned_criterion_ids: None,
-            current_criterion_ids: &current_criteria,
-            echoed_ids_on_record_beyond_scope: Some(&[]),
-        };
-        let drift = detect_drift(&inputs);
-        assert!(drift.is_empty(), "a claim that now matches the real diff must fire nothing");
-
-        let packet = assemble_context_packet_with_extras(
-            &conn,
-            &task.id,
-            PacketExtras { diff: None, drift },
-        )
-        .expect("assembly with extras should succeed");
-        let prompt = render_prompt(&packet, "");
-        assert!(!prompt.contains("## Warnings"));
-    });
-}
 
 // ============================================================================================
 // Plan 04-12 Task 1: a fired detector becomes a durable event — once per run, never on a preview
@@ -670,40 +500,6 @@ fn record_drift_warnings_with_an_empty_slice_appends_nothing_and_returns_zero() 
         assert_eq!(
             events_before, events_after,
             "a run with no warnings must append no drift event at all"
-        );
-    });
-}
-
-#[test]
-fn assembling_a_packet_with_drift_warnings_writes_no_events_row_mirroring_a_preview() {
-    with_scratch_worktree_root(|| {
-        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Preview-only task", None)
-            .expect("create_task should succeed");
-        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
-        let _run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
-
-        let events_before: i64 = conn
-            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
-            .expect("count query should succeed");
-
-        let warnings = sample_warnings(1);
-        let packet = assemble_context_packet_with_extras(
-            &conn,
-            &task.id,
-            PacketExtras { diff: None, drift: warnings },
-        )
-        .expect("assembly with extras should succeed");
-        assert!(!packet.drift.is_empty());
-
-        let events_after: i64 = conn
-            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
-            .expect("count query should succeed");
-        assert_eq!(
-            events_before, events_after,
-            "assembling a packet — the preview's own operation — must never write a drift event; \
-             only an explicit record_drift_warnings call does"
         );
     });
 }
@@ -976,67 +772,6 @@ fn task_with_windowed_summaries(
             .expect("close_agent_run should succeed");
     }
     task.id
-}
-
-/// Drift over `task_id`'s assembled packet, with the beyond-scope list resolved exactly the way the
-/// production caller (`commands/agent_run.rs`) resolves it.
-fn read_back_warnings(conn: &rusqlite::Connection, task_id: &str, resolve_beyond_scope: bool) -> Vec<DriftWarning> {
-    let packet = assemble_context_packet(conn, task_id).expect("assembly should succeed");
-    let latest = packet.summaries.last().expect("the task has summaries");
-    let beyond = if resolve_beyond_scope {
-        decision_ids_on_record(conn, task_id, &latest.acknowledged_decisions, &in_scope_ids(&packet.summaries))
-            .expect("decision_ids_on_record should succeed")
-    } else {
-        Vec::new()
-    };
-    let current_criteria: Vec<String> = Vec::new();
-    let inputs = DriftInputs {
-        summaries: &packet.summaries,
-        real_changed_paths: None,
-        head_ref: None,
-        working_tree_dirty: false,
-        pinned_criterion_ids: None,
-        current_criterion_ids: &current_criteria,
-        echoed_ids_on_record_beyond_scope: Some(&beyond),
-    };
-    detect_drift(&inputs)
-}
-
-/// The decision ids the packet's in-scope window already holds, as the production caller passes them.
-fn in_scope_ids(summaries: &[SummaryEntry]) -> Vec<String> {
-    summaries.iter().flat_map(|s| s.decisions.iter().map(|d| d.id.clone())).collect()
-}
-
-#[test]
-fn a_correctly_echoed_decision_older_than_the_window_does_not_fire_a_fabricated_echo() {
-    with_scratch_worktree_root(|| {
-        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        // 30 summaries: D-X lives in summary 2, outside the 25-row window (summaries 6..=30).
-        let task = task_with_windowed_summaries(&mut conn, &project.id, &actor_id, 30, &["D-X"]);
-
-        // Without the bounded lookup the window alone WOULD accuse the agent: this is the false
-        // positive D-05 exists to prevent, shown so the fix cannot pass vacuously.
-        let unresolved = read_back_warnings(&conn, &task, false);
-        assert_eq!(unresolved.len(), 1);
-        assert_eq!(unresolved[0].kind, DriftKind::FabricatedDecisionEcho);
-
-        let resolved = read_back_warnings(&conn, &task, true);
-        assert!(resolved.is_empty(), "a correctly echoed old decision must not fire, got {resolved:?}");
-    });
-}
-
-#[test]
-fn an_echoed_id_recorded_nowhere_still_fires_a_fabricated_echo_naming_exactly_it() {
-    with_scratch_worktree_root(|| {
-        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = task_with_windowed_summaries(&mut conn, &project.id, &actor_id, 30, &["D-NOPE"]);
-
-        let warnings = read_back_warnings(&conn, &task, true);
-        assert_eq!(warnings.len(), 1);
-        assert_eq!(warnings[0].kind, DriftKind::FabricatedDecisionEcho);
-        assert!(warnings[0].sentence.contains("D-NOPE"));
-        assert!(!warnings[0].sentence.contains("D-X"));
-    });
 }
 
 #[test]

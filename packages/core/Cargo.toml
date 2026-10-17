@@ -24,10 +24,6 @@ name = "uat_seed_ui"
 path = "tests/bin/uat_seed_ui.rs"
 
 [[bin]]
-name = "uat_authoring_ops"
-path = "tests/bin/uat_authoring_ops.rs"
-
-[[bin]]
 name = "uat_fleet_ops"
 path = "tests/bin/uat_fleet_ops.rs"
 

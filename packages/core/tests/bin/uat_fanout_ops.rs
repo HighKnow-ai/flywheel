@@ -12,7 +12,8 @@
 //!
 //! Mirrored from `commands/agent_run.rs::prepare_launch` + `start_agent_run_recording_first`
 //! (desktop crate, `pub(crate)`, not linkable): `start_agent_run` under the SYSTEM actor,
-//! `assemble_context_packet`, `render_prompt` with `DISPATCHED_COMMIT_INSTRUCTION`, the worktree path
+//! `stand_in_launch_prompt` with `DISPATCHED_COMMIT_INSTRUCTION` (the context packet builder it used to
+//! mirror was deleted by issue #38), the worktree path
 //! read, `arm_scope_marker_with`, and the shim environment. NOT mirrored: the credential block, drift
 //! warnings, criteria pinning, the per-repository spawn floor (`SidecarHandle::send_spawn_request`),
 //! the `board:changed` emit. This bridge therefore proves the wiring from the tick to a running
@@ -33,7 +34,6 @@
 //! bridge for the PLANNING half of the same machinery, so nothing about `submit_plan` is re-implemented
 //! in the script:
 //!   uat_fanout_ops plan-setup <repo_path> <tasks_json>    tasks_json: [{"title": "..."}, ...]
-//!   uat_fanout_ops plan-start <epic_id>                   the production `begin_planning_run` (real prompt)
 //!   uat_fanout_ops plan-submit <run_id> <submission_json> resolve the run, then the production
 //!                                                         `store_submitted_plan`; a refusal prints {"refused": text}
 //!   uat_fanout_ops plan-readback <plan_id>                stored tasks, entries (in order), events, preview edges
@@ -50,10 +50,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Mutex;
 
-use core::context_packet::{assemble_context_packet, render_prompt, DISPATCHED_COMMIT_INSTRUCTION};
-use core::dispatch_exec::run_pass;
+use core::dispatch_exec::{run_pass, DISPATCHED_COMMIT_INSTRUCTION};
 use core::domain::actor::{local_human_actor_id, system_actor};
-use core::domain::agent_run::{apply_session_closed, start_agent_run};
+use core::domain::agent_run::{apply_session_closed, stand_in_launch_prompt, start_agent_run};
 use core::domain::dispatch_plan::{
     approve_and_start, create_plan_for_epic, edit_draft_plan, preview_edges_with, read_plan, resolve_planning_run,
     store_submitted_plan, DraftEdit, SubmittedPlan,
@@ -140,8 +139,7 @@ fn launch(db: &Mutex<Connection>, task_id: &str) -> Result<(), String> {
     let mut conn = db.lock().map_err(|_| "database lock poisoned".to_string())?;
     let system = system_actor(&conn).map_err(|e| e.to_string())?.id;
     let run = start_agent_run(&mut conn, task_id, DISPATCH_PERMISSION_MODE, &system).map_err(|e| format!("{e:#}"))?;
-    let packet = assemble_context_packet(&conn, task_id).map_err(|e| e.to_string())?;
-    let prompt = render_prompt(&packet, DISPATCHED_COMMIT_INSTRUCTION);
+    let prompt = stand_in_launch_prompt(&conn, task_id, DISPATCHED_COMMIT_INSTRUCTION).map_err(|e| e.to_string())?;
     let worktree_path: String = conn
         .query_row("SELECT path FROM worktrees WHERE id = ?1", [run.worktree_id.as_deref().unwrap_or("")], |r| r.get(0))
         .map_err(|e| e.to_string())?;
@@ -308,24 +306,6 @@ fn main() {
                 tasks.push(json!({ "taskId": task.id, "key": key, "title": title }));
             }
             println!("{}", json!({ "projectId": project.id, "epicId": epic.id, "tasks": tasks }));
-        }
-        "plan-start" => {
-            let epic_id = arg(&args, 1, "plan-start <epic_id>");
-            let conn = open_conn();
-            let human = local_human_actor_id(&conn).unwrap_or_else(|e| fail(&format!("human: {e:#}")));
-            let db = Mutex::new(conn);
-            // "default": the same mode `commands/dispatch.rs::PLANNING_PERMISSION_MODE` launches with.
-            let start = core::dispatch_exec::begin_planning_run(&db, &epic_id, &human, "default")
-                .unwrap_or_else(|e| fail(&format!("begin_planning_run: {e:#}")));
-            println!(
-                "{}",
-                json!({
-                    "runId": start.run_id,
-                    "worktreePath": start.worktree_path,
-                    "repoPath": start.repo_path,
-                    "prompt": start.prompt,
-                })
-            );
         }
         "plan-submit" => {
             let usage = "plan-submit <run_id> <submission_json>";

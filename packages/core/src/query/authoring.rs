@@ -25,8 +25,31 @@ use crate::domain::authoring_proposal::{
     pending_proposals_for_run, row_to_proposal, Proposal, PROPOSAL_COLUMNS,
 };
 use crate::domain::agent_run::RUN_KIND_AUTHORING_PREDICATE;
+use crate::domain::acceptance_criterion::CriterionAnchor;
 use crate::domain::epic::EpicSummary;
-use crate::epic_context_packet::TaskRosterEntry;
+use crate::review::AnchorStaleness;
+
+/// One acceptance criterion entry, in rank order — statement plus its verification hint (D-05) and
+/// whether it is checked. Moved here from the deleted context packet builder (issue #38); roster
+/// reads load no anchors, so their entries carry `anchor: None`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CriterionEntry {
+    pub statement: String,
+    pub verification_hint: Option<String>,
+    pub checked: bool,
+    pub anchor: Option<CriterionAnchor>,
+    pub anchor_staleness: Option<AnchorStaleness>,
+}
+
+/// One task of an epic's roster with its current-revision criteria. Moved here from the deleted
+/// epic context packet builder (issue #38).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TaskRosterEntry {
+    pub key: String,
+    pub title: String,
+    pub status: String,
+    pub criteria: Vec<CriterionEntry>,
+}
 
 /// The Rust core returns a page, never the whole board (D-03) — same value `commands/board.rs`
 /// uses, redeclared here because an agent-reachable tool call never crosses the Tauri command
@@ -147,7 +170,7 @@ pub fn list_tasks_for_epic(
         let mut criteria_stmt = conn.prepare(AGENT_TASK_CRITERIA_SQL)?;
         let criteria = criteria_stmt
             .query_map(params![task_id], |row| {
-                Ok(crate::context_packet::CriterionEntry {
+                Ok(CriterionEntry {
                     statement: row.get(0)?,
                     verification_hint: row.get(1)?,
                     checked: row.get::<_, i64>(2)? != 0,

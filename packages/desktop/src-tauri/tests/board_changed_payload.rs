@@ -155,9 +155,9 @@ fn only_the_emit_helper_names_the_board_changed_event() {
 fn every_emit_helper_call_passes_an_explicit_project_scope() {
     let files = sources_under(&manifest_dir().join("src"));
     let (sites, offenders) = scope_check(&files);
-    // Today's count is 74. The floor stops the helper being bypassed by deleting emits, without
-    // turning a merged duplicate into a failure.
-    assert!(sites >= 70, "found only {sites} helper call sites; the matcher is broken or emits were removed");
+    // Today's count is 50 (issue #38 deleted the commands behind the other 24). The floor stops the
+    // helper being bypassed by deleting emits, without turning a merged duplicate into a failure.
+    assert!(sites >= 46, "found only {sites} helper call sites; the matcher is broken or emits were removed");
     assert!(
         offenders.is_empty(),
         "FNC-07: every emit states its project scope — `None` to broadcast, `Some(..)` or a resolved \

@@ -5,7 +5,6 @@
 
 pub mod branch;
 pub mod compaction;
-pub mod context_packet;
 pub mod credentials;
 pub mod db;
 pub mod destructive;
@@ -13,7 +12,6 @@ pub mod dispatch;
 pub mod dispatch_exec;
 pub mod domain;
 pub mod drift;
-pub mod epic_context_packet;
 pub mod criterion_lint;
 pub mod file_set;
 pub mod forge;

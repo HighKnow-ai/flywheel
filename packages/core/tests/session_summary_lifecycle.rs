@@ -5,18 +5,15 @@
 
 mod common;
 
-use core::context_packet::{assemble_context_packet, render_prompt};
-use core::domain::acceptance_criterion::create_criterion;
 use core::domain::agent_run::{
     apply_session_closed, close_agent_run, start_agent_run, AgentRun, AgentRunStatus,
     SessionClosedOutcome,
 };
-use core::domain::epic::create_epic;
 use core::domain::event::{append_event, next_sequence};
 use core::domain::project::Project;
 use core::domain::session_summary::{
     create_summary, latest_summary_for_run, list_summaries_for_task, synthesize_fallback_summary,
-    DecisionEntry, SummaryFields,
+    SummaryFields,
 };
 use core::domain::task::{create_task, Task};
 use core::domain::worktree::ensure_worktree;
@@ -65,93 +62,6 @@ fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
     let result = f();
     unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
     result
-}
-
-#[test]
-fn a_summary_written_is_carried_by_the_next_context_packet() {
-    with_scratch_worktree_root(|| {
-        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let epic = create_epic(&mut conn, &project.id, &actor_id, "Ship the thing", None)
-            .expect("create_epic should succeed");
-        let task = create_task(&mut conn, &project.id, &actor_id, "Wire the summary", Some(&epic.id))
-            .expect("create_task should succeed");
-        create_criterion(
-            &mut conn,
-            &project.id,
-            &actor_id,
-            "task",
-            &task.id,
-            "First criterion",
-            None,
-        )
-        .expect("create_criterion 1 should succeed");
-        create_criterion(
-            &mut conn,
-            &project.id,
-            &actor_id,
-            "task",
-            &task.id,
-            "Second criterion",
-            None,
-        )
-        .expect("create_criterion 2 should succeed");
-
-        ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
-        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
-
-        let fields = SummaryFields {
-            changed_files: vec!["src/lib.rs".to_string(), "src/main.rs".to_string()],
-            changed_prose: Some("Wired the summary read path.".to_string()),
-            remains: Some("Wire the fallback synthesizer.".to_string()),
-            next_session_must_know: Some("The packet field is called summaries.".to_string()),
-            decisions: vec![DecisionEntry {
-                id: "d1".to_string(),
-                statement: "Use jose instead of jsonwebtoken.".to_string(),
-            }],
-            acknowledged_decisions: vec![],
-            diff_ref: Some("HEAD~1".to_string()),
-            auto_generated: false,
-        };
-
-        let written = create_summary(&mut conn, &run.id, fields, &actor_id)
-            .expect("create_summary should succeed");
-
-        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
-        assert_eq!(packet.summaries.len(), 1, "exactly one summary must be carried");
-        let entry = &packet.summaries[0];
-        assert_eq!(entry.agent_run_id, run.id);
-        assert_eq!(entry.changed_files, written.changed_files);
-        assert_eq!(entry.remains, written.remains);
-        assert_eq!(entry.next_session_must_know, written.next_session_must_know);
-        assert_eq!(entry.decisions, written.decisions);
-
-        let prompt = render_prompt(&packet, "");
-        assert!(prompt.contains("Prior Sessions"), "the prior-sessions heading must be present");
-        assert!(prompt.contains("src/lib.rs"), "the changed path must appear in the rendered prompt");
-        assert!(
-            prompt.contains("Use jose instead of jsonwebtoken."),
-            "the decision statement must appear in the rendered prompt"
-        );
-    });
-}
-
-#[test]
-fn a_task_with_zero_summaries_yields_an_empty_list_and_no_prior_sessions_heading() {
-    with_scratch_worktree_root(|| {
-        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "No summaries yet", None)
-            .expect("create_task should succeed");
-
-        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
-        assert!(packet.summaries.is_empty(), "summaries list must be empty");
-
-        let prompt = render_prompt(&packet, "");
-        assert!(
-            !prompt.contains("Prior Sessions"),
-            "no prior-sessions heading should be emitted for a task with zero summaries"
-        );
-    });
 }
 
 #[test]
@@ -242,46 +152,6 @@ fn ordering_is_stable_under_a_tied_created_at_timestamp() {
             first_call.iter().map(|s| s.id.clone()).collect::<Vec<_>>(),
             second_call.iter().map(|s| s.id.clone()).collect::<Vec<_>>(),
             "calling list_summaries_for_task twice must return the same id sequence"
-        );
-    });
-}
-
-#[test]
-fn the_auto_generated_flag_survives_the_round_trip_in_both_directions() {
-    with_scratch_worktree_root(|| {
-        let (mut conn, actor_id, _project, _repo_dir, task, run) = seeded_task_and_run();
-
-        let agent_written =
-            create_summary(&mut conn, &run.id, minimal_fields("agent's own words", false), &actor_id)
-                .expect("agent-authored create_summary should succeed");
-        let auto_written =
-            create_summary(&mut conn, &run.id, minimal_fields("fallback text", true), &actor_id)
-                .expect("auto-generated create_summary should succeed");
-
-        assert!(!agent_written.auto_generated, "the agent-authored row must read back unset");
-        assert!(auto_written.auto_generated, "the auto-generated row must read back set");
-
-        let reread = list_summaries_for_task(&conn, &task.id)
-            .expect("list_summaries_for_task should succeed");
-        let reread_agent = reread.iter().find(|s| s.id == agent_written.id).unwrap();
-        let reread_auto = reread.iter().find(|s| s.id == auto_written.id).unwrap();
-        assert!(!reread_agent.auto_generated);
-        assert!(reread_auto.auto_generated);
-
-        let packet = assemble_context_packet(&conn, &task.id).expect("assembly should succeed");
-        let prompt = render_prompt(&packet, "");
-        assert!(
-            prompt.contains("(auto-generated — no agent summary was recorded for this run)"),
-            "the auto-generated block must carry the marker"
-        );
-
-        // The agent-authored session's own heading line must NOT carry the auto-generated
-        // marker — find its "### Session N" line and assert the marker is absent from it.
-        let agent_ordinal = reread.iter().position(|s| s.id == agent_written.id).unwrap() + 1;
-        let agent_heading = format!("### Session {agent_ordinal}\n");
-        assert!(
-            prompt.contains(&agent_heading),
-            "the agent-authored session's heading must render with no suffix"
         );
     });
 }

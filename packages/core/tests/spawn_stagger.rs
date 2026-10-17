@@ -121,41 +121,6 @@ fn agent_run_rs_contains_no_bare_send_request_call_and_at_least_one_gated_spawn_
     );
 }
 
-/// Plan 05-09's own extension of the structural gate above to the authoring spawn path: the real
-/// `commands/authoring.rs`, read from disk, must contain `send_spawn_request(` at least once and
-/// ZERO bare `.send_request(` calls — the same "the gate is unbypassable from the command layer"
-/// property `agent_run.rs` already holds, now proved for the second spawn path too.
-#[test]
-fn authoring_rs_contains_no_bare_send_request_call_and_at_least_one_gated_spawn_call() {
-    let root = workspace_root();
-    let path = root.join("packages/desktop/src-tauri/src/commands/authoring.rs");
-    let contents = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read {path:?}: {e}"));
-
-    let mut bare_send_request_count = 0;
-    let mut gated_send_spawn_request_count = 0;
-    for raw_line in contents.lines() {
-        if is_whole_line_comment(raw_line) {
-            continue;
-        }
-        if raw_line.contains(".send_request(") {
-            bare_send_request_count += 1;
-        }
-        if raw_line.contains("send_spawn_request") {
-            gated_send_spawn_request_count += 1;
-        }
-    }
-
-    assert_eq!(
-        bare_send_request_count, 0,
-        "expected zero bare `.send_request(` calls in {path:?} — an authoring spawn path bypassing the per-repository floor survived in the command layer"
-    );
-    assert!(
-        gated_send_spawn_request_count >= 1,
-        "expected at least one `send_spawn_request` call in {path:?} — an authoring spawn calling `.send_request(` directly would skip D-52's floor entirely"
-    );
-}
-
 /// D-52 as it applies to two AUTHORING spawns specifically (plan 05-09's own acceptance
 /// criterion), driven directly against `SpawnFloor` — the same primitive
 /// `commands::authoring::authoring_run_start` calls through `SidecarHandle::send_spawn_request`,

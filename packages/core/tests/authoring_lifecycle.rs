@@ -24,7 +24,6 @@ use core::domain::session_summary::{
     create_summary, latest_summary_for_run, DecisionEntry, SummaryFields,
 };
 use core::domain::task::create_task;
-use core::epic_context_packet::assemble_epic_context_packet;
 use core::query::permissions::{blocked_count_for_project, blocked_task_ids_for_project};
 use core::query::recovery::{recovery_count_for_project, recovery_task_ids_for_project};
 use rusqlite::{params, Connection};
@@ -202,30 +201,6 @@ fn the_fallback_synthesiser_names_the_stage_reached_and_the_staged_proposal_coun
         assert!(prose.contains("decompose"), "expected the stage reached in {prose:?}");
         assert!(prose.contains("2 task"), "expected the target-type count in {prose:?}");
         assert!(prose.contains("1 "), "expected the decided count in {prose:?}");
-    });
-}
-
-#[test]
-fn epic_context_packets_prior_authoring_runs_reads_the_summary_back() {
-    with_scratch_runtime_dir(|| {
-        let (mut conn, human_actor_id, project) = common::seeded_project();
-        let epic = create_epic(&mut conn, &project.id, &human_actor_id, "An epic", None).unwrap();
-        let run =
-            start_authoring_run(&mut conn, &project.id, Some(&epic.id), "default", &human_actor_id).unwrap();
-        advance_stage(&mut conn, &run.id, &human_actor_id).unwrap();
-        simulate_stop_in_tx(&mut conn, &run.id, &human_actor_id).unwrap();
-
-        let packet = assemble_epic_context_packet(&conn, &project.id, Some(&epic.id)).unwrap();
-        assert_eq!(packet.prior_authoring_runs.len(), 1);
-        let entry = &packet.prior_authoring_runs[0];
-        assert_eq!(entry.id, run.id);
-        assert!(
-            entry.summary_changed_prose.is_some(),
-            "the prior run's own closing summary must be readable from the packet"
-        );
-
-        let rendered = core::epic_context_packet::render_epic_prompt(&packet, None);
-        assert!(rendered.contains("Summary:"), "the rendered prompt should surface the summary");
     });
 }
 

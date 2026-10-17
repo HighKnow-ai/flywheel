@@ -1,9 +1,7 @@
-//! `agent_run_preview` / `agent_run_start` / `agent_run_log_window` — the launch sheet's one
-//! read, Start Work's one mutating command, and the session surface's one read (D-27, D-28,
-//! D-31, D-33, D-34). `agent_run_preview` and `agent_run_start` both call
-//! `flywheel_core::context_packet::assemble_context_packet` — one assembler, two call sites — and
-//! both render the initial prompt through the one `render_prompt` function, so the sheet can
-//! never show a briefing that differs from what the agent is actually told (T-02-21).
+//! `agent_run_start` / `agent_run_log_window` — Start Work's one mutating command and the session
+//! surface's one read (D-27, D-31, D-33, D-34). The context packet builder and its launch-sheet
+//! preview (`agent_run_preview`) were deleted by issue #38; until the MVP's Context packet exists a
+//! run starts from `flywheel_core::domain::agent_run::stand_in_launch_prompt`.
 //! `agent_run_start` resolves the human actor server-side (T-01-04), calls straight through to
 //! `flywheel_core::domain::agent_run::start_agent_run` (worktree create-or-reuse + the
 //! transactional-outbox write), and then sends exactly one `spawn` request to the sidecar with
@@ -28,13 +26,7 @@
 //! ends on its own — completed or failed — previously stayed `running` on the board forever.
 
 use std::io::{BufRead, BufReader};
-use std::path::Path;
 
-use flywheel_core::compaction::CompactionBoundary;
-use flywheel_core::context_packet::{
-    assemble_context_packet, assemble_context_packet_with_extras, render_prompt, ContextPacket,
-    DiffSoFar, PacketExtras,
-};
 use flywheel_core::domain::session_summary::{DecisionEntry, SessionSummary};
 use flywheel_core::dispatch::ReadinessRefusal;
 use rusqlite::{Connection, Transaction};
@@ -78,37 +70,6 @@ fn validate_instruction(instruction: Option<&str>) -> Result<String, String> {
         ));
     }
     Ok(trimmed.to_string())
-}
-
-/// One acceptance criterion, projected for the wire (camelCase) — mirrors
-/// `context_packet::CriterionEntry` field-for-field.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CriterionDto {
-    pub statement: String,
-    pub verification_hint: Option<String>,
-}
-
-/// One `DiffSoFar` value, projected for the wire (camelCase) — mirrors
-/// `context_packet::DiffSoFar` field-for-field (plan 04-07 Task 3).
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiffSoFarDto {
-    pub base_ref: String,
-    pub committed_stat: String,
-    pub committed_paths: Vec<String>,
-    pub working_tree_porcelain: String,
-}
-
-impl From<DiffSoFar> for DiffSoFarDto {
-    fn from(diff: DiffSoFar) -> Self {
-        Self {
-            base_ref: diff.base_ref,
-            committed_stat: diff.committed_stat,
-            committed_paths: diff.committed_paths,
-            working_tree_porcelain: diff.working_tree_porcelain,
-        }
-    }
 }
 
 /// One decision entry inside a summary's `decisions` list, projected for the wire (camelCase) —
@@ -168,354 +129,6 @@ impl From<SessionSummary> for SessionSummaryDto {
     }
 }
 
-/// The compaction boundary, projected for the wire (camelCase, plan 04-08 Task 2) — both the
-/// structured counts (what `SessionSummaryDto.folded` is derived from, above) and the sentence a
-/// developer can read verbatim (`CompactionBoundary::boundary_sentence`), so the renderer never
-/// has to compose that phrasing itself. `folded_range`/`verbatim_range` travel as two-element
-/// arrays rather than tuples — `serde` has no native tuple-as-JSON-array-of-two-numbers shape that
-/// TypeScript would consume as a fixed-length tuple without an extra decode step.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CompactionBoundaryDto {
-    pub total: usize,
-    pub folded_count: usize,
-    pub verbatim_count: usize,
-    pub folded_range: Option<[usize; 2]>,
-    pub verbatim_range: Option<[usize; 2]>,
-    pub sentence: Option<String>,
-}
-
-impl From<&CompactionBoundary> for CompactionBoundaryDto {
-    fn from(boundary: &CompactionBoundary) -> Self {
-        Self {
-            total: boundary.total,
-            folded_count: boundary.folded_count,
-            verbatim_count: boundary.verbatim_count,
-            folded_range: boundary.folded_range.map(|(start, end)| [start, end]),
-            verbatim_range: boundary.verbatim_range.map(|(start, end)| [start, end]),
-            sentence: boundary.boundary_sentence(),
-        }
-    }
-}
-
-/// One fired drift warning, projected for the wire (camelCase, plan 04-12 Task 3) — mirrors
-/// `flywheel_core::drift::DriftWarning` field-for-field, except `kind` travels as the same string
-/// its `Serialize` impl would already produce (a fieldless enum's variant name) rather than a
-/// nested JSON value — the launch sheet never inspects `kind`, only renders `sentence` verbatim,
-/// so there is no reason to hand it a richer shape than that.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DriftWarningDto {
-    pub kind: String,
-    pub sentence: String,
-}
-
-impl From<flywheel_core::drift::DriftWarning> for DriftWarningDto {
-    fn from(warning: flywheel_core::drift::DriftWarning) -> Self {
-        Self {
-            kind: serde_json::to_value(&warning.kind)
-                .ok()
-                .and_then(|v| v.as_str().map(str::to_string))
-                .unwrap_or_default(),
-            sentence: warning.sentence,
-        }
-    }
-}
-
-/// A reviewer's decline as the launch sheet shows it (A-08(a)): the lead sentence is the core's
-/// own constant and the statements are the core's own unchecked list, so the preview says exactly
-/// what the prompt's `## Review Feedback` section says.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewFeedbackDto {
-    pub lead: String,
-    pub statements: Vec<String>,
-}
-
-/// The launch sheet's read-only briefing (D-27/D-28) — the packet's structured fields AND the
-/// rendered prompt string, so the sheet displays exactly the text that will be sent rather than
-/// re-deriving its own rendering in TypeScript (one renderer, in Rust, used by both the preview
-/// and the launch).
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ContextPacketDto {
-    pub task_key: String,
-    pub task_title: String,
-    pub task_description: Option<String>,
-    pub epic_title: Option<String>,
-    pub epic_description: Option<String>,
-    pub criteria: Vec<CriterionDto>,
-    /// Every prior-session summary, oldest-first, each carrying its own `folded` marker (plan
-    /// 04-08 Task 2).
-    pub summaries: Vec<SessionSummaryDto>,
-    /// The compaction boundary `summaries`' `folded` markers are derived from — carried
-    /// separately so the launch sheet can render the boundary sentence and counts without
-    /// re-deriving them from `summaries` itself (plan 04-08 Task 2).
-    pub compaction: CompactionBoundaryDto,
-    /// The packet's deduplicated decision list (D-73), independent of any single summary or
-    /// fold — every decision recorded across every summary for this task, first occurrence wins,
-    /// order preserved (plan 04-09 Task 1). Complete regardless of how many summaries folded,
-    /// because `ContextPacket.decisions` is itself lossless for decisions.
-    pub decisions: Vec<DecisionDto>,
-    /// Every fired drift warning (D-72 through D-75, plan 04-12 Task 3) — the developer-facing
-    /// half of the same warnings `packet.rendered_prompt`'s `## Warnings` section already carries
-    /// for the agent. Always the SAME `PacketExtras.drift` this packet's `render_prompt`d
-    /// `rendered_prompt` was rendered from — one Rust-side computation (`packet_extras_for`), two
-    /// renderings of the identical data, never two different derivations of "did anything drift."
-    pub drift: Vec<DriftWarningDto>,
-    /// `Some` only while a reviewer's decline is pending (A-08(a)) -- the developer-facing half
-    /// of the prompt's `## Review Feedback` section, from the same packet field.
-    pub review_feedback: Option<ReviewFeedbackDto>,
-    pub branch: String,
-    pub base_ref: String,
-    pub worktree_path: String,
-    /// `None` for a task with no worktree on disk yet, or one that has vanished (D-70/D-71, plan
-    /// 04-07 Task 3) — never an error. Populated by [`packet_extras_for`], one layer above the
-    /// pure `assemble_context_packet`.
-    pub diff: Option<DiffSoFarDto>,
-    pub rendered_prompt: String,
-}
-
-impl From<ContextPacket> for ContextPacketDto {
-    fn from(packet: ContextPacket) -> Self {
-        // Computed with an empty instruction — the preview has no instruction yet; this field
-        // exists so the desktop crate never has a second prompt-rendering implementation of its
-        // own (T-02-21), not to show the operator a raw prompt dump (the sheet renders the
-        // structured fields below it instead).
-        let rendered_prompt = render_prompt(&packet, "");
-        // `folded` is derived here, from the packet's own compaction boundary, before
-        // `packet.summaries` is consumed below — the same 0-based-position-under-folded_count
-        // check `compact_summaries` itself uses to split the oldest-first list (T-04-23).
-        let compaction = CompactionBoundaryDto::from(&packet.compaction);
-        let folded_count = packet.compaction.folded_count;
-        let summaries: Vec<SessionSummaryDto> = packet
-            .summaries
-            .into_iter()
-            .enumerate()
-            .map(|(i, s)| SessionSummaryDto {
-                agent_run_id: s.agent_run_id,
-                created_at: s.created_at,
-                auto_generated: s.auto_generated,
-                changed_files: s.changed_files,
-                changed_prose: s.changed_prose,
-                remains: s.remains,
-                next_session_must_know: s.next_session_must_know,
-                decisions: s.decisions.into_iter().map(DecisionDto::from).collect(),
-                folded: i < folded_count,
-            })
-            .collect();
-        let decisions: Vec<DecisionDto> =
-            packet.decisions.into_iter().map(DecisionDto::from).collect();
-        let drift: Vec<DriftWarningDto> =
-            packet.drift.into_iter().map(DriftWarningDto::from).collect();
-        Self {
-            task_key: packet.task_key,
-            task_title: packet.task_title,
-            task_description: packet.task_description,
-            epic_title: packet.epic.as_ref().map(|e| e.title.clone()),
-            epic_description: packet.epic.as_ref().and_then(|e| e.description.clone()),
-            criteria: packet
-                .criteria
-                .into_iter()
-                .map(|c| CriterionDto {
-                    statement: c.statement,
-                    verification_hint: c.verification_hint,
-                })
-                .collect(),
-            summaries,
-            compaction,
-            decisions,
-            drift,
-            // One Rust-side sentence feeds both renderings: the core's constant for the lead and
-            // the core's own unchecked list, exactly as `render_prompt` reads them.
-            review_feedback: packet.review_feedback.map(|f| ReviewFeedbackDto {
-                lead: flywheel_core::context_packet::REVIEW_FEEDBACK_LEAD.to_string(),
-                statements: f.statements,
-            }),
-            branch: packet.worktree.branch,
-            base_ref: packet.worktree.base_ref,
-            worktree_path: packet.worktree.path,
-            diff: packet.diff.map(DiffSoFarDto::from),
-            rendered_prompt,
-        }
-    }
-}
-
-/// Read the real diff facts for a worktree already known to exist on disk (D-70/D-71, D-72/D-73,
-/// plan 04-11 Task 3) — the committed stat/paths, the working-tree porcelain text, and `HEAD`'s
-/// own resolved ref, all through the crate's one git wrapper. `head_ref` is resolved via `git_at`
-/// directly (`rev-parse HEAD`) rather than a dedicated wrapper function, since this is the only
-/// call site that needs it. Returns `None` on ANY git failure — short-circuiting before the
-/// second/third read runs — degrading exactly like [`packet_extras_for`]'s caller already did for
-/// the diff alone (plan 04-07).
-fn read_worktree_facts(
-    worktree_path: &Path,
-    base_ref: &str,
-) -> Option<(flywheel_core::git::DiffStat, String, Option<String>)> {
-    let diff_stat = flywheel_core::git::diff_stat_and_names(worktree_path, base_ref).ok()?;
-    let working_tree_porcelain = flywheel_core::git::git_status_porcelain(worktree_path).ok()?;
-    let head_ref = flywheel_core::git::git_at(worktree_path, &["rev-parse", "HEAD"])
-        .ok()
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string());
-    Some((diff_stat, working_tree_porcelain, head_ref))
-}
-
-/// Compose both the diff and the drift extras for an already-assembled `packet` (D-70/D-71,
-/// D-72/D-73/D-75, plan 04-07 Task 3, plan 04-11 Task 3, 04-RESEARCH.md Open Question 2) — the
-/// ONE place in this command's composition path a git call happens, one layer above the pure
-/// `assemble_context_packet`. Widened from `diff_extras_for` (plan 04-07) to also compute this
-/// briefing's drift warnings from the same reads: the committed-range stat/paths and the
-/// working-tree porcelain text this function already fetches for the diff section are reused for
-/// the claimed-files and staleness detectors rather than issuing a second pair of git calls.
-/// Calls `detect_drift` exactly once and stores nothing — no column, no cache, no memo — so a
-/// briefing assembled a moment later, after the underlying fact clears, carries no warning at all
-/// (D-75's derive-at-read-time rule).
-///
-/// The diff half still degrades to `None` (never an error) exactly as `diff_extras_for` already
-/// did, unless BOTH hold:
-/// - a `worktrees` row exists for `task_id` (a single literal `&str` existence query), and
-/// - `packet.worktree.path` names a directory present on disk RIGHT NOW.
-///
-/// The second check is not redundant: D-45's `missing` status exists precisely because a recorded
-/// row can outlive its directory, and diffing a path that is not there would turn a preview into
-/// an error. A git error from any of [`read_worktree_facts`]'s three reads also degrades to no
-/// diff section — a worktree in a strange state must still let the launch sheet open, exactly as
-/// a task with no epic has no epic section. `drift` is still computed in every case: the
-/// criteria-revision and read-back detectors need no git facts at all, so a missing/vanished
-/// worktree still surfaces those two.
-fn packet_extras_for(
-    conn: &Connection,
-    packet: &ContextPacket,
-    task_id: &str,
-    previous_run_id: Option<&str>,
-) -> PacketExtras {
-    let current_criterion_ids: Vec<String> =
-        flywheel_core::domain::acceptance_criterion::list_current_criteria(conn, "task", task_id)
-            .map(|criteria| criteria.into_iter().map(|c| c.id).collect())
-            .unwrap_or_default();
-
-    // D-78 (rewritten, gap #2 of 04-VERIFICATION.md): the pin belongs to the run that PRECEDED
-    // this briefing — `previous_run_id`, resolved by the CALLER before any new `agent_runs` row
-    // for THIS start exists. This function must never re-derive "the task's latest run" itself:
-    // for `agent_run_start`'s call site, doing so after `start_agent_run`'s insert would resolve
-    // the brand-new, not-yet-pinned run instead of its predecessor — `criteria_revision_pin_for_run`
-    // would then read a NULL pin off that new row, and `detect_criteria_revision`'s early-return
-    // guard would silently collapse to `None` even when the criteria really did move. `None` still
-    // means "no predecessor": a task's first-ever run reaches `detect_drift` as `None`, never as
-    // an empty set, so the revision detector stays silent for it exactly as it always has.
-    let pinned_criterion_ids: Option<Vec<String>> = match previous_run_id {
-        Some(run_id) => {
-            flywheel_core::domain::agent_run::criteria_revision_pin_for_run(conn, run_id)
-                .unwrap_or(None)
-        }
-        None => None,
-    };
-
-    let has_worktree_row = conn
-        .query_row(
-            "SELECT 1 FROM worktrees WHERE task_id = ?1",
-            rusqlite::params![task_id],
-            |_row| Ok(()),
-        )
-        .is_ok();
-
-    let worktree_facts = if has_worktree_row {
-        let worktree_path = Path::new(&packet.worktree.path);
-        if worktree_path.is_dir() {
-            read_worktree_facts(worktree_path, &packet.worktree.base_ref)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let (diff_stat, working_tree_porcelain, head_ref) = match worktree_facts {
-        Some((stat, porcelain, head)) => (Some(stat), porcelain, head),
-        None => (None, String::new(), None),
-    };
-    let working_tree_dirty = !working_tree_porcelain.is_empty();
-    let real_changed_paths: Option<&[String]> =
-        diff_stat.as_ref().map(|stat| stat.changed_paths.as_slice());
-
-    // D-05: the packet's summaries are the bounded window, so an id the latest summary echoes may
-    // be recorded in one the window dropped. Resolve it with ONE bounded statement BEFORE the
-    // struct literal, so `detect_drift` stays pure and never falsely calls it fabricated. Ids the
-    // window already holds are passed as `already_in_scope` and never looked up.
-    //
-    // A failed read is NOT "nothing on record": it leaves the lookup result `None`, which makes
-    // `detect_drift` omit the fabricated-echo detector for
-    // this assembly instead of recording a false `drift.detected` against the agent (T-13-12-02).
-    let in_scope_decision_ids: Vec<String> = packet
-        .summaries
-        .iter()
-        .flat_map(|summary| summary.decisions.iter().map(|decision| decision.id.clone()))
-        .collect();
-    let echoed_ids_on_record_beyond_scope: Option<Vec<String>> = match packet.summaries.last() {
-        Some(latest) => match flywheel_core::drift::decision_ids_on_record(
-            conn,
-            task_id,
-            &latest.acknowledged_decisions,
-            &in_scope_decision_ids,
-        ) {
-            Ok(found) => Some(found),
-            Err(error) => {
-                eprintln!("decision read-back lookup failed; fabricated-echo detector omitted: {error:#}");
-                None
-            }
-        },
-        None => Some(Vec::new()),
-    };
-
-    let inputs = flywheel_core::drift::DriftInputs {
-        summaries: &packet.summaries,
-        real_changed_paths,
-        head_ref: head_ref.as_deref(),
-        working_tree_dirty,
-        pinned_criterion_ids: pinned_criterion_ids.as_deref(),
-        current_criterion_ids: &current_criterion_ids,
-        echoed_ids_on_record_beyond_scope: echoed_ids_on_record_beyond_scope.as_deref(),
-    };
-    let drift = flywheel_core::drift::detect_drift(&inputs);
-
-    let diff = diff_stat.map(|stat| DiffSoFar {
-        base_ref: packet.worktree.base_ref.clone(),
-        committed_stat: stat.stat,
-        committed_paths: stat.changed_paths,
-        working_tree_porcelain,
-    });
-
-    PacketExtras { diff, drift }
-}
-
-/// The actual preview logic, split out from [`agent_run_preview`] so it is unit-testable without
-/// going through Tauri's `State<AppState>` extraction machinery — the same reasoning
-/// [`read_log_window`] documents for its own split. Performs no insert, update or delete: every
-/// call inside is a `SELECT` (`assemble_context_packet`'s own contract, D-28) or a read-only git
-/// invocation (`packet_extras_for`). For a preview, the task's own most recent run IS the
-/// predecessor the criteria-revision pin should compare against — a preview creates no new
-/// `agent_runs` row, so `latest_run_id_for_task` genuinely resolves the run that preceded this
-/// (hypothetical) briefing, unlike `agent_run_start`'s call site (gap #2 of 04-VERIFICATION.md),
-/// which resolves it BEFORE its own insert instead.
-fn build_preview_dto(conn: &Connection, task_id: &str) -> Result<ContextPacketDto, String> {
-    let packet = assemble_context_packet(conn, task_id).map_err(|e| e.to_string())?;
-    let previous_run_id = flywheel_core::query::permissions::latest_run_id_for_task(conn, task_id)
-        .map_err(|e| e.to_string())?;
-    let extras = packet_extras_for(conn, &packet, task_id, previous_run_id.as_deref());
-    let packet =
-        assemble_context_packet_with_extras(conn, task_id, extras).map_err(|e| e.to_string())?;
-    Ok(packet.into())
-}
-
-/// Preview the briefing a Start Work run against `task_id` would send (D-27/D-28) — a read: it
-/// mutates nothing, creates no worktree, writes no trigger row and emits no event. That "nothing
-/// happens until the primary action fires" property is the whole point of the launch sheet.
-#[tauri::command]
-pub fn agent_run_preview(state: State<AppState>, task_id: String) -> Result<ContextPacketDto, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    build_preview_dto(&conn, &task_id)
-}
-
 const LOG_WINDOW_DEFAULT_LIMIT: i64 = 50;
 const LOG_WINDOW_MAX_LIMIT: i64 = 100;
 
@@ -538,11 +151,8 @@ pub struct AgentRunDto {
 /// `board:changed`, build the returned DTO) without touching the database again.
 pub(crate) struct StartRunOutcome {
     pub run_id: String,
-    pub actor_id: String,
-    pub worktree_id: Option<String>,
     pub worktree_path: String,
     pub prompt: String,
-    pub drift_event_count: usize,
     /// The run's scope marker was written ARMED (the task has a declared file-set). The sidecar is
     /// told, so it refuses to start the run if it cannot wire the scope gate in (phase 09 review
     /// CR-01) rather than running it unenforced.
@@ -558,24 +168,14 @@ pub(crate) struct StartRunOutcome {
 /// database lock was taken (it is a `git config` subprocess, D-REV-39 WR-07) and written into the
 /// scope marker unchanged.
 ///
-/// Performs, in exactly this order — the order IS the fix:
-/// 1. Resolve `previous_run_id`, the run that PRECEDED this one, via
-///    `query::permissions::latest_run_id_for_task` — BEFORE anything inserts a row. This step
-///    MUST stay strictly before step 2: `latest_run_id_for_task` orders by
-///    `started_at DESC LIMIT 1`, so calling it AFTER `start_agent_run`'s insert would resolve the
-///    brand-new, not-yet-pinned run instead of its predecessor, silently collapsing
-///    `detect_criteria_revision` to `None` even when the criteria really did move (gap #2 of
-///    04-VERIFICATION.md).
-/// 2. `start_agent_run`.
-/// 3. `assemble_context_packet`.
-/// 4. `packet_extras_for`, fed `previous_run_id` so the pin comparison resolves the run that
-///    actually preceded this one, never the run being started.
-/// 5. `assemble_context_packet_with_extras`.
-/// 6. `render_prompt`.
-/// 7. the `record_drift_warnings` transaction, unchanged in shape.
-/// 8. `list_current_criteria` then `pin_criteria_revisions`, unchanged.
-/// 9. the `SELECT path FROM worktrees WHERE id = ?1` read for the worktree path.
-/// 10. [`arm_run_scope`] (phase 09, plan 09-01, D-150/D-151) — writes the run's scope marker, AFTER
+/// Performs, in exactly this order:
+/// 1. `start_agent_run`.
+/// 2. `stand_in_launch_prompt` (issue #38 deleted the context packet, and with it the drift
+///    warnings it carried and the predecessor-run read they needed; the MVP's Context packet
+///    replaces them).
+/// 3. `list_current_criteria` then `pin_criteria_revisions`, unchanged.
+/// 4. the `SELECT path FROM worktrees WHERE id = ?1` read for the worktree path.
+/// 5. [`arm_run_scope`] (phase 09, plan 09-01, D-150/D-151) — writes the run's scope marker, AFTER
 ///     the worktree path is read (the marker records the canonical worktree root) and BEFORE the
 ///     outcome is returned, so the marker exists on disk before the caller can spawn a session
 ///     that reads it. Unarmed when the task declares no file-set; armed otherwise. A marker-write
@@ -589,11 +189,7 @@ pub(crate) fn start_agent_run_recording_first(
     human_actor_id: &str,
     case_insensitive: bool,
 ) -> Result<StartRunOutcome, String> {
-    // Step 1 — see this function's own doc comment for why this MUST stay first.
-    let previous_run_id = flywheel_core::query::permissions::latest_run_id_for_task(conn, task_id)
-        .map_err(|e| e.to_string())?;
-
-    // Step 2.
+    // Step 1.
     let run = flywheel_core::domain::agent_run::start_agent_run(
         conn,
         task_id,
@@ -602,49 +198,17 @@ pub(crate) fn start_agent_run_recording_first(
     )
     .map_err(|e| e.to_string())?;
 
-    // Steps 3-9 all run AFTER the run row exists, so an error from any of them closes that row
+    // Steps 2-4 all run AFTER the run row exists, so an error from any of them closes that row
     // `failed` before it propagates (D-REV-46): a `running` row with no session behind it holds a
     // cap slot and makes `launch_conflict` answer `HasLiveRun` until the app restarts.
-    let built = (|| -> Result<(String, usize, String), String> {
-        // Steps 3-6: re-read the packet now that the worktree is real (not predicted) — the same
-        // assembler `agent_run_preview` calls, so this run's prompt is exactly what the sheet most
-        // recently previewed, modulo the operator's own instruction (T-02-21). Composed through the
-        // same assemble_context_packet -> packet_extras_for -> assemble_context_packet_with_extras
-        // path as build_preview_dto (plan 04-07 Task 3, plan 04-11 Task 3), so the launch sheet's
-        // preview and this run's actual prompt can never carry a different diff section or a
-        // different set of drift warnings — including the criteria-revision one, now that
-        // `previous_run_id` is threaded correctly (gap #2 of 04-VERIFICATION.md).
-        let packet = assemble_context_packet(conn, task_id).map_err(|e| e.to_string())?;
-        let extras = packet_extras_for(conn, &packet, task_id, previous_run_id.as_deref());
-        let packet =
-            assemble_context_packet_with_extras(conn, task_id, extras).map_err(|e| e.to_string())?;
-        let prompt = render_prompt(&packet, instruction);
-
-        // Step 7 (D-72/D-73/D-74/D-75, plan 04-12): give every fired detector a durable activity-
-        // trail trace, one event per warning, appended in one atomic transaction right after the
-        // extras (and therefore the drift) have been computed. Called from this function only — never
-        // from `build_preview_dto`, whose whole value is that opening the launch sheet writes
-        // nothing; a single-call-site `<verify>` grep gate over this file asserts that.
-        // `record_drift_warnings` itself is a no-op (zero events, zero database reads) for an empty
-        // `packet.drift`, so this call is unconditional.
-        let drift_event_count = {
-            let now = chrono::Utc::now().to_rfc3339();
-            let tx = conn.transaction().map_err(|e| e.to_string())?;
-            let count = flywheel_core::domain::agent_run::record_drift_warnings(
-                &tx,
-                &run.id,
-                &packet.drift,
-                &run.actor_id,
-                &now,
-            )
+    let built = (|| -> Result<(String, String), String> {
+        // Step 2: the stand-in prompt, read now that the run row and its worktree exist.
+        let prompt = flywheel_core::domain::agent_run::stand_in_launch_prompt(conn, task_id, instruction)
             .map_err(|e| e.to_string())?;
-            tx.commit().map_err(|e| e.to_string())?;
-            count
-        };
 
-        // Step 8 (D-78, plan 04-10): pin, on the run row, exactly which criterion revisions this
-        // briefing carried — read via `list_current_criteria` in the same rank order the packet
-        // assembly above uses, so the pin and the prompt agree by construction.
+        // Step 3 (D-78, plan 04-10): pin, on the run row, exactly which criterion revisions this
+        // briefing carried — read via `list_current_criteria` in the same rank order the prompt
+        // above lists them, so the pin and the prompt agree by construction.
         let criteria_ids: Vec<String> =
             flywheel_core::domain::acceptance_criterion::list_current_criteria(conn, "task", task_id)
                 .map_err(|e| e.to_string())?
@@ -654,7 +218,7 @@ pub(crate) fn start_agent_run_recording_first(
         flywheel_core::domain::agent_run::pin_criteria_revisions(conn, &run.id, &criteria_ids)
             .map_err(|e| e.to_string())?;
 
-        // Step 9.
+        // Step 4.
         let worktree_path: String = conn
             .query_row(
                 "SELECT path FROM worktrees WHERE id = ?1",
@@ -663,15 +227,15 @@ pub(crate) fn start_agent_run_recording_first(
             )
             .map_err(|e| e.to_string())?;
 
-        Ok((prompt, drift_event_count, worktree_path))
+        Ok((prompt, worktree_path))
     })();
-    let (prompt, drift_event_count, worktree_path) = match built {
+    let (prompt, worktree_path) = match built {
         Ok(v) => v,
         Err(why) => return Err(fail_launch(conn, &run.id, why)),
     };
 
-    // Step 10 (D-150/D-151, plan 09-01) — see this function's own doc comment. On failure the run
-    // row this function inserted at step 2 is closed `failed` before the error propagates: a
+    // Step 5 (D-150/D-151, plan 09-01) — see this function's own doc comment. On failure the run
+    // row this function inserted at step 1 is closed `failed` before the error propagates: a
     // `running` row with no session behind it would hold a dispatcher slot forever (plan 09-07
     // counts `running` runs) and leave the task looking worked-on.
     let scope_armed = arm_run_scope(conn, &run.id, task_id, &worktree_path, case_insensitive)
@@ -679,11 +243,8 @@ pub(crate) fn start_agent_run_recording_first(
 
     Ok(StartRunOutcome {
         run_id: run.id,
-        actor_id: run.actor_id,
-        worktree_id: run.worktree_id,
         worktree_path,
         prompt,
-        drift_event_count,
         scope_armed,
     })
 }
@@ -1026,7 +587,7 @@ pub(crate) fn launch_run_for_task(
         id: outcome.run_id,
         task_id: task_id.to_string(),
         // `start_agent_run` always inserts a fresh run with `status = 'running'` — see
-        // `start_agent_run_recording_first`'s own step 2.
+        // `start_agent_run_recording_first`'s own step 1.
         status: "running".to_string(),
         permission_mode: permission_mode.to_string(),
         overlap_warning,
@@ -1577,61 +1138,6 @@ pub fn handle_inbound_session_closed(app: &AppHandle, event: &serde_json::Value)
     }
     if let Some(t) = transition {
         crate::notify::push(t);
-    }
-}
-
-/// The Tauri-facing half of the inbound `summary_reported` path (D-64/D-65, plan 04-06 Task 2),
-/// called from `sidecar.rs`'s reader loop for every `summary_reported` event — mirrors
-/// [`handle_inbound_session_closed`] line for line: the DB-only decision
-/// (`flywheel_core::domain::session_summary::apply_summary_reported`) stays testable without a
-/// real spawned sidecar, and this half performs the IPC-adjacent side effect (the `board:changed`
-/// emits) the outcome implies.
-///
-/// This function must never panic — no `expect`, no `unwrap`, no direct indexing: a malformed
-/// event, a poisoned lock, or an error from the applier is a silent no-op here, matching
-/// `sidecar.rs`'s own "a malformed line never crashes the reader task" discipline. No per-run
-/// fault on this path may ever disturb the shared reader loop that calls it (T-04-06).
-pub fn handle_inbound_summary_reported(app: &AppHandle, event: &serde_json::Value) {
-    let Some(state) = app.try_state::<AppState>() else { return };
-    let Ok(mut conn) = state.db.lock() else { return };
-
-    let outcome =
-        match flywheel_core::domain::session_summary::apply_summary_reported(&mut conn, event) {
-            Ok(outcome) => outcome,
-            Err(_) => return,
-        };
-
-    let run_id = event.get("runId").and_then(|v| v.as_str());
-
-    // Resolved BEFORE the lock is dropped, alongside the write above — never read off the event
-    // itself (T-04-01): the task this run belongs to, so the second emit below names the SAME
-    // task the row was actually attached to.
-    let task_id: Option<String> = match (&outcome, run_id) {
-        (flywheel_core::domain::session_summary::SummaryReportOutcome::Recorded(_), Some(run_id)) => conn
-            .query_row(
-                "SELECT task_id FROM agent_runs WHERE id = ?1",
-                rusqlite::params![run_id],
-                |row| row.get(0),
-            )
-            .ok(),
-        _ => None,
-    };
-    let project_id = run_id.and_then(|id| project_of(&conn, "agent_runs", id));
-    drop(conn);
-
-    if let (
-        flywheel_core::domain::session_summary::SummaryReportOutcome::Recorded(_),
-        Some(run_id),
-    ) = (&outcome, run_id)
-    {
-        // Two separate `app.emit` calls, one per entity — mirrors
-        // `handle_inbound_permission_request`'s own one-call-per-entity convention (this file,
-        // above), so the run's own row and the item-detail panel's runs/summaries sections both
-        // refetch.
-        emit_board_changed(app, project_id.as_deref(), "agent_run", Some(run_id));
-        if let Some(task_id) = task_id {
-            emit_board_changed(app, project_id.as_deref(), "task", Some(&task_id));
-        }
     }
 }
 
@@ -2616,57 +2122,6 @@ mod tests {
     }
 
     #[test]
-    fn build_preview_dto_performs_no_insert_update_or_delete() {
-        let (conn, task_id) = seeded_conn_with_task(true);
-        let count = |table: &str| -> i64 {
-            // One static statement per table (Gate 6 forbids interpolating a table name).
-            let sql = match table {
-                "triggers" => "SELECT COUNT(*) FROM triggers",
-                "worktrees" => "SELECT COUNT(*) FROM worktrees",
-                "agent_runs" => "SELECT COUNT(*) FROM agent_runs",
-                "events" => "SELECT COUNT(*) FROM events",
-                other => panic!("count: no static statement for table {other:?}"),
-            };
-            conn.query_row(sql, [], |row| row.get(0)).expect("count query should succeed")
-        };
-        // `events` is included here (plan 04-12, T-04-32): `record_drift_warnings` is called from
-        // `agent_run_start` only, never from this preview path — a row count before/after is the
-        // one thing that structurally proves a fired detector writes nothing on preview.
-        let (triggers_before, worktrees_before, agent_runs_before, events_before) =
-            (count("triggers"), count("worktrees"), count("agent_runs"), count("events"));
-
-        let dto = build_preview_dto(&conn, &task_id).expect("build_preview_dto should succeed");
-        assert_eq!(dto.task_title, "Test task");
-
-        assert_eq!(count("triggers"), triggers_before);
-        assert_eq!(count("worktrees"), worktrees_before);
-        assert_eq!(count("events"), events_before, "opening the launch sheet must write no events row, drift included");
-        assert_eq!(count("agent_runs"), agent_runs_before);
-    }
-
-    #[test]
-    fn the_previewed_prompt_and_the_started_runs_prompt_come_from_the_same_renderer() {
-        let (conn, task_id) = seeded_conn_with_task(false);
-        let dto = build_preview_dto(&conn, &task_id).expect("build_preview_dto should succeed");
-
-        // What `agent_run_start` builds for the same (empty) instruction the preview implicitly
-        // used — re-assembling the packet independently, exactly as the real handler does after
-        // `start_agent_run` runs, and rendering it through the identical `render_prompt` call.
-        let packet = assemble_context_packet(&conn, &task_id).expect("assembly should succeed");
-        let started_prompt_same_instruction = render_prompt(&packet, "");
-        assert_eq!(
-            dto.rendered_prompt, started_prompt_same_instruction,
-            "the preview's prompt must equal the prompt a start with the same instruction would send"
-        );
-
-        // And for a real instruction, both call sites still agree — there is exactly one
-        // renderer, so nothing here can drift into a second implementation.
-        let with_instruction_a = render_prompt(&packet, "steer it this way");
-        let with_instruction_b = render_prompt(&packet, "steer it this way");
-        assert_eq!(with_instruction_a, with_instruction_b);
-    }
-
-    #[test]
     fn validate_permission_mode_accepts_exactly_the_four_named_values_and_rejects_others() {
         for mode in ACCEPTED_PERMISSION_MODES {
             assert!(validate_permission_mode(mode).is_ok(), "{mode} should be accepted");
@@ -3292,330 +2747,7 @@ mod tests {
         (conn, actor_id, project.id, task.id, repo_dir)
     }
 
-    /// Gap #2 of 04-VERIFICATION.md (CTX-06), driven end-to-end through the real start path:
-    /// starting run 1, revising a criterion, then starting run 2 must put the
-    /// `CriteriaRevisionMoved` sentence in run 2's OWN prompt and persist exactly one matching
-    /// `drift.detected` event for run 2 — the same warning the launch sheet preview already
-    /// showed, now reaching the run the developer actually starts.
-    #[test]
-    fn criteria_revision_moved_reaches_the_prompt_and_the_event_log_when_a_run_actually_starts() {
-        with_scratch_worktree_root(|| {
-            let (mut conn, human_actor_id, project_id, task_id, _repo_dir) =
-                seeded_git_conn_with_task();
-
-            let criterion_a = flywheel_core::domain::acceptance_criterion::create_criterion(
-                &mut conn,
-                &project_id,
-                &human_actor_id,
-                "task",
-                &task_id,
-                "First criterion",
-                None,
-            )
-            .expect("create_criterion should succeed");
-            flywheel_core::domain::acceptance_criterion::create_criterion(
-                &mut conn,
-                &project_id,
-                &human_actor_id,
-                "task",
-                &task_id,
-                "Second criterion",
-                None,
-            )
-            .expect("create_criterion should succeed");
-
-            let run_1 = start_agent_run_recording_first(
-                &mut conn,
-                &task_id,
-                "acceptEdits",
-                "",
-                &human_actor_id,
-                false,
-            )
-            .expect("run 1 should start");
-            assert!(
-                !run_1.prompt.contains("## Warnings"),
-                "a task's first-ever run must carry no drift warnings, got:\n{}",
-                run_1.prompt
-            );
-
-            flywheel_core::domain::acceptance_criterion::revise_criterion(
-                &mut conn,
-                &human_actor_id,
-                &criterion_a.id,
-                "First criterion, revised",
-                None,
-            )
-            .expect("revise_criterion should succeed");
-
-            let run_2 = start_agent_run_recording_first(
-                &mut conn,
-                &task_id,
-                "acceptEdits",
-                "",
-                &human_actor_id,
-                false,
-            )
-            .expect("run 2 should start");
-
-            assert!(
-                run_2.prompt.contains("## Warnings"),
-                "run 2's own prompt must carry a ## Warnings heading after the criteria \
-                 revision (the same one the launch sheet preview already showed) — got:\n{}",
-                run_2.prompt
-            );
-            assert!(
-                run_2.prompt.contains(
-                    "The acceptance criteria set has changed since this run's briefing was pinned"
-                ),
-                "run 2's own prompt must carry the criteria-revision sentence — got:\n{}",
-                run_2.prompt
-            );
-
-            let revision_event_count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM events WHERE event_type = 'drift.detected' \
-                     AND stream_id = ?1 AND json_extract(payload, '$.kind') = 'CriteriaRevisionMoved'",
-                    rusqlite::params![run_2.run_id],
-                    |row| row.get(0),
-                )
-                .expect("count query should succeed");
-            assert_eq!(
-                revision_event_count, 1,
-                "starting run 2 must persist exactly one drift.detected event for \
-                 CriteriaRevisionMoved, so the board's own Needs Decision signal can fire for \
-                 this detector through the real start path (roadmap Success Criterion 4)"
-            );
-
-            let pin: Option<String> = conn
-                .query_row(
-                    "SELECT criteria_revision_pin FROM agent_runs WHERE id = ?1",
-                    rusqlite::params![run_2.run_id],
-                    |row| row.get(0),
-                )
-                .expect("agent_runs row should exist");
-            assert!(
-                pin.is_some(),
-                "run 2's own criteria_revision_pin must still be written, recording the CURRENT \
-                 criterion ids, unchanged from today's behaviour"
-            );
-        });
-    }
-
-    /// The empty/first-element edge the `None`-vs-`Some(vec![])` distinction exists for: a task's
-    /// FIRST-EVER run has no predecessor, so the criteria-revision detector must stay silent for
-    /// it — reaching `detect_drift` as `None`, never as an empty pinned set.
-    #[test]
-    fn a_first_run_has_no_predecessor_so_the_revision_detector_stays_silent() {
-        with_scratch_worktree_root(|| {
-            let (mut conn, human_actor_id, project_id, task_id, _repo_dir) =
-                seeded_git_conn_with_task();
-
-            flywheel_core::domain::acceptance_criterion::create_criterion(
-                &mut conn,
-                &project_id,
-                &human_actor_id,
-                "task",
-                &task_id,
-                "First criterion",
-                None,
-            )
-            .expect("create_criterion should succeed");
-            flywheel_core::domain::acceptance_criterion::create_criterion(
-                &mut conn,
-                &project_id,
-                &human_actor_id,
-                "task",
-                &task_id,
-                "Second criterion",
-                None,
-            )
-            .expect("create_criterion should succeed");
-
-            let run_1 = start_agent_run_recording_first(
-                &mut conn,
-                &task_id,
-                "acceptEdits",
-                "",
-                &human_actor_id,
-                false,
-            )
-            .expect("run 1 should start");
-
-            assert!(
-                !run_1.prompt.contains(
-                    "The acceptance criteria set has changed since this run's briefing was pinned"
-                ),
-                "a task's first-ever run must carry no criteria-revision sentence — got:\n{}",
-                run_1.prompt
-            );
-
-            let revision_event_count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM events WHERE event_type = 'drift.detected' \
-                     AND json_extract(payload, '$.kind') = 'CriteriaRevisionMoved'",
-                    [],
-                    |row| row.get(0),
-                )
-                .expect("count query should succeed");
-            assert_eq!(
-                revision_event_count, 0,
-                "a task's first-ever run must produce zero CriteriaRevisionMoved drift.detected \
-                 events — a task with no predecessor reaches the detector as None, never as an \
-                 empty set"
-            );
-        });
-    }
-
-    /// The truth-level assertion for this gap (04-16 Task 2): the launch sheet preview and the
-    /// run started from it must carry the SAME drift sentences — a warning shown in the preview
-    /// must never silently disappear from the run that preview described. Fails on the pre-fix
-    /// code for the same reason the Task 1 tests do, and additionally catches any FUTURE
-    /// divergence between the two paths, including one introduced by a detector other than this
-    /// one.
-    #[test]
-    fn the_preview_and_the_started_run_carry_the_same_drift_warnings() {
-        with_scratch_worktree_root(|| {
-            let (mut conn, human_actor_id, project_id, task_id, _repo_dir) =
-                seeded_git_conn_with_task();
-
-            flywheel_core::domain::acceptance_criterion::create_criterion(
-                &mut conn,
-                &project_id,
-                &human_actor_id,
-                "task",
-                &task_id,
-                "First criterion",
-                None,
-            )
-            .expect("create_criterion should succeed");
-            let criterion_b = flywheel_core::domain::acceptance_criterion::create_criterion(
-                &mut conn,
-                &project_id,
-                &human_actor_id,
-                "task",
-                &task_id,
-                "Second criterion",
-                None,
-            )
-            .expect("create_criterion should succeed");
-
-            start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &human_actor_id, false)
-                .expect("run 1 should start");
-
-            flywheel_core::domain::acceptance_criterion::revise_criterion(
-                &mut conn,
-                &human_actor_id,
-                &criterion_b.id,
-                "Second criterion, revised",
-                None,
-            )
-            .expect("revise_criterion should succeed");
-
-            // What the developer is looking at in the launch sheet, without starting anything.
-            let preview = build_preview_dto(&conn, &task_id).expect("build_preview_dto should succeed");
-            let preview_sentences: Vec<String> =
-                preview.drift.iter().map(|w| w.sentence.clone()).collect();
-            assert!(
-                !preview_sentences.is_empty(),
-                "the preview must show at least one drift warning after the criteria revision"
-            );
-            assert!(
-                preview_sentences.iter().any(|s| s.contains(
-                    "The acceptance criteria set has changed since this run's briefing was pinned"
-                )),
-                "the preview must carry the criteria-revision sentence, got: {preview_sentences:?}"
-            );
-
-            let run_2 = start_agent_run_recording_first(
-                &mut conn,
-                &task_id,
-                "acceptEdits",
-                "",
-                &human_actor_id,
-                false,
-            )
-            .expect("run 2 should start");
-
-            for sentence in &preview_sentences {
-                assert!(
-                    run_2.prompt.contains(sentence.as_str()),
-                    "a warning the launch sheet showed must never be absent from the prompt the \
-                     agent receives moments later — missing sentence: {sentence:?}, prompt:\n{}",
-                    run_2.prompt
-                );
-            }
-        });
-    }
     // ---- A-08(a): a reviewer's decline reaches the agent and the preview identically ----------
-
-    /// THRE-58's first two seeded statements, a task `in_progress` (the real board's state), one
-    /// criterion checked, then declined: the sent-back reason is the one unchecked statement.
-    fn declined_task(conn: &mut Connection, actor: &str, project_id: &str, task_id: &str) -> String {
-        let unchecked = "Closing the dialog returns focus to the element that held it before it opened.";
-        let checked = flywheel_core::domain::acceptance_criterion::create_criterion(
-            conn, project_id, actor, "task", task_id, "Tab and Shift+Tab cycle within the dialog.", None,
-        )
-        .expect("create_criterion");
-        flywheel_core::domain::acceptance_criterion::create_criterion(
-            conn, project_id, actor, "task", task_id, unchecked, None,
-        )
-        .expect("create_criterion");
-        flywheel_core::domain::acceptance_criterion::toggle_criterion(conn, actor, &checked.id)
-            .expect("toggle_criterion");
-        flywheel_core::domain::task::set_task_status(conn, actor, task_id, "in_progress").expect("status");
-        flywheel_core::domain::task::request_changes(conn, actor, task_id).expect("request_changes");
-        unchecked.to_string()
-    }
-
-    #[test]
-    fn changes_request_preview_carries_the_same_lead_and_statements_as_the_prompt() {
-        let (mut conn, task_id) = seeded_conn_with_task(false);
-        let actor = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
-        let project_id: String = conn
-            .query_row("SELECT project_id FROM tasks WHERE id = ?1", [&task_id], |r| r.get(0))
-            .unwrap();
-        let unchecked = declined_task(&mut conn, &actor, &project_id, &task_id);
-
-        let dto = build_preview_dto(&conn, &task_id).expect("preview");
-
-        let feedback = dto.review_feedback.expect("a declined task previews its feedback");
-        assert_eq!(feedback.lead, flywheel_core::context_packet::REVIEW_FEEDBACK_LEAD);
-        assert_eq!(feedback.statements, vec![unchecked.clone()]);
-        assert!(dto.rendered_prompt.contains("## Review Feedback"), "{}", dto.rendered_prompt);
-        assert!(dto.rendered_prompt.contains(&feedback.lead));
-        assert!(dto.rendered_prompt.contains(&format!("- {unchecked}")));
-    }
-
-    #[test]
-    fn changes_request_preview_for_a_never_declined_task_has_no_feedback_and_no_heading() {
-        let (conn, task_id) = seeded_conn_with_task(false);
-        let dto = build_preview_dto(&conn, &task_id).expect("preview");
-        assert!(dto.review_feedback.is_none());
-        assert!(!dto.rendered_prompt.contains("Review Feedback"));
-    }
-
-    #[test]
-    fn changes_request_relaunch_puts_the_section_in_the_prompt_without_drift_or_recovery() {
-        with_scratch_worktree_root(|| {
-            let (mut conn, actor, project_id, task_id, _repo) = seeded_git_conn_with_task();
-            let unchecked = declined_task(&mut conn, &actor, &project_id, &task_id);
-
-            let run = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor, false)
-                .expect("the declined task relaunches");
-
-            assert!(run.prompt.contains("## Review Feedback"), "{}", run.prompt);
-            assert!(run.prompt.contains(&format!("- {unchecked}")));
-            assert_eq!(run.drift_event_count, 0, "the decline never travels as drift");
-            let drift_events: i64 = conn
-                .query_row("SELECT COUNT(*) FROM events WHERE event_type = 'drift.detected'", [], |r| r.get(0))
-                .unwrap();
-            assert_eq!(drift_events, 0);
-            let recovery =
-                flywheel_core::query::recovery::recovery_task_ids_for_project(&conn, &project_id).unwrap();
-            assert!(!recovery.contains(&task_id), "a decline must not raise the Needs Decision signal");
-        });
-    }
 
     // --- phase 09 plan 09-01: the run-start path arms the scope (D-150/D-151) ---------------------
     //
@@ -4077,7 +3209,7 @@ mod tests {
     fn a_failure_between_the_run_insert_and_the_scope_marker_closes_the_run_failed() {
         with_scratch_worktree_root(|| {
             let (mut conn, _actor, _p, task, _repo) = seeded_git_conn_with_task();
-            // Step 8 of the run start writes the criteria pin; make exactly that write fail.
+            // Step 3 of the run start writes the criteria pin; make exactly that write fail.
             conn.execute_batch(
                 "CREATE TRIGGER boom BEFORE UPDATE OF criteria_revision_pin ON agent_runs
                  BEGIN SELECT RAISE(ABORT, 'boom'); END;",

@@ -31,6 +31,37 @@ use crate::ids::{is_ulid, new_id};
 use crate::runtime_protocol::{self, KillRecordRead};
 use crate::session_log::session_log_path;
 
+/// The prompt a task run starts with while the MVP's Context packet does not exist yet: issue #38
+/// deleted the old packet builder, and the packet is rebuilt by a later Story. The task's key,
+/// title and description, its current acceptance criteria in rank order (the revisions the run's
+/// pin records), then the operator's instruction when there is one. A stand-in, not the packet.
+pub fn stand_in_launch_prompt(conn: &Connection, task_id: &str, instruction: &str) -> anyhow::Result<String> {
+    let (key, title, description): (String, String, Option<String>) = conn
+        .query_row(
+            "SELECT key, title, description FROM tasks WHERE id = ?1",
+            params![task_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .with_context(|| format!("task {task_id:?} not found"))?;
+    let criteria = crate::domain::acceptance_criterion::list_current_criteria(conn, "task", task_id)?;
+
+    let mut out = format!("# {key}: {title}\n");
+    if let Some(description) = description.filter(|d| !d.trim().is_empty()) {
+        out.push_str(&format!("\n{}\n", description.trim()));
+    }
+    if !criteria.is_empty() {
+        out.push_str("\n## Acceptance Criteria\n\n");
+        for criterion in criteria {
+            out.push_str(&format!("- {}\n", criterion.statement));
+        }
+    }
+    let instruction = instruction.trim();
+    if !instruction.is_empty() {
+        out.push_str(&format!("\n## Instruction\n\n{instruction}\n"));
+    }
+    Ok(out)
+}
+
 /// One `agent_runs` row, as read back immediately after [`start_agent_run`] or
 /// [`start_authoring_run`] commits.
 ///
