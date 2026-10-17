@@ -12,25 +12,11 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use core::domain::acceptance_criterion::{create_criterion, list_current_criteria, revise_criterion};
 use core::domain::agent_run::{criteria_revision_pin_for_run, pin_criteria_revisions, start_agent_run};
 use core::domain::task::create_task;
-
-/// Serialises every call to [`with_scratch_worktree_root`] in THIS binary — mirrors
-/// `tests/criteria.rs`'s identical helper; each `tests/*.rs` file compiles to its own binary, so
-/// this cannot race with any other test file.
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: serialised by WORKTREE_ROOT_ENV_LOCK above — only one test at a time ever has this
-    // var set within this binary, and it is always cleared before the lock is released.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 /// The current criteria ids for `task_id`, in rank order — the same order the packet's own
 /// criteria carry, matching `agent_run_start`'s own resolution.
@@ -44,7 +30,7 @@ fn current_ids(conn: &rusqlite::Connection, task_id: &str) -> Vec<String> {
 
 #[test]
 fn starting_a_run_pins_exactly_the_current_criteria_in_rank_order() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Three criteria", None)
             .expect("create_task should succeed");
@@ -70,7 +56,7 @@ fn starting_a_run_pins_exactly_the_current_criteria_in_rank_order() {
 
 #[test]
 fn revising_a_criterion_mid_run_leaves_the_live_runs_pin_byte_identical() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Revise mid-run", None)
             .expect("create_task should succeed");
@@ -107,7 +93,7 @@ fn revising_a_criterion_mid_run_leaves_the_live_runs_pin_byte_identical() {
 
 #[test]
 fn starting_a_second_run_after_the_revision_pins_the_successor_with_the_others_unchanged() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Second run after revision", None)
             .expect("create_task should succeed");
@@ -158,7 +144,7 @@ fn starting_a_second_run_after_the_revision_pins_the_successor_with_the_others_u
 
 #[test]
 fn a_task_with_zero_criteria_writes_an_empty_pin_not_a_null_one() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Zero criteria", None)
             .expect("create_task should succeed");
@@ -182,7 +168,7 @@ fn a_task_with_zero_criteria_writes_an_empty_pin_not_a_null_one() {
 
 #[test]
 fn reading_the_pin_for_a_run_that_was_never_pinned_returns_none_not_an_empty_set() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Never pinned", None)
             .expect("create_task should succeed");

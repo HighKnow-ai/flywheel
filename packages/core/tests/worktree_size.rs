@@ -2,6 +2,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use std::os::unix::fs::symlink;
 use std::path::Path;
 
@@ -11,18 +13,6 @@ use core::domain::worktree::{
 };
 use core::query::fleet::{record_worktree_size, worktree_measure_targets};
 use rusqlite::params;
-
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce(&Path) -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    let dir = tempfile::tempdir().expect("scratch worktree root");
-    // SAFETY: serialised by the mutex above; cleared before return.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f(dir.path());
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 #[test]
 fn a_tree_measures_to_at_least_the_blocks_of_its_files_and_is_not_bounded() {
@@ -165,7 +155,7 @@ fn measure_all_over_the_cap_takes_the_never_measured_then_the_stalest() {
 #[ignore]
 fn time_one_walk_over_a_real_repository() {
     let Ok(path) = std::env::var("FLYWHEEL_WALK_BENCH") else { return };
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _guard = common::WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     // SAFETY: serialised by the mutex above.
     unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", &path) };
     let started = std::time::Instant::now();

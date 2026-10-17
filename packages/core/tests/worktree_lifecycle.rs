@@ -8,28 +8,15 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use core::domain::agent_run::{close_agent_run, start_agent_run, AgentRunStatus};
 use core::domain::epic::create_epic;
 use core::domain::task::create_task;
 use core::domain::worktree::ensure_worktree;
 
-/// `cargo test` runs this binary's two tests concurrently, and `FLYWHEEL_WORKTREE_ROOT` is
-/// process-global: unserialized, one test's root vanished under the other mid-write (NotFound).
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: `ENV_LOCK` serializes every test in this binary, and this helper always clears the
-    // var before returning.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
-
 fn assert_worktree_survives_two_runs(epic_id: Option<&str>) {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Lifecycle task", epic_id)
             .expect("create_task should succeed");
@@ -89,7 +76,7 @@ fn a_worktree_survives_two_runs_with_no_epic() {
 fn a_worktree_survives_two_runs_with_an_epic() {
     // Exercises WORK-02's epic-owned shape (as opposed to the no-epic test above) against a real
     // repository: its own fresh project/epic/task, all created inside the scratch worktree root.
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
         let epic = create_epic(&mut conn, &project.id, &actor_id, "Lifecycle epic", None)
             .expect("create_epic should succeed");

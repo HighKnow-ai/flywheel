@@ -20,6 +20,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use core::domain::acceptance_criterion::create_criterion;
 use core::domain::agent_run::{
     apply_session_closed, interrupt_agent_run, interrupt_agent_run_in_tx, start_agent_run,
@@ -29,23 +31,6 @@ use core::domain::session_summary::{
     SummaryFields,
 };
 use core::domain::task::create_task;
-
-/// Serializes every call to [`with_scratch_worktree_root`] in THIS binary — verbatim in shape to
-/// `stop_lifecycle.rs`'s own guard: `FLYWHEEL_WORKTREE_ROOT` is process-global mutable state, and
-/// two tests racing here could let one test's worktree creation fall through to the real default
-/// (`~/Flywheel/...`) between the other test's `set_var`/`remove_var` pair.
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads or
-    // mutates this var while it's set, and this helper always clears it before returning.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 /// One row's worth of the "nothing else on the board moved" promise (T-04-38) — a single snapshot
 /// over the four tables the plan's own Task 3 names: `worktrees`, `session_summaries`,
@@ -148,7 +133,7 @@ fn simulate_discard_stop_path_rolled_back(
 
 #[test]
 fn discarding_a_run_with_an_agent_recorded_summary_leaves_it_present_and_the_run_interrupted() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Discard: agent summary present", None)
             .expect("create_task should succeed");
@@ -183,7 +168,7 @@ fn discarding_a_run_with_an_agent_recorded_summary_leaves_it_present_and_the_run
 
 #[test]
 fn discarding_a_run_with_no_agent_summary_synthesizes_exactly_one_auto_generated_fallback() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Discard: no agent summary", None)
             .expect("create_task should succeed");
@@ -205,7 +190,7 @@ fn discarding_a_run_with_no_agent_summary_synthesizes_exactly_one_auto_generated
 
 #[test]
 fn discarding_an_already_terminal_run_writes_no_second_terminal_event() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Discard: already terminal", None)
             .expect("create_task should succeed");
@@ -231,7 +216,7 @@ fn discarding_an_already_terminal_run_writes_no_second_terminal_event() {
 
 #[test]
 fn the_tasks_worktree_row_count_and_directory_are_unchanged_by_a_discard() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Discard: worktree untouched", None)
             .expect("create_task should succeed");
@@ -277,7 +262,7 @@ fn the_tasks_worktree_row_count_and_directory_are_unchanged_by_a_discard() {
 
 #[test]
 fn no_prior_session_summary_row_is_removed_by_a_discard() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Discard: prior summaries preserved", None)
             .expect("create_task should succeed");
@@ -324,7 +309,7 @@ fn no_prior_session_summary_row_is_removed_by_a_discard() {
 
 #[test]
 fn board_counts_are_unchanged_across_a_discard_when_the_agent_already_recorded_its_own_summary() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Discard counts: agent summary present", None)
             .expect("create_task should succeed");
@@ -368,7 +353,7 @@ fn board_counts_are_unchanged_across_a_discard_when_the_agent_already_recorded_i
 
 #[test]
 fn board_counts_gain_exactly_one_session_summary_when_no_agent_summary_was_recorded() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Discard counts: no agent summary", None)
             .expect("create_task should succeed");
@@ -399,7 +384,7 @@ fn board_counts_gain_exactly_one_session_summary_when_no_agent_summary_was_recor
 
 #[test]
 fn discarding_twice_appends_no_second_summary_and_no_second_interrupted_event() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Discard twice", None)
             .expect("create_task should succeed");
@@ -430,7 +415,7 @@ fn discarding_twice_appends_no_second_summary_and_no_second_interrupted_event() 
 
 #[test]
 fn the_fallback_never_overwrites_an_agent_authored_summary_recorded_moments_before_the_interrupt() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Discard: last-moment agent summary", None)
             .expect("create_task should succeed");
@@ -468,7 +453,7 @@ fn the_fallback_never_overwrites_an_agent_authored_summary_recorded_moments_befo
 
 #[test]
 fn an_unknown_run_id_is_a_harmless_no_op_for_the_discard_stop_path() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, _project, _repo_dir) = common::seeded_git_project();
 
         let unknown_run_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -500,7 +485,7 @@ fn an_unknown_run_id_is_a_harmless_no_op_for_the_discard_stop_path() {
 /// helper's caller ever had a transaction to roll back.
 #[test]
 fn a_rolled_back_termination_unit_leaves_no_trace() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Rollback: no trace", None)
             .expect("create_task should succeed");
@@ -571,7 +556,7 @@ fn a_rolled_back_termination_unit_leaves_no_trace() {
 /// `04-VERIFICATION.md` named, not every terminal path in the crate.
 #[test]
 fn a_terminal_transition_never_commits_without_a_summary() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let assert_terminal_has_summary = |conn: &rusqlite::Connection, run_id: &str, label: &str| {
             let status: String = conn
                 .query_row("SELECT status FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |row| {

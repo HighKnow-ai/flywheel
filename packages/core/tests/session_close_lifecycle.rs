@@ -13,6 +13,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -56,23 +58,6 @@ fn fake_claude_path() -> PathBuf {
     path
 }
 
-/// Serializes every call to [`with_scratch_worktree_root`] in THIS binary — verbatim in shape to
-/// `stop_lifecycle.rs`'s own guard: `FLYWHEEL_WORKTREE_ROOT` is process-global mutable state, and
-/// two tests racing here could let one test's worktree creation fall through to the real default
-/// (`~/Flywheel/...`) between the other test's `set_var`/`remove_var` pair.
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads or
-    // mutates this var while it's set, and this helper always clears it before returning.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
-
 /// Count of terminal-event rows (`agent_run.closed` OR `agent_run.interrupted`) appended for
 /// `run_id` — the activity trail's own way of proving "exactly one terminal event", regardless of
 /// which of the two terminal-writing paths produced it.
@@ -87,7 +72,7 @@ fn terminal_event_count(conn: &rusqlite::Connection, run_id: &str) -> i64 {
 
 #[test]
 fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let dist_entry = sidecar_dist_entry();
         let fake_claude = fake_claude_path();
 
@@ -224,7 +209,7 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
 
 #[test]
 fn a_terminal_event_never_overwrites_an_explicit_stop() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Stop-then-terminal-event task", None)
             .expect("create_task should succeed");
@@ -296,7 +281,7 @@ fn a_terminal_event_never_overwrites_an_explicit_stop() {
 
 #[test]
 fn an_unknown_or_malformed_run_id_writes_nothing() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, _project, _repo_dir) = common::seeded_git_project();
 
         // A well-formed ULID that matches no agent_runs row.

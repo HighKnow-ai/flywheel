@@ -24,6 +24,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
@@ -48,22 +50,6 @@ use rusqlite::Connection;
 /// `forge_degrade.rs`'s own `ENV_LOCK`; each `tests/*.rs` file compiles to its own binary, so this
 /// static cannot race with that one.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// Serializes every call to [`with_scratch_worktree_root`] in this binary, mirroring
-/// `forge_request_body.rs`'s own lock for the identical reason: `FLYWHEEL_WORKTREE_ROOT` is
-/// process-wide state.
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: serialised by `WORKTREE_ROOT_ENV_LOCK` above — only one test at a time ever has
-    // this var set within this binary, and it is always cleared before the lock is released.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 /// Local helper mirroring `status_transitions.rs`'s own `count_events_of_type` — the trail read
 /// is the real append-only log, never a synthetic count.
@@ -493,7 +479,7 @@ fn assert_open_to_merged_chain(
 
 #[test]
 fn github_open_to_in_review_to_done_chain_runs_through_a_real_child_process() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, task_id, forge, repo_path, draft, _repo_dir) = seed_github_task();
         let system = system_actor(&conn).expect("system actor should exist");
 
@@ -507,7 +493,7 @@ fn github_open_to_in_review_to_done_chain_runs_through_a_real_child_process() {
 
 #[test]
 fn github_branch_with_no_request_yields_no_request_and_no_transition() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, task_id, forge, repo_path, draft, _repo_dir) = seed_github_task();
         let system = system_actor(&conn).expect("system actor should exist");
 
@@ -529,7 +515,7 @@ fn github_branch_with_no_request_yields_no_request_and_no_transition() {
 
 #[test]
 fn github_request_with_no_ci_run_normalises_to_no_ci_result() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (_conn, _actor_id, _task_id, forge, repo_path, draft, _repo_dir) = seed_github_task();
 
         with_fake_forge_clis(|fake| {
@@ -545,7 +531,7 @@ fn github_request_with_no_ci_run_normalises_to_no_ci_result() {
 
 #[test]
 fn github_two_requests_select_the_newest_by_created_timestamp_through_the_live_path() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (_conn, _actor_id, _task_id, forge, repo_path, draft, _repo_dir) = seed_github_task();
 
         with_fake_forge_clis(|fake| {
@@ -569,7 +555,7 @@ fn github_two_requests_select_the_newest_by_created_timestamp_through_the_live_p
 
 #[test]
 fn gitlab_open_to_in_review_to_done_chain_runs_through_a_real_child_process() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, task_id, forge, repo_path, draft, _repo_dir) = seed_gitlab_task();
         let system = system_actor(&conn).expect("system actor should exist");
 
@@ -587,7 +573,7 @@ fn gitlab_open_to_in_review_to_done_chain_runs_through_a_real_child_process() {
 
 #[test]
 fn gitlab_description_reaches_the_cli_as_a_file_not_as_an_argv_value() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (_conn, _actor_id, _task_id, forge, repo_path, draft, _repo_dir) = seed_gitlab_task();
 
         with_fake_forge_clis(|fake| {
@@ -614,7 +600,7 @@ fn gitlab_description_reaches_the_cli_as_a_file_not_as_an_argv_value() {
 
 #[test]
 fn gitlab_branch_with_no_request_yields_no_request_and_never_calls_view() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, task_id, forge, repo_path, draft, _repo_dir) = seed_gitlab_task();
         let system = system_actor(&conn).expect("system actor should exist");
 
@@ -641,7 +627,7 @@ fn gitlab_branch_with_no_request_yields_no_request_and_never_calls_view() {
 
 #[test]
 fn gitlab_request_with_no_head_pipeline_normalises_to_no_ci_result() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (_conn, _actor_id, _task_id, forge, repo_path, draft, _repo_dir) = seed_gitlab_task();
 
         with_fake_forge_clis(|fake| {
@@ -657,7 +643,7 @@ fn gitlab_request_with_no_head_pipeline_normalises_to_no_ci_result() {
 
 #[test]
 fn gitlab_two_requests_select_the_newest_by_created_timestamp_through_the_live_path() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (_conn, _actor_id, _task_id, forge, repo_path, draft, _repo_dir) = seed_gitlab_task();
 
         with_fake_forge_clis(|fake| {

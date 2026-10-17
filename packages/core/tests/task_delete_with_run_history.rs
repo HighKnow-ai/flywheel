@@ -11,34 +11,15 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use std::path::Path;
-use std::sync::Mutex;
 
 use core::domain::agent_run::start_agent_run;
 use core::domain::permission_request::create_pending_request;
 use core::domain::task::{create_task, delete_task};
 use core::domain::worktree::{ensure_worktree, remove_worktree_for_task};
 use rusqlite::{params, Connection};
-
-/// Serializes every call to [`with_scratch_worktree_root`] in THIS binary. `cargo test` runs the
-/// `#[test]` functions within one integration-test binary concurrently on a thread pool by
-/// default — `FLYWHEEL_WORKTREE_ROOT` is process-global mutable state, so two tests racing here
-/// would let one test's `worktree_add` fall through to the real default (`~/Flywheel/...`)
-/// between the other test's `set_var`/`remove_var` pair. Copied verbatim from
-/// `stop_lifecycle.rs`, which observed a real `~/Flywheel/FLY/FLY-1` directory get created on the
-/// machine running the test when this lock was absent.
-static WORKTREE_ROOT_ENV_LOCK: Mutex<()> = Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads
-    // or mutates this var while it's set, and this helper always clears it before returning.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 /// Count rows matching a compile-time literal SQL string with one bound id parameter — every
 /// assertion in this file reads as one line.
@@ -49,7 +30,7 @@ fn count(conn: &Connection, sql: &str, id: &str) -> i64 {
 
 #[test]
 fn deleting_a_task_with_a_worktree_is_blocked_and_names_the_fix() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Task with a worktree", None)
             .expect("create_task should succeed");
@@ -83,7 +64,7 @@ fn deleting_a_task_with_a_worktree_is_blocked_and_names_the_fix() {
 
 #[test]
 fn deleting_a_task_with_agent_run_history_but_no_worktree_succeeds_and_cascades_history() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Task with history", None)
             .expect("create_task should succeed");
@@ -164,7 +145,7 @@ fn deleting_a_task_with_agent_run_history_but_no_worktree_succeeds_and_cascades_
 
 #[test]
 fn deleting_a_task_that_never_started_work_still_succeeds_with_no_history_event() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Never started", None)
             .expect("create_task should succeed");
@@ -209,7 +190,7 @@ fn deleting_a_task_that_never_started_work_still_succeeds_with_no_history_event(
 
 #[test]
 fn no_task_delete_error_ever_contains_a_raw_sqlite_constraint_message() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Guarded task", None)
             .expect("create_task should succeed");
@@ -234,7 +215,7 @@ fn no_task_delete_error_ever_contains_a_raw_sqlite_constraint_message() {
 /// change, remove the worktree (succeeds), delete the task (succeeds).
 #[test]
 fn the_full_two_step_order_holds_end_to_end() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Two-step order task", None)
             .expect("create_task should succeed");

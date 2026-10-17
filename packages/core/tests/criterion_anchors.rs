@@ -5,6 +5,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use core::domain::acceptance_criterion::{
     anchor_for_criterion, check_criterion_with_anchor, create_criterion, revise_criterion,
     toggle_criterion, AnchorInput,
@@ -14,18 +16,6 @@ use core::domain::epic::create_epic;
 use core::domain::task::{create_task, delete_task};
 use core::review::epic_task_rollup;
 use rusqlite::{params, Connection};
-
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    let dir = tempfile::tempdir().expect("scratch worktree root");
-    // SAFETY: serialised by WORKTREE_ROOT_ENV_LOCK; cleared before the lock is released.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 fn input(path: &str, start: u32, end: u32) -> AnchorInput {
     AnchorInput { path: path.into(), side: "new".into(), line_start: start, line_end: end }
@@ -151,7 +141,7 @@ fn rechecking_after_an_uncheck_does_not_resurrect_the_anchor() {
 
 #[test]
 fn revising_a_locked_criterion_carries_the_anchor_to_the_successor() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor, project, _repo) = common::seeded_git_project();
         let project = project.id;
         let task = create_task(&mut conn, &project, &actor, "T", None).unwrap();
@@ -357,7 +347,7 @@ fn rollup_task_with_no_criteria_is_all_zero() {
 
 #[test]
 fn rollup_ignores_superseded_criterion_revisions() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor, project, _repo) = common::seeded_git_project();
         let project = project.id;
         let epic = create_epic(&mut conn, &project, &actor, "E", None).unwrap();

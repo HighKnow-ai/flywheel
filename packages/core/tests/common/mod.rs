@@ -17,6 +17,10 @@ use core::ids::new_id;
 use rusqlite::{params, Connection};
 use std::process::Command;
 
+mod scratch_root;
+#[allow(unused_imports)]
+pub use scratch_root::{with_scratch_worktree_root, WORKTREE_ROOT_ENV_LOCK};
+
 #[allow(dead_code)]
 pub fn scratch_dir() -> tempfile::TempDir {
     tempfile::tempdir().expect("failed to create scratch dir")

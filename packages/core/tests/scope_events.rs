@@ -20,6 +20,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -33,19 +35,6 @@ use core::drift::{scope_backstop_findings, scope_backstop_git, scope_backstop_in
 use core::file_set::parse_entry;
 use core::query::scope::scope_denied_counts;
 use rusqlite::{params, Connection};
-
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// `FLYWHEEL_WORKTREE_ROOT` is process-global; serialise every caller in this binary.
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: the mutex above serialises every caller in this binary and the var is cleared below.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 struct Fixture {
     conn: Connection,
@@ -110,7 +99,7 @@ fn denial_rows(conn: &Connection, task_id: &str) -> Vec<(i64, String, serde_json
 
 #[test]
 fn a_refusal_appends_one_row_attributed_to_the_runs_agent_actor() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let mut fx = fixture();
         let (task_id, run, _wt) = task_with_run(&mut fx, "t", &["src/a/"]);
 
@@ -134,7 +123,7 @@ fn a_refusal_appends_one_row_attributed_to_the_runs_agent_actor() {
 
 #[test]
 fn twenty_refusals_are_twenty_rows_in_attempt_order_with_distinct_sequences() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let mut fx = fixture();
         let (task_id, run, _wt) = task_with_run(&mut fx, "t", &["src/a/"]);
         for i in 0..20 {
@@ -152,7 +141,7 @@ fn twenty_refusals_are_twenty_rows_in_attempt_order_with_distinct_sequences() {
 
 #[test]
 fn an_unknown_run_writes_nothing() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let mut fx = fixture();
         let (task_id, _run, _wt) = task_with_run(&mut fx, "t", &["src/a/"]);
         let recorded = record_scope_denied(&mut fx.conn, "01ZZZZZZZZZZZZZZZZZZZZZZZZ", &denial("x", false, false)).unwrap();
@@ -163,7 +152,7 @@ fn an_unknown_run_writes_nothing() {
 
 #[test]
 fn the_outside_worktree_flag_is_stored_and_an_absolute_path_is_never() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let mut fx = fixture();
         let (task_id, run, _wt) = task_with_run(&mut fx, "t", &["src/a/"]);
         record_scope_denied(&mut fx.conn, &run.id, &denial("src/b.rs", false, false)).unwrap();
@@ -184,7 +173,7 @@ fn the_outside_worktree_flag_is_stored_and_an_absolute_path_is_never() {
 
 #[test]
 fn counts_omit_a_task_with_no_refusals_and_group_the_rest() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let mut fx = fixture();
         let (t1, r1, _) = task_with_run(&mut fx, "one", &["src/a/"]);
         let (t2, r2, _) = task_with_run(&mut fx, "two", &["src/b/"]);
@@ -205,7 +194,7 @@ fn counts_omit_a_task_with_no_refusals_and_group_the_rest() {
 
 #[test]
 fn counts_are_capped_server_side() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let mut fx = fixture();
         for n in 0..3 {
             let (_t, run, _) = task_with_run(&mut fx, &format!("t{n}"), &["src/a/"]);
@@ -235,7 +224,7 @@ fn paths(findings: &[core::drift::ScopeBackstopFinding]) -> Vec<String> {
 
 #[test]
 fn a_committed_path_outside_the_set_is_one_finding_and_one_inside_is_none() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let mut fx = fixture();
         let (task_id, _run, wt) = task_with_run(&mut fx, "t", &["src/inside/"]);
         write(&wt, "src/inside/a.rs", "a");
@@ -249,7 +238,7 @@ fn a_committed_path_outside_the_set_is_one_finding_and_one_inside_is_none() {
 
 #[test]
 fn an_uncommitted_outside_path_is_a_finding_including_inside_a_new_directory() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let mut fx = fixture();
         let (task_id, _run, wt) = task_with_run(&mut fx, "t", &["src/inside/"]);
         write(&wt, "stray.txt", "x");
@@ -262,7 +251,7 @@ fn an_uncommitted_outside_path_is_a_finding_including_inside_a_new_directory() {
 
 #[test]
 fn a_run_whose_every_change_is_inside_its_set_raises_nothing() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let mut fx = fixture();
         let (task_id, _run, wt) = task_with_run(&mut fx, "t", &["src/inside/", "Cargo.lock"]);
         write(&wt, "src/inside/a.rs", "a");
@@ -276,7 +265,7 @@ fn a_run_whose_every_change_is_inside_its_set_raises_nothing() {
 
 #[test]
 fn an_unarmed_run_raises_nothing_whatever_it_changed() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let mut fx = fixture();
         let (task_id, _run, wt) = task_with_run(&mut fx, "t", &[]);
         write(&wt, "anything/at/all.rs", "x");
@@ -290,7 +279,7 @@ fn an_unarmed_run_raises_nothing_whatever_it_changed() {
 
 #[test]
 fn a_lost_notice_is_still_surfaced_at_close_flagged_after_the_fact() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let mut fx = fixture();
         let (task_id, run, wt) = task_with_run(&mut fx, "t", &["src/inside/"]);
         // A write made through a shell: the hook never saw it, so no notice was ever sent.
@@ -312,7 +301,7 @@ fn a_lost_notice_is_still_surfaced_at_close_flagged_after_the_fact() {
 
 #[test]
 fn a_hook_denial_and_a_backstop_finding_for_one_path_are_two_rows_told_apart_by_the_flag() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let mut fx = fixture();
         let (task_id, run, wt) = task_with_run(&mut fx, "t", &["src/inside/"]);
         record_scope_denied(&mut fx.conn, &run.id, &denial("src/outside/b.rs", false, false)).unwrap();
@@ -330,7 +319,7 @@ fn a_hook_denial_and_a_backstop_finding_for_one_path_are_two_rows_told_apart_by_
 
 #[test]
 fn closing_twice_does_not_duplicate_a_backstop_finding() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let mut fx = fixture();
         let (task_id, run, wt) = task_with_run(&mut fx, "t", &["src/inside/"]);
         write(&wt, "stray.txt", "x");

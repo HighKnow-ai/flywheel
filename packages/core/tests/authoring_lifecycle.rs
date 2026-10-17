@@ -11,6 +11,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use core::domain::agent_run::{
     apply_session_closed, mark_abandoned, run_subject, RunSubject,
 };
@@ -40,22 +42,6 @@ fn with_scratch_runtime_dir<T>(f: impl FnOnce() -> T) -> T {
     unsafe { std::env::set_var("FLYWHEEL_RUNTIME_DIR", dir.path()) };
     let result = f();
     unsafe { std::env::remove_var("FLYWHEEL_RUNTIME_DIR") };
-    result
-}
-
-/// Serializes every call to [`with_scratch_worktree_root`] in THIS binary — mirrors
-/// `discard_lifecycle.rs`'s/`recovery_summary.rs`'s own identically-named lock; needed only by the
-/// one test in this file that starts a real TASK run (`start_agent_run` calls `ensure_worktree`,
-/// which needs a real repository, unlike an authoring run's worktree-less start).
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: the mutex above serializes every caller in this binary.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
     result
 }
 
@@ -277,7 +263,7 @@ fn mark_abandoned_on_an_authoring_run_writes_a_fallback_summary_inside_its_own_t
 
 #[test]
 fn mark_abandoned_on_a_task_run_also_writes_a_fallback_summary_inside_its_own_transaction() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &human_actor_id, "A task", None).unwrap();
         let run = core::domain::agent_run::start_agent_run(&mut conn, &task.id, "acceptEdits", &human_actor_id)

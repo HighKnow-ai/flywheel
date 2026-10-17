@@ -6,6 +6,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use core::domain::acceptance_criterion::{create_criterion, revise_criterion, toggle_criterion};
 use core::domain::agent_run::start_agent_run;
 use core::domain::epic::create_epic;
@@ -14,26 +16,9 @@ use core::domain::task::create_task;
 use core::domain::worktree::ensure_worktree;
 use core::forge::request_body::assemble_request_draft;
 
-/// Serialises every call to [`with_scratch_worktree_root`] in THIS binary — `FLYWHEEL_WORKTREE_ROOT`
-/// is process-wide state and `cargo test` runs `#[test]` fns concurrently by default. Mirrors
-/// `tests/context_packet.rs`'s/`tests/criteria_pin.rs`'s identical helper; each `tests/*.rs` file
-/// compiles to its own binary, so this cannot race with any other test file.
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: serialised by `WORKTREE_ROOT_ENV_LOCK` above — only one test at a time ever has
-    // this var set within this binary, and it is always cleared before the lock is released.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
-
 #[test]
 fn target_branch_for_a_task_under_an_epic_is_the_epic_integration_branch_unprefixed() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let epic = create_epic(&mut conn, &project.id, &actor_id, "Ship the thing", None)
             .expect("create_epic should succeed");
@@ -53,7 +38,7 @@ fn target_branch_for_a_task_under_an_epic_is_the_epic_integration_branch_unprefi
 
 #[test]
 fn target_branch_for_an_epic_less_task_is_the_projects_default_branch() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "No epic here", None)
             .expect("create_task should succeed");
@@ -66,7 +51,7 @@ fn target_branch_for_an_epic_less_task_is_the_projects_default_branch() {
 
 #[test]
 fn title_is_the_tasks_own_title_unmodified() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Exact Title Text", None)
             .expect("create_task should succeed");
@@ -79,7 +64,7 @@ fn title_is_the_tasks_own_title_unmodified() {
 
 #[test]
 fn body_names_the_task_key() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Keyed task", None)
             .expect("create_task should succeed");
@@ -92,7 +77,7 @@ fn body_names_the_task_key() {
 
 #[test]
 fn body_contains_one_checklist_line_per_current_criterion_in_rank_order_with_real_checked_state() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Two criteria", None)
             .expect("create_task should succeed");
@@ -134,7 +119,7 @@ fn body_contains_one_checklist_line_per_current_criterion_in_rank_order_with_rea
 
 #[test]
 fn a_superseded_criterion_revision_never_appears_in_the_body() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Revised criterion", None)
             .expect("create_task should succeed");
@@ -162,7 +147,7 @@ fn a_superseded_criterion_revision_never_appears_in_the_body() {
 
 #[test]
 fn a_task_with_no_summaries_omits_the_summaries_section_entirely() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "No summaries", None)
             .expect("create_task should succeed");
@@ -179,7 +164,7 @@ fn a_task_with_no_summaries_omits_the_summaries_section_entirely() {
 
 #[test]
 fn a_task_with_no_criteria_omits_the_criteria_section_entirely() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "No criteria", None)
             .expect("create_task should succeed");
@@ -196,7 +181,7 @@ fn a_task_with_no_criteria_omits_the_criteria_section_entirely() {
 
 #[test]
 fn session_summaries_render_in_chronological_order() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Two sessions", None)
             .expect("create_task should succeed");
@@ -248,7 +233,7 @@ fn session_summaries_render_in_chronological_order() {
 
 #[test]
 fn two_consecutive_calls_over_unchanged_state_return_byte_identical_drafts() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Determinism check", None)
             .expect("create_task should succeed");
@@ -264,7 +249,7 @@ fn two_consecutive_calls_over_unchanged_state_return_byte_identical_drafts() {
 
 #[test]
 fn a_task_with_no_worktree_row_errors_naming_the_task_rather_than_an_empty_head_branch() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "No worktree yet", None)
             .expect("create_task should succeed");
