@@ -21,11 +21,16 @@ fn run_git(repo: &Path, args: &[&str]) {
     assert!(status.success(), "git -C {repo:?} {args:?} failed");
 }
 
-/// Serializes every call to [`with_sabotaged_forge_clis`] in this binary — `PATH` is
-/// process-global mutable state and `cargo test` runs `#[test]` fns concurrently by default
-/// (mirrors `commit_msg_hook.rs`'s own `ENV_LOCK`; each `tests/*.rs` file compiles to its own
-/// binary, so this static cannot race with that one).
+/// Serializes every test in this binary — `PATH` is process-global mutable state and `cargo test`
+/// runs `#[test]` fns concurrently by default (mirrors `commit_msg_hook.rs`'s own `ENV_LOCK`; each
+/// `tests/*.rs` file compiles to its own binary, so this static cannot race with that one).
+/// Every test holds it for its WHOLE body, not just inside the `PATH` helpers: a test that spawns
+/// `git` while another sits inside [`with_empty_path`] would otherwise find no `git` on `PATH`.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// A handle onto the sabotaged-stub scratch directory. [`SabotageDir::invoked`] reports whether
 /// the named CLI's stub actually ran, by checking the marker FILE it writes before exiting
@@ -41,11 +46,10 @@ impl SabotageDir {
 }
 
 /// Write executable `gh`/`glab` shell stubs that each touch their own marker file and exit
-/// non-zero, prepend their directory to `PATH` for the duration of `f`, serialized against every
-/// other caller in this binary, then restore the original `PATH` before returning. Proves
+/// non-zero, prepend their directory to `PATH` for the duration of `f` (the caller holds [`serial`]),
+/// then restore the original `PATH` before returning. Proves
 /// absence (or presence) of a spawn by sabotage — reading the marker file after `f` returns.
 fn with_sabotaged_forge_clis<T>(f: impl FnOnce(&SabotageDir) -> T) -> T {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
 
     let dir = tempfile::tempdir().expect("failed to create scratch stub dir");
     for cli in ["gh", "glab"] {
@@ -63,8 +67,8 @@ fn with_sabotaged_forge_clis<T>(f: impl FnOnce(&SabotageDir) -> T) -> T {
         Some(p) => format!("{}:{}", dir.path().display(), p.to_string_lossy()),
         None => dir.path().display().to_string(),
     };
-    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads or
-    // mutates PATH while it's set, and this helper always restores it before returning.
+    // SAFETY: the caller holds `serial()`, which serializes every test in this binary, so no other
+    // thread reads or mutates PATH while it's set, and this helper always restores it before returning.
     unsafe {
         std::env::set_var("PATH", &sabotaged);
     }
@@ -82,17 +86,16 @@ fn with_sabotaged_forge_clis<T>(f: impl FnOnce(&SabotageDir) -> T) -> T {
 }
 
 /// Set `PATH` to an empty scratch directory (no `gh`/`glab` anywhere on it) for the duration of
-/// `f`, serialized against every other caller in this binary via the same [`ENV_LOCK`], then
+/// `f` (the caller holds [`serial`]), then
 /// restore the original `PATH`. Unlike [`with_sabotaged_forge_clis`] (proves a CLI was or was not
 /// invoked), this proves what happens when the CLI genuinely cannot be found —
 /// `ForgeError::CliNotInstalled`, the typed variant RESEARCH.md open question 3 names, which the
 /// sabotage helper above can never exercise since its stub IS present on `PATH`.
 fn with_empty_path<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempfile::tempdir().expect("failed to create empty scratch PATH dir");
     let original_path = std::env::var_os("PATH");
-    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads or
-    // mutates PATH while it's set, and this helper always restores it before returning.
+    // SAFETY: the caller holds `serial()`, which serializes every test in this binary, so no other
+    // thread reads or mutates PATH while it's set, and this helper always restores it before returning.
     unsafe {
         std::env::set_var("PATH", dir.path());
     }
@@ -108,6 +111,7 @@ fn with_empty_path<T>(f: impl FnOnce() -> T) -> T {
 
 #[test]
 fn no_origin_remote_resolves_to_local_forge() {
+    let _serial = serial();
     let (conn, _actor_id, project, _repo_dir) = common::seeded_git_project();
     let forge = forge_for_project(&conn, &project.id).expect("forge_for_project should succeed");
     assert_eq!(forge, Forge::Local);
@@ -115,6 +119,7 @@ fn no_origin_remote_resolves_to_local_forge() {
 
 #[test]
 fn no_origin_remote_spawns_no_forge_process_at_all() {
+    let _serial = serial();
     let (conn, _actor_id, project, _repo_dir) = common::seeded_git_project();
     with_sabotaged_forge_clis(|sabotage| {
         let (forge, repo_path) = forge_and_repo_path(&conn, &project.id)
@@ -130,6 +135,7 @@ fn no_origin_remote_spawns_no_forge_process_at_all() {
 
 #[test]
 fn stored_local_override_forces_local_even_with_github_origin() {
+    let _serial = serial();
     let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
     run_git(repo_dir.path(), &["remote", "add", "origin", "git@github.com:acme/widget.git"]);
     set_project_forge(&mut conn, &actor_id, &project.id, Some("local"))
@@ -155,6 +161,7 @@ fn stored_local_override_forces_local_even_with_github_origin() {
 
 #[test]
 fn stored_github_override_forces_github_path_even_for_self_hosted_host() {
+    let _serial = serial();
     let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
     run_git(
         repo_dir.path(),
@@ -180,6 +187,7 @@ fn stored_github_override_forces_github_path_even_for_self_hosted_host() {
 
 #[test]
 fn forced_github_override_with_gh_absent_from_path_yields_cli_not_installed() {
+    let _serial = serial();
     let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
     run_git(repo_dir.path(), &["remote", "add", "origin", "git@github.com:acme/widget.git"]);
     set_project_forge(&mut conn, &actor_id, &project.id, Some("github"))
@@ -199,6 +207,7 @@ fn forced_github_override_with_gh_absent_from_path_yields_cli_not_installed() {
 
 #[test]
 fn forced_gitlab_override_with_glab_absent_from_path_yields_cli_not_installed() {
+    let _serial = serial();
     let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
     run_git(repo_dir.path(), &["remote", "add", "origin", "git@gitlab.com:acme/widget.git"]);
     set_project_forge(&mut conn, &actor_id, &project.id, Some("gitlab"))

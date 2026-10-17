@@ -197,7 +197,7 @@ const EVIDENCE_FILE_NAME = "05-KILL-CRITERION.md";
 function resolveEvidencePath() {
   const dir =
     process.env.FLYWHEEL_UAT_EVIDENCE_DIR ??
-    path.join(REPO_ROOT, ".planning", "phases", "05-socratic-epic-authoring");
+    path.join(REPO_ROOT, "target", "uat-evidence");
   fs.mkdirSync(dir, { recursive: true });
   return path.join(dir, EVIDENCE_FILE_NAME);
 }

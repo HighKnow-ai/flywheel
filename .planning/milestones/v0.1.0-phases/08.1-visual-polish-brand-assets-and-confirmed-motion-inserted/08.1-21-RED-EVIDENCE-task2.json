@@ -1,6 +1,0 @@
-{
-  "command": "cargo test -p desktop changes_request",
-  "exitCode": 101,
-  "output": "TAP version 13\nnot ok 1 - commands::review::tests::changes_request_write_maps_a_requested_outcome_to_its_count\nnot ok 2 - commands::review::tests::changes_request_write_packs_refusals_as_refused_category\nnot ok 3 - commands::review::tests::changes_request_write_never_returns_raw_error_text\nnot ok 4 - commands::review::tests::changes_request_state_maps_ready_and_sent_back_with_the_unchecked_count\nnot ok 5 - commands::review::tests::changes_request_state_maps_each_refusal_to_its_camel_case_category\nok 6 - commands::agent_run::tests::changes_request_preview_for_a_never_declined_task_has_no_feedback_and_no_heading\nnot ok 7 - commands::agent_run::tests::changes_request_preview_carries_the_same_lead_and_statements_as_the_prompt\nok 8 - commands::agent_run::tests::changes_request_relaunch_puts_the_section_in_the_prompt_without_drift_or_recovery\n1..8\n# tests 8\n# pass 2\n# fail 6",
-  "targetTest": "commands::review::tests::changes_request_state_maps_each_refusal_to_its_camel_case_category"
-}

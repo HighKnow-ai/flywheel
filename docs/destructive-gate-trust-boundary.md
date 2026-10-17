@@ -768,11 +768,11 @@ sitting immediately after "command" no longer trips the walk.
 > per-run `CLAUDE_CONFIG_DIR` composition — no longer exists; commits `9569ed5` and `7c1af3e` were
 > reverted. What the live run measured, and why the revert was the right call, is in
 > "### Why round ten was reverted" at the end of this section. The diagnosis that found the hole is
-> at `.planning/debug/uat-06b-bash-gate-regression.md`, and it remains correct: the hole is real, it
+> at `planning-archive:.planning/debug/uat-06b-bash-gate-regression.md`, and it remains correct: the hole is real, it
 > is in this document's own spec, and nothing currently closes it.
 
 Found 2026-10-01 by UAT item 6b (`scripts/uat/uat-06-permission-block-lifecycle.mjs --heartbeat=on`),
-diagnosed in `.planning/debug/uat-06b-bash-gate-regression.md`, attempted by D-104. This round
+diagnosed in `planning-archive:.planning/debug/uat-06b-bash-gate-regression.md`, attempted by D-104. This round
 is different in kind from rounds five through nine and the difference is the point.
 
 **What happened.** A live `bypassPermissions` session ran `git push origin --delete uat-doomed-branch`

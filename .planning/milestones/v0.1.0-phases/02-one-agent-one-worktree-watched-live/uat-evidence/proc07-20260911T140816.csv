@@ -1,7 +1,0 @@
-elapsed_s,app_rss_kb,renderer_rss_kb,sidecar_rss_kb,agent_children_rss_kb,total_rss_kb,log_bytes,log_lines,log_file
-0,0,0,0,0,0,0,0,(none yet)
-11,0,0,0,0,0,0,0,(none yet)
-21,134032,227216,70480,0,431728,0,0,(none yet)
-31,138400,252032,61968,0,452400,152,1,01M27HA6NQ6D2GH0QWRX7XKYVJ.jsonl
-41,173200,258208,61920,0,493328,152,1,01M27HA6NQ6D2GH0QWRX7XKYVJ.jsonl
-51,173136,258048,61920,0,493104,152,1,01M27HA6NQ6D2GH0QWRX7XKYVJ.jsonl

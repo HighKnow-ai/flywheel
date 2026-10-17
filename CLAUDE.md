@@ -1,5 +1,3 @@
-<!-- GSD:project-start source:PROJECT.md -->
-
 ## Project
 
 **Flywheel (by HighKnow)**
@@ -35,13 +33,9 @@ acceptance criteria, prior session summaries and the diff so far. That asymmetry
 - **Naming**: Product is "Flywheel" by HighKnow — "Harness" collides directly with Harness.io, a large company in the identical category (developer tooling / SDLC automation).
 - **Tech stack**: Undecided; desktop shell (Tauri vs Electron vs native) deferred to research — Load-bearing choice; must be argued against process supervision needs, node-based agent CLIs, and future web parity rather than assumed.
 
-<!-- GSD:project-end -->
-
-<!-- GSD:stack-start source:research/STACK.md -->
-
 ## Technology Stack
 
-Decided. Full rationale, alternatives considered, and sources live in `.planning/research/STACK.md` — read it only when a stack decision is in question.
+Decided. Full rationale, alternatives considered, and sources live in `docs/research/STACK.md` — read it only when a stack decision is in question.
 
 | Layer | Choice | Version | Rule |
 |---|---|---|---|
@@ -60,48 +54,14 @@ Decided. Full rationale, alternatives considered, and sources live in `.planning
 
 **Do not use:** ElectricSQL, Triplit, PGlite as primary store, raw Automerge/Yjs as the board schema, NodeGit, isomorphic-git, `git2` for worktree ops, `better-sqlite3` as the canonical DB, libSQL/Turso, egui/iced. The sync engine (PowerSync vs Zero) is deferred to the relay milestone.
 
-<!-- GSD:stack-end -->
-
-<!-- GSD:conventions-start source:CONVENTIONS.md -->
-
 ## Conventions
 
 Conventions not yet established. Will populate as patterns emerge during development.
-<!-- GSD:conventions-end -->
-
-<!-- GSD:architecture-start source:ARCHITECTURE.md -->
 
 ## Architecture
 
 Architecture not yet mapped. Follow existing patterns found in the codebase.
-<!-- GSD:architecture-end -->
-
-<!-- GSD:skills-start source:skills/ -->
 
 ## Project Skills
 
 No project skills found. Add skills to any of: `.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, `.github/skills/`, or `.codex/skills/` with a `SKILL.md` index file.
-<!-- GSD:skills-end -->
-
-<!-- GSD:workflow-start source:GSD defaults -->
-
-## GSD Workflow Enforcement
-
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
-
-Use these entry points:
-
-- `/gsd-quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd-debug` for investigation and bug fixing
-- `/gsd-execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
-
-<!-- GSD:profile-start -->
-
-## Developer Profile
-
-> Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
-> This section is managed by `generate-claude-profile` -- do not edit manually.
-<!-- GSD:profile-end -->

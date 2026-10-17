@@ -12,7 +12,7 @@ import base from "./vitest.browser.config.ts";
  * Select it with `npm --prefix packages/desktop run test:browser:motion`.
  *
  * Note for anyone running the whole arm: the Phase 8 review tests write fixed-path UAT
- * screenshots into `.planning/`. Restore them with `git checkout` before committing.
+ * screenshots into `target/uat-screenshots/` (git-ignored).
  */
 export default mergeConfig(
   base,

@@ -3,9 +3,10 @@
 Flywheel is an Agentic Development Environment: a desktop application that lets one developer
 supervise many AI coding agents at once, across many projects, by multiplexing git worktrees. Work
 lives as epics, tasks and issues on a project board that agents read from *and* write to — the
-board is the store of record, not a `.planning/` folder.
+board is the store of record, not a planning folder.
 
-See `.planning/PROJECT.md` for the full product context.
+Product context lives in `CLAUDE.md`. The plan of record is the MVP wayfinder map in this
+repository's GitHub issues; the earlier `.planning/` history is archived at the git tag `planning-archive`.
 
 ## Repository layout
 

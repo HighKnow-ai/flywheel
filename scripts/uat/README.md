@@ -1,6 +1,6 @@
 # Phase 03 UAT harness
 
-`.planning/phases/03-nothing-lost-nothing-left-running/03-VERIFICATION.md` deferred five items to a
+`planning-archive:.planning/phases/03-nothing-lost-nothing-left-running/03-VERIFICATION.md` deferred five items to a
 human, each justified by some variant of *"no harness in this repository stands that up."* That is a
 statement about missing tooling, not about the guarantees. This directory is the tooling.
 
@@ -1020,7 +1020,7 @@ and the Abandoned/Acknowledge flow still need a human at the window.
   (`git@github.com:cymarechal/highknow-harness.git`) happened during the investigation that produced
   the launcher-shape finding item 7 measures, under a brief that fenced live `claude` sessions but
   did not fence real destructive git commands. See the "Incident recorded during this investigation"
-  section of `.planning/phases/03-nothing-lost-nothing-left-running/03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`.
+  section of `planning-archive:.planning/phases/03-nothing-lost-nothing-left-running/03-DESTRUCTIVE-GATE-BYPASS-CLASS.md`.
 
 ## Pieces
 
@@ -1034,7 +1034,7 @@ and the Abandoned/Acknowledge flow still need a human at the window.
 | `packages/core/tests/bin/uat_authoring_ops.rs` | Bridge binary for item 8's live arm — drives the real accept/reject/amend/reopen domain writes against a scratch board |
 | `scripts/uat/fixtures/` | Frozen, real, zero-cost captures replayed offline by `--replay-check` scenarios (e.g. the unauthenticated CLI first-turn stream) — read at module load, never retyped |
 | `scripts/uat/fixtures/live-opus5-unmodelled-shapes.json` | The frozen real capture (200-character prefixes) of the reasoning-only assistant message and the `rate_limit_event` line live run `01M3C48C3PV1NSGHERBZ587YB1` emitted and the adapter did not model, with mechanical anti-drift/anti-invention gates |
-| `scripts/uat/fixtures/live-opus5-ask-user-question.json` | Unlike its sibling fixture above, this one is FULL FIDELITY — read from Claude Code's own session log inside a preserved scratch root of live run `01M3DNC0G9CYAWSD8DYEGTRP8C`, not from a 200-character stderr prefix. References the committed capture artifact `.planning/phases/05-socratic-epic-authoring/05-ASK-USER-QUESTION-CAPTURE.json` in the phase directory, never an absolute scratch path |
+| `scripts/uat/fixtures/live-opus5-ask-user-question.json` | Unlike its sibling fixture above, this one is FULL FIDELITY — read from Claude Code's own session log inside a preserved scratch root of live run `01M3DNC0G9CYAWSD8DYEGTRP8C`, not from a 200-character stderr prefix. References the committed capture artifact `planning-archive:.planning/phases/05-socratic-epic-authoring/05-ASK-USER-QUESTION-CAPTURE.json` in the phase directory, never an absolute scratch path |
 
 The Rust binaries exist so the harness cannot drift: they call `shim::shim_env_for_run`,
 `runtime_protocol::runtime_dir`, `runtime_protocol::touch_heartbeat` and the domain layer directly,
@@ -1044,7 +1044,7 @@ rather than reimplementing what `sidecar.rs` assembles.
 
 # Phase 08 UAT harness
 
-`.planning/phases/08-review-and-merge-inside-flywheel/08-UAT.md` listed six items for a human. Five
+`planning-archive:.planning/phases/08-review-and-merge-inside-flywheel/08-UAT.md` listed six items for a human. Five
 of the six are now measured by code, for the same reason this directory exists: "requires a running
 app" is a statement about missing tooling, not about the guarantee.
 

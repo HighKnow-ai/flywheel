@@ -1,9 +1,0 @@
-{
-  "command": "npm --prefix packages/desktop run test -- src/board/__tests__/menu-bridge.test.tsx",
-  "exitCode": 1,
-  "targetFile": "menu-bridge.test.tsx",
-  "targetTest": "create-task leaves the panel open and does not open quick-add",
-  "expected": "With the item detail panel open, emitting the real menu:action handler for create-task leaves quickAddOpen false and detailItemId on the opened id (G-01-1's headline ⌘N symptom)",
-  "actual": "App.tsx's bridge still calls returnToBoardLayer() for every forwarded id except open-palette before dispatching, so quickAddOpen becomes true and detailItemId is reset to null — 'expected true to be false'",
-  "output": "TAP version 13\n1..10\nnot ok 1 - create-task leaves the panel open and does not open quick-add\nnot ok 2 - create-epic leaves the panel open and does not open quick-add\nnot ok 3 - register-project leaves the panel open and never opens the native folder dialog\nok 4 - open-palette opens the palette OVER the panel — the panel is not replaced (BOARD-07)\nok 5 - open-palette is refused, matching bindingAllowedInLayer under a picker\nok 6 - create-task still opens quick-add for a task\nok 7 - create-epic still opens quick-add for an epic\nok 8 - register-project still opens the native folder dialog\nok 9 - open-palette still opens the palette\nok 10 - every MENU_ACTION_IDS entry resolves to a global BINDINGS entry with a key — state/keyboard.ts stays the sole key map\n# tests 10\n# pass 7\n# fail 3\n"
-}

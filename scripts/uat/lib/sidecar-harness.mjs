@@ -453,8 +453,8 @@ export const UNMODELLED_EVENT_LINE_LIMIT = 65_536;
  * get the in-run readable signal, and the next round gets the complete record.
  *
  * `filePath` resolves under the caller-supplied `artifactDir` — which the caller MUST have already
- * resolved via `Harness.artifactDir()` (outside `this.root`, outside the repository, outside
- * `.planning/`) — and never anywhere else; this function never resolves a path of its own, by
+ * resolved via `Harness.artifactDir()` (outside `this.root`, outside the repository)
+ * — and never anywhere else; this function never resolves a path of its own, by
  * construction, so it can never land the durable capture inside the repository. The captured raw
  * text can include file contents, prompt text and tool arguments, so where it lands is a deliberate
  * act with a blast radius (T-05-37-02).

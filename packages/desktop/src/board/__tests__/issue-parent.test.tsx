@@ -4,7 +4,7 @@
  * and the creation-time nesting path: a new task can be nested under an epic via quick-add's Tab
  * affordance, and a new issue created from the palette is filed under whatever is currently
  * selected. Together with `epic-assign.test.tsx` (plan 01-14, the task-under-epic half), this
- * file is what the restored BOARD-01 tick in `.planning/REQUIREMENTS.md` rests on.
+ * file is what the restored BOARD-01 tick in `planning-archive:.planning/REQUIREMENTS.md` rests on.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";

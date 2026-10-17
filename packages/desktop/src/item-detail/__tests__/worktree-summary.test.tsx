@@ -11,7 +11,7 @@
  *
  * The "missing" describe block below (plan 03-09 Task 2, WORK-06/D-45, 03-UI-SPEC.md
  * "Missing-worktree decision banner") also closes broken window #6
- * (`.planning/WINDOWS.md` row 6, T-02-37's "missing from disk" clause, deferred from Phase 2 to
+ * (`planning-archive:.planning/WINDOWS.md` row 6, T-02-37's "missing from disk" clause, deferred from Phase 2 to
  * WORK-06) — see the test named for it below.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -235,7 +235,7 @@ describe("WorktreeSummary — missing worktree (WORK-06, D-45)", () => {
     return { branch: "flywheel/fly-42", path: MISSING_PATH, status: "missing", ...overrides };
   }
 
-  // Broken window #6 (.planning/WINDOWS.md row 6): T-02-37's "missing from disk" clause was
+  // Broken window #6 (planning-archive:.planning/WINDOWS.md row 6): T-02-37's "missing from disk" clause was
   // deferred from Phase 2 to WORK-06 — this test is what closes it.
   it("closes broken window #6: tells the user the worktree is not on disk", async () => {
     worktreeSummaryMock.mockResolvedValue(missingSummary());

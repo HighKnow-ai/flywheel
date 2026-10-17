@@ -231,7 +231,7 @@ fn verify_shadow_entry(dir: &Path, entry_name: &str, run_id: &str) -> anyhow::Re
 /// install would hand a session a shadow directory the hook could never prove, producing exactly
 /// the silently-denying session D-60 forbids. [`verify_shadow_entry`] below closes that: a broken
 /// entry now stops the install with a named, actionable error at spawn time rather than being
-/// inherited. See `.planning/phases/03-nothing-lost-nothing-left-running/
+/// inherited. See `planning-archive:.planning/phases/03-nothing-lost-nothing-left-running/
 /// 03-DESTRUCTIVE-GATE-BYPASS-CLASS.md` for the finding this responds to.
 pub fn install_for_run(run_id: &str) -> anyhow::Result<PathBuf> {
     let dir = shim_dir_for_run(run_id)?;
