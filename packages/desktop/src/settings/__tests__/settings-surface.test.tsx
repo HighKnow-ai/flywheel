@@ -18,8 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SettingsSurface } from "../SettingsSurface";
-import { CommandPalette } from "../../board/CommandPalette";
-import { actionLabel, dispatchAction, MENU_ACTION_IDS, useGlobalBindings } from "../../state/keyboard";
+import { dispatchAction, MENU_ACTION_IDS, useGlobalBindings } from "../../state/keyboard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { Project } from "../../board/useBoardQuery";
 import type { PermissionRuleDto, SettingsDto } from "../../adapters/tauri";
@@ -465,7 +464,7 @@ function SettingsRoute() {
   return settingsOpen ? <SettingsSurface onBack={() => setSettingsOpen(false)} /> : <div>Board</div>;
 }
 
-describe("Settings — reachable via menu, keyboard and palette (Task 3)", () => {
+describe("Settings — reachable via menu and keyboard (Task 3)", () => {
   it("dispatching the open-settings action id routes to the Settings surface", async () => {
     mockProjects([]);
     render(
@@ -479,25 +478,6 @@ describe("Settings — reachable via menu, keyboard and palette (Task 3)", () =>
 
     await screen.findByText("Settings");
     expect(screen.queryByText("Board")).not.toBeInTheDocument();
-  });
-
-  it("the command palette lists an entry for the settings action whose label comes from the binding table", async () => {
-    mockProjects([]);
-    render(
-      <QueryClientProvider client={new QueryClient()}>
-        <CommandPalette />
-      </QueryClientProvider>,
-    );
-    useUiStore.getState().setPaletteOpen(true);
-
-    const dialog = await screen.findByRole("dialog", { name: "Command palette" });
-    const options = await waitFor(() => {
-      const found = dialog.querySelectorAll('[role="option"]');
-      expect(found.length).toBeGreaterThan(0);
-      return found;
-    });
-    const labels = Array.from(options).map((el) => el.textContent ?? "");
-    expect(labels.some((label) => label.startsWith(actionLabel("open-settings")))).toBe(true);
   });
 
   it("the renderer-side forwarded-id mirror (MENU_ACTION_IDS) contains the settings id", () => {

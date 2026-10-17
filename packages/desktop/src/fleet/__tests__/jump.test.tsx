@@ -2,7 +2,8 @@
  * Behavior under test (Phase 10 plan 10-06, FLEET-03, D-166):
  * - The subject key is a distinct secondary target with its own key (`b`): it switches to the row's
  *   project and hands the board a one-shot focus request, never also opens the session, and is absent
- *   on a row with no board subject. A jump into another project lands on the item, end to end.
+ *   on a row with no board subject. (The board that consumed the request was deleted by issue #38, so
+ *   the end-to-end landing tests went with it.)
  * - Enter and a click on a fleet row open that run's session, handing the opener all four identifiers
  *   (run id, task id, authoring stage, epic id) plus the row's mapped status, in one call (Finding 10,
  *   Pitfall 7).
@@ -24,9 +25,6 @@ import appSource from "../../App.tsx?raw";
 import App from "../../App";
 import { queryClient as appQueryClient } from "../../adapters/queryClient";
 import { FleetSurface } from "../FleetSurface";
-import { BoardView } from "../../board/BoardView";
-import { showStatusBands } from "../../board/__tests__/lens";
-import type { BoardItem } from "../../board/useBoardQuery";
 
 const fleetListMock = vi.fn<() => Promise<FleetListDto>>();
 const invokeCommandMock = vi.fn();
@@ -222,8 +220,6 @@ describe("the primary target: a row opens that run's session", () => {
     expect(
       activeSurface({
         settingsOpen: false,
-        triageOpen: false,
-        reviewOpen: false,
         sessionOpen: true,
         fleetOpen: true,
         worktreeInventoryOpen: false,
@@ -280,37 +276,6 @@ describe("the secondary target: the subject key reaches its board item", () => {
     expect(useUiStore.getState().activeAgentRunId).toBeNull();
   });
 
-  it("end to end: a row in project B, activated while A is current, lands on that item's detail", async () => {
-    useUiStore.setState({ currentProjectId: "proj-A", selectedItemId: "a-1", detailItemId: "a-1" });
-    const { container, unmount } = await renderFleet([
-      row({ agentRunId: "run-b", projectId: "proj-B", projectName: "Beta", taskId: "task-b7", taskKey: "BET-7" }),
-    ]);
-    fireEvent.click(within(rowFor(container, "run-b")).getByRole("button", { name: /Open BET-7 on the board/ }));
-    unmount();
-
-    // The shell now renders the board for the current project; the request is still waiting for it.
-    const projectId = useUiStore.getState().currentProjectId as string;
-    expect(projectId).toBe("proj-B");
-    showStatusBands();
-    const items: BoardItem[] = [
-      { id: "task-b7", key: "BET-7", title: "Beta seven", status: "backlog", rank: "10", priority: 0, epicId: null },
-    ];
-    render(
-      <QueryClientProvider client={new QueryClient()}>
-        <BoardView
-          projectId={projectId}
-          items={items}
-          counts={{ backlog: 1, todo: 0, inProgress: 0, inReview: 0, done: 0 }}
-          onCreateTask={() => {}}
-        />
-      </QueryClientProvider>,
-    );
-    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("task-b7"));
-    expect(useUiStore.getState().selectedItemId).toBe("task-b7");
-    expect(useUiStore.getState().pendingFocusItemId).toBeNull();
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
-  });
-
   it("an epic-subject row targets the epic, and opens the epic's detail rather than a review", async () => {
     const { container } = await renderFleet([
       row({
@@ -326,7 +291,6 @@ describe("the secondary target: the subject key reaches its board item", () => {
     ]);
     fireEvent.click(within(rowFor(container, "run-e")).getByRole("button", { name: /Open ALP-E4 on the board/ }));
     expect(useUiStore.getState().pendingFocusItemId).toBe("epic-4");
-    expect(useUiStore.getState().reviewSurface).toBeNull();
   });
 
   it("a row with no task and no epic renders no target element at all, and `b` does nothing on it", async () => {
@@ -393,25 +357,12 @@ describe("the secondary target: the subject key reaches its board item", () => {
 
 const PROJECT_A = { id: "proj-A", keyPrefix: "ALP", name: "Alpha", repoPath: "/repo/alpha", defaultBranch: "main", status: "active" };
 const PROJECT_B = { id: "proj-B", keyPrefix: "BET", name: "Beta", repoPath: "/repo/beta", defaultBranch: "main", status: "active" };
-const BOARDS: Record<string, BoardItem[]> = {
-  "proj-A": [{ id: "task-a1", key: "ALP-1", title: "Alpha one", status: "backlog", rank: "10", priority: 0, epicId: null }],
-  "proj-B": [{ id: "task-b7", key: "BET-7", title: "Beta seven", status: "backlog", rank: "10", priority: 0, epicId: null }],
-};
 const unhandled = new Set<string>();
-/** Per-project delay for the board read, so a slow roster can be modelled. */
-const boardDelayMs: Record<string, number> = {};
 
 function stubShellReads() {
-  invokeCommandMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+  invokeCommandMock.mockImplementation((command: string) => {
     if (command === "actor_list") return Promise.resolve([]);
     if (command === "project_list") return Promise.resolve([PROJECT_A, PROJECT_B]);
-    if (command === "board_list" || command === "board_search") {
-      const projectId = (args?.projectId as string) ?? "";
-      const items = BOARDS[projectId] ?? [];
-      const window = { items, issues: [], counts: { backlog: items.length, todo: 0, inProgress: 0, inReview: 0, done: 0 } };
-      const delay = boardDelayMs[projectId] ?? 0;
-      return delay > 0 ? new Promise((resolve) => setTimeout(() => resolve(window), delay)) : Promise.resolve(window);
-    }
     // Fire-and-forget: the native menu's enabled-state sync (`state/menuSync.ts`). Nothing reads its answer.
     if (command === "menu_set_action_enabled") return Promise.resolve(undefined);
     unhandled.add(command);
@@ -439,7 +390,6 @@ describe("AppShell: where a fleet row takes you", () => {
   beforeEach(() => {
     appQueryClient.clear();
     unhandled.clear();
-    for (const key of Object.keys(boardDelayMs)) delete boardDelayMs[key];
     logWindowMock.mockReset();
     logWindowMock.mockImplementation((_id: string, offset: number, limit: number) =>
       Promise.resolve({ entries: [FEED_LINE], offset, limit, total: 1 }),
@@ -496,59 +446,6 @@ describe("AppShell: where a fleet row takes you", () => {
     await waitFor(() => expect(fleetRows().length).toBe(2));
     const selected = container.querySelector("[data-selected='true']") as HTMLElement | null;
     expect(selected?.dataset.runId).toBe(useUiStore.getState().activeAgentRunId ?? "run-other");
-  });
-
-  it("the subject key on a row in another project lands on that item's detail panel, in that project", async () => {
-    await mountShellOnFleet([RUN_B], "proj-A");
-    expect(useUiStore.getState().currentProjectId).toBe("proj-A");
-
-    fireEvent.click(await screen.findByRole("button", { name: /Open BET-7 on the board/ }));
-
-    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("task-b7"));
-    expect(fleetRows().length, "the fleet gave way to the board").toBe(0);
-    expect(useUiStore.getState().currentProjectId, "the project switched, not only the surface").toBe("proj-B");
-    expect(useUiStore.getState().pendingFocusItemId, "the one-shot request was consumed").toBeNull();
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog.textContent, "the panel is about BET-7, not a stale item from project A").toContain("BET-7");
-    expect(screen.getByText("Beta", { selector: ".board-header" }), "the board on screen is B's").toBeInTheDocument();
-    expect(document.querySelector("[data-run-id]")).toBeNull();
-    // The panel's own secondary reads (criterion_list, epic_list_all, events_activity_trail,
-    // review_criteria_state) get `undefined` from this stub and are not asserted here: this test is about
-    // WHICH item and WHICH project the jump lands on, not about what the panel goes on to show.
-  });
-
-  // The register's "a project whose roster loads slowly": while B's board is still loading, the shell keeps
-  // A's rows on screen (keepPreviousData). The jump must not be judged against them, and must still land
-  // once B's items arrive.
-  it("a jump into a project whose board loads slowly waits for it and then lands on the item", async () => {
-    boardDelayMs["proj-B"] = 600;
-    await mountShellOnFleet([RUN_B], "proj-A");
-    fireEvent.click(await screen.findByRole("button", { name: /Open BET-7 on the board/ }));
-    await waitFor(() => expect(useUiStore.getState().currentProjectId).toBe("proj-B"));
-    expect(useUiStore.getState().detailItemId, "B's board has not arrived, so nothing is open yet").toBeNull();
-    expect(useUiStore.getState().pendingFocusItemId, "the request is held, not dropped").toBe("task-b7");
-
-    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("task-b7"), { timeout: 3000 });
-    expect(useUiStore.getState().pendingFocusItemId).toBeNull();
-    expect((await screen.findByRole("dialog")).textContent).toContain("BET-7");
-  });
-
-  it("the key `b` does the same from the keyboard, and never opens the session", async () => {
-    await mountShellOnFleet([RUN_B], "proj-A");
-    fireEvent.keyDown(window, { key: "j" });
-    fireEvent.keyDown(window, { key: "b" });
-    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("task-b7"));
-    expect(useUiStore.getState().currentProjectId).toBe("proj-B");
-    expect(useUiStore.getState().activeAgentRunId).toBeNull();
-    expect(sessionBack()).toBeNull();
-  });
-
-  it("a subject in the project already showing lands on its detail without switching project", async () => {
-    await mountShellOnFleet([row({ agentRunId: "run-a", projectId: "proj-A", projectName: "Alpha", taskId: "task-a1", taskKey: "ALP-1" })], "proj-A");
-    fireEvent.click(await screen.findByRole("button", { name: /Open ALP-1 on the board/ }));
-    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("task-a1"));
-    expect(useUiStore.getState().currentProjectId).toBe("proj-A");
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
 
   it("opening a session from the fleet reaches for no command the stub does not know about", async () => {

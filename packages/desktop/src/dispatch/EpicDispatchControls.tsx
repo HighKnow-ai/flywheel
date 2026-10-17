@@ -16,17 +16,16 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  dispatchPlanGenerate,
   dispatchPlanPause,
   dispatchPlanResume,
   dispatchPlanStop,
   type DispatchPlanDto,
 } from "../adapters/tauri";
 import { MARKS_BY_ID } from "../legend/marks";
-import { Icon } from "../board/BoardRow";
+import { Icon } from "../legend/Icon";
 import { useUiStore } from "../state/uiStore";
 import { DispatchGateLine } from "./DispatchGateLine";
-import { dispatchPlanKey, errorText, planningRunKey, useDispatchCap, useDispatchPlan, usePlanningRun } from "./queries";
+import { dispatchPlanKey, errorText, useDispatchCap, useDispatchPlan } from "./queries";
 import "./dispatch.css";
 
 export interface EpicDispatchControlsProps {
@@ -45,7 +44,6 @@ export function EpicDispatchControls({ epicId }: EpicDispatchControlsProps) {
   const queryClient = useQueryClient();
   const setWavePlanSheetEpicId = useUiStore((state) => state.setWavePlanSheetEpicId);
   const planQuery = useDispatchPlan(epicId);
-  const runQuery = usePlanningRun(epicId);
   const plan = planQuery.data && LIVE_STATUSES.includes(planQuery.data.status) ? planQuery.data : null;
   const inForce = plan?.status === "running" || plan?.status === "approved" || plan?.status === "paused";
   const capQuery = useDispatchCap(plan?.status === "running" || plan?.status === "approved");
@@ -77,35 +75,16 @@ export function EpicDispatchControls({ epicId }: EpicDispatchControlsProps) {
   let status: React.ReactNode = null;
   let actions: React.ReactNode = null;
 
-  if (!plan) {
-    if (runQuery.data) {
-      status = <span role="status">Planning in progress. A draft appears here when it is ready.</span>;
-    } else {
-      actions = (
-        <button
-          type="button"
-          className={btn}
-          disabled={busy}
-          title="Ask an agent to read the repository and draft which tasks can run together. Nothing starts until you approve."
-          onClick={() =>
-            void act(
-              () => dispatchPlanGenerate(epicId),
-              (run) => queryClient.setQueryData(planningRunKey(epicId), run),
-            )
-          }
-        >
-          Plan fan-out
-        </button>
-      );
-    }
-  } else if (plan.status === "draft") {
+  // With no plan there is nothing to offer: the planning run that drafted one (its `submit_plan`
+  // tool and its epic context packet) was deleted by issue #38.
+  if (plan?.status === "draft") {
     status = <span>Draft plan, not started</span>;
     actions = (
       <button type="button" className={btn} onClick={() => setWavePlanSheetEpicId(epicId)}>
         Review plan
       </button>
     );
-  } else if (inForce) {
+  } else if (plan && inForce) {
     const lastWave = Math.max(...plan.tasks.map((t) => t.wave));
     const stuck = plan.tasks.filter((t) => t.wave === plan.waveCursor && STUCK_STATES.includes(t.state));
     const cap = capQuery.data;

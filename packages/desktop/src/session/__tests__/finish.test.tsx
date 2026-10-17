@@ -74,10 +74,11 @@ describe("the session group draws its actions, it does not fill them", () => {
     expect(rule(".session-action.session-action-destructive:hover:not(:disabled)")).toMatch(/border-color:\s*var\(--destructive-text-rack\)/);
   });
 
-  it("every header action, the composer's Send and the sheet's buttons are control-edged actions", () => {
+  it("every header action and the sheet's buttons are control-edged actions", () => {
     const drawn = (source: string) => (source.match(/control-edge session-action/g) ?? []).length;
-    // Return, Advance, View raw, Stop, Discard, Review changes, Send.
-    expect(drawn(surface)).toBe(7);
+    // View raw, Stop, Discard. (Return, Advance, Send and Review changes went with the authoring
+    // flow and the review surface, issue #38.)
+    expect(drawn(surface)).toBe(3);
     // Deny and Allow-just-this-once (destructive), Allow (routine). The routine Deny is a text action.
     expect(drawn(card)).toBe(3);
     // Cancel and the submit.
@@ -93,8 +94,8 @@ describe("the session group draws its actions, it does not fill them", () => {
 });
 
 describe("08.1 group-four finish-review closure", () => {
-  it("while a run is live the lead is Stop, never Discard (an authoring run's lead is Advance)", () => {
-    expect(surface).toMatch(/onClick=\{handleStop\}[\s\S]{0,200}session-action type-label\$\{stage \? "" : " session-action-lead"\}/);
+  it("while a run is live the lead is Stop, never Discard", () => {
+    expect(surface).toMatch(/onClick=\{handleStop\}[\s\S]{0,200}className="control-edge session-action session-action-lead type-label"/);
     const discard = surface.match(/onClick=\{handleDiscard\}[\s\S]{0,260}?>/)![0];
     expect(discard).toContain('className="control-edge session-action type-label"');
     expect(discard).not.toContain("session-action-lead");
@@ -174,7 +175,7 @@ describe("the launch sheet is a sheet on the per-mode overlay roles", () => {
     const hairlines = code(launchSheet).split("\n").filter((line) => line.includes("--divider"));
     expect(hairlines.length).toBeGreaterThan(0);
     for (const line of hairlines) expect(line, line).toMatch(/border(Top|Bottom):|background:/);
-    expect(launchSheet.match(/control-edge session-field launch-field/g)?.length).toBe(2);
+    expect(launchSheet.match(/control-edge session-field launch-field/g)?.length).toBe(1);
     expect(launchSheet).toContain("control-edge launch-mode");
   });
 

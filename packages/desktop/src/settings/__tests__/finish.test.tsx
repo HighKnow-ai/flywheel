@@ -1,7 +1,7 @@
 /**
  * 08.1 plan 18: what the admin group's finish pass pins at the source level. jsdom cannot paint;
  * `browser/admin-group.browser.test.tsx` measures the same decisions in WebKit. The group is settings, the
- * permission-rules table, the triage surface, the authoring tray with its rows and amend editor, and the legend.
+ * permission-rules table and the legend. (The triage surface and the authoring tray were deleted by issue #38.)
  *
  *  1. No brand-filled action and no on-accent ink (owner decision 2026-10-08), no destructive fill.
  *  2. A chosen value is an ink edge and a foot rule, never a fill. A lead is a 2px ink edge. Neither is brand.
@@ -17,13 +17,9 @@ import { describe, expect, it } from "vitest";
 import css from "../../styles/admin-surfaces.css?raw";
 import settings from "../SettingsSurface.tsx?raw";
 import rules from "../PermissionRulesTable.tsx?raw";
-import triage from "../../triage/TriageSurface.tsx?raw";
-import tray from "../../authoring/ProposalTray.tsx?raw";
-import row from "../../authoring/ProposalRow.tsx?raw";
-import editor from "../../authoring/ProposalAmendEditor.tsx?raw";
 import legend from "../../legend/Legend.tsx?raw";
 
-const SOURCES = { settings, rules, triage, tray, row, editor, legend };
+const SOURCES = { settings, rules, legend };
 
 /** Comment lines out, so a doc comment may still say what the old code did. */
 const code = (text: string) =>
@@ -74,22 +70,8 @@ describe("the admin group draws its actions, it does not fill them", () => {
     expect(body).not.toMatch(/accent|background/);
   });
 
-  it("the amend editor's Save is the one lead; Accept, Reject and the rest of the tray stay on the plain edge", () => {
-    expect(editor.match(/admin-action-lead/g)).toHaveLength(1);
-    expect(code(row)).not.toMatch(/border:\s*"/);
-  });
-
-  it("a proposal row has one lead: the subtree accept where there is one, else Accept (08.1 group-five closure)", () => {
-    // Two sites, never both on screen: the subtree accept, and the bare Accept only when there is no subtree.
-    expect(row.match(/admin-action-lead/g)).toHaveLength(2);
-    expect(row).toMatch(/\$\{canAcceptSubtree \? "" : " admin-action-lead"\}/);
-    expect(row).toMatch(/admin-action admin-action-lead"\s*>\s*\{acceptingSubtree/);
-    // With a subtree on offer the bare Accept says what it accepts.
-    expect(row).toContain('canAcceptSubtree ? "Accept task only" : "Accept"');
-  });
-
   it("every button in the group is control-edged, or is navigation, a link or a menu row", () => {
-    for (const [name, source] of Object.entries({ settings, rules, triage, row, editor })) {
+    for (const [name, source] of Object.entries({ settings, rules })) {
       const buttons = code(source).match(/<button\b(?:=>|[^>])*>/g) ?? [];
       expect(buttons.length, `${name}: no buttons found, so the check would be vacuous`).toBeGreaterThan(0);
       for (const button of buttons) {
@@ -112,24 +94,6 @@ describe("08.1 group-five finish-review closure: the settings table, the checkbo
     expect(rule(".admin-check:checked::after")).toMatch(/border:\s*solid var\(--text-primary-rack\)/);
   });
 
-  it("the merge picker is a 420px column with a filter and a scrolling list", () => {
-    expect(rule(".merge-picker")).toMatch(/max-width:\s*420px/);
-    expect(rule(".merge-picker-list")).toMatch(/max-height:\s*240px/);
-    expect(rule(".merge-picker-list")).toMatch(/overflow-y:\s*auto/);
-    expect(code(triage)).toContain('aria-label="Filter merge targets"');
-  });
-
-  it("the triage body is the settings body, and a proposal row cannot outgrow its column", () => {
-    expect(code(triage)).toContain('className="admin-body"');
-    expect(rule(".proposal-row")).toMatch(/max-width:\s*100%/);
-    expect(rule(".proposal-row")).toMatch(/box-sizing:\s*border-box/);
-  });
-
-  it("a drafted child sits under its root by a 1px divider edge and an indent", () => {
-    const body = rule(".proposal-child");
-    expect(body).toMatch(/border-left:\s*1px solid var\(--divider\)/);
-    expect(body).toMatch(/margin-left:\s*var\(--space-lg\)/);
-  });
 });
 
 describe("a chosen value is not an action", () => {
@@ -140,11 +104,9 @@ describe("a chosen value is not an action", () => {
     expect(body).not.toMatch(/background|accent/);
   });
 
-  it("settings and triage use it for their segmented controls and Pending/Deferred, and the old fills are gone", () => {
+  it("settings uses it for its segmented controls, and the old fills are gone", () => {
     expect(code(settings)).toMatch(/control-edge admin-choice/);
     expect(code(settings)).not.toMatch(/background:\s*selected/);
-    expect(code(triage).match(/control-edge admin-choice/g)).toHaveLength(2);
-    expect(code(triage)).not.toMatch(/surface-secondary/);
   });
 
   it("does not change weight when chosen: a segment that grows pushes its neighbours along", () => {
@@ -160,24 +122,6 @@ describe("selection is the board's neutral rule, and no ring hangs off a prop", 
     }
   });
 
-  it("a selected proposal row reserves a 2px edge on every row and fills it with ink on the selected one", () => {
-    expect(rule(".proposal-row")).toMatch(/border-left:\s*2px solid transparent/);
-    const selected = rule('.proposal-row[data-selected="true"]');
-    expect(selected).toMatch(/border-left-color:\s*var\(--selection-rule\)/);
-    expect(selected).toMatch(/background:\s*var\(--row-surface-selected\)/);
-    expect(selected).not.toMatch(/focus-ring|accent/);
-  });
-
-  it("a proposal row is a hairline-separated square row on the idle surface, like the board's challenge row", () => {
-    const body = rule(".proposal-row");
-    expect(body).toMatch(/background:\s*var\(--row-surface\)/);
-    expect(body).toMatch(/border-bottom:\s*1px solid var\(--divider\)/);
-    expect(body).not.toMatch(/border-radius/);
-  });
-
-  it("the target type reads as the board's challenge row prints it: muted and uppercase, not brand", () => {
-    expect(row).toMatch(/color: "var\(--text-muted-rack\)", textTransform: "uppercase"/);
-  });
 });
 
 describe("the permission-rules table reads through hairlines and spacing", () => {
@@ -201,7 +145,7 @@ describe("the permission-rules table reads through hairlines and spacing", () =>
 
 describe("fields and text", () => {
   it("every input and textarea except a checkbox draws its boundary from the control role", () => {
-    for (const [name, source] of Object.entries({ settings, row, editor })) {
+    for (const [name, source] of Object.entries({ settings })) {
       const fields = code(source).match(/<(?:input|textarea)\b(?:=>|[^>])*>/g) ?? [];
       expect(fields.length, `${name}: no fields found, so the check would be vacuous`).toBeGreaterThan(0);
       for (const field of fields) expect(field, `${name}: a field with no control edge`).toMatch(/control-edge/);
@@ -218,11 +162,5 @@ describe("fields and text", () => {
     const body = rule(".admin-link");
     expect(body).toMatch(/color:\s*var\(--text-primary-rack\)/);
     expect(body).toMatch(/text-decoration:\s*underline/);
-  });
-
-  it("agent-authored text has no raw-HTML path in the tray, the row, the editor or the triage surface", () => {
-    for (const source of [tray, row, editor, triage]) {
-      expect(code(source)).not.toMatch(/dangerouslySetInnerHTML|innerHTML|insertAdjacentHTML/);
-    }
   });
 });

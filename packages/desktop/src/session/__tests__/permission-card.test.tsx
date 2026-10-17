@@ -7,8 +7,8 @@
  * card mounted, re-enables its actions and shows an inline error; two pending requests render as
  * two independently answerable cards.
  *
- * Task 2 — both mount points (`SessionSurface`'s `feed` variant, `ItemDetailPanel`'s `compact`
- * variant) read the SAME `usePendingPermissionRequests(agentRunId)` query: answering at either
+ * Task 2 — both mount points (`SessionSurface`'s `feed` variant, `RunsSection`'s `compact`
+ * variant, which the deleted item detail panel used to host) read the SAME `usePendingPermissionRequests(agentRunId)` query: answering at either
  * mount point clears the other within one delta cycle, with no stale duplicate, and the feed
  * suppresses its follow-the-tail scroll while a request is pending.
  */
@@ -17,7 +17,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PermissionRequestCard, type PendingPermissionRequest } from "../PermissionRequestCard";
 import { SessionSurface } from "../SessionSurface";
-import { ItemDetailPanel, type DetailItem } from "../../item-detail/ItemDetailPanel";
+import { RunsSection } from "../../item-detail/RunsSection";
 
 const invokeCommandMock = vi.fn();
 let capturedBoardChangedHandler: (() => void) | undefined;
@@ -604,10 +604,6 @@ describe("destructive", () => {
 const RUN_ID = "run-shared-1";
 const TASK_ID = "task-shared-1";
 
-function taskDetailItem(): DetailItem {
-  return { id: TASK_ID, kind: "task", key: "FLY-1", title: "A gated task", status: "in_progress", projectId: "proj-1" };
-}
-
 function setUpSharedMounts(initialRequests: PendingPermissionRequest[]) {
   let currentRequests = initialRequests;
   capturedBoardChangedHandler = undefined;
@@ -651,7 +647,7 @@ function setUpSharedMounts(initialRequests: PendingPermissionRequest[]) {
   const view = render(
     <QueryClientProvider client={queryClient}>
       <SessionSurface agentRunId={RUN_ID} onBack={() => {}} initialStatus="blocked" />
-      <ItemDetailPanel item={taskDetailItem()} onClose={() => {}} onUpdateTitle={() => {}} />
+      <RunsSection taskId={TASK_ID} onOpenRun={() => {}} />
     </QueryClientProvider>,
   );
 
@@ -716,18 +712,6 @@ describe("Two mount points, one request (Discretion #6, plan 02-06 Task 2)", () 
     pushBoardChanged();
 
     await waitFor(() => expect(screen.queryAllByText("Bash wants to:")).toHaveLength(0));
-  });
-
-  it("the compact card renders above the Activity Trail section", async () => {
-    setUpSharedMounts([makeRequest({ id: "req-shared" })]);
-    await waitFor(() => expect(screen.getAllByText("Bash wants to:")).toHaveLength(2));
-
-    const detailPanel = screen.getByRole("dialog", { name: "FLY-1 detail" });
-    const cardGroup = within(detailPanel).getByRole("group", { name: "Bash wants to:" });
-    const activitySection = within(detailPanel).getByRole("region", { name: "Activity" });
-    // DOM order: the card's node must precede the Activity Trail's node.
-    // eslint-disable-next-line no-bitwise
-    expect(cardGroup.compareDocumentPosition(activitySection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("the feed does not scroll to its tail while a pending card is mounted, and resumes after it is answered", async () => {

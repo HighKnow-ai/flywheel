@@ -8,11 +8,9 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EpicDispatchControls } from "../EpicDispatchControls";
 import { useUiStore } from "../../state/uiStore";
-import type { DispatchPlanDto, DispatchTaskDto, PlanningRunDto } from "../../adapters/tauri";
+import type { DispatchPlanDto, DispatchTaskDto } from "../../adapters/tauri";
 
 const getMock = vi.fn();
-const runMock = vi.fn();
-const generateMock = vi.fn();
 const pauseMock = vi.fn();
 const resumeMock = vi.fn();
 const stopMock = vi.fn();
@@ -24,8 +22,6 @@ vi.mock("../../adapters/tauri", async () => {
     ...actual,
     subscribeBoardChanged: () => Promise.resolve(() => {}),
     dispatchPlanGet: (epicId: string) => getMock(epicId),
-    dispatchPlanningRun: (epicId: string) => runMock(epicId),
-    dispatchPlanGenerate: (epicId: string) => generateMock(epicId),
     dispatchPlanPause: (planId: string) => pauseMock(planId),
     dispatchPlanResume: (planId: string) => resumeMock(planId),
     dispatchPlanStop: (planId: string) => stopMock(planId),
@@ -52,10 +48,8 @@ function plan(status: string, overrides: Partial<DispatchPlanDto> = {}): Dispatc
   };
 }
 
-async function mount(current: DispatchPlanDto | null, run: PlanningRunDto | null = null) {
+async function mount(current: DispatchPlanDto | null) {
   getMock.mockReset().mockResolvedValue(current);
-  runMock.mockReset().mockResolvedValue(run);
-  generateMock.mockReset();
   pauseMock.mockReset();
   resumeMock.mockReset();
   stopMock.mockReset();
@@ -67,7 +61,6 @@ async function mount(current: DispatchPlanDto | null, run: PlanningRunDto | null
     </QueryClientProvider>,
   );
   await waitFor(() => expect(getMock).toHaveBeenCalled());
-  await waitFor(() => expect(runMock).toHaveBeenCalled());
   return utils;
 }
 
@@ -76,44 +69,18 @@ beforeEach(() => {
 });
 
 describe("EpicDispatchControls", () => {
-  it("offers plan-fan-out, no wave position and no pause for an epic with no live plan", async () => {
+  // The planning run that drafted a plan was deleted by issue #38, so no live plan offers nothing.
+  it("offers no action, no wave position and no pause for an epic with no live plan", async () => {
     await mount(null);
-    expect(await screen.findByRole("button", { name: "Plan fan-out" })).toBeInTheDocument();
+    await waitFor(() => expect(getMock).toHaveBeenCalled());
+    expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByText(/Wave \d/)).toBeNull();
-    expect(screen.queryByRole("button", { name: /Pause/ })).toBeNull();
   });
 
   it("treats a completed or aborted plan as no live plan", async () => {
     await mount(plan("completed"));
-    expect(await screen.findByRole("button", { name: "Plan fan-out" })).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByText(/Wave \d/)).toBeNull();
-  });
-
-  it("issues exactly one generate call and ignores a second click while it is in flight", async () => {
-    await mount(null);
-    let resolve: (r: PlanningRunDto) => void = () => {};
-    generateMock.mockReturnValue(new Promise<PlanningRunDto>((r) => (resolve = r)));
-    const button = await screen.findByRole("button", { name: "Plan fan-out" });
-    fireEvent.click(button);
-    await waitFor(() => expect(button).toBeDisabled());
-    fireEvent.click(button);
-    expect(generateMock).toHaveBeenCalledTimes(1);
-    expect(generateMock).toHaveBeenCalledWith("epic-1");
-    await act(async () => resolve({ runId: "run-1", epicId: "epic-1" }));
-  });
-
-  it("shows the refusal text when the core will not plan this epic", async () => {
-    await mount(null);
-    generateMock.mockRejectedValue("epic has nothing to plan: no backlog or todo tasks");
-    fireEvent.click(await screen.findByRole("button", { name: "Plan fan-out" }));
-    expect(await screen.findByText(/nothing to plan/)).toBeInTheDocument();
-  });
-
-  it("shows a running planning run as in progress, not as a blank draft and not as an offer to plan again", async () => {
-    await mount(null, { runId: "run-1", epicId: "epic-1" });
-    expect(await screen.findByText(/Planning in progress/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Plan fan-out" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Review plan/ })).toBeNull();
   });
 
   it("offers review for a draft and opens the sheet for this epic", async () => {
@@ -206,7 +173,8 @@ describe("EpicDispatchControls", () => {
   });
 
   it("shows the gate's reason and its action on a running plan, where the user looks when it seems stalled", async () => {
-    await mount(plan("running"));
+    // `mount` primes the mocks; its own instance is dropped so only the one rendered below is on screen.
+    (await mount(plan("running"))).unmount();
     gateMock.mockResolvedValue({ state: "paused", message: "The weekly allowance is used up.", resumeAt: null });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
