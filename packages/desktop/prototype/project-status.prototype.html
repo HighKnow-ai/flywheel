@@ -5,7 +5,7 @@
   Question (wayfinder ticket "What does 'clear project status at a glance' look like on the board?"):
   when Cyril opens a project, what should he see straight away?
 
-  Plan: four structurally different variants of the project screen, switchable via `?variant=A|B|C|D`
+  Plan: four structurally different variants (A–D), plus E, the chosen combination, of the project screen, switchable via `?variant=A|B|C|D`
   and the floating bar (or the ← → keys). It's one standalone file with mock data in the new model
   (GLOSSARY.md). Open it by double-clicking.
 
@@ -142,6 +142,13 @@ button.small { padding: 1px 7px; font-size: 11px; }
 .D .num { width: 20px; height: 20px; border-radius: 50%; background: var(--blocked); color: var(--ground); font-size: 11px; font-weight: 700; display: grid; place-items: center; }
 .D .timeline { margin-top: 28px; }
 .D .tl { display: grid; grid-template-columns: 60px 14px 1fr; gap: 10px; padding: 5px 0; align-items: baseline; }
+
+/* ---------- Variant E: chosen. B's roster, A's ranked Needs you above it, D's timeline folded ---------- */
+.E .needs { padding: 14px 28px 16px; border-bottom: 1px solid var(--rule); }
+.E .needs .item { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: start; padding: 10px 12px; border-radius: 6px; margin-top: 6px; }
+.E details { padding: 10px 28px; border-bottom: 1px solid var(--rule); }
+.E summary { cursor: pointer; font-weight: 600; }
+.E .tl { display: grid; grid-template-columns: 60px 14px 1fr; gap: 10px; padding: 4px 0; align-items: baseline; }
 </style>
 </head>
 <body>
@@ -388,12 +395,38 @@ function D() {
   </div>`;
 }
 
+
+// ---------------- Variant E (chosen) ----------------
+function E() {
+  const b = document.createElement("div"); b.innerHTML = B();
+  b.querySelector(".needsline").remove();
+  const n = needsList();
+  const needs = `<div class="needs">
+      <div class="row"><h2 class="s-needs">Needs you</h2><span class="muted label">${n.length} items, most urgent first</span></div>
+      ${n.map(i => `<div class="item needs-card">
+        <span class="s-needs">${i.icon}</span>
+        <div class="grow">
+          <div><span class="micro" style="color:var(--blocked)">${i.kind}</span> · <b>${esc(i.title)}</b>${i.epic ? ` <span class="muted label">in ${i.epic}</span>` : ""}</div>
+          <div class="${i.kind === "Gated action" ? "mono" : "muted label"}" style="margin-top:3px">${esc(i.detail)}</div>
+        </div>
+        <div class="row">${i.age ? `<span class="muted label">${i.age}</span>` : ""}${i.actions.map((a, k) => `<button class="small ${k === 0 ? "primary" : ""}">${a}</button>`).join("")}</div>
+      </div>`).join("")}
+    </div>`;
+  const tl = `<details><summary>Since you last looked <span class="muted label" style="font-weight:400">(09:30 · ${timeline.length} events)</span></summary>
+      ${timeline.map(([t, k, txt]) => `<div class="tl"><span class="muted label">${t}</span><span class="dot d-${k}" style="${k === "run" ? "animation:none" : ""}"></span><span>${txt}</span></div>`).join("")}
+    </details>`;
+  const head = b.querySelector(".mshead");
+  head.insertAdjacentHTML("afterend", needs + tl);
+  return `<div class="B E">${b.firstElementChild.innerHTML}</div>`;
+}
+
 // ---------------- switcher ----------------
 const VARIANTS = [
   ["A", "Needs you first (inbox-led)", A],
   ["B", "Milestone roster (Epics → Stories)", B],
   ["C", "Story flow (columns by state)", C],
   ["D", "Briefing (in sentences)", D],
+  ["E", "CHOSEN: B + A's Needs you + D's timeline", E],
 ];
 function current() {
   const v = new URLSearchParams(location.search).get("variant");
