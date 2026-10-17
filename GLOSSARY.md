@@ -33,7 +33,7 @@ Where an Epic is in its life: Shaping, Ready, In progress, then Done once the de
 _Avoid_: Status, complete
 
 **Task**:
-A checklist step inside a Story that the agent works through and keeps up to date; not a board item of its own.
+A checklist step inside a Story that the Story's agent writes, works through and keeps up to date; never written during Shaping, and not a board item of its own.
 _Avoid_: Subtask, todo
 
 **Acceptance criterion**:
@@ -41,7 +41,7 @@ A testable statement a Story must satisfy, judged against the Story's diff at re
 _Avoid_: Validation, requirement, AC
 
 **Check**:
-An executable test or command attached to an Acceptance criterion that must pass.
+An executable test or command attached to an Acceptance criterion that must pass. Run by Flywheel at hand-off; its result belongs to the commit it ran against.
 _Avoid_: Validation, gate
 
 **Exit test**:
