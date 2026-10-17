@@ -1980,6 +1980,11 @@ pub fn orphan_kill(
     Ok(OrphanKillDto { killed: outcome.killed, pid: outcome.pid, detail: outcome.detail })
 }
 
+/// The one shared scratch worktree-root helper (issue #42), included by path rather than copied.
+#[cfg(test)]
+#[path = "../../../../core/tests/common/scratch_root.rs"]
+mod scratch_root;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2652,29 +2657,21 @@ mod tests {
         assert_eq!(status, "interrupted", "the status must remain interrupted, not overwritten");
     }
 
-    /// Serializes every call to [`with_scratch_worktree_root`] in THIS binary — verbatim in shape
-    /// to `packages/core/tests/discard_lifecycle.rs`'s and `stop_lifecycle.rs`'s own identical
-    /// guard: `FLYWHEEL_WORKTREE_ROOT` is process-global mutable state, and two tests racing here
-    /// could let one test's worktree creation fall through to the real default
-    /// (`~/Flywheel/...`) between the other test's `set_var`/`remove_var` pair.
-    static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-        let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-        // Plan 09-01: starting a run now writes its scope marker under `runtime_dir()`, so every
-        // test that reaches `start_agent_run_recording_first` also needs a scratch runtime dir —
-        // otherwise the marker lands in the developer's real `<app-data>/runtime/`.
-        let runtime_dir = tempfile::tempdir().expect("failed to create scratch runtime dir");
-        // SAFETY: the mutex above serializes every caller in this binary, so no other thread
-        // reads or mutates these vars while they're set, and this helper always clears them
-        // before returning.
-        unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-        unsafe { std::env::set_var("FLYWHEEL_RUNTIME_DIR", runtime_dir.path()) };
-        let result = f();
-        unsafe { std::env::remove_var("FLYWHEEL_RUNTIME_DIR") };
-        unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-        result
+    /// The shared scratch worktree root (`super::scratch_root`, which holds the process-wide lock),
+    /// plus a scratch runtime dir set and cleared inside that same lock.
+    fn with_scratch_dirs<T>(f: impl FnOnce() -> T) -> T {
+        super::scratch_root::with_scratch_worktree_root(|_| {
+            // Plan 09-01: starting a run now writes its scope marker under `runtime_dir()`, so every
+            // test that reaches `start_agent_run_recording_first` also needs a scratch runtime dir —
+            // otherwise the marker lands in the developer's real `<app-data>/runtime/`.
+            let runtime_dir = tempfile::tempdir().expect("failed to create scratch runtime dir");
+            // SAFETY: the shared helper's lock serializes every caller in this binary, so no other
+            // thread reads or mutates this var while it's set, and it is cleared before returning.
+            unsafe { std::env::set_var("FLYWHEEL_RUNTIME_DIR", runtime_dir.path()) };
+            let result = f();
+            unsafe { std::env::remove_var("FLYWHEEL_RUNTIME_DIR") };
+            result
+        })
     }
 
     /// A fresh migrated database, one project pointing at a REAL git repository (one commit on
@@ -2799,7 +2796,7 @@ mod tests {
 
     #[test]
     fn the_real_run_start_writes_an_armed_marker_and_the_shipped_hook_enforces_it() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let (mut conn, actor, _project_id, task_id, _repo) = seeded_git_conn_with_task();
             declare_set(&mut conn, &actor, &task_id, &["src/allowed/"]);
 
@@ -2825,7 +2822,7 @@ mod tests {
 
     #[test]
     fn the_real_run_start_for_a_task_with_no_declared_set_writes_an_unarmed_marker() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let (mut conn, actor, _project_id, task_id, _repo) = seeded_git_conn_with_task();
 
             let outcome = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor, false)
@@ -2845,7 +2842,7 @@ mod tests {
 
     #[test]
     fn clearing_the_declared_set_makes_the_next_real_run_start_unarmed() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let (mut conn, actor, _project_id, task_id, _repo) = seeded_git_conn_with_task();
             declare_set(&mut conn, &actor, &task_id, &["a/"]);
             let first = start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor, false).unwrap();
@@ -2876,15 +2873,15 @@ mod tests {
 
     #[test]
     fn a_scope_marker_write_failure_aborts_the_start_and_leaves_no_running_run() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let (mut conn, actor, _project_id, task_id, _repo) = seeded_git_conn_with_task();
             declare_set(&mut conn, &actor, &task_id, &["a/"]);
 
             // Make the runtime directory unusable: point it BENEATH a regular file, so creating
-            // `<runtime>/scope/` fails. (`with_scratch_worktree_root` restores/clears the var.)
+            // `<runtime>/scope/` fails. (`with_scratch_dirs` restores/clears the var.)
             let blocker = tempfile::NamedTempFile::new().unwrap();
             let unusable = blocker.path().join("runtime");
-            // SAFETY: serialised by `WORKTREE_ROOT_ENV_LOCK`, held by the enclosing helper.
+            // SAFETY: serialised by the shared scratch-root lock, held by the enclosing helper.
             unsafe { std::env::set_var("FLYWHEEL_RUNTIME_DIR", &unusable) };
 
             let err = match start_agent_run_recording_first(&mut conn, &task_id, "acceptEdits", "", &actor, false) {
@@ -2961,7 +2958,7 @@ mod tests {
 
     #[test]
     fn a_dispatched_launch_colliding_with_a_live_task_is_refused_and_creates_nothing() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let mut f = two_tasks(&["src/a/"], &["src/a/"]);
             let before = launch_footprint(&f.conn, &f.task);
             let err = match launch(&mut f.conn, &f.task, CrossTaskConflict::Refuse) {
@@ -2975,7 +2972,7 @@ mod tests {
 
     #[test]
     fn a_dispatched_launch_beside_an_undeclared_live_task_is_refused_as_runs_alone() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let mut f = two_tasks(&["src/a/"], &[]);
             let before = launch_footprint(&f.conn, &f.task);
             let err = match launch(&mut f.conn, &f.task, CrossTaskConflict::Refuse) {
@@ -2989,7 +2986,7 @@ mod tests {
 
     #[test]
     fn a_dispatched_launch_with_nothing_in_flight_proceeds_silently() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let (mut conn, actor, _p, task, _repo) = seeded_git_conn_with_task();
             declare_set(&mut conn, &actor, &task, &["src/a/"]);
             let prepared = launch(&mut conn, &task, CrossTaskConflict::Refuse).expect("nothing in flight");
@@ -3001,7 +2998,7 @@ mod tests {
 
     #[test]
     fn a_manual_launch_colliding_with_a_different_live_task_proceeds_recorded_and_warned() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let mut f = two_tasks(&["src/a/"], &["src/a/"]);
             let prepared = launch(&mut f.conn, &f.task, CrossTaskConflict::WarnAndProceed)
                 .expect("a user's own launch is never refused for a cross-task conflict (09-07)");
@@ -3017,7 +3014,7 @@ mod tests {
 
     #[test]
     fn a_manual_launch_beside_an_undeclared_live_task_proceeds_with_the_runs_alone_wording() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let mut f = two_tasks(&["src/a/"], &[]);
             let prepared = launch(&mut f.conn, &f.task, CrossTaskConflict::WarnAndProceed).expect("proceeds");
             let warning = prepared.overlap_warning.expect("surfaced");
@@ -3030,7 +3027,7 @@ mod tests {
 
     #[test]
     fn a_manual_launch_with_nothing_in_flight_is_silent() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let (mut conn, actor, _p, task, _repo) = seeded_git_conn_with_task();
             declare_set(&mut conn, &actor, &task, &["src/a/"]);
             let prepared = launch(&mut conn, &task, CrossTaskConflict::WarnAndProceed).expect("proceeds");
@@ -3043,7 +3040,7 @@ mod tests {
     fn a_task_with_its_own_running_or_blocked_run_is_refused_on_both_dispositions() {
         for status in ["running", "blocked"] {
             for conflict in [CrossTaskConflict::Refuse, CrossTaskConflict::WarnAndProceed] {
-                with_scratch_worktree_root(|| {
+                with_scratch_dirs(|| {
                     let (mut conn, actor, _p, task, _repo) = seeded_git_conn_with_task();
                     declare_set(&mut conn, &actor, &task, &["src/a/"]);
                     let first = start_agent_run_recording_first(&mut conn, &task, "acceptEdits", "", &actor, false).unwrap();
@@ -3066,7 +3063,7 @@ mod tests {
 
     #[test]
     fn a_manual_launch_at_or_above_the_cap_still_proceeds() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let mut f = two_tasks(&["src/a/"], &["src/b/"]);
             let actor = flywheel_core::domain::actor::local_human_actor_id(&f.conn).unwrap();
             flywheel_core::domain::settings::set_dispatch_max_parallel(&mut f.conn, &actor, 1).unwrap();
@@ -3087,7 +3084,7 @@ mod tests {
     #[test]
     fn a_dispatcher_launch_is_attributed_to_the_system_actor_and_a_manual_launch_to_the_human() {
         for (conflict, automatic) in [(CrossTaskConflict::Refuse, true), (CrossTaskConflict::WarnAndProceed, false)] {
-            with_scratch_worktree_root(|| {
+            with_scratch_dirs(|| {
                 let (mut conn, human, _p, task, _repo) = seeded_git_conn_with_task();
                 declare_set(&mut conn, &human, &task, &["src/a/"]);
                 let system = flywheel_core::domain::actor::system_actor(&conn).unwrap().id;
@@ -3140,7 +3137,7 @@ mod tests {
     #[test]
     fn a_case_only_pair_is_judged_by_the_flag_the_launch_is_given() {
         for fold in [false, true] {
-            with_scratch_worktree_root(|| {
+            with_scratch_dirs(|| {
                 let mut f = two_tasks(&["Src/a.rs"], &["src/a.rs"]);
                 let result = prepare_launch(&mut f.conn, &f.task, "acceptEdits", "", CrossTaskConflict::Refuse, fold);
                 if fold {
@@ -3156,7 +3153,7 @@ mod tests {
     #[test]
     fn the_observed_case_flag_is_the_repositorys_core_ignorecase() {
         for configured in ["false", "true"] {
-            with_scratch_worktree_root(|| {
+            with_scratch_dirs(|| {
                 let (conn, _actor, _project, task, repo) = seeded_git_conn_with_task();
                 // Every git command is constructed in `core/src/git.rs` (supervisor_cwd.rs pins it).
                 flywheel_core::git::git_at(repo.path(), &["config", "core.ignorecase", configured]).unwrap();
@@ -3198,7 +3195,7 @@ mod tests {
 
     #[test]
     fn a_failure_between_the_run_insert_and_the_scope_marker_closes_the_run_failed() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let (mut conn, _actor, _p, task, _repo) = seeded_git_conn_with_task();
             // Step 3 of the run start writes the criteria pin; make exactly that write fail.
             conn.execute_batch(
@@ -3219,7 +3216,7 @@ mod tests {
 
     #[test]
     fn a_failure_recording_the_launch_overlap_closes_the_run_failed() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let mut f = two_tasks(&["src/a/"], &["src/a/"]);
             f.conn
                 .execute_batch(&format!(
@@ -3256,7 +3253,7 @@ mod tests {
 
     #[test]
     fn a_shim_install_failure_closes_the_run_failed() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let (err, db, task, _repo) = spawn_with(|_, _| Err(anyhow::anyhow!("shim boom")), |_| Ok(()));
             assert!(err.contains("shim boom"), "{err}");
             assert_failed_launch_left_nothing_running(&db.lock().unwrap(), &task, 0);
@@ -3265,7 +3262,7 @@ mod tests {
 
     #[test]
     fn a_failed_gated_spawn_closes_the_run_failed() {
-        with_scratch_worktree_root(|| {
+        with_scratch_dirs(|| {
             let (err, db, task, _repo) = spawn_with(|_, _| Ok(()), |_| Err("spawn boom".to_string()));
             assert!(err.contains("spawn boom"), "{err}");
             assert_failed_launch_left_nothing_running(&db.lock().unwrap(), &task, 0);

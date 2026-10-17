@@ -5,6 +5,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use core::domain::agent_run::{
     apply_session_closed, close_agent_run, start_agent_run, AgentRun, AgentRunStatus,
     SessionClosedOutcome,
@@ -46,27 +48,9 @@ fn minimal_fields(changed_prose: &str, auto_generated: bool) -> SummaryFields {
     }
 }
 
-// See `tests/context_packet.rs` for why this lock exists: `FLYWHEEL_WORKTREE_ROOT` is
-// process-wide state, and `cargo test` runs every `#[test]` fn in this file concurrently on
-// separate OS threads by default. This mutex scopes serialisation to this file's own binary.
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: serialised by `WORKTREE_ROOT_ENV_LOCK` above — only one test at a time ever has
-    // this var set within this binary, and it is always cleared before the lock is released.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
-
 #[test]
 fn two_summaries_for_one_run_append_rather_than_replace() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
 
         let first = create_summary(&mut conn, &run.id, minimal_fields("first pass", false), &actor_id)
@@ -117,7 +101,7 @@ fn two_summaries_for_one_run_append_rather_than_replace() {
 
 #[test]
 fn ordering_is_stable_under_a_tied_created_at_timestamp() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, _project, _repo_dir, task, run) = seeded_task_and_run();
 
         let s1 = create_summary(&mut conn, &run.id, minimal_fields("one", false), &actor_id)
@@ -163,7 +147,7 @@ fn ordering_is_stable_under_a_tied_created_at_timestamp() {
 
 #[test]
 fn fallback_summary_counts_the_runs_own_events_and_names_the_close_reason() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir, task, run) = seeded_task_and_run();
 
         // Three tool_call-derived event rows attached directly to the run (stream_id = run.id),
@@ -257,7 +241,7 @@ fn fallback_summary_counts_the_runs_own_events_and_names_the_close_reason() {
 
 #[test]
 fn fallback_summary_with_zero_matching_events_still_yields_one_honest_row() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
 
         // Clear every event so the synthesizer's own count query reads zero — proving the
@@ -305,7 +289,7 @@ fn fallback_summary_with_zero_matching_events_still_yields_one_honest_row() {
 
 #[test]
 fn fallback_summary_is_attributed_to_the_agent_actor_not_a_human() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, human_actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
 
         let tx = conn.transaction().expect("failed to open tx for synthesize");
@@ -331,7 +315,7 @@ fn fallback_summary_is_attributed_to_the_agent_actor_not_a_human() {
 
 #[test]
 fn calling_the_synthesizer_twice_for_the_same_run_writes_two_rows() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
 
         {
@@ -363,7 +347,7 @@ fn calling_the_synthesizer_twice_for_the_same_run_writes_two_rows() {
 
 #[test]
 fn create_summary_and_synthesize_fallback_summary_share_one_insert_site_and_stay_distinguishable() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, _project, _repo_dir, task, run) = seeded_task_and_run();
 
         let agent_written =
@@ -391,7 +375,7 @@ fn create_summary_and_synthesize_fallback_summary_share_one_insert_site_and_stay
 
 #[test]
 fn apply_session_closed_interrupted_writes_a_fallback_summary_and_points_exit_summary_id_at_it() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
 
         let event = serde_json::json!({
@@ -442,7 +426,7 @@ fn apply_session_closed_behaves_identically_for_completed_and_failed() {
     // prefix/first-task-key ("FLY-1"), which would collide on the same physical worktree
     // directory on disk if the root were shared across iterations.
     for reason in ["completed", "failed"] {
-        with_scratch_worktree_root(|| {
+        with_scratch_worktree_root(|_| {
             let (mut conn, _actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
             let event = serde_json::json!({
                 "type": "session_closed",
@@ -468,7 +452,7 @@ fn apply_session_closed_behaves_identically_for_completed_and_failed() {
 
 #[test]
 fn apply_session_closed_never_synthesizes_a_second_summary_when_one_already_exists() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
 
         let recorded = create_summary(
@@ -508,7 +492,7 @@ fn apply_session_closed_never_synthesizes_a_second_summary_when_one_already_exis
 
 #[test]
 fn apply_session_closed_with_a_non_ulid_run_id_writes_no_summary() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, _project, _repo_dir) = common::seeded_git_project();
 
         let event = serde_json::json!({
@@ -529,7 +513,7 @@ fn apply_session_closed_with_a_non_ulid_run_id_writes_no_summary() {
 
 #[test]
 fn close_agent_run_still_works_directly_after_the_in_tx_refactor() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, _project, _repo_dir, _task, run) = seeded_task_and_run();
 
         close_agent_run(&mut conn, &run.id, AgentRunStatus::Completed, Some(0.01), Some(10), Some(2))

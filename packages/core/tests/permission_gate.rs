@@ -4,6 +4,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use core::destructive::DestructiveCategory;
 use core::domain::agent_run::start_agent_run;
 use core::domain::permission_request::{answer_request, create_pending_request, AlreadyAnsweredError};
@@ -16,30 +18,12 @@ use core::query::permissions::{
 };
 use rusqlite::Connection;
 
-/// Serializes every call to [`with_scratch_worktree_root`] in THIS binary — see
-/// `stop_lifecycle.rs`'s identical helper and its own doc comment for why: `cargo test` runs a
-/// binary's `#[test]` fns concurrently by default, and `FLYWHEEL_WORKTREE_ROOT` is process-global
-/// mutable state. Each `tests/*.rs` file compiles to its own binary, so this cannot race with
-/// `stop_lifecycle.rs`'s own, separate static.
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads
-    // or mutates this var while it's set, and this helper always clears it before returning.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
-
 /// Seed one project with one task and one `running` agent run (via the real `start_agent_run`,
 /// exercising the real worktree-creation path exactly as `stop_lifecycle.rs` does) — everything
 /// this file's tests need to raise a permission request against a real, referentially-valid
 /// `agent_run_id`.
 fn seeded_running_run() -> (Connection, String, String, String, String) {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Gated task", None)
             .expect("create_task should succeed");
@@ -225,7 +209,7 @@ fn revoke_rule_deletes_the_row_and_appends_a_revoked_event() {
 
 #[test]
 fn blocked_count_and_ids_reflect_only_tasks_whose_most_recent_run_is_blocked() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
 
         // A project with no runs at all reports zero, not an error.
@@ -331,7 +315,7 @@ fn pending_requests_for_run_round_trips_the_destructive_category_or_none(
 
 #[test]
 fn latest_run_id_for_task_resolves_the_most_recently_started_run() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "A task", None)
             .expect("create_task should succeed");

@@ -3,6 +3,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -13,18 +15,6 @@ use core::domain::worktree::{
 };
 use core::query::fleet::{finish_worktree_inventory, worktree_inventory_inputs};
 use rusqlite::{params, Connection};
-
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce(&Path) -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    let dir = tempfile::tempdir().expect("scratch worktree root");
-    // SAFETY: serialised by the mutex above; cleared before return.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f(dir.path());
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 fn git(repo: &Path, args: &[&str]) -> String {
     let out = Command::new("git").arg("-C").arg(repo).args(args).output().expect("spawn git");

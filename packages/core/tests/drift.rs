@@ -8,6 +8,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use core::domain::session_summary::SummaryEntry;
 use core::domain::agent_run::{
     close_agent_run, mark_abandoned, record_drift_warnings, start_agent_run, AgentRunStatus,
@@ -17,21 +19,6 @@ use core::domain::task::create_task;
 use core::domain::worktree::{ensure_worktree, reconcile_worktrees};
 use core::drift::{decision_ids_on_record, detect_drift, DriftInputs, DriftKind, DriftWarning};
 use core::query::recovery::{recovery_count_for_project, recovery_task_ids_for_project};
-
-// `FLYWHEEL_WORKTREE_ROOT` is process-wide state (mirrors `context_packet.rs`'s own
-// `WORKTREE_ROOT_ENV_LOCK` — each `tests/*.rs` file is its own binary, so this lock only needs to
-// scope Task 3's two tests against each other, never against another file).
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: serialised by `WORKTREE_ROOT_ENV_LOCK` above.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 /// A minimal `SummaryEntry` a test can override selectively — `agent_run_id`/`created_at` carry
 /// the ordinal so a failure names which entry it means.
@@ -435,7 +422,7 @@ fn sample_warnings(n: usize) -> Vec<DriftWarning> {
 
 #[test]
 fn record_drift_warnings_appends_one_drift_detected_event_per_warning() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Drift trail task", None)
             .expect("create_task should succeed");
@@ -470,7 +457,7 @@ fn record_drift_warnings_appends_one_drift_detected_event_per_warning() {
 
 #[test]
 fn record_drift_warnings_with_an_empty_slice_appends_nothing_and_returns_zero() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Quiet run task", None)
             .expect("create_task should succeed");
@@ -505,7 +492,7 @@ fn record_drift_warnings_with_an_empty_slice_appends_nothing_and_returns_zero() 
 
 #[test]
 fn record_drift_warnings_events_render_the_exact_sentence_the_agent_was_shown() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Wording task", None)
             .expect("create_task should succeed");
@@ -553,7 +540,7 @@ fn record_drift_warnings_events_render_the_exact_sentence_the_agent_was_shown() 
 
 #[test]
 fn record_drift_warnings_in_a_rolled_back_transaction_leaves_no_trace() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Rollback task", None)
             .expect("create_task should succeed");
@@ -601,7 +588,7 @@ fn record_one_drift_warning(conn: &mut rusqlite::Connection, actor_id: &str, run
 
 #[test]
 fn a_task_whose_latest_run_drifted_appears_in_the_recovery_set() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Drifted task", None)
             .expect("create_task should succeed");
@@ -623,7 +610,7 @@ fn a_task_whose_latest_run_drifted_appears_in_the_recovery_set() {
 
 #[test]
 fn a_task_whose_latest_run_is_clean_does_not_appear_even_though_an_earlier_run_drifted() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Recovered task", None)
             .expect("create_task should succeed");
@@ -650,7 +637,7 @@ fn a_task_whose_latest_run_is_clean_does_not_appear_even_though_an_earlier_run_d
 
 #[test]
 fn a_task_with_both_a_missing_worktree_and_a_drift_signal_appears_exactly_once() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Both signals task", None)
             .expect("create_task should succeed");
@@ -680,7 +667,7 @@ fn a_task_with_both_a_missing_worktree_and_a_drift_signal_appears_exactly_once()
 
 #[test]
 fn a_project_with_only_clean_runs_reports_zero_recovery_items() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Clean task", None)
             .expect("create_task should succeed");
@@ -702,7 +689,7 @@ fn a_project_with_only_clean_runs_reports_zero_recovery_items() {
 
 #[test]
 fn count_and_ids_agree_when_drift_is_mixed_with_the_other_recovery_facts() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
 
         // Task 1: drift only.
@@ -775,7 +762,7 @@ fn task_with_windowed_summaries(
 
 #[test]
 fn decision_ids_on_record_returns_only_the_ids_it_finds_in_first_seen_order() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = task_with_windowed_summaries(&mut conn, &project.id, &actor_id, 3, &[]);
 
@@ -856,7 +843,7 @@ fn an_empty_candidate_list_returns_empty_without_touching_the_database() {
 
 #[test]
 fn duplicate_candidates_appear_at_most_once_in_first_seen_order() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = task_recording(&mut conn, &project.id, &actor_id, &strings(&["D-A", "D-B"]));
         let found = decision_ids_on_record(&conn, &task, &strings(&["D-B", "D-A", "D-B", "D-A"]), &[])
@@ -867,7 +854,7 @@ fn duplicate_candidates_appear_at_most_once_in_first_seen_order() {
 
 #[test]
 fn ids_the_window_already_holds_are_not_looked_up() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = task_recording(&mut conn, &project.id, &actor_id, &strings(&["D-A", "D-B"]));
         let found = decision_ids_on_record(&conn, &task, &strings(&["D-A", "D-B"]), &strings(&["D-A"]))
@@ -878,7 +865,7 @@ fn ids_the_window_already_holds_are_not_looked_up() {
 
 #[test]
 fn the_candidate_cap_boundary_returns_exactly_the_cap_and_never_panics() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let cap = MAX_ECHOED_DECISION_CANDIDATES;
         let recorded = ids("D", cap + 10);
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
@@ -902,7 +889,7 @@ fn the_candidate_cap_boundary_returns_exactly_the_cap_and_never_panics() {
 
 #[test]
 fn a_malformed_decisions_blob_is_an_error_not_an_empty_list() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = task_recording(&mut conn, &project.id, &actor_id, &strings(&["D-A"]));
         conn.execute("UPDATE session_summaries SET decisions = 'not json' WHERE task_id = ?1", [&task])

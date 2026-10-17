@@ -5,6 +5,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use core::domain::agent_run::{acknowledge_run, mark_abandoned, start_agent_run};
 use core::domain::project;
 use core::domain::task::create_task;
@@ -12,25 +14,9 @@ use core::domain::worktree::{ensure_worktree, reconcile_worktrees};
 use core::query::recovery::{recovery_count_for_project, recovery_task_ids_for_project};
 use rusqlite::{params, Connection};
 
-/// Serializes every call to [`with_scratch_worktree_root`] in THIS binary — `FLYWHEEL_WORKTREE_ROOT`
-/// is process-global mutable state and `cargo test` runs `#[test]` functions concurrently by
-/// default (mirrors `reconcile_worktrees.rs`'s/`permission_gate.rs`'s own guard).
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads or
-    // mutates this var while it's set, and this helper always clears it before returning.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
-
 #[test]
 fn an_empty_project_returns_an_empty_set_and_a_zero_count() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (conn, _actor_id, project, _repo_dir) = common::seeded_git_project();
 
         let ids = recovery_task_ids_for_project(&conn, &project.id)
@@ -46,7 +32,7 @@ fn an_empty_project_returns_an_empty_set_and_a_zero_count() {
 
 #[test]
 fn a_missing_worktree_task_is_in_the_set() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Missing worktree task", None)
             .expect("create_task should succeed");
@@ -68,7 +54,7 @@ fn a_missing_worktree_task_is_in_the_set() {
 
 #[test]
 fn an_unacknowledged_abandoned_run_task_is_in_the_set() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Abandoned run task", None)
             .expect("create_task should succeed");
@@ -90,7 +76,7 @@ fn an_unacknowledged_abandoned_run_task_is_in_the_set() {
 
 #[test]
 fn an_acknowledged_abandoned_run_with_a_healthy_worktree_is_excluded() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Acknowledged task", None)
             .expect("create_task should succeed");
@@ -118,7 +104,7 @@ fn an_acknowledged_abandoned_run_with_a_healthy_worktree_is_excluded() {
 
 #[test]
 fn a_task_with_both_conditions_appears_exactly_once_and_counts_once() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Both conditions task", None)
             .expect("create_task should succeed");
@@ -149,7 +135,7 @@ fn a_task_with_both_conditions_appears_exactly_once_and_counts_once() {
 
 #[test]
 fn a_task_in_another_project_is_never_in_the_set() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project_a, _repo_dir) = common::seeded_git_project();
         let project_b =
             project::create_project(&mut conn, &actor_id, "Other Project", "/other-repo", "OTH", "main")
@@ -180,7 +166,7 @@ fn a_task_in_another_project_is_never_in_the_set() {
 
 #[test]
 fn count_and_ids_agree_across_a_mixed_multi_task_fixture() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
 
         // Task 1: missing worktree only.

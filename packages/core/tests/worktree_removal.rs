@@ -4,32 +4,16 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use std::path::Path;
 
 use core::domain::task::create_task;
 use core::domain::worktree::{ensure_worktree, porcelain_entries, remove_worktree_for_task};
 
-/// Serializes every call to [`with_scratch_worktree_root`] in THIS binary — `FLYWHEEL_WORKTREE_ROOT`
-/// is process-global mutable state and `cargo test` runs `#[test]` functions concurrently by
-/// default (mirrors `stop_lifecycle.rs`'s own guard; never the unguarded pattern
-/// `worktree_lifecycle.rs` still carries — this plan's own `<action>` names that as broken window
-/// #2).
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads or
-    // mutates this var while it's set, and this helper always clears it before returning.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
-
 #[test]
 fn removing_a_clean_worktree_deletes_it_from_disk_and_the_database_and_appends_one_event() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Removal task", None)
             .expect("create_task should succeed");
@@ -66,7 +50,7 @@ fn removing_a_clean_worktree_deletes_it_from_disk_and_the_database_and_appends_o
 
 #[test]
 fn removing_a_worktree_with_a_modified_file_is_refused_and_leaves_everything_in_place() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Dirty task", None)
             .expect("create_task should succeed");
@@ -103,7 +87,7 @@ fn removing_a_worktree_with_a_modified_file_is_refused_and_leaves_everything_in_
 
 #[test]
 fn removing_a_worktree_with_only_an_untracked_file_is_also_refused() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Untracked task", None)
             .expect("create_task should succeed");
@@ -123,7 +107,7 @@ fn removing_a_worktree_with_only_an_untracked_file_is_also_refused() {
 
 #[test]
 fn porcelain_entries_on_a_dirty_worktree_returns_one_entry_per_porcelain_line() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Check task", None)
             .expect("create_task should succeed");
@@ -151,7 +135,7 @@ fn porcelain_entries_on_a_dirty_worktree_returns_one_entry_per_porcelain_line() 
 
 #[test]
 fn worktree_summary_for_task_on_a_task_with_no_worktrees_row_returns_none() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "No worktree task", None)
             .expect("create_task should succeed");
@@ -172,7 +156,7 @@ fn worktree_summary_for_task_on_a_task_with_no_worktrees_row_returns_none() {
 /// AFTER it — not just "the row count is still 1" (Task 1's own, weaker assertion).
 #[test]
 fn refusal_leaves_everything_untouched() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Untouched task", None)
             .expect("create_task should succeed");

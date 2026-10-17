@@ -14,6 +14,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use core::db::open_and_migrate;
 use core::domain::actor::local_human_actor_id;
 use core::domain::agent_run::{close_agent_run, start_agent_run, AgentRunStatus};
@@ -25,22 +27,6 @@ use core::domain::project;
 use core::domain::task::create_task;
 use core::query::authoring::{list_recent_authoring_runs, measure_authoring_run};
 use rusqlite::{params, Connection};
-
-/// Serializes every call to [`with_scratch_worktree_root`] in THIS binary — mirrors
-/// `authoring_lifecycle.rs`'s own identically-named lock; needed only by the one test below that
-/// starts a real TASK run (`start_agent_run` calls `ensure_worktree`, which needs a real
-/// repository, unlike an authoring run's worktree-less start).
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: the mutex above serializes every caller in this binary.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 #[test]
 fn accepted_task_and_criterion_proposals_are_both_counted() {
@@ -547,7 +533,7 @@ fn the_measurement_is_reproducible_under_a_bound_smaller_than_the_data() {
 
 #[test]
 fn recent_authoring_runs_lists_only_authoring_runs_newest_first() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
 
         let older = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)

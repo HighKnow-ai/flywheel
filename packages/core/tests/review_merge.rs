@@ -3,6 +3,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -10,20 +12,6 @@ use core::git::{
     merge_abort_if_in_progress, merge_no_ff, merge_tree_check, push_branch, rev_parse_verify,
     worktree_add_existing, MergePrecheck,
 };
-
-/// Serializes every test that sets `FLYWHEEL_WORKTREE_ROOT` (process-global state), mirroring
-/// `forge_live_chain.rs`'s lock.
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce(&Path) -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: serialised by `WORKTREE_ROOT_ENV_LOCK`; always cleared before the lock is released.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f(dir.path());
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 /// Direct git for fixtures and assertions (the cwd gate scans only `src` trees).
 fn git(path: &Path, args: &[&str]) -> String {

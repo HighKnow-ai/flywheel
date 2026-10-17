@@ -5,6 +5,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use std::path::{Path, PathBuf};
 
 use core::domain::acceptance_criterion::{create_criterion, list_current_criteria};
@@ -65,21 +67,6 @@ fn with_scratch_runtime_dir<T>(f: impl FnOnce() -> T) -> T {
     unsafe { std::env::set_var("FLYWHEEL_RUNTIME_DIR", dir.path()) };
     let result = f();
     unsafe { std::env::remove_var("FLYWHEEL_RUNTIME_DIR") };
-    result
-}
-
-/// Serializes every call to [`with_scratch_worktree_root`] in THIS binary — mirrors
-/// `criteria_pin.rs`'s identically-named lock. Only the locked-criterion test needs a real
-/// `agent_runs` row against a real worktree; every other test in this file never sets this var.
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: serialised by WORKTREE_ROOT_ENV_LOCK above.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
     result
 }
 
@@ -332,7 +319,7 @@ fn accepting_an_amend_criterion_proposal_against_an_unlocked_criterion_updates_i
 fn accepting_an_amend_criterion_proposal_against_a_locked_criterion_appends_a_revision_and_leaves_the_predecessor_byte_identical(
 ) {
     with_scratch_runtime_dir(|| {
-        with_scratch_worktree_root(|| {
+        with_scratch_worktree_root(|_| {
             let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
             let task = create_task(&mut conn, &project.id, &human_actor_id, "Task", None).unwrap();
             let criterion = create_criterion(

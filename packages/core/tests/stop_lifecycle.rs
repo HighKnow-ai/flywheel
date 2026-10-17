@@ -5,31 +5,13 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use std::path::Path;
 use std::process::Command;
 
 use core::domain::agent_run::{interrupt_agent_run, start_agent_run};
 use core::domain::task::create_task;
-
-/// Serializes every call to [`with_scratch_worktree_root`] in THIS binary. `cargo test` runs the
-/// `#[test]` functions within one integration-test binary concurrently on a thread pool by
-/// default — `FLYWHEEL_WORKTREE_ROOT` is process-global mutable state, so two tests racing here
-/// would let one test's `worktree_add` fall through to the real default (`~/Flywheel/...`)
-/// between the other test's `set_var`/`remove_var` pair. Observed directly while writing this
-/// file: `cargo test -p core --test stop_lifecycle` (both tests, no lock) created a real
-/// `~/Flywheel/FLY/FLY-1` directory on the machine running the test.
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads
-    // or mutates this var while it's set, and this helper always clears it before returning.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 /// Run `git -C <repo_path> <args>` and return trimmed stdout — a minimal local helper mirroring
 /// `core::git::git_at`'s own explicit-path discipline, kept separate here so this test never
@@ -51,7 +33,7 @@ fn git_output(repo_path: &Path, args: &[&str]) -> String {
 
 #[test]
 fn interrupt_agent_run_closes_interrupted_leaves_task_in_progress_and_keeps_the_worktree_dirty() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Stop-path task", None)
             .expect("create_task should succeed");
@@ -163,7 +145,7 @@ fn interrupt_agent_run_closes_interrupted_leaves_task_in_progress_and_keeps_the_
 
 #[test]
 fn interrupt_agent_run_on_an_unknown_run_id_is_a_no_op() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, _project, _repo_dir) = common::seeded_git_project();
 
         // No agent_runs row exists for this id at all — must not error and must not panic.

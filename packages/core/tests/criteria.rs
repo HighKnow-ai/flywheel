@@ -18,6 +18,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use core::db::open_and_migrate;
 use core::domain::acceptance_criterion::{
     create_criterion, criteria_locked_for_task, delete_criterion, list_criteria,
@@ -32,26 +34,6 @@ use core::domain::project::{self, Project};
 use core::domain::task::{create_task, delete_task, set_task_status, update_task};
 use core::query::{list_board, BoardFilter};
 use rusqlite::Connection;
-
-/// Serialises every call to [`with_scratch_worktree_root`] in THIS binary — `FLYWHEEL_WORKTREE_ROOT`
-/// is process-global mutable state, and `cargo test` runs a binary's `#[test]` fns concurrently by
-/// default. Mirrors `tests/context_packet.rs`'s and `tests/destructive_classifier.rs`'s identical
-/// helper; each `tests/*.rs` file compiles to its own binary, so this cannot race with either.
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// The lock/revision tests below need a real `agent_runs` row (`start_agent_run`), which in turn
-/// needs a real worktree root — this file's own `seeded_project` fixture uses a fake `/repo` path
-/// with no real git repository, so those tests use `common::seeded_git_project` instead.
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: serialised by WORKTREE_ROOT_ENV_LOCK above — only one test at a time ever has this
-    // var set within this binary, and it is always cleared before the lock is released.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 fn scratch_dir() -> tempfile::TempDir {
     tempfile::tempdir().expect("failed to create scratch dir")
@@ -387,7 +369,7 @@ fn create_criterion_on_an_epic_is_also_supported() {
 
 #[test]
 fn criteria_locked_for_task_is_false_before_any_agent_run_and_true_after() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Lock probe", None)
             .expect("create_task should succeed");
@@ -409,7 +391,7 @@ fn criteria_locked_for_task_is_false_before_any_agent_run_and_true_after() {
 
 #[test]
 fn revising_an_unlocked_criterion_edits_in_place() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "No run yet", None)
             .expect("create_task should succeed");
@@ -449,7 +431,7 @@ fn revising_an_unlocked_criterion_edits_in_place() {
 
 #[test]
 fn revising_a_locked_criterion_appends_a_successor_and_leaves_the_original_byte_identical() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Has a run", None)
             .expect("create_task should succeed");
@@ -514,7 +496,7 @@ fn revising_a_locked_criterion_appends_a_successor_and_leaves_the_original_byte_
 
 #[test]
 fn the_successor_inherits_rank_and_checked_across_a_revision() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Ordered with a run", None)
             .expect("create_task should succeed");
@@ -550,7 +532,7 @@ fn the_successor_inherits_rank_and_checked_across_a_revision() {
 
 #[test]
 fn revising_twice_produces_a_three_revision_chain_sharing_one_root() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Revise twice", None)
             .expect("create_task should succeed");
@@ -587,7 +569,7 @@ fn revising_twice_produces_a_three_revision_chain_sharing_one_root() {
 
 #[test]
 fn both_revise_branches_append_exactly_one_event_and_the_locked_branch_is_criterion_revised() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Event count", None)
             .expect("create_task should succeed");
@@ -647,7 +629,7 @@ fn revising_an_unknown_criterion_id_returns_an_error_and_writes_nothing() {
 
 #[test]
 fn a_newly_added_criterion_ranks_after_the_last_current_one_not_a_superseded_row() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Tail rank after revision", None)
             .expect("create_task should succeed");
@@ -734,7 +716,7 @@ fn seed_criteria_leaves_a_criterion_with_real_prose_untouched() {
 
 #[test]
 fn seed_criteria_gives_an_active_worktree_task_with_no_criteria_some() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let with_worktree = create_task(&mut conn, &project.id, &actor_id, "Wire up the filter chips #21", None).unwrap();
         let without_worktree = create_task(&mut conn, &project.id, &actor_id, "No worktree here", None).unwrap();
@@ -754,7 +736,7 @@ fn seed_criteria_gives_an_active_worktree_task_with_no_criteria_some() {
 
 #[test]
 fn seed_criteria_leaves_an_event_behind_for_every_row_it_touches() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &actor_id, "Cache the event stream #26", None).unwrap();
         start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id).expect("start_agent_run");

@@ -12,6 +12,8 @@
 
 mod common;
 
+use common::with_scratch_worktree_root;
+
 use std::path::{Path, PathBuf};
 
 use core::domain::agent_run::{agent_actor_id, start_agent_run};
@@ -196,19 +198,6 @@ fn the_status_write_gate_fires_on_a_planted_raw_update() {
 
 // --- The trigger points and the deleted write ---
 
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// `FLYWHEEL_WORKTREE_ROOT` is process-wide state; serialise every test that creates a worktree.
-fn with_scratch_worktree_root<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: serialised by `WORKTREE_ROOT_ENV_LOCK`; cleared before the lock is released.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
-
 fn status_of(conn: &Connection, task_id: &str) -> String {
     conn.query_row("SELECT status FROM tasks WHERE id = ?1", [task_id], |r| r.get(0)).unwrap()
 }
@@ -223,7 +212,7 @@ fn events_of(conn: &Connection, task_id: &str, event_type: &str) -> Vec<core::qu
 
 #[test]
 fn creating_a_worktree_moves_todo_to_in_progress_in_the_same_transaction() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, human, project, _repo) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &human, "Create edge", None).unwrap();
         assert_eq!(status_of(&conn, &task.id), "todo");
@@ -244,7 +233,7 @@ fn creating_a_worktree_moves_todo_to_in_progress_in_the_same_transaction() {
 
 #[test]
 fn removing_a_worktree_never_un_starts_the_work() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, human, project, _repo) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &human, "Remove edge", None).unwrap();
         ensure_worktree(&mut conn, &task.id, &human).expect("ensure_worktree");
@@ -259,7 +248,7 @@ fn removing_a_worktree_never_un_starts_the_work() {
 
 #[test]
 fn starting_a_run_appends_its_started_event_and_no_status_event() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, human, project, _repo) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &human, "Run edge", None).unwrap();
         ensure_worktree(&mut conn, &task.id, &human).expect("ensure_worktree");
@@ -280,7 +269,7 @@ fn starting_a_run_appends_its_started_event_and_no_status_event() {
 
 #[test]
 fn starting_a_run_leaves_a_todo_band_to_the_deriver() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, human, project, _repo) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &human, "Run is not a signal", None).unwrap();
         ensure_worktree(&mut conn, &task.id, &human).expect("ensure_worktree");
@@ -295,7 +284,7 @@ fn starting_a_run_leaves_a_todo_band_to_the_deriver() {
 
 #[test]
 fn a_cold_tick_derives_every_tracked_worktree_once() {
-    with_scratch_worktree_root(|| {
+    with_scratch_worktree_root(|_| {
         let (mut conn, human, project, _repo) = common::seeded_git_project();
         let task = create_task(&mut conn, &project.id, &human, "Tick edge", None).unwrap();
         ensure_worktree(&mut conn, &task.id, &human).expect("ensure_worktree");

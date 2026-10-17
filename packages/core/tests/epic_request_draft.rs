@@ -3,7 +3,7 @@
 
 mod common;
 
-use std::path::Path;
+use common::with_scratch_worktree_root;
 
 use core::domain::acceptance_criterion::{
     check_criterion_with_anchor, create_criterion, revise_criterion, toggle_criterion, AnchorInput,
@@ -16,20 +16,6 @@ use core::forge::{epic_request_preconditions, EpicRequestBlocker};
 use core::ids::new_id;
 use core::merge::{plan_merge, record_merge_event, run_merge};
 use rusqlite::{params, Connection};
-
-/// Serializes every test that sets `FLYWHEEL_WORKTREE_ROOT` (process-global), as the other
-/// binaries do for the same reason.
-static WORKTREE_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_worktree_root<T>(f: impl FnOnce(&Path) -> T) -> T {
-    let _guard = WORKTREE_ROOT_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch worktree root");
-    // SAFETY: serialised by `WORKTREE_ROOT_ENV_LOCK`; always cleared before the lock is released.
-    unsafe { std::env::set_var("FLYWHEEL_WORKTREE_ROOT", dir.path()) };
-    let result = f(dir.path());
-    unsafe { std::env::remove_var("FLYWHEEL_WORKTREE_ROOT") };
-    result
-}
 
 pub struct Board {
     pub conn: Connection,
