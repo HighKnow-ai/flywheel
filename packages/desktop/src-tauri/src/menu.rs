@@ -52,7 +52,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let register_project = MenuItemBuilder::with_id("register-project", "Register Project…")
         .accelerator("CmdOrCtrl+Shift+O")
         .build(app)?;
-    let new_task = MenuItemBuilder::with_id("create-task", "New Task")
+    let new_story = MenuItemBuilder::with_id("create-story", "New Story")
         .accelerator("CmdOrCtrl+N")
         .build(app)?;
     let new_epic = MenuItemBuilder::with_id("create-epic", "New Epic")
@@ -78,7 +78,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     // resolution).
     app.manage(MenuHandles {
         register_project: register_project.clone(),
-        create_task: new_task.clone(),
+        create_story: new_story.clone(),
         create_epic: new_epic.clone(),
         open_palette: toggle_palette.clone(),
         open_settings: open_settings.clone(),
@@ -87,7 +87,7 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
     let file_menu = SubmenuBuilder::new(app, "File")
         .item(&register_project)
-        .item(&new_task)
+        .item(&new_story)
         .item(&new_epic)
         .separator()
         .close_window()

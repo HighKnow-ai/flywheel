@@ -21,8 +21,8 @@ use crate::state::AppState;
 /// `packages/core`, like `BOARD_CHANGE_FLAGS_CAP`. Equal to the core's own backstop clamp.
 const FLEET_ROWS_CAP: usize = 200;
 
-/// Mirrors `flywheel_core::query::fleet::FleetRow` field-for-field. `subjectKind` is the wire word
-/// `task`, `epic` or `authoring`; `fleetState` is the derived state the renderer draws.
+/// Mirrors `flywheel_core::query::fleet::FleetRow` field-for-field. `fleetState` is the derived state
+/// the renderer draws.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FleetRowDto {
@@ -31,14 +31,10 @@ pub struct FleetRowDto {
     pub project_name: String,
     pub project_key_prefix: String,
     pub project_status: String,
-    pub subject_kind: String,
-    pub task_id: Option<String>,
-    pub task_key: Option<String>,
-    pub task_title: Option<String>,
-    pub task_status: Option<String>,
-    pub epic_id: Option<String>,
-    pub epic_key: Option<String>,
-    pub authoring_stage: Option<String>,
+    pub story_id: String,
+    pub story_key: String,
+    pub story_title: String,
+    pub story_state: String,
     pub run_status: String,
     pub fleet_state: String,
     pub started_at: String,
@@ -71,14 +67,10 @@ impl From<flywheel_core::query::fleet::FleetRow> for FleetRowDto {
             project_name: row.project_name,
             project_key_prefix: row.project_key_prefix,
             project_status: row.project_status,
-            subject_kind: row.subject_kind.as_str().to_string(),
-            task_id: row.task_id,
-            task_key: row.task_key,
-            task_title: row.task_title,
-            task_status: row.task_status,
-            epic_id: row.epic_id,
-            epic_key: row.epic_key,
-            authoring_stage: row.authoring_stage,
+            story_id: row.story_id,
+            story_key: row.story_key,
+            story_title: row.story_title,
+            story_state: row.story_state,
             run_status: row.run_status,
             fleet_state: row.fleet_state,
             started_at: row.started_at,
@@ -153,7 +145,7 @@ pub async fn fleet_list(state: State<'_, AppState>) -> Result<FleetListDto, Stri
 const BLOCKED_QUEUE_CAP: usize = 200;
 
 /// Mirrors `flywheel_core::query::fleet::BlockedQueueEntry` field-for-field: the pending request the
-/// permission card renders, plus the run, project and subject the queue row names.
+/// permission card renders, plus the session, project and Story the queue row names.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockedQueueEntryDto {
@@ -166,13 +158,9 @@ pub struct BlockedQueueEntryDto {
     pub project_id: String,
     pub project_name: String,
     pub project_key_prefix: String,
-    pub subject_kind: String,
-    pub task_id: Option<String>,
-    pub task_key: Option<String>,
-    pub task_title: Option<String>,
-    pub epic_id: Option<String>,
-    pub epic_key: Option<String>,
-    pub authoring_stage: Option<String>,
+    pub story_id: String,
+    pub story_key: String,
+    pub story_title: String,
     pub blocked_since: String,
 }
 
@@ -188,13 +176,9 @@ impl From<flywheel_core::query::fleet::BlockedQueueEntry> for BlockedQueueEntryD
             project_id: e.project_id,
             project_name: e.project_name,
             project_key_prefix: e.project_key_prefix,
-            subject_kind: e.subject_kind.as_str().to_string(),
-            task_id: e.task_id,
-            task_key: e.task_key,
-            task_title: e.task_title,
-            epic_id: e.epic_id,
-            epic_key: e.epic_key,
-            authoring_stage: e.authoring_stage,
+            story_id: e.story_id,
+            story_key: e.story_key,
+            story_title: e.story_title,
             blocked_since: e.blocked_since,
         }
     }
@@ -237,10 +221,10 @@ const WORKTREE_INVENTORY_CAP: usize = 500;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeInventoryRowDto {
-    pub task_id: String,
-    pub task_key: String,
-    pub task_title: String,
-    pub task_status: String,
+    pub story_id: String,
+    pub story_key: String,
+    pub story_title: String,
+    pub story_state: String,
     pub project_id: String,
     pub project_name: String,
     pub project_status: String,
@@ -254,10 +238,10 @@ pub struct WorktreeInventoryRowDto {
 impl From<flywheel_core::query::fleet::WorktreeInventoryRow> for WorktreeInventoryRowDto {
     fn from(row: flywheel_core::query::fleet::WorktreeInventoryRow) -> Self {
         Self {
-            task_id: row.task_id,
-            task_key: row.task_key,
-            task_title: row.task_title,
-            task_status: row.task_status,
+            story_id: row.story_id,
+            story_key: row.story_key,
+            story_title: row.story_title,
+            story_state: row.story_state,
             project_id: row.project_id,
             project_name: row.project_name,
             project_status: row.project_status,
@@ -270,7 +254,7 @@ impl From<flywheel_core::query::fleet::WorktreeInventoryRow> for WorktreeInvento
     }
 }
 
-/// Every task worktree across every registered project with its cached size and a derived, named
+/// Every Story worktree across every registered project with its cached size and a derived, named
 /// disposition (WORK-07, D-177, D-178). Read-only, cross-project, takes no arguments. The board half
 /// runs under the database lock; the git half (ancestry check, porcelain read) runs on the blocking
 /// pool after the lock is released.
@@ -304,13 +288,13 @@ const WORKTREE_MEASURE_CAP: usize = 200;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeMeasureDto {
-    pub task_id: String,
+    pub story_id: String,
     pub size_bytes: Option<i64>,
     pub bounded: bool,
     pub error: Option<String>,
 }
 
-/// Measure the disk usage of the named task worktrees (all of them when none are named) and cache
+/// Measure the disk usage of the named Stories' worktrees (all of them when none are named) and cache
 /// each result with the moment it was taken. Takes ids only: every path is read from the
 /// `worktrees` rows, the walk never follows a symlink and is bounded, and it runs on the blocking
 /// pool with the database lock released. A bounded walk is reported and not cached, because a
@@ -319,10 +303,10 @@ pub struct WorktreeMeasureDto {
 pub async fn worktree_measure(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
-    task_ids: Option<Vec<String>>,
+    story_ids: Option<Vec<String>>,
 ) -> Result<Vec<WorktreeMeasureDto>, String> {
     // An over-long explicit list is refused as a whole, never silently truncated (WR-03).
-    if let Some(ids) = &task_ids {
+    if let Some(ids) = &story_ids {
         if ids.len() > WORKTREE_MEASURE_CAP {
             return Err(format!(
                 "worktree_measure refused: {} worktrees named, at most {WORKTREE_MEASURE_CAP} at a time",
@@ -334,7 +318,7 @@ pub async fn worktree_measure(
         let conn = state.db.lock().map_err(|e| ipc_error("worktree_measure:lock", e))?;
         let targets = flywheel_core::query::fleet::worktree_measure_targets(
             &conn,
-            task_ids.as_deref(),
+            story_ids.as_deref(),
             WORKTREE_MEASURE_CAP,
         )
         .map_err(|e| ipc_error("worktree_measure:read", e));
@@ -348,7 +332,7 @@ pub async fn worktree_measure(
             .into_iter()
             .map(|t| {
                 let result = flywheel_core::domain::worktree::worktree_size(std::path::Path::new(&t.path));
-                (t.task_id, result)
+                (t.story_id, result)
             })
             .collect::<Vec<_>>()
     })
@@ -359,25 +343,25 @@ pub async fn worktree_measure(
     let mut out = Vec::with_capacity(walked.len());
     {
         let conn = state.db.lock().map_err(|e| ipc_error("worktree_measure:lock", e))?;
-        for (task_id, result) in walked {
+        for (story_id, result) in walked {
             out.push(match result {
                 Ok(size) if !size.bounded => {
                     let bytes = i64::try_from(size.bytes).unwrap_or(i64::MAX);
-                    match flywheel_core::query::fleet::record_worktree_size(&conn, &task_id, bytes, &measured_at) {
-                        Ok(true) => WorktreeMeasureDto { task_id, size_bytes: Some(bytes), bounded: false, error: None },
+                    match flywheel_core::query::fleet::record_worktree_size(&conn, &story_id, bytes, &measured_at) {
+                        Ok(true) => WorktreeMeasureDto { story_id, size_bytes: Some(bytes), bounded: false, error: None },
                         // No row was updated: the worktree was reclaimed or forgotten while the walk ran,
                         // so nothing was cached and the renderer must not be told otherwise.
                         Ok(false) => WorktreeMeasureDto {
-                            task_id,
+                            story_id,
                             size_bytes: None,
                             bounded: false,
                             error: Some("worktree no longer exists".to_string()),
                         },
-                        Err(e) => WorktreeMeasureDto { task_id, size_bytes: None, bounded: false, error: Some(e.to_string()) },
+                        Err(e) => WorktreeMeasureDto { story_id, size_bytes: None, bounded: false, error: Some(e.to_string()) },
                     }
                 }
-                Ok(_) => WorktreeMeasureDto { task_id, size_bytes: None, bounded: true, error: None },
-                Err(e) => WorktreeMeasureDto { task_id, size_bytes: None, bounded: false, error: Some(e.to_string()) },
+                Ok(_) => WorktreeMeasureDto { story_id, size_bytes: None, bounded: true, error: None },
+                Err(e) => WorktreeMeasureDto { story_id, size_bytes: None, bounded: false, error: Some(e.to_string()) },
             });
         }
     }
@@ -395,7 +379,7 @@ pub const RECLAIM_BATCH_CAP: usize = 50;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReclaimOutcomeDto {
-    pub task_id: String,
+    pub story_id: String,
     pub removed: bool,
     pub reason: Option<String>,
     pub error: Option<String>,
@@ -404,7 +388,7 @@ pub struct ReclaimOutcomeDto {
 impl From<flywheel_core::domain::worktree::ReclaimOutcome> for ReclaimOutcomeDto {
     fn from(o: flywheel_core::domain::worktree::ReclaimOutcome) -> Self {
         Self {
-            task_id: o.task_id,
+            story_id: o.story_id,
             removed: o.removed,
             reason: o.reason.map(|r| r.as_str().to_string()),
             error: o.error,
@@ -420,10 +404,10 @@ fn check_reclaim_batch(len: usize) -> Result<(), String> {
     Ok(())
 }
 
-/// Reclaim the named task worktrees (WORK-07, D-179). Takes task ids and NOTHING else: no path, ref,
+/// Reclaim the named Stories' worktrees (WORK-07, D-179). Takes Story ids and NOTHING else: no path, ref,
 /// sha, actor, and no parameter of any kind that could skip a guard. Per row, the core re-derives
 /// eligibility with the inventory's own function (so a selection that went stale is refused) and
-/// then calls the unchanged `remove_worktree_for_task`, whose own `git status --porcelain` re-read
+/// then calls the unchanged `remove_worktree_for_story`, whose own `git status --porcelain` re-read
 /// remains the final guard. Results are per row; one refusal never fails the batch.
 ///
 /// Unlike the synchronous `worktree_remove`, this never holds the shared database mutex across a
@@ -433,9 +417,9 @@ fn check_reclaim_batch(len: usize) -> Result<(), String> {
 pub async fn worktree_reclaim(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
-    task_ids: Vec<String>,
+    story_ids: Vec<String>,
 ) -> Result<Vec<ReclaimOutcomeDto>, String> {
-    check_reclaim_batch(task_ids.len())?;
+    check_reclaim_batch(story_ids.len())?;
 
     let actor = {
         let conn = state.db.lock().map_err(|e| ipc_error("worktree_reclaim:lock", e))?;
@@ -450,7 +434,7 @@ pub async fn worktree_reclaim(
     let outcomes = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<Vec<_>> {
         let mut conn = rusqlite::Connection::open(&db_path)?;
         flywheel_core::db::apply_pragmas(&conn)?;
-        Ok(flywheel_core::domain::worktree::reclaim_worktrees(&mut conn, &task_ids, &actor))
+        Ok(flywheel_core::domain::worktree::reclaim_worktrees(&mut conn, &story_ids, &actor))
     })
     .await
     .map_err(|e| ipc_error("worktree_reclaim:join", e))?
@@ -474,14 +458,10 @@ mod tests {
             project_name: "P".into(),
             project_key_prefix: "P".into(),
             project_status: "active".into(),
-            subject_kind: "task".into(),
-            task_id: None,
-            task_key: None,
-            task_title: None,
-            task_status: None,
-            epic_id: None,
-            epic_key: None,
-            authoring_stage: None,
+            story_id: "s".into(),
+            story_key: "P-1".into(),
+            story_title: "A Story".into(),
+            story_state: "running".into(),
             run_status: run_status.into(),
             fleet_state: run_status.into(),
             started_at: "2026-10-12T00:00:00Z".into(),
@@ -504,7 +484,7 @@ mod tests {
             db: std::sync::Mutex::new(rusqlite::Connection::open_in_memory().unwrap()),
             sidecar: None,
             pending_orphans: std::sync::Mutex::new(Vec::new()),
-            focused_task: std::sync::Mutex::new(None),
+            focused_story: std::sync::Mutex::new(None),
             watched_run: std::sync::Mutex::new(None),
         };
         set_watched_run(&state, Some("run-1".into())).unwrap();

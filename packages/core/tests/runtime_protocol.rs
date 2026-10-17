@@ -7,15 +7,10 @@ use std::fs;
 use std::time::Duration;
 
 use core::runtime_protocol::{
-    clear_run_runtime_files, list_run_descriptors, read_authoring_stage, read_heartbeat_age,
-    read_kill_record, runtime_dir, touch_heartbeat, write_authoring_stage, write_kill_record,
+    clear_run_runtime_files, list_run_descriptors, read_heartbeat_age, read_kill_record,
+    runtime_dir, touch_heartbeat, write_kill_record,
     write_run_descriptor, KillRecordRead, RuntimeIo,
 };
-
-/// A 26-character Crockford-base32-shaped literal — every [`write_authoring_stage`]/
-/// [`read_authoring_stage`] test below uses this rather than a real `new_id()` call, since only
-/// the SHAPE matters to these functions' own `is_ulid` guard.
-const A_ULID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
 /// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — `FLYWHEEL_RUNTIME_DIR`
 /// is process-global mutable state, and `cargo test` runs this binary's `#[test]` functions
@@ -224,89 +219,6 @@ fn clear_run_runtime_files_succeeds_when_the_lifecycle_file_is_absent() {
             RuntimeIo::Written
         );
         let outcome = clear_run_runtime_files("run-no-lifecycle");
-        assert_eq!(outcome, RuntimeIo::Written);
-    });
-}
-
-/// D-88 (plan 05-03): the marker round-trips exactly like every other on-disk shape in this
-/// module.
-#[test]
-fn authoring_stage_marker_round_trips() {
-    with_scratch_runtime_dir(|_dir| {
-        assert_eq!(write_authoring_stage(A_ULID, "challenge"), RuntimeIo::Written);
-        assert_eq!(read_authoring_stage(A_ULID), Some("challenge".to_string()));
-
-        // A later write for the SAME run overwrites, never appends — matches every other
-        // atomic_write-backed file in this module.
-        assert_eq!(write_authoring_stage(A_ULID, "decompose"), RuntimeIo::Written);
-        assert_eq!(read_authoring_stage(A_ULID), Some("decompose".to_string()));
-    });
-}
-
-/// T-05-03-03: a non-ULID run id is rejected before any path is built — neither function ever
-/// resolves `runtime_dir()` for a caller-controlled string that does not have the right shape.
-#[test]
-fn authoring_stage_functions_reject_a_non_ulid_run_id() {
-    with_scratch_runtime_dir(|_dir| {
-        let outcome = write_authoring_stage("../../etc/passwd", "challenge");
-        assert!(
-            matches!(outcome, RuntimeIo::WriteFailed(_)),
-            "expected WriteFailed for a non-ULID run id, got {outcome:?}"
-        );
-        assert_eq!(read_authoring_stage("../../etc/passwd"), None);
-        assert_eq!(read_authoring_stage("too-short"), None);
-    });
-}
-
-/// A run that never had a stage marker written reads as `None`, never a panic and never a
-/// fabricated stage.
-#[test]
-fn read_authoring_stage_is_none_when_no_marker_was_ever_written() {
-    with_scratch_runtime_dir(|_dir| {
-        assert_eq!(read_authoring_stage(A_ULID), None);
-    });
-}
-
-/// A marker file present but not parseable as an [`core::runtime_protocol::AuthoringStageMarker`]
-/// reads as `None` — the same fail-closed collapse `stage-gate-hook.ts` depends on.
-#[test]
-fn read_authoring_stage_is_none_when_the_marker_file_is_malformed() {
-    with_scratch_runtime_dir(|dir| {
-        let stage_dir = dir.join("stage");
-        fs::create_dir_all(&stage_dir).expect("failed to create stage dir");
-        fs::write(stage_dir.join(format!("{A_ULID}.json")), b"{ not json")
-            .expect("failed to write malformed marker");
-        assert_eq!(read_authoring_stage(A_ULID), None);
-    });
-}
-
-/// `clear_run_runtime_files` removes the stage marker alongside the other three per-run files —
-/// written first, before the source change, per this module's own established convention.
-#[test]
-fn clear_run_runtime_files_removes_the_authoring_stage_marker_alongside_the_other_files() {
-    with_scratch_runtime_dir(|_dir| {
-        assert_eq!(write_run_descriptor(A_ULID, 100, 111), RuntimeIo::Written);
-        assert_eq!(write_authoring_stage(A_ULID, "challenge"), RuntimeIo::Written);
-        assert_eq!(read_authoring_stage(A_ULID), Some("challenge".to_string()));
-
-        let outcome = clear_run_runtime_files(A_ULID);
-        assert_eq!(outcome, RuntimeIo::Written);
-
-        assert_eq!(
-            read_authoring_stage(A_ULID),
-            None,
-            "the authoring stage marker must be removed"
-        );
-    });
-}
-
-/// A missing stage marker is not an error — matching how the other entries in
-/// `clear_run_runtime_files`'s loop already tolerate absence.
-#[test]
-fn clear_run_runtime_files_succeeds_when_the_authoring_stage_marker_is_absent() {
-    with_scratch_runtime_dir(|_dir| {
-        assert_eq!(write_run_descriptor(A_ULID, 200, 222), RuntimeIo::Written);
-        let outcome = clear_run_runtime_files(A_ULID);
         assert_eq!(outcome, RuntimeIo::Written);
     });
 }

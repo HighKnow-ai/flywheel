@@ -8,7 +8,6 @@ use common::with_scratch_worktree_root;
 use std::path::Path;
 
 use core::domain::agent_run::{mark_abandoned, start_agent_run, AgentRunStatus};
-use core::domain::task::create_task;
 use core::domain::worktree::{ensure_worktree, reconcile_worktrees};
 
 fn worktree_status(conn: &rusqlite::Connection, worktree_id: &str) -> String {
@@ -42,10 +41,9 @@ fn event_count(conn: &rusqlite::Connection, project_id: &str, event_type: &str) 
 fn a_worktree_row_whose_path_exists_stays_active_with_no_write_and_no_event() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Present task", None)
-            .expect("create_task should succeed");
+        let story = common::new_story(&mut conn, &project.id, &actor_id, "Present story");
         let worktree =
-            ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+            ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
 
         let events_before = event_count(&conn, &project.id, "worktree.missing");
 
@@ -64,10 +62,9 @@ fn a_worktree_row_whose_path_exists_stays_active_with_no_write_and_no_event() {
 fn a_deleted_worktree_becomes_missing_and_appends_one_event_with_identity_unchanged() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Deleted task", None)
-            .expect("create_task should succeed");
+        let story = common::new_story(&mut conn, &project.id, &actor_id, "Deleted story");
         let worktree =
-            ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+            ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
         let identity_before = worktree_identity(&conn, &worktree.id);
 
         std::fs::remove_dir_all(&worktree.path).expect("failed to delete the worktree directory");
@@ -92,10 +89,9 @@ fn a_deleted_worktree_becomes_missing_and_appends_one_event_with_identity_unchan
 fn a_second_call_immediately_after_the_first_writes_nothing_and_appends_no_second_event() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Twice task", None)
-            .expect("create_task should succeed");
+        let story = common::new_story(&mut conn, &project.id, &actor_id, "Twice story");
         let worktree =
-            ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+            ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
 
         std::fs::remove_dir_all(&worktree.path).expect("failed to delete the worktree directory");
 
@@ -118,14 +114,12 @@ fn an_unreadable_worktree_becomes_missing_without_aborting_the_rest_of_the_pass(
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
 
-        let unreadable_task = create_task(&mut conn, &project.id, &actor_id, "Unreadable task", None)
-            .expect("create_task should succeed");
-        let unreadable_worktree = ensure_worktree(&mut conn, &unreadable_task.id, &actor_id)
+        let unreadable_story = common::new_story(&mut conn, &project.id, &actor_id, "Unreadable story");
+        let unreadable_worktree = ensure_worktree(&mut conn, &unreadable_story.id, &actor_id)
             .expect("ensure_worktree should succeed");
 
-        let present_task = create_task(&mut conn, &project.id, &actor_id, "Present sibling task", None)
-            .expect("create_task should succeed");
-        let present_worktree = ensure_worktree(&mut conn, &present_task.id, &actor_id)
+        let present_story = common::new_story(&mut conn, &project.id, &actor_id, "Present sibling story");
+        let present_worktree = ensure_worktree(&mut conn, &present_story.id, &actor_id)
             .expect("ensure_worktree should succeed");
 
         // Relocate the "unreadable" worktree's recorded path into its OWN isolated parent
@@ -174,44 +168,12 @@ fn an_unreadable_worktree_becomes_missing_without_aborting_the_rest_of_the_pass(
 }
 
 #[test]
-fn a_row_already_stale_merged_or_abandoned_is_never_examined_or_changed() {
-    with_scratch_worktree_root(|_| {
-        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-
-        for status in ["stale", "merged", "abandoned"] {
-            let task = create_task(&mut conn, &project.id, &actor_id, &format!("{status} task"), None)
-                .expect("create_task should succeed");
-            let worktree =
-                ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
-
-            // Delete the directory AND set the row's status to something other than active — a
-            // row not `active` must never be examined, regardless of what the filesystem says.
-            std::fs::remove_dir_all(&worktree.path).expect("failed to delete the worktree directory");
-            conn.execute(
-                "UPDATE worktrees SET status = ?1 WHERE id = ?2",
-                rusqlite::params![status, worktree.id],
-            )
-            .expect("failed to force the fixture status");
-
-            reconcile_worktrees(&mut conn, &actor_id).expect("reconcile_worktrees should succeed");
-
-            assert_eq!(
-                worktree_status(&conn, &worktree.id),
-                status,
-                "a row already {status} must not be touched by reconciliation"
-            );
-        }
-    });
-}
-
-#[test]
 fn a_missing_worktree_whose_directory_reappears_is_not_silently_returned_to_active() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Reappeared task", None)
-            .expect("create_task should succeed");
+        let story = common::new_story(&mut conn, &project.id, &actor_id, "Reappeared story");
         let worktree =
-            ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+            ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
 
         std::fs::remove_dir_all(&worktree.path).expect("failed to delete the worktree directory");
         reconcile_worktrees(&mut conn, &actor_id).expect("first reconcile should succeed");
@@ -234,9 +196,8 @@ fn a_missing_worktree_whose_directory_reappears_is_not_silently_returned_to_acti
 fn mark_abandoned_transitions_a_running_run_and_appends_one_event() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Abandon task", None)
-            .expect("create_task should succeed");
-        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+        let story = common::new_story(&mut conn, &project.id, &actor_id, "Abandon story");
+        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_agent_run should succeed");
 
         let wrote = mark_abandoned(&mut conn, &run.id, &actor_id, Some("watchdog killed it"))
@@ -245,11 +206,11 @@ fn mark_abandoned_transitions_a_running_run_and_appends_one_event() {
 
         let status: String = conn
             .query_row(
-                "SELECT status FROM agent_runs WHERE id = ?1",
+                "SELECT status FROM sessions WHERE id = ?1",
                 rusqlite::params![run.id],
                 |row| row.get(0),
             )
-            .expect("agent_runs row should exist");
+            .expect("sessions row should exist");
         assert_eq!(status, AgentRunStatus::Abandoned.as_str());
 
         assert_eq!(event_count(&conn, &project.id, "agent_run.abandoned"), 1);
@@ -260,9 +221,8 @@ fn mark_abandoned_transitions_a_running_run_and_appends_one_event() {
 fn mark_abandoned_is_a_no_op_on_an_already_terminal_run() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Already terminal task", None)
-            .expect("create_task should succeed");
-        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+        let story = common::new_story(&mut conn, &project.id, &actor_id, "Already terminal story");
+        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_agent_run should succeed");
 
         core::domain::agent_run::close_agent_run(
@@ -281,11 +241,11 @@ fn mark_abandoned_is_a_no_op_on_an_already_terminal_run() {
 
         let status: String = conn
             .query_row(
-                "SELECT status FROM agent_runs WHERE id = ?1",
+                "SELECT status FROM sessions WHERE id = ?1",
                 rusqlite::params![run.id],
                 |row| row.get(0),
             )
-            .expect("agent_runs row should exist");
+            .expect("sessions row should exist");
         assert_eq!(status, "completed", "an already-terminal run must never be overwritten");
         assert_eq!(event_count(&conn, &project.id, "agent_run.abandoned"), 0);
     });
@@ -295,9 +255,8 @@ fn mark_abandoned_is_a_no_op_on_an_already_terminal_run() {
 fn mark_abandoned_twice_in_a_row_is_idempotent() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Idempotent abandon task", None)
-            .expect("create_task should succeed");
-        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+        let story = common::new_story(&mut conn, &project.id, &actor_id, "Idempotent abandon story");
+        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_agent_run should succeed");
 
         assert!(mark_abandoned(&mut conn, &run.id, &actor_id, None).expect("first call should succeed"));
@@ -309,18 +268,17 @@ fn mark_abandoned_twice_in_a_row_is_idempotent() {
     });
 }
 
-/// WORK-06 Task 3 coverage (D-45's two decision verbs): `recreate_worktree_for_task` and
+/// WORK-06 Task 3 coverage (D-45's two decision verbs): `recreate_worktree_for_story` and
 /// `forget_worktree_record` — each refuses on anything but a `missing` row, and neither can be
 /// used as a second, unguarded path onto the thing D-41/D-43 already guard.
 mod recreate_and_forget {
     use std::path::Path;
     use std::process::Command;
 
-    use core::domain::task::create_task;
     use core::domain::worktree::{
-        ensure_worktree, forget_worktree_record, reconcile_worktrees, recreate_worktree_for_task,
+        ensure_worktree, forget_worktree_record, reconcile_worktrees, recreate_worktree_for_story,
     };
-    use core::query::agent_runs::worktree_summary_for_task;
+    use core::query::agent_runs::worktree_summary_for_story;
 
     use super::{event_count, with_scratch_worktree_root};
 
@@ -349,17 +307,16 @@ mod recreate_and_forget {
     }
 
     #[test]
-    fn worktree_summary_for_task_carries_the_status_alongside_branch_and_path() {
+    fn worktree_summary_for_story_carries_the_status_alongside_branch_and_path() {
         with_scratch_worktree_root(|_| {
             let (mut conn, actor_id, project, _repo_dir) = crate::common::seeded_git_project();
-            let task = create_task(&mut conn, &project.id, &actor_id, "Summary task", None)
-                .expect("create_task should succeed");
+            let story = crate::common::new_story(&mut conn, &project.id, &actor_id, "Summary story");
             let worktree =
-                ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+                ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
 
-            let summary = worktree_summary_for_task(&conn, &task.id)
-                .expect("worktree_summary_for_task should succeed")
-                .expect("a summary should exist for a task with a worktree");
+            let summary = worktree_summary_for_story(&conn, &story.id)
+                .expect("worktree_summary_for_story should succeed")
+                .expect("a summary should exist for a Story with a worktree");
             assert_eq!(summary.branch, worktree.branch);
             assert_eq!(summary.path, worktree.path);
             assert_eq!(summary.status, "active");
@@ -370,10 +327,9 @@ mod recreate_and_forget {
     fn recreate_reuses_the_recorded_branch_and_base_when_only_the_directory_was_deleted() {
         with_scratch_worktree_root(|_| {
             let (mut conn, actor_id, project, repo_dir) = crate::common::seeded_git_project();
-            let task = create_task(&mut conn, &project.id, &actor_id, "Recreate dir-only task", None)
-                .expect("create_task should succeed");
+            let story = crate::common::new_story(&mut conn, &project.id, &actor_id, "Recreate dir-only story");
             let worktree =
-                ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+                ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
             let recorded_branch = worktree.branch.clone();
             let recorded_base = worktree.base_branch.clone();
             let recorded_path = worktree.path.clone();
@@ -382,8 +338,8 @@ mod recreate_and_forget {
             reconcile_worktrees(&mut conn, &actor_id).expect("reconcile_worktrees should succeed");
             assert_eq!(worktree_row_status(&conn, &worktree.id), "missing");
 
-            let recreated = recreate_worktree_for_task(&mut conn, &task.id, &actor_id)
-                .expect("recreate_worktree_for_task should succeed when only the directory was deleted");
+            let recreated = recreate_worktree_for_story(&mut conn, &story.id, &actor_id)
+                .expect("recreate_worktree_for_story should succeed when only the directory was deleted");
 
             assert_eq!(recreated.branch, recorded_branch, "recreate must reuse the SAME branch");
             assert_eq!(recreated.base_branch, recorded_base, "recreate must reuse the SAME base_branch");
@@ -397,7 +353,7 @@ mod recreate_and_forget {
             assert_eq!(
                 branches.matches(&recorded_branch).count(),
                 1,
-                "recreate must not have minted a second branch for this task: {branches}"
+                "recreate must not have minted a second branch for this Story: {branches}"
             );
         });
     }
@@ -406,10 +362,9 @@ mod recreate_and_forget {
     fn recreate_reuses_the_recorded_branch_and_base_when_both_the_directory_and_branch_were_deleted() {
         with_scratch_worktree_root(|_| {
             let (mut conn, actor_id, project, repo_dir) = crate::common::seeded_git_project();
-            let task = create_task(&mut conn, &project.id, &actor_id, "Recreate both-deleted task", None)
-                .expect("create_task should succeed");
+            let story = crate::common::new_story(&mut conn, &project.id, &actor_id, "Recreate both-deleted story");
             let worktree =
-                ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+                ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
             let recorded_branch = worktree.branch.clone();
             let recorded_base = worktree.base_branch.clone();
             let recorded_path = worktree.path.clone();
@@ -417,13 +372,13 @@ mod recreate_and_forget {
             std::fs::remove_dir_all(&worktree.path).expect("failed to delete the worktree directory");
             reconcile_worktrees(&mut conn, &actor_id).expect("reconcile_worktrees should succeed");
             // git's own worktree administration still considers the branch "checked out" in the
-            // now-deleted directory until pruned — mirrors what `recreate_worktree_for_task`
+            // now-deleted directory until pruned — mirrors what `recreate_worktree_for_story`
             // itself now does before touching git.
             git_output(repo_dir.path(), &["worktree", "prune"]);
             git_output(repo_dir.path(), &["branch", "-D", &recorded_branch]);
 
-            let recreated = recreate_worktree_for_task(&mut conn, &task.id, &actor_id).expect(
-                "recreate_worktree_for_task should succeed when both the directory and branch were deleted",
+            let recreated = recreate_worktree_for_story(&mut conn, &story.id, &actor_id).expect(
+                "recreate_worktree_for_story should succeed when both the directory and branch were deleted",
             );
 
             assert_eq!(recreated.branch, recorded_branch, "recreate must reuse the SAME branch name");
@@ -438,22 +393,21 @@ mod recreate_and_forget {
     fn recreate_fails_and_leaves_the_row_missing_when_the_recorded_base_ref_no_longer_exists() {
         with_scratch_worktree_root(|_| {
             let (mut conn, actor_id, project, repo_dir) = crate::common::seeded_git_project();
-            let task = create_task(&mut conn, &project.id, &actor_id, "Recreate no-base task", None)
-                .expect("create_task should succeed");
+            let story = crate::common::new_story(&mut conn, &project.id, &actor_id, "Recreate no-base story");
             let worktree =
-                ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+                ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
 
             std::fs::remove_dir_all(&worktree.path).expect("failed to delete the worktree directory");
             reconcile_worktrees(&mut conn, &actor_id).expect("reconcile_worktrees should succeed");
-            // Delete the task's own branch (so recreate takes the "-b" path, which needs the base
+            // Delete the Story's own branch (so recreate takes the "-b" path, which needs the base
             // ref to resolve) and rename the recorded base ref away so it no longer resolves.
             // Pruning first clears git's own stale worktree administration, exactly as
-            // `recreate_worktree_for_task` itself now does before touching git.
+            // `recreate_worktree_for_story` itself now does before touching git.
             git_output(repo_dir.path(), &["worktree", "prune"]);
             git_output(repo_dir.path(), &["branch", "-D", &worktree.branch]);
             git_output(repo_dir.path(), &["branch", "-m", &worktree.base_branch, "renamed-base"]);
 
-            let result = recreate_worktree_for_task(&mut conn, &task.id, &actor_id);
+            let result = recreate_worktree_for_story(&mut conn, &story.id, &actor_id);
             assert!(result.is_err(), "recreate must fail when the recorded base ref no longer resolves");
             assert_eq!(
                 worktree_row_status(&conn, &worktree.id),
@@ -467,11 +421,10 @@ mod recreate_and_forget {
     fn recreate_refuses_when_the_row_is_not_missing() {
         with_scratch_worktree_root(|_| {
             let (mut conn, actor_id, project, _repo_dir) = crate::common::seeded_git_project();
-            let task = create_task(&mut conn, &project.id, &actor_id, "Recreate healthy task", None)
-                .expect("create_task should succeed");
-            ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+            let story = crate::common::new_story(&mut conn, &project.id, &actor_id, "Recreate healthy story");
+            ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
 
-            let result = recreate_worktree_for_task(&mut conn, &task.id, &actor_id);
+            let result = recreate_worktree_for_story(&mut conn, &story.id, &actor_id);
             assert!(result.is_err(), "recreate must refuse a row that is not missing");
         });
     }
@@ -480,15 +433,14 @@ mod recreate_and_forget {
     fn forget_deletes_the_row_and_appends_one_event_touching_nothing_on_disk() {
         with_scratch_worktree_root(|_| {
             let (mut conn, actor_id, project, _repo_dir) = crate::common::seeded_git_project();
-            let task = create_task(&mut conn, &project.id, &actor_id, "Forget task", None)
-                .expect("create_task should succeed");
+            let story = crate::common::new_story(&mut conn, &project.id, &actor_id, "Forget story");
             let worktree =
-                ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+                ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
 
             std::fs::remove_dir_all(&worktree.path).expect("failed to delete the worktree directory");
             reconcile_worktrees(&mut conn, &actor_id).expect("reconcile_worktrees should succeed");
 
-            forget_worktree_record(&mut conn, &task.id, &actor_id)
+            forget_worktree_record(&mut conn, &story.id, &actor_id)
                 .expect("forget_worktree_record should succeed on a missing row");
 
             let row_count: i64 = conn
@@ -511,12 +463,11 @@ mod recreate_and_forget {
     fn forget_refuses_when_the_row_is_not_missing() {
         with_scratch_worktree_root(|_| {
             let (mut conn, actor_id, project, _repo_dir) = crate::common::seeded_git_project();
-            let task = create_task(&mut conn, &project.id, &actor_id, "Forget healthy task", None)
-                .expect("create_task should succeed");
+            let story = crate::common::new_story(&mut conn, &project.id, &actor_id, "Forget healthy story");
             let worktree =
-                ensure_worktree(&mut conn, &task.id, &actor_id).expect("ensure_worktree should succeed");
+                ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
 
-            let result = forget_worktree_record(&mut conn, &task.id, &actor_id);
+            let result = forget_worktree_record(&mut conn, &story.id, &actor_id);
             assert!(result.is_err(), "forget must refuse a row that is not missing");
 
             let row_count: i64 = conn

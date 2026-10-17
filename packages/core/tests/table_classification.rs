@@ -14,7 +14,7 @@ const FTS_SHADOW_SUFFIXES: [&str; 5] = ["_data", "_idx", "_content", "_docsize",
 
 /// The spine. A `sqlite_master` read that does not return at least these is a broken read, not a
 /// clean schema.
-const SPINE_TABLES: [&str; 3] = ["epics", "tasks", "issues"];
+const SPINE_TABLES: [&str; 4] = ["milestones", "epics", "stories", "acceptance_criteria"];
 
 fn migrated_scratch_db() -> (Connection, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("failed to create scratch dir");

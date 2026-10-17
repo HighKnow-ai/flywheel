@@ -119,7 +119,7 @@ pub fn resolved_env_for_run(
 /// D-51 (plan 03-04): merge the per-run PATH-shim entries into an already-resolved spawn
 /// environment. Called AFTER `start_agent_run` produces a real `run_id` — [`resolved_env_for_run`]
 /// above intentionally runs BEFORE the run/worktree row is created (D-39), so a credential
-/// resolution failure never orphans a running `agent_runs` row; the shim's own installed directory
+/// resolution failure never orphans a running `sessions` row; the shim's own installed directory
 /// is keyed by `run_id`, which does not exist yet at that point, so this step cannot live inside
 /// that same function. A shim-install failure here still refuses the SPAWN itself —
 /// `agent_run_start` propagates the error and never sends the request to the sidecar — exactly as
@@ -653,7 +653,7 @@ fn handle_inbound_git_lock_exhausted(app: &AppHandle, event: &serde_json::Value)
                 &actor.id,
             )
         });
-    let project_id = crate::commands::project_of(&conn, "agent_runs", run_id);
+    let project_id = crate::commands::project_of(&conn, "sessions", run_id);
     drop(conn);
 
     match result {
@@ -664,159 +664,6 @@ fn handle_inbound_git_lock_exhausted(app: &AppHandle, event: &serde_json::Value)
             eprintln!("failed to record a git lock exhaustion for run {run_id}: {err:#}");
         }
     }
-}
-
-/// AGNT-05 (phase 09 plan 09-05): the DB-only half of a rate-limit signal — reads the normalised tier
-/// the adapter seam attached (never backend wire text), applies it to the dispatch gate and, on a state
-/// change, appends one event to the triggering run's project stream. Returns the change, or `None` for
-/// an event that carries no usable signal. Split from [`handle_inbound_rate_limit`] so it is testable
-/// without an `AppHandle`. It touches no agent run: a limit pauses new dispatch only.
-fn process_inbound_rate_limit(
-    conn: &mut rusqlite::Connection,
-    event: &serde_json::Value,
-    now_epoch_secs: i64,
-) -> anyhow::Result<Option<flywheel_core::limit_gate::GateChange>> {
-    let (Some(run_id), Some(signal)) = (
-        event.get("runId").and_then(|v| v.as_str()),
-        flywheel_core::limit_gate::LimitSignal::from_event(event),
-    ) else {
-        return Ok(None);
-    };
-    flywheel_core::limit_gate::apply_rate_limit_signal_for_run(conn, run_id, &signal, now_epoch_secs).map(Some)
-}
-
-/// The Tauri-facing half of a rate-limit signal. A failure is logged and dropped: never a panic, never
-/// an early return out of the shared reader loop (CR-03), and the live `agent:event` was already emitted.
-fn handle_inbound_rate_limit(app: &AppHandle, event: &serde_json::Value) {
-    let Some(state) = app.try_state::<crate::state::AppState>() else {
-        return;
-    };
-    let Ok(mut conn) = state.db.lock() else {
-        return;
-    };
-    let result = process_inbound_rate_limit(&mut conn, event, chrono::Utc::now().timestamp());
-    drop(conn);
-    match result {
-        Ok(Some(change)) if change.changed => {
-            let _ = app.emit(
-                "dispatch:gate_changed",
-                serde_json::json!({ "state": change.after, "message": change.after.message() }),
-            );
-        }
-        Ok(_) => {}
-        Err(err) => eprintln!("failed to apply a rate-limit signal: {err:#}"),
-    }
-}
-
-/// PLAN-05 (phase 09 plan 09-02): the DB-only half of a `scope_denied` event — parses the sidecar's
-/// event line and appends one `task.scope_denied` row through
-/// `flywheel_core::domain::file_set::record_scope_denied`. The run's task, epic, project and agent
-/// actor are all resolved from the `agent_runs` row, never from the event (T-09-02-01: the event's
-/// `runId` is the sidecar's session closure, and nothing else in it is an identity). Returns the task
-/// the row was attached to, or `None` for a malformed event or a run that is unknown or has no task.
-/// Split from [`handle_inbound_scope_denied`] so it is testable without an `AppHandle`.
-fn process_inbound_scope_denied(
-    conn: &mut rusqlite::Connection,
-    event: &serde_json::Value,
-) -> anyhow::Result<Option<String>> {
-    let (Some(run_id), Some(path)) = (
-        event.get("runId").and_then(|v| v.as_str()),
-        event.get("path").and_then(|v| v.as_str()),
-    ) else {
-        return Ok(None);
-    };
-    let text = |key: &str| event.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string();
-    flywheel_core::domain::file_set::record_scope_denied(
-        conn,
-        run_id,
-        &flywheel_core::domain::file_set::ScopeDenial {
-            path: path.to_string(),
-            tool: text("tool"),
-            tool_use_id: text("toolUseId"),
-            outside_worktree: event.get("outsideWorktree").and_then(|v| v.as_bool()).unwrap_or(false),
-            detected_after_the_fact: false,
-        },
-    )
-}
-
-/// The Tauri-facing half of a `scope_denied` event: the DB write, then a `board:changed` for the
-/// task. A failure is logged and dropped — never a panic, never an early return out of the shared
-/// reader loop (CR-03) — and the live `agent:event` the developer watches was emitted before this
-/// runs.
-fn handle_inbound_scope_denied(app: &AppHandle, event: &serde_json::Value) {
-    let Some(state) = app.try_state::<crate::state::AppState>() else {
-        return;
-    };
-    let Ok(mut conn) = state.db.lock() else {
-        return;
-    };
-    let result = process_inbound_scope_denied(&mut conn, event);
-    drop(conn);
-    match result {
-        Ok(Some(task_id)) => {
-            let project_id = crate::commands::project_of_locked(&state.db, "tasks", &task_id);
-            crate::commands::emit_board_changed(app, project_id.as_deref(), "task", Some(&task_id));
-        }
-        Ok(None) => {}
-        Err(err) => eprintln!("failed to record a scope refusal: {err:#}"),
-    }
-}
-
-/// PLAN-05 (phase 09 plan 09-02): the close-time detective backstop for the half of the scope guarantee
-/// the hook cannot give. Runs on its own thread (a git subprocess must not stall the shared reader
-/// loop) and takes the database lock only around the two database halves, never around git. Every
-/// failure logs and returns: a backstop that aborted or delayed session close would cost more than it
-/// catches. It compares against the declared rows, not the marker file (T-09-02-03).
-fn handle_inbound_scope_backstop(app: &AppHandle, event: &serde_json::Value) {
-    let Some(run_id) = event.get("runId").and_then(|v| v.as_str()).map(str::to_owned) else {
-        return;
-    };
-    let app = app.clone();
-    std::thread::spawn(move || {
-        let Some(state) = app.try_state::<crate::state::AppState>() else {
-            return;
-        };
-        let inputs = {
-            let Ok(conn) = state.db.lock() else {
-                return;
-            };
-            let task_id: Option<String> = conn
-                .query_row("SELECT task_id FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |r| r.get(0))
-                .ok()
-                .flatten();
-            let Some(task_id) = task_id else {
-                return;
-            };
-            match flywheel_core::drift::scope_backstop_inputs(&conn, &task_id) {
-                Ok(Some(inputs)) => inputs,
-                Ok(None) => return,
-                Err(err) => {
-                    eprintln!("scope backstop could not read the declared set for run {run_id}: {err:#}");
-                    return;
-                }
-            }
-        };
-        let paths: Vec<String> = match flywheel_core::drift::scope_backstop_git(&inputs) {
-            Ok(findings) => findings.into_iter().map(|f| f.path).collect(),
-            Err(err) => {
-                eprintln!("scope backstop could not read git for run {run_id}: {err:#}");
-                return;
-            }
-        };
-        let Ok(mut conn) = state.db.lock() else {
-            return;
-        };
-        let result = flywheel_core::domain::file_set::record_backstop_denials(&mut conn, &run_id, &paths);
-        drop(conn);
-        match result {
-            Ok(appended) if appended > 0 => {
-                let project_id = crate::commands::project_of_locked(&state.db, "tasks", &inputs.task_id);
-                crate::commands::emit_board_changed(&app, project_id.as_deref(), "task", Some(&inputs.task_id));
-            }
-            Ok(_) => {}
-            Err(err) => eprintln!("scope backstop could not record its findings for run {run_id}: {err:#}"),
-        }
-    });
 }
 
 /// CR-03's exact failure mode, as falsifiable tests: force `SessionLogWriter::open` to fail for
@@ -1176,7 +1023,7 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                 }
                 CommandEvent::Terminated(payload) => {
                     // A sidecar that dies mid-session is now observable instead of silent
-                    // (G-02-1's secondary cause) — but reconciling any `agent_runs` rows it was
+                    // (G-02-1's secondary cause) — but reconciling any `sessions` rows it was
                     // driving is explicitly out of scope here (see plan 02-15's "Adjacent Open
                     // Items"; 02-18 owns that). Nothing further can arrive on this receiver once
                     // its process is gone, so the loop ends.
@@ -1283,14 +1130,6 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                     &app_for_reader,
                                     &event,
                                 );
-                                // PLAN-05: the detective half of the scope guarantee — what the
-                                // file-tool hook cannot see (a `Bash` write) or a lost notice. After
-                                // the close above, on its own thread; failures only log.
-                                handle_inbound_scope_backstop(&app_for_reader, &event);
-                                // Phase 9 plan 09-07: a closed session may be the one a wave was
-                                // waiting on, so ask for a dispatch pass now rather than at the
-                                // next firing. After the close above has written the run's status.
-                                crate::scheduler::nudge_dispatch(&app_for_reader);
                             }
 
                             // D-53 (plan 03-13): the shim's exhaustion notice already reached the
@@ -1307,24 +1146,6 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                 == Some("git_lock_exhausted")
                             {
                                 handle_inbound_git_lock_exhausted(&app_for_reader, &event);
-                            }
-
-                            // PLAN-05 (plan 09-02): the scope hook's refusal notice, relayed here as a
-                            // `scope_denied` event. Unlike the shim's retry notice above, EVERY one is a
-                            // row — no coalescing and no threshold (D-154). Sits AFTER the `agent:event`
-                            // emit for the same reason every inbound branch does.
-                            if event.get("type").and_then(|v| v.as_str()) == Some("scope_denied") {
-                                handle_inbound_scope_denied(&app_for_reader, &event);
-                            }
-
-                            // AGNT-05 (plan 09-05): the adapter seam's normalised limit tier — on a
-                            // `rate_limit` event, or on an assistant message whose backend error named a
-                            // limit. Gates NEW dispatch only; no running session is touched. Placed AFTER
-                            // the `agent:event` emit like every inbound branch.
-                            if event.get("type").and_then(|v| v.as_str()) == Some("rate_limit")
-                                || event.get("rateLimitTier").is_some()
-                            {
-                                handle_inbound_rate_limit(&app_for_reader, &event);
                             }
 
                             // The `summary_reported`, `proposal_created`, `plan_submitted` and
@@ -1373,167 +1194,3 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
     Ok(handle)
 }
 
-/// PLAN-05: the DB half of the `scope_denied` reader branch, driven with real sidecar-shaped event
-/// lines against a real migrated database. No `AppHandle` is needed, which is the point of the
-/// handler/process split.
-#[cfg(test)]
-mod scope_denied_tests {
-    use super::*;
-
-    /// A migrated database with one task and one `running` agent run, returned as
-    /// `(conn, task_id, run_id, agent_actor_id)`.
-    pub(super) fn seeded_run() -> (rusqlite::Connection, String, String, String) {
-        let dir = tempfile::tempdir().expect("scratch dir");
-        let mut conn = flywheel_core::db::open_and_migrate(&dir.path().join("f.db"), &dir.path().join("backups"))
-            .expect("open_and_migrate");
-        std::mem::forget(dir);
-        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).expect("human actor");
-        let project = flywheel_core::domain::project::create_project(&mut conn, &human, "P", "/repo", "FLY", "main")
-            .expect("project");
-        let task = flywheel_core::domain::task::create_task(&mut conn, &project.id, &human, "T", None).expect("task");
-        let agent = flywheel_core::domain::agent_run::agent_actor_id(&conn).expect("agent actor");
-        let (trigger_id, run_id) = (flywheel_core::ids::new_id(), flywheel_core::ids::new_id());
-        let now = "2026-01-01T00:00:00.000Z";
-        conn.execute(
-            "INSERT INTO triggers (id, project_id, target_task_id, source, config, enabled, last_fired_at, created_by, created_at)
-             VALUES (?1, ?2, ?3, 'user_action', NULL, 1, NULL, ?4, ?5)",
-            rusqlite::params![trigger_id, project.id, task.id, human, now],
-        )
-        .expect("trigger");
-        conn.execute(
-            "INSERT INTO agent_runs (id, worktree_id, task_id, project_id, trigger_id, adapter, actor_id, status,
-                external_session_id, permission_mode, cost_usd, tokens_in, tokens_out, log_path, started_at, ended_at)
-             VALUES (?1, NULL, ?2, ?3, ?4, 'claude_code', ?5, 'running', NULL, 'default', NULL, NULL, NULL, '/tmp/x.jsonl', ?6, NULL)",
-            rusqlite::params![run_id, task.id, project.id, trigger_id, agent, now],
-        )
-        .expect("run");
-        (conn, task.id, run_id, agent)
-    }
-
-    fn rows(conn: &rusqlite::Connection, task_id: &str) -> Vec<(String, serde_json::Value)> {
-        let mut stmt = conn
-            .prepare("SELECT actor_id, payload FROM events WHERE task_id = ?1 AND event_type = 'task.scope_denied' ORDER BY sequence")
-            .unwrap();
-        stmt.query_map(rusqlite::params![task_id], |r| {
-            let p: String = r.get(1)?;
-            Ok((r.get(0)?, serde_json::from_str(&p).unwrap()))
-        })
-        .unwrap()
-        .map(Result::unwrap)
-        .collect()
-    }
-
-    #[test]
-    fn an_event_line_becomes_one_row_attributed_to_the_agent_with_the_run_identity_from_the_database() {
-        let (mut conn, task_id, run_id, agent) = seeded_run();
-        let event = serde_json::json!({
-            "type": "scope_denied", "runId": run_id, "seq": 4, "at": "x", "raw": "{}",
-            "path": "src/b.rs", "tool": "Edit", "toolUseId": "toolu_9", "outsideWorktree": false,
-            // A spoof attempt: nothing but runId + the report fields is read.
-            "taskId": "01SPOOFSPOOFSPOOFSPOOFSPOO", "actorId": "01SPOOFSPOOFSPOOFSPOOFSPOO",
-        });
-        let attached = process_inbound_scope_denied(&mut conn, &event).unwrap();
-        assert_eq!(attached.as_deref(), Some(task_id.as_str()));
-        let got = rows(&conn, &task_id);
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].0, agent);
-        assert_eq!(got[0].1["path"], "src/b.rs");
-        assert_eq!(got[0].1["tool"], "Edit");
-        assert_eq!(got[0].1["tool_use_id"], "toolu_9");
-        assert_eq!(got[0].1["outside_worktree"], false);
-        assert_eq!(got[0].1["detected_after_the_fact"], false);
-    }
-
-    #[test]
-    fn twenty_events_are_twenty_rows() {
-        let (mut conn, task_id, run_id, _) = seeded_run();
-        for i in 0..20 {
-            let event = serde_json::json!({ "runId": run_id, "path": format!("f{i}.rs"), "tool": "Write" });
-            process_inbound_scope_denied(&mut conn, &event).unwrap();
-        }
-        assert_eq!(rows(&conn, &task_id).len(), 20);
-    }
-
-    #[test]
-    fn an_outside_worktree_event_stores_the_flag_and_not_the_absolute_path() {
-        let (mut conn, task_id, run_id, _) = seeded_run();
-        let event = serde_json::json!({
-            "runId": run_id, "path": "/Users/x/.claude/plans/p.md", "tool": "Write", "outsideWorktree": true,
-        });
-        process_inbound_scope_denied(&mut conn, &event).unwrap();
-        let got = rows(&conn, &task_id);
-        assert_eq!(got[0].1["outside_worktree"], true);
-        assert_eq!(got[0].1["path"], "p.md");
-    }
-
-    #[test]
-    fn a_malformed_or_unknown_run_event_writes_nothing_and_does_not_error() {
-        let (mut conn, task_id, run_id, _) = seeded_run();
-        for event in [
-            serde_json::json!({}),
-            serde_json::json!({ "runId": run_id }),
-            serde_json::json!({ "path": "a.rs" }),
-            serde_json::json!({ "runId": "01ZZZZZZZZZZZZZZZZZZZZZZZZ", "path": "a.rs" }),
-        ] {
-            assert_eq!(process_inbound_scope_denied(&mut conn, &event).unwrap(), None);
-        }
-        assert!(rows(&conn, &task_id).is_empty());
-    }
-}
-
-#[cfg(test)]
-mod rate_limit_tests {
-    use super::scope_denied_tests::seeded_run;
-    use super::*;
-
-    const NOW: i64 = 1_791_000_000;
-
-    #[test]
-    fn a_rejected_tier_pauses_the_gate_appends_one_event_and_leaves_the_run_running() {
-        let (mut conn, _task, run_id, _agent) = seeded_run();
-        let event = serde_json::json!({
-            "type": "rate_limit", "runId": run_id, "tier": "rejected",
-            "rateLimitType": "five_hour", "resetsAt": NOW + 600,
-        });
-        let change = process_inbound_rate_limit(&mut conn, &event, NOW).unwrap().unwrap();
-        assert!(change.changed);
-        assert!(!flywheel_core::limit_gate::read_gate(&conn, NOW).unwrap().is_open());
-        let rows: i64 = conn
-            .query_row("SELECT COUNT(*) FROM events WHERE event_type = 'dispatch.gate_changed'", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(rows, 1);
-        // The same signal again changes nothing and appends nothing.
-        assert!(!process_inbound_rate_limit(&mut conn, &event, NOW).unwrap().unwrap().changed);
-        let status: String =
-            conn.query_row("SELECT status FROM agent_runs WHERE id = ?1", rusqlite::params![run_id], |r| r.get(0)).unwrap();
-        assert_eq!(status, "running");
-    }
-
-    #[test]
-    fn an_assistant_message_carrying_the_rejected_tier_pauses_with_the_reset_unknown() {
-        let (mut conn, _task, run_id, _agent) = seeded_run();
-        let event = serde_json::json!({"type": "assistant_text", "runId": run_id, "text": "x", "rateLimitTier": "rejected"});
-        let change = process_inbound_rate_limit(&mut conn, &event, NOW).unwrap().unwrap();
-        assert!(change.after.message().contains("reset time is unknown"));
-    }
-
-    #[test]
-    fn an_event_with_no_usable_signal_changes_nothing() {
-        let (mut conn, _task, run_id, _agent) = seeded_run();
-        for event in [
-            serde_json::json!({"type": "rate_limit", "runId": run_id}),
-            serde_json::json!({"type": "rate_limit", "tier": "rejected"}),
-        ] {
-            assert!(process_inbound_rate_limit(&mut conn, &event, NOW).unwrap().is_none());
-        }
-        assert!(flywheel_core::limit_gate::read_gate(&conn, NOW).unwrap().is_open());
-    }
-
-    #[test]
-    fn a_database_failure_is_an_error_value_not_a_panic() {
-        let (mut conn, _task, run_id, _agent) = seeded_run();
-        conn.execute_batch("DROP TABLE settings").unwrap();
-        let event = serde_json::json!({"type": "rate_limit", "runId": run_id, "tier": "rejected"});
-        assert!(process_inbound_rate_limit(&mut conn, &event, NOW).is_err());
-    }
-}

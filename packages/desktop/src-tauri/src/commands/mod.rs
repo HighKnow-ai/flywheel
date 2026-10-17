@@ -2,28 +2,43 @@
 //! that calls into `packages/core`'s mutation functions. Every handler locks `AppState.db`,
 //! validates its input shape and length before calling into the core, stamps `actor_id` from the
 //! local human actor on the Rust side (T-01-04, never from a renderer-supplied claim), and, after
-//! a successful mutation, emits `board:changed` (D-04). Every handler in the review and forge
-//! modules maps a core error through [`ipc_error`], so no git stderr or filesystem path crosses IPC.
+//! a successful mutation, emits `board:changed` (D-04). A handler whose core error can carry a git
+//! stderr or a filesystem path maps it through [`ipc_error`], so neither crosses IPC.
+//!
+//! The record commands follow `GLOSSARY.md`: `roadmap` (Milestones), `epic`, `story`, `criterion`
+//! (Acceptance criteria and their Checks), `task` (the Story checklist) and `proposal`.
 
 pub mod actor;
 pub mod agent_run;
-pub mod change_flags;
 pub mod criterion;
-pub mod dispatch;
 pub mod epic;
 pub mod events;
-pub mod file_set;
 pub mod fleet;
-pub mod forge;
 pub mod git_identity;
 pub mod git_truth;
-pub mod issue;
 pub mod menu;
 pub mod project;
-pub mod review;
+pub mod proposal;
+pub mod roadmap;
 pub mod settings;
+pub mod story;
 pub mod task;
 pub mod worktree_open;
+
+/// The longest title a record command accepts, in characters.
+pub(crate) const MAX_TITLE_LEN: usize = 500;
+/// The longest prose field (a spec part, an exit test, a statement) a record command accepts.
+pub(crate) const MAX_PROSE_LEN: usize = 20_000;
+
+/// Refuse an empty (after trimming) or over-long text argument before it reaches the core, naming
+/// the field, the limit and the actual length.
+pub(crate) fn validate_text(field: &str, value: &str, max_chars: usize) -> Result<(), String> {
+    let count = value.trim().chars().count();
+    if count == 0 || count > max_chars {
+        return Err(format!("{field} must be 1-{max_chars} characters, got {count}"));
+    }
+    Ok(())
+}
 
 /// Map a core error to the string a handler returns to the renderer (T-07-08-01, T-08-08-06): the
 /// full cause chain goes to the process log, and only the fixed category `failed:<context>` crosses
@@ -66,23 +81,17 @@ pub fn emit_board_changed(
 /// helper turns into a broadcast. Read BEFORE a delete — the row is gone afterwards.
 pub(crate) fn project_of(conn: &rusqlite::Connection, table: &str, id: &str) -> Option<String> {
     let sql = match table {
-        "tasks" => "SELECT project_id FROM tasks WHERE id = ?1",
+        "milestones" => "SELECT project_id FROM milestones WHERE id = ?1",
         "epics" => "SELECT project_id FROM epics WHERE id = ?1",
-        "issues" => "SELECT project_id FROM issues WHERE id = ?1",
-        "agent_runs" => "SELECT project_id FROM agent_runs WHERE id = ?1",
-        "worktrees" => "SELECT project_id FROM worktrees WHERE id = ?1",
+        "stories" => "SELECT project_id FROM stories WHERE id = ?1",
+        "tasks" => "SELECT s.project_id FROM tasks t JOIN stories s ON s.id = t.story_id WHERE t.id = ?1",
         "acceptance_criteria" => {
-            "SELECT CASE parent_type \
-                 WHEN 'task' THEN (SELECT project_id FROM tasks WHERE id = parent_id) \
-                 ELSE (SELECT project_id FROM epics WHERE id = parent_id) END \
-             FROM acceptance_criteria WHERE id = ?1"
+            "SELECT s.project_id FROM acceptance_criteria c JOIN stories s ON s.id = c.story_id WHERE c.id = ?1"
         }
-        "dispatch_plans" => {
-            "SELECT e.project_id FROM dispatch_plans p JOIN epics e ON e.id = p.epic_id WHERE p.id = ?1"
-        }
+        "proposals" => "SELECT project_id FROM proposals WHERE id = ?1",
+        "sessions" => "SELECT project_id FROM sessions WHERE id = ?1",
+        "worktrees" => "SELECT project_id FROM worktrees WHERE id = ?1",
         "permission_rules" => "SELECT project_id FROM permission_rules WHERE id = ?1",
-        "authoring_proposals" => "SELECT project_id FROM authoring_proposals WHERE id = ?1",
-        "cycles" => "SELECT project_id FROM cycles WHERE id = ?1",
         _ => return None,
     };
     conn.query_row(sql, [id], |r| r.get::<_, String>(0)).ok()

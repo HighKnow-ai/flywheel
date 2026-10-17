@@ -1,57 +1,37 @@
-//! FNC-03 (phase 13 plan 09, ROADMAP criterion 2; T-13-41..T-13-44): authority is reachable only
-//! from a human.
+//! FNC-03: authority is reachable only from a human (docs/mvp-spec.md §4.4, §8: "Acceptance is
+//! human-only").
 //!
-//! An "authority transition" is a sign-off the developer owns: checking an acceptance criterion,
-//! sending reviewed work back, and deciding a staged proposal (accept, merge, reject, defer). Each
-//! is enforced in two places at once: the writer reads `actors.type` inside its own write
-//! transaction and refuses anything but `'human'` (the behaviour half below), and no agent-reachable
-//! module may call the writer at all (the source half below).
+//! An "authority transition" is a sign-off the developer owns: accepting (or withdrawing) an
+//! Acceptance criterion, editing a Check, and deciding a Proposal. Each is enforced in two places at
+//! once: the writer reads `actors.type` inside its own write transaction and refuses anything but
+//! `'human'` (the behaviour half below), and no agent-reachable module may call the writer at all
+//! (the source half below). The developer-only Story, Epic and Milestone moves (starting a Story,
+//! requesting changes, merging, dropping, closing shaping, confirming an exit test) are pinned by
+//! the behaviour half too; their writers also serve the session's hand-off, so they are not in the
+//! source half's list.
 //!
-//! Both directions are asserted in this one file, on purpose. PROJECT.md's "Two-sided acceptance
-//! for any gate change" records why: round ten of the Phase 12 gate work passed every offline test
-//! it had and still bricked the product by being right in one direction only. A refusal test that
-//! lets an agent through fails; a not-blocked test that locks the human out fails too, and the
-//! second is a hard assert here, never a tolerated outcome.
-//!
-//! Self-contained per this repo's precedent (`pm_vocabulary_gate.rs`): carries its own copies of
-//! `workspace_root`/`is_whole_line_comment`/`sources_under`. No env var, `cfg` switch or skip attribute
-//! turns anything here off.
+//! Both directions are asserted in this one file, on purpose: a refusal test that lets an agent
+//! through fails, and a not-blocked test that locks the human out fails too — the second is a hard
+//! assert here, never a tolerated outcome. No env var, `cfg` switch or skip attribute turns
+//! anything here off.
 
 mod common;
 
 use std::path::{Path, PathBuf};
 
-use core::domain::acceptance_criterion::{
-    check_criterion_with_anchor, create_criterion, toggle_criterion, AnchorInput,
-};
+use core::domain::acceptance_criterion::{accept_criterion, create_criterion, unaccept_criterion};
 use core::domain::actor::{assert_human_actor, assert_human_actor_in_tx, local_human_actor_id, system_actor};
 use core::domain::agent_run::agent_actor_id;
-use core::domain::authoring_proposal::{
-    accept_proposal, accept_subtree, create_proposal, defer_proposal, defer_proposals_bulk, merge_proposal,
-    reject_proposal, reject_proposals_bulk, MergeTarget, ProposalPayload, ProposalProvenance, ProposalVerb,
-};
-use core::domain::authoring_session::{advance_stage, start_authoring_run};
-use core::domain::task::{create_task, request_changes, set_task_status, ChangesRequestOutcome};
+use core::domain::check::{remove_check, set_check};
+use core::domain::epic::{set_epic_state, EpicState};
+use core::domain::milestone::{set_milestone_state, MilestoneState};
+use core::domain::proposal::{accept_proposal, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb};
+use core::domain::story::{set_story_state, StoryState};
 use rusqlite::Connection;
 
 // ============================================================================================
 // Behaviour half — every authority writer, both directions
 // ============================================================================================
-
-/// Serializes the scratch runtime dir `advance_stage` writes its stage marker into — mirrors the
-/// identically-named lock in `proposal_triage_verbs.rs` (a separate static per test binary).
-static RUNTIME_DIR_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn with_scratch_runtime_dir<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = RUNTIME_DIR_ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempfile::tempdir().expect("failed to create scratch runtime dir");
-    // SAFETY: the mutex above serializes every caller in this binary, and the var is cleared
-    // before returning.
-    unsafe { std::env::set_var("FLYWHEEL_RUNTIME_DIR", dir.path()) };
-    let result = f();
-    unsafe { std::env::remove_var("FLYWHEEL_RUNTIME_DIR") };
-    result
-}
 
 /// Who is asking. `Human` is the seeded local human; the rest are every other way an actor id can
 /// be wrong, each of which must be refused.
@@ -83,22 +63,24 @@ struct Trial {
     after: String,
 }
 
-/// A byte-comparable picture of every table an authority writer can touch: ids, statuses, check
-/// flags, timestamps and decision columns, plus event and row counts. Static SQL per table — no
-/// table name is ever interpolated.
+/// A byte-comparable picture of every table an authority writer can touch, plus the event count.
+/// Static SQL per table — no table name is ever interpolated.
 fn board_state(conn: &Connection) -> String {
     const QUERIES: [&str; 7] = [
-        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || status || updated_at AS r FROM tasks ORDER BY id)",
-        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || status || updated_at AS r FROM epics ORDER BY id)",
-        "SELECT COUNT(*) FROM issues",
-        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || checked || updated_at || IFNULL(superseded_at, '') AS r FROM acceptance_criteria ORDER BY id)",
-        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT criterion_id || path || sha AS r FROM criterion_anchors ORDER BY criterion_id)",
-        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || status || IFNULL(decided_by, '') || IFNULL(materialised_id, '') AS r FROM authoring_proposals ORDER BY id)",
+        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || updated_at AS r FROM milestones ORDER BY id)",
+        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || updated_at AS r FROM epics ORDER BY id)",
+        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || updated_at AS r FROM stories ORDER BY id)",
+        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || IFNULL(accepted_by, '') || updated_at AS r FROM acceptance_criteria ORDER BY id)",
+        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || command || updated_at AS r FROM checks ORDER BY id)",
+        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || IFNULL(decided_by, '') AS r FROM proposals ORDER BY id)",
         "SELECT COUNT(*) FROM events",
     ];
     QUERIES
         .iter()
-        .map(|sql| conn.query_row(sql, [], |row| row.get::<_, String>(0).or_else(|_| row.get::<_, i64>(0).map(|n| n.to_string()))).expect("board_state query"))
+        .map(|sql| {
+            conn.query_row(sql, [], |row| row.get::<_, String>(0).or_else(|_| row.get::<_, i64>(0).map(|n| n.to_string())))
+                .expect("board_state query")
+        })
         .collect::<Vec<_>>()
         .join(" | ")
 }
@@ -111,154 +93,152 @@ fn trial(conn: &mut Connection, who: Who, act: impl FnOnce(&mut Connection, &str
     Trial { result, before, after }
 }
 
-/// A project with one task carrying one unchecked criterion.
-fn criterion_fixture() -> (Connection, String) {
+/// A project with one Story carrying one criterion. Returns `(conn, human, story_id, criterion_id)`.
+fn criterion_fixture() -> (Connection, String, String, String) {
     let (mut conn, human, project) = common::seeded_project();
-    let task = create_task(&mut conn, &project.id, &human, "Wire up the focus trap", None).expect("create_task");
-    let criterion = create_criterion(&mut conn, &project.id, &human, "task", &task.id, "Focus returns on close.", None)
-        .expect("create_criterion");
-    (conn, criterion.id)
+    let story = common::new_story(&mut conn, &project.id, &human, "Wire up the focus trap");
+    let criterion = create_criterion(&mut conn, &human, &story.id, "Focus returns on close.").expect("create_criterion");
+    (conn, human, story.id, criterion.id)
 }
 
-fn run_toggle_criterion(who: Who) -> Trial {
-    let (mut conn, criterion_id) = criterion_fixture();
-    trial(&mut conn, who, |c, actor| toggle_criterion(c, actor, &criterion_id).map(|_| ()))
+fn run_accept_criterion(who: Who) -> Trial {
+    let (mut conn, _, _, criterion_id) = criterion_fixture();
+    trial(&mut conn, who, |c, actor| accept_criterion(c, actor, &criterion_id))
 }
 
-fn run_check_criterion_with_anchor(who: Who) -> Trial {
-    let (mut conn, criterion_id) = criterion_fixture();
-    let anchor = AnchorInput { path: "src/dialog.rs".into(), side: "new".into(), line_start: 1, line_end: 2 };
-    trial(&mut conn, who, |c, actor| {
-        check_criterion_with_anchor(c, actor, &criterion_id, Some(anchor), "abc123").map(|_| ())
-    })
+fn run_unaccept_criterion(who: Who) -> Trial {
+    let (mut conn, human, _, criterion_id) = criterion_fixture();
+    accept_criterion(&mut conn, &human, &criterion_id).expect("the human accepts first");
+    trial(&mut conn, who, |c, actor| unaccept_criterion(c, actor, &criterion_id))
 }
 
-fn run_request_changes(who: Who) -> Trial {
-    let (mut conn, human, project) = common::seeded_project();
-    let task = create_task(&mut conn, &project.id, &human, "Wire up the focus trap", None).expect("create_task");
-    create_criterion(&mut conn, &project.id, &human, "task", &task.id, "Focus returns on close.", None)
-        .expect("create_criterion");
-    set_task_status(&mut conn, &human, &task.id, "in_progress").expect("set status");
-    trial(&mut conn, who, |c, actor| match request_changes(c, actor, &task.id)? {
-        ChangesRequestOutcome::Requested { .. } => Ok(()),
-        other => anyhow::bail!("request_changes did not record a decline: {other:?}"),
-    })
+fn run_set_check(who: Who) -> Trial {
+    let (mut conn, _, _, criterion_id) = criterion_fixture();
+    trial(&mut conn, who, |c, actor| set_check(c, actor, &criterion_id, "cargo test focus", None).map(|_| ()))
 }
 
-/// One pending task proposal staged by an agent run, plus the project it lives in.
-fn staged_task_proposal(title: &str) -> (Connection, String, String) {
-    let (mut conn, human, project) = common::seeded_project();
-    let run = start_authoring_run(&mut conn, &project.id, None, "default", &human).expect("start_authoring_run");
-    advance_stage(&mut conn, &run.id, &human).expect("advance_stage");
-    let proposal = create_proposal(
+fn run_remove_check(who: Who) -> Trial {
+    let (mut conn, human, _, criterion_id) = criterion_fixture();
+    set_check(&mut conn, &human, &criterion_id, "cargo test focus", None).expect("the human sets a Check first");
+    trial(&mut conn, who, |c, actor| remove_check(c, actor, &criterion_id))
+}
+
+/// One pending Proposal filed by the agent. Returns `(conn, proposal_id)`.
+fn filed_proposal() -> (Connection, String) {
+    let (mut conn, _human, project) = common::seeded_project();
+    let agent = agent_actor_id(&conn).expect("agent actor");
+    let proposal = file_proposal(
         &mut conn,
-        &run.id,
-        ProposalVerb::Create,
-        ProposalPayload::Task { title: title.to_string(), description: None, priority: None },
-        None,
-        None,
-        ProposalProvenance::NONE,
+        &agent,
+        &NewProposal {
+            project_id: &project.id,
+            session_id: None,
+            epic_id: None,
+            verb: ProposalVerb::Create,
+            target: ProposalTarget::Milestone,
+            target_id: None,
+            payload: serde_json::json!({ "title": "Ship the board" }),
+            rationale: Some("the roadmap has no Milestone for it"),
+        },
     )
-    .expect("create_proposal");
-    (conn, proposal.id, project.id)
+    .expect("an agent may file a Proposal");
+    (conn, proposal.id)
 }
 
 fn run_accept_proposal(who: Who) -> Trial {
-    with_scratch_runtime_dir(|| {
-        let (mut conn, proposal_id, _) = staged_task_proposal("Accept me");
-        trial(&mut conn, who, |c, actor| accept_proposal(c, &proposal_id, actor).map(|_| ()))
-    })
-}
-
-fn run_accept_subtree(who: Who) -> Trial {
-    with_scratch_runtime_dir(|| {
-        let (mut conn, proposal_id, _) = staged_task_proposal("Accept my subtree");
-        trial(&mut conn, who, |c, actor| accept_subtree(c, &proposal_id, actor).map(|_| ()))
-    })
+    let (mut conn, proposal_id) = filed_proposal();
+    trial(&mut conn, who, |c, actor| accept_proposal(c, actor, &proposal_id))
 }
 
 fn run_reject_proposal(who: Who) -> Trial {
-    with_scratch_runtime_dir(|| {
-        let (mut conn, proposal_id, _) = staged_task_proposal("Reject me");
-        trial(&mut conn, who, |c, actor| reject_proposal(c, &proposal_id, actor, Some("not now")).map(|_| ()))
-    })
+    let (mut conn, proposal_id) = filed_proposal();
+    trial(&mut conn, who, |c, actor| reject_proposal(c, actor, &proposal_id, Some("not now")))
 }
 
-fn run_defer_proposal(who: Who) -> Trial {
-    with_scratch_runtime_dir(|| {
-        let (mut conn, proposal_id, _) = staged_task_proposal("Defer me");
-        trial(&mut conn, who, |c, actor| defer_proposal(c, actor, &proposal_id).map(|_| ()))
-    })
+/// A Story moved, by the human, to `at`. Returns `(conn, story_id)`.
+fn story_at(at: StoryState) -> (Connection, String) {
+    let (mut conn, human, project) = common::seeded_project();
+    let story = common::new_story(&mut conn, &project.id, &human, "A Story");
+    let path: &[StoryState] = match at {
+        StoryState::Shaping => &[],
+        StoryState::Ready => &[StoryState::Ready],
+        StoryState::Running => &[StoryState::Ready, StoryState::Running],
+        StoryState::InReview => &[StoryState::Ready, StoryState::Running, StoryState::InReview],
+        other => panic!("no fixture path to {other:?}"),
+    };
+    for step in path {
+        set_story_state(&mut conn, &human, &story.id, *step).expect("fixture move");
+    }
+    (conn, story.id)
 }
 
-fn run_merge_proposal(who: Who) -> Trial {
-    with_scratch_runtime_dir(|| {
-        let (mut conn, proposal_id, project_id) = staged_task_proposal("Merge me");
-        let human = local_human_actor_id(&conn).expect("human");
-        let target = create_task(&mut conn, &project_id, &human, "The merge target", None).expect("create_task");
-        trial(&mut conn, who, |c, actor| {
-            merge_proposal(c, actor, &proposal_id, &MergeTarget::Task(target.id.clone())).map(|_| ())
-        })
-    })
+fn run_story_move(from: StoryState, to: StoryState, who: Who) -> Trial {
+    let (mut conn, story_id) = story_at(from);
+    trial(&mut conn, who, |c, actor| set_story_state(c, actor, &story_id, to))
 }
 
-fn run_reject_proposals_bulk(who: Who) -> Trial {
-    with_scratch_runtime_dir(|| {
-        let (mut conn, proposal_id, _) = staged_task_proposal("Bulk reject me");
-        trial(&mut conn, who, |c, actor| {
-            reject_proposals_bulk(c, actor, &[proposal_id.clone()], None).map(|_| ())
-        })
-    })
+fn run_start_story(who: Who) -> Trial {
+    run_story_move(StoryState::Ready, StoryState::Running, who)
 }
 
-fn run_defer_proposals_bulk(who: Who) -> Trial {
-    with_scratch_runtime_dir(|| {
-        let (mut conn, proposal_id, _) = staged_task_proposal("Bulk defer me");
-        trial(&mut conn, who, |c, actor| defer_proposals_bulk(c, actor, &[proposal_id.clone()]).map(|_| ()))
-    })
+fn run_request_changes(who: Who) -> Trial {
+    run_story_move(StoryState::InReview, StoryState::Running, who)
 }
 
-/// The authority writers, by function name — the single list both halves of this file are held to.
-/// Adding a writer here without a case below (or the reverse) fails
-/// `every_authority_writer_has_a_refusal_and_a_not_blocked_case`.
-///
-/// Accepting an ADR is the one transition ROADMAP criterion 2 names that does not exist yet; it
-/// belongs to Phase 16 and must call `assert_human_actor_in_tx` first (see that function's docs).
-const AUTHORITY_WRITERS: [&str; 10] = [
-    "toggle_criterion",
-    "check_criterion_with_anchor",
-    "request_changes",
+fn run_merge_story(who: Who) -> Trial {
+    run_story_move(StoryState::InReview, StoryState::Merged, who)
+}
+
+fn run_drop_story(who: Who) -> Trial {
+    run_story_move(StoryState::Running, StoryState::Dropped, who)
+}
+
+fn run_close_epic_shaping(who: Who) -> Trial {
+    let (mut conn, human, project) = common::seeded_project();
+    let story = common::new_story(&mut conn, &project.id, &human, "A Story");
+    trial(&mut conn, who, |c, actor| set_epic_state(c, actor, &story.epic_id, EpicState::Ready))
+}
+
+fn run_confirm_milestone(who: Who) -> Trial {
+    let (mut conn, human, project) = common::seeded_project();
+    let m = core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Ship it", Some("it ships"))
+        .expect("create_milestone");
+    trial(&mut conn, who, |c, actor| set_milestone_state(c, actor, &m.id, MilestoneState::Done))
+}
+
+/// The authority writers the source half guards, by function name. Adding one here without a case
+/// below (or the reverse) fails `every_authority_writer_has_a_refusal_and_a_not_blocked_case`.
+const AUTHORITY_WRITERS: [&str; 6] = [
+    "accept_criterion",
+    "unaccept_criterion",
+    "set_check",
+    "remove_check",
     "accept_proposal",
-    "accept_subtree",
-    "merge_proposal",
     "reject_proposal",
-    "defer_proposal",
-    "reject_proposals_bulk",
-    "defer_proposals_bulk",
 ];
 
-/// Declares the case table AND, per writer, the labelled refusal / not-blocked pair — so the two
-/// cannot drift apart, and a writer cannot be in the table without both of its tests.
+/// Declares the case table AND, per transition, the labelled refusal / not-blocked pair — so the two
+/// cannot drift apart, and a transition cannot be in the table without both of its tests.
 macro_rules! authority_cases {
-    ($($writer:ident => $run:ident),* $(,)?) => {
-        const TRANSITIONS: &[(&str, fn(Who) -> Trial)] = &[$((stringify!($writer), $run as fn(Who) -> Trial)),*];
+    ($($name:ident => $run:ident),* $(,)?) => {
+        const TRANSITIONS: &[(&str, fn(Who) -> Trial)] = &[$((stringify!($name), $run as fn(Who) -> Trial)),*];
 
         $(
-            mod $writer {
+            mod $name {
                 use super::*;
 
                 #[test]
                 fn an_agent_is_refused_and_nothing_is_written() {
                     let t = $run(Who::Agent);
-                    assert!(t.result.is_err(), "{}: an agent actor must be refused, but the call succeeded", stringify!($writer));
-                    assert_eq!(t.before, t.after, "{}: a refused agent call must leave the board byte-for-byte unchanged", stringify!($writer));
+                    assert!(t.result.is_err(), "{}: an agent actor must be refused, but the call succeeded", stringify!($name));
+                    assert_eq!(t.before, t.after, "{}: a refused agent call must leave the board byte-for-byte unchanged", stringify!($name));
                 }
 
                 #[test]
                 fn a_human_is_not_blocked_and_the_full_effect_lands() {
                     let t = $run(Who::Human);
-                    assert!(t.result.is_ok(), "{}: the human must NOT be blocked, got {:?}", stringify!($writer), t.result);
-                    assert_ne!(t.before, t.after, "{}: the human's call returned Ok but wrote nothing", stringify!($writer));
+                    assert!(t.result.is_ok(), "{}: the human must NOT be blocked, got {:?}", stringify!($name), t.result);
+                    assert_ne!(t.before, t.after, "{}: the human's call returned Ok but wrote nothing", stringify!($name));
                 }
             }
         )*
@@ -266,26 +246,48 @@ macro_rules! authority_cases {
 }
 
 authority_cases! {
-    toggle_criterion => run_toggle_criterion,
-    check_criterion_with_anchor => run_check_criterion_with_anchor,
-    request_changes => run_request_changes,
+    accept_criterion => run_accept_criterion,
+    unaccept_criterion => run_unaccept_criterion,
+    set_check => run_set_check,
+    remove_check => run_remove_check,
     accept_proposal => run_accept_proposal,
-    accept_subtree => run_accept_subtree,
-    merge_proposal => run_merge_proposal,
     reject_proposal => run_reject_proposal,
-    defer_proposal => run_defer_proposal,
-    reject_proposals_bulk => run_reject_proposals_bulk,
-    defer_proposals_bulk => run_defer_proposals_bulk,
+    start_story => run_start_story,
+    request_changes => run_request_changes,
+    merge_story => run_merge_story,
+    drop_story => run_drop_story,
+    close_epic_shaping => run_close_epic_shaping,
+    confirm_milestone => run_confirm_milestone,
 }
+
+/// The table names every writer in AUTHORITY_WRITERS, plus the six developer-only state moves.
+const STATE_MOVES: [&str; 6] =
+    ["start_story", "request_changes", "merge_story", "drop_story", "close_epic_shaping", "confirm_milestone"];
 
 #[test]
 fn every_authority_writer_has_a_refusal_and_a_not_blocked_case() {
     let mut in_table: Vec<&str> = TRANSITIONS.iter().map(|(name, _)| *name).collect();
-    let mut declared: Vec<&str> = AUTHORITY_WRITERS.to_vec();
+    let mut declared: Vec<&str> = AUTHORITY_WRITERS.iter().chain(STATE_MOVES.iter()).copied().collect();
     in_table.sort_unstable();
     declared.sort_unstable();
-    assert_eq!(in_table, declared, "the case table and AUTHORITY_WRITERS must name the same writers");
-    assert_eq!(TRANSITIONS.len(), 10, "a transition was quietly dropped from coverage");
+    assert_eq!(in_table, declared, "the case table must name every writer and every developer-only move");
+    assert_eq!(TRANSITIONS.len(), 12, "a transition was quietly dropped from coverage");
+}
+
+/// The session's hand-off is the one Story move that is not the developer's: an agent may make it,
+/// and it is the only one an agent may make.
+#[test]
+fn the_hand_off_is_the_only_story_move_an_agent_may_make() {
+    let t = run_story_move(StoryState::Running, StoryState::InReview, Who::Agent);
+    assert!(t.result.is_ok(), "the session hands off: {:?}", t.result);
+    assert_ne!(t.before, t.after);
+    for from in [StoryState::Shaping, StoryState::Ready, StoryState::Running, StoryState::InReview] {
+        for to in core::domain::story::StoryState::ALL {
+            if core::domain::story::is_allowed_transition(from, to) && (from, to) != (StoryState::Running, StoryState::InReview) {
+                assert!(core::domain::story::is_human_transition(from, to), "{from:?} -> {to:?} must be the developer's");
+            }
+        }
+    }
 }
 
 /// Every wrong kind of actor, against every writer: refused, board unchanged, message says why.
@@ -317,6 +319,29 @@ fn an_unknown_actor_id_is_refused_as_not_found() {
 #[test]
 fn an_empty_actor_id_is_refused_as_not_found_never_defaulted_to_the_local_human() {
     assert_refused_everywhere(Who::Empty, "not found");
+}
+
+/// A passing Check run never accepts its criterion: acceptance stays the developer's act.
+#[test]
+fn a_passing_check_run_does_not_accept_its_criterion() {
+    let (mut conn, human, _, criterion_id) = criterion_fixture();
+    let check = set_check(&mut conn, &human, &criterion_id, "true", None).expect("set_check");
+    let now = chrono::Utc::now().to_rfc3339();
+    core::domain::check::record_check_run(
+        &mut conn,
+        &check.id,
+        &core::domain::check::CheckRunRecord {
+            commit_sha: "abc123",
+            result: core::domain::check::CheckResult::Passed,
+            exit_code: Some(0),
+            output_tail: None,
+            started_at: &now,
+            ended_at: &now,
+        },
+    )
+    .expect("record_check_run");
+    let criterion = core::domain::acceptance_criterion::get_criterion(&conn, &criterion_id).unwrap().unwrap();
+    assert_eq!(criterion.accepted_by, None, "a passed Check pre-ticks at review; it never accepts");
 }
 
 // --- the helper itself, both directions ---
@@ -400,14 +425,13 @@ struct AllowedCaller {
 /// The declaring domain modules and the Tauri command modules that put the act under the human's
 /// own control (each resolves the actor server-side with `local_human_actor_id`). Nothing under
 /// `packages/sidecar/src` — the process that drives an agent session — is, or may ever be, listed.
-const ALLOWED_CALLERS: [AllowedCaller; 7] = [
-    AllowedCaller { suffix: "packages/core/src/domain/acceptance_criterion.rs", reason: "declares toggle_criterion / check_criterion_with_anchor", test_only: false },
-    AllowedCaller { suffix: "packages/core/src/domain/task.rs", reason: "declares request_changes", test_only: false },
-    AllowedCaller { suffix: "packages/core/src/domain/authoring_proposal.rs", reason: "declares the proposal triage writers and their bulk forms", test_only: false },
-    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/criterion.rs", reason: "the human's criterion checkbox", test_only: false },
-    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/review.rs", reason: "the human's review surface: check-with-evidence and decline", test_only: false },
-    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/authoring.rs", reason: "the human's proposal triage verbs", test_only: false },
-    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/agent_run.rs", reason: "calls only from a #[cfg(test)] fixture that builds a declined task", test_only: true },
+const ALLOWED_CALLERS: [AllowedCaller; 6] = [
+    AllowedCaller { suffix: "packages/core/src/domain/acceptance_criterion.rs", reason: "declares accept_criterion / unaccept_criterion", test_only: false },
+    AllowedCaller { suffix: "packages/core/src/domain/check.rs", reason: "declares set_check / remove_check", test_only: false },
+    AllowedCaller { suffix: "packages/core/src/domain/proposal.rs", reason: "declares accept_proposal / reject_proposal", test_only: false },
+    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/criterion.rs", reason: "the human's acceptance and Check controls", test_only: false },
+    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/proposal.rs", reason: "the human's Proposal decisions", test_only: false },
+    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/agent_run.rs", reason: "calls only from a #[cfg(test)] fixture", test_only: true },
 ];
 
 fn is_ident_char(c: char) -> bool {
@@ -496,11 +520,11 @@ fn the_authority_gate_fires_on_a_planted_call() {
         "a call from outside the allow-list must be exactly one offender"
     );
     // The same body in an allowed file, in a comment, or as a longer identifier is not a call.
-    assert!(authority_offenders("packages/desktop/src-tauri/src/commands/authoring.rs", planted).is_empty());
+    assert!(authority_offenders("packages/desktop/src-tauri/src/commands/proposal.rs", planted).is_empty());
     assert!(authority_offenders("packages/sidecar/src/planted.ts", "// accept_proposal(conn);\n").is_empty());
     assert!(authority_offenders("packages/sidecar/src/planted.ts", "accept_proposal_in_tx(tx);\n").is_empty());
     // A test-only entry is permitted below its `#[cfg(test)]` line and an offender above it.
     let agent_run = "packages/desktop/src-tauri/src/commands/agent_run.rs";
-    assert_eq!(authority_offenders(agent_run, "toggle_criterion(c);\n#[cfg(test)]\nmod t {}\n").len(), 1);
-    assert!(authority_offenders(agent_run, "#[cfg(test)]\nmod t { fn f() { toggle_criterion(c); } }\n").is_empty());
+    assert_eq!(authority_offenders(agent_run, "accept_criterion(c);\n#[cfg(test)]\nmod t {}\n").len(), 1);
+    assert!(authority_offenders(agent_run, "#[cfg(test)]\nmod t { fn f() { accept_criterion(c); } }\n").is_empty());
 }

@@ -24,11 +24,11 @@ pub struct AppState {
     /// per-session watchdog (plan 03-02), never by this field.
     pub pending_orphans: Mutex<Vec<flywheel_core::domain::agent_run::LiveOrphan>>,
     /// D-114's "open detail panel" half of the git-truth hot tier (Phase 7 plan 07-01,
-    /// `scheduler.rs`): the renderer declares which task's item panel is currently open via
-    /// `git_truth_focus_task`, and `None` means no panel is open. This is display-freshness
+    /// `scheduler.rs`): the renderer declares which Story it is focused on via
+    /// `git_truth_focus_story`, and `None` means none. This is display-freshness
     /// input only — never a source of truth about anything else, and never read by any mutation
     /// path in this codebase.
-    pub focused_task: Mutex<Option<String>>,
+    pub focused_story: Mutex<Option<String>>,
     /// Phase 10 plan 10-07 (D-174): the agent run whose session surface the renderer is showing
     /// right now, or `None` (the fleet, the board and every other surface all report `None`).
     /// Read only by `notify.rs`, together with the window's focus read in Rust, to withhold the one
@@ -56,7 +56,7 @@ pub struct AppState {
 /// while leaving zero runtime inference at the invoke-handler seam.
 pub struct MenuHandles<R: tauri::Runtime> {
     pub register_project: MenuItem<R>,
-    pub create_task: MenuItem<R>,
+    pub create_story: MenuItem<R>,
     pub create_epic: MenuItem<R>,
     pub open_palette: MenuItem<R>,
     pub open_settings: MenuItem<R>,
@@ -73,7 +73,7 @@ impl<R: tauri::Runtime> MenuHandles<R> {
     pub fn get(&self, action_id: &str) -> Option<&MenuItem<R>> {
         match action_id {
             "register-project" => Some(&self.register_project),
-            "create-task" => Some(&self.create_task),
+            "create-story" => Some(&self.create_story),
             "create-epic" => Some(&self.create_epic),
             "open-palette" => Some(&self.open_palette),
             "open-settings" => Some(&self.open_settings),

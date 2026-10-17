@@ -4,12 +4,11 @@
 //! the ambient config) and copies its `with_scratch_envs`/`register`/`run_git*`/`fresh_repo`
 //! helpers rather than sharing them — each `tests/*.rs` file compiles to its own binary.
 //!
-//! Every branch name under test is built by calling [`core::branch::task_branch_name`] /
-//! [`core::branch::epic_integration_branch_name`], never a hand-written literal (RESEARCH.md
+//! Every branch name under test is built by calling [`core::branch::story_branch_name`], never a hand-written literal (RESEARCH.md
 //! assumption A2) — the test proves the hook's `sed` extraction agrees with the real derivation
 //! function, not with a string this file invented independently.
 
-use core::branch::{epic_integration_branch_name, task_branch_name};
+use core::branch::story_branch_name;
 use core::domain::actor::local_human_actor_id;
 use core::domain::project::register_project;
 use core::git_hooks::{
@@ -133,21 +132,21 @@ fn trailer_line_count(message: &str, key: &str) -> usize {
 // --- Stamping, ordering, and the namespace guard --------------------------------------------
 
 #[test]
-fn commit_on_a_task_branch_carries_both_trailers_in_order_after_a_blank_line() {
+fn commit_on_a_story_branch_carries_both_trailers_in_order_after_a_blank_line() {
     let scratch = tempfile::tempdir().expect("scratch dir");
     let runtime = tempfile::tempdir().expect("runtime dir");
     let repo = fresh_repo(scratch.path());
     register(scratch.path(), runtime.path(), &repo, "CMH1");
 
-    let branch = task_branch_name("FLY-42", "Some title");
+    let branch = story_branch_name("FLY-42", "Some title");
     commit_on_branch(&repo, &branch, Some("run-abc123"));
 
     let message = commit_message(&repo);
     assert!(
-        message.contains("\n\nFlywheel-Task: fly-42\nFlywheel-Run: run-abc123"),
-        "expected both trailers, task first then run, after a blank-line separator; got: {message:?}"
+        message.contains("\n\nFlywheel-Story: fly-42\nFlywheel-Run: run-abc123"),
+        "expected both trailers, story first then run, after a blank-line separator; got: {message:?}"
     );
-    assert_eq!(trailer_line_count(&message, "Flywheel-Task"), 1);
+    assert_eq!(trailer_line_count(&message, "Flywheel-Story"), 1);
     assert_eq!(trailer_line_count(&message, "Flywheel-Run"), 1);
 }
 
@@ -158,7 +157,7 @@ fn amending_the_commit_does_not_duplicate_the_trailer() {
     let repo = fresh_repo(scratch.path());
     register(scratch.path(), runtime.path(), &repo, "CMH2");
 
-    let branch = task_branch_name("FLY-7", "Idempotent amend");
+    let branch = story_branch_name("FLY-7", "Idempotent amend");
     commit_on_branch(&repo, &branch, Some("run-1"));
 
     // --no-edit keeps the EXISTING message (trailers included) unchanged, so this amend re-runs
@@ -180,9 +179,9 @@ fn amending_the_commit_does_not_duplicate_the_trailer() {
 
     let message = commit_message(&repo);
     assert_eq!(
-        trailer_line_count(&message, "Flywheel-Task"),
+        trailer_line_count(&message, "Flywheel-Story"),
         1,
-        "amend must not duplicate the Flywheel-Task trailer; got: {message:?}"
+        "amend must not duplicate the Flywheel-Story trailer; got: {message:?}"
     );
     assert_eq!(
         trailer_line_count(&message, "Flywheel-Run"),
@@ -209,27 +208,8 @@ fn commit_on_main_carries_neither_trailer() {
     assert!(output.status.success());
 
     let message = commit_message(&repo);
-    assert!(!message.contains("Flywheel-Task:"), "main commit must carry no task trailer; got: {message:?}");
+    assert!(!message.contains("Flywheel-Story:"), "main commit must carry no story trailer; got: {message:?}");
     assert!(!message.contains("Flywheel-Run:"), "main commit must carry no run trailer; got: {message:?}");
-}
-
-#[test]
-fn commit_on_an_epic_integration_branch_carries_neither_trailer() {
-    let scratch = tempfile::tempdir().expect("scratch dir");
-    let runtime = tempfile::tempdir().expect("runtime dir");
-    let repo = fresh_repo(scratch.path());
-    register(scratch.path(), runtime.path(), &repo, "CMH4");
-
-    let branch = epic_integration_branch_name("EP-7", "Epic title");
-    commit_on_branch(&repo, &branch, Some("run-epic"));
-
-    let message = commit_message(&repo);
-    assert!(
-        !message.contains("Flywheel-Task:"),
-        "an epic-integration-branch commit (flywheel/epic/...) must carry no task trailer — the \
-         extraction correctly yields an empty key for this branch shape; got: {message:?}"
-    );
-    assert!(!message.contains("Flywheel-Run:"), "expected no run trailer either; got: {message:?}");
 }
 
 #[test]
@@ -239,7 +219,7 @@ fn flywheel_run_id_set_yields_that_id() {
     let repo = fresh_repo(scratch.path());
     register(scratch.path(), runtime.path(), &repo, "CMH5A");
 
-    let branch = task_branch_name("FLY-10", "Run id set");
+    let branch = story_branch_name("FLY-10", "Run id set");
     commit_on_branch(&repo, &branch, Some("run-explicit-id"));
 
     let message = commit_message(&repo);
@@ -256,7 +236,7 @@ fn flywheel_run_id_unset_yields_manual() {
     let repo = fresh_repo(scratch.path());
     register(scratch.path(), runtime.path(), &repo, "CMH5");
 
-    let branch = task_branch_name("FLY-9", "No run id set");
+    let branch = story_branch_name("FLY-9", "No run id set");
     commit_on_branch(&repo, &branch, None);
 
     let message = commit_message(&repo);
@@ -266,10 +246,10 @@ fn flywheel_run_id_unset_yields_manual() {
     );
 }
 
-// --- Extraction matches branch::task_branch_name's real output, across a table --------------
+// --- Extraction matches branch::story_branch_name's real output, across a table --------------
 
 #[test]
-fn extraction_matches_task_branch_name_across_keys_and_titles() {
+fn extraction_matches_story_branch_name_across_keys_and_titles() {
     let scratch = tempfile::tempdir().expect("scratch dir");
     let runtime = tempfile::tempdir().expect("runtime dir");
     let repo = fresh_repo(scratch.path());
@@ -287,10 +267,10 @@ fn extraction_matches_task_branch_name_across_keys_and_titles() {
     ];
 
     for (key, title) in cases {
-        let branch = task_branch_name(key, title);
+        let branch = story_branch_name(key, title);
         commit_on_branch(&repo, &branch, Some("run-table"));
         let message = commit_message(&repo);
-        let expected = format!("Flywheel-Task: {}", key.to_lowercase());
+        let expected = format!("Flywheel-Story: {}", key.to_lowercase());
         assert!(
             message.contains(&expected),
             "branch {branch:?} (key={key:?}, title={title:?}): expected {expected:?} in message, got: {message:?}"
@@ -332,10 +312,10 @@ fn commit_msg_installed_first_then_pre_push_neither_refuses_the_others_directory
     });
 
     // A commit-shaped operation reaches its own hook.
-    let branch = task_branch_name("FLY-55", "Order A proof");
+    let branch = story_branch_name("FLY-55", "Order A proof");
     commit_on_branch(&repo, &branch, Some("run-order-a"));
     let message = commit_message(&repo);
-    assert!(message.contains("Flywheel-Task: fly-55"), "commit-msg hook should have fired; got: {message:?}");
+    assert!(message.contains("Flywheel-Story: fly-55"), "commit-msg hook should have fired; got: {message:?}");
 
     // A push-shaped operation reaches its own hook: an ordinary fast-forward push is allowed
     // through (the pre-push script's default-allow path for a non-destructive push), proving the
@@ -374,10 +354,10 @@ fn pre_push_installed_first_then_commit_msg_neither_refuses_the_others_directory
         assert_both_hooks_present(&hooks_dir);
     });
 
-    let branch = task_branch_name("FLY-56", "Order B proof");
+    let branch = story_branch_name("FLY-56", "Order B proof");
     commit_on_branch(&repo, &branch, Some("run-order-b"));
     let message = commit_message(&repo);
-    assert!(message.contains("Flywheel-Task: fly-56"), "commit-msg hook should have fired; got: {message:?}");
+    assert!(message.contains("Flywheel-Story: fly-56"), "commit-msg hook should have fired; got: {message:?}");
 
     let remote = scratch.path().join("remote-b.git");
     run_git_ok(scratch.path(), &["init", "--bare", "--initial-branch", "main", remote.to_str().unwrap()]);

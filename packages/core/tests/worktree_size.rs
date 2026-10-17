@@ -7,7 +7,6 @@ use common::with_scratch_worktree_root;
 use std::os::unix::fs::symlink;
 use std::path::Path;
 
-use core::domain::task::create_task;
 use core::domain::worktree::{
     ensure_worktree, worktree_size, worktree_size_limited, WORKTREE_WALK_MAX_DEPTH,
 };
@@ -97,15 +96,15 @@ fn a_path_outside_the_worktree_root_or_with_a_parent_segment_is_refused() {
 fn recording_a_size_writes_exactly_the_two_columns_of_the_one_row() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor, project, _repo) = common::seeded_git_project();
-        let a = create_task(&mut conn, &project.id, &actor, "a", None).unwrap();
-        let b = create_task(&mut conn, &project.id, &actor, "b", None).unwrap();
+        let a = common::new_story(&mut conn, &project.id, &actor, "a");
+        let b = common::new_story(&mut conn, &project.id, &actor, "b");
         let wa = ensure_worktree(&mut conn, &a.id, &actor).unwrap();
         ensure_worktree(&mut conn, &b.id, &actor).unwrap();
 
-        let read = |task: &str| -> (Option<i64>, Option<String>, String, String) {
+        let read = |story: &str| -> (Option<i64>, Option<String>, String, String) {
             conn.query_row(
-                "SELECT size_bytes, size_measured_at, path, status FROM worktrees WHERE task_id = ?1",
-                params![task],
+                "SELECT size_bytes, size_measured_at, path, status FROM worktrees WHERE story_id = ?1",
+                params![story],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .unwrap()
@@ -117,7 +116,7 @@ fn recording_a_size_writes_exactly_the_two_columns_of_the_one_row() {
         assert_eq!((size, at.as_deref()), (Some(4096), Some("2026-10-12T00:00:00Z")));
         assert_eq!((path, status), (wa.path, "active".to_string()), "nothing else changed");
         assert_eq!(read(&b.id).0, None, "the sibling row is untouched");
-        assert!(!record_worktree_size(&conn, "no-such-task", 1, "x").unwrap());
+        assert!(!record_worktree_size(&conn, "no-such-story", 1, "x").unwrap());
     });
 }
 
@@ -127,24 +126,24 @@ fn recording_a_size_writes_exactly_the_two_columns_of_the_one_row() {
 fn measure_all_over_the_cap_takes_the_never_measured_then_the_stalest() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor, project, _repo) = common::seeded_git_project();
-        let mut tasks = Vec::new();
+        let mut stories = Vec::new();
         for n in 0..4 {
-            let t = create_task(&mut conn, &project.id, &actor, &format!("t{n}"), None).unwrap();
-            ensure_worktree(&mut conn, &t.id, &actor).unwrap();
-            tasks.push(t.id);
+            let st = common::new_story(&mut conn, &project.id, &actor, &format!("s{n}"));
+            ensure_worktree(&mut conn, &st.id, &actor).unwrap();
+            stories.push(st.id);
         }
-        // tasks[0] measured recently, tasks[1] long ago, tasks[2] and tasks[3] never.
-        record_worktree_size(&conn, &tasks[0], 1, "2026-10-12T00:00:00Z").unwrap();
-        record_worktree_size(&conn, &tasks[1], 1, "2026-01-01T00:00:00Z").unwrap();
+        // stories[0] measured recently, stories[1] long ago, stories[2] and stories[3] never.
+        record_worktree_size(&conn, &stories[0], 1, "2026-10-12T00:00:00Z").unwrap();
+        record_worktree_size(&conn, &stories[1], 1, "2026-01-01T00:00:00Z").unwrap();
 
         let ids = |limit| -> Vec<String> {
-            worktree_measure_targets(&conn, None, limit).unwrap().into_iter().map(|t| t.task_id).collect()
+            worktree_measure_targets(&conn, None, limit).unwrap().into_iter().map(|t| t.story_id).collect()
         };
         let first_two = ids(2);
-        assert!(first_two.contains(&tasks[2]) && first_two.contains(&tasks[3]), "never measured first: {first_two:?}");
+        assert!(first_two.contains(&stories[2]) && first_two.contains(&stories[3]), "never measured first: {first_two:?}");
         let three = ids(3);
-        assert_eq!(three[2], tasks[1], "then the stalest measurement");
-        assert_eq!(ids(4).last(), Some(&tasks[0]), "the freshest is last");
+        assert_eq!(three[2], stories[1], "then the stalest measurement");
+        assert_eq!(ids(4).last(), Some(&stories[0]), "the freshest is last");
     });
 }
 
