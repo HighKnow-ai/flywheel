@@ -9,6 +9,7 @@
  * teardown — never a mock of `child_process`.
  */
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -122,6 +123,22 @@ function listPermissionSockets() {
   } catch {
     return new Set();
   }
+}
+
+/** The permission socket names on the argv of `wrapperPid`'s direct children — the backend the
+ * watchdog spawned receives its socket path inside `--mcp-config`. Other test files running in
+ * parallel open their own sockets under the same shared `/tmp`, so a before/after directory diff
+ * alone can attribute a concurrent file's socket to this session; filtering the diff by this
+ * session's own process tree cannot. */
+function sessionSocketNames(wrapperPid) {
+  const ps = spawnSync("ps", ["-A", "-o", "ppid=,args="], { encoding: "utf8" });
+  const names = new Set();
+  for (const line of (ps.stdout ?? "").split("\n")) {
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (!match || Number(match[1]) !== wrapperPid) continue;
+    for (const name of match[2].match(/flywheel-permission-[0-9a-f-]+\.sock/g) ?? []) names.add(name);
+  }
+  return names;
 }
 
 /** Every wrapper pid a stubborn scenario in this file has spawned — force-killed by group in
@@ -379,7 +396,8 @@ test("exactly one session_closed event, and the permission socket is removed, wh
       FLYWHEEL_RUNTIME_DIR: runtimeDir,
       FLYWHEEL_HEARTBEAT_STALE_MS: "60000",
     });
-    trackedWrapperPids.push(await waitForWrapperPid(runtimeDir, runId));
+    const wrapperPid = await waitForWrapperPid(runtimeDir, runId);
+    trackedWrapperPids.push(wrapperPid);
 
     try {
       await waitForCondition(() => events.some((e) => e.type === "permission_request"), { timeoutMs: 5000 });
@@ -392,7 +410,10 @@ test("exactly one session_closed event, and the permission socket is removed, wh
       return;
     }
 
-    const newSockets = [...listPermissionSockets()].filter((name) => !socketsBefore.has(name));
+    const ownSockets = sessionSocketNames(wrapperPid);
+    const newSockets = [...listPermissionSockets()].filter(
+      (name) => !socketsBefore.has(name) && ownSockets.has(name),
+    );
     assert.equal(
       newSockets.length,
       1,
