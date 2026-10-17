@@ -568,7 +568,7 @@ pub enum PermissionRequestOutcome {
     /// `permission_requests.id`, the id the board/renderer names from here on.
     Pending { db_request_id: String },
     /// `run_id` names no session this core knows about — nothing sane to do; logged
-    /// nowhere yet, dropped, matching this module's "never crashes the reader Story" discipline.
+    /// nowhere yet, dropped, matching this module's "never crashes the reader task" discipline.
     UnknownRun,
 }
 
@@ -735,7 +735,7 @@ fn closed_transition(
 /// `permission_request` event. Extracts the event's fields, locks the DB, calls
 /// [`process_inbound_permission_request`], and performs the IPC relay/`board:changed` emit the
 /// outcome implies. Never panics on a malformed event — a missing field or lock failure is a
-/// silent no-op, matching `sidecar.rs`'s own "a malformed line never crashes the reader Story"
+/// silent no-op, matching `sidecar.rs`'s own "a malformed line never crashes the reader task"
 /// discipline.
 pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Value) {
     let (Some(run_id), Some(request_id), Some(tool_name)) = (
@@ -819,7 +819,7 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
 ///
 /// This function must never panic — no `expect`, no `unwrap`, no direct indexing (T-02G-18-05): a
 /// malformed event, a poisoned lock, or an error from the applier is a silent no-op here, matching
-/// `sidecar.rs`'s own "a malformed line never crashes the reader Story" discipline. No per-run fault
+/// `sidecar.rs`'s own "a malformed line never crashes the reader task" discipline. No per-run fault
 /// on this path may ever disturb the shared reader loop that calls it.
 pub fn handle_inbound_session_closed(app: &AppHandle, event: &serde_json::Value) {
     let Some(state) = app.try_state::<AppState>() else { return };
