@@ -84,6 +84,14 @@ _Avoid_: Failed, interrupted, abandoned
 The ranked list of everything waiting on the developer across a project, with the most urgent first.
 _Avoid_: Inbox, queue, notifications
 
+**Context packet**:
+Everything a new Story session is rebuilt from, read off the board and the worktree, so that ending a session loses nothing.
+_Avoid_: Prompt, briefing, context
+
+**Session summary**:
+A short note a Story session leaves for the next one: what it must know and what was decided.
+_Avoid_: Handoff note, recap
+
 **Gated action**:
 An action an agent may take only with the developer's explicit, one-off approval, because it leaves the Story's worktree or can't be undone; never covered by a standing rule.
 _Avoid_: Destructive action, dangerous command
