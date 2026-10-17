@@ -88,11 +88,7 @@ impl From<DecisionEntry> for DecisionDto {
 }
 
 /// One prior-session summary, projected for the wire (camelCase) — mirrors
-/// `context_packet::SummaryEntry` field-for-field, plus `folded` (plan 04-08 Task 2, T-04-23):
-/// whether this entry falls in the compaction boundary's folded region. `folded` is computed here,
-/// in Rust, from the packet's own `CompactionBoundary` — never recomputed in TypeScript — so the
-/// marker the developer sees on the launch sheet and the fold the agent receives in the rendered
-/// prompt can never disagree.
+/// `context_packet::SummaryEntry` field-for-field.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummaryDto {
@@ -104,15 +100,9 @@ pub struct SessionSummaryDto {
     pub remains: Option<String>,
     pub next_session_must_know: Option<String>,
     pub decisions: Vec<DecisionDto>,
-    pub folded: bool,
 }
 
-/// The item detail panel's own summary read (`task_session_summaries`, plan 04-09 Task 3) —
-/// `folded` is always `false` here, never derived from a `CompactionBoundary`. Folding is a
-/// property of a *briefing* (the launch sheet's prior-sessions preview, computed once per
-/// preview from that packet's own compaction boundary — see the `From<ContextPacket>` impl
-/// above); this conversion is the item detail panel's *archive* view of the same rows, with no
-/// briefing and no boundary to fold against.
+/// The item detail panel's own summary read (`task_session_summaries`, plan 04-09 Task 3).
 impl From<SessionSummary> for SessionSummaryDto {
     fn from(summary: SessionSummary) -> Self {
         Self {
@@ -124,7 +114,6 @@ impl From<SessionSummary> for SessionSummaryDto {
             remains: summary.remains,
             next_session_must_know: summary.next_session_must_know,
             decisions: summary.decisions.into_iter().map(DecisionDto::from).collect(),
-            folded: false,
         }
     }
 }
@@ -2797,13 +2786,15 @@ mod tests {
         (out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned())
     }
 
-    /// Declare (or, with an empty list, clear) a task's file-set through the SAME function the
-    /// `task_file_set_set` command runs — so these tests start from a set the app itself could have
-    /// stored, and "clearing it makes the next run unarmed" is proven through the command path.
+    /// Declare (or, with an empty list, clear) a task's file-set through the core's own writer, so
+    /// these tests start from a set the app itself could have stored.
     fn declare_set(conn: &mut Connection, actor: &str, task_id: &str, raw: &[&str]) {
-        let raw: Vec<String> = raw.iter().map(|r| r.to_string()).collect();
-        crate::commands::file_set::set_task_file_set(conn, task_id, &raw, actor)
-            .expect("set_task_file_set should accept the fixture entries");
+        let entries: Vec<_> = raw
+            .iter()
+            .map(|r| flywheel_core::file_set::parse_entry(r).expect("fixture entries parse"))
+            .collect();
+        flywheel_core::domain::file_set::declare_file_set(conn, task_id, &entries, actor)
+            .expect("declare_file_set should accept the fixture entries");
     }
 
     #[test]

@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 /// The exact number of commands in the `generate_handler!` roster (D-14). Pinned so the IPC
 /// surface cannot grow or shrink silently: a stray `*_set_status` writer, or a lost command, moves
 /// this number and fails the build. Move it in the same diff as any intended change to the roster.
-const ROSTER_COUNT: usize = 116;
+const ROSTER_COUNT: usize = 114;
 
 /// `Err` unless `roster` holds exactly `pin` entries, in either direction.
 fn check_roster_pin(roster: &BTreeSet<Command>, pin: usize) -> Result<(), String> {

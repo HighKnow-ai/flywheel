@@ -4,7 +4,6 @@
 //! database file directly, per `ARCHITECTURE.md` Anti-Pattern 3 and D-03).
 
 pub mod branch;
-pub mod compaction;
 pub mod credentials;
 pub mod db;
 pub mod destructive;

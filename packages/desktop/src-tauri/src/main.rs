@@ -177,8 +177,6 @@ fn main() {
             commands::criterion::criterion_lint_advice,
             commands::events::events_activity_trail,
             commands::events::events_since_cursor,
-            commands::file_set::task_file_set_get,
-            commands::file_set::task_file_set_set,
             commands::file_set::task_file_set_widen,
             commands::file_set::board_scope_flags,
             commands::file_set::task_file_set_provenance,

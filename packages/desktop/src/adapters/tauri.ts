@@ -104,11 +104,8 @@ export interface DecisionDto {
 }
 
 /**
- * One prior-session summary, oldest-first, carrying its own `folded` marker — mirrors
- * `commands/agent_run.rs`'s `SessionSummaryDto` field-for-field (plan 04-08 Task 2, T-04-23).
- * `folded` is computed once in Rust from the packet's own `CompactionBoundary`, never
- * recomputed here, so the launch sheet's marker and the agent's rendered prompt can never
- * disagree.
+ * One prior-session summary, oldest-first — mirrors `commands/agent_run.rs`'s
+ * `SessionSummaryDto` field-for-field.
  */
 export interface SessionSummaryDto {
   agentRunId: string;
@@ -119,7 +116,6 @@ export interface SessionSummaryDto {
   remains: string | null;
   nextSessionMustKnow: string | null;
   decisions: DecisionDto[];
-  folded: boolean;
 }
 
 /**
@@ -512,8 +508,7 @@ export async function discardSession(agentRunId: string): Promise<AgentRunStopRe
 
 /**
  * Every session summary recorded for `taskId` (plan 04-09 Task 3) — the item detail panel's own
- * read. `folded` is always `false` on every entry this returns: folding is a property of the
- * launch sheet's briefing preview, not of this archive view. Read-only. Thin typed wrapper over
+ * read. Read-only. Thin typed wrapper over
  * `task_session_summaries`, reusing the same `SessionSummaryDto` the launch sheet already uses —
  * no second DTO shape.
  */
