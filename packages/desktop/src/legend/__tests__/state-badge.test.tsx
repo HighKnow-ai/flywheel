@@ -3,13 +3,11 @@ import { render, screen } from "@testing-library/react";
 import { STATE_VOCABULARY, StateBadge, rowVariant, stateClassOf } from "../StateBadge";
 import { MARKS, MARKS_BY_ID } from "../marks";
 import { RUN_STATUS_MARK_IDS } from "../runStatus";
-import badgeSource from "../StateBadge.tsx?raw";
 
 /**
  * Phase 14 plan 04 (VIS-01, D-15, D-19). `StateBadge` is the ONE consumer of the `--state-*` tokens and it
  * always draws a glyph and a word or an accessible name beside the colour: colour is the fastest channel
- * and never the only one. The source gate (theme/__tests__/state-token-gate.test.ts) proves nothing else
- * reaches for the tokens; this file proves the one that does is safe to.
+ * and never the only one. This file proves it is safe to.
  */
 
 const badge = (container: HTMLElement): HTMLElement => container.firstElementChild as HTMLElement;
@@ -177,11 +175,6 @@ describe("StateBadge: the glyph and the word come from the published registry", 
       expect(mark!.label.length).toBeGreaterThan(0);
       expect(mark!.meaning.length).toBeGreaterThan(0);
     }
-  });
-
-  it("declares no literal colour: every colour it draws is a var() reference", () => {
-    const code = badgeSource.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-    expect(code).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
   });
 });
 

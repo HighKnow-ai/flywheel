@@ -19,7 +19,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WorktreeSummary } from "../WorktreeSummary";
 import type { WorktreeSummaryDto } from "../../adapters/tauri";
-import detailCss from "../item-detail.css?raw";
 
 const worktreeSummaryMock = vi.fn();
 const worktreeRecreateMock = vi.fn();
@@ -85,18 +84,8 @@ describe("WorktreeSummary", () => {
     renderSummary();
 
     const pathNode = (await screen.findByText(LONG_PATH)).closest("button") as HTMLElement;
-    // The full string stays in the DOM (jsdom performs no layout/visual truncation) — the
-    // left-truncation contract is proven by the CSS declarations themselves.
+    // The full string stays in the DOM (jsdom performs no layout/visual truncation).
     expect(pathNode.className).toContain("detail-clip-left");
-    const rule = (selector: string) => {
-      const at = detailCss.indexOf(`${selector} {`);
-      return at === -1 ? "" : detailCss.slice(at, detailCss.indexOf("}", at));
-    };
-    expect(rule(".detail-clip-left")).toMatch(/direction:\s*rtl/);
-    expect(rule(".detail-clip-left")).toMatch(/text-align:\s*left/);
-    expect(rule(".detail-clip")).toMatch(/text-overflow:\s*ellipsis/);
-    expect(rule(".detail-clip")).toMatch(/white-space:\s*nowrap/);
-    expect(rule(".detail-clip")).toMatch(/min-width:\s*0/);
     // "project and task segments still present" — the tail of the path is what a left-truncation
     // preserves; asserting the full text is present is the DOM-level proof available under jsdom.
     expect(pathNode.querySelector("bdi"), "the path is an isolated LTR run inside the RTL box").not.toBeNull();

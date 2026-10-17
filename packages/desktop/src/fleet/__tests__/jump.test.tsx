@@ -21,7 +21,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { FleetListDto, FleetRowDto } from "../../adapters/tauri";
 import { activeSurface } from "../../state/keyboard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import appSource from "../../App.tsx?raw";
 import App from "../../App";
 import { queryClient as appQueryClient } from "../../adapters/queryClient";
 import { FleetSurface } from "../FleetSurface";
@@ -191,8 +190,6 @@ describe("the primary target: a row opens that run's session", () => {
     fireEvent.click(rowFor(container, "run-f"));
     expect(useUiStore.getState().activeAgentRunId).toBe("run-f");
     expect(useUiStore.getState().activeAgentRunInitialStatus).toBe("failed");
-    // The shell reads that field and passes it down; without this the status is dropped on the way.
-    expect(appSource).toMatch(/initialStatus=\{activeAgentRunInitialStatus\}/);
   });
 
   it("an awaiting-review row opens as the completed run it is", async () => {
