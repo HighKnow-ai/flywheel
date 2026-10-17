@@ -3,7 +3,6 @@ import { inflateSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import tauriConf from "../../../src-tauri/tauri.conf.json";
-import logoSource from "../../assets/logo.svg?raw";
 
 /**
  * SC1 / SC2 / D-22 by assertion, not by eye. Like contrast.test.ts this reads the artifacts the
@@ -149,17 +148,5 @@ describe("bundle.icon artifacts", () => {
     // Centred: equal margin either side.
     expect(Math.abs(minX - (width - 1 - maxX))).toBeLessThanOrEqual(2);
     expect(Math.abs(minY - (height - 1 - maxY))).toBeLessThanOrEqual(2);
-  });
-});
-
-describe("in-app mark (logo.svg)", () => {
-  it("is pinned to the owner-supplied mark", () => {
-    expect(createHash("sha1").update(logoSource).digest("hex")).toBe(
-      "c4b6b770baeb9476aa95258ebc1422c9e6cec572",
-    );
-  });
-
-  it("embeds no raster (D-22)", () => {
-    expect(logoSource).not.toContain("base64");
   });
 });

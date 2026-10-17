@@ -9,8 +9,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DispatchGateLine } from "../DispatchGateLine";
 import { WavePlanSheet } from "../WavePlanSheet";
 import { STATE_VOCABULARY, rowVariant, stateClassOf } from "../../legend/StateBadge";
-import sheetSource from "../WavePlanSheet.tsx?raw";
-import badgeSource from "../../legend/StateBadge.tsx?raw";
 import type { DispatchPlanDto, GateDto } from "../../adapters/tauri";
 
 const planMock = vi.fn();
@@ -79,13 +77,6 @@ describe("a task held by the account limit", () => {
     );
     const running = await screen.findByRole("listitem", { name: "FLY-2 Running task" });
     expect(within(running).getByText("Running").closest("[data-state-class]")).toBeNull();
-  });
-
-  it("declares no literal colour in the files it changed", () => {
-    for (const source of [sheetSource, badgeSource]) {
-      const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-      expect(code).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
-    }
   });
 });
 

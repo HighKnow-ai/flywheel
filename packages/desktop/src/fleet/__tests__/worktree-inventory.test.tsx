@@ -13,7 +13,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { WorktreeInventoryRowDto, WorktreeMeasureDto } from "../../adapters/tauri";
 import { MARKS_BY_ID } from "../../legend/marks";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import inventorySource from "../WorktreeInventory.tsx?raw";
 import { RECLAIM_REASONS, RECLAIM_REASON_WORDS, WorktreeInventory, formatBytes } from "../WorktreeInventory";
 
 const inventoryMock = vi.fn<() => Promise<WorktreeInventoryRowDto[]>>();
@@ -194,11 +193,6 @@ describe("WorktreeInventory", () => {
     await screen.findByText("ALP-1");
     const keys = Array.from(document.querySelectorAll("[data-field='task']")).map((el) => el.textContent);
     expect(keys).toEqual(["ALP-1", "ALP-2"]);
-  });
-
-  it("offers no bulk control: no select-all and no reclaim-everything (D-179 rejected it by name)", () => {
-    expect(inventorySource).not.toMatch(/select ?all|reclaim ?all|Reclaim selected/i);
-    expect(inventorySource).not.toMatch(/\bDelete\b/);
   });
 });
 

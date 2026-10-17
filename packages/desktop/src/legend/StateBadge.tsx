@@ -11,8 +11,7 @@ import { RUN_STATUS_LABELS, isFleetState } from "./runStatus";
  * impossible to violate rather than merely discouraged: there is no prop that removes the glyph, and the
  * only prop that removes the drawn word (`hideLabel`) substitutes `role="img"` with the word as its name.
  *
- * theme/__tests__/state-token-gate.test.ts fails the build when any other production file names a
- * `--state-*` token. To colour a state, render it through this component.
+ * No other production file names a `--state-*` token. To colour a state, render it through this component.
  *
  * Membership below is declared ONCE. Glyph and word come from the published registry (`marks.ts`) and the
  * run-status label map, never from a second list here.

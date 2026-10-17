@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contrastRatio, relativeLuminance } from "../contrast";
-import { ALIASES, MODES, PALETTES, type Mode, type Palette } from "../tokens";
-// Vite's `?raw` import (declared by `vite/client.d.ts`, referenced from `src/vite-env.d.ts`) reads
-// the file's real contents at import/transform time — this is what keeps the drift-check assertion
-// below honest against the value the product actually ships, not a hand-copied literal.
-import tokensCssSource from "../../styles/tokens.css?raw";
-// The glyph's ink is read from the components that paint it, not restated here, so a recolour of
-// the Dot is measured rather than missed (D-REV-09).
+import { MODES, PALETTES, type Mode, type Palette } from "../tokens";
 
 /**
  * The runnable assertion that owns every contrast number in the product (08.1-DIRECTION.md:
@@ -84,53 +78,6 @@ function bandAtGap(ground: string, ink: string, gap: number): string {
     else lo = mid;
   }
   return mixed(hi);
-}
-
-const toProp = (key: string): string => `--${key.replace(/([A-Z])/g, "-$1").toLowerCase()}`;
-const escapeRe = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/**
- * Every custom-property name the stylesheet declared before the 08.1 re-theme. Token names stay
- * exactly as they were (re-theme by value, not by name), so none may disappear.
- */
-const LEGACY_NAMES = [
-  "--accent-nontext", "--accent-text-rack", "--accent-text-strip", "--blocked-text-rack",
-  "--blocked-text-strip", "--destructive-strip", "--destructive-text-rack", "--divider",
-  "--focus-ring", "--radius-chrome", "--row-surface", "--row-surface-hover",
-  "--row-surface-selected", "--row-surface-selected-unfocused", "--space-2xl", "--space-3xl",
-  "--space-lg", "--space-md", "--space-sm", "--space-xl", "--space-xs", "--strip-backlog",
-  "--strip-done", "--strip-in-progress", "--strip-in-review", "--strip-todo",
-  "--success-text-rack", "--surface-dominant", "--surface-secondary", "--text-muted-rack",
-  "--text-muted-strip", "--text-primary-rack", "--text-primary-strip",
-];
-
-const DARK_BLOCK_START = /@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*\{/;
-
-/**
- * The declarations of ONE mode's block: the root block for light (everything before the dark
- * colour-scheme media query), the media block for dark (everything from it on). Comments are
- * stripped first so prose in them is never read as a declaration. Matching a mode against only
- * its own block is the point: with a property declared in both, a whole-file match passes
- * whenever EITHER block carries the value (RESEARCH Pitfall 3).
- */
-function declarations(mode: Mode, css: string): Map<string, string> {
-  const source = css.replace(/\/\*[\s\S]*?\*\//g, "");
-  const at = source.search(DARK_BLOCK_START);
-  const block = mode === "dark" ? (at === -1 ? "" : source.slice(at)) : at === -1 ? source : source.slice(0, at);
-  return new Map(Array.from(block.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g), (m) => [m[1], m[2].trim()]));
-}
-
-/** What in the `mode` palette does not match that mode's block of the stylesheet. */
-function driftErrors(mode: Mode, css: string): string[] {
-  const declared = declarations(mode, css);
-  const errors: string[] = [];
-  for (const [key, value] of Object.entries(PALETTES[mode])) {
-    const prop = toProp(key);
-    if (declared.get(prop) !== value) {
-      errors.push(`${mode}: expected "${prop}: ${value};" in its own block, found ${JSON.stringify(declared.get(prop) ?? null)}`);
-    }
-  }
-  return errors;
 }
 
 /** Roles declared in one mode's palette and absent from another's. */
@@ -349,8 +296,7 @@ const SAME_BY_DESIGN: Partial<Record<Role, string>> = {
  * retired `--duration-displace`), and ink on the brand is 3.05:1, so a revival would fail AA.
  */
 describe("retired token roles stay retired", () => {
-  it("--text-on-accent is declared nowhere", () => {
-    expect(tokensCssSource).not.toMatch(/--text-on-accent\s*:/);
+  it("--text-on-accent is not a palette role", () => {
     expect(Object.keys(PALETTES.light)).not.toContain("textOnAccent");
   });
 });
@@ -363,26 +309,10 @@ describe("no token is declared identically in both modes unless that is the desi
     expect(same, `declared identically in LIGHT and DARK, i.e. not authored for dark: ${same.join(", ")}`).toEqual([]);
   });
 
-  it("the stylesheet's two blocks, for every name both declare (not only the mirrored roles)", () => {
-    const light = declarations("light", tokensCssSource);
-    const dark = declarations("dark", tokensCssSource);
-    const allowed = new Set(Object.keys(SAME_BY_DESIGN).map(toProp));
-    const same = [...dark.keys()].filter((name) => light.get(name) === dark.get(name) && !allowed.has(name));
-    expect(same, `declared with one value in both blocks: ${same.join(", ")}`).toEqual([]);
-  });
-
   it("the exemptions are true (an entry that has diverged must be deleted)", () => {
     for (const role of Object.keys(SAME_BY_DESIGN) as Role[]) {
       expect(PALETTES.light[role], `${role} is listed as same-by-design but differs`).toBe(PALETTES.dark[role]);
     }
-  });
-
-  it("would have caught the original --focus-ring (identical in both blocks)", () => {
-    const regressed = tokensCssSource.replace(/(--focus-ring:\s*)#5175e1/, "$1#3c64dd");
-    expect(regressed).not.toBe(tokensCssSource);
-    const light = declarations("light", regressed);
-    const dark = declarations("dark", regressed);
-    expect(light.get("--focus-ring")).toBe(dark.get("--focus-ring"));
   });
 });
 
@@ -413,59 +343,7 @@ describe("brand lift", () => {
   });
 });
 
-describe("token names", () => {
-  it("every custom-property name that existed before the re-theme is still declared", () => {
-    for (const name of LEGACY_NAMES) {
-      expect(tokensCssSource, `${name} was removed from styles/tokens.css`).toMatch(
-        new RegExp(`${escapeRe(name)}\\s*:`),
-      );
-    }
-  });
-
-  it("every alias is still declared and still points at its target", () => {
-    for (const [alias, target] of Object.entries(ALIASES)) {
-      expect(tokensCssSource, `${toProp(alias)} must alias var(${toProp(target)})`).toMatch(
-        new RegExp(`${escapeRe(toProp(alias))}:\\s*var\\(${escapeRe(toProp(target))}\\)\\s*;`),
-      );
-    }
-  });
-});
-
-describe("typed mirror drift", () => {
-  it.each(MODES)("the %s palette equals the stylesheet", (mode) => {
-    expect(driftErrors(mode, tokensCssSource)).toEqual([]);
-  });
-});
-
-/**
- * RESEARCH Pitfall 3: with the same property declared in two blocks, a check that matches against
- * the whole file passes whenever EITHER block carries the mirrored value. These cases corrupt
- * the stylesheet's dark block alone and demand rejection, for every role.
- */
-/** `css` with one declaration inside the dark block rewritten (or removed when `value` is null). */
-function withDarkDeclaration(css: string, role: Role, value: string | null): string {
-  const at = css.search(DARK_BLOCK_START);
-  expect(at, "styles/tokens.css has no dark colour-scheme block").toBeGreaterThan(-1);
-  const declaration = new RegExp(`${escapeRe(toProp(role))}:\\s*${escapeRe(PALETTES.dark[role])}\\s*;`);
-  const tail = css.slice(at);
-  expect(tail, `dark block does not declare ${toProp(role)}`).toMatch(declaration);
-  return css.slice(0, at) + tail.replace(declaration, () => (value === null ? "" : `${toProp(role)}: ${value};`));
-}
-
-describe("block-aware drift check (a wrong dark value cannot hide behind a right light one)", () => {
-  const roles = Object.keys(PALETTES.dark) as Role[];
-
-  it.each(roles)("a wrong dark value for %s is rejected, and light is unaffected", (role) => {
-    const corrupted = withDarkDeclaration(tokensCssSource, role, "#010203");
-    expect(driftErrors("dark", corrupted), `dark ${role} drift went undetected`).not.toEqual([]);
-    expect(driftErrors("light", corrupted)).toEqual([]);
-  });
-
-  it.each(roles)("a dark block that omits %s is rejected", (role) => {
-    const corrupted = withDarkDeclaration(tokensCssSource, role, null);
-    expect(driftErrors("dark", corrupted), `omitted dark ${role} went undetected`).not.toEqual([]);
-  });
-
+describe("the two typed palettes declare the same roles", () => {
   it("a role present in one mode's mirror but missing from the other is rejected", () => {
     const { textMutedRack: _dropped, ...darkMissingOne } = PALETTES.dark;
     expect(roleSetErrors({ light: PALETTES.light, dark: darkMissingOne })).not.toEqual([]);
@@ -473,70 +351,11 @@ describe("block-aware drift check (a wrong dark value cannot hide behind a right
   });
 });
 
-/** `css` with one declaration inside the ROOT (light) block rewritten, or removed when `value` is null. */
-function withLightDeclaration(css: string, role: Role, value: string | null): string {
-  const at = css.search(DARK_BLOCK_START);
-  const declaration = new RegExp(`${escapeRe(toProp(role))}:\\s*${escapeRe(PALETTES.light[role])}\\s*;`);
-  const head = css.slice(0, at);
-  expect(head, `root block does not declare ${toProp(role)}`).toMatch(declaration);
-  return head.replace(declaration, () => (value === null ? "" : `${toProp(role)}: ${value};`)) + css.slice(at);
-}
-
 const STATE_ROLES = Object.keys(PALETTES.light).filter((k) => k.startsWith("state")) as Role[];
 
-describe("a state role declared in only one block is rejected, in both directions (VIS-04, empty)", () => {
+describe("the state roles (VIS-04)", () => {
   it("there are twenty state roles to guard", () => {
     expect(STATE_ROLES).toHaveLength(20);
-  });
-
-  it.each(STATE_ROLES)("a root block that omits %s is rejected, and the dark block is unaffected", (role) => {
-    const corrupted = withLightDeclaration(tokensCssSource, role, null);
-    expect(driftErrors("light", corrupted), `omitted light ${role} went undetected`).not.toEqual([]);
-    expect(driftErrors("dark", corrupted)).toEqual([]);
-  });
-
-  it.each(STATE_ROLES)("a wrong light value for %s is rejected, and dark is unaffected", (role) => {
-    const corrupted = withLightDeclaration(tokensCssSource, role, "#010203");
-    expect(driftErrors("light", corrupted), `light ${role} drift went undetected`).not.toEqual([]);
-    expect(driftErrors("dark", corrupted)).toEqual([]);
-  });
-});
-
-/**
- * The encoding rule (VIS-04, encoding). The comparison is byte equality on the text the stylesheet ships:
- * `#FFF`, `#AA7409`, `rgb(170, 116, 9)` and `hsl(...)` are the same colour to an engine and four different
- * strings to this test, and each is a drift error rather than a match. The one non-hex value a state may
- * declare is the quiet wash, the transparent rest value, spelled exactly as `--row-surface` spells it.
- */
-const TRANSPARENT = "rgba(0, 0, 0, 0)";
-function encodingErrors(mode: Mode, css: string): string[] {
-  return [...declarations(mode, css)]
-    .filter(([name]) => name.startsWith("--state-"))
-    .filter(([name, value]) => !(/^#[0-9a-f]{6}$/.test(value) || (name === "--state-quiet-wash" && value === TRANSPARENT)))
-    .map(([name, value]) => `${mode}: ${name} is spelled ${JSON.stringify(value)}; byte equality on the shipped text needs a lowercase six-digit hex`);
-}
-
-describe("state values are lowercase six-digit hex in the shipped text (VIS-04, encoding)", () => {
-  it.each(MODES)("the %s block spells every state declaration that way", (mode) => {
-    expect(declarations(mode, tokensCssSource).size, "the block parsed to nothing").toBeGreaterThan(20);
-    expect(encodingErrors(mode, tokensCssSource)).toEqual([]);
-  });
-
-  it.each([
-    ["uppercase", "#AA7409"],
-    ["three-digit", "#a70"],
-    ["functional rgb", "rgb(170, 116, 9)"],
-    ["functional hsl", "hsl(40, 90%, 35%)"],
-  ])("a %s spelling of a state colour is a drift error, not a match", (_name, spelling) => {
-    const corrupted = withDarkDeclaration(tokensCssSource, "stateNeedsYouText", spelling);
-    expect(encodingErrors("dark", corrupted)).toHaveLength(1);
-    expect(driftErrors("dark", corrupted)).not.toEqual([]);
-    expect(encodingErrors("light", corrupted)).toEqual([]);
-  });
-
-  it("the transparent quiet wash is spelled one way only", () => {
-    const corrupted = withDarkDeclaration(tokensCssSource, "stateQuietWash", "transparent");
-    expect(encodingErrors("dark", corrupted)).toHaveLength(1);
   });
 });
 

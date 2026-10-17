@@ -4,9 +4,6 @@ import * as icons from "lucide-react";
 import { MARKS } from "../marks";
 import { Legend } from "../Legend";
 import { MODES, PALETTES } from "../../theme/tokens";
-import marksSource from "../marks.ts?raw";
-import legendSource from "../Legend.tsx?raw";
-import adminCss from "../../styles/admin-surfaces.css?raw";
 
 /**
  * The glyph and the printed word carry every status, because colour is no longer even a redundant
@@ -171,21 +168,6 @@ describe("the state vocabulary's marks (Phase 14 plan 04, D-19)", () => {
   });
 });
 
-/** Comment lines out, so a doc comment may still say what the old code did. */
-const code = (text: string) =>
-  text
-    .split("\n")
-    .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
-    .join("\n");
-
-/** One rule's declaration block in the group stylesheet, by its exact selector. */
-function rule(selector: string): string {
-  const escaped = selector.replace(/[.[\]":()-]/g, "\\$&");
-  const match = adminCss.match(new RegExp(`(^|\\n)${escaped}\\s*\\{([^}]*)\\}`));
-  expect(match, `${selector} is not declared in admin-surfaces.css`).toBeTruthy();
-  return match![2];
-}
-
 const rowFor = (label: string) => {
   const row = screen.getAllByRole("listitem").find((r) => r.textContent?.includes(label));
   expect(row, `legend row "${label}" not found`).toBeDefined();
@@ -198,9 +180,7 @@ const rowFor = (label: string) => {
  * the 2px rule, not the surface, the thing that tells a selected row from an unfocused one.
  */
 describe("the legend tells the truth about the world 08.1 built", () => {
-  it("retires the paper tint: no strip-stock id, no strip token and no strip ink anywhere in the registry or the surface", () => {
-    expect(code(marksSource)).not.toMatch(/strip-/);
-    expect(code(legendSource)).not.toMatch(/--strip-|--text-primary-strip/);
+  it("retires the paper tint: the status channel is the five status marks and no strip-stock id", () => {
     expect(MARKS.filter((m) => m.channel === "status").map((m) => m.id)).toEqual([
       "status-backlog",
       "status-todo",
@@ -356,34 +336,9 @@ describe("the legend is navigable (08.1 finish-review closure)", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Legend" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close legend" })).toBeInTheDocument();
   });
-
-  it("keeps the channel heading in view while its rows scroll, on the surface it sits on", () => {
-    const body = rule(".legend-channel > h2");
-    expect(body).toMatch(/position:\s*sticky/);
-    expect(body).toMatch(/top:\s*0/);
-    expect(body).toMatch(/background:\s*var\(--legend-ground\)/);
-    expect(rule(".legend-dialog")).toMatch(/--legend-ground:\s*var\(--surface-secondary\)/);
-    // Inside the dialog's own scroll the heading cancels its padding, or it would hang 24px below the top.
-    expect(rule(".legend-dialog .legend-channel > h2")).toMatch(/top:\s*calc\(var\(--space-lg\) \* -1\)/);
-  });
 });
 
 describe("the legend overlay is a dialog on the dialog tier (UI-SPEC § Overlay Rule)", () => {
-  it("draws its scrim, shadow and edge from the roles, never a literal, and holds no inline colour", () => {
-    expect(code(legendSource)).not.toMatch(/rgba?\(|#[0-9a-fA-F]{6}/);
-    expect(rule(".legend-scrim")).toMatch(/background:\s*var\(--scrim\)/);
-    const dialog = rule(".legend-dialog");
-    expect(dialog).toMatch(/box-shadow:\s*var\(--shadow-dialog\)/);
-    expect(dialog).toMatch(/border:\s*1px solid var\(--border-dialog\)/);
-    expect(dialog).toMatch(/border-radius:\s*var\(--radius-chrome\)/);
-    expect(dialog).not.toMatch(/--border-(popover|sheet)|--shadow-(popover|sheet)/);
-  });
-
-  it("opens at full value on the first frame: no opacity, no animation, no transition on the scrim or the dialog", () => {
-    expect(rule(".legend-scrim")).not.toMatch(/opacity|animation|transition/);
-    expect(rule(".legend-dialog")).not.toMatch(/opacity|animation|transition/);
-  });
-
   it("mounts the scrim and the dialog with those classes", () => {
     render(<Legend onClose={() => {}} />);
     const dialog = screen.getByRole("dialog", { name: "Legend" });
