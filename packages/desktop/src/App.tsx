@@ -25,7 +25,6 @@ const FleetSurface = React.lazy(() =>
 const WorktreeInventory = React.lazy(() =>
   import("./fleet/WorktreeInventory").then((m) => ({ default: m.WorktreeInventory })),
 );
-import { UpdateBanner } from "./update/UpdateBanner";
 import "./styles/tokens.css";
 import "./styles/type.css";
 import "./styles/motion.css";
@@ -169,12 +168,6 @@ function AppShell() {
   // withhold the one banner for the session being watched. Before the early returns below (hooks).
   useWatchedRun();
 
-  // The update offer (plan 11-06, D-187). One element, shared by the two branches below that draw the
-  // app, and fixed to the corner, so it shows over whichever surface is open (it is not a surface).
-  // A fresh install with no project registered is offered it too: that user is the one most likely to
-  // be running a stale first download. The boot branch draws the bare ground only, so it has none.
-  const updateBannerNode = <UpdateBanner />;
-
   // Loading: no copy, no spinner mid-content (01-UI-SPEC.md State Inventory) — the rack ground
   // alone is the boot state until the first project list resolves.
   if (!projectsQuery.data) {
@@ -192,7 +185,6 @@ function AppShell() {
       <>
         <div id="app-root" className="rack-ground">
           <FirstRun />
-          {updateBannerNode}
         </div>
         <OrphanRecoveryModal />
         {registerNoticeNode}
@@ -261,7 +253,6 @@ function AppShell() {
           currentProjectId={project.id}
           onSelect={(selected) => setCurrentProjectId(selected.id)}
         />
-        {updateBannerNode}
         <div style={{ flex: 1, minHeight: 0 }}>
           {renderSurface()}
         </div>

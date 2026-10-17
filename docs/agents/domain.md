@@ -2,7 +2,7 @@
 
 How the engineering skills should consume this repo's domain documentation when exploring the codebase.
 
-This repo is **single-context**: one `GLOSSARY.md` and one `docs/adr/` at the repo root cover every package (`core`, `desktop`, `relay-client`, `shim`, `sidecar`).
+This repo is **single-context**: one `GLOSSARY.md` and one `docs/adr/` at the repo root cover every package (`core`, `desktop`, `shim`, `sidecar`).
 
 ## Before exploring, read these
 

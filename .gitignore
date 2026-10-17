@@ -23,8 +23,5 @@ packages/desktop/src-tauri/binaries/flywheel-shim-*
 packages/desktop/src-tauri/resources/sidecar/
 packages/sidecar/.runtime-cache/
 
-# Updater signing key material (11-05, T-11-16): the private half lives off-repo; this catches a stray copy.
-updater.key
-updater.password
 *.key
 .context/

@@ -53,8 +53,7 @@ jobs:
 
       - run: cargo test --workspace
 
-      # These commit subjects are the "what changed" text the update banner shows (D-187):
-      # real history, never a placeholder.
+      # These commit subjects are the release's "what changed" text: real history, never a placeholder.
       - name: Release notes from history
         id: notes
         env:
@@ -76,15 +75,11 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       # Not Apple-signed on purpose (D-185): nothing but criterion 1 waits on an Apple account.
-      # The updater key below is a different thing: it signs the update payload, not the app (D-186).
       # Env group added later, NOT here:
       #   the Apple signing and notarization set  -> plan 11-07
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # T-11-16: referenced only here; no step echoes them. tauri signs the .app.tar.gz with them.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: packages/desktop
           tagName: ${{ github.ref_name }}
@@ -93,12 +88,9 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target aarch64-apple-darwin
-          # D-186: latest.json beside the artifacts is what gives self-update zero infrastructure.
-          includeUpdaterJson: true
 
-      # D-205: the first-run workaround goes on the release page, not into the release body that
-      # tauri-action publishes: that body is also the update banner's "what changed" text (D-187),
-      # and an installed user does not need the first-run note on every update.
+      # D-205: the first-run workaround is appended to the release page after tauri-action publishes
+      # the release body.
       - name: Add the first-run note to the release page
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -110,9 +102,6 @@ jobs:
           gh release edit "$TAG" --notes-file page.md
 
       # Do not trust the action's own success: read back what was actually published.
-      # The updater tier (.sig + latest.json) is required as soon as the config asks for updater
-      # artifacts. Plan 11-05 adds createUpdaterArtifacts together with the key (tauri refuses to
-      # build it earlier), so this check starts enforcing it the moment that lands.
       - name: Assert the published assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -122,8 +111,3 @@ jobs:
           echo "$NAMES"
           need() { echo "$NAMES" | grep -Eq "$1" || { echo "MISSING release asset matching: $1" >&2; exit 1; }; }
           need '\.dmg$'
-          need '\.app\.tar\.gz$'
-          if grep -q createUpdaterArtifacts packages/desktop/src-tauri/tauri.conf.json; then
-            need '\.app\.tar\.gz\.sig$'
-            need '^latest\.json$'
-          fi
