@@ -21,8 +21,6 @@ beforeEach(() => {
     useUiStore.setState({
       activeAgentRunId: null,
       settingsOpen: false,
-      triageSurfaceProjectId: null,
-      reviewSurface: null,
       fleetSurface: null,
     });
   });
@@ -51,14 +49,10 @@ describe("useWatchedRun", () => {
   it("clears the report when a higher-precedence surface comes on top, and restores it after", () => {
     renderHook(() => useWatchedRun());
     act(() => useUiStore.setState({ activeAgentRunId: "run-1" }));
-    for (const patch of [
-      { settingsOpen: true },
-      { triageSurfaceProjectId: "p1" },
-      { reviewSurface: { scope: "task", itemId: "t1", label: "x", fromTask: null } },
-    ]) {
+    for (const patch of [{ settingsOpen: true }]) {
       act(() => useUiStore.setState(patch as never));
       expect(last()).toBeNull();
-      act(() => useUiStore.setState({ settingsOpen: false, triageSurfaceProjectId: null, reviewSurface: null }));
+      act(() => useUiStore.setState({ settingsOpen: false }));
       expect(last()).toBe("run-1");
     }
   });

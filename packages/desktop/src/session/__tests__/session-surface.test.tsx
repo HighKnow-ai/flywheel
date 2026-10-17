@@ -15,7 +15,7 @@
  *   only geometry that exists in jsdom, and which is precisely the geometry the defect got wrong.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionSurface } from "../SessionSurface";
 import { sessionFeedQueryKey } from "../../board/useBoardQuery";
@@ -570,84 +570,6 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
   });
 });
 
-describe("SessionSurface Stop/Discard for an authoring run (plan 05-09)", () => {
-  function renderAuthoring(
-    epicId: string | null,
-    impl?: (command: string, args?: { offset: number; limit: number }) => Promise<unknown>,
-  ) {
-    if (impl) {
-      invokeCommandMock.mockImplementation(impl);
-    } else {
-      mockWindowReads(() => []);
-    }
-    const queryClient = new QueryClient();
-    return render(
-      <QueryClientProvider client={queryClient}>
-        <SessionSurface
-          agentRunId="run-1"
-          taskId={null}
-          epicId={epicId}
-          authoringStage="challenge"
-          onBack={() => {}}
-          initialStatus="running"
-        />
-      </QueryClientProvider>,
-    );
-  }
-
-  it("carries the epic id into the authoring launch hand-off once discard resolves", async () => {
-    renderAuthoring("epic-123", (command) => {
-      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
-      if (command === "agent_run_discard") {
-        return Promise.resolve({ status: "interrupted", sidecarWarning: null });
-      }
-      return Promise.resolve(undefined);
-    });
-
-    expect(useUiStore.getState().launchSheetAuthoringHandoff).toBeNull();
-    expect(useUiStore.getState().launchSheetTaskId).toBeNull();
-
-    const discardButton = await screen.findByRole("button", { name: "Discard" });
-    discardButton.click();
-
-    await waitFor(() =>
-      expect(useUiStore.getState().launchSheetAuthoringHandoff).toEqual({ epicId: "epic-123" }),
-    );
-    // The TASK hand-off channel must never be used for an authoring run.
-    expect(useUiStore.getState().launchSheetTaskId).toBeNull();
-  });
-
-  it("carries a null epic id (a fresh-epic run) into the same hand-off channel", async () => {
-    renderAuthoring(null, (command) => {
-      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
-      if (command === "agent_run_discard") {
-        return Promise.resolve({ status: "interrupted", sidecarWarning: null });
-      }
-      return Promise.resolve(undefined);
-    });
-
-    const discardButton = await screen.findByRole("button", { name: "Discard" });
-    discardButton.click();
-
-    await waitFor(() =>
-      expect(useUiStore.getState().launchSheetAuthoringHandoff).toEqual({ epicId: null }),
-    );
-  });
-
-  it("renders the authoring-specific Stop gloss, never mentioning a worktree", async () => {
-    const events = [makeSessionClosed(0, "interrupted")];
-    renderAuthoring("epic-123", (command: string, args?: { offset: number; limit: number }) => {
-      if (command === "agent_run_log_window") {
-        return Promise.resolve(windowFor(events, args?.offset ?? 0, args?.limit ?? 50));
-      }
-      return Promise.resolve(undefined);
-    });
-
-    await screen.findByText(/Every staged proposal is still waiting on the board/);
-    expect(screen.queryByText(/worktree/i)).not.toBeInTheDocument();
-  });
-});
-
 describe("SessionSurface persistence-failure banner (plan 02-12, CR-03/PROC-07)", () => {
   function makePersistenceFailureNotice(runId: string, text: string) {
     return {
@@ -1113,33 +1035,6 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
     const discard = screen.getByRole("button", { name: "Discard" });
     expect(stop.className).toContain("session-action-lead");
     expect(discard.className).not.toContain("session-action-lead");
-  });
-});
-
-describe("review offer (08-04, D-133)", () => {
-  function renderOffer(status: "running" | "blocked" | "completed" | "failed" | "interrupted", taskId: string | null) {
-    mockCombinedReads({});
-    render(
-      <QueryClientProvider client={new QueryClient()}>
-        <SessionSurface agentRunId="run-1" taskId={taskId} onBack={() => {}} initialStatus={status} />
-      </QueryClientProvider>,
-    );
-  }
-
-  it.each(["completed", "failed", "interrupted"] as const)("offers review of the task once the run is %s", (status) => {
-    renderOffer(status, "task-1");
-    fireEvent.click(screen.getByRole("button", { name: "Review changes" }));
-    expect(useUiStore.getState().reviewSurface).toEqual({ scope: "task", itemId: "task-1", label: "This task" });
-  });
-
-  it.each(["running", "blocked"] as const)("offers nothing while the run is %s", (status) => {
-    renderOffer(status, "task-1");
-    expect(screen.queryByRole("button", { name: "Review changes" })).not.toBeInTheDocument();
-  });
-
-  it("offers nothing for a terminal run with no task id", () => {
-    renderOffer("completed", null);
-    expect(screen.queryByRole("button", { name: "Review changes" })).not.toBeInTheDocument();
   });
 });
 

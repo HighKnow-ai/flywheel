@@ -22,7 +22,7 @@
 //! detector reads the same bounded list. The durable home for an old decision is the board, and
 //! CTX-06's registry.
 
-use crate::context_packet::SummaryEntry;
+use crate::domain::session_summary::SummaryEntry;
 use crate::domain::session_summary::DecisionEntry;
 use serde::Serialize;
 

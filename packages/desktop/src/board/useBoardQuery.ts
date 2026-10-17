@@ -1,25 +1,17 @@
 /**
- * TanStack Query hooks wrapping `adapters/tauri.ts` — every read and mutation the board surface
- * needs routes through `invokeCommand`, and the board query is invalidated by
- * `subscribeBoardChanged` (D-04): the renderer never trusts its own write as already resolved.
+ * TanStack Query hooks wrapping `adapters/tauri.ts`, invalidated by `subscribeBoardChanged` (D-04):
+ * the renderer never trusts its own write as already resolved. The board surface's own window,
+ * group and mutation hooks were deleted with the board UI (issue #38); what remains serves the
+ * surfaces that survive it (project rail, fleet, session, item-detail sections).
  */
-import { useEffect, useState } from "react";
-import {
-  keepPreviousData,
-  useInfiniteQuery,
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   agentRunLogWindow,
   agentRunsForTask,
-  authoringRunForEpic,
   blockedSummary,
   boardChangeFlags,
   boardScopeFlags,
-  boardEpicProgress,
   boardForgeFlags,
   boardRecoverySummary,
   forgeRequestForTask,
@@ -30,16 +22,14 @@ import {
   pendingOrphans,
   pendingPermissionRequests,
   sessionSummariesForTask,
-  startAuthoringRun,
   subscribeAgentEvent,
   worktreeRemovalCheck,
   worktreeRemove,
   worktreeSummary,
-  type EpicProgressDto,
   type LogWindowDto,
 } from "../adapters/tauri";
 import { useBoardChangedInvalidation } from "./useBoardChangedInvalidation";
-import { EMPTY_FILTER_DRAFT, useUiStore, type BoardFilterDraft } from "../state/uiStore";
+import { useUiStore } from "../state/uiStore";
 
 export interface Project {
   id: string;
@@ -50,30 +40,8 @@ export interface Project {
   status: string;
 }
 
-/** `"epic" | "task"` — the fixed three-level hierarchy's two workable-item kinds (BOARD-01).
- * Issues are the third level and never appear in `BoardItem`; see `IssueItem` below. */
+/** `"epic" | "task"` — the fixed three-level hierarchy's two workable-item kinds (BOARD-01). */
 export type BoardItemKind = "epic" | "task";
-
-export interface BoardItem {
-  id: string;
-  /** Optional for backward compatibility with callers built before the hierarchy widened past
-   * tasks (plan 01-03) — absent means "task" (the only kind that existed then). */
-  kind?: BoardItemKind;
-  key: string;
-  title: string;
-  status: string;
-  rank: string;
-  priority: number;
-  epicId: string | null;
-  /** Nullable FK to `actors.id` (BOARD-06) — `undefined`/`null` renders as "Unassigned". */
-  assigneeId?: string | null;
-  /** How many of this item's acceptance criteria are checked, out of its total (BOARD-02, D-08).
-   * Optional for the same backward-compatibility reason `kind` is: callers built before this
-   * plan land supply neither field. `BoardRow.tsx` defaults both to 0 when absent, rendering
-   * `0/0` — never a blank. */
-  criteriaChecked?: number;
-  criteriaTotal?: number;
-}
 
 /** One row of the `actors` table (DATA-03) — the roster `AssigneePicker.tsx` renders. */
 export interface Actor {
@@ -125,101 +93,11 @@ export function epicRosterTruncationNotice(roster: Pick<EpicRoster, "truncated" 
   return `Showing the first ${EPIC_ROSTER_CEILING} of ${roster.total} epics — narrow your view to see the rest.`;
 }
 
-/** One row of the workflow-less issues lane (D-07) — issues carry no `status` field. */
-export interface IssueItem {
-  id: string;
-  key: string;
-  title: string;
-  kind: string;
-  epicId: string | null;
-  taskId: string | null;
-}
-
-export interface BandCounts {
-  backlog: number;
-  todo: number;
-  inProgress: number;
-  inReview: number;
-  done: number;
-}
-
-export interface BoardWindow {
-  items: BoardItem[];
-  issues: IssueItem[];
-  counts: BandCounts;
-}
-
 const PROJECTS_QUERY_KEY = ["projects"] as const;
 
-function boardQueryKey(projectId: string | undefined) {
-  return ["board", projectId] as const;
-}
-
-/** Mirrors the private `boardQueryKey` above but exported — `FilterBar.tsx` needs it too
- * (plan 01-18) to invalidate/read the same roster cache `useEpics` populates. */
+/** The epic roster's query key, the cache `useEpics` populates. */
 export function epicsQueryKey(projectId: string | undefined) {
   return ["epics", projectId] as const;
-}
-
-/** 150ms keystroke-to-query debounce (01-UI-SPEC.md "Performance Contract", 01-RESEARCH.md Flag
- * 6): the debounce belongs at the query boundary, not the virtualization layer, which must
- * always render whatever window it currently has instantly. */
-export const SEARCH_DEBOUNCE_MS = 150;
-
-/** Delays reflecting `value` by `delayMs` — the mechanism behind `SEARCH_DEBOUNCE_MS` below.
- * Exported so `FilterBar.tsx`'s own tests (and any future field needing the same debounce
- * discipline) can reuse it rather than re-deriving a second debounce implementation. */
-export function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delayMs);
-    return () => window.clearTimeout(timer);
-  }, [value, delayMs]);
-  return debounced;
-}
-
-/** The wire shape `board_list`/`board_search` accept (mirrors
- * `commands::board::BoardFilterInput` on the Rust side). `undefined` fields — never present at
- * all, not `null` and not an empty array — are what "this dimension is unfiltered" means to the
- * core; `toFilterInput` is the only place that omission decision gets made. */
-export interface BoardFilterInput {
-  statuses?: string[];
-  epicIds?: (string | null)[];
-  assigneeIds?: (string | null)[];
-  priorities?: number[];
-  /** Present (`true`) only while the has-worktree chip is on; ABSENT when off, never `false`. */
-  hasWorktree?: true;
-}
-
-/** Translate a `BoardFilterDraft` (uiStore's "empty array means unfiltered" convention) into the
- * command payload's "field absent means unfiltered" convention. Returns `undefined` when no
- * dimension is active at all, so a fully-cleared filter sends no `filter` argument rather than an
- * object of empty arrays — the exact shape `board_list`'s own `filter: Option<BoardFilterInput>`
- * treats as "the unfiltered board." */
-export function toFilterInput(filter: BoardFilterDraft): BoardFilterInput | undefined {
-  const input: BoardFilterInput = {};
-  let active = false;
-  if (filter.statuses.length > 0) {
-    input.statuses = filter.statuses;
-    active = true;
-  }
-  if (filter.epicIds.length > 0) {
-    input.epicIds = filter.epicIds;
-    active = true;
-  }
-  if (filter.assigneeIds.length > 0) {
-    input.assigneeIds = filter.assigneeIds;
-    active = true;
-  }
-  if (filter.priorities.length > 0) {
-    input.priorities = filter.priorities;
-    active = true;
-  }
-  if (filter.hasWorktree) {
-    input.hasWorktree = true;
-    active = true;
-  }
-  return active ? input : undefined;
 }
 
 /** Every registered project (01-UI-SPEC.md "Project switcher"). */
@@ -252,101 +130,6 @@ export function useRegisterProject() {
   });
 }
 
-/**
- * The bounded board window for one project (D-03 — the core returns a page, never the whole
- * board), optionally narrowed by `filter`/`searchTerm` (BOARD-06, plan 01-08). `searchTerm` is
- * debounced here, at the query boundary — every other layer (the virtualization layer, the
- * search field itself) always renders/reflects the immediate value instantly.
- *
- * Renders whichever core command actually applies: an empty/whitespace-only search term calls
- * `board_list` (the plain, possibly-filtered window); a real term calls `board_search`. There is
- * exactly one place that decision is made — never a client-side re-filter of a `board_list`
- * result, which would be the second implementation D-03 forbids.
- *
- * `placeholderData: keepPreviousData` is what keeps the previously-rendered window on screen
- * during a refetch (01-UI-SPEC.md "State Inventory": "the currently-visible window never
- * re-skeletons on a refetch, only on true zero-to-first-paint") — callers distinguish the two
- * with `isFetching` (a refetch in flight) vs. `data === undefined` (nothing to show yet).
- */
-export function useBoardQuery(
-  projectId: string | undefined,
-  filter: BoardFilterDraft = EMPTY_FILTER_DRAFT,
-  searchTerm = "",
-) {
-  const debouncedTerm = useDebouncedValue(searchTerm, SEARCH_DEBOUNCE_MS);
-  const trimmedTerm = debouncedTerm.trim();
-  const filterInput = toFilterInput(filter);
-
-  return useQuery({
-    queryKey: [...boardQueryKey(projectId), filterInput ?? null, trimmedTerm],
-    queryFn: () =>
-      trimmedTerm.length > 0
-        ? invokeCommand<BoardWindow>("board_search", {
-            projectId,
-            term: trimmedTerm,
-            filter: filterInput,
-          })
-        : invokeCommand<BoardWindow>("board_list", { projectId, filter: filterInput }),
-    enabled: Boolean(projectId),
-    placeholderData: keepPreviousData,
-  });
-}
-
-/**
- * Create a task at the current position (D-09 quick-add), optionally under an epic. `task_create`
- * has accepted `epic_id: Option<String>` since plan 01-04 — this hook silently dropping it was
- * the first of G-01-EPIC-ASSIGN's three causes: a task created under a selected epic (plan
- * 01-15's nested quick-add) would still land parentless because nothing ever sent the id.
- */
-export function useCreateTask(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { title: string; epicId?: string | null }) =>
-      invokeCommand<BoardItem>("task_create", {
-        projectId,
-        title: input.title,
-        epicId: input.epicId,
-      }),
-    onSuccess: () => {
-      // The core also emits `board:changed` (D-04) — this is a courtesy immediate refetch for
-      // the tab that made the mutation; `useBoardChangedSubscription` is the source of truth for
-      // every OTHER surface's freshness, and stays authoritative even if this call were removed.
-      queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) });
-    },
-  });
-}
-
-/** Create an epic at the top level (⌘⇧N / palette "Create Epic"). */
-export function useCreateEpic(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (title: string) => invokeCommand<BoardItem>("epic_create", { projectId, title }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
-  });
-}
-
-/**
- * Create an issue (proposals/notes — no status, D-07), optionally filed under an epic or a task.
- * `issue_create` has accepted `epic_id`/`task_id: Option<String>` since plan 01-04 — this hook
- * silently dropping both was the second half of G-01-EPIC-ASSIGN's first cause (the live database
- * held an issue with both columns NULL because nothing ever sent them): `CommandPalette.tsx`'s
- * "Create Issue" command now supplies whichever one the current selection implies.
- */
-export function useCreateIssue(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { title: string; kind: string; epicId?: string | null; taskId?: string | null }) =>
-      invokeCommand<IssueItem>("issue_create", {
-        projectId,
-        title: input.title,
-        kind: input.kind,
-        epicId: input.epicId,
-        taskId: input.taskId,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
-  });
-}
-
 /** Every actor (human, agent, system) — the `AssigneePicker`'s roster (BOARD-06). Actors are
  * seeded at migration time and rarely change, so this query has no need to poll. */
 export function useActors() {
@@ -375,116 +158,6 @@ export function useEpics(projectId: string | undefined) {
 }
 
 /**
- * Move a task or an epic up/down by one position within its priority band (`⌘↑`/`⌘↓`, D-11,
- * BOARD-05). Dispatches on `kind` to the matching entity-scoped command.
- */
-export function useReorderItem(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { kind: BoardItemKind; id: string; direction: "up" | "down" }) =>
-      invokeCommand<void>(input.kind === "epic" ? "epic_reorder" : "task_reorder", {
-        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
-        direction: input.direction,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
-  });
-}
-
-/** Set a task's or an epic's priority (`p` then `0`-`4`, D-11). */
-export function useSetPriority(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { kind: BoardItemKind; id: string; priority: number }) =>
-      invokeCommand<void>(input.kind === "epic" ? "epic_set_priority" : "task_set_priority", {
-        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
-        priority: input.priority,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
-  });
-}
-
-/** Set a task's or an epic's assignee (`a`, BOARD-06). `assigneeId: null` clears it
- * ("Unassigned"). */
-export function useSetAssignee(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { kind: BoardItemKind; id: string; assigneeId: string | null }) =>
-      invokeCommand<void>(input.kind === "epic" ? "epic_set_assignee" : "task_set_assignee", {
-        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
-        assigneeId: input.assigneeId,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
-  });
-}
-
-/**
- * Reparent a task under an epic, or orphan it with `epicId: null` (`m`, `ParentPicker`,
- * G-01-EPIC-ASSIGN). Unlike `useSetPriority`/`useSetAssignee`,
- * there is no epic-kind branch here — this action exists only for tasks, because the hierarchy is
- * fixed at three levels and an epic has no epic parent of its own.
- */
-export function useSetTaskEpic(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { taskId: string; epicId: string | null }) =>
-      invokeCommand<void>("task_set_epic", { taskId: input.taskId, epicId: input.epicId }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
-  });
-}
-
-/**
- * Reparent an issue under an epic, under a task, or detach it (`ParentPicker`,
- * G-01-EPIC-ASSIGN, plan 01-15 — the issue half of the hierarchy `useSetTaskEpic` above closed
- * for tasks). Invokes plan 01-12's `issue_set_parent` command with the exact camelCase
- * `issueId`/`parentKind`/`parentId` arguments it expects; `parentKind: null, parentId: null`
- * detaches the issue entirely. An issue holds exactly one parent at a time — the renderer sends
- * one `parentKind`/`parentId` pair, matching `IssueParent`'s single-variant write on the server.
- */
-export function useSetIssueParent(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { issueId: string; parentKind: "epic" | "task" | null; parentId: string | null }) =>
-      invokeCommand<void>("issue_set_parent", {
-        issueId: input.issueId,
-        parentKind: input.parentKind,
-        parentId: input.parentId,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
-  });
-}
-
-/** Patch a task's or an epic's title/description from the item detail panel. */
-export function useUpdateItem(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: {
-      kind: BoardItemKind;
-      id: string;
-      title?: string;
-      description?: string;
-    }) =>
-      invokeCommand<BoardItem>(input.kind === "epic" ? "epic_update" : "task_update", {
-        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
-        title: input.title,
-        description: input.description,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
-  });
-}
-
-/** Delete a task or an epic (⌘⌫, destructive confirmation owned by the caller). */
-export function useDeleteItem(projectId: string | undefined) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { kind: BoardItemKind; id: string }) =>
-      invokeCommand<void>(input.kind === "epic" ? "epic_delete" : "task_delete", {
-        [input.kind === "epic" ? "epicId" : "taskId"]: input.id,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: boardQueryKey(projectId) }),
-  });
-}
-
-/**
  * Subscribes EXACTLY ONCE to the core's `board:changed` push channel and routes each event by its
  * `projectId` (D-04, FNC-07) — the UI must never treat its own mutation as already resolved:
  * creating a task refreshes the board because the core emitted `board:changed`, and creating,
@@ -504,7 +177,7 @@ export function useDeleteItem(projectId: string | undefined) {
 export function useBoardChangedSubscription(projectId?: string) {
   useBoardChangedInvalidation(
     { kind: "project", projectId },
-    [boardQueryKey(projectId), epicsQueryKey(projectId), ["board", "dispatch"]],
+    [["board", projectId], epicsQueryKey(projectId), ["board", "dispatch"]],
     { unroutableKeys: [["board"], ["epics"]] },
   );
 }
@@ -966,209 +639,6 @@ export function useScopeFlags(projectId: string | undefined) {
   });
 }
 
-/** `useEpicProgress`'s query key, keyed by `projectId` (Phase 8.1 plan 05, D-05/D-06). */
-export function epicProgressQueryKey(projectId: string | undefined) {
-  return ["epic-progress", projectId] as const;
-}
-
-/**
- * Every epic's roll-up for the WHOLE board in one query (D-05/D-06): task counts by status, agents
- * running/blocked and criteria position, read from one grouped aggregate over all of the project's
- * tasks — not from the loaded board window, which is a 200-row page. Structural sibling of
- * [`useForgeFlags`]: project-scoped, invalidated on `subscribeBoardChanged`, never polled. One
- * query for the board and never one per epic (D-16's rule). `undefined` disables the query.
- */
-export function useEpicProgress(projectId: string | undefined, enabled = true) {
-
-  useBoardChangedInvalidation({ kind: "project", projectId }, projectId && enabled ? [epicProgressQueryKey(projectId)] : []);
-
-  return useQuery({
-    queryKey: epicProgressQueryKey(projectId),
-    queryFn: () => boardEpicProgress(projectId as string),
-    enabled: Boolean(projectId) && enabled,
-  });
-}
-
-/** Which group a scoped fetch is for: one epic (or the no-epic bucket) or one status band. */
-export type GroupScope = { kind: "epic"; epicId: string | null } | { kind: "status"; status: string };
-
-/** Mirrors `commands/board.rs`'s `MAX_LIMIT` — the most rows one `board_list` call will return.
- * The core clamps to this itself (T-01-24, T-08.1-13); it is repeated here only so the hook can
- * tell the caller when a group is bigger than one call can hold, rather than look complete. */
-const GROUP_FETCH_MAX_ROWS = 500;
-
-export interface GroupItems {
-  /** Exactly what the core returned for the scope — no client-side narrowing (D-03). */
-  items: BoardItem[];
-  /** The explicit row limit the fetch passed. */
-  limit: number;
-  /** The group's expected row count, as passed in (from the aggregate or the counts field). */
-  total: number;
-  /** True when the group is bigger than one call can return, i.e. `items` is a strict prefix. */
-  truncated: boolean;
-}
-
-/** An epic's task total for its header — straight from the aggregate, never from rows loaded. */
-export function epicHeaderTotal(
-  progress: EpicProgressDto[] | undefined,
-  epicId: string | null,
-): number | undefined {
-  return progress?.find((p) => p.epicId === epicId)?.total;
-}
-
-/** A status band's header total — straight from the list command's own `counts` field. */
-export function bandHeaderTotal(counts: BandCounts | undefined, status: string): number | undefined {
-  if (!counts) return undefined;
-  const key = ({ in_progress: "inProgress", in_review: "inReview" } as const)[
-    status as "in_progress" | "in_review"
-  ] ?? (status as keyof BandCounts);
-  return counts[key];
-}
-
-/** The board's own active filter and search term — folded into every scoped group fetch so a
- * group shows exactly what the unscoped board would show for it (D-03: the core does the
- * filtering, there is no second implementation here). */
-export interface GroupBase {
-  filter?: BoardFilterInput;
-  term?: string;
-}
-
-/**
- * The filter one group's fetch sends: the board's active filter with the group's own dimension
- * pinned to the group. `null` when the active filter already excludes the group (e.g. an epic
- * outside the epic chips) — the group is then empty by definition and costs no fetch.
- */
-export function scopedFilter(base: BoardFilterInput | undefined, scope: GroupScope): BoardFilterInput | null {
-  if (scope.kind === "status") {
-    if (base?.statuses && !base.statuses.includes(scope.status)) return null;
-    return { ...base, statuses: [scope.status] };
-  }
-  if (base?.epicIds && !base.epicIds.includes(scope.epicId)) return null;
-  return { ...base, epicIds: [scope.epicId] };
-}
-
-/**
- * One group's scoped fetch, as query options so [`useGroupItems`] (one group) and
- * [`useGroupItemsMany`] (every group of the active lens) share a single definition. Reuses the
- * EXISTING `board_list` (or `board_search` while a search term is active) through its existing
- * `epicIds`/`statuses` filter dimensions — no list-by-epic command and no client-side narrowing.
- * What it fixes is the row limit: an unscoped read lands on the core's default of 200, so a group
- * bigger than that was silently cut short (RESEARCH Correction 3). The limit here is sized from
- * the group's own `total` and clamped to what the core will return.
- */
-function groupItemsQueryOptions(
-  projectId: string | undefined,
-  scope: GroupScope,
-  total: number | undefined,
-  enabled: boolean,
-  base?: GroupBase,
-) {
-  const limit = Math.min(Math.max(total ?? 1, 1), GROUP_FETCH_MAX_ROWS);
-  const filter = scopedFilter(base?.filter, scope);
-  const term = base?.term?.trim() ?? "";
-
-  return {
-    queryKey: [...boardQueryKey(projectId), "group", filter, limit, term] as const,
-    queryFn: async (): Promise<GroupItems> => {
-      const window =
-        term.length > 0
-          ? await invokeCommand<BoardWindow>("board_search", { projectId, term, filter, limit })
-          : await invokeCommand<BoardWindow>("board_list", { projectId, filter, limit });
-      return {
-        items: window.items,
-        limit,
-        total: total as number,
-        truncated: (total as number) > limit,
-      };
-    },
-    enabled: Boolean(projectId) && enabled && filter !== null && total !== undefined,
-  };
-}
-
-/**
- * The rows of one expanded group (an epic, the no-epic bucket or a status band).
- *
- * `total` is the row count to expect: an epic's aggregate total, a band's `counts` figure — and
- * for the no-epic bucket, its tasks PLUS the project's epic rows, because the core's epic filter
- * puts an epic row (whose own epic id is null) into the no-epic bucket. The query key sits under
- * the board's own key, so `useBoardChangedSubscription`'s invalidation refreshes it. `enabled`
- * lets a collapsed group cost nothing.
- */
-export function useGroupItems(
-  projectId: string | undefined,
-  scope: GroupScope,
-  total: number | undefined,
-  enabled = true,
-  base?: GroupBase,
-) {
-  return useQuery<GroupItems>(groupItemsQueryOptions(projectId, scope, total, enabled, base));
-}
-
-/** Just each group's data, aligned to the input order. A module-level function so `useQueries`
- * can structurally share the combined result: the rack's rows memo depends on it. */
-const pickGroupData = (results: { data: GroupItems | undefined }[]) => results.map((r) => r.data);
-
-/**
- * Every group of the active lens in one hook (a hook cannot be called per group): the scoped fetch
- * of [`useGroupItems`], run for each group whose `enabled` is true. Returns each group's fetched
- * rows aligned to `groups`, `undefined` while a group is collapsed, loading or failed.
- */
-export function useGroupItemsMany(
-  projectId: string | undefined,
-  groups: { scope: GroupScope; total: number | undefined; enabled: boolean }[],
-  base?: GroupBase,
-) {
-  return useQueries({
-    queries: groups.map((g) => groupItemsQueryOptions(projectId, g.scope, g.total, g.enabled, base)),
-    combine: pickGroupData,
-  });
-}
-
-/** Which epic headers the active filter and search leave standing (A-04, D-REV-27). */
-export interface FilteredEpics {
-  /** Epics the core's own filter returned a row for: the epic row itself (the has-worktree chip puts
-   * an epic in when any child task has a worktree) or a task that belongs to it. */
-  epicIds: string[];
-  /** Whether a matching task belongs to no epic, i.e. whether the "No epic" bucket still has a reason to show. */
-  hasNoEpicTasks: boolean;
-  /** True when the answer filled one call's row limit, so it may be a strict prefix: callers must not
-   * hide a header on an incomplete answer. */
-  truncated: boolean;
-}
-
-/**
- * The epic lens under a filter: which headers have anything left to show. ONE unscoped read through
- * the SAME `board_list`/`board_search` and the SAME filter the groups use, so the core does the
- * filtering (D-03) and there is no second implementation; this only asks "which epics did it return
- * rows for". Off (no query, no cost) while no filter or search is active. Fails open: until the answer
- * lands, or if it may be cut short, every header shows. Header COUNTS stay board-wide (the aggregate
- * is not filter-aware); only the set of headers narrows.
- */
-export function useFilteredEpics(projectId: string | undefined, base: GroupBase | undefined, enabled: boolean) {
-  const filter = base?.filter;
-  const term = base?.term?.trim() ?? "";
-  const active = filter !== undefined || term.length > 0;
-  return useQuery<FilteredEpics>({
-    queryKey: [...boardQueryKey(projectId), "filtered-epics", filter ?? null, term],
-    queryFn: async () => {
-      const limit = GROUP_FETCH_MAX_ROWS;
-      const window =
-        term.length > 0
-          ? await invokeCommand<BoardWindow>("board_search", { projectId, term, filter, limit })
-          : await invokeCommand<BoardWindow>("board_list", { projectId, filter, limit });
-      const epicIds = new Set<string>();
-      let hasNoEpicTasks = false;
-      for (const item of window.items) {
-        if ((item.kind ?? "task") === "epic") epicIds.add(item.id);
-        else if (item.epicId) epicIds.add(item.epicId);
-        else hasNoEpicTasks = true;
-      }
-      return { epicIds: [...epicIds], hasNoEpicTasks, truncated: window.items.length >= limit };
-    },
-    enabled: Boolean(projectId) && enabled && active,
-  });
-}
-
 /** A cheap client-side pre-check mirroring `flywheel_core::git_identity::classify`'s two accepted
  * shapes (D-127/D-128, Phase 7 plan 07-05) — never the source of truth for validation (the core's
  * own `classify` is, called again server-side before any git invocation, T-07-05-01). This exists
@@ -1254,34 +724,4 @@ export function useRemoveWorktree(taskId: string | undefined) {
 export async function openLiveSessionForTask(taskId: string): Promise<void> {
   const agentRunId = await latestAgentRunIdForTask(taskId);
   if (agentRunId) useUiStore.getState().setActiveAgentRunId(agentRunId, taskId);
-}
-
-/** D-84/D-86 (plan 05-02): the `shape-epic` command's own entry point — starts a fresh
- * epic-authoring session against no existing epic (SHAPE-01) and opens the session surface on the
- * returned run id, mirroring `openLiveSessionForTask`'s own "call the command, then set
- * `activeAgentRunId` from its result" shape. `run.authoringStage` is threaded through as the
- * third `setActiveAgentRunId` argument so `SessionSurface.tsx` mounts `ProposalTray` immediately,
- * without a second round trip to learn the run is an authoring session. */
-export async function startAuthoringSessionForProject(projectId: string): Promise<void> {
-  const run = await startAuthoringRun(projectId);
-  useUiStore.getState().setActiveAgentRunId(run.id, null, run.authoringStage, run.epicId);
-}
-
-/** D-84/D-86/D-91 (plan 05-10): "Continue shaping" — the ONE entry point both new reopen doors
- * (the board row's `r` action and `ItemDetailPanel.tsx`'s own section, both in `BoardView.tsx`)
- * call, so a running-session collision is caught in exactly one place regardless of which door
- * fired. First asks `authoringRunForEpic` (a pure read) whether `epicId` already has a
- * running/blocked authoring session — if so, routes straight to it (`setActiveAgentRunId`) and
- * starts no second run, asserted by a call count (`authoring_run_start` is never invoked on this
- * path). Otherwise opens the authoring launch sheet against `epicId` (reusing
- * `launchSheetAuthoringHandoff`, D-85/plan 05-09's own Discard hand-off channel) so the epic
- * packet is shown BEFORE any token is spent — the sheet's own Start Shaping button is what
- * eventually calls `startAuthoringRun`. */
-export async function continueShapingEpic(epicId: string): Promise<void> {
-  const running = await authoringRunForEpic(epicId);
-  if (running) {
-    useUiStore.getState().setActiveAgentRunId(running.id, null, running.authoringStage, running.epicId);
-    return;
-  }
-  useUiStore.getState().setLaunchSheetAuthoringHandoff(epicId);
 }

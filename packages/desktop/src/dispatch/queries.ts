@@ -9,7 +9,6 @@ import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidatio
 import {
   dispatchGateState,
   dispatchPlanGet,
-  dispatchPlanningRun,
   getSettings,
   repoTrackedPaths,
   subscribeDispatchGateChanged,
@@ -18,7 +17,6 @@ import {
 } from "../adapters/tauri";
 
 export const dispatchPlanKey = (epicId: string) => ["board", "dispatch", "plan", epicId] as const;
-export const planningRunKey = (epicId: string) => ["board", "dispatch", "planning-run", epicId] as const;
 export const fileSetProvenanceKey = (taskId: string) => ["board", "dispatch", "file-set-provenance", taskId] as const;
 export const trackedPathsKey = (planId: string) => ["repo", "tracked-paths", planId] as const;
 export const GATE_KEY = ["board", "dispatch", "gate"] as const;
@@ -33,14 +31,6 @@ export function useDispatchPlan(epicId: string | null) {
   return useQuery({
     queryKey: dispatchPlanKey(epicId ?? ""),
     queryFn: () => dispatchPlanGet(epicId as string),
-    enabled: epicId !== null,
-  });
-}
-
-export function usePlanningRun(epicId: string | null) {
-  return useQuery({
-    queryKey: planningRunKey(epicId ?? ""),
-    queryFn: () => dispatchPlanningRun(epicId as string),
     enabled: epicId !== null,
   });
 }

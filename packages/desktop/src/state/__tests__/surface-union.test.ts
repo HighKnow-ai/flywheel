@@ -10,8 +10,6 @@ import { activeSurface, type SurfaceState } from "../keyboard";
 
 const NONE: SurfaceState = {
   settingsOpen: false,
-  triageOpen: false,
-  reviewOpen: false,
   sessionOpen: false,
   fleetOpen: false,
   worktreeInventoryOpen: false,
@@ -25,12 +23,6 @@ describe("activeSurface precedence", () => {
   });
   it("settings wins over a session", () => {
     expect(activeSurface(state({ settingsOpen: true, sessionOpen: true }))).toBe("settings");
-  });
-  it("triage wins over a session", () => {
-    expect(activeSurface(state({ triageOpen: true, sessionOpen: true }))).toBe("triage");
-  });
-  it("review wins over a session", () => {
-    expect(activeSurface(state({ reviewOpen: true, sessionOpen: true }))).toBe("review");
   });
   it("the session wins over the fleet", () => {
     expect(activeSurface(state({ sessionOpen: true, fleetOpen: true }))).toBe("session");
@@ -51,7 +43,7 @@ describe("activeSurface precedence", () => {
     expect(activeSurface(state({ projectUnreachable: true, sessionOpen: true }))).toBe("session");
   });
   it("is deterministic", () => {
-    const s = state({ reviewOpen: true, fleetOpen: true });
+    const s = state({ settingsOpen: true, fleetOpen: true });
     expect(activeSurface(s)).toBe(activeSurface(s));
   });
 });

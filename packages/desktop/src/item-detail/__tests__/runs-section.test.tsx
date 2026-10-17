@@ -12,7 +12,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RunsSection } from "../RunsSection";
-import { ItemDetailPanel, type DetailItem } from "../ItemDetailPanel";
 import type { RunSummaryDto } from "../../adapters/tauri";
 
 const agentRunsForTaskMock = vi.fn();
@@ -376,41 +375,6 @@ describe("RunsSection — abandoned run (plan 03-10 Task 2, D-49/D-50)", () => {
     fireEvent.click(row);
 
     expect(onOpenRun).toHaveBeenCalledWith("run-abandoned");
-  });
-});
-
-describe("ItemDetailPanel section order (plan 02-08 Task 3)", () => {
-  function taskDetailItem(): DetailItem {
-    return { id: "task-order-1", kind: "task", key: "FLY-9", title: "Ordered task", status: "in_progress", projectId: "proj-1" };
-  }
-
-  it("renders the worktree summary, then the runs section, then the activity trail, in that order", async () => {
-    worktreeSummaryMock.mockResolvedValue({ branch: "flywheel/fly-9", path: "/Users/cyril/Flywheel/proj/FLY-9" });
-    agentRunsForTaskMock.mockResolvedValue([makeRun({ id: "run-order-1" })]);
-    pendingPermissionRequestsMock.mockResolvedValue([]);
-    invokeCommandMock.mockImplementation((command: string) => {
-      if (command === "criterion_list") return Promise.resolve([]);
-      if (command === "events_activity_trail") return Promise.resolve([]);
-      if (command === "actor_list") return Promise.resolve([]);
-      return Promise.resolve(undefined);
-    });
-
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ItemDetailPanel item={taskDetailItem()} onClose={() => {}} onUpdateTitle={() => {}} />
-      </QueryClientProvider>,
-    );
-
-    const panel = screen.getByRole("dialog", { name: "FLY-9 detail" });
-    const worktreeSection = await within(panel).findByRole("region", { name: "Worktree" });
-    const runsSection = within(panel).getByRole("region", { name: "Runs" });
-    const activitySection = within(panel).getByRole("region", { name: "Activity" });
-
-    // eslint-disable-next-line no-bitwise
-    expect(worktreeSection.compareDocumentPosition(runsSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // eslint-disable-next-line no-bitwise
-    expect(runsSection.compareDocumentPosition(activitySection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 

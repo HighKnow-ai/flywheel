@@ -12,14 +12,11 @@
 
 mod common;
 
-use core::domain::agent_run::{close_agent_run, AgentRunStatus};
 use core::domain::authoring_proposal::{
     accept_proposal, accept_subtree, amend_proposal, create_proposal, pending_proposals_for_run,
     reject_proposal, ProposalPayload, ProposalProvenance, ProposalVerb,
 };
 use core::domain::authoring_session::{advance_stage, current_stage, start_authoring_run, AuthoringStage};
-use core::domain::session_summary::{create_summary, SummaryFields};
-use core::epic_context_packet::{assemble_epic_context_packet, render_epic_prompt};
 use rusqlite::{params, Connection};
 
 /// Serializes every call to [`with_scratch_runtime_dir`] in THIS binary — `advance_stage` writes
@@ -373,127 +370,6 @@ fn criterion_3_accepts_rejects_and_amends_each_item_individually() {
 // Criterion 4 — "User reopens an epic weeks later, continues shaping it, and the agent
 // challenges the change against what the epic already contains." (SHAPE-05)
 // ============================================================================================
-
-#[test]
-fn criterion_4_reopening_an_epic_primes_the_challenge_against_what_it_already_contains() {
-    with_scratch_runtime_dir(|| {
-        let (mut conn, actor_id, project) = common::seeded_project();
-
-        // Build a real epic with one task and one criterion (mirrors criterion 2's own two-run
-        // construction — the shape the shipped write path actually requires).
-        let run_01 = start_authoring_run(&mut conn, &project.id, None, "default", &actor_id)
-            .expect("start_authoring_run (01) should succeed");
-        advance_stage(&mut conn, &run_01.id, &actor_id).expect("advance_stage should succeed");
-        let epic_proposal = create_proposal(
-            &mut conn,
-            &run_01.id,
-            ProposalVerb::Create,
-            ProposalPayload::Epic { title: "epic-01".to_string(), description: None, priority: None },
-            None,
-            None,
-            ProposalProvenance::NONE,
-        )
-        .expect("propose the epic");
-        let epic_outcome = accept_proposal(&mut conn, &epic_proposal.id, &actor_id)
-            .expect("accept the epic");
-        let epic_id = epic_outcome.materialised_id;
-
-        let run_02 = start_authoring_run(&mut conn, &project.id, Some(&epic_id), "default", &actor_id)
-            .expect("start_authoring_run (02, reopened) should succeed");
-        advance_stage(&mut conn, &run_02.id, &actor_id).expect("advance_stage should succeed");
-        let task_proposal = create_proposal(
-            &mut conn,
-            &run_02.id,
-            ProposalVerb::Create,
-            ProposalPayload::Task { title: "task-01".to_string(), description: None, priority: None },
-            None,
-            None,
-            ProposalProvenance::NONE,
-        )
-        .expect("propose the task");
-        create_proposal(
-            &mut conn,
-            &run_02.id,
-            ProposalVerb::Create,
-            ProposalPayload::Criterion { statement: "criterion-01".to_string(), verification_hint: None, pinned_revision: None },
-            None,
-            Some(&task_proposal.id),
-            ProposalProvenance::NONE,
-        )
-        .expect("propose the criterion");
-        accept_subtree(&mut conn, &task_proposal.id, &actor_id).expect("accept the task's own subtree");
-
-        // Two further rejected proposals against this epic — D-83's own re-proposal guard.
-        let rejected_task = create_proposal(
-            &mut conn,
-            &run_02.id,
-            ProposalVerb::Create,
-            ProposalPayload::Task { title: "rejected-task-01".to_string(), description: None, priority: None },
-            None,
-            None,
-            ProposalProvenance::NONE,
-        )
-        .expect("propose the rejected task");
-        reject_proposal(&mut conn, &rejected_task.id, &actor_id, Some("Out of scope"))
-            .expect("reject the task proposal");
-        let rejected_assumption = create_proposal(
-            &mut conn,
-            &run_02.id,
-            ProposalVerb::Create,
-            ProposalPayload::Assumption {
-                assumption: "Should this cover mobile too?".to_string(),
-                answer: "No.".to_string(),
-            },
-            None,
-            None,
-            ProposalProvenance::NONE,
-        )
-        .expect("propose the rejected assumption");
-        reject_proposal(&mut conn, &rejected_assumption.id, &actor_id, None)
-            .expect("reject the assumption proposal");
-
-        // Close run 02 with a summary — an authoring run's own terminal path (D-64/plan 05-09).
-        let summary_fields = SummaryFields {
-            changed_files: Vec::new(),
-            changed_prose: Some("Shaped the epic's first task.".to_string()),
-            remains: None,
-            next_session_must_know: None,
-            decisions: Vec::new(),
-            acknowledged_decisions: Vec::new(),
-            diff_ref: None,
-            auto_generated: false,
-        };
-        create_summary(&mut conn, &run_02.id, summary_fields, &actor_id)
-            .expect("create_summary should succeed");
-        close_agent_run(&mut conn, &run_02.id, AgentRunStatus::Completed, None, None, None)
-            .expect("close_agent_run should succeed");
-
-        // Reopen: a THIRD run against the SAME epic, weeks later (SHAPE-05).
-        let run_03 = start_authoring_run(&mut conn, &project.id, Some(&epic_id), "default", &actor_id)
-            .expect("start_authoring_run (03, reopened again) should succeed");
-        assert_eq!(
-            run_03.authoring_stage.as_deref(),
-            Some("challenge"),
-            "a reopened run starts in challenge like any other (D-88)"
-        );
-
-        let packet = assemble_epic_context_packet(&conn, &project.id, Some(&epic_id))
-            .expect("assembling the reopened epic's packet should succeed");
-        let prompt = render_epic_prompt(&packet, None);
-
-        assert_eq!(packet.task_roster.len(), 1);
-        assert!(prompt.contains("task-01"));
-        assert!(prompt.contains("criterion-01"));
-
-        assert_eq!(packet.rejected.verbatim.len(), 2);
-        assert!(prompt.contains("rejected-task-01"));
-        assert!(prompt.contains("Should this cover mobile too?"));
-        assert!(
-            prompt.contains("Do not re-propose any of them"),
-            "the priming prompt must literally tell the model not to re-propose what was rejected"
-        );
-    });
-}
 
 // ============================================================================================
 // Plan 05-10 Task 3(b): four listing/ordering properties that only show up across the WHOLE

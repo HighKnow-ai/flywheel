@@ -238,21 +238,6 @@ fn each_transition_appends_exactly_one_event_naming_both_stages() {
     });
 }
 
-#[test]
-fn both_new_commands_appear_in_main_rs_generate_handler_list() {
-    let root = workspace_root();
-    let contents =
-        std::fs::read_to_string(root.join("packages/desktop/src-tauri/src/main.rs")).unwrap();
-    assert!(
-        contents.contains("commands::authoring::authoring_stage_advance"),
-        "authoring_stage_advance must be registered in main.rs's generate_handler! list"
-    );
-    assert!(
-        contents.contains("commands::authoring::authoring_stage_return"),
-        "authoring_stage_return must be registered in main.rs's generate_handler! list"
-    );
-}
-
 // --- Structural gate (D-90): no file under packages/sidecar/src names the human-only path. ---
 //
 // The sidecar is the ONLY process that talks to the model (AGNT-01/AGNT-02) — no tool handler, no

@@ -7,8 +7,6 @@ import { ALIASES, MODES, PALETTES, type Mode, type Palette } from "../tokens";
 import tokensCssSource from "../../styles/tokens.css?raw";
 // The glyph's ink is read from the components that paint it, not restated here, so a recolour of
 // the Dot is measured rather than missed (D-REV-09).
-import boardRowSource from "../../board/BoardRow.tsx?raw";
-import epicHeaderRowSource from "../../board/EpicHeaderRow.tsx?raw";
 
 /**
  * The runnable assertion that owns every contrast number in the product (08.1-DIRECTION.md:
@@ -291,32 +289,6 @@ for (const mode of MODES) {
         Math.abs(onGround("textPlaceholder") - contrastRatio(other.textPlaceholder, other.surfaceDominant)),
         "light and dark placeholders differ in ratio",
       ).toBeLessThan(0.3);
-    });
-
-    // D-REV-09: the `Dot` uncommitted-changes glyph is a graphic carrying information, so WCAG 1.4.11
-    // gives it 3:1. It was in no role list above (its token is a strip role), so nothing measured it.
-    it("the uncommitted-changes Dot clears 3:1 on every row surface, in the ink its components declare", () => {
-      // An alias (`--text-muted-strip: var(--text-muted-rack)`) is declared once in the root block and
-      // follows whichever mode's value its target has, so resolve through the mode block first.
-      const own = declarations(mode, tokensCssSource);
-      const root = declarations("light", tokensCssSource);
-      const resolve = (name: string): string | undefined => {
-        const value = own.get(name) ?? root.get(name);
-        const alias = /^var\((--[a-z0-9-]+)\)$/.exec(value ?? "");
-        return alias ? resolve(alias[1]) : value;
-      };
-      for (const [file, source] of [["BoardRow", boardRowSource], ["EpicHeaderRow", epicHeaderRowSource]] as const) {
-        const span = /aria-label="uncommitted changes"[\s\S]{0,400}?color:\s*"var\((--[a-z0-9-]+)\)"/.exec(source);
-        expect(span, `${file}: could not find the Dot's ink - the component changed shape, update this reader`).toBeTruthy();
-        const ink = resolve(span![1]);
-        expect(ink, `${file}: ${span![1]} is not declared in the ${mode} block`).toMatch(/^#[0-9a-f]{6}$/i);
-        for (const surface of SURFACES) {
-          expect(
-            contrastRatio(ink!, p[surface]),
-            `${mode}: ${file} Dot ${span![1]} ${ink} on ${surface} ${p[surface]}`,
-          ).toBeGreaterThanOrEqual(NON_TEXT);
-        }
-      }
     });
 
     it("the four row-state surfaces are pairwise distinct", () => {

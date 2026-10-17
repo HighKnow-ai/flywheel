@@ -20,7 +20,7 @@ use std::collections::HashSet;
 
 use serde::Serialize;
 
-use crate::context_packet::SummaryEntry;
+use crate::domain::session_summary::SummaryEntry;
 
 /// The five kinds of fired warning (D-72, D-73) — four detectors, the fourth (decision read-back)
 /// able to fire either of the last two kinds depending on which mismatch it finds first.

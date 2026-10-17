@@ -28,7 +28,6 @@ import {
   useRef,
   useState,
   type ComponentType,
-  type KeyboardEvent,
   type UIEvent,
 } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -36,17 +35,12 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import * as icons from "lucide-react";
 import {
   answerPermissionRequest,
-  authoringStageAdvance,
-  authoringStageReturn,
   discardSession,
   epicHeader,
-  sendAuthoringTurn,
   stopAgentRun,
   subscribeAgentEvent,
   taskHeader,
 } from "../adapters/tauri";
-import { ProposalTray } from "../authoring/ProposalTray";
-import { useRunProposals } from "../authoring/useAuthoringQuery";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { MARKS_BY_ID } from "../legend/marks";
 import { StateBadge } from "../legend/StateBadge";
@@ -174,239 +168,6 @@ function StatusStrip({
   );
 }
 
-/** D-88's three named stages, in their fixed order — mirrors
- * `core::domain::authoring_session::AUTHORING_STAGES` exactly (that Rust constant's own doc
- * comment: "the single list every reader ... derives from"). The stage indicator below renders
- * every one of these, always, so the developer can see both where the session is and that there
- * are exactly three — a bare "Stage: decompose" label would hide the shape of the machine. */
-export const AUTHORING_STAGES = ["challenge", "decompose", "criteria"] as const;
-
-const AUTHORING_STAGE_LABELS: Record<string, string> = {
-  challenge: "Challenge",
-  decompose: "Decompose",
-  criteria: "Criteria",
-};
-
-/** `authoring_stage` value -> the matching published `agent`-channel mark id (`legend/marks.ts`,
- * plan 05-03) — mirrors `RUN_STATUS_MARK_IDS`'s own role for run status, above. */
-const AUTHORING_STAGE_MARK_ID: Record<string, string> = {
-  challenge: "authoring-stage-challenge",
-  decompose: "authoring-stage-decompose",
-  criteria: "authoring-stage-criteria",
-};
-
-/** The stage AFTER `stage` in `AUTHORING_STAGES`' fixed order, or `undefined` at `criteria` —
- * there is nowhere further forward to go (mirrors `AuthoringStage::next`'s own `None` at the last
- * stage). */
-function nextAuthoringStage(stage: string): string | undefined {
-  const index = AUTHORING_STAGES.indexOf(stage as (typeof AUTHORING_STAGES)[number]);
-  return index === -1 ? undefined : AUTHORING_STAGES[index + 1];
-}
-
-/** The stage BEFORE `stage`, or `undefined` at `challenge` — there is nothing earlier to return
- * to. The "way back" control below only renders when this returns a real stage. Exported so
- * `CommandPalette.tsx`'s `return-stage` entry can compute the same target without a second,
- * independently-maintained copy of D-88's fixed stage order. */
-export function previousAuthoringStage(stage: string): string | undefined {
-  const index = AUTHORING_STAGES.indexOf(stage as (typeof AUTHORING_STAGES)[number]);
-  return index > 0 ? AUTHORING_STAGES[index - 1] : undefined;
-}
-
-/** The stage indicator (D-88, plan 05-03) — its own independently-rendering sibling of
- * `StatusStrip`, mounted the same way (never woven into `FeedRow.tsx`). Shows all three stages in
- * their fixed order with the current one marked (current = `--accent-text-rack`, the brand text role the
- * specification permits for "the live authoring stage"; the others = `--text-muted-rack`) — no new colour
- * token. The run badge above no longer shares this role: it is drawn by `legend/StateBadge.tsx` (Phase 14, D-17). */
-function AuthoringStageIndicator({ stage }: { stage: string }) {
-  return (
-    <span
-      role="list"
-      aria-label="Authoring stage"
-      style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-md)" }}
-    >
-      {AUTHORING_STAGES.map((candidate) => {
-        const isCurrent = candidate === stage;
-        const mark = MARKS_BY_ID[AUTHORING_STAGE_MARK_ID[candidate]];
-        return (
-          <span
-            key={candidate}
-            role="listitem"
-            aria-current={isCurrent ? "step" : undefined}
-            className="type-label"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "var(--space-xs)",
-              color: isCurrent ? "var(--accent-text-rack)" : "var(--text-muted-rack)",
-            }}
-          >
-            <span aria-hidden="true" style={{ display: "inline-flex" }}>
-              <Icon name={mark?.glyph ?? "Circle"} size={12} />
-            </span>
-            {AUTHORING_STAGE_LABELS[candidate]}
-          </span>
-        );
-      })}
-    </span>
-  );
-}
-
-const ADVANCE_STAGE_GLOSS =
-  "The agent may recommend advancing, but only you can advance the stage — it can never advance itself.";
-
-/** The Advance/Return controls (D-90, plan 05-03) — the one gate the whole mechanism depends on,
- * exposed here as the two verbs `authoring_stage_advance`/`authoring_stage_return` back. Purely
- * presentational: `onAdvance`/`onReturn` are the SAME synchronously-guarded handlers the `n`
- * keyboard binding calls (`SessionSurface`'s own `handleAdvanceStage`/`handleReturnStage`), so a
- * click and a keypress can never race each other into two backend calls. */
-function AuthoringStageControls({
-  stage,
-  advancing,
-  returning,
-  onAdvance,
-  onReturn,
-}: {
-  stage: string;
-  advancing: boolean;
-  returning: boolean;
-  onAdvance: () => void;
-  onReturn: () => void;
-}) {
-  const next = nextAuthoringStage(stage);
-  const previous = previousAuthoringStage(stage);
-
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-sm)" }}>
-      {previous && (
-        <button
-          type="button"
-          onClick={onReturn}
-          disabled={returning}
-          aria-label={`Return to ${previous}`}
-          className="control-edge session-action type-label"
-        >
-          ← {AUTHORING_STAGE_LABELS[previous]}
-        </button>
-      )}
-      <button
-        type="button"
-        onClick={onAdvance}
-        disabled={advancing || !next}
-        aria-label={next ? `Advance to ${next}` : "Advance (already at the last stage)"}
-        title={ADVANCE_STAGE_GLOSS}
-        className={`control-edge session-action type-label${next ? " session-action-lead" : ""}`}
-      >
-        {advancing ? "Advancing…" : next ? `Advance to ${next}` : "At last stage"}
-      </button>
-    </span>
-  );
-}
-
-/**
- * The composer (SHAPE-01, plan 05-12 Task 1) — the one seam between the developer and a live
- * authoring session's conversation. Rendered by `SessionSurface` only when `stage` is non-null
- * and the run is not terminal (the same `showStop` condition the Stop/Discard controls already
- * gate on). Copies `stoppingRef`/`advancingStageRef`'s own synchronous-dispatch-guard shape: a
- * click and a keypress (or two synchronous clicks) can never race into two calls. Calls the named
- * `sendAuthoringTurn` wrapper only — never the transport directly, keeping this file's own
- * zero-direct-call property true.
- */
-function AuthoringComposer({ agentRunId }: { agentRunId: string }) {
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const sendingRef = useRef(false);
-
-  function handleSend() {
-    // A second activation while the ref is set invokes nothing — mirrors `handleStop`'s own
-    // synchronous-tick guard above.
-    if (sendingRef.current) return;
-    const trimmed = draft.trim();
-    if (trimmed.length === 0) return;
-    sendingRef.current = true;
-    setSending(true);
-    setError(null);
-    sendAuthoringTurn(agentRunId, trimmed)
-      .then(() => {
-        setDraft("");
-      })
-      .catch(() => {
-        // The typed text is deliberately NOT cleared here — a developer who pressed send is
-        // entitled to both a worded explanation and the words they typed, still in the box.
-        setError("Could not send your message. Try again.");
-      })
-      .finally(() => {
-        sendingRef.current = false;
-        setSending(false);
-      });
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    // Plain Enter submits; Shift+Enter inserts a newline — matching
-    // `ProposalAmendEditor.tsx`'s own field handler. The bare-key Advance binding
-    // (`state/keyboard.ts`'s `advance-stage`, key `n`) needs no handling here at all:
-    // `resolveBinding`'s own `isTypingTarget` guard already declines a bare unmodified key
-    // while this composer holds focus (confirmed by a test, not reimplemented here).
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      handleSend();
-    }
-  }
-
-  return (
-    <div
-      style={{
-        borderTop: "1px solid var(--divider)",
-        padding: "var(--space-md)",
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-xs)",
-      }}
-    >
-      <label
-        htmlFor="authoring-turn-composer"
-        className="type-label"
-        style={{ color: "var(--text-muted-rack)" }}
-      >
-        Message
-      </label>
-      <textarea
-        id="authoring-turn-composer"
-        aria-label="Message"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={handleKeyDown}
-        rows={3}
-        className="control-edge session-field type-body"
-      />
-      {error && (
-        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
-          {error}
-        </p>
-      )}
-      <div>
-        <button
-          type="button"
-          onClick={handleSend}
-          disabled={sending}
-          className="control-edge session-action session-action-lead type-body"
-        >
-          {sending ? "Sending…" : "Send"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** The gate-missing banner (T-05-03-01, plan 05-03) — the `system_notice` `startAuthoringSession`
- * emits when `writeHookSettings` fails, rendered with `PersistenceFailureBanner`'s own visual
- * shape (reused directly, below): visible, non-blocking, once per run (this surface's own
- * `gateMissingText` state is set once and never cleared). Fallback text for the (never actually
- * reached in production, since the sidecar always supplies real text) case where the event's own
- * `text` field is somehow absent. */
-const GATE_MISSING_FALLBACK_TEXT =
-  "The challenge-stage gate could not be installed for this session — a proposal could be staged before the stage advances.";
-
 export interface SessionSurfaceProps {
   agentRunId: string;
   onBack: () => void;
@@ -426,11 +187,6 @@ export interface SessionSurfaceProps {
    * nothing but a live session is possible (Phase 10 plan 10-01, RESEARCH Pitfall 7 — nothing
    * re-reads the status on mount, so a terminal run opened without this reads "Running" for good). */
   initialStatus?: RunStatus | null;
-  /** D-88/D-84 (plan 05-02): the run's `agent_runs.authoring_stage`, or `null`/`undefined` for an
-   * ordinary task-execution run. `ProposalTray` mounts beside the feed ONLY when this is present —
-   * an authoring run's own distinguishing fact, carried from `App.tsx`'s `activeAgentRunAuthoringStage`
-   * (`state/uiStore.ts`), since this surface never itself queries which kind of run it is showing. */
-  authoringStage?: string | null;
   /** A one-shot initial position for the feed (D-99, plan 06-08) — `null`/`undefined` (the
    * default) preserves this surface's existing "open at the tail" behaviour byte-for-byte, for
    * every pre-existing call site. Set only by the triage surface's turn-pointer jump
@@ -617,16 +373,12 @@ const TERMINAL_DETAIL_MAX_HEIGHT = 240;
 
 const FAILED_RUN_GLOSS = "This run ended in an error. The worktree was left as-is — nothing was lost.";
 
-/** D-35's Stop gloss, generalised for a conversation (plan 05-09): a task run's worktree is left
- * exactly as the agent left it (PROC-06 — nothing committed on the user's behalf); an authoring
- * run has no worktree, so the true reassurance is that every proposal it staged is still sitting
- * on the board, untouched, waiting on a decision. Neither sentence mentions the other subject. */
+/** D-35's Stop gloss: a task run's worktree is left exactly as the agent left it (PROC-06 —
+ * nothing committed on the user's behalf). */
 const TASK_STOPPED_GLOSS =
   "This run was stopped. The worktree was left exactly as the agent left it — nothing was lost.";
-const AUTHORING_STOPPED_GLOSS =
-  "This conversation was stopped. Every staged proposal is still waiting on the board.";
 
-function TerminalRow({ info, isAuthoring }: { info: TerminalInfo; isAuthoring: boolean }) {
+function TerminalRow({ info }: { info: TerminalInfo }) {
   if (info.reason === "failed") {
     return (
       <div
@@ -675,7 +427,7 @@ function TerminalRow({ info, isAuthoring }: { info: TerminalInfo; isAuthoring: b
       {RUN_STATUS_LABELS[info.reason]}
       {info.reason === "interrupted" && (
         <p style={{ margin: "var(--space-xs) 0 0 0" }}>
-          {isAuthoring ? AUTHORING_STOPPED_GLOSS : TASK_STOPPED_GLOSS}
+          {TASK_STOPPED_GLOSS}
         </p>
       )}
     </div>
@@ -778,7 +530,6 @@ export function SessionSurface({
   taskId = null,
   epicId = null,
   initialStatus = null,
-  authoringStage = null,
   initialFeedOffset = null,
 }: SessionSurfaceProps) {
   const [status, setStatus] = useState<RunStatus>(initialStatus ?? "running");
@@ -810,11 +561,6 @@ export function SessionSurface({
   const discardingRef = useRef(false);
   const [stopWarning, setStopWarning] = useState<string | null>(null);
   const setLaunchSheetTaskId = useUiStore((state) => state.setLaunchSheetTaskId);
-  const setReviewSurface = useUiStore((state) => state.setReviewSurface);
-  // D-66's hand-off, generalised for a conversation (plan 05-09): an authoring run's Discard
-  // primes a fresh authoring launch for the SAME epic rather than the task launch sheet — see
-  // `handleDiscard` below.
-  const setLaunchSheetAuthoringHandoff = useUiStore((state) => state.setLaunchSheetAuthoringHandoff);
   const [persistenceFailed, setPersistenceFailed] = useState(false);
   const [persistenceFailureText, setPersistenceFailureText] = useState<string | null>(null);
   const [rawViewOpen, setRawViewOpen] = useState(false);
@@ -822,86 +568,14 @@ export function SessionSurface({
   const parentRef = useRef<HTMLDivElement>(null);
   const { expanded, toggle } = useExpandedRows();
 
-  // D-88 (plan 05-03): the run's OWN live stage — initialised from the mount-time
-  // `authoringStage` prop, then advanced/returned by the handlers below. `null` for an ordinary
-  // task-execution run, matching the prop's own `null`/`undefined` meaning.
-  const [stage, setStage] = useState<string | null>(authoringStage ?? null);
-  // T-05-03-01: set once, never cleared — the gate-missing banner stays visible for the rest of
-  // this run once its notice has arrived.
-  const [gateMissingText, setGateMissingText] = useState<string | null>(null);
-
-  // D-90 (plan 05-03): synchronously-guarded advance/return, shared by the `n` keyboard binding
-  // below AND `AuthoringStageControls`' own buttons — the SAME `ackActingRef`/`answeringRef`/
-  // `stoppingRef` pattern this codebase applies repeatedly (`PermissionRequestCard.tsx`,
-  // `ProposalTray.tsx`, `handleStop`/`handleDiscard` above), so a click and a keypress can never
-  // race each other into two backend calls.
-  const [advancingStage, setAdvancingStage] = useState(false);
-  const advancingStageRef = useRef(false);
-  const [returningStage, setReturningStage] = useState(false);
-  const returningStageRef = useRef(false);
-
-  function handleAdvanceStage() {
-    if (advancingStageRef.current || !stage) return;
-    const next = nextAuthoringStage(stage);
-    if (!next) return;
-    advancingStageRef.current = true;
-    setAdvancingStage(true);
-    authoringStageAdvance(agentRunId)
-      .then((resolved) => setStage(resolved))
-      .catch(() => {
-        // Best-effort — no dedicated error surface specified for this control; the stage
-        // indicator simply stays at its prior value and the developer can try again.
-      })
-      .finally(() => {
-        advancingStageRef.current = false;
-        setAdvancingStage(false);
-      });
-  }
-
-  function handleReturnStage() {
-    if (returningStageRef.current || !stage) return;
-    const previous = previousAuthoringStage(stage);
-    if (!previous) return;
-    returningStageRef.current = true;
-    setReturningStage(true);
-    authoringStageReturn(agentRunId, previous)
-      .then((resolved) => setStage(resolved))
-      .catch(() => {
-        // Best-effort, mirroring handleAdvanceStage above.
-      })
-      .finally(() => {
-        returningStageRef.current = false;
-        setReturningStage(false);
-      });
-  }
-
   // The "View raw" toggle (02-UI-SPEC.md "View raw" affordance, plan 02-07 Task 3) — subscribes
   // to the `toggle-raw-view` action id rather than owning a key of its own; the window-level
-  // listener lives inside `useRegionBindings` (state/keyboard.ts), not here. `advance-stage`
-  // (plan 05-03) joins the same call: `n` in this region re-enters `handleAdvanceStage` above —
-  // the exact function the Advance button's own `onClick` calls — so it is a no-op for an ordinary
-  // task-execution run (`stage` is `null`) or once already at `criteria`, and cannot double-fire
-  // alongside a synchronous button click.
+  // listener lives inside `useRegionBindings` (state/keyboard.ts), not here.
   useRegionBindings("session-surface", "session-surface", {
     "toggle-raw-view": () => setRawViewOpen((prev) => !prev),
-    "advance-stage": handleAdvanceStage,
   });
 
   const feedQuery = useSessionFeed(agentRunId, initialFeedOffset);
-
-  // T-06-35 (plan 06-08): the execution-run half of the tray's mount condition, derived from the
-  // SAME run-scoped query `ProposalTray.tsx` itself reads through (`useRunProposals`) — never a
-  // run-kind flag or a second FETCH SHAPE. Disabled (`null`) whenever `authoringStage` is set: an
-  // authoring run already mounts the tray unconditionally via the OR's first clause below, so a
-  // second live subscriber to the exact query `ProposalTray.tsx`'s OWN mount is about to open
-  // would be pure churn there — a second concurrent subscriber to the same query key was
-  // reproduced live to disrupt `authoring/__tests__/proposal-keyboard.test.tsx`'s per-row `e`/`d`
-  // keyboard dispatch (an extra render cycle racing the window keydown listener's own
-  // effect-cleanup/re-add churn, `state/keyboard.ts`'s `useRegionBindings`). Enabled only for the
-  // one case that actually needs it: an ordinary task-execution run, where this is the sole reader
-  // until the condition below decides to mount the tray at all.
-  const runProposalsQuery = useRunProposals(authoringStage ? null : agentRunId);
-  const hasStagedProposals = (runProposalsQuery.data?.length ?? 0) > 0;
 
   // The permission-request card's `feed` mount (AGNT-06, plan 02-06 Task 2) — this run's pending
   // set, read from the ONE shared query the item detail panel's compact mount also reads for the
@@ -930,12 +604,6 @@ export function SessionSurface({
       if (event.flywheelPersistenceFailure === true && event.runId === agentRunId) {
         setPersistenceFailed(true);
         setPersistenceFailureText(typeof event.text === "string" ? event.text : null);
-      }
-      // T-05-03-01 (plan 05-03): the challenge-stage gate could not be installed for this
-      // session — scoped to THIS surface's own run, mirroring the persistence-failure notice
-      // immediately above exactly.
-      if (event.flywheelStageGateMissing === true && event.runId === agentRunId) {
-        setGateMissingText(typeof event.text === "string" ? event.text : GATE_MISSING_FALLBACK_TEXT);
       }
     }).then((fn) => {
       unlisten = fn;
@@ -994,14 +662,7 @@ export function SessionSurface({
         setStopWarning(result.sidecarWarning);
         // One action in, one Enter out (D-67): land on the launch sheet, pre-filled for this
         // run's own task, the instant the discard resolves — no intermediate confirmation.
-        // Plan 05-09: an authoring run (`stage` non-null — set once at mount from the
-        // `authoringStage` prop and never cleared) has no task and no worktree, so its own
-        // discard hand-off primes a fresh authoring launch for the SAME epic instead — carrying
-        // `epicId` (possibly `null`, for a fresh-epic run) through the SAME `uiStore` channel
-        // shape `taskId` uses for the task case.
-        if (stage !== null) {
-          setLaunchSheetAuthoringHandoff(epicId);
-        } else if (taskId) {
+        if (taskId) {
           setLaunchSheetTaskId(taskId);
         }
       })
@@ -1099,19 +760,6 @@ export function SessionSurface({
 
         <StatusStrip entries={entries} running={status === "running" || status === "blocked"} />
 
-        {stage && (
-          <>
-            <AuthoringStageIndicator stage={stage} />
-            <AuthoringStageControls
-              stage={stage}
-              advancing={advancingStage}
-              returning={returningStage}
-              onAdvance={handleAdvanceStage}
-              onReturn={handleReturnStage}
-            />
-          </>
-        )}
-
         <button
           type="button"
           onClick={() => setRawViewOpen((prev) => !prev)}
@@ -1122,12 +770,12 @@ export function SessionSurface({
 
         {showStop && (
           // While a run is live the lead is Stop, the one action a running session offers. It was on Discard,
-          // the most destructive control on the page (08.1-17 closure). An authoring run's lead is Advance.
+          // the most destructive control on the page (08.1-17 closure).
           <button
             type="button"
             onClick={handleStop}
             disabled={stopping || discarding}
-            className={`control-edge session-action type-label${stage ? "" : " session-action-lead"}`}
+            className="control-edge session-action session-action-lead type-label"
           >
             {stopping ? "Stopping…" : "Stop"}
           </button>
@@ -1147,24 +795,9 @@ export function SessionSurface({
           </button>
         )}
 
-        {!showStop && taskId && (
-          // D-133: a finished run is the moment review is most likely wanted. The review branch
-          // sits ahead of the session branch in the surface chain, so setting the store field is
-          // the whole navigation — no second path.
-          <button
-            type="button"
-            onClick={() => setReviewSurface({ scope: "task", itemId: taskId, label: "This task" })}
-            className="control-edge session-action session-action-lead type-label"
-          >
-            Review changes
-          </button>
-        )}
       </header>
 
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-      {/* The feed side of this row (SHAPE-01, plan 05-12): the raw/structured view above, the
-          composer below it — both inside this ONE column, so the proposal tray (below) keeps its
-          own separate column regardless of which view is active. */}
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       {rawViewOpen ? (
         <RawLogView agentRunId={agentRunId} />
@@ -1184,8 +817,6 @@ export function SessionSurface({
               text={persistenceFailureText ?? "Flywheel could not write this session's log — the transcript below may be incomplete."}
             />
           )}
-
-          {gateMissingText && <PersistenceFailureBanner text={gateMissingText} />}
 
           {showStartingPulse && <StartingSessionRow />}
 
@@ -1218,7 +849,7 @@ export function SessionSurface({
             })}
           </div>
 
-          {terminalInfo && <TerminalRow info={terminalInfo} isAuthoring={stage !== null} />}
+          {terminalInfo && <TerminalRow info={terminalInfo} />}
 
           {stopWarning && <StopWarningNotice warning={stopWarning} />}
 
@@ -1232,12 +863,9 @@ export function SessionSurface({
           </div>
         </div>
       )}
-      {/* SHAPE-01 (plan 05-12): the same condition Stop/Discard already gate on — an authoring
-          run (`stage` non-null) that has not yet reached a terminal status. */}
-      {stage && showStop && <AuthoringComposer agentRunId={agentRunId} />}
-      {/* Every state has a floor. A developer's turn has the composer above; every other state has this line,
-          so the surface never ends in blank ground (08.1-17 closure). It states who the run is waiting on. */}
-      {!(stage && showStop) && (
+      {/* Every state has a floor, so the surface never ends in blank ground (08.1-17 closure). It
+          states who the run is waiting on. */}
+      {(
         <p role="status" className="session-floor type-label">
           {!showStop
             ? "This run has ended. Nothing more will be added to this transcript."
@@ -1247,26 +875,6 @@ export function SessionSurface({
         </p>
       )}
       </div>
-      {(authoringStage || hasStagedProposals) && (
-        // D-88: the proposal tray mounts for every authoring run (unchanged, byte-identical
-        // branch) OR — T-06-35, plan 06-08 — for an ordinary task-execution run that has staged at
-        // least one proposal (`hasStagedProposals` above). `ProposalTray.tsx` itself is untouched
-        // and run-kind agnostic by construction: it queries by `agentRunId` alone
-        // (`useRunProposals`), so mounting it here for an execution run needs no new prop, no run
-        // kind passed in, and no second component — a sibling panel beside the feed, never woven
-        // into FeedRow.tsx's per-event rendering (ProposalTray.tsx's own doc comment).
-        <div
-          style={{
-            width: 320,
-            flexShrink: 0,
-            borderLeft: "1px solid var(--divider)",
-            padding: "var(--space-md)",
-            overflowY: "auto",
-          }}
-        >
-          <ProposalTray agentRunId={agentRunId} />
-        </div>
-      )}
       </div>
     </div>
   );

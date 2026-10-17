@@ -13,9 +13,6 @@ use core::domain::dispatch_plan::{
 use core::domain::epic::create_epic;
 use core::domain::file_set::{list_entries_for_task, EVENT_FILE_SET_DECLARED};
 use core::domain::task::create_task;
-use core::epic_context_packet::{
-    assemble_epic_context_packet, render_planning_prompt, PLANNING_LISTING_CEILING,
-};
 use core::file_set::entry_path;
 use rusqlite::{params, Connection};
 
@@ -23,7 +20,6 @@ const NOW: &str = "2026-10-16T00:00:00Z";
 
 struct Fx {
     conn: Connection,
-    project_id: String,
     epic_id: String,
     run_id: String,
     agent: String,
@@ -56,7 +52,7 @@ fn fx(n: usize) -> Fx {
         params![run_id, epic.id, project.id, trigger, agent, NOW],
     )
     .unwrap();
-    Fx { conn, project_id: project.id, epic_id: epic.id, run_id, agent, tasks }
+    Fx { conn, epic_id: epic.id, run_id, agent, tasks }
 }
 
 fn task(key: &str, files: &[&str], wave: u32, undeclared: bool) -> SubmittedTask {
@@ -85,33 +81,6 @@ fn count(conn: &Connection, sql: &str) -> i64 {
 }
 
 // --- the prompt ------------------------------------------------------------------------------
-
-fn prompt_for(listing: &[String]) -> String {
-    let f = fx(1);
-    let packet = assemble_epic_context_packet(&f.conn, &f.project_id, Some(&f.epic_id)).unwrap();
-    render_planning_prompt(&packet, listing)
-}
-
-#[test]
-fn the_prompt_carries_the_listing_and_tells_the_model_to_answer_undeclared_rather_than_invent() {
-    let listing = vec!["src/lib.rs".to_string(), "docs/readme.md".to_string()];
-    let prompt = prompt_for(&listing);
-    assert!(prompt.contains("## Files In This Repository"));
-    assert!(prompt.contains("src/lib.rs\n") && prompt.contains("docs/readme.md\n"));
-    assert!(prompt.contains("undeclared"), "the prompt must name the honest answer");
-    assert!(!prompt.contains("more tracked paths"), "nothing was truncated, so nothing is announced");
-    // The listing precedes the instruction that points at it.
-    assert!(prompt.find("## Files In This Repository").unwrap() < prompt.find("## Your Task").unwrap());
-}
-
-#[test]
-fn a_listing_longer_than_the_ceiling_states_how_many_paths_are_not_shown() {
-    let listing: Vec<String> = (0..PLANNING_LISTING_CEILING + 7).map(|i| format!("f/{i}.rs")).collect();
-    let prompt = prompt_for(&listing);
-    assert!(prompt.contains("7 more tracked paths are not shown"), "{}", &prompt[prompt.len() - 900..]);
-    assert!(prompt.contains(&format!("f/{}.rs\n", PLANNING_LISTING_CEILING - 1)));
-    assert!(!prompt.contains(&format!("f/{}.rs\n", PLANNING_LISTING_CEILING)), "a path past the ceiling leaked in");
-}
 
 // --- the declaration -------------------------------------------------------------------------
 

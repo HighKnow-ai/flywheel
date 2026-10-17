@@ -149,7 +149,7 @@ test("the hook's own deny (exit 2) and allow (exit 0) pass through unchanged", (
 });
 
 test("writeHookSettings wires the scope entry through that quoted, fail-closed command", () => {
-  const settingsPath = writeHookSettings(scratch("settings"), "run-quoted", false, true);
+  const settingsPath = writeHookSettings(scratch("settings"), "run-quoted", true);
   const entries = JSON.parse(fs.readFileSync(settingsPath, "utf8")).hooks.PreToolUse;
   assert.equal(
     entries[1].hooks[0].command,

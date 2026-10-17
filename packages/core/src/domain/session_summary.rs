@@ -44,6 +44,26 @@ pub struct DecisionEntry {
     pub statement: String,
 }
 
+/// One prior-session summary entry (D-65, CTX-01) — a read-only projection of a
+/// `session_summaries` row, oldest-first. Moved here from the deleted context packet builder
+/// (issue #38): `crate::drift::detect_drift` reads the latest entry's `acknowledged_decisions` and
+/// `diff_ref`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SummaryEntry {
+    pub agent_run_id: String,
+    pub changed_files: Vec<String>,
+    pub changed_prose: Option<String>,
+    pub remains: Option<String>,
+    pub next_session_must_know: Option<String>,
+    pub decisions: Vec<DecisionEntry>,
+    /// D-73's read-back input, verbatim from `session_summaries.acknowledged_decisions`.
+    pub acknowledged_decisions: Vec<String>,
+    /// D-72's staleness input, verbatim from `session_summaries.diff_ref`.
+    pub diff_ref: Option<String>,
+    pub auto_generated: bool,
+    pub created_at: String,
+}
+
 /// The caller-supplied content of a summary (D-65) — the shape every producer (the agent's own
 /// `report_summary` tool, the fallback synthesizer, tests) passes to [`create_summary`], so every
 /// producer writes through the identical shape regardless of where the content originated.

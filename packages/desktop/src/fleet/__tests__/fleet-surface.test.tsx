@@ -257,8 +257,6 @@ describe("the fleet opens under the session", () => {
     // Moved from a source-position grep of `App.tsx` to the resolver itself (plan 13-08).
     const none = {
       settingsOpen: false,
-      triageOpen: false,
-      reviewOpen: false,
       sessionOpen: false,
       fleetOpen: false,
       worktreeInventoryOpen: false,

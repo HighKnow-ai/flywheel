@@ -19,23 +19,8 @@ interface SpawnRequest {
   worktreePath: string;
   prompt: string;
   permissionMode: string;
-  /** Plan 09-08: the pre-dispatch planning run (pre-approves `submit_plan` only). */
-  planning?: boolean;
   /** Phase 09 review CR-01: the run's scope marker is armed; the adapter refuses to start it unenforced. */
   scopeArmed?: boolean;
-  env?: Record<string, string>;
-}
-
-/** D-84/D-86 (plan 05-02): start a fresh epic-authoring session — the sibling of {@link SpawnRequest}
- * for a run with no task and no worktree. `repoPath` is the project's registered main checkout,
- * never a worktree path. */
-interface AuthoringSpawnRequest {
-  id: string;
-  op: "authoring_spawn";
-  runId: string;
-  repoPath: string;
-  prompt: string;
-  permissionMode: string;
   env?: Record<string, string>;
 }
 
@@ -57,37 +42,6 @@ interface PermissionAnswerRequest {
   runId: string;
   requestId: string;
   decision: "allow" | "deny";
-}
-
-/** D-87 (plan 05-05): the Rust core's answer to one held `board_read` call — the read-path
- * sibling of {@link PermissionAnswerRequest}. Carries EITHER `result` OR `error`, never both. */
-interface AuthoringReadAnswerRequest {
-  id: string;
-  op: "authoring_read_answer";
-  runId: string;
-  requestId: string;
-  result?: unknown;
-  error?: string;
-}
-
-/** Plan 05-48 (D-80/D-81/D-92): the Rust core's answer to one held proposal-staging call — the
- * staging-path sibling of {@link AuthoringReadAnswerRequest}. Carries EITHER `result` OR `error`,
- * never both. */
-interface AuthoringProposalAnswerRequest {
-  id: string;
-  op: "authoring_proposal_answer";
-  runId: string;
-  requestId: string;
-  result?: unknown;
-  error?: string;
-}
-
-/** D-89 (plan 05-05): send one turn's text to a live authoring session. */
-interface AuthoringTurnRequest {
-  id: string;
-  op: "authoring_turn";
-  runId: string;
-  text: string;
 }
 
 /** D-39, plan 02-09 Task 3: ask whether the backend binary this adapter would spawn is
@@ -125,13 +79,9 @@ interface PingRequest {
 
 type SidecarRequest =
   | SpawnRequest
-  | AuthoringSpawnRequest
   | InterruptRequest
   | KillRequest
   | PermissionAnswerRequest
-  | AuthoringReadAnswerRequest
-  | AuthoringProposalAnswerRequest
-  | AuthoringTurnRequest
   | CapabilityProbeRequest
   | ShutdownRequest
   | PingRequest;
@@ -200,7 +150,6 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
           worktreePath: request.worktreePath,
           prompt: request.prompt,
           permissionMode: request.permissionMode,
-          planning: request.planning === true,
           scopeArmed: request.scopeArmed === true,
           env: request.env,
           onEvent: emitEvent,
@@ -213,36 +162,6 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
             raw: String(err),
             type: "system_notice",
             text: `session failed to start: ${String(err)}`,
-          });
-        })
-        .finally(() => {
-          sessions.delete(request.runId);
-        });
-      sessions.set(request.runId, sessionPromise);
-      emitAck(request.id, true);
-      return;
-    }
-    case "authoring_spawn": {
-      // D-84/D-86: the sibling of the "spawn" branch above for an epic-authoring session —
-      // fire-and-forget, tracked in the SAME `sessions` map (Stop/Discard/shutdown do not need to
-      // know which spawn method created an entry).
-      const sessionPromise = adapter
-        .startAuthoringSession({
-          runId: request.runId,
-          repoPath: request.repoPath,
-          prompt: request.prompt,
-          permissionMode: request.permissionMode,
-          env: request.env,
-          onEvent: emitEvent,
-        })
-        .catch((err: unknown) => {
-          emitEvent({
-            runId: request.runId,
-            seq: -1,
-            at: new Date().toISOString(),
-            raw: String(err),
-            type: "system_notice",
-            text: `authoring session failed to start: ${String(err)}`,
           });
         })
         .finally(() => {
@@ -279,39 +198,6 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
       // sidecar itself decides nothing).
       try {
         adapter.resolvePermission(request.runId, request.requestId, request.decision);
-        emitAck(request.id, true);
-      } catch (err: unknown) {
-        emitAck(request.id, false, String(err));
-      }
-      return;
-    }
-    case "authoring_read_answer": {
-      // D-87: the ONLY caller of resolveBoardRead — resolves a held board_read call with the
-      // Rust core's own result (or error), mirroring "permission_answer"'s own shape above.
-      try {
-        adapter.resolveBoardRead(request.runId, request.requestId, request.result, request.error);
-        emitAck(request.id, true);
-      } catch (err: unknown) {
-        emitAck(request.id, false, String(err));
-      }
-      return;
-    }
-    case "authoring_proposal_answer": {
-      // Plan 05-48 (D-80/D-81/D-92): the ONLY caller of resolveProposalStaged — resolves a held
-      // proposal-staging call with the Rust core's own result (or error), mirroring
-      // "authoring_read_answer"'s own shape above.
-      try {
-        adapter.resolveProposalStaged(request.runId, request.requestId, request.result, request.error);
-        emitAck(request.id, true);
-      } catch (err: unknown) {
-        emitAck(request.id, false, String(err));
-      }
-      return;
-    }
-    case "authoring_turn": {
-      // D-89: deliver one turn's text to a live authoring session.
-      try {
-        await adapter.sendAuthoringTurn(request.runId, request.text);
         emitAck(request.id, true);
       } catch (err: unknown) {
         emitAck(request.id, false, String(err));

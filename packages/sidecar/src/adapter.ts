@@ -158,12 +158,6 @@ export interface CostUpdateEvent extends AgentEventBase {
 export interface SystemNoticeEvent extends AgentEventBase {
   type: "system_notice";
   text: string;
-  /** D-88 (plan 05-03): set ONLY on the one notice `claude-code-adapter.ts::startAuthoringSession`
-   * emits when `writeHookSettings` returns `undefined` for an authoring run — the challenge-stage
-   * gate could not be installed. Mirrors `sidecar.rs::emit_persistence_failure_notice`'s own
-   * `flywheelPersistenceFailure` discriminant so the renderer can find THIS specific notice among
-   * every other `system_notice` a session emits, rather than matching on its prose. */
-  flywheelStageGateMissing?: boolean;
 }
 
 export interface ResultEvent extends AgentEventBase {
@@ -281,101 +275,6 @@ export interface ScopeDeniedEvent extends AgentEventBase {
 }
 
 /**
- * D-64/D-65 (plan 04-03): the agent's own closing summary, reported through the `report_summary`
- * MCP tool relayed over the SAME per-run permission socket `GitRetryEvent` already travels (a
- * second message `kind`, not a second socket). The four content fields (`changedProse`,
- * `remains`, `nextSessionMustKnow`, `decisions`) are D-65's LOCKED shape — a first pass to be
- * refined later is explicitly what 04-RESEARCH.md Pitfall 3 warns against, so these are not that.
- *
- * `runId` (from {@link AgentEventBase}) is filled by the sidecar from the session closure this
- * event fires inside — NEVER from the model's own tool-call arguments (T-04-01's spoofing
- * mitigation: the input schema the model calls against carries no run/task/project/worktree
- * field at all; identity comes from which socket the call arrived on).
- *
- * `acknowledgedDecisions` is an id list ONLY — never free text — because D-73's read-back flow is
- * id matching against previously recorded decisions, never a semantic comparison.
- */
-export interface SummaryReportedEvent extends AgentEventBase {
-  type: "summary_reported";
-  /** Repo-relative paths the session claims it touched. */
-  changedFiles: string[];
-  changedProse?: string;
-  remains?: string;
-  nextSessionMustKnow?: string;
-  decisions: Array<{ id: string; statement: string }>;
-  /** D-73's read-back input: the ids of already-recorded decisions this session states it is
-   * working under. An id list only — never free text. */
-  acknowledgedDecisions: string[];
-}
-
-/**
- * D-80/D-81 (plan 05-02): the agent's own staged proposal, reported through the `propose_task`
- * MCP tool relayed over the SAME per-run permission socket {@link SummaryReportedEvent} already
- * travels (a THIRD message `kind`, not a second socket — mirroring D-53's own precedent a second
- * time). `verb`/`targetType`/`targetId`/`parentProposalId`/`payload` are the wire fields
- * `mcp-permission-server.ts`'s `AuthoringProposalPayload` carries; `runId` (from
- * {@link AgentEventBase}) is filled by the sidecar from the session this event fires inside —
- * NEVER from the model's own tool-call arguments, matching {@link SummaryReportedEvent}'s own
- * spoofing mitigation (T-05-02-01).
- */
-export interface ProposalCreatedEvent extends AgentEventBase {
-  type: "proposal_created";
-  /** Plan 05-48 (D-80/D-81/D-92): the correlation id this call is still WAITING for an answer
-   * on — the same held-call shape {@link BoardReadRequestEvent.requestId} already carries. The
-   * Rust core resolves it via `SidecarHandle::relay_authoring_proposal_answer` / the sidecar's own
-   * `authoring_proposal_answer` op, which reaches {@link AgentAdapter.resolveProposalStaged}. */
-  requestId: string;
-  verb: "create" | "amend" | "delete";
-  /** Widened by plan 06-01 (D-97) to add `"issue"` — the one target type an execution-run's
-   * `propose_item` call can stage that an authoring session never proposes. */
-  targetType: "epic" | "task" | "criterion" | "assumption" | "issue";
-  targetId?: string;
-  parentProposalId?: string;
-  /** Plan 06-01 (PROP-07, D-99): an execution-run `propose_item` call's own stated reason,
-   * carried on this event exactly like it rides `mcp-permission-server.ts`'s
-   * `AuthoringProposalPayload.rationale` on the wire — never folded into `payload`. Absent on
-   * every authoring-run proposal. */
-  rationale?: string;
-  payload: Record<string, unknown>;
-}
-
-/**
- * Plan 09-08 (PLAN-01): the planning run's `submit_plan` call, relayed over the SAME per-run
- * permission socket (a FIFTH message kind). Like {@link BoardReadRequestEvent}, its `requestId` names
- * a call still WAITING for an answer: the Rust core answers through the sidecar's
- * `authoring_proposal_answer` op, which reaches {@link AgentAdapter.resolveProposalStaged}. `runId`
- * is filled by the sidecar from the session this event fires inside — NEVER from the model's
- * arguments; whether that run MAY submit is the Rust core's decision, not this event's.
- */
-export interface PlanSubmittedEvent extends AgentEventBase {
-  type: "plan_submitted";
-  requestId: string;
-  tasks: Array<{ key: string; files: string[]; wave: number; rationale: string; undeclared: boolean }>;
-  excluded: Array<{ key: string; reason: string }>;
-}
-
-/**
- * D-87 (plan 05-05), widened plan 05-44 (gap G-05-9): a HELD `board_search`/`epic_get`/
- * `task_list`/`proposal_list` call, relayed over the SAME per-run permission socket
- * {@link ProposalCreatedEvent} already travels (a FOURTH message kind, not a second socket).
- * Unlike {@link ProposalCreatedEvent}, this event's `requestId` names a call still WAITING for an
- * answer — the Rust core resolves it via `SidecarHandle::relay_authoring_read_answer` / the
- * sidecar's own `authoring_read_answer` op, which reaches {@link AgentAdapter.resolveBoardRead}.
- * `runId` (from {@link AgentEventBase}) is filled by the sidecar from the session this event fires
- * inside — NEVER from the model's own tool-call arguments, matching every other authoring event in
- * this union. `list_proposals` carries no `term`/`epicId` — the run this session's own pending
- * proposals belong to is resolved from the socket, exactly like the other three read kinds.
- */
-export interface BoardReadRequestEvent extends AgentEventBase {
-  type: "board_read_request";
-  requestId: string;
-  readKind: "search" | "get_epic" | "list_tasks" | "list_proposals";
-  term?: string;
-  epicId?: string;
-  limit?: number;
-}
-
-/**
  * G-05-7 (plan 05-37): a reasoning-only assistant message — the backend's own `thinking` content
  * block, found with no `tool_use`/`tool_result`/`text` block ahead of it in the same message.
  * `claude-opus-5` emitted roughly ELEVEN of these on turn 1 of live run
@@ -443,10 +342,6 @@ export type AgentEvent =
   | GitRetryEvent
   | GitLockExhaustedEvent
   | ScopeDeniedEvent
-  | SummaryReportedEvent
-  | ProposalCreatedEvent
-  | PlanSubmittedEvent
-  | BoardReadRequestEvent
   | ThinkingEvent
   | RateLimitEvent;
 
@@ -455,15 +350,6 @@ export interface AdapterCapabilities {
   supportsResume: boolean;
   supportsPermissionPrompt: boolean;
   supportsCostReporting: boolean;
-  /** D-64 (plan 04-03): `false` means this adapter never reports its own closing summary — the
-   * Supervisor should expect ONLY `auto_generated` fallback summaries (plan 04-02) for it. This
-   * is not an error path: D-64's fallback synthesizer exists precisely to cover an adapter with
-   * no summary-reporting capability at all. */
-  supportsSummaryReporting: boolean;
-  /** D-84/D-88 (plan 05-02): `false` means this adapter cannot drive an epic-authoring session at
-   * all — {@link AgentAdapter.startAuthoringSession} should be expected to reject with
-   * {@link CapabilityUnsupportedError} rather than silently degrading (AGNT-01). */
-  supportsAuthoring: boolean;
 }
 
 /**
@@ -494,10 +380,6 @@ export interface StartSessionOptions {
   worktreePath: string;
   prompt: string;
   permissionMode: string;
-  /** Plan 09-08: this is the pre-dispatch PLANNING run, not a task-execution run. It pre-approves
-   * `submit_plan` and nothing else (no `report_summary`, no `propose_item`). Whether the run may
-   * submit is still decided by the Rust core, never by this flag. */
-  planning?: boolean;
   /** Phase 09 review CR-01: the Rust core wrote an ARMED scope marker for this run. The adapter
    * must then refuse to start unless it can wire the scope gate in (fail closed); an unarmed run
    * (no declared file-set, D-150) is unaffected. Absent means unarmed. */
@@ -505,23 +387,6 @@ export interface StartSessionOptions {
   /** Additional environment variables to merge over `process.env` for the spawned child —
    * resolved credentials arrive here from the Rust core and are never read from disk by the
    * sidecar itself. */
-  env?: Record<string, string>;
-  onEvent: (event: AgentEvent) => void;
-}
-
-/**
- * D-84/D-86 (plan 05-02): options for an epic-authoring session. `repoPath` is the project's
- * REGISTERED MAIN CHECKOUT — never a worktree path (D-86 overrides D-36's accept-edits default;
- * this session runs read-only in the developer's real working tree, not an isolated worktree).
- * `prompt` is the conversation's opening turn — the transport this is driven over (05-SPIKE-
- * FINDINGS.md's `transport_decision:` line) holds stdin open for further turns rather than
- * exiting after one.
- */
-export interface StartAuthoringSessionOptions {
-  runId: string;
-  repoPath: string;
-  prompt: string;
-  permissionMode: string;
   env?: Record<string, string>;
   onEvent: (event: AgentEvent) => void;
 }
@@ -555,32 +420,6 @@ export interface AgentAdapter {
    * {@link CapabilityUnsupportedError}, gated by `capabilities.supportsResume === false`. */
   resumeSession(runId: string, externalSessionId: string): Promise<void>;
 
-  /** D-84/D-86/D-88 (plan 05-02): start a fresh epic-authoring session — the sibling of
-   * {@link startSession} for a run with no task and no worktree. Gated by
-   * `capabilities.supportsAuthoring`; an adapter that does not override this rejects with
-   * {@link CapabilityUnsupportedError} (AGNT-01), mirroring `resumeSession`'s own default shape. */
-  startAuthoringSession(options: StartAuthoringSessionOptions): Promise<void>;
-
-  /** D-87 (plan 05-05): answer a held `board_read` call for `runId` — the read-path sibling of
-   * `resolvePermission`, reached from the sidecar's own `authoring_read_answer` op. */
-  resolveBoardRead(runId: string, requestId: string, result: unknown, error?: string): void;
-
-  /** Plan 05-48 (D-80/D-81/D-92): answer a held proposal-staging call for `runId` — the
-   * staging-path sibling of {@link resolveBoardRead}, reached from the sidecar's own
-   * `authoring_proposal_answer` op. `result` carries `{proposalId}` on success. */
-  resolveProposalStaged(runId: string, requestId: string, result: unknown, error?: string): void;
-
-  /** D-89 (plan 05-05): send one turn's text to a LIVE authoring session — the one way anything
-   * above this adapter can say something to a running conversation. Rejects with
-   * {@link UnknownRunError} for a `runId` this sidecar never spawned; resolves (never throws) for
-   * a session that has already closed. */
-  sendAuthoringTurn(runId: string, text: string): Promise<void>;
-}
-
-/** The shared default for {@link AgentAdapter.startAuthoringSession} — mirrors
- * {@link defaultResumeSession}'s own shape exactly. */
-export async function defaultStartAuthoringSession(): Promise<never> {
-  throw new CapabilityUnsupportedError("supportsAuthoring");
 }
 
 /** Every capability-gated method an adapter does not implement rejects with this error rather

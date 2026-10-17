@@ -18,7 +18,6 @@
 
 mod common;
 
-use core::context_packet::{assemble_context_packet, render_prompt};
 use core::db::open_and_migrate;
 use core::domain::acceptance_criterion::{
     create_criterion, criteria_locked_for_task, delete_criterion, list_criteria,
@@ -645,68 +644,6 @@ fn revising_an_unknown_criterion_id_returns_an_error_and_writes_nothing() {
 
 // --- Task 3: every read path (the agent's own packet, the board badge) sees current revisions
 // only, while the full chain stays queryable for the developer-facing history surface. ---
-
-#[test]
-fn revising_one_of_three_criteria_keeps_the_packet_and_board_count_at_three_and_never_leaks_the_superseded_text(
-) {
-    with_scratch_worktree_root(|| {
-        let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Three criteria, one revised", None)
-            .expect("create_task should succeed");
-        let a = create_criterion(&mut conn, &project.id, &actor_id, "task", &task.id, "First criterion", None)
-            .expect("create_criterion A");
-        create_criterion(&mut conn, &project.id, &actor_id, "task", &task.id, "Second criterion", None)
-            .expect("create_criterion B");
-        create_criterion(&mut conn, &project.id, &actor_id, "task", &task.id, "Third criterion", None)
-            .expect("create_criterion C");
-
-        start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id).expect("start_agent_run should succeed");
-
-        let revised = revise_criterion(&mut conn, &actor_id, &a.id, "First criterion, sharpened", None)
-            .expect("revise should succeed");
-
-        let packet = assemble_context_packet(&conn, &task.id).expect("assemble_context_packet should succeed");
-        assert_eq!(packet.criteria.len(), 3, "the packet must carry exactly 3 criteria, not 4");
-        assert!(
-            packet.criteria.iter().all(|c| c.statement != "First criterion"),
-            "the packet must never carry the superseded statement text"
-        );
-        assert!(
-            packet.criteria.iter().any(|c| c.statement == "First criterion, sharpened"),
-            "the packet must carry the current revision's statement"
-        );
-
-        let rendered = render_prompt(&packet, "");
-        assert!(
-            !rendered.contains("- First criterion\n") && !rendered.contains("- First criterion ("),
-            "the superseded statement must never appear verbatim in render_prompt's output"
-        );
-        assert!(
-            rendered.contains("First criterion, sharpened"),
-            "the rendered prompt must carry the current revision's statement"
-        );
-
-        let window = list_board(&conn, &project.id, &BoardFilter::default(), 200, None)
-            .expect("list_board should succeed");
-        let row = window
-            .items
-            .iter()
-            .find(|item| item.id == task.id)
-            .expect("the task must appear in the board window");
-        assert_eq!(row.criteria_total, 3, "the board's criteria total must stay 3, not inflate to 4");
-        assert_eq!(row.criteria_checked, 0);
-
-        let chain = list_revisions_for_root(&conn, &revised.id).expect("list_revisions_for_root should succeed");
-        assert_eq!(
-            chain.len(), 2,
-            "the developer-facing history must still show both the superseded and the current row"
-        );
-        assert!(chain.iter().any(|c| c.statement == "First criterion" && c.superseded_at.is_some()));
-        assert!(chain
-            .iter()
-            .any(|c| c.statement == "First criterion, sharpened" && c.superseded_at.is_none()));
-    });
-}
 
 #[test]
 fn a_newly_added_criterion_ranks_after_the_last_current_one_not_a_superseded_row() {

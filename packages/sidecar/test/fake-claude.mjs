@@ -45,13 +45,6 @@
  * surface). Every shape a test passes here for a hard limit is CONSTRUCTED from the documented
  * shape; no hard limit has ever been observed live in this project.
  *
- * **Plan-submitting mode** (`FLYWHEEL_FAKE_SUBMIT_PLAN=<json>`, plan 09-08): plays a planning run. It
- * prints the `--allowedTools` values it was launched with as an `allowed_tools` line, calls the
- * `submit_plan` tool of the MCP server named in `--mcp-config` with that JSON object as its arguments
- * (the real backend does exactly this), and prints the outcome as a `submit_plan_result` line carrying
- * `isError` and the answer's text. The call is HELD by the server until the Rust core answers, so a
- * session whose `submit_plan` callback is not wired never prints that line.
- *
  * **Commit mode** (`FLYWHEEL_FAKE_COMMIT_FILE=<repo-relative path>`, plan 11-16, D-REV-34): plays an
  * agent that does the work and commits it, but ONLY when its briefing tells it to. It reads its own
  * `-p <prompt>` argv and commits just when the prompt carries the dispatcher's commit instruction
@@ -128,34 +121,6 @@ async function callPermissionToolOnce(label) {
   }
 }
 
-/** Every value given to any `--allowedTools` flag, in order. */
-function allowedToolsFromArgv() {
-  const out = [];
-  process.argv.forEach((arg, index) => {
-    if (arg !== "--allowedTools") return;
-    for (let i = index + 1; i < process.argv.length && !process.argv[i].startsWith("--"); i += 1) {
-      out.push(process.argv[i]);
-    }
-  });
-  return out;
-}
-
-/** Call `rawToolName` on the first MCP server named in `--mcp-config`, as the real backend would. */
-async function callMcpToolOnce(rawToolName, args) {
-  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
-  const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
-  const mcpConfig = JSON.parse(readFlag("--mcp-config"));
-  const serverConfig = Object.values(mcpConfig.mcpServers)[0];
-  const transport = new StdioClientTransport({ command: serverConfig.command, args: serverConfig.args });
-  const client = new Client({ name: "fake-claude", version: "0.1.0" });
-  await client.connect(transport);
-  try {
-    return await client.callTool({ name: rawToolName, arguments: args });
-  } finally {
-    await client.close();
-  }
-}
-
 printLine({
   type: "system",
   subtype: "init",
@@ -188,12 +153,6 @@ if (CALL_PERMISSION === 1) {
   // Concurrency case: fire both calls WITHOUT awaiting the first — they must resolve
   // independently, in whichever order their answers arrive, not the order they were raised.
   await Promise.all([callPermissionToolOnce("first"), callPermissionToolOnce("second")]);
-}
-
-if (process.env.FLYWHEEL_FAKE_SUBMIT_PLAN) {
-  printLine({ type: "allowed_tools", tools: allowedToolsFromArgv() });
-  const result = await callMcpToolOnce("submit_plan", JSON.parse(process.env.FLYWHEEL_FAKE_SUBMIT_PLAN));
-  printLine({ type: "submit_plan_result", isError: result.isError === true, text: result.content?.[0]?.text ?? "" });
 }
 
 const COMMIT_FILE = process.env.FLYWHEEL_FAKE_COMMIT_FILE;

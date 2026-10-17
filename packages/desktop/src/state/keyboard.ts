@@ -518,10 +518,6 @@ export type UiSurface =
   | "board"
   // D-39: Settings may be opened regardless of what the content area was showing underneath it.
   | "settings"
-  // D-103: the triage surface, checked ahead of the session so the route control always reaches it.
-  | "triage"
-  // Phase 8: pushed into from the item detail panel; checked after triage and before the session.
-  | "review"
   // D-31: the live session surface, pushed into from a task.
   | "session"
   // Phase 10 (D-163): the fleet surface.
@@ -535,8 +531,6 @@ export type UiSurface =
  * resolver stays pure; the one caller (`App.tsx`) knows what "open" means for each store field. */
 export interface SurfaceState {
   settingsOpen: boolean;
-  triageOpen: boolean;
-  reviewOpen: boolean;
   sessionOpen: boolean;
   fleetOpen: boolean;
   worktreeInventoryOpen: boolean;
@@ -552,11 +546,6 @@ export interface SurfaceState {
 export function activeSurface(state: SurfaceState): UiSurface {
   // D-39: checked first — Settings may be opened over an active session or an unreachable project.
   if (state.settingsOpen) return "settings";
-  // D-103: checked ahead of the session so the route control (`board/TriageLane.tsx`'s header)
-  // always reaches the surface.
-  if (state.triageOpen) return "triage";
-  // Phase 8: after triage, before the session; the board's own filters and selection are untouched.
-  if (state.reviewOpen) return "review";
   // D-31: the board underneath (filters, selection, scroll) is untouched while this is open.
   if (state.sessionOpen) return "session";
   // Phase 10 (D-163): BELOW the session on purpose. A session opened from the fleet only sets the

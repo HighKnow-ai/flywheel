@@ -78,16 +78,6 @@ export interface FleetSurfaceTarget {
   view: "fleet" | "queue";
 }
 
-/** What the review surface is open for: a task or an epic, plus its key and title for the header. */
-export interface ReviewSurfaceTarget {
-  scope: "task" | "epic";
-  itemId: string;
-  label: string;
-  /** Set when an epic review was reached from a task's review (the scope toggle), so toggling back
-   * returns to that same task. Absent when the surface was opened on the epic directly. */
-  fromTask?: { itemId: string; label: string };
-}
-
 /** The board's grouping key (D-07, amendment A-02): the one rack groups its rows by epic (the
  * home surface, A-01) or by status (the five bands, the "everything in review" sweep). A lens over
  * one board — not a second surface. It has no keybinding (A-02 grants none). */
@@ -189,30 +179,12 @@ interface UiState {
    * the `App.tsx` level like the launch sheet; opened from the epic row's dispatch controls, which sit
    * deep in `BoardView`'s tree and do not import the sheet. */
   wavePlanSheetEpicId: string | null;
-  /** D-66's authoring hand-off (plan 05-09): the epic id a Discard on an authoring run wants a
-   * fresh authoring launch primed for, or `null` (not `undefined`) to distinguish "not pending" —
-   * an object rather than a bare `string | null` field because a fresh-epic authoring run's own
-   * epic id IS `null`, so a bare field could not tell "no hand-off pending" from "hand-off pending
-   * for a new epic" apart. Mirrors `launchSheetTaskId`'s own cross-tree reasoning: no authoring
-   * launch surface consumes this yet (Discretion item, `05-CONTEXT.md`), but the channel exists so
-   * a future one has somewhere to read the hand-off from without a second backend round trip. */
-  launchSheetAuthoringHandoff: { epicId: string | null } | null;
   /** Whether the Settings surface (D-39, plan 02-10) is currently open — same cross-tree
    * reasoning as `activeAgentRunId`/`launchSheetTaskId`: the surface is mounted once at the
    * `App.tsx` level (a peer of the board/session surface, replacing the same content area), but
    * opened from the native menu bridge, the global `⌘,` binding, and the command palette, none of
    * which import the surface component itself. */
   settingsOpen: boolean;
-  /** The project the dedicated triage surface (D-103, plan 06-08) is currently open for, or
-   * `null` when it is closed. Lives here for the same cross-tree reasoning `activeAgentRunId`/
-   * `launchSheetTaskId`/`settingsOpen` document: the surface is mounted once at the `App.tsx`
-   * level, a peer of the session surface, but it is opened from `board/TriageLane.tsx`'s header
-   * (deep inside `BoardView`'s tree), which does not import the surface component itself. */
-  triageSurfaceProjectId: string | null;
-  /** The item the review surface (Phase 8 plan 08-01) is open for, or `null` when closed — same
-   * cross-tree reasoning as the triage field above: mounted once in `App.tsx`, opened from the
-   * item detail panel's Review button. `label` is the item's key and title for the surface header. */
-  reviewSurface: ReviewSurfaceTarget | null;
   /** Whether the fleet surface (Phase 10, D-163) is open, and which view — same cross-tree
    * reasoning as the fields above: mounted once in `App.tsx`, opened from the project rail's Fleet
    * row, the global `open-fleet` binding, the palette and the native menu, none of which import the
@@ -271,22 +243,11 @@ interface UiState {
   ) => void;
   setLaunchSheetTaskId: (taskId: string | null) => void;
   setWavePlanSheetEpicId: (epicId: string | null) => void;
-  /** Opens the authoring hand-off channel for `epicId` (`null` for a fresh epic) — the Discard
-   * verb's own call, mirroring `setLaunchSheetTaskId`'s shape. */
-  setLaunchSheetAuthoringHandoff: (epicId: string | null) => void;
-  /** Clears the authoring hand-off channel — the future authoring launch surface's own consume
-   * call, mirroring `setLaunchSheetTaskId(null)`'s "closed" convention. */
-  clearLaunchSheetAuthoringHandoff: () => void;
   setSettingsOpen: (open: boolean) => void;
   /** Rust's overlap warning for a launch over a live task (plan 09-13), set by every launch site and
    * shown by `shell/LaunchOverlapToast` mounted once in App, because the launch surface unmounts. */
   launchOverlapWarning: string | null;
   setLaunchOverlapWarning: (warning: string | null) => void;
-  /** Opens/closes the dedicated triage surface for `projectId` (`null` to close) — the route
-   * control's own call, mirroring `setLaunchSheetTaskId`'s "one field, one writer" shape. */
-  setTriageSurfaceProjectId: (projectId: string | null) => void;
-  /** Opens/closes the review surface (`null` to close). */
-  setReviewSurface: (target: ReviewSurfaceTarget | null) => void;
   /** Opens/closes the fleet surface (`null` to close). */
   setFleetSurface: (target: FleetSurfaceTarget | null) => void;
   /** Opens/closes the worktree inventory; opening it closes the fleet surface. */
@@ -319,10 +280,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   activeAgentRunInitialStatus: null,
   launchSheetTaskId: null,
   wavePlanSheetEpicId: null,
-  launchSheetAuthoringHandoff: null,
   settingsOpen: false,
-  triageSurfaceProjectId: null,
-  reviewSurface: null,
   fleetSurface: null,
   worktreeInventoryOpen: false,
   pendingFocusItemId: null,
@@ -401,13 +359,9 @@ export const useUiStore = create<UiState>((set, get) => ({
     }),
   setLaunchSheetTaskId: (taskId) => set({ launchSheetTaskId: taskId }),
   setWavePlanSheetEpicId: (epicId) => set({ wavePlanSheetEpicId: epicId }),
-  setLaunchSheetAuthoringHandoff: (epicId) => set({ launchSheetAuthoringHandoff: { epicId } }),
-  clearLaunchSheetAuthoringHandoff: () => set({ launchSheetAuthoringHandoff: null }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   launchOverlapWarning: null,
   setLaunchOverlapWarning: (warning) => set({ launchOverlapWarning: warning }),
-  setTriageSurfaceProjectId: (projectId) => set({ triageSurfaceProjectId: projectId }),
-  setReviewSurface: (target) => set({ reviewSurface: target }),
   setFleetSurface: (target) =>
     set(target ? { fleetSurface: target, worktreeInventoryOpen: false } : { fleetSurface: null }),
   setWorktreeInventoryOpen: (open) =>
@@ -449,11 +403,8 @@ export function resetUiState() {
     activeAgentRunInitialStatus: null,
     launchSheetTaskId: null,
     wavePlanSheetEpicId: null,
-    launchSheetAuthoringHandoff: null,
-    settingsOpen: false,
+      settingsOpen: false,
     launchOverlapWarning: null,
-    triageSurfaceProjectId: null,
-    reviewSurface: null,
     fleetSurface: null,
     worktreeInventoryOpen: false,
     pendingFocusItemId: null,

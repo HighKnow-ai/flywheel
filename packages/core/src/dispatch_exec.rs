@@ -30,6 +30,12 @@ use crate::merge::{
     try_lock_epic, MergeOutcome, MergeRefusal,
 };
 
+/// The instruction a DISPATCHED run is launched with (phase 09 plan 09-07): an agent that leaves work
+/// uncommitted would give the automatic merge nothing to merge, and the next wave would start
+/// without it. Passed as the launch's additional instruction, so a user's own launch carries none
+/// of it. Moved here from the deleted context packet builder (issue #38).
+pub const DISPATCHED_COMMIT_INSTRUCTION: &str = "Commit your work on this branch before you finish, as one or more commits. Do not push. Uncommitted work is not on the branch: it cannot be merged, and the next stage of the plan would start without it.";
+
 /// How one merge attempt ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeResult {
@@ -246,111 +252,4 @@ where
         }
     }
     Ok(report)
-}
-
-// ---------------------------------------------------------------------------------------------
-// Plan 09-08: the pre-dispatch planning run's start.
-// ---------------------------------------------------------------------------------------------
-
-/// Everything the caller needs to launch the planning run.
-#[derive(Debug, Clone)]
-pub struct PlanningRunStart {
-    pub run_id: String,
-    pub epic_id: String,
-    pub project_id: String,
-    pub repo_path: String,
-    /// The epic integration worktree: the run's working directory.
-    pub worktree_path: std::path::PathBuf,
-    pub prompt: String,
-}
-
-/// [`begin_planning_run_with`] recording the run's real scope marker: ARMED over an EMPTY set, so
-/// the scope gate denies every file-tool write the run attempts. An absent marker would deny too, but
-/// writing it is the run's recorded state: if the runtime directory cannot be written, the run does
-/// not start.
-pub fn begin_planning_run(
-    db: &Mutex<Connection>,
-    epic_id: &str,
-    human_actor_id: &str,
-    permission_mode: &str,
-) -> anyhow::Result<PlanningRunStart> {
-    begin_planning_run_with(db, epic_id, human_actor_id, permission_mode, |run_id, worktree, case_insensitive| {
-        use crate::runtime_protocol::{write_scope_marker, RuntimeIo, ScopeMarker, ScopeMode, SCOPE_MARKER_VERSION};
-        let marker = ScopeMarker {
-            version: SCOPE_MARKER_VERSION,
-            mode: ScopeMode::Armed,
-            worktree_root: worktree.to_string_lossy().into_owned(),
-            case_insensitive,
-            entries: Vec::new(),
-            written_at: chrono::Utc::now().to_rfc3339(),
-        };
-        match write_scope_marker(run_id, &marker) {
-            RuntimeIo::Written => Ok(()),
-            RuntimeIo::WriteFailed(why) => Err(anyhow!(
-                "could not write the scope marker for planning run {run_id}: {why} — a run that cannot record its scope does not start"
-            )),
-        }
-    })
-}
-
-/// Prepare the epic's integration branch and worktree, insert the planning run and render its prompt.
-///
-/// Refusals come first (a live plan, a planning run already running, nothing to plan), before any
-/// branch, worktree or row exists. The integration branch is then cut through the sanctioned lazy
-/// path, so "the repository as it is now" means the integration tip. Git runs with no connection in
-/// scope. `record_state(run_id, canonical_worktree, case_insensitive)` is the run's own state and runs last inside the
-/// run's transaction; a failure leaves no run, trigger or event. The cap is not consulted: this is a
-/// user-initiated action, and the run still holds a slot while it runs.
-pub fn begin_planning_run_with(
-    db: &Mutex<Connection>,
-    epic_id: &str,
-    human_actor_id: &str,
-    permission_mode: &str,
-    record_state: impl FnOnce(&str, &std::path::Path, bool) -> anyhow::Result<()>,
-) -> anyhow::Result<PlanningRunStart> {
-    let (project_id, repo_path, key_prefix, epic_key, branch) = {
-        let mut conn = lock(db)?;
-        crate::domain::dispatch_plan::check_can_plan(&conn, epic_id)?;
-        let branch = crate::domain::epic::ensure_epic_integration_branch(&mut conn, epic_id, human_actor_id)?;
-        let row: (String, String, String, String) = conn
-            .query_row(
-                "SELECT e.project_id, p.repo_path, p.key_prefix, e.key
-                   FROM epics e JOIN projects p ON p.id = e.project_id WHERE e.id = ?1",
-                [epic_id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )
-            .with_context(|| format!("epic {epic_id:?} not found"))?;
-        (row.0, row.1, row.2, row.3, branch)
-    };
-
-    let worktree = crate::merge::epic_worktree_path(&key_prefix, &epic_key);
-    ensure_epic_worktree(std::path::Path::new(&repo_path), &worktree, &branch)?;
-    let canonical = std::fs::canonicalize(&worktree)
-        .with_context(|| format!("cannot canonicalise the epic worktree {worktree:?}"))?;
-
-    // The repository's case flag is a `git config` subprocess, so it is read here, before the lock
-    // is taken again, and handed to `record_state` (which runs inside the run's transaction).
-    let case_insensitive = crate::domain::file_set::repo_is_case_insensitive(&canonical);
-    // Likewise the listing: a `git ls-files` subprocess, read with no lock held (CLAUDE.md: never a
-    // libgit2 blob walk, never a filesystem walk that would include ignored build output).
-    let file_listing = crate::git::tracked_files(&canonical)?;
-
-    let mut conn = lock(db)?;
-    let run_id = crate::domain::dispatch_plan::start_planning_run_row(
-        &mut conn,
-        epic_id,
-        human_actor_id,
-        permission_mode,
-        |run_id| record_state(run_id, &canonical, case_insensitive),
-    )?;
-    let packet = crate::epic_context_packet::assemble_epic_context_packet(&conn, &project_id, Some(epic_id))?;
-    let prompt = crate::epic_context_packet::render_planning_prompt(&packet, &file_listing);
-    Ok(PlanningRunStart {
-        run_id,
-        epic_id: epic_id.to_string(),
-        project_id,
-        repo_path,
-        worktree_path: worktree,
-        prompt,
-    })
 }

@@ -19,32 +19,18 @@ import {
   type AgentAdapter,
   type AgentEvent,
   type AskUserQuestionPrompt,
-  type BoardReadRequestEvent,
   CapabilityUnsupportedError,
   defaultResumeSession,
-  type PlanSubmittedEvent,
-  type ProposalCreatedEvent,
   type RateLimitTier,
-  type StartAuthoringSessionOptions,
   type StartSessionOptions,
-  type SummaryReportedEvent,
   UnknownRunError,
 } from "./adapter.js";
 import {
-  AUTHORING_READ_TOOL_NAMES,
-  AUTHORING_WRITE_TOOL_NAMES,
-  EXECUTION_PROPOSE_ITEM_TOOL_NAME,
   MCP_SERVER_NAME,
   PERMISSION_TOOL_NAME,
   startPermissionServer,
-  SUBMIT_PLAN_TOOL_NAME,
-  SUMMARY_TOOL_NAME,
-  type AuthoringProposalPayload,
-  type BoardReadRequestPayload,
   type PermissionNoticePayload,
   type PermissionServerHandle,
-  type SubmitPlanPayload,
-  type SummaryReportPayload,
 } from "./mcp-permission-server.js";
 
 /** The binary name/path this adapter spawns — overridable via `FLYWHEEL_CLAUDE_BIN` so tests can
@@ -113,23 +99,16 @@ export function pretoolUseHookScriptPath(): string {
   return fileURLToPath(new URL("./pretooluse-hook.js", import.meta.url));
 }
 
-/** The compiled standalone authoring stage-gate hook script's absolute path (D-88, plan 05-03) —
- * resolved relative to THIS compiled module's own location, the same sibling-file idiom
- * [`pretoolUseHookScriptPath`] already uses. */
-export function stageGateHookScriptPath(): string {
-  return fileURLToPath(new URL("./stage-gate-hook.js", import.meta.url));
-}
-
 /** The compiled standalone file-set scope hook script's absolute path (D-151, plan 09-01) —
  * resolved relative to THIS compiled module's own location, the same sibling-file idiom
- * [`pretoolUseHookScriptPath`]/[`stageGateHookScriptPath`] already use. */
+ * [`pretoolUseHookScriptPath`] already uses. */
 export function scopeHookScriptPath(): string {
   return fileURLToPath(new URL("./scope-hook.js", import.meta.url));
 }
 
 /** The compiled standalone `SessionStart` hook script's absolute path (phase 12, plan 12-03) —
  * resolved relative to THIS compiled module's own location, the same sibling-file idiom
- * [`pretoolUseHookScriptPath`]/[`stageGateHookScriptPath`] already use. RED-phase stub: the
+ * [`pretoolUseHookScriptPath`] already uses. RED-phase stub: the
  * `SessionStart` entry it will be wired into `writeHookSettings` is added in the GREEN commit. */
 export function sessionStartHookScriptPath(): string {
   return fileURLToPath(new URL("./sessionstart-hook.js", import.meta.url));
@@ -164,16 +143,7 @@ function shimBinFromEnv(env: NodeJS.ProcessEnv): string | undefined {
   return fs.existsSync(candidate) ? candidate : undefined;
 }
 
-/** D-88 (plan 05-03): the second `PreToolUse` matcher — every write-capable tool on the
- * authoring MCP server, by the `propose_`/`amend_`/`delete_` name-prefix convention plan 05-02
- * established. Built from the SAME `MCP_SERVER_NAME` constant `mcp-permission-server.ts` declares
- * its tool names against, so this matcher and the server's own registration can never drift
- * apart. Exported so `authoring-stage-gate.test.mjs` can compile it as a real `RegExp` and assert
- * it matches `propose_task` while NOT matching `approve_action`/`report_summary`/a read tool name,
- * rather than asserting on the literal string alone. */
-export const AUTHORING_STAGE_GATE_MATCHER = `mcp__${MCP_SERVER_NAME}__(propose|amend|delete)_.*`;
-
-/** D-151 (plan 09-01): the third `PreToolUse` matcher — every file-writing tool, by name. ONE
+/** D-151 (plan 09-01): the second `PreToolUse` matcher — every file-writing tool, by name. ONE
  * constant (single-list discipline). `MultiEdit` is absent from the installed CLI's tool list at the
  * time of writing (09-RESEARCH.md M5) but the list varies by CLI version, so the name stays in the
  * regex defensively: matching a tool that does not exist costs nothing, missing one that does is a
@@ -221,46 +191,20 @@ function scopeGateUnavailable(
 
 /** Write `<runtimeDir>/settings/<runId>.json` — the exact `PreToolUse`/`matcher: "Bash"` shape
  * RESEARCH.md confirmed working live against the real `claude` binary this session (§ "The hook
- * mechanism verified working this session"), EXTENDED (plan 05-03, D-88) with a SECOND
- * `PreToolUse` entry gating the authoring MCP server's write tools, and EXTENDED AGAIN (phase 12,
- * plan 12-03) with a `SessionStart` entry (`sessionStartHookScriptPath()`, no `matcher` field) —
- * and return its path. The `PreToolUse` array stays byte-identical across both extensions: the
- * destructive-command gate must keep working unchanged for any `Bash` call an authoring session's
- * read-only posture still permits (e.g. `git log`).
+ * mechanism verified working this session"), EXTENDED (phase 12, plan 12-03) with a `SessionStart`
+ * entry (`sessionStartHookScriptPath()`, no `matcher` field) — and return its path.
  *
- * `includeAuthoringStageGate` (plan 06-01, `06-RESEARCH.md` Pitfall 1): the whole fix for the
- * collision between this function's own unconditional two-entry write and the NEW `propose_item`
- * tool an ordinary execution run is now pre-approved to call. `AUTHORING_STAGE_GATE_MATCHER`
- * matches ANY `propose_`/`amend_`/`delete_`-prefixed tool on this server by name-prefix regex, not
- * an enumerated list — so a task-execution run calling `propose_item` would be denied by
- * `stage-gate-hook.ts`'s fail-closed `main()` before the MCP handler is ever reached, because no
- * `write_authoring_stage` marker file exists for a run that was never an authoring run in the
- * first place. When this parameter is `false` the settings object holds exactly ONE `PreToolUse`
- * entry (the `matcher: "Bash"` entry, byte-identical to before this plan); when `true` it holds
- * that entry PLUS the existing `AUTHORING_STAGE_GATE_MATCHER` entry, also byte-identical. An
- * execution run is deliberately never stage-gated: it has no authoring stage and no stage marker
- * file is ever written for it (`write_authoring_stage` is called only from the Rust core's
- * authoring-run start and stage-transition paths — this file never invokes any of them, matching
- * D-90's own restriction that the sidecar must never reach the human-only stage-advance path).
- * Exported so `execution-hook-settings.test.mjs` can drive both branches directly.
- *
- * `includeScopeGate` (phase 09, plan 09-01, D-151): appends a THIRD `PreToolUse` entry on
+ * `includeScopeGate` (phase 09, plan 09-01, D-151): appends a second `PreToolUse` entry on
  * `SCOPE_GATE_MATCHER` that wires `scope-hook.ts`. Defaults to `false`, so a caller that does not
- * pass it — and every existing call in the test suite — gets the one-entry or two-entry array
- * byte-identical to before this plan; the `SessionStart` entry is untouched in every branch. The
- * execution-session path passes `true`; the authoring-session path passes `false`.
+ * pass it gets the one-entry array; the `SessionStart` entry is untouched in every branch. The
+ * execution-session path passes `true`.
  *
  * A write failure here degrades to "no hook injected for this session" (logged, never thrown) —
- * unchanged for `startSession` (the shim, D-51/D-58, is that path's load-bearing guarantee, so a
- * settings-write failure must not refuse an entire task-execution session over this
- * defense-in-depth layer). `startAuthoringSession` does NOT share that reasoning: for an
- * authoring run a missing stage gate means the challenge stage can be skipped entirely, directly
- * defeating SHAPE-01 — see that function's own handling of an `undefined` return from this
- * function. */
+ * the shim (D-51/D-58) is that path's load-bearing guarantee, so a settings-write failure must not
+ * refuse an entire task-execution session over this defense-in-depth layer. */
 export function writeHookSettings(
   runtimeDir: string,
   runId: string,
-  includeAuthoringStageGate: boolean,
   includeScopeGate: boolean = false,
 ): string | undefined {
   try {
@@ -272,14 +216,7 @@ export function writeHookSettings(
         hooks: [{ type: "command", command: `${process.execPath} ${pretoolUseHookScriptPath()}` }],
       },
     ];
-    if (includeAuthoringStageGate) {
-      preToolUse.push({
-        matcher: AUTHORING_STAGE_GATE_MATCHER,
-        hooks: [{ type: "command", command: `${process.execPath} ${stageGateHookScriptPath()}` }],
-      });
-    }
-    // D-151 (plan 09-01): the file-set scope gate. Execution runs only — an authoring run has no
-    // task and therefore no declared file-set. Deliberately NO `timeout` field on this entry: a
+    // D-151 (plan 09-01): the file-set scope gate. Execution runs only. Deliberately NO `timeout` field on this entry: a
     // timed-out `PreToolUse` hook does not block the call, so a short timeout would be a silent
     // bypass (09-RESEARCH.md Pattern 3); the hook keeps its own work bounded instead.
     if (includeScopeGate) {
@@ -375,10 +312,7 @@ function writeRunDescriptor(runtimeDir: string, runId: string, wrapperPid: numbe
  * versa) still gets a valid argv.
  */
 /** Push the paired `--permission-prompt-tool <toolName> --mcp-config <mcpConfig>` flags onto
- * `argv` — the ONE place this repeated flag pair is constructed, shared by {@link buildClaudeArgv}
- * and {@link buildAuthoringClaudeArgv} so the `--mcp-config` flag is registered from exactly one
- * code path in this file, never two independently-drifting copies (both spawns name the SAME
- * `MCP_SERVER_NAME` — this repository's own acceptance bar for "no second MCP server process"). */
+ * `argv` — the ONE place this flag pair is constructed. */
 function pushPermissionPromptFlags(argv: string[], toolName: string, mcpConfig: string): void {
   argv.push("--permission-prompt-tool", toolName, "--mcp-config", mcpConfig);
 }
@@ -389,24 +323,6 @@ export function buildClaudeArgv(options: {
   permissionPromptToolName?: string;
   mcpConfig?: string;
   settingsPath?: string;
-  /** D-64/D-46 (plan 04-03): the fully-qualified `report_summary` tool name, when supplied —
-   * pushed onto `--allowedTools` inside the SAME `permissionPromptToolName`/`mcpConfig` branch
-   * below, never on its own. Without this, the agent's own closing summary call would route
-   * through `approve_action` and sit waiting on a human — the exact friction D-46 reserves for
-   * money-burning actions, not for writing a summary. */
-  summaryToolName?: string;
-  /** D-98 (plan 06-01): the fully-qualified `propose_item` tool name, when supplied — pushed onto
-   * `--allowedTools` inside the SAME `permissionPromptToolName`/`mcpConfig` branch below,
-   * immediately after the `summaryToolName` push, never on its own. Staging a proposal burns no
-   * money and blocks nothing (D-46 extended to this tool exactly as it already was to
-   * `report_summary`), so an execution-run agent's `propose_item` call must never wait on a human
-   * permission answer either. */
-  proposeItemToolName?: string;
-  /** Plan 09-08 (PLAN-01): the fully-qualified `submit_plan` tool name, supplied ONLY for the
-   * pre-dispatch planning run, which passes neither of the two names above — so its `--allowedTools`
-   * is exactly this one tool. Anything else it tries (a write, a shell command) is not pre-approved
-   * and raises a permission request instead of running. */
-  submitPlanToolName?: string;
 }): string[] {
   const argv = [
     "-p",
@@ -426,103 +342,11 @@ export function buildClaudeArgv(options: {
   ];
   if (options.permissionPromptToolName && options.mcpConfig) {
     pushPermissionPromptFlags(argv, options.permissionPromptToolName, options.mcpConfig);
-    if (options.summaryToolName) {
-      // D-64/D-46: pre-approve exactly the summary tool so the agent's own closing
-      // report_summary call never waits on a human the way a gated tool call would.
-      argv.push("--allowedTools", options.summaryToolName);
-    }
-    if (options.proposeItemToolName) {
-      // D-98: pre-approve exactly the propose_item tool for this execution run, mirroring the
-      // summaryToolName push immediately above.
-      argv.push("--allowedTools", options.proposeItemToolName);
-    }
-    if (options.submitPlanToolName) {
-      argv.push("--allowedTools", options.submitPlanToolName);
-    }
   }
   if (options.settingsPath) {
     argv.push("--settings", options.settingsPath);
   }
   return argv;
-}
-
-/**
- * Build the argv an authoring session is spawned with (plan 05-02, D-84/D-88). Implements EXACTLY
- * `05-SPIKE-FINDINGS.md`'s `transport_decision: option-a` line — a single long-lived `claude`
- * process driven with `--input-format stream-json` and NO positional prompt (turns arrive over
- * stdin instead, per `scripts/spike/authoring-transport-spike.mjs::buildOptionAArgv`, the exact
- * shape measured live against the real binary) — and no conditional on Option B anywhere in this
- * function. Otherwise mirrors {@link buildClaudeArgv}'s own structure: the mandatory
- * `--output-format stream-json --verbose` pair, the permission-prompt-tool/mcp-config pairing,
- * and the independently-optional `--settings` flag.
- *
- * G-05-8(a) (plan 05-41): this function, and ONLY this function, also pushes
- * `--disallowedTools {@link ASK_USER_QUESTION_TOOL_NAME}` — unconditionally, alongside the
- * mandatory block above, not folded into the `permissionPromptToolName`/`mcpConfig` branch (an
- * authoring session's conversational contract does not depend on whether a permission-prompt tool
- * was supplied). {@link buildClaudeArgv} is never touched: a task-execution session's argv must
- * stay byte-identical (out of this round's scope).
- *
- * The reasoning, grounded in decisions already made rather than presented as a workaround:
- * - **D-89 already decided this.** The challenge stage is free conversation — "Cyril talks
- *   normally", the thing that has to beat a terminal. D-89's rejected option was structured
- *   challenges the developer answers as rows, rejected because it "turns the conversation into a
- *   form, which is the friction FEATURES.md names as what sends people back to the terminal".
- *   `AskUserQuestion` is that form, rendered by the backend instead of by us.
- * - **D-88 already decided HOW.** The challenge stage enforces its shape by ABSENCE — during
- *   `challenge` there is literally no proposal tool in the tool set. Removing the form from the
- *   tool set is that same mechanism applied to the same stage, not a new one.
- * - **The cost of leaving it in, measured:** in live run `01M3DNC0G9CYAWSD8DYEGTRP8C` the agent put
- *   its three clarifying questions inside the tool call, the harness captured assistant text only,
- *   and the evidence a human is asked to judge SHAPE-01 from contained none of them. Worse, in
- *   non-interactive mode the CLI answers the call itself with a fixed unanswered-questions string,
- *   so the exchange could not develop past turn one.
- * - **The residual, stated honestly:** this is proven as argv only. No live run in this round
- *   observes a real backend's response to it.
- */
-export function buildAuthoringClaudeArgv(options: {
-  permissionMode: string;
-  permissionPromptToolName?: string;
-  mcpConfig?: string;
-  settingsPath?: string;
-  /** D-80/D-81/D-87 (plan 05-02, grown to all nine authoring tools by plan 05-05): every
-   * pre-approved tool's fully-qualified name, pushed onto ONE `--allowedTools` flag (the CLI's own
-   * variadic contract — every name a separate positional value) inside the SAME
-   * `permissionPromptToolName`/`mcpConfig` branch below, mirroring {@link buildClaudeArgv}'s own
-   * `summaryToolName` handling. D-46 extended to reads (05-RESEARCH.md): staging a proposal OR
-   * looking something up burns no money and blocks nothing, so neither must ever sit waiting on a
-   * human — the stage gate, not the permission gate, is what refuses a write at the wrong time. */
-  authoringToolNames?: string[];
-}): string[] {
-  const argv = [
-    "-p",
-    "--input-format",
-    "stream-json",
-    "--output-format",
-    "stream-json",
-    "--verbose",
-    "--permission-mode",
-    options.permissionMode,
-    "--disallowedTools",
-    ASK_USER_QUESTION_TOOL_NAME,
-  ];
-  if (options.permissionPromptToolName && options.mcpConfig) {
-    pushPermissionPromptFlags(argv, options.permissionPromptToolName, options.mcpConfig);
-    if (options.authoringToolNames && options.authoringToolNames.length > 0) {
-      argv.push("--allowedTools", ...options.authoringToolNames);
-    }
-  }
-  if (options.settingsPath) {
-    argv.push("--settings", options.settingsPath);
-  }
-  return argv;
-}
-
-/** The `--input-format stream-json` input envelope Option A's spike measured live against the
- * real binary (`scripts/spike/authoring-transport-spike.mjs::userTurnLine`) — one JSON line per
- * user turn, written to the child's own stdin. */
-function authoringUserTurnLine(text: string): string {
-  return JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] } });
 }
 
 interface ClaudeStreamInit {
@@ -726,119 +550,9 @@ export function noticeToAgentEvent(
   return undefined;
 }
 
-/**
- * D-64/D-65 (plan 04-03): map one parsed `session_summary` wire payload to exactly one
- * {@link SummaryReportedEvent}, mirroring {@link noticeToAgentEvent}'s own "map the wire shape,
- * fill `runId`/`seq`/`at` from the caller's own closure" convention. `runId` NEVER comes from the
- * payload itself — it is this session's own `runId`, matching T-04-01's spoofing mitigation.
- * `raw` is the verbatim serialised payload — never empty, the same discipline every other
- * `AgentEvent`'s `raw` field follows. Exported so this mapping is unit-testable without a live
- * session, mirroring {@link noticeToAgentEvent}'s own export.
- */
-export function normalizeSummaryNotice(
-  payload: SummaryReportPayload,
-  runId: string,
-  seq: number,
-  at: string,
-): SummaryReportedEvent {
-  return {
-    runId,
-    seq,
-    at,
-    raw: JSON.stringify(payload),
-    type: "summary_reported",
-    changedFiles: payload.changedFiles,
-    changedProse: payload.changedProse,
-    remains: payload.remains,
-    nextSessionMustKnow: payload.nextSessionMustKnow,
-    decisions: payload.decisions,
-    acknowledgedDecisions: payload.acknowledgedDecisions,
-  };
-}
-
-/**
- * D-80/D-81 (plan 05-02): map one parsed `authoring_proposal` wire payload to exactly one
- * {@link ProposalCreatedEvent}, mirroring {@link normalizeSummaryNotice}'s own "map the wire
- * shape, fill `runId`/`seq`/`at` from the caller's own closure" convention. `runId` NEVER comes
- * from the payload itself (T-05-02-01). Exported so this mapping is unit-testable without a live
- * session, mirroring {@link normalizeSummaryNotice}'s own export.
- */
-export function normalizeProposalNotice(
-  payload: AuthoringProposalPayload,
-  runId: string,
-  seq: number,
-  at: string,
-): ProposalCreatedEvent {
-  return {
-    runId,
-    seq,
-    at,
-    raw: JSON.stringify(payload),
-    type: "proposal_created",
-    requestId: payload.requestId,
-    verb: payload.verb,
-    targetType: payload.targetType,
-    targetId: payload.targetId,
-    parentProposalId: payload.parentProposalId,
-    rationale: payload.rationale,
-    payload: payload.payload,
-  };
-}
-
-/**
- * Plan 09-08: map one parsed `submit_plan` payload to exactly one {@link PlanSubmittedEvent},
- * mirroring {@link normalizeProposalNotice}: `runId`/`seq`/`at` come from the caller's closure and
- * NEVER from the payload. Exported so the mapping is unit-testable without a live session.
- */
-export function normalizePlanSubmitted(
-  payload: SubmitPlanPayload,
-  runId: string,
-  seq: number,
-  at: string,
-): PlanSubmittedEvent {
-  return {
-    runId,
-    seq,
-    at,
-    raw: JSON.stringify(payload),
-    type: "plan_submitted",
-    requestId: payload.requestId,
-    tasks: payload.tasks,
-    excluded: payload.excluded,
-  };
-}
-
-/**
- * D-87 (plan 05-05): map one parsed `board_read` request payload to exactly one
- * {@link BoardReadRequestEvent}, mirroring {@link normalizeProposalNotice}'s own "map the wire
- * shape, fill `runId`/`seq`/`at` from the caller's own closure" convention. `runId` NEVER comes
- * from the payload itself — identity is this session's own run, exactly like every other
- * authoring wire mapping in this file.
- */
-export function normalizeBoardReadRequest(
-  payload: BoardReadRequestPayload,
-  runId: string,
-  seq: number,
-  at: string,
-): BoardReadRequestEvent {
-  return {
-    runId,
-    seq,
-    at,
-    raw: JSON.stringify(payload),
-    type: "board_read_request",
-    requestId: payload.requestId,
-    readKind: payload.readKind,
-    term: payload.term,
-    epicId: payload.epicId,
-    limit: payload.limit,
-  };
-}
-
 /** G-05-8(a) (plan 05-41): the exact `tool_use` block name this repository's `AskUserQuestion`
  * handling gates on — referenced by both {@link parseAskUserQuestionInput}'s call site inside
- * {@link normaliseStreamEvent} and {@link buildAuthoringClaudeArgv}'s `--disallowedTools` pair, so
- * the two can never drift apart (T-05-41-03). */
+ * {@link normaliseStreamEvent}. */
 export const ASK_USER_QUESTION_TOOL_NAME = "AskUserQuestion";
 
 /** G-05-8(a) (plan 05-41): a bound on how many questions {@link parseAskUserQuestionInput} will
@@ -1171,8 +885,6 @@ const CAPABILITIES: AdapterCapabilities = {
   supportsResume: false,
   supportsPermissionPrompt: true,
   supportsCostReporting: true,
-  supportsSummaryReporting: true,
-  supportsAuthoring: true,
 };
 
 /**
@@ -1432,34 +1144,6 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         session.nextSeq += 1;
         session.onEvent(event);
       }
-    }, (payload) => {
-      // D-64 (plan 04-03): the agent's own closing summary, mapped by the pure
-      // `normalizeSummaryNotice` above and relayed onto this SAME session's event stream as its
-      // own event type — `runId` filled from THIS closure, never from the payload (T-04-01).
-      const event = normalizeSummaryNotice(payload, options.runId, session.nextSeq, new Date().toISOString());
-      session.nextSeq += 1;
-      session.onEvent(event);
-    }, (payload: AuthoringProposalPayload) => {
-      // Plan 06-09 (Rule 1 bug fix): an execution run's `propose_item` call held this connection
-      // in `startPermissionServer`'s own `pending` map with NO callback ever wired here to emit
-      // the outbound `proposal_created` notice — `onProposal` defaulted to a no-op, so a live
-      // execution-run proposal would connect, write its payload and then wait forever, because
-      // nothing ever called `resolveProposalStaged`/`answerProposalStaged` for it. Mirrors
-      // `startAuthoringSession`'s own identical wiring (below) exactly: `runId` filled from THIS
-      // closure, never from the payload (T-05-02-01/T-06-01).
-      const event = normalizeProposalNotice(payload, options.runId, session.nextSeq, new Date().toISOString());
-      session.nextSeq += 1;
-      session.onEvent(event);
-    }, () => {
-      // `board_read` is an authoring-session path; an execution or planning run has no caller for it.
-    }, (payload: SubmitPlanPayload) => {
-      // Plan 09-08: the planning run's HELD `submit_plan` call. Without this callback the call would
-      // connect, write its payload and wait forever, because nothing would ever answer it — the
-      // exact bug plan 06-09 fixed for `propose_item`. `runId` comes from THIS closure. Whether this
-      // run may submit at all is decided by the Rust core when it answers, not here.
-      const event = normalizePlanSubmitted(payload, options.runId, session.nextSeq, new Date().toISOString());
-      session.nextSeq += 1;
-      session.onEvent(event);
     });
 
     const bin = resolveClaudeBin();
@@ -1487,13 +1171,11 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     // plan 03-07 (D-55): write this run's `--settings` file BEFORE building argv, so the hook can
     // be wired into the very first invocation — a write failure degrades to "no hook injected for
     // this session" (writeHookSettings's own doc comment), never a refused spawn.
-    // Plan 06-01 (`06-RESEARCH.md` Pitfall 1): `false` — an execution run is never stage-gated,
-    // see `writeHookSettings`'s own doc comment for why.
-    // Plan 09-01 (D-151): the fourth argument is `true` — an execution run IS scope-gated. The Rust
+    // Plan 09-01 (D-151): the third argument is `true` — an execution run IS scope-gated. The Rust
     // core writes the run's scope marker (armed or unarmed) before this spawn; an unarmed marker
     // makes the hook a no-op, so a task with no declared file-set runs exactly as it did before.
     const settingsPath = env.FLYWHEEL_RUNTIME_DIR
-      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId, false, true)
+      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId, true)
       : undefined;
 
     // Phase 09 review CR-01: an ARMED run is refused, not started, when its scope gate cannot be
@@ -1534,17 +1216,6 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       permissionPromptToolName: PERMISSION_TOOL_NAME,
       mcpConfig,
       settingsPath,
-      // Plan 09-08: the planning run pre-approves `submit_plan` and nothing else; every other
-      // run keeps exactly the two pre-approvals it always had.
-      ...(options.planning === true
-        ? { submitPlanToolName: SUBMIT_PLAN_TOOL_NAME }
-        : {
-            summaryToolName: SUMMARY_TOOL_NAME,
-            // Plan 06-01 (D-98): pre-approve `propose_item` for this execution run only — staging a
-            // proposal burns no money and blocks nothing (D-46 extended), so it must never wait on
-            // a human permission answer.
-            proposeItemToolName: EXECUTION_PROPOSE_ITEM_TOOL_NAME,
-          }),
     });
 
     // plan 03-02 (D-47/PROC-03): spawn the watchdog wrapper, never the backend directly — the
@@ -1675,232 +1346,6 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     });
   }
 
-  /**
-   * D-84/D-86/D-88 (plan 05-02): start a fresh epic-authoring session. `options.repoPath` becomes
-   * the child's `cwd` DIRECTLY — the project's registered main checkout, never a worktree path
-   * (D-86 overrides D-36's `acceptEdits` default; the caller supplies `options.permissionMode`
-   * and this function has no opinion of its own about it). Otherwise mirrors {@link startSession}'s
-   * own plumbing exactly: the permission server starts first (AGNT-06), the watchdog wrapper is
-   * the process-group leader (PROC-03/D-47), the PATH shim and `PreToolUse` hook wrap the spawn
-   * unchanged, and every `LiveSession` bookkeeping field (including `interruptSession`/
-   * `killSession`/`resolvePermission`'s shared `liveSessions` map) is populated identically — an
-   * authoring run is a first-class member of the SAME live-session registry a task-execution run
-   * is, so nothing about Stop/Discard/permission-answering needs to know which spawn method
-   * created the entry. The one genuine difference: `buildAuthoringClaudeArgv`'s Option A shape
-   * (no positional prompt) and the opening turn written to the child's OWN stdin once it is
-   * spawned, per `05-SPIKE-FINDINGS.md`'s `transport_decision: option-a` line — stdin is left
-   * open afterwards (Option A's own "held open across turns" contract), never closed.
-   */
-  async startAuthoringSession(options: StartAuthoringSessionOptions): Promise<void> {
-    let session!: LiveSession;
-    const permissionServer = startPermissionServer(
-      (payload) => {
-        const destructiveCategory =
-          payload.input !== null && typeof payload.input === "object" && "destructiveCategory" in payload.input
-            ? (payload.input as { destructiveCategory?: unknown }).destructiveCategory
-            : undefined;
-        session.onEvent({
-          runId: options.runId,
-          seq: session.nextSeq++,
-          at: new Date().toISOString(),
-          raw: JSON.stringify({ type: "permission_request", ...payload }),
-          type: "permission_request",
-          requestId: payload.requestId,
-          toolName: payload.toolName,
-          input: payload.input,
-          ...(typeof destructiveCategory === "string" ? { destructiveCategory } : {}),
-        });
-      },
-      (payload) => {
-        const event = noticeToAgentEvent(payload, options.runId, session.nextSeq, new Date().toISOString());
-        if (event) {
-          session.nextSeq += 1;
-          session.onEvent(event);
-        }
-      },
-      (payload) => {
-        const event = normalizeSummaryNotice(payload, options.runId, session.nextSeq, new Date().toISOString());
-        session.nextSeq += 1;
-        session.onEvent(event);
-      },
-      (payload: AuthoringProposalPayload) => {
-        // D-80/D-81: the agent's own staged proposal, mapped by the pure normalizeProposalNotice
-        // above and relayed onto this SAME session's event stream — `runId` filled from THIS
-        // closure, never from the payload (T-05-02-01).
-        const event = normalizeProposalNotice(payload, options.runId, session.nextSeq, new Date().toISOString());
-        session.nextSeq += 1;
-        session.onEvent(event);
-      },
-      (payload: BoardReadRequestPayload) => {
-        // D-87 (plan 05-05): a HELD board_read call, mapped by the pure normalizeBoardReadRequest
-        // above and relayed onto this SAME session's event stream — the Rust core answers it
-        // asynchronously via the `authoring_read_answer` op, which resolves this held connection
-        // through `resolveBoardRead` below, never here.
-        const event = normalizeBoardReadRequest(payload, options.runId, session.nextSeq, new Date().toISOString());
-        session.nextSeq += 1;
-        session.onEvent(event);
-      },
-    );
-
-    const bin = resolveClaudeBin();
-
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...options.env,
-      FLYWHEEL_RUN_ID: options.runId,
-      FLYWHEEL_PERMISSION_SOCKET: permissionServer.socketPath,
-    };
-
-    const shimBin = shimBinFromEnv(env);
-    if (shimBin) {
-      env.FLYWHEEL_SHIM_BIN = shimBin;
-    }
-
-    // Plan 06-01 (`06-RESEARCH.md` Pitfall 1): `true` — an authoring run keeps the stage gate,
-    // byte-identical to before this plan.
-    const settingsPath = env.FLYWHEEL_RUNTIME_DIR
-      ? writeHookSettings(env.FLYWHEEL_RUNTIME_DIR, options.runId, true, false)
-      : undefined;
-
-    const mcpConfig = JSON.stringify({
-      mcpServers: {
-        [MCP_SERVER_NAME]: {
-          command: process.execPath,
-          args: [permissionServerScriptPath(), permissionServer.socketPath],
-        },
-      },
-    });
-    const argv = buildAuthoringClaudeArgv({
-      permissionMode: options.permissionMode,
-      permissionPromptToolName: PERMISSION_TOOL_NAME,
-      mcpConfig,
-      settingsPath,
-      // Plan 05-05: pre-approve all six write tools plus all three read tools — D-46 extended to
-      // reads, see buildAuthoringClaudeArgv's own doc comment above.
-      authoringToolNames: [...AUTHORING_WRITE_TOOL_NAMES, ...AUTHORING_READ_TOOL_NAMES],
-    });
-
-    const child = spawn(process.execPath, [watchdogEntryPath(), bin, ...argv], {
-      cwd: options.repoPath,
-      env,
-      detached: true,
-    });
-
-    if (typeof child.pid === "number" && env.FLYWHEEL_RUNTIME_DIR) {
-      writeRunDescriptor(env.FLYWHEEL_RUNTIME_DIR, options.runId, child.pid);
-    }
-
-    let resolveClosed!: () => void;
-    const closed = new Promise<void>((resolve) => {
-      resolveClosed = resolve;
-    });
-
-    session = {
-      child,
-      closed,
-      closedEventEmitted: false,
-      interruptionRequested: false,
-      lastResult: undefined,
-      stderrTail: "",
-      exitCode: null,
-      exitSignal: null,
-      runtimeDir: env.FLYWHEEL_RUNTIME_DIR,
-      onEvent: options.onEvent,
-      nextSeq: 0,
-      permissionServer,
-    };
-    liveSessions.set(options.runId, session);
-
-    // T-05-03-01: for an authoring run, a missing stage gate means the challenge stage can be
-    // skipped entirely, directly defeating SHAPE-01 — unlike `startSession`'s own posture (the
-    // shim is the load-bearing guarantee there), this failure is surfaced rather than silently
-    // degraded. A `system_notice` on this SAME session stream — never a thrown error, never a
-    // refused session — carrying its own `flywheelStageGateMissing` discriminant, mirroring
-    // `sidecar.rs::emit_persistence_failure_notice`'s own `flywheelPersistenceFailure` field, so
-    // Task 3's banner can find THIS specific notice among every other `system_notice` a session
-    // emits, rather than matching on its prose (which could drift).
-    if (settingsPath === undefined) {
-      session.onEvent({
-        runId: options.runId,
-        seq: session.nextSeq++,
-        at: new Date().toISOString(),
-        raw: "system_notice: the challenge-stage gate could not be installed for this session",
-        type: "system_notice",
-        text:
-          "The challenge-stage gate could not be installed for this session — a proposal could be " +
-          "staged before the stage advances.",
-        flywheelStageGateMissing: true,
-      });
-    }
-
-    const rl = createInterface({ input: child.stdout });
-
-    if (child.stderr) {
-      const stderrRl = createInterface({ input: child.stderr });
-      stderrRl.on("line", (line: string) => {
-        const at = new Date().toISOString();
-        const seq = session.nextSeq++;
-        options.onEvent({ runId: options.runId, seq, at, raw: line, type: "system_notice", text: line });
-        if (session.stderrTail.length < STDERR_DETAIL_MAX_CHARS) {
-          session.stderrTail += `${line}\n`;
-          session.stderrTail = session.stderrTail.slice(0, STDERR_DETAIL_MAX_CHARS);
-        }
-      });
-    }
-
-    const streamClosed = new Promise<void>((resolve, reject) => {
-      rl.on("line", (line: string) => {
-        const at = new Date().toISOString();
-        const seq = session.nextSeq++;
-        let parsed: ClaudeStreamEvent | undefined;
-        try {
-          parsed = JSON.parse(line) as ClaudeStreamEvent;
-        } catch {
-          options.onEvent({ runId: options.runId, seq, at, raw: line, type: "system_notice", text: line });
-          return;
-        }
-
-        const maybeSpawnError = parsed as unknown as {
-          __flywheelWatchdogSpawnError?: boolean;
-          message?: string;
-        };
-        if (maybeSpawnError.__flywheelWatchdogSpawnError === true) {
-          const message = maybeSpawnError.message ?? "the backend failed to spawn";
-          session.stderrTail = message;
-          emitSessionClosed(options.runId, session, "failed");
-          resolveClosed();
-          reject(new Error(message));
-          return;
-        }
-        emitStreamEvents(session, options.onEvent, parsed, line, options.runId, seq, at);
-      });
-
-      child.on("error", (err) => {
-        session.stderrTail = err.message;
-        emitSessionClosed(options.runId, session, "failed");
-        resolveClosed();
-        reject(err);
-      });
-
-      child.on("close", (code, signal) => {
-        session.exitCode = code;
-        session.exitSignal = signal;
-        const reason = session.interruptionRequested ? "interrupted" : code === 0 ? "completed" : "failed";
-        emitSessionClosed(options.runId, session, reason);
-        resolveClosed();
-        resolve();
-      });
-    });
-
-    // Option A's own shape (05-SPIKE-FINDINGS.md): the opening turn is written to the child's OWN
-    // stdin — never a positional argv prompt — once the process exists. Stdin is left OPEN
-    // afterwards; this function resolves when the process itself closes, exactly like
-    // startSession, so a caller awaiting it is not implicitly ending the conversation.
-    child.stdin?.write(`${authoringUserTurnLine(options.prompt)}\n`);
-
-    await streamClosed;
-  }
-
   async interruptSession(runId: string): Promise<void> {
     const session = liveSessions.get(runId);
     if (!session) throw new UnknownRunError(runId);
@@ -1943,43 +1388,6 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const session = liveSessions.get(runId);
     if (!session) throw new UnknownRunError(runId);
     session.permissionServer.resolvePermission(requestId, decision);
-  }
-
-  /** D-87 (plan 05-05): answer a held `board_read` call for `runId` with its result (or error) —
-   * the read-path sibling of {@link resolvePermission}, same "unknown runId rejects, mismatched
-   * requestId is a logged no-op" contract. */
-  resolveBoardRead(runId: string, requestId: string, result: unknown, error?: string): void {
-    const session = liveSessions.get(runId);
-    if (!session) throw new UnknownRunError(runId);
-    session.permissionServer.answerBoardRead(requestId, result, error);
-  }
-
-  /** Plan 05-48 (D-80/D-81/D-92): answer a held proposal-staging call for `runId` with the
-   * core-minted result (or error) — the staging-path sibling of {@link resolveBoardRead}, same
-   * "unknown runId rejects, mismatched requestId is a logged no-op" contract. */
-  resolveProposalStaged(runId: string, requestId: string, result: unknown, error?: string): void {
-    const session = liveSessions.get(runId);
-    if (!session) throw new UnknownRunError(runId);
-    session.permissionServer.answerProposalStaged(requestId, result, error);
-  }
-
-  /** D-89 (plan 05-05): send one turn's text to a LIVE authoring session — the one way anything
-   * above this adapter can say something to a running conversation (the distillation instruction
-   * the domain layer's own stage-advance step returns, and a developer decision on a proposal,
-   * both flow through this).
-   * Delivered by whatever mechanism `05-SPIKE-FINDINGS.md`'s recorded `transport_decision` uses —
-   * currently Option A's stdin-held-open shape, the SAME `authoringUserTurnLine` envelope the
-   * opening turn is written with in {@link startAuthoringSession}. Rejects with
-   * {@link UnknownRunError} for a `runId` this sidecar never spawned, BEFORE anything is written.
-   * A turn for a session that has already closed resolves rather than throwing — a decision made
-   * after the conversation ended is an ordinary board edit, not a lost message. */
-  async sendAuthoringTurn(runId: string, text: string): Promise<void> {
-    const session = liveSessions.get(runId);
-    if (!session) throw new UnknownRunError(runId);
-    if (session.closedEventEmitted || !session.child.stdin || session.child.stdin.destroyed) {
-      return;
-    }
-    session.child.stdin.write(`${authoringUserTurnLine(text)}\n`);
   }
 
   async killSession(runId: string): Promise<void> {

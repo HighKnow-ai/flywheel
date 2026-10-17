@@ -157,7 +157,7 @@ function armedScratch(declaredRelative) {
       written_at: new Date().toISOString(),
     }),
   );
-  const settingsPath = writeHookSettings(runtimeDir, RUN_ID, false, true);
+  const settingsPath = writeHookSettings(runtimeDir, RUN_ID, true);
   assert.ok(settingsPath, "writeHookSettings should produce a settings file");
   return {
     root,

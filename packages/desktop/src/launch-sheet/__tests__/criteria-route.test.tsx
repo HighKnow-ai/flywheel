@@ -19,7 +19,7 @@ vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
   return {
     ...actual,
-    previewContextPacket: (taskId: string) => previewMock(taskId),
+    taskHeader: (taskId: string) => previewMock(taskId),
     startAgentRun: (taskId: string, mode: string, instruction?: string) => startMock(taskId, mode, instruction),
     taskCriterionCoverage: (taskId: string) => coverageMock(taskId),
     waiveTaskCriteria: (taskId: string) => waiveMock(taskId),
@@ -28,24 +28,9 @@ vi.mock("../../adapters/tauri", async () => {
   };
 });
 
+/** The task header the sheet reads for its title (the context packet preview was deleted, #38). */
 function packet() {
-  return {
-    taskKey: "FLY-42",
-    taskTitle: "Wire the launch sheet",
-    taskDescription: null,
-    epicTitle: null,
-    epicDescription: null,
-    criteria: [],
-    summaries: [],
-    compaction: { total: 0, foldedCount: 0, verbatimCount: 0, foldedRange: null, verbatimRange: null, sentence: null },
-    decisions: [],
-    drift: [],
-    branch: "flywheel/fly-42",
-    baseRef: "main",
-    worktreePath: "/w/FLY-42",
-    diff: null,
-    renderedPrompt: "# Wire the launch sheet",
-  };
+  return { key: "FLY-42", title: "Wire the launch sheet" };
 }
 
 function coverage(currentCount: number, pendingDraftCount: number) {
