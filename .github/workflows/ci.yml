@@ -4,11 +4,14 @@ name: CI
 # prerequisites listed in README.md. The commands below are the README's
 # "Building from source" commands, in the same order.
 
-# A PR branch runs once, on pull_request; push only covers main itself.
+# A PR branch runs once, on pull_request; push only covers main itself. merge_group runs the same
+# job on the merge queue's temporary branch, so queued PRs are tested together as one combination
+# before any of them lands on main.
 on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -66,10 +69,13 @@ jobs:
 
       - run: npm --prefix packages/desktop run build
 
-      # Unsigned (D-185).
-      - run: npm --prefix packages/desktop run tauri build
+      # Unsigned (D-185). The .dmg bundle costs 5-8 minutes and is the step that flaked, so it runs
+      # only on pushes to main, never on pull_request or merge_group runs.
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: npm --prefix packages/desktop run tauri build
 
-      - uses: actions/upload-artifact@v4
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
         with:
           name: flywheel-dmg
           path: target/release/bundle/dmg/*.dmg

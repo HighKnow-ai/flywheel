@@ -9,12 +9,31 @@
 //! Two-sided, in the house style of `handler_roster.rs`: the real tree must be clean, and a planted
 //! in-memory violation must be caught, so a walker that visits nothing cannot pass vacuously.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const EVENT_LITERAL: &str = "\"board:changed\"";
 const HELPER_FILE: &str = "src/commands/mod.rs";
 const HELPER_CALL: &str = "emit_board_changed(";
+
+/// Every file that calls the helper, sorted, one per line. Listed by name rather than floored by a
+/// call-site count, so emits cannot vanish silently (a file that stops calling the helper fails
+/// the build) while two PRs that each delete a different command touch different lines and merge
+/// without conflict. Add or remove a line in the same diff as a file that gains or loses its emits.
+const EMITTING_FILES: &[&str] = &[
+    "src/commands/agent_run.rs",
+    "src/commands/criterion.rs",
+    "src/commands/dispatch.rs",
+    "src/commands/epic.rs",
+    "src/commands/file_set.rs",
+    "src/commands/fleet.rs",
+    "src/commands/forge.rs",
+    "src/commands/issue.rs",
+    "src/commands/task.rs",
+    "src/scheduler.rs",
+    "src/sidecar.rs",
+];
 
 fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -101,11 +120,11 @@ fn split_arguments(args: &str) -> Vec<&str> {
     parts.into_iter().map(str::trim).filter(|p| !p.is_empty()).collect()
 }
 
-/// `(call sites seen, offenders)`. A call site is an invocation of the helper — not its definition,
+/// `(files with at least one call site, call sites seen, offenders)`. A call site is an invocation of the helper — not its definition,
 /// not a `use`, not a comment — whose second argument must be a scope the reader can see:
 /// a literal `None` (a stated broadcast), a `Some(..)`, or a resolved `project_id.as_deref()`.
-fn scope_check(files: &[(String, String)]) -> (usize, Vec<String>) {
-    let (mut sites, mut offenders) = (0usize, Vec::new());
+fn scope_check(files: &[(String, String)]) -> (BTreeSet<String>, usize, Vec<String>) {
+    let (mut emitting, mut sites, mut offenders) = (BTreeSet::new(), 0usize, Vec::new());
     for (path, body) in files {
         let mut line_start = 0usize;
         for (n, line) in body.lines().enumerate() {
@@ -116,6 +135,7 @@ fn scope_check(files: &[(String, String)]) -> (usize, Vec<String>) {
             }
             let Some(col) = line.find(HELPER_CALL) else { continue };
             sites += 1;
+            emitting.insert(path.clone());
             let where_ = format!("{path}:{}", n + 1);
             let Some(args) = call_arguments(body, at + col) else {
                 offenders.push(format!("{where_}: unterminated call"));
@@ -132,7 +152,23 @@ fn scope_check(files: &[(String, String)]) -> (usize, Vec<String>) {
             }
         }
     }
-    (sites, offenders)
+    (emitting, sites, offenders)
+}
+
+/// `Err` naming every difference between the files that call the helper and `listed`.
+fn check_emitting_files(emitting: &BTreeSet<String>, listed: &[&str]) -> Result<(), String> {
+    let listed: BTreeSet<String> = listed.iter().map(|s| s.to_string()).collect();
+    let unlisted: Vec<&String> = emitting.difference(&listed).collect();
+    let missing: Vec<&String> = listed.difference(emitting).collect();
+    if unlisted.is_empty() && missing.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "the files that call `emit_board_changed` and EMITTING_FILES in tests/board_changed_payload.rs \
+         disagree; if the change is intended, edit EMITTING_FILES in the same diff.\n\
+         calls the helper but not listed: {unlisted:?}\n\
+         listed but no longer calls the helper: {missing:?}"
+    ))
 }
 
 #[test]
@@ -154,10 +190,15 @@ fn only_the_emit_helper_names_the_board_changed_event() {
 #[test]
 fn every_emit_helper_call_passes_an_explicit_project_scope() {
     let files = sources_under(&manifest_dir().join("src"));
-    let (sites, offenders) = scope_check(&files);
-    // Today's count is 50 (issue #38 deleted the commands behind the other 24). The floor stops the
-    // helper being bypassed by deleting emits, without turning a merged duplicate into a failure.
-    assert!(sites >= 46, "found only {sites} helper call sites; the matcher is broken or emits were removed");
+    let (emitting, sites, offenders) = scope_check(&files);
+    assert!(sites >= EMITTING_FILES.len(), "found only {sites} helper call sites; the matcher is broken");
+    assert!(
+        EMITTING_FILES.windows(2).all(|w| w[0] < w[1]),
+        "EMITTING_FILES must stay sorted with no duplicates, one path per line"
+    );
+    if let Err(e) = check_emitting_files(&emitting, EMITTING_FILES) {
+        panic!("{e}");
+    }
     assert!(
         offenders.is_empty(),
         "FNC-07: every emit states its project scope — `None` to broadcast, `Some(..)` or a resolved \
@@ -190,7 +231,17 @@ emit_board_changed(&app, Some(pid.as_str()), \"epic\", Some(&id));
 emit_board_changed(&app, scope, \"task\", Some(&id));
 emit_board_changed(&app, None, \"task\");
 ";
-    let (sites, offenders) = scope_check(&[("src/planted.rs".to_string(), calls.to_string())]);
+    let (emitting, sites, offenders) = scope_check(&[("src/planted.rs".to_string(), calls.to_string())]);
     assert_eq!(sites, 5);
+    assert_eq!(emitting.into_iter().collect::<Vec<_>>(), vec!["src/planted.rs".to_string()]);
     assert_eq!(offenders.len(), 2, "the vague scope and the three-argument call: {offenders:?}");
+}
+
+#[test]
+fn the_emitting_files_list_fails_on_an_unlisted_or_a_silent_file() {
+    let emitting: BTreeSet<String> = ["src/a.rs", "src/new.rs"].iter().map(|s| s.to_string()).collect();
+    let err = check_emitting_files(&emitting, &["src/a.rs", "src/b.rs"]).expect_err("both directions must fail");
+    assert!(err.contains("calls the helper but not listed: [\"src/new.rs\"]"), "{err}");
+    assert!(err.contains("listed but no longer calls the helper: [\"src/b.rs\"]"), "{err}");
+    assert!(check_emitting_files(&emitting, &["src/a.rs", "src/new.rs"]).is_ok());
 }

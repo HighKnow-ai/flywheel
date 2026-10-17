@@ -18,20 +18,142 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The exact number of commands in the `generate_handler!` roster (D-14). Pinned so the IPC
-/// surface cannot grow or shrink silently: a stray `*_set_status` writer, or a lost command, moves
-/// this number and fails the build. Move it in the same diff as any intended change to the roster.
-const ROSTER_COUNT: usize = 112;
+/// The `generate_handler!` roster (D-14), as `module::function`, sorted, one per line. Listed by
+/// name rather than pinned by count so the IPC surface cannot grow or shrink silently (a stray
+/// `*_set_status` writer, or a lost command, fails the build) while two PRs that each delete a
+/// different command touch different lines and merge without conflict. Add or remove a line in the
+/// same diff as any intended change to the roster.
+const ROSTER: &[&str] = &[
+    "actor::actor_list",
+    "agent_run::agent_run_acknowledge",
+    "agent_run::agent_run_acknowledge_many",
+    "agent_run::agent_run_answer_permission",
+    "agent_run::agent_run_discard",
+    "agent_run::agent_run_log_window",
+    "agent_run::agent_run_pending_permissions",
+    "agent_run::agent_run_raw_window",
+    "agent_run::agent_run_start",
+    "agent_run::agent_run_stop",
+    "agent_run::agent_runs_for_task",
+    "agent_run::agent_runs_pending_orphans",
+    "agent_run::board_blocked_summary",
+    "agent_run::board_recovery_summary",
+    "agent_run::orphan_kill",
+    "agent_run::permission_rule_revoke",
+    "agent_run::permission_rules_list",
+    "agent_run::task_latest_agent_run",
+    "agent_run::task_session_summaries",
+    "agent_run::worktree_forget_record",
+    "agent_run::worktree_recreate",
+    "agent_run::worktree_remove",
+    "agent_run::worktree_remove_check",
+    "agent_run::worktree_summary",
+    "change_flags::board_change_flags",
+    "criterion::criterion_create",
+    "criterion::criterion_delete",
+    "criterion::criterion_lint_advice",
+    "criterion::criterion_list",
+    "criterion::criterion_reorder",
+    "criterion::criterion_revise",
+    "criterion::criterion_revisions",
+    "criterion::criterion_toggle",
+    "criterion::criterion_update",
+    "criterion::task_criteria_waive",
+    "criterion::task_criterion_coverage",
+    "dispatch::dispatch_advance_now",
+    "dispatch::dispatch_gate_resume_now",
+    "dispatch::dispatch_gate_state",
+    "dispatch::dispatch_plan_approve",
+    "dispatch::dispatch_plan_create",
+    "dispatch::dispatch_plan_edit",
+    "dispatch::dispatch_plan_get",
+    "dispatch::dispatch_plan_pause",
+    "dispatch::dispatch_plan_resume",
+    "dispatch::dispatch_plan_stop",
+    "dispatch::dispatch_why",
+    "dispatch::retry_task",
+    "dispatch::skip_task",
+    "epic::epic_create",
+    "epic::epic_delete",
+    "epic::epic_list_all",
+    "epic::epic_reorder",
+    "epic::epic_set_assignee",
+    "epic::epic_set_priority",
+    "epic::epic_update",
+    "events::events_activity_trail",
+    "events::events_since_cursor",
+    "file_set::board_scope_flags",
+    "file_set::repo_tracked_paths",
+    "file_set::task_file_set_provenance",
+    "file_set::task_file_set_widen",
+    "fleet::fleet_blocked_queue",
+    "fleet::fleet_list",
+    "fleet::fleet_watch_run",
+    "fleet::worktree_inventory",
+    "fleet::worktree_measure",
+    "fleet::worktree_reclaim",
+    "forge::board_forge_flags",
+    "forge::forge_epic_request_draft",
+    "forge::forge_open_epic_request",
+    "forge::forge_open_request",
+    "forge::forge_request_draft",
+    "forge::forge_request_for_epic",
+    "forge::forge_request_for_task",
+    "forge::project_forge_overrides",
+    "forge::settings_set_project_forge",
+    "git_identity::git_identifier_resolve",
+    "git_truth::git_facts",
+    "git_truth::git_truth_focus_task",
+    "issue::issue_create",
+    "issue::issue_delete",
+    "issue::issue_reorder",
+    "issue::issue_set_parent",
+    "issue::issue_update",
+    "menu::menu_set_action_enabled",
+    "project::project_hide",
+    "project::project_list",
+    "project::project_reconcile",
+    "project::project_register",
+    "project::project_relocate",
+    "project::project_restore",
+    "review::review_criteria_state",
+    "settings::backend_capability_probe",
+    "settings::settings_clear_api_key",
+    "settings::settings_get",
+    "settings::settings_set_credential_mode",
+    "settings::settings_set_dispatch_max_parallel",
+    "settings::settings_set_notifications_enabled",
+    "settings::settings_store_api_key",
+    "task::epic_header",
+    "task::task_create",
+    "task::task_delete",
+    "task::task_header",
+    "task::task_reorder",
+    "task::task_set_assignee",
+    "task::task_set_epic",
+    "task::task_set_priority",
+    "task::task_update",
+    "worktree_open::open_command_template",
+    "worktree_open::set_open_command_template",
+    "worktree_open::worktree_open",
+];
 
-/// `Err` unless `roster` holds exactly `pin` entries, in either direction.
-fn check_roster_pin(roster: &BTreeSet<Command>, pin: usize) -> Result<(), String> {
-    match roster.len() {
-        n if n == pin => Ok(()),
-        n => Err(format!(
-            "the roster holds {n} commands but ROSTER_COUNT pins {pin}; if the change is intended, \
-             move the pin in the same diff"
-        )),
+/// `Err` naming every difference between `roster` and `listed`, in both directions: a command the
+/// roster registers that `listed` lacks, and a `listed` name the roster no longer registers.
+fn check_roster_list(roster: &BTreeSet<Command>, listed: &[&str]) -> Result<(), String> {
+    let roster: BTreeSet<String> = roster.iter().map(|(m, f)| format!("{m}::{f}")).collect();
+    let listed: BTreeSet<String> = listed.iter().map(|s| s.to_string()).collect();
+    let unlisted: Vec<&String> = roster.difference(&listed).collect();
+    let missing: Vec<&String> = listed.difference(&roster).collect();
+    if unlisted.is_empty() && missing.is_empty() {
+        return Ok(());
     }
+    Err(format!(
+        "the `generate_handler!` roster and ROSTER in tests/handler_roster.rs disagree; if the change \
+         is intended, edit ROSTER in the same diff.\n\
+         registered but not listed in ROSTER: {unlisted:?}\n\
+         listed in ROSTER but not registered: {missing:?}"
+    ))
 }
 
 /// `(module, function)`, the shape of a `commands::<module>::<function>` roster entry.
@@ -134,13 +256,9 @@ fn every_tauri_command_is_registered_in_generate_handler() {
     let main_src = fs::read_to_string(manifest_dir().join("src/main.rs")).expect("read main.rs");
     let roster = parse_roster(&main_src);
 
-    assert!(
-        declared.len() == ROSTER_COUNT,
-        "collected {} commands from src/commands but ROSTER_COUNT pins {ROSTER_COUNT}",
-        declared.len()
-    );
-    assert!(ROSTER_COUNT > 100, "ROSTER_COUNT is {ROSTER_COUNT}; a pin that small means the extractor is broken");
-    if let Err(e) = check_roster_pin(&roster, ROSTER_COUNT) {
+    assert!(ROSTER.len() > 100, "ROSTER lists {} commands; a list that small means it was truncated", ROSTER.len());
+    assert!(ROSTER.windows(2).all(|w| w[0] < w[1]), "ROSTER must stay sorted with no duplicates, one name per line");
+    if let Err(e) = check_roster_list(&roster, ROSTER) {
         panic!("{e}");
     }
 
@@ -186,22 +304,26 @@ pub fn forgotten_command() {}
     assert_eq!(orphaned, vec![("planted".to_string(), "ghost".to_string())]);
 }
 
-fn synthetic_roster(n: usize) -> BTreeSet<Command> {
-    let entries: Vec<String> = (0..n).map(|i| format!("commands::planted::c{i}")).collect();
+fn roster_of(names: &[&str]) -> BTreeSet<Command> {
+    let entries: Vec<String> = names.iter().map(|n| format!("commands::{n}")).collect();
     parse_roster(&format!("generate_handler![{}]", entries.join(", ")))
 }
 
 #[test]
-fn the_roster_pin_fails_when_the_roster_grows_by_one() {
-    assert!(check_roster_pin(&synthetic_roster(ROSTER_COUNT + 1), ROSTER_COUNT).is_err());
+fn the_roster_list_fails_on_an_unlisted_command() {
+    let err = check_roster_list(&roster_of(&["planted::a", "planted::b", "planted::extra"]), &["planted::a", "planted::b"])
+        .expect_err("an unlisted command must fail");
+    assert!(err.contains("registered but not listed in ROSTER: [\"planted::extra\"]"), "{err}");
 }
 
 #[test]
-fn the_roster_pin_fails_when_the_roster_shrinks_by_one() {
-    assert!(check_roster_pin(&synthetic_roster(ROSTER_COUNT - 1), ROSTER_COUNT).is_err());
+fn the_roster_list_fails_on_a_missing_command() {
+    let err = check_roster_list(&roster_of(&["planted::a"]), &["planted::a", "planted::gone"])
+        .expect_err("a listed command that is no longer registered must fail");
+    assert!(err.contains("listed in ROSTER but not registered: [\"planted::gone\"]"), "{err}");
 }
 
 #[test]
-fn the_roster_pin_passes_on_an_exact_match() {
-    assert!(check_roster_pin(&synthetic_roster(ROSTER_COUNT), ROSTER_COUNT).is_ok());
+fn the_roster_list_passes_on_an_exact_match() {
+    assert!(check_roster_list(&roster_of(&["planted::a", "planted::b"]), &["planted::a", "planted::b"]).is_ok());
 }
