@@ -44,6 +44,20 @@ _Avoid_: Decision log, design doc
 A change suggested by an agent to any board record, ADR or glossary term (create, amend, reorder or retire it) that has no effect until the developer accepts it.
 _Avoid_: Issue, suggestion, draft
 
+## Shaping
+
+**Shaping**:
+Turning a board record into something an agent can execute by having an agent challenge it with the developer, one Stage after another, until nothing in it is open.
+_Avoid_: Authoring, planning, grooming
+
+**Stage**:
+One step of shaping an Epic (challenge the spec, slice it into Stories, write the Acceptance criteria), which the developer closes once it has no open question and no undecided Proposal.
+_Avoid_: Phase, step
+
+**Round**:
+A batch of numbered questions the agent asks during a Stage, each with a recommended answer the developer can accept as it is or replace with their own.
+_Avoid_: Turn, interview, questionnaire
+
 ## Agent work
 
 **Gated action**:
