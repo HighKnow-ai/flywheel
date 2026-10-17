@@ -36,7 +36,7 @@ anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Vendored now, wired later (.claude/CLAUDE.md "vendor now, wire later"; STATE.md open blocker):
 # the automations milestone's scheduled-trigger source needs a cron primitive; no code in this
-# crate starts a scheduler yet (`domain::trigger::cron_tick_trigger_unimplemented`).
+# crate starts a scheduler yet (the desktop crate runs the git-truth ticks on it).
 tokio-cron-scheduler = "0.15"
 keyring = { version = "4.2.0", features = ["apple-native-keyring-store"] }
 # Pid-reuse-safe liveness for the launch reconciler (plan 03-06, PROC-05): pid alone is never
@@ -51,15 +51,7 @@ sysinfo = "=0.39.6"
 # step on the Rust side. Already resolved transitively (via sysinfo); declared directly here
 # because this crate calls it by name.
 libc = "0.2"
-# Already a dev-dependency for every test fixture's scratch directories; promoted to a real
-# dependency here because `forge::gitlab::create_request` (plan 07-09) writes the merge request
-# description to an owner-only `NamedTempFile` rather than argv (T-07-09-02) — `glab mr create`
-# has no stdin-reading form, unlike `gh pr create`'s `--body-file -`.
+# Scratch directories for the test fixtures and the `[[bin]]` harnesses under `tests/bin`.
 tempfile = "3"
-# `RequestDraft::content_hash` (plan 08-14, G-08-5/WR-08): the epic request confirm refuses when the
-# draft it would publish is not the draft the sheet rendered, and the comparison is a SHA-256 over the
-# title and body. `0.10.9` is already resolved in the workspace `Cargo.lock` (via `tauri-codegen`/`wry`),
-# so declaring it here adds no package to the resolved tree.
-sha2 = "0.10"
 
 [dev-dependencies]
