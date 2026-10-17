@@ -1,0 +1,31 @@
+/* PROTOTYPE — throwaway. Only the variant bar and resets; each variant owns its own layout. */
+html, body, #root { height: 100%; margin: 0; }
+body {
+  background: var(--surface-dominant);
+  color: var(--text-primary-rack);
+  font-family: var(--font-family);
+  font-size: 13px;
+}
+* { box-sizing: border-box; }
+button { font: inherit; }
+.proto-bar {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; z-index: 1000;
+  padding: 6px 10px; border-radius: 999px;
+  background: #111; color: #fff; box-shadow: 0 6px 24px rgba(0,0,0,.35);
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.proto-bar button {
+  background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 999px;
+  padding: 3px 10px; cursor: pointer; font: inherit;
+}
+.proto-bar button:disabled { opacity: .4; cursor: default; }
+.proto-sep { width: 1px; height: 16px; background: #555; }
+.proto-log {
+  position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+  width: min(560px, 92vw); max-height: 40vh; overflow: auto; z-index: 1000;
+  background: #111; color: #ddd; border-radius: 10px; padding: 10px 12px;
+  font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  box-shadow: 0 6px 24px rgba(0,0,0,.35);
+}
+.proto-log strong { display: block; color: #fff; margin-bottom: 4px; }
