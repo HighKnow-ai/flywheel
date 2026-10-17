@@ -39,63 +39,6 @@
 }
 
 /*
- * A suggestion from an agent, ghosted into the field it concerns (phase 15, DRFT-03). Muted ink and a
- * dashed hairline say "not yet yours" without a colour of its own: the tokens are the group's, and the
- * word "Suggested" carries the meaning, so nothing rests on colour or on italics alone.
- */
-.detail-title-ghost {
-  color: var(--text-muted-rack);
-  font-style: italic;
-}
-
-.detail-ghost {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  padding: var(--space-sm);
-  border: 1px dashed var(--border-control);
-}
-
-.detail-ghost-note {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-sm);
-  margin: 0;
-  color: var(--text-muted-rack);
-}
-
-.detail-ghost-text {
-  margin: 0;
-  color: var(--text-muted-rack);
-  font-style: italic;
-}
-
-.detail-ghost-current {
-  margin: 0;
-  color: var(--text-muted-rack);
-}
-
-.detail-ghost-priority {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-sm);
-  margin-inline-start: var(--space-sm);
-  color: var(--text-muted-rack);
-  font-style: italic;
-}
-
-/* Reject is a plain text action on the panel's ground: an undo, not a drawn action. */
-.detail-ghost-reject {
-  background: transparent;
-  border: none;
-  color: inherit;
-  cursor: pointer;
-  text-decoration: underline;
-  padding: 0;
-}
-
-/*
  * The property grid, in the body face: a muted label and its value, one row each (the comp's `.props`).
  * It is also how the Worktree and Changes rows of the sections below are drawn, so every fact about the item
  * reads the same way. A row exists only when it has a value.

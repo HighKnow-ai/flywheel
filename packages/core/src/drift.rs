@@ -57,7 +57,7 @@ pub struct DriftWarning {
 #[derive(Debug, Clone, Copy)]
 pub struct DriftInputs<'a> {
     /// The summaries in scope, oldest-first — the same bounded list `ContextPacket.summaries`
-    /// carries (at most `compaction::SUMMARY_WINDOW` of the task's newest), not every summary the
+    /// carries (at most [`SUMMARY_WINDOW`] of the task's newest), not every summary the
     /// task has ever had. The claimed-files, staleness and read-back detectors all read only its
     /// LAST element (the latest summary); the read-back detector also folds every element's own
     /// `decisions` to build the recorded-decision set over the summaries in scope.
@@ -335,12 +335,15 @@ pub fn scope_backstop_inputs(
     }))
 }
 
+/// How many of a task's newest session summaries are in scope for drift (FNC-05).
+pub const SUMMARY_WINDOW: usize = 25;
+
 /// The most candidate ids [`decision_ids_on_record`] will resolve in one call. It matches
-/// `compaction::SUMMARY_WINDOW`, so the detector can never be asked to resolve more ids than the
+/// [`SUMMARY_WINDOW`], so the detector can never be asked to resolve more ids than the
 /// window itself carries. The MCP `acknowledged_decisions` array has no `maxItems`, so an agent can
 /// echo any number of ids; the cap is what makes the lookup's cost independent of that, which is why
 /// it is a bound and not cosmetic.
-pub const MAX_ECHOED_DECISION_CANDIDATES: usize = crate::compaction::SUMMARY_WINDOW;
+pub const MAX_ECHOED_DECISION_CANDIDATES: usize = SUMMARY_WINDOW;
 
 /// NOT pure, and not part of `detect_drift` — like the scope backstop around it, it reads the
 /// database. The caller resolves it BEFORE calling `detect_drift`, which is what keeps the
