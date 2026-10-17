@@ -77,7 +77,7 @@ A session that is live but can't go on until the developer answers it: a Gated a
 _Avoid_: Blocked, paused
 
 **Stopped**:
-A Running Story with no live session that never handed off for review; its worktree is intact and it can be resumed.
+A Running Story with no live session that never handed off for review; its worktree is left exactly as it was, and resuming it starts a new session from the Context packet rather than continuing the old one.
 _Avoid_: Failed, interrupted, abandoned
 
 **Needs you**:
@@ -89,7 +89,7 @@ Everything a new Story session is rebuilt from, read off the board and the workt
 _Avoid_: Prompt, briefing, context
 
 **Session summary**:
-A short note a Story session leaves for the next one: what it must know and what was decided.
+A short note a Story session leaves for the next one: what it must know and what was decided. When a session stops without handing off, Flywheel writes a stub in its place saying why it ended and where it was.
 _Avoid_: Handoff note, recap
 
 **Gated action**:
