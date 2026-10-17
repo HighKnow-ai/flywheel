@@ -1,0 +1,443 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throw away. Lives only on the branch `prototype/execution-proposals`. It is never merged.
+
+  Question (wayfinder ticket "How do Proposals filed during execution reach Cyril, and how are they triaged?"):
+  when Story agents file Proposals while they run, how many arrive, how are they capped and grouped,
+  where do they show, and what does accepting / editing / rejecting one feel like and create?
+
+  Four variants, switchable via `?variant=A|B|C|D`, the floating bar, or the ← → keys.
+  Each variant is a different *policy* as well as a different look; the policy card at the top says which.
+  Every decision you take is written to the "Board after your decisions" log (bottom right), so you can see
+  what accepting creates. Reset clears it. Double-click to open.
+
+  Assumptions shared by every variant (react to them):
+    - The screen is the chosen project screen (ticket "What does 'clear project status at a glance' look like"):
+      Needs you, then the Milestone roster.
+    - Execution Proposals target board records only. ADRs and glossary terms written during execution go through
+      the Story's diff and review (ADR 0002, ticket "How does an agent propose an ADR").
+    - A Proposal never pauses the agent that filed it. If the agent can't go on without an answer, that's a
+      question (Waiting on you), not a Proposal.
+    - Mock volume: 9 Proposals from 4 running Stories over an afternoon, including one duplicate pair.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Execution Proposals Prototype</title>
+<style>
+@font-face { font-family: "Archivo Variable"; src: url("../public/fonts/Archivo-Variable.ttf") format("truetype-variations"); font-weight: 100 900; }
+:root {
+  --ground: #ffffff; --surface: #f6f8fa; --rule: #d1d9e0; --edge: #7a828c;
+  --ink: #1f2328; --muted: #59636e; --brand: #3c64dd; --brand-text: #3c64dd;
+  --done: #1a7f37; --failed: #cf222e; --blocked: #9a6700;
+  --needs-wash: #fff8e5; --needs-edge: #d4a72c; --run-wash: #eef2fd;
+  --ghost-wash: #f3f0ff; --ghost-edge: #8a63d2; --add: #1a7f37; --del: #cf222e;
+  --hover: #fafbfc;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0a0a0a; --surface: #0f0f0f; --rule: #2c2c2c; --edge: #707070;
+    --ink: #ededed; --muted: #8b8b8b; --brand: #3c64dd; --brand-text: #5175e1;
+    --done: #3fb950; --failed: #f85149; --blocked: #d29922;
+    --needs-wash: #1c1708; --needs-edge: #6b5413; --run-wash: #0e1426;
+    --ghost-wash: #15102a; --ghost-edge: #8a63d2; --add: #3fb950; --del: #f85149; --hover: #0c0c0c;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0a0a0a; --surface: #0f0f0f; --rule: #2c2c2c; --edge: #707070;
+  --ink: #ededed; --muted: #8b8b8b; --brand: #3c64dd; --brand-text: #5175e1;
+  --done: #3fb950; --failed: #f85149; --blocked: #d29922;
+  --needs-wash: #1c1708; --needs-edge: #6b5413; --run-wash: #0e1426;
+  --ghost-wash: #15102a; --ghost-edge: #8a63d2; --add: #3fb950; --del: #f85149; --hover: #0c0c0c;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--ground); color: var(--ink); font: 13px/1.4 "Archivo Variable", system-ui, sans-serif; }
+.mono { font-family: ui-monospace, monospace; font-size: 11.5px; }
+.muted { color: var(--muted); }
+.micro { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+h1 { font-size: 15px; font-weight: 600; margin: 0; }
+h2 { font-size: 13px; font-weight: 600; margin: 0; }
+a { color: var(--brand-text); text-decoration: none; cursor: pointer; }
+button { font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--edge); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+button.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+button.small { padding: 1px 7px; font-size: 11px; }
+button:disabled { opacity: .4; cursor: default; }
+textarea { font: inherit; width: 100%; background: var(--ground); color: var(--ink); border: 1px solid var(--edge); border-radius: 6px; padding: 6px; }
+
+.app { display: grid; grid-template-columns: 220px 1fr; height: 100vh; }
+.side { background: var(--surface); border-right: 1px solid var(--rule); padding: 38px 0 12px; overflow: auto; }
+.side .proj { display: flex; align-items: center; gap: 8px; padding: 6px 16px; }
+.side .proj.on { background: var(--ground); box-shadow: inset 2px 0 0 var(--ink); font-weight: 600; }
+.side .badge { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--blocked); }
+.side .sec { padding: 14px 16px 6px; }
+.titlebar { height: 38px; border-bottom: 1px solid var(--rule); display: flex; align-items: center; padding: 0 20px; gap: 12px; }
+.main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; position: relative; }
+.content { overflow: auto; flex: 1; padding-bottom: 120px; }
+
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.d-run { background: var(--brand); animation: pulse 1.6s ease-in-out infinite; }
+.d-review { box-shadow: inset 0 0 0 2px var(--blocked); }
+.d-merged { background: var(--done); }
+.d-quiet { box-shadow: inset 0 0 0 1.5px var(--edge); }
+.d-ghost { box-shadow: inset 0 0 0 1.5px var(--ghost-edge); }
+@keyframes pulse { 50% { opacity: .35; } }
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; border: 1px solid var(--rule); border-radius: 3px; padding: 1px 6px; white-space: nowrap; }
+.pill.ghost { border-color: var(--ghost-edge); color: var(--ghost-edge); }
+.row { display: flex; align-items: center; gap: 10px; }
+.grow { flex: 1; min-width: 0; }
+.ellip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.del { color: var(--del); text-decoration: line-through; }
+.add { color: var(--add); }
+
+/* policy card: what this variant decides */
+.policy { margin: 14px 28px 0; padding: 10px 14px; border: 1px dashed var(--edge); border-radius: 6px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; font-size: 12px; }
+.policy b { display: block; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+
+.needs { padding: 14px 28px 16px; border-bottom: 1px solid var(--rule); }
+.needs .item { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: start; padding: 10px 12px; border-radius: 6px; margin-top: 6px; background: var(--needs-wash); border: 1px solid var(--needs-edge); }
+.needs .item.calm { background: var(--surface); border-color: var(--rule); }
+.mshead { padding: 14px 28px; border-bottom: 1px solid var(--rule); }
+.epic { border-bottom: 1px solid var(--rule); }
+.ehead { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; padding: 10px 28px; }
+.story { display: grid; grid-template-columns: 14px minmax(240px, 1.3fr) 100px 1.5fr auto; gap: 12px; align-items: center; padding: 0 28px 0 48px; min-height: 34px; border-top: 1px solid var(--rule); }
+.story.ghost { background: var(--ghost-wash); border: 1px dashed var(--ghost-edge); margin: 4px 28px 4px 40px; padding-left: 8px; border-radius: 6px; }
+.story.gone { opacity: .45; text-decoration: line-through; }
+.amend { margin: 0 28px 6px 70px; padding: 6px 10px; background: var(--ghost-wash); border: 1px dashed var(--ghost-edge); border-radius: 6px; font-size: 12px; }
+
+/* proposal card (shared) */
+.pcard { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; margin-top: 8px; background: var(--ground); }
+.pcard.ghostly { border: 1px dashed var(--ghost-edge); background: var(--ghost-wash); }
+.pcard.done { opacity: .55; }
+.pcard .why { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.pcard .acts { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+.kind { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ghost-edge); }
+.verdict { font-size: 11px; font-weight: 600; }
+.verdict.acc { color: var(--done); } .verdict.rej { color: var(--failed); }
+
+/* A: drawer */
+.drawer { position: absolute; top: 38px; right: 0; bottom: 0; width: 520px; background: var(--ground); border-left: 1px solid var(--rule); box-shadow: -8px 0 24px rgba(0,0,0,.08); overflow: auto; padding: 16px 18px 120px; }
+.group { margin-top: 18px; }
+/* C: review panel */
+.review { margin: 16px 28px; border: 1px solid var(--rule); border-radius: 8px; }
+.review section { padding: 12px 16px; border-top: 1px solid var(--rule); }
+.review section:first-child { border-top: none; }
+/* D: triage queue */
+.queue { max-width: 760px; margin: 18px auto; padding: 0 28px; }
+.bigcard { border: 1px solid var(--rule); border-radius: 10px; padding: 18px 20px; margin-top: 10px; }
+.bigcard h3 { font-size: 17px; margin: 4px 0 8px; font-weight: 600; }
+.kbd { font: 600 10px ui-monospace, monospace; border: 1px solid var(--edge); border-radius: 3px; padding: 0 4px; }
+
+.log { position: fixed; right: 16px; bottom: 70px; width: 380px; max-height: 40vh; overflow: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; font-size: 12px; z-index: 40; box-shadow: 0 6px 24px rgba(0,0,0,.12); }
+.log li { margin: 4px 0; }
+.switcher { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 50;
+  display: flex; align-items: center; gap: 4px; background: #111; color: #fff; border-radius: 999px;
+  padding: 6px 8px; box-shadow: 0 6px 24px rgba(0,0,0,.35); font: 600 12px system-ui, sans-serif; outline: 2px dashed #f0f; outline-offset: 3px; }
+.switcher button { background: none; border: none; color: #fff; font-size: 15px; padding: 2px 10px; }
+.switcher span { min-width: 320px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="sec micro">Projects</div>
+    <div class="proj on">flywheel <span class="badge" id="sidebadge"></span></div>
+    <div class="proj">cymarechal.net</div>
+    <div class="proj">ledger-cli</div>
+    <div class="sec micro">Running</div>
+    <div class="proj muted"><span class="dot d-run"></span> 4 sessions</div>
+  </aside>
+  <div class="main">
+    <div class="titlebar"><h1>flywheel</h1><span class="muted">Milestone · Supervise a real week</span></div>
+    <div class="content" id="content"></div>
+    <div id="overlay"></div>
+  </div>
+</div>
+<div class="log" id="log"></div>
+<div class="switcher"><button id="prev">←</button><span id="vname"></span><button id="next">→</button></div>
+
+<script>
+// ---------- mock data, new model (GLOSSARY.md) ----------
+const EPICS = [
+  { id: 'E1', name: 'Permissions that stay out of the way', state: 'In progress', stories: [
+    { id: 'S1', name: 'Deny-list replaces the classifier', state: 'Running', now: 'editing shim/classify.ts' },
+    { id: 'S2', name: 'Remember a rule per project and pattern', state: 'Ready', now: '' },
+    { id: 'S3', name: 'Gated action card with the literal command', state: 'Merged', now: '' },
+  ]},
+  { id: 'E2', name: 'Readable session feed', state: 'In progress', stories: [
+    { id: 'S4', name: 'Agent turns render as markdown', state: 'Running', now: 'running Check 2 of 3' },
+    { id: 'S5', name: 'Tool results render as structured blocks', state: 'In review', now: '+412 −96' },
+    { id: 'S6', name: 'Feed filter chips', state: 'Ready', now: '' },
+  ]},
+  { id: 'E3', name: 'Roster shows what each agent is doing', state: 'In progress', stories: [
+    { id: 'S7', name: 'Story row shows the current Task', state: 'Running', now: 'writing roster/StoryRow.tsx' },
+    { id: 'S8', name: '"Needs you" ranking', state: 'Ready', now: '' },
+    { id: 'S9', name: '"Since you last looked" timeline', state: 'Ready', now: '' },
+  ]},
+];
+const storyName = id => EPICS.flatMap(e => e.stories).find(s => s.id === id)?.name;
+const epicOf = id => EPICS.find(e => e.stories.some(s => s.id === id));
+
+// kind: new-story | amend-criterion | amend-story | reorder | retire | new-epic | amend-epic
+const PROPOSALS = [
+  { id: 'P1', from: 'S4', at: '13:12', kind: 'new-story', epic: 'E2', title: 'Collapse hook and rate-limit noise into one muted row',
+    why: 'While rendering turns I found 31% of feed rows in the fixture are hook/heartbeat events. Out of my Story\'s scope.', evidence: 'feed/fixtures/session-0412.jsonl · 214 of 690 rows' },
+  { id: 'P2', from: 'S5', at: '13:40', kind: 'amend-criterion', target: 'S5', title: 'AC2 on "Tool results render as structured blocks"',
+    before: 'Tool results render as a table', after: 'Tool results render as a collapsible JSON tree; flat arrays of objects render as a table',
+    why: '40% of Read/Grep results are nested; a table drops the nesting. Check 2 is unchanged.', evidence: 'feed/ToolResult.tsx:88' },
+  { id: 'P3', from: 'S1', at: '14:05', kind: 'amend-criterion', target: 'S2', title: 'AC1 on "Remember a rule per project and pattern"',
+    before: 'A rule is keyed by project and exact command', after: 'A rule is keyed by project and command prefix up to the first argument that is a path',
+    why: 'The deny-list matches by prefix; exact-command rules would never hit again for `git log -n 5` vs `-n 10`.', evidence: 'shim/classify.ts:41' },
+  { id: 'P4', from: 'S1', at: '14:22', kind: 'new-story', epic: 'E1', title: 'Shim times out on a long `git fetch` and reports a denial',
+    why: 'Found while testing: a 40s fetch trips the 30s shim timeout and shows as "denied". Real bug, not in my criteria.', evidence: 'shim/run.ts:17 · repro in shim/__tests__/timeout.test.ts (skipped)' },
+  { id: 'P5', from: 'S7', at: '14:30', kind: 'new-epic', title: 'Session cost visibility',
+    why: 'Tokens per Story would help judge when to /clear. Doesn\'t fit this Milestone\'s exit test.', evidence: 'no code yet' },
+  { id: 'P6', from: 'S7', at: '14:51', kind: 'reorder', epic: 'E3', title: 'Run "Needs you ranking" before "Since you last looked"',
+    why: 'The timeline reuses the ranking\'s event query; doing it second avoids writing it twice.', evidence: 'roster/queries.ts' },
+  { id: 'P7', from: 'S4', at: '15:10', kind: 'retire', target: 'S6', title: 'Drop "Feed filter chips"',
+    why: 'Once noise is collapsed (P1) and turns render, the chips filter 4 kinds of row. Not worth a Story.', evidence: 'depends on P1' },
+  { id: 'P8', from: 'S5', at: '15:18', kind: 'new-story', epic: 'E2', title: 'Hide heartbeat and hook rows from the feed', dupOf: 'P1',
+    why: 'Heartbeats dominate long sessions.', evidence: 'feed/fixtures/session-0412.jsonl' },
+  { id: 'P9', from: 'S1', at: '15:44', kind: 'amend-epic', target: 'E1', title: 'Add to "Out of scope" of "Permissions that stay out of the way"',
+    before: '', after: 'Network egress rules (the threat model is accidents, ADR 0001)',
+    why: 'I kept being tempted to add curl/wget rules; writing it down stops the next agent too.', evidence: 'docs/adr/0001-agent-permissions-allow-by-default.md' },
+];
+const KIND = { 'new-story': 'New Story', 'amend-criterion': 'Amend criterion', 'amend-story': 'Amend Story', 'reorder': 'Reorder', 'retire': 'Retire Story', 'new-epic': 'New Epic', 'amend-epic': 'Amend Epic spec' };
+// which Epic a proposal lands on (for grouping by target)
+const landsOn = p => p.epic || (p.kind === 'amend-epic' ? p.target : p.target ? epicOf(p.target)?.id : null);
+
+// ---------- decisions + board effects (the state the prototype surfaces) ----------
+let decided = {};   // id -> {v: 'accepted'|'rejected'|'edited', text?, reason?}
+let log = [];
+function effect(p, d) {
+  const src = `from "${storyName(p.from)}"`;
+  if (d.v === 'rejected') return `Rejected ${KIND[p.kind]} "${p.title}" ${src}.` + (d.reason ? ` Reason kept in the Epic's packet so agents don't re-propose it: "${d.reason}".` : ' No reason given.');
+  const t = d.text || p.after || p.title;
+  switch (p.kind) {
+    case 'new-story': return `Created Story "${d.text || p.title}" in Epic "${EPICS.find(e=>e.id===p.epic).name}", state <b>Shaping</b> (needs criteria before it can run).`;
+    case 'amend-criterion': {
+      const s = EPICS.flatMap(e=>e.stories).find(s=>s.id===p.target);
+      return `Changed criterion on "${s.name}" to "${t}".` + (s.state === 'Running' || s.state === 'In review' ? ` Its last Check run is marked <b>stale</b>; the running agent sees the change on its next turn.` : '');
+    }
+    case 'reorder': return `Execution order in "${EPICS.find(e=>e.id===p.epic).name}" changed: ${p.title.replace('Run ','')}.`;
+    case 'retire': return `"${storyName(p.target)}" moved to <b>Dropped</b>.`;
+    case 'new-epic': return `Created Epic "${d.text || p.title}" in <b>Shaping</b>, parked on the Roadmap after this Milestone.`;
+    case 'amend-epic': return `Epic spec updated: Out of scope + "${t}". Every Story packet in the Epic carries it from the next session.`;
+  }
+}
+function decide(id, v, extra = {}) {
+  const p = PROPOSALS.find(p => p.id === id);
+  decided[id] = { v, ...extra };
+  log.unshift(`<span class="mono">${p.id}</span> ${effect(p, decided[id])}`);
+  if (v !== 'rejected') PROPOSALS.filter(q => q.dupOf === id && !decided[q.id]).forEach(q => {
+    decided[q.id] = { v: 'rejected', reason: 'duplicate of ' + id };
+    log.unshift(`<span class="mono">${q.id}</span> Closed as a duplicate of ${id}; "${storyName(q.from)}" is told.`);
+  });
+  render();
+}
+const pending = (list = PROPOSALS) => list.filter(p => !decided[p.id]);
+
+function diffLine(p) {
+  if (p.kind === 'amend-criterion') return `<div class="mono" style="margin-top:4px"><span class="del">${p.before}</span><br><span class="add">${p.after}</span></div>`;
+  if (p.kind === 'amend-epic') return `<div class="mono add" style="margin-top:4px">+ ${p.after}</div>`;
+  return '';
+}
+function actions(p, opts = {}) {
+  const d = decided[p.id];
+  if (d) return `<div class="acts"><span class="verdict ${d.v === 'rejected' ? 'rej' : 'acc'}">${d.v === 'rejected' ? 'Rejected' + (d.reason ? ' · ' + d.reason : '') : d.v === 'edited' ? 'Accepted with edits' : 'Accepted'}</span></div>`;
+  return `<div class="acts">
+    <button class="small primary" onclick="decide('${p.id}','accepted')">Accept</button>
+    <button class="small" onclick="editP('${p.id}')">Edit</button>
+    <button class="small" onclick="rejectP('${p.id}')">Reject</button>
+    ${opts.extra || ''}
+  </div>`;
+}
+function editP(id) {
+  const p = PROPOSALS.find(p => p.id === id);
+  const t = prompt('Edit before accepting:', p.after || p.title);
+  if (t) decide(id, 'edited', { text: t });
+}
+function rejectP(id) {
+  const r = prompt('Why not? (optional, kept so agents don\'t propose it again)', '');
+  if (r !== null) decide(id, 'rejected', { reason: r });
+}
+function card(p, opts = {}) {
+  const dup = p.dupOf && !decided[p.id] ? `<span class="pill">looks like ${p.dupOf}</span>` : '';
+  return `<div class="pcard ${opts.ghost ? 'ghostly' : ''} ${decided[p.id] ? 'done' : ''}">
+    <div class="row"><span class="kind">${KIND[p.kind]}</span><span class="mono muted">${p.id}</span>${dup}<span class="grow"></span>
+      <span class="muted" style="font-size:11px">${opts.hideFrom ? '' : 'from ' + storyName(p.from) + ' · '}${p.at}</span></div>
+    <div style="margin-top:3px;font-weight:600">${p.title}</div>
+    ${diffLine(p)}
+    <div class="why">${p.why}</div>
+    <div class="mono muted" style="margin-top:3px">${p.evidence}</div>
+    ${actions(p)}
+  </div>`;
+}
+
+// ---------- shared screen pieces ----------
+const STATE_DOT = { 'Running': 'd-run', 'In review': 'd-review', 'Merged': 'd-merged', 'Ready': 'd-quiet', 'Shaping': 'd-quiet', 'Dropped': 'd-quiet' };
+function storyRow(s, right = '') {
+  const dropped = PROPOSALS.some(p => p.kind === 'retire' && p.target === s.id && decided[p.id] && decided[p.id].v !== 'rejected');
+  return `<div class="story ${dropped ? 'gone' : ''}"><span class="dot ${STATE_DOT[s.state]}"></span><span class="ellip">${s.name}</span>
+    <span class="muted">${dropped ? 'Dropped' : s.state}</span><span class="muted ellip mono">${s.now}</span><span>${right}</span></div>`;
+}
+const otherNeeds = `
+  <div class="item"><span class="dot d-review" style="margin-top:4px"></span><div><b>Review</b> · Tool results render as structured blocks <div class="muted">+412 −96 · 3/3 Checks pass</div></div><button class="small">Open review</button></div>`;
+function policy(where, group, cap, interrupt) {
+  return `<div class="policy"><div><b>Where they show</b>${where}</div><div><b>Grouping</b>${group}</div><div><b>Caps</b>${cap}</div><div><b>Interrupts Cyril?</b>${interrupt}</div></div>`;
+}
+function msHead() {
+  return `<div class="mshead"><div class="micro">Milestone</div><h2>Supervise a real week</h2>
+    <div class="muted">Exit test: Cyril works a full day across two projects from Flywheel with no bare terminal.</div></div>`;
+}
+
+// ---------- Variant A: Needs-you entry opens a triage drawer, grouped by where they land ----------
+let drawer = false;
+function A() {
+  const n = pending().length, from = new Set(pending().map(p => p.from)).size;
+  let h = policy('One "Proposals" row in Needs you (ranked after Confirm exit test). Opens a drawer.',
+    'By the record they land on: Epic, then Story. Duplicates are flagged side by side.',
+    'None on count. Duplicates are detected and closed together.',
+    'No: they wait in Needs you, below reviews and gated actions.');
+  h += `<div class="needs"><div class="micro">Needs you</div>${otherNeeds}
+    ${n ? `<div class="item"><span class="dot d-ghost" style="margin-top:4px"></span><div><b>Proposals</b> · ${n} from ${from} Stories
+      <div class="muted">${[...new Set(pending().map(landsOn))].map(e => e ? EPICS.find(x=>x.id===e)?.name || 'Roadmap' : 'Roadmap').join(' · ')}</div></div>
+      <button class="small primary" onclick="drawer=true;render()">Triage</button></div>` : ''}</div>`;
+  h += msHead();
+  EPICS.forEach(e => {
+    const k = pending().filter(p => landsOn(p) === e.id).length;
+    h += `<div class="epic"><div class="ehead"><h2>${e.name}</h2>${k ? `<span class="pill ghost">${k} Proposals</span>` : ''}</div>${e.stories.map(s => storyRow(s)).join('')}</div>`;
+  });
+  document.getElementById('content').innerHTML = h;
+  if (drawer) {
+    const groups = {};
+    PROPOSALS.forEach(p => { const k = landsOn(p) || 'roadmap'; (groups[k] ||= []).push(p); });
+    let d = `<div class="row"><h2>Proposals from running Stories</h2><span class="grow"></span><button class="small" onclick="drawer=false;render()">Close</button></div>
+      <div class="muted" style="margin-top:4px">${pending().length} open. Grouped by where they land.</div>`;
+    Object.entries(groups).forEach(([k, ps]) => {
+      d += `<div class="group"><div class="micro">${k === 'roadmap' ? 'Roadmap · after this Milestone' : 'Epic · ' + EPICS.find(e=>e.id===k).name}</div>${ps.map(p => card(p)).join('')}</div>`;
+    });
+    document.getElementById('overlay').innerHTML = `<div class="drawer">${d}</div>`;
+  } else document.getElementById('overlay').innerHTML = '';
+}
+
+// ---------- Variant B: ghost rows on the roster, like shaping ----------
+function B() {
+  const n = pending().length;
+  let h = policy('On the roster, as ghost rows and ghost diffs where they would land (same as shaping).',
+    'By place: each lands under its Epic or Story. Needs you only counts them.',
+    'At most 3 open Proposals per Story session; a 4th makes the agent merge or drop one.',
+    'No. The Needs-you row jumps to the next ghost.');
+  h += `<div class="needs"><div class="micro">Needs you</div>${otherNeeds}
+    ${n ? `<div class="item calm"><span class="dot d-ghost" style="margin-top:4px"></span><div><b>${n} Proposals on the roster</b><div class="muted">dashed rows below</div></div><button class="small" onclick="document.querySelector('.story.ghost,.amend')?.scrollIntoView({behavior:'smooth',block:'center'})">Next</button></div>` : ''}</div>`;
+  h += msHead();
+  const ghostStory = p => decided[p.id] && decided[p.id].v === 'rejected' ? '' :
+    decided[p.id] ? `<div class="story"><span class="dot d-quiet"></span><span class="ellip">${decided[p.id].text || p.title}</span><span class="muted">Shaping</span><span class="muted">new · needs criteria</span><span><button class="small">Shape</button></span></div>` :
+    `<div class="story ghost"><span class="dot d-ghost"></span><span class="ellip" title="${p.why}">${p.title}${p.dupOf ? ` <span class="pill">looks like ${p.dupOf}</span>` : ''}</span><span class="kind">${KIND[p.kind]}</span><span class="muted ellip" title="${p.why}">from ${storyName(p.from)} · ${p.why}</span><span>${actions(p).replace('class="acts"','class="acts" style="margin:0"')}</span></div>`;
+  const ghostAmend = p => decided[p.id] && decided[p.id].v === 'rejected' ? '' : `<div class="amend ${decided[p.id] ? 'done' : ''}"><span class="kind">${KIND[p.kind]}</span> <span class="muted">from ${storyName(p.from)}</span>${diffLine(p)}<div class="muted">${p.why}</div>${actions(p)}</div>`;
+  EPICS.forEach(e => {
+    const reorder = PROPOSALS.find(p => p.kind === 'reorder' && p.epic === e.id);
+    const epicAmend = PROPOSALS.find(p => p.kind === 'amend-epic' && p.target === e.id);
+    h += `<div class="epic"><div class="ehead"><h2>${e.name}</h2></div>`;
+    if (epicAmend) h += ghostAmend(epicAmend);
+    if (reorder && !decided[reorder.id]) h += `<div class="amend"><span class="kind">Reorder</span> <span class="muted">from ${storyName(reorder.from)}</span><div>${reorder.title}</div><div class="muted">${reorder.why}</div>${actions(reorder)}</div>`;
+    let stories = [...e.stories];
+    if (reorder && decided[reorder.id] && decided[reorder.id].v !== 'rejected') stories = [stories[0], stories[2], stories[1]];
+    stories.forEach(s => {
+      const retire = PROPOSALS.find(p => p.kind === 'retire' && p.target === s.id && !decided[p.id]);
+      h += storyRow(s, retire ? `<span class="pill ghost">retire? ${retire.id}</span>` : '');
+      if (retire) h += ghostAmend(retire);
+      PROPOSALS.filter(p => p.kind === 'amend-criterion' && p.target === s.id).forEach(p => h += ghostAmend(p));
+    });
+    PROPOSALS.filter(p => p.kind === 'new-story' && p.epic === e.id).forEach(p => h += ghostStory(p));
+    h += `</div>`;
+  });
+  const ne = PROPOSALS.find(p => p.kind === 'new-epic');
+  h += `<div class="ehead"><span class="micro">After this Milestone</span></div>` + (decided[ne.id]?.v === 'rejected' ? '' : `<div class="story ghost"><span class="dot d-ghost"></span><span>${decided[ne.id]?.text || ne.title}</span><span class="kind">New Epic</span><span class="muted ellip">from ${storyName(ne.from)} · ${ne.why}</span><span>${actions(ne).replace('class="acts"','class="acts" style="margin:0"')}</span></div>`);
+  document.getElementById('content').innerHTML = h;
+  document.getElementById('overlay').innerHTML = '';
+}
+
+// ---------- Variant C: Proposals ride with the Story's hand-off and are triaged in its review ----------
+function C() {
+  // S5 is in review: its proposals are in its review. Others are held until their Story hands off.
+  const inReview = PROPOSALS.filter(p => p.from === 'S5');
+  const held = PROPOSALS.filter(p => p.from !== 'S5');
+  const urgent = held.filter(p => p.kind === 'amend-criterion' || p.kind === 'amend-epic'); // change what a running/ready Story is judged on
+  let h = policy('Inside the filing Story\'s review, next to its Decisions section. Criteria and spec changes skip the wait.',
+    'By source: the Story that filed them, because that\'s the context Cyril is already in.',
+    'None on count; the review shows them all. Held ones are visible as a count on the Story row.',
+    'Only for changes to what a Story is judged on (criteria, Epic spec): those go to Needs you at once.');
+  h += `<div class="needs"><div class="micro">Needs you</div>
+    <div class="item"><span class="dot d-review" style="margin-top:4px"></span><div><b>Review</b> · Tool results render as structured blocks <div class="muted">+412 −96 · 3/3 Checks · ${pending(inReview).length} Proposals inside</div></div><button class="small">Open review ↓</button></div>
+    ${pending(urgent).map(p => `<div class="item"><span class="dot d-ghost" style="margin-top:4px"></span><div><b>${KIND[p.kind]}</b> · ${p.title}${diffLine(p)}<div class="muted">from ${storyName(p.from)} · changes what a Story is judged on, so it doesn't wait for hand-off</div></div><div>${actions(p).replace('class="acts"','class="acts" style="margin:0"')}</div></div>`).join('')}
+  </div>`;
+  h += msHead();
+  EPICS.forEach(e => {
+    h += `<div class="epic"><div class="ehead"><h2>${e.name}</h2></div>${e.stories.map(s => {
+      const k = pending(held.filter(p => p.from === s.id && !urgent.includes(p))).length;
+      return storyRow(s, k ? `<span class="pill ghost" title="arrive with the hand-off">${k} held</span>` : '');
+    }).join('')}</div>`;
+  });
+  h += `<div class="review"><section><div class="micro">Review</div><h2>Tool results render as structured blocks</h2><div class="muted">+412 −96 across 7 files · criteria 3/3 pre-ticked by Checks</div></section>
+    <section><div class="micro">Acceptance criteria</div><div class="muted">AC1 ✓ · AC2 ✓ (see P2 below, which changes it) · AC3 ✓</div></section>
+    <section><div class="micro">Decisions</div><div class="muted">No ADR or glossary changes.</div></section>
+    <section><div class="micro">Proposals this Story filed</div>${inReview.map(p => card(p, { hideFrom: true })).join('')}</section>
+    <section class="row"><button class="primary">Merge</button><button>Request changes</button><span class="muted">Merge is allowed with Proposals open; they move to Needs you.</span></section></div>`;
+  document.getElementById('content').innerHTML = h;
+  document.getElementById('overlay').innerHTML = '';
+}
+
+// ---------- Variant D: a separate Proposal queue, triaged one at a time when Cyril chooses ----------
+let qi = 0;
+function D() {
+  const list = pending().filter(p => !p.dupOf || decided[p.dupOf]);
+  let h = policy('Out of Needs you entirely. A quiet count in the sidebar, and a queue screen Cyril opens when he chooses.',
+    'None on screen: one card at a time, oldest first. Duplicates are folded into the card they repeat.',
+    'At most 2 per Story session and 10 open per project; past that the agent writes it into its session summary instead.',
+    'Never. Triage is a batch Cyril runs, e.g. at the end of the day.');
+  const p = list[qi % Math.max(list.length, 1)];
+  h += `<div class="queue"><div class="row"><h2>Proposal queue</h2><span class="muted">${list.length} open · ${PROPOSALS.length - pending().length} decided today</span><span class="grow"></span>
+    <span class="muted"><span class="kbd">a</span> accept <span class="kbd">e</span> edit <span class="kbd">r</span> reject <span class="kbd">s</span> skip</span></div>`;
+  if (!p) h += `<div class="bigcard"><h3>Queue empty.</h3><div class="muted">Everything is decided. See the log for what it created.</div></div>`;
+  else {
+    const dupes = PROPOSALS.filter(q => q.dupOf === p.id);
+    h += `<div class="bigcard"><div class="row"><span class="kind">${KIND[p.kind]}</span><span class="mono muted">${p.id}</span><span class="grow"></span><span class="muted">${qi % list.length + 1} of ${list.length}</span></div>
+      <h3>${p.title}</h3>${diffLine(p)}
+      <div style="margin-top:10px"><div class="micro">Why</div>${p.why}</div>
+      <div style="margin-top:8px"><div class="micro">Evidence</div><span class="mono">${p.evidence}</span></div>
+      <div style="margin-top:8px"><div class="micro">Lands on</div>${landsOn(p) ? EPICS.find(e=>e.id===landsOn(p)).name : 'Roadmap, after this Milestone'}</div>
+      <div style="margin-top:8px"><div class="micro">Filed by</div>${storyName(p.from)} at ${p.at}${dupes.length ? ` · also proposed by ${dupes.map(q => storyName(q.from)).join(', ')}` : ''}</div>
+      ${actions(p, { extra: `<button class="small" onclick="qi++;render()">Skip</button>` })}</div>`;
+  }
+  h += `</div>`;
+  document.getElementById('content').innerHTML = h;
+  document.getElementById('overlay').innerHTML = '';
+}
+document.addEventListener('keydown', e => {
+  if (cur !== 'D' || e.target.tagName === 'TEXTAREA') return;
+  const list = pending().filter(p => !p.dupOf || decided[p.dupOf]); const p = list[qi % Math.max(list.length, 1)];
+  if (!p) return;
+  if (e.key === 'a') decide(p.id, 'accepted'); if (e.key === 'e') editP(p.id); if (e.key === 'r') rejectP(p.id); if (e.key === 's') { qi++; render(); }
+});
+
+// ---------- switcher ----------
+const VARIANTS = { A: 'A · Needs-you row opens a triage drawer', B: 'B · Ghost rows on the roster', C: 'C · Ride with the Story\'s review', D: 'D · Separate queue, triaged in batches' };
+let cur = new URLSearchParams(location.search).get('variant') || 'A';
+function render() {
+  ({ A, B, C, D })[cur]();
+  document.getElementById('vname').textContent = VARIANTS[cur];
+  const n = pending().length;
+  document.getElementById('sidebadge').textContent = cur === 'D' ? (n ? n + ' queued' : '') : (n + 2);
+  document.getElementById('log').innerHTML = `<div class="row"><b>Board after your decisions</b><span class="grow"></span><button class="small" onclick="decided={};log=[];qi=0;render()">Reset</button></div>
+    ${log.length ? `<ul style="padding-left:16px;margin:6px 0 0">${log.map(l => `<li>${l}</li>`).join('')}</ul>` : '<div class="muted" style="margin-top:4px">Nothing decided yet. Accept, edit or reject a Proposal to see what it creates.</div>'}`;
+}
+function go(d) { const k = Object.keys(VARIANTS); cur = k[(k.indexOf(cur) + d + k.length) % k.length]; drawer = false; history.replaceState(null, '', '?variant=' + cur); render(); }
+document.getElementById('prev').onclick = () => go(-1);
+document.getElementById('next').onclick = () => go(1);
+document.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') go(-1); if (e.key === 'ArrowRight') go(1); });
+render();
+</script>
+</body>
+</html>
