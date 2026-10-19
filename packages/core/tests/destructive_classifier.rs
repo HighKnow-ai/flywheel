@@ -1,16 +1,13 @@
-//! D-56's classifier proof (AGNT-07, plan 03-07 Task 1): the category table, the fail-closed
-//! default, the migration wiring, and the write-path guards `create_pending_request`/
-//! `answer_request` carry for a destructive request. Task 2 extends this file with a `shim_gate`
-//! module driving the built shim binary's own socket behaviour.
-//!
-//! See `packages/sidecar/test/destructive-gate.test.mjs` for the hook's own real-binary
-//! measurement (Task 3).
+//! The Gated-action deny-list (docs/mvp-spec.md §4.1, ADR 0001): one test per Gated action and per
+//! allowed case, the migration wiring, and the write-path guards `create_pending_request`/
+//! `answer_request` carry for a gated request. The `shim_gate` module drives the built shim
+//! binary's own socket behaviour.
 
 mod common;
 
 use common::with_scratch_worktree_root;
 
-use core::destructive::{classify, DestructiveCategory, Verdict};
+use core::destructive::DestructiveCategory;
 use core::domain::session::start_session;
 use core::domain::permission_request::{
     answer_request, create_pending_request, DestructiveAllowAlwaysRejected,
@@ -33,476 +30,485 @@ fn args(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
 
-// --- DestructiveCategory: exactly 8 variants, exact UI-SPEC key strings ---
+// --- The Gated-action deny-list (docs/mvp-spec.md §4.1, ADR 0001) ---
+//
+// One test per Gated action and per allowed case. The module name carries `destructive` so
+// `cargo test -p core destructive` selects every one of them.
 
-#[test]
-fn destructive_category_as_str_matches_the_ui_spec_consequence_copy_table_keys_exactly() {
-    let expected = [
-        "force-push",
-        "branch-deletion",
-        "default-branch-push",
-        "hard-reset",
-        "force-clean",
-        "history-rewrite",
-        "recursive-delete",
-        "uncategorized",
-    ];
-    let actual: Vec<&str> = DestructiveCategory::all().iter().map(|c| c.as_str()).collect();
-    assert_eq!(actual.len(), 8, "DestructiveCategory must have exactly 8 variants");
-    assert_eq!(actual, expected, "as_str() values must match the UI-SPEC's table keys exactly");
-}
+mod destructive_gated_actions {
+    use super::args;
+    use core::destructive::{classify, classify_in, DestructiveCategory, GateContext, Verdict};
+    use std::path::{Path, PathBuf};
 
-#[test]
-fn destructive_category_from_str_name_round_trips_every_variant() {
-    for category in DestructiveCategory::all() {
-        assert_eq!(DestructiveCategory::from_str_name(category.as_str()), Some(category));
+    const STORY: &str = "flywheel/s-1-gate";
+    const WORKTREE: &str = "/flywheel-test/worktrees/s-1-gate";
+
+    /// A Story session's context: its own branch, its own worktree as the working directory, and
+    /// a HEAD on the Story's own branch.
+    fn story_ctx() -> GateContext {
+        story_ctx_at(Path::new(WORKTREE), STORY)
     }
-    assert_eq!(DestructiveCategory::from_str_name("not-a-real-category"), None);
-}
 
-// --- ForcePush: >=4 positive cases, varying flag form/position ---
-
-#[test]
-fn force_push_long_form_flag() {
-    let verdict = classify("git", &args(&["push", "--force", "origin", "feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
-}
-
-#[test]
-fn force_push_short_form_flag() {
-    let verdict = classify("git", &args(&["push", "-f", "origin", "feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
-}
-
-#[test]
-fn force_push_with_lease_long_form() {
-    let verdict = classify("git", &args(&["push", "--force-with-lease", "origin", "feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
-}
-
-#[test]
-fn force_push_flag_appearing_before_the_remote_and_refspec() {
-    let verdict = classify("git", &args(&["push", "-f", "origin", "feature"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
-}
-
-#[test]
-fn force_push_short_flag_clustered_with_set_upstream() {
-    // `-uf` clusters `-u` (set-upstream) and `-f` (force) — expand_short_clusters must explode
-    // this into `-u`, `-f` so the force detection still fires regardless of clustering.
-    let verdict = classify("git", &args(&["push", "-uf", "origin", "feature"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
-}
-
-// --- ForcePush via a leading-plus refspec (T-03-14-02): git's own per-refspec force syntax,
-// the same fail-open class as the delete gap above, found in the same function. ---
-
-#[test]
-fn force_push_leading_plus_refspec_with_explicit_destination() {
-    let verdict = classify("git", &args(&["push", "origin", "+feature:feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
-}
-
-#[test]
-fn force_push_leading_plus_refspec_bare_branch_name() {
-    let verdict = classify("git", &args(&["push", "origin", "+feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
-}
-
-#[test]
-fn force_push_leading_plus_refspec_refs_heads_qualified() {
-    let verdict = classify(
-        "git",
-        &args(&["push", "origin", "+refs/heads/feature:refs/heads/feature"]),
-        Some("main"),
-    );
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForcePush));
-}
-
-#[test]
-fn force_push_leading_plus_refspec_still_loses_to_branch_deletion() {
-    // The delete family wins even when the deleted source is also plus-prefixed — delete
-    // detection is not fooled by an irrelevant leading `+` on the positional it inspects.
-    let verdict = classify("git", &args(&["push", "origin", "--delete", "+feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-#[test]
-fn safe_refspec_with_no_leading_plus_is_not_a_force_push() {
-    let verdict = classify("git", &args(&["push", "origin", "feature:feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Safe);
-}
-
-// --- BranchDeletion: >=4 positive cases, long/short/capitalized-force forms ---
-
-#[test]
-fn branch_deletion_short_form_lowercase_d() {
-    let verdict = classify("git", &args(&["branch", "-d", "old-feature"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-#[test]
-fn branch_deletion_capitalized_force_delete_form() {
-    let verdict = classify("git", &args(&["branch", "-D", "old-feature"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-#[test]
-fn branch_deletion_long_form() {
-    let verdict = classify("git", &args(&["branch", "--delete", "old-feature"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-#[test]
-fn branch_deletion_long_form_combined_with_force() {
-    let verdict = classify("git", &args(&["branch", "--delete", "--force", "old-feature"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-#[test]
-fn branch_deletion_flag_appearing_after_the_branch_name() {
-    let verdict = classify("git", &args(&["branch", "old-feature", "-D"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-// --- BranchDeletion via `push` (T-03-14-01): a remote branch deletion destroys strictly MORE
-// than the local deletion above, and every spelling below is pinned so `classify_push`'s
-// fail-closed contract holds for pushes the same way it already holds for `git branch`. ---
-
-#[test]
-fn delete_shaped_push_long_form_flag_on_a_non_default_branch() {
-    let verdict = classify("git", &args(&["push", "origin", "--delete", "feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-#[test]
-fn delete_shaped_push_short_form_flag_on_a_non_default_branch() {
-    let verdict = classify("git", &args(&["push", "origin", "-d", "feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-#[test]
-fn delete_shaped_push_empty_source_colon_refspec_on_a_non_default_branch() {
-    let verdict = classify("git", &args(&["push", "origin", ":feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-#[test]
-fn delete_shaped_push_flag_appearing_before_the_remote() {
-    let verdict = classify("git", &args(&["push", "--delete", "origin", "feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-#[test]
-fn delete_shaped_push_long_form_flag_with_refs_heads_qualified_branch() {
-    let verdict =
-        classify("git", &args(&["push", "origin", "--delete", "refs/heads/feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-#[test]
-fn delete_shaped_push_colon_refspec_with_refs_heads_qualified_branch() {
-    let verdict = classify("git", &args(&["push", "origin", ":refs/heads/feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-#[test]
-fn delete_shaped_push_clustered_short_flags_still_wins_over_force() {
-    // `-fd` clusters `-f` (force) and `-d` (delete) — expand_short_clusters explodes this into
-    // `-f`, `-d`, and the delete check precedes the force check in classify_push, so the
-    // deletion category (not ForcePush) is the one that wins.
-    let verdict = classify("git", &args(&["push", "-fd", "origin", "feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-#[test]
-fn delete_shaped_push_long_form_flag_takes_priority_over_default_branch_push_on_the_default_branch() {
-    let verdict = classify("git", &args(&["push", "origin", "--delete", "main"]), Some("main"));
-    assert_eq!(
-        verdict,
-        Verdict::Destructive(DestructiveCategory::BranchDeletion),
-        "a delete-shaped push naming the default branch is reported as a deletion, not a push, \
-         because the consequence sentence the user reads is selected by the category and \
-         describing a deletion as a push would be materially wrong"
-    );
-}
-
-#[test]
-fn delete_shaped_push_colon_refspec_takes_priority_over_default_branch_push_on_the_default_branch() {
-    let verdict = classify("git", &args(&["push", "origin", ":main"]), Some("main"));
-    assert_eq!(
-        verdict,
-        Verdict::Destructive(DestructiveCategory::BranchDeletion),
-        "a delete-shaped push naming the default branch is reported as a deletion, not a push, \
-         because the consequence sentence the user reads is selected by the category and \
-         describing a deletion as a push would be materially wrong"
-    );
-}
-
-#[test]
-fn delete_shaped_push_with_no_branch_named_still_classifies_as_branch_deletion() {
-    // Fail-closed (this module's own rule): the shape is recognised even when the target is not.
-    let verdict = classify("git", &args(&["push", "origin", "--delete"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::BranchDeletion));
-}
-
-// --- DefaultBranchPush: >=4 positive cases, various refspec shapes ---
-
-#[test]
-fn default_branch_push_bare_branch_name() {
-    let verdict = classify("git", &args(&["push", "origin", "main"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::DefaultBranchPush));
-}
-
-#[test]
-fn default_branch_push_via_refspec_destination() {
-    let verdict = classify("git", &args(&["push", "origin", "HEAD:main"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::DefaultBranchPush));
-}
-
-#[test]
-fn default_branch_push_via_refs_heads_qualified_form() {
-    let verdict = classify("git", &args(&["push", "origin", "refs/heads/main"]), Some("main"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::DefaultBranchPush));
-}
-
-#[test]
-fn default_branch_push_takes_priority_even_when_force_is_also_present() {
-    let verdict = classify("git", &args(&["push", "--force", "origin", "main"]), Some("main"));
-    assert_eq!(
-        verdict,
-        Verdict::Destructive(DestructiveCategory::DefaultBranchPush),
-        "a push naming the default branch is DefaultBranchPush regardless of --force"
-    );
-}
-
-#[test]
-fn default_branch_push_with_a_different_default_branch_name() {
-    let verdict = classify("git", &args(&["push", "origin", "trunk"]), Some("trunk"));
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::DefaultBranchPush));
-}
-
-// --- HardReset: >=4 positive cases ---
-
-#[test]
-fn hard_reset_bare() {
-    let verdict = classify("git", &args(&["reset", "--hard"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HardReset));
-}
-
-#[test]
-fn hard_reset_with_a_commit_ref() {
-    let verdict = classify("git", &args(&["reset", "--hard", "HEAD~1"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HardReset));
-}
-
-#[test]
-fn hard_reset_flag_after_other_flags() {
-    let verdict = classify("git", &args(&["reset", "-q", "--hard", "origin/main"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HardReset));
-}
-
-#[test]
-fn hard_reset_flag_appearing_last() {
-    let verdict = classify("git", &args(&["reset", "HEAD~1", "--hard"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HardReset));
-}
-
-// --- ForceClean: >=4 positive cases, order/combination variations ---
-
-#[test]
-fn force_clean_fdx_in_declared_order() {
-    let verdict = classify("git", &args(&["clean", "-f", "-d", "-x"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForceClean));
-}
-
-#[test]
-fn force_clean_reordered_xdf() {
-    let verdict = classify("git", &args(&["clean", "-x", "-d", "-f"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForceClean));
-}
-
-#[test]
-fn force_clean_long_force_flag_combined_with_short_dx() {
-    let verdict = classify("git", &args(&["clean", "--force", "-d", "-x"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForceClean));
-}
-
-#[test]
-fn force_clean_clustered_short_flags() {
-    // `-fdx` is a single clustered token — expand_short_clusters must explode it into
-    // `-f`, `-d`, `-x` for the combination check to fire.
-    let verdict = classify("git", &args(&["clean", "-fdx"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForceClean));
-}
-
-#[test]
-fn force_clean_using_capital_x_ignored_only_variant() {
-    let verdict = classify("git", &args(&["clean", "-f", "-d", "-X"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::ForceClean));
-}
-
-// --- HistoryRewrite: >=4 positive cases ---
-
-#[test]
-fn history_rewrite_filter_branch_subcommand() {
-    let verdict = classify("git", &args(&["filter-branch", "--tree-filter", "rm secret"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HistoryRewrite));
-}
-
-#[test]
-fn history_rewrite_rebase_onto_remote_tracking_branch() {
-    let verdict = classify("git", &args(&["rebase", "origin/main"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HistoryRewrite));
-}
-
-#[test]
-fn history_rewrite_rebase_onto_explicit_refs_remotes_ref() {
-    let verdict = classify("git", &args(&["rebase", "refs/remotes/origin/main"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HistoryRewrite));
-}
-
-#[test]
-fn history_rewrite_filter_branch_with_no_further_flags() {
-    let verdict = classify("git", &args(&["filter-branch"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HistoryRewrite));
-}
-
-#[test]
-fn history_rewrite_interactive_rebase_onto_remote_tracking_branch() {
-    let verdict = classify("git", &args(&["rebase", "-i", "origin/develop"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::HistoryRewrite));
-}
-
-// --- RecursiveDelete: >=4 positive cases, spellings + clustering ---
-
-#[test]
-fn recursive_delete_short_flag_r() {
-    let verdict = classify("rm", &args(&["-r", "build/"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::RecursiveDelete));
-}
-
-#[test]
-fn recursive_delete_capital_r() {
-    let verdict = classify("rm", &args(&["-R", "build/"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::RecursiveDelete));
-}
-
-#[test]
-fn recursive_delete_long_form() {
-    let verdict = classify("rm", &args(&["--recursive", "build/"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::RecursiveDelete));
-}
-
-#[test]
-fn recursive_delete_combined_short_flag_cluster() {
-    let verdict = classify("rm", &args(&["-rf", "build/"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::RecursiveDelete));
-}
-
-#[test]
-fn recursive_delete_flag_after_the_path() {
-    let verdict = classify("rm", &args(&["build/", "-r"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::RecursiveDelete));
-}
-
-// --- Safe: the full named-in-spec Safe list ---
-
-#[test]
-fn safe_ordinary_read_and_write_git_operations() {
-    for subcommand in ["status", "log", "diff", "add", "commit"] {
-        let verdict = classify("git", &args(&[subcommand]), None);
-        assert_eq!(verdict, Verdict::Safe, "expected `git {subcommand}` to be Safe");
+    fn story_ctx_at(worktree: &Path, head: &'static str) -> GateContext {
+        GateContext {
+            default_branch: Some("main".to_string()),
+            story_branch: Some(STORY.to_string()),
+            worktree: Some(worktree.to_path_buf()),
+            cwd: Some(worktree.to_path_buf()),
+            head_branch: Some(Box::new(move |_dir: &Path| Some(head.to_string()))),
+        }
     }
-}
 
-#[test]
-fn safe_plain_push_with_no_force_and_no_default_branch_target() {
-    let verdict = classify("git", &args(&["push", "origin", "feature"]), Some("main"));
-    assert_eq!(verdict, Verdict::Safe);
-}
+    fn git(argv: &[&str]) -> Verdict {
+        classify_in("git", &args(argv), &story_ctx())
+    }
 
-#[test]
-fn safe_bare_push_with_no_positional_arguments() {
-    let verdict = classify("git", &args(&["push"]), Some("main"));
-    assert_eq!(verdict, Verdict::Safe);
-}
+    fn gated(category: DestructiveCategory) -> Verdict {
+        Verdict::Destructive(category)
+    }
 
-#[test]
-fn safe_plain_branch_listing_and_creation() {
-    assert_eq!(classify("git", &args(&["branch"]), None), Verdict::Safe);
-    assert_eq!(classify("git", &args(&["branch", "new-feature"]), None), Verdict::Safe);
-}
+    // --- the category vocabulary ---
 
-#[test]
-fn safe_non_recursive_file_removal() {
-    let verdict = classify("rm", &args(&["file.txt"]), None);
-    assert_eq!(verdict, Verdict::Safe);
-}
+    #[test]
+    fn categories_are_exactly_the_gated_list_and_uncategorized_is_gone() {
+        let expected = [
+            "git-push",
+            "force-push",
+            "default-branch-push",
+            "branch-deletion",
+            "worktree-deletion",
+            "hard-reset",
+            "force-clean",
+            "history-rewrite",
+            "recursive-delete",
+            "publish",
+        ];
+        let actual: Vec<&str> = DestructiveCategory::all().iter().map(|c| c.as_str()).collect();
+        assert_eq!(actual, expected);
+        assert_eq!(DestructiveCategory::from_str_name("uncategorized"), None);
+    }
 
-#[test]
-fn safe_reset_without_the_hard_flag() {
-    assert_eq!(classify("git", &args(&["reset"]), None), Verdict::Safe);
-    assert_eq!(classify("git", &args(&["reset", "--soft", "HEAD~1"]), None), Verdict::Safe);
-}
+    #[test]
+    fn from_str_name_round_trips_every_category() {
+        for category in DestructiveCategory::all() {
+            assert_eq!(DestructiveCategory::from_str_name(category.as_str()), Some(category));
+        }
+        assert_eq!(DestructiveCategory::from_str_name("not-a-real-category"), None);
+    }
 
-#[test]
-fn safe_local_rebase_with_no_remote_tracking_upstream() {
-    assert_eq!(classify("git", &args(&["rebase", "main"]), None), Verdict::Safe);
-    assert_eq!(classify("git", &args(&["rebase", "--continue"]), None), Verdict::Safe);
-}
+    // --- Gated: every `git push` ---
 
-#[test]
-fn safe_program_names_outside_git_and_rm_are_never_inspected() {
-    // Only `git` and `rm` carry a destructive form in this workspace's threat model — every
-    // other program name is Safe by construction (this module's own top doc comment).
-    assert_eq!(classify("npm", &args(&["install"]), None), Verdict::Safe);
-    assert_eq!(classify("ls", &args(&["-la"]), None), Verdict::Safe);
-}
+    #[test]
+    fn gated_bare_push() {
+        assert_eq!(git(&["push"]), gated(DestructiveCategory::Push));
+    }
 
-// --- Uncategorized: >=6 cases, the fail-closed default ---
+    #[test]
+    fn gated_plain_push_of_the_story_branch() {
+        assert_eq!(git(&["push", "origin", STORY]), gated(DestructiveCategory::Push));
+        assert_eq!(git(&["push", "-u", "origin", "HEAD"]), gated(DestructiveCategory::Push));
+    }
 
-#[test]
-fn uncategorized_unknown_git_subcommand() {
-    let verdict = classify("git", &args(&["frobnicate", "--whatever"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::Uncategorized));
-}
+    #[test]
+    fn gated_push_behind_dash_c_dir_and_dash_c_config() {
+        assert_eq!(git(&["-C", "x", "-c", "a=b", "push"]), gated(DestructiveCategory::Push));
+    }
 
-#[test]
-fn uncategorized_bare_git_with_no_subcommand_at_all() {
-    let verdict = classify("git", &args(&[]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::Uncategorized));
-}
+    #[test]
+    fn gated_push_behind_other_global_options() {
+        assert_eq!(git(&["--no-pager", "push"]), gated(DestructiveCategory::Push));
+        assert_eq!(git(&["--git-dir=/x/.git", "push"]), gated(DestructiveCategory::Push));
+        assert_eq!(git(&["--work-tree", "/x", "push"]), gated(DestructiveCategory::Push));
+        assert_eq!(git(&["-c", "core.hooksPath=/dev/null", "-C", "/x", "push", "origin", "f"]), gated(DestructiveCategory::Push));
+    }
 
-#[test]
-fn uncategorized_clean_with_only_the_force_flag() {
-    // Some, but not all, of D-56's named `-fdx` combination — not confidently Safe either.
-    let verdict = classify("git", &args(&["clean", "-f"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::Uncategorized));
-}
+    #[test]
+    fn gated_force_push_in_each_spelling() {
+        for argv in [
+            &["push", "--force", "origin", "f"][..],
+            &["push", "-f", "origin", "f"],
+            &["push", "-uf", "origin", "f"],
+            &["push", "--force-with-lease", "origin", "f"],
+            &["push", "--force-with-lease=f:abc", "origin", "f"],
+            &["push", "origin", "+f"],
+            &["push", "origin", "+f:f"],
+            &["-C", "x", "push", "--force"],
+        ] {
+            assert_eq!(git(argv), gated(DestructiveCategory::ForcePush), "{argv:?}");
+        }
+    }
 
-#[test]
-fn uncategorized_clean_with_only_directory_and_ignored_flags() {
-    let verdict = classify("git", &args(&["clean", "-d", "-x"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::Uncategorized));
-}
+    #[test]
+    fn gated_push_to_the_default_branch() {
+        assert_eq!(git(&["push", "origin", "main"]), gated(DestructiveCategory::DefaultBranchPush));
+        assert_eq!(git(&["push", "origin", "HEAD:main"]), gated(DestructiveCategory::DefaultBranchPush));
+        assert_eq!(git(&["push", "origin", "HEAD:refs/heads/main"]), gated(DestructiveCategory::DefaultBranchPush));
+        assert_eq!(git(&["push", "--force", "origin", "main"]), gated(DestructiveCategory::DefaultBranchPush));
+    }
 
-#[test]
-fn uncategorized_a_second_unrecognised_subcommand() {
-    let verdict = classify("git", &args(&["delete-everything"]), None);
-    assert_eq!(verdict, Verdict::Destructive(DestructiveCategory::Uncategorized));
-}
+    #[test]
+    fn gated_remote_branch_deletion_by_push() {
+        for argv in [
+            &["push", "origin", "--delete", "f"][..],
+            &["push", "origin", "-d", "f"],
+            &["push", "origin", ":f"],
+            &["push", "origin", ":refs/heads/f"],
+            &["push", "origin", ":main"],
+            &["push", "-fd", "origin", "f"],
+        ] {
+            assert_eq!(git(argv), gated(DestructiveCategory::BranchDeletion), "{argv:?}");
+        }
+    }
 
-#[test]
-fn uncategorized_deliberately_nonsensical_argument_vector() {
-    // A malformed argv this classifier cannot confidently parse: the "subcommand" position is
-    // itself a flag-shaped/injection-like token, matching no known git subcommand.
-    let verdict = classify("git", &args(&["--", "$(rm -rf /)", "???"]), None);
-    assert_eq!(
-        verdict,
-        Verdict::Destructive(DestructiveCategory::Uncategorized),
-        "a nonsensical argv must fail closed into Uncategorized, never Safe"
-    );
+    #[test]
+    fn gated_push_without_any_story_context() {
+        let none = GateContext::default();
+        assert_eq!(classify_in("git", &args(&["push"]), &none), gated(DestructiveCategory::Push));
+        assert_eq!(classify("git", &args(&["push", "origin", "main"]), Some("main")), gated(DestructiveCategory::DefaultBranchPush));
+    }
+
+    // --- Gated: deleting a branch or worktree other than the Story's own ---
+
+    #[test]
+    fn gated_deleting_another_branch() {
+        for argv in [
+            &["branch", "-d", "other"][..],
+            &["branch", "-D", "other"],
+            &["branch", "--delete", "other"],
+            &["branch", "--delete", "--force", "other"],
+            &["branch", "other", "-D"],
+            &["branch", "-dr", "origin/other"],
+            &["branch", "-D", STORY, "other"],
+            &["-C", "x", "branch", "-D", "main"],
+        ] {
+            assert_eq!(git(argv), gated(DestructiveCategory::BranchDeletion), "{argv:?}");
+        }
+    }
+
+    #[test]
+    fn allowed_deleting_the_story_own_branch() {
+        assert_eq!(git(&["branch", "-D", STORY]), Verdict::Safe);
+        assert_eq!(git(&["branch", "-d", &format!("refs/heads/{STORY}")]), Verdict::Safe);
+    }
+
+    #[test]
+    fn gated_branch_deletion_when_the_story_branch_is_unknown() {
+        let none = GateContext::default();
+        assert_eq!(classify_in("git", &args(&["branch", "-D", STORY]), &none), gated(DestructiveCategory::BranchDeletion));
+    }
+
+    #[test]
+    fn allowed_branch_listing_creation_and_rename() {
+        assert_eq!(git(&["branch"]), Verdict::Safe);
+        assert_eq!(git(&["branch", "-a"]), Verdict::Safe);
+        assert_eq!(git(&["branch", "--show-current"]), Verdict::Safe);
+        assert_eq!(git(&["branch", "new-branch"]), Verdict::Safe);
+        assert_eq!(git(&["branch", "-m", "renamed"]), Verdict::Safe);
+    }
+
+    #[test]
+    fn gated_removing_another_worktree() {
+        for argv in [
+            &["worktree", "remove", "../other"][..],
+            &["worktree", "remove", "--force", "/elsewhere/wt"],
+            &["worktree", "remove", "-f", "-f", "/elsewhere/wt"],
+            &["-C", "/elsewhere", "worktree", "remove", "wt"],
+        ] {
+            assert_eq!(git(argv), gated(DestructiveCategory::WorktreeDeletion), "{argv:?}");
+        }
+    }
+
+    #[test]
+    fn allowed_removing_the_story_own_worktree() {
+        assert_eq!(git(&["worktree", "remove", WORKTREE]), Verdict::Safe);
+        assert_eq!(git(&["worktree", "remove", "--force", "."]), Verdict::Safe);
+    }
+
+    #[test]
+    fn allowed_other_worktree_subcommands() {
+        assert_eq!(git(&["worktree", "list"]), Verdict::Safe);
+        assert_eq!(git(&["worktree", "list", "--porcelain"]), Verdict::Safe);
+        assert_eq!(git(&["worktree", "add", "../x", "-b", "y"]), Verdict::Safe);
+        assert_eq!(git(&["worktree", "prune"]), Verdict::Safe);
+    }
+
+    // --- Gated: `reset --hard` and `clean -f` ---
+
+    #[test]
+    fn gated_hard_reset() {
+        for argv in [
+            &["reset", "--hard"][..],
+            &["reset", "--hard", "HEAD~1"],
+            &["reset", "-q", "--hard", "origin/main"],
+            &["-C", "x", "reset", "--hard"],
+        ] {
+            assert_eq!(git(argv), gated(DestructiveCategory::HardReset), "{argv:?}");
+        }
+    }
+
+    #[test]
+    fn allowed_non_hard_reset() {
+        assert_eq!(git(&["reset"]), Verdict::Safe);
+        assert_eq!(git(&["reset", "--soft", "HEAD~1"]), Verdict::Safe);
+        assert_eq!(git(&["reset", "HEAD", "file.txt"]), Verdict::Safe);
+    }
+
+    #[test]
+    fn gated_force_clean() {
+        for argv in [
+            &["clean", "-f"][..],
+            &["clean", "-fd"],
+            &["clean", "-fdx"],
+            &["clean", "-xdf"],
+            &["clean", "--force"],
+            &["clean", "-d", "--force", "build"],
+        ] {
+            assert_eq!(git(argv), gated(DestructiveCategory::ForceClean), "{argv:?}");
+        }
+    }
+
+    #[test]
+    fn allowed_clean_without_force() {
+        assert_eq!(git(&["clean"]), Verdict::Safe);
+        assert_eq!(git(&["clean", "-n"]), Verdict::Safe);
+        assert_eq!(git(&["clean", "-nd"]), Verdict::Safe);
+        assert_eq!(git(&["clean", "-dx"]), Verdict::Safe);
+    }
+
+    // --- Gated: rebase or filter-branch off the Story's own branch ---
+
+    #[test]
+    fn allowed_rebase_on_the_story_own_branch() {
+        for argv in [
+            &["rebase", "main"][..],
+            &["rebase", "origin/main"],
+            &["rebase", "-i", "origin/main"],
+            &["rebase", "--onto", "main", "HEAD~3"],
+            &["rebase", "main", STORY],
+            &["rebase", "-x", "make test", "main"],
+            &["rebase", "--continue"],
+            &["rebase", "--abort"],
+        ] {
+            assert_eq!(git(argv), Verdict::Safe, "{argv:?}");
+        }
+    }
+
+    #[test]
+    fn gated_rebase_of_another_branch_named_explicitly() {
+        assert_eq!(git(&["rebase", "main", "other"]), gated(DestructiveCategory::HistoryRewrite));
+        assert_eq!(git(&["rebase", "--onto", "main", "base", "other"]), gated(DestructiveCategory::HistoryRewrite));
+        assert_eq!(git(&["rebase", "--root", "other"]), gated(DestructiveCategory::HistoryRewrite));
+    }
+
+    #[test]
+    fn gated_rebase_while_head_is_another_branch() {
+        let ctx = story_ctx_at(Path::new(WORKTREE), "main");
+        assert_eq!(classify_in("git", &args(&["rebase", "origin/main"]), &ctx), gated(DestructiveCategory::HistoryRewrite));
+        assert_eq!(classify_in("git", &args(&["rebase", "-i", "HEAD~2"]), &ctx), gated(DestructiveCategory::HistoryRewrite));
+    }
+
+    #[test]
+    fn gated_rebase_when_the_story_branch_is_unknown() {
+        let none = GateContext::default();
+        assert_eq!(classify_in("git", &args(&["rebase", "main"]), &none), gated(DestructiveCategory::HistoryRewrite));
+    }
+
+    #[test]
+    fn gated_filter_branch_off_the_story_own_branch() {
+        for argv in [
+            &["filter-branch", "--tree-filter", "rm -f secrets", "--", "--all"][..],
+            &["filter-branch", "--", "other"],
+            &["filter-branch", "-f", "--msg-filter", "cat", "main"],
+        ] {
+            assert_eq!(git(argv), gated(DestructiveCategory::HistoryRewrite), "{argv:?}");
+        }
+        let elsewhere = story_ctx_at(Path::new(WORKTREE), "main");
+        assert_eq!(classify_in("git", &args(&["filter-branch"]), &elsewhere), gated(DestructiveCategory::HistoryRewrite));
+    }
+
+    #[test]
+    fn allowed_filter_branch_on_the_story_own_branch() {
+        assert_eq!(git(&["filter-branch", "--msg-filter", "cat", "--", STORY]), Verdict::Safe);
+        assert_eq!(git(&["filter-branch", "--msg-filter", "cat"]), Verdict::Safe);
+    }
+
+    // --- Gated: recursive `rm` outside the worktree ---
+
+    fn rm(argv: &[&str]) -> Verdict {
+        classify_in("rm", &args(argv), &story_ctx())
+    }
+
+    #[test]
+    fn allowed_recursive_rm_inside_the_worktree() {
+        let inside = format!("{WORKTREE}/build");
+        for argv in [
+            &["-rf", "build"][..],
+            &["-r", "-f", "./target", "node_modules"],
+            &["-R", "a/b/c"],
+            &["--recursive", "build"],
+            &["-rf", &inside],
+            &["-rf", "build/../dist"],
+            &["-rf", "--", "-odd-name"],
+        ] {
+            assert_eq!(rm(argv), Verdict::Safe, "{argv:?}");
+        }
+    }
+
+    #[test]
+    fn gated_recursive_rm_outside_the_worktree() {
+        for argv in [
+            &["-rf", "/flywheel-test/elsewhere"][..],
+            &["-rf", "../other"],
+            &["-rf", "build/../../other"],
+            &["-r", "build", "/etc/x"],
+            &["-rf", "."],
+            &["-rf", WORKTREE],
+            &["-rf", "/"],
+        ] {
+            assert_eq!(rm(argv), gated(DestructiveCategory::RecursiveDelete), "{argv:?}");
+        }
+    }
+
+    #[test]
+    fn gated_recursive_rm_when_the_worktree_is_unknown() {
+        let none = GateContext::default();
+        assert_eq!(classify_in("rm", &args(&["-rf", "build"]), &none), gated(DestructiveCategory::RecursiveDelete));
+        assert_eq!(classify("rm", &args(&["-rf", "build"]), None), gated(DestructiveCategory::RecursiveDelete));
+    }
+
+    #[test]
+    fn allowed_non_recursive_rm_anywhere() {
+        assert_eq!(rm(&["file.txt"]), Verdict::Safe);
+        assert_eq!(rm(&["-f", "/flywheel-test/elsewhere/file"]), Verdict::Safe);
+    }
+
+    #[test]
+    fn recursive_rm_compares_resolved_paths_so_a_symlinked_worktree_still_counts_as_inside() {
+        let root = tempfile::tempdir().expect("scratch dir");
+        let real = root.path().join("real-wt");
+        std::fs::create_dir_all(real.join("build")).unwrap();
+        let link = root.path().join("link-wt");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        // The worktree is recorded through the symlink; the shell's cwd is the resolved path.
+        let ctx = GateContext {
+            story_branch: Some(STORY.to_string()),
+            worktree: Some(link.clone()),
+            cwd: Some(real.canonicalize().unwrap()),
+            ..GateContext::default()
+        };
+        assert_eq!(classify_in("rm", &args(&["-rf", "build"]), &ctx), Verdict::Safe);
+        let outside: PathBuf = root.path().join("sibling");
+        assert_eq!(
+            classify_in("rm", &args(&["-rf", outside.to_str().unwrap()]), &ctx),
+            gated(DestructiveCategory::RecursiveDelete)
+        );
+    }
+
+    // --- Gated: publishing ---
+
+    fn run(program: &str, argv: &[&str]) -> Verdict {
+        classify_in(program, &args(argv), &story_ctx())
+    }
+
+    #[test]
+    fn gated_npm_publish() {
+        assert_eq!(run("npm", &["publish"]), gated(DestructiveCategory::Publish));
+        assert_eq!(run("npm", &["publish", "--access", "public"]), gated(DestructiveCategory::Publish));
+        assert_eq!(run("npm", &["--registry=https://r.example", "publish"]), gated(DestructiveCategory::Publish));
+        assert_eq!(run("npm", &["-w", "pkg", "publish"]), gated(DestructiveCategory::Publish));
+    }
+
+    #[test]
+    fn gated_cargo_publish() {
+        assert_eq!(run("cargo", &["publish"]), gated(DestructiveCategory::Publish));
+        assert_eq!(run("cargo", &["+nightly", "publish", "-p", "core"]), gated(DestructiveCategory::Publish));
+        assert_eq!(run("cargo", &["--config", "x=1", "publish"]), gated(DestructiveCategory::Publish));
+    }
+
+    #[test]
+    fn gated_gh_pr_merge() {
+        assert_eq!(run("gh", &["pr", "merge", "12", "--squash"]), gated(DestructiveCategory::Publish));
+        assert_eq!(run("gh", &["-R", "o/r", "pr", "merge"]), gated(DestructiveCategory::Publish));
+        assert_eq!(run("gh", &["pr", "--repo", "o/r", "merge", "12"]), gated(DestructiveCategory::Publish));
+    }
+
+    #[test]
+    fn gated_gh_release() {
+        assert_eq!(run("gh", &["release", "create", "v1.0.0"]), gated(DestructiveCategory::Publish));
+        assert_eq!(run("gh", &["release", "upload", "v1.0.0", "a.tgz"]), gated(DestructiveCategory::Publish));
+        assert_eq!(run("gh", &["release", "delete", "v1.0.0"]), gated(DestructiveCategory::Publish));
+    }
+
+    #[test]
+    fn allowed_ordinary_npm_cargo_and_gh_commands() {
+        assert_eq!(run("npm", &["install"]), Verdict::Safe);
+        assert_eq!(run("npm", &["test"]), Verdict::Safe);
+        assert_eq!(run("npm", &["run", "publish-docs"]), Verdict::Safe);
+        assert_eq!(run("npm", &["--prefix", "packages/desktop", "run", "build"]), Verdict::Safe);
+        assert_eq!(run("cargo", &["test", "--workspace"]), Verdict::Safe);
+        assert_eq!(run("cargo", &["build", "--release"]), Verdict::Safe);
+        assert_eq!(run("gh", &["pr", "create", "--fill"]), Verdict::Safe);
+        assert_eq!(run("gh", &["pr", "view", "12"]), Verdict::Safe);
+        assert_eq!(run("gh", &["issue", "list"]), Verdict::Safe);
+    }
+
+    // --- Allowed: read-only git, including Claude Code's own startup checks ---
+
+    #[test]
+    fn allowed_read_only_git_calls() {
+        for argv in [
+            &["status"][..],
+            &["status", "--porcelain"],
+            &["log", "--oneline", "-5"],
+            &["ls-files"],
+            &["ls-files", "--others", "--exclude-standard"],
+            &["rev-parse", "HEAD"],
+            &["rev-parse", "--show-toplevel"],
+            &["rev-parse", "--abbrev-ref", "HEAD"],
+            &["diff"],
+            &["diff", "--stat", "main...HEAD"],
+            &["show", "HEAD"],
+            &["config", "--get", "user.email"],
+            &["remote", "get-url", "origin"],
+            &["worktree", "list"],
+            &["--no-optional-locks", "status", "--porcelain"],
+            &["-c", "core.quotepath=false", "status"],
+            &["-C", "/some/repo", "log", "-1"],
+            &["-C", "/some/repo", "-c", "a=b", "rev-parse", "--is-inside-work-tree"],
+        ] {
+            assert_eq!(git(argv), Verdict::Safe, "{argv:?}");
+        }
+    }
+
+    #[test]
+    fn allowed_ordinary_writes_inside_the_worktree() {
+        for argv in [
+            &["add", "-A"][..],
+            &["commit", "-m", "msg"],
+            &["checkout", "-b", "x"],
+            &["merge", "main"],
+            &["stash"],
+            &["fetch", "origin"],
+            &["cherry-pick", "abc"],
+        ] {
+            assert_eq!(git(argv), Verdict::Safe, "{argv:?}");
+        }
+    }
+
+    #[test]
+    fn allowed_unknown_git_subcommands_and_bare_git() {
+        assert_eq!(git(&["frobnicate", "--all"]), Verdict::Safe);
+        assert_eq!(git(&["for-each-ref", "refs/heads"]), Verdict::Safe);
+        assert_eq!(git(&[]), Verdict::Safe);
+        assert_eq!(git(&["--version"]), Verdict::Safe);
+        assert_eq!(git(&["-C", "x"]), Verdict::Safe);
+    }
+
+    #[test]
+    fn allowed_every_other_program() {
+        assert_eq!(run("ls", &["-la"]), Verdict::Safe);
+        assert_eq!(run("curl", &["https://example.com"]), Verdict::Safe);
+    }
 }
 
 // --- migration wiring ---

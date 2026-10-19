@@ -26,40 +26,32 @@ fn classify(text: &str) -> String {
 fn round_seven_backslash_split_env_matches_unobfuscated() {
     let unobfuscated = classify(r#"env -S "-P /tmp git push --force""#);
     assert!(
-        unobfuscated.contains(r#""category":"uncategorized""#),
-        "unobfuscated env -S form must classify uncategorized, got: {unobfuscated}"
+        unobfuscated.contains(r#""category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true"#),
+        "unobfuscated env -S form must read as unresolvable (safe, both shadow facts true), got: {unobfuscated}"
     );
 
     let split = classify(r#"e\nv -S "-P /tmp git push --force""#);
     assert!(
-        split.contains(r#""category":"uncategorized""#),
-        "backslash-split env -S form must match its unobfuscated twin (uncategorized), got: {split}"
-    );
-    assert!(
-        split.contains(r#""invokedBareName":false"#),
-        "backslash-split env -S form must report invokedBareName false, got: {split}"
-    );
-    assert!(
-        split.contains(r#""program":null"#),
-        "backslash-split env -S form must report program null, got: {split}"
+        split.contains(r#""category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true"#),
+        "backslash-split env -S form must match its unobfuscated twin (unresolvable), got: {split}"
     );
 
     let matching = classify(r#"e\nv -S 'git push --force'"#);
     assert!(
-        matching.contains(r#""category":"uncategorized""#),
-        "e\\nv -S 'git push --force' must match the LAUNCHER_CORPUS row it mirrors (uncategorized), got: {matching}"
+        matching.contains(r#""category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true"#),
+        "e\\nv -S 'git push --force' must match the LAUNCHER_CORPUS row it mirrors (unresolvable), got: {matching}"
     );
 
     let quote_split = classify(r#"e""nv -S 'git push --force'"#);
     assert!(
-        quote_split.contains(r#""category":"uncategorized""#),
-        "e\"\"nv -S 'git push --force' must stay uncategorized — the raw tokenizer already resolved quote-toggling, got: {quote_split}"
+        quote_split.contains(r#""category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true"#),
+        "e\"\"nv -S 'git push --force' must stay unresolvable — the raw tokenizer already resolved quote-toggling, got: {quote_split}"
     );
 
     let falsifiability = classify("env git push --force");
     assert!(
-        !falsifiability.contains(r#""category":"uncategorized""#),
-        "env git push --force must NOT classify uncategorized — the retry must not fail-close every env, got: {falsifiability}"
+        falsifiability.contains(r#""category":"force-push""#),
+        "env git push --force must classify force-push — the retry must not swallow every env, got: {falsifiability}"
     );
 }
 
@@ -305,8 +297,8 @@ fn c3_brace_rule_priced_friction_xargs_placeholder() {
 fn round_eight_brace_obfuscated_env_wrapper_matches_unobfuscated() {
     let unobfuscated = classify(r#"env -S "-P /tmp git push --force""#);
     assert!(
-        unobfuscated.contains(r#""category":"uncategorized""#),
-        "unobfuscated control must classify uncategorized, got: {unobfuscated}"
+        unobfuscated.contains(r#""category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true"#),
+        "unobfuscated control must read as unresolvable (safe, both shadow facts true), got: {unobfuscated}"
     );
 
     let obfuscated = classify(r#"{env,} -S "-P /tmp git push --force""#);
@@ -657,7 +649,7 @@ fn round_nine_quote_removed_form_is_load_bearing() {
 
     let unobfuscated_top_level = classify(r#"env -S "-P /tmp git push --force""#);
     assert!(
-        unobfuscated_top_level.contains(r#""category":"uncategorized""#),
-        "the unobfuscated top-level control must still classify uncategorized, got: {unobfuscated_top_level}"
+        unobfuscated_top_level.contains(r#""category":"safe","namesGatedProgram":true,"textCanShadowPathResolution":true"#),
+        "the unobfuscated top-level control must still read as unresolvable (safe, both shadow facts true), got: {unobfuscated_top_level}"
     );
 }

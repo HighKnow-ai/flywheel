@@ -14,9 +14,12 @@
 --classify-invocation
 --gate-push
 --ignore-environment
+--quiet
+--short
 --split-string
 --unset
 --unset=
+-C
 -S
 -V
 -i
@@ -27,12 +30,13 @@
 <unreadable argv[0]>
 <unresolved cwd>
 Bash
-FLYWHEEL_DEFAULT_BRANCH
 FLYWHEEL_PERMISSION_SOCKET
 FLYWHEEL_PERMISSION_SOCKET is not set — refusing a destructive command with nothing to ask
 FLYWHEEL_REAL_GIT
 FLYWHEEL_REAL_RM
+FLYWHEEL_REAL_{}
 FLYWHEEL_RUN_ID
+HEAD
 PATH
 PATH=
 alias
@@ -41,6 +45,7 @@ at
 attempt
 attempts
 builtin
+cargo
 category
 command
 contention
@@ -53,14 +58,18 @@ failed to connect to the permission socket at {socket_path:?}: {err}
 failed to read the permission socket's answer: {err}
 failed to send the permission request: {err}
 failed to spawn real git at {real_git:?}: {e}
+flywheel-shim: --classify-command requires the command text as its argument
+flywheel-shim: --classify-invocation requires the command text as its argument
 flywheel-shim: --gate-push received an unrecognised category name: {category_name:?}
 flywheel-shim: --gate-push requires a category name as its first argument
 flywheel-shim: --gate-push requires at least one token describing the git command being gated
+flywheel-shim: failed to exec real {name} at {real_bin:?}: {err}
 flywheel-shim: failed to spawn real rm at {real_rm:?}: {err}
 flywheel-shim: refusing to run — invoked as {:?}, which this build does not dispatch to any known target
 flywheel-shim: {message}
 flywheel-shim: {} was declined — refusing to run this command
 function
+gh
 git
 git_lock_exhausted
 git_retry
@@ -71,6 +80,7 @@ kind
 lock_exhausted
 max
 namesGatedProgram
+npm
 program
 repository
 requestId
@@ -78,6 +88,7 @@ rm
 runId
 safe
 source
+symbolic-ref
 textCanShadowPathResolution
 the permission socket closed before answering
 the permission socket returned an unrecognised answer: {response_line:?}
