@@ -306,48 +306,12 @@ fn remove_worktree(
     })
 }
 
-/// Drop's half of the worktree lifecycle (docs/mvp-spec.md §2): remove the Story's worktree with
-/// `--force` (the developer chose to wipe its uncommitted work), delete its branch, and record the
-/// removal. A Story with no worktree is a no-op. A worktree already missing on disk is pruned from
-/// git's list instead. The caller refuses a live session first.
-pub(crate) fn remove_worktree_and_branch_for_drop(
-    conn: &mut Connection,
-    story_id: &str,
-    actor_id: &str,
-) -> anyhow::Result<()> {
-    let Some(worktree) = worktree_for_story(conn, story_id)? else {
-        return Ok(());
-    };
-    let repo_path: String = conn
-        .query_row("SELECT repo_path FROM projects WHERE id = ?1", params![worktree.project_id], |row| row.get(0))
-        .with_context(|| format!("project {:?} not found", worktree.project_id))?;
-    let story_key: String = conn
-        .query_row("SELECT key FROM stories WHERE id = ?1", params![story_id], |row| row.get(0))
-        .with_context(|| format!("Story {story_id:?} not found"))?;
-    let repo = Path::new(&repo_path);
-
-    if Path::new(&worktree.path).exists() {
-        git::worktree_remove_force(repo, Path::new(&worktree.path))
-            .with_context(|| format!("failed to remove the worktree of {story_key}"))?;
-    } else {
-        git::git_at(repo, &["worktree", "prune"]).context("failed to prune the missing worktree")?;
-    }
-    if git::rev_parse_verify(repo, &format!("refs/heads/{}", worktree.branch))? {
-        git::branch_delete_force(repo, &worktree.branch, &worktree.base_branch)
-            .with_context(|| format!("the worktree of {story_key} is gone, but its branch could not be deleted"))?;
-    }
-
-    record_worktree_removed(conn, &worktree, story_id, &story_key, actor_id).map_err(|e| {
-        anyhow::anyhow!("the worktree and branch were removed but their record was not updated: {e:#}")
-    })
-}
-
 /// The database half of [`remove_worktree_for_story`]: decouple runs, delete the row, append the
 /// `worktree.removed` event, in one transaction. The transaction takes the write lock up front
 /// (`Immediate`): the batch reclaim runs on a second writer connection, and a deferred transaction
 /// that reads before it writes fails with `SQLITE_BUSY_SNAPSHOT` -- which `busy_timeout` does not
 /// retry -- if another writer commits in between.
-fn record_worktree_removed(
+pub(crate) fn record_worktree_removed(
     conn: &mut Connection,
     worktree: &Worktree,
     story_id: &str,

@@ -427,7 +427,7 @@ pub fn story_resume(
         id: outcome.run_id,
         story_id,
         status: "running".to_string(),
-        permission_mode: STORY_START_PERMISSION_MODE.to_string(),
+        permission_mode: SessionKind::Story.launch_policy().permission_mode.to_string(),
     })
 }
 
@@ -450,8 +450,8 @@ pub(crate) fn resume_stopped_story(
         return Err("Resume needs a Stopped Story: Running, with no live session".to_string());
     }
     let PreparedLaunch { outcome, repo_path, env } =
-        prepare_launch(&mut conn, story_id, STORY_START_PERMISSION_MODE, &note)?;
-    spawn_prepared_run(db, conn, &outcome, env, STORY_START_PERMISSION_MODE, merge_shim, |request| {
+        prepare_launch(&mut conn, story_id, SessionKind::Story, &note)?;
+    spawn_prepared_run(db, conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
         send(&repo_path, request)
     })?;
     Ok(outcome)
