@@ -4,6 +4,7 @@
 //! database file directly, per `ARCHITECTURE.md` Anti-Pattern 3 and D-03).
 
 pub mod branch;
+pub mod check_runner;
 pub mod context_packet;
 pub mod credentials;
 pub mod db;

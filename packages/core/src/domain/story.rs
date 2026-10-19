@@ -255,7 +255,7 @@ pub fn set_story_state(conn: &mut Connection, actor_id: &str, story_id: &str, to
 }
 
 /// [`set_story_state`] inside the caller's transaction.
-fn set_story_state_in_tx(tx: &Transaction, actor_id: &str, story_id: &str, to: StoryState) -> anyhow::Result<()> {
+pub(crate) fn set_story_state_in_tx(tx: &Transaction, actor_id: &str, story_id: &str, to: StoryState) -> anyhow::Result<()> {
     let now = now();
     let (project_id, epic_id, current): (String, String, String) = tx
         .query_row("SELECT project_id, epic_id, state FROM stories WHERE id = ?1", params![story_id], |r| {
