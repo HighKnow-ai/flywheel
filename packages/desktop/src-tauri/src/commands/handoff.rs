@@ -64,13 +64,13 @@ mod tests {
     // The one shared scratch worktree-root helper, so its lock serialises these tests with every
     // other test of this binary that sets the worktree root.
     use crate::commands::session::scratch_root;
-    use flywheel_core::domain::{acceptance_criterion, actor, check, epic, milestone, project, session, story, task};
+    use flywheel_core::domain::{actor, check, epic, milestone, project, session, story, task};
 
     /// A Running Story in a real git repository, with a `true` and a `false` Check, a done Task and a
     /// live session. Returns the database, the run id, the project id and the Check ids.
     fn running_story(repo: &std::path::Path, db_dir: &std::path::Path) -> (Mutex<Connection>, String, String, Vec<String>) {
         let git = |args: &[&str]| {
-            assert!(std::process::Command::new("git").arg("-C").arg(repo).args(args).status().unwrap().success());
+            flywheel_core::git::git_at(repo, args).unwrap();
         };
         git(&["init", "--initial-branch=main"]);
         std::fs::write(repo.join("README.md"), "fixture\n").unwrap();
@@ -82,15 +82,11 @@ mod tests {
         let p = project::create_project(&mut conn, &human, "P", &repo.to_string_lossy(), "FLY", "main").unwrap();
         let m = milestone::create_milestone(&mut conn, &p.id, &human, "M", None).unwrap();
         let e = epic::create_epic(&mut conn, &human, &m.id, "E").unwrap();
-        let s = story::create_story(&mut conn, &human, &e.id, "S").unwrap();
-        let checks = ["true", "false"]
-            .iter()
-            .map(|command| {
-                let c = acceptance_criterion::create_criterion(&mut conn, &human, &s.id, command).unwrap();
-                check::set_check(&mut conn, &human, &c.id, command, None).unwrap().id
-            })
-            .collect();
-        story::set_story_state(&mut conn, &human, &s.id, story::StoryState::Ready).unwrap();
+        // Written the way the developer writes a Story by hand, Checks included.
+        let criteria = ["true", "false"]
+            .map(|command| story::HandWrittenCriterion { statement: command, check_command: Some(command) });
+        let s = story::write_story_by_hand(&mut conn, &human, &e.id, "S", None, &criteria).unwrap();
+        let checks = check::checks_for_story(&conn, &s.id).unwrap().into_iter().map(|c| c.id).collect();
         story::set_story_state(&mut conn, &human, &s.id, story::StoryState::Running).unwrap();
         let run = session::start_session(&mut conn, &s.id, "acceptEdits", &human).unwrap();
         let agent = session::agent_actor_id(&conn).unwrap();
