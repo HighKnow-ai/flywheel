@@ -131,6 +131,22 @@ export interface ToolResultEvent extends AgentEventBase {
    * via an exact lookup rather than an inference from position. Absent entirely — never
    * present-but-empty, never fabricated — when the backend's own content block declared none. */
   toolUseId?: string;
+  /** Story #56: the wire's `is_error` on the result block — the tool itself failed. Absent when the
+   * block declared none; a literal `false` is carried. */
+  isError?: boolean;
+}
+
+/**
+ * Story #56: the backend's heartbeat for a tool call that is still running. The feed folds it into
+ * the call it names (by {@link toolUseId}) so a long call reads "running · 60 s" instead of looking
+ * stalled; it is never a row of its own. Every field is absent, never fabricated, when the wire
+ * line lacked it.
+ */
+export interface ToolProgressEvent extends AgentEventBase {
+  type: "tool_progress";
+  toolUseId?: string;
+  toolName?: string;
+  elapsedSeconds?: number;
 }
 
 export interface PermissionRequestEvent extends AgentEventBase {
@@ -329,7 +345,8 @@ export type AgentEvent =
   | GitRetryEvent
   | GitLockExhaustedEvent
   | ThinkingEvent
-  | RateLimitEvent;
+  | RateLimitEvent
+  | ToolProgressEvent;
 
 /** What an adapter declares it can do — gates which `AgentAdapter` methods are safe to call. */
 export interface AdapterCapabilities {
