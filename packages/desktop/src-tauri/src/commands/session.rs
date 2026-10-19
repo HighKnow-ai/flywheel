@@ -1,6 +1,6 @@
 //! `session_start` / `session_log_window` — a Story session's one mutating start command and the
-//! session surface's one read (D-27, D-31, D-33, D-34). Until the MVP's Context packet exists a
-//! session starts from `flywheel_core::domain::session::stand_in_launch_prompt`.
+//! session surface's one read (D-27, D-31, D-33, D-34). Every session starts from the Context packet,
+//! `flywheel_core::context_packet::build_context_packet` (docs/mvp-spec.md §4.2).
 //! `session_start` resolves the human actor server-side (T-01-04), calls straight through to
 //! `flywheel_core::domain::session::start_session` (worktree create-or-reuse + the
 //! transactional-outbox write), and then sends exactly one `spawn` request to the sidecar with
@@ -53,7 +53,7 @@ fn validate_permission_mode(mode: &str) -> Result<(), String> {
 
 /// Trims `instruction` and rejects one longer than [`MAX_INSTRUCTION_LEN`] characters with a
 /// message naming both the limit and the actual length (T-02-20) — `None`/an all-whitespace
-/// value trims to an empty string, which the stand-in prompt treats as "no instruction".
+/// value trims to an empty string, which the Context packet treats as "no resume note".
 fn validate_instruction(instruction: Option<&str>) -> Result<String, String> {
     let trimmed = instruction.unwrap_or("").trim();
     let char_count = trimmed.chars().count();
@@ -116,7 +116,7 @@ pub(crate) struct StartRunOutcome {
 /// The DB-only half of [`session_start`], extracted so it is unit-testable against a bare
 /// `&mut Connection`. Performs, in exactly this order:
 /// 1. `start_session` (the worktree and the session row).
-/// 2. `stand_in_launch_prompt`.
+/// 2. `build_context_packet`, with the instruction as its resume note.
 /// 3. the `SELECT path, branch FROM worktrees WHERE id = ?1` read for the worktree path and branch.
 ///
 /// Steps 2-3 run AFTER the session row exists, so an error from either closes that row `failed`
@@ -133,7 +133,7 @@ pub(crate) fn start_session_recording_first(
         .map_err(|e| e.to_string())?;
 
     let built = (|| -> Result<(String, String, String), String> {
-        let prompt = flywheel_core::domain::session::stand_in_launch_prompt(conn, story_id, instruction)
+        let prompt = flywheel_core::context_packet::build_context_packet(conn, story_id, instruction)
             .map_err(|e| e.to_string())?;
         let (worktree_path, branch): (String, String) = conn
             .query_row("SELECT path, branch FROM worktrees WHERE id = ?1", rusqlite::params![run.worktree_id], |row| {

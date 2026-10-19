@@ -16,6 +16,7 @@ import {
   epicList,
   milestoneCreate,
   milestoneList,
+  storyContextPacketSize,
   storyListForProject,
   storyStart,
   storyWriteByHand,
@@ -147,6 +148,7 @@ function StoryRow({
         {story.title}
       </span>
       <DoingTask tasks={tasks} storyKey={story.key} />
+      {story.state !== "merged" && story.state !== "dropped" && <PacketSize story={story} />}
       <span className="type-label">{STORY_STATE_WORDS[story.state] ?? story.state}</span>
       <button
         type="button"
@@ -175,6 +177,34 @@ function StoryRow({
       )}
       {showTasks && <TaskChecklist storyKey={story.key} storyId={story.id} tasks={tasks} />}
     </li>
+  );
+}
+
+/** A token count as the Story shows it: thousands as `12.3K`. */
+function formatTokens(tokens: number): string {
+  return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}K` : String(tokens);
+}
+
+/**
+ * The size of the Context packet the Story's next session starts from, with a soft warning above
+ * about 20K tokens. Keyed under the project so `board:changed` keeps it current.
+ */
+function PacketSize({ story }: { story: StoryDto }) {
+  const sizeQuery = useQuery({
+    queryKey: ["board", story.projectId, "packet-size", story.id],
+    queryFn: () => storyContextPacketSize(story.id),
+  });
+  if (!sizeQuery.data) return null;
+  const { approxTokens, overSoftLimit } = sizeQuery.data;
+  const text = `Context packet ~${formatTokens(approxTokens)} tokens`;
+  return (
+    <span
+      className="type-label"
+      title={overSoftLimit ? "Above the soft limit of about 20K tokens: trim the Epic spec or the summaries" : undefined}
+      style={{ color: overSoftLimit ? "var(--blocked-text-rack)" : "var(--text-muted-rack)" }}
+    >
+      {overSoftLimit ? `${text}, above the ~20K soft limit` : text}
+    </span>
   );
 }
 

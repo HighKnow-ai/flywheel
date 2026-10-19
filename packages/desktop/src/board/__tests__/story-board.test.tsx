@@ -17,6 +17,7 @@ const epicCreate = vi.fn();
 const storyListForProject = vi.fn();
 const storyWriteByHand = vi.fn();
 const storyStart = vi.fn();
+const storyContextPacketSize = vi.fn();
 let boardChanged: ((payload: { projectId: string }) => void) | null = null;
 
 vi.mock("../../adapters/tauri", async () => {
@@ -31,6 +32,7 @@ vi.mock("../../adapters/tauri", async () => {
     storyWriteByHand: (...args: unknown[]) => storyWriteByHand(...args),
     storyStart: (...args: unknown[]) => storyStart(...args),
     taskList: () => Promise.resolve([]),
+    storyContextPacketSize: (...args: unknown[]) => storyContextPacketSize(...args),
     subscribeBoardChanged: (handler: (payload: { projectId: string }) => void) => {
       boardChanged = handler;
       return Promise.resolve(() => {});
@@ -90,6 +92,49 @@ beforeEach(() => {
   storyListForProject.mockReset().mockResolvedValue([]);
   storyWriteByHand.mockReset().mockResolvedValue(story("s1", "FLY-2", "S", "ready"));
   storyStart.mockReset().mockResolvedValue({ id: "run-1", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
+  storyContextPacketSize.mockReset().mockResolvedValue({ bytes: 4000, approxTokens: 1000, overSoftLimit: false });
+});
+
+describe("StoryBoard: the Context packet size (issue #51)", () => {
+  it("shows each open Story's packet size without a warning under the soft limit", async () => {
+    storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Small", "ready")]);
+    storyContextPacketSize.mockResolvedValue({ bytes: 4800, approxTokens: 1200, overSoftLimit: false });
+    renderBoard();
+
+    const row = await within(await screen.findByRole("list", { name: "Stories" })).findByRole("listitem");
+    expect(await within(row).findByText("Context packet ~1.2K tokens")).toBeInTheDocument();
+    expect(within(row).queryByText(/soft limit/)).toBeNull();
+    expect(storyContextPacketSize).toHaveBeenCalledWith("s1");
+  });
+
+  it("warns above about 20K tokens", async () => {
+    storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Big", "running")]);
+    storyContextPacketSize.mockResolvedValue({ bytes: 100_000, approxTokens: 25_000, overSoftLimit: true });
+    renderBoard();
+
+    const row = await within(await screen.findByRole("list", { name: "Stories" })).findByRole("listitem");
+    expect(await within(row).findByText("Context packet ~25.0K tokens, above the ~20K soft limit")).toBeInTheDocument();
+  });
+
+  it("does not size a closed Story", async () => {
+    storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Done", "merged")]);
+    renderBoard();
+
+    await screen.findByText("Merged");
+    expect(storyContextPacketSize).not.toHaveBeenCalled();
+  });
+
+  it("re-reads the size when the core says the board changed", async () => {
+    storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Live", "ready")]);
+    renderBoard();
+    const row = await within(await screen.findByRole("list", { name: "Stories" })).findByRole("listitem");
+    await within(row).findByText("Context packet ~1.0K tokens");
+
+    storyContextPacketSize.mockResolvedValue({ bytes: 8000, approxTokens: 2000, overSoftLimit: false });
+    await waitFor(() => expect(boardChanged).not.toBeNull());
+    act(() => boardChanged?.({ projectId: "p1" }));
+    expect(await within(row).findByText("Context packet ~2.0K tokens")).toBeInTheDocument();
+  });
 });
 
 describe("StoryBoard: the Story list", () => {
