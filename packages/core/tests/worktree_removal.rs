@@ -268,6 +268,12 @@ mod no_escape_hatch {
         vec![quoted(&['s', 't', 'a', 's', 'h']), quoted(&['c', 'o', 'm', 'm', 'i', 't'])]
     }
 
+    /// Whether `line` holds `token` in argument position: a quoted string not followed by `:`. A
+    /// quoted word followed by `:` is a map key (`json!({ "commit": sha })`), not a git argument.
+    fn as_argument(line: &str, token: &str) -> bool {
+        line.match_indices(token).any(|(at, _)| !line[at + token.len()..].trim_start().starts_with(':'))
+    }
+
     /// Files that hold the force token only to recognise it in an agent's command line.
     const CLASSIFIERS: [&str; 2] = ["packages/core/src/destructive.rs", "packages/core/src/permission_pattern.rs"];
 
@@ -321,7 +327,7 @@ mod no_escape_hatch {
         let never = never_tokens();
         let stash_or_commit: Vec<String> = lines
             .iter()
-            .filter(|(_, _, line)| never.iter().any(|t| line.contains(t.as_str())))
+            .filter(|(_, _, line)| never.iter().any(|t| as_argument(line, t)))
             .map(|(file, idx, line)| format!("{file}:{}: {}", idx + 1, line.trim()))
             .collect();
         assert!(stash_or_commit.is_empty(), "found a stash/commit git-subcommand token:\n{}", stash_or_commit.join("\n"));
@@ -329,7 +335,7 @@ mod no_escape_hatch {
         let force = force_token();
         let forced: Vec<&(String, usize, String)> = lines
             .iter()
-            .filter(|(file, _, line)| line.contains(force.as_str()) && !CLASSIFIERS.contains(&file.as_str()))
+            .filter(|(file, _, line)| as_argument(line, &force) && !CLASSIFIERS.contains(&file.as_str()))
             .collect();
         let wipe = item_range(DROP_FILE, WIPE_FN);
         assert!(
