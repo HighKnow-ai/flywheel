@@ -37,7 +37,7 @@ interface StateEntry {
  */
 export const STATE_VOCABULARY: Record<string, StateEntry> = {
   blocked: { cls: "needs-you", markId: "blocked-indicator" },
-  // The dispatcher's task state under a paused account-limit gate (Phase 15 plan 03, D-34): a vocabulary KEY
+  // The dispatcher's Story state under a paused account-limit gate (Phase 15 plan 03, D-34): a vocabulary KEY
   // on blocked's class and mark, not a sixth class.
   held_by_limit: { cls: "needs-you", markId: "blocked-indicator" },
   awaiting_review: { cls: "needs-you", markId: "run-awaiting-review" },
@@ -93,7 +93,7 @@ export interface StateBadgeProps {
   /** A run status, a fleet state, or one of the other states in `STATE_VOCABULARY`. Anything else renders quiet. */
   state: string;
   variant?: StateBadgeVariant;
-  /** The caller's own word, for a state whose registry label would mislead (a task held by the account limit is not "Blocked"). */
+  /** The caller's own word, for a state whose registry label would mislead (a Story held by the account limit is not "Blocked"). */
   label?: string;
   /** Do not draw the word; the glyph then carries it as an accessible name. The word is never dropped silently. */
   hideLabel?: boolean;

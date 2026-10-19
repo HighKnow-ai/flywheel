@@ -11,8 +11,7 @@
  * text triangle, not a signal mark, so it never needs marks.ts's "always paired with a word"
  * discipline that governs status/priority glyphs.
  */
-import { useRef, useState } from "react";
-import { widenFileSet, type WidenResultDto } from "../adapters/tauri";
+import { useState } from "react";
 import "./session.css";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
@@ -64,11 +63,6 @@ export type FeedRowData =
   // for it — exhaustion is a trail-only artifact, never a feed row, which is exactly the
   // signal-to-noise ratio D-53 protects. Carries no fields: the no-render case needs none.
   | { kind: "git_lock_exhausted"; key: string }
-  // D-153 (phase 09): the scope hook refused a file-tool write. Its own row kind, beside the
-  // permission card — never the raw row. `path` is repository-relative unless `outsideWorktree`,
-  // which is a different fact (the backend writing its own configuration, not the agent leaving
-  // its lane) and is worded differently and not widenable.
-  | { kind: "scope_denied"; key: string; path: string; tool: string; outsideWorktree: boolean }
   | { kind: "raw"; key: string; raw: string };
 
 export interface FeedRowProps {
@@ -79,9 +73,6 @@ export interface FeedRowProps {
   /** Only meaningful for a `tool_call` row: this is the call the agent is running right now. It carries
    * the live mark, so the eye finds life where the work is and not only in the header chrome. */
   live?: boolean;
-  /** Only meaningful for a `scope_denied` row: the task whose declared set the widen action grows.
-   * Absent for a run with no task (an authoring run), where no widen is offered. */
-  taskId?: string | null;
 }
 
 /** Whether the OS reports a reduced-motion preference — checked once at mount (no acceptance
@@ -104,7 +95,7 @@ function stringifyPayload(value: unknown): string {
 }
 
 /** The shared "expanded" sub-block's fixed max height (px) — the SAME value `ToolCallRow`'s own
- * expanded payload block already used before this task, now named so the body-row presentation
+ * expanded payload block already used before this Story, now named so the body-row presentation
  * component below can share it rather than duplicating the literal. Still a constant: the block's
  * own internal scroll is what absorbs a long payload, never the row's own reserved slot. */
 const EXPANDED_SUBBLOCK_MAX_HEIGHT = 240;
@@ -222,7 +213,7 @@ function expandableRowText(row: FeedRowData): string | undefined {
 /** Whether a row offers a disclosure control at all — a PURE function of the row's own data,
  * deterministic and never a measurement of the rendered DOM (the distinction 02-UI-SPEC.md's
  * Performance Contract Additions requires). `tool_call` is always expandable, unchanged from
- * before this task: expanding it reveals its input/output payload, not "more of one line".
+ * before this Story: expanding it reveals its input/output payload, not "more of one line".
  * `assistant_text`, `system_notice` and `raw` are expandable only when their own text exceeds
  * `FEED_ROW_TRUNCATION_THRESHOLD` — a short row offers no control and cannot be expanded. */
 export function isRowExpandable(row: FeedRowData): boolean {
@@ -320,18 +311,6 @@ function ExpandableTextRow({
   );
 }
 
-/** The last path segment — what an outside-the-repository denial shows, never its absolute path. */
-function baseName(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
-}
-
-/** The refusal's one-line wording, shared with the fleet's activity cell. */
-function scopeDeniedText(row: Extract<FeedRowData, { kind: "scope_denied" }>): string {
-  return row.outsideWorktree
-    ? `Scope: ${row.tool} · ${baseName(row.path)} is outside the repository, not this task's files`
-    : `Scope: ${row.tool} · ${row.path} is outside this task's declared files`;
-}
-
 /** The text a row reads as on one line — what the fleet's activity cell shows for a row (D-167: the
  * fleet defines no vocabulary of its own for agent activity). Each kind returns the same words its
  * feed row prints. */
@@ -339,8 +318,6 @@ export function feedRowText(row: FeedRowData): string {
   switch (row.kind) {
     case "tool_call":
       return toolCallLabel(row.toolName, row.input);
-    case "scope_denied":
-      return scopeDeniedText(row);
     case "git_lock_exhausted":
       return "";
     default:
@@ -348,94 +325,7 @@ export function feedRowText(row: FeedRowData): string {
   }
 }
 
-/** D-153: a refused write, with the one action that answers it — widen the set to the refused path.
- * The verdict is the Rust core's: the response carries the accepted set or the colliding path, and
- * this component only displays it. One line, like every fixed-height feed row.
- * ponytail: the outcome is component state, so a row scrolled out of the virtualised window and
- * back reads as un-widened (clicking again is a harmless no-op widen). Lift it into the surface's
- * state if that ever confuses anyone. */
-function ScopeDeniedRow({
-  row,
-  taskId,
-}: {
-  row: Extract<FeedRowData, { kind: "scope_denied" }>;
-  taskId: string | null;
-}) {
-  const [inFlight, setInFlight] = useState(false);
-  // Same synchronous double-activation guard as `PermissionRequestCard`'s `answeringRef`.
-  const inFlightRef = useRef(false);
-  const [result, setResult] = useState<WidenResultDto | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
-
-  async function handleWiden() {
-    if (inFlightRef.current || !taskId) return;
-    inFlightRef.current = true;
-    setInFlight(true);
-    setFailure(null);
-    try {
-      setResult(await widenFileSet(taskId, row.path));
-    } catch (error) {
-      setFailure(error instanceof Error ? error.message : String(error));
-    } finally {
-      inFlightRef.current = false;
-      setInFlight(false);
-    }
-  }
-
-  const widened = result?.status === "accepted";
-  const outcome = failure
-    ? `Could not widen: ${failure}`
-    : result?.status === "refused"
-      ? (result.refusal ?? "Refused")
-      : result?.status === "marker_not_rewritten"
-        ? `Widened on the board, but the running agent's scope file was not updated (${result.markerError ?? "unknown error"}). Widen again to retry.`
-        : widened
-          ? "widened"
-          : null;
-  const text = scopeDeniedText(row);
-  const full = outcome ? `${text} — ${outcome}` : text;
-
-  return (
-    <div
-      role="listitem"
-      data-kind="scope_denied"
-      data-widened={widened ? "true" : undefined}
-      style={{ padding: "var(--space-xs) 0", minWidth: 0 }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
-        <span
-          className="type-label"
-          title={full}
-          style={{
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            minWidth: 0,
-            flex: 1,
-            color: "var(--text-muted-rack)",
-            fontFamily: MONO_STACK,
-          }}
-        >
-          {text}
-          {outcome ? ` — ${outcome}` : ""}
-        </span>
-        {!row.outsideWorktree && taskId && !widened && (
-          <button
-            type="button"
-            onClick={handleWiden}
-            disabled={inFlight}
-            className="type-label"
-            style={{ flexShrink: 0, cursor: inFlight ? "default" : "pointer" }}
-          >
-            Widen scope to this path
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export function FeedRow({ row, expanded, onToggleExpand, live = false, taskId = null }: FeedRowProps) {
+export function FeedRow({ row, expanded, onToggleExpand, live = false }: FeedRowProps) {
   switch (row.kind) {
     case "assistant_text":
       return (
@@ -482,8 +372,6 @@ export function FeedRow({ row, expanded, onToggleExpand, live = false, taskId = 
       return null;
     case "tool_call":
       return <ToolCallRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} live={live} />;
-    case "scope_denied":
-      return <ScopeDeniedRow row={row} taskId={taskId} />;
     case "raw":
       return (
         <ExpandableTextRow
@@ -507,7 +395,7 @@ export function FeedRow({ row, expanded, onToggleExpand, live = false, taskId = 
  * height for EVERY expandable row kind, not the tool call's alone (G-02-3, Task 2) — its own
  * larger fixed height, still a constant, never derived from actual content length (the expanded
  * sub-block's own internal scroll is what absorbs a long payload). Its exported name and value are
- * unchanged from before this task, so no call site moves. */
+ * unchanged from before this Story, so no call site moves. */
 export const FEED_ROW_HEIGHT = 32;
 export const FEED_TOOL_ROW_EXPANDED_HEIGHT = 296;
 

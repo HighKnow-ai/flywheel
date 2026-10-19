@@ -49,7 +49,7 @@ describe("board-list additions", () => {
 
   it("start-work/open-live-session do not collide with Phase 1's existing board-list letters", () => {
     // Computed from BINDINGS at test time — Phase 1's own single-letter board-list keys, minus
-    // this task's own two additions — so a future added letter cannot silently collide without
+    // this Story's own two additions — so a future added letter cannot silently collide without
     // this test catching it (02-03-PLAN.md Task 3's own acceptance criterion).
     const existingLetters = new Set(
       BINDINGS.filter(

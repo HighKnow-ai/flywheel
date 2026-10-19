@@ -39,14 +39,10 @@ function row(overrides: Partial<FleetRowDto>): FleetRowDto {
     projectName: "Alpha",
     projectKeyPrefix: "ALP",
     projectStatus: "active",
-    subjectKind: "task",
-    taskId: "task-1",
-    taskKey: "ALP-1",
-    taskTitle: "Wire the thing",
-    taskStatus: "in_progress",
-    epicId: null,
-    epicKey: null,
-    authoringStage: null,
+    storyId: "story-1",
+    storyKey: "ALP-1",
+    storyTitle: "Wire the thing",
+    storyState: "running",
     runStatus: "running",
     fleetState: "running",
     startedAt: new Date(Date.now() - 125_000).toISOString(),
@@ -62,9 +58,9 @@ function row(overrides: Partial<FleetRowDto>): FleetRowDto {
 
 const ENDED = "2026-10-12T01:00:00Z";
 const failed = (id: string, extra: Partial<FleetRowDto> = {}) =>
-  row({ agentRunId: id, runStatus: "failed", fleetState: "failed", endedAt: ENDED, taskKey: id, ...extra });
+  row({ agentRunId: id, runStatus: "failed", fleetState: "failed", endedAt: ENDED, storyKey: id, ...extra });
 const completed = (id: string, extra: Partial<FleetRowDto> = {}) =>
-  row({ agentRunId: id, runStatus: "completed", fleetState: "completed", endedAt: ENDED, taskKey: id, ...extra });
+  row({ agentRunId: id, runStatus: "completed", fleetState: "completed", endedAt: ENDED, storyKey: id, ...extra });
 
 function list(rows: FleetRowDto[], visibleCostUsd: number | null = null): FleetListDto {
   return { rows, totalRows: rows.length, visibleCostUsd };

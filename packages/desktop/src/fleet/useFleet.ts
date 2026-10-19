@@ -63,9 +63,9 @@ export function useBlockedQueue() {
 }
 
 /**
- * Every task worktree across every registered project with its cached size and a named disposition
+ * Every Story worktree across every registered project with its cached size and a named disposition
  * (WORK-07, plan 10-08). Rides the shared subscription like the other two reads, but only
- * `board:changed` invalidates it: a run starting or a task reaching Done changes a row's
+ * `board:changed` invalidates it: a run starting or a Story being merged changes a row's
  * disposition, whereas an agent event stream would re-run git for every row many times a second.
  */
 export function useWorktreeInventory() {

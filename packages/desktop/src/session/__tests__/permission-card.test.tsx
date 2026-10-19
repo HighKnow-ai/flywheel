@@ -1,65 +1,15 @@
 /**
- * Behavior under test (02-06-PLAN.md Task 1 + Task 2, AGNT-06, D-37, D-38):
+ * Behavior under test (02-06-PLAN.md Task 1, AGNT-06, D-37, D-38):
  *
  * Task 1 — `PermissionRequestCard` standalone: renders nothing with no pending request; a pending
  * request renders the glyph/heading/payload/three unequal actions; Escape never resolves it;
  * a double-activation of Allow calls the answer function exactly once; a rejected answer keeps the
  * card mounted, re-enables its actions and shows an inline error; two pending requests render as
  * two independently answerable cards.
- *
- * Task 2 — both mount points (`SessionSurface`'s `feed` variant, `RunsSection`'s `compact`
- * variant, which the deleted item detail panel used to host) read the SAME `usePendingPermissionRequests(agentRunId)` query: answering at either
- * mount point clears the other within one delta cycle, with no stale duplicate, and the feed
- * suppresses its follow-the-tail scroll while a request is pending.
  */
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PermissionRequestCard, type PendingPermissionRequest } from "../PermissionRequestCard";
-import { SessionSurface } from "../SessionSurface";
-import { RunsSection } from "../../item-detail/RunsSection";
-
-const invokeCommandMock = vi.fn();
-let capturedBoardChangedHandler: (() => void) | undefined;
-
-// Every named export the code under test actually calls is re-implemented here to delegate
-// through the ONE `invokeCommandMock`, rather than spreading `...actual` — a real adapter
-// function's own body calls this module's OWN internal `invokeCommand` binding, not whatever a
-// test later re-exports, so overriding only `invokeCommand` via spread would silently leave every
-// other real adapter function calling the genuine `@tauri-apps/api` (which throws outside a real
-// Tauri context). `criteria.test.tsx`/`activity-trail.test.tsx` establish the same discipline.
-// Task 1's own standalone describe blocks below never call any of these — they render
-// `PermissionRequestCard` directly with a plain `vi.fn()` — so this mock only matters for Task 2's
-// cross-mount describe block at the foot of this file.
-vi.mock("../../adapters/tauri", () => ({
-  invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
-  agentRunLogWindow: (agentRunId: string, offset: number, limit: number) =>
-    invokeCommandMock("agent_run_log_window", { agentRunId, offset, limit }),
-  stopAgentRun: (agentRunId: string) => invokeCommandMock("agent_run_stop", { agentRunId }),
-  pendingPermissionRequests: (agentRunId: string) =>
-    invokeCommandMock("agent_run_pending_permissions", { agentRunId }),
-  latestAgentRunIdForTask: (taskId: string) => invokeCommandMock("task_latest_agent_run", { taskId }),
-  answerPermissionRequest: (requestId: string, decision: string) =>
-    invokeCommandMock("agent_run_answer_permission", { requestId, decision }),
-  // `ItemDetailPanel`'s plan 02-08 additions (`WorktreeSummary`/`RunsSection`) call these two
-  // directly, not through `invokeCommand` generically (`useBoardQuery.ts`'s own import shape) —
-  // delegated through the same one mock for the same reason every other adapter function here is.
-  agentRunsForTask: (taskId: string) => invokeCommandMock("agent_runs_for_task", { taskId }),
-  worktreeSummary: (taskId: string) => invokeCommandMock("worktree_summary", { taskId }),
-  // `GitFactsSection` (Phase 7 plan 07-01) is the panel's other new section, mounted the same
-  // way as `WorktreeSummary` — mocked here for the same reason `worktreeSummary` is.
-  gitFacts: () => Promise.resolve(null),
-  gitTruthFocusTask: () => Promise.resolve(),
-  subscribeBoardChanged: (handler: () => void) => {
-    capturedBoardChangedHandler = handler;
-    return Promise.resolve(() => {
-      capturedBoardChangedHandler = undefined;
-    });
-  },
-  // `SessionSurface` subscribes to this too (D-32) — a no-op handle is sufficient here since none
-  // of these tests exercise the raw-event push itself, only the permission-request round trip.
-  subscribeAgentEvent: () => Promise.resolve(() => {}),
-}));
 
 function makeRequest(overrides: Partial<PendingPermissionRequest> = {}): PendingPermissionRequest {
   return {
@@ -498,7 +448,7 @@ describe("destructive", () => {
 
     // Every push spelling of a remote branch deletion — plan 03-14 makes `classify_push` emit
     // `branch-deletion` for these for the first time; the pre-existing resolver names the REMOTE
-    // (`origin`) here, which is the exact defect this task closes (03-16-PLAN.md Task 2).
+    // (`origin`) here, which is the exact defect this Story closes (03-16-PLAN.md Task 2).
     it("branch-deletion via 'git push origin --delete feature-x' names the branch, not the remote", () => {
       const request = destructiveRequest("branch-deletion", "git push origin --delete feature-x");
       render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
@@ -533,7 +483,7 @@ describe("destructive", () => {
       const request = destructiveRequest("branch-deletion", "git push origin --delete");
       render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
       expect(screen.getByText("This would delete a branch on this remote.")).toBeInTheDocument();
-      // Regression guard for the exact defect this task closes: with only one positional (the
+      // Regression guard for the exact defect this Story closes: with only one positional (the
       // remote) after the subcommand, the sentence must never name "origin" as if it were the
       // branch — this is the case a "last non-flag positional" rule with no length check would
       // get wrong.
@@ -594,148 +544,5 @@ describe("destructive", () => {
       render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
       expect(screen.queryByRole("button", { name: /from now on/i })).not.toBeInTheDocument();
     });
-  });
-});
-
-// ---------------------------------------------------------------------------------------------
-// Task 2 — both mount points share one query, one key (Discretion #6)
-// ---------------------------------------------------------------------------------------------
-
-const RUN_ID = "run-shared-1";
-const TASK_ID = "task-shared-1";
-
-function setUpSharedMounts(initialRequests: PendingPermissionRequest[]) {
-  let currentRequests = initialRequests;
-  capturedBoardChangedHandler = undefined;
-  invokeCommandMock.mockReset();
-  invokeCommandMock.mockImplementation((command: string) => {
-    if (command === "agent_run_pending_permissions") return Promise.resolve(currentRequests);
-    if (command === "task_latest_agent_run") return Promise.resolve(RUN_ID);
-    if (command === "agent_run_answer_permission") return Promise.resolve(undefined);
-    if (command === "agent_run_log_window") return Promise.resolve([]);
-    if (command === "criterion_list") return Promise.resolve([]);
-    if (command === "events_activity_trail") return Promise.resolve([]);
-    if (command === "actor_list") return Promise.resolve([]);
-    // `ItemDetailPanel`'s Runs section (plan 02-08) needs a blocked row for RUN_ID so its own
-    // compact permission-card mount (the SAME card `usePendingPermissionRequests` feeds) has a
-    // row to render beneath — without this the section would read zero runs and render nothing.
-    if (command === "agent_runs_for_task") {
-      return Promise.resolve([
-        {
-          id: RUN_ID,
-          taskId: TASK_ID,
-          status: "blocked",
-          startedAt: "2026-01-01T00:00:00.000Z",
-          endedAt: null,
-          costUsd: null,
-          tokensIn: null,
-          tokensOut: null,
-          externalSessionId: null,
-        },
-      ]);
-    }
-    if (command === "worktree_summary") return Promise.resolve(null);
-    return Promise.resolve(undefined);
-  });
-
-  const queryClient = new QueryClient();
-
-  function setRequests(next: PendingPermissionRequest[]) {
-    currentRequests = next;
-  }
-
-  const view = render(
-    <QueryClientProvider client={queryClient}>
-      <SessionSurface agentRunId={RUN_ID} onBack={() => {}} initialStatus="blocked" />
-      <RunsSection taskId={TASK_ID} onOpenRun={() => {}} />
-    </QueryClientProvider>,
-  );
-
-  /** Simulates the core's `board:changed` push (D-04) the answer round trip emits. */
-  function pushBoardChanged() {
-    capturedBoardChangedHandler?.();
-  }
-
-  return { ...view, setRequests, pushBoardChanged, queryClient };
-}
-
-describe("Two mount points, one request (Discretion #6, plan 02-06 Task 2)", () => {
-  it("both mount points render for one pending request", async () => {
-    setUpSharedMounts([makeRequest({ id: "req-shared" })]);
-
-    await waitFor(() => expect(screen.getAllByText("Bash wants to:")).toHaveLength(2));
-  });
-
-  it("answering the compact (item detail) instance clears the feed instance", async () => {
-    const { setRequests, pushBoardChanged } = setUpSharedMounts([makeRequest({ id: "req-shared" })]);
-
-    await waitFor(() => expect(screen.getAllByText("Bash wants to:")).toHaveLength(2));
-
-    setRequests([]);
-    // Both groups are identical; activating either one's Allow answers the same underlying row —
-    // pick the second (compact/item-detail) instance explicitly.
-    const groups = screen.getAllByRole("group", { name: "Bash wants to:" });
-    fireEvent.click(within(groups[1]).getByRole("button", { name: "Allow" }));
-    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("agent_run_answer_permission", {
-      requestId: "req-shared",
-      decision: "allow",
-    }));
-    pushBoardChanged();
-
-    await waitFor(() => expect(screen.queryByText("Bash wants to:")).not.toBeInTheDocument());
-  });
-
-  it("answering the feed instance clears the compact instance", async () => {
-    const { setRequests, pushBoardChanged } = setUpSharedMounts([makeRequest({ id: "req-shared" })]);
-
-    await waitFor(() => expect(screen.getAllByText("Bash wants to:")).toHaveLength(2));
-
-    setRequests([]);
-    const groups = screen.getAllByRole("group", { name: "Bash wants to:" });
-    fireEvent.click(within(groups[0]).getByRole("button", { name: "Allow" }));
-    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("agent_run_answer_permission", {
-      requestId: "req-shared",
-      decision: "allow",
-    }));
-    pushBoardChanged();
-
-    await waitFor(() => expect(screen.queryByText("Bash wants to:")).not.toBeInTheDocument());
-  });
-
-  it("neither mount point leaves a stale duplicate after answering", async () => {
-    const { setRequests, pushBoardChanged } = setUpSharedMounts([makeRequest({ id: "req-shared" })]);
-    await waitFor(() => expect(screen.getAllByText("Bash wants to:")).toHaveLength(2));
-
-    setRequests([]);
-    const groups = screen.getAllByRole("group", { name: "Bash wants to:" });
-    fireEvent.click(within(groups[0]).getByRole("button", { name: "Allow" }));
-    pushBoardChanged();
-
-    await waitFor(() => expect(screen.queryAllByText("Bash wants to:")).toHaveLength(0));
-  });
-
-  it("the feed does not scroll to its tail while a pending card is mounted, and resumes after it is answered", async () => {
-    const scrollSpy = vi.fn();
-    Object.defineProperty(Element.prototype, "scrollIntoView", {
-      configurable: true,
-      writable: true,
-      value: scrollSpy,
-    });
-
-    const { setRequests, pushBoardChanged } = setUpSharedMounts([makeRequest({ id: "req-shared" })]);
-    await waitFor(() => expect(screen.getAllByText("Bash wants to:")).toHaveLength(2));
-
-    scrollSpy.mockClear();
-
-    setRequests([]);
-    const groups = screen.getAllByRole("group", { name: "Bash wants to:" });
-    fireEvent.click(within(groups[0]).getByRole("button", { name: "Allow" }));
-    pushBoardChanged();
-
-    await waitFor(() => expect(screen.queryAllByText("Bash wants to:")).toHaveLength(0));
-    expect(scrollSpy).toHaveBeenCalled();
-
-    // @ts-expect-error — cleaning up the spy from the shared prototype after this test.
-    delete Element.prototype.scrollIntoView;
   });
 });

@@ -5,7 +5,7 @@
  *   on a row with no board subject. (The board that consumed the request was deleted by issue #38, so
  *   the end-to-end landing tests went with it.)
  * - Enter and a click on a fleet row open that run's session, handing the opener all four identifiers
- *   (run id, task id, authoring stage, epic id) plus the row's mapped status, in one call (Finding 10,
+ *   (run id, Story id, authoring stage, epic id) plus the row's mapped status, in one call (Finding 10,
  *   Pitfall 7).
  * - The fleet surface never clears itself before opening a session, so the session's own back action
  *   lands on the fleet (RESEARCH Pattern 4).
@@ -35,7 +35,7 @@ vi.mock("../../adapters/tauri", async () => {
     ...actual,
     invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
     gitFacts: () => Promise.resolve(null),
-    gitTruthFocusTask: () => Promise.resolve(),
+    gitTruthFocusStory: () => Promise.resolve(),
     fleetList: () => fleetListMock(),
     fleetBlockedQueue: () => Promise.resolve([]),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
@@ -59,14 +59,10 @@ function row(overrides: Partial<FleetRowDto>): FleetRowDto {
     projectName: "Alpha",
     projectKeyPrefix: "ALP",
     projectStatus: "active",
-    subjectKind: "task",
-    taskId: "task-1",
-    taskKey: "ALP-1",
-    taskTitle: "Wire the thing",
-    taskStatus: "in_progress",
-    epicId: null,
-    epicKey: null,
-    authoringStage: null,
+    storyId: "story-1",
+    storyKey: "ALP-1",
+    storyTitle: "Wire the thing",
+    storyState: "running",
     runStatus: "running",
     fleetState: "running",
     startedAt: new Date(Date.now() - 125_000).toISOString(),
@@ -128,59 +124,21 @@ afterEach(() => {
 });
 
 describe("the primary target: a row opens that run's session", () => {
-  it("Enter on a selected task row opens the session with all four identifiers and the row's status", async () => {
+  it("Enter on a selected row opens the session with its identifiers and the row's status", async () => {
     const spies = spyOnStore();
-    await renderFleet([row({ agentRunId: "run-t", taskId: "task-9", epicId: null, authoringStage: null })]);
+    await renderFleet([row({ agentRunId: "run-t", storyId: "story-9" })]);
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "Enter" });
     expect(spies.setActiveAgentRunId).toHaveBeenCalledTimes(1);
-    expect(spies.setActiveAgentRunId).toHaveBeenCalledWith("run-t", "task-9", null, null, null, "running");
+    expect(spies.setActiveAgentRunId).toHaveBeenCalledWith("run-t", "story-9", null, "running");
   });
 
   it("a click on the row does the same thing as Enter", async () => {
     const spies = spyOnStore();
-    const { container } = await renderFleet([row({ agentRunId: "run-t", taskId: "task-9" })]);
+    const { container } = await renderFleet([row({ agentRunId: "run-t", storyId: "story-9" })]);
     fireEvent.click(rowFor(container, "run-t"));
     expect(spies.setActiveAgentRunId).toHaveBeenCalledTimes(1);
-    expect(spies.setActiveAgentRunId).toHaveBeenCalledWith("run-t", "task-9", null, null, null, "running");
-  });
-
-  it("an epic-subject authoring row carries the epic id and the stage, with a null task id", async () => {
-    const spies = spyOnStore();
-    const { container } = await renderFleet([
-      row({
-        agentRunId: "run-a",
-        subjectKind: "authoring",
-        taskId: null,
-        taskKey: null,
-        taskTitle: null,
-        taskStatus: null,
-        epicId: "epic-3",
-        epicKey: "ALP-E3",
-        authoringStage: "challenge",
-      }),
-    ]);
-    fireEvent.click(rowFor(container, "run-a"));
-    expect(spies.setActiveAgentRunId).toHaveBeenCalledWith("run-a", null, "challenge", "epic-3", null, "running");
-  });
-
-  it("a row with neither task nor epic opens its session with nulls and does not throw", async () => {
-    const spies = spyOnStore();
-    const { container } = await renderFleet([
-      row({
-        agentRunId: "run-n",
-        subjectKind: "authoring",
-        taskId: null,
-        taskKey: null,
-        taskTitle: null,
-        taskStatus: null,
-        epicId: null,
-        epicKey: null,
-        authoringStage: null,
-      }),
-    ]);
-    expect(() => fireEvent.click(rowFor(container, "run-n"))).not.toThrow();
-    expect(spies.setActiveAgentRunId).toHaveBeenCalledWith("run-n", null, null, null, null, "running");
+    expect(spies.setActiveAgentRunId).toHaveBeenCalledWith("run-t", "story-9", null, "running");
   });
 
   it("a failed row hands the session its failed status, not the running default", async () => {
@@ -239,69 +197,28 @@ describe("the primary target: a row opens that run's session", () => {
   });
 });
 
-const NO_SUBJECT = {
-  subjectKind: "authoring" as const,
-  taskId: null,
-  taskKey: null,
-  taskTitle: null,
-  taskStatus: null,
-  epicId: null,
-  epicKey: null,
-  authoringStage: null,
-};
 
 describe("the secondary target: the subject key reaches its board item", () => {
   it("activating it in another project switches the project and hands the board a focus request", async () => {
     useUiStore.setState({ currentProjectId: "proj-A" });
     const spies = spyOnStore();
     const { container } = await renderFleet([
-      row({ agentRunId: "run-b", projectId: "proj-B", projectName: "Beta", taskId: "task-b7", taskKey: "BET-7" }),
+      row({ agentRunId: "run-b", projectId: "proj-B", projectName: "Beta", storyId: "story-b7", storyKey: "BET-7" }),
     ]);
     fireEvent.click(within(rowFor(container, "run-b")).getByRole("button", { name: /Open BET-7 on the board/ }));
     expect(spies.setCurrentProjectId).toHaveBeenCalledWith("proj-B");
     const state = useUiStore.getState();
     expect(state.currentProjectId).toBe("proj-B");
-    expect(state.pendingFocusItemId).toBe("task-b7");
+    expect(state.pendingFocusItemId).toBe("story-b7");
     expect(state.fleetSurface).toBeNull();
   });
 
   it("activating it does not also open the session", async () => {
     const spies = spyOnStore();
-    const { container } = await renderFleet([row({ agentRunId: "run-b", taskId: "task-b7", taskKey: "BET-7" })]);
+    const { container } = await renderFleet([row({ agentRunId: "run-b", storyId: "story-b7", storyKey: "BET-7" })]);
     fireEvent.click(within(rowFor(container, "run-b")).getByRole("button", { name: /Open BET-7 on the board/ }));
     expect(spies.setActiveAgentRunId).not.toHaveBeenCalled();
     expect(useUiStore.getState().activeAgentRunId).toBeNull();
-  });
-
-  it("an epic-subject row targets the epic, and opens the epic's detail rather than a review", async () => {
-    const { container } = await renderFleet([
-      row({
-        agentRunId: "run-e",
-        subjectKind: "epic",
-        taskId: null,
-        taskKey: null,
-        taskTitle: null,
-        taskStatus: null,
-        epicId: "epic-4",
-        epicKey: "ALP-E4",
-      }),
-    ]);
-    fireEvent.click(within(rowFor(container, "run-e")).getByRole("button", { name: /Open ALP-E4 on the board/ }));
-    expect(useUiStore.getState().pendingFocusItemId).toBe("epic-4");
-  });
-
-  it("a row with no task and no epic renders no target element at all, and `b` does nothing on it", async () => {
-    const spies = spyOnStore();
-    const { container } = await renderFleet([row({ agentRunId: "run-n", ...NO_SUBJECT })]);
-    expect(container.querySelector("[data-subject-target]")).toBeNull();
-    fireEvent.keyDown(window, { key: "j" });
-    fireEvent.keyDown(window, { key: "b" });
-    expect(useUiStore.getState().pendingFocusItemId).toBeNull();
-    expect(spies.setCurrentProjectId).not.toHaveBeenCalled();
-    expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
-    // The session is still reachable from it.
-    fireEvent.click(rowFor(container, "run-n"));
-    expect(spies.setActiveAgentRunId).toHaveBeenCalledTimes(1);
   });
 
   it("a row in an unreachable project exposes no target, because its board is not there to land on", async () => {
@@ -312,24 +229,24 @@ describe("the secondary target: the subject key reaches its board item", () => {
   it("`b` reaches the selected row's item whatever its position, and never opens the session", async () => {
     const spies = spyOnStore();
     await renderFleet([
-      row({ agentRunId: "run-1", taskId: "task-1", taskKey: "ALP-1" }),
-      row({ agentRunId: "run-2", taskId: "task-2", taskKey: "ALP-2" }),
-      row({ agentRunId: "run-3", projectId: "proj-C", taskId: "task-3", taskKey: "CHA-3" }),
+      row({ agentRunId: "run-1", storyId: "story-1", storyKey: "ALP-1" }),
+      row({ agentRunId: "run-2", storyId: "story-2", storyKey: "ALP-2" }),
+      row({ agentRunId: "run-3", projectId: "proj-C", storyId: "story-3", storyKey: "CHA-3" }),
     ]);
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "b" });
-    expect(useUiStore.getState().pendingFocusItemId).toBe("task-3");
+    expect(useUiStore.getState().pendingFocusItemId).toBe("story-3");
     expect(useUiStore.getState().currentProjectId).toBe("proj-C");
     expect(spies.setActiveAgentRunId).not.toHaveBeenCalled();
   });
 
-  it("two rows for the same task each open their own run's session and both resolve the same item", async () => {
+  it("two rows for the same Story each open their own run's session and both resolve the same item", async () => {
     const spies = spyOnStore();
     const { container } = await renderFleet([
-      row({ agentRunId: "run-x", taskId: "task-1", taskKey: "ALP-1", runStatus: "failed", fleetState: "failed" }),
-      row({ agentRunId: "run-y", taskId: "task-1", taskKey: "ALP-1", runStatus: "running", fleetState: "running" }),
+      row({ agentRunId: "run-x", storyId: "story-1", storyKey: "ALP-1", runStatus: "failed", fleetState: "failed" }),
+      row({ agentRunId: "run-y", storyId: "story-1", storyKey: "ALP-1", runStatus: "running", fleetState: "running" }),
     ]);
     fireEvent.click(rowFor(container, "run-x"));
     fireEvent.click(rowFor(container, "run-y"));
@@ -337,7 +254,7 @@ describe("the secondary target: the subject key reaches its board item", () => {
     for (const id of ["run-x", "run-y"]) {
       useUiStore.getState().setPendingFocusItemId(null);
       fireEvent.click(within(rowFor(container, id)).getByRole("button", { name: /Open ALP-1 on the board/ }));
-      expect(useUiStore.getState().pendingFocusItemId).toBe("task-1");
+      expect(useUiStore.getState().pendingFocusItemId).toBe("story-1");
     }
   });
 });
@@ -370,7 +287,7 @@ function stubShellReads() {
 const FEED_LINE = { type: "assistant_text", seq: 0, at: new Date().toISOString(), raw: "{}", text: "Reading the reconciliation module." };
 
 /** The run in project B that every shell test starts from: live, with output on disk. */
-const RUN_B = row({ agentRunId: "run-b", projectId: "proj-B", projectName: "Beta", taskId: "task-b7", taskKey: "BET-7", taskTitle: "Beta seven" });
+const RUN_B = row({ agentRunId: "run-b", projectId: "proj-B", projectName: "Beta", storyId: "story-b7", storyKey: "BET-7", storyTitle: "Beta seven" });
 
 async function mountShellOnFleet(rows: FleetRowDto[], currentProjectId = "proj-A") {
   useUiStore.setState({ currentProjectId, fleetSurface: { view: "fleet" } });
@@ -434,7 +351,7 @@ describe("AppShell: where a fleet row takes you", () => {
   // an expected failure rather than asserted as correct; when the selection survives the round trip this
   // turns red, which is the cue to make it a plain `it`. Logged in deferred-items.md.
   it.fails("Back from the session returns to the fleet with the same row selected", async () => {
-    const { container } = await mountShellOnFleet([RUN_B, row({ agentRunId: "run-other", taskId: "task-o", taskKey: "ALP-2" })]);
+    const { container } = await mountShellOnFleet([RUN_B, row({ agentRunId: "run-other", storyId: "story-o", storyKey: "ALP-2" })]);
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "Enter" });

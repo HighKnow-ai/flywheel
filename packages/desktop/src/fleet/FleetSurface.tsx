@@ -193,17 +193,9 @@ export function FleetFooter({ visibleCostUsd }: { visibleCostUsd: number | null 
   );
 }
 
-/** What the run is *about*: a task key and title, an epic key, an authoring stage — or, for a run with
- * no subject at all, just the word for what kind of run it is. Never empty (Finding 10). */
+/** What the run is *about*: its Story's key and title. Every session serves exactly one Story. */
 function subjectLabel(row: FleetRowDto): { key: string; detail: string | null } {
-  if (row.subjectKind === "task") {
-    return { key: row.taskKey ?? "Task", detail: row.taskTitle };
-  }
-  if (row.subjectKind === "epic") {
-    return { key: row.epicKey ?? "Epic", detail: "Planning" };
-  }
-  const stage = row.authoringStage ? `Authoring · ${row.authoringStage}` : "Authoring";
-  return { key: row.epicKey ?? "", detail: stage };
+  return { key: row.storyKey, detail: row.storyTitle || null };
 }
 
 /** How long this row has been in its state: a blocked run counts from its oldest pending request, a
@@ -214,14 +206,13 @@ function ageSince(row: FleetRowDto, state: FleetState): string | undefined {
   return row.startedAt;
 }
 
-/** The board item a row's subject names: its task, or for an epic or an authoring run on an existing epic,
- * that epic. `null` when the run has no board subject at all (a fresh-epic authoring run), and also for a
- * project that is unreachable — its board is replaced by the relocate screen, so the jump would land on
- * something other than the item. Either way the row shows no target (D-166: an affordance that looks like
- * a link and goes nowhere is worse than a plain label). */
+/** The board item a row's subject names: its Story. `null` for a project that is unreachable — its board
+ * is replaced by the relocate screen, so the jump would land on something other than the item, and the row
+ * shows no target (D-166: an affordance that looks like a link and goes nowhere is worse than a plain
+ * label). */
 export function subjectTargetId(row: FleetRowDto): string | null {
   if (row.projectStatus === "unreachable") return null;
-  return row.taskId ?? row.epicId ?? null;
+  return row.storyId;
 }
 
 /** The row's secondary target (D-166, FLEET-03): the subject key as a button of its own, reaching the
@@ -252,10 +243,8 @@ export function SubjectTarget({
 }
 
 /** The row's primary action (D-166, FLEET-03): open this run's session, handing over everything the
- * surface needs to mount in its correct shape in ONE call. `agent_runs.task_id` and `epic_id` are both
- * nullable and mutually exclusive (Finding 10), so an authoring or planning run carries an epic or
- * nothing; `setActiveAgentRunId` documents that every call site sets the four together, and the session
- * will not mount its proposal tray without the stage and the epic. The status is the raw run status the
+ * surface needs to mount in its correct shape in ONE call — the run, its Story and its status
+ * (`setActiveAgentRunId` sets them together). The status is the raw run status the
  * row is already showing — `awaiting_review` is a fleet-only state, the session knows that run as
  * `completed` — so a terminal run does not read "Running" while nothing re-reads it (Pitfall 7).
  *
@@ -265,7 +254,7 @@ export function SubjectTarget({
  * intended. The triage surface clears itself first, which is the opposite pattern. */
 function sessionOpenerArgs(row: FleetRowDto): Parameters<UiOpener> {
   const status = isRunStatus(row.runStatus) ? row.runStatus : null;
-  return [row.agentRunId, row.taskId, row.authoringStage, row.epicId, null, status];
+  return [row.agentRunId, row.storyId, null, status];
 }
 
 type UiOpener = ReturnType<typeof useUiStore.getState>["setActiveAgentRunId"];
@@ -323,7 +312,7 @@ export function FleetRowView({
         style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
       >
         {subjectTargetId(row) !== null && onOpenSubject ? (
-          <SubjectTarget label={subject.key || (row.taskId ? "Task" : "Epic")} onOpen={() => onOpenSubject(row)} />
+          <SubjectTarget label={subject.key || "Story"} onOpen={() => onOpenSubject(row)} />
         ) : (
           subject.key && <span className="type-label tabular-nums">{subject.key}</span>
         )}

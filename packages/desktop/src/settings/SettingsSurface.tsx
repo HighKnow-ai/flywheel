@@ -10,7 +10,7 @@
  * and the command palette — never an inline settings-adjacent affordance on the board or the
  * launch sheet.
  *
- * Six sections, top to bottom:
+ * Five sections, top to bottom:
  * 1. **Credential path** — a global two-value segmented control (`Local Claude Code Credentials`
  *    default / `API Key`), the write-only Keychain-backed key field (only revealed while the
  *    global mode is `api_key`), and the non-blocking backend-unavailable notice.
@@ -18,23 +18,13 @@
  *    `useProjects`), each carrying the same segmented control plus a third `Use global default`
  *    option. Absent entirely at zero registered projects (E7 zero-one-many) — an override table
  *    with no rows would be noise, and the global control alone is the honest surface.
- * 3. **Forge override** (D-119, phase 07 plan 07-08) — the exact same per-project row shape as
- *    section 2, beside it: a four-value segmented control (`Detected` / `GitHub` / `GitLab` /
- *    `Local only`), where `Detected` sends `forge: null`. Reads its OWN `projectForgeOverrides`
- *    list (one row per registered project, each carrying `projectName` — the exact same "read
- *    carries the row's own display name" shape `settings.projectOverrides` already uses for
- *    section 2), so the control shows the CURRENT value rather than always resetting to
- *    `Detected`, and a test exercising an unrelated section needs no forge-specific mock to avoid
- *    rendering this one (mirrors section 2's own "leave `projectOverrides: []`" convenience).
- * 4. **Worktree open commands** (D-130, LINK-11, plan 07-04 Task 3) — the two command templates
+ * 3. **Worktree open commands** (D-130, LINK-11, plan 07-04 Task 3) — the two command templates
  *    `item-detail/WorktreeSummary.tsx`'s "Open in editor"/"Open in terminal" actions run,
  *    pre-filled with their current (stored-or-default) value and saved on blur/Enter, following
  *    this file's own "every field commits on interaction" discipline. A rejected save (an empty
  *    or whitespace-only template) surfaces the core's own rejection text rather than storing it.
- * 5. **Parallel agents** (D-159, phase 09 plan 09-04) — one native select over 1 to 8 for the
- *    global cap on concurrent agent sessions, with the live occupied-slot count beside it. The
- *    cap gates the dispatcher's own spawns only; no verdict is computed in the renderer.
- * 6. **Permission rules** (D-38) — `PermissionRulesTable.tsx`, mounted by plan 02-10 Task 2.
+ * 4. **Notifications** (D-176) — the one global OS-notification switch.
+ * 5. **Permission rules** (D-38) — `PermissionRulesTable.tsx`, mounted by plan 02-10 Task 2.
  *
  * `T-02-40`'s mitigation lives here structurally: the API key input is always `type="password"`,
  * there is no unmask affordance anywhere in this file (Task 1's own structural `<verify>` grep
@@ -47,13 +37,9 @@ import {
   backendCapabilityProbe,
   getSettings,
   openCommandTemplate,
-  projectForgeOverrides,
   setCredentialMode,
   setOpenCommandTemplate,
-  settingsSetDispatchMaxParallel,
-  settingsSetProjectForge,
   storeApiKey,
-  type ProjectForge,
   type SettingsDto,
   type WorktreeOpenSurface,
 } from "../adapters/tauri";
@@ -83,20 +69,6 @@ const PROJECT_CREDENTIAL_OPTIONS: readonly { value: ProjectOptionValue; label: s
 
 const SETTINGS_QUERY_KEY = ["settings"] as const;
 const BACKEND_CAPABILITY_QUERY_KEY = ["backend-capability"] as const;
-const FORGE_OVERRIDES_QUERY_KEY = ["forge-overrides"] as const;
-
-/** The per-project forge override's four values (D-119, phase 07 plan 07-08): `"detected"` is a
- * renderer-only value (never sent to the command surface as-is), mirroring `ProjectOptionValue`'s
- * own "default" convention above — selecting it sends `forge: null`, which
- * `settings_set_project_forge` treats as clearing the override back to detection. */
-type ForgeOptionValue = ProjectForge | "detected";
-
-const PROJECT_FORGE_OPTIONS: readonly { value: ForgeOptionValue; label: string }[] = [
-  { value: "detected", label: "Detected" },
-  { value: "github", label: "GitHub" },
-  { value: "gitlab", label: "GitLab" },
-  { value: "local", label: "Local only" },
-];
 
 /** The exact copy from 02-UI-SPEC.md's Copywriting Contract ("Settings — CLI not detected
  * notice") — never a hard error, since the API-key path remains fully usable regardless. */
@@ -344,59 +316,6 @@ function OpenCommandTemplateField({ surface, label }: { surface: WorktreeOpenSur
   );
 }
 
-/** The cap's closed range (D-159, `domain/settings.rs`) as a list the select renders — an
- * out-of-range value is unreachable from the UI rather than merely rejected by the command. */
-const PARALLEL_CAP_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
-
-/**
- * The global parallel-agent cap (PLAN-06, D-159): one number for concurrent agent sessions across
- * every project, shown beside how many slots are in use right now. Controlled by the stored value
- * so a refused set snaps back by construction; the error text is the command's own. The cap gates
- * the dispatcher's spawns only — a launch the user starts is never refused by it.
- */
-function ParallelCapControl({ settings }: { settings: SettingsDto }) {
-  const queryClient = useQueryClient();
-  const setCapMutation = useMutation({
-    mutationFn: (value: number) => settingsSetDispatchMaxParallel(value),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY }),
-  });
-  const { maxParallel, occupiedSlots } = settings.dispatchCap;
-  const error = setCapMutation.error;
-  const errorText =
-    typeof error === "string" ? error : error instanceof Error ? error.message : "Could not save the cap.";
-
-  return (
-    <>
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
-        <select
-          aria-label="Parallel agent sessions"
-          value={maxParallel}
-          disabled={setCapMutation.isPending}
-          onChange={(event) => setCapMutation.mutate(Number(event.target.value))}
-          className="type-body control-edge admin-field"
-        >
-          {PARALLEL_CAP_OPTIONS.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-        <span data-testid="dispatch-cap-occupancy" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-          {`${occupiedSlots} of ${maxParallel} slots in use`}
-        </span>
-      </div>
-      <p className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
-        Most agent sessions the planner runs at once, across every project. Sessions you start yourself are never refused.
-      </p>
-      {setCapMutation.isError && (
-        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
-          {errorText}
-        </p>
-      )}
-    </>
-  );
-}
-
 export interface SettingsSurfaceProps {
   onBack: () => void;
 }
@@ -416,21 +335,10 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY }),
   });
 
-  const forgeOverridesQuery = useQuery({
-    queryKey: FORGE_OVERRIDES_QUERY_KEY,
-    queryFn: () => projectForgeOverrides(),
-  });
-  const setForgeMutation = useMutation({
-    mutationFn: (input: { projectId: string; forge: ProjectForge | null }) =>
-      settingsSetProjectForge(input.projectId, input.forge),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: FORGE_OVERRIDES_QUERY_KEY }),
-  });
-
   const loading = settingsQuery.isPending;
   const settings = settingsQuery.data;
   const projects = projectsQuery.data ?? [];
   const backendUnavailable = backendQuery.data ? !backendQuery.data.available : false;
-  const forgeOverrides = forgeOverridesQuery.data ?? [];
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--text-primary-rack)" }}>
@@ -513,54 +421,6 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
                 </div>
               ))}
             </div>
-          </section>
-        )}
-
-        {!forgeOverridesQuery.isPending && forgeOverrides.length > 0 && (
-          <section className="admin-section">
-            <span className="type-body admin-section-label">
-              Forge Override
-            </span>
-            <div
-              style={{ display: "flex", flexDirection: "column", maxHeight: 240, overflowY: "auto" }}
-            >
-              {forgeOverrides.map((override) => (
-                <div key={override.projectId} className="admin-row">
-                  <span
-                    className="type-body"
-                    style={{
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      flexShrink: 1,
-                      minWidth: 0,
-                    }}
-                  >
-                    {override.projectName}
-                  </span>
-                  <SegmentedControl
-                    ariaLabel={`Forge for ${override.projectName}`}
-                    options={PROJECT_FORGE_OPTIONS}
-                    value={(override.forge ?? "detected") as ForgeOptionValue}
-                    onSelect={(selected) =>
-                      setForgeMutation.mutate({
-                        projectId: override.projectId,
-                        forge: selected === "detected" ? null : selected,
-                      })
-                    }
-                  />
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {!loading && settings && (
-          <section className="admin-section">
-            <span className="type-body admin-section-label">
-              Parallel Agents
-            </span>
-            <ParallelCapControl settings={settings} />
           </section>
         )}
 

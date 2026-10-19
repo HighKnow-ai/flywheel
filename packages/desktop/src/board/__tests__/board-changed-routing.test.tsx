@@ -8,17 +8,14 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useBoardChangedSubscription } from "../useBoardQuery";
-import { changeFlagsQueryKey, useChangeFlags } from "../useBoardQuery";
 import { useBoardChangedInvalidation } from "../useBoardChangedInvalidation";
 import { useUiStore } from "../../state/uiStore";
 
 type Handler = (payload?: unknown) => void;
 let handlers: Handler[] = [];
-const changeFlagsSpy = vi.hoisted(() => vi.fn((..._args: unknown[]) => Promise.resolve([])));
 
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: () => Promise.resolve(undefined),
-  boardChangeFlags: (...args: unknown[]) => changeFlagsSpy(...args),
   subscribeBoardChanged: (handler: Handler) => {
     handlers.push(handler);
     return Promise.resolve(() => {
@@ -55,20 +52,19 @@ beforeEach(() => {
 describe("board:changed routing", () => {
   it("an event for the viewed project invalidates that project's board and epics keys", async () => {
     const spy = mount();
-    await fire({ projectId: VIEWED, entity: "task", id: "t1" });
+    await fire({ projectId: VIEWED, entity: "story", id: "s1" });
     expect(keys(spy)).toEqual(expect.arrayContaining([["board", VIEWED], ["epics", VIEWED]]));
   });
 
   it("an event for the viewed project touches no other project's keys and no bare prefix", async () => {
     const spy = mount();
-    await fire({ projectId: VIEWED, entity: "task", id: "t1" });
-    // The fan-out keys are keyed by epic, not by project, so they ride the viewed-project branch.
-    expect(keys(spy)).toEqual([["board", VIEWED], ["epics", VIEWED], ["board", "dispatch"]]);
+    await fire({ projectId: VIEWED, entity: "story", id: "s1" });
+    expect(keys(spy)).toEqual([["board", VIEWED], ["epics", VIEWED]]);
   });
 
   it("an event for a different project invalidates nothing at all", async () => {
     const spy = mount();
-    await fire({ projectId: "project-b", entity: "task", id: "t1" });
+    await fire({ projectId: "project-b", entity: "story", id: "s1" });
     expect(spy).toHaveBeenCalledTimes(0);
   });
 
@@ -80,7 +76,7 @@ describe("board:changed routing", () => {
 
   it("an event with no projectId key at all broadcasts rather than dropping", async () => {
     const spy = mount();
-    await fire({ entity: "task", id: "t1" });
+    await fire({ entity: "story", id: "s1" });
     expect(keys(spy)).toEqual(BROADCAST);
   });
 
@@ -93,21 +89,21 @@ describe("board:changed routing", () => {
   it("two events for the viewed project in the same tick each invalidate — nothing is coalesced", async () => {
     const spy = mount();
     await fire(
-      { projectId: VIEWED, entity: "task", id: "t1" },
-      { projectId: VIEWED, entity: "task", id: "t2" },
+      { projectId: VIEWED, entity: "story", id: "s1" },
+      { projectId: VIEWED, entity: "story", id: "s2" },
     );
-    expect(spy).toHaveBeenCalledTimes(6);
+    expect(spy).toHaveBeenCalledTimes(4);
     expect(keys(spy).filter((k) => JSON.stringify(k) === JSON.stringify(["board", VIEWED]))).toHaveLength(2);
   });
 
   it("an interleaved foreign event neither invalidates nor reorders the viewed project's events", async () => {
     const spy = mount();
     await fire(
-      { projectId: VIEWED, entity: "task", id: "t1" },
-      { projectId: "project-b", entity: "task", id: "t9" },
+      { projectId: VIEWED, entity: "story", id: "s1" },
+      { projectId: "project-b", entity: "story", id: "s9" },
       { projectId: VIEWED, entity: "epic", id: "e1" },
     );
-    expect(spy).toHaveBeenCalledTimes(6);
+    expect(spy).toHaveBeenCalledTimes(4);
   });
 });
 
@@ -125,9 +121,11 @@ describe("useBoardChangedInvalidation — shared routing", () => {
     return spy;
   }
 
-  const mountChangeFlags = () => mountWith(() => void useChangeFlags(PROJ));
+  const DEBOUNCED_KEY = ["debounced", PROJ];
+  const mountDebounced = () =>
+    mountWith(() => useBoardChangedInvalidation({ kind: "project", projectId: PROJ }, [DEBOUNCED_KEY], { debounceMs: 1000 }));
 
-  /** Fire, then let the 1s change-flags debounce window elapse. */
+  /** Fire, then let the 1s debounce window elapse. */
   async function fireAndFlush(...payloads: unknown[]) {
     await waitFor(() => expect(handlers).toHaveLength(1));
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -140,42 +138,39 @@ describe("useBoardChangedInvalidation — shared routing", () => {
   }
 
   beforeEach(() => {
-    changeFlagsSpy.mockClear();
     useUiStore.setState({ currentProjectId: null });
   });
 
-  it("a foreign-project event wakes useChangeFlags not at all: zero invalidations, zero git-spawning reads", async () => {
-    const spy = mountChangeFlags();
-    await waitFor(() => expect(changeFlagsSpy).toHaveBeenCalledTimes(1)); // the mount fetch only
-    await fireAndFlush({ projectId: "proj-2", entity: "task", id: "t1" });
+  it("a foreign-project event wakes a debounced subscriber not at all", async () => {
+    const spy = mountDebounced();
+    await fireAndFlush({ projectId: "proj-2", entity: "story", id: "s1" });
     expect(spy).toHaveBeenCalledTimes(0);
-    expect(changeFlagsSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("a same-project event invalidates change-flags exactly once after the debounce window", async () => {
-    const spy = mountChangeFlags();
+  it("same-project events invalidate a debounced subscriber exactly once after the window", async () => {
+    const spy = mountDebounced();
     await fireAndFlush(
-      { projectId: PROJ, entity: "task", id: "t1" },
-      { projectId: PROJ, entity: "task", id: "t2" },
+      { projectId: PROJ, entity: "story", id: "s1" },
+      { projectId: PROJ, entity: "story", id: "s2" },
     );
-    expect(keys(spy)).toEqual([changeFlagsQueryKey(PROJ)]);
+    expect(keys(spy)).toEqual([DEBOUNCED_KEY]);
   });
 
-  it("a projectId: null broadcast invalidates useChangeFlags", async () => {
-    const spy = mountChangeFlags();
+  it("a projectId: null broadcast invalidates a debounced subscriber", async () => {
+    const spy = mountDebounced();
     await fireAndFlush({ projectId: null, entity: "git_facts", id: null });
-    expect(keys(spy)).toEqual([changeFlagsQueryKey(PROJ)]);
+    expect(keys(spy)).toEqual([DEBOUNCED_KEY]);
   });
 
   it("a malformed payload fails open", async () => {
-    const spy = mountChangeFlags();
+    const spy = mountDebounced();
     await fireAndFlush({ projectId: 7 });
-    expect(keys(spy)).toEqual([changeFlagsQueryKey(PROJ)]);
+    expect(keys(spy)).toEqual([DEBOUNCED_KEY]);
   });
 
   it("a project id that is a strict prefix of the mounted one does not match", async () => {
-    const spy = mountChangeFlags();
-    await fireAndFlush({ projectId: "proj", entity: "task", id: "t1" });
+    const spy = mountDebounced();
+    await fireAndFlush({ projectId: "proj", entity: "story", id: "s1" });
     expect(spy).toHaveBeenCalledTimes(0);
   });
 

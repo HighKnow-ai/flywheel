@@ -4,7 +4,7 @@
  * - Each of the six run states plus awaiting review renders its own word beside its mark.
  * - `interrupted` renders in the quiet class and under DONE / FAILED; `abandoned` in needs-you and under NEEDS YOU.
  * - The project is a column on every row, never a grouping.
- * - A run with no task is still a row (an authoring run, a planning run, a run with no subject).
+ * - A run with no Story is still a row (an authoring run, a planning run, a run with no subject).
  * - The empty state renders its copy, no band header and a zero count; one run renders one header.
  * - The "Fleet" open path: the store keeps the fleet open under a session, so popping the session
  *   (`setActiveAgentRunId(null)`) lands back on the fleet, and `App.tsx` checks the fleet branch
@@ -47,14 +47,10 @@ function row(overrides: Partial<FleetRowDto>): FleetRowDto {
     projectName: "Alpha",
     projectKeyPrefix: "ALP",
     projectStatus: "active",
-    subjectKind: "task",
-    taskId: "task-1",
-    taskKey: "ALP-1",
-    taskTitle: "Wire the thing",
-    taskStatus: "in_progress",
-    epicId: null,
-    epicKey: null,
-    authoringStage: null,
+    storyId: "story-1",
+    storyKey: "ALP-1",
+    storyTitle: "Wire the thing",
+    storyState: "running",
     runStatus: "running",
     fleetState: "running",
     startedAt: new Date(Date.now() - 125_000).toISOString(),
@@ -113,7 +109,7 @@ describe("FleetSurface bands", () => {
         states.map((state, i) =>
           row({
             agentRunId: `r-${state}`,
-            taskKey: `ALP-${i + 1}`,
+            storyKey: `ALP-${i + 1}`,
             fleetState: state,
             runStatus: state === "awaiting_review" ? "completed" : state,
             endedAt: new Date().toISOString(),
@@ -165,7 +161,7 @@ describe("FleetSurface bands", () => {
     fleetListMock.mockResolvedValue(
       list(
         states.map((state, i) =>
-          row({ agentRunId: `r-${state}`, taskKey: `ALP-${i + 1}`, fleetState: state, runStatus: state, endedAt: new Date().toISOString() }),
+          row({ agentRunId: `r-${state}`, storyKey: `ALP-${i + 1}`, fleetState: state, runStatus: state, endedAt: new Date().toISOString() }),
         ),
       ),
     );
@@ -193,22 +189,6 @@ describe("FleetSurface bands", () => {
     expect(projects).toEqual(["Alpha", "Bravo", "Alpha"]);
     // One band header only: no per-project grouping header was rendered.
     expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(1);
-  });
-
-  it("renders a run with no task as its own row with a subject", async () => {
-    fleetListMock.mockResolvedValue(
-      list([
-        row({ agentRunId: "plan", subjectKind: "epic", taskId: null, taskKey: null, taskTitle: null, epicId: "e1", epicKey: "ALP-E1" }),
-        row({ agentRunId: "auth", subjectKind: "authoring", taskId: null, taskKey: null, taskTitle: null, authoringStage: "challenge" }),
-        row({ agentRunId: "bare", subjectKind: "authoring", taskId: null, taskKey: null, taskTitle: null }),
-      ]),
-    );
-    renderFleet();
-    await screen.findByText("RUNNING");
-    expect(screen.getAllByRole("listitem")).toHaveLength(3);
-    expect(screen.getByText("ALP-E1")).toBeInTheDocument();
-    expect(screen.getByText("Authoring · challenge")).toBeInTheDocument();
-    expect(screen.getByText("Authoring")).toBeInTheDocument();
   });
 });
 
@@ -246,7 +226,7 @@ describe("FleetSurface header and empty state", () => {
 describe("the fleet opens under the session", () => {
   it("keeps the fleet open when a session is opened and then closed", () => {
     useUiStore.getState().setFleetSurface({ view: "fleet" });
-    useUiStore.getState().setActiveAgentRunId("run-1", "task-1");
+    useUiStore.getState().setActiveAgentRunId("run-1", "story-1");
     expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
     useUiStore.getState().setActiveAgentRunId(null);
     expect(useUiStore.getState().activeAgentRunId).toBeNull();
@@ -313,7 +293,7 @@ describe("one vocabulary across the fleet and the session surface", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="r-ab" taskId="task-1" initialStatus="abandoned" onBack={() => {}} />
+        <SessionSurface agentRunId="r-ab" storyId="story-1" initialStatus="abandoned" onBack={() => {}} />
       </QueryClientProvider>,
     );
     const sessionWord = (await screen.findByText(RUN_STATUS_LABELS.abandoned)).textContent;
@@ -325,7 +305,7 @@ describe("one vocabulary across the fleet and the session surface", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="r-failed" taskId="task-1" initialStatus="failed" onBack={() => {}} />
+        <SessionSurface agentRunId="r-failed" storyId="story-1" initialStatus="failed" onBack={() => {}} />
       </QueryClientProvider>,
     );
     expect(await screen.findByText("Failed")).toBeInTheDocument();

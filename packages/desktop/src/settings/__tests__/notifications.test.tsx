@@ -17,7 +17,6 @@ vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string) => Promise.resolve(command === "project_list" ? [] : undefined),
   getSettings: () => getSettingsMock(),
   settingsSetNotificationsEnabled: (value: boolean) => setNotificationsMock(value),
-  settingsSetDispatchMaxParallel: vi.fn(),
   setCredentialMode: vi.fn(),
   storeApiKey: vi.fn(),
   backendCapabilityProbe: () => Promise.resolve({ available: true, version: "2.1.0", apiKeyPathUsable: true }),
@@ -25,8 +24,6 @@ vi.mock("../../adapters/tauri", () => ({
   revokePermissionRule: vi.fn(),
   openCommandTemplate: () => Promise.resolve("code {worktree_path}"),
   setOpenCommandTemplate: vi.fn(),
-  projectForgeOverrides: () => Promise.resolve([]),
-  settingsSetProjectForge: vi.fn(),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
 }));
 
@@ -36,7 +33,6 @@ function fixture(notificationsEnabled: boolean): SettingsDto {
     projectOverrides: [{ projectId: "p1", projectName: "api", credentialMode: null }],
     apiKeyConfigured: false,
     apiKeyConfiguredAt: null,
-    dispatchCap: { maxParallel: 3, occupiedSlots: 0 },
     notificationsEnabled,
   };
 }

@@ -1,7 +1,7 @@
 /**
  * Behavior under test (03-10-PLAN.md Task 1, 03-UI-SPEC.md "Orphan recovery modal", D-46): the
  * modal is structurally absent for an empty pending-orphan list; a populated list renders a
- * blocking overlay with no Escape/click-outside/close-button dismissal; each row carries task
+ * blocking overlay with no Escape/click-outside/close-button dismissal; each row carries Story
  * identity, run identity, a relative start time and a Kill action; a kill in flight shows a
  * transient "Killing…" label; a successful kill removes its row (and unmounts the modal once the
  * last row resolves); a failed kill leaves its row mounted with permanent failure copy naming the
@@ -25,33 +25,15 @@ vi.mock("../../adapters/tauri", () => ({
 function makeOrphan(overrides: Partial<PendingOrphanDto> = {}): PendingOrphanDto {
   return {
     runId: "run-1",
-    taskId: "task-1",
-    taskKey: "FLY-1",
-    taskTitle: "Sample orphaned task",
-    epicId: null,
-    epicKey: null,
-    epicTitle: null,
+    storyId: "story-1",
+    storyKey: "FLY-1",
+    storyTitle: "Sample orphaned Story",
     projectId: "proj-1",
     externalSessionId: "sess-1",
     pid: 4242,
     startedAt: new Date(Date.now() - 60_000).toISOString(),
     ...overrides,
   };
-}
-
-/** An authoring orphan (CR-01, D-84) — `taskId`/`taskKey`/`taskTitle` are always null for these,
- * mirroring what `flywheel_core::domain::agent_run::LiveOrphan` actually produces via the two
- * `LEFT JOIN`s in `IN_FLIGHT_AGENT_RUNS_SELECT_SQL`. */
-function makeAuthoringOrphan(overrides: Partial<PendingOrphanDto> = {}): PendingOrphanDto {
-  return makeOrphan({
-    taskId: null,
-    taskKey: null,
-    taskTitle: null,
-    epicId: "epic-1",
-    epicKey: "FLY-E1",
-    epicTitle: "Sample epic",
-    ...overrides,
-  });
 }
 
 function killDto(overrides: Partial<OrphanKillDto> = {}): OrphanKillDto {
@@ -86,13 +68,13 @@ describe("OrphanRecoveryModal — empty list", () => {
 });
 
 describe("OrphanRecoveryModal — populated", () => {
-  it("renders a blocking overlay naming task identity, run identity, start time and a Kill action per row", async () => {
+  it("renders a blocking overlay naming Story identity, run identity, start time and a Kill action per row", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan()]);
     renderModal();
 
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByText("FLY-1")).toBeInTheDocument();
-    expect(within(dialog).getByText("Sample orphaned task")).toBeInTheDocument();
+    expect(within(dialog).getByText("Sample orphaned Story")).toBeInTheDocument();
     expect(within(dialog).getByText("Run · session sess-1")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Kill" })).toBeInTheDocument();
     expect(
@@ -120,28 +102,11 @@ describe("OrphanRecoveryModal — populated", () => {
     ).toBeInTheDocument();
   });
 
-  it("falls back to the unresolvable-task copy when the task fields are absent", async () => {
-    pendingOrphansMock.mockResolvedValue([makeOrphan({ taskKey: "", taskTitle: "" })]);
+  it("falls back to the unresolvable-Story copy when the Story fields are absent", async () => {
+    pendingOrphansMock.mockResolvedValue([makeOrphan({ storyKey: "", storyTitle: "" })]);
     renderModal();
 
-    expect(await screen.findByText("an unresolvable task")).toBeInTheDocument();
-  });
-
-  it("CR-01: renders epic identity, not task identity, for an authoring orphan of an existing epic", async () => {
-    pendingOrphansMock.mockResolvedValue([makeAuthoringOrphan()]);
-    renderModal();
-
-    const dialog = await screen.findByRole("alertdialog");
-    expect(within(dialog).getByText("FLY-E1")).toBeInTheDocument();
-    expect(within(dialog).getByText("Sample epic")).toBeInTheDocument();
-    expect(within(dialog).queryByText("an unresolvable task")).not.toBeInTheDocument();
-  });
-
-  it("CR-01: renders 'Shaping a new epic' for an authoring orphan whose epic does not exist yet", async () => {
-    pendingOrphansMock.mockResolvedValue([makeAuthoringOrphan({ epicId: null, epicKey: null, epicTitle: null })]);
-    renderModal();
-
-    expect(await screen.findByText("Shaping a new epic")).toBeInTheDocument();
+    expect(await screen.findByText("an unresolvable Story")).toBeInTheDocument();
   });
 
   it("renders no cost figure, token count, or route into the live session surface", async () => {

@@ -2,7 +2,7 @@
  * The permission-request card (AGNT-06, D-37, D-38) — ONE component, mounted in two places
  * (02-UI-SPEC.md Discretion #6): the `feed` variant inline in the session transcript
  * (`SessionSurface.tsx`, plan 02-06 Task 2) and the `compact` variant inside the 480px item detail
- * panel (`ItemDetailPanel.tsx`, same task). Both instances read the SAME
+ * panel (`ItemDetailPanel.tsx`, same Story). Both instances read the SAME
  * `usePendingPermissionRequests(agentRunId)` query (`board/useBoardQuery.ts`) and answer through
  * the same `answerPermissionRequest` mutation, so answering in either place resolves both within
  * one pushed-delta cycle (E3's `partial` consideration) — this component itself is presentational:
@@ -19,7 +19,7 @@
  * it, and the agent would still be blocked. Its three keyboard shortcuts (`a`/`d`/Shift+A) resolve
  * through `state/keyboard.ts`'s shared `useRegionBindings` hook instead — the window-level
  * listener lives in that module, not here, which is what keeps this file's own key/dismissal
- * surface at zero (this task's own structural verify gate).
+ * surface at zero (this Story's own structural verify gate).
  */
 import { useRef, useState, type ComponentType } from "react";
 import * as icons from "lucide-react";
@@ -125,7 +125,7 @@ const DESTRUCTIVE_CONSEQUENCE: Record<string, ConsequenceResolver> = {
     // The subcommand token (index 1) dispatches which resolver applies: a push-shaped deletion
     // resolves via `pushDeleteTarget`, everything else (namely `git branch -D <name>`) keeps the
     // existing `branchDeleteTarget` — its "first non-flag positional" rule is correct there and
-    // this task changes nothing about that path.
+    // this Story changes nothing about that path.
     const branch = tokens[1] === "push" ? pushDeleteTarget(tokens) : branchDeleteTarget(tokens);
     return branch ? `This would delete the branch ${branch}.` : "This would delete a branch on this remote.";
   },

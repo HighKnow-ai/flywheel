@@ -91,7 +91,7 @@ export interface Palette {
   rowSurfaceHover: string;
   rowSurfaceSelected: string;
   rowSurfaceSelectedUnfocused: string;
-  /** The 2px rule on a selected task row while the list has focus (A-06b). */
+  /** The 2px rule on a selected Story row while the list has focus (A-06b). */
   selectionRule: string;
   /** The same rule once the list has lost focus: lighter, so focus is visible in the rule alone. */
   selectionRuleUnfocused: string;

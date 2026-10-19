@@ -30,13 +30,9 @@ function entry(n: number, overrides: Partial<BlockedQueueEntryDto> = {}): Blocke
     projectId: `proj-${n}`,
     projectName: `Project ${n}`,
     projectKeyPrefix: `P${n}`,
-    subjectKind: "task",
-    taskId: `task-${n}`,
-    taskKey: `P${n}-1`,
-    taskTitle: `Task ${n}`,
-    epicId: null,
-    epicKey: null,
-    authoringStage: null,
+    storyId: `task-${n}`,
+    storyKey: `P${n}-1`,
+    storyTitle: `Task ${n}`,
     blockedSince: "2026-10-12T11:50:00Z",
     ...overrides,
   };
@@ -139,12 +135,11 @@ describe("BlockedQueue contents", () => {
   });
 
   it("names the project, subject and wait time of each blocked agent", () => {
-    renderQueue([entry(1), entry(2, { subjectKind: "authoring", taskKey: null, taskTitle: null, authoringStage: "challenge" })]);
+    renderQueue([entry(1), entry(2)]);
     const rows = screen.getAllByRole("listitem");
     expect(within(rows[0]).getByText("Project 1")).toBeInTheDocument();
     expect(rows[0].querySelector('[data-field="subject"]')).toHaveTextContent("P1-1 Task 1");
     expect(rows[0].querySelector('[data-field="age"]')).toHaveTextContent("10m");
-    expect(rows[1].querySelector('[data-field="subject"]')).toHaveTextContent("Authoring · challenge");
   });
 
   it("an answer goes through the one existing answer wrapper and nothing else", () => {

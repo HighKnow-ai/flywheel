@@ -1,6 +1,6 @@
 /**
  * The live session surface (D-31, plan 02-01 Task 1): a full content-area surface, pushed into
- * from a task and popped back out of via the `← Board` affordance — never a tab inside the 480px
+ * from a Story and popped back out of via the `← Board` affordance — never a tab inside the 480px
  * item detail panel and never a dockable pane. The board stays the board.
  *
  * Plan 02-02 Task 3 adds the Stop affordance and the run-status word. Plan 02-06 Task 2 mounts
@@ -36,10 +36,9 @@ import * as icons from "lucide-react";
 import {
   answerPermissionRequest,
   discardSession,
-  epicHeader,
   stopAgentRun,
+  storyGet,
   subscribeAgentEvent,
-  taskHeader,
 } from "../adapters/tauri";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { MARKS_BY_ID } from "../legend/marks";
@@ -171,16 +170,10 @@ function StatusStrip({
 export interface SessionSurfaceProps {
   agentRunId: string;
   onBack: () => void;
-  /** The task this run belongs to (D-66/D-67, plan 04-13) — `null` only for a caller that has not
-   * been updated to thread it through yet (defensive; every current caller supplies it). Needed
-   * so `handleDiscard` can hand off to the launch sheet for the SAME task on resolution — the
-   * surface has no other source for this id (it is never itself queried from the backend). */
-  taskId?: string | null;
-  /** The epic this run belongs to (D-84/D-86, plan 05-09) — `null` for an ordinary task-execution
-   * run AND for a fresh-epic authoring run alike. Needed so `handleDiscard` can hand off to a
-   * fresh authoring launch for the SAME epic on resolution, mirroring `taskId`'s own reasoning:
-   * the surface has no other source for this id. */
-  epicId?: string | null;
+  /** The Story this session belongs to (D-66/D-67) — `null` only for a caller that has not threaded
+   * it through. Needed so `handleDiscard` can hand off to the launch sheet for the SAME Story on
+   * resolution, and so the header can name the Story. */
+  storyId?: string | null;
   /** The run's status when this surface first mounts. A caller that already knows it (the fleet,
    * whose row is showing a `failed` run) passes it here so the surface agrees with that row from the
    * first frame; `"running"` is only the no-information fallback, used right after Start Work when
@@ -322,18 +315,6 @@ export function buildFeedRows(entries: Record<string, unknown>[]): FeedRowData[]
       return;
     }
 
-    // D-153 (phase 09): the scope hook's refusal — its own row, with the widen action, never raw.
-    if (type === "scope_denied") {
-      rows.push({
-        kind: "scope_denied",
-        key,
-        path: typeof event.path === "string" ? event.path : "",
-        tool: typeof event.tool === "string" ? event.tool : "tool",
-        outsideWorktree: event.outsideWorktree === true,
-      });
-      return;
-    }
-
     // Anything else — including session_log.rs's own `unknown` entry for a malformed line —
     // never disappears (T-02-33).
     rows.push({ kind: "raw", key, raw: rawTextFor(event) });
@@ -373,7 +354,7 @@ const TERMINAL_DETAIL_MAX_HEIGHT = 240;
 
 const FAILED_RUN_GLOSS = "This run ended in an error. The worktree was left as-is — nothing was lost.";
 
-/** D-35's Stop gloss: a task run's worktree is left exactly as the agent left it (PROC-06 —
+/** D-35's Stop gloss: a Story run's worktree is left exactly as the agent left it (PROC-06 —
  * nothing committed on the user's behalf). */
 const TASK_STOPPED_GLOSS =
   "This run was stopped. The worktree was left exactly as the agent left it — nothing was lost.";
@@ -527,21 +508,20 @@ const SESSION_FALLBACK_TITLE = "Session";
 export function SessionSurface({
   agentRunId,
   onBack,
-  taskId = null,
-  epicId = null,
+  storyId = null,
   initialStatus = null,
   initialFeedOffset = null,
 }: SessionSurfaceProps) {
   const [status, setStatus] = useState<RunStatus>(initialStatus ?? "running");
-  // Core Value (finish-review four-1): the header names the board item this run serves — the task, or
-  // for an authoring run the epic. A failed or empty read resolves to `null` and the header says "Session".
+  // Core Value (finish-review four-1): the header names the Story this session serves. A failed or
+  // empty read resolves to `null` and the header says "Session".
   const { data: itemHeader } = useQuery({
-    queryKey: ["session-header", taskId, epicId],
+    queryKey: ["session-header", storyId],
     queryFn: () =>
-      (taskId ? taskHeader(taskId) : epicId ? epicHeader(epicId) : Promise.resolve(null))
-        .then((header) => header ?? null)
+      (storyId ? storyGet(storyId) : Promise.resolve(null))
+        .then((story) => (story ? { key: story.key, title: story.title } : null))
         .catch(() => null),
-    enabled: Boolean(taskId || epicId),
+    enabled: Boolean(storyId),
     retry: false,
   });
   const headerText = itemHeader ? `${itemHeader.key} ${itemHeader.title}` : SESSION_FALLBACK_TITLE;
@@ -560,7 +540,7 @@ export function SessionSurface({
   const [discarding, setDiscarding] = useState(false);
   const discardingRef = useRef(false);
   const [stopWarning, setStopWarning] = useState<string | null>(null);
-  const setLaunchSheetTaskId = useUiStore((state) => state.setLaunchSheetTaskId);
+  const setLaunchSheetStoryId = useUiStore((state) => state.setLaunchSheetStoryId);
   const [persistenceFailed, setPersistenceFailed] = useState(false);
   const [persistenceFailureText, setPersistenceFailureText] = useState<string | null>(null);
   const [rawViewOpen, setRawViewOpen] = useState(false);
@@ -643,7 +623,7 @@ export function SessionSurface({
 
   // D-66/D-67, CTX-08 (plan 04-13): the phase's flagship action. One activation ends the session
   // — giving the agent's own closing summary a bounded window to land first — and lands the
-  // developer on the launch sheet, pre-filled for the SAME task, with no intermediate step.
+  // developer on the launch sheet, pre-filled for the SAME Story, with no intermediate step.
   // Copies `handleStop`'s own structure line for line, including the ref-based double-activation
   // guard: React has not necessarily flushed the disabling re-render before a second activation in
   // the same synchronous tick.
@@ -661,9 +641,9 @@ export function SessionSurface({
         }
         setStopWarning(result.sidecarWarning);
         // One action in, one Enter out (D-67): land on the launch sheet, pre-filled for this
-        // run's own task, the instant the discard resolves — no intermediate confirmation.
-        if (taskId) {
-          setLaunchSheetTaskId(taskId);
+        // session's own Story, the instant the discard resolves — no intermediate confirmation.
+        if (storyId) {
+          setLaunchSheetStoryId(storyId);
         }
       })
       .catch(() => {
@@ -843,7 +823,7 @@ export function SessionSurface({
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <FeedRow row={row} expanded={expanded.has(row.key)} onToggleExpand={() => toggle(row.key)} live={row.key === liveRowKey} taskId={taskId} />
+                  <FeedRow row={row} expanded={expanded.has(row.key)} onToggleExpand={() => toggle(row.key)} live={row.key === liveRowKey} />
                 </div>
               );
             })}

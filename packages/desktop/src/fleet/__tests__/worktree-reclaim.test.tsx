@@ -35,10 +35,10 @@ const MIB = 1024 * 1024;
 
 function row(overrides: Partial<WorktreeInventoryRowDto>): WorktreeInventoryRowDto {
   return {
-    taskId: "t1",
-    taskKey: "ALP-1",
-    taskTitle: "One",
-    taskStatus: "done",
+    storyId: "t1",
+    storyKey: "ALP-1",
+    storyTitle: "One",
+    storyState: "done",
     projectId: "p1",
     projectName: "Alpha",
     projectStatus: "active",
@@ -46,16 +46,16 @@ function row(overrides: Partial<WorktreeInventoryRowDto>): WorktreeInventoryRowD
     sizeBytes: 512 * MIB,
     sizeMeasuredAt: new Date(Date.now() - 60_000).toISOString(),
     disposition: "reclaimable",
-    reason: "task_done",
+    reason: "merged",
     ...overrides,
   };
 }
 
 const ROWS = [
-  row({ taskId: "a", taskKey: "ALP-1", sizeBytes: 512 * MIB }),
-  row({ taskId: "b", taskKey: "ALP-2", sizeBytes: 1024 * MIB, reason: "merged" }),
-  row({ taskId: "c", taskKey: "ALP-3", disposition: "in_use", reason: "agent_running" }),
-  row({ taskId: "d", taskKey: "ALP-4", disposition: "keep", reason: "uncommitted_changes" }),
+  row({ storyId: "a", storyKey: "ALP-1", sizeBytes: 512 * MIB }),
+  row({ storyId: "b", storyKey: "ALP-2", sizeBytes: 1024 * MIB, reason: "merged" }),
+  row({ storyId: "c", storyKey: "ALP-3", disposition: "in_use", reason: "agent_running" }),
+  row({ storyId: "d", storyKey: "ALP-4", disposition: "keep", reason: "uncommitted_changes" }),
 ];
 
 function renderInventory() {
@@ -105,7 +105,7 @@ describe("selection", () => {
   });
 
   it("says how many selected rows were never measured instead of counting them as zero", async () => {
-    inventoryMock.mockResolvedValue([ROWS[0], row({ taskId: "n", taskKey: "ALP-9", sizeBytes: null, sizeMeasuredAt: null })]);
+    inventoryMock.mockResolvedValue([ROWS[0], row({ storyId: "n", storyKey: "ALP-9", sizeBytes: null, sizeMeasuredAt: null })]);
     renderInventory();
     await screen.findByText("ALP-1");
     fireEvent.click(box("ALP-1"));
@@ -128,8 +128,8 @@ describe("selection", () => {
 describe("confirmation", () => {
   it("calls the reclaim wrapper once with exactly the selected ids after one confirmation naming the total", async () => {
     reclaimMock.mockResolvedValue([
-      { taskId: "a", removed: true, reason: "task_done", error: null },
-      { taskId: "b", removed: true, reason: "merged", error: null },
+      { storyId: "a", removed: true, reason: "merged", error: null },
+      { storyId: "b", removed: true, reason: "merged", error: null },
     ]);
     renderInventory();
     await screen.findByText("ALP-1");
@@ -159,8 +159,8 @@ describe("confirmation", () => {
 
 describe("results", () => {
   const mixed: ReclaimOutcomeDto[] = [
-    { taskId: "a", removed: true, reason: "task_done", error: null },
-    { taskId: "b", removed: false, reason: "uncommitted_changes", error: null },
+    { storyId: "a", removed: true, reason: "merged", error: null },
+    { storyId: "b", removed: false, reason: "uncommitted_changes", error: null },
   ];
 
   it("shows both outcomes with the refusal's reason and claims no overall success", async () => {
@@ -196,7 +196,7 @@ describe("results", () => {
   });
 
   it("shows a removal error as that row's refusal", async () => {
-    reclaimMock.mockResolvedValue([{ taskId: "a", removed: false, reason: null, error: "worktree is locked" }]);
+    reclaimMock.mockResolvedValue([{ storyId: "a", removed: false, reason: null, error: "worktree is locked" }]);
     renderInventory();
     await screen.findByText("ALP-1");
     await selectAndConfirm("ALP-1");

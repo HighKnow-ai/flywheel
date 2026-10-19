@@ -26,11 +26,9 @@ import { formatAge } from "../legend/runStatus";
 import { PermissionRequestCard, type PermissionDecision } from "../session/PermissionRequestCard";
 import { blockedQueueQueryKey, fleetQueryKey } from "./useFleet";
 
-/** What the blocked run is about: a task key and title, an epic key, or the kind of run. */
+/** What the blocked run is about: its Story's key and title. */
 function subjectText(entry: BlockedQueueEntryDto): { key: string; detail: string | null } {
-  if (entry.subjectKind === "task") return { key: entry.taskKey ?? "Task", detail: entry.taskTitle };
-  if (entry.subjectKind === "epic") return { key: entry.epicKey ?? "Epic", detail: "Planning" };
-  return { key: entry.epicKey ?? "", detail: entry.authoringStage ? `Authoring · ${entry.authoringStage}` : "Authoring" };
+  return { key: entry.storyKey, detail: entry.storyTitle || null };
 }
 
 export interface BlockedQueueProps {

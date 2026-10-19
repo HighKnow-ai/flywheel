@@ -68,8 +68,7 @@ vi.mock("../../adapters/tauri", async () => {
     pendingPermissionRequests: () => Promise.resolve([]),
     answerPermissionRequest: () => Promise.resolve(undefined),
     // The header's two narrow board reads (plan 11-22, four-1), routed through the same mock.
-    taskHeader: (taskId: string) => invokeCommandMock("task_header", { taskId }),
-    epicHeader: (epicId: string) => invokeCommandMock("epic_header", { epicId }),
+    storyGet: (storyId: string) => invokeCommandMock("story_get", { storyId }),
   };
 });
 
@@ -470,7 +469,7 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
     const queryClient = new QueryClient();
     return render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="run-1" taskId="task-1" onBack={() => {}} initialStatus={status} />
+        <SessionSurface agentRunId="run-1" storyId="story-1" onBack={() => {}} initialStatus={status} />
       </QueryClientProvider>,
     );
   }
@@ -533,7 +532,7 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
     expect(screen.getByRole("button", { name: "Stop" })).toBeDisabled();
   });
 
-  it("opens the launch sheet for this run's own task once the discard resolves", async () => {
+  it("opens the launch sheet for this session's own Story once the discard resolves", async () => {
     renderDiscard("running", (command) => {
       if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
       if (command === "agent_run_discard") {
@@ -542,12 +541,12 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
       return Promise.resolve(undefined);
     });
 
-    expect(useUiStore.getState().launchSheetTaskId).toBeNull();
+    expect(useUiStore.getState().launchSheetStoryId).toBeNull();
 
     const discardButton = await screen.findByRole("button", { name: "Discard" });
     discardButton.click();
 
-    await waitFor(() => expect(useUiStore.getState().launchSheetTaskId).toBe("task-1"));
+    await waitFor(() => expect(useUiStore.getState().launchSheetStoryId).toBe("story-1"));
   });
 
   it("renders the muted warning notice and never opens the launch sheet when the discard call is rejected", async () => {
@@ -563,7 +562,7 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
     // Reuses the SAME muted notice `StopWarningNotice` renders for a rejected/unconfirmed Stop —
     // no second notice component was introduced.
     await screen.findByText(/could not confirm this discard completed/);
-    expect(useUiStore.getState().launchSheetTaskId).toBeNull();
+    expect(useUiStore.getState().launchSheetStoryId).toBeNull();
 
     // A genuine failure must leave the control usable — the discard button re-enables.
     await waitFor(() => expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled());
@@ -1038,8 +1037,8 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
   });
 });
 
-describe("the header names the board item the run serves (11-22, finish-review four-1)", () => {
-  function renderHeader(props: { taskId?: string | null; epicId?: string | null }, reads: Record<string, () => Promise<unknown>>) {
+describe("the header names the Story the session serves (11-22, finish-review four-1)", () => {
+  function renderHeader(props: { storyId?: string | null }, reads: Record<string, () => Promise<unknown>>) {
     invokeCommandMock.mockImplementation((command: string, args: { offset: number; limit: number }) => {
       if (command === "agent_run_log_window") return Promise.resolve(windowFor([], args.offset, args.limit));
       return reads[command]?.() ?? Promise.resolve(undefined);
@@ -1051,27 +1050,22 @@ describe("the header names the board item the run serves (11-22, finish-review f
     );
   }
 
-  it("names the task by key and title on a task run", async () => {
-    renderHeader({ taskId: "task-1" }, { task_header: () => Promise.resolve({ key: "FLY-9", title: "Add push retry" }) });
+  it("names the Story by key and title", async () => {
+    renderHeader({ storyId: "story-1" }, { story_get: () => Promise.resolve({ key: "FLY-9", title: "Add push retry" }) });
     expect(await screen.findByText("FLY-9 Add push retry")).toBeInTheDocument();
     expect(screen.queryByText("Session")).not.toBeInTheDocument();
   });
 
-  it("names the epic on an authoring run, which has no task", async () => {
-    renderHeader({ epicId: "epic-1" }, { epic_header: () => Promise.resolve({ key: "FLY-7", title: "Review inside Flywheel" }) });
-    expect(await screen.findByText("FLY-7 Review inside Flywheel")).toBeInTheDocument();
-  });
-
-  it("says Session while the read is in flight, and keeps saying it when the task is gone (read returns null)", async () => {
-    renderHeader({ taskId: "task-deleted" }, { task_header: () => Promise.resolve(null) });
+  it("says Session while the read is in flight, and keeps saying it when the Story is gone (read returns null)", async () => {
+    renderHeader({ storyId: "story-deleted" }, { story_get: () => Promise.resolve(null) });
     expect(screen.getByText("Session")).toBeInTheDocument();
-    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("task_header", { taskId: "task-deleted" }));
+    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("story_get", { storyId: "story-deleted" }));
     expect(screen.getByText("Session")).toBeInTheDocument();
   });
 
   it("does not throw or blank the header when the read fails", async () => {
-    renderHeader({ taskId: "task-1" }, { task_header: () => Promise.reject(new Error("boom")) });
-    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("task_header", { taskId: "task-1" }));
+    renderHeader({ storyId: "story-1" }, { story_get: () => Promise.reject(new Error("boom")) });
+    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("story_get", { storyId: "story-1" }));
     expect(screen.getByText("Session")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "← Board" })).toBeInTheDocument();
   });
