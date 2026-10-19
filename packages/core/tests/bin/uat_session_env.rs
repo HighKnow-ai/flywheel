@@ -19,7 +19,7 @@
 //! Usage:
 //!   `uat_session_env <run_id> [default_branch [story_branch worktree_path]]` — writes the spawn
 //!   environment as JSON to stdout. The last two set the Story's own branch and worktree the
-//!   Gated-action deny-list decides against, as `agent_run.rs::spawn_prepared_run` does.
+//!   Gated-action deny-list decides against, as `commands/session.rs::spawn_prepared_run` does.
 //!   `uat_session_env --touch-heartbeat`         — touches the heartbeat file once and exits.
 //!
 //! The second mode exists for the supervisor-kill script (UAT item 1). What that item actually

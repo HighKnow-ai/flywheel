@@ -675,7 +675,7 @@ export class Harness {
    * one token-spending failure had to be diagnosed from a sibling item's file.
    *
    * `story: { branch, worktreePath }` sets the Story's own branch and worktree the Gated-action
-   * deny-list decides against, exactly as `agent_run.rs::spawn_prepared_run` does for a real Story
+   * deny-list decides against, exactly as `commands/session.rs::spawn_prepared_run` does for a real Story
    * session. Without it, every rebase, branch deletion and recursive `rm` asks.
    */
   sessionEnv(runId, defaultBranch = "main", { heartbeat = "sustain", story } = {}) {

@@ -5,7 +5,7 @@
  * Drives the whole live stack (real sidecar, real `claude`, real PATH shim, real bare git remote)
  * against the Gated-action list in `docs/mvp-spec.md` §4.1 and ADR 0001. The session runs in a
  * scratch worktree on its own Story branch, with the Story's branch and worktree in its spawn
- * environment exactly as `agent_run.rs::spawn_prepared_run` sets them. The agent is asked to run a
+ * environment exactly as `commands/session.rs::spawn_prepared_run` sets them. The agent is asked to run a
  * fixed list of commands, one Bash call each:
  *
  *   ALLOWED — read-only git (`status`, `log`, `ls-files`, `rev-parse`, `diff`, behind `-C`/`-c`
