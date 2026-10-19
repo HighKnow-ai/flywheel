@@ -1,5 +1,5 @@
-//! The Task checklist (docs/mvp-spec.md §4.3): the steps a Story's agent writes as its plan at the
-//! start of its first session and keeps up to date. A Task is not a board item of its own: it
+//! The Task checklist (docs/mvp-spec.md §4.3): the steps a Story's agent writes as its plan in its first
+//! session, after reading the code and docs the Story touches, and keeps up to date. A Task is not a board item of its own: it
 //! always belongs to one Story, and shaping never produces one.
 //!
 //! States are open, doing, done and dropped (with a one-line reason). At most one Task of a Story

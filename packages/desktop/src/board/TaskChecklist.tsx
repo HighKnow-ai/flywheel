@@ -55,7 +55,7 @@ export function TaskChecklist({ storyKey, storyId, tasks }: { storyKey: string; 
     <div style={{ flexBasis: "100%", display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
       {tasks.length === 0 && (
         <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
-          No Tasks yet. The Story&apos;s agent writes its plan here when its first session starts.
+          No Tasks yet. The Story&apos;s agent writes its plan here once it has read the code and docs the Story touches.
         </p>
       )}
       <ol aria-label={`${storyKey} Tasks`} style={{ margin: 0, paddingLeft: "1.5em" }}>

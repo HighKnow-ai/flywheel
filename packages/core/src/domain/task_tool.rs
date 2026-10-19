@@ -3,7 +3,7 @@
 //! the Rust core over IPC, and never opens the database; this module is what the core runs.
 //!
 //! Three calls: `task_list` reads the checklist, `task_add` appends one or more open Tasks (the
-//! plan an agent writes at the start of its first session), and `task_update` moves one Task to
+//! plan an agent writes after reading the code and docs the Story touches), and `task_update` moves one Task to
 //! open, doing, done, or dropped with a one-line reason, and/or replaces its note (issue #96: what
 //! the agent has learned on the Task, so a stopped session does not lose it). Every call commits
 //! before it answers, so a session killed a moment later keeps what it wrote.
