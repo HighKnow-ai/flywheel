@@ -1,7 +1,7 @@
 //! `task_add` / `task_list` / `task_set_state` / `task_rename` / `task_move` — the Story checklist
 //! (docs/mvp-spec.md §4.3). A Task is a step inside one Story, not a board item of its own; the
 //! developer can add, edit, reorder and drop Tasks at any time, and the Story's agent writes them
-//! through its board tool ([`handle_inbound_task_tool_request`], issue #52).
+//! through its board tool ([`handle_inbound_board_tool_request`], issue #52).
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -103,7 +103,7 @@ pub fn task_move(
     Ok(())
 }
 
-/// The core's answer to one Task tool call, as the sidecar's `task_tool_answer` op carries it:
+/// The core's answer to one Task tool call, as the sidecar's `board_tool_answer` op carries it:
 /// `{result}` with the checklist, or `{error}` with the reason the core refused. Also returns the
 /// project whose board changed, when the call wrote something.
 pub fn answer_task_tool_call(
@@ -126,12 +126,13 @@ pub fn answer_task_tool_call(
     }
 }
 
-/// The Tauri-facing half of the Task board tool (issue #52), called from `sidecar.rs`'s reader
-/// loop for every `task_tool_request` event: run the call through the core, answer the held call
-/// over the sidecar's stdin, and emit `board:changed` when the checklist changed. Must never panic:
-/// a malformed event or a poisoned lock is a silent no-op, and the agent's call then ends with its
-/// session.
-pub fn handle_inbound_task_tool_request(app: &AppHandle, event: &serde_json::Value) {
+/// The Tauri-facing half of the board tools (issues #52, #53), called from `sidecar.rs`'s reader
+/// loop for every `board_tool_request` event: run the call through the core, answer the held call
+/// over the sidecar's stdin, and emit `board:changed` when the board changed. A hand-off or a Check
+/// run takes minutes, so it goes to its own thread ([`super::handoff`]) and never holds the reader
+/// loop. Must never panic: a malformed event or a poisoned lock is a silent no-op, and the agent's
+/// call then ends with its session.
+pub fn handle_inbound_board_tool_request(app: &AppHandle, event: &serde_json::Value) {
     let (Some(run_id), Some(request_id), Some(tool)) = (
         event.get("runId").and_then(|v| v.as_str()),
         event.get("requestId").and_then(|v| v.as_str()),
@@ -140,15 +141,29 @@ pub fn handle_inbound_task_tool_request(app: &AppHandle, event: &serde_json::Val
         return;
     };
     let args = event.get("args").cloned().unwrap_or(serde_json::Value::Null);
+    if flywheel_core::domain::handoff::HANDOFF_TOOL_NAMES.contains(&tool) {
+        super::handoff::spawn_handoff_tool_call(app.clone(), run_id.to_string(), request_id.to_string(), tool.to_string(), args);
+        return;
+    }
     let Some(state) = tauri::Manager::try_state::<AppState>(app) else { return };
-    let Some(sidecar) = state.sidecar.as_ref() else { return };
     let (answer, changed) = {
         let Ok(mut conn) = state.db.lock() else { return };
         answer_task_tool_call(&mut conn, run_id, tool, &args)
     };
+    send_board_tool_answer(app, run_id, request_id, &answer);
+    if let Some(project_id) = changed {
+        emit_board_changed(app, Some(&project_id), "task", None);
+    }
+}
+
+/// Settle one held board tool call: `answer` is `{result}` or `{error}`, sent over the sidecar's
+/// stdin as its `board_tool_answer` op.
+pub(crate) fn send_board_tool_answer(app: &AppHandle, run_id: &str, request_id: &str, answer: &serde_json::Value) {
+    let Some(state) = tauri::Manager::try_state::<AppState>(app) else { return };
+    let Some(sidecar) = state.sidecar.as_ref() else { return };
     let mut request = serde_json::json!({
-        "id": format!("task-tool-answer-{request_id}"),
-        "op": "task_tool_answer",
+        "id": format!("board-tool-answer-{request_id}"),
+        "op": "board_tool_answer",
         "runId": run_id,
         "requestId": request_id,
     });
@@ -156,9 +171,6 @@ pub fn handle_inbound_task_tool_request(app: &AppHandle, event: &serde_json::Val
         request.extend(answer.clone());
     }
     let _ = sidecar.send_request(&request.to_string());
-    if let Some(project_id) = changed {
-        emit_board_changed(app, Some(&project_id), "task", None);
-    }
 }
 
 #[cfg(test)]

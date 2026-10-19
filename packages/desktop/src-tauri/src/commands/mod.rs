@@ -16,6 +16,7 @@ pub mod events;
 pub mod fleet;
 pub mod git_identity;
 pub mod git_truth;
+pub mod handoff;
 pub mod menu;
 pub mod project;
 pub mod proposal;

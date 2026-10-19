@@ -1116,12 +1116,12 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                 );
                             }
 
-                            // Issue #52: a Story agent's Task board tool call, held in the sidecar
-                            // until this core writes it and answers with the checklist.
+                            // Issues #52, #53: a Story agent's board tool call (Tasks, Checks,
+                            // hand-off), held in the sidecar until this core answers it.
                             if event.get("type").and_then(|v| v.as_str())
-                                == Some("task_tool_request")
+                                == Some("board_tool_request")
                             {
-                                crate::commands::task::handle_inbound_task_tool_request(
+                                crate::commands::task::handle_inbound_board_tool_request(
                                     &app_for_reader,
                                     &event,
                                 );

@@ -1829,7 +1829,7 @@ pub fn orphan_kill(
 /// The one shared scratch worktree-root helper (issue #42), included by path rather than copied.
 #[cfg(test)]
 #[path = "../../../../core/tests/common/scratch_root.rs"]
-mod scratch_root;
+pub(crate) mod scratch_root;
 
 #[cfg(test)]
 mod tests {
