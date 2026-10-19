@@ -29,6 +29,7 @@ import {
   MCP_SERVER_NAME,
   PERMISSION_TOOL_NAME,
   startPermissionServer,
+  TASK_TOOL_QUALIFIED_NAMES,
   type PermissionNoticePayload,
   type PermissionServerHandle,
 } from "./mcp-permission-server.js";
@@ -238,6 +239,9 @@ export function buildClaudeArgv(options: {
   permissionPromptToolName?: string;
   mcpConfig?: string;
   settingsPath?: string;
+  /** Issue #52: fully-qualified tool names pre-approved with one comma-joined `--allowedTools`
+   * value, so they never route through the permission-prompt tool (the Task board tools). */
+  allowedTools?: string[];
 }): string[] {
   const argv = [
     "-p",
@@ -260,6 +264,9 @@ export function buildClaudeArgv(options: {
   }
   if (options.settingsPath) {
     argv.push("--settings", options.settingsPath);
+  }
+  if (options.allowedTools && options.allowedTools.length > 0) {
+    argv.push("--allowedTools", options.allowedTools.join(","));
   }
   return argv;
 }
@@ -1097,6 +1104,19 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         session.nextSeq += 1;
         session.onEvent(event);
       }
+    }, (payload) => {
+      // Issue #52: a Story agent's Task tool call, raised upstream and held until the Rust core
+      // answers through `resolveTaskTool`. Nothing here parses or checks the arguments.
+      session.onEvent({
+        runId: options.runId,
+        seq: session.nextSeq++,
+        at: new Date().toISOString(),
+        raw: JSON.stringify({ type: "task_tool_request", requestId: payload.requestId, tool: payload.tool, args: payload.args }),
+        type: "task_tool_request",
+        requestId: payload.requestId,
+        tool: payload.tool,
+        args: payload.args,
+      });
     });
 
     const bin = resolveClaudeBin();
@@ -1142,6 +1162,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       permissionPromptToolName: PERMISSION_TOOL_NAME,
       mcpConfig,
       settingsPath,
+      allowedTools: [...TASK_TOOL_QUALIFIED_NAMES],
     });
 
     // plan 03-02 (D-47/PROC-03): spawn the watchdog wrapper, never the backend directly — the
@@ -1314,6 +1335,14 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const session = liveSessions.get(runId);
     if (!session) throw new UnknownRunError(runId);
     session.permissionServer.resolvePermission(requestId, decision);
+  }
+
+  /** Issue #52: relay the Rust core's answer to `runId`'s held Task tool call — the checklist, or
+   * the reason the core refused it. Same unknown-run guard as {@link resolvePermission}. */
+  resolveTaskTool(runId: string, requestId: string, result: unknown, error?: string): void {
+    const session = liveSessions.get(runId);
+    if (!session) throw new UnknownRunError(runId);
+    session.permissionServer.answerTaskTool(requestId, result, error);
   }
 
   async killSession(runId: string): Promise<void> {

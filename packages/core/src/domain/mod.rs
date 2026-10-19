@@ -31,6 +31,7 @@ pub mod session_summary;
 pub mod settings;
 pub mod story;
 pub mod task;
+pub mod task_tool;
 pub mod worktree;
 
 /// Where an event belongs, so a record's timeline is one indexed read: the Story and Epic it

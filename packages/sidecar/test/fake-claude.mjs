@@ -121,6 +121,30 @@ async function callPermissionToolOnce(label) {
   }
 }
 
+/** Task-tool mode (`FLYWHEEL_FAKE_CALL_TASK_TOOL=<json {name, arguments}>`, issue #52): connect to
+ * the session's MCP server the same way, print the tool names it lists as a `task_tools_listed`
+ * line, call the named Task tool once, and print its outcome as a `task_tool_result` line. */
+async function callTaskToolOnce(toolCall) {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+
+  const mcpConfig = JSON.parse(readFlag("--mcp-config"));
+  const [, serverName] = readFlag("--permission-prompt-tool").match(/^mcp__(.+)__(.+)$/);
+  const serverConfig = mcpConfig.mcpServers[serverName];
+
+  const transport = new StdioClientTransport({ command: serverConfig.command, args: serverConfig.args });
+  const client = new Client({ name: "fake-claude", version: "0.1.0" });
+  await client.connect(transport);
+  try {
+    const listed = await client.listTools();
+    printLine({ type: "task_tools_listed", names: listed.tools.map((t) => t.name) });
+    const result = await client.callTool({ name: toolCall.name, arguments: toolCall.arguments });
+    printLine({ type: "task_tool_result", isError: result.isError === true, text: result.content?.[0]?.text ?? "" });
+  } finally {
+    await client.close();
+  }
+}
+
 printLine({
   type: "system",
   subtype: "init",
@@ -153,6 +177,10 @@ if (CALL_PERMISSION === 1) {
   // Concurrency case: fire both calls WITHOUT awaiting the first — they must resolve
   // independently, in whichever order their answers arrive, not the order they were raised.
   await Promise.all([callPermissionToolOnce("first"), callPermissionToolOnce("second")]);
+}
+
+if (process.env.FLYWHEEL_FAKE_CALL_TASK_TOOL) {
+  await callTaskToolOnce(JSON.parse(process.env.FLYWHEEL_FAKE_CALL_TASK_TOOL));
 }
 
 const COMMIT_FILE = process.env.FLYWHEEL_FAKE_COMMIT_FILE;
