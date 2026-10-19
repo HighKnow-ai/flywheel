@@ -1,0 +1,379 @@
+//! The Context packet (docs/mvp-spec.md §4.2, issue #51): every Story session is rebuilt from a
+//! fixed, ordered packet read off the board and the Story's worktree. These tests pin the order,
+//! the determinism, the ADR supersession walk, the summary collapse, the uncommitted-changes mark
+//! and the size warning.
+
+mod common;
+
+use std::path::Path;
+use std::process::Command;
+
+use common::with_scratch_worktree_root;
+use core::context_packet::{build_context_packet, context_packet_size, measure, SOFT_LIMIT_TOKENS};
+use core::domain::acceptance_criterion::criteria_for_story;
+use core::domain::check::{check_for_criterion, record_check_run, CheckResult, CheckRunRecord};
+use core::domain::epic::{create_epic, update_epic, EpicSpec};
+use core::domain::milestone::create_milestone;
+use core::domain::proposal::{accept_proposal, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb};
+use core::domain::session::start_session;
+use core::domain::session_summary::create_summary;
+use core::domain::story::{create_story, write_story_by_hand, HandWrittenCriterion, Story};
+use core::domain::task::{add_task, set_task_state, TaskState};
+use core::domain::worktree::ensure_worktree;
+use rusqlite::Connection;
+
+const SECTION_HEADINGS: [&str; 10] = [
+    "## Standing instructions",
+    "## Milestone and Epic",
+    "## ADRs",
+    "## Sibling Stories",
+    "## The Story",
+    "## Tasks",
+    "## Review feedback and resume note",
+    "## Session summaries",
+    "## Diff so far",
+    "## Closing instruction",
+];
+
+fn git(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git").arg("-C").arg(dir).args(args).output().expect("git should spawn");
+    assert!(out.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+fn write(dir: &Path, rel: &str, body: &str) {
+    let path = dir.join(rel);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, body).unwrap();
+}
+
+struct Fixture {
+    conn: Connection,
+    actor_id: String,
+    story: Story,
+    worktree: std::path::PathBuf,
+    _repo: tempfile::TempDir,
+}
+
+/// A real repository, a Milestone with an exit test, an Epic with a spec, the Story under test
+/// (written by hand, so Ready with criteria and one Check) and a sibling, and the Story's worktree
+/// holding a supersession chain of ADRs, committed on the Story's branch.
+fn fixture() -> Fixture {
+    let (mut conn, actor_id, project, repo) = common::seeded_git_project();
+    let m = create_milestone(&mut conn, &project.id, &actor_id, "Supervised execution", Some("A week of real work")).unwrap();
+    let e = create_epic(&mut conn, &actor_id, &m.id, "Context packet").unwrap();
+    update_epic(
+        &mut conn,
+        &actor_id,
+        &e.id,
+        "Context packet",
+        &EpicSpec {
+            problem: Some("Sessions lose the thread.".into()),
+            scope: Some("Rebuild every session from the board.".into()),
+            out_of_scope: Some("Compaction.".into()),
+            exit_test: Some("A resumed session picks up where the last stopped.".into()),
+        },
+    )
+    .unwrap();
+    let story = write_story_by_hand(
+        &mut conn,
+        &actor_id,
+        &e.id,
+        "Build the packet",
+        Some("The packet builder."),
+        &[
+            HandWrittenCriterion { statement: "Packets are byte-identical", check_command: Some("cargo test packet") },
+            HandWrittenCriterion { statement: "Looks right", check_command: None },
+        ],
+    )
+    .unwrap();
+    create_story(&mut conn, &actor_id, &e.id, "Sibling work").unwrap();
+
+    let wt = ensure_worktree(&mut conn, &story.id, &actor_id).unwrap();
+    let worktree = std::path::PathBuf::from(&wt.path);
+    git(&worktree, &["config", "user.email", "fixture@flywheel.test"]);
+    git(&worktree, &["config", "user.name", "Fixture"]);
+    write(&worktree, "docs/adr/0001-first.md", "# Use SQLite\n\nStatus: superseded by ADR-0002\n\nBody.\n");
+    write(&worktree, "docs/adr/0002-second.md", "# Use Postgres\n\nSupersedes ADR-0001\n\nStatus: superseded by ADR-0003\n");
+    write(&worktree, "docs/adr/0003-third.md", "# Use SQLite again\n\nSupersedes ADR-0002\n\nBody.\n");
+    write(&worktree, "docs/adr/0004-old-name.md", "# Old naming\n\nBody.\n");
+    write(&worktree, "docs/adr/0005-new-name.md", "# New naming\n\nSupersedes ADR-0004\n");
+    write(&worktree, "docs/adr/0006-other.md", "# Unrelated decision\n");
+    write(&worktree, "GLOSSARY.md", "# Glossary\n");
+    git(&worktree, &["add", "."]);
+    git(&worktree, &["commit", "-m", "adrs"]);
+
+    Fixture { conn, actor_id, story, worktree, _repo: repo }
+}
+
+fn positions(packet: &str) -> Vec<usize> {
+    SECTION_HEADINGS
+        .iter()
+        .map(|h| packet.find(&format!("\n{h}\n")).unwrap_or_else(|| panic!("missing {h:?} in:\n{packet}")))
+        .collect()
+}
+
+#[test]
+fn the_same_board_state_gives_a_byte_identical_packet() {
+    with_scratch_worktree_root(|_| {
+        let mut f = fixture();
+        add_task(&mut f.conn, &f.actor_id, &f.story.id, "Write the builder").unwrap();
+        write(&f.worktree, "src/wip.rs", "// wip\n");
+        let first = build_context_packet(&f.conn, &f.story.id, "Carry on").unwrap();
+        let second = build_context_packet(&f.conn, &f.story.id, "Carry on").unwrap();
+        assert_eq!(first, second);
+        assert_eq!(first.as_bytes(), second.as_bytes());
+    });
+}
+
+#[test]
+fn sections_appear_in_the_spec_order_and_each_once() {
+    with_scratch_worktree_root(|_| {
+        let f = fixture();
+        let packet = build_context_packet(&f.conn, &f.story.id, "Mind the tests").unwrap();
+        let at = positions(&packet);
+        assert!(at.windows(2).all(|w| w[0] < w[1]), "sections out of order: {at:?}\n{packet}");
+        for h in SECTION_HEADINGS {
+            assert_eq!(packet.matches(&format!("\n{h}\n")).count(), 1, "{h} appears once");
+        }
+    });
+}
+
+#[test]
+fn milestone_and_epic_carry_the_exit_tests_spec_and_rejected_reasons() {
+    with_scratch_worktree_root(|_| {
+        let mut f = fixture();
+        let epic_id = f.story.epic_id.clone();
+        let project_id = f.story.project_id.clone();
+        let p = file_proposal(
+            &mut f.conn,
+            &f.actor_id,
+            &NewProposal {
+                project_id: &project_id,
+                session_id: None,
+                epic_id: Some(&epic_id),
+                verb: ProposalVerb::Create,
+                target: ProposalTarget::Story,
+                target_id: None,
+                payload: serde_json::json!({ "title": "Add a cache" }),
+                rationale: Some("Faster"),
+            },
+        )
+        .unwrap();
+        reject_proposal(&mut f.conn, &f.actor_id, &p.id, Some("No caching in the MVP")).unwrap();
+
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        assert!(packet.contains("Milestone: Supervised execution. Exit test: A week of real work\n"), "{packet}");
+        for needle in ["Sessions lose the thread.", "Rebuild every session from the board.", "Compaction.", "A resumed session picks up"] {
+            assert!(packet.contains(needle), "{needle} missing:\n{packet}");
+        }
+        assert!(packet.contains("No caching in the MVP"), "a rejection's reason is in the Epic's packet:\n{packet}");
+    });
+}
+
+#[test]
+fn only_the_live_adr_of_a_supersession_chain_is_listed() {
+    with_scratch_worktree_root(|_| {
+        let f = fixture();
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        let adrs = &packet[packet.find("\n## ADRs\n").unwrap()..packet.find("\n## Sibling Stories\n").unwrap()];
+        assert!(adrs.contains("- docs/adr/0003-third.md: Use SQLite again\n"), "{adrs}");
+        assert!(adrs.contains("- docs/adr/0005-new-name.md: New naming\n"), "{adrs}");
+        assert!(adrs.contains("- docs/adr/0006-other.md: Unrelated decision\n"), "{adrs}");
+        for dead in ["0001-first", "0002-second", "0004-old-name"] {
+            assert!(!adrs.contains(dead), "superseded {dead} is listed:\n{adrs}");
+        }
+        assert!(adrs.contains("GLOSSARY.md"), "{adrs}");
+        assert!(!adrs.contains("# Glossary"), "the glossary goes by path only:\n{adrs}");
+    });
+}
+
+#[test]
+fn an_accepted_unmerged_adr_on_the_epic_is_sent_as_full_text() {
+    with_scratch_worktree_root(|_| {
+        let mut f = fixture();
+        let epic_id = f.story.epic_id.clone();
+        let project_id = f.story.project_id.clone();
+        let p = file_proposal(
+            &mut f.conn,
+            &f.actor_id,
+            &NewProposal {
+                project_id: &project_id,
+                session_id: None,
+                epic_id: Some(&epic_id),
+                verb: ProposalVerb::Create,
+                target: ProposalTarget::Adr,
+                target_id: None,
+                payload: serde_json::json!({
+                    "path": "docs/adr/0007-packet.md",
+                    "text": "# Build the packet in Rust\n\nThe core owns it.\n",
+                }),
+                rationale: None,
+            },
+        )
+        .unwrap();
+        accept_proposal(&mut f.conn, &f.actor_id, &p.id).unwrap();
+
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        assert!(packet.contains("docs/adr/0007-packet.md"), "{packet}");
+        assert!(packet.contains("# Build the packet in Rust\n\nThe core owns it.\n"), "{packet}");
+
+        // Once the worktree holds the file, it is in the index and no longer sent as text.
+        write(&f.worktree, "docs/adr/0007-packet.md", "# Build the packet in Rust\n\nThe core owns it.\n");
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        assert!(packet.contains("- docs/adr/0007-packet.md: Build the packet in Rust\n"), "{packet}");
+        assert!(!packet.contains("The core owns it."), "{packet}");
+    });
+}
+
+#[test]
+fn the_story_lists_siblings_criteria_checks_and_latest_results() {
+    with_scratch_worktree_root(|_| {
+        let mut f = fixture();
+        let criteria = criteria_for_story(&f.conn, &f.story.id).unwrap();
+        let check = check_for_criterion(&f.conn, &criteria[0].id).unwrap().unwrap();
+        let head = git(&f.worktree, &["rev-parse", "HEAD"]).trim().to_string();
+        record_check_run(
+            &mut f.conn,
+            &check.id,
+            &CheckRunRecord {
+                commit_sha: &head,
+                result: CheckResult::Failed,
+                exit_code: Some(1),
+                output_tail: None,
+                started_at: "2999-01-01T00:00:00Z",
+                ended_at: "2999-01-01T00:00:01Z",
+            },
+        )
+        .unwrap();
+
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        let siblings = &packet[packet.find("\n## Sibling Stories\n").unwrap()..packet.find("\n## The Story\n").unwrap()];
+        assert!(siblings.contains("Sibling work (Shaping)"), "{siblings}");
+        assert!(!siblings.contains("Build the packet"), "the Story is not its own sibling:\n{siblings}");
+        assert!(packet.contains("Packets are byte-identical"), "{packet}");
+        assert!(packet.contains("Check: `cargo test packet`"), "{packet}");
+        assert!(packet.contains(&format!("latest result: failed at {}", &head[..12])), "{packet}");
+        assert!(packet.contains("Check: none (judged at review)"), "{packet}");
+    });
+}
+
+#[test]
+fn tasks_show_their_states_and_a_doing_task_is_to_be_reverified() {
+    with_scratch_worktree_root(|_| {
+        let mut f = fixture();
+        let a = add_task(&mut f.conn, &f.actor_id, &f.story.id, "Plan").unwrap();
+        let b = add_task(&mut f.conn, &f.actor_id, &f.story.id, "Build").unwrap();
+        let c = add_task(&mut f.conn, &f.actor_id, &f.story.id, "Cache").unwrap();
+        set_task_state(&mut f.conn, &f.actor_id, &a.id, TaskState::Done, None).unwrap();
+        set_task_state(&mut f.conn, &f.actor_id, &b.id, TaskState::Doing, None).unwrap();
+        set_task_state(&mut f.conn, &f.actor_id, &c.id, TaskState::Dropped, Some("out of scope")).unwrap();
+
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        let tasks = &packet[packet.find("\n## Tasks\n").unwrap()..packet.find("\n## Review feedback").unwrap()];
+        let plan = tasks.find("[done] Plan").expect("done task");
+        let build = tasks.find("[doing] Build").expect("doing task");
+        let cache = tasks.find("[dropped] Cache (out of scope)").expect("dropped task with reason");
+        assert!(plan < build && build < cache, "{tasks}");
+        assert!(tasks.contains("re-verify"), "{tasks}");
+    });
+}
+
+#[test]
+fn summaries_beyond_the_last_three_collapse_to_one_line() {
+    with_scratch_worktree_root(|_| {
+        let mut f = fixture();
+        let run = start_session(&mut f.conn, &f.story.id, "acceptEdits", &f.actor_id).unwrap();
+        for i in 1..=5 {
+            create_summary(&mut f.conn, &run.id, &format!("must-know {i}"), &format!("decision {i}")).unwrap();
+        }
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        assert!(packet.contains("2 earlier sessions omitted"), "{packet}");
+        for i in 1..=2 {
+            assert!(!packet.contains(&format!("must-know {i}\n")), "summary {i} should be collapsed:\n{packet}");
+        }
+        for i in 3..=5 {
+            assert!(packet.contains(&format!("must-know {i}")), "summary {i} in full:\n{packet}");
+            assert!(packet.contains(&format!("decision {i}")), "{packet}");
+        }
+        let three = packet.find("must-know 3").unwrap();
+        let five = packet.find("must-know 5").unwrap();
+        assert!(three < five, "oldest first");
+    });
+}
+
+#[test]
+fn the_resume_note_appears_only_when_given() {
+    with_scratch_worktree_root(|_| {
+        let f = fixture();
+        let with = build_context_packet(&f.conn, &f.story.id, "  Re-run the migration first.  ").unwrap();
+        assert!(with.contains("Resume note: Re-run the migration first.\n"), "{with}");
+        let without = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        assert!(!without.contains("Resume note:"), "{without}");
+    });
+}
+
+#[test]
+fn the_diff_lists_committed_files_and_marks_uncommitted_changes_from_a_stopped_session() {
+    with_scratch_worktree_root(|_| {
+        let f = fixture();
+        write(&f.worktree, "docs/half_done.md", "// half\n");
+        write(&f.worktree, "GLOSSARY.md", "# Glossary\n\nEdited.\n");
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        let diff = &packet[packet.find("\n## Diff so far\n").unwrap()..packet.find("\n## Closing instruction\n").unwrap()];
+        assert!(diff.contains("docs/adr/0003-third.md"), "committed files are listed:\n{diff}");
+        assert!(diff.contains("left by a stopped session"), "{diff}");
+        assert!(diff.contains("docs/half_done.md"), "{diff}");
+        let marked = diff.find("left by a stopped session").unwrap();
+        assert!(diff.find("docs/half_done.md").unwrap() > marked, "the untracked file sits under the mark:\n{diff}");
+        assert!(!diff.contains("// half"), "no hunks:\n{diff}");
+    });
+}
+
+#[test]
+fn a_clean_worktree_has_no_uncommitted_mark() {
+    with_scratch_worktree_root(|_| {
+        let f = fixture();
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        assert!(!packet.contains("left by a stopped session"), "{packet}");
+    });
+}
+
+#[test]
+fn a_story_without_a_worktree_still_gets_a_packet() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    let story = common::new_story(&mut conn, &project.id, &actor_id, "No worktree yet");
+    let packet = build_context_packet(&conn, &story.id, "").unwrap();
+    let at = positions(&packet);
+    assert!(at.windows(2).all(|w| w[0] < w[1]));
+    assert!(packet.contains("No worktree yet"), "{packet}");
+}
+
+#[test]
+fn an_unknown_story_is_an_error() {
+    let (conn, _, _) = common::seeded_project();
+    assert!(build_context_packet(&conn, "no-such-story", "").is_err());
+}
+
+#[test]
+fn the_size_warns_above_about_twenty_thousand_tokens() {
+    assert_eq!(SOFT_LIMIT_TOKENS, 20_000);
+    let small = measure("abcd".repeat(100).as_str());
+    assert_eq!(small.bytes, 400);
+    assert_eq!(small.approx_tokens, 100);
+    assert!(!small.over_soft_limit);
+    let at_limit = measure("abcd".repeat(20_000).as_str());
+    assert!(!at_limit.over_soft_limit, "exactly at the limit is not over it");
+    let big = measure("abcd".repeat(20_001).as_str());
+    assert!(big.over_soft_limit);
+}
+
+#[test]
+fn the_story_size_is_the_packet_without_a_resume_note() {
+    with_scratch_worktree_root(|_| {
+        let f = fixture();
+        let size = context_packet_size(&f.conn, &f.story.id).unwrap();
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        assert_eq!(size, measure(&packet));
+    });
+}
