@@ -77,6 +77,7 @@ function fleetRow(id: string, overrides: Partial<FleetRowDto> = {}): FleetRowDto
     costUsd: null,
     tokensIn: null,
     tokensOut: null,
+    doingTaskTitle: null,
     activity: { lines: [], truncated: false },
     ...overrides,
   };

@@ -33,6 +33,11 @@
  * brings the project back. Afterwards the rail selects another project rather than leaving the
  * surface pointing at one that no longer lists.
  *
+ * Each project entry carries its running sessions beneath it (docs/mvp-spec.md §7, #58): one row per live
+ * (running or blocked) Story session, read from the fleet's own query so the rail and the fleet surface
+ * can never disagree. A row names the Story and what its agent is doing now (the *doing* Task, else the
+ * Story title), and opening it opens that session's feed. A project with nothing running shows no list.
+ *
  * The `+` affordance at the rail's foot opens the SAME registration flow ⌘⇧O and the native File
  * menu use (`RegisterProjectFlow.tsx`) — never a second, rail-local copy of that sequence.
  *
@@ -49,11 +54,18 @@
 import { useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus, TriangleAlert } from "lucide-react";
-import { projectHide } from "../adapters/tauri";
+import { projectHide, type FleetRowDto } from "../adapters/tauri";
 import glyphUrl from "../assets/logo-glyph.svg";
 import type { Project } from "../board/useBoardQuery";
 import { useRecoverySummary } from "../board/useBoardQuery";
-import { blockedQueueQueryKey, fleetQueryKey, useBlockedQueue, worktreeInventoryQueryKey } from "../fleet/useFleet";
+import {
+  blockedQueueQueryKey,
+  fleetQueryKey,
+  useBlockedQueue,
+  useFleet,
+  worktreeInventoryQueryKey,
+} from "../fleet/useFleet";
+import { isRunStatus, RUN_STATUS_LABELS } from "../legend/runStatus";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
 import { useUiStore } from "../state/uiStore";
 
@@ -117,6 +129,71 @@ const currentEntryStyle: CSSProperties = {
   fontWeight: 600,
 };
 
+const sessionRowStyle: CSSProperties = {
+  ...entryStyle,
+  minHeight: 24,
+  padding: "2px var(--space-sm) 2px var(--space-md)",
+  justifyContent: "flex-start",
+  color: "var(--text-muted-rack)",
+};
+
+/** A live session: one a person could be watching. Finished sessions stay on the fleet surface only. */
+function isLiveSession(row: FleetRowDto): boolean {
+  return row.runStatus === "running" || row.runStatus === "blocked";
+}
+
+/** One project's running sessions, under its entry. Renders nothing when none is running. */
+function RunningSessions({ projectName, sessions }: { projectName: string; sessions: FleetRowDto[] }) {
+  const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
+  if (sessions.length === 0) return null;
+  return (
+    <ul
+      role="list"
+      aria-label={`${projectName} running sessions`}
+      style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 2 }}
+    >
+      {sessions.map((session) => {
+        const doing = session.doingTaskTitle;
+        const subject = `${session.storyKey} ${session.storyTitle}`.trim();
+        const blocked = session.runStatus === "blocked";
+        return (
+          <li key={session.sessionId}>
+            <button
+              type="button"
+              className="type-label"
+              data-session-id={session.sessionId}
+              aria-label={doing ? `Open ${subject} session, doing ${doing}` : `Open ${subject} session`}
+              title={doing ? `${subject}: ${doing}` : subject}
+              onClick={() =>
+                setActiveSessionId(
+                  session.sessionId,
+                  session.storyId,
+                  null,
+                  isRunStatus(session.runStatus) ? session.runStatus : null,
+                )
+              }
+              style={sessionRowStyle}
+            >
+              <span className="tabular-nums" style={{ flexShrink: 0, color: "var(--text-primary-rack)" }}>
+                {session.storyKey}
+              </span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                {doing ?? session.storyTitle}
+              </span>
+              {blocked && (
+                // The word, never colour alone.
+                <span style={{ flexShrink: 0, color: "var(--blocked-text-rack)", fontWeight: 600 }}>
+                  {RUN_STATUS_LABELS.blocked}
+                </span>
+              )}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export interface ProjectRailProps {
   projects: Project[];
   currentProjectId: string | undefined;
@@ -173,6 +250,9 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   // exists to make at a glance.
   const recoverySummaryQuery = useRecoverySummary(currentProjectId);
   const recoveryCount = recoverySummaryQuery.data?.recoveryCount ?? 0;
+  // Every project's running sessions, from the fleet's one app-wide read (#58). Also above the early
+  // return, for the same reason.
+  const liveSessions = (useFleet().data?.rows ?? []).filter(isLiveSession);
 
   const currentProject = projects.find((project) => project.id === currentProjectId);
 
@@ -224,39 +304,44 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
           const isCurrent = project.id === currentProjectId;
           const isUnreachable = project.status === "unreachable";
           return (
-            <button
-              key={project.id}
-              type="button"
-              className="type-body"
-              title={project.name}
-              aria-label={isUnreachable ? `${project.name}, Unreachable` : project.name}
-              aria-current={isCurrent ? "true" : undefined}
-              onClick={() => onSelect(project)}
-              style={{
-                ...(isCurrent ? currentEntryStyle : entryStyle),
-                color: isUnreachable ? "var(--text-muted-rack)" : "var(--text-primary-rack)",
-              }}
-            >
-              <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", minWidth: 0, flex: 1 }}>
-                <span style={{ display: "flex", alignItems: "baseline", gap: "var(--space-xs)", minWidth: 0, maxWidth: "100%" }}>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.name}</span>
-                  <span className="type-label tabular-nums" style={{ flexShrink: 0, color: "var(--text-muted-rack)" }}>
-                    {project.keyPrefix}
+            <div key={project.id} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <button
+                type="button"
+                className="type-body"
+                title={project.name}
+                aria-label={isUnreachable ? `${project.name}, Unreachable` : project.name}
+                aria-current={isCurrent ? "true" : undefined}
+                onClick={() => onSelect(project)}
+                style={{
+                  ...(isCurrent ? currentEntryStyle : entryStyle),
+                  color: isUnreachable ? "var(--text-muted-rack)" : "var(--text-primary-rack)",
+                }}
+              >
+                <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", minWidth: 0, flex: 1 }}>
+                  <span style={{ display: "flex", alignItems: "baseline", gap: "var(--space-xs)", minWidth: 0, maxWidth: "100%" }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.name}</span>
+                    <span className="type-label tabular-nums" style={{ flexShrink: 0, color: "var(--text-muted-rack)" }}>
+                      {project.keyPrefix}
+                    </span>
                   </span>
+                  {isUnreachable && (
+                    // The word AND a glyph, never a colour change alone (01-UI-SPEC.md "Accessibility").
+                    // Its own line, so the name is never truncated to make room for it.
+                    <span
+                      className="type-label"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "var(--destructive-text-rack)" }}
+                    >
+                      <TriangleAlert size={12} strokeWidth={2} aria-hidden="true" />
+                      Unreachable
+                    </span>
+                  )}
                 </span>
-                {isUnreachable && (
-                  // The word AND a glyph, never a colour change alone (01-UI-SPEC.md "Accessibility").
-                  // Its own line, so the name is never truncated to make room for it.
-                  <span
-                    className="type-label"
-                    style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "var(--destructive-text-rack)" }}
-                  >
-                    <TriangleAlert size={12} strokeWidth={2} aria-hidden="true" />
-                    Unreachable
-                  </span>
-                )}
-              </span>
-            </button>
+              </button>
+              <RunningSessions
+                projectName={project.name}
+                sessions={liveSessions.filter((session) => session.projectId === project.id)}
+              />
+            </div>
           );
         })}
         <button
