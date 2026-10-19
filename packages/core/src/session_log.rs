@@ -242,6 +242,10 @@ pub struct LogTail {
 /// in [`read_window`]. When the read starts mid-file its first fragment is dropped too, so a line
 /// larger than the window yields no line at all (and `truncated`) rather than a cut-off one.
 pub fn read_tail(session_id: &str) -> anyhow::Result<LogTail> {
+    read_tail_lines(session_id, LOG_TAIL_MAX_LINES)
+}
+
+fn read_tail_lines(session_id: &str, max_lines: usize) -> anyhow::Result<LogTail> {
     let path = session_log_path(session_id)?;
     let mut file = match File::open(&path) {
         Ok(file) => file,
@@ -268,8 +272,28 @@ pub fn read_tail(session_id: &str) -> anyhow::Result<LogTail> {
     }
     let mut lines: Vec<String> =
         segments.filter(|line| !line.is_empty()).map(str::to_owned).collect();
-    if lines.len() > LOG_TAIL_MAX_LINES {
-        lines.drain(..lines.len() - LOG_TAIL_MAX_LINES);
+    if lines.len() > max_lines {
+        lines.drain(..lines.len() - max_lines);
     }
     Ok(LogTail { truncated: lines.is_empty() && starts_mid_file, lines })
+}
+
+/// The last assistant message in `session_id`'s log, for a dead session's stub summary and its
+/// ending label (docs/mvp-spec.md §4.5). Reads only the last [`LOG_TAIL_MAX_BYTES`] of the log, so
+/// a message further back than that reads as none. Best effort: a missing or unreadable log is
+/// `None`, never an error.
+pub fn last_assistant_message(session_id: &str) -> Option<crate::domain::session_ending::LastAssistantMessage> {
+    let tail = read_tail_lines(session_id, usize::MAX).ok()?;
+    tail.lines.iter().rev().find_map(|line| {
+        let value: serde_json::Value = serde_json::from_str(line).ok()?;
+        if value.get("type").and_then(|t| t.as_str()) != Some("assistant_text") {
+            return None;
+        }
+        let text = value.get("text").and_then(|t| t.as_str())?.to_string();
+        Some(crate::domain::session_ending::LastAssistantMessage {
+            text,
+            is_api_error: value.get("isApiErrorMessage").and_then(|v| v.as_bool()).unwrap_or(false),
+            rate_limited: value.get("rateLimitTier").and_then(|v| v.as_str()) == Some("rejected"),
+        })
+    })
 }

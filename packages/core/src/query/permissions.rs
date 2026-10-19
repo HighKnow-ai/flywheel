@@ -52,7 +52,7 @@ pub struct PendingPermissionRequest {
 
 const PENDING_REQUESTS_FOR_RUN_SQL: &str =
     "SELECT id, tool_name, input_payload, created_at, destructive_category \
-    FROM permission_requests WHERE session_id = ?1 AND status = 'pending' \
+    FROM permission_requests WHERE session_id = ?1 AND status = 'pending' AND expired_at IS NULL \
     ORDER BY created_at ASC, id ASC";
 
 /// Every pending `permission_requests` row for one session, oldest first. Ordinarily at most one

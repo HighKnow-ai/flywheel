@@ -80,7 +80,7 @@ pub const FLEET_SQL: &str = "SELECT * FROM ( \
         END AS fleet_state, \
         ar.started_at AS started_at, ar.ended_at AS ended_at, \
         (SELECT MIN(pr.created_at) FROM permission_requests pr \
-            WHERE pr.session_id = ar.id AND pr.status = 'pending') AS blocked_since, \
+            WHERE pr.session_id = ar.id AND pr.status = 'pending' AND pr.expired_at IS NULL) AS blocked_since, \
         ar.cost_usd AS cost_usd, ar.tokens_in AS tokens_in, ar.tokens_out AS tokens_out, \
         (SELECT t.title FROM tasks t WHERE t.story_id = ar.story_id AND t.state = 'doing' \
             LIMIT 1) AS doing_task_title \
@@ -175,10 +175,10 @@ pub const BLOCKED_QUEUE_SQL: &str = "SELECT pr.id, pr.tool_name, pr.input_payloa
     JOIN sessions ar ON ar.id = pr.session_id \
     JOIN projects p ON p.id = ar.project_id AND p.hidden = 0 \
     JOIN stories s ON s.id = ar.story_id \
-    WHERE ar.status = 'blocked' AND pr.status = 'pending' \
+    WHERE ar.status = 'blocked' AND pr.status = 'pending' AND pr.expired_at IS NULL \
         AND pr.id = ( \
             SELECT pr2.id FROM permission_requests pr2 \
-            WHERE pr2.session_id = ar.id AND pr2.status = 'pending' \
+            WHERE pr2.session_id = ar.id AND pr2.status = 'pending' AND pr2.expired_at IS NULL \
             ORDER BY pr2.created_at ASC, pr2.id ASC LIMIT 1) \
     ORDER BY pr.created_at ASC, pr.id ASC \
     LIMIT ?1";

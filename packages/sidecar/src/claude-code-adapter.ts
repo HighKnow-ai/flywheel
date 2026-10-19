@@ -22,6 +22,7 @@ import {
   CapabilityUnsupportedError,
   defaultResumeSession,
   type RateLimitTier,
+  type SessionClosedEvent,
   type StartSessionOptions,
   UnknownRunError,
 } from "./adapter.js";
@@ -356,6 +357,9 @@ interface ClaudeStreamResult {
    * Reported for diagnosis only — never classified on its value, since no capture of a healthy
    * run's `terminal_reason` exists in this repository. Optional, for the same reason as `is_error`. */
   terminal_reason?: string;
+  /** Issue #54: the model's own reason for its last stop (`end_turn`, `refusal`, ...), which the
+   * docs say detects a refusal (issue #24). `null` on a crash. Optional, like `is_error`. */
+  stop_reason?: string | null;
 }
 
 /** G-05-7 (plan 05-37): the wire's own `rate_limit_event` top-level line — measured live in run
@@ -737,6 +741,7 @@ export function normaliseStreamEvent(
       ...(typeof result.terminal_reason === "string" && result.terminal_reason.length > 0
         ? { terminalReason: result.terminal_reason }
         : {}),
+      ...(typeof result.stop_reason === "string" && result.stop_reason.length > 0 ? { stopReason: result.stop_reason } : {}),
     };
   }
 
@@ -841,6 +846,10 @@ export function emitStreamEvents(
         sessionId: normalised.sessionId,
         inputTokens: normalised.inputTokens,
         outputTokens: normalised.outputTokens,
+        // Issue #54: what the core reads the session's ending label from.
+        ...(normalised.isError !== undefined ? { isError: normalised.isError } : {}),
+        ...(normalised.terminalReason !== undefined ? { terminalReason: normalised.terminalReason } : {}),
+        ...(normalised.stopReason !== undefined ? { stopReason: normalised.stopReason } : {}),
       };
     }
     onEvent(normalised);
@@ -893,7 +902,7 @@ interface LiveSession {
    * `outputTokens` are the session-total figures `normaliseStreamEvent`'s result branch already
    * computed (G-02-4) — carried through unchanged, never re-derived here. */
   lastResult:
-    | { subtype: string; totalCostUsd?: number; sessionId?: string; inputTokens?: number; outputTokens?: number }
+    | NonNullable<SessionClosedEvent["result"]>
     | undefined;
   /** At most {@link STDERR_DETAIL_MAX_CHARS} characters of the child's own stderr, accumulated as
    * it is read (G-02-2) — exists so a failed session can say why it failed. Also set directly (to

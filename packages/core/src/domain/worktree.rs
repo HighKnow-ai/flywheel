@@ -311,7 +311,7 @@ fn remove_worktree(
 /// (`Immediate`): the batch reclaim runs on a second writer connection, and a deferred transaction
 /// that reads before it writes fails with `SQLITE_BUSY_SNAPSHOT` -- which `busy_timeout` does not
 /// retry -- if another writer commits in between.
-fn record_worktree_removed(
+pub(crate) fn record_worktree_removed(
     conn: &mut Connection,
     worktree: &Worktree,
     story_id: &str,

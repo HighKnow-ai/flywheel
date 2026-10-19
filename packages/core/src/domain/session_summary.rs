@@ -127,9 +127,14 @@ pub(crate) fn create_summary_in_tx(
     insert_summary_row(tx, session_id, next_session_must_know, decisions, false, &crate::domain::now())
 }
 
-/// Write the stub summary for a session that ended without one: the reason it ended and the Task it
-/// was doing, if any. Runs inside the caller's transaction (the one writing the terminal status)
-/// and has no dedupe of its own: the caller's [`latest_summary_for_run`] check is the guard.
+/// How much of the last assistant message a stub keeps, in characters.
+pub const STUB_LAST_MESSAGE_MAX_CHARS: usize = 600;
+
+/// Write the stub summary for a session that ended without one (docs/mvp-spec.md §4.5): the reason
+/// it ended, the Task it was doing, if any, and its last assistant message, truncated. Runs inside
+/// the caller's transaction (the one writing the terminal status) and has no dedupe of its own: the
+/// caller's [`latest_summary_for_run`] check is the guard. `close_reason` is the ending label's
+/// words ([`crate::domain::session_ending::EndingReason::words`]).
 pub fn synthesize_fallback_summary(tx: &Transaction, session_id: &str, close_reason: &str) -> anyhow::Result<String> {
     let now = crate::domain::now();
     let doing: Option<String> = tx
@@ -146,6 +151,16 @@ pub fn synthesize_fallback_summary(tx: &Transaction, session_id: &str, close_rea
         None => note.push_str(" No Task was marked doing."),
     }
     note.push_str(" The worktree is left exactly as it was: it is the authority on what is finished.");
+    if let Some(last) = crate::session_log::last_assistant_message(session_id) {
+        let text = last.text.trim();
+        if !text.is_empty() {
+            let mut kept: String = text.chars().take(STUB_LAST_MESSAGE_MAX_CHARS).collect();
+            if text.chars().count() > STUB_LAST_MESSAGE_MAX_CHARS {
+                kept.push_str(" [...]");
+            }
+            note.push_str(&format!("\n\nIts last message:\n> {}", kept.replace('\n', "\n> ")));
+        }
+    }
     let summary = insert_summary_row(tx, session_id, &note, "", true, &now)?;
     Ok(summary.id)
 }

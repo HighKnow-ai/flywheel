@@ -112,9 +112,33 @@ pub fn story_update(
 #[tauri::command]
 pub fn story_set_state(state: State<AppState>, app: AppHandle, story_id: String, to: String) -> Result<(), String> {
     let to = flywheel_core::domain::story::StoryState::parse(&to).map_err(|e| e.to_string())?;
+    refuse_bare_drop(to)?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::story::set_story_state(&mut conn, &actor_id, &story_id, to).map_err(|e| e.to_string())?;
+    let project_id = super::project_of(&conn, "stories", &story_id);
+    drop(conn);
+    emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
+    Ok(())
+}
+
+/// Dropping goes through [`story_drop`], which also removes the worktree and branch; a bare state
+/// write would leave them behind.
+fn refuse_bare_drop(to: flywheel_core::domain::story::StoryState) -> Result<(), String> {
+    if to == flywheel_core::domain::story::StoryState::Dropped {
+        return Err("drop a Story with story_drop, which also removes its worktree and branch".to_string());
+    }
+    Ok(())
+}
+
+/// The developer's Drop (docs/mvp-spec.md §2): the Story moves to Dropped and its worktree and
+/// branch are removed, uncommitted work included; the record stays readable. Refused for a Merged
+/// Story and while a session is live. Not a Gated action: it raises no permission request.
+#[tauri::command]
+pub fn story_drop(state: State<AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::story_drop::drop_story(&mut conn, &actor_id, &story_id).map_err(|e| format!("{e:#}"))?;
     let project_id = super::project_of(&conn, "stories", &story_id);
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
@@ -197,6 +221,13 @@ mod tests {
 
     fn input(statement: &str, check: Option<&str>) -> CriterionInput {
         CriterionInput { statement: statement.to_string(), check_command: check.map(str::to_string) }
+    }
+
+    #[test]
+    fn a_bare_state_write_cannot_drop_a_story() {
+        use flywheel_core::domain::story::StoryState;
+        assert!(refuse_bare_drop(StoryState::Dropped).unwrap_err().contains("story_drop"));
+        assert!(refuse_bare_drop(StoryState::Merged).is_ok());
     }
 
     #[test]

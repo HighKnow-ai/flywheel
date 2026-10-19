@@ -212,15 +212,29 @@ fn worktrees_row(conn: &rusqlite::Connection, worktree_id: &str) -> (String, Str
 }
 
 /// D-43's "no escape hatch" as a source-scanning gate, in the style of `supervisor_cwd.rs`
-/// (plan 03-01 Task 3): reads `packages/core/src/git.rs` and
-/// `packages/core/src/domain/worktree.rs` from disk, strips whole-line `//` comments exactly as
-/// `supervisor_cwd.rs`'s own `is_whole_line_comment` does, and asserts the removal call chain
-/// contains no quoted git-subcommand-argument form of a force flag, `stash`, or `commit` — the
-/// exact shape every real git subcommand argument takes in this codebase's own `git_at` call
-/// sites (`&["worktree", "remove", ...]`). Quoting the token is what distinguishes a genuine `git
+/// (plan 03-01 Task 3): reads every file under `packages/core/src` from disk, strips whole-line
+/// `//` comments exactly as `supervisor_cwd.rs`'s own `is_whole_line_comment` does, and looks for
+/// the quoted git-subcommand-argument form of a force flag, `stash`, or `commit` — the exact shape
+/// every real git subcommand argument takes in this codebase's own `git_at` call sites
+/// (`&["worktree", "remove", ...]`). Quoting the token is what distinguishes a genuine `git
 /// commit`/`git stash`/`--force` invocation from an unrelated bare use of the word — `tx.commit()`
 /// (a SQLite transaction method, no quotes) legitimately exists in `remove_worktree_for_story`
 /// itself and must never trip this gate.
+///
+/// `stash` and `commit` are forbidden everywhere: Flywheel never commits or stashes on the agent's
+/// behalf. The force flag has exactly ONE sanctioned site: the forced removal inside
+/// `domain/story_drop.rs`'s `wipe_worktree_and_branch`. Drop is the one deliberate discard the spec
+/// gives the developer (docs/mvp-spec.md §4.5: "The worktree is left exactly as it is. No WIP
+/// commit and no reset. Wiping the work is Cyril's call, through Drop."), so the routine removal
+/// path keeps refusing a dirty tree and Drop alone may wipe one. The gate also pins how Drop is
+/// reached: `wipe_worktree_and_branch` is private, called once, from `drop_story`, after its
+/// live-session refusal, and `drop_story` is called from one command, `story_drop` (which the
+/// renderer reaches only through its confirmation step).
+///
+/// Two files hold the force token as DATA, not as an invocation: the Gated-action classifier
+/// (`destructive.rs`) and the permission-pattern parser (`permission_pattern.rs`) read it in an
+/// agent's command line to recognise a forced git command. They are named below and the gate
+/// asserts they never run git themselves.
 mod no_escape_hatch {
     use std::path::{Path, PathBuf};
 
@@ -238,55 +252,147 @@ mod no_escape_hatch {
     }
 
     /// The forbidden quoted tokens, assembled from character pieces at runtime rather than
-    /// written as plain string literals in this file (per this plan's own `<action>` text) — so a
-    /// future widening of this scan to include this test file cannot trivially match its own
-    /// source text.
-    fn forbidden_tokens() -> Vec<String> {
+    /// written as plain string literals in this file — so this test file cannot trivially match its
+    /// own source text.
+    fn quoted(chars: &[char]) -> String {
         let quote = '"';
-        let force: String = ['-', '-', 'f', 'o', 'r', 'c', 'e'].into_iter().collect();
-        let stash: String = ['s', 't', 'a', 's', 'h'].into_iter().collect();
-        let commit: String = ['c', 'o', 'm', 'm', 'i', 't'].into_iter().collect();
-        vec![
-            format!("{quote}{force}{quote}"),
-            format!("{quote}{stash}{quote}"),
-            format!("{quote}{commit}{quote}"),
-        ]
+        let word: String = chars.iter().collect();
+        format!("{quote}{word}{quote}")
     }
 
-    fn scan_for_forbidden_tokens(path: &Path, tokens: &[String]) -> Vec<String> {
-        let contents =
-            std::fs::read_to_string(path).unwrap_or_else(|e| panic!("failed to read {path:?}: {e}"));
-        let mut hits = Vec::new();
-        for (idx, raw_line) in contents.lines().enumerate() {
-            if is_whole_line_comment(raw_line) {
-                continue;
+    fn force_token() -> String {
+        quoted(&['-', '-', 'f', 'o', 'r', 'c', 'e'])
+    }
+
+    fn never_tokens() -> Vec<String> {
+        vec![quoted(&['s', 't', 'a', 's', 'h']), quoted(&['c', 'o', 'm', 'm', 'i', 't'])]
+    }
+
+    /// Whether `line` holds `token` in argument position: a quoted string not followed by `:`. A
+    /// quoted word followed by `:` is a map key (`json!({ "commit": sha })`), not a git argument.
+    fn as_argument(line: &str, token: &str) -> bool {
+        line.match_indices(token).any(|(at, _)| !line[at + token.len()..].trim_start().starts_with(':'))
+    }
+
+    /// Files that hold the force token only to recognise it in an agent's command line.
+    const CLASSIFIERS: [&str; 2] = ["packages/core/src/destructive.rs", "packages/core/src/permission_pattern.rs"];
+
+    /// The one file allowed a forced git invocation, and the function it must sit in.
+    const DROP_FILE: &str = "packages/core/src/domain/story_drop.rs";
+    const WIPE_FN: &str = "fn wipe_worktree_and_branch(";
+
+    fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap_or_else(|e| panic!("cannot read {dir:?}: {e}")) {
+            let path = entry.expect("dir entry").path();
+            if path.is_dir() {
+                rust_files(&path, out);
+            } else if path.extension().is_some_and(|x| x == "rs") {
+                out.push(path);
             }
-            for token in tokens {
-                if raw_line.contains(token.as_str()) {
-                    hits.push(format!("{}:{}: {}", path.display(), idx + 1, raw_line.trim()));
+        }
+    }
+
+    /// `(relative path, 0-based line, line)` for every non-comment line of every `.rs` file under `dir`.
+    fn code_lines(dir: &str) -> Vec<(String, usize, String)> {
+        let root = workspace_root();
+        let mut files = Vec::new();
+        rust_files(&root.join(dir), &mut files);
+        files.sort();
+        let mut lines = Vec::new();
+        for file in files {
+            let rel = file.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
+            let contents = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("failed to read {file:?}: {e}"));
+            for (idx, line) in contents.lines().enumerate() {
+                if !is_whole_line_comment(line) {
+                    lines.push((rel.clone(), idx, line.to_string()));
                 }
             }
         }
-        hits
+        lines
+    }
+
+    /// The 0-based line range of the item whose signature contains `signature`, through its own
+    /// closing `}` at column zero.
+    fn item_range(file: &str, signature: &str) -> std::ops::Range<usize> {
+        let contents = std::fs::read_to_string(workspace_root().join(file)).expect("read source");
+        let lines: Vec<&str> = contents.lines().collect();
+        let start = lines.iter().position(|l| l.contains(signature)).unwrap_or_else(|| panic!("{signature} not in {file}"));
+        let end = lines[start..].iter().position(|l| l.trim_end() == "}").map(|o| start + o + 1).unwrap_or(lines.len());
+        start..end
     }
 
     #[test]
     fn the_removal_call_chain_carries_no_force_stash_or_commit_git_subcommand_token() {
-        let root = workspace_root();
-        let tokens = forbidden_tokens();
+        let lines = code_lines("packages/core/src");
+        let never = never_tokens();
+        let stash_or_commit: Vec<String> = lines
+            .iter()
+            .filter(|(_, _, line)| never.iter().any(|t| as_argument(line, t)))
+            .map(|(file, idx, line)| format!("{file}:{}: {}", idx + 1, line.trim()))
+            .collect();
+        assert!(stash_or_commit.is_empty(), "found a stash/commit git-subcommand token:\n{}", stash_or_commit.join("\n"));
 
-        let mut hits = Vec::new();
-        for file in [
-            root.join("packages/core/src/git.rs"),
-            root.join("packages/core/src/domain/worktree.rs"),
-        ] {
-            hits.extend(scan_for_forbidden_tokens(&file, &tokens));
-        }
-
+        let force = force_token();
+        let forced: Vec<&(String, usize, String)> = lines
+            .iter()
+            .filter(|(file, _, line)| as_argument(line, &force) && !CLASSIFIERS.contains(&file.as_str()))
+            .collect();
+        let wipe = item_range(DROP_FILE, WIPE_FN);
         assert!(
-            hits.is_empty(),
-            "found a force/stash/commit git-subcommand token in the worktree-removal call chain:\n{}",
-            hits.join("\n")
+            forced.len() == 1 && forced[0].0 == DROP_FILE && wipe.contains(&forced[0].1),
+            "the force token may appear in exactly one place, Drop's forced removal in {DROP_FILE}'s \
+             `{WIPE_FN}`; found:\n{}",
+            forced.iter().map(|(f, i, l)| format!("{f}:{}: {}", i + 1, l.trim())).collect::<Vec<_>>().join("\n")
         );
+    }
+
+    #[test]
+    fn the_classifiers_hold_the_force_token_as_data_and_never_run_git() {
+        for (file, _, line) in code_lines("packages/core/src") {
+            if CLASSIFIERS.contains(&file.as_str()) {
+                assert!(
+                    !line.contains("git_at(") && !line.contains("git_output_at(") && !line.contains("Command::new"),
+                    "{file} must only recognise the force flag, never run a command: {}",
+                    line.trim()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn drops_forced_removal_is_reached_only_through_the_drop_command_after_its_live_session_refusal() {
+        let wipe_call = "wipe_worktree_and_branch(";
+        let core = code_lines("packages/core/src");
+        let wipe_sites: Vec<&(String, usize, String)> =
+            core.iter().filter(|(_, _, l)| l.contains(wipe_call) && !l.contains(WIPE_FN)).collect();
+        let drop_fn = item_range(DROP_FILE, "pub fn drop_story(");
+        assert!(
+            wipe_sites.len() == 1 && wipe_sites[0].0 == DROP_FILE && drop_fn.contains(&wipe_sites[0].1),
+            "`{WIPE_FN}` must have exactly one caller, inside `drop_story`; found {wipe_sites:?}"
+        );
+        assert!(
+            !core.iter().any(|(f, _, l)| f == DROP_FILE && l.contains(&format!("pub {WIPE_FN}"))
+                || f == DROP_FILE && l.contains(&format!("pub(crate) {WIPE_FN}"))),
+            "`{WIPE_FN}` stays private to {DROP_FILE}"
+        );
+        let refusal = core
+            .iter()
+            .find(|(f, i, l)| f == DROP_FILE && drop_fn.contains(i) && l.contains("Stop the session first"))
+            .expect("drop_story refuses a live session");
+        assert!(refusal.1 < wipe_sites[0].1, "the live-session refusal comes before the wipe");
+
+        let desktop = code_lines("packages/desktop/src-tauri/src");
+        let drop_sites: Vec<&(String, usize, String)> =
+            desktop.iter().filter(|(_, _, l)| l.contains("drop_story(")).collect();
+        let command = item_range("packages/desktop/src-tauri/src/commands/story.rs", "pub fn story_drop(");
+        assert!(
+            drop_sites.len() == 1
+                && drop_sites[0].0 == "packages/desktop/src-tauri/src/commands/story.rs"
+                && command.contains(&drop_sites[0].1),
+            "`drop_story` must be called from the `story_drop` command alone; found {drop_sites:?}"
+        );
+        let core_callers: Vec<&(String, usize, String)> =
+            core.iter().filter(|(f, _, l)| l.contains("drop_story(") && !(f == DROP_FILE && l.contains("pub fn drop_story("))).collect();
+        assert!(core_callers.is_empty(), "nothing in the core calls `drop_story`; found {core_callers:?}");
     }
 }

@@ -16,10 +16,16 @@ import {
   epicList,
   milestoneCreate,
   milestoneList,
+  sessionSummariesForStory,
+  sessionsForStory,
   storyContextPacketSize,
+  storyDrop,
   storyListForProject,
+  storyResume,
   storyStart,
+  storyStopped,
   storyWriteByHand,
+  type EndingReason,
   type StoryDto,
 } from "../adapters/tauri";
 import { useBoardChangedSubscription } from "./useBoardQuery";
@@ -43,11 +49,13 @@ function errorText(err: unknown): string {
 export interface StoryBoardProps {
   projectId: string;
   projectName: string;
-  /** Called with the new session's id and its Story once Start resolves. */
+  /** Called with the new session's id and its Story once Start or Resume resolves. */
   onStarted: (sessionId: string, storyId: string) => void;
+  /** Called to open a past session's feed from the Story's session list; defaults to `onStarted`. */
+  onOpenSession?: (sessionId: string, storyId: string) => void;
 }
 
-export function StoryBoard({ projectId, projectName, onStarted }: StoryBoardProps) {
+export function StoryBoard({ projectId, projectName, onStarted, onOpenSession }: StoryBoardProps) {
   useBoardChangedSubscription(projectId);
   return (
     <div className="board-shell" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -69,14 +77,22 @@ export function StoryBoard({ projectId, projectName, onStarted }: StoryBoardProp
           color: "var(--text-primary-rack)",
         }}
       >
-        <StoryList projectId={projectId} onStarted={onStarted} />
+        <StoryList projectId={projectId} onStarted={onStarted} onOpenSession={onOpenSession ?? onStarted} />
         <StoryForm projectId={projectId} />
       </div>
     </div>
   );
 }
 
-function StoryList({ projectId, onStarted }: { projectId: string; onStarted: StoryBoardProps["onStarted"] }) {
+function StoryList({
+  projectId,
+  onStarted,
+  onOpenSession,
+}: {
+  projectId: string;
+  onStarted: StoryBoardProps["onStarted"];
+  onOpenSession: StoryBoardProps["onStarted"];
+}) {
   const storiesQuery = useQuery({
     queryKey: ["board", projectId, "stories"],
     queryFn: () => storyListForProject(projectId),
@@ -99,7 +115,7 @@ function StoryList({ projectId, onStarted }: { projectId: string; onStarted: Sto
       )}
       <ul aria-label="Stories" style={{ listStyle: "none", margin: 0, padding: 0 }}>
         {stories.map((story) => (
-          <StoryRow key={story.id} projectId={projectId} story={story} onStarted={onStarted} />
+          <StoryRow key={story.id} projectId={projectId} story={story} onStarted={onStarted} onOpenSession={onOpenSession} />
         ))}
       </ul>
     </section>
@@ -110,15 +126,25 @@ function StoryRow({
   projectId,
   story,
   onStarted,
+  onOpenSession,
 }: {
   projectId: string;
   story: StoryDto;
   onStarted: StoryBoardProps["onStarted"];
+  onOpenSession: StoryBoardProps["onStarted"];
 }) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showTasks, setShowTasks] = useState(false);
+  const [showSessions, setShowSessions] = useState(false);
   const tasks = useStoryTasks(projectId, story.id).data ?? [];
+  // Stopped is attention, worked out by the core from the Story's sessions: only a Running Story can be.
+  const stoppedQuery = useQuery({
+    queryKey: ["board", projectId, "stopped", story.id],
+    queryFn: () => storyStopped(story.id),
+    enabled: story.state === "running",
+  });
+  const stopped = story.state === "running" ? (stoppedQuery.data ?? null) : null;
 
   function handleStart() {
     if (starting) return;
@@ -149,7 +175,13 @@ function StoryRow({
       </span>
       <DoingTask tasks={tasks} storyKey={story.key} />
       {story.state !== "merged" && story.state !== "dropped" && <PacketSize story={story} />}
-      <span className="type-label">{STORY_STATE_WORDS[story.state] ?? story.state}</span>
+      {stopped ? (
+        <span className="type-label" style={{ color: "var(--state-needs-you-text)" }}>
+          {`Stopped: ${endingWords(stopped.endingReason)}`}
+        </span>
+      ) : (
+        <span className="type-label">{STORY_STATE_WORDS[story.state] ?? story.state}</span>
+      )}
       <button
         type="button"
         aria-label={`Tasks of ${story.key}`}
@@ -159,6 +191,19 @@ function StoryRow({
       >
         {`Tasks (${tasks.filter((t) => t.state === "done").length}/${tasks.filter((t) => t.state !== "dropped").length})`}
       </button>
+      {story.state !== "shaping" && story.state !== "ready" && (
+        <button
+          type="button"
+          aria-label={`Sessions of ${story.key}`}
+          aria-expanded={showSessions}
+          onClick={() => setShowSessions((shown) => !shown)}
+          className="control-edge session-action type-body"
+        >
+          Sessions
+        </button>
+      )}
+      {stopped && <ResumeControl story={story} onStarted={onStarted} />}
+      {story.state !== "merged" && story.state !== "dropped" && <DropControl story={story} />}
       {story.state === "ready" && (
         <button
           type="button"
@@ -176,7 +221,268 @@ function StoryRow({
         </p>
       )}
       {showTasks && <TaskChecklist storyKey={story.key} storyId={story.id} tasks={tasks} />}
+      {showSessions && <SessionList projectId={projectId} story={story} onOpenSession={onOpenSession} />}
     </li>
+  );
+}
+
+/** The words for each ending label (docs/mvp-spec.md §4.5); the core writes the same ones in a stub. */
+const ENDING_WORDS: Record<EndingReason, string> = {
+  refusal: "refusal",
+  usage_limit: "usage limit",
+  api_error: "API error",
+  crash: "crash",
+  app_quit: "app quit",
+  stopped_by_developer: "stopped by you",
+  ended_without_hand_off: "ended without hand-off",
+  handed_off: "handed off",
+  unknown: "unknown",
+};
+
+function endingWords(reason: EndingReason | null): string {
+  return reason ? (ENDING_WORDS[reason] ?? reason) : "unknown";
+}
+
+/** An RFC 3339 timestamp as the session list shows it: `2026-10-19 10:00`. */
+function formatWhen(iso: string): string {
+  return iso.replace("T", " ").slice(0, 16);
+}
+
+/**
+ * Resume a Stopped Story (docs/mvp-spec.md §4.5): always the developer's click, with an optional
+ * one-line note. The core starts a fresh session in the same worktree from the Context packet.
+ */
+function ResumeControl({ story, onStarted }: { story: StoryDto; onStarted: StoryBoardProps["onStarted"] }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    const trimmed = note.trim();
+    storyResume(story.id, trimmed === "" ? undefined : trimmed)
+      .then((session) => {
+        setOpen(false);
+        setNote("");
+        onStarted(session.id, story.id);
+      })
+      .catch((err: unknown) => setError(errorText(err)))
+      .finally(() => setBusy(false));
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        aria-label={`Resume ${story.key}`}
+        onClick={() => setOpen(true)}
+        className="control-edge session-action session-action-lead type-body"
+      >
+        Resume
+      </button>
+    );
+  }
+  return (
+    <form
+      onSubmit={handleSubmit}
+      style={{ flexBasis: "100%", display: "flex", flexWrap: "wrap", gap: "var(--space-sm)", alignItems: "flex-end" }}
+    >
+      <label className="type-body" style={{ ...fieldStyle, flex: 1, minWidth: "14em" }}>
+        Resume note (optional, one line)
+        <input
+          aria-label={`Resume note for ${story.key}`}
+          value={note}
+          maxLength={500}
+          onChange={(e) => setNote(e.target.value.replace(/[\r\n]/g, " "))}
+          placeholder="What the next session should know first"
+          className="control-edge session-field type-body"
+        />
+      </label>
+      <button
+        type="submit"
+        aria-label={`Start the new session for ${story.key}`}
+        disabled={busy}
+        className="control-edge session-action session-action-lead type-body"
+      >
+        {busy ? "Resuming…" : "Resume"}
+      </button>
+      <button type="button" onClick={() => setOpen(false)} disabled={busy} className="control-edge session-action type-body">
+        Cancel
+      </button>
+      {error && (
+        <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text-rack)" }}>
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
+/**
+ * Drop (docs/mvp-spec.md §2): the developer ends the Story on purpose. Two steps, because it
+ * removes the worktree and branch with any uncommitted work. The core refuses while a session is
+ * live; its reason is shown as is. `board:changed` refreshes the row.
+ */
+function DropControl({ story }: { story: StoryDto }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function handleDrop() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    storyDrop(story.id)
+      .then(() => setConfirming(false))
+      .catch((err: unknown) => setError(errorText(err)))
+      .finally(() => setBusy(false));
+  }
+
+  if (!confirming) {
+    return (
+      <>
+        <button
+          type="button"
+          aria-label={`Drop ${story.key}`}
+          onClick={() => {
+            setError(null);
+            setConfirming(true);
+          }}
+          className="control-edge session-action type-body"
+        >
+          Drop
+        </button>
+        {error && (
+          <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text-rack)" }}>
+            {error}
+          </p>
+        )}
+      </>
+    );
+  }
+  return (
+    <div
+      role="group"
+      aria-label={`Drop ${story.key}?`}
+      style={{ flexBasis: "100%", display: "flex", flexWrap: "wrap", gap: "var(--space-sm)", alignItems: "center" }}
+    >
+      <span className="type-body" style={{ flex: 1, minWidth: "14em" }}>
+        {`Drop ${story.key}? This removes its worktree and branch, uncommitted work included. The Story's record stays readable.`}
+      </span>
+      <button
+        type="button"
+        aria-label={`Confirm drop of ${story.key}`}
+        onClick={handleDrop}
+        disabled={busy}
+        className="control-edge session-action type-body"
+        style={{ color: "var(--destructive-text-rack)" }}
+      >
+        {busy ? "Dropping…" : "Drop"}
+      </button>
+      <button
+        type="button"
+        aria-label={`Keep ${story.key}`}
+        onClick={() => setConfirming(false)}
+        disabled={busy}
+        className="control-edge session-action type-body"
+      >
+        Keep
+      </button>
+      {error && (
+        <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text-rack)" }}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The Story's sessions, newest first (docs/mvp-spec.md §4.5): ID, start and end, ending reason and
+ * summary. Each opens its feed, which stays readable after the session dies.
+ */
+function SessionList({
+  projectId,
+  story,
+  onOpenSession,
+}: {
+  projectId: string;
+  story: StoryDto;
+  onOpenSession: StoryBoardProps["onStarted"];
+}) {
+  const sessionsQuery = useQuery({
+    queryKey: ["board", projectId, "sessions", story.id],
+    queryFn: () => sessionsForStory(story.id),
+  });
+  const summariesQuery = useQuery({
+    queryKey: ["board", projectId, "session-summaries", story.id],
+    queryFn: () => sessionSummariesForStory(story.id),
+  });
+  const sessions = sessionsQuery.data ?? [];
+  const summaries = summariesQuery.data ?? [];
+
+  return (
+    <div style={{ flexBasis: "100%" }}>
+      {sessionsQuery.isError && (
+        <p className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+          {errorText(sessionsQuery.error)}
+        </p>
+      )}
+      {sessionsQuery.isSuccess && sessions.length === 0 && (
+        <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+          No sessions yet.
+        </p>
+      )}
+      <ul aria-label={`Sessions of ${story.key}`} style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        {sessions.map((session) => {
+          // Summaries arrive oldest first; a session's latest one is the one it left.
+          const summary = summaries.filter((s) => s.sessionId === session.id).pop();
+          return (
+            <li
+              key={session.id}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--space-xs)",
+                padding: "var(--space-xs) 0",
+                borderTop: "1px solid var(--divider)",
+              }}
+            >
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-sm)", alignItems: "center" }}>
+                <span className="type-label" style={{ fontFamily: "ui-monospace, monospace" }}>
+                  {session.id}
+                </span>
+                <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+                  {session.endedAt
+                    ? `${formatWhen(session.startedAt)} to ${formatWhen(session.endedAt)}`
+                    : `since ${formatWhen(session.startedAt)}`}
+                </span>
+                <span className="type-label">{session.endedAt ? endingWords(session.endingReason) : "live"}</span>
+                <button
+                  type="button"
+                  aria-label={`Open feed of session ${session.id}`}
+                  onClick={() => onOpenSession(session.id, story.id)}
+                  className="control-edge session-action type-body"
+                >
+                  Open feed
+                </button>
+              </div>
+              {summary && (
+                <div className="type-body" style={{ whiteSpace: "pre-wrap", color: "var(--text-muted-rack)" }}>
+                  <span className="type-label">{summary.isStub ? "Stub summary" : "Summary"}</span>
+                  {`\n${summary.nextSessionMustKnow}`}
+                  {summary.decisions.trim() !== "" && `\nDecisions: ${summary.decisions}`}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

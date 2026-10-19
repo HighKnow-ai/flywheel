@@ -116,7 +116,7 @@ const REQUEST_SELECT_SQL: &str = "SELECT id, session_id, story_id, project_id, \
 
 const PENDING_FOR_RUN_SQL: &str = "SELECT id, session_id, story_id, project_id, \
     tool_name, input_payload, status, resolved_by, resolved_at, created_at, destructive_category \
-    FROM permission_requests WHERE session_id = ?1 AND status = 'pending' \
+    FROM permission_requests WHERE session_id = ?1 AND status = 'pending' AND expired_at IS NULL \
     ORDER BY created_at DESC LIMIT 1";
 
 /// Look up a single request by id, whatever its status — used by callers (the sidecar relay,
@@ -294,7 +294,7 @@ pub fn answer_request(
     let affected = tx
         .execute(
             "UPDATE permission_requests SET status = ?1, resolved_by = ?2, resolved_at = ?3 \
-             WHERE id = ?4 AND status = 'pending'",
+             WHERE id = ?4 AND status = 'pending' AND expired_at IS NULL",
             params![decision, actor_id, now, request_id],
         )
         .context("failed to answer permission request")?;

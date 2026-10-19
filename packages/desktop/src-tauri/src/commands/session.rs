@@ -387,6 +387,95 @@ pub(crate) fn start_ready_story(
     Ok(outcome)
 }
 
+/// The longest resume note Resume accepts, in characters: one line.
+const MAX_RESUME_NOTE_LEN: usize = 500;
+
+/// Trim the developer's optional resume note and refuse one that is not a single line.
+fn validate_resume_note(note: Option<&str>) -> Result<String, String> {
+    let note = note.unwrap_or("").trim();
+    if note.contains(['\n', '\r']) {
+        return Err("the resume note is one line".to_string());
+    }
+    let chars = note.chars().count();
+    if chars > MAX_RESUME_NOTE_LEN {
+        return Err(format!("the resume note must be at most {MAX_RESUME_NOTE_LEN} characters, got {chars}"));
+    }
+    Ok(note.to_string())
+}
+
+/// The developer's Resume of a Stopped Story (docs/mvp-spec.md §4.5): a fresh session in the
+/// Story's own worktree, started from the Context packet with the optional one-line note in its
+/// section 7. Never `claude --resume`: the old session's conversation is gone on purpose.
+#[tauri::command]
+pub fn story_resume(
+    state: State<AppState>,
+    app: AppHandle,
+    story_id: String,
+    note: Option<String>,
+) -> Result<SessionDto, String> {
+    let note = validate_resume_note(note.as_deref())?;
+    let outcome = resume_stopped_story(
+        &state.db,
+        &story_id,
+        &note,
+        crate::sidecar::merge_shim_env_for_run,
+        |repo_path, request| send_gated_spawn(&state, repo_path, request),
+    )?;
+    let project_id = project_of_locked(&state.db, "stories", &story_id);
+    emit_board_changed(&app, project_id.as_deref(), "session", Some(&outcome.run_id));
+    Ok(SessionDto {
+        id: outcome.run_id,
+        story_id,
+        status: "running".to_string(),
+        permission_mode: SessionKind::Story.launch_policy().permission_mode.to_string(),
+    })
+}
+
+/// [`story_resume`]'s body, driven without a Tauri app handle. The Stopped check and the launch
+/// share one lock, so two Resumes cannot both pass it (the second meets the first's live session).
+/// The Story stays Running throughout: Resume is not a state move.
+pub(crate) fn resume_stopped_story(
+    db: &std::sync::Mutex<Connection>,
+    story_id: &str,
+    note: &str,
+    merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
+    send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
+) -> Result<StartRunOutcome, String> {
+    let note = validate_resume_note(Some(note))?;
+    let mut conn = db.lock().map_err(|e| e.to_string())?;
+    if flywheel_core::query::sessions::stopped_session_for_story(&conn, story_id)
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        return Err("Resume needs a Stopped Story: Running, with no live session".to_string());
+    }
+    let PreparedLaunch { outcome, repo_path, env } =
+        prepare_launch(&mut conn, story_id, SessionKind::Story, &note)?;
+    spawn_prepared_run(db, conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
+        send(&repo_path, request)
+    })?;
+    Ok(outcome)
+}
+
+/// Whether a Story is Stopped (docs/mvp-spec.md §2 "Attention"), and the dead session it shows.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoppedDto {
+    pub session_id: String,
+    /// `sessions.ending_reason`: the best-effort label. `stopped_by_developer` keeps the Story out
+    /// of Needs you.
+    pub ending_reason: Option<String>,
+    pub ended_at: Option<String>,
+}
+
+/// The Story's Stopped attention, or `null` when it is not Stopped. Read-only.
+#[tauri::command]
+pub fn story_stopped(state: State<AppState>, story_id: String) -> Result<Option<StoppedDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let stopped = flywheel_core::query::sessions::stopped_session_for_story(&conn, &story_id).map_err(|e| e.to_string())?;
+    Ok(stopped.map(|s| StoppedDto { session_id: s.session_id, ending_reason: s.ending_reason, ended_at: s.ended_at }))
+}
+
 /// What [`session_stop`] recorded (CR-04, D-35, PROC-06). `status` is read back from
 /// `sessions` after the write, never a hard-coded literal, and `sidecar_warning` is populated
 /// only when the sidecar's interrupt request could not be confirmed — a `None` here means the
@@ -424,13 +513,18 @@ pub(crate) fn stop_session_in_tx(
     flywheel_core::domain::session::interrupt_session_in_tx(tx, session_id, actor_id)
         .map_err(|e| e.to_string())?;
 
-    let status: String = tx
+    let (status, ending): (String, Option<String>) = tx
         .query_row(
-            "SELECT status FROM sessions WHERE id = ?1",
+            "SELECT status, ending_reason FROM sessions WHERE id = ?1",
             rusqlite::params![session_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|e| e.to_string())?;
+    let reason_words = ending
+        .as_deref()
+        .and_then(flywheel_core::domain::session_ending::EndingReason::parse)
+        .map(|r| r.words().to_string())
+        .unwrap_or_else(|| status.clone());
 
     // If the agent already recorded its own summary, leave it exactly as it is — never write a
     // second, synthesized row over an agent-authored one. Only an ABSENT summary triggers the
@@ -440,7 +534,7 @@ pub(crate) fn stop_session_in_tx(
         .map_err(|e| e.to_string())?
         .is_none()
     {
-        flywheel_core::domain::session_summary::synthesize_fallback_summary(tx, session_id, &status)
+        flywheel_core::domain::session_summary::synthesize_fallback_summary(tx, session_id, &reason_words)
             .map_err(|e| e.to_string())?;
     }
 
@@ -1389,6 +1483,8 @@ pub struct RunSummaryDto {
     /// weaker fallback sentence rather than inventing a reason the data does not support).
     /// Populated ONLY for a run whose status is `abandoned` — always `None` otherwise.
     pub abandoned_reason: Option<String>,
+    /// How the session ended (`sessions.ending_reason`, docs/mvp-spec.md §4.5); `null` while live.
+    pub ending_reason: Option<String>,
 }
 
 impl From<flywheel_core::query::sessions::RunRow> for RunSummaryDto {
@@ -1414,6 +1510,7 @@ impl From<flywheel_core::query::sessions::RunRow> for RunSummaryDto {
             external_session_id: run.external_session_id,
             acknowledged_at: run.acknowledged_at,
             abandoned_reason,
+            ending_reason: run.ending_reason,
         }
     }
 }
@@ -2854,6 +2951,75 @@ mod tests {
             assert_eq!(story_state(&db.lock().unwrap(), &story), "ready");
             start_ready_story(&db, &story, "", |_, _| Ok(()), |_, _| Ok(())).expect("Start works again");
             assert_eq!(story_state(&db.lock().unwrap(), &story), "running");
+        });
+    }
+
+    // --- Resume (issue #54): a fresh session in the same worktree, from the Context packet ---------
+
+    /// A Running Story whose one session the developer stopped: Stopped.
+    fn stopped_story() -> (std::sync::Mutex<Connection>, String, StartRunOutcome, tempfile::TempDir) {
+        let (db, story, repo) = ready_story();
+        let first = start_ready_story(&db, &story, "", |_, _| Ok(()), |_, _| Ok(())).unwrap();
+        stop_session_recording_first(&mut db.lock().unwrap(), &first.run_id, || Ok(())).unwrap();
+        (db, story, first, repo)
+    }
+
+    #[test]
+    fn resume_starts_a_fresh_session_in_the_same_worktree_with_the_note_in_its_packet() {
+        with_scratch_dirs(|| {
+            let (db, story, first, _repo) = stopped_story();
+            let mut sent = None;
+            let outcome = resume_stopped_story(&db, &story, " Pick the parser back up ", |_, _| Ok(()), |_repo, request| {
+                sent = Some(request.clone());
+                Ok(())
+            })
+            .expect("a Stopped Story resumes");
+
+            assert_ne!(outcome.run_id, first.run_id, "Resume is a new session, never a continuation");
+            assert_eq!(outcome.worktree_path, first.worktree_path, "in the same worktree");
+            let sent = sent.expect("one spawn request was sent");
+            assert_eq!(sent["worktreePath"], serde_json::Value::String(first.worktree_path.clone()));
+            let prompt = sent["prompt"].as_str().unwrap();
+            assert!(prompt.starts_with("# Context packet:"), "the prompt is the Context packet");
+            assert!(prompt.contains("Resume note: Pick the parser back up"), "the note is in section 7");
+            assert!(prompt.contains("stub: the session ended without handing off"), "the stub is in section 8");
+            assert!(!sent.to_string().contains("--resume"), "never `claude --resume`");
+
+            let conn = db.lock().unwrap();
+            assert_eq!(story_state(&conn, &story), "running");
+            assert!(flywheel_core::query::sessions::stopped_session_for_story(&conn, &story).unwrap().is_none());
+        });
+    }
+
+    #[test]
+    fn resume_refuses_a_story_that_is_not_stopped_or_a_note_longer_than_one_line() {
+        with_scratch_dirs(|| {
+            let (db, story, _repo) = ready_story();
+            let err = resume_stopped_story(&db, &story, "", |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
+                .expect_err("a Ready Story is not Stopped");
+            assert!(err.contains("Stopped"), "{err}");
+
+            let (db, story, _first, _repo) = stopped_story();
+            let err = resume_stopped_story(&db, &story, "one\ntwo", |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
+                .expect_err("the note is one line");
+            assert!(err.contains("one line"), "{err}");
+
+            resume_stopped_story(&db, &story, "", |_, _| Ok(()), |_, _| Ok(())).expect("an empty note is no note");
+            let err = resume_stopped_story(&db, &story, "", |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
+                .expect_err("a live session is not Stopped");
+            assert!(err.contains("Stopped"), "{err}");
+        });
+    }
+
+    #[test]
+    fn a_stop_writes_a_stub_that_names_the_stop_by_its_label() {
+        with_scratch_dirs(|| {
+            let (db, _story, first, _repo) = stopped_story();
+            let conn = db.lock().unwrap();
+            let stub = flywheel_core::domain::session_summary::latest_summary_for_run(&conn, &first.run_id)
+                .unwrap()
+                .expect("a stub");
+            assert!(stub.next_session_must_know.contains("stopped by you"), "{}", stub.next_session_must_know);
         });
     }
 }
