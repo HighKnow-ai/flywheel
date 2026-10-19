@@ -97,7 +97,7 @@ const BOARD_TOOL_DEFINITIONS = [
   {
     name: "task_add",
     description:
-      "Append open Tasks to the end of your Story's checklist. Write your plan this way at the start of your first session. Each change is saved at once. Answers with the whole checklist.",
+      "Append open Tasks to the end of your Story's checklist. If the checklist is empty, write your plan this way after reading the code and docs the Story touches. Each change is saved at once. Answers with the whole checklist.",
     inputSchema: {
       type: "object",
       properties: { titles: { type: "array", items: { type: "string" }, minItems: 1 } },

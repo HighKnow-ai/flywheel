@@ -177,7 +177,7 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
 
 ([What are a Check and a Task checklist, and who keeps them current?](https://github.com/HighKnow-ai/flywheel/issues/23))
 
-- The Story agent writes the checklist as its plan at the start of its first session. Cyril can add, edit, reorder or drop Tasks at any time.
+- In its first session, the Story agent reads the code and docs the Story touches, then writes the checklist as its plan, grounded in what it found. It writes no "survey" or "explore the repo" Task. Cyril can add, edit, reorder or drop Tasks at any time.
 - States: *open*, *doing*, *done*, *dropped* (with a one-line reason). At most one *doing*, which is what the roster shows as "what its agent is doing now".
 - The agent updates Tasks through a board tool. Every change is written immediately, so a dead session keeps its checklist. Flywheel never infers ticks from the diff or the transcript.
 - A flat ordered list, not linked to criteria. Open Tasks at hand-off only warn at review.
