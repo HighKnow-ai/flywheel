@@ -12,7 +12,9 @@
  * separately (elapsed time, token count, dollar cost), so a figure reads the same on every surface.
  */
 
-/** The six values `sessions.status` can hold (the baseline migration; `abandoned` is D-49). */
+/** The six values `sessions.status` can hold (the baseline migration; `abandoned` is D-49). As a fleet
+ * state, `blocked` is derived by the core from a live session holding a pending request, and every
+ * surface words it "Waiting on you" (GLOSSARY.md; "Blocked" is the term to avoid). */
 export type RunStatus = "running" | "blocked" | "completed" | "failed" | "interrupted" | "abandoned";
 
 /** A fleet row's state (D-168): the run status, except a `completed` run whose Story is not yet Done
@@ -21,7 +23,7 @@ export type FleetState = RunStatus | "awaiting_review";
 
 export const RUN_STATUS_LABELS: Record<FleetState, string> = {
   running: "Running",
-  blocked: "Blocked",
+  blocked: "Waiting on you",
   completed: "Completed",
   failed: "Failed",
   interrupted: "Interrupted",

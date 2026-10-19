@@ -135,7 +135,7 @@ describe("BlockedQueue contents", () => {
     expect(labels.indexOf("Deny")).toBeLessThan(labels.findIndex((l) => l?.startsWith("Allow")));
   });
 
-  it("names the project, subject and wait time of each blocked agent", () => {
+  it("names the project, subject and wait time of each waiting request", () => {
     renderQueue([entry(1), entry(2)]);
     const rows = screen.getAllByRole("listitem");
     expect(within(rows[0]).getByText("Project 1")).toBeInTheDocument();
@@ -151,9 +151,21 @@ describe("BlockedQueue contents", () => {
     expect(answerMock).toHaveBeenCalledWith("req-2", "allow");
   });
 
+  it("words each entry Waiting on you, never Blocked", () => {
+    renderQueue([entry(1)]);
+    expect(screen.getByText("Waiting on you")).toBeInTheDocument();
+    expect(screen.queryByText("Blocked")).toBeNull();
+  });
+
+  it("shows one card per waiting request, two for a session holding two (#57)", () => {
+    renderQueue([entry(1), entry(2, { sessionId: "run-1", projectName: "Project 1" })]);
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getAllByRole("group", { name: "Bash wants to:" })).toHaveLength(2);
+  });
+
   it("renders the empty-state copy and no card with no entries", () => {
     renderQueue([]);
-    expect(screen.getByText("No agent is blocked")).toBeInTheDocument();
+    expect(screen.getByText("Nothing is waiting on you")).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /wants to/ })).not.toBeInTheDocument();
   });
 

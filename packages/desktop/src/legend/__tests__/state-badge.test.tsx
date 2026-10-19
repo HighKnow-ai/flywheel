@@ -13,9 +13,9 @@ import { RUN_STATUS_MARK_IDS } from "../runStatus";
 const badge = (container: HTMLElement): HTMLElement => container.firstElementChild as HTMLElement;
 
 describe("StateBadge: glyph, word and the class's ink, all present", () => {
-  it("draws blocked as a glyph, the word Blocked and the needs-you ink", () => {
+  it("draws blocked as a glyph, the words Waiting on you and the needs-you ink", () => {
     const { container } = render(<StateBadge state="blocked" />);
-    expect(screen.getByText("Blocked")).toBeTruthy();
+    expect(screen.getByText("Waiting on you")).toBeTruthy();
     expect(container.querySelector("svg")).not.toBeNull();
     expect(badge(container).style.color).toBe("var(--state-needs-you-text)");
     expect(badge(container).dataset.stateClass).toBe("needs-you");
@@ -109,8 +109,8 @@ describe("StateBadge: a state the vocabulary does not know", () => {
 describe("StateBadge: colour is never the only channel", () => {
   it("keeps an accessible name carrying the word when the label is not drawn", () => {
     const { container } = render(<StateBadge state="blocked" hideLabel />);
-    expect(screen.getByRole("img", { name: "Blocked" })).toBeTruthy();
-    expect(screen.getByLabelText("Blocked")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Waiting on you" })).toBeTruthy();
+    expect(screen.getByLabelText("Waiting on you")).toBeTruthy();
     expect(container.querySelector("svg")).not.toBeNull();
   });
 

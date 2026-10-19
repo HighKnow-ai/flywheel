@@ -1,7 +1,9 @@
 /**
- * The blocked queue (Phase 10 plan 10-05, FLEET-02, D-172, D-173): every agent currently sitting at a
- * pending permission request, across every registered project, answered in place. It holds LIVE blocks
- * only; an abandoned run and an awaiting-review run stay on the fleet view and in their own rail rows.
+ * The Waiting on you queue (Phase 10 plan 10-05, FLEET-02, D-172, D-173; #57): every Gated action and
+ * permission request a live session holds, across every registered project, one entry per request,
+ * answered in place. The core derives it from the pending requests themselves, never from a stored
+ * session status. An abandoned run and an awaiting-review run stay on the fleet view and in their own
+ * rail rows. A request waits here until it is answered: nothing times it out or denies it.
  *
  * Each entry is the THIRD mount of `PermissionRequestCard` (after the session feed and the item detail
  * panel), reading and writing the same `permission_requests` row through the unchanged
@@ -24,7 +26,7 @@ import { formatAge } from "../legend/runStatus";
 import { PermissionRequestCard, type PermissionDecision } from "../session/PermissionRequestCard";
 import { blockedQueueQueryKey, fleetQueryKey } from "./useFleet";
 
-/** What the blocked run is about: its Story's key and title. */
+/** What the waiting session is about: its Story's key and title. */
 function subjectText(entry: BlockedQueueEntryDto): { key: string; detail: string | null } {
   return { key: entry.storyKey, detail: entry.storyTitle || null };
 }
@@ -55,22 +57,22 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
   if (entries.length === 0) {
     return (
       <div style={{ padding: "var(--space-lg)", display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
-        <span className="type-heading">No agent is blocked</span>
+        <span className="type-heading">Nothing is waiting on you</span>
         <span className="type-body" style={{ color: "var(--text-muted-rack)" }}>
-          When an agent in any project stops to ask for your permission, it appears here.
+          When an agent in any project stops to ask for your answer, its request appears here.
         </span>
       </div>
     );
   }
 
   return (
-    <div role="list" aria-label="Blocked agents" style={{ display: "flex", flexDirection: "column" }}>
+    <div role="list" aria-label="Requests waiting on you" style={{ display: "flex", flexDirection: "column" }}>
       {entries.map((entry, index) => {
         const owner = index === 0;
         const subject = subjectText(entry);
         return (
           <div
-            key={entry.sessionId}
+            key={entry.requestId}
             role="listitem"
             data-run-id={entry.sessionId}
             data-keyboard-owner={owner ? "true" : undefined}
@@ -84,7 +86,7 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
             }}
           >
             <div className="type-label" style={{ display: "flex", gap: "var(--space-sm)", alignItems: "baseline", minWidth: 0 }}>
-              <span style={{ color: "var(--blocked-text-rack)", fontWeight: 600 }}>Blocked</span>
+              <span style={{ color: "var(--blocked-text-rack)", fontWeight: 600 }}>Waiting on you</span>
               <span data-field="project">{entry.projectName}</span>
               <span className="tabular-nums" data-field="subject">
                 {subject.key}

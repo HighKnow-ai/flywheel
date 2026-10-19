@@ -373,9 +373,9 @@ export const MARKS: Mark[] = [
     id: "blocked-indicator",
     channel: "agent",
     glyph: "ShieldAlert",
-    label: "Blocked",
+    label: "Waiting on you",
     meaning:
-      "An agent is waiting on a permission answer from you. On a run it is the run's status; on a task row it is a pill layered over the task's workflow status, which stays visible: a blocked task is still at its real status, not a sixth state.",
+      "A live agent can't go on until you answer its Gated action or permission request. On a run it replaces the run's status; on a Story row it replaces the state word, tinted. It is worked out from the session, never stored: the Story is still at its real state.",
   },
   {
     id: "worktree-missing",

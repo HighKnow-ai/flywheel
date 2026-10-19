@@ -12,6 +12,7 @@
 import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  blockedSummary,
   epicCreate,
   epicList,
   milestoneCreate,
@@ -30,6 +31,7 @@ import {
 } from "../adapters/tauri";
 import { useBoardChangedSubscription } from "./useBoardQuery";
 import { DoingTask, TaskChecklist, useStoryTasks } from "./TaskChecklist";
+import { StateBadge } from "../legend/StateBadge";
 import "../session/session.css";
 
 /** The words for each Story state (GLOSSARY.md "Story state"). */
@@ -98,6 +100,13 @@ function StoryList({
     queryFn: () => storyListForProject(projectId),
   });
   const stories = storiesQuery.data ?? [];
+  // Waiting on you (docs/mvp-spec.md §2 "Attention"): derived by the core from a live session's
+  // pending request, never a stored state. Keyed under the project so `board:changed` keeps it live.
+  const waitingQuery = useQuery({
+    queryKey: ["board", projectId, "waiting-on-you"],
+    queryFn: () => blockedSummary(projectId),
+  });
+  const waitingIds = new Set(waitingQuery.data?.blockedStoryIds ?? []);
   return (
     <section aria-labelledby="story-list-heading">
       <h2 id="story-list-heading" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
@@ -115,7 +124,14 @@ function StoryList({
       )}
       <ul aria-label="Stories" style={{ listStyle: "none", margin: 0, padding: 0 }}>
         {stories.map((story) => (
-          <StoryRow key={story.id} projectId={projectId} story={story} onStarted={onStarted} onOpenSession={onOpenSession} />
+          <StoryRow
+            key={story.id}
+            projectId={projectId}
+            story={story}
+            waitingOnYou={waitingIds.has(story.id)}
+            onStarted={onStarted}
+            onOpenSession={onOpenSession}
+          />
         ))}
       </ul>
     </section>
@@ -125,11 +141,14 @@ function StoryList({
 function StoryRow({
   projectId,
   story,
+  waitingOnYou,
   onStarted,
   onOpenSession,
 }: {
   projectId: string;
   story: StoryDto;
+  /** A live session of this Story holds a Gated action or permission request. */
+  waitingOnYou: boolean;
   onStarted: StoryBoardProps["onStarted"];
   onOpenSession: StoryBoardProps["onStarted"];
 }) {
@@ -176,9 +195,13 @@ function StoryRow({
       <DoingTask tasks={tasks} storyKey={story.key} />
       {story.state !== "merged" && story.state !== "dropped" && <PacketSize story={story} />}
       {stopped ? (
+        // A Stopped Story has no live session, so it is never Waiting on you (the core agrees).
         <span className="type-label" style={{ color: "var(--state-needs-you-text)" }}>
           {`Stopped: ${endingWords(stopped.endingReason)}`}
         </span>
+      ) : waitingOnYou ? (
+        // The attention flag replaces the state word, tinted, and outranks every other status.
+        <StateBadge state="blocked" variant="wash" />
       ) : (
         <span className="type-label">{STORY_STATE_WORDS[story.state] ?? story.state}</span>
       )}

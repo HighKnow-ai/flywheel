@@ -15,9 +15,10 @@
  * 10-08): it opens the cross-project worktree inventory. It carries no count of its own, because a
  * count of the current project's worktrees beside a view of every project's would disagree with it;
  * the inventory's header holds the total.
- * REVIEW QUEUE holds the two rows that wait on the owner, and both are entry points (plan 10-05):
- * "Blocked" opens the blocked queue, and "Needs decision" opens the fleet list, where the NEEDS YOU
- * band is its first section.
+ * WAITING ON YOU (#57, docs/mvp-spec.md §4.1) sits at the very top, above PROJECTS: the count of
+ * Gated actions and permission requests waiting on the owner across every project, opening the
+ * queue of them. REVIEW QUEUE holds "Needs decision", which opens the fleet list, where the NEEDS
+ * YOU band is its first section; it shows only when something needs a decision.
  *
  * "Challenges" is also deliberately absent: pending items of that kind never surface in this rail
  * (D-46/D-82, pinned by `project-rail.test.tsx`'s source scan), so that comp row is not built.
@@ -41,13 +42,12 @@
  * The `+` affordance at the rail's foot opens the SAME registration flow ⌘⇧O and the native File
  * menu use (`RegisterProjectFlow.tsx`) — never a second, rail-local copy of that sequence.
  *
- * Plan 02-06 Task 3 added a blocked-count badge (D-37, AGNT-06); plan 10-05 (FLEET-02) makes it
- * FLEET-WIDE: it is the length of the blocked queue's own read, across every registered project, not the
- * current project's share. Renders a numeral, never a raw dot, and renders no figure at all at zero
- * (never a visible "0").
+ * The waiting count is FLEET-WIDE: the length of the queue's own read (one entry per waiting request),
+ * across every registered project, not the current project's share. Renders a numeral, never a raw
+ * dot, and renders no figure at all at zero (never a visible "0").
  *
  * Plan 03-11 Task 3 added a SECOND, visually distinct figure for D-46's "recovery needed" count —
- * never summed with the blocked count, since the two carry different urgency (Blocked: a live agent is
+ * never summed with the waiting count, since the two carry different urgency (Waiting on you: a live agent is
  * waiting on the user right now; Needs Decision: a past session left something to decide, with no live
  * spend attached). That one remains the CURRENT project's count.
  */
@@ -155,7 +155,9 @@ function RunningSessions({ projectName, sessions }: { projectName: string; sessi
       {sessions.map((session) => {
         const doing = session.doingTaskTitle;
         const subject = `${session.storyKey} ${session.storyTitle}`.trim();
-        const blocked = session.runStatus === "blocked";
+        // The core's derived fleet state, never the stored status: a session is waiting on you only
+        // while it holds a pending request (#57).
+        const waiting = session.fleetState === "blocked";
         return (
           <li key={session.sessionId}>
             <button
@@ -180,7 +182,7 @@ function RunningSessions({ projectName, sessions }: { projectName: string; sessi
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
                 {doing ?? session.storyTitle}
               </span>
-              {blocked && (
+              {waiting && (
                 // The word, never colour alone.
                 <span style={{ flexShrink: 0, color: "var(--blocked-text-rack)", fontWeight: 600 }}>
                   {RUN_STATUS_LABELS.blocked}
@@ -238,10 +240,10 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   // `isError`/`error` entirely (CR-02) — reuses the same transient-notice slot below rather than
   // a second one, and `FirstRun.tsx`'s own error copy/styling rather than a third idiom.
   const registrationErrorNotice = useRegistrationErrorNotice(registerIsError, registerError);
-  // The fleet-wide blocked count (FLEET-02): the queue's own read, so the figure and the list cannot
-  // disagree. Called unconditionally, above the early return below, so this hook's call order never
-  // changes between renders (Rules of Hooks).
-  const blockedCount = useBlockedQueue().data?.length ?? 0;
+  // The count of requests waiting on you across every project (#57): the queue's own read, one entry
+  // per waiting request, so the figure and the list cannot disagree. Called unconditionally, above
+  // the early return below, so this hook's call order never changes between renders (Rules of Hooks).
+  const waitingCount = useBlockedQueue().data?.length ?? 0;
   // D-46's board-visible "recovery needed" count (plan 03-11 Task 3) — called unconditionally,
   // immediately after the blocked-count call above, for the same reason. A SEPARATE figure from
   // blockedCount, never summed into it: Blocked means a live agent is waiting on the user right
@@ -299,6 +301,33 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
           margin: "0 var(--space-sm)",
         }}
       />
+      <Section id="rail-waiting" label="Waiting on you">
+        {/* At the top of the sidebar (docs/mvp-spec.md §4.1): what a live agent can't go on without,
+            across every project, outranks everything below it. */}
+        <button
+          type="button"
+          className="type-body"
+          aria-label={waitingCount > 0 ? `Open Waiting on you, ${waitingCount} waiting` : "Open Waiting on you"}
+          title="Every Gated action and permission request waiting on you, across every project"
+          onClick={() => setFleetSurface({ view: "queue" })}
+          style={{ ...entryStyle, color: waitingCount > 0 ? "var(--text-primary-rack)" : "var(--text-muted-rack)" }}
+        >
+          <span>{waitingCount > 0 ? "Requests" : "Nothing waiting"}</span>
+          {waitingCount > 0 && (
+            // A numeral, never a raw dot (D-37) — absent entirely at zero, never a visible "0". The
+            // needs-you role is a data channel (D-11), so the figure takes the colour, not a fill.
+            <span
+              data-count="waiting"
+              title={waitingCount === 1 ? "1 request waiting on you" : `${waitingCount} requests waiting on you`}
+              className="type-label tabular-nums"
+              style={{ color: "var(--blocked-text-rack)", fontWeight: 600 }}
+            >
+              {waitingCount}
+            </span>
+          )}
+        </button>
+      </Section>
+
       <Section id="rail-projects" label="Projects">
         {projects.map((project) => {
           const isCurrent = project.id === currentProjectId;
@@ -428,33 +457,11 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
         </button>
       </Section>
 
-      <Section id="rail-review-queue" label="Review queue">
-        <button
-          type="button"
-          className="type-body"
-          aria-label={blockedCount > 0 ? `Open blocked queue, ${blockedCount} waiting` : "Open blocked queue"}
-          title="Open the blocked queue"
-          onClick={() => setFleetSurface({ view: "queue" })}
-          style={{ ...entryStyle, color: blockedCount > 0 ? "var(--text-primary-rack)" : "var(--text-muted-rack)" }}
-        >
-          <span>Blocked</span>
-          {blockedCount > 0 && (
-            // A numeral, never a raw dot (D-37) — absent entirely at zero, never a visible "0". The
-            // blocked role is a data channel (D-11), so the figure takes the colour, not a fill.
-            <span
-              data-count="blocked"
-              title={blockedCount === 1 ? "1 agent waiting on you" : `${blockedCount} agents waiting on you`}
-              className="type-label tabular-nums"
-              style={{ color: "var(--blocked-text-rack)", fontWeight: 600 }}
-            >
-              {blockedCount}
-            </span>
-          )}
-        </button>
-        {recoveryCount > 0 && (
-          // Never merged with the blocked count (D-46): different urgency, so a different row and a
-          // different data-channel role. It opens the fleet list, not the queue: the queue holds live
-          // blocks only.
+      {recoveryCount > 0 && (
+        <Section id="rail-review-queue" label="Review queue">
+          {/* Never merged with the waiting count (D-46): different urgency, so a different row and a
+              different data-channel role. It opens the fleet list, not the queue: the queue holds
+              requests waiting on you only. */}
           <button
             type="button"
             className="type-body"
@@ -474,8 +481,8 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
               {recoveryCount}
             </span>
           </button>
-        )}
-      </Section>
+        </Section>
+      )}
 
       {notice && (
         <div
