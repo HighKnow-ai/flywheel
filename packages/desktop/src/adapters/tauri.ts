@@ -293,7 +293,7 @@ export async function checkRemove(criterionId: string): Promise<void> {
   await invokeCommand<void>("check_remove", { criterionId });
 }
 
-/** One Task on a Story's checklist — mirrors `commands/Story.rs`'s `TaskDto`. */
+/** One Task on a Story's checklist — mirrors `commands/task.rs`'s `TaskDto`. */
 export interface TaskDto {
   id: string;
   storyId: string;
@@ -317,6 +317,16 @@ export async function taskList(storyId: string): Promise<TaskDto[]> {
 /** Move a Task to `open`, `doing`, `done` or `dropped` (a drop needs its one-line reason). */
 export async function taskSetState(taskId: string, to: string, droppedReason?: string | null): Promise<void> {
   await invokeCommand<void>("task_set_state", { taskId, to, droppedReason: droppedReason ?? null });
+}
+
+/** Give a Task a new title. */
+export async function taskRename(taskId: string, title: string): Promise<void> {
+  await invokeCommand<void>("task_rename", { taskId, title });
+}
+
+/** Move a Task just before `beforeTaskId` in its Story's checklist, or to the end when that is null. */
+export async function taskMove(taskId: string, beforeTaskId: string | null): Promise<void> {
+  await invokeCommand<void>("task_move", { taskId, beforeTaskId });
 }
 
 /** A Proposal an agent filed — mirrors `commands/proposal.rs`'s `ProposalDto`. */

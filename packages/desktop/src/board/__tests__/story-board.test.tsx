@@ -30,6 +30,7 @@ vi.mock("../../adapters/tauri", async () => {
     storyListForProject: (...args: unknown[]) => storyListForProject(...args),
     storyWriteByHand: (...args: unknown[]) => storyWriteByHand(...args),
     storyStart: (...args: unknown[]) => storyStart(...args),
+    taskList: () => Promise.resolve([]),
     subscribeBoardChanged: (handler: (payload: { projectId: string }) => void) => {
       boardChanged = handler;
       return Promise.resolve(() => {});

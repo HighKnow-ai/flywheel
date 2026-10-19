@@ -1,6 +1,6 @@
 /**
  * The bare board for Milestone 2 (issue #50): a plain live list of the project's Stories with
- * their state and a Start control, and a form that writes a Milestone, an Epic and a Story with
+ * their state, a Start control, the *doing* Task and the Task checklist (issue #52), and a form that writes a Milestone, an Epic and a Story with
  * its Acceptance criteria and optional Checks. Scaffolding: shaping replaces the form's role in
  * Milestone 3, and the board surface replaces the list.
  *
@@ -22,6 +22,7 @@ import {
   type StoryDto,
 } from "../adapters/tauri";
 import { useBoardChangedSubscription } from "./useBoardQuery";
+import { DoingTask, TaskChecklist, useStoryTasks } from "./TaskChecklist";
 import "../session/session.css";
 
 /** The words for each Story state (GLOSSARY.md "Story state"). */
@@ -97,16 +98,26 @@ function StoryList({ projectId, onStarted }: { projectId: string; onStarted: Sto
       )}
       <ul aria-label="Stories" style={{ listStyle: "none", margin: 0, padding: 0 }}>
         {stories.map((story) => (
-          <StoryRow key={story.id} story={story} onStarted={onStarted} />
+          <StoryRow key={story.id} projectId={projectId} story={story} onStarted={onStarted} />
         ))}
       </ul>
     </section>
   );
 }
 
-function StoryRow({ story, onStarted }: { story: StoryDto; onStarted: StoryBoardProps["onStarted"] }) {
+function StoryRow({
+  projectId,
+  story,
+  onStarted,
+}: {
+  projectId: string;
+  story: StoryDto;
+  onStarted: StoryBoardProps["onStarted"];
+}) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showTasks, setShowTasks] = useState(false);
+  const tasks = useStoryTasks(projectId, story.id).data ?? [];
 
   function handleStart() {
     if (starting) return;
@@ -135,7 +146,17 @@ function StoryRow({ story, onStarted }: { story: StoryDto; onStarted: StoryBoard
       <span className="type-body" style={{ flex: 1, minWidth: 0 }}>
         {story.title}
       </span>
+      <DoingTask tasks={tasks} storyKey={story.key} />
       <span className="type-label">{STORY_STATE_WORDS[story.state] ?? story.state}</span>
+      <button
+        type="button"
+        aria-label={`Tasks of ${story.key}`}
+        aria-expanded={showTasks}
+        onClick={() => setShowTasks((shown) => !shown)}
+        className="control-edge session-action type-body"
+      >
+        {`Tasks (${tasks.filter((t) => t.state === "done").length}/${tasks.filter((t) => t.state !== "dropped").length})`}
+      </button>
       {story.state === "ready" && (
         <button
           type="button"
@@ -152,6 +173,7 @@ function StoryRow({ story, onStarted }: { story: StoryDto; onStarted: StoryBoard
           {error}
         </p>
       )}
+      {showTasks && <TaskChecklist storyKey={story.key} storyId={story.id} tasks={tasks} />}
     </li>
   );
 }
