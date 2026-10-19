@@ -89,7 +89,13 @@ fn patterns_that_could_match_a_gated_action_are_recognised() {
         "xargs:*",
         "sudo:*",
         "env:*",
-        "npx:*",
+        "env FOO=1 git:*",
+        "timeout 60 git push:*",
+        "timeout -s KILL 60 git push --force",
+        "nice -n 5 rm -rf:*",
+        "nohup git:*",
+        "time git reset --hard",
+        "timeout 60:*",
         "echo 'unclosed:*",
     ] {
         assert!(covers_gated_action("Bash", pattern, Some("main")), "{pattern:?} must be refused");
@@ -98,7 +104,22 @@ fn patterns_that_could_match_a_gated_action_are_recognised() {
 
 #[test]
 fn ordinary_patterns_do_not_cover_a_gated_action() {
-    for pattern in ["npm test:*", "cargo test:*", "cargo build", "git status", "git log:*", "ls:*", "rm notes.txt"] {
+    for pattern in [
+        "npm test:*",
+        "cargo test:*",
+        "cargo build",
+        "git status",
+        "git log:*",
+        "ls:*",
+        "rm notes.txt",
+        "npx vitest:*",
+        "node scripts/x.mjs:*",
+        "python -m pytest:*",
+        "timeout 60 cargo test:*",
+        "time cargo build",
+        "nice -n 10 npm test:*",
+        "env",
+    ] {
         assert!(!covers_gated_action("Bash", pattern, Some("main")), "{pattern:?} must be allowed");
     }
     assert!(!covers_gated_action("WebFetch", "*", Some("main")), "only shell calls can be Gated");
@@ -133,7 +154,7 @@ fn a_whole_tool_rule_on_a_non_shell_tool_allows_every_call_of_that_tool() {
 #[test]
 fn the_backend_refuses_to_store_a_rule_that_could_match_a_gated_action() {
     let (mut conn, actor_id, project) = common::seeded_project();
-    for pattern in ["*", "git push:*", "git:*", "rm -rf:*", "bash:*"] {
+    for pattern in ["*", "git push:*", "git:*", "rm -rf:*", "bash -c:*", "sh:*", "xargs:*", "timeout 60 git push:*"] {
         let err = upsert_rule(&mut conn, &project.id, "Bash", pattern, &actor_id)
             .expect_err("a rule covering a Gated action must be refused");
         assert!(err.downcast_ref::<GatedRuleRefused>().is_some(), "{pattern:?}: {err}");
@@ -145,6 +166,20 @@ fn the_backend_refuses_to_store_a_rule_that_could_match_a_gated_action() {
         .query_row("SELECT COUNT(*) FROM events WHERE event_type = 'permission_rule.granted'", [], |r| r.get(0))
         .unwrap();
     assert_eq!(events, 0, "a refused rule appends no event");
+}
+
+#[test]
+fn the_backend_stores_rules_on_interpreters_and_prefix_wrappers() {
+    let (mut conn, actor_id, project) = common::seeded_project();
+    for pattern in ["npx vitest:*", "node scripts/x.mjs:*", "python -m pytest:*", "timeout 60 cargo test:*"] {
+        upsert_rule(&mut conn, &project.id, "Bash", pattern, &actor_id)
+            .unwrap_or_else(|e| panic!("{pattern:?} must be stored: {e}"));
+    }
+    assert!(matching_rule(&conn, &project.id, "Bash", &bash("timeout 60 cargo test -p core")).unwrap().is_some());
+    assert!(
+        matching_rule(&conn, &project.id, "Bash", &bash("timeout 60 git push")).unwrap().is_none(),
+        "a wrapped Gated action is still asked"
+    );
 }
 
 #[test]

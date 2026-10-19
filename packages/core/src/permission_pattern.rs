@@ -24,13 +24,19 @@ const SHELL_TOOL: &str = "Bash";
 /// one, so `Bash(npm test:*)` cannot be stretched to `npm test && git push`.
 const SHELL_OPERATORS: &[char] = &[';', '&', '|', '`', '\n', '\r', '>', '<', '$', '(', ')'];
 
-/// Programs that run another program from their arguments. A rule on one of them could reach any
-/// command, Gated actions included, so the classifier cannot vouch for it.
+/// Programs whose arguments are themselves a shell command line. A rule on one of them could reach
+/// any command, Gated actions included, so the classifier cannot vouch for it. `env` joins them
+/// only when it runs a program. Interpreters and tools such as `npx`, `node` or `python` are
+/// ordinary programs here: a Gated action they run from inside still meets the classifier at
+/// execution, through the shim.
 const COMMAND_RUNNERS: &[&str] = &[
-    "sh", "bash", "zsh", "dash", "fish", "ksh", "env", "sudo", "doas", "su", "xargs", "eval",
-    "exec", "command", "builtin", "nohup", "time", "nice", "timeout", "watch", "find", "parallel",
-    "npx", "pnpx", "bunx", "python", "python3", "node", "perl", "ruby", "deno", "bun",
+    "sh", "bash", "zsh", "dash", "fish", "ksh", "eval", "exec", "sudo", "doas", "su", "xargs",
+    "command", "builtin", "parallel",
 ];
+
+/// Wrappers that only prefix another command (`timeout 60 cargo test`). They are stripped and the
+/// rest is classified, so `timeout 60 git push` is still Gated.
+const PREFIX_WRAPPERS: &[&str] = &["time", "timeout", "nice", "nohup"];
 
 /// Argument tails appended to a prefix pattern to probe what it could reach. They are probes, not
 /// the Gated list: the classifier alone decides whether each completed command is Gated. Each tail
@@ -199,18 +205,60 @@ pub fn call_is_gated(tool: &str, input: &serde_json::Value, default_branch: Opti
         })
 }
 
-/// The single call into the classifier. Leading `NAME=value` assignments are skipped, a path is
-/// reduced to its program name, and a command runner counts as Gated because what it runs is
-/// unknowable from its own words.
+/// The single call into the classifier. Leading `NAME=value` assignments and prefix wrappers are
+/// skipped, a path is reduced to its program name, and a command runner counts as Gated because
+/// what it runs is unknowable from its own words. Words with no program left (`timeout 60`) count
+/// as Gated, since a prefix rule on them could reach anything.
 fn words_are_gated(words: &[String], default_branch: Option<&str>) -> bool {
-    let mut rest = words.iter().skip_while(|w| is_assignment(w));
-    let Some(program) = rest.next() else { return true };
-    let program = program.rsplit('/').next().unwrap_or(program);
+    let mut rest: &[String] = words;
+    loop {
+        while rest.first().is_some_and(|w| is_assignment(w)) {
+            rest = &rest[1..];
+        }
+        let Some(first) = rest.first() else { return true };
+        let program = program_name(first);
+        if !PREFIX_WRAPPERS.contains(&program) {
+            break;
+        }
+        rest = strip_wrapper(program, &rest[1..]);
+    }
+    let program = program_name(&rest[0]);
+    let args = &rest[1..];
     if COMMAND_RUNNERS.contains(&program) {
         return true;
     }
-    let args: Vec<String> = rest.cloned().collect();
-    classify(program, &args, default_branch) != Verdict::Safe
+    if program == "env" && args.iter().any(|a| !a.starts_with('-') && !is_assignment(a)) {
+        return true;
+    }
+    classify(program, args, default_branch) != Verdict::Safe
+}
+
+fn program_name(word: &str) -> &str {
+    word.rsplit('/').next().unwrap_or(word)
+}
+
+/// The words after a prefix wrapper's own flags and operands.
+fn strip_wrapper<'a>(wrapper: &str, mut args: &'a [String]) -> &'a [String] {
+    let takes_value: &[&str] = match wrapper {
+        "timeout" => &["-s", "--signal", "-k", "--kill-after"],
+        "nice" => &["-n", "--adjustment"],
+        _ => &[],
+    };
+    while let Some(arg) = args.first() {
+        if arg == "--" {
+            args = &args[1..];
+            break;
+        }
+        if !arg.starts_with('-') {
+            break;
+        }
+        let skip = if takes_value.contains(&arg.as_str()) { 2 } else { 1 };
+        args = &args[skip.min(args.len())..];
+    }
+    if wrapper == "timeout" && !args.is_empty() {
+        args = &args[1..]; // the duration
+    }
+    args
 }
 
 fn bash_command<'a>(tool: &str, input: &'a serde_json::Value) -> Option<&'a str> {
