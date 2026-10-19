@@ -181,6 +181,35 @@ export async function storyCreate(epicId: string, title: string): Promise<StoryD
   return invokeCommand<StoryDto>("story_create", { epicId, title });
 }
 
+/** One criterion of a hand-written Story; a blank or missing `checkCommand` is judged at review. */
+export interface CriterionInput {
+  statement: string;
+  checkCommand?: string | null;
+}
+
+/**
+ * Write a Story by hand inside `epicId` with its criteria and optional Checks, straight into Ready
+ * (Milestone 2's stand-in for shaping). One transaction: a refusal writes nothing.
+ */
+export async function storyWriteByHand(
+  epicId: string,
+  title: string,
+  description: string | null,
+  criteria: CriterionInput[],
+): Promise<StoryDto> {
+  return invokeCommand<StoryDto>("story_write_by_hand", {
+    epicId,
+    title,
+    description,
+    criteria: criteria.map((c) => ({ statement: c.statement, checkCommand: c.checkCommand ?? null })),
+  });
+}
+
+/** Every Story of a project, in Roadmap order. Read-only. */
+export async function storyListForProject(projectId: string): Promise<StoryDto[]> {
+  return invokeCommand<StoryDto[]>("story_list_for_project", { projectId });
+}
+
 /** Every Story of an Epic, in execution order. Read-only. */
 export async function storyList(epicId: string): Promise<StoryDto[]> {
   return invokeCommand<StoryDto[]>("story_list", { epicId });
@@ -367,6 +396,14 @@ export async function startSession(
   instruction?: string,
 ): Promise<SessionDto> {
   return invokeCommand<SessionDto>("session_start", { storyId, permissionMode, instruction });
+}
+
+/**
+ * The developer's Start: a Ready Story gets its worktree, branch and session, then moves to
+ * Running. The core refuses a Story that is not Ready.
+ */
+export async function storyStart(storyId: string, instruction?: string): Promise<SessionDto> {
+  return invokeCommand<SessionDto>("story_start", { storyId, instruction: instruction ?? null });
 }
 
 /**

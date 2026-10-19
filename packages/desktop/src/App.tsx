@@ -3,7 +3,8 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./adapters/queryClient";
 import { subscribeMenuAction } from "./adapters/tauri";
 import { FirstRun } from "./board/FirstRun";
-import { useBoardChangedSubscription, useProjects } from "./board/useBoardQuery";
+import { StoryBoard } from "./board/StoryBoard";
+import { useProjects } from "./board/useBoardQuery";
 import { useWatchedRun } from "./fleet/useWatchedRun";
 import { LaunchSheet } from "./launch-sheet/LaunchSheet";
 import { ProjectRail } from "./projects/ProjectRail";
@@ -27,25 +28,6 @@ import "./styles/tokens.css";
 import "./styles/type.css";
 import "./styles/motion.css";
 import "./App.css";
-
-/**
- * The project's content area while no board exists: the board UI was deleted by the MVP's delete
- * pass (issue #38) and a later Story rebuilds it. It keeps the one `board:changed` subscription so
- * the readers that survive (the rail's counts, the fleet) still refresh.
- */
-function EmptyBoard({ projectId, projectName }: { projectId: string; projectName: string }) {
-  useBoardChangedSubscription(projectId);
-  return (
-    <div className="board-shell" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <header
-        className="board-header type-heading"
-        style={{ padding: "var(--space-md)", color: "var(--text-primary-rack)" }}
-      >
-        {projectName}
-      </header>
-    </div>
-  );
-}
 
 function AppShell() {
   const projectsQuery = useProjects();
@@ -225,7 +207,15 @@ function AppShell() {
       case "project-unreachable":
         return <ProjectUnreachable project={project} />;
       case "board":
-        return <EmptyBoard projectId={project.id} projectName={project.name} />;
+        // The bare board (issue #50): the Story list with Start, and the hand-written Story form.
+        // Start opens the new session's surface, the same push the launch sheet makes.
+        return (
+          <StoryBoard
+            projectId={project.id}
+            projectName={project.name}
+            onStarted={(sessionId, storyId) => setActiveSessionId(sessionId, storyId)}
+          />
+        );
       default: {
         // A `UiSurface` variant without an arm above is a compile error here, not a silent blank.
         const unhandled: never = surface;

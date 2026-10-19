@@ -19,8 +19,8 @@
 //! `session_closed` event is handled by this Tauri-facing half, which calls straight through to the
 //! DB-only `flywheel_core::domain::session::apply_session_closed`.
 //!
-//! The Rust and IPC names keep the `session` spelling of the session plumbing this module was
-//! kept from; every session belongs to one Story.
+//! `story_start` is the developer's Start: a Ready Story gets its worktree, branch and session,
+//! then moves to Running. Every session belongs to one Story.
 
 use std::io::{BufRead, BufReader};
 
@@ -104,6 +104,7 @@ pub struct SessionDto {
 /// What [`start_session_recording_first`] produced — the DB-only half of a start's outcome,
 /// everything [`session_start`] needs to finish the Tauri- and process-facing half (merge the shim
 /// env, send the spawn request, emit `board:changed`) without touching the database again.
+#[derive(Debug)]
 pub(crate) struct StartRunOutcome {
     pub run_id: String,
     pub worktree_path: String,
@@ -309,6 +310,73 @@ pub(crate) fn launch_run_for_story(
         status: "running".to_string(),
         permission_mode: permission_mode.to_string(),
     })
+}
+
+/// The permission mode a Story started from the board runs in (ADR 0001): Flywheel picks it.
+const STORY_START_PERMISSION_MODE: &str = "acceptEdits";
+
+/// The developer's Start (docs/mvp-spec.md §2, Ready → Running): refuse unless the Story is
+/// Ready, create its worktree and branch and launch a session there, then move it to Running.
+#[tauri::command]
+pub fn story_start(
+    state: State<AppState>,
+    app: AppHandle,
+    story_id: String,
+    instruction: Option<String>,
+) -> Result<SessionDto, String> {
+    let instruction = validate_instruction(instruction.as_deref())?;
+    let outcome = start_ready_story(
+        &state.db,
+        &story_id,
+        &instruction,
+        crate::sidecar::merge_shim_env_for_run,
+        |repo_path, request| send_gated_spawn(&state, repo_path, request),
+    )?;
+    let project_id = project_of_locked(&state.db, "stories", &story_id);
+    emit_board_changed(&app, project_id.as_deref(), "session", Some(&outcome.run_id));
+    Ok(SessionDto {
+        id: outcome.run_id,
+        story_id,
+        status: "running".to_string(),
+        permission_mode: STORY_START_PERMISSION_MODE.to_string(),
+    })
+}
+
+/// [`story_start`]'s body, driven without a Tauri app handle. The Ready check and the launch share
+/// one lock, so two Starts cannot both pass it (the second meets the first's live session). The
+/// Story moves to Running only once the spawn request went out: a launch that fails leaves it
+/// Ready, its session `failed` and its worktree in place for the next Start.
+pub(crate) fn start_ready_story(
+    db: &std::sync::Mutex<Connection>,
+    story_id: &str,
+    instruction: &str,
+    merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
+    send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
+) -> Result<StartRunOutcome, String> {
+    let mut conn = db.lock().map_err(|e| e.to_string())?;
+    let current = flywheel_core::domain::story::get_story(&conn, story_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Story {story_id:?} not found"))?
+        .state;
+    if current != flywheel_core::domain::story::StoryState::Ready.as_str() {
+        return Err(format!("Start needs a Ready Story; this one is {current}"));
+    }
+    let PreparedLaunch { outcome, repo_path, env } =
+        prepare_launch(&mut conn, story_id, STORY_START_PERMISSION_MODE, instruction)?;
+    spawn_prepared_run(db, conn, &outcome, env, STORY_START_PERMISSION_MODE, merge_shim, |request| {
+        send(&repo_path, request)
+    })?;
+
+    let mut conn = db.lock().map_err(|e| e.to_string())?;
+    let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::story::set_story_state(
+        &mut conn,
+        &human,
+        story_id,
+        flywheel_core::domain::story::StoryState::Running,
+    )
+    .map_err(|e| format!("the session started, but the Story could not move to Running: {e}"))?;
+    Ok(outcome)
 }
 
 /// What [`session_stop`] recorded (CR-04, D-35, PROC-06). `status` is read back from
@@ -2500,6 +2568,92 @@ mod tests {
             let (err, db, story, _repo) = spawn_with(|_, _| Ok(()), |_| Err("spawn boom".to_string()));
             assert!(err.contains("spawn boom"), "{err}");
             assert_failed_launch_left_nothing_running(&mut db.lock().unwrap(), &story, 0);
+        });
+    }
+
+    // --- story_start (issue #50): Ready → Running, with a worktree, a branch and a session ---------
+
+    fn story_state(conn: &Connection, story_id: &str) -> String {
+        conn.query_row("SELECT state FROM stories WHERE id = ?1", rusqlite::params![story_id], |r| r.get(0)).unwrap()
+    }
+
+    fn worktree_count(conn: &Connection, story_id: &str) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM worktrees WHERE story_id = ?1", rusqlite::params![story_id], |r| r.get(0))
+            .unwrap()
+    }
+
+    /// A Story moved to Ready the way the hand-written form leaves one.
+    fn ready_story() -> (std::sync::Mutex<Connection>, String, tempfile::TempDir) {
+        let (mut conn, actor, _p, story, repo) = seeded_git_conn_with_story();
+        flywheel_core::domain::story::set_story_state(
+            &mut conn,
+            &actor,
+            &story,
+            flywheel_core::domain::story::StoryState::Ready,
+        )
+        .unwrap();
+        (std::sync::Mutex::new(conn), story, repo)
+    }
+
+    #[test]
+    fn start_creates_the_worktree_and_branch_launches_the_session_in_it_and_moves_the_story_to_running() {
+        with_scratch_dirs(|| {
+            let (db, story, repo) = ready_story();
+            let mut sent = None;
+            let outcome = start_ready_story(&db, &story, "", |_, _| Ok(()), |_repo, request| {
+                sent = Some(request.clone());
+                Ok(())
+            })
+            .expect("a Ready Story starts");
+
+            let conn = db.lock().unwrap();
+            assert_eq!(story_state(&conn, &story), "running");
+            let (path, branch, status): (String, String, String) = conn
+                .query_row(
+                    "SELECT w.path, w.branch, w.status FROM sessions s JOIN worktrees w ON w.id = s.worktree_id WHERE s.id = ?1",
+                    rusqlite::params![outcome.run_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(status, "active");
+            assert!(std::path::Path::new(&path).is_dir(), "the worktree exists on disk at {path}");
+            let branches = flywheel_core::git::git_at(repo.path(), &["branch", "--list", &branch]).unwrap();
+            assert!(String::from_utf8_lossy(&branches.stdout).contains(&branch), "branch {branch} exists");
+            let session_status: String = conn
+                .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![outcome.run_id], |r| r.get(0))
+                .unwrap();
+            assert_eq!(session_status, "running");
+            let sent = sent.expect("one spawn request was sent");
+            assert_eq!(sent["worktreePath"], serde_json::Value::String(path), "the session runs in the Story's worktree");
+        });
+    }
+
+    #[test]
+    fn start_refuses_a_story_that_is_not_ready_and_creates_nothing() {
+        with_scratch_dirs(|| {
+            let (conn, _actor, _p, story, _repo) = seeded_git_conn_with_story();
+            let db = std::sync::Mutex::new(conn);
+            let before = launch_footprint(&db.lock().unwrap(), &story);
+            let err = start_ready_story(&db, &story, "", |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
+                .expect_err("a Shaping Story cannot start");
+            assert!(err.contains("Ready"), "{err}");
+            let conn = db.lock().unwrap();
+            assert_eq!(launch_footprint(&conn, &story), before, "a refusal writes nothing");
+            assert_eq!(worktree_count(&conn, &story), 0, "and creates no worktree");
+            assert_eq!(story_state(&conn, &story), "shaping");
+        });
+    }
+
+    #[test]
+    fn a_start_whose_spawn_fails_leaves_the_story_ready_to_start_again() {
+        with_scratch_dirs(|| {
+            let (db, story, _repo) = ready_story();
+            let err = start_ready_story(&db, &story, "", |_, _| Ok(()), |_, _| Err("spawn boom".to_string()))
+                .expect_err("the spawn fails");
+            assert!(err.contains("spawn boom"), "{err}");
+            assert_eq!(story_state(&db.lock().unwrap(), &story), "ready");
+            start_ready_story(&db, &story, "", |_, _| Ok(()), |_, _| Ok(())).expect("Start works again");
+            assert_eq!(story_state(&db.lock().unwrap(), &story), "running");
         });
     }
 }

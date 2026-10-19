@@ -11,7 +11,7 @@ use super::{emit_board_changed, validate_text, MAX_PROSE_LEN};
 use crate::state::AppState;
 
 /// The longest Check command accepted over IPC.
-const MAX_CHECK_COMMAND_LEN: usize = 2000;
+pub(super) const MAX_CHECK_COMMAND_LEN: usize = 2000;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
