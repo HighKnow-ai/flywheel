@@ -73,6 +73,17 @@ pub fn story_get(state: State<AppState>, story_id: String) -> Result<Option<Stor
     Ok(story.map(StoryDto::from))
 }
 
+/// The size of the Context packet the Story's next session starts from (docs/mvp-spec.md §4.2):
+/// bytes, an approximate token count, and whether it is above the soft warning threshold.
+#[tauri::command]
+pub fn story_context_packet_size(
+    state: State<AppState>,
+    story_id: String,
+) -> Result<flywheel_core::context_packet::PacketSize, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    flywheel_core::context_packet::context_packet_size(&conn, &story_id).map_err(|e| e.to_string())
+}
+
 /// Rewrite a Story's title and description.
 #[tauri::command]
 pub fn story_update(

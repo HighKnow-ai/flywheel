@@ -91,6 +91,7 @@ const ROSTER: &[&str] = &[
     "settings::settings_set_credential_mode",
     "settings::settings_set_notifications_enabled",
     "settings::settings_store_api_key",
+    "story::story_context_packet_size",
     "story::story_create",
     "story::story_get",
     "story::story_list",

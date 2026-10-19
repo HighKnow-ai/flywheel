@@ -220,6 +220,20 @@ export async function storyGet(storyId: string): Promise<StoryDto | null> {
   return invokeCommand<StoryDto | null>("story_get", { storyId });
 }
 
+/** The size of the Context packet a Story's next session starts from (docs/mvp-spec.md §4.2). */
+export interface PacketSizeDto {
+  bytes: number;
+  /** A rough estimate: one token per four characters. */
+  approxTokens: number;
+  /** Above the soft warning threshold of about 20K tokens. There is no hard budget. */
+  overSoftLimit: boolean;
+}
+
+/** The Context packet's size for a Story. Read-only. */
+export async function storyContextPacketSize(storyId: string): Promise<PacketSizeDto> {
+  return invokeCommand<PacketSizeDto>("story_context_packet_size", { storyId });
+}
+
 /** Rewrite a Story's title and description. */
 export async function storyUpdate(storyId: string, title: string, description?: string | null): Promise<void> {
   await invokeCommand<void>("story_update", { storyId, title, description: description ?? null });

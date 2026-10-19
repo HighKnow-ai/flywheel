@@ -148,6 +148,7 @@ fn main() {
             commands::story::story_create,
             commands::story::story_list,
             commands::story::story_get,
+            commands::story::story_context_packet_size,
             commands::story::story_update,
             commands::story::story_set_state,
             commands::story::story_write_by_hand,
