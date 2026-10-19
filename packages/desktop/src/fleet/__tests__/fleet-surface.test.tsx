@@ -59,6 +59,7 @@ function row(overrides: Partial<FleetRowDto>): FleetRowDto {
     costUsd: null,
     tokensIn: null,
     tokensOut: null,
+    doingTaskTitle: null,
     activity: { lines: [], truncated: false },
     ...overrides,
   };
@@ -325,5 +326,53 @@ describe("the fleet surface's two views (plan 10-05)", () => {
     expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
     expect(await findByText("No agents running")).toBeTruthy();
     expect(await findByRole("button", { name: "Blocked 0" })).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+describe("every live Story session across projects (#58)", () => {
+  it("shows two Stories running in two projects, each with its Story, state, doing Task and elapsed time", async () => {
+    fleetListMock.mockResolvedValue(
+      list([
+        row({ sessionId: "r-a", storyKey: "ALP-1", storyTitle: "Wire the thing", doingTaskTitle: "Write the fleet query" }),
+        row({
+          sessionId: "r-b",
+          projectId: "proj-2",
+          projectName: "Beta",
+          projectKeyPrefix: "BET",
+          storyId: "story-2",
+          storyKey: "BET-4",
+          storyTitle: "Ship the other thing",
+          fleetState: "blocked",
+          runStatus: "blocked",
+          doingTaskTitle: null,
+        }),
+      ]),
+    );
+    renderFleet();
+    await screen.findByText("Write the fleet query");
+    const a = document.querySelector('[data-run-id="r-a"]') as HTMLElement;
+    const b = document.querySelector('[data-run-id="r-b"]') as HTMLElement;
+    expect(within(a).getByText("Alpha")).toBeInTheDocument();
+    expect(within(a).getByText("ALP-1")).toBeInTheDocument();
+    expect(within(a).getByText("Wire the thing")).toBeInTheDocument();
+    expect(within(a).getByText(RUN_STATUS_LABELS.running)).toBeInTheDocument();
+    expect(a.querySelector('[data-field="doing-task"]')?.textContent).toBe("Write the fleet query");
+    expect(a.querySelector('[data-field="age"]')?.textContent).toBe("2m");
+
+    expect(within(b).getByText("Beta")).toBeInTheDocument();
+    expect(within(b).getByText("BET-4")).toBeInTheDocument();
+    expect(within(b).getByText(RUN_STATUS_LABELS.blocked)).toBeInTheDocument();
+    // No doing Task yet: the cell is there and says nothing, never a placeholder Task.
+    expect(b.querySelector('[data-field="doing-task"]')?.textContent).toBe("");
+  });
+
+  it("opens the clicked row's session feed", async () => {
+    fleetListMock.mockResolvedValue(
+      list([row({ sessionId: "r-b", projectId: "proj-2", projectName: "Beta", storyId: "story-2", storyKey: "BET-4" })]),
+    );
+    renderFleet();
+    fireEvent.click(await screen.findByText("Wire the thing"));
+    expect(useUiStore.getState().activeSessionId).toBe("r-b");
+    expect(useUiStore.getState().activeSessionStoryId).toBe("story-2");
   });
 });

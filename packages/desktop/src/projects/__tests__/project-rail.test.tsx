@@ -18,16 +18,19 @@ import App from "../../App";
 import { ProjectRail } from "../ProjectRail";
 import { ProjectUnreachable } from "../ProjectUnreachable";
 import type { Project } from "../../board/useBoardQuery";
+import type { FleetListDto, FleetRowDto } from "../../adapters/tauri";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 
 const invokeCommandMock = vi.fn();
 const fleetBlockedQueueMock = vi.fn(() => Promise.resolve<unknown[]>([]));
+const fleetListMock = vi.fn(() => Promise.resolve<FleetListDto>({ rows: [], totalRows: 0, visibleCostUsd: null }));
 
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeAgentEvent: () => Promise.resolve(() => {}),
   fleetBlockedQueue: () => fleetBlockedQueueMock(),
+  fleetList: () => fleetListMock(),
   fleetWatchRun: () => Promise.resolve(),
   boardRecoverySummary: (projectId: string) => invokeCommandMock("board_recovery_summary", { projectId }),
   subscribeMenuAction: () => Promise.resolve(() => {}),
@@ -57,6 +60,8 @@ beforeEach(() => {
   invokeCommandMock.mockReset();
   fleetBlockedQueueMock.mockReset();
   fleetBlockedQueueMock.mockResolvedValue([]);
+  fleetListMock.mockReset();
+  fleetListMock.mockResolvedValue({ rows: [], totalRows: 0, visibleCostUsd: null });
 });
 
 afterEach(() => {
@@ -317,5 +322,79 @@ describe("ProjectRail's Remove from Flywheel (D-200, closes D-REV-29)", () => {
     renderWithClient(<ProjectRail projects={[alpha]} currentProjectId="p1" onSelect={() => {}} />);
     expect(screen.getAllByRole("button", { name: /^Alpha/ })).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Alpha, Unreachable" })).not.toBeInTheDocument();
+  });
+});
+
+function fleetRow(overrides: Partial<FleetRowDto>): FleetRowDto {
+  return {
+    sessionId: "run-1",
+    projectId: "proj-1",
+    projectName: "Flywheel",
+    projectKeyPrefix: "FLY",
+    projectStatus: "active",
+    storyId: "story-1",
+    storyKey: "FLY-1",
+    storyTitle: "Wire the thing",
+    storyState: "running",
+    runStatus: "running",
+    fleetState: "running",
+    startedAt: new Date().toISOString(),
+    endedAt: null,
+    blockedSince: null,
+    costUsd: null,
+    tokensIn: null,
+    tokensOut: null,
+    doingTaskTitle: null,
+    activity: { lines: [], truncated: false },
+    ...overrides,
+  };
+}
+
+describe("ProjectRail's running sessions per project (#58)", () => {
+  it("lists each project's live sessions under that project, and no finished one", async () => {
+    fleetListMock.mockResolvedValue({
+      rows: [
+        fleetRow({ sessionId: "r-blocked", projectId: "proj-2", storyId: "s-2", storyKey: "THF-2", storyTitle: "Second", fleetState: "blocked", runStatus: "blocked" }),
+        fleetRow({ sessionId: "r-run", storyKey: "FLY-1", storyTitle: "First", doingTaskTitle: "Write the query" }),
+        fleetRow({ sessionId: "r-done", storyId: "s-3", storyKey: "FLY-3", storyTitle: "Finished", fleetState: "failed", runStatus: "failed" }),
+      ],
+      totalRows: 3,
+      visibleCostUsd: null,
+    });
+    renderWithClient(
+      <ProjectRail
+        projects={[project({}), project({ id: "proj-2", name: "Threadfin", keyPrefix: "THF" })]}
+        currentProjectId="proj-1"
+        onSelect={() => {}}
+      />,
+    );
+    const flywheel = await screen.findByRole("list", { name: "Flywheel running sessions" });
+    const threadfin = screen.getByRole("list", { name: "Threadfin running sessions" });
+    expect(within(flywheel).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Open FLY-1 First session, doing Write the query",
+    ]);
+    expect(within(threadfin).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Open THF-2 Second session",
+    ]);
+    expect(screen.queryByText("FLY-3")).not.toBeInTheDocument();
+  });
+
+  it("renders no session list for a project with nothing running", async () => {
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
+    await waitFor(() => expect(fleetListMock).toHaveBeenCalled());
+    expect(screen.queryByRole("list", { name: "Flywheel running sessions" })).not.toBeInTheDocument();
+  });
+
+  it("opens the session's feed when a running session is clicked", async () => {
+    fleetListMock.mockResolvedValue({
+      rows: [fleetRow({ sessionId: "r-run", storyId: "s-1", storyKey: "FLY-1", storyTitle: "First" })],
+      totalRows: 1,
+      visibleCostUsd: null,
+    });
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open FLY-1 First session" }));
+    expect(useUiStore.getState().activeSessionId).toBe("r-run");
+    expect(useUiStore.getState().activeSessionStoryId).toBe("s-1");
+    expect(useUiStore.getState().activeSessionInitialStatus).toBe("running");
   });
 });

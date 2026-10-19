@@ -896,6 +896,8 @@ export interface FleetRowDto {
   costUsd: number | null;
   tokensIn: number | null;
   tokensOut: number | null;
+  /** The title of the Story's *doing* Task (what its agent is doing now); `null` when none is doing. */
+  doingTaskTitle: string | null;
   /** The end of the run's session log, raw; empty for a run that is not live. */
   activity: FleetActivityDto;
 }

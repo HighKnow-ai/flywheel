@@ -22,6 +22,9 @@
  * (`j`/`k`, Enter) for the jumps; dismissal still has NO key — that restates 10-04's choice rather than
  * lifting it, because a key that clears the selected row one keystroke from Enter is how a finished run
  * gets cleared by accident. Dismiss stays a focusable button.
+ *
+ * #58 adds the *doing* Task (`DoingTaskCell`): what each row's agent is doing now, read by the core from
+ * the Story's Task checklist, and empty while no Task is doing.
  */
 import { useEffect, useState, type MouseEvent } from "react";
 import { acknowledgeSession, sessionAcknowledgeMany, type FleetActivityDto, type FleetRowDto } from "../adapters/tauri";
@@ -62,7 +65,8 @@ function useNowTick(enabled: boolean): number {
 }
 
 /** Grid shared by the header-less rows so the columns line up down the whole list. */
-const ROW_COLUMNS = "minmax(150px, 190px) minmax(80px, 140px) 1fr minmax(120px, 1.4fr) minmax(90px, 1fr) 64px 76px";
+const ROW_COLUMNS =
+  "minmax(150px, 190px) minmax(80px, 140px) 1fr minmax(100px, 1fr) minmax(120px, 1.4fr) minmax(90px, 1fr) 64px 76px";
 
 /** The activity line's width in characters, ellipsis at the TAIL — the start of a line (the tool, the
  * first clause) is what says what the agent is doing. Applied to every row kind alike. */
@@ -127,6 +131,22 @@ function ActivityCell({ row }: { row: FleetRowDto }) {
       style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-muted-rack)" }}
     >
       {line}
+    </span>
+  );
+}
+
+/** What the row's agent is doing now (docs/mvp-spec.md §7): the Story's *doing* Task, read from its Task
+ * checklist by the core. Empty, with no placeholder, when no Task is doing: the agent has not written its
+ * checklist yet, or is between Tasks. */
+export function DoingTaskCell({ row }: { row: FleetRowDto }) {
+  const title = row.doingTaskTitle;
+  return (
+    <span
+      data-field="doing-task"
+      title={title ? `Doing: ${title}` : undefined}
+      style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+    >
+      {title ?? ""}
     </span>
   );
 }
@@ -319,6 +339,7 @@ export function FleetRowView({
         {subject.key && subject.detail ? " " : ""}
         {subject.detail && <span style={{ color: "var(--text-muted-rack)" }}>{subject.detail}</span>}
       </span>
+      <DoingTaskCell row={row} />
       <ActivityCell row={row} />
       <SpendCell row={row} />
       <span
