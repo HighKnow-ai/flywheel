@@ -703,13 +703,17 @@ export async function sessionAcknowledgeMany(sessionIds: string[]): Promise<Ackn
 
 /**
  * Answer a pending permission request (AGNT-06, D-38). `decision` is exactly `"allow"`, `"deny"` or
- * `"allow_always"` — validated server-side before any database call.
+ * `"allow_always"` — validated server-side before any database call. `rule` is the "Always allow"
+ * rule in Claude Code's syntax (`Bash(npm test:*)`); without it the backend remembers the exact
+ * command. The backend refuses a rule that could match a Gated action and leaves the request pending.
  */
 export async function answerPermissionRequest(
   requestId: string,
   decision: "allow" | "deny" | "allow_always",
+  rule?: string,
 ): Promise<void> {
-  await invokeCommand<void>("session_answer_permission", { requestId, decision });
+  const args = rule === undefined ? { requestId, decision } : { requestId, decision, rule };
+  await invokeCommand<void>("session_answer_permission", args);
 }
 
 /**

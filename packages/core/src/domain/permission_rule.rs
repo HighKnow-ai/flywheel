@@ -1,13 +1,13 @@
 //! Permission rules (docs/mvp-spec.md §4.1): "Always allow `<pattern>` in this project", keyed by
 //! (project, tool, pattern) in Claude Code's syntax (`Bash(npm test:*)` is tool `Bash`, pattern
 //! `npm test:*`). There is no session scope and no global scope: the table has no column that could
-//! express either, so a rule earned in one project is never read back for another. A Gated action
-//! is never covered by a rule (`permission_request::answer_request` refuses to persist one).
+//! express either, and no function here takes a session, so a rule earned in one project is never
+//! read back for another.
 //!
-//! [`WHOLE_TOOL`] is the pattern a rule granted from the existing permission card carries: it allows
-//! every input of the tool, which is what that card has always offered. Matching an input against a
-//! narrower pattern is the permissions surface's work; until it lands, [`matching_rule`] reads only
-//! whole-tool rules, so a narrower rule never allows more than it says.
+//! A Gated action is never covered by a rule. [`upsert_rule`] refuses a pattern that could match
+//! one ([`GatedRuleRefused`]), and [`matching_rule`] never answers a call that is one, nor applies a
+//! stored rule the classifier now says could cover one. Pattern syntax, matching and the classifier
+//! call live in [`crate::permission_pattern`].
 
 use anyhow::Context;
 use chrono::Utc;
@@ -15,9 +15,28 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::domain::event::{append_event, next_sequence};
 use crate::ids::new_id;
+use crate::permission_pattern::{call_is_gated, covers_gated_action, format_rule, matches, parse_pattern};
 
-/// The pattern that allows every input of a tool.
-pub const WHOLE_TOOL: &str = "*";
+pub use crate::permission_pattern::WHOLE_TOOL;
+
+/// Returned by [`upsert_rule`] when the pattern could match a Gated action. Downcastable via
+/// `anyhow::Error::downcast_ref::<GatedRuleRefused>()`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GatedRuleRefused {
+    pub rule: String,
+}
+
+impl std::fmt::Display for GatedRuleRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} could match a Gated action, which is asked every time and never covered by a rule",
+            self.rule
+        )
+    }
+}
+
+impl std::error::Error for GatedRuleRefused {}
 
 /// A `permission_rules` row.
 #[derive(Debug, Clone, PartialEq)]
@@ -39,22 +58,59 @@ fn row_to_rule(row: &Row) -> rusqlite::Result<PermissionRule> {
     })
 }
 
-const MATCHING_RULE_SQL: &str = "SELECT id, project_id, tool, pattern, created_at \
+const EXISTING_RULE_SQL: &str = "SELECT id, project_id, tool, pattern, created_at \
     FROM permission_rules WHERE project_id = ?1 AND tool = ?2 AND pattern = ?3";
+
+const RULES_FOR_TOOL_SQL: &str = "SELECT id, project_id, tool, pattern, created_at \
+    FROM permission_rules WHERE project_id = ?1 AND tool = ?2 ORDER BY created_at ASC, id ASC";
 
 const RULES_FOR_PROJECT_SQL: &str = "SELECT id, project_id, tool, pattern, created_at \
     FROM permission_rules WHERE project_id = ?1 ORDER BY created_at ASC, id ASC";
 
-/// The rule allowing every input of `tool` in `project_id`, if one exists. Both the project and the
-/// tool must match.
-pub fn matching_rule(conn: &Connection, project_id: &str, tool: &str) -> anyhow::Result<Option<PermissionRule>> {
-    conn.query_row(MATCHING_RULE_SQL, params![project_id, tool, WHOLE_TOOL], row_to_rule)
+fn default_branch(conn: &Connection, project_id: &str) -> anyhow::Result<Option<String>> {
+    conn.query_row("SELECT default_branch FROM projects WHERE id = ?1", params![project_id], |row| row.get(0))
         .optional()
-        .context("failed to look up a matching permission rule")
+        .context("failed to read the project's default branch")
 }
 
-/// Grant "always allow `pattern` for `tool` in this project". Granting a rule that already exists
-/// returns it unchanged and appends no second event.
+/// The first rule of `project_id` allowing a call of `tool` with `input`, if one exists. The
+/// project and the tool must match, and the input must match the rule's pattern. A call that is a
+/// Gated action matches no rule, and neither does a stored rule that could cover one.
+pub fn matching_rule(
+    conn: &Connection,
+    project_id: &str,
+    tool: &str,
+    input: &serde_json::Value,
+) -> anyhow::Result<Option<PermissionRule>> {
+    let branch = default_branch(conn, project_id)?;
+    if call_is_gated(tool, input, branch.as_deref()) {
+        return Ok(None);
+    }
+    let mut stmt = conn.prepare(RULES_FOR_TOOL_SQL)?;
+    let rules = stmt
+        .query_map(params![project_id, tool], row_to_rule)?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to look up matching permission rules")?;
+    Ok(rules.into_iter().find(|rule| {
+        !covers_gated_action(&rule.tool, &rule.pattern, branch.as_deref())
+            && matches(&rule.tool, &rule.pattern, input)
+    }))
+}
+
+/// Refuse a rule Flywheel would not store: an unreadable pattern, or one that could match a Gated
+/// action ([`GatedRuleRefused`]). [`upsert_rule`] calls this first; a caller can call it before
+/// any other write so a refused rule changes nothing.
+pub fn check_rule(conn: &Connection, project_id: &str, tool: &str, pattern: &str) -> anyhow::Result<()> {
+    parse_pattern(tool, pattern)?;
+    let branch = default_branch(conn, project_id)?;
+    if covers_gated_action(tool, pattern.trim(), branch.as_deref()) {
+        return Err(GatedRuleRefused { rule: format_rule(tool, pattern.trim()) }.into());
+    }
+    Ok(())
+}
+
+/// Grant "always allow `pattern` for `tool` in this project". Refuses a pattern [`check_rule`]
+/// refuses. Granting a rule that already exists returns it unchanged and appends no second event.
 pub fn upsert_rule(
     conn: &mut Connection,
     project_id: &str,
@@ -63,12 +119,12 @@ pub fn upsert_rule(
     actor_id: &str,
 ) -> anyhow::Result<PermissionRule> {
     let pattern = pattern.trim();
-    anyhow::ensure!(!pattern.is_empty(), "a permission rule needs a pattern");
+    check_rule(conn, project_id, tool, pattern)?;
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
     if let Some(existing) = tx
-        .query_row(MATCHING_RULE_SQL, params![project_id, tool, pattern], row_to_rule)
+        .query_row(EXISTING_RULE_SQL, params![project_id, tool, pattern], row_to_rule)
         .optional()
         .context("failed to look up an existing permission rule")?
     {
@@ -84,11 +140,7 @@ pub fn upsert_rule(
     )
     .context("failed to insert permission rule")?;
 
-    let label = if pattern == WHOLE_TOOL {
-        format!("Allowed {tool} for this project from now on")
-    } else {
-        format!("Allowed {tool}({pattern}) for this project from now on")
-    };
+    let label = format!("Allowed {} for this project from now on", format_rule(tool, pattern));
     let sequence = next_sequence(&tx, project_id, "local")?;
     let payload = serde_json::json!({
         "field": "permission_rule",
@@ -152,7 +204,7 @@ pub fn revoke_rule(conn: &mut Connection, rule_id: &str, actor_id: &str) -> anyh
         "before": tool,
         "after": null,
         "pattern": pattern,
-        "label": format!("Revoked {tool}"),
+        "label": format!("Revoked {}", format_rule(&tool, &pattern)),
     });
     append_event(
         &tx,

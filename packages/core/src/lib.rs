@@ -15,6 +15,7 @@ pub mod git_identity;
 pub mod git_retry;
 pub mod ids;
 pub mod marker;
+pub mod permission_pattern;
 pub mod proc;
 pub mod query;
 pub mod ranking;
