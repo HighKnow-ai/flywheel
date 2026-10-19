@@ -449,3 +449,37 @@ fn an_empty_database_has_an_empty_queue() {
     let f = fixture();
     assert!(blocked_queue(&f.conn, 50).unwrap().is_empty());
 }
+
+// ---------------------------------------------------------------------------------------------
+// The *doing* Task (#58, docs/mvp-spec.md §4.6, §7): each fleet row names what its agent is doing
+// now, read from the Story's Task checklist.
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn each_row_carries_its_storys_doing_task_and_none_without_one() {
+    use core::domain::task::{add_task, set_task_state, TaskState};
+    let mut f = fixture();
+    let alpha = project(&mut f, "Alpha", "ALP");
+    let beta = project(&mut f, "Beta", "BET");
+    let with_task = story(&mut f, &alpha.id, "with a doing task", "running");
+    let without_task = story(&mut f, &beta.id, "only open tasks", "running");
+    let actor = f.actor_id.clone();
+    let done = add_task(&mut f.conn, &actor, &with_task, "Read the spec").unwrap();
+    set_task_state(&mut f.conn, &actor, &done.id, TaskState::Done, None).unwrap();
+    let doing = add_task(&mut f.conn, &actor, &with_task, "Write the fleet query").unwrap();
+    set_task_state(&mut f.conn, &actor, &doing.id, TaskState::Doing, None).unwrap();
+    add_task(&mut f.conn, &actor, &with_task, "Open the PR").unwrap();
+    add_task(&mut f.conn, &actor, &without_task, "Not started").unwrap();
+
+    let a = insert_run(&mut f, &alpha.id, &Run { story_id: Some(&with_task), status: "running", started_at: "2026-01-01T01:00:00Z", ..Default::default() });
+    let b = insert_run(&mut f, &beta.id, &Run { story_id: Some(&without_task), status: "running", started_at: "2026-01-01T02:00:00Z", ..Default::default() });
+
+    let list = fleet_rows(&f.conn, 50).expect("fleet_rows should succeed");
+    assert_eq!(ids(&list), vec![a.clone(), b.clone()], "two Stories running in two projects both appear");
+    let row_a = list.rows.iter().find(|r| r.session_id == a).unwrap();
+    let row_b = list.rows.iter().find(|r| r.session_id == b).unwrap();
+    assert_eq!(row_a.doing_task_title.as_deref(), Some("Write the fleet query"));
+    assert_eq!(row_a.project_name, "Alpha");
+    assert_eq!(row_b.doing_task_title, None);
+    assert_eq!(row_b.project_name, "Beta");
+}

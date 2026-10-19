@@ -43,6 +43,8 @@ pub struct FleetRowDto {
     pub cost_usd: Option<f64>,
     pub tokens_in: Option<i64>,
     pub tokens_out: Option<i64>,
+    /// The title of the Story's *doing* Task, or null when none is doing.
+    pub doing_task_title: Option<String>,
     /// The end of this run's session log, for the activity cell (plan 10-03, D-167). Always empty for
     /// a run that is not live.
     pub activity: FleetActivityDto,
@@ -79,6 +81,7 @@ impl From<flywheel_core::query::fleet::FleetRow> for FleetRowDto {
             cost_usd: row.cost_usd,
             tokens_in: row.tokens_in,
             tokens_out: row.tokens_out,
+            doing_task_title: row.doing_task_title,
             activity: FleetActivityDto::default(),
         }
     }
@@ -470,6 +473,7 @@ mod tests {
             cost_usd: None,
             tokens_in: None,
             tokens_out: None,
+            doing_task_title: None,
             activity: FleetActivityDto::default(),
         }
     }

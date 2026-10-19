@@ -51,6 +51,9 @@ pub struct FleetRow {
     pub cost_usd: Option<f64>,
     pub tokens_in: Option<i64>,
     pub tokens_out: Option<i64>,
+    /// The title of the Story's *doing* Task (docs/mvp-spec.md §7: "what its agent is doing now");
+    /// `None` when no Task of the Story is doing. The schema allows at most one.
+    pub doing_task_title: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,7 +81,9 @@ pub const FLEET_SQL: &str = "SELECT * FROM ( \
         ar.started_at AS started_at, ar.ended_at AS ended_at, \
         (SELECT MIN(pr.created_at) FROM permission_requests pr \
             WHERE pr.session_id = ar.id AND pr.status = 'pending') AS blocked_since, \
-        ar.cost_usd AS cost_usd, ar.tokens_in AS tokens_in, ar.tokens_out AS tokens_out \
+        ar.cost_usd AS cost_usd, ar.tokens_in AS tokens_in, ar.tokens_out AS tokens_out, \
+        (SELECT t.title FROM tasks t WHERE t.story_id = ar.story_id AND t.state = 'doing' \
+            LIMIT 1) AS doing_task_title \
     FROM sessions ar \
     JOIN projects p ON p.id = ar.project_id AND p.hidden = 0 \
     JOIN stories s ON s.id = ar.story_id \
@@ -127,6 +132,7 @@ pub fn fleet_rows(conn: &Connection, limit: usize) -> anyhow::Result<FleetList> 
                 cost_usd: row.get(14)?,
                 tokens_in: row.get(15)?,
                 tokens_out: row.get(16)?,
+                doing_task_title: row.get(17)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()
