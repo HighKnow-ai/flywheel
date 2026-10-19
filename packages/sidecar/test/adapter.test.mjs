@@ -66,11 +66,11 @@ test("buildClaudeArgv passes the launch policy's allowed and refused tools, each
   const shaping = buildClaudeArgv({
     prompt: "p",
     permissionMode: "dontAsk",
-    allowedTools: ["Read", "Glob", "Grep", "mcp__flywheel-proposals"],
+    allowedTools: ["Read", "Glob", "Grep", "mcp__flywheel-board__proposal_example"],
     disallowedTools: ["Bash", "Edit", "Write", "NotebookEdit"],
   });
   assert.equal(shaping[shaping.indexOf("--permission-mode") + 1], "dontAsk");
-  assert.equal(shaping[shaping.indexOf("--allowedTools") + 1], "Read,Glob,Grep,mcp__flywheel-proposals");
+  assert.equal(shaping[shaping.indexOf("--allowedTools") + 1], "Read,Glob,Grep,mcp__flywheel-board__proposal_example");
   assert.equal(shaping[shaping.indexOf("--disallowedTools") + 1], "Bash,Edit,Write,NotebookEdit");
   assert.ok(!shaping.includes("--permission-prompt-tool"), "no prompt tool was given, so none is wired");
 });
