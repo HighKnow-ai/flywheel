@@ -149,6 +149,15 @@ pub fn suggested_pattern(tool: &str, input: &serde_json::Value) -> String {
     }
 }
 
+/// The rule a request's card pre-fills, in Claude Code's syntax (`Bash(npm test --watch)`), from
+/// the request's raw input payload. An unreadable payload suggests the whole tool.
+pub fn suggested_rule(tool: &str, input_payload: Option<&str>) -> String {
+    let input: serde_json::Value = input_payload
+        .and_then(|raw| serde_json::from_str(raw).ok())
+        .unwrap_or(serde_json::Value::Null);
+    format_rule(tool, &suggested_pattern(tool, &input))
+}
+
 /// Whether a call of `tool` with `input` matches `pattern`. An unparseable pattern matches nothing.
 pub fn matches(tool: &str, pattern: &str, input: &serde_json::Value) -> bool {
     let Ok(parsed) = parse_pattern(tool, pattern) else { return false };

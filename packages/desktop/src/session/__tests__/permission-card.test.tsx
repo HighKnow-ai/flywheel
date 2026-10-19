@@ -17,6 +17,7 @@ function makeRequest(overrides: Partial<PendingPermissionRequest> = {}): Pending
     toolName: "Bash",
     inputPayload: '{"command":"rm -rf /tmp/scratch"}',
     destructiveCategory: null,
+    suggestedRule: "Bash(rm -rf /tmp/scratch)",
     ...overrides,
   };
 }
@@ -33,11 +34,11 @@ describe("PermissionRequestCard (standalone)", () => {
     render(<PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={vi.fn()} />);
 
     expect(screen.getByText("Bash wants to:")).toBeInTheDocument();
-    expect(screen.getByText('{"command":"rm -rf /tmp/scratch"}')).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument();
+    expect(screen.getByText("rm -rf /tmp/scratch")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Allow this tool for this project from now on" }),
+      screen.getByRole("button", { name: "Always allow this pattern in this project" }),
     ).toBeInTheDocument();
   });
 
@@ -64,7 +65,7 @@ describe("PermissionRequestCard (standalone)", () => {
     render(<PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={onAnswer} />);
 
     fireEvent.keyDown(window, { key: "a", shiftKey: true });
-    expect(onAnswer).toHaveBeenCalledWith("req-1", "allow_always");
+    expect(onAnswer).toHaveBeenCalledWith("req-1", "allow_always", "Bash(rm -rf /tmp/scratch)");
   });
 
   // `fireEvent.click` wraps each call in `act()` and flushes state between them, so this only
@@ -81,7 +82,7 @@ describe("PermissionRequestCard (standalone)", () => {
     );
     render(<PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={onAnswer} />);
 
-    const allowButton = screen.getByRole("button", { name: "Allow" });
+    const allowButton = screen.getByRole("button", { name: "Allow once" });
     fireEvent.click(allowButton);
     fireEvent.click(allowButton);
 
@@ -102,7 +103,7 @@ describe("PermissionRequestCard (standalone)", () => {
     );
     render(<PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={onAnswer} />);
 
-    const allowButton = screen.getByRole("button", { name: "Allow" });
+    const allowButton = screen.getByRole("button", { name: "Allow once" });
     allowButton.click();
     allowButton.click();
     allowButton.click();
@@ -115,11 +116,11 @@ describe("PermissionRequestCard (standalone)", () => {
     const onAnswer = vi.fn().mockRejectedValue(new Error("network down"));
     render(<PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={onAnswer} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     expect(screen.getByText("Bash wants to:")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Allow" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Allow once" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Deny" })).toBeEnabled();
   });
 
@@ -133,14 +134,14 @@ describe("PermissionRequestCard (standalone)", () => {
     expect(screen.getByText("Edit wants to:")).toBeInTheDocument();
 
     const editGroup = screen.getByRole("group", { name: "Edit wants to:" });
-    fireEvent.click(within(editGroup).getByRole("button", { name: "Allow" }));
+    fireEvent.click(within(editGroup).getByRole("button", { name: "Allow once" }));
 
     expect(onAnswer).toHaveBeenCalledTimes(1);
     expect(onAnswer).toHaveBeenCalledWith("req-2", "allow");
     // The first (untouched) card's Allow button is still enabled — answering the second never
     // touched the first's own state.
     const bashGroup = screen.getByRole("group", { name: "Bash wants to:" });
-    expect(within(bashGroup).getByRole("button", { name: "Allow" })).toBeEnabled();
+    expect(within(bashGroup).getByRole("button", { name: "Allow once" })).toBeEnabled();
   });
 
   it("imports its glyph name from the marks registry and hard-codes no colour", () => {
@@ -186,6 +187,7 @@ function destructiveRequest(category: string, command: string): PendingPermissio
     toolName: "Bash",
     inputPayload: JSON.stringify({ command }),
     destructiveCategory: category,
+    suggestedRule: null,
   });
 }
 
@@ -193,12 +195,12 @@ describe("destructive", () => {
   it("with a null category renders exactly as the routine card: Allow filled, Deny outline, allow-always present", () => {
     render(<PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={vi.fn()} />);
 
-    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Allow this tool for this project from now on" }),
+      screen.getByRole("button", { name: "Always allow this pattern in this project" }),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Destructive action — needs your OK")).not.toBeInTheDocument();
+    expect(screen.queryByText("Gated action — needs your OK every time")).not.toBeInTheDocument();
   });
 
   it("with a category renders the stop-sign glyph, the destructive heading and the consequence sentence above the payload", () => {
@@ -207,12 +209,12 @@ describe("destructive", () => {
       <PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />,
     );
 
-    expect(screen.getByText("Destructive action — needs your OK")).toBeInTheDocument();
+    expect(screen.getByText("Gated action — needs your OK every time")).toBeInTheDocument();
     expect(screen.getByText("Bash wants to:")).toBeInTheDocument();
     expect(
       screen.getByText("This would discard uncommitted changes in the worktree — permanently."),
     ).toBeInTheDocument();
-    expect(screen.getByText('{"command":"git reset --hard"}')).toBeInTheDocument();
+    expect(screen.getByText("git reset --hard")).toBeInTheDocument();
     expect(container.querySelector(".lucide-octagon-alert")).not.toBeNull();
     expect(container.querySelector(".lucide-shield-alert")).toBeNull();
   });
@@ -221,7 +223,7 @@ describe("destructive", () => {
     const request = destructiveRequest("hard-reset", "git reset --hard");
     render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
 
-    expect(screen.queryByRole("button", { name: /from now on/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /always allow/i })).not.toBeInTheDocument();
   });
 
   it("swaps button emphasis: Deny is the destructive lead, Allow is not", () => {
@@ -229,18 +231,18 @@ describe("destructive", () => {
     render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
 
     const deny = screen.getByRole("button", { name: "Deny" });
-    const allow = screen.getByRole("button", { name: "Allow, just this once" });
+    const allow = screen.getByRole("button", { name: "Allow once" });
     expect(deny.className).toContain("session-action-destructive");
     expect(allow.className).not.toContain("session-action-destructive");
     expect(allow.className).not.toContain("session-action-lead");
   });
 
-  it("Allow's accessible name reads 'Allow, just this once' on the destructive variant", () => {
+  it("Allow's accessible name reads 'Allow once' on the Gated variant", () => {
     const request = destructiveRequest("hard-reset", "git reset --hard");
     render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
 
-    expect(screen.getByRole("button", { name: "Allow, just this once" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Allow" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button")).toHaveLength(2);
   });
 
   it("reverses the reflex: the lead on the destructive variant is Deny, the lead on the routine variant is Allow", () => {
@@ -249,7 +251,7 @@ describe("destructive", () => {
     const { unmount } = render(
       <PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={vi.fn()} />,
     );
-    const routineLead = screen.getByRole("button", { name: "Allow" });
+    const routineLead = screen.getByRole("button", { name: "Allow once" });
     expect(routineLead.className).toContain("session-action-lead");
     expect(screen.getByRole("button", { name: "Deny" }).className).not.toContain("session-action-lead");
     unmount();
@@ -258,7 +260,7 @@ describe("destructive", () => {
     render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
     const destructiveLead = screen.getByRole("button", { name: "Deny" });
     expect(destructiveLead.className).toContain("session-action-lead");
-    expect(screen.getByRole("button", { name: "Allow, just this once" }).className).not.toContain("session-action-lead");
+    expect(screen.getByRole("button", { name: "Allow once" }).className).not.toContain("session-action-lead");
   });
 
   it("pressing d resolves through the shared binding table on the destructive variant; Shift+A is inert", () => {
@@ -318,7 +320,7 @@ describe("destructive", () => {
     resolveAnswer?.();
   });
 
-  it("three synchronous native clicks on 'Allow, just this once' call the answer spy exactly once", async () => {
+  it("three synchronous native clicks on the Gated 'Allow once' call the answer spy exactly once", async () => {
     let resolveAnswer: (() => void) | undefined;
     const onAnswer = vi.fn(
       () =>
@@ -329,7 +331,7 @@ describe("destructive", () => {
     const request = destructiveRequest("hard-reset", "git reset --hard");
     render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={onAnswer} />);
 
-    const allowOnceButton = screen.getByRole("button", { name: "Allow, just this once" });
+    const allowOnceButton = screen.getByRole("button", { name: "Allow once" });
     allowOnceButton.click();
     allowOnceButton.click();
     allowOnceButton.click();
@@ -418,17 +420,7 @@ describe("destructive", () => {
     ).toBeInTheDocument();
     expect(container.querySelector(".lucide-shield-alert")).toBeNull();
     expect(container.querySelector(".lucide-octagon-alert")).not.toBeNull();
-    expect(screen.queryByRole("button", { name: /from now on/i })).not.toBeInTheDocument();
-  });
-
-  it("with the recursive-delete category (recognised by the classifier but absent from the six-row copy table) also falls back to the generic sentence, never the routine layout", () => {
-    const request = destructiveRequest("recursive-delete", "rm -rf ./build");
-    render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
-
-    expect(
-      screen.getByText("This command can destroy work, and Flywheel doesn't recognise exactly what it would do."),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /from now on/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /always allow/i })).not.toBeInTheDocument();
   });
 
   describe("consequence copy — one test per named category (03-UI-SPEC.md D-56 table)", () => {
@@ -518,8 +510,29 @@ describe("destructive", () => {
       const request = destructiveRequest("history-rewrite", "git rebase origin/main");
       render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
       expect(
-        screen.getByText("This would rewrite commit history other work may depend on."),
+        screen.getByText("This would rewrite the history of a branch other than this Story's own."),
       ).toBeInTheDocument();
+    });
+
+    it.each([
+      ["git-push", "git push origin story/fly-1", "This would push story/fly-1 to the remote, where others can see it."],
+      ["git-push", "git push", "This would push commits to the remote, where others can see them."],
+      ["git-push", "git -C ../repo push origin feature-x", "This would push feature-x to the remote, where others can see it."],
+      [
+        "worktree-deletion",
+        "git worktree remove ../other-story",
+        "This would delete the worktree at ../other-story, which isn't this Story's, with any uncommitted work in it.",
+      ],
+      ["recursive-delete", "rm -rf ../shared", "This would delete files outside this Story's worktree — permanently."],
+      ["publish", "npm publish", "This would publish a package to the npm registry, where anyone can install it."],
+      ["publish", "cargo publish", "This would publish this crate to crates.io. A published version can't be deleted."],
+      ["publish", "gh pr merge 12 --squash", "This would merge a pull request on GitHub."],
+      ["publish", "gh release create v1.0.0", "This would change a release on GitHub, where others can see it."],
+    ])("%s: %s", (category, command, sentence) => {
+      render(<PermissionRequestCard variant="feed" requests={[destructiveRequest(category, command)]} onAnswer={vi.fn()} />);
+      expect(screen.getByText(sentence)).toBeInTheDocument();
+      // The literal command, never the JSON payload around it.
+      expect(screen.getByText(command)).toBeInTheDocument();
     });
   });
 
@@ -545,7 +558,109 @@ describe("destructive", () => {
     it.each(categoryValues)("category %s never renders an allow-always button", (category) => {
       const request = destructiveRequest(category, "some-command --flag");
       render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
-      expect(screen.queryByRole("button", { name: /from now on/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /always allow/i })).not.toBeInTheDocument();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Issue #48 — Always allow <pattern> in this project, and a Gated action's two answers
+// ---------------------------------------------------------------------------------------------
+
+describe("Always allow <pattern> in this project (issue #48)", () => {
+  function npmTestRequest(overrides: Partial<PendingPermissionRequest> = {}): PendingPermissionRequest {
+    return makeRequest({
+      inputPayload: '{"command":"npm test --watch"}',
+      suggestedRule: "Bash(npm test --watch)",
+      ...overrides,
+    });
+  }
+
+  it("pre-fills the pattern field with the suggested rule", () => {
+    render(<PermissionRequestCard variant="feed" requests={[npmTestRequest()]} onAnswer={vi.fn()} />);
+    expect(screen.getByRole("textbox", { name: "Pattern" })).toHaveValue("Bash(npm test --watch)");
+  });
+
+  it("falls back to the whole tool when the caller has no suggested rule", () => {
+    render(
+      <PermissionRequestCard variant="feed" requests={[npmTestRequest({ suggestedRule: undefined, toolName: "WebFetch" })]} onAnswer={vi.fn()} />,
+    );
+    expect(screen.getByRole("textbox", { name: "Pattern" })).toHaveValue("WebFetch");
+  });
+
+  it("saves the edited pattern with allow_always", async () => {
+    const onAnswer = vi.fn().mockResolvedValue(undefined);
+    render(<PermissionRequestCard variant="feed" requests={[npmTestRequest()]} onAnswer={onAnswer} />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Pattern" }), { target: { value: "  Bash(npm test:*) " } });
+    fireEvent.click(screen.getByRole("button", { name: "Always allow this pattern in this project" }));
+
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledTimes(1));
+    expect(onAnswer).toHaveBeenCalledWith("req-1", "allow_always", "Bash(npm test:*)");
+  });
+
+  it("pressing Enter in the pattern field saves the rule", async () => {
+    const onAnswer = vi.fn().mockResolvedValue(undefined);
+    render(<PermissionRequestCard variant="feed" requests={[npmTestRequest()]} onAnswer={onAnswer} />);
+
+    fireEvent.submit(screen.getByRole("textbox", { name: "Pattern" }));
+
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith("req-1", "allow_always", "Bash(npm test --watch)"));
+  });
+
+  it("a rule the backend refuses shows its reason and leaves the request answerable", async () => {
+    const reason =
+      "a rule Bash(git:*) could match a Gated action, so Flywheel refuses to store it; Gated actions are asked every time";
+    const onAnswer = vi.fn().mockRejectedValueOnce(reason).mockResolvedValueOnce(undefined);
+    render(<PermissionRequestCard variant="feed" requests={[npmTestRequest()]} onAnswer={onAnswer} />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Pattern" }), { target: { value: "Bash(git:*)" } });
+    fireEvent.click(screen.getByRole("button", { name: "Always allow this pattern in this project" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(`Flywheel didn't save that rule: ${reason}`);
+    expect(screen.getByRole("textbox", { name: "Pattern" })).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: "Pattern" })).toHaveValue("Bash(git:*)");
+    expect(screen.getByRole("button", { name: "Allow once" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+    await waitFor(() => expect(onAnswer).toHaveBeenLastCalledWith("req-1", "allow"));
+  });
+
+  it("an empty pattern is never sent", () => {
+    const onAnswer = vi.fn().mockResolvedValue(undefined);
+    render(<PermissionRequestCard variant="feed" requests={[npmTestRequest()]} onAnswer={onAnswer} />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Pattern" }), { target: { value: "   " } });
+    fireEvent.click(screen.getByRole("button", { name: "Always allow this pattern in this project" }));
+
+    expect(onAnswer).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a pattern to always allow");
+  });
+
+  it("typing a or d into the pattern field answers nothing", () => {
+    const onAnswer = vi.fn().mockResolvedValue(undefined);
+    render(<PermissionRequestCard variant="feed" requests={[npmTestRequest()]} onAnswer={onAnswer} />);
+
+    const field = screen.getByRole("textbox", { name: "Pattern" });
+    fireEvent.keyDown(field, { key: "a" });
+    fireEvent.keyDown(field, { key: "d" });
+    fireEvent.keyDown(field, { key: "A", shiftKey: true });
+
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it("a Gated action offers only Allow once and Deny, no pattern field, and shows the literal command", () => {
+    const request = makeRequest({
+      inputPayload: '{"command":"git push origin story/fly-1"}',
+      destructiveCategory: "git-push",
+      suggestedRule: null,
+    });
+    render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
+
+    const names = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(names).toEqual(["Deny", "Allow once"]);
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByText("git push origin story/fly-1")).toBeInTheDocument();
   });
 });

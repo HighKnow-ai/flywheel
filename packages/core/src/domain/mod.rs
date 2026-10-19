@@ -19,6 +19,7 @@ pub mod acceptance_criterion;
 pub mod actor;
 pub mod adr_link;
 pub mod session;
+pub mod session_kind;
 pub mod check;
 pub mod epic;
 pub mod event;

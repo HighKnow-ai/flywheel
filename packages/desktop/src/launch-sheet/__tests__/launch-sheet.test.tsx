@@ -17,8 +17,8 @@ vi.mock("../../adapters/tauri", async () => {
   return {
     ...actual,
     storyGet: (storyId: string) => storyMock(storyId),
-    startSession: (storyId: string, permissionMode: string, instruction?: string) =>
-      startMock(storyId, permissionMode, instruction),
+    startSession: (storyId: string, ...rest: unknown[]) =>
+      startMock(storyId, ...rest),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
   };
 });
@@ -71,7 +71,7 @@ describe("LaunchSheet", () => {
     );
   });
 
-  it("offers no permission-mode choice and starts every run in acceptEdits (ADR 0001)", async () => {
+  it("offers no permission-mode choice and sends none: the session kind decides it (ADR 0001)", async () => {
     storyMock.mockReset().mockResolvedValue(makeStory());
     startMock.mockReset().mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
@@ -84,7 +84,7 @@ describe("LaunchSheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start Work" }));
 
     await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
-    expect(startMock).toHaveBeenCalledWith("story-1", "acceptEdits", "");
+    expect(startMock).toHaveBeenCalledWith("story-1", "");
   });
 
   it("Cancel leaves the start command uncalled", async () => {
@@ -165,7 +165,7 @@ describe("LaunchSheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start Work" }));
 
     await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
-    expect(startMock).toHaveBeenCalledWith("story-1", "acceptEdits", "");
+    expect(startMock).toHaveBeenCalledWith("story-1", "");
   });
 
   /**

@@ -221,14 +221,14 @@ export const BINDINGS: Binding[] = [
   // additionally restricts these to the card's own layer (T-02-15). Escape is deliberately NOT
   // bound here — see the Escape ladder below, and its own comment on why the card is excluded
   // entirely (T-02-16).
-  { id: "answer-permission-allow", region: "permission-card", key: "a", label: "Allow" },
+  { id: "answer-permission-allow", region: "permission-card", key: "a", label: "Allow once" },
   { id: "answer-permission-deny", region: "permission-card", key: "d", label: "Deny" },
   {
     id: "answer-permission-allow-always",
     region: "permission-card",
     key: "a",
     shift: true,
-    label: "Allow this tool for this project from now on",
+    label: "Always allow this pattern in this project",
   },
 
   // ---- Global (agent additions) -----------------------------------------------------------

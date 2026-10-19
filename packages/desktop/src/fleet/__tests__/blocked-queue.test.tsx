@@ -26,6 +26,7 @@ function entry(n: number, overrides: Partial<BlockedQueueEntryDto> = {}): Blocke
     inputPayload: `{"command":"echo ${n}"}`,
     createdAt: "2026-10-12T11:50:00Z",
     destructiveCategory: null,
+    suggestedRule: `Bash(echo ${n})`,
     sessionId: `run-${n}`,
     projectId: `proj-${n}`,
     projectName: `Project ${n}`,
@@ -145,7 +146,7 @@ describe("BlockedQueue contents", () => {
   it("an answer goes through the one existing answer wrapper and nothing else", () => {
     renderQueue([entry(1), entry(2)]);
     const second = screen.getAllByRole("group", { name: "Bash wants to:" })[1];
-    fireEvent.click(within(second).getByRole("button", { name: "Allow" }));
+    fireEvent.click(within(second).getByRole("button", { name: "Allow once" }));
     expect(answerMock).toHaveBeenCalledTimes(1);
     expect(answerMock).toHaveBeenCalledWith("req-2", "allow");
   });

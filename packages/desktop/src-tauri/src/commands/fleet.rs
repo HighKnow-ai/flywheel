@@ -157,6 +157,8 @@ pub struct BlockedQueueEntryDto {
     pub input_payload: Option<String>,
     pub created_at: String,
     pub destructive_category: Option<String>,
+    /// The rule the card pre-fills, or `None` for a Gated action (`session::card_suggested_rule`).
+    pub suggested_rule: Option<String>,
     pub session_id: String,
     pub project_id: String,
     pub project_name: String,
@@ -169,7 +171,13 @@ pub struct BlockedQueueEntryDto {
 
 impl From<flywheel_core::query::fleet::BlockedQueueEntry> for BlockedQueueEntryDto {
     fn from(e: flywheel_core::query::fleet::BlockedQueueEntry) -> Self {
+        let suggested_rule = super::session::card_suggested_rule(
+            &e.tool_name,
+            e.input_payload.as_deref(),
+            e.destructive_category.as_deref(),
+        );
         Self {
+            suggested_rule,
             request_id: e.request_id,
             tool_name: e.tool_name,
             input_payload: e.input_payload,

@@ -421,6 +421,24 @@
   padding-top: var(--space-sm);
 }
 
+/* The standing rule's form: its label, the editable pattern on its own full-width line, then the action. */
+.session-grant-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xs);
+}
+
+.session-grant-label {
+  color: var(--text-muted-rack);
+}
+
+.session-grant-pattern {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
 .session-card.session-card-destructive {
   border-color: var(--destructive-text-rack);
 }

@@ -86,9 +86,8 @@ pub fn settings_set_notifications_enabled(state: State<AppState>, value: bool) -
     flywheel_core::domain::settings::notifications_enabled(&conn).map_err(|e| e.to_string())
 }
 
-/// Rejects a `mode` outside exactly `"local"`/`"api_key"` before any DB call (mirrors
-/// `session.rs`'s `validate_permission_mode`'s own reasoning) — named in the error so the
-/// rejected value is legible.
+/// Rejects a `mode` outside exactly `"local"`/`"api_key"` before any DB call, and names the
+/// rejected value in the error so it is legible.
 fn validate_mode(mode: &str) -> Result<(), String> {
     if mode != "local" && mode != "api_key" {
         return Err(format!(

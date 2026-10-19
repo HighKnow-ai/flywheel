@@ -33,23 +33,10 @@ use super::{emit_board_changed, project_of, project_of_locked};
 
 use crate::state::AppState;
 
-/// The only `permission_mode` values this handler accepts (D-36) — validated here, before the
-/// value ever reaches the sidecar or the CLI argv it builds.
-const ACCEPTED_PERMISSION_MODES: [&str; 4] = ["acceptEdits", "default", "plan", "bypassPermissions"];
+use flywheel_core::domain::session_kind::SessionKind;
 
 /// The hard cap on the operator's free-text instruction (T-02-20), measured in characters.
 const MAX_INSTRUCTION_LEN: usize = 4000;
-
-/// Rejects a `permission_mode` outside [`ACCEPTED_PERMISSION_MODES`] before any DB or sidecar
-/// call happens (T-02-19).
-fn validate_permission_mode(mode: &str) -> Result<(), String> {
-    if !ACCEPTED_PERMISSION_MODES.contains(&mode) {
-        return Err(format!(
-            "permission_mode must be one of {ACCEPTED_PERMISSION_MODES:?}, got {mode:?}"
-        ));
-    }
-    Ok(())
-}
 
 /// Trims `instruction` and rejects one longer than [`MAX_INSTRUCTION_LEN`] characters with a
 /// message naming both the limit and the actual length (T-02-20) — `None`/an all-whitespace
@@ -166,20 +153,19 @@ pub(crate) fn fail_launch(conn: &mut Connection, run_id: &str, why: String) -> S
     why
 }
 
-/// Start a fresh session on `story_id` (D-30: always fresh, never `--resume`). Validates
-/// `permission_mode` and the operator's free-text `instruction` (T-02-19/T-02-20) before any DB
-/// or sidecar call happens, then delegates everything else to [`launch_run_for_story`].
+/// Start a fresh session on `story_id` (D-30: always fresh, never `--resume`). Validates the
+/// operator's free-text `instruction` (T-02-20) before any DB or sidecar call happens, then
+/// delegates everything else to [`launch_run_for_story`]. It takes no permission mode: a Story
+/// session's mode is fixed by its kind (ADR 0001).
 #[tauri::command]
 pub fn session_start(
     state: State<AppState>,
     app: AppHandle,
     story_id: String,
-    permission_mode: String,
     instruction: Option<String>,
 ) -> Result<SessionDto, String> {
-    validate_permission_mode(&permission_mode)?;
     let instruction = validate_instruction(instruction.as_deref())?;
-    launch_run_for_story(&state, &app, &story_id, &permission_mode, &instruction)
+    launch_run_for_story(&state, &app, &story_id, SessionKind::Story, &instruction)
 }
 
 /// D-52/WORK-05: the ONLY place a spawn request leaves the app — it goes through
@@ -207,7 +193,7 @@ pub(crate) struct PreparedLaunch {
 pub(crate) fn prepare_launch(
     conn: &mut Connection,
     story_id: &str,
-    permission_mode: &str,
+    kind: SessionKind,
     instruction: &str,
 ) -> Result<PreparedLaunch, String> {
     let initiator_id = flywheel_core::domain::actor::local_human_actor_id(conn).map_err(|e| e.to_string())?;
@@ -242,7 +228,8 @@ pub(crate) fn prepare_launch(
             .to_string());
     }
 
-    let outcome = start_session_recording_first(conn, story_id, permission_mode, instruction, &initiator_id)?;
+    let outcome =
+        start_session_recording_first(conn, story_id, kind.launch_policy().permission_mode, instruction, &initiator_id)?;
     Ok(PreparedLaunch { outcome, repo_path, env })
 }
 
@@ -259,7 +246,7 @@ pub(crate) fn spawn_prepared_run(
     mut conn: std::sync::MutexGuard<'_, Connection>,
     outcome: &StartRunOutcome,
     mut env: std::collections::HashMap<String, String>,
-    permission_mode: &str,
+    kind: SessionKind,
     merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
     send: impl FnOnce(&serde_json::Value) -> Result<(), String>,
 ) -> Result<(), String> {
@@ -270,19 +257,35 @@ pub(crate) fn spawn_prepared_run(
     env.insert(flywheel_core::destructive::WORKTREE_ENV.to_string(), outcome.worktree_path.clone());
     env.insert(flywheel_core::destructive::STORY_BRANCH_ENV.to_string(), outcome.branch.clone());
 
-    let request = serde_json::json!({
+    let request = spawn_request(outcome, &env, kind);
+    // The guard is gone (the spawn floor sleeps inside `send`), so closing the row takes the lock afresh.
+    send(&request).map_err(|why| match db.lock() {
+        Ok(mut conn) => fail_launch(&mut conn, &outcome.run_id, why),
+        Err(_) => why,
+    })
+}
+
+/// The sidecar's `spawn` request for a session of `kind`. The kind alone fixes the permission mode,
+/// the allowed and refused tools, and whether the session may raise a permission request
+/// ([`SessionKind::launch_policy`]); the sidecar turns them into Claude Code flags and decides none
+/// of them.
+pub(crate) fn spawn_request(
+    outcome: &StartRunOutcome,
+    env: &std::collections::HashMap<String, String>,
+    kind: SessionKind,
+) -> serde_json::Value {
+    let policy = kind.launch_policy();
+    serde_json::json!({
         "id": outcome.run_id,
         "op": "spawn",
         "runId": outcome.run_id,
         "worktreePath": outcome.worktree_path,
         "prompt": outcome.prompt,
-        "permissionMode": permission_mode,
+        "permissionMode": policy.permission_mode,
+        "allowedTools": policy.allowed_tools,
+        "disallowedTools": policy.disallowed_tools,
+        "permissionPrompt": policy.raises_requests,
         "env": env,
-    });
-    // The guard is gone (the spawn floor sleeps inside `send`), so closing the row takes the lock afresh.
-    send(&request).map_err(|why| match db.lock() {
-        Ok(mut conn) => fail_launch(&mut conn, &outcome.run_id, why),
-        Err(_) => why,
     })
 }
 
@@ -293,17 +296,17 @@ pub(crate) fn launch_run_for_story(
     state: &AppState,
     app: &AppHandle,
     story_id: &str,
-    permission_mode: &str,
+    kind: SessionKind,
     instruction: &str,
 ) -> Result<SessionDto, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let PreparedLaunch { outcome, repo_path, env } = prepare_launch(&mut conn, story_id, permission_mode, instruction)?;
+    let PreparedLaunch { outcome, repo_path, env } = prepare_launch(&mut conn, story_id, kind, instruction)?;
     spawn_prepared_run(
         &state.db,
         conn,
         &outcome,
         env,
-        permission_mode,
+        kind,
         crate::sidecar::merge_shim_env_for_run,
         |request| send_gated_spawn(state, &repo_path, request),
     )?;
@@ -316,12 +319,9 @@ pub(crate) fn launch_run_for_story(
         story_id: story_id.to_string(),
         // `start_session` always inserts a fresh session with `status = 'running'`.
         status: "running".to_string(),
-        permission_mode: permission_mode.to_string(),
+        permission_mode: kind.launch_policy().permission_mode.to_string(),
     })
 }
-
-/// The permission mode a Story started from the board runs in (ADR 0001): Flywheel picks it.
-const STORY_START_PERMISSION_MODE: &str = "acceptEdits";
 
 /// The developer's Start (docs/mvp-spec.md §2, Ready → Running): refuse unless the Story is
 /// Ready, create its worktree and branch and launch a session there, then move it to Running.
@@ -346,7 +346,7 @@ pub fn story_start(
         id: outcome.run_id,
         story_id,
         status: "running".to_string(),
-        permission_mode: STORY_START_PERMISSION_MODE.to_string(),
+        permission_mode: SessionKind::Story.launch_policy().permission_mode.to_string(),
     })
 }
 
@@ -370,8 +370,8 @@ pub(crate) fn start_ready_story(
         return Err(format!("Start needs a Ready Story; this one is {current}"));
     }
     let PreparedLaunch { outcome, repo_path, env } =
-        prepare_launch(&mut conn, story_id, STORY_START_PERMISSION_MODE, instruction)?;
-    spawn_prepared_run(db, conn, &outcome, env, STORY_START_PERMISSION_MODE, merge_shim, |request| {
+        prepare_launch(&mut conn, story_id, SessionKind::Story, instruction)?;
+    spawn_prepared_run(db, conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
         send(&repo_path, request)
     })?;
 
@@ -1120,11 +1120,31 @@ pub struct PendingPermissionRequestDto {
     /// `destructive::DestructiveCategory::as_str()`'s kebab-case names) for a destructive one —
     /// selects the destructive-action gate card's variant (plan 03-12).
     pub destructive_category: Option<String>,
+    /// The rule the card's "Always allow" field is pre-filled with (`Bash(npm test)`), or `None` for
+    /// a Gated action, whose card offers no rule at all.
+    pub suggested_rule: Option<String>,
+}
+
+/// The rule a request's card pre-fills: the request's own suggested pattern
+/// ([`flywheel_core::permission_pattern::suggested_rule`]), or `None` for a Gated action, which no
+/// rule may ever cover.
+pub(crate) fn card_suggested_rule(
+    tool_name: &str,
+    input_payload: Option<&str>,
+    destructive_category: Option<&str>,
+) -> Option<String> {
+    match destructive_category {
+        Some(_) => None,
+        None => Some(flywheel_core::permission_pattern::suggested_rule(tool_name, input_payload)),
+    }
 }
 
 impl From<flywheel_core::query::permissions::PendingPermissionRequest> for PendingPermissionRequestDto {
     fn from(r: flywheel_core::query::permissions::PendingPermissionRequest) -> Self {
+        let suggested_rule =
+            card_suggested_rule(&r.tool_name, r.input_payload.as_deref(), r.destructive_category.as_deref());
         Self {
+            suggested_rule,
             id: r.id,
             tool_name: r.tool_name,
             input_payload: r.input_payload,
@@ -1931,13 +1951,48 @@ mod tests {
         (conn, story.id)
     }
 
-    #[test]
-    fn validate_permission_mode_accepts_exactly_the_four_named_values_and_rejects_others() {
-        for mode in ACCEPTED_PERMISSION_MODES {
-            assert!(validate_permission_mode(mode).is_ok(), "{mode} should be accepted");
+    fn outcome_for_request() -> StartRunOutcome {
+        StartRunOutcome {
+            run_id: "01J0000000000000000000000".to_string(),
+            worktree_path: "/abs/worktree".to_string(),
+            branch: "story/fly-1".to_string(),
+            prompt: "p".to_string(),
         }
-        let err = validate_permission_mode("yolo").expect_err("an unrecognised mode should be rejected");
-        assert!(err.contains("yolo"), "the error must name the rejected value, got: {err}");
+    }
+
+    #[test]
+    fn a_routine_card_pre_fills_the_suggested_rule_and_a_gated_card_offers_none() {
+        let payload = Some(r#"{"command":"npm test"}"#);
+        assert_eq!(card_suggested_rule("Bash", payload, None).as_deref(), Some("Bash(npm test)"));
+        assert_eq!(card_suggested_rule("WebFetch", None, None).as_deref(), Some("WebFetch"));
+        assert_eq!(card_suggested_rule("Bash", Some(r#"{"command":"git push"}"#), Some("git-push")), None);
+    }
+
+    #[test]
+    fn a_story_spawn_request_asks_for_accept_edits_a_broad_bash_allow_and_the_permission_prompt() {
+        let request = spawn_request(&outcome_for_request(), &std::collections::HashMap::new(), SessionKind::Story);
+        assert_eq!(request["permissionMode"], "acceptEdits");
+        assert_eq!(
+            request["allowedTools"],
+            serde_json::json!([
+                "Bash",
+                "mcp__flywheel-permissions__task_list",
+                "mcp__flywheel-permissions__task_add",
+                "mcp__flywheel-permissions__task_update"
+            ])
+        );
+        assert_eq!(request["disallowedTools"], serde_json::json!([]));
+        assert_eq!(request["permissionPrompt"], true);
+    }
+
+    #[test]
+    fn a_shaping_spawn_request_is_read_only_and_never_wired_to_the_permission_prompt() {
+        let request = spawn_request(&outcome_for_request(), &std::collections::HashMap::new(), SessionKind::Shaping);
+        assert_eq!(request["permissionMode"], "dontAsk");
+        assert_eq!(request["permissionPrompt"], false);
+        assert_eq!(request["allowedTools"], serde_json::json!(["Read", "Glob", "Grep", "mcp__flywheel-proposals"]));
+        let denied: Vec<String> = serde_json::from_value(request["disallowedTools"].clone()).unwrap();
+        assert!(denied.iter().any(|t| t == "Bash"), "{denied:?}");
     }
 
     #[test]
@@ -2598,7 +2653,7 @@ mod tests {
     }
 
     fn launch(conn: &mut Connection, story_id: &str) -> Result<PreparedLaunch, String> {
-        prepare_launch(conn, story_id, "acceptEdits", "")
+        prepare_launch(conn, story_id, SessionKind::Story, "")
     }
 
     /// `(sessions rows for the Story, all events rows)` — a refusal must change neither.
@@ -2681,7 +2736,7 @@ mod tests {
         let db = std::sync::Mutex::new(conn);
         let mut guard = db.lock().unwrap();
         let prepared = launch(&mut guard, &story).expect("the session row is inserted");
-        let err = spawn_prepared_run(&db, guard, &prepared.outcome, prepared.env, "acceptEdits", merge_shim, send)
+        let err = spawn_prepared_run(&db, guard, &prepared.outcome, prepared.env, SessionKind::Story, merge_shim, send)
             .expect_err("the injected step fails");
         (err, db, story, repo)
     }
@@ -2758,6 +2813,16 @@ mod tests {
             assert_eq!(session_status, "running");
             let sent = sent.expect("one spawn request was sent");
             assert_eq!(sent["worktreePath"], serde_json::Value::String(path), "the session runs in the Story's worktree");
+            // The session kind, not the developer, decides the mode: Start takes none, and the
+            // request and the session row both carry the Story kind's.
+            assert_eq!(sent["permissionMode"], "acceptEdits");
+            assert_eq!(sent["allowedTools"][0], "Bash");
+            let recorded: String = conn
+                .query_row("SELECT permission_mode FROM sessions WHERE id = ?1", rusqlite::params![outcome.run_id], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert_eq!(recorded, "acceptEdits");
         });
     }
 

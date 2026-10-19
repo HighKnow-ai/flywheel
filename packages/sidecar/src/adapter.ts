@@ -393,7 +393,16 @@ export interface StartSessionOptions {
   runId: string;
   worktreePath: string;
   prompt: string;
+  /** The session kind's permission mode, chosen by the Rust core (ADR 0001); never the developer's. */
   permissionMode: string;
+  /** Tools that run without asking (`--allowedTools`), as the Rust core's launch policy names them. */
+  allowedTools?: string[];
+  /** Tools refused without asking (`--disallowedTools`). */
+  disallowedTools?: string[];
+  /** `false` when the session must never raise a permission request (a shaping session): the
+   * permission-prompt tool is not wired, so whatever the mode does not allow is refused. Omitted
+   * means `true`. */
+  permissionPrompt?: boolean;
   /** Additional environment variables to merge over `process.env` for the spawned child —
    * resolved credentials arrive here from the Rust core and are never read from disk by the
    * sidecar itself. */
