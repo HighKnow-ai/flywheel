@@ -11,7 +11,7 @@
 //! branch head by the caller, never stored.
 
 use anyhow::Context;
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 
 use crate::domain::actor::assert_human_actor_in_tx;
 use crate::domain::{now, record_event, EventScope};
@@ -69,13 +69,26 @@ pub fn set_check(
     command: &str,
     timeout_secs: Option<i64>,
 ) -> anyhow::Result<Check> {
+    let tx = conn.transaction()?;
+    let check = set_check_in_tx(&tx, actor_id, criterion_id, command, timeout_secs)?;
+    tx.commit()?;
+    Ok(check)
+}
+
+/// [`set_check`] inside the caller's transaction, human-only all the same.
+pub(crate) fn set_check_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    criterion_id: &str,
+    command: &str,
+    timeout_secs: Option<i64>,
+) -> anyhow::Result<Check> {
     let command = command.trim();
     anyhow::ensure!(!command.is_empty(), "a Check needs a command");
     let timeout_secs = timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS);
     anyhow::ensure!(timeout_secs > 0, "a Check's timeout must be positive");
     let now = now();
-    let tx = conn.transaction()?;
-    assert_human_actor_in_tx(&tx, actor_id)?;
+    assert_human_actor_in_tx(tx, actor_id)?;
     let (story_id, epic_id, project_id): (String, String, String) = tx
         .query_row(
             "SELECT c.story_id, s.epic_id, s.project_id FROM acceptance_criteria c
@@ -106,7 +119,7 @@ pub fn set_check(
         }
     };
     record_event(
-        &tx,
+        tx,
         &project_id,
         "check",
         &id,
@@ -116,7 +129,6 @@ pub fn set_check(
         &serde_json::json!({ "command": command, "label": format!("Set the Check to `{command}`") }),
         &now,
     )?;
-    tx.commit()?;
     Ok(Check { id, criterion_id: criterion_id.to_string(), command: command.to_string(), timeout_secs })
 }
 
