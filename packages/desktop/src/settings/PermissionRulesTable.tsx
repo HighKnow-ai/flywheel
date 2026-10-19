@@ -26,7 +26,7 @@ import "../styles/admin-surfaces.css";
 /** The exact copy from 02-UI-SPEC.md's Copywriting Contract ("Settings — permission rules, empty
  * state") — tells the user where rules come from rather than just reporting their absence. */
 const EMPTY_STATE_COPY =
-  "No rules yet — they're created from a permission request's \"Allow this tool for this project from now on\" action.";
+  "No rules yet — they're created from a permission request's \"Always allow this pattern in this project\" action.";
 
 interface RuleRow extends PermissionRuleDto {
   projectName: string;

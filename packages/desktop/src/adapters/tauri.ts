@@ -412,14 +412,11 @@ export interface SessionDto {
 
 /**
  * Start a fresh agent run on `storyId` (D-30: always fresh, never `--resume`). Thin typed wrapper
- * over `session_start`.
+ * over `session_start`. It takes no permission mode: the session kind decides it (ADR 0001), and
+ * the returned `permissionMode` says which one it was.
  */
-export async function startSession(
-  storyId: string,
-  permissionMode: string,
-  instruction?: string,
-): Promise<SessionDto> {
-  return invokeCommand<SessionDto>("session_start", { storyId, permissionMode, instruction });
+export async function startSession(storyId: string, instruction?: string): Promise<SessionDto> {
+  return invokeCommand<SessionDto>("session_start", { storyId, instruction });
 }
 
 /**
@@ -768,8 +765,11 @@ export interface PendingPermissionRequestDto {
   toolName: string;
   inputPayload: string | null;
   createdAt: string;
-  /** `null` for a routine request, or a `DestructiveCategory` kebab-case name for a destructive one. */
+  /** `null` for a routine request, or a `DestructiveCategory` kebab-case name for a Gated action. */
   destructiveCategory: string | null;
+  /** The rule the card's Always allow field is pre-filled with (`Bash(npm test)`); `null` for a
+   * Gated action, which no rule may cover. */
+  suggestedRule: string | null;
 }
 
 /** Every pending permission request for `sessionId`, oldest first. Read-only. */
@@ -952,6 +952,8 @@ export interface BlockedQueueEntryDto {
   inputPayload: string | null;
   createdAt: string;
   destructiveCategory: string | null;
+  /** The rule the card pre-fills; `null` for a Gated action. */
+  suggestedRule: string | null;
   sessionId: string;
   projectId: string;
   projectName: string;

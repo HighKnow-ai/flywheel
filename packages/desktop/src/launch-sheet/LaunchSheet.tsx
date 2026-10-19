@@ -23,10 +23,6 @@ import { startSession, storyGet } from "../adapters/tauri";
 import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
 import "../session/session.css";
 
-/** The permission mode every run started from this sheet uses (ADR 0001). Flywheel picks the mode;
- * the sheet offers no choice. */
-const RUN_PERMISSION_MODE = "acceptEdits";
-
 const INSTRUCTION_PLACEHOLDER = "Anything else the agent should know for this run? (optional)";
 
 function launchSheetStoryQueryKey(storyId: string) {
@@ -88,7 +84,8 @@ export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
     startingRef.current = true;
     setStarting(true);
     setError(null);
-    startSession(storyId as string, RUN_PERMISSION_MODE, instruction)
+    // No permission mode is sent: the session kind decides it, never the developer (ADR 0001).
+    startSession(storyId as string, instruction)
       .then((run) => onStarted(run.id))
       .catch((err: unknown) => {
         startingRef.current = false;

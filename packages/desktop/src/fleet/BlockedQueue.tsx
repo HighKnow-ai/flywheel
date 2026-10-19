@@ -14,10 +14,8 @@
  * and `false` to every other. That owner is marked in words and by a left rule, never by colour alone.
  * Draining a queue may be quick; it may never become approving in bulk.
  *
- * Measured, DEFERRED-REVIEW D-REV-01: a destructive Bash command is refused by the PreToolUse hook
- * and never raises a request at all, so this list will mostly show routine requests. The destructive
- * variant (Deny leading) still renders because that gate is defended at a different layer, not
- * because the queue expects to see it often.
+ * A Gated action raised by the shim lands here like any other request, with Deny leading and no
+ * standing rule offered.
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { answerPermissionRequest, type BlockedQueueEntryDto } from "../adapters/tauri";
@@ -41,8 +39,13 @@ export interface BlockedQueueProps {
 export function BlockedQueue({ entries, now }: BlockedQueueProps) {
   const queryClient = useQueryClient();
 
-  async function onAnswer(entry: BlockedQueueEntryDto, requestId: string, decision: PermissionDecision) {
-    await answerPermissionRequest(requestId, decision);
+  async function onAnswer(
+    entry: BlockedQueueEntryDto,
+    requestId: string,
+    decision: PermissionDecision,
+    rule?: string,
+  ) {
+    await answerPermissionRequest(requestId, decision, rule);
     // Re-read rather than edit local state, so the keyboard owner moves because the list moved.
     void queryClient.invalidateQueries({ queryKey: blockedQueueQueryKey() });
     void queryClient.invalidateQueries({ queryKey: fleetQueryKey() });
@@ -110,9 +113,10 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
                   toolName: entry.toolName,
                   inputPayload: entry.inputPayload,
                   destructiveCategory: entry.destructiveCategory,
+                  suggestedRule: entry.suggestedRule,
                 },
               ]}
-              onAnswer={(requestId, decision) => onAnswer(entry, requestId, decision)}
+              onAnswer={(requestId, decision, rule) => onAnswer(entry, requestId, decision, rule)}
             />
           </div>
         );

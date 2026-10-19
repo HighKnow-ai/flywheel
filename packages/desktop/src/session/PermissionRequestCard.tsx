@@ -1,27 +1,32 @@
 /**
- * The permission-request card (AGNT-06, D-37, D-38) — ONE component, mounted in two places
- * (02-UI-SPEC.md Discretion #6): the `feed` variant inline in the session transcript
- * (`SessionSurface.tsx`, plan 02-06 Task 2) and the `compact` variant inside the 480px item detail
- * panel (`ItemDetailPanel.tsx`, same Story). Both instances read the SAME
- * `usePendingPermissionRequests(sessionId)` query (`board/useBoardQuery.ts`) and answer through
- * the same `answerPermissionRequest` mutation, so answering in either place resolves both within
- * one pushed-delta cycle (E3's `partial` consideration) — this component itself is presentational:
- * it renders whatever pending set its caller passes and reports back through `onAnswer`.
+ * The permission-request card (AGNT-06, docs/mvp-spec.md §4.1, ADR 0001) — ONE component, mounted
+ * in three places: the `feed` variant inline in the session transcript (`SessionSurface.tsx`), the
+ * fleet's blocked queue (`fleet/BlockedQueue.tsx`), and the `compact` variant wherever a narrow
+ * panel shows a Story's pending request. Every mount reads the same pending set and answers
+ * through the same `answerPermissionRequest` wrapper, so answering in one place resolves them all.
+ * This component itself is presentational: it renders whatever pending set its caller passes and
+ * reports back through `onAnswer`.
  *
- * Reusing one component across two mount points is the pattern `ParentPicker`/`PriorityPicker`
- * already established in this codebase (02-UI-SPEC.md's own citation) — do not build a second
- * card.
+ * Two variants, chosen by the request's `destructiveCategory`:
+ *
+ * - **A request** (no category) offers **Allow once** and **Always allow `<pattern>` in this
+ *   project**. The pattern is pre-filled with the backend's suggested rule
+ *   (`permission_pattern::suggested_rule`) and is editable, in Claude Code's syntax
+ *   (`Bash(npm test:*)`). The backend may refuse the rule (one that could cover a Gated action);
+ *   its reason is shown and the request stays pending. Deny stays available as the quiet answer.
+ * - **A Gated action** (a category) offers only **Allow once** and **Deny**, with Deny leading. It
+ *   shows a plain-language sentence for its category and the literal command. No rule can ever
+ *   cover a Gated action, so this variant renders no pattern field and no Always allow action at
+ *   all — absent, never disabled.
  *
  * **Not dismissible — deliberately, and this is the one place in the whole product that departs
  * from the shared Escape ladder** (`state/keyboard.ts`'s own doc comment on `EscapeLayer`,
- * T-02-16). This file owns no local key handler, no `onKeyDown` prop and no dismissable-layer
- * wrapper — closing the card without answering would hide the blocked state rather than resolve
- * it, and the agent would still be blocked. Its three keyboard shortcuts (`a`/`d`/Shift+A) resolve
- * through `state/keyboard.ts`'s shared `useRegionBindings` hook instead — the window-level
- * listener lives in that module, not here, which is what keeps this file's own key/dismissal
- * surface at zero (this Story's own structural verify gate).
+ * T-02-16). This file owns no local key handler and no dismissable-layer wrapper — closing the
+ * card without answering would hide the blocked state rather than resolve it. Its three keyboard
+ * shortcuts (`a`/`d`/Shift+A) resolve through `state/keyboard.ts`'s shared `useRegionBindings`
+ * hook, which ignores keys typed into the pattern field.
  */
-import { useRef, useState, type ComponentType } from "react";
+import { useId, useRef, useState, type ComponentType, type FormEvent } from "react";
 import * as icons from "lucide-react";
 import { MARKS_BY_ID } from "../legend/marks";
 import { useRegionBindings } from "../state/keyboard";
@@ -30,80 +35,75 @@ import "./session.css";
 export type PermissionRequestCardVariant = "feed" | "compact";
 
 /** One pending `permission_requests` row, projected for this card — mirrors
- * `adapters/tauri.ts`'s `PendingPermissionRequestDto` field-for-field.
+ * `adapters/tauri.ts`'s `PendingPermissionRequestDto`.
  *
- * `destructiveCategory` (plan 03-12, D-55/D-56) is `null` for the routine variant, or one of
- * `destructive::DestructiveCategory::as_str()`'s eight kebab-case names for the destructive-action
- * gate — the field this component's own variant selection branches on. */
+ * `destructiveCategory` is `null` for a request, or one of
+ * `destructive::DestructiveCategory::as_str()`'s kebab-case names for a Gated action.
+ * `suggestedRule` is the rule the Always allow field is pre-filled with; `null` (or absent) for a
+ * Gated action, and for a caller that has none, in which case the field starts from the tool name. */
 export interface PendingPermissionRequest {
   id: string;
   toolName: string;
   inputPayload: string | null;
   destructiveCategory: string | null;
+  suggestedRule?: string | null;
 }
 
-/**
- * Per-category consequence copy (D-56, `03-UI-SPEC.md` § "Destructive-action gate card"), keyed
- * by `DestructiveCategory::as_str()`'s exact strings. Three of the six named categories interpolate
- * the target branch name — but `permission_requests.destructive_category` stores only the category
- * string, never the branch the classifier matched (03-07's classifier never persists it
- * alongside the category, per this plan's own flagged assumption). This is a best-effort re-parse
- * of the SAME raw command text already rendered in the Mono payload block beneath it, mirroring
- * `destructive.rs`'s own positional argv parsing at renderer-display precision only — it is NEVER
- * used for any gating decision, since the real classification already happened server-side before
- * this card ever mounted. A command whose branch this parse cannot resolve falls back to a
- * category-correct sentence that simply omits the name, never to the fully generic
- * `UNCATEGORIZED_CONSEQUENCE` — the category itself is still known even when the branch is not.
- */
-function commandTokensFromPayload(inputPayload: string | null): string[] {
-  if (!inputPayload) return [];
-  let command: unknown;
+/** The command a Bash call would run, read from its raw input payload. `undefined` for a payload
+ * that is not a JSON object carrying a string `command`. Display only: the classification already
+ * happened server-side before this card mounted, and nothing here decides anything. */
+function commandFromPayload(inputPayload: string | null): string | undefined {
+  if (!inputPayload) return undefined;
   try {
-    command = (JSON.parse(inputPayload) as { command?: unknown }).command;
+    const command = (JSON.parse(inputPayload) as { command?: unknown }).command;
+    return typeof command === "string" ? command : undefined;
   } catch {
-    return [];
+    return undefined;
   }
-  if (typeof command !== "string") return [];
-  return command.trim().split(/\s+/).filter(Boolean);
 }
 
-/** A push refspec's destination branch — either the bare form (`main`), the `refs/heads/`-
- * qualified form, or the destination half of a `src:dst` refspec — mirrors
- * `destructive.rs::refspec_targets_branch`'s own parsing at display precision. */
+function commandTokensFromPayload(inputPayload: string | null): string[] {
+  return (commandFromPayload(inputPayload) ?? "").trim().split(/\s+/).filter(Boolean);
+}
+
+/** Skip git's global options (`-C <dir>`, `-c k=v`, `--git-dir=…`) so `tokens[1]` is the
+ * subcommand, mirroring the classifier's own skip at display precision. */
+function withoutGitGlobalOptions(tokens: string[]): string[] {
+  if (tokens[0] !== "git") return tokens;
+  const rest: string[] = [];
+  let i = 1;
+  while (i < tokens.length && tokens[i].startsWith("-")) {
+    const option = tokens[i];
+    i += option === "-C" || option === "-c" || option === "--git-dir" || option === "--work-tree" ? 2 : 1;
+  }
+  for (; i < tokens.length; i += 1) rest.push(tokens[i]);
+  return ["git", ...rest];
+}
+
+/** A push refspec's destination branch — the bare form (`main`), the `refs/heads/`-qualified
+ * form, or the destination half of a `src:dst` refspec. */
 function refspecTargetBranch(refspec: string): string {
   const dst = refspec.includes(":") ? (refspec.split(":").pop() ?? refspec) : refspec;
   return dst.startsWith("refs/heads/") ? dst.slice("refs/heads/".length) : dst;
 }
 
-/** `["git", "push", ...args]` — the last non-flag positional is the conventional refspec
- * destination for `git push <remote> <refspec>`. */
+/** `["git", "push", ...args]` — the last non-flag positional is the refspec destination for
+ * `git push <remote> <refspec>`; a lone positional is the remote, which names no branch. */
 function pushDestinationBranch(tokens: string[]): string | undefined {
   const positionals = tokens.slice(2).filter((t) => !t.startsWith("-"));
-  const refspec = positionals[positionals.length - 1];
-  return refspec ? refspecTargetBranch(refspec) : undefined;
+  if (positionals.length < 2) return undefined;
+  return refspecTargetBranch(positionals[positionals.length - 1]);
 }
 
-/** `["git", "branch", ...args]` — the first non-flag positional after `branch` is the
- * conventional target for `git branch -d/-D/--delete <name>`. */
+/** `["git", "branch", ...args]` — the first non-flag positional is the target of
+ * `git branch -d/-D/--delete <name>`. */
 function branchDeleteTarget(tokens: string[]): string | undefined {
   const positionals = tokens.slice(2).filter((t) => !t.startsWith("-"));
   return positionals[0];
 }
 
-/** `["git", "push", ...args]` — the push spelling of a remote branch deletion (D-56's
- * "Branch deletion" category is reachable from a push as of plan 03-14's `classify_push`).
- * `branchDeleteTarget`'s "first non-flag positional" rule is WRONG here: for `git push origin
- * --delete feature-x` that positional is the REMOTE, not the branch — exactly the defect this
- * resolver exists to fix (03-16-PLAN.md Task 2). Resolves in two steps, mirroring
- * `destructive.rs::classify_push`'s own two spellings:
- *
- * 1. The empty-source colon refspec (`:feature-x`, `:refs/heads/feature-x`) — if any token
- *    begins with a colon, `refspecTargetBranch` already strips everything up to the last colon
- *    and the `refs/heads/` prefix, so this resolves correctly with no new parsing.
- * 2. Otherwise, the `--delete`/`-d` flag spelling: take the non-flag positionals after the
- *    subcommand and return the LAST one, but only when there is more than one — with a single
- *    positional the only thing named is the remote, and returning it would reproduce the exact
- *    wrong sentence this resolver exists to prevent. */
+/** The push spelling of a remote branch deletion: an empty-source refspec (`:feature-x`), or the
+ * last positional after `--delete`/`-d` when more than the remote is named. */
 function pushDeleteTarget(tokens: string[]): string | undefined {
   const colonRefspec = tokens.find((token) => token.startsWith(":"));
   if (colonRefspec) return refspecTargetBranch(colonRefspec);
@@ -111,65 +111,88 @@ function pushDeleteTarget(tokens: string[]): string | undefined {
   return positionals.length > 1 ? positionals[positionals.length - 1] : undefined;
 }
 
+/** `["git", "worktree", "remove", ...args]` — the worktree path being removed. */
+function worktreeRemoveTarget(tokens: string[]): string | undefined {
+  const positionals = tokens.slice(3).filter((t) => !t.startsWith("-"));
+  return positionals[0];
+}
+
+/** What a publishing command publishes to, from its program and subcommand. */
+function publishSentence(tokens: string[]): string {
+  const [program, sub, verb] = tokens;
+  if (program === "npm") return "This would publish a package to the npm registry, where anyone can install it.";
+  if (program === "cargo") return "This would publish this crate to crates.io. A published version can't be deleted.";
+  if (program === "gh" && sub === "pr" && verb === "merge") return "This would merge a pull request on GitHub.";
+  if (program === "gh" && sub === "release") return "This would change a release on GitHub, where others can see it.";
+  return "This would publish something beyond this machine, where others can see it.";
+}
+
 type ConsequenceResolver = (inputPayload: string | null) => string;
 
-const DESTRUCTIVE_CONSEQUENCE: Record<string, ConsequenceResolver> = {
+/** One plain-language sentence per Gated action category (docs/mvp-spec.md §4.1's list), keyed by
+ * `DestructiveCategory::as_str()`'s exact strings. A sentence names its target when the command
+ * text says it, and falls back to a category-correct sentence without the name when it does not. */
+const GATED_CONSEQUENCE: Record<string, ConsequenceResolver> = {
+  "git-push": (payload) => {
+    const branch = pushDestinationBranch(withoutGitGlobalOptions(commandTokensFromPayload(payload)));
+    return branch
+      ? `This would push ${branch} to the remote, where others can see it.`
+      : "This would push commits to the remote, where others can see them.";
+  },
   "force-push": (payload) => {
-    const branch = pushDestinationBranch(commandTokensFromPayload(payload));
+    const branch = pushDestinationBranch(withoutGitGlobalOptions(commandTokensFromPayload(payload)));
     return branch
       ? `This would force-push to ${branch}, overwriting any commits already there.`
       : "This would force-push, overwriting any commits already on the remote branch.";
   },
-  "branch-deletion": (payload) => {
-    const tokens = commandTokensFromPayload(payload);
-    // The subcommand token (index 1) dispatches which resolver applies: a push-shaped deletion
-    // resolves via `pushDeleteTarget`, everything else (namely `git branch -D <name>`) keeps the
-    // existing `branchDeleteTarget` — its "first non-flag positional" rule is correct there and
-    // this Story changes nothing about that path.
-    const branch = tokens[1] === "push" ? pushDeleteTarget(tokens) : branchDeleteTarget(tokens);
-    return branch ? `This would delete the branch ${branch}.` : "This would delete a branch on this remote.";
-  },
   "default-branch-push": (payload) => {
-    const branch = pushDestinationBranch(commandTokensFromPayload(payload));
+    const branch = pushDestinationBranch(withoutGitGlobalOptions(commandTokensFromPayload(payload)));
     return branch
       ? `This would push directly to ${branch}, the project's main branch.`
       : "This would push directly to the project's main branch.";
   },
+  "branch-deletion": (payload) => {
+    const tokens = withoutGitGlobalOptions(commandTokensFromPayload(payload));
+    const branch = tokens[1] === "push" ? pushDeleteTarget(tokens) : branchDeleteTarget(tokens);
+    return branch ? `This would delete the branch ${branch}.` : "This would delete a branch on this remote.";
+  },
+  "worktree-deletion": (payload) => {
+    const target = worktreeRemoveTarget(withoutGitGlobalOptions(commandTokensFromPayload(payload)));
+    return target
+      ? `This would delete the worktree at ${target}, which isn't this Story's, with any uncommitted work in it.`
+      : "This would delete a worktree that isn't this Story's, with any uncommitted work in it.";
+  },
   "hard-reset": () => "This would discard uncommitted changes in the worktree — permanently.",
   "force-clean": () => "This would delete every untracked and ignored file in the worktree — permanently.",
-  "history-rewrite": () => "This would rewrite commit history other work may depend on.",
+  "history-rewrite": () => "This would rewrite the history of a branch other than this Story's own.",
+  "recursive-delete": () => "This would delete files outside this Story's worktree — permanently.",
+  publish: (payload) => publishSentence(commandTokensFromPayload(payload)),
 };
 
-/** Generic, honest fallback (D-56's fail-closed rule applied to copy) for any category value this
- * record does not hold a key for — an unrecognised string OR a recognised-but-uncovered category
- * such as `recursive-delete` (the D-56 copy table names six of the classifier's seven named
- * categories; `recursive-delete` has no dedicated sentence in `03-UI-SPEC.md`'s own table). Never
- * a bare tool name or a silently-blank sentence — the raw command still renders in Mono beneath
- * this text either way. */
-const UNCATEGORIZED_CONSEQUENCE =
+/** Honest fallback for a category this table holds no sentence for. The literal command still
+ * renders beneath it. */
+const UNRECOGNISED_CONSEQUENCE =
   "This command can destroy work, and Flywheel doesn't recognise exactly what it would do.";
 
 function consequenceCopyFor(category: string, inputPayload: string | null): string {
-  const resolver = DESTRUCTIVE_CONSEQUENCE[category];
-  return resolver ? resolver(inputPayload) : UNCATEGORIZED_CONSEQUENCE;
+  const resolver = GATED_CONSEQUENCE[category];
+  return resolver ? resolver(inputPayload) : UNRECOGNISED_CONSEQUENCE;
 }
 
 export type PermissionDecision = "allow" | "deny" | "allow_always";
 
 export interface PermissionRequestCardProps {
   variant: PermissionRequestCardVariant;
-  /** Every pending request for the run this card is mounted against, oldest first (E3's
-   * zero-one-many resolution: "stacked in creation order, each independently answerable" — never
-   * only the first). Renders nothing at all for an empty array — not an empty container, not a
-   * placeholder (E3 `empty`). */
+  /** Every pending request for the run this card is mounted against, oldest first, each
+   * independently answerable. Renders nothing at all for an empty array. */
   requests: PendingPermissionRequest[];
-  onAnswer: (requestId: string, decision: PermissionDecision) => Promise<void>;
-  /** Whether this card instance may own `a`/`d`/Shift+A. Omitted, the card keeps its original rule:
-   * the first request of the array it received is the keyboard owner. Passed `false`, NO row in this
-   * instance listens. Every row of every instance registers its own window-level listener with no
-   * deduplication (`useRegionBindings`), so a surface mounting one card per blocked agent (the fleet's
-   * blocked queue) must pass `true` to exactly one of them — otherwise one `a` press answers every
-   * agent across every project, destructive requests included. */
+  /** `rule` is passed only with `allow_always`: the edited pattern field, in Claude Code's syntax.
+   * A rejection's message is shown to the developer when the rule was refused. */
+  onAnswer: (requestId: string, decision: PermissionDecision, rule?: string) => Promise<void>;
+  /** Whether this card instance may own `a`/`d`/Shift+A. Omitted, the first request of the array is
+   * the keyboard owner. Passed `false`, NO row in this instance listens. A surface mounting one card
+   * per blocked agent (the fleet's blocked queue) must pass `true` to exactly one of them, or one
+   * `a` press answers every agent at once. */
   keyboardEnabled?: boolean;
 }
 
@@ -181,8 +204,14 @@ function Icon({ name, size = 16 }: { name: string; size?: number }) {
   return <Component size={size} strokeWidth={2} />;
 }
 
-/** One request row's own answering/error state — independent per request id, so answering one
- * card never touches a sibling's state (E3 `partial`/zero-one-many). */
+/** The reason a rejected answer carries: Tauri rejects with the command's error string. */
+function rejectionReason(err: unknown): string {
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+/** One request row's own answering/error state — independent per request id. */
 interface RowState {
   answering: boolean;
   error: string | null;
@@ -196,86 +225,86 @@ function PermissionRequestRow({
 }: {
   request: PendingPermissionRequest;
   variant: PermissionRequestCardVariant;
-  /** True only for the oldest pending request — the one `a`/`d`/Shift+A apply to when more than
-   * one request is showing at once. A deliberate, documented simplification: concurrent requests
-   * on one run are rare (02-05-SUMMARY's own D4 measured exactly two), and every request stays
-   * independently answerable by click regardless of which one currently owns the keyboard. */
+  /** True only for the row that owns `a`/`d`/Shift+A. */
   keyboardEnabled: boolean;
-  onAnswer: (requestId: string, decision: PermissionDecision) => Promise<void>;
+  onAnswer: (requestId: string, decision: PermissionDecision, rule?: string) => Promise<void>;
 }) {
   const [state, setState] = useState<RowState>({ answering: false, error: null });
-  // A destructive category selects the strong variant; `null` is the routine variant unchanged
-  // from before this plan (03-UI-SPEC.md's own "populated" resolution — the routine layout is
-  // never reached for a destructive category, and vice versa).
-  const isDestructive = request.destructiveCategory !== null;
-  const glyph = MARKS_BY_ID[isDestructive ? "destructive-gate" : "blocked-indicator"];
-  const consequenceCopy = isDestructive
-    ? consequenceCopyFor(request.destructiveCategory as string, request.inputPayload)
-    : null;
+  const [pattern, setPattern] = useState<string>(request.suggestedRule ?? request.toolName);
+  const patternId = useId();
+  const isGated = request.destructiveCategory !== null;
+  const glyph = MARKS_BY_ID[isGated ? "destructive-gate" : "blocked-indicator"];
+  const consequenceCopy = isGated ? consequenceCopyFor(request.destructiveCategory as string, request.inputPayload) : null;
+  // A Bash call shows the literal command it would run; any other tool shows its raw input.
+  const literal = commandFromPayload(request.inputPayload) ?? request.inputPayload ?? "";
 
-  // `state.answering` alone is not a sufficient guard against two activations in the same
-  // synchronous tick, because React has not necessarily flushed the state update — and the
-  // `disabled` attribute with it — before a second click fires; a ref reads and writes
-  // synchronously and has no such window. `state.answering` stays the source of truth for what
-  // the UI renders. This is the destructive-gate card, so a double-click here would double-answer
-  // a destructive permission request (mirrors `item-detail/RunsSection.tsx`'s `ackActingRef`,
-  // which itself cites `item-detail/WorktreeSummary.tsx`'s `actingRef` as the original fix,
-  // 03-16-PLAN.md Task 1).
+  // `state.answering` alone cannot stop two activations in one synchronous tick, because React has
+  // not necessarily flushed the `disabled` attribute before the second click fires; a ref reads
+  // and writes synchronously and has no such window.
   const answeringRef = useRef(false);
 
   async function answer(decision: PermissionDecision) {
-    // A second activation while the ref is set invokes nothing — the synchronous-tick guard.
     if (answeringRef.current) return;
+    const rule = decision === "allow_always" ? pattern.trim() : undefined;
+    if (decision === "allow_always" && !rule) {
+      setState({ answering: false, error: "Enter a pattern to always allow, such as Bash(npm test:*)." });
+      return;
+    }
     answeringRef.current = true;
     setState({ answering: true, error: null });
     try {
-      await onAnswer(request.id, decision);
-      // On success this row disappears once the shared pending-set query re-reads (Task 2) — no
-      // local "answered" state to hold here, and the ref is deliberately never reset: the row
-      // unmounts when that happens, which is what removes it. Resetting on success would reopen
-      // the same window this guard exists to close, for the brief span between the resolved
-      // promise and the unmount.
-    } catch {
-      // Clear the ref before setting the error state (mirrors `acknowledge()` in
-      // `RunsSection.tsx`) — a rejected answer must re-enable the row so a retry is possible; a
-      // guard that is never cleared on failure would permanently disable the only affordance that
-      // unblocks a waiting agent.
+      if (rule === undefined) {
+        await onAnswer(request.id, decision);
+      } else {
+        await onAnswer(request.id, decision, rule);
+      }
+      // On success the row unmounts once the shared pending set re-reads; the ref is deliberately
+      // never reset, so the window between the resolved promise and the unmount stays closed.
+    } catch (err) {
+      // A rejected answer re-enables the row so a retry is possible. A refused rule says why.
       answeringRef.current = false;
-      setState({ answering: false, error: "Could not send your answer. Try again." });
+      setState({
+        answering: false,
+        error:
+          decision === "allow_always"
+            ? `Flywheel didn't save that rule: ${rejectionReason(err)}`
+            : "Could not send your answer. Try again.",
+      });
     }
   }
 
-  // The destructive variant reuses these SAME two action ids through this SAME
-  // `useRegionBindings` call — no new entry in `state/keyboard.ts`, only which button each
-  // visually occupies differs (03-UI-SPEC.md Keyboard Map Additions). `Shift+A` is inert on this
-  // variant per that same section ("has no effect... since it renders no allow-always action to
-  // trigger") — gated here, in this row's own handler, not by touching the shared binding table.
+  function submitRule(event: FormEvent) {
+    event.preventDefault();
+    void answer("allow_always");
+  }
+
+  // `Shift+A` is inert on a Gated action: it has no Always allow action to trigger.
   useRegionBindings(
     "permission-card",
     "permission-card",
-    // A row that does not own the keyboard registers no handler at all, so a keypress finds nothing here.
     keyboardEnabled
       ? {
           "answer-permission-allow": () => void answer("allow"),
           "answer-permission-deny": () => void answer("deny"),
           "answer-permission-allow-always": () => {
-            if (!isDestructive) void answer("allow_always");
+            if (!isGated) void answer("allow_always");
           },
         }
       : {},
   );
 
   const payloadMaxHeight = variant === "compact" ? 160 : 240;
+  const mono = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
   return (
     <div
       role="group"
       aria-label={`${request.toolName} wants to:`}
-      className={`session-card${isDestructive ? " session-card-destructive" : ""}`}
+      className={`session-card${isGated ? " session-card-destructive" : ""}`}
     >
-      {isDestructive && (
+      {isGated && (
         <span className="type-heading" style={{ color: "var(--destructive-text-rack)" }}>
-          Destructive action — needs your OK
+          Gated action — needs your OK every time
         </span>
       )}
 
@@ -283,7 +312,7 @@ function PermissionRequestRow({
         <span
           aria-hidden="true"
           style={{
-            color: isDestructive ? "var(--destructive-text-rack)" : "var(--blocked-text-rack)",
+            color: isGated ? "var(--destructive-text-rack)" : "var(--blocked-text-rack)",
             flexShrink: 0,
             display: "inline-flex",
           }}
@@ -307,9 +336,10 @@ function PermissionRequestRow({
 
       <pre
         className="type-body"
+        data-field="literal"
         style={{
           margin: 0,
-          fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+          fontFamily: mono,
           whiteSpace: "pre-wrap",
           overflowWrap: "anywhere",
           maxHeight: payloadMaxHeight,
@@ -317,17 +347,15 @@ function PermissionRequestRow({
           color: "var(--text-primary-rack)",
         }}
       >
-        {request.inputPayload ?? ""}
+        {literal}
       </pre>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
         <div style={{ display: "flex", gap: "var(--space-sm)" }}>
-          {isDestructive ? (
+          {isGated ? (
             <>
-              {/* Reversed emphasis (03-UI-SPEC.md § "Destructive-action gate card", the load-bearing
-                  decision this plan adds): Deny takes the filled/primary position a routine card's
-                  Allow occupies, repurposing approve-by-muscle-memory as the safety mechanism rather
-                  than fighting it with a delay or a typed confirmation. */}
+              {/* Reversed emphasis: Deny takes the lead position a request's Allow once occupies,
+                  so approve-by-muscle-memory lands on the safe answer. */}
               <button
                 type="button"
                 disabled={state.answering}
@@ -342,7 +370,7 @@ function PermissionRequestRow({
                 onClick={() => void answer("allow")}
                 className="control-edge session-action type-body"
               >
-                Allow, just this once
+                Allow once
               </button>
             </>
           ) : (
@@ -353,10 +381,9 @@ function PermissionRequestRow({
                 onClick={() => void answer("allow")}
                 className="control-edge session-action session-action-lead type-body"
               >
-                Allow
+                Allow once
               </button>
-              {/* Deny is the secondary answer: text and a caret, no box (the "← Board" / disclosure device). It was a
-                  1px box beside a 2px box, so the two read as interchangeable (08.1-17 closure). */}
+              {/* Deny is the quiet answer: text and a caret, no box. */}
               <button
                 type="button"
                 disabled={state.answering}
@@ -369,28 +396,35 @@ function PermissionRequestRow({
             </>
           )}
         </div>
-        {/* The tertiary allow-always action is conditionally ABSENT from the destructive variant —
-            not rendered-and-disabled — so it can never regress back in for a destructive category
-            (D-57). `disabled` is never used to hide it; the whole button is omitted from the tree. */}
-        {/* The permanent grant is the highest-consequence answer, so it is the furthest from the two quick ones: it
-            sits below a hairline gutter, and its scope is carried by weight on the words, not by an underline. */}
-        {!isDestructive && (
-          <div className="session-grant">
-            <button
-              type="button"
+        {/* The standing rule is absent from a Gated action's card — never rendered-and-disabled —
+            because no rule may ever cover one. It sits below a hairline gutter, away from the two
+            quick answers, with its pattern pre-filled and editable. */}
+        {!isGated && (
+          <form className="session-grant session-grant-form" onSubmit={submitRule}>
+            <label htmlFor={patternId} className="type-label session-grant-label">
+              Pattern
+            </label>
+            <input
+              id={patternId}
+              value={pattern}
+              onChange={(e) => setPattern(e.target.value)}
               disabled={state.answering}
-              onClick={() => void answer("allow_always")}
-              className="session-text-action type-label"
-            >
-              Allow this tool <strong>for this project</strong> from now on
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              className="control-edge session-field session-grant-pattern type-body"
+              style={{ fontFamily: mono }}
+            />
+            <button type="submit" disabled={state.answering} className="session-text-action type-label">
+              Always allow this pattern <strong>in this project</strong>
               <span aria-hidden="true">›</span>
             </button>
-          </div>
+          </form>
         )}
       </div>
 
       {state.error && (
-        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)", overflowWrap: "anywhere" }}>
           {state.error}
         </p>
       )}

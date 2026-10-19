@@ -460,8 +460,8 @@ export function SessionSurface({
   const pendingQuery = usePendingPermissionRequests(sessionId);
   const pendingRequests = pendingQuery.data ?? [];
 
-  async function handleAnswer(requestId: string, decision: PermissionDecision) {
-    await answerPermissionRequest(requestId, decision);
+  async function handleAnswer(requestId: string, decision: PermissionDecision, rule?: string) {
+    await answerPermissionRequest(requestId, decision, rule);
   }
 
   // The terminal status word arrives through the same pushed delta a live `agent:event` push

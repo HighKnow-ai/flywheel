@@ -329,7 +329,7 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
 
     expect(
       await screen.findByText(
-        'No rules yet — they\'re created from a permission request\'s "Allow this tool for this project from now on" action.',
+        'No rules yet — they\'re created from a permission request\'s "Always allow this pattern in this project" action.',
       ),
     ).toBeInTheDocument();
   });
@@ -368,7 +368,7 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          'No rules yet — they\'re created from a permission request\'s "Allow this tool for this project from now on" action.',
+          'No rules yet — they\'re created from a permission request\'s "Always allow this pattern in this project" action.',
         ),
       ).toBeInTheDocument(),
     );
@@ -423,7 +423,7 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
     expect(screen.getByTestId("permission-rules-skeleton")).toBeInTheDocument();
     expect(
       screen.queryByText(
-        'No rules yet — they\'re created from a permission request\'s "Allow this tool for this project from now on" action.',
+        'No rules yet — they\'re created from a permission request\'s "Always allow this pattern in this project" action.',
       ),
     ).not.toBeInTheDocument();
   });
