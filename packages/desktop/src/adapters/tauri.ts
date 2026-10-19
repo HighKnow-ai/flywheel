@@ -462,6 +462,15 @@ export async function storyStopped(storyId: string): Promise<StoppedDto | null> 
  * Resume a Stopped Story: a fresh session in its worktree from the Context packet, with the
  * optional one-line note. Never `claude --resume`. The core refuses a Story that is not Stopped.
  */
+/**
+ * The developer's Drop: the Story moves to Dropped and its worktree and branch are removed,
+ * uncommitted work included. The record stays readable. The core refuses while a session is live
+ * and for a Merged Story.
+ */
+export async function storyDrop(storyId: string): Promise<void> {
+  return invokeCommand<void>("story_drop", { storyId });
+}
+
 export async function storyResume(storyId: string, note?: string): Promise<SessionDto> {
   return invokeCommand<SessionDto>("story_resume", { storyId, note: note ?? null });
 }

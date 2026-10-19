@@ -14,6 +14,7 @@ import type { RunSummaryDto, SessionSummaryDto, StoryDto } from "../../adapters/
 const storyListForProject = vi.fn();
 const storyStopped = vi.fn();
 const storyResume = vi.fn();
+const storyDrop = vi.fn();
 const sessionsForStory = vi.fn();
 const sessionSummariesForStory = vi.fn();
 
@@ -25,6 +26,7 @@ vi.mock("../../adapters/tauri", async () => {
     storyListForProject: (...args: unknown[]) => storyListForProject(...args),
     storyStopped: (...args: unknown[]) => storyStopped(...args),
     storyResume: (...args: unknown[]) => storyResume(...args),
+    storyDrop: (...args: unknown[]) => storyDrop(...args),
     sessionsForStory: (...args: unknown[]) => sessionsForStory(...args),
     sessionSummariesForStory: (...args: unknown[]) => sessionSummariesForStory(...args),
     taskList: () => Promise.resolve([]),
@@ -75,6 +77,7 @@ beforeEach(() => {
   storyListForProject.mockReset().mockResolvedValue([story("running")]);
   storyStopped.mockReset().mockResolvedValue({ sessionId: "01JSESSIONDEAD", endingReason: "crash", endedAt: "2026-10-19T10:00:00Z" });
   storyResume.mockReset().mockResolvedValue({ id: "01JSESSIONNEXT", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
+  storyDrop.mockReset().mockResolvedValue(undefined);
   sessionsForStory.mockReset().mockResolvedValue([]);
   sessionSummariesForStory.mockReset().mockResolvedValue([]);
 });
@@ -128,6 +131,45 @@ describe("StoryBoard: a Stopped Story (issue #54)", () => {
     fireEvent.click(await within(row).findByRole("button", { name: "Resume FLY-2" }));
     fireEvent.click(within(row).getByRole("button", { name: "Start the new session for FLY-2" }));
     expect(await within(row).findByText("Resume needs a Stopped Story")).toBeInTheDocument();
+  });
+});
+
+describe("StoryBoard: Drop (issue #54)", () => {
+  it("drops a Stopped Story only after the developer confirms", async () => {
+    renderBoard();
+    const row = await storyRow();
+    fireEvent.click(await within(row).findByRole("button", { name: "Drop FLY-2" }));
+    expect(storyDrop).not.toHaveBeenCalled();
+    expect(within(row).getByText(/removes its worktree and branch, uncommitted work included/)).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button", { name: "Confirm drop of FLY-2" }));
+    await waitFor(() => expect(storyDrop).toHaveBeenCalledWith("s1"));
+  });
+
+  it("cancelling the confirmation drops nothing", async () => {
+    renderBoard();
+    const row = await storyRow();
+    fireEvent.click(await within(row).findByRole("button", { name: "Drop FLY-2" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Keep FLY-2" }));
+    expect(storyDrop).not.toHaveBeenCalled();
+    expect(within(row).queryByRole("button", { name: "Confirm drop of FLY-2" })).toBeNull();
+  });
+
+  it("shows the core's refusal while a session is live", async () => {
+    storyStopped.mockResolvedValue(null);
+    storyDrop.mockRejectedValue(new Error("FLY-2 has a live session. Stop the session first, then drop it."));
+    renderBoard();
+    const row = await storyRow();
+    fireEvent.click(await within(row).findByRole("button", { name: "Drop FLY-2" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Confirm drop of FLY-2" }));
+    expect(await within(row).findByText(/Stop the session first/)).toBeInTheDocument();
+  });
+
+  it("offers no Drop on a Merged or Dropped Story", async () => {
+    storyListForProject.mockResolvedValue([story("merged")]);
+    renderBoard();
+    const row = await storyRow();
+    await within(row).findByText("Merged");
+    expect(within(row).queryByRole("button", { name: "Drop FLY-2" })).toBeNull();
   });
 });
 

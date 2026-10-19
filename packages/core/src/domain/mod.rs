@@ -33,6 +33,7 @@ pub mod session_ending;
 pub mod session_summary;
 pub mod settings;
 pub mod story;
+pub mod story_drop;
 pub mod task;
 pub mod task_tool;
 pub mod worktree;

@@ -19,6 +19,7 @@ import {
   sessionSummariesForStory,
   sessionsForStory,
   storyContextPacketSize,
+  storyDrop,
   storyListForProject,
   storyResume,
   storyStart,
@@ -202,6 +203,7 @@ function StoryRow({
         </button>
       )}
       {stopped && <ResumeControl story={story} onStarted={onStarted} />}
+      {story.state !== "merged" && story.state !== "dropped" && <DropControl story={story} />}
       {story.state === "ready" && (
         <button
           type="button"
@@ -317,6 +319,85 @@ function ResumeControl({ story, onStarted }: { story: StoryDto; onStarted: Story
         </p>
       )}
     </form>
+  );
+}
+
+/**
+ * Drop (docs/mvp-spec.md §2): the developer ends the Story on purpose. Two steps, because it
+ * removes the worktree and branch with any uncommitted work. The core refuses while a session is
+ * live; its reason is shown as is. `board:changed` refreshes the row.
+ */
+function DropControl({ story }: { story: StoryDto }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function handleDrop() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    storyDrop(story.id)
+      .then(() => setConfirming(false))
+      .catch((err: unknown) => setError(errorText(err)))
+      .finally(() => setBusy(false));
+  }
+
+  if (!confirming) {
+    return (
+      <>
+        <button
+          type="button"
+          aria-label={`Drop ${story.key}`}
+          onClick={() => {
+            setError(null);
+            setConfirming(true);
+          }}
+          className="control-edge session-action type-body"
+        >
+          Drop
+        </button>
+        {error && (
+          <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text-rack)" }}>
+            {error}
+          </p>
+        )}
+      </>
+    );
+  }
+  return (
+    <div
+      role="group"
+      aria-label={`Drop ${story.key}?`}
+      style={{ flexBasis: "100%", display: "flex", flexWrap: "wrap", gap: "var(--space-sm)", alignItems: "center" }}
+    >
+      <span className="type-body" style={{ flex: 1, minWidth: "14em" }}>
+        {`Drop ${story.key}? This removes its worktree and branch, uncommitted work included. The Story's record stays readable.`}
+      </span>
+      <button
+        type="button"
+        aria-label={`Confirm drop of ${story.key}`}
+        onClick={handleDrop}
+        disabled={busy}
+        className="control-edge session-action type-body"
+        style={{ color: "var(--destructive-text-rack)" }}
+      >
+        {busy ? "Dropping…" : "Drop"}
+      </button>
+      <button
+        type="button"
+        aria-label={`Keep ${story.key}`}
+        onClick={() => setConfirming(false)}
+        disabled={busy}
+        className="control-edge session-action type-body"
+      >
+        Keep
+      </button>
+      {error && (
+        <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text-rack)" }}>
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 

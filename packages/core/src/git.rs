@@ -452,6 +452,35 @@ pub fn worktree_remove(repo_path: &Path, worktree_path: &Path) -> anyhow::Result
     git_at(repo_path, &["worktree", "remove", &worktree_path_str])
 }
 
+/// [`worktree_remove`] with `--force`, for Drop (docs/mvp-spec.md §2): the developer ended the Story
+/// on purpose, so its uncommitted work goes with it. Same guards: never the repository itself, never
+/// a path outside the Flywheel worktree root.
+pub fn worktree_remove_force(repo_path: &Path, worktree_path: &Path) -> anyhow::Result<Output> {
+    if repo_path.as_os_str().is_empty() || worktree_path.as_os_str().is_empty() {
+        bail!("worktree_remove_force refused: an empty path");
+    }
+    if worktree_path == repo_path {
+        bail!("worktree_remove_force refused: worktree_path {worktree_path:?} equals repo_path");
+    }
+    let root = worktree_root_from_env();
+    if !worktree_path.starts_with(&root) {
+        bail!(
+            "worktree_remove_force refused: worktree_path {worktree_path:?} is not under the Flywheel worktree root {root:?}"
+        );
+    }
+    let worktree_path_str = worktree_path.to_string_lossy().into_owned();
+    git_at(repo_path, &["worktree", "remove", "--force", &worktree_path_str])
+}
+
+/// Delete a Story's branch with `git branch -D`, for Drop. Refuses the project's base branch, a
+/// name that is not a `flywheel/` Story branch, and an empty name.
+pub fn branch_delete_force(repo_path: &Path, branch: &str, base_branch: &str) -> anyhow::Result<Output> {
+    if branch == base_branch || !branch.starts_with(crate::branch::FLYWHEEL_BRANCH_NAMESPACE) {
+        bail!("branch_delete_force refused: {branch:?} is not a Story branch");
+    }
+    git_at(repo_path, &["branch", "-D", "--", branch])
+}
+
 /// The verdict of a merge dry run (plan 08-03, REVW-04).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum MergePrecheck {
