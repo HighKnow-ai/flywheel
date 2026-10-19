@@ -39,10 +39,12 @@ pub struct RunRow {
     pub tokens_out: Option<i64>,
     pub external_session_id: Option<String>,
     pub acknowledged_at: Option<String>,
+    /// How the session ended (`sessions.ending_reason`, docs/mvp-spec.md §4.5); `None` while live.
+    pub ending_reason: Option<String>,
 }
 
 const RUNS_FOR_STORY_SQL: &str = "SELECT id, story_id, status, started_at, ended_at, cost_usd, \
-    tokens_in, tokens_out, external_session_id, acknowledged_at FROM sessions WHERE story_id = ?1 \
+    tokens_in, tokens_out, external_session_id, acknowledged_at, ending_reason FROM sessions WHERE story_id = ?1 \
     ORDER BY started_at DESC, id DESC LIMIT ?2 OFFSET ?3";
 
 fn row_to_run(row: &rusqlite::Row) -> rusqlite::Result<RunRow> {
@@ -57,6 +59,7 @@ fn row_to_run(row: &rusqlite::Row) -> rusqlite::Result<RunRow> {
         tokens_out: row.get(7)?,
         external_session_id: row.get(8)?,
         acknowledged_at: row.get(9)?,
+        ending_reason: row.get(10)?,
     })
 }
 
@@ -76,6 +79,30 @@ pub fn runs_for_story(
         .query_map(params![story_id, limit, offset], row_to_run)?
         .collect::<Result<Vec<_>, _>>();
     rows.context("failed to list sessions for the Story")
+}
+
+/// The dead session a Stopped Story shows (docs/mvp-spec.md §2 "Attention", §4.5).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoppedSession {
+    pub session_id: String,
+    pub ending_reason: Option<String>,
+    pub ended_at: Option<String>,
+}
+
+const STOPPED_SESSION_SQL: &str = "SELECT r.id, r.ending_reason, r.ended_at FROM stories s \
+    JOIN sessions r ON r.id = (SELECT id FROM sessions WHERE story_id = s.id ORDER BY started_at DESC, id DESC LIMIT 1) \
+    WHERE s.id = ?1 AND s.state = 'running' AND r.status NOT IN ('running', 'blocked')";
+
+/// Whether `story_id` is Stopped, worked out from its sessions and never stored: a Running Story
+/// whose latest session is dead. A Running Story only leaves Running by handing off, so a dead
+/// latest session on a Running Story is one that never handed off. Returns that session, or `None`
+/// when the Story is not Stopped (not Running, a live session, or no session yet).
+pub fn stopped_session_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Option<StoppedSession>> {
+    conn.query_row(STOPPED_SESSION_SQL, params![story_id], |row| {
+        Ok(StoppedSession { session_id: row.get(0)?, ending_reason: row.get(1)?, ended_at: row.get(2)? })
+    })
+    .optional()
+    .context("failed to work out whether the Story is Stopped")
 }
 
 /// A Story's worktree summary (02-UI-SPEC.md "Worktree summary") — `branch`/`path` as

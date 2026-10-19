@@ -21,6 +21,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::domain::event::{append_event, next_sequence};
+use crate::domain::session_ending::{classify_session_closed, record_ending_in_tx, EndingReason};
 use crate::domain::worktree::ensure_worktree;
 use crate::ids::{is_ulid, new_id};
 use crate::runtime_protocol::{self, KillRecordRead};
@@ -183,6 +184,7 @@ fn close_session_in_tx(
     tx: &Transaction,
     run_id: &str,
     status: SessionStatus,
+    ending: EndingReason,
     cost_usd: Option<f64>,
     tokens_in: Option<i64>,
     tokens_out: Option<i64>,
@@ -194,6 +196,7 @@ fn close_session_in_tx(
     };
 
     let agent_id = agent_actor_id(tx)?;
+    record_ending_in_tx(tx, run_id, ending, &crate::domain::actor::system_actor(tx)?.id)?;
 
     tx.execute(
         "UPDATE sessions SET status = ?1, cost_usd = ?2, tokens_in = ?3, tokens_out = ?4, ended_at = ?5 WHERE id = ?6",
@@ -206,7 +209,8 @@ fn close_session_in_tx(
         "field": "session",
         "before": "running",
         "after": status.as_str(),
-        "label": format!("Agent run {}", status.as_str()),
+        "ending_reason": ending.as_str(),
+        "label": format!("Agent run {}: {}", status.as_str(), ending.words()),
     });
     append_event(
         tx,
@@ -240,8 +244,15 @@ pub fn close_session(
     tokens_in: Option<i64>,
     tokens_out: Option<i64>,
 ) -> anyhow::Result<()> {
+    let ending = match status {
+        SessionStatus::Completed => EndingReason::EndedWithoutHandOff,
+        SessionStatus::Interrupted => EndingReason::StoppedByDeveloper,
+        SessionStatus::Abandoned => EndingReason::AppQuit,
+        SessionStatus::Failed => EndingReason::Crash,
+        SessionStatus::Running | SessionStatus::Blocked => EndingReason::Unknown,
+    };
     let tx = conn.transaction()?;
-    close_session_in_tx(&tx, run_id, status, cost_usd, tokens_in, tokens_out)?;
+    close_session_in_tx(&tx, run_id, status, ending, cost_usd, tokens_in, tokens_out)?;
     tx.commit().context("failed to commit close_session transaction")?;
     Ok(())
 }
@@ -376,10 +387,20 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
     // (T-04-07), so a session is never terminal without a summary.
     let tx = conn.transaction()?;
 
-    close_session_in_tx(&tx, run_id, status, cost_usd, tokens_in, tokens_out)?;
+    // The hand-off moves the Story to In review while its session is still alive; a session that
+    // exits after it handed off, not one that stopped.
+    let handed_off: bool = tx.query_row(
+        "SELECT s.state IN ('in_review', 'merged') FROM sessions r JOIN stories s ON s.id = r.story_id WHERE r.id = ?1",
+        params![run_id],
+        |row| row.get(0),
+    )?;
+    let last_message = crate::session_log::last_assistant_message(run_id);
+    let ending = classify_session_closed(event, last_message.as_ref(), handed_off);
+
+    close_session_in_tx(&tx, run_id, status, ending, cost_usd, tokens_in, tokens_out)?;
 
     if crate::domain::session_summary::latest_summary_for_run(&tx, run_id)?.is_none() {
-        crate::domain::session_summary::synthesize_fallback_summary(&tx, run_id, status.as_str())?;
+        crate::domain::session_summary::synthesize_fallback_summary(&tx, run_id, ending.words())?;
     }
 
     tx.commit().context("failed to commit apply_session_closed transaction")?;
@@ -453,6 +474,7 @@ pub fn interrupt_session_in_tx(tx: &Transaction, session_id: &str, actor_id: &st
         params![now, session_id],
     )
     .context("failed to interrupt the session")?;
+    record_ending_in_tx(tx, session_id, EndingReason::StoppedByDeveloper, actor_id)?;
 
     let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
@@ -522,6 +544,13 @@ pub fn mark_abandoned(conn: &mut Connection, run_id: &str, actor_id: &str, reaso
 
     tx.execute("UPDATE sessions SET status = 'abandoned', ended_at = ?1 WHERE id = ?2", params![now, run_id])
         .context("failed to mark the session abandoned")?;
+    // The reconciler finds a session the app left behind; a kill the developer chose at launch is
+    // the one abandonment that is theirs.
+    let ending = match reason {
+        Some(KILLED_BY_USER_AT_LAUNCH) => EndingReason::StoppedByDeveloper,
+        _ => EndingReason::AppQuit,
+    };
+    record_ending_in_tx(&tx, run_id, ending, actor_id)?;
 
     let sequence = next_sequence(&tx, &project_id, "local")?;
     let payload = serde_json::json!({
@@ -547,12 +576,15 @@ pub fn mark_abandoned(conn: &mut Connection, run_id: &str, actor_id: &str, reaso
     )?;
 
     if crate::domain::session_summary::latest_summary_for_run(&tx, run_id)?.is_none() {
-        crate::domain::session_summary::synthesize_fallback_summary(&tx, run_id, "abandoned")?;
+        crate::domain::session_summary::synthesize_fallback_summary(&tx, run_id, ending.words())?;
     }
 
     tx.commit().context("failed to commit mark_abandoned transaction")?;
     Ok(true)
 }
+
+/// The abandonment reason [`kill_orphan`] records: the developer killed a live orphan at launch.
+pub const KILLED_BY_USER_AT_LAUNCH: &str = "killed-by-user-at-launch";
 
 /// Every session still `running` or `blocked` when [`reconcile_sessions`] runs, joined to its
 /// Story for the recovery modal's key and title — one query, a compile-time literal.
@@ -710,7 +742,7 @@ pub fn kill_orphan(
         None => (0, false),
     };
 
-    mark_abandoned(conn, run_id, actor_id, Some("killed-by-user-at-launch"))?;
+    mark_abandoned(conn, run_id, actor_id, Some(KILLED_BY_USER_AT_LAUNCH))?;
     runtime_protocol::clear_run_runtime_files(run_id);
 
     if still_alive {

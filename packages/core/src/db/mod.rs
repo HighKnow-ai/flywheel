@@ -23,7 +23,10 @@ use self::backup::{backup_database_file, prune_backups, restore_from_backup, DEF
 /// The list starts at the MVP baseline (ADR 0003): v0.1's migrations 0001–0024 were replaced by it,
 /// and a v0.1 database is moved aside by [`move_aside_legacy_database`] rather than upgraded.
 fn migration_source_list() -> Vec<&'static str> {
-    vec![include_str!("migrations/0001_baseline.sql")]
+    vec![
+        include_str!("migrations/0001_baseline.sql"),
+        include_str!("migrations/0002_session_endings.sql"),
+    ]
 }
 
 /// Public accessor for [`migration_source_list`] — the same ordered SQL sources [`MIGRATIONS`]

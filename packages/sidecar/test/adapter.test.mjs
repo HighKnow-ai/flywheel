@@ -1042,3 +1042,26 @@ test("emitStreamEvents: every event from one line claims its own sequence number
   assert.deepEqual(seen.map((e) => e.seq), [0, 1]);
   assert.equal(session.nextSeq, 2, "the next line must not reuse a number already emitted");
 });
+
+test("normaliseStreamEvent: a result line's stop reason round-trips onto stopReason (issue #54)", () => {
+  const line = JSON.stringify({ type: "result", subtype: "success", is_error: false, stop_reason: "refusal" });
+  const event = normaliseStreamEvent(JSON.parse(line), line, "run-1", 0, AT);
+  assert.equal(event.stopReason, "refusal");
+  const bare = JSON.stringify({ type: "result", subtype: "success", stop_reason: null });
+  assert.equal("stopReason" in normaliseStreamEvent(JSON.parse(bare), bare, "run-1", 0, AT), false);
+});
+
+test("emitStreamEvents: the run's last result keeps what the ending label reads (issue #54)", () => {
+  const session = { nextSeq: 1, lastResult: undefined };
+  const line = JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: true,
+    terminal_reason: "api_error",
+    stop_reason: "end_turn",
+  });
+  emitStreamEvents(session, () => {}, JSON.parse(line), line, "run-1", 0, AT);
+  assert.equal(session.lastResult.isError, true);
+  assert.equal(session.lastResult.terminalReason, "api_error");
+  assert.equal(session.lastResult.stopReason, "end_turn");
+});

@@ -286,7 +286,9 @@ fn apply_session_closed_behaves_identically_for_completed_and_failed() {
     // process-wide env var, and both iterations otherwise mint a project with the identical key
     // prefix/first-Story key ("FLY-…"), which would collide on the same physical worktree
     // directory on disk if the root were shared across iterations.
-    for reason in ["completed", "failed"] {
+    // The stub names the ending label (issue #54), read from the event: neither carries a result
+    // line, so a `completed` close is too thin to call and a `failed` one is a crash.
+    for (reason, label) in [("completed", "unknown"), ("failed", "crash")] {
         with_scratch_worktree_root(|_| {
             let (mut conn, _actor_id, _project, _repo_dir, _story, run) = seeded_story_and_run();
             let event = serde_json::json!({
@@ -302,7 +304,7 @@ fn apply_session_closed_behaves_identically_for_completed_and_failed() {
                 .expect("a summary row must exist");
             assert!(summary.is_stub, "reason {reason} must still synthesize a stub summary");
             let note = &summary.next_session_must_know;
-            assert!(note.contains(reason), "the stub must name the close reason {reason}: {note}");
+            assert!(note.contains(label), "the stub must name the ending label {label}: {note}");
         });
     }
 }

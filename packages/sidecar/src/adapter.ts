@@ -212,6 +212,9 @@ export interface ResultEvent extends AgentEventBase {
    * exists in this repository. Absent entirely — never a present-but-empty string — when the
    * backend's own result line declared none. */
   terminalReason?: string;
+  /** Issue #54: the wire's `stop_reason` on the result line (`end_turn`, `refusal`, ...). Absent
+   * when the line carried none, or `null` (a crash). */
+  stopReason?: string;
 }
 
 /** A line that parsed as JSON but matched no known shape — still carries `raw`, never dropped. */
@@ -238,6 +241,12 @@ export interface SessionClosedEvent extends AgentEventBase {
     sessionId?: string;
     inputTokens?: number;
     outputTokens?: number;
+    /** Issue #54: the result line's own error flag, terminal reason and stop reason — what the core
+     * reads the session's ending label from (docs/mvp-spec.md §4.5). Each absent when the line
+     * carried none. */
+    isError?: boolean;
+    terminalReason?: string;
+    stopReason?: string;
   };
   /** The backend's own explanation of why the session ended (G-02-2) — the child's retained
    * stderr tail, or a spawn error's message. Present only when there is one to show; a session
