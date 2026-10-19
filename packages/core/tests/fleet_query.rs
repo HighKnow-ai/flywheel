@@ -113,8 +113,11 @@ fn bands_run_blocked_awaiting_review_abandoned_running_then_terminal() {
     let review = mk(&mut f, "t-rev", "in_review", Run { status: "completed", started_at: "2026-01-01T04:00:00Z", ended_at: Some("2026-01-01T04:30:00Z"), ..Default::default() });
     let blocked = mk(&mut f, "t-blk", "running", Run { status: "blocked", started_at: "2026-01-01T05:00:00Z", ..Default::default() });
     let merged = mk(&mut f, "t-merged", "merged", Run { status: "completed", started_at: "2026-01-01T06:00:00Z", ended_at: Some("2026-01-01T06:30:00Z"), ..Default::default() });
+    // Waiting on you is derived from a pending request on the live session, not from its status.
+    pending(&f, &p.id, &blocked, "req-band", "2026-01-01T05:30:00Z");
 
     let list = fleet_rows(&f.conn, 50).expect("fleet_rows should succeed");
+    assert_eq!(list.rows[0].fleet_state, "blocked");
     // Terminal band orders by ended_at ascending: interrupted (01:10), failed (01:30), merged (06:30).
     assert_eq!(ids(&list), vec![blocked, review, abandoned, running, interrupted, failed, merged]);
     assert_eq!(list.total_rows, 7);
@@ -393,15 +396,16 @@ fn the_queue_spans_projects_and_carries_each_project_name() {
 }
 
 #[test]
-fn a_run_with_two_pending_requests_is_one_entry_carrying_the_earlier() {
+fn a_run_with_two_pending_requests_is_two_entries_oldest_first() {
+    // One entry per waiting request (#57): the sidebar counts waiting requests, not sessions.
     let mut f = fixture();
     let a = project(&mut f, "Alpha", "ALP");
     let r = insert_run(&mut f, &a.id, &Run { status: "blocked", started_at: "2026-01-01T00:00:00Z", ..Default::default() });
     pending(&f, &a.id, &r, "req-late", "2026-01-01T03:00:00Z");
     pending(&f, &a.id, &r, "req-early", "2026-01-01T02:00:00Z");
     let q = blocked_queue(&f.conn, 50).unwrap();
-    assert_eq!(q.len(), 1);
-    assert_eq!(q[0].request_id, rid("req-early"));
+    let order: Vec<&str> = q.iter().map(|e| e.request_id.as_str()).collect();
+    assert_eq!(order, vec![rid("req-early").as_str(), rid("req-late").as_str()]);
 }
 
 #[test]

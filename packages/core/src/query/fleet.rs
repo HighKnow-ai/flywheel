@@ -3,12 +3,14 @@
 //! of `query::permissions` / `query::recovery`'s per-project reads, and keeps their discipline —
 //! the statement below is a single literal `&str`, bound through `params![]`.
 //!
-//! * **Derived, never stored (D-168).** `fleet_state` is a `CASE` alias in the select list: a
-//!   `completed` session whose Story is not yet merged or dropped reads `awaiting_review`; every
-//!   other case is the session status unchanged. No column holds it, so it cannot disagree with
-//!   `sessions.status` or `stories.state`.
+//! * **Derived, never stored (D-168).** `fleet_state` is a `CASE` alias in the select list: a live
+//!   session holding a pending request reads `blocked`, which every surface words "Waiting on you"
+//!   (docs/mvp-spec.md §2 "Attention"), whatever `sessions.status` says; a `completed` session
+//!   whose Story is not yet merged or dropped reads `awaiting_review`; every other case is the
+//!   session status, with a live `blocked` session that holds nothing reading `running`. No column
+//!   holds it, so it cannot disagree with the pending requests or `stories.state`.
 //! * **Banding and ordering happen here, in SQL (D-03).** The renderer only groups. Band order is
-//!   fixed (blocked, awaiting review, abandoned, running, then the terminal states), longest
+//!   fixed (waiting on you, awaiting review, abandoned, running, then the terminal states), longest
 //!   waiting first inside a band, with the session id as the final key so two reads of an
 //!   unchanged database return byte-identical order.
 //! * **Which rows appear (D-165).** A live session (`running`/`blocked`) always appears. A terminal
@@ -28,7 +30,7 @@ use crate::domain::worktree::{porcelain_entries, reclaim_eligibility, ReclaimDis
 /// here; this clamp is the backstop for any other caller.
 pub const FLEET_ROWS_MAX_LIMIT: usize = 200;
 
-/// One row of the fleet. `fleet_state` is one of `running`, `blocked`, `awaiting_review`,
+/// One row of the fleet. `fleet_state` is one of `running`, `blocked` (Waiting on you), `awaiting_review`,
 /// `completed`, `failed`, `interrupted`, `abandoned`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FleetRow {
@@ -45,8 +47,8 @@ pub struct FleetRow {
     pub fleet_state: String,
     pub started_at: String,
     pub ended_at: Option<String>,
-    /// When the oldest still-pending permission request of this session was raised; `None` for a
-    /// session that is not waiting on one.
+    /// When the oldest still-pending request of this live session was raised; `None` for a
+    /// session that is not waiting on you.
     pub blocked_since: Option<String>,
     pub cost_usd: Option<f64>,
     pub tokens_in: Option<i64>,
@@ -74,13 +76,19 @@ pub const FLEET_SQL: &str = "SELECT * FROM ( \
         ar.story_id AS story_id, s.key AS story_key, s.title AS story_title, s.state AS story_state, \
         ar.status AS run_status, \
         CASE \
+            WHEN ar.status IN ('running', 'blocked') AND EXISTS (SELECT 1 FROM permission_requests pr \
+                WHERE pr.session_id = ar.id AND pr.status = 'pending' AND pr.expired_at IS NULL) \
+                THEN 'blocked' \
+            WHEN ar.status = 'blocked' THEN 'running' \
             WHEN ar.status = 'completed' AND s.state NOT IN ('merged', 'dropped') \
                 THEN 'awaiting_review' \
             ELSE ar.status \
         END AS fleet_state, \
         ar.started_at AS started_at, ar.ended_at AS ended_at, \
-        (SELECT MIN(pr.created_at) FROM permission_requests pr \
-            WHERE pr.session_id = ar.id AND pr.status = 'pending' AND pr.expired_at IS NULL) AS blocked_since, \
+        CASE WHEN ar.status IN ('running', 'blocked') THEN \
+            (SELECT MIN(pr.created_at) FROM permission_requests pr \
+                WHERE pr.session_id = ar.id AND pr.status = 'pending' AND pr.expired_at IS NULL) \
+            END AS blocked_since, \
         ar.cost_usd AS cost_usd, ar.tokens_in AS tokens_in, ar.tokens_out AS tokens_out, \
         (SELECT t.title FROM tasks t WHERE t.story_id = ar.story_id AND t.state = 'doing' \
             LIMIT 1) AS doing_task_title \
@@ -145,9 +153,9 @@ pub fn fleet_rows(conn: &Connection, limit: usize) -> anyhow::Result<FleetList> 
 /// The hard ceiling on one blocked-queue window (T-10-05-04).
 pub const BLOCKED_QUEUE_MAX_LIMIT: usize = 200;
 
-/// One agent sitting at a pending permission request (FLEET-02, D-172): the request the card needs
-/// plus the session, project and Story the queue row names. One entry per session — its
-/// earliest-created pending request.
+/// One request waiting on you (FLEET-02, docs/mvp-spec.md §4.1): a Gated action or permission
+/// request held by a live session, plus the session, project and Story the queue row names. One
+/// entry per waiting request, so the queue's length is the sidebar's count of waiting requests.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockedQueueEntry {
     pub request_id: String,
@@ -166,8 +174,10 @@ pub struct BlockedQueueEntry {
 }
 
 /// `permissions::PENDING_REQUESTS_FOR_RUN_SQL`'s predicate and `created_at ASC, id ASC` tie-break,
-/// generalised across projects and inverted to one request per session by a correlated subselect.
-/// Only `blocked` sessions, so a cold backlog can never bury a live block.
+/// generalised across projects. Derived from the pending requests of LIVE sessions, never from
+/// `sessions.status = 'blocked'`: v0.1 filtered on that status, `answer_request` wrote `running`
+/// back after any answer, and a session still holding other requests vanished from the queue
+/// (issue #57). A request on an ended session is not waiting on anyone, so it never appears.
 pub const BLOCKED_QUEUE_SQL: &str = "SELECT pr.id, pr.tool_name, pr.input_payload, pr.created_at, \
         pr.destructive_category, ar.id, ar.project_id, p.name, p.key_prefix, \
         ar.story_id, s.key, s.title \
@@ -175,16 +185,11 @@ pub const BLOCKED_QUEUE_SQL: &str = "SELECT pr.id, pr.tool_name, pr.input_payloa
     JOIN sessions ar ON ar.id = pr.session_id \
     JOIN projects p ON p.id = ar.project_id AND p.hidden = 0 \
     JOIN stories s ON s.id = ar.story_id \
-    WHERE ar.status = 'blocked' AND pr.status = 'pending' AND pr.expired_at IS NULL \
-        AND pr.id = ( \
-            SELECT pr2.id FROM permission_requests pr2 \
-            WHERE pr2.session_id = ar.id AND pr2.status = 'pending' AND pr2.expired_at IS NULL \
-            ORDER BY pr2.created_at ASC, pr2.id ASC LIMIT 1) \
+    WHERE ar.status IN ('running', 'blocked') AND pr.status = 'pending' AND pr.expired_at IS NULL \
     ORDER BY pr.created_at ASC, pr.id ASC \
     LIMIT ?1";
 
-/// Every agent across every registered project currently blocked at a pending permission request,
-/// longest-waiting first, at most `limit` (clamped to [`BLOCKED_QUEUE_MAX_LIMIT`]).
+/// Every request waiting on you across every registered project, longest-waiting first, at most `limit` (clamped to [`BLOCKED_QUEUE_MAX_LIMIT`]).
 pub fn blocked_queue(conn: &Connection, limit: usize) -> anyhow::Result<Vec<BlockedQueueEntry>> {
     let limit = limit.min(BLOCKED_QUEUE_MAX_LIMIT) as i64;
     let mut stmt = conn.prepare(BLOCKED_QUEUE_SQL)?;

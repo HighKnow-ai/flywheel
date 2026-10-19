@@ -1,25 +1,26 @@
-//! Bounded, literal-SQL reads over `sessions`/`permission_requests` for D-37's "blocked" signal:
-//! `blocked_story_ids_for_project` and `blocked_count_for_project` (the project-rail count). Every
-//! statement below is a single literal `&str`, bound through `params![]`, never assembled by
-//! `format!`/string interpolation.
+//! Bounded, literal-SQL reads over `sessions`/`permission_requests` for the board's Waiting on you
+//! signal (docs/mvp-spec.md §2 "Attention"): `blocked_story_ids_for_project` and
+//! `blocked_count_for_project`. Every statement below is a single literal `&str`, bound through
+//! `params![]`, never assembled by `format!`/string interpolation.
 //!
-//! "Blocked" here means: a Story's MOST RECENT session (by `started_at`) is currently
-//! `status = 'blocked'`. A Story's older, already-terminal sessions never count.
+//! A Story is Waiting on you when one of its LIVE sessions (`running` or `blocked`) holds a pending
+//! request. It is derived from the pending rows, never from `sessions.status = 'blocked'`, which
+//! v0.1 read and which a single answer could reset while other requests still waited (issue #57).
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
 
-const BLOCKED_STORY_IDS_SQL: &str = "SELECT ar.story_id FROM sessions ar \
-    WHERE ar.project_id = ?1 AND ar.status = 'blocked' \
-    AND ar.started_at = (SELECT MAX(started_at) FROM sessions WHERE story_id = ar.story_id) \
+const BLOCKED_STORY_IDS_SQL: &str = "SELECT DISTINCT ar.story_id FROM sessions ar \
+    WHERE ar.project_id = ?1 AND ar.status IN ('running', 'blocked') \
+    AND EXISTS (SELECT 1 FROM permission_requests pr WHERE pr.session_id = ar.id AND pr.status = 'pending' AND pr.expired_at IS NULL) \
     ORDER BY ar.story_id ASC";
 
 const BLOCKED_COUNT_SQL: &str = "SELECT COUNT(DISTINCT ar.story_id) FROM sessions ar \
-    WHERE ar.project_id = ?1 AND ar.status = 'blocked' \
-    AND ar.started_at = (SELECT MAX(started_at) FROM sessions WHERE story_id = ar.story_id)";
+    WHERE ar.project_id = ?1 AND ar.status IN ('running', 'blocked') \
+    AND EXISTS (SELECT 1 FROM permission_requests pr WHERE pr.session_id = ar.id AND pr.status = 'pending' AND pr.expired_at IS NULL)";
 
-/// Every distinct Story id in `project_id` whose most recent session is `blocked` (D-37). A
-/// project with no sessions at all returns an empty vector, never an error.
+/// Every distinct Story id in `project_id` that is Waiting on you: a live session of it holds a
+/// pending request. A project with no sessions at all returns an empty vector, never an error.
 pub fn blocked_story_ids_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<String>> {
     let mut stmt = conn.prepare(BLOCKED_STORY_IDS_SQL)?;
     let rows = stmt
@@ -28,8 +29,7 @@ pub fn blocked_story_ids_for_project(conn: &Connection, project_id: &str) -> any
     rows.context("failed to list blocked Story ids for project")
 }
 
-/// The count of distinct Stories in `project_id` whose most recent session is `blocked` (D-37) —
-/// feeds the project-rail count. Always equal to `blocked_story_ids_for_project(..).len()`.
+/// The count of distinct Stories in `project_id` that are Waiting on you. Always equal to `blocked_story_ids_for_project(..).len()`.
 pub fn blocked_count_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<i64> {
     let count: i64 = conn
         .query_row(BLOCKED_COUNT_SQL, params![project_id], |row| row.get(0))
