@@ -176,6 +176,7 @@ fn main() {
             commands::task::task_list,
             commands::task::task_move,
             commands::task::task_rename,
+            commands::task::task_set_note,
             commands::task::task_set_state,
             commands::proposal::proposal_list_pending,
             commands::proposal::proposal_accept,

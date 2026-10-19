@@ -320,6 +320,8 @@ export interface TaskDto {
   state: string;
   droppedReason: string | null;
   rank: string;
+  /** What the agent (or the developer) wrote down while working the Task; `null` when there is none. */
+  note: string | null;
 }
 
 /** Add a Task at the end of a Story's checklist. */
@@ -340,6 +342,11 @@ export async function taskSetState(taskId: string, to: string, droppedReason?: s
 /** Give a Task a new title. */
 export async function taskRename(taskId: string, title: string): Promise<void> {
   await invokeCommand<void>("task_rename", { taskId, title });
+}
+
+/** Replace a Task's note; a blank note clears it. */
+export async function taskSetNote(taskId: string, note: string): Promise<void> {
+  await invokeCommand<void>("task_set_note", { taskId, note });
 }
 
 /** Move a Task just before `beforeTaskId` in its Story's checklist, or to the end when that is null. */

@@ -1,4 +1,4 @@
-//! `task_add` / `task_list` / `task_set_state` / `task_rename` / `task_move` — the Story checklist
+//! `task_add` / `task_list` / `task_set_state` / `task_rename` / `task_set_note` / `task_move` — the Story checklist
 //! (docs/mvp-spec.md §4.3). A Task is a step inside one Story, not a board item of its own; the
 //! developer can add, edit, reorder and drop Tasks at any time, and the Story's agent writes them
 //! through its board tool ([`handle_inbound_board_tool_request`], issue #52).
@@ -19,11 +19,21 @@ pub struct TaskDto {
     pub state: String,
     pub dropped_reason: Option<String>,
     pub rank: String,
+    /// What the agent (or the developer) wrote down while working the Task; `None` when empty.
+    pub note: Option<String>,
 }
 
 impl From<flywheel_core::domain::task::Task> for TaskDto {
     fn from(t: flywheel_core::domain::task::Task) -> Self {
-        Self { id: t.id, story_id: t.story_id, title: t.title, state: t.state, dropped_reason: t.dropped_reason, rank: t.rank }
+        Self {
+            id: t.id,
+            story_id: t.story_id,
+            title: t.title,
+            state: t.state,
+            dropped_reason: t.dropped_reason,
+            rank: t.rank,
+            note: t.note,
+        }
     }
 }
 
@@ -79,6 +89,21 @@ pub fn task_rename(state: State<AppState>, app: AppHandle, task_id: String, titl
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "tasks", &task_id);
     flywheel_core::domain::task::rename_task(&mut conn, &actor_id, &task_id, &title).map_err(|e| e.to_string())?;
+    drop(conn);
+    emit_board_changed(&app, project_id.as_deref(), "task", Some(&task_id));
+    Ok(())
+}
+
+/// Replace a Task's note (issue #96). A blank note clears it.
+#[tauri::command]
+pub fn task_set_note(state: State<AppState>, app: AppHandle, task_id: String, note: String) -> Result<(), String> {
+    if note.chars().count() > flywheel_core::domain::task::MAX_TASK_NOTE_LEN {
+        return Err(format!("note is at most {} characters", flywheel_core::domain::task::MAX_TASK_NOTE_LEN));
+    }
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let project_id = super::project_of(&conn, "tasks", &task_id);
+    flywheel_core::domain::task::set_task_note(&mut conn, &actor_id, &task_id, &note).map_err(|e| e.to_string())?;
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "task", Some(&task_id));
     Ok(())
