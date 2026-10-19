@@ -856,28 +856,6 @@ fn notify_context(conn: &Connection, run_id: &str) -> (String, String) {
     }
 }
 
-/// The notification a freshly pending permission request earns (D-174), or `None`. Only the
-/// `running` -> `blocked` edge notifies: a run that was already `blocked` and received a second
-/// concurrent request must not announce itself again (Finding 5, Pitfall 3).
-fn permission_transition(
-    conn: &Connection,
-    run_id: &str,
-    prior_status: Option<&str>,
-    tool_name: &str,
-) -> Option<crate::notify::Transition> {
-    if prior_status != Some("running") {
-        return None;
-    }
-    let (project_name, subject_label) = notify_context(conn, run_id);
-    Some(crate::notify::Transition {
-        run_id: run_id.to_string(),
-        project_name,
-        subject_label,
-        kind: crate::notify::TransitionKind::Blocked,
-        tool: Some(tool_name.to_string()),
-    })
-}
-
 /// The notification a closed session earns (D-174), or `None`. `Completed` and `Failed` only.
 /// `Interrupted` is user-initiated, and an already-terminal or backfilled-terminal outcome means
 /// nothing transitioned. Both exclusions fall out for free and need no extra guard: the Stop path
@@ -944,12 +922,6 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
     let Some(sidecar) = state.sidecar.as_ref() else { return };
     let Ok(mut conn) = state.db.lock() else { return };
 
-    // Read BEFORE the request is processed: processing blocks the run, so this is the only moment
-    // the prior status (the edge a notification needs) is still observable.
-    let prior_status: Option<String> = conn
-        .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![run_id], |r| r.get(0))
-        .ok();
-
     let outcome = match process_inbound_permission_request(
         &mut conn,
         run_id,
@@ -960,13 +932,8 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
         Ok(outcome) => outcome,
         Err(_) => return,
     };
-    // The banner's text is gathered with the connection still held, so it needs no second lock.
-    let transition = match &outcome {
-        PermissionRequestOutcome::Pending { .. } => {
-            permission_transition(&conn, run_id, prior_status.as_deref(), tool_name)
-        }
-        _ => None,
-    };
+    // No banner here: a request is announced only once it has waited about 30 s while the app is
+    // unfocused, which `notify::WaitingWatch` decides from the database (issue #57).
     let project_id = project_of(&conn, "sessions", run_id);
     drop(conn);
 
@@ -977,9 +944,6 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
         PermissionRequestOutcome::Pending { db_request_id } => {
             sidecar.register_pending_permission_request(&db_request_id, run_id, request_id);
             emit_board_changed(app, project_id.as_deref(), "session", Some(run_id));
-            if let Some(t) = transition {
-                crate::notify::push(t);
-            }
         }
         PermissionRequestOutcome::UnknownRun => {}
     }
@@ -2144,14 +2108,33 @@ mod tests {
 
     // --- Phase 10 plan 10-07: which transitions earn a notification (D-174) -------------------
 
+    /// Issue #57: a pending request is announced by the waiting poll, read from the database after
+    /// about 30 s while unfocused, never at the moment it is raised and never while focused.
     #[test]
-    fn a_running_run_that_gets_a_pending_request_notifies_once_with_the_tool_name_only() {
-        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
-        let t = permission_transition(&conn, &run_id, Some("running"), "Bash").expect("a transition");
-        assert_eq!(t.kind, crate::notify::TransitionKind::Blocked);
-        assert_eq!(t.run_id, run_id);
-        assert_eq!(t.project_name, "Test Project");
-        assert_eq!(t.tool, Some("Bash".to_string()));
+    fn a_pending_request_is_announced_by_the_waiting_poll_after_thirty_seconds_unfocused() {
+        let (mut conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
+        let outcome =
+            process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(r#"{"command":"git push"}"#), None)
+                .expect("process_inbound_permission_request");
+        assert!(matches!(outcome, PermissionRequestOutcome::Pending { .. }));
+        let raised: String = conn
+            .query_row("SELECT created_at FROM permission_requests WHERE session_id = ?1", [&run_id], |r| r.get(0))
+            .unwrap();
+        let raised = chrono::DateTime::parse_from_rfc3339(&raised).unwrap().with_timezone(&chrono::Utc);
+        let db = std::sync::Mutex::new(conn);
+        let watch = std::sync::Mutex::new(crate::notify::WaitingWatch::new());
+        let after = |secs| raised + chrono::Duration::seconds(secs);
+
+        assert_eq!(crate::notify::waiting_tick(&watch, &db, after(5), false), None, "too soon");
+        assert_eq!(crate::notify::waiting_tick(&watch, &db, after(31), true), None, "focused");
+        let banner = crate::notify::waiting_tick(&watch, &db, after(31), false).expect("unfocused, 31 s: a banner");
+        let (title, body) = banner.text();
+        assert_eq!(title, format!("Test Project · {} is waiting on you", story_key(&db)));
+        assert_eq!(body, "Bash", "the tool name only, never the command");
+    }
+
+    fn story_key(db: &std::sync::Mutex<Connection>) -> String {
+        db.lock().unwrap().query_row("SELECT key FROM stories LIMIT 1", [], |r| r.get(0)).unwrap()
     }
 
     // --- WR-09: the batch acknowledge never hides truncation or a failed write ------------------
@@ -2192,27 +2175,6 @@ mod tests {
     }
 
     #[test]
-    fn a_run_already_blocked_that_gets_a_second_request_notifies_nothing() {
-        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
-        assert!(permission_transition(&conn, &run_id, Some("blocked"), "Bash").is_none());
-        assert!(permission_transition(&conn, &run_id, None, "Bash").is_none());
-    }
-
-    #[test]
-    fn a_pending_request_with_no_target_still_notifies_and_reads_as_text() {
-        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
-        let t = permission_transition(&conn, &run_id, Some("running"), "WebSearch")
-            .expect("a transition");
-        let mut co = crate::notify::Coalescer::new(crate::notify::COALESCE_WINDOW);
-        let t0 = std::time::Instant::now();
-        co.push(t, t0);
-        let banner = co.take_due(t0 + crate::notify::COALESCE_WINDOW, |_| true).expect("a banner");
-        let (title, body) = banner.text();
-        assert!(!title.is_empty());
-        assert_eq!(body, "WebSearch");
-    }
-
-    #[test]
     fn only_completed_and_failed_closes_notify() {
         use flywheel_core::domain::session::{SessionStatus, SessionClosedOutcome};
         let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
@@ -2237,9 +2199,6 @@ mod tests {
     fn a_missing_project_or_story_row_degrades_to_generic_words_and_never_panics() {
         let (conn, _run_id, _story_id, _project_id) = seeded_conn_with_running_session();
         assert_eq!(notify_context(&conn, "no-such-run"), ("Flywheel".to_string(), "An agent".to_string()));
-        let t = permission_transition(&conn, "no-such-run", Some("running"), "Bash")
-            .expect("still a transition");
-        assert_eq!(t.subject_label, "An agent");
     }
 
     #[test]
