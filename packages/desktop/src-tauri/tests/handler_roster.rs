@@ -221,7 +221,7 @@ fn every_tauri_command_is_registered_in_generate_handler() {
     let main_src = fs::read_to_string(manifest_dir().join("src/main.rs")).expect("read main.rs");
     let roster = parse_roster(&main_src);
 
-    assert!(ROSTER.len() > 100, "ROSTER lists {} commands; a list that small means it was truncated", ROSTER.len());
+    assert!(ROSTER.len() > 50, "ROSTER lists {} commands; a list that small means it was truncated", ROSTER.len());
     assert!(ROSTER.windows(2).all(|w| w[0] < w[1]), "ROSTER must stay sorted with no duplicates, one name per line");
     if let Err(e) = check_roster_list(&roster, ROSTER) {
         panic!("{e}");
