@@ -98,12 +98,12 @@ test(
 );
 
 test(
-  "the shim's --classify-invocation mode fails closed on a missing argument",
+  "the shim's --classify-invocation mode exits non-zero and prints no verdict on a missing argument",
   { skip: SHIM_SKIP_REASON },
   () => {
     const result = spawnSync(SHIM_BIN, ["--classify-invocation"], { encoding: "utf8" });
     assert.notEqual(result.status, 0);
-    assert.deepEqual(JSON.parse(result.stdout.trim()), { category: "uncategorized", invokedBareName: false });
+    assert.equal(result.stdout.trim(), "");
   },
 );
 
@@ -147,15 +147,10 @@ test(
     // The measured bypasses (CR-01).
     assert.deepEqual(runInvocation('git() { /usr/bin/git "$@"; }; git push --force'), FORCE_SHADOWED);
     assert.deepEqual(runInvocation('function git { /usr/bin/git "$@"; }; git push --force'), FORCE_SHADOWED);
-    // The space-before-parens spelling classifies on its FIRST segment instead (measured: `git ()`
-    // tokenizes as program `git` with subcommand `()`, which classify_git already calls
-    // uncategorized). Still destructive, still a deny — assert what it actually is, not what
-    // symmetry suggests.
-    assert.deepEqual(runInvocation('git () { /usr/bin/git "$@"; }; git push --force'), {
-      category: "uncategorized",
-      program: "git",
-      invokedBareName: false,
-    });
+    // The space-before-parens spelling: `git ()` tokenizes as program `git` with subcommand `()`,
+    // which the deny-list (ADR 0001) allows like any unknown subcommand, so the verdict comes from
+    // the later `git push --force` segment, shadowed like the two spellings above.
+    assert.deepEqual(runInvocation('git () { /usr/bin/git "$@"; }; git push --force'), FORCE_SHADOWED);
     assert.deepEqual(runInvocation("alias git=/usr/bin/git; git push --force"), FORCE_SHADOWED);
     assert.deepEqual(runInvocation("hash -p /usr/bin/git git; git push --force"), FORCE_SHADOWED);
     assert.deepEqual(runInvocation("PATH=/usr/bin git push --force"), FORCE_SHADOWED);
@@ -367,32 +362,32 @@ test(
 
     // `env -S`/`--split-string` embeds an entire, separately-parsed argument list (including
     // possible PATH= overrides) inside one opaque string — this tokenizer cannot safely re-parse
-    // it a second time, so the whole invocation fails closed to Uncategorized/un-interceptable
-    // rather than being treated as either "safe" or a confidently-identified "git" invocation.
+    // it a second time. Under the deny-list (ADR 0001) a segment it cannot read is not a Gated
+    // action, so the verdict is safe, with both shadow facts reported true (the most restrictive
+    // reading of what the text could do).
     assert.deepEqual(runInvocation('env -S "git push --force"'), {
-      category: "uncategorized",
-      program: null,
-      invokedBareName: false,
+      category: "safe",
+      textCanShadowPathResolution: true,
+      namesGatedProgram: true,
     });
     assert.deepEqual(runInvocation('env --split-string="git push --force"'), {
-      category: "uncategorized",
-      program: null,
-      invokedBareName: false,
+      category: "safe",
+      textCanShadowPathResolution: true,
+      namesGatedProgram: true,
     });
 
     // Any other/unrecognised env flag (BSD's -P altpath, -C altwd, -0, -v; a hypothetical future
-    // addition to either implementation) fails closed the same way — never silently "safe" merely
-    // because this file has not enumerated that exact flag (the CR-01 -> command/builtin -> env
-    // pattern this round explicitly closes the door on).
+    // addition to either implementation) is unresolvable the same way, and reports the same
+    // shadow facts.
     assert.deepEqual(runInvocation("env -P /tmp git push --force"), {
-      category: "uncategorized",
-      program: null,
-      invokedBareName: false,
+      category: "safe",
+      textCanShadowPathResolution: true,
+      namesGatedProgram: true,
     });
     assert.deepEqual(runInvocation("env -C /tmp git push --force"), {
-      category: "uncategorized",
-      program: null,
-      invokedBareName: false,
+      category: "safe",
+      textCanShadowPathResolution: true,
+      namesGatedProgram: true,
     });
 
     // `--` ends env's own option processing; a plain PATH= assignment after it is still an
@@ -478,14 +473,12 @@ test(
 );
 
 test(
-  "--classify-invocation with no argument still fails closed to the two-key uncategorized line",
+  "--classify-invocation with no argument prints nothing on stdout and exits non-zero",
   { skip: SHIM_SKIP_REASON },
   () => {
     const result = spawnSync(SHIM_BIN, ["--classify-invocation"], { encoding: "utf8" });
     assert.notEqual(result.status, 0);
-    const parsed = JSON.parse(result.stdout.trim());
-    assert.deepEqual(Object.keys(parsed).sort(), ["category", "invokedBareName"]);
-    assert.deepEqual(parsed, { category: "uncategorized", invokedBareName: false });
+    assert.equal(result.stdout, "");
   },
 );
 

@@ -558,13 +558,15 @@ pub fn interception_layers_for(category: DestructiveCategory) -> &'static [&'sta
         // renamed — a recorded, deliberate residual (plan 12-01's Named Residuals row), not an
         // oversight. Layer 2 remains the sole layer trusted to catch it.
         DefaultBranchPush => &[LAYER_2_SHIM],
+        // A plain, fast-forward push: the pre-push hook lets it through, so only the shim asks.
+        Push => &[LAYER_2_SHIM],
         // Worktree-local, non-remote-reaching categories: no push is involved, so git's pre-push
         // hook never fires for these at all — Layer 2 is the only layer with any visibility here.
+        WorktreeDeletion => &[LAYER_2_SHIM],
         HardReset => &[LAYER_2_SHIM],
         ForceClean => &[LAYER_2_SHIM],
         RecursiveDelete => &[LAYER_2_SHIM],
-        // The fail-closed catch-all: Layer 2's own classifier (D-56) already defaults every
-        // unrecognised destructive shape here, and Layer 3 has no stdin signal for it either.
-        Uncategorized => &[LAYER_2_SHIM],
+        // `npm`/`cargo`/`gh`: not git at all, so only the shim sees them.
+        Publish => &[LAYER_2_SHIM],
     }
 }

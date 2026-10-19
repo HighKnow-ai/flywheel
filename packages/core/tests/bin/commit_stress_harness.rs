@@ -9,10 +9,9 @@
 //! deviation from this plan's literal wording (see 03-08-SUMMARY.md), made for two independent
 //! reasons: (1) a real agent's own git invocations run from inside its worktree's cwd, never with
 //! an explicit `-C` — cwd-scoped invocation is the more faithful model of what this test claims to
-//! reproduce; and (2) `flywheel_core::destructive::classify_git` (plan 03-07) reads the FIRST argv
-//! token as the subcommand with no handling for a leading global flag, so a `-C <path>` prefix
-//! would be classified `Uncategorized`/destructive and block on a permission socket this
-//! reproduction never sets up (03-07 landed after this plan was written). `.current_dir()` here is
+//! reproduce; and (2) when this was written, `flywheel_core::destructive::classify_git` did not
+//! skip a leading global flag, so a `-C <path>` prefix asked on a permission socket this
+//! reproduction never sets up (the Gated-action deny-list now skips it). `.current_dir()` here is
 //! exempt from PROC-02's ban on that method (`tests/supervisor_cwd.rs` scans only
 //! `packages/core/src` and `packages/desktop/src-tauri/src`, never `tests/bin/`).
 //!

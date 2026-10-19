@@ -17,7 +17,9 @@
 //! ("agents run on the developer's machine using their existing local agent credentials").
 //!
 //! Usage:
-//!   `uat_session_env <run_id> [default_branch]` — writes the spawn environment as JSON to stdout.
+//!   `uat_session_env <run_id> [default_branch [story_branch worktree_path]]` — writes the spawn
+//!   environment as JSON to stdout. The last two set the Story's own branch and worktree the
+//!   Gated-action deny-list decides against, as `commands/session.rs::spawn_prepared_run` does.
 //!   `uat_session_env --touch-heartbeat`         — touches the heartbeat file once and exits.
 //!
 //! The second mode exists for the supervisor-kill script (UAT item 1). What that item actually
@@ -46,7 +48,7 @@ fn main() {
     }
 
     let Some(run_id) = args.get(1) else {
-        eprintln!("usage: uat_session_env <run_id> [default_branch] | --touch-heartbeat");
+        eprintln!("usage: uat_session_env <run_id> [default_branch [story_branch worktree_path]] | --touch-heartbeat");
         std::process::exit(2);
     };
     let default_branch = args.get(2).cloned().unwrap_or_else(|| "main".to_string());
@@ -76,7 +78,11 @@ fn main() {
         }
     }
 
-    env.insert("FLYWHEEL_DEFAULT_BRANCH".to_string(), default_branch);
+    env.insert(core::destructive::DEFAULT_BRANCH_ENV.to_string(), default_branch);
+    if let (Some(story_branch), Some(worktree_path)) = (args.get(3), args.get(4)) {
+        env.insert(core::destructive::STORY_BRANCH_ENV.to_string(), story_branch.clone());
+        env.insert(core::destructive::WORKTREE_ENV.to_string(), worktree_path.clone());
+    }
     env.insert(
         "FLYWHEEL_HEARTBEAT_STALE_MS".to_string(),
         core::runtime_protocol::HEARTBEAT_STALE_MS.to_string(),

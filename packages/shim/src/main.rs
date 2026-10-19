@@ -2,7 +2,16 @@
 //! the names `git` or `rm` — `flywheel_core::shim::install_for_run` creates the on-disk entries
 //! named `git` and `rm` (or `git.exe`/`rm.exe`) at spawn time by hard-linking/copying this
 //! compiled binary. Dispatch reads `argv[0]` (never the cargo package/binary name) so both
-//! shadowed names run the exact same compiled binary without a second build target.
+//! shadowed names run the exact same compiled binary without a second build target. The
+//! publishing tools `npm`, `cargo` and `gh` are shadowed the same way when the supervisor finds
+//! them (`FLYWHEEL_REAL_NPM`/`_CARGO`/`_GH`), so `npm publish`, `cargo publish`, `gh pr merge` and
+//! `gh release` reach the Gated-action deny-list too; every other invocation of them is `exec`ed
+//! straight through.
+//!
+//! **The deny-list decides against the session** (`flywheel_core::destructive::classify_in`): the
+//! Story's own branch and worktree (`FLYWHEEL_STORY_BRANCH`, `FLYWHEEL_WORKTREE_PATH`), the
+//! default branch, the working directory, and — for `rebase`/`filter-branch` only — the branch the
+//! real git reports checked out. Everything that is not a Gated action runs without asking.
 //!
 //! **Fail-closed, by construction, in three distinct ways (T-03-04-02, T-03-04-03):**
 //! 1. An unrecognised `argv[0]` stem refuses to run anything at all (the `match`'s explicit
@@ -79,10 +88,8 @@
 //! path". Emits one line of JSON on stdout
 //! (`{"category":"branch-deletion","program":"git","invokedBareName":true}` for a destructive
 //! verdict) rather than a single word, so the shape is self-describing and can gain fields later
-//! without breaking its reader. A missing or unreadable argument fails closed exactly as
-//! `--classify-command` does: `{"category":"uncategorized","invokedBareName":false}` and a
-//! non-zero exit, so a caller that cannot read a verdict treats the command as both destructive
-//! and un-interceptable — the most restrictive reading available. After plan 03-19,
+//! without breaking its reader. A missing or unreadable argument prints nothing to stdout and
+//! exits non-zero, exactly as `--classify-command` does. After plan 03-19,
 //! `pretooluse-hook.ts:112` calls this mode, not `--classify-command`. **The destructive arm above
 //! is deliberately UNCHANGED by plan 03-24** — same three keys, same values — so every shipped
 //! assertion about a destructive verdict keeps its present meaning.
@@ -131,7 +138,9 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Output};
 
-use flywheel_core::destructive::{classify, DestructiveCategory, Verdict};
+use flywheel_core::destructive::{
+    classify_in, DestructiveCategory, GateContext, Verdict, DEFAULT_BRANCH_ENV, STORY_BRANCH_ENV, WORKTREE_ENV,
+};
 
 /// What one real-git invocation attempt produced, captured so the retry executor can inspect
 /// `stderr` for the lock-contention matcher while the ORIGINAL bytes are still forwarded verbatim
@@ -176,6 +185,7 @@ fn main() -> ExitCode {
     match invoked_stem.as_deref() {
         Some("git") => run_git(&args[1..]),
         Some("rm") => run_rm(&args[1..]),
+        Some(name @ ("npm" | "cargo" | "gh")) => run_passthrough(name, &args[1..]),
         other => {
             eprintln!(
                 "flywheel-shim: refusing to run — invoked as {:?}, which this build does not dispatch to any known target",
@@ -211,6 +221,59 @@ fn resolve_real_git_from_env() -> Result<PathBuf, String> {
 
 fn resolve_real_rm_from_env() -> Result<PathBuf, String> {
     resolve_real_binary_from_env("FLYWHEEL_REAL_RM")
+}
+
+/// The session context the deny-list decides against, read from the environment Flywheel set at
+/// spawn: the default branch, the Story's own branch and worktree, this process's working
+/// directory, and a lookup of the checked-out branch that asks the real git (only ever called for
+/// `rebase` and `filter-branch`).
+fn gate_context() -> GateContext {
+    let non_empty = |name: &str| env::var(name).ok().filter(|value| !value.is_empty());
+    let real_git = resolve_real_git_from_env().ok();
+    GateContext {
+        default_branch: non_empty(DEFAULT_BRANCH_ENV),
+        story_branch: non_empty(STORY_BRANCH_ENV),
+        worktree: non_empty(WORKTREE_ENV).map(PathBuf::from),
+        cwd: env::current_dir().ok(),
+        head_branch: real_git.map(|real_git| {
+            Box::new(move |dir: &Path| {
+                let output = Command::new(&real_git)
+                    .arg("-C")
+                    .arg(dir)
+                    .args(["symbolic-ref", "--quiet", "--short", "HEAD"])
+                    .output()
+                    .ok()?;
+                let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                (output.status.success() && !branch.is_empty()).then_some(branch)
+            }) as Box<dyn Fn(&Path) -> Option<String>>
+        }),
+    }
+}
+
+/// `npm`, `cargo` and `gh`: gate the publishing subcommands, then replace this process with the
+/// real binary named by `FLYWHEEL_REAL_<NAME>` so output streams and signals behave exactly as a
+/// direct invocation would.
+fn run_passthrough(name: &str, forwarded_args: &[OsString]) -> ExitCode {
+    use std::os::unix::process::CommandExt;
+
+    let var_name = format!("FLYWHEEL_REAL_{}", name.to_ascii_uppercase());
+    let real_bin = match resolve_real_binary_from_env(&var_name) {
+        Ok(path) => path,
+        Err(message) => {
+            eprintln!("flywheel-shim: {message}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let string_args = os_args_to_strings(forwarded_args);
+    if let Some(exit_code) = destructive_gate(name, &string_args) {
+        return exit_code;
+    }
+
+    // `arg0(name)` keeps a multiplexing binary (rustup's `cargo` proxy) dispatching as `name`.
+    let err = Command::new(&real_bin).arg0(name).args(forwarded_args).exec();
+    eprintln!("flywheel-shim: failed to exec real {name} at {real_bin:?}: {err}");
+    ExitCode::FAILURE
 }
 
 fn os_args_to_strings(args: &[OsString]) -> Vec<String> {
@@ -340,8 +403,8 @@ fn print_denied(category: DestructiveCategory) {
 /// `Some(exit code)` when the caller must stop here (denied, or the round trip itself failed) —
 /// `None` means "verdict was Safe, or was Destructive and the user allowed it," i.e. the caller's
 /// own normal exec path should run.
-fn destructive_gate(program: &str, string_args: &[String], default_branch: Option<&str>) -> Option<ExitCode> {
-    let verdict = classify(program, string_args, default_branch);
+fn destructive_gate(program: &str, string_args: &[String]) -> Option<ExitCode> {
+    let verdict = classify_in(program, string_args, &gate_context());
     let Verdict::Destructive(category) = verdict else {
         return None;
     };
@@ -411,8 +474,7 @@ fn run_git(forwarded_args: &[OsString]) -> ExitCode {
     };
 
     let string_args = os_args_to_strings(forwarded_args);
-    let default_branch = env::var("FLYWHEEL_DEFAULT_BRANCH").ok();
-    if let Some(exit_code) = destructive_gate("git", &string_args, default_branch.as_deref()) {
+    if let Some(exit_code) = destructive_gate("git", &string_args) {
         return exit_code;
     }
 
@@ -482,7 +544,7 @@ fn run_rm(forwarded_args: &[OsString]) -> ExitCode {
     };
 
     let string_args = os_args_to_strings(forwarded_args);
-    if let Some(exit_code) = destructive_gate("rm", &string_args, None) {
+    if let Some(exit_code) = destructive_gate("rm", &string_args) {
         return exit_code;
     }
 
@@ -685,10 +747,10 @@ enum ProgramResolution {
     /// The program token was found at this index.
     Found(usize),
     /// A wrapper's own argument shape makes it impossible to safely determine what (if anything)
-    /// this segment executes — MUST NOT be treated as `Safe`. The caller forces the WHOLE
-    /// invocation to `Destructive(Uncategorized)`, `program: None`, `invokedBareName: false`,
-    /// mirroring the pre-existing empty-text fail-closed path in `classify_raw_command_text`
-    /// (coordinator review, round 4). Two shapes produce this: `env -S STRING` (GNU) — `-S`
+    /// this segment executes. Under the Gated-action deny-list (ADR 0001) the segment contributes
+    /// no verdict, and the caller reports both shadow facts `true` for the whole text, mirroring
+    /// the empty-text path in `classify_raw_command_text` (coordinator review, round 4, as
+    /// narrowed by ADR 0001). Two shapes produce this: `env -S STRING` (GNU) — `-S`
     /// splits its single string argument into an entirely new argument list, shell-style,
     /// including possible NAME=VALUE/`PATH=` assignments and even further flags, which this
     /// pragmatic tokenizer cannot safely re-parse a second time — and any OTHER, unrecognised
@@ -1389,19 +1451,17 @@ struct ClassifiedInvocation {
 }
 
 /// Classify raw bash command TEXT: split into top-level segments, classify each through the SAME
-/// `destructive::classify` the shadowed dispatch uses, and return the first destructive verdict
-/// found — `Safe` only if every segment is Safe. Empty text fails closed into `Uncategorized`
-/// rather than being treated as trivially safe (with no program identified, since no segment was
-/// ever tokenized). An [`ProgramResolution::Unresolvable`] segment (a wrapper whose own argument
-/// shape this tokenizer cannot safely resolve — `env -S …`, an unrecognised `env` flag) fails
-/// closed the SAME way, immediately, without waiting to see whether a later segment is also
-/// destructive: the point of `Unresolvable` is precisely that we do not know what this segment
-/// does, so treating it as anything other than the most restrictive reading would defeat it.
-fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> ClassifiedInvocation {
+/// `destructive::classify_in` the shadowed dispatch uses, and return the first Gated verdict
+/// found — `Safe` when no segment is a Gated action. The classifier is a deny-list (ADR 0001), so
+/// text it cannot read is not a Gated action: empty text is `Safe`, and a segment whose wrapper
+/// this tokenizer cannot resolve ([`ProgramResolution::Unresolvable`] — `env -S …`, an
+/// unrecognised `env` flag) contributes nothing, exactly as an empty segment does. Both still
+/// report the two shadow facts `true`, the most restrictive reading of what the text could do.
+fn classify_raw_command_text(text: &str, ctx: &GateContext) -> ClassifiedInvocation {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return ClassifiedInvocation {
-            verdict: Verdict::Destructive(DestructiveCategory::Uncategorized),
+            verdict: Verdict::Safe,
             program: None,
             invoked_bare_name: false,
             text_can_shadow: true,
@@ -1435,6 +1495,7 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
         // (`raw_text_names_opaque_env_reparse`) as a strict superset of it.
         || raw_text_names_path_defeating_wrapper(trimmed);
     let names_gated_program = text_names_gated_program(trimmed);
+    let mut unresolvable = false;
 
     for segment in split_top_level_segments(trimmed) {
         let segment = segment.trim();
@@ -1445,20 +1506,15 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
         // Round seven's own second pass (plan 03-32): retry the wrapper-token recognition against
         // THIS segment's quote-removed form, mirroring the safe-verdict's own C1-C4 retry
         // discipline. `resolve_segment_program_index`'s raw-text pass below (unchanged) remains the
-        // ONLY source of the `Found` index — this retry contributes only the fail-closed verdict
-        // when the quote-removed form resolves to `Unresolvable` and the raw form did not already
-        // catch it (see `ProgramResolution::Unresolvable`'s own doc comment for why both passes are
+        // ONLY source of the `Found` index — this retry only marks the segment unresolvable when
+        // the quote-removed form resolves to `Unresolvable` and the raw form did not already catch
+        // it (see `ProgramResolution::Unresolvable`'s own doc comment for why both passes are
         // needed).
         if let ProgramResolution::Unresolvable =
             resolve_segment_program_index(&tokenize_shell_words(&shell_quote_removed(segment)))
         {
-            return ClassifiedInvocation {
-                verdict: Verdict::Destructive(DestructiveCategory::Uncategorized),
-                program: None,
-                invoked_bare_name: false,
-                text_can_shadow: true,
-                names_gated_program: true,
-            };
+            unresolvable = true;
+            continue;
         }
         // Skip leading `NAME=VALUE` assignment tokens (and, past them, a leading `env` wrapper plus
         // ITS OWN leading assignment arguments) when choosing the segment's program token, so
@@ -1466,25 +1522,20 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
         // their program as `git`, not the mis-stemmed `bin` or the wrapper `env` itself (plan 03-20
         // Task 1(b), row 6 of CR-01, widened for the `env` form measured during this task). A
         // segment carrying no program token at all is skipped, exactly as an empty segment already
-        // was. A segment `resolve_segment_program_index` could not safely resolve at all fails the
-        // WHOLE invocation closed immediately (coordinator review, round 4).
+        // was. A segment `resolve_segment_program_index` could not safely resolve contributes no
+        // verdict, and marks the whole text unresolvable for the two shadow facts.
         let prog_idx = match resolve_segment_program_index(&tokens) {
             ProgramResolution::None => continue,
             ProgramResolution::Unresolvable => {
-                return ClassifiedInvocation {
-                    verdict: Verdict::Destructive(DestructiveCategory::Uncategorized),
-                    program: None,
-                    invoked_bare_name: false,
-                    text_can_shadow: true,
-                    names_gated_program: true,
-                };
+                unresolvable = true;
+                continue;
             }
             ProgramResolution::Found(index) => index,
         };
         let first = &tokens[prog_idx];
         let stem = program_stem(first);
         let rest: Vec<String> = tokens[prog_idx + 1..].to_vec();
-        if let verdict @ Verdict::Destructive(_) = classify(&stem, &rest, default_branch) {
+        if let verdict @ Verdict::Destructive(_) = classify_in(&stem, &rest, ctx) {
             return ClassifiedInvocation {
                 verdict,
                 program: Some(stem),
@@ -1499,25 +1550,23 @@ fn classify_raw_command_text(text: &str, default_branch: Option<&str>) -> Classi
         verdict: Verdict::Safe,
         program: None,
         invoked_bare_name: false,
-        text_can_shadow,
-        names_gated_program,
+        text_can_shadow: text_can_shadow || unresolvable,
+        names_gated_program: names_gated_program || unresolvable,
     }
 }
 
 /// The `--classify-command <text>` mode's own entry point (Task 3). Never executes anything,
 /// never opens the permission socket, never writes any file — a pure function of its one string
-/// argument plus `FLYWHEEL_DEFAULT_BRANCH`. Prints exactly one word to stdout: `safe`, or one of
-/// `DestructiveCategory::as_str()`'s seven destructive names. A missing/unreadable argument fails
-/// closed, printing `uncategorized` and exiting non-zero — the hook's own caller treats a shim it
-/// cannot invoke as destructive, never as permissive.
+/// argument plus the session environment [`gate_context`] reads. Prints exactly one word to
+/// stdout: `safe`, or one of `DestructiveCategory::as_str()`'s names. A missing or unreadable
+/// argument prints nothing to stdout and exits non-zero.
 fn run_classify_command(command_text_arg: Option<&OsString>) -> ExitCode {
     let Some(command_text) = command_text_arg.and_then(|s| s.to_str()) else {
-        println!("{}", DestructiveCategory::Uncategorized.as_str());
+        eprintln!("flywheel-shim: --classify-command requires the command text as its argument");
         return ExitCode::FAILURE;
     };
 
-    let default_branch = env::var("FLYWHEEL_DEFAULT_BRANCH").ok();
-    match classify_raw_command_text(command_text, default_branch.as_deref()).verdict {
+    match classify_raw_command_text(command_text, &gate_context()).verdict {
         Verdict::Safe => println!("safe"),
         Verdict::Destructive(category) => println!("{}", category.as_str()),
     }
@@ -1529,25 +1578,16 @@ fn run_classify_command(command_text_arg: Option<&OsString>) -> ExitCode {
 /// `pretooluse-hook.ts` needs in order to decide whether the shim can intercept the command: the
 /// program name of the destructive segment, and whether that segment invoked it by bare name.
 /// Never executes anything, never opens the permission socket, never writes any file — a pure
-/// function of its one string argument plus `FLYWHEEL_DEFAULT_BRANCH`, exactly like
-/// `--classify-command`. A missing/unreadable argument fails closed to
-/// `{"category":"uncategorized","invokedBareName":false}` and a non-zero exit — the caller treats a
-/// shim it cannot invoke as both destructive and un-interceptable, the most restrictive reading
-/// available.
+/// function of its one string argument plus the session environment, exactly like
+/// `--classify-command`. A missing or unreadable argument prints nothing to stdout and exits
+/// non-zero.
 fn run_classify_invocation(command_text_arg: Option<&OsString>) -> ExitCode {
     let Some(command_text) = command_text_arg.and_then(|s| s.to_str()) else {
-        println!(
-            "{}",
-            serde_json::json!({
-                "category": DestructiveCategory::Uncategorized.as_str(),
-                "invokedBareName": false,
-            })
-        );
+        eprintln!("flywheel-shim: --classify-invocation requires the command text as its argument");
         return ExitCode::FAILURE;
     };
 
-    let default_branch = env::var("FLYWHEEL_DEFAULT_BRANCH").ok();
-    let classified = classify_raw_command_text(command_text, default_branch.as_deref());
+    let classified = classify_raw_command_text(command_text, &gate_context());
     let output = match classified.verdict {
         // plan 03-24 (D-59/D-61): the safe verdict now carries the two text facts the hook's safe
         // branch needs to establish its own D-61 deny rule. The Destructive arm below is

@@ -132,6 +132,40 @@ pub fn resolve_real_rm() -> anyhow::Result<PathBuf> {
     bail!("rm executable not found on the supervisor's own PATH");
 }
 
+/// The publishing tools the shim also shadows, each with the env var naming its real binary
+/// (`docs/mvp-spec.md` §4.1: `npm publish`, `cargo publish`, `gh pr merge`, `gh release`). Unlike
+/// `git` and `rm` these are optional: a tool the supervisor cannot find is simply not shadowed.
+const PUBLISHING_TOOLS: &[(&str, &str)] =
+    &[("npm", "FLYWHEEL_REAL_NPM"), ("cargo", "FLYWHEEL_REAL_CARGO"), ("gh", "FLYWHEEL_REAL_GH")];
+
+/// Find `name` on the supervisor's own `PATH`, keeping the path as found: no `canonicalize`,
+/// because rustup's `cargo` is a symlink to a multiplexer that dispatches on the name it runs as.
+/// A directory under the runtime's own `shim/` root is a shadow directory, never a real binary:
+/// resolving to one would make the shim exec itself forever.
+fn find_on_supervisor_path(name: &str) -> Option<PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    let shim_root = runtime_protocol::runtime_dir().ok().map(|dir| dir.join("shim"));
+    std::env::split_paths(&path_var)
+        .filter(|dir| shim_root.as_ref().is_none_or(|root| !dir.starts_with(root)))
+        .map(|dir| dir.join(name))
+        .find(|candidate| candidate.is_file() && candidate.is_absolute())
+}
+
+/// Shadow every publishing tool found on the supervisor's `PATH` in `dir`, and return the
+/// `FLYWHEEL_REAL_<NAME>` entries for the ones installed.
+fn install_publishing_tools(dir: &Path, run_id: &str) -> anyhow::Result<HashMap<String, String>> {
+    let mut env = HashMap::new();
+    for (name, env_var) in PUBLISHING_TOOLS {
+        let Some(real) = find_on_supervisor_path(name) else {
+            continue;
+        };
+        install_shadow_entry(dir, name, run_id)?;
+        verify_shadow_entry(dir, name, run_id)?;
+        env.insert(env_var.to_string(), real.to_string_lossy().into_owned());
+    }
+    Ok(env)
+}
+
 fn shim_dir_for_run(run_id: &str) -> anyhow::Result<PathBuf> {
     Ok(runtime_protocol::runtime_dir()?.join("shim").join(run_id))
 }
@@ -357,6 +391,7 @@ pub fn shim_env_for_run(run_id: &str) -> anyhow::Result<HashMap<String, String>>
     verify_shadow_entry_speaks_classification(&shim_dir.join(shadowed_git_entry_name()), run_id)?;
     let real_git = resolve_real_git()?;
     let real_rm = resolve_real_rm()?;
+    let publishing_env = if cfg!(windows) { HashMap::new() } else { install_publishing_tools(&shim_dir, run_id)? };
 
     let existing_path = std::env::var("PATH").unwrap_or_default();
     let separator = if cfg!(windows) { ";" } else { ":" };
@@ -372,5 +407,6 @@ pub fn shim_env_for_run(run_id: &str) -> anyhow::Result<HashMap<String, String>>
         "FLYWHEEL_REAL_RM".to_string(),
         real_rm.to_string_lossy().into_owned(),
     );
+    env.extend(publishing_env);
     Ok(env)
 }
