@@ -15,6 +15,7 @@ pub mod git_facts;
 pub mod git_hooks;
 pub mod git_identity;
 pub mod git_retry;
+pub mod login_path;
 pub mod ids;
 pub mod marker;
 pub mod permission_pattern;

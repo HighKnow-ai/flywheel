@@ -79,7 +79,7 @@ pub fn run_shell_check(worktree_path: &Path, command: &str, timeout: Duration) -
 }
 
 /// [`run_shell_check`] with the shell named, and `env` added to the child's environment.
-fn run_in_login_shell(
+pub(crate) fn run_in_login_shell(
     shell: &Path,
     env: &[(&str, &Path)],
     worktree_path: &Path,
