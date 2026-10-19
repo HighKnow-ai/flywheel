@@ -673,8 +673,12 @@ export class Harness {
    * leaves behind its own event stream, run descriptor, kill record and lifecycle JSONL whether the
    * item passes or fails. uat-03 wrote no artifact at all before this, which is precisely why its
    * one token-spending failure had to be diagnosed from a sibling item's file.
+   *
+   * `story: { branch, worktreePath }` sets the Story's own branch and worktree the Gated-action
+   * deny-list decides against, exactly as `agent_run.rs::spawn_prepared_run` does for a real Story
+   * session. Without it, every rebase, branch deletion and recursive `rm` asks.
    */
-  sessionEnv(runId, defaultBranch = "main", { heartbeat = "sustain" } = {}) {
+  sessionEnv(runId, defaultBranch = "main", { heartbeat = "sustain", story } = {}) {
     const bin = resolveHarnessBinary("uat_session_env");
     if (bin === undefined) {
       throw new Error(
@@ -682,7 +686,8 @@ export class Harness {
           "`cargo build -p core --bin uat_session_env` first",
       );
     }
-    const result = spawnSync(bin, [runId, defaultBranch], {
+    const storyArgs = story ? [story.branch, story.worktreePath] : [];
+    const result = spawnSync(bin, [runId, defaultBranch, ...storyArgs], {
       encoding: "utf8",
       env: { ...process.env, FLYWHEEL_APP_DATA_DIR: this.appDataDir },
     });

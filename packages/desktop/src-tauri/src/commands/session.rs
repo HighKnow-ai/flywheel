@@ -108,6 +108,8 @@ pub struct SessionDto {
 pub(crate) struct StartRunOutcome {
     pub run_id: String,
     pub worktree_path: String,
+    /// The Story's own branch, checked out in `worktree_path`.
+    pub branch: String,
     pub prompt: String,
 }
 
@@ -115,7 +117,7 @@ pub(crate) struct StartRunOutcome {
 /// `&mut Connection`. Performs, in exactly this order:
 /// 1. `start_session` (the worktree and the session row).
 /// 2. `stand_in_launch_prompt`.
-/// 3. the `SELECT path FROM worktrees WHERE id = ?1` read for the worktree path.
+/// 3. the `SELECT path, branch FROM worktrees WHERE id = ?1` read for the worktree path and branch.
 ///
 /// Steps 2-3 run AFTER the session row exists, so an error from either closes that row `failed`
 /// before it propagates (D-REV-46): a `running` row with no session behind it would read as live
@@ -130,20 +132,22 @@ pub(crate) fn start_session_recording_first(
     let run = flywheel_core::domain::session::start_session(conn, story_id, permission_mode, human_actor_id)
         .map_err(|e| e.to_string())?;
 
-    let built = (|| -> Result<(String, String), String> {
+    let built = (|| -> Result<(String, String, String), String> {
         let prompt = flywheel_core::domain::session::stand_in_launch_prompt(conn, story_id, instruction)
             .map_err(|e| e.to_string())?;
-        let worktree_path: String = conn
-            .query_row("SELECT path FROM worktrees WHERE id = ?1", rusqlite::params![run.worktree_id], |row| row.get(0))
+        let (worktree_path, branch): (String, String) = conn
+            .query_row("SELECT path, branch FROM worktrees WHERE id = ?1", rusqlite::params![run.worktree_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .map_err(|e| e.to_string())?;
-        Ok((prompt, worktree_path))
+        Ok((prompt, worktree_path, branch))
     })();
-    let (prompt, worktree_path) = match built {
+    let (prompt, worktree_path, branch) = match built {
         Ok(v) => v,
         Err(why) => return Err(fail_launch(conn, &run.id, why)),
     };
 
-    Ok(StartRunOutcome { run_id: run.id, worktree_path, prompt })
+    Ok(StartRunOutcome { run_id: run.id, worktree_path, branch, prompt })
 }
 
 /// Close a session whose launch failed after its row was inserted, and hand `why` back for the
@@ -261,6 +265,10 @@ pub(crate) fn spawn_prepared_run(
 ) -> Result<(), String> {
     merge_shim(&mut env, &outcome.run_id).map_err(|e| fail_launch(&mut conn, &outcome.run_id, e.to_string()))?;
     drop(conn);
+    // The Gated-action deny-list allows a recursive `rm` inside, and deleting or rewriting, only the
+    // Story's own worktree and branch, so the shim needs to know which ones those are.
+    env.insert(flywheel_core::destructive::WORKTREE_ENV.to_string(), outcome.worktree_path.clone());
+    env.insert(flywheel_core::destructive::STORY_BRANCH_ENV.to_string(), outcome.branch.clone());
 
     let request = serde_json::json!({
         "id": outcome.run_id,
@@ -821,16 +829,17 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
     // `input.destructiveCategory` wire shape — present only when the shim's own
     // `destructive::classify` call found this command destructive
     // (`packages/shim/src/main.rs`). An unrecognised string here (a version skew between the
-    // shim's compiled category set and this core's) falls back to `Uncategorized` rather than
-    // being silently dropped — the whole point of the field's presence is "the shim already
-    // decided this is destructive," so a malformed value must still route to the destructive
-    // gate, never quietly to `None`.
+    // shim's compiled category set and this core's) falls back to `Push`, the category with no
+    // specific consequence sentence, rather than being silently dropped — the whole point of the
+    // field's presence is "the shim already decided this is a Gated action," so a malformed value
+    // must still route to the gate, never quietly to `None`. The card still shows the literal
+    // command.
     let destructive_category = event
         .get("destructiveCategory")
         .and_then(|v| v.as_str())
         .map(|raw| {
             flywheel_core::destructive::DestructiveCategory::from_str_name(raw)
-                .unwrap_or(flywheel_core::destructive::DestructiveCategory::Uncategorized)
+                .unwrap_or(flywheel_core::destructive::DestructiveCategory::Push)
                 .as_str()
         });
 

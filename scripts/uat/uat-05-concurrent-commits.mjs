@@ -52,7 +52,7 @@ function fanoutScript(count) {
 # Every git invocation here is BARE and stays inside the "safe" classification set, so the
 # shim lets it through and what is actually exercised is the concurrency guarantee rather than
 # the destructive gate. In particular this avoids \`git -C\`
-# (the classifier reads it as uncategorized, i.e. fail-closed destructive) by cd-ing instead.
+# by cd-ing instead (it predates the Gated-action deny-list skipping -C; kept as written).
 set -u
 cd "$(dirname "$0")"
 
@@ -100,9 +100,9 @@ await runScript(
     });
 
     // The worktrees are created HERE, not by the agent. The UAT item is about ten concurrent
-    // COMMITS surviving, and `git worktree add` classifies as `uncategorized` — fail-closed
-    // destructive — so asking the agent to create them would test the destructive gate (UAT item
-    // 3's subject) instead of the concurrency guarantee this item is about.
+    // COMMITS surviving; creating them in the harness keeps the agent's turn about commits only.
+    // (`git worktree add` used to ask as `uncategorized`; the deny-list now allows it, but asking
+    // the agent to create them would still spend the turn on setup rather than on concurrency.)
     for (let i = 1; i <= COMMIT_COUNT; i += 1) {
       git(workPath, [
         "worktree",
