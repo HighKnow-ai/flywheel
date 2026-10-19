@@ -1,178 +1,242 @@
 /**
- * D-32's structured feed rows (02-UI-SPEC.md "Body — the structured feed", plan 02-07 Task 2):
- * one row per normalised `AgentEvent`, switching on its kind. This is not a chat UI — there is
- * exactly one speaker class per row, distinguished by row KIND, not by a per-message avatar, so
- * no row here renders avatar chrome.
+ * The session feed's rows (D-32, reshaped by Story #56 "the session feed is readable"): one row per
+ * `FeedRowData`, switching on its kind. Not a chat UI — one speaker class per row, told apart by row
+ * KIND, never by an avatar.
  *
- * Pairing/filtering (which raw log entries become which `FeedRowData`) happens in
- * `SessionSurface.tsx`, which owns the full loaded window; this module is purely presentational —
- * one row in, one row out. No icon is imported from `lucide-react`/the marks registry here: the
- * only interactive glyph this file renders (the tool-call disclosure chevron) is a plain
- * text triangle, not a signal mark, so it never needs marks.ts's "always paired with a word"
- * discipline that governs status/priority glyphs.
+ * - An agent turn renders as markdown, in full. Rows flow in the document at their own height; the
+ *   fixed 32px slots that clipped every turn to one line are gone.
+ * - A tool call is one compact row: the tool and its target, then its state — the first line of its
+ *   output, "failed", or "running · 1m" while live. Expanded, its input reads as named fields and its
+ *   output as text. Nothing in the feed is ever printed as JSON.
+ * - A Proposal and an AskUserQuestion request are cards.
+ *
+ * Which log entries become which rows is `feedRows.ts`; this module is presentational only.
  */
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { formatAge } from "../legend/runStatus";
+import { Markdown } from "./Markdown";
+import {
+  gitRetryText,
+  payloadText,
+  proposalKind,
+  toolCallLabel,
+  type FeedRowData,
+  type QuestionPrompt,
+} from "./feedRows";
 import "./session.css";
+
+export { feedRowText, toolCallLabel, toolCallTarget, type FeedRowData } from "./feedRows";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
-/** Common candidate fields a tool's `input` payload uses for its own human-readable "target" —
- * checked in order, first string match wins (02-UI-SPEC.md's own worked examples: `Bash · npm
- * test`, `Edit · src/board/BoardRow.tsx`). Falls back to an empty target rather than dumping the
- * whole payload onto the collapsed line, which the expand affordance exists to reveal instead. */
-const TARGET_FIELD_CANDIDATES = ["command", "file_path", "path", "pattern", "url", "description"];
+/** An expanded payload block's fixed max height (px): its own scroll absorbs a long payload. */
+const EXPANDED_SUBBLOCK_MAX_HEIGHT = 240;
 
-export function toolCallTarget(input: unknown): string {
-  if (input && typeof input === "object" && !Array.isArray(input)) {
-    const obj = input as Record<string, unknown>;
-    for (const field of TARGET_FIELD_CANDIDATES) {
-      if (typeof obj[field] === "string") return obj[field] as string;
-    }
-  }
-  if (typeof input === "string") return input;
-  return "";
-}
+/** The character count above which an unrecognised line or an orphan result offers a disclosure
+ * rather than printing in full. */
+export const FEED_ROW_TRUNCATION_THRESHOLD = 120;
 
-/** The collapsed tool-call label — the tool's name and its target. The one place this string is built,
- * so the fleet's activity cell (`fleet/FleetSurface.tsx`) and `ToolCallRow` below can never word the
- * same call differently. */
-export function toolCallLabel(toolName: string, input: unknown): string {
-  const target = toolCallTarget(input);
-  return target ? `${toolName} · ${target}` : toolName;
-}
-
-/** One structured feed row's own data — the shape `SessionSurface.tsx`'s pairing/filtering step
- * produces from the raw windowed-read entries. `key` is a stable React key, independent of
- * whatever field(s) a given row kind happens to carry. */
-export type FeedRowData =
-  | { kind: "assistant_text"; key: string; text: string }
-  // Task 2, plan 05-12: a turn the application sent into a live authoring session (the
-  // developer's own typed message, or a system-generated relay — see `sidecar.rs`'s
-  // `AuthoringTurnOrigin`) — its own row kind, never merged into `assistant_text` (that would
-  // attribute the developer's own words to the agent) and never falling through to `raw` (that
-  // would show the JSON-stringified line instead of the plain words).
-  | { kind: "developer_turn"; key: string; text: string }
-  | { kind: "tool_call"; key: string; toolName: string; input: unknown; output?: unknown }
-  | { kind: "system_notice"; key: string; text: string }
-  // D-53/plan 03-13 (03-UI-SPEC.md "Git lock-retry transient row"): the shim's retry notice,
-  // reusing the system/transient row kind's own treatment rather than defining a parallel one —
-  // `attempt`/`max` are the only interpolated values, per the Copywriting Contract.
-  | { kind: "git_retry"; key: string; attempt: number; max: number }
-  // D-53 (03-UI-SPEC.md "Git lock-exhaustion entry"): the event exists on the stream (the shim
-  // emits it, the Rust core consumes it into the Activity Trail), but the FEED renders nothing
-  // for it — exhaustion is a trail-only artifact, never a feed row, which is exactly the
-  // signal-to-noise ratio D-53 protects. Carries no fields: the no-render case needs none.
-  | { kind: "git_lock_exhausted"; key: string }
-  | { kind: "raw"; key: string; raw: string };
+/** How deep `Fields` walks a nested payload before printing the rest as one line. */
+const FIELDS_MAX_DEPTH = 4;
 
 export interface FeedRowProps {
   row: FeedRowData;
-  /** Only meaningful for a `tool_call` row — ignored by every other kind. */
+  /** Only meaningful for a row that `isRowExpandable` says discloses. */
   expanded: boolean;
   onToggleExpand: () => void;
-  /** Only meaningful for a `tool_call` row: this is the call the agent is running right now. It carries
-   * the live mark, so the eye finds life where the work is and not only in the header chrome. */
+  /** Only meaningful for a `tool_call` row: the call the agent is running right now. */
   live?: boolean;
+  /** The clock for a live row's "running" time. Omitted, the row ticks its own once a second. */
+  now?: number;
 }
 
-/** Whether the OS reports a reduced-motion preference — checked once at mount (no acceptance
- * criterion requires reacting to the preference changing mid-session). Guarded for an environment
- * with no `matchMedia` at all (this project's own jsdom test environment does not implement it by
- * default; a test asserting the reduced-motion path installs its own mock first). */
+/** Whether the OS reports a reduced-motion preference, checked once at mount. Guarded for an
+ * environment with no `matchMedia` (this project's jsdom tests). */
 export function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-function stringifyPayload(value: unknown): string {
-  if (value === undefined) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
+function firstLine(text: string): string {
+  return text.trim().split("\n")[0] ?? "";
+}
+
+/** Whether a row offers a disclosure control — a pure function of the row's data. */
+export function isRowExpandable(row: FeedRowData): boolean {
+  switch (row.kind) {
+    case "tool_call":
+      return true;
+    case "tool_result": {
+      const text = payloadText(row.output);
+      return text.includes("\n") || text.length > FEED_ROW_TRUNCATION_THRESHOLD;
+    }
+    case "raw":
+      return row.raw.length > FEED_ROW_TRUNCATION_THRESHOLD;
+    default:
+      return false;
   }
 }
 
-/** The shared "expanded" sub-block's fixed max height (px) — the SAME value `ToolCallRow`'s own
- * expanded payload block already used before this Story, now named so the body-row presentation
- * component below can share it rather than duplicating the literal. Still a constant: the block's
- * own internal scroll is what absorbs a long payload, never the row's own reserved slot. */
-const EXPANDED_SUBBLOCK_MAX_HEIGHT = 240;
+/** A first guess at a row's height (px), before the virtualizer measures the mounted row. Only a hint:
+ * the measured height always wins, so a wrong guess costs a reflow, never a clipped or overlapping row.
+ * It also stands in when an environment reports no layout (a zero measurement). */
+export function feedRowEstimateSize(row: FeedRowData, expanded: boolean): number {
+  const LINE = 20;
+  switch (row.kind) {
+    case "assistant_text":
+    case "developer_turn":
+      return 16 + LINE * row.text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(line.length / 100)), 0);
+    case "proposal":
+      return 140;
+    case "question":
+      return 60 + row.questions.reduce((h, q) => h + 40 + 22 * q.options.length, 0);
+    case "git_lock_exhausted":
+      return 0;
+    default:
+      return expanded && isRowExpandable(row) ? 296 : 28;
+  }
+}
+
+/** Re-renders once a second while `enabled`; the live row's own boundary, so the tick never
+ * re-renders the rest of the feed. */
+function useSecondTick(enabled: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [enabled]);
+  return now;
+}
+
+/** How long a live call has been running: the newer of its last heartbeat and the clock since it
+ * started, so the figure keeps moving between heartbeats and never runs behind one. */
+export function runningSeconds(startedAt: string | undefined, heartbeatSeconds: number | undefined, nowMs: number): number {
+  const started = startedAt ? Date.parse(startedAt) : Number.NaN;
+  const byClock = Number.isNaN(started) ? 0 : Math.max(0, (nowMs - started) / 1000);
+  return Math.floor(Math.max(byClock, heartbeatSeconds ?? 0));
+}
+
+function RunningFor({ startedAt, heartbeatSeconds, now }: { startedAt?: string; heartbeatSeconds?: number; now?: number }) {
+  const ticked = useSecondTick(now === undefined);
+  const nowMs = now ?? ticked;
+  const seconds = runningSeconds(startedAt, heartbeatSeconds, nowMs);
+  return (
+    <span className="type-label tabular-nums feed-call-state" data-state="running">
+      {`running · ${formatAge(new Date(nowMs - seconds * 1000).toISOString(), nowMs)}`}
+    </span>
+  );
+}
+
+/** A payload as named fields: an object as label/value pairs, a list as a list, text as text.
+ * The one renderer for every tool input and structured output, so no payload reaches the feed as
+ * JSON. */
+export function Fields({ value, depth = 0 }: { value: unknown; depth?: number }): ReactNode {
+  if (value === undefined || value === null || value === "") {
+    return <span style={{ color: "var(--text-muted-rack)" }}>none</span>;
+  }
+  if (typeof value === "string") {
+    return value.includes("\n") ? <pre className="feed-field-text">{value}</pre> : <span>{value}</span>;
+  }
+  if (typeof value === "number" || typeof value === "boolean") return <span>{String(value)}</span>;
+  if (depth >= FIELDS_MAX_DEPTH) return <span>{payloadText(value)}</span>;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <span style={{ color: "var(--text-muted-rack)" }}>none</span>;
+    return (
+      <ul className="feed-field-list">
+        {value.map((item, i) => (
+          <li key={i}>
+            <Fields value={item} depth={depth + 1} />
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return <span style={{ color: "var(--text-muted-rack)" }}>none</span>;
+    return (
+      <dl className="feed-fields">
+        {entries.map(([k, v]) => (
+          <div key={k} className="feed-field">
+            <dt className="type-label">{k}</dt>
+            <dd>
+              <Fields value={v} depth={depth + 1} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
+  return <span>{String(value)}</span>;
+}
+
+/** A tool's output: text as preformatted text, anything structured as fields. */
+function OutputView({ output }: { output: unknown }) {
+  if (typeof output === "string") return <pre className="feed-field-text">{output || "(no output)"}</pre>;
+  return <Fields value={output} />;
+}
+
+function Chevron({ expanded }: { expanded: boolean }) {
+  return (
+    <span aria-hidden="true" style={{ flexShrink: 0, display: "inline-block", transition: "none" }}>
+      {expanded ? "▾" : "▸"}
+    </span>
+  );
+}
 
 function ToolCallRow({
   row,
   expanded,
   onToggleExpand,
   live,
+  now,
 }: {
   row: Extract<FeedRowData, { kind: "tool_call" }>;
   expanded: boolean;
   onToggleExpand: () => void;
   live: boolean;
+  now?: number;
 }) {
+  const outputLine = row.output !== undefined ? firstLine(payloadText(row.output)) : "";
   return (
-    <div role="listitem" style={{ padding: "var(--space-xs) 0", minWidth: 0 }}>
+    <div role="listitem" className="feed-row">
       <button
         type="button"
         onClick={onToggleExpand}
         aria-expanded={expanded}
-        className="feed-disclosure type-body tabular-nums"
+        className="feed-disclosure feed-call type-body tabular-nums"
         data-live={live ? "true" : undefined}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-xs)",
-          background: "transparent",
-          border: "none",
-          padding: 0,
-          cursor: "pointer",
-          color: "var(--text-muted-rack)",
-          fontFamily: MONO_STACK,
-          minWidth: 0,
-          width: "100%",
-          textAlign: "left",
-        }}
+        style={{ fontFamily: MONO_STACK }}
       >
-        <span aria-hidden="true" style={{ flexShrink: 0, display: "inline-block", transition: "none" }}>
-          {expanded ? "▾" : "▸"}
-        </span>
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-          {toolCallLabel(row.toolName, row.input)}
-        </span>
-        {/* The live mark: a block caret after the call, the terminal's own "it is working here". It is the
-            running-session pulse (the one scoped opacity animation) moved to where the work is; under reduced
-            motion the class is omitted, so the caret is a plain, fully legible mark and never frozen mid-cycle. */}
-        {live && (
-          <span aria-hidden="true" className={prefersReducedMotion() ? "feed-caret" : "feed-caret agent-pulse"}>
-            ▍
+        <Chevron expanded={expanded} />
+        <span className="feed-call-label">{toolCallLabel(row.toolName, row.input)}</span>
+        {live ? (
+          <>
+            <RunningFor startedAt={row.startedAt} heartbeatSeconds={row.elapsedSeconds} now={now} />
+            {/* The live mark: a block caret after the call. Under reduced motion the pulse class is
+                omitted, so the caret is a plain, fully legible mark and never frozen mid-cycle. */}
+            <span aria-hidden="true" className={prefersReducedMotion() ? "feed-caret" : "feed-caret agent-pulse"}>
+              ▍
+            </span>
+          </>
+        ) : row.isError ? (
+          <span className="type-label feed-call-state" data-state="failed">
+            failed
           </span>
+        ) : (
+          !expanded && outputLine && <span className="type-label feed-call-output">{outputLine}</span>
         )}
       </button>
 
       {expanded && (
-        <div
-          style={{
-            marginTop: "var(--space-xs)",
-            marginLeft: "var(--space-md)",
-            maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT,
-            overflowY: "auto",
-            fontFamily: MONO_STACK,
-            whiteSpace: "pre-wrap",
-            overflowWrap: "anywhere",
-            color: "var(--text-primary-rack)",
-          }}
-        >
-          <div className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-            Input
-          </div>
-          <pre style={{ margin: "0 0 var(--space-sm) 0" }}>{stringifyPayload(row.input)}</pre>
+        <div className="feed-call-detail" style={{ maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT }}>
+          <div className="type-label feed-detail-heading">Input</div>
+          <Fields value={row.input} />
           {row.output !== undefined && (
             <>
-              <div className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-                Output
-              </div>
-              <pre style={{ margin: 0 }}>{stringifyPayload(row.output)}</pre>
+              <div className="type-label feed-detail-heading">{row.isError ? "Error" : "Output"}</div>
+              <OutputView output={row.output} />
             </>
           )}
         </div>
@@ -181,129 +245,62 @@ function ToolCallRow({
   );
 }
 
-/** The character count above which a text row is considered to have more to show than one
- * collapsed line can hold (G-02-3, Task 2). This is a PRESENTATION threshold — it decides only
- * whether a disclosure control is OFFERED. It never affects any row's height: `feedRowEstimateSize`
- * below still returns one of exactly two constants, so the fixed-size virtualization contract
- * (02-UI-SPEC.md "Performance Contract Additions") is untouched by this value. */
-export const FEED_ROW_TRUNCATION_THRESHOLD = 120;
-
-/** The text a given expandable row kind carries, for length-based expandability — `undefined` for
- * `tool_call`, whose expandability is unconditional (see `isRowExpandable` below) and does not
- * depend on any text length. */
-function expandableRowText(row: FeedRowData): string | undefined {
-  switch (row.kind) {
-    case "assistant_text":
-    case "developer_turn":
-    case "system_notice":
-      return row.text;
-    // The Copywriting Contract's fixed retry line, apart from the two interpolated integers
-    // (03-UI-SPEC.md's own wording, character for character) — computed here so `FeedRow`'s
-    // "git_retry" case below can route through the exact same `ExpandableTextRow` call the
-    // "system_notice" case already uses, rather than duplicating that JSX.
-    case "git_retry":
-      return `git: retrying after index lock (attempt ${row.attempt}/${row.max})…`;
-    case "raw":
-      return row.raw;
-    default:
-      return undefined;
-  }
-}
-
-/** Whether a row offers a disclosure control at all — a PURE function of the row's own data,
- * deterministic and never a measurement of the rendered DOM (the distinction 02-UI-SPEC.md's
- * Performance Contract Additions requires). `tool_call` is always expandable, unchanged from
- * before this Story: expanding it reveals its input/output payload, not "more of one line".
- * `assistant_text`, `system_notice` and `raw` are expandable only when their own text exceeds
- * `FEED_ROW_TRUNCATION_THRESHOLD` — a short row offers no control and cannot be expanded. */
-export function isRowExpandable(row: FeedRowData): boolean {
-  if (row.kind === "tool_call") return true;
-  const text = expandableRowText(row);
-  return typeof text === "string" && text.length > FEED_ROW_TRUNCATION_THRESHOLD;
-}
-
-/** The shared presentation for every body row kind that is plain text (`assistant_text`,
- * `system_notice`, `raw`) — D-32's "assistant text as prose" stays true under the G-02-3 clamp by
- * making that prose expandable rather than permanently one ellipsised line. Collapsed: the text on
- * one line, clipped exactly the way `ToolCallRow`'s label span already clips — hidden overflow, an
- * ellipsis, a no-wrap rule and a zero minimum width — AND capped to `FEED_ROW_TRUNCATION_THRESHOLD`
- * characters before it ever reaches the DOM, so a multi-kilobyte payload never sits in the document
- * behind a CSS clip (wasteful, and unreachable-until-expanded content should not exist at all).
- * Expanded (only reachable when `isRowExpandable` is true): the full text inside the same
- * fixed-max-height, internally-scrolling block `ToolCallRow`'s own expanded payload uses,
- * preserving whitespace and allowing long unbroken tokens to break. */
-function ExpandableTextRow({
+/** A result whose call is not in the loaded window: its text, never the raw line. */
+function ToolResultRow({
   row,
-  roleClassName,
-  color,
-  mono,
   expanded,
   onToggleExpand,
 }: {
-  row: FeedRowData;
-  roleClassName: string;
-  color: string;
-  mono?: boolean;
+  row: Extract<FeedRowData, { kind: "tool_result" }>;
   expanded: boolean;
   onToggleExpand: () => void;
 }) {
-  const text = expandableRowText(row) ?? "";
+  const text = payloadText(row.output);
   const expandable = isRowExpandable(row);
-  const showExpanded = expandable && expanded;
-  const collapsedText = text.length > FEED_ROW_TRUNCATION_THRESHOLD ? text.slice(0, FEED_ROW_TRUNCATION_THRESHOLD) : text;
-
+  const summary = `${row.isError ? "failed" : "result"} · ${firstLine(text).slice(0, FEED_ROW_TRUNCATION_THRESHOLD)}`;
   return (
-    <div role="listitem" style={{ padding: "var(--space-xs) 0", minWidth: 0 }}>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-xs)", minWidth: 0 }}>
-        {expandable && (
-          <button
-            type="button"
-            onClick={onToggleExpand}
-            aria-expanded={showExpanded}
-            aria-label={showExpanded ? "Collapse full text" : "Expand full text"}
-            className="feed-disclosure"
-            style={{
-              flexShrink: 0,
-              display: "inline-block",
-              background: "transparent",
-              border: "none",
-              padding: 0,
-              cursor: "pointer",
-              color,
-              transition: "none",
-            }}
-          >
-            {showExpanded ? "▾" : "▸"}
-          </button>
-        )}
-        {showExpanded ? (
-          <div
-            className={roleClassName}
-            style={{
-              maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT,
-              overflowY: "auto",
-              whiteSpace: "pre-wrap",
-              overflowWrap: "anywhere",
-              color,
-              fontFamily: mono ? MONO_STACK : undefined,
-              minWidth: 0,
-            }}
-          >
-            {text}
-          </div>
-        ) : (
-          <span
-            className={roleClassName}
-            style={{
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              minWidth: 0,
-              color,
-              fontFamily: mono ? MONO_STACK : undefined,
-            }}
-          >
-            {collapsedText}
+    <div role="listitem" className="feed-row">
+      {expandable ? (
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          aria-expanded={expanded}
+          className="feed-disclosure feed-call type-body"
+          style={{ fontFamily: MONO_STACK }}
+        >
+          <Chevron expanded={expanded} />
+          <span className="feed-call-label">{summary}</span>
+        </button>
+      ) : (
+        <span className="type-body feed-call-label" style={{ fontFamily: MONO_STACK, color: "var(--text-muted-rack)" }}>
+          {summary}
+        </span>
+      )}
+      {expandable && expanded && (
+        <div className="feed-call-detail" style={{ maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT }}>
+          <OutputView output={row.output} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProposalCard({ row }: { row: Extract<FeedRowData, { kind: "proposal" }> }) {
+  const input = row.input && typeof row.input === "object" && !Array.isArray(row.input) ? (row.input as Record<string, unknown>) : {};
+  const { title, why, ...rest } = input;
+  const kind = proposalKind(row.toolName);
+  return (
+    <div role="listitem" className="feed-row">
+      <div className="session-card feed-card" data-card="proposal">
+        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          {kind ? `Proposal · ${kind}` : "Proposal"}
+        </span>
+        {typeof title === "string" && title && <span className="type-heading">{title}</span>}
+        {typeof why === "string" && why && <p className="type-body feed-card-text">{why}</p>}
+        {Object.keys(rest).length > 0 && <Fields value={rest} />}
+        {row.output !== undefined && (
+          <span className="type-label" style={{ color: row.isError ? "var(--destructive-text-rack)" : "var(--text-muted-rack)" }}>
+            {payloadText(row.output)}
           </span>
         )}
       </div>
@@ -311,78 +308,128 @@ function ExpandableTextRow({
   );
 }
 
-/** The text a row reads as on one line — what the fleet's activity cell shows for a row (D-167: the
- * fleet defines no vocabulary of its own for agent activity). Each kind returns the same words its
- * feed row prints. */
-export function feedRowText(row: FeedRowData): string {
-  switch (row.kind) {
-    case "tool_call":
-      return toolCallLabel(row.toolName, row.input);
-    case "git_lock_exhausted":
-      return "";
-    default:
-      return expandableRowText(row) ?? "";
-  }
+function QuestionCard({ questions, answer }: { questions: QuestionPrompt[]; answer?: unknown }) {
+  return (
+    <div role="listitem" className="feed-row">
+      <div className="session-card feed-card" data-card="question">
+        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          {questions.length > 1 ? `${questions.length} questions from the agent` : "Question from the agent"}
+        </span>
+        {questions.map((q, i) => (
+          <div key={i} className="feed-question">
+            {q.header && (
+              <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+                {q.header}
+              </span>
+            )}
+            <p className="type-body feed-card-text">{q.question}</p>
+            {q.options.length > 0 && (
+              <ul className="feed-field-list">
+                {q.options.map((option, j) => (
+                  <li key={j}>
+                    <span style={{ fontWeight: 600 }}>{option.label}</span>
+                    {option.description && (
+                      <>
+                        {" — "}
+                        <span style={{ color: "var(--text-muted-rack)" }}>{option.description}</span>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+        {answer !== undefined && (
+          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+            {payloadText(answer)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
-export function FeedRow({ row, expanded, onToggleExpand, live = false }: FeedRowProps) {
+/** A one-line transient in the muted label role (a system notice, the git retry line). */
+function SystemLine({ text }: { text: string }) {
+  return (
+    <div role="listitem" className="feed-row">
+      <p className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)", overflowWrap: "anywhere" }}>
+        {text}
+      </p>
+    </div>
+  );
+}
+
+/** An unrecognised line: clipped in the Mono stack, its full text behind a disclosure. The clipped
+ * form is cut before it reaches the DOM, so a multi-kilobyte line never sits behind a CSS clip. */
+function RawRow({ raw, expanded, onToggleExpand }: { raw: string; expanded: boolean; onToggleExpand: () => void }) {
+  const expandable = raw.length > FEED_ROW_TRUNCATION_THRESHOLD;
+  const showExpanded = expandable && expanded;
+  return (
+    <div role="listitem" className="feed-row" style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-xs)" }}>
+      {expandable && (
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          aria-expanded={showExpanded}
+          aria-label={showExpanded ? "Collapse full text" : "Expand full text"}
+          className="feed-disclosure"
+          style={{ flexShrink: 0, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-muted-rack)" }}
+        >
+          <Chevron expanded={showExpanded} />
+        </button>
+      )}
+      <span
+        className="type-body"
+        style={{
+          minWidth: 0,
+          color: "var(--text-muted-rack)",
+          fontFamily: MONO_STACK,
+          ...(showExpanded
+            ? { maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT, overflowY: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }
+            : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }),
+        }}
+      >
+        {showExpanded ? raw : raw.slice(0, FEED_ROW_TRUNCATION_THRESHOLD)}
+      </span>
+    </div>
+  );
+}
+
+export function FeedRow({ row, expanded, onToggleExpand, live = false, now }: FeedRowProps) {
   switch (row.kind) {
     case "assistant_text":
       return (
-        <ExpandableTextRow
-          row={row}
-          roleClassName="type-body"
-          color="var(--text-primary-rack)"
-          expanded={expanded}
-          onToggleExpand={onToggleExpand}
-        />
+        <div role="listitem" className="feed-row feed-turn" style={{ color: "var(--text-primary-rack)" }}>
+          <Markdown text={row.text} className="type-body" />
+        </div>
       );
-    // Task 2, plan 05-12: the accent text token — the developer's own words read as a different
-    // speaker class than the agent's `assistant_text` (`--text-primary-rack`) immediately above,
-    // exactly what row kind exists to signal in this file.
+    // Plan 05-12: the developer's own words, in the accent text role — a different speaker class.
     case "developer_turn":
       return (
-        <ExpandableTextRow
-          row={row}
-          roleClassName="type-body"
-          color="var(--accent-text-rack)"
-          expanded={expanded}
-          onToggleExpand={onToggleExpand}
-        />
+        <div role="listitem" className="feed-row feed-turn" style={{ color: "var(--accent-text-rack)" }}>
+          <Markdown text={row.text} className="type-body" />
+        </div>
       );
-    // D-53/plan 03-13: "git_retry" is routed through the SAME branch "system_notice" already
-    // uses — reusing the existing system/transient row kind, not a parallel one (03-UI-SPEC.md's
-    // own "no new visual component" instruction) — identical roleClassName/color, so a later
-    // change to the transient treatment reaches this row automatically.
     case "system_notice":
+      return <SystemLine text={row.text} />;
+    // D-53: the retry line reuses the system/transient treatment, never a parallel one.
     case "git_retry":
-      return (
-        <ExpandableTextRow
-          row={row}
-          roleClassName="type-label"
-          color="var(--text-muted-rack)"
-          expanded={expanded}
-          onToggleExpand={onToggleExpand}
-        />
-      );
-    // D-53: an explicit no-render case, never a fallthrough to the unknown-event branch — a
-    // silent fallthrough would render this event's raw payload as an unknown row, which is
-    // exactly the noise D-53 protects against. Exhaustion surfaces in the Activity Trail only.
+      return <SystemLine text={gitRetryText(row.attempt, row.max)} />;
+    // D-53: an explicit no-render case; exhaustion surfaces in the Activity Trail only.
     case "git_lock_exhausted":
       return null;
     case "tool_call":
-      return <ToolCallRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} live={live} />;
+      return <ToolCallRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} live={live} now={now} />;
+    case "tool_result":
+      return <ToolResultRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} />;
+    case "proposal":
+      return <ProposalCard row={row} />;
+    case "question":
+      return <QuestionCard questions={row.questions} answer={row.answer} />;
     case "raw":
-      return (
-        <ExpandableTextRow
-          row={row}
-          roleClassName="type-body"
-          color="var(--text-muted-rack)"
-          mono
-          expanded={expanded}
-          onToggleExpand={onToggleExpand}
-        />
-      );
+      return <RawRow raw={row.raw} expanded={expanded} onToggleExpand={onToggleExpand} />;
     default: {
       const exhaustive: never = row;
       return exhaustive;
@@ -390,28 +437,8 @@ export function FeedRow({ row, expanded, onToggleExpand, live = false }: FeedRow
   }
 }
 
-/** A fixed row height per kind (02-UI-SPEC.md "Performance Contract Additions": "a fixed
- * `estimateSize` per row kind... never measured"). `FEED_TOOL_ROW_EXPANDED_HEIGHT` is the expanded
- * height for EVERY expandable row kind, not the tool call's alone (G-02-3, Task 2) — its own
- * larger fixed height, still a constant, never derived from actual content length (the expanded
- * sub-block's own internal scroll is what absorbs a long payload). Its exported name and value are
- * unchanged from before this Story, so no call site moves. */
-export const FEED_ROW_HEIGHT = 32;
-export const FEED_TOOL_ROW_EXPANDED_HEIGHT = 296;
-
-/** Depends only on the row's kind and its expand state, never on the length of its content — a
- * ten-character and a ten-thousand-character row of the same kind return the identical constant,
- * which is exactly what keeps this a fixed-size virtualization contract rather than a measured
- * one (02-UI-SPEC.md "Performance Contract Additions"). */
-export function feedRowEstimateSize(row: FeedRowData, expanded: boolean): number {
-  if (isRowExpandable(row) && expanded) return FEED_TOOL_ROW_EXPANDED_HEIGHT;
-  return FEED_ROW_HEIGHT;
-}
-
-/** A convenience hook-free helper so `SessionSurface.tsx` doesn't need its own `useState` per
- * row — one Set of expanded row keys is enough (02-UI-SPEC.md: "a tool call the user has
- * expanded stays expanded as new events arrive below it"). Exported for `SessionSurface.tsx`'s
- * own use; not a React hook itself. */
+/** One Set of expanded row keys for the whole feed (02-UI-SPEC.md: "a tool call the user has
+ * expanded stays expanded as new events arrive below it"). */
 export function useExpandedRows() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   function toggle(key: string) {

@@ -103,6 +103,218 @@
   box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
 }
 
+/*
+ * Story #56: rows flow in the document at their own height. A turn is prose with room between
+ * paragraphs; a tool call is one tight mono line; the gap between rows is the small step.
+ */
+.feed-row {
+  min-width: 0;
+  padding: var(--space-xs) 0;
+}
+
+.feed-turn {
+  padding: var(--space-sm) 0;
+}
+
+/* A tool call's one line: the label clips first, the state (output line, failed, running) keeps its room. */
+.feed-call {
+  align-items: baseline;
+  background: transparent;
+  border: none;
+  color: var(--text-muted-rack);
+  cursor: pointer;
+  display: flex;
+  gap: var(--space-xs);
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.feed-call-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-call-output {
+  color: var(--text-muted-rack);
+  flex: 0 1 40%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-call-output::before,
+.feed-call-state::before {
+  content: "— ";
+}
+
+.feed-call-state {
+  color: var(--text-primary-rack);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.feed-call-state[data-state="failed"] {
+  color: var(--destructive-text-rack);
+}
+
+.feed-call-detail {
+  color: var(--text-primary-rack);
+  margin: var(--space-xs) 0 0 var(--space-md);
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+}
+
+.feed-detail-heading {
+  color: var(--text-muted-rack);
+  margin-top: var(--space-xs);
+}
+
+/* A payload as named fields: the name in the label role over its value, never JSON. */
+.feed-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin: 0;
+}
+
+.feed-field dt {
+  color: var(--text-muted-rack);
+}
+
+.feed-field dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.feed-field-list {
+  margin: 0;
+  padding-left: var(--space-md);
+}
+
+.feed-field-text {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.feed-card {
+  margin: var(--space-xs) 0;
+}
+
+.feed-card-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.feed-question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+/* --- Markdown in a turn --------------------------------------------------------------------------- */
+
+.feed-md {
+  overflow-wrap: anywhere;
+}
+
+.feed-md > :first-child {
+  margin-top: 0;
+}
+
+.feed-md > :last-child {
+  margin-bottom: 0;
+}
+
+.feed-md p,
+.feed-md-list,
+.feed-md-pre,
+.feed-md-quote,
+.feed-md-table-wrap {
+  margin: 0 0 var(--space-sm) 0;
+}
+
+/* Headings stay in the body scale: a turn is a message, not a document; weight carries the rank. */
+.feed-md-heading {
+  font-size: inherit;
+  font-weight: 600;
+  margin: var(--space-sm) 0 var(--space-xs) 0;
+}
+
+.feed-md-list {
+  padding-left: var(--space-lg);
+}
+
+.feed-md-list .feed-md-list {
+  margin-bottom: 0;
+}
+
+.feed-md-code,
+.feed-md-pre {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.feed-md-code {
+  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+  border-radius: var(--radius-chrome);
+  padding: 0 0.25em;
+}
+
+.feed-md-pre {
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-chrome);
+  max-height: 480px;
+  overflow: auto;
+  padding: var(--space-sm);
+  white-space: pre;
+}
+
+.feed-md-quote {
+  border-left: 2px solid var(--divider);
+  color: var(--text-muted-rack);
+  padding-left: var(--space-sm);
+}
+
+.feed-md-rule {
+  border: none;
+  border-top: 1px solid var(--divider);
+  margin: var(--space-sm) 0;
+}
+
+.feed-md-link {
+  text-decoration: underline;
+}
+
+.feed-md-link-target {
+  color: var(--text-muted-rack);
+  text-decoration: none;
+}
+
+.feed-md-table-wrap {
+  overflow-x: auto;
+}
+
+.feed-md-table {
+  border-collapse: collapse;
+}
+
+.feed-md-table th,
+.feed-md-table td {
+  border: 1px solid var(--divider);
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+}
+
+.feed-md-table th {
+  font-weight: 600;
+}
+
 /* The live mark on the running tool row: a block caret in the muted ink, never the brand. */
 .feed-caret {
   color: var(--text-primary-rack);
