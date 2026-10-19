@@ -299,6 +299,7 @@ pub(crate) fn launch_run_for_story(
     kind: SessionKind,
     instruction: &str,
 ) -> Result<SessionDto, String> {
+    flywheel_core::login_path::claude_bin()?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let PreparedLaunch { outcome, repo_path, env } = prepare_launch(&mut conn, story_id, kind, instruction)?;
     spawn_prepared_run(
@@ -337,6 +338,7 @@ pub fn story_start(
         &state.db,
         &story_id,
         &instruction,
+        flywheel_core::login_path::claude_bin,
         crate::sidecar::merge_shim_env_for_run,
         |repo_path, request| send_gated_spawn(&state, repo_path, request),
     )?;
@@ -354,10 +356,16 @@ pub fn story_start(
 /// one lock, so two Starts cannot both pass it (the second meets the first's live session). The
 /// Story moves to Running only once the spawn request went out: a launch that fails leaves it
 /// Ready, its session `failed` and its worktree in place for the next Start.
+///
+/// `find_claude` runs after the Ready check and before anything is created: with no `claude` on
+/// the login-shell `PATH` the Start is refused with the sentence naming the `PATH` searched, and
+/// the Story stays Ready (issue #88). The sidecar's spawn is asynchronous, so a missing binary
+/// would otherwise surface only after the Story had moved to Running.
 pub(crate) fn start_ready_story(
     db: &std::sync::Mutex<Connection>,
     story_id: &str,
     instruction: &str,
+    find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
     merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<StartRunOutcome, String> {
@@ -369,6 +377,7 @@ pub(crate) fn start_ready_story(
     if current != flywheel_core::domain::story::StoryState::Ready.as_str() {
         return Err(format!("Start needs a Ready Story; this one is {current}"));
     }
+    find_claude()?;
     let PreparedLaunch { outcome, repo_path, env } =
         prepare_launch(&mut conn, story_id, SessionKind::Story, instruction)?;
     spawn_prepared_run(db, conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
@@ -418,6 +427,7 @@ pub fn story_resume(
         &state.db,
         &story_id,
         &note,
+        flywheel_core::login_path::claude_bin,
         crate::sidecar::merge_shim_env_for_run,
         |repo_path, request| send_gated_spawn(&state, repo_path, request),
     )?;
@@ -433,11 +443,14 @@ pub fn story_resume(
 
 /// [`story_resume`]'s body, driven without a Tauri app handle. The Stopped check and the launch
 /// share one lock, so two Resumes cannot both pass it (the second meets the first's live session).
-/// The Story stays Running throughout: Resume is not a state move.
+/// The Story stays Running throughout: Resume is not a state move. Like Start, it spawns with the
+/// login-shell `PATH` adopted at startup, and `find_claude` refuses it, naming that `PATH`, before
+/// anything is created when `claude` is missing (issue #88): the Story stays Stopped.
 pub(crate) fn resume_stopped_story(
     db: &std::sync::Mutex<Connection>,
     story_id: &str,
     note: &str,
+    find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
     merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<StartRunOutcome, String> {
@@ -449,6 +462,7 @@ pub(crate) fn resume_stopped_story(
     {
         return Err("Resume needs a Stopped Story: Running, with no live session".to_string());
     }
+    find_claude()?;
     let PreparedLaunch { outcome, repo_path, env } =
         prepare_launch(&mut conn, story_id, SessionKind::Story, &note)?;
     spawn_prepared_run(db, conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
@@ -2846,7 +2860,7 @@ mod tests {
         with_scratch_dirs(|| {
             let (db, story, repo) = ready_story();
             let mut sent = None;
-            let outcome = start_ready_story(&db, &story, "", |_, _| Ok(()), |_repo, request| {
+            let outcome = start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_repo, request| {
                 sent = Some(request.clone());
                 Ok(())
             })
@@ -2890,7 +2904,7 @@ mod tests {
             let (conn, _actor, _p, story, _repo) = seeded_git_conn_with_story();
             let db = std::sync::Mutex::new(conn);
             let before = launch_footprint(&db.lock().unwrap(), &story);
-            let err = start_ready_story(&db, &story, "", |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
+            let err = start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
                 .expect_err("a Shaping Story cannot start");
             assert!(err.contains("Ready"), "{err}");
             let conn = db.lock().unwrap();
@@ -2900,15 +2914,45 @@ mod tests {
         });
     }
 
+    fn found_claude() -> Result<std::path::PathBuf, String> {
+        Ok(std::path::PathBuf::from("/opt/stub/claude"))
+    }
+
+    /// Issue #88: no `claude` on the login-shell PATH refuses the Start with the searched PATH in
+    /// the message, creates nothing, and leaves the Story Ready rather than Running.
+    #[test]
+    fn a_start_without_claude_names_the_searched_path_and_leaves_the_story_ready() {
+        with_scratch_dirs(|| {
+            let (db, story, _repo) = ready_story();
+            let before = launch_footprint(&db.lock().unwrap(), &story);
+            let empty = tempfile::tempdir().unwrap();
+            let searched = format!("{}:/usr/bin:/bin", empty.path().display());
+            let err = start_ready_story(
+                &db,
+                &story,
+                "",
+                || flywheel_core::login_path::claude_bin_on(&searched),
+                |_, _| panic!("no shim for a refused Start"),
+                |_, _| panic!("nothing may be spawned"),
+            )
+            .expect_err("Start is refused without claude");
+            assert!(err.contains(&searched), "{err}");
+            let conn = db.lock().unwrap();
+            assert_eq!(story_state(&conn, &story), "ready");
+            assert_eq!(launch_footprint(&conn, &story), before, "a refused Start writes nothing");
+            assert_eq!(worktree_count(&conn, &story), 0, "and creates no worktree");
+        });
+    }
+
     #[test]
     fn a_start_whose_spawn_fails_leaves_the_story_ready_to_start_again() {
         with_scratch_dirs(|| {
             let (db, story, _repo) = ready_story();
-            let err = start_ready_story(&db, &story, "", |_, _| Ok(()), |_, _| Err("spawn boom".to_string()))
+            let err = start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Err("spawn boom".to_string()))
                 .expect_err("the spawn fails");
             assert!(err.contains("spawn boom"), "{err}");
             assert_eq!(story_state(&db.lock().unwrap(), &story), "ready");
-            start_ready_story(&db, &story, "", |_, _| Ok(()), |_, _| Ok(())).expect("Start works again");
+            start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Ok(())).expect("Start works again");
             assert_eq!(story_state(&db.lock().unwrap(), &story), "running");
         });
     }
@@ -2918,7 +2962,7 @@ mod tests {
     /// A Running Story whose one session the developer stopped: Stopped.
     fn stopped_story() -> (std::sync::Mutex<Connection>, String, StartRunOutcome, tempfile::TempDir) {
         let (db, story, repo) = ready_story();
-        let first = start_ready_story(&db, &story, "", |_, _| Ok(()), |_, _| Ok(())).unwrap();
+        let first = start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Ok(())).unwrap();
         stop_session_recording_first(&mut db.lock().unwrap(), &first.run_id, || Ok(())).unwrap();
         (db, story, first, repo)
     }
@@ -2928,7 +2972,7 @@ mod tests {
         with_scratch_dirs(|| {
             let (db, story, first, _repo) = stopped_story();
             let mut sent = None;
-            let outcome = resume_stopped_story(&db, &story, " Pick the parser back up ", |_, _| Ok(()), |_repo, request| {
+            let outcome = resume_stopped_story(&db, &story, " Pick the parser back up ", found_claude, |_, _| Ok(()), |_repo, request| {
                 sent = Some(request.clone());
                 Ok(())
             })
@@ -2954,19 +2998,74 @@ mod tests {
     fn resume_refuses_a_story_that_is_not_stopped_or_a_note_longer_than_one_line() {
         with_scratch_dirs(|| {
             let (db, story, _repo) = ready_story();
-            let err = resume_stopped_story(&db, &story, "", |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
+            let err = resume_stopped_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
                 .expect_err("a Ready Story is not Stopped");
             assert!(err.contains("Stopped"), "{err}");
 
             let (db, story, _first, _repo) = stopped_story();
-            let err = resume_stopped_story(&db, &story, "one\ntwo", |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
+            let err = resume_stopped_story(&db, &story, "one\ntwo", found_claude, |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
                 .expect_err("the note is one line");
             assert!(err.contains("one line"), "{err}");
 
-            resume_stopped_story(&db, &story, "", |_, _| Ok(()), |_, _| Ok(())).expect("an empty note is no note");
-            let err = resume_stopped_story(&db, &story, "", |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
+            resume_stopped_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Ok(())).expect("an empty note is no note");
+            let err = resume_stopped_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
                 .expect_err("a live session is not Stopped");
             assert!(err.contains("Stopped"), "{err}");
+        });
+    }
+
+    /// Issue #88: Resume is refused like Start when `claude` is missing, naming the searched PATH,
+    /// and nothing is created: the Story stays Stopped.
+    #[test]
+    fn a_resume_without_claude_names_the_searched_path_and_leaves_the_story_stopped() {
+        with_scratch_dirs(|| {
+            let (db, story, first, _repo) = stopped_story();
+            let before = launch_footprint(&db.lock().unwrap(), &story);
+            let empty = tempfile::tempdir().unwrap();
+            let searched = format!("{}:/usr/bin:/bin", empty.path().display());
+            let err = resume_stopped_story(
+                &db,
+                &story,
+                "",
+                || flywheel_core::login_path::claude_bin_on(&searched),
+                |_, _| panic!("no shim for a refused Resume"),
+                |_, _| panic!("nothing may be spawned"),
+            )
+            .expect_err("Resume is refused without claude");
+            assert!(err.contains(&searched), "{err}");
+            let conn = db.lock().unwrap();
+            assert_eq!(launch_footprint(&conn, &story), before, "a refused Resume writes nothing");
+            let stopped = flywheel_core::query::sessions::stopped_session_for_story(&conn, &story).unwrap();
+            assert_eq!(stopped.map(|s| s.session_id), Some(first.run_id), "the Story is still Stopped");
+        });
+    }
+
+    /// Issue #88: Start and Resume spawn with the same PATH, the shim directory in front of the
+    /// PATH Flywheel adopted from the login shell (this process's own).
+    #[test]
+    fn start_and_resume_spawn_with_the_same_login_path() {
+        with_scratch_dirs(|| {
+            let (db, story, _repo) = ready_story();
+            let process_path = std::env::var("PATH").unwrap();
+            let after_shim = |request: &serde_json::Value| {
+                let path = request["env"]["PATH"].as_str().expect("the spawn env carries PATH").to_string();
+                path.split_once(':').map(|(_, rest)| rest.to_string()).unwrap_or_default()
+            };
+            let mut start_path = None;
+            let first = start_ready_story(&db, &story, "", found_claude, crate::sidecar::merge_shim_env_for_run, |_, request| {
+                start_path = Some(after_shim(request));
+                Ok(())
+            })
+            .expect("Start");
+            stop_session_recording_first(&mut db.lock().unwrap(), &first.run_id, || Ok(())).unwrap();
+            let mut resume_path = None;
+            resume_stopped_story(&db, &story, "", found_claude, crate::sidecar::merge_shim_env_for_run, |_, request| {
+                resume_path = Some(after_shim(request));
+                Ok(())
+            })
+            .expect("Resume");
+            assert_eq!(start_path.as_deref(), Some(process_path.as_str()));
+            assert_eq!(resume_path, start_path);
         });
     }
 

@@ -2,15 +2,16 @@
 //! shell, with network allowed and outside the PATH shim's deny-list. Exit 0 passes; a Check still
 //! running at its timeout is killed and labelled timed out, never failed.
 //!
-//! The command runs through the developer's login shell (`$SHELL -l -c`, `/bin/zsh` when `SHELL`
-//! is unset), so it sees the PATH their profile sets up: an app launched from Finder starts with a
-//! minimal PATH, and `cargo test` or `npm test` would otherwise not be found. It runs in its own
-//! process group, with standard error and standard output on one pipe so the tail reads in the
-//! order it was printed. When the shell ends, or its timeout passes, the whole group is killed: a
-//! test runner's stray child cannot hold the run open, and a timed-out `cargo test` does not keep
-//! compiling in the background.
+//! The command runs through the developer's shell (`$SHELL -c`, `/bin/zsh` when `SHELL` is unset)
+//! with the PATH Flywheel adopted from their login shell at startup ([`crate::login_path`]), so a
+//! Check sees exactly the PATH a session does without paying for a login shell per Check: an app
+//! launched from Finder starts with a minimal PATH, and `cargo test` or `npm test` would otherwise
+//! not be found. It runs in its own process group, with standard error and standard output on one
+//! pipe so the tail reads in the order it was printed. When the shell ends, or its timeout passes,
+//! the whole group is killed: a test runner's stray child cannot hold the run open, and a
+//! timed-out `cargo test` does not keep compiling in the background.
 //!
-//! The environment is Flywheel's own plus the login profile, not a Story session's: no shadow PATH,
+//! The environment is Flywheel's own (with the adopted login PATH), not a Story session's: no shadow PATH,
 //! so `git`, `rm` and the publishing commands run unclassified, as the spec's run of record requires.
 
 use std::io::Read;
@@ -72,15 +73,18 @@ pub fn login_shell() -> PathBuf {
     std::env::var_os("SHELL").filter(|s| !s.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/bin/zsh"))
 }
 
-/// Run `command` from `worktree_path` through the developer's login shell, for at most `timeout`.
-/// An error means the shell could not be started at all, not that the Check failed.
+/// Run `command` from `worktree_path` through the developer's shell, for at most `timeout`, with
+/// this process's PATH (the login PATH `main` adopted). An error means the shell could not be
+/// started at all, not that the Check failed.
 pub fn run_shell_check(worktree_path: &Path, command: &str, timeout: Duration) -> std::io::Result<ShellRun> {
-    run_in_login_shell(&login_shell(), &[], worktree_path, command, timeout)
+    run_in_shell(&login_shell(), &[], &[], worktree_path, command, timeout)
 }
 
-/// [`run_shell_check`] with the shell named, and `env` added to the child's environment.
-fn run_in_login_shell(
+/// Run `shell <flags> -c command` from `cwd`, with `env` added to the child's environment and
+/// standard input closed, so an interactive shell can never wait on a prompt.
+pub(crate) fn run_in_shell(
     shell: &Path,
+    flags: &[&str],
     env: &[(&str, &Path)],
     worktree_path: &Path,
     command: &str,
@@ -89,7 +93,7 @@ fn run_in_login_shell(
     // One pipe for both streams, so the tail keeps the order things were printed in.
     let (mut pipe, writer) = std::io::pipe()?;
     let mut cmd = Command::new(shell);
-    cmd.arg("-l")
+    cmd.args(flags)
         .arg("-c")
         .arg(command)
         .current_dir(worktree_path)
@@ -153,39 +157,39 @@ mod tests {
         assert!(!run.output_tail.contains("\n1\n"));
     }
 
-    /// A Check sees the PATH the developer's login profile sets up, not just Flywheel's own.
+    /// A Check sees the PATH Flywheel runs with (the adopted login PATH), with no login shell of
+    /// its own: a tool only on that PATH is found.
     #[test]
-    fn a_check_runs_with_a_path_entry_only_the_login_profile_adds() {
-        let profile_dir = tempfile::tempdir().unwrap();
-        let bin = profile_dir.path().join("only-in-profile");
-        std::fs::create_dir(&bin).unwrap();
-        let tool = bin.join("flywheel-profile-tool");
-        std::fs::write(&tool, "#!/bin/sh\necho from the profile\n").unwrap();
+    fn a_check_runs_with_the_path_flywheel_runs_with() {
+        let bin = tempfile::tempdir().unwrap();
+        let tool = bin.path().join("flywheel-profile-tool");
+        std::fs::write(&tool, "#!/bin/sh\necho from the login path\n").unwrap();
         std::fs::set_permissions(&tool, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-        // zsh reads `$ZDOTDIR/.zprofile` for a login shell.
-        std::fs::write(profile_dir.path().join(".zprofile"), format!("export PATH=\"{}:$PATH\"\n", bin.display())).unwrap();
+        let path = format!("{}:/usr/bin:/bin", bin.path().display());
         let worktree = tempfile::tempdir().unwrap();
 
-        let run = run_in_login_shell(
+        let run = run_in_shell(
             Path::new("/bin/zsh"),
-            &[("ZDOTDIR", profile_dir.path())],
+            &[],
+            &[("PATH", Path::new(&path)), ("ZDOTDIR", worktree.path())],
             worktree.path(),
             "flywheel-profile-tool",
             Duration::from_secs(30),
         )
         .unwrap();
         assert_eq!(run.outcome, ShellOutcome::Exited(Some(0)), "{}", run.output_tail);
-        assert!(run.output_tail.contains("from the profile"));
+        assert!(run.output_tail.contains("from the login path"));
 
-        let without = run_in_login_shell(
+        let without = run_in_shell(
             Path::new("/bin/zsh"),
-            &[("ZDOTDIR", worktree.path())],
+            &[],
+            &[("PATH", Path::new("/usr/bin:/bin")), ("ZDOTDIR", worktree.path())],
             worktree.path(),
             "flywheel-profile-tool",
             Duration::from_secs(30),
         )
         .unwrap();
-        assert_ne!(without.outcome, ShellOutcome::Exited(Some(0)), "the entry comes from the profile alone");
+        assert_ne!(without.outcome, ShellOutcome::Exited(Some(0)), "the entry comes from the PATH alone");
     }
 
     #[test]

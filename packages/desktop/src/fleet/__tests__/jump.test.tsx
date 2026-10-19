@@ -280,6 +280,8 @@ function stubShellReads() {
     if (command === "project_list") return Promise.resolve([PROJECT_A, PROJECT_B]);
     // Fire-and-forget: the native menu's enabled-state sync (`state/menuSync.ts`). Nothing reads its answer.
     if (command === "menu_set_action_enabled") return Promise.resolve(undefined);
+    // The shell's launch-environment notice (issue #88): a healthy environment shows nothing.
+    if (command === "launch_environment") return Promise.resolve({ path: "/usr/bin", pathWarning: null, claudeError: null });
     unhandled.add(command);
     return Promise.resolve(undefined);
   });

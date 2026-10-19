@@ -88,6 +88,7 @@ const ROSTER: &[&str] = &[
     "session::worktree_remove_check",
     "session::worktree_summary",
     "settings::backend_capability_probe",
+    "settings::launch_environment",
     "settings::settings_clear_api_key",
     "settings::settings_get",
     "settings::settings_set_credential_mode",

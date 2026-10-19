@@ -35,6 +35,16 @@ const FORWARDED_MENU_ACTIONS: &[&str] = &[
 ];
 
 fn main() {
+    // Issue #88: opened from Finder or the Dock, the app inherits a minimal PATH. Adopt the login
+    // shell's PATH first, before any thread starts (it writes the process environment), so the
+    // sidecar, every session, the shim and the Checks all inherit it. An interactive login shell
+    // first, then a login shell, each bounded by a timeout; on any fallback the warning names what
+    // was used and is shown on screen (`settings::launch_environment`).
+    let login_path = flywheel_core::login_path::adopt(flywheel_core::login_path::RESOLVE_TIMEOUT);
+    if let Some(warning) = &login_path.warning {
+        eprintln!("flywheel: {warning}");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -201,6 +211,7 @@ fn main() {
             commands::session::sessions_pending_orphans,
             commands::session::orphan_kill,
             commands::settings::settings_get,
+            commands::settings::launch_environment,
             commands::settings::settings_set_credential_mode,
             commands::settings::settings_store_api_key,
             commands::settings::settings_clear_api_key,
