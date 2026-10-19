@@ -1,8 +1,8 @@
 /**
  * Issue #52 — the Story agent's Task board tool. The MCP server the backend spawns lists
  * `task_list` / `task_add` / `task_update`, and each call is relayed over the run's socket to the
- * sidecar, raised upstream as a `task_tool_request` event and held until the Rust core answers
- * (`ClaudeCodeAdapter.resolveTaskTool`, standing in for `index.ts`'s `task_tool_answer` op). The
+ * sidecar, raised upstream as a `board_tool_request` event and held until the Rust core answers
+ * (`ClaudeCodeAdapter.resolveBoardTool`, standing in for `index.ts`'s `board_tool_answer` op). The
  * sidecar decides nothing and never opens the database: the answer is whatever the core sends.
  *
  * Runs against the REAL spawned `fake-claude.mjs`, which spawns the real MCP server through the
@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 
 import { buildClaudeArgv, ClaudeCodeAdapter } from "../dist/claude-code-adapter.js";
-import { TASK_TOOL_NAMES, TASK_TOOL_QUALIFIED_NAMES, MCP_SERVER_NAME } from "../dist/mcp-permission-server.js";
+import { BOARD_TOOL_NAMES, BOARD_TOOL_QUALIFIED_NAMES, HANDOFF_TOOL_NAMES, TASK_TOOL_NAMES, TASK_TOOL_QUALIFIED_NAMES, MCP_SERVER_NAME } from "../dist/mcp-permission-server.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.env.FLYWHEEL_CLAUDE_BIN = path.join(__dirname, "fake-claude.mjs");
@@ -102,21 +102,21 @@ test("a Task tool call is held until the core answers, and the agent receives th
     arguments: { titles: ["Write the failing test"] },
   });
 
-  await waitForCondition(() => events.some((e) => e.type === "task_tool_request"));
-  const request = events.find((e) => e.type === "task_tool_request");
+  await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
+  const request = events.find((e) => e.type === "board_tool_request");
   assert.equal(request.tool, "task_add");
   assert.deepEqual(request.args, { titles: ["Write the failing test"] });
   assert.equal(typeof request.requestId, "string");
 
   // The tool lists all three names to the backend.
   await waitForCondition(() => unknownLines(events, "task_tools_listed").length === 1);
-  assert.deepEqual(unknownLines(events, "task_tools_listed")[0].names, ["approve_action", ...TASK_TOOL_NAMES]);
+  assert.deepEqual(unknownLines(events, "task_tools_listed")[0].names, ["approve_action", ...BOARD_TOOL_NAMES]);
 
   // Not answered yet: the agent has received nothing.
   assert.equal(unknownLines(events, "task_tool_result").length, 0);
 
   const checklist = { tasks: [{ task_id: "t1", title: "Write the failing test", state: "open" }] };
-  adapter.resolveTaskTool(runId, request.requestId, checklist);
+  adapter.resolveBoardTool(runId, request.requestId, checklist);
 
   await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
   const result = unknownLines(events, "task_tool_result")[0];
@@ -134,9 +134,9 @@ test("a refusal from the core reaches the agent as a tool error carrying the cor
     arguments: { task_id: "t2", state: "doing" },
   });
 
-  await waitForCondition(() => events.some((e) => e.type === "task_tool_request"));
-  const request = events.find((e) => e.type === "task_tool_request");
-  adapter.resolveTaskTool(runId, request.requestId, undefined, "another Task of this Story is already doing; at most one is");
+  await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
+  const request = events.find((e) => e.type === "board_tool_request");
+  adapter.resolveBoardTool(runId, request.requestId, undefined, "another Task of this Story is already doing; at most one is");
 
   await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
   const result = unknownLines(events, "task_tool_result")[0];
@@ -145,7 +145,39 @@ test("a refusal from the core reaches the agent as a tool error carrying the cor
   await session;
 });
 
-test("resolveTaskTool rejects a run this sidecar never spawned", () => {
+test("resolveBoardTool rejects a run this sidecar never spawned", () => {
   const adapter = new ClaudeCodeAdapter();
-  assert.throws(() => adapter.resolveTaskTool("no-such-run", "r", { tasks: [] }), /unknown runId/);
+  assert.throws(() => adapter.resolveBoardTool("no-such-run", "r", { tasks: [] }), /unknown runId/);
+});
+
+// Issue #53: the hand-off and the feedback-only Check tool ride the same server, renamed to
+// `flywheel-board` now that it carries more than the permission prompt.
+test("the board server is flywheel-board and carries the hand-off and Check tools, all pre-approved", () => {
+  assert.equal(MCP_SERVER_NAME, "flywheel-board");
+  assert.deepEqual([...HANDOFF_TOOL_NAMES], ["checks_run", "handoff"]);
+  assert.deepEqual([...BOARD_TOOL_NAMES], [...TASK_TOOL_NAMES, ...HANDOFF_TOOL_NAMES]);
+  assert.ok(BOARD_TOOL_QUALIFIED_NAMES.includes("mcp__flywheel-board__handoff"));
+  assert.ok(BOARD_TOOL_QUALIFIED_NAMES.includes("mcp__flywheel-board__checks_run"));
+});
+
+test("a hand-off is held until the core answers, and the agent receives the core's answer", async () => {
+  const adapter = new ClaudeCodeAdapter();
+  const events = [];
+  const runId = "handoff-run-ok";
+  const summary = { next_session_must_know: "Checks pass.", decisions: "Kept the old seam." };
+  const session = startWithTaskCall(adapter, runId, events, { name: "handoff", arguments: summary });
+
+  await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
+  const request = events.find((e) => e.type === "board_tool_request");
+  assert.equal(request.tool, "handoff");
+  assert.deepEqual(request.args, summary);
+  assert.equal(unknownLines(events, "task_tool_result").length, 0, "nothing reaches the agent before the core answers");
+
+  const answer = { story_state: "in_review", checks: [{ command: "true", result: "passed" }] };
+  adapter.resolveBoardTool(runId, request.requestId, answer);
+  await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
+  const result = unknownLines(events, "task_tool_result")[0];
+  assert.equal(result.isError, false);
+  assert.deepEqual(JSON.parse(result.text), answer);
+  await session;
 });

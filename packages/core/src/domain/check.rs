@@ -53,11 +53,33 @@ impl CheckResult {
     }
 }
 
-/// A Check's current result and, when it ran, the commit it ran against.
+impl CheckResult {
+    /// Parse a stored result; `not_run` is never stored.
+    fn parse_stored(value: &str) -> anyhow::Result<Self> {
+        Ok(match value {
+            "passed" => CheckResult::Passed,
+            "failed" => CheckResult::Failed,
+            "timed_out" => CheckResult::TimedOut,
+            other => anyhow::bail!("unknown Check result {other:?}"),
+        })
+    }
+}
+
+/// A Check's current result and, when it ran, the commit it ran against and its output tail.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CurrentResult {
     pub result: CheckResult,
     pub commit_sha: Option<String>,
+    pub output_tail: Option<String>,
+}
+
+impl CurrentResult {
+    /// Whether the branch has moved since this result ran: it ran against a commit that is not the
+    /// branch head `head`. A result never run is not stale, and neither is one whose branch head
+    /// can't be read (the worktree is gone, so the branch can no longer move).
+    pub fn is_stale(&self, head: Option<&str>) -> bool {
+        matches!((self.commit_sha.as_deref(), head), (Some(ran), Some(head)) if ran != head)
+    }
 }
 
 /// Attach (or replace) the Check on `criterion_id`. Human-only. Replacing a Check resets its result
@@ -189,6 +211,12 @@ pub struct CheckRunRecord<'a> {
 
 /// Record a run of record. `NotRun` is not a run and is refused.
 pub fn record_check_run(conn: &mut Connection, check_id: &str, run: &CheckRunRecord) -> anyhow::Result<String> {
+    record_check_run_in_tx(conn, check_id, run)
+}
+
+/// [`record_check_run`] on the caller's connection or transaction: the hand-off records every
+/// result in the one transaction that moves the Story.
+pub(crate) fn record_check_run_in_tx(conn: &Connection, check_id: &str, run: &CheckRunRecord) -> anyhow::Result<String> {
     anyhow::ensure!(run.result != CheckResult::NotRun, "a recorded run has a result");
     let id = new_id();
     conn.execute(
@@ -202,25 +230,51 @@ pub fn record_check_run(conn: &mut Connection, check_id: &str, run: &CheckRunRec
 
 /// A Check's current result: its latest run that started after the Check's last edit, or not run.
 pub fn current_result(conn: &Connection, check_id: &str) -> anyhow::Result<CurrentResult> {
-    let latest: Option<(String, String)> = conn
+    let latest: Option<(String, String, Option<String>)> = conn
         .query_row(
-            "SELECT r.result, r.commit_sha FROM check_runs r JOIN checks k ON k.id = r.check_id
+            "SELECT r.result, r.commit_sha, r.output_tail FROM check_runs r JOIN checks k ON k.id = r.check_id
              WHERE r.check_id = ?1 AND r.started_at >= k.updated_at
              ORDER BY r.started_at DESC, r.id DESC LIMIT 1",
             params![check_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()?;
     Ok(match latest {
-        None => CurrentResult { result: CheckResult::NotRun, commit_sha: None },
-        Some((result, sha)) => CurrentResult {
-            result: match result.as_str() {
-                "passed" => CheckResult::Passed,
-                "failed" => CheckResult::Failed,
-                "timed_out" => CheckResult::TimedOut,
-                other => anyhow::bail!("unknown Check result {other:?}"),
-            },
+        None => CurrentResult { result: CheckResult::NotRun, commit_sha: None, output_tail: None },
+        Some((result, sha, tail)) => CurrentResult {
+            result: CheckResult::parse_stored(&result)?,
             commit_sha: Some(sha),
+            output_tail: tail,
         },
     })
+}
+
+/// Every Check of a Story, in its criteria's order.
+pub fn checks_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<Check>> {
+    let mut stmt = conn.prepare(
+        "SELECT k.id, k.criterion_id, k.command, k.timeout_secs FROM checks k
+         JOIN acceptance_criteria c ON c.id = k.criterion_id
+         WHERE c.story_id = ?1 ORDER BY c.rank, c.id",
+    )?;
+    let rows = stmt.query_map(params![story_id], row_to_check)?.collect::<Result<Vec<_>, _>>();
+    rows.context("failed to read the Story's Checks")
+}
+
+/// The commit at the head of a Story's branch, read from its worktree: what a result is compared
+/// with to tell whether it is stale. `None` when the Story has no worktree on disk.
+pub fn branch_head(conn: &Connection, story_id: &str) -> anyhow::Result<Option<String>> {
+    let Some(worktree) = crate::domain::worktree::worktree_for_story(conn, story_id)? else {
+        return Ok(None);
+    };
+    let worktree_path = std::path::Path::new(&worktree.path);
+    if !worktree_path.is_dir() {
+        return Ok(None);
+    }
+    worktree_head(worktree_path).map(Some)
+}
+
+/// The commit `HEAD` names in the worktree at `worktree_path`.
+pub fn worktree_head(worktree_path: &std::path::Path) -> anyhow::Result<String> {
+    let out = crate::git::git_at(worktree_path, &["rev-parse", "HEAD"])?;
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }

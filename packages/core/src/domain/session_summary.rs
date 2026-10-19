@@ -116,6 +116,17 @@ pub fn create_summary(
     Ok(summary)
 }
 
+/// [`create_summary`] inside the caller's transaction: the hand-off records the summary in the one
+/// transaction that records the Check results and moves the Story.
+pub(crate) fn create_summary_in_tx(
+    tx: &Transaction,
+    session_id: &str,
+    next_session_must_know: &str,
+    decisions: &str,
+) -> anyhow::Result<SessionSummary> {
+    insert_summary_row(tx, session_id, next_session_must_know, decisions, false, &crate::domain::now())
+}
+
 /// Write the stub summary for a session that ended without one: the reason it ended and the Task it
 /// was doing, if any. Runs inside the caller's transaction (the one writing the terminal status)
 /// and has no dedupe of its own: the caller's [`latest_summary_for_run`] check is the guard.

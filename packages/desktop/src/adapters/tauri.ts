@@ -253,6 +253,10 @@ export interface CheckDto {
   result: string;
   /** The commit the current result ran against; `null` when not run. */
   commitSha: string | null;
+  /** Whether the branch has moved since the current result ran. */
+  stale: boolean;
+  /** The tail of what the current run printed; `null` when not run. */
+  outputTail: string | null;
 }
 
 /** An Acceptance criterion of one Story — mirrors `commands/criterion.rs`'s `AcceptanceCriterionDto`. */

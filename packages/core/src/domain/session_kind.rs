@@ -2,23 +2,35 @@
 //! (docs/mvp-spec.md §4.1, ADR 0001). Flywheel picks the Claude Code permission mode from the
 //! session kind. The developer never picks it, and no command takes a mode from the renderer.
 
-/// The MCP server whose tools let a shaping session write to the board, as Proposals only. A bare
-/// `mcp__<server>` entry allows every tool that server offers. The shaping milestone registers the
-/// server under this name.
-pub const PROPOSAL_SERVER: &str = "flywheel-proposals";
-
-/// The Proposal tools a shaping session may call, in Claude Code's `--allowedTools` syntax.
-pub const PROPOSAL_TOOLS: [&str; 1] = ["mcp__flywheel-proposals"];
-
-/// The MCP server every session that raises requests is wired to: it hosts the permission-prompt
-/// tool and the Task board tools. Mirrors `MCP_SERVER_NAME` in
+/// The MCP server that carries every board tool: the permission prompt, the Task tools, the
+/// hand-off and the Check run, and later the Proposal tools. Mirrors `MCP_SERVER_NAME` in
 /// `packages/sidecar/src/mcp-permission-server.ts`.
-pub const PERMISSION_SERVER: &str = "flywheel-permissions";
+pub const BOARD_SERVER: &str = "flywheel-board";
 
-/// The Task board tools in `--allowedTools` syntax (`mcp__flywheel-permissions__task_list`, …),
-/// so a Story session's checklist writes never wait on a permission card (issue #52).
-pub fn task_tools() -> Vec<String> {
-    crate::domain::task_tool::TASK_TOOL_NAMES.iter().map(|name| format!("mcp__{PERMISSION_SERVER}__{name}")).collect()
+/// The Proposal tools a shaping session may call, by the name `flywheel-board` registers them
+/// under. None is registered yet: the shaping milestone adds them, one name each. Never a bare
+/// `mcp__flywheel-board` entry, which would allow every board tool, the Task tools and the
+/// hand-off included.
+pub const PROPOSAL_TOOL_NAMES: [&str; 0] = [];
+
+/// One board tool's name in `--allowedTools` syntax: `mcp__flywheel-board__<tool>`.
+fn board_tool(name: &str) -> String {
+    format!("mcp__{BOARD_SERVER}__{name}")
+}
+
+/// The Proposal tools in `--allowedTools` syntax.
+pub fn proposal_tools() -> Vec<String> {
+    PROPOSAL_TOOL_NAMES.iter().map(|name| board_tool(name)).collect()
+}
+
+/// The Story agent's board tools in `--allowedTools` syntax: the Task tools (issue #52), then the
+/// Check run and the hand-off (issue #53), so none of them ever waits on a permission card.
+pub fn story_board_tools() -> Vec<String> {
+    crate::domain::task_tool::TASK_TOOL_NAMES
+        .iter()
+        .chain(crate::domain::handoff::HANDOFF_TOOL_NAMES.iter())
+        .map(|name| board_tool(name))
+        .collect()
 }
 
 /// The tools that only read, which a shaping session may call.
@@ -57,7 +69,7 @@ impl SessionKind {
 
     /// The launch flags this kind fixes.
     ///
-    /// - A Story session runs in `acceptEdits` with every Bash command and the Task board tools
+    /// - A Story session runs in `acceptEdits` with every Bash command and its board tools
     ///   allowed, so it edits files
     ///   and runs builds and tests in its worktree without asking. Claude Code's own
     ///   working-directory boundary keeps writes inside the worktree, and the shim still asks for
@@ -65,18 +77,18 @@ impl SessionKind {
     ///   allowed it. Any other request raises a card.
     /// - A shaping session runs in `dontAsk`, which refuses whatever is not pre-approved instead of
     ///   prompting: it may read and call the Proposal tools, and nothing else — never Bash, and
-    ///   never the Task tools, whose server it is not even wired to.
+    ///   never the Task tools or the hand-off.
     pub fn launch_policy(self) -> LaunchPolicy {
         match self {
             SessionKind::Story => LaunchPolicy {
                 permission_mode: "acceptEdits",
-                allowed_tools: std::iter::once("Bash".to_string()).chain(task_tools()).collect(),
+                allowed_tools: std::iter::once("Bash".to_string()).chain(story_board_tools()).collect(),
                 disallowed_tools: Vec::new(),
                 raises_requests: true,
             },
             SessionKind::Shaping => LaunchPolicy {
                 permission_mode: "dontAsk",
-                allowed_tools: READ_ONLY_TOOLS.iter().chain(PROPOSAL_TOOLS.iter()).map(|t| t.to_string()).collect(),
+                allowed_tools: READ_ONLY_TOOLS.iter().map(|t| t.to_string()).chain(proposal_tools()).collect(),
                 disallowed_tools: WRITING_TOOLS.iter().map(|t| t.to_string()).collect(),
                 raises_requests: false,
             },

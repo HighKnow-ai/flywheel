@@ -101,7 +101,7 @@ test("buildClaudeArgv appends the permission-prompt tool name and an MCP config 
     prompt: "<prompt>",
     permissionMode: "acceptEdits",
     permissionPromptToolName: PERMISSION_TOOL_NAME,
-    mcpConfig: JSON.stringify({ mcpServers: { "flywheel-permissions": { command: "node", args: ["x.js"] } } }),
+    mcpConfig: JSON.stringify({ mcpServers: { "flywheel-board": { command: "node", args: ["x.js"] } } }),
   });
 
   assert.ok(argv.includes("--permission-prompt-tool"));

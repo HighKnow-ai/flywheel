@@ -1829,7 +1829,7 @@ pub fn orphan_kill(
 /// The one shared scratch worktree-root helper (issue #42), included by path rather than copied.
 #[cfg(test)]
 #[path = "../../../../core/tests/common/scratch_root.rs"]
-mod scratch_root;
+pub(crate) mod scratch_root;
 
 #[cfg(test)]
 mod tests {
@@ -1976,9 +1976,11 @@ mod tests {
             request["allowedTools"],
             serde_json::json!([
                 "Bash",
-                "mcp__flywheel-permissions__task_list",
-                "mcp__flywheel-permissions__task_add",
-                "mcp__flywheel-permissions__task_update"
+                "mcp__flywheel-board__task_list",
+                "mcp__flywheel-board__task_add",
+                "mcp__flywheel-board__task_update",
+                "mcp__flywheel-board__checks_run",
+                "mcp__flywheel-board__handoff"
             ])
         );
         assert_eq!(request["disallowedTools"], serde_json::json!([]));
@@ -1990,7 +1992,7 @@ mod tests {
         let request = spawn_request(&outcome_for_request(), &std::collections::HashMap::new(), SessionKind::Shaping);
         assert_eq!(request["permissionMode"], "dontAsk");
         assert_eq!(request["permissionPrompt"], false);
-        assert_eq!(request["allowedTools"], serde_json::json!(["Read", "Glob", "Grep", "mcp__flywheel-proposals"]));
+        assert_eq!(request["allowedTools"], serde_json::json!(["Read", "Glob", "Grep"]));
         let denied: Vec<String> = serde_json::from_value(request["disallowedTools"].clone()).unwrap();
         assert!(denied.iter().any(|t| t == "Bash"), "{denied:?}");
     }

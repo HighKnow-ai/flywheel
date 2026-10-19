@@ -23,6 +23,7 @@ pub mod session_kind;
 pub mod check;
 pub mod epic;
 pub mod event;
+pub mod handoff;
 pub mod milestone;
 pub mod permission_request;
 pub mod permission_rule;

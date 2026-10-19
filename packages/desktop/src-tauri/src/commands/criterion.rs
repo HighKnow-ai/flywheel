@@ -23,6 +23,10 @@ pub struct CheckDto {
     pub result: String,
     /// The commit the current result ran against; `null` when not run.
     pub commit_sha: Option<String>,
+    /// Whether the branch has moved since the current result ran (docs/mvp-spec.md §4.4).
+    pub stale: bool,
+    /// The tail of what the current run printed; `null` when not run.
+    pub output_tail: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -38,9 +42,16 @@ pub struct AcceptanceCriterionDto {
     pub check: Option<CheckDto>,
 }
 
+/// The head of `story_id`'s branch, read once per listing to tell stale results; `None` when it
+/// can't be read.
+fn branch_head(conn: &rusqlite::Connection, story_id: &str) -> Option<String> {
+    flywheel_core::domain::check::branch_head(conn, story_id).ok().flatten()
+}
+
 fn to_dto(
     conn: &rusqlite::Connection,
     c: flywheel_core::domain::acceptance_criterion::AcceptanceCriterion,
+    head: Option<&str>,
 ) -> Result<AcceptanceCriterionDto, String> {
     let check = match flywheel_core::domain::check::check_for_criterion(conn, &c.id).map_err(|e| e.to_string())? {
         Some(check) => {
@@ -50,7 +61,9 @@ fn to_dto(
                 command: check.command,
                 timeout_secs: check.timeout_secs,
                 result: current.result.as_str().to_string(),
+                stale: current.is_stale(head),
                 commit_sha: current.commit_sha,
+                output_tail: current.output_tail,
             })
         }
         None => None,
@@ -95,7 +108,7 @@ pub fn criterion_create(
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let c = flywheel_core::domain::acceptance_criterion::create_criterion(&mut conn, &actor_id, &story_id, &statement)
         .map_err(|e| e.to_string())?;
-    let dto = to_dto(&conn, c)?;
+    let dto = to_dto(&conn, c, None)?;
     let project_id = super::project_of(&conn, "stories", &story_id);
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "criterion", Some(&dto.id));
@@ -106,10 +119,11 @@ pub fn criterion_create(
 #[tauri::command]
 pub fn criterion_list(state: State<AppState>, story_id: String) -> Result<Vec<AcceptanceCriterionDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let head = branch_head(&conn, &story_id);
     flywheel_core::domain::acceptance_criterion::criteria_for_story(&conn, &story_id)
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|c| to_dto(&conn, c))
+        .map(|c| to_dto(&conn, c, head.as_deref()))
         .collect()
 }
 
