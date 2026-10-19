@@ -19,6 +19,9 @@ interface SpawnRequest {
   worktreePath: string;
   prompt: string;
   permissionMode: string;
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  permissionPrompt?: boolean;
   env?: Record<string, string>;
 }
 
@@ -160,6 +163,9 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
           worktreePath: request.worktreePath,
           prompt: request.prompt,
           permissionMode: request.permissionMode,
+          allowedTools: request.allowedTools,
+          disallowedTools: request.disallowedTools,
+          permissionPrompt: request.permissionPrompt,
           env: request.env,
           onEvent: emitEvent,
         })

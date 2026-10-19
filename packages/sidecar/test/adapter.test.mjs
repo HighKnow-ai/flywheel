@@ -56,7 +56,24 @@ test("buildClaudeArgv returns the exact expected array for the default mode, wit
 // The single declared source of accepted permission modes for the constraint test below — a
 // future mode addition extends the guard by one line here, rather than requiring the literal to
 // be repeated at every call site.
-const ACCEPTED_PERMISSION_MODES = ["default", "acceptEdits", "plan", "bypassPermissions"];
+const ACCEPTED_PERMISSION_MODES = ["default", "acceptEdits", "plan", "bypassPermissions", "dontAsk"];
+
+test("buildClaudeArgv passes the launch policy's allowed and refused tools, each as one argument", () => {
+  const story = buildClaudeArgv({ prompt: "p", permissionMode: "acceptEdits", allowedTools: ["Bash"], disallowedTools: [] });
+  assert.equal(story[story.indexOf("--allowedTools") + 1], "Bash");
+  assert.ok(!story.includes("--disallowedTools"), "an empty refusal list adds no flag");
+
+  const shaping = buildClaudeArgv({
+    prompt: "p",
+    permissionMode: "dontAsk",
+    allowedTools: ["Read", "Glob", "Grep", "mcp__flywheel-proposals"],
+    disallowedTools: ["Bash", "Edit", "Write", "NotebookEdit"],
+  });
+  assert.equal(shaping[shaping.indexOf("--permission-mode") + 1], "dontAsk");
+  assert.equal(shaping[shaping.indexOf("--allowedTools") + 1], "Read,Glob,Grep,mcp__flywheel-proposals");
+  assert.equal(shaping[shaping.indexOf("--disallowedTools") + 1], "Bash,Edit,Write,NotebookEdit");
+  assert.ok(!shaping.includes("--permission-prompt-tool"), "no prompt tool was given, so none is wired");
+});
 
 test("buildClaudeArgv always pairs --output-format stream-json with --verbose (G-02-2)", () => {
   // claude 2.1.236: "When using --print, --output-format=stream-json requires --verbose".
