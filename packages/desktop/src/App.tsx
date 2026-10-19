@@ -3,6 +3,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./adapters/queryClient";
 import { subscribeMenuAction } from "./adapters/tauri";
 import { FirstRun } from "./board/FirstRun";
+import { LaunchEnvironmentNotice } from "./board/LaunchEnvironmentNotice";
 import { StoryBoard } from "./board/StoryBoard";
 import { useProjects } from "./board/useBoardQuery";
 import { useWatchedRun } from "./fleet/useWatchedRun";
@@ -147,6 +148,7 @@ function AppShell() {
         <div id="app-root" className="rack-ground" />
         <OrphanRecoveryModal />
         {registerNoticeNode}
+        <LaunchEnvironmentNotice />
       </>
     );
   }
@@ -159,6 +161,7 @@ function AppShell() {
         </div>
         <OrphanRecoveryModal />
         {registerNoticeNode}
+        <LaunchEnvironmentNotice />
       </>
     );
   }
@@ -247,6 +250,7 @@ function AppShell() {
         }}
       />
       {registerNoticeNode}
+      <LaunchEnvironmentNotice />
     </>
   );
 }

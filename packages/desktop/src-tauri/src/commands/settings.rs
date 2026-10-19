@@ -212,9 +212,46 @@ pub fn backend_capability_probe(state: State<AppState>) -> Result<BackendCapabil
     })
 }
 
+/// The `PATH` Flywheel adopted at startup and whether a session can find `claude` on it (issue
+/// #88), for the on-screen notice. Read-only and cheap: one walk of `PATH`, no process spawned.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchEnvironmentDto {
+    pub path: String,
+    /// Set when the login shell's `PATH` could not be read and the inherited one was kept.
+    pub path_warning: Option<String>,
+    /// Set when `claude` is not on that `PATH`, naming the `PATH` searched.
+    pub claude_error: Option<String>,
+}
+
+fn launch_environment_now() -> LaunchEnvironmentDto {
+    LaunchEnvironmentDto {
+        path: std::env::var("PATH").unwrap_or_default(),
+        path_warning: flywheel_core::login_path::adopted().and_then(|p| p.warning.clone()),
+        claude_error: flywheel_core::login_path::claude_bin().err(),
+    }
+}
+
+#[tauri::command]
+pub fn launch_environment() -> LaunchEnvironmentDto {
+    launch_environment_now()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Without `adopt` (a unit test never runs `main`) there is no warning, and the reported PATH
+    /// is the process's own.
+    #[test]
+    fn the_launch_environment_reports_the_process_path() {
+        let dto = launch_environment_now();
+        assert_eq!(dto.path, std::env::var("PATH").unwrap_or_default());
+        assert_eq!(dto.path_warning, None);
+        if let Some(err) = dto.claude_error {
+            assert!(err.contains("FLYWHEEL_CLAUDE_BIN") || err.contains(&dto.path), "{err}");
+        }
+    }
 
     /// The half of "the probe with the binary absent reports unavailable and reports the
     /// API-key path usable" (plan 02-09 Task 3 acceptance criteria) that is reachable without a

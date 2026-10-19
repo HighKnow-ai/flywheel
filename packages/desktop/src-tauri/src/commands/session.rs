@@ -299,6 +299,7 @@ pub(crate) fn launch_run_for_story(
     kind: SessionKind,
     instruction: &str,
 ) -> Result<SessionDto, String> {
+    flywheel_core::login_path::claude_bin()?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let PreparedLaunch { outcome, repo_path, env } = prepare_launch(&mut conn, story_id, kind, instruction)?;
     spawn_prepared_run(
@@ -337,6 +338,7 @@ pub fn story_start(
         &state.db,
         &story_id,
         &instruction,
+        flywheel_core::login_path::claude_bin,
         crate::sidecar::merge_shim_env_for_run,
         |repo_path, request| send_gated_spawn(&state, repo_path, request),
     )?;
@@ -354,10 +356,16 @@ pub fn story_start(
 /// one lock, so two Starts cannot both pass it (the second meets the first's live session). The
 /// Story moves to Running only once the spawn request went out: a launch that fails leaves it
 /// Ready, its session `failed` and its worktree in place for the next Start.
+///
+/// `find_claude` runs after the Ready check and before anything is created: with no `claude` on
+/// the login-shell `PATH` the Start is refused with the sentence naming the `PATH` searched, and
+/// the Story stays Ready (issue #88). The sidecar's spawn is asynchronous, so a missing binary
+/// would otherwise surface only after the Story had moved to Running.
 pub(crate) fn start_ready_story(
     db: &std::sync::Mutex<Connection>,
     story_id: &str,
     instruction: &str,
+    find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
     merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<StartRunOutcome, String> {
@@ -369,6 +377,7 @@ pub(crate) fn start_ready_story(
     if current != flywheel_core::domain::story::StoryState::Ready.as_str() {
         return Err(format!("Start needs a Ready Story; this one is {current}"));
     }
+    find_claude()?;
     let PreparedLaunch { outcome, repo_path, env } =
         prepare_launch(&mut conn, story_id, SessionKind::Story, instruction)?;
     spawn_prepared_run(db, conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
@@ -2887,7 +2896,7 @@ mod tests {
         with_scratch_dirs(|| {
             let (db, story, repo) = ready_story();
             let mut sent = None;
-            let outcome = start_ready_story(&db, &story, "", |_, _| Ok(()), |_repo, request| {
+            let outcome = start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_repo, request| {
                 sent = Some(request.clone());
                 Ok(())
             })
@@ -2931,7 +2940,7 @@ mod tests {
             let (conn, _actor, _p, story, _repo) = seeded_git_conn_with_story();
             let db = std::sync::Mutex::new(conn);
             let before = launch_footprint(&db.lock().unwrap(), &story);
-            let err = start_ready_story(&db, &story, "", |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
+            let err = start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| panic!("nothing may be spawned"))
                 .expect_err("a Shaping Story cannot start");
             assert!(err.contains("Ready"), "{err}");
             let conn = db.lock().unwrap();
@@ -2941,15 +2950,45 @@ mod tests {
         });
     }
 
+    fn found_claude() -> Result<std::path::PathBuf, String> {
+        Ok(std::path::PathBuf::from("/opt/stub/claude"))
+    }
+
+    /// Issue #88: no `claude` on the login-shell PATH refuses the Start with the searched PATH in
+    /// the message, creates nothing, and leaves the Story Ready rather than Running.
+    #[test]
+    fn a_start_without_claude_names_the_searched_path_and_leaves_the_story_ready() {
+        with_scratch_dirs(|| {
+            let (db, story, _repo) = ready_story();
+            let before = launch_footprint(&db.lock().unwrap(), &story);
+            let empty = tempfile::tempdir().unwrap();
+            let searched = format!("{}:/usr/bin:/bin", empty.path().display());
+            let err = start_ready_story(
+                &db,
+                &story,
+                "",
+                || flywheel_core::login_path::claude_bin_on(&searched),
+                |_, _| panic!("no shim for a refused Start"),
+                |_, _| panic!("nothing may be spawned"),
+            )
+            .expect_err("Start is refused without claude");
+            assert!(err.contains(&searched), "{err}");
+            let conn = db.lock().unwrap();
+            assert_eq!(story_state(&conn, &story), "ready");
+            assert_eq!(launch_footprint(&conn, &story), before, "a refused Start writes nothing");
+            assert_eq!(worktree_count(&conn, &story), 0, "and creates no worktree");
+        });
+    }
+
     #[test]
     fn a_start_whose_spawn_fails_leaves_the_story_ready_to_start_again() {
         with_scratch_dirs(|| {
             let (db, story, _repo) = ready_story();
-            let err = start_ready_story(&db, &story, "", |_, _| Ok(()), |_, _| Err("spawn boom".to_string()))
+            let err = start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Err("spawn boom".to_string()))
                 .expect_err("the spawn fails");
             assert!(err.contains("spawn boom"), "{err}");
             assert_eq!(story_state(&db.lock().unwrap(), &story), "ready");
-            start_ready_story(&db, &story, "", |_, _| Ok(()), |_, _| Ok(())).expect("Start works again");
+            start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Ok(())).expect("Start works again");
             assert_eq!(story_state(&db.lock().unwrap(), &story), "running");
         });
     }

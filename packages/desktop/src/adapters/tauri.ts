@@ -942,6 +942,15 @@ export async function backendCapabilityProbe(): Promise<BackendCapabilityDto> {
   return invokeCommand<BackendCapabilityDto>("backend_capability_probe");
 }
 
+/** The PATH Flywheel adopted from the login shell at startup, and whether `claude` is on it. */
+export interface LaunchEnvironmentDto {
+  path: string;
+  /** Set when the login shell's PATH could not be read and the inherited one was kept. */
+  pathWarning: string | null;
+  /** Set when `claude` is not on that PATH, naming the PATH searched. */
+  claudeError: string | null;
+}
+
 // ---------------------------------------------------------------------------------------------
 // The fleet and the worktree inventory.
 // ---------------------------------------------------------------------------------------------
