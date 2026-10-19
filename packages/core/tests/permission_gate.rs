@@ -9,7 +9,7 @@ use common::with_scratch_worktree_root;
 use core::destructive::DestructiveCategory;
 use core::domain::session::start_session;
 use core::domain::permission_request::{answer_request, create_pending_request, AlreadyAnsweredError};
-use core::domain::permission_rule::{matching_rule, revoke_rule, rules_for_project, upsert_rule, WHOLE_TOOL};
+use core::domain::permission_rule::{matching_rule, revoke_rule, rules_for_project, upsert_rule};
 use core::domain::project;
 use core::query::permissions::{
     blocked_count_for_project, blocked_story_ids_for_project, latest_run_id_for_story,
@@ -29,6 +29,10 @@ fn seeded_running_run() -> (Connection, String, String, String, String) {
             .expect("start_session should succeed");
         (conn, actor_id, project.id, story.id, run.id)
     })
+}
+
+fn npm_test() -> serde_json::Value {
+    serde_json::json!({ "command": "npm test" })
 }
 
 fn event_count(conn: &Connection, event_type: &str, stream_id: &str) -> i64 {
@@ -146,19 +150,19 @@ fn matching_rule_never_crosses_a_project_boundary() {
     let project_b = project::create_project(&mut conn, &actor_id, "Other Project", "/other-repo", "OTH", "main")
         .expect("create_project should succeed for the second project");
 
-    upsert_rule(&mut conn, &project_a_id, "Bash", WHOLE_TOOL, &actor_id)
+    upsert_rule(&mut conn, &project_a_id, "Bash", "npm test:*", &actor_id)
         .expect("upsert_rule should succeed for project A");
 
-    let rule_a = matching_rule(&conn, &project_a_id, "Bash")
+    let rule_a = matching_rule(&conn, &project_a_id, "Bash", &npm_test())
         .expect("matching_rule should succeed")
         .expect("project A must have a matching rule for Bash");
-    assert_eq!(rule_a.pattern, WHOLE_TOOL);
+    assert_eq!(rule_a.pattern, "npm test:*");
 
-    let rule_b = matching_rule(&conn, &project_b.id, "Bash").expect("matching_rule should succeed");
+    let rule_b = matching_rule(&conn, &project_b.id, "Bash", &npm_test()).expect("matching_rule should succeed");
     assert!(rule_b.is_none(), "a rule granted on project A must never match project B");
 
     let rule_wrong_tool =
-        matching_rule(&conn, &project_a_id, "WebFetch").expect("matching_rule should succeed");
+        matching_rule(&conn, &project_a_id, "WebFetch", &npm_test()).expect("matching_rule should succeed");
     assert!(rule_wrong_tool.is_none(), "a rule for Bash must never match a different tool");
 }
 
@@ -166,9 +170,9 @@ fn matching_rule_never_crosses_a_project_boundary() {
 fn upsert_rule_called_twice_returns_the_existing_rule_rather_than_duplicating() {
     let (mut conn, actor_id, project_id, _story_id, _run_id) = seeded_running_run();
 
-    let first = upsert_rule(&mut conn, &project_id, "Bash", WHOLE_TOOL, &actor_id)
+    let first = upsert_rule(&mut conn, &project_id, "Bash", "npm test:*", &actor_id)
         .expect("the first upsert_rule call should succeed");
-    let second = upsert_rule(&mut conn, &project_id, "Bash", WHOLE_TOOL, &actor_id)
+    let second = upsert_rule(&mut conn, &project_id, "Bash", "npm test:*", &actor_id)
         .expect("the second upsert_rule call should succeed");
 
     let count: i64 = conn
@@ -182,7 +186,7 @@ fn upsert_rule_called_twice_returns_the_existing_rule_rather_than_duplicating() 
         "re-granting an existing rule must append no second event"
     );
 
-    let rule = matching_rule(&conn, &project_id, "Bash")
+    let rule = matching_rule(&conn, &project_id, "Bash", &npm_test())
         .expect("matching_rule should succeed")
         .expect("the rule should still exist");
     assert_eq!(rule.id, first.id);
@@ -191,7 +195,7 @@ fn upsert_rule_called_twice_returns_the_existing_rule_rather_than_duplicating() 
 #[test]
 fn revoke_rule_deletes_the_row_and_appends_a_revoked_event() {
     let (mut conn, actor_id, project_id, _story_id, _run_id) = seeded_running_run();
-    let rule = upsert_rule(&mut conn, &project_id, "Bash", WHOLE_TOOL, &actor_id)
+    let rule = upsert_rule(&mut conn, &project_id, "Bash", "npm test:*", &actor_id)
         .expect("upsert_rule should succeed");
 
     revoke_rule(&mut conn, &rule.id, &actor_id).expect("revoke_rule should succeed");

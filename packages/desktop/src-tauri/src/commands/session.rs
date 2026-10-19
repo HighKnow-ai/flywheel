@@ -648,13 +648,11 @@ pub enum PermissionRequestOutcome {
 /// through to `permission_request::create_pending_request`, which blocks the run in the SAME
 /// transaction as the row's own insert (Task 1's own contract).
 ///
-/// `destructive_category` (D-56/D-57, plan 03-07): when `Some`, the `matching_rule` check above
-/// is SKIPPED entirely and this request goes straight to `create_pending_request` — a project's
-/// existing "always allow {tool_name}" rule (D-38) is scoped to `(project_id, tool_name)`, the
-/// SAME tool name (`"Bash"`) a destructive command also arrives under, so without this bypass a
-/// routine standing grant earned for ordinary Bash calls would silently auto-approve a
-/// force-push or a `rm -rf` the very first time one arrived — exactly the standing-grant leak
-/// D-57 says must be structurally impossible, not merely absent from the answer UI.
+/// A rule matches by (project, tool, pattern) against the call's own input
+/// (`permission_rule::matching_rule`), which never answers a call the classifier judges Gated.
+/// `destructive_category` (D-56/D-57): when `Some`, the shim already judged this call a Gated
+/// action, so the rule check is SKIPPED entirely and this request goes straight to
+/// `create_pending_request`. A Gated action is asked every time and never covered by a rule.
 pub fn process_inbound_permission_request(
     conn: &mut Connection,
     run_id: &str,
@@ -680,7 +678,9 @@ pub fn process_inbound_permission_request(
     let rule = if destructive_category.is_some() {
         None
     } else {
-        flywheel_core::domain::permission_rule::matching_rule(conn, &project_id, tool_name)
+        let input: serde_json::Value =
+            input_payload.and_then(|raw| serde_json::from_str(raw).ok()).unwrap_or(serde_json::Value::Null);
+        flywheel_core::domain::permission_rule::matching_rule(conn, &project_id, tool_name, &input)
             .map_err(|e| e.to_string())?
     };
 
@@ -690,7 +690,10 @@ pub fn process_inbound_permission_request(
         let sequence = flywheel_core::domain::event::next_sequence(&tx, &project_id, "local")
             .map_err(|e| e.to_string())?;
         // A rule only ever allows ("Always allow <pattern> in this project").
-        let label = format!("Auto-allowed {tool_name} (project rule {})", rule.pattern);
+        let label = format!(
+            "Auto-allowed {tool_name} (project rule {})",
+            flywheel_core::permission_pattern::format_rule(&rule.tool, &rule.pattern)
+        );
         let payload = serde_json::json!({
             "field": "permission_request",
             "before": null,
@@ -947,31 +950,66 @@ pub struct PermissionRelayInstruction {
 /// guarded transition), and — for `allow_always` — also grant the project-scoped rule via
 /// `permission_rule::upsert_rule`. Returns the relay instruction the caller sends to the
 /// sidecar; on the already-answered error, returns that error and the caller relays nothing.
+///
+/// `rule` is the edited "Always allow" rule in Claude Code's syntax (`Bash(npm test:*)`); its tool
+/// must be the request's own. With no `rule`, the request's suggested pattern is used (the exact
+/// Bash command, or the whole tool otherwise). The rule is checked BEFORE the request is answered,
+/// so a refused rule (one that could match a Gated action) leaves the request pending.
 pub fn answer_permission_request(
     conn: &mut Connection,
     request_id: &str,
     decision: &str,
+    rule: Option<&str>,
     actor_id: &str,
 ) -> Result<PermissionRelayInstruction, String> {
     let db_decision = db_decision_for(decision)?;
+
+    let grant = if decision == "allow_always" {
+        Some(rule_to_grant(conn, request_id, rule)?)
+    } else {
+        None
+    };
 
     let answered =
         flywheel_core::domain::permission_request::answer_request(conn, request_id, db_decision, actor_id)
             .map_err(|e| e.to_string())?;
 
-    if decision == "allow_always" {
-        flywheel_core::domain::permission_rule::upsert_rule(
-            conn,
-            &answered.project_id,
-            &answered.tool_name,
-            flywheel_core::domain::permission_rule::WHOLE_TOOL,
-            actor_id,
-        )
-        .map_err(|e| e.to_string())?;
+    if let Some((tool, pattern)) = grant {
+        flywheel_core::domain::permission_rule::upsert_rule(conn, &answered.project_id, &tool, &pattern, actor_id)
+            .map_err(|e| e.to_string())?;
     }
 
     let relay_decision: &'static str = if decision == "deny" { "deny" } else { "allow" };
     Ok(PermissionRelayInstruction { run_id: answered.session_id, decision: relay_decision })
+}
+
+/// The (tool, pattern) an `allow_always` answer grants, checked against the request and the
+/// backend's rule refusal before anything is written.
+fn rule_to_grant(conn: &Connection, request_id: &str, rule: Option<&str>) -> Result<(String, String), String> {
+    let request = flywheel_core::domain::permission_request::find_request(conn, request_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("permission request {request_id:?} not found"))?;
+    let (tool, pattern) = match rule {
+        Some(text) => flywheel_core::permission_pattern::parse_rule(text).map_err(|e| e.to_string())?,
+        None => {
+            let input: serde_json::Value = request
+                .input_payload
+                .as_deref()
+                .and_then(|raw| serde_json::from_str(raw).ok())
+                .unwrap_or(serde_json::Value::Null);
+            let pattern = flywheel_core::permission_pattern::suggested_pattern(&request.tool_name, &input);
+            (request.tool_name.clone(), pattern)
+        }
+    };
+    if tool != request.tool_name {
+        return Err(format!(
+            "the rule names tool {tool:?}, but this request is for {:?}",
+            request.tool_name
+        ));
+    }
+    flywheel_core::domain::permission_rule::check_rule(conn, &request.project_id, &tool, &pattern)
+        .map_err(|e| e.to_string())?;
+    Ok((tool, pattern))
 }
 
 /// Answer a pending permission request from the board (AGNT-06, D-38). `actor_id` is resolved
@@ -984,12 +1022,14 @@ pub fn session_answer_permission(
     app: AppHandle,
     request_id: String,
     decision: String,
+    rule: Option<String>,
 ) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
 
-    let instruction = answer_permission_request(&mut conn, &request_id, &decision, &actor_id)?;
+    let instruction =
+        answer_permission_request(&mut conn, &request_id, &decision, rule.as_deref(), &actor_id)?;
     let project_id = project_of(&conn, "sessions", &instruction.run_id);
     drop(conn);
 
@@ -2048,12 +2088,12 @@ mod tests {
             &mut conn,
             &project_id,
             "Bash",
-            flywheel_core::domain::permission_rule::WHOLE_TOOL,
+            "npm test:*",
             &actor_id,
         )
             .expect("upsert_rule should succeed");
 
-        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None, None)
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(r#"{"command":"npm test"}"#), None)
             .expect("process_inbound_permission_request should succeed");
         assert_eq!(outcome, PermissionRequestOutcome::AutoResolved { decision: "allow".to_string() });
 
@@ -2140,7 +2180,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
             .expect("count query should succeed");
 
-        let err = answer_permission_request(&mut conn, &db_request_id, "yolo", &actor_id)
+        let err = answer_permission_request(&mut conn, &db_request_id, "yolo", None, &actor_id)
             .expect_err("an out-of-set decision must be rejected");
         assert!(err.contains("yolo"), "the error must name the rejected value, got: {err}");
 
@@ -2153,7 +2193,7 @@ mod tests {
     #[test]
     fn answering_allow_always_writes_the_answered_row_and_exactly_one_permission_rule() {
         let (mut conn, run_id, _story_id, project_id) = seeded_conn_with_running_session();
-        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None, None)
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(r#"{"command":"npm test"}"#), None)
             .expect("should succeed");
         let db_request_id = match outcome {
             PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
@@ -2162,7 +2202,7 @@ mod tests {
         let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
             .expect("seeded human actor should exist");
 
-        let instruction = answer_permission_request(&mut conn, &db_request_id, "allow_always", &actor_id)
+        let instruction = answer_permission_request(&mut conn, &db_request_id, "allow_always", None, &actor_id)
             .expect("answer_permission_request should succeed");
         assert_eq!(instruction, PermissionRelayInstruction { run_id: run_id.clone(), decision: "allow" });
 
@@ -2183,6 +2223,90 @@ mod tests {
             )
             .expect("count query should succeed");
         assert_eq!(rule_count, 1, "allow_always must write exactly one permission_rules row");
+
+        let pattern: String = conn
+            .query_row("SELECT pattern FROM permission_rules WHERE project_id = ?1", rusqlite::params![project_id], |row| {
+                row.get(0)
+            })
+            .expect("the rule should be readable");
+        assert_eq!(pattern, "npm test", "with no edited rule, the exact command is remembered");
+    }
+
+    /// Raise a pending Bash request for `command` and return its id.
+    fn pending_bash_request(conn: &mut Connection, run_id: &str, command: &str) -> String {
+        let input = serde_json::json!({ "command": command }).to_string();
+        match process_inbound_permission_request(conn, run_id, "Bash", Some(&input), None).expect("should succeed") {
+            PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
+            other => panic!("expected Pending, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn allow_always_remembers_the_edited_pattern_and_it_answers_the_next_matching_call() {
+        let (mut conn, run_id, _story_id, project_id) = seeded_conn_with_running_session();
+        let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+        let request = pending_bash_request(&mut conn, &run_id, "npm test -- --watch");
+
+        answer_permission_request(&mut conn, &request, "allow_always", Some("Bash(npm test:*)"), &actor_id)
+            .expect("an ordinary pattern is stored");
+        let rules = flywheel_core::domain::permission_rule::rules_for_project(&conn, &project_id).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!((rules[0].tool.as_str(), rules[0].pattern.as_str()), ("Bash", "npm test:*"));
+
+        let input = serde_json::json!({ "command": "npm test" }).to_string();
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(&input), None).unwrap();
+        assert_eq!(outcome, PermissionRequestOutcome::AutoResolved { decision: "allow".to_string() });
+    }
+
+    #[test]
+    fn allow_always_with_a_rule_covering_a_gated_action_is_refused_and_the_request_stays_pending() {
+        let (mut conn, run_id, _story_id, project_id) = seeded_conn_with_running_session();
+        let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+        let request = pending_bash_request(&mut conn, &run_id, "git status");
+
+        for rule in ["Bash", "Bash(git:*)", "Bash(git push:*)"] {
+            let err = answer_permission_request(&mut conn, &request, "allow_always", Some(rule), &actor_id)
+                .expect_err("a rule covering a Gated action must be refused");
+            assert!(err.contains("Gated action"), "{rule}: {err}");
+        }
+        let err = answer_permission_request(&mut conn, &request, "allow_always", Some("Read"), &actor_id)
+            .expect_err("a rule for another tool must be refused");
+        assert!(err.contains("Read"), "{err}");
+
+        let status: String = conn
+            .query_row("SELECT status FROM permission_requests WHERE id = ?1", rusqlite::params![request], |r| r.get(0))
+            .unwrap();
+        assert_eq!(status, "pending", "a refused rule leaves the request unanswered");
+        assert!(flywheel_core::domain::permission_rule::rules_for_project(&conn, &project_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_gated_action_always_raises_a_request_even_when_a_broad_rule_exists() {
+        let (mut conn, run_id, _story_id, project_id) = seeded_conn_with_running_session();
+        let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+        // The backend refuses this rule, so plant it the way a stale or hand-edited database could.
+        conn.execute(
+            "INSERT INTO permission_rules (id, project_id, tool, pattern, created_by, created_at) \
+             VALUES (?1, ?2, 'Bash', '*', ?3, '2026-01-01T00:00:00Z')",
+            rusqlite::params![flywheel_core::ids::new_id(), project_id, actor_id],
+        )
+        .unwrap();
+
+        // Judged Gated from its own input, with no category from the shim.
+        let input = serde_json::json!({ "command": "git push --force origin feature" }).to_string();
+        let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(&input), None).unwrap();
+        assert!(matches!(outcome, PermissionRequestOutcome::Pending { .. }), "got {outcome:?}");
+
+        // Judged Gated by the shim.
+        let input = serde_json::json!({ "command": "git push" }).to_string();
+        let outcome =
+            process_inbound_permission_request(&mut conn, &run_id, "Bash", Some(&input), Some("force-push")).unwrap();
+        assert!(matches!(outcome, PermissionRequestOutcome::Pending { .. }), "got {outcome:?}");
+
+        let auto: i64 = conn
+            .query_row("SELECT COUNT(*) FROM events WHERE event_type = 'permission_request.auto_resolved'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(auto, 0, "no rule approved a Gated action");
     }
 
     #[test]
@@ -2200,7 +2324,7 @@ mod tests {
         // First answer: succeeds and produces exactly one relay instruction — the caller
         // (`session_answer_permission`) would call `sidecar.relay_permission_answer` exactly
         // once for this Ok result.
-        let first = answer_permission_request(&mut conn, &db_request_id, "allow", &actor_id);
+        let first = answer_permission_request(&mut conn, &db_request_id, "allow", None, &actor_id);
         assert!(first.is_ok(), "the first answer must succeed and produce one relay instruction");
 
         // Second answer to the SAME request id: must be an Err, meaning the caller's own
@@ -2209,7 +2333,7 @@ mod tests {
         // structure only ever calls `relay_permission_answer` after an `Ok` result (see
         // `session_answer_permission`'s own body, which returns via `?` before reaching the
         // relay on an `Err`).
-        let second = answer_permission_request(&mut conn, &db_request_id, "deny", &actor_id);
+        let second = answer_permission_request(&mut conn, &db_request_id, "deny", None, &actor_id);
         assert!(second.is_err(), "answering an already-answered request must be refused");
 
         let answered_status: String = conn
