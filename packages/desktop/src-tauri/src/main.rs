@@ -37,9 +37,9 @@ const FORWARDED_MENU_ACTIONS: &[&str] = &[
 fn main() {
     // Issue #88: opened from Finder or the Dock, the app inherits a minimal PATH. Adopt the login
     // shell's PATH first, before any thread starts (it writes the process environment), so the
-    // sidecar, every session, the shim and the Checks all inherit it. Bounded by a timeout; on
-    // failure the inherited PATH is kept and the warning is shown on screen
-    // (`settings::launch_environment`).
+    // sidecar, every session, the shim and the Checks all inherit it. An interactive login shell
+    // first, then a login shell, each bounded by a timeout; on any fallback the warning names what
+    // was used and is shown on screen (`settings::launch_environment`).
     let login_path = flywheel_core::login_path::adopt(flywheel_core::login_path::RESOLVE_TIMEOUT);
     if let Some(warning) = &login_path.warning {
         eprintln!("flywheel: {warning}");

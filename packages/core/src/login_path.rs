@@ -2,14 +2,17 @@
 //!
 //! An app opened from Finder or the Dock inherits a minimal `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`),
 //! so `claude`, `npm`, `cargo` and `gh` in `~/.local/bin`, `/opt/homebrew/bin` or an npm prefix
-//! are not found. [`adopt`] asks the developer's login shell for its `PATH` through the same runner
-//! the Checks use ([`crate::check_runner`]: `$SHELL -l -c`, `/bin/zsh` when `SHELL` is unset),
-//! bounded by a timeout, and makes it this process's own `PATH`. Everything Flywheel spawns
+//! are not found. [`adopt`] asks the developer's shell (`$SHELL`, `/bin/zsh` when unset) for its
+//! `PATH` through the Check runner's shell spawner ([`crate::check_runner`]), each attempt bounded
+//! by a timeout, and makes it this process's own `PATH`. It asks an interactive login shell first
+//! (`-l -i`, standard input closed), because that is what the developer's terminal runs and tools
+//! like `mise activate` live in `.zshrc`; then a login shell alone (`-l`, `.zprofile` only). Everything Flywheel spawns
 //! inherits it from there: the sidecar, every session (the shim directory is prefixed onto it), the
 //! shim's own real-binary lookups, and the Check runs.
 //!
 //! A shell that is slow, broken or prints no `PATH` cannot hang startup: past the timeout, or on
-//! any failure, the inherited `PATH` is kept and a warning says so. Only `PATH` is taken from the
+//! any failure, the next attempt runs, and after the last the inherited `PATH` is kept. Every
+//! fallback carries a warning naming what was used. The Checks run with the adopted `PATH`. Only `PATH` is taken from the
 //! login shell, nothing else.
 
 use std::ffi::{OsStr, OsString};
@@ -18,13 +21,14 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use crate::check_runner::{login_shell, run_in_login_shell, ShellOutcome};
+use crate::check_runner::{login_shell, run_in_shell, ShellOutcome};
 
-/// How long the login shell gets to report its `PATH` before startup goes on without it.
+/// How long each attempt (interactive login shell, then login shell) gets to report its `PATH`.
 pub const RESOLVE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The line the login shell prints its `PATH` on, so whatever a profile prints around it is ignored.
-const MARKER: &str = "__FLYWHEEL_LOGIN_PATH__=";
+/// The markers the shell prints its `PATH` between, so whatever a profile or prompt prints around
+/// it is ignored.
+const MARKER: &str = "__FLYWHEEL_LOGIN_PATH__";
 
 /// The `PATH` Flywheel runs with, and the warning to show when it is not the login shell's.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,32 +55,54 @@ pub fn adopted() -> Option<&'static LoginPath> {
     ADOPTED.get()
 }
 
-/// Ask `shell` (as a login shell, with `env` added) for its `PATH`, keeping `inherited` on any
-/// failure.
+/// Ask `shell` for its `PATH`, as an interactive login shell, then as a login shell, keeping
+/// `inherited` when both fail. `env` is added to each attempt's environment.
 pub(crate) fn resolve_with(shell: &Path, env: &[(&str, &Path)], inherited: &str, timeout: Duration) -> LoginPath {
-    let fallback = |why: String| LoginPath {
-        path: inherited.to_string(),
-        warning: Some(format!(
-            "Flywheel could not read your login shell's PATH ({why}), so it kept the PATH it was \
-             opened with: {inherited}. claude, npm, cargo or gh may not be found."
-        )),
+    let interactive = match ask_path(shell, &["-l", "-i"], env, timeout) {
+        Ok(path) => return LoginPath { path, warning: None },
+        Err(why) => why,
     };
-    let command = format!("printf '\\n{MARKER}%s\\n' \"$PATH\"");
-    let run = match run_in_login_shell(shell, env, Path::new("/"), &command, timeout) {
-        Ok(run) => run,
-        Err(e) => return fallback(format!("{} could not be started: {e}", shell.display())),
-    };
+    match ask_path(shell, &["-l"], env, timeout) {
+        Ok(path) => LoginPath {
+            warning: Some(format!(
+                "Flywheel could not read your interactive login shell's PATH ({interactive}), so it used \
+                 {} -l, which skips ~/.zshrc: {path}. Tools set up in ~/.zshrc may not be found.",
+                shell.display()
+            )),
+            path,
+        },
+        Err(login) => LoginPath {
+            path: inherited.to_string(),
+            warning: Some(format!(
+                "Flywheel could not read your login shell's PATH ({interactive}; then {login}), so it \
+                 kept the PATH it was opened with: {inherited}. claude, npm, cargo or gh may not be found."
+            )),
+        },
+    }
+}
+
+/// One attempt: `shell <flags> -c` printing its `PATH` between markers, or why it gave none.
+fn ask_path(shell: &Path, flags: &[&str], env: &[(&str, &Path)], timeout: Duration) -> Result<String, String> {
+    let how = format!("{} {}", shell.display(), flags.join(" "));
+    let command = format!("printf '{MARKER}%s{MARKER}' \"$PATH\"");
+    let run = run_in_shell(shell, flags, env, Path::new("/"), &command, timeout)
+        .map_err(|e| format!("{how} could not be started: {e}"))?;
     match run.outcome {
-        ShellOutcome::TimedOut => return fallback(format!("{} took longer than {}s", shell.display(), timeout.as_secs())),
+        ShellOutcome::TimedOut => return Err(format!("{how} took longer than {}s", timeout.as_secs())),
         ShellOutcome::Exited(Some(0)) => {}
         ShellOutcome::Exited(code) => {
             let code = code.map_or("a signal".to_string(), |c| format!("code {c}"));
-            return fallback(format!("{} exited with {code}", shell.display()));
+            return Err(format!("{how} exited with {code}"));
         }
     }
-    match run.output_tail.lines().rev().find_map(|line| line.strip_prefix(MARKER)) {
-        Some(path) if !path.trim().is_empty() => LoginPath { path: path.to_string(), warning: None },
-        _ => fallback(format!("{} printed no PATH", shell.display())),
+    let tail = run.output_tail.as_str();
+    let path = tail.rfind(MARKER).and_then(|end| {
+        let start = tail[..end].rfind(MARKER)? + MARKER.len();
+        Some(&tail[start..end])
+    });
+    match path {
+        Some(path) if !path.trim().is_empty() => Ok(path.to_string()),
+        _ => Err(format!("{how} printed no PATH")),
     }
 }
 
@@ -188,6 +214,52 @@ mod tests {
         assert_eq!(claude_bin_in(None, OsStr::new(&resolved.path)), Ok(bin.path().join("claude")));
     }
 
+    /// What the developer's terminal sees: an entry only `.zshrc` adds (`mise activate`, say) is
+    /// on the resolved PATH, with no warning.
+    #[test]
+    fn an_entry_only_the_zshrc_adds_is_found() {
+        let profile_bin = tempfile::tempdir().unwrap();
+        let rc_bin = tempfile::tempdir().unwrap();
+        let profile = profile_adding(profile_bin.path());
+        std::fs::write(
+            profile.path().join(".zshrc"),
+            format!("echo hello from the rc\nexport PATH=\"{}:$PATH\"\nPROMPT='%~ > '\n", rc_bin.path().display()),
+        )
+        .unwrap();
+
+        let resolved = resolve_with(
+            Path::new("/bin/zsh"),
+            &[("ZDOTDIR", profile.path()), ("PATH", Path::new(FINDER_PATH))],
+            FINDER_PATH,
+            Duration::from_secs(30),
+        );
+
+        assert_eq!(resolved.warning, None);
+        let dirs: Vec<PathBuf> = std::env::split_paths(&resolved.path).collect();
+        assert!(dirs.iter().any(|d| d == rc_bin.path()), "{} lacks the .zshrc entry", resolved.path);
+        assert!(dirs.iter().any(|d| d == profile_bin.path()), "{} lacks the .zprofile entry", resolved.path);
+    }
+
+    /// An interactive shell that hangs (a `.zshrc` waiting on something) falls back to the login
+    /// shell's PATH, with a warning naming it.
+    #[test]
+    fn a_hanging_zshrc_falls_back_to_the_login_shell_path_with_a_warning() {
+        let profile_bin = tempfile::tempdir().unwrap();
+        let profile = profile_adding(profile_bin.path());
+        std::fs::write(profile.path().join(".zshrc"), "sleep 30\n").unwrap();
+
+        let resolved = resolve_with(
+            Path::new("/bin/zsh"),
+            &[("ZDOTDIR", profile.path()), ("PATH", Path::new(FINDER_PATH))],
+            FINDER_PATH,
+            Duration::from_secs(2),
+        );
+
+        assert!(std::env::split_paths(&resolved.path).any(|d| d == profile_bin.path()), "{}", resolved.path);
+        let warning = resolved.warning.expect("a warning");
+        assert!(warning.contains("-l, which skips ~/.zshrc"), "{warning}");
+    }
+
     #[test]
     fn a_slow_login_shell_times_out_and_keeps_the_inherited_path_with_a_warning() {
         let dir = tempfile::tempdir().unwrap();
@@ -197,7 +269,7 @@ mod tests {
         let started = std::time::Instant::now();
         let resolved = resolve_with(&shell, &[], FINDER_PATH, Duration::from_millis(500));
 
-        assert!(started.elapsed() < Duration::from_secs(5), "took {:?}", started.elapsed());
+        assert!(started.elapsed() < Duration::from_secs(5), "two attempts took {:?}", started.elapsed());
         assert_eq!(resolved.path, FINDER_PATH);
         let warning = resolved.warning.expect("a warning");
         assert!(warning.contains("took longer") && warning.contains(FINDER_PATH), "{warning}");

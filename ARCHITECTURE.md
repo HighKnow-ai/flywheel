@@ -50,8 +50,8 @@ through `generate_handler!` in `main.rs`.
 
 `packages/desktop/src-tauri/src/sidecar.rs` spawns, health-checks and kills the sidecar, and the
 core reconciles orphaned runs at launch. Before anything else, `main` adopts the developer's
-login-shell `PATH` as the process's own (`packages/core/src/login_path.rs`, through the Check
-runner's `$SHELL -l -c`, with a timeout and a fallback to the inherited `PATH`), so an app opened
+login-shell `PATH` as the process's own (`packages/core/src/login_path.rs`, asking `$SHELL -l -i -c`,
+then `-l -c`, each with a timeout, then keeping the inherited `PATH` with a warning), so an app opened
 from Finder still finds `claude` and the developer's tools; the sidecar, every session, the shim
 and the Checks inherit it, and Start is refused, naming that `PATH`, when `claude` is not on it. Each agent session gets a per-run shadow directory holding
 `flywheel-shim` (`packages/core/src/shim.rs` installs it) under the names `git`, `rm`, and `npm`,
