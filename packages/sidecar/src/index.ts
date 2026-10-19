@@ -42,6 +42,17 @@ interface PermissionAnswerRequest {
   decision: "allow" | "deny";
 }
 
+/** Issue #52: the Rust core's answer to one held Task tool call — the Story's checklist after the
+ * call (`result`), or the reason the core refused it (`error`). */
+interface TaskToolAnswerRequest {
+  id: string;
+  op: "task_tool_answer";
+  runId: string;
+  requestId: string;
+  result?: unknown;
+  error?: string;
+}
+
 /** D-39, plan 02-09 Task 3: ask whether the backend binary this adapter would spawn is
  * resolvable, and its reported version. Read-only — never spawns a session, never touches a
  * credential; carries no `runId` because it names no run. */
@@ -80,6 +91,7 @@ type SidecarRequest =
   | InterruptRequest
   | KillRequest
   | PermissionAnswerRequest
+  | TaskToolAnswerRequest
   | CapabilityProbeRequest
   | ShutdownRequest
   | PingRequest;
@@ -195,6 +207,17 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
       // sidecar itself decides nothing).
       try {
         adapter.resolvePermission(request.runId, request.requestId, request.decision);
+        emitAck(request.id, true);
+      } catch (err: unknown) {
+        emitAck(request.id, false, String(err));
+      }
+      return;
+    }
+    case "task_tool_answer": {
+      // Issue #52: the ONLY caller of resolveTaskTool — the core's answer settles a held Task tool
+      // call; the sidecar never writes or reads a Task itself.
+      try {
+        adapter.resolveTaskTool(request.runId, request.requestId, request.result, request.error);
         emitAck(request.id, true);
       } catch (err: unknown) {
         emitAck(request.id, false, String(err));
