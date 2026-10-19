@@ -1,7 +1,7 @@
 /**
  * The Settings surface's Permission Rules table (D-38, 02-UI-SPEC.md "Permission rules", E7) —
  * every allow-always rule the user has granted, across every registered project, listed with its
- * project, tool name, decision and granted date, and a `Revoke` action per row. This is the only
+ * project, tool, pattern and granted date, and a `Revoke` action per row. This is the only
  * place a granted rule can be inspected and withdrawn (02-RESEARCH.md's Security Domain: a stale
  * rule surviving a repurposed project, T-02-04).
  *
@@ -125,7 +125,7 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
           <div role="row" className="admin-table-row admin-table-head type-label">
             <span role="columnheader">Project</span>
             <span role="columnheader">Tool</span>
-            <span role="columnheader">Decision</span>
+            <span role="columnheader">Pattern</span>
             <span role="columnheader">Granted</span>
             <span role="columnheader" aria-hidden="true" />
           </div>
@@ -143,13 +143,13 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
               <span
                 role="cell"
                 className="type-body"
-                title={rule.toolName}
+                title={rule.tool}
                 style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
               >
-                {rule.toolName}
+                {rule.tool}
               </span>
               <span role="cell" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-                {rule.decision}
+                {rule.pattern === "*" ? "every input" : rule.pattern}
               </span>
               <span role="cell" className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
                 {formatDate(rule.createdAt)}

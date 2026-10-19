@@ -1,10 +1,9 @@
-import React, { Suspense, useCallback, useEffect } from "react";
+import React, { Suspense, useEffect } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./adapters/queryClient";
 import { subscribeMenuAction } from "./adapters/tauri";
 import { FirstRun } from "./board/FirstRun";
 import { useBoardChangedSubscription, useProjects } from "./board/useBoardQuery";
-import { WavePlanSheet } from "./dispatch/WavePlanSheet";
 import { useWatchedRun } from "./fleet/useWatchedRun";
 import { LaunchSheet } from "./launch-sheet/LaunchSheet";
 import { ProjectRail } from "./projects/ProjectRail";
@@ -12,7 +11,6 @@ import { ProjectUnreachable } from "./projects/ProjectUnreachable";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./projects/RegisterProjectFlow";
 import { OrphanRecoveryModal } from "./recovery/OrphanRecoveryModal";
 import { SessionSurface } from "./session/SessionSurface";
-import { LaunchOverlapToast } from "./shell/LaunchOverlapToast";
 import { SettingsSurface } from "./settings/SettingsSurface";
 import { activeSurface, dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { useMenuLayerSync } from "./state/menuSync";
@@ -53,11 +51,10 @@ function AppShell() {
   const projectsQuery = useProjects();
   const currentProjectId = useUiStore((state) => state.currentProjectId);
   const setCurrentProjectId = useUiStore((state) => state.setCurrentProjectId);
-  // D-31: the live session surface, pushed into from a task and popped back out of — the board
+  // D-31: the live session surface, pushed into from a Story and popped back out of — the board
   // stays the board (this state is `null` whenever no session is being watched).
   const activeAgentRunId = useUiStore((state) => state.activeAgentRunId);
-  const activeAgentRunTaskId = useUiStore((state) => state.activeAgentRunTaskId);
-  const activeAgentRunEpicId = useUiStore((state) => state.activeAgentRunEpicId);
+  const activeAgentRunStoryId = useUiStore((state) => state.activeAgentRunStoryId);
   const activeAgentRunInitialLogOffset = useUiStore((state) => state.activeAgentRunInitialLogOffset);
   const activeAgentRunInitialStatus = useUiStore((state) => state.activeAgentRunInitialStatus);
   const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
@@ -67,22 +64,14 @@ function AppShell() {
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
   const worktreeInventoryOpen = useUiStore((state) => state.worktreeInventoryOpen);
   const setWorktreeInventoryOpen = useUiStore((state) => state.setWorktreeInventoryOpen);
-  // D-27: the launch sheet, mounted once here — `null` means closed. Opened by setting this task id.
-  const launchSheetTaskId = useUiStore((state) => state.launchSheetTaskId);
-  const setLaunchSheetTaskId = useUiStore((state) => state.setLaunchSheetTaskId);
-  // Plan 09-09: the wave plan sheet, mounted once here as a peer of the launch sheet below.
-  const wavePlanSheetEpicId = useUiStore((state) => state.wavePlanSheetEpicId);
-  const setWavePlanSheetEpicId = useUiStore((state) => state.setWavePlanSheetEpicId);
+  // D-27: the launch sheet, mounted once here — `null` means closed. Opened by setting this Story id.
+  const launchSheetStoryId = useUiStore((state) => state.launchSheetStoryId);
+  const setLaunchSheetStoryId = useUiStore((state) => state.setLaunchSheetStoryId);
   // D-39: the Settings surface, mounted once here like the session surface and the launch sheet
   // above — opened by the native menu's "Settings…" item, the global `⌘,` binding, and the
   // command palette (plan 02-10 Task 3), all through this one `open-settings` action id.
   const settingsOpen = useUiStore((state) => state.settingsOpen);
   const setSettingsOpen = useUiStore((state) => state.setSettingsOpen);
-  // Plan 09-13 / D-REV-43: every launch site writes Rust's overlap warning to the store; this is the
-  // one place it is shown, because each launch surface unmounts as the session takes the screen.
-  const launchOverlapWarning = useUiStore((state) => state.launchOverlapWarning);
-  const setLaunchOverlapWarning = useUiStore((state) => state.setLaunchOverlapWarning);
-  const dismissLaunchOverlapWarning = useCallback(() => setLaunchOverlapWarning(null), [setLaunchOverlapWarning]);
   // `⌘⇧O`'s actual effect — the SAME registration flow the rail's `+` button and the palette's
   // "Register Project…" command use (`projects/RegisterProjectFlow.tsx`), never a re-derived
   // copy (01-UI-SPEC.md "Project switcher"). `isError`/`error` are surfaced below (CR-02) —
@@ -141,7 +130,7 @@ function AppShell() {
   // Previously this handler called `returnToBoardLayer()` for every forwarded id except
   // `open-palette` before dispatching, on the theory that a menu action is always an unambiguous
   // click from outside the keyboard. That was UAT gap G-01-1: on macOS the native menu OWNS
-  // `create-task`'s `CmdOrCtrl+N` accelerator, so the keystroke never reaches the webview and
+  // `create-story`'s `CmdOrCtrl+N` accelerator, so the keystroke never reaches the webview and
   // this handler runs instead — which meant the reset ran on a *keystroke* and dismantled the
   // very layer (the item detail panel) the keystroke was supposed to be blocked by. The layer
   // guard in `state/keyboard.ts` was correct the whole time; it was being bypassed, not failing.
@@ -215,8 +204,7 @@ function AppShell() {
         return (
           <SessionSurface
             agentRunId={activeAgentRunId}
-            taskId={activeAgentRunTaskId}
-            epicId={activeAgentRunEpicId}
+            storyId={activeAgentRunStoryId}
             initialFeedOffset={activeAgentRunInitialLogOffset}
             initialStatus={activeAgentRunInitialStatus}
             onBack={() => setActiveAgentRunId(null)}
@@ -259,20 +247,15 @@ function AppShell() {
       </div>
       <OrphanRecoveryModal />
       <LaunchSheet
-        taskId={launchSheetTaskId}
-        onClose={() => setLaunchSheetTaskId(null)}
-        onStarted={(agentRunId, overlapWarning) => {
-          // `launchSheetTaskId` is captured in this closure at its render-time value, still the
-          // task this run just started for — read BEFORE it is cleared below.
-          setActiveAgentRunId(agentRunId, launchSheetTaskId);
-          setLaunchSheetTaskId(null);
-          // The sheet unmounts here, so its own copy of the warning is gone with it; this is the
-          // copy the user actually sees (plan 09-13). Rust's sentence, verbatim.
-          if (overlapWarning) setLaunchOverlapWarning(overlapWarning);
+        storyId={launchSheetStoryId}
+        onClose={() => setLaunchSheetStoryId(null)}
+        onStarted={(agentRunId) => {
+          // `launchSheetStoryId` is captured in this closure at its render-time value, still the
+          // Story this run just started for — read BEFORE it is cleared below.
+          setActiveAgentRunId(agentRunId, launchSheetStoryId);
+          setLaunchSheetStoryId(null);
         }}
       />
-      <WavePlanSheet epicId={wavePlanSheetEpicId} onClose={() => setWavePlanSheetEpicId(null)} />
-      <LaunchOverlapToast warning={launchOverlapWarning} onDismiss={dismissLaunchOverlapWarning} />
       {registerNoticeNode}
     </>
   );

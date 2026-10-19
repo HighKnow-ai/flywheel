@@ -1,16 +1,16 @@
-//! Branch/worktree naming derivation (D-24, LINK-01): the one place a task's or an epic's
+//! Branch/worktree naming derivation (D-24, LINK-01): the one place a Story's
 //! `flywheel/`-namespaced git branch name is computed from its human-readable key and title.
 //!
 //! `flywheel/` is a one-way decision (02-CONTEXT.md): the moment a commit exists on a derived
 //! branch, the name cannot be retroactively changed without breaking Phase 7's LINK-10 detection
-//! and Phase 9's fan-out, both of which key off this exact namespace.
+//! and the identifier resolver, both of which key off this exact namespace.
 
 /// The namespace every branch this crate derives is created under (D-24). Never renamed once a
 /// commit exists on a derived branch.
 pub const FLYWHEEL_BRANCH_NAMESPACE: &str = "flywheel/";
 
 /// The hard byte cap on a derived branch name (LINK-01 boundary) — measured in bytes, not code
-/// points or grapheme clusters, and never applied to the `flywheel/` prefix or the task/epic key,
+/// points or grapheme clusters, and never applied to the `flywheel/` prefix or the Story key,
 /// only to the slug portion.
 pub const BRANCH_NAME_MAX_BYTES: usize = 200;
 
@@ -23,8 +23,7 @@ pub const BRANCH_NAME_MAX_BYTES: usize = 200;
 /// slugifies to "caf-nave" (the ASCII space around the em dash IS a word boundary). Never
 /// transliterated. The result is either empty or matches `^[a-z0-9]+(-[a-z0-9]+)*$`.
 ///
-/// This is the ONE slug implementation in this crate — `task_branch_name` and
-/// `epic_integration_branch_name` both call this, never a second copy.
+/// This is the ONE slug implementation in this crate — `story_branch_name` calls this, never a second copy.
 pub fn slugify(title: &str) -> String {
     let mut out = String::with_capacity(title.len());
     let mut pending_hyphen = false;
@@ -79,13 +78,13 @@ fn truncate_slug_to_fit(slug: &str, prefix_len: usize) -> String {
     }
 }
 
-/// Derive a task's branch name (D-24): `flywheel/{task_key_lowercased}` when the title slugifies
-/// to empty, otherwise `flywheel/{task_key_lowercased}-{slug}`, capped at
-/// [`BRANCH_NAME_MAX_BYTES`] bytes total and never ending in a hyphen. `task_key`'s numeric
-/// suffix is carried verbatim as the exact text stored in `tasks.key` — this function never
+/// Derive a Story's branch name (D-24): `flywheel/{story_key_lowercased}` when the title slugifies
+/// to empty, otherwise `flywheel/{story_key_lowercased}-{slug}`, capped at
+/// [`BRANCH_NAME_MAX_BYTES`] bytes total and never ending in a hyphen. `story_key`'s numeric
+/// suffix is carried verbatim as the exact text stored in `stories.key` — this function never
 /// parses it to an integer.
-pub fn task_branch_name(task_key: &str, title: &str) -> String {
-    let key_lower = task_key.to_lowercase();
+pub fn story_branch_name(story_key: &str, title: &str) -> String {
+    let key_lower = story_key.to_lowercase();
     let base = format!("{FLYWHEEL_BRANCH_NAMESPACE}{key_lower}");
     let slug = slugify(title);
     if slug.is_empty() {
@@ -100,21 +99,3 @@ pub fn task_branch_name(task_key: &str, title: &str) -> String {
     }
 }
 
-/// Derive an epic's integration branch name (D-25): `flywheel/epic/{epic_key_lowercased}` when
-/// the title slugifies to empty, otherwise `flywheel/epic/{epic_key_lowercased}-{slug}` — reuses
-/// [`slugify`] and the same byte cap / no-trailing-hyphen rules as [`task_branch_name`], never a
-/// second slug implementation.
-pub fn epic_integration_branch_name(epic_key: &str, epic_title: &str) -> String {
-    let key_lower = epic_key.to_lowercase();
-    let base = format!("{FLYWHEEL_BRANCH_NAMESPACE}epic/{key_lower}");
-    let slug = slugify(epic_title);
-    if slug.is_empty() {
-        return base;
-    }
-    let truncated = truncate_slug_to_fit(&slug, base.len() + 1);
-    if truncated.is_empty() {
-        base
-    } else {
-        format!("{base}-{truncated}")
-    }
-}

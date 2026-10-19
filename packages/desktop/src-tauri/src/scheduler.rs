@@ -1,74 +1,35 @@
-//! D-113/D-114/D-116's git-truth tick: the first job `tokio-cron-scheduler` has ever actually run
-//! in this workspace. Five registrations of the same primitive — a hot tier, a cold tier, a
-//! slower fetch, phase 7 plan 07-07's slower-still forge poll, and phase 9 plan 09-07's fan-out
-//! dispatch tick — never one job with internal partitioning (07-CONTEXT.md's own discretion
-//! call).
+//! D-113/D-114/D-116's git-truth tick, on `tokio-cron-scheduler`. Three registrations of the same
+//! primitive — a hot tier, a cold tier and a slower fetch — never one job with internal
+//! partitioning (07-CONTEXT.md's own discretion call).
 //!
-//! Each job locks `AppState.db`, calls the matching sync `flywheel_core::git_facts` function,
-//! DROPS the lock, then emits the shared board-invalidation event (see [`emit_git_facts_changed`])
-//! at most once per tick — only when a digest of what it just read actually changed, following
-//! `sidecar.rs`'s `handle_inbound_git_lock_exhausted`
-//! idiom exactly: a failure is an `eprintln!` value, never a panic, never an early return that
+//! Each git-facts job locks `AppState.db`, calls the matching sync `flywheel_core::git_facts`
+//! function, DROPS the lock, then emits the shared board-invalidation event (see
+//! [`emit_git_facts_changed`]) at most once per tick — only when a digest of what it just read
+//! actually changed. A failure is an `eprintln!` value, never a panic, never an early return that
 //! would kill the scheduler for every future tick.
 //!
 //! This module owns no state of its own beyond the digest map used to decide whether to emit —
-//! every git fact is re-derived fresh from `git_facts_for_task` on every tick (D-75/D-128); the
+//! every git fact is re-derived fresh from `git_facts_for_story` on every tick (D-75/D-128); the
 //! digest is a change-detector for the notification, never an answer to any question a caller
 //! asks this module.
 //!
-//! Phase 07 plan 07-11 (closing verification Gap 1 / code review CR-01): the forge and fetch jobs
-//! run their subprocess calls — `gh`/`glab` and `git fetch` — with **no lock held at all**.
-//! `AppState.db` is a single app-wide `Mutex<Connection>` every Tauri command locks as its first
-//! statement; a tick that held that mutex across an unbounded-latency network call would freeze
-//! every other command for as long as the call took. Both jobs are therefore split into named
-//! phases: read the work list under the lock, release the lock, run the network phase through a
-//! function whose signature carries no `Connection` (the type is the enforcement, not a comment),
-//! then — forge only — re-acquire the lock briefly to write. The hot and cold tiers above never
-//! leave the local filesystem, so they keep their original single-lock shape unchanged.
+//! The fetch job runs `git fetch` with **no lock held at all** (07-11, CR-01): it reads the work
+//! list under the lock, releases it, then runs the network phase through a function whose
+//! signature carries no `Connection` (the type is the enforcement, not a comment).
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use flywheel_core::domain::actor::system_actor;
-use flywheel_core::forge::{Forge, ForgeRequest};
 use flywheel_core::git_facts::{
-    git_facts_for_task, tracked_worktrees, GitFacts, TrackedWorktree, COLD_TICK_SECS,
-    FETCH_INTERVAL_SECS, FORGE_POLL_SECS, HOT_TICK_SECS,
+    git_facts_for_story, tracked_worktrees, GitFacts, COLD_TICK_SECS, FETCH_INTERVAL_SECS, HOT_TICK_SECS,
 };
 use tauri::{AppHandle, Manager};
 use tokio_cron_scheduler::{Job, JobScheduler};
 
 use crate::state::AppState;
-
-/// One worktree's forge poll target, already resolved to a forge and repo path (phase 07 plan
-/// 07-11) — [`poll_forge_targets`] takes a slice of these and no `Connection`, which is what
-/// guarantees the network phase runs with no lock held.
-struct ForgePollTarget {
-    task_id: String,
-    /// The project's stored forge override, or `None` when detection from the origin remote is
-    /// still owed. Detection spawns `git`, so it runs in [`poll_forge_targets`], lock-free.
-    forge: Option<Forge>,
-    repo_path: std::path::PathBuf,
-    branch: String,
-    /// The task's status as of this read (quick task 261005-mn5) — carried through
-    /// [`ForgePollResult`] so [`apply_forge_results`] can pass it as the compare-and-swap
-    /// precondition on the write, surviving the lock-release window between this read and that
-    /// write.
-    status_at_poll: String,
-}
-
-/// One forge poll's outcome, carrying only what [`apply_forge_results`] needs to re-acquire the
-/// lock and write.
-struct ForgePollResult {
-    task_id: String,
-    observed: Option<ForgeRequest>,
-    /// Copied from the matching [`ForgePollTarget`] (quick task 261005-mn5) — the status as of
-    /// phase one's read, whose survival across the lock-release window is the whole point.
-    status_at_poll: String,
-}
 
 /// One active project's fetch target — just enough for [`fetch_origin_for_targets`] to call
 /// [`flywheel_core::git::fetch_origin`] with no connection in scope.
@@ -77,18 +38,15 @@ struct FetchTarget {
     repo_path: String,
 }
 
-/// The last-emitted digest per task id, keyed so the hot and cold ticks share one map — a task
-/// can only be a member of one tier at a time, but sharing avoids a duplicate "changed" emit if a
-/// task ever moved tiers mid-session. Never read as an answer to any question other than "did
-/// this change since the last tick" (D-75/D-128's discipline — the facts themselves always come
-/// fresh from `git_facts_for_task`).
+/// The last-emitted digest per Story id, keyed so the hot and cold ticks share one map. Never read
+/// as an answer to any question other than "did this change since the last tick" (D-75/D-128).
 fn digests() -> &'static Mutex<HashMap<String, u64>> {
     static DIGESTS: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
     DIGESTS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// A digest of `facts`' serialized form — cheap, order-stable (struct field order, not a HashMap),
-/// and never stored or read as anything but a change-detector.
+/// A digest of `facts`' serialized form — cheap, order-stable, and never stored or read as anything
+/// but a change-detector.
 fn digest_of(facts: &GitFacts) -> Option<u64> {
     let serialized = serde_json::to_string(facts).ok()?;
     let mut hasher = DefaultHasher::new();
@@ -96,13 +54,13 @@ fn digest_of(facts: &GitFacts) -> Option<u64> {
     Some(hasher.finish())
 }
 
-/// Read `task_id`'s git facts and record whether its digest changed since the last tick — the
+/// Read `story_id`'s git facts and record whether its digest changed since the last tick — the
 /// caller decides what to do with that; this function never emits anything itself.
-fn read_and_record_change(conn: &rusqlite::Connection, task_id: &str) -> bool {
-    let facts = match git_facts_for_task(conn, task_id) {
+fn read_and_record_change(conn: &rusqlite::Connection, story_id: &str) -> bool {
+    let facts = match git_facts_for_story(conn, story_id) {
         Ok(facts) => facts,
         Err(err) => {
-            eprintln!("git-truth tick: failed to read git facts for task {task_id}: {err:#}");
+            eprintln!("git-truth tick: failed to read git facts for Story {story_id}: {err:#}");
             return false;
         }
     };
@@ -116,24 +74,54 @@ fn read_and_record_change(conn: &rusqlite::Connection, task_id: &str) -> bool {
         Ok(map) => map,
         Err(poisoned) => poisoned.into_inner(),
     };
-    let changed = map.get(task_id) != Some(&new_digest);
-    map.insert(task_id.to_string(), new_digest);
+    let changed = map.get(story_id) != Some(&new_digest);
+    map.insert(story_id.to_string(), new_digest);
     changed
 }
 
-/// The one emit site in this module for the shared board-invalidation event — every tick shares
-/// this, so none of them names the event string. A tick still emits AT MOST ONCE (the digest
-/// discipline); `projects` is every project whose tasks changed during it, each `None` standing
-/// for a task whose project could not be resolved. Exactly one resolved project scopes the event
-/// to it; anything else — several projects, or an unresolvable one — broadcasts, so no reader is
-/// left stale.
+/// The one emit site in this module for the shared board-invalidation event. A tick emits AT MOST
+/// ONCE; `projects` is every project whose Stories changed during it, each `None` standing for a
+/// Story whose project could not be resolved. Exactly one resolved project scopes the event to it;
+/// anything else broadcasts, so no reader is left stale.
 fn emit_git_facts_changed(app: &AppHandle, projects: HashSet<Option<String>>) {
     let scope = if projects.len() == 1 { projects.into_iter().next().flatten() } else { None };
     crate::commands::emit_board_changed(app, scope.as_deref(), "git_facts", None);
 }
 
-/// D-114's hot tier: every worktree with a live agent session, unioned with whichever task's
-/// detail panel is currently open (`AppState.focused_task`) — D-114's "open detail panel" half.
+/// One git-facts pass over `story_ids`: digest each, notice hand-made commits on each Story's
+/// branch (LINK-10/D-115), and return every project whose facts changed. A failure on one Story is
+/// logged and never abandons the rest of the tick.
+fn record_ticks(conn: &mut rusqlite::Connection, story_ids: &[String], tier: &str) -> HashSet<Option<String>> {
+    // The system actor, resolved once per tick in Rust (never passed in from the renderer, T-01-04).
+    let outside_commit_actor_id = match system_actor(conn) {
+        Ok(actor) => Some(actor.id),
+        Err(err) => {
+            eprintln!("git-truth {tier} tick: failed to resolve the system actor: {err:#}");
+            None
+        }
+    };
+    let mut changed_projects: HashSet<Option<String>> = HashSet::new();
+    for story_id in story_ids {
+        if read_and_record_change(conn, story_id) {
+            changed_projects.insert(crate::commands::project_of(conn, "stories", story_id));
+        }
+        if let Some(actor_id) = &outside_commit_actor_id {
+            match flywheel_core::git_facts::record_outside_commits(conn, story_id, actor_id) {
+                Ok(count) if count > 0 => {
+                    changed_projects.insert(crate::commands::project_of(conn, "stories", story_id));
+                }
+                Ok(_) => {}
+                Err(err) => eprintln!(
+                    "git-truth {tier} tick: failed to notice outside commits for Story {story_id}: {err:#}"
+                ),
+            }
+        }
+    }
+    changed_projects
+}
+
+/// D-114's hot tier: every worktree with a live session, unioned with the Story the renderer says
+/// it is focused on (`AppState.focused_story`).
 fn run_hot_tick(app: &AppHandle) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
@@ -143,71 +131,25 @@ fn run_hot_tick(app: &AppHandle) {
         return;
     };
 
-    let mut task_ids: HashSet<String> = match tracked_worktrees(&conn, true) {
-        Ok(rows) => rows.into_iter().map(|w| w.task_id).collect(),
+    let mut story_ids: HashSet<String> = match tracked_worktrees(&conn, true) {
+        Ok(rows) => rows.into_iter().map(|w| w.story_id).collect(),
         Err(err) => {
             eprintln!("git-truth hot tick: failed to read tracked worktrees: {err:#}");
             HashSet::new()
         }
     };
-    if let Ok(focused) = state.focused_task.lock() {
-        if let Some(task_id) = focused.as_ref() {
-            task_ids.insert(task_id.clone());
+    if let Ok(focused) = state.focused_story.lock() {
+        if let Some(story_id) = focused.as_ref() {
+            story_ids.insert(story_id.clone());
         }
     }
-
-    // LINK-10/D-115: the system actor, resolved once per tick in Rust (never passed in from the
-    // renderer — T-01-04). Feeds the one outside-commit-detection call site below.
-    let outside_commit_actor_id = match system_actor(&conn) {
-        Ok(actor) => Some(actor.id),
-        Err(err) => {
-            eprintln!("git-truth hot tick: failed to resolve the system actor: {err:#}");
-            None
-        }
-    };
-
-    let mut changed_projects: HashSet<Option<String>> = HashSet::new();
-    for task_id in &task_ids {
-        if read_and_record_change(&conn, task_id) {
-            changed_projects.insert(crate::commands::project_of(&conn, "tasks", task_id));
-        }
-        // LINK-10/D-115: notice a hand-typed commit on this task's branch. Follows
-        // `sidecar.rs`'s `handle_inbound_git_lock_exhausted` idiom exactly — a failure is an
-        // `eprintln!` value, never a panic, never an early return that abandons the remaining
-        // worktrees in this tick. A non-zero count folds into the existing digest
-        // change-detector below — not a second emit channel, a second reason the one shared
-        // board-invalidation emit fires.
-        if let Some(actor_id) = &outside_commit_actor_id {
-            match flywheel_core::git_facts::record_outside_commits(&mut conn, task_id, actor_id) {
-                Ok(count) if count > 0 => {
-                    changed_projects.insert(crate::commands::project_of(&conn, "tasks", task_id));
-                }
-                Ok(_) => {}
-                Err(err) => eprintln!(
-                    "git-truth hot tick: failed to notice outside commits for task {task_id}: {err:#}"
-                ),
-            }
-        }
-    }
+    let story_ids: Vec<String> = story_ids.into_iter().collect();
+    let changed_projects = record_ticks(&mut conn, &story_ids, "hot");
     drop(conn);
 
     if !changed_projects.is_empty() {
         emit_git_facts_changed(app, changed_projects);
     }
-}
-
-/// One status derivation in a transaction of its own (D-12): the cold tick has no other write to
-/// compose with it, so each task commits or rolls back alone and a failure on one task never
-/// holds up the rest of the tick.
-fn derive_in_own_transaction(
-    conn: &mut rusqlite::Connection,
-    actor_id: &str,
-    task_id: &str,
-) -> anyhow::Result<flywheel_core::status_derivation::Derivation> {
-    let tx = conn.transaction()?;
-    let outcome = flywheel_core::status_derivation::derive_status_in_tx(&tx, task_id, actor_id, None, false)?;
-    tx.commit()?;
-    Ok(outcome)
 }
 
 /// D-114's cold tier: every tracked worktree, regardless of hot-tier membership.
@@ -220,59 +162,14 @@ fn run_cold_tick(app: &AppHandle) {
         return;
     };
 
-    let task_ids: Vec<String> = match tracked_worktrees(&conn, false) {
-        Ok(rows) => rows.into_iter().map(|w| w.task_id).collect(),
+    let story_ids: Vec<String> = match tracked_worktrees(&conn, false) {
+        Ok(rows) => rows.into_iter().map(|w| w.story_id).collect(),
         Err(err) => {
             eprintln!("git-truth cold tick: failed to read tracked worktrees: {err:#}");
             Vec::new()
         }
     };
-
-    // LINK-10/D-115: the system actor, resolved once per tick in Rust (never passed in from the
-    // renderer — T-01-04). Feeds the outside-commit-detection call site and the status deriver
-    // below.
-    let outside_commit_actor_id = match system_actor(&conn) {
-        Ok(actor) => Some(actor.id),
-        Err(err) => {
-            eprintln!("git-truth cold tick: failed to resolve the system actor: {err:#}");
-            None
-        }
-    };
-
-    let mut changed_projects: HashSet<Option<String>> = HashSet::new();
-    for task_id in &task_ids {
-        if read_and_record_change(&conn, task_id) {
-            changed_projects.insert(crate::commands::project_of(&conn, "tasks", task_id));
-        }
-        // DRFT-04/D-12: the status deriver rides this tick (no second job) for the tasks the forge
-        // read does not cover — chiefly a worktree that exists for a card still at `todo`. The tick
-        // holds the connection throughout, so there is no lock-release window and
-        // `expected_status` is honestly `None`. A real move folds into the same digest-gated
-        // board-invalidation emit below; it is not a second channel.
-        if let Some(actor_id) = &outside_commit_actor_id {
-            match derive_in_own_transaction(&mut conn, actor_id, task_id) {
-                Ok(flywheel_core::status_derivation::Derivation::Wrote(_)) => {
-                    changed_projects.insert(crate::commands::project_of(&conn, "tasks", task_id));
-                }
-                Ok(_) => {}
-                Err(err) => eprintln!(
-                    "git-truth cold tick: failed to derive status for task {task_id}: {err:#}"
-                ),
-            }
-        }
-        // LINK-10/D-115: see the matching comment in `run_hot_tick` — identical discipline.
-        if let Some(actor_id) = &outside_commit_actor_id {
-            match flywheel_core::git_facts::record_outside_commits(&mut conn, task_id, actor_id) {
-                Ok(count) if count > 0 => {
-                    changed_projects.insert(crate::commands::project_of(&conn, "tasks", task_id));
-                }
-                Ok(_) => {}
-                Err(err) => eprintln!(
-                    "git-truth cold tick: failed to notice outside commits for task {task_id}: {err:#}"
-                ),
-            }
-        }
-    }
+    let changed_projects = record_ticks(&mut conn, &story_ids, "cold");
     drop(conn);
 
     if !changed_projects.is_empty() {
@@ -280,9 +177,7 @@ fn run_cold_tick(app: &AppHandle) {
     }
 }
 
-/// Phase one of the fetch tick: every active project's id and repo path, read under the lock. The
-/// returned `Vec` owns its data, so the prepared statement (which borrows `conn`) is dropped
-/// before this function returns and before the caller releases the connection guard.
+/// Phase one of the fetch tick: every active project's id and repo path, read under the lock.
 fn fetch_tick_targets(conn: &rusqlite::Connection) -> Vec<FetchTarget> {
     let mut stmt = match conn.prepare("SELECT id, repo_path FROM projects WHERE status = 'active' AND hidden = 0")
     {
@@ -305,14 +200,11 @@ fn fetch_tick_targets(conn: &rusqlite::Connection) -> Vec<FetchTarget> {
 }
 
 /// Phase two of the fetch tick: `git fetch origin` for every target. Takes NO connection — that
-/// absence is the fix: this function runs with no lock held at all, so a hung `git fetch` can
-/// never block any other command. A fetch writes nothing to the database, so there is no write
-/// phase to follow this one.
+/// absence is the fix: a hung `git fetch` can never block any other command. A fetch writes nothing
+/// to the database, so there is no write phase to follow this one.
 fn fetch_origin_for_targets(targets: &[FetchTarget]) {
     for target in targets {
-        if let Err(err) =
-            flywheel_core::git::fetch_origin(std::path::Path::new(&target.repo_path))
-        {
+        if let Err(err) = flywheel_core::git::fetch_origin(std::path::Path::new(&target.repo_path)) {
             eprintln!(
                 "git-truth fetch tick: failed to fetch origin for project {}: {err:#}",
                 target.project_id
@@ -321,14 +213,9 @@ fn fetch_origin_for_targets(targets: &[FetchTarget]) {
     }
 }
 
-/// D-116's fetch job: `git fetch origin` for every active project, on its own slower cadence,
-/// decoupled from both git-facts tiers. Never emits the board-invalidation event itself — a fetch
-/// only moves `origin/<target>` and `FETCH_HEAD`'s mtime, both of which the next hot/cold tick
-/// will read and digest on its own.
-///
-/// Phase 07 plan 07-11: acquires the lock once to build the target list, releases it with an
-/// explicit `drop`, then runs every fetch with no lock held. A tick with no active projects
-/// returns right after the (single) lock acquisition, never touching the network phase.
+/// D-116's fetch job: `git fetch origin` for every active project, on its own slower cadence. Never
+/// emits the board-invalidation event itself — the next hot/cold tick reads and digests the moved
+/// `origin/<target>` on its own.
 fn run_fetch_tick(app: &AppHandle) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
@@ -348,285 +235,8 @@ fn run_fetch_tick(app: &AppHandle) {
     fetch_origin_for_targets(&targets);
 }
 
-/// Phase 7 plan 07-07's forge-poll job: the slowest of the four, decoupled from the three
-/// git-facts ticks above — a forge read crosses the network and hits a real API rate limit a
-/// local git read never does (`FORGE_POLL_SECS`'s own doc comment, `07-RESEARCH.md`'s named
-/// anti-pattern). For every tracked worktree, reads the forge state for its branch and hands the
-/// observation to the edge detector with the system actor resolved here in Rust — never passed in
-/// from the renderer (T-01-04), following the exact resolve-once-per-tick shape
-/// `run_hot_tick`/`run_cold_tick` already use for the same reason.
-///
-/// A forge read that errors (CLI missing, unauthenticated, network failure) is **skipped, not
-/// applied** — the loop moves on to the next worktree without calling the edge detector at all,
-/// so an unreachable forge can never be mistaken for a closed request. Every other failure follows
-/// `sidecar.rs`'s `handle_inbound_git_lock_exhausted` idiom: a logged value, never a panic, never
-/// an early return that abandons the remaining worktrees in this poll.
-///
-/// Phase 07 plan 07-11 restructures this tick into three named phases — [`forge_tick_targets`]
-/// (read, under the lock), [`poll_forge_targets`] (the network phase, no connection at all) and
-/// [`apply_forge_results`] (write, under a briefly re-acquired lock) — so the forge CLI never runs
-/// while `AppState.db` is held. Quick task 261005-mn5: that restructure opened a lock-release
-/// window a manual status change can land inside, between phase one's read and phase three's
-/// write. What makes the write phase safe against that is each target's status captured in phase
-/// one (`ForgePollTarget::status_at_poll`) surviving unchanged through phase two into phase
-/// three's call to `apply_forge_observation`, which refuses the status write unless the task is
-/// still at that captured status when the write actually runs.
-
-/// Phase one of the forge tick: every tracked worktree's forge poll target, read under the lock.
-/// Resolves each distinct `project_id` exactly once through
-/// [`flywheel_core::forge::stored_forge_and_repo_path`] (a board-only read that spawns nothing),
-/// memoised in a local map — several worktrees in
-/// the same project cost one resolution, not one per worktree. A worktree whose project fails to
-/// resolve is logged and omitted from the returned list; the remaining worktrees are unaffected.
-fn forge_tick_targets(conn: &rusqlite::Connection) -> Vec<ForgePollTarget> {
-    forge_tick_targets_with(conn, flywheel_core::forge::stored_forge_and_repo_path)
-}
-
-/// [`forge_tick_targets`] with the per-project resolver passed in, so a test can count attempts
-/// instead of spawning `git`. Both outcomes of a resolution are memoised for the tick, and a
-/// failure is logged on its first attempt only: a project whose resolution fails costs one attempt
-/// and one log line per tick, not one per tracked worktree (phase 10 plan 10-02).
-///
-/// Nothing here spawns a process: a project with no stored forge override carries `None` and
-/// [`poll_forge_targets`] runs `git remote get-url origin` after the lock is released (WR-01).
-fn forge_tick_targets_with<R>(conn: &rusqlite::Connection, mut resolve: R) -> Vec<ForgePollTarget>
-where
-    R: FnMut(&rusqlite::Connection, &str) -> anyhow::Result<(Option<Forge>, std::path::PathBuf)>,
-{
-    let worktrees: Vec<TrackedWorktree> = match tracked_worktrees(conn, false) {
-        Ok(rows) => rows,
-        Err(err) => {
-            eprintln!("git-truth forge tick: failed to read tracked worktrees: {err:#}");
-            Vec::new()
-        }
-    };
-
-    // `None` records a failed resolution so later worktrees of the same project skip silently.
-    let mut resolved: HashMap<String, Option<(Option<Forge>, std::path::PathBuf)>> = HashMap::new();
-    let mut targets = Vec::with_capacity(worktrees.len());
-    for worktree in worktrees {
-        let resolution = if let Some(cached) = resolved.get(&worktree.project_id) {
-            cached.clone()
-        } else {
-            let outcome = match resolve(conn, &worktree.project_id) {
-                Ok(pair) => Some(pair),
-                Err(err) => {
-                    eprintln!(
-                        "git-truth forge tick: failed to resolve forge for project {} (task {}): \
-                         {err:#}, skipping this project's worktrees for this tick",
-                        worktree.project_id, worktree.task_id
-                    );
-                    None
-                }
-            };
-            resolved.insert(worktree.project_id.clone(), outcome.clone());
-            outcome
-        };
-        if let Some((forge, repo_path)) = resolution {
-            // Quick task 261005-mn5: read the task's status now, while still under the lock —
-            // this is the value that must survive the lock-release window below unchanged for
-            // the write phase's compare-and-swap to mean anything. A failed read is logged and
-            // this worktree is omitted, following this function's own established idiom above.
-            let status_at_poll: Option<String> = conn
-                .query_row(
-                    "SELECT status FROM tasks WHERE id = ?1",
-                    [&worktree.task_id],
-                    |row| row.get(0),
-                )
-                .map_err(|err| {
-                    eprintln!(
-                        "git-truth forge tick: failed to read status for task {} ({err}), \
-                         skipping this worktree",
-                        worktree.task_id
-                    );
-                })
-                .ok();
-            if let Some(status_at_poll) = status_at_poll {
-                targets.push(ForgePollTarget {
-                    task_id: worktree.task_id,
-                    forge,
-                    repo_path,
-                    branch: worktree.branch,
-                    status_at_poll,
-                });
-            }
-        }
-    }
-    targets
-}
-
-/// Phase two of the forge tick: poll every target's forge. Takes NO connection — that absence is
-/// the fix: this function runs with no lock held at all, so a hung `gh`/`glab` can never block any
-/// other command. A read that errors is logged and skipped, never applied — an unreachable forge
-/// must never be mistaken for a closed request.
-///
-/// A target with no stored forge override is detected here, from its origin remote, memoised per
-/// repo path so a project costs one `git` spawn per tick however many worktrees it has.
-fn poll_forge_targets(targets: &[ForgePollTarget]) -> Vec<ForgePollResult> {
-    let mut results = Vec::with_capacity(targets.len());
-    let mut detected: HashMap<std::path::PathBuf, Forge> = HashMap::new();
-    for target in targets {
-        let forge = target.forge.unwrap_or_else(|| {
-            *detected
-                .entry(target.repo_path.clone())
-                .or_insert_with(|| flywheel_core::forge::detect_forge_from_origin(&target.repo_path))
-        });
-        let observed = match flywheel_core::forge::request_for_branch_at(
-            forge,
-            &target.repo_path,
-            &target.branch,
-        ) {
-            Ok(observed) => observed,
-            Err(err) => {
-                eprintln!(
-                    "git-truth forge tick: forge read failed for task {} ({err}), skipping \
-                     this worktree without applying an observation",
-                    target.task_id
-                );
-                continue;
-            }
-        };
-        results.push(ForgePollResult {
-            task_id: target.task_id.clone(),
-            observed,
-            status_at_poll: target.status_at_poll.clone(),
-        });
-    }
-    results
-}
-
-/// Phase three of the forge tick: apply every poll result through the edge detector, under a
-/// briefly re-acquired lock. Returns whether anything changed, so the caller knows whether to emit
-/// the shared board-invalidation event.
-fn apply_forge_results(
-    conn: &mut rusqlite::Connection,
-    results: &[ForgePollResult],
-    actor_id: &str,
-) -> bool {
-    let mut any_changed = false;
-    for result in results {
-        match flywheel_core::forge::transitions::apply_forge_observation(
-            conn,
-            &result.task_id,
-            result.observed.as_ref(),
-            actor_id,
-            Some(&result.status_at_poll),
-        ) {
-            Ok(outcome) => {
-                if outcome.status_changed_to.is_some() || outcome.events_appended > 0 {
-                    any_changed = true;
-                }
-            }
-            Err(err) => eprintln!(
-                "git-truth forge tick: failed to apply forge observation for task {}: {err:#}",
-                result.task_id
-            ),
-        }
-    }
-    any_changed
-}
-
-fn run_forge_tick(app: &AppHandle) {
-    let Some(state) = app.try_state::<AppState>() else {
-        return;
-    };
-    let Ok(conn) = state.db.lock() else {
-        eprintln!("git-truth forge tick: AppState.db lock was poisoned, skipping this tick");
-        return;
-    };
-
-    let targets = forge_tick_targets(&conn);
-
-    let Ok(actor) = system_actor(&conn) else {
-        eprintln!("git-truth forge tick: failed to resolve the system actor, skipping this tick");
-        drop(conn);
-        return;
-    };
-    let actor_id = actor.id;
-    drop(conn);
-
-    if targets.is_empty() {
-        return;
-    }
-
-    let results = poll_forge_targets(&targets);
-
-    if results.is_empty() {
-        return;
-    }
-
-    let Some(state) = app.try_state::<AppState>() else {
-        return;
-    };
-    let Ok(mut conn) = state.db.lock() else {
-        eprintln!(
-            "git-truth forge tick: AppState.db lock was poisoned while re-acquiring to write, \
-             skipping the write phase"
-        );
-        return;
-    };
-    let any_changed = apply_forge_results(&mut conn, &results, &actor_id);
-    // `apply_forge_results` reports only whether anything changed, not which task, so the scope is
-    // the projects of every task this poll covered: a superset of the change, never a subset.
-    let polled_projects: HashSet<Option<String>> =
-        results.iter().map(|r| crate::commands::project_of(&conn, "tasks", &r.task_id)).collect();
-    drop(conn);
-
-    if any_changed {
-        emit_git_facts_changed(app, polled_projects);
-    }
-}
-
-/// The fan-out dispatch tick's cadence (phase 9 plan 09-07): the same hot cadence the git-truth hot
-/// tier uses, because a wave should drain about as fast as a person would notice it had.
-pub const DISPATCH_TICK_SECS: u64 = 5;
-
-/// Runs its body only if no other body is running: a firing that arrives while one is in progress
-/// does nothing at all (T-09-07-05). A slow evaluation (a spawn sleeps inside the spawn floor, a
-/// merge waits on git) therefore cannot overlap itself and double its spawns.
-pub(crate) struct SingleFlight(AtomicBool);
-
-impl SingleFlight {
-    pub(crate) const fn new() -> Self {
-        SingleFlight(AtomicBool::new(false))
-    }
-
-    /// `Some(result)` if the body ran, `None` if another was already in flight.
-    pub(crate) fn run<R>(&self, body: impl FnOnce() -> R) -> Option<R> {
-        struct Reset<'a>(&'a AtomicBool);
-        impl Drop for Reset<'_> {
-            fn drop(&mut self) {
-                self.0.store(false, Ordering::Release);
-            }
-        }
-        if self.0.swap(true, Ordering::AcqRel) {
-            return None;
-        }
-        let _reset = Reset(&self.0);
-        Some(body())
-    }
-}
-
-static DISPATCH_FLIGHT: SingleFlight = SingleFlight::new();
-
-/// The dispatch tick: one pass of read, observe, decide, act, single-flight. Runs on whatever
-/// thread calls it, and MUST NOT be called on an async worker: the spawn path sleeps inside the
-/// per-repository spawn floor.
-fn run_dispatch_tick(app: &AppHandle) {
-    DISPATCH_FLIGHT.run(|| crate::commands::dispatch::execute_dispatch_actions(app));
-}
-
-/// Ask for a dispatch pass now instead of at the next firing: a session closing, a plan approved or
-/// resumed, a gate resumed. On its own thread; if a pass is already running this does nothing, and
-/// that pass or the next scheduled one picks the change up.
-pub fn nudge_dispatch(app: &AppHandle) {
-    let app = app.clone();
-    std::thread::spawn(move || run_dispatch_tick(&app));
-}
-
-/// Build, register and start the five D-113/D-114/D-116/phase-07-07/phase-09-07 jobs against `app`'s
-/// already-managed `AppState` — called once, after `app.manage(AppState { .. })`, from
-/// `main.rs`'s `.setup()`.
+/// Build, register and start the three D-113/D-114/D-116 jobs against `app`'s already-managed
+/// `AppState` — called once, after `app.manage(AppState { .. })`, from `main.rs`'s `.setup()`.
 pub async fn start_git_truth_scheduler(app: AppHandle) -> anyhow::Result<()> {
     let sched = JobScheduler::new().await?;
 
@@ -638,444 +248,20 @@ pub async fn start_git_truth_scheduler(app: AppHandle) -> anyhow::Result<()> {
     sched.add(hot_job).await?;
 
     let cold_app = app.clone();
-    let cold_job =
-        Job::new_repeated_async(Duration::from_secs(COLD_TICK_SECS), move |_uuid, _lock| {
-            let app = cold_app.clone();
-            Box::pin(async move { run_cold_tick(&app) })
-        })?;
+    let cold_job = Job::new_repeated_async(Duration::from_secs(COLD_TICK_SECS), move |_uuid, _lock| {
+        let app = cold_app.clone();
+        Box::pin(async move { run_cold_tick(&app) })
+    })?;
     sched.add(cold_job).await?;
 
     let fetch_app = app.clone();
-    let fetch_job =
-        Job::new_repeated_async(Duration::from_secs(FETCH_INTERVAL_SECS), move |_uuid, _lock| {
-            let app = fetch_app.clone();
-            Box::pin(async move { run_fetch_tick(&app) })
-        })?;
+    let fetch_job = Job::new_repeated_async(Duration::from_secs(FETCH_INTERVAL_SECS), move |_uuid, _lock| {
+        let app = fetch_app.clone();
+        Box::pin(async move { run_fetch_tick(&app) })
+    })?;
     sched.add(fetch_job).await?;
-
-    let forge_app = app.clone();
-    let forge_job =
-        Job::new_repeated_async(Duration::from_secs(FORGE_POLL_SECS), move |_uuid, _lock| {
-            let app = forge_app.clone();
-            Box::pin(async move { run_forge_tick(&app) })
-        })?;
-    sched.add(forge_job).await?;
-
-    // Phase 9 plan 09-07: the fifth job. The body is blocking (a spawn sleeps inside the spawn floor,
-    // a merge waits on git), so it runs on a blocking thread, never on the scheduler's async worker.
-    let dispatch_app = app.clone();
-    let dispatch_job =
-        Job::new_repeated_async(Duration::from_secs(DISPATCH_TICK_SECS), move |_uuid, _lock| {
-            let app = dispatch_app.clone();
-            Box::pin(async move {
-                let _ = tauri::async_runtime::spawn_blocking(move || run_dispatch_tick(&app)).await;
-            })
-        })?;
-    sched.add(dispatch_job).await?;
 
     sched.start().await?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod forge_tick_tests {
-    use super::*;
-
-    /// A fresh migrated database with one project (forge forced to `local` so
-    /// `forge_and_repo_path` takes its stored-override arm and never shells out to `git` for
-    /// detection, D8), one task, and one active `worktrees` row — the shape
-    /// `forge_tick_targets`/`poll_forge_targets` need to resolve a target with no subprocess at
-    /// all. Copies `commands::agent_run::tests::seeded_conn_with_task`'s fixture shape
-    /// (`tempfile::tempdir()` + `std::mem::forget`, `open_and_migrate`,
-    /// `local_human_actor_id`, `create_project`, `create_task`) and
-    /// `commands::agent_run::tests::seeded_conn_with_running_run`'s `INSERT INTO worktrees`
-    /// column list verbatim.
-    fn seeded_tick_fixture() -> (rusqlite::Connection, String, String, String) {
-        let dir = tempfile::tempdir().expect("failed to create scratch dir");
-        let db_path = dir.path().join("flywheel.db");
-        let backups_dir = dir.path().join("backups");
-        std::mem::forget(dir);
-
-        let mut conn = flywheel_core::db::open_and_migrate(&db_path, &backups_dir)
-            .expect("open_and_migrate should succeed");
-        let human_actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
-            .expect("seeded human actor should exist");
-        let project = flywheel_core::domain::project::create_project(
-            &mut conn,
-            &human_actor_id,
-            "Test Project",
-            "/tmp/does-not-need-to-exist-for-this-test",
-            "FLY",
-            "main",
-        )
-        .expect("create_project should succeed");
-        let task = flywheel_core::domain::task::create_task(
-            &mut conn,
-            &project.id,
-            &human_actor_id,
-            "Test task",
-            None,
-        )
-        .expect("create_task should succeed");
-        let system_actor_id = flywheel_core::domain::actor::system_actor(&conn)
-            .expect("seeded system actor should exist")
-            .id;
-
-        conn.execute(
-            "UPDATE projects SET forge = 'local' WHERE id = ?1",
-            rusqlite::params![project.id],
-        )
-        .expect("failed to force the project's forge to local");
-
-        let now = "2026-01-01T00:00:00.000Z";
-        let worktree_id = flywheel_core::ids::new_id();
-        conn.execute(
-            "INSERT INTO worktrees (
-                id, task_id, project_id, path, branch, base_branch, status, created_by, created_at
-            ) VALUES (
-                ?1, ?2, ?3, '/tmp/does-not-need-to-exist-for-this-test', 'flywheel/test-task',
-                'main', 'active', ?4, ?5
-            )",
-            rusqlite::params![worktree_id, task.id, project.id, human_actor_id, now],
-        )
-        .expect("failed to insert fixture worktree row");
-
-        (conn, task.id, human_actor_id, system_actor_id)
-    }
-
-    /// A synthetic observed merge — no subprocess, no network — mirroring
-    /// `tests/status_transitions.rs`'s own `request` helper's synthetic-value discipline.
-    fn merged_request() -> ForgeRequest {
-        ForgeRequest {
-            state: flywheel_core::forge::ForgeState::Merged,
-            ci: flywheel_core::forge::CiResult::None,
-            number: 42,
-            title: "Test PR".to_string(),
-            url: "https://example.invalid/pr/42".to_string(),
-            ci_url: None,
-            is_draft: false,
-            target_branch: "main".to_string(),
-        }
-    }
-
-    /// Count events of a given type in `task_id`'s activity trail — mirroring
-    /// `tests/status_transitions.rs`'s own `count_events_of_type` helper.
-    fn count_events_of_type(conn: &rusqlite::Connection, task_id: &str, event_type: &str) -> usize {
-        flywheel_core::query::events::activity_trail(conn, "task", task_id, 200, 0)
-            .expect("trail read should succeed")
-            .into_iter()
-            .filter(|e| e.event_type == event_type)
-            .count()
-    }
-
-    /// Seed the restart-safe forge baseline at `Open` by appending one synthetic
-    /// `forge.state_changed` event directly — copying `tests/status_transitions.rs`'s
-    /// `append_forge_event` fixture body inline, since that helper lives in a different crate
-    /// and cannot be imported here.
-    fn seed_open_baseline(conn: &mut rusqlite::Connection, project_id: &str, actor_id: &str, task_id: &str) {
-        let now = chrono::Utc::now().to_rfc3339();
-        let tx = conn.transaction().expect("transaction should open");
-        let sequence = flywheel_core::domain::event::next_sequence(&tx, project_id, "local")
-            .expect("sequence should allocate");
-        let payload = serde_json::json!({
-            "state": "Open",
-            "ci": "None",
-            "label": "synthetic forge event",
-        });
-        flywheel_core::domain::event::append_event(
-            &tx,
-            project_id,
-            "local",
-            sequence,
-            "task",
-            task_id,
-            Some(task_id),
-            None,
-            actor_id,
-            flywheel_core::forge::transitions::EVENT_FORGE_STATE_CHANGED,
-            &payload,
-            &now,
-        )
-        .expect("append_event should succeed");
-        tx.commit().expect("commit should succeed");
-    }
-
-    #[test]
-    fn a_manual_move_during_the_poll_window_is_not_overwritten_by_a_merged_observation() {
-        let (mut conn, task_id, human_actor_id, system_actor_id) = seeded_tick_fixture();
-
-        // 1. The task starts in review, with an Open baseline — the state the tick would have
-        //    captured on phase one's read.
-        flywheel_core::domain::task::set_task_status(&mut conn, &human_actor_id, &task_id, "in_review")
-            .expect("moving to in_review should succeed");
-        let project_id: String = conn
-            .query_row("SELECT project_id FROM tasks WHERE id = ?1", [&task_id], |row| row.get(0))
-            .expect("project_id read should succeed");
-        seed_open_baseline(&mut conn, &project_id, &human_actor_id, &task_id);
-
-        // 2. Phase one of the tick: resolve targets under the (conceptual) lock.
-        let targets = forge_tick_targets(&conn);
-        assert_eq!(targets.len(), 1, "exactly one active worktree should resolve to one target");
-        assert_eq!(targets[0].task_id, task_id);
-
-        // 3. The lock-release window: the user drags the card back to `in_progress` by hand
-        //    while the (simulated) network poll is in flight.
-        flywheel_core::domain::task::set_task_status(&mut conn, &human_actor_id, &task_id, "in_progress")
-            .expect("the manual move should succeed");
-
-        // Baseline taken right before the tick's own write phase, so the two fixture-driven
-        // status changes above (to in_review, then to in_progress) are not mistaken for
-        // something the tick itself appended.
-        let status_changed_before_tick = count_events_of_type(&conn, &task_id, "task.status_changed");
-
-        // 4. Phase two's result, as it would have come back from a slow `gh`/`glab` call: a
-        //    merged observation for the one target resolved above, carrying the status
-        //    `forge_tick_targets` actually captured — never hardcoded, so a scheduler that
-        //    failed to capture the status still fails this test.
-        let results = vec![ForgePollResult {
-            task_id: targets[0].task_id.clone(),
-            observed: Some(merged_request()),
-            status_at_poll: targets[0].status_at_poll.clone(),
-        }];
-
-        // 5. Phase three: apply under the re-acquired lock.
-        apply_forge_results(&mut conn, &results, &system_actor_id);
-
-        // 6. The fix: the captured status (`in_review`) no longer matches what is in the
-        //    database (`in_progress`), so the status write is refused. `status` is kept on the
-        //    assertion's left so a failure's `left:` line names what was actually written.
-        let status: String = conn
-            .query_row("SELECT status FROM tasks WHERE id = ?1", [&task_id], |row| row.get(0))
-            .expect("status read should succeed");
-        assert_eq!(
-            status, "in_progress",
-            "a manual move landing inside the forge tick's lock-release window must survive a \
-             stale merged observation — the forge must not overwrite a column a human just moved"
-        );
-
-        // The refusal's trace: exactly one `forge.status_write_skipped` event, and zero
-        // `task.status_changed` events appended by this tick (the status writer never ran).
-        assert_eq!(
-            count_events_of_type(&conn, &task_id, "forge.status_write_skipped"),
-            1,
-            "a refused status write must leave exactly one trace in the activity trail"
-        );
-        assert_eq!(
-            count_events_of_type(&conn, &task_id, "task.status_changed") - status_changed_before_tick,
-            0,
-            "a refused status write must never append a task.status_changed event"
-        );
-
-        // D4: the baseline still advances to Merged on the refusal, so the forge tick never
-        // re-observes an edge. That does NOT protect the human's move for long: `merged` is now a
-        // standing LEVEL, and the next cold tick re-derives `done` from it with
-        // `expected_status: None`, so the compare-and-swap shields the move for at most
-        // `COLD_TICK_SECS` and the move is then re-applied. This test deliberately asserts only
-        // the instant right after the forge write; the re-application is covered by the deriver's
-        // own tests (`tests/status_derivation.rs`). Whether a human move should stand against a
-        // merge is a product decision this test does not settle.
-        let baseline = flywheel_core::query::forge::latest_forge_baseline(&conn, &task_id)
-            .expect("baseline read should succeed");
-        assert_eq!(
-            baseline.state,
-            flywheel_core::forge::ForgeState::Merged,
-            "the baseline must advance to Merged even on a refused write, so the forge tick \
-             re-observes no edge"
-        );
-    }
-
-    #[test]
-    fn forge_tick_targets_captures_each_tasks_status_as_of_the_read() {
-        let (mut conn, task_id, human_actor_id, _system_actor_id) = seeded_tick_fixture();
-        flywheel_core::domain::task::set_task_status(&mut conn, &human_actor_id, &task_id, "in_review")
-            .expect("moving to in_review should succeed");
-
-        let targets = forge_tick_targets(&conn);
-
-        assert_eq!(targets.len(), 1);
-        assert_eq!(targets[0].status_at_poll, "in_review");
-    }
-
-    #[test]
-    fn an_unset_forge_override_leaves_detection_for_after_the_lock_is_released() {
-        let (conn, _task_id, _human_actor_id, _system_actor_id) = seeded_tick_fixture();
-        conn.execute("UPDATE projects SET forge = NULL", []).expect("clear the forge override");
-
-        // /tmp/... is not a repository: had the read tried to detect, it would have spawned git
-        // (and fallen back to Local). `None` is the proof it deferred.
-        let targets = forge_tick_targets(&conn);
-
-        assert_eq!(targets.len(), 1);
-        assert_eq!(targets[0].forge, None, "detection is owed to the lock-free poll phase");
-    }
-
-    #[test]
-    fn a_failing_forge_resolution_is_attempted_once_per_tick_not_once_per_worktree() {
-        let (mut conn, _task_id, human_actor_id, _system_actor_id) = seeded_tick_fixture();
-        let project_id: String = conn
-            .query_row("SELECT id FROM projects LIMIT 1", [], |row| row.get(0))
-            .expect("project id read should succeed");
-        // Two more tracked worktrees in the same project: three in all.
-        for n in 0..2 {
-            let task = flywheel_core::domain::task::create_task(
-                &mut conn,
-                &project_id,
-                &human_actor_id,
-                &format!("Extra task {n}"),
-                None,
-            )
-            .expect("create_task should succeed");
-            conn.execute(
-                "INSERT INTO worktrees (
-                    id, task_id, project_id, path, branch, base_branch, status, created_by, created_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, 'main', 'active', ?6, '2026-01-01T00:00:00.000Z')",
-                rusqlite::params![
-                    flywheel_core::ids::new_id(),
-                    task.id,
-                    project_id,
-                    format!("/tmp/does-not-need-to-exist-{n}"),
-                    format!("flywheel/extra-{n}"),
-                    human_actor_id
-                ],
-            )
-            .expect("failed to insert extra worktree row");
-        }
-        assert_eq!(tracked_worktrees(&conn, false).expect("read").len(), 3);
-
-        let mut attempts = 0;
-        let targets = forge_tick_targets_with(&conn, |_conn, _project| {
-            attempts += 1;
-            Err(anyhow::anyhow!("the repository path is gone"))
-        });
-
-        assert_eq!(attempts, 1, "one failing project costs one resolution attempt per tick");
-        assert!(targets.is_empty(), "no worktree of an unresolvable project becomes a target");
-    }
-
-    #[test]
-    fn poll_forge_targets_threads_the_captured_status_into_each_result() {
-        let (conn, task_id, _human_actor_id, _system_actor_id) = seeded_tick_fixture();
-
-        let targets = forge_tick_targets(&conn);
-        assert_eq!(targets.len(), 1);
-
-        // `projects.forge = 'local'` (set by the fixture) exercises this with no subprocess at
-        // all (D8) — `request_for_branch_at` answers `Ok(None)` for `Forge::Local` directly.
-        let results = poll_forge_targets(&targets);
-
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].task_id, task_id);
-        assert_eq!(results[0].status_at_poll, targets[0].status_at_poll);
-        assert!(results[0].observed.is_none(), "Forge::Local must observe no request");
-    }
-
-    #[test]
-    fn a_merged_observation_still_carries_an_unmoved_task_to_done() {
-        let (mut conn, task_id, human_actor_id, system_actor_id) = seeded_tick_fixture();
-
-        flywheel_core::domain::task::set_task_status(&mut conn, &human_actor_id, &task_id, "in_review")
-            .expect("moving to in_review should succeed");
-        let project_id: String = conn
-            .query_row("SELECT project_id FROM tasks WHERE id = ?1", [&task_id], |row| row.get(0))
-            .expect("project_id read should succeed");
-        seed_open_baseline(&mut conn, &project_id, &human_actor_id, &task_id);
-
-        let targets = forge_tick_targets(&conn);
-        assert_eq!(targets.len(), 1);
-
-        // Baseline taken right before the tick's own write phase, so the fixture's own move to
-        // in_review is not mistaken for something the tick itself appended.
-        let status_changed_before_tick = count_events_of_type(&conn, &task_id, "task.status_changed");
-
-        // NO manual move in between — the guard is a precondition, not a blanket refusal.
-        let results = vec![ForgePollResult {
-            task_id: targets[0].task_id.clone(),
-            observed: Some(merged_request()),
-            status_at_poll: targets[0].status_at_poll.clone(),
-        }];
-
-        apply_forge_results(&mut conn, &results, &system_actor_id);
-
-        let status: String = conn
-            .query_row("SELECT status FROM tasks WHERE id = ?1", [&task_id], |row| row.get(0))
-            .expect("status read should succeed");
-        assert_eq!(status, "done", "an unmoved task's merge observation must still carry it to done");
-
-        assert_eq!(
-            count_events_of_type(&conn, &task_id, "task.status_changed") - status_changed_before_tick,
-            1,
-            "the status writer must have fired exactly once"
-        );
-        assert_eq!(
-            count_events_of_type(&conn, &task_id, "forge.status_write_skipped"),
-            0,
-            "an unmoved task's merge must never be refused — this is what stops the fix from \
-             passing the regression test by refusing every write"
-        );
-    }
-}
-
-#[cfg(test)]
-mod dispatch_tick_tests {
-    use super::*;
-
-    #[test]
-    fn a_second_firing_while_one_is_in_progress_performs_no_evaluation() {
-        let flight = SingleFlight::new();
-        let evaluations = std::cell::Cell::new(0);
-        let outer = flight.run(|| {
-            evaluations.set(evaluations.get() + 1);
-            // An overlapping firing arrives mid-evaluation.
-            let inner = flight.run(|| evaluations.set(evaluations.get() + 1));
-            assert!(inner.is_none(), "the overlapping firing must not run");
-        });
-        assert!(outer.is_some());
-        assert_eq!(evaluations.get(), 1, "exactly one evaluation happened");
-        assert!(flight.run(|| ()).is_some(), "the flag clears afterwards");
-    }
-
-    #[test]
-    fn a_panicking_pass_does_not_wedge_the_flag() {
-        let flight = SingleFlight::new();
-        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| flight.run(|| panic!("boom"))));
-        assert!(caught.is_err());
-        assert!(flight.run(|| ()).is_some(), "the next firing must still be able to run");
-    }
-
-    /// The pass acquires the lock to read, releases it, and only then spawns: the spawn closure runs
-    /// with the lock free. `try_lock` failing here would mean a lock held across the launch, which
-    /// holds every other command for as long as the spawn floor sleeps (T-09-07-04).
-    #[test]
-    fn no_database_lock_is_held_across_the_spawn() {
-        let dir = tempfile::tempdir().expect("scratch dir");
-        let conn = flywheel_core::db::open_and_migrate(&dir.path().join("flywheel.db"), &dir.path().join("backups"))
-            .expect("open_and_migrate");
-        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).expect("human");
-        let system = flywheel_core::domain::actor::system_actor(&conn).expect("system").id;
-        let mut conn = conn;
-        let project = flywheel_core::domain::project::create_project(&mut conn, &human, "P", "/repo", "FLY", "main")
-            .expect("project");
-        let epic = flywheel_core::domain::epic::create_epic(&mut conn, &project.id, &human, "E", None).expect("epic");
-        flywheel_core::domain::task::create_task(&mut conn, &project.id, &human, "T", Some(&epic.id)).expect("task");
-        let plan = flywheel_core::domain::dispatch_plan::create_plan_for_epic(&mut conn, &epic.id, &human).expect("plan");
-        flywheel_core::domain::dispatch_plan::approve_and_start(&mut conn, &plan, &human).expect("start");
-
-        let db = Mutex::new(conn);
-        let mut spawned = 0;
-        let report = flywheel_core::dispatch_exec::run_pass(&db, chrono::Utc::now().timestamp(), &system, |_p, _t| {
-            assert!(db.try_lock().is_ok(), "the database lock must be free while a run is being launched");
-            spawned += 1;
-            Err("not launching in a unit test".to_string())
-        })
-        .expect("pass");
-        assert_eq!(spawned, 1, "the ready task was handed to the launcher");
-        assert_eq!(report.spawned, 0);
-        // A failed launch is a named cause on the task, not a lost task.
-        let conn = db.lock().expect("lock");
-        let state: String = conn
-            .query_row("SELECT state FROM dispatch_plan_tasks WHERE plan_id = ?1", [&plan], |r| r.get(0))
-            .expect("state");
-        assert_eq!(state, "needs_attention");
-    }
 }

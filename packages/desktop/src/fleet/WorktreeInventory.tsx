@@ -1,5 +1,5 @@
 /**
- * The worktree inventory (Phase 10 plan 10-08, WORK-07, D-177/D-178): every task worktree across every
+ * The worktree inventory (Phase 10 plan 10-08, WORK-07, D-177/D-178): every Story worktree across every
  * registered project with how much disk it uses, how old that figure is, and a chip plus a named reason
  * for what can be done with it. Pushed into the shell and popped back out of like the fleet surface;
  * `App.tsx` mounts it.
@@ -13,15 +13,13 @@
  * refetched afterwards rather than edited locally, so what stays on screen is the server's current truth.
  *
  * The Rust core derives the disposition and its reason (`reclaim_eligibility`) and orders the list
- * (size descending, task key ascending); this file only renders them. A size is the core's cached
+ * (size descending, Story key ascending); this file only renders them. A size is the core's cached
  * measurement and is always shown with its age (D-116's grammar: a figure is labelled with how old it is,
  * never pretended live). A worktree that was never measured renders BLANK, never `0 B`: absence is not
  * zero. Sizes are binary (KiB, MiB, GiB) with one decimal above a kibibyte, since they are allocated
  * blocks and `du` reports them the same way.
  *
- * The inventory lists TASK worktrees only. An epic's integration worktree is a real directory under the
- * same root but has no `worktrees` row (`task_id` is unique and not null), so it cannot appear here; the
- * empty state says so rather than letting the user conclude the directories are gone.
+ * The inventory lists Story worktrees only: every `worktrees` row is owned by exactly one Story.
  */
 import { useRef, useState, type ComponentType } from "react";
 import { createPortal } from "react-dom";
@@ -52,26 +50,26 @@ function Icon({ name, size = 14 }: { name: string; size?: number }) {
 
 /** Every reason the core's `ReclaimReason` can return, so a test can prove each one has a word. */
 export const RECLAIM_REASONS: readonly InventoryReason[] = [
-  "task_done",
   "merged",
+  "dropped",
   "agent_running",
   "blocked",
   "uncommitted_changes",
   "project_unreachable",
   "directory_missing",
-  "task_open",
+  "story_open",
 ];
 
 /** The word printed beside the chip for each reason. */
 export const RECLAIM_REASON_WORDS: Record<InventoryReason, string> = {
-  task_done: "task done",
-  merged: "merged into its epic",
+  merged: "Story merged",
+  dropped: "Story dropped",
   agent_running: "agent running",
   blocked: "agent blocked on you",
   uncommitted_changes: "uncommitted changes",
   project_unreachable: "project unreachable",
   directory_missing: "directory missing",
-  task_open: "task still open",
+  story_open: "Story still open",
 };
 
 const CHIP_MARK_IDS = {
@@ -237,9 +235,9 @@ function ReclaimResultList({ lines }: { lines: ResultLine[] }) {
       <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
         {lines.map(({ label, outcome }) => (
           <li
-            key={outcome.taskId}
+            key={outcome.storyId}
             data-reclaim-outcome={outcome.removed ? "removed" : "refused"}
-            data-task-id={outcome.taskId}
+            data-story-id={outcome.storyId}
             className="type-body"
             style={{ display: "flex", gap: "var(--space-xs)", alignItems: "center" }}
           >
@@ -282,7 +280,7 @@ function Row({
 }) {
   return (
     <li
-      data-worktree-row={row.taskId}
+      data-worktree-row={row.storyId}
       style={{
         display: "grid",
         gridTemplateColumns: "20px minmax(120px, 1fr) minmax(80px, 100px) minmax(160px, 1.4fr) minmax(280px, 2fr)",
@@ -299,7 +297,7 @@ function Row({
           type="checkbox"
           checked={selected}
           onChange={onToggle}
-          aria-label={`Select ${row.projectName} ${row.taskKey} for reclaim`}
+          aria-label={`Select ${row.projectName} ${row.storyKey} for reclaim`}
         />
       ) : (
         <span aria-hidden="true" />
@@ -307,8 +305,8 @@ function Row({
       <span data-field="project" className="type-body" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {row.projectName}
       </span>
-      <span data-field="task" className="type-label tabular-nums" title={row.taskTitle}>
-        {row.taskKey}
+      <span data-field="story" className="type-label tabular-nums" title={row.storyTitle}>
+        {row.storyKey}
       </span>
       <span data-field="size" className="type-body tabular-nums">
         {row.sizeBytes == null ? "" : formatBytes(row.sizeBytes)}
@@ -336,13 +334,13 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
   const now = Date.now();
   // The selection can only ever name rows that are reclaimable in the CURRENT list, so a row that
   // came back in use after a refusal drops out of it instead of sitting selected and unselectable.
-  const selectedRows = rows.filter((r) => r.disposition === "reclaimable" && selected.has(r.taskId));
+  const selectedRows = rows.filter((r) => r.disposition === "reclaimable" && selected.has(r.storyId));
 
-  const toggle = (taskId: string) =>
+  const toggle = (storyId: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(taskId)) next.delete(taskId);
-      else next.add(taskId);
+      if (next.has(storyId)) next.delete(storyId);
+      else next.add(storyId);
       return next;
     });
 
@@ -350,13 +348,13 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
     setConfirming(false);
     setReclaiming(true);
     setNotice(null);
-    const submitted = selectedRows.map((r) => ({ id: r.taskId, label: `${r.projectName} ${r.taskKey}` }));
+    const submitted = selectedRows.map((r) => ({ id: r.storyId, label: `${r.projectName} ${r.storyKey}` }));
     try {
       const outcomes = await worktreeReclaim(submitted.map((r) => r.id));
       const labels = new Map(submitted.map((r) => [r.id, r.label]));
-      setResults(outcomes.map((outcome) => ({ label: labels.get(outcome.taskId) ?? outcome.taskId, outcome })));
+      setResults(outcomes.map((outcome) => ({ label: labels.get(outcome.storyId) ?? outcome.storyId, outcome })));
       // Removed rows leave the selection; refused rows stay in it so a retry costs no re-selection.
-      const gone = new Set(outcomes.filter((o) => o.removed).map((o) => o.taskId));
+      const gone = new Set(outcomes.filter((o) => o.removed).map((o) => o.storyId));
       setSelected((prev) => new Set([...prev].filter((id) => !gone.has(id))));
     } catch {
       setNotice("Could not reclaim the worktrees. Nothing is reported as removed; the list below is current.");
@@ -432,15 +430,13 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
           <div style={{ padding: "var(--space-lg)", display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
             <span className="type-heading">No worktrees</span>
             <span className="type-body" style={{ color: "var(--text-muted-rack)" }}>
-              A task gets a worktree when work starts on it, and it appears here. Only task worktrees are listed:
-              an epic's integration worktree has no task, so it is not tracked here even though its directory
-              exists.
+              A Story gets a worktree when work starts on it, and it appears here.
             </span>
           </div>
         ) : (
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {rows.map((row) => (
-              <Row key={row.taskId} row={row} now={now} selected={selected.has(row.taskId)} onToggle={() => toggle(row.taskId)} />
+              <Row key={row.storyId} row={row} now={now} selected={selected.has(row.storyId)} onToggle={() => toggle(row.storyId)} />
             ))}
           </ul>
         )}

@@ -363,8 +363,7 @@ mod record_lock_exhaustion_tests {
     use crate::common;
     use core::domain::actor::{local_human_actor_id, system_actor};
     use core::domain::agent_run::{record_lock_exhaustion, start_agent_run, AgentRunStatus};
-    use core::domain::task::create_task;
-
+    
     fn event_count(conn: &rusqlite::Connection, run_id: &str) -> i64 {
         conn.query_row(
             "SELECT COUNT(*) FROM events WHERE stream_id = ?1 AND event_type = 'git.lock_exhausted'",
@@ -378,9 +377,8 @@ mod record_lock_exhaustion_tests {
     fn appends_exactly_one_event_attributed_to_the_seeded_system_actor() {
         crate::with_scratch_env(|| {
             let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
-            let task = create_task(&mut conn, &project.id, &human_actor_id, "Lock exhaustion task", None)
-                .expect("create_task should succeed");
-            let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &human_actor_id)
+            let story = common::new_story(&mut conn, &project.id, &human_actor_id, "Lock exhaustion story");
+            let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &human_actor_id)
                 .expect("start_agent_run should succeed");
             let system = system_actor(&conn).expect("system actor should exist");
 
@@ -413,9 +411,8 @@ mod record_lock_exhaustion_tests {
     fn calling_it_twice_appends_two_events_with_no_de_duplication() {
         crate::with_scratch_env(|| {
             let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
-            let task = create_task(&mut conn, &project.id, &human_actor_id, "Repeated exhaustion task", None)
-                .expect("create_task should succeed");
-            let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &human_actor_id)
+            let story = common::new_story(&mut conn, &project.id, &human_actor_id, "Repeated exhaustion story");
+            let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &human_actor_id)
                 .expect("start_agent_run should succeed");
             let system = system_actor(&conn).expect("system actor should exist");
 
@@ -432,9 +429,8 @@ mod record_lock_exhaustion_tests {
     fn the_runs_status_is_unchanged_after_recording_an_exhaustion() {
         crate::with_scratch_env(|| {
             let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
-            let task = create_task(&mut conn, &project.id, &human_actor_id, "Status-neutral task", None)
-                .expect("create_task should succeed");
-            let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &human_actor_id)
+            let story = common::new_story(&mut conn, &project.id, &human_actor_id, "Status-neutral story");
+            let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &human_actor_id)
                 .expect("start_agent_run should succeed");
             assert_eq!(run.status, AgentRunStatus::Running);
             let system = system_actor(&conn).expect("system actor should exist");
@@ -443,14 +439,14 @@ mod record_lock_exhaustion_tests {
                 .expect("record_lock_exhaustion should succeed");
 
             let status: String = conn
-                .query_row("SELECT status FROM agent_runs WHERE id = ?1", rusqlite::params![run.id], |row| row.get(0))
+                .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![run.id], |row| row.get(0))
                 .expect("status query should succeed");
             assert_eq!(status, "running", "recording an exhaustion must never change the run's status");
         });
     }
 
     #[test]
-    fn a_run_id_matching_no_agent_runs_row_is_a_silent_no_op() {
+    fn a_run_id_matching_no_sessions_row_is_a_silent_no_op() {
         crate::with_scratch_env(|| {
             let (mut conn, human_actor_id, _project, _repo_dir) = common::seeded_git_project();
             let system = system_actor(&conn).expect("system actor should exist");

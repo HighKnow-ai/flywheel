@@ -8,7 +8,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LaunchSheet } from "../LaunchSheet";
 
-const headerMock = vi.fn();
+const storyMock = vi.fn();
 const startMock = vi.fn();
 
 
@@ -16,23 +16,25 @@ vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
   return {
     ...actual,
-    taskHeader: (taskId: string) => headerMock(taskId),
-    startAgentRun: (taskId: string, permissionMode: string, instruction?: string) =>
-      startMock(taskId, permissionMode, instruction),
-    // Phase 15 plan 06: the criteria gate reads coverage and re-reads it on `board:changed`. These
-    // tests are about everything else, so the task has criteria and the gate stays out of the way
-    // (the gate itself is pinned in `criteria-route.test.tsx`).
-    taskCriterionCoverage: () =>
-      Promise.resolve({ currentCount: 1, pendingDraftCount: 0, hasCoverage: true, judgementOnlyCount: 0, projectId: "p" }),
+    storyGet: (storyId: string) => storyMock(storyId),
+    startAgentRun: (storyId: string, permissionMode: string, instruction?: string) =>
+      startMock(storyId, permissionMode, instruction),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
   };
 });
 
-/** The task header the sheet reads for its title (the context packet preview was deleted, #38). */
-function makeHeader() {
+/** The Story the sheet reads for its title (the context packet preview was deleted, #38). */
+function makeStory() {
   return {
+    id: "story-1",
+    projectId: "p",
+    epicId: "epic-1",
     key: "FLY-42",
     title: "Wire the launch sheet",
+    description: null,
+    state: "ready",
+    runsAfterStoryId: null,
+    rank: "a",
   };
 }
 
@@ -42,15 +44,15 @@ function renderSheet(props: Partial<React.ComponentProps<typeof LaunchSheet>> = 
   const onStarted = props.onStarted ?? vi.fn();
   const utils = render(
     <QueryClientProvider client={queryClient}>
-      <LaunchSheet taskId={props.taskId ?? "task-1"} onClose={onClose} onStarted={onStarted} />
+      <LaunchSheet storyId={props.storyId ?? "story-1"} onClose={onClose} onStarted={onStarted} />
     </QueryClientProvider>,
   );
   return { ...utils, onClose, onStarted };
 }
 
 describe("LaunchSheet", () => {
-  it("renders the exact header once the task header resolves", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
+  it("renders the exact header once the Story resolves", async () => {
+    storyMock.mockReset().mockResolvedValue(makeStory());
     startMock.mockReset();
     renderSheet();
 
@@ -58,7 +60,7 @@ describe("LaunchSheet", () => {
   });
 
   it("shows the free-text field's exact placeholder", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
+    storyMock.mockReset().mockResolvedValue(makeStory());
     startMock.mockReset();
     renderSheet();
 
@@ -70,8 +72,8 @@ describe("LaunchSheet", () => {
   });
 
   it("offers no permission-mode choice and starts every run in acceptEdits (ADR 0001)", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
-    startMock.mockReset().mockResolvedValue({ id: "run-1", taskId: "task-1", status: "running", permissionMode: "acceptEdits" });
+    storyMock.mockReset().mockResolvedValue(makeStory());
+    startMock.mockReset().mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
     await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
@@ -82,11 +84,11 @@ describe("LaunchSheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start Work" }));
 
     await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
-    expect(startMock).toHaveBeenCalledWith("task-1", "acceptEdits", "");
+    expect(startMock).toHaveBeenCalledWith("story-1", "acceptEdits", "");
   });
 
   it("Cancel leaves the start command uncalled", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
+    storyMock.mockReset().mockResolvedValue(makeStory());
     startMock.mockReset();
     const onClose = vi.fn();
     renderSheet({ onClose });
@@ -100,7 +102,7 @@ describe("LaunchSheet", () => {
   });
 
   it("Escape leaves the start command uncalled", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
+    storyMock.mockReset().mockResolvedValue(makeStory());
     startMock.mockReset();
     const onClose = vi.fn();
     renderSheet({ onClose });
@@ -114,8 +116,8 @@ describe("LaunchSheet", () => {
   });
 
   it("Enter with focus in the body submits", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
-    startMock.mockReset().mockResolvedValue({ id: "run-1", taskId: "task-1", status: "running", permissionMode: "acceptEdits" });
+    storyMock.mockReset().mockResolvedValue(makeStory());
+    startMock.mockReset().mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
     await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
@@ -126,8 +128,8 @@ describe("LaunchSheet", () => {
   });
 
   it("Enter with focus in the free-text field does not submit, but ⌘Enter does", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
-    startMock.mockReset().mockResolvedValue({ id: "run-1", taskId: "task-1", status: "running", permissionMode: "acceptEdits" });
+    storyMock.mockReset().mockResolvedValue(makeStory());
+    startMock.mockReset().mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
     await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
@@ -140,9 +142,22 @@ describe("LaunchSheet", () => {
     await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
   });
 
+  it("shows the core's refusal and lets the developer retry", async () => {
+    storyMock.mockReset().mockResolvedValue(makeStory());
+    startMock.mockReset().mockRejectedValueOnce(new Error("story is not ready"));
+    const { onStarted } = renderSheet();
+
+    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Start Work" }));
+
+    expect(await screen.findByText("story is not ready")).toBeInTheDocument();
+    expect(onStarted).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Start Work" })).not.toBeDisabled();
+  });
+
   it("submitting with an empty instruction still calls the start command", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
-    startMock.mockReset().mockResolvedValue({ id: "run-1", taskId: "task-1", status: "running", permissionMode: "acceptEdits" });
+    storyMock.mockReset().mockResolvedValue(makeStory());
+    startMock.mockReset().mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
     await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
@@ -150,7 +165,7 @@ describe("LaunchSheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start Work" }));
 
     await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
-    expect(startMock).toHaveBeenCalledWith("task-1", "acceptEdits", "");
+    expect(startMock).toHaveBeenCalledWith("story-1", "acceptEdits", "");
   });
 
   /**
@@ -163,7 +178,7 @@ describe("LaunchSheet", () => {
    * (`session/SessionSurface.tsx`'s "clicking Stop three times in one synchronous tick" test).
    */
   it("clicking Start Work three times in one synchronous tick calls the start command exactly once", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
+    storyMock.mockReset().mockResolvedValue(makeStory());
     startMock.mockReset().mockReturnValue(new Promise(() => {})); // never resolves within the test
     renderSheet();
 
@@ -178,7 +193,7 @@ describe("LaunchSheet", () => {
   });
 
   it("two synchronous Enter keydowns on the dialog call the start command exactly once", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
+    storyMock.mockReset().mockResolvedValue(makeStory());
     startMock.mockReset().mockReturnValue(new Promise(() => {})); // never resolves within the test
     renderSheet();
 
@@ -192,7 +207,7 @@ describe("LaunchSheet", () => {
   });
 
   it("renders the sheet at 640px wide with an 80vh maximum height", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
+    storyMock.mockReset().mockResolvedValue(makeStory());
     startMock.mockReset();
     renderSheet();
 
@@ -204,72 +219,16 @@ describe("LaunchSheet", () => {
     expect(dialog.style.maxHeight).toBe("80vh");
   });
 
-  it("renders nothing when taskId is null", () => {
-    headerMock.mockReset();
+  it("renders nothing when storyId is null", () => {
+    storyMock.mockReset();
     startMock.mockReset();
     const queryClient = new QueryClient();
     const { container } = render(
       <QueryClientProvider client={queryClient}>
-        <LaunchSheet taskId={null} onClose={() => {}} onStarted={() => {}} />
+        <LaunchSheet storyId={null} onClose={() => {}} onStarted={() => {}} />
       </QueryClientProvider>,
     );
     expect(container).toBeEmptyDOMElement();
-    expect(headerMock).not.toHaveBeenCalled();
-  });
-});
-
-describe("LaunchSheet overlap warning (phase 09 plan 09-13)", () => {
-  // A string no component could have composed: it names a task key and a path the sheet was never
-  // handed, so seeing it in full proves the sheet displays a Rust verdict rather than deriving one.
-  const WARNING = "Overlaps ZZZ-901, which is running now: both declare vendor/obscure/never-seen.ts.";
-  const run = (overrides: Record<string, unknown> = {}) => ({
-    id: "run-1",
-    taskId: "task-1",
-    status: "running",
-    permissionMode: "acceptEdits",
-    overlapWarning: null,
-    ...overrides,
-  });
-
-  async function launch() {
-    const utils = renderSheet();
-    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Start Work" }));
-    await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
-    return utils;
-  }
-
-  it("renders the warning verbatim after the launch resolves", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
-    startMock.mockReset().mockResolvedValue(run({ overlapWarning: WARNING }));
-    await launch();
-
-    expect(await screen.findByText(WARNING)).toBeInTheDocument();
-  });
-
-  it("renders nothing extra when the result carries no warning", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
-    startMock.mockReset().mockResolvedValue(run());
-    const { onStarted } = await launch();
-
-    await waitFor(() => expect(onStarted).toHaveBeenCalled());
-    expect(screen.queryByRole("note", { name: "Launch overlap warning" })).toBeNull();
-  });
-
-  it("does not use the alert role, which is reserved for money burning", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
-    startMock.mockReset().mockResolvedValue(run({ overlapWarning: WARNING }));
-    await launch();
-
-    await screen.findByText(WARNING);
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("still completes the launch exactly as before", async () => {
-    headerMock.mockReset().mockResolvedValue(makeHeader());
-    startMock.mockReset().mockResolvedValue(run({ overlapWarning: WARNING }));
-    const { onStarted } = await launch();
-
-    await waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1", WARNING));
+    expect(storyMock).not.toHaveBeenCalled();
   });
 });

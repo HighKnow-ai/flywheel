@@ -44,8 +44,6 @@ pub const HEARTBEAT_STALE_MS: u64 = 15_000;
 const HEARTBEAT_FILE_NAME: &str = "heartbeat";
 const RUNS_DIR_NAME: &str = "runs";
 const KILLS_DIR_NAME: &str = "kills";
-const STAGE_DIR_NAME: &str = "stage";
-const SCOPE_DIR_NAME: &str = "scope";
 
 /// The outcome of one write attempt against this protocol's on-disk files — mirrors
 /// `packages/desktop/src-tauri/src/sidecar.rs`'s `PersistOutcome` shape exactly: a plain returned
@@ -108,71 +106,6 @@ pub struct RunDescriptor {
     pub started_at: String,
 }
 
-/// D-88's per-run authoring-stage marker (plan 05-03): a single JSON object holding the current
-/// stage name and the ISO timestamp it was written, written to `<runtime>/stage/<run_id>.json` by
-/// [`write_authoring_stage`]. `packages/sidecar/src/stage-gate-hook.ts` reads this SAME file
-/// shape directly off disk (never through this Rust type — it is a separate process) — the two
-/// sides agree by convention, plain `snake_case` field names, matching every other cross-language
-/// runtime file in this module ([`KillRecord`], [`RunDescriptor`]).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AuthoringStageMarker {
-    pub stage: String,
-    pub written_at: String,
-}
-
-/// The `version` field a scope marker is written with and the ONLY one a reader accepts
-/// (D-151: an unrecognised version is a marker nobody can vouch for, so it denies).
-pub const SCOPE_MARKER_VERSION: u32 = 1;
-
-/// Whether a run's scope marker enforces a declared file-set. A task with no declared entries gets
-/// `Unarmed` (D-150) — an explicit FACT Rust writes, never an absent file, because an absent,
-/// unreadable or malformed marker denies (D-151).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ScopeMode {
-    Armed,
-    Unarmed,
-}
-
-/// One declared entry as it sits in the marker: `form` is one of `file_set::FILE_SET_FORMS`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ScopeMarkerEntry {
-    pub form: String,
-    pub path: String,
-}
-
-/// The per-run scope marker (D-151, plan 09-01): `<runtime>/scope/<run_id>.json`. Read FRESH on
-/// every matched tool call by `packages/sidecar/src/scope-hook.ts` (through the shim's
-/// `--scope-check`), so a marker rewritten between two calls takes effect on the second with no
-/// restart (D-152). `snake_case` fields, agreed with the Node side by convention like
-/// [`AuthoringStageMarker`]. `worktree_root` is stored already canonicalised — on macOS the
-/// temporary directory resolves through a symlink, so a non-canonical root would make every
-/// comparison wrong.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ScopeMarker {
-    pub version: u32,
-    pub mode: ScopeMode,
-    pub worktree_root: String,
-    pub case_insensitive: bool,
-    pub entries: Vec<ScopeMarkerEntry>,
-    pub written_at: String,
-}
-
-impl ScopeMarker {
-    /// The marker's entries as parsed [`crate::file_set::FileSetEntry`] values — `None` when any
-    /// entry fails `parse_entry` or disagrees with its stored form. The caller denies on `None`:
-    /// a scope that cannot be read in full must never be read as a narrower or wider one.
-    pub fn parsed_entries(&self) -> Option<Vec<crate::file_set::FileSetEntry>> {
-        self.entries
-            .iter()
-            .map(|e| {
-                let parsed = crate::file_set::parse_entry(&e.path).ok()?;
-                (crate::file_set::entry_form(&parsed) == e.form).then_some(parsed)
-            })
-            .collect()
-    }
-}
-
 /// Resolve `<app-data>/runtime/`, creating it (and any missing parents) if absent — beside
 /// `session_log.rs::sessions_dir`'s own `<app-data>/sessions/` sibling. Overridable via
 /// `FLYWHEEL_RUNTIME_DIR`, mirroring `git::worktree_root_from_env`'s own test-only-override
@@ -205,20 +138,6 @@ fn runs_dir(dir: &Path) -> PathBuf {
 
 fn kills_dir(dir: &Path) -> PathBuf {
     dir.join(KILLS_DIR_NAME)
-}
-
-/// `<runtime>/stage/` — D-88's per-run authoring-stage marker directory (plan 05-03), named here
-/// so [`write_authoring_stage`]/[`read_authoring_stage`]/[`clear_run_runtime_files`] all resolve
-/// the SAME `runtime_dir()`-relative path.
-fn stage_dir(dir: &Path) -> PathBuf {
-    dir.join(STAGE_DIR_NAME)
-}
-
-/// `<runtime>/scope/` — the per-run scope marker directory (D-151, plan 09-01), named here so
-/// [`write_scope_marker`]/[`read_scope_marker`]/[`clear_run_runtime_files`] all resolve the SAME
-/// `runtime_dir()`-relative path.
-fn scope_dir(dir: &Path) -> PathBuf {
-    dir.join(SCOPE_DIR_NAME)
 }
 
 /// `<runtime>/contention/` — the PATH shim binary's own D-53 lock-contention log directory
@@ -368,108 +287,6 @@ pub fn write_run_descriptor(run_id: &str, pid: i32, start_time: u64) -> RuntimeI
     }
 }
 
-/// Write `<runtime>/stage/<run_id>.json` (D-88, plan 05-03) — the marker
-/// `packages/sidecar/src/stage-gate-hook.ts` reads FRESH per matched tool call to decide whether a
-/// proposal-writing call may proceed. Routes `run_id` through the shared [`crate::ids::is_ulid`]
-/// predicate BEFORE any path is built — the exact join site `session_log_path` hardened (plan
-/// 03-15): an arbitrary run id must never become a file-path primitive. A non-ULID id returns
-/// [`RuntimeIo::WriteFailed`] without ever resolving [`runtime_dir`], creating a directory, or
-/// formatting a path from the caller-controlled string.
-pub fn write_authoring_stage(run_id: &str, stage: &str) -> RuntimeIo {
-    if !crate::ids::is_ulid(run_id) {
-        return RuntimeIo::WriteFailed(
-            "run id must be a 26-character Crockford-base32 ULID; refusing to build a stage marker path"
-                .to_string(),
-        );
-    }
-    let dir = match runtime_dir() {
-        Ok(dir) => dir,
-        Err(err) => return RuntimeIo::WriteFailed(format!("{err:#}")),
-    };
-    let marker = AuthoringStageMarker {
-        stage: stage.to_string(),
-        written_at: Utc::now().to_rfc3339(),
-    };
-    let body = match serde_json::to_vec(&marker) {
-        Ok(body) => body,
-        Err(err) => {
-            return RuntimeIo::WriteFailed(format!("failed to serialize authoring stage marker: {err}"))
-        }
-    };
-    let path = stage_dir(&dir).join(format!("{run_id}.json"));
-    match atomic_write(&path, &body) {
-        Ok(()) => RuntimeIo::Written,
-        Err(err) => RuntimeIo::WriteFailed(format!("{err}")),
-    }
-}
-
-/// Read `run_id`'s current authoring stage, fresh off disk — `None` for a non-ULID id, an
-/// unresolvable runtime directory, a missing marker file, or a file whose contents do not parse
-/// as an [`AuthoringStageMarker`]. Every one of those collapses to `None` deliberately:
-/// `stage-gate-hook.ts` fails closed (deny) on any of them identically, per its own doc comment —
-/// a gate that cannot establish the stage must never conclude the stage is permissive, so this
-/// function gives the caller no way to distinguish "no marker" from "malformed marker" that would
-/// invite treating one of them as safe.
-pub fn read_authoring_stage(run_id: &str) -> Option<String> {
-    if !crate::ids::is_ulid(run_id) {
-        return None;
-    }
-    let dir = runtime_dir().ok()?;
-    let path = stage_dir(&dir).join(format!("{run_id}.json"));
-    let contents = fs::read_to_string(path).ok()?;
-    let marker: AuthoringStageMarker = serde_json::from_str(&contents).ok()?;
-    Some(marker.stage)
-}
-
-/// Write `<runtime>/scope/<run_id>.json` (D-151, plan 09-01) — the marker `scope-hook.ts` reads
-/// fresh per matched tool call. Mirrors [`write_authoring_stage`]: routes `run_id` through
-/// [`crate::ids::is_ulid`] BEFORE any path is built (an arbitrary run id must never become a
-/// file-path primitive), then [`atomic_write`] so the hook never observes a torn file. Also the
-/// path a live widen (D-152) rewrites: the next tool call reads the new entries.
-pub fn write_scope_marker(run_id: &str, marker: &ScopeMarker) -> RuntimeIo {
-    if !crate::ids::is_ulid(run_id) {
-        return RuntimeIo::WriteFailed(
-            "run id must be a 26-character Crockford-base32 ULID; refusing to build a scope marker path"
-                .to_string(),
-        );
-    }
-    let dir = match runtime_dir() {
-        Ok(dir) => dir,
-        Err(err) => return RuntimeIo::WriteFailed(format!("{err:#}")),
-    };
-    let body = match serde_json::to_vec(marker) {
-        Ok(body) => body,
-        Err(err) => {
-            return RuntimeIo::WriteFailed(format!("failed to serialize scope marker: {err}"))
-        }
-    };
-    let path = scope_dir(&dir).join(format!("{run_id}.json"));
-    match atomic_write(&path, &body) {
-        Ok(()) => RuntimeIo::Written,
-        Err(err) => RuntimeIo::WriteFailed(format!("{err}")),
-    }
-}
-
-/// Parse the scope marker at `path` — `None` for an absent file, an unreadable one, non-JSON, an
-/// unrecognised `mode`, or a `version` other than [`SCOPE_MARKER_VERSION`]. Every failure
-/// collapses to `None` deliberately, exactly as [`read_authoring_stage`] does: a caller has no way
-/// to read "malformed" as safe. The shim's `--scope-check` reads through this, by path.
-pub fn read_scope_marker_at(path: &Path) -> Option<ScopeMarker> {
-    let contents = fs::read_to_string(path).ok()?;
-    let marker: ScopeMarker = serde_json::from_str(&contents).ok()?;
-    (marker.version == SCOPE_MARKER_VERSION).then_some(marker)
-}
-
-/// Read `run_id`'s scope marker, fresh off disk — `None` for a non-ULID id, an unresolvable
-/// runtime directory, or anything [`read_scope_marker_at`] refuses.
-pub fn read_scope_marker(run_id: &str) -> Option<ScopeMarker> {
-    if !crate::ids::is_ulid(run_id) {
-        return None;
-    }
-    let dir = runtime_dir().ok()?;
-    read_scope_marker_at(&scope_dir(&dir).join(format!("{run_id}.json")))
-}
-
 /// Every run descriptor currently on disk (PROC-03). A malformed or unreadable entry is skipped
 /// rather than failing the whole listing — one corrupt file must never hide every other live run
 /// from a reconciliation pass (plan 03-06 consumes this).
@@ -530,9 +347,8 @@ pub fn process_is_alive(pid: i32, start_time: u64) -> bool {
     }
 }
 
-/// Remove `run_id`'s descriptor, kill record, lock-contention log, session-lifecycle timeline and
-/// authoring-stage marker and scope marker (plan 03-06; the lifecycle timeline added by plan 03-20, WR-02's sibling
-/// cleanup task 03-23; the stage marker added by plan 05-03) —
+/// Remove `run_id`'s descriptor, kill record, lock-contention log and session-lifecycle timeline
+/// (plan 03-06; the lifecycle timeline added by plan 03-20) —
 /// called by the launch reconciler at the exact moment a run reaches a terminal status, and
 /// nowhere else. This resolves 03-CONTEXT.md's own "who cleans stale files up" discretion item:
 /// the reconciler is the only writer of a terminal status for an orphaned run, so it is the only
@@ -552,8 +368,6 @@ pub fn clear_run_runtime_files(run_id: &str) -> RuntimeIo {
         kills_dir(&dir).join(format!("{run_id}.json")),
         contention_dir(&dir).join(format!("{run_id}.jsonl")),
         lifecycle_dir(&dir).join(format!("{run_id}.jsonl")),
-        stage_dir(&dir).join(format!("{run_id}.json")),
-        scope_dir(&dir).join(format!("{run_id}.json")),
     ];
     for path in paths {
         if let Err(err) = fs::remove_file(&path) {

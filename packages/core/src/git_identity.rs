@@ -2,7 +2,7 @@
 //! a pasted commit hash or a `flywheel/`-namespaced branch name to the board item that produced
 //! it. Three rules this file lives under, mirroring `drift.rs`'s own discipline.
 //!
-//! First, this module maintains no sha-to-task index, in the schema or in memory. There is no
+//! First, this module maintains no sha-to-Story index, in the schema or in memory. There is no
 //! `HashMap`, no `OnceCell`, no `Lazy`, keyed by a commit object name anywhere below — [`classify`]
 //! and [`resolve_identifier`] derive every answer fresh, from git and from the board, on every
 //! call. A second source of truth about git disagreeing with git itself is the exact bug class
@@ -22,9 +22,9 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
-use crate::branch::{epic_integration_branch_name, FLYWHEEL_BRANCH_NAMESPACE};
+use crate::branch::FLYWHEEL_BRANCH_NAMESPACE;
 use crate::git::git_at;
-use crate::git_hooks::{TRAILER_RUN_KEY, TRAILER_TASK_KEY};
+use crate::git_hooks::{TRAILER_RUN_KEY, TRAILER_STORY_KEY};
 
 /// What a pasted string classified as (T-07-05-01) — the only two shapes this module ever hands
 /// to [`resolve_identifier`].
@@ -60,7 +60,7 @@ pub fn classify(raw: &str) -> Option<GitIdentifier> {
 
 /// The board item a [`GitIdentifier`] resolved to — never carries a title (the Tauri command
 /// layer, which already has the board loaded, is where a display label is composed). `item_kind`
-/// is `"task"` or `"epic"`; `matched_sha`/`run_id` are populated only on the sha path, always
+/// is `"story"`; `matched_sha`/`run_id` are populated only on the sha path, always
 /// `None` for a branch resolution (a branch read never touches git at all).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct IdentityResolution {
@@ -95,55 +95,28 @@ fn active_projects_ordered(conn: &Connection) -> anyhow::Result<Vec<(String, Str
     Ok(rows)
 }
 
-/// Every `status = 'active'` project row's `id` alone, same order as [`active_projects_ordered`] —
-/// the branch path needs no `repo_path` since it never touches git.
-fn active_project_ids_ordered(conn: &Connection) -> anyhow::Result<Vec<String>> {
-    let mut stmt = conn.prepare("SELECT id FROM projects WHERE status = 'active' AND hidden = 0 ORDER BY id ASC")?;
-    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
-    Ok(rows)
-}
-
-/// Resolve a `flywheel/`-namespaced branch name: one indexed read of `worktrees` by `branch` for
-/// a task branch, falling back to re-deriving [`epic_integration_branch_name`] for every epic in
-/// every active project. No git invocation on this path at all — `worktrees.branch` and the epic
-/// roster are both stored columns.
+/// Resolve a `flywheel/`-namespaced branch name: one indexed read of `worktrees` by `branch`. No
+/// git invocation on this path at all — `worktrees.branch` is a stored column.
 fn resolve_branch(conn: &Connection, name: &str) -> anyhow::Result<ResolveOutcome> {
-    let task_row: Option<(String, String, String)> = conn
+    let story_row: Option<(String, String, String)> = conn
         .query_row(
-            "SELECT w.project_id, t.id, t.key FROM worktrees w \
-             JOIN tasks t ON t.id = w.task_id WHERE w.branch = ?1",
+            "SELECT w.project_id, s.id, s.key FROM worktrees w \
+             JOIN stories s ON s.id = w.story_id WHERE w.branch = ?1",
             params![name],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()?;
-    if let Some((project_id, item_id, item_key)) = task_row {
-        return Ok(ResolveOutcome::Resolved(IdentityResolution {
+    Ok(match story_row {
+        Some((project_id, item_id, item_key)) => ResolveOutcome::Resolved(IdentityResolution {
             project_id,
-            item_kind: "task".to_string(),
+            item_kind: "story".to_string(),
             item_id,
             item_key,
             matched_sha: None,
             run_id: None,
-        }));
-    }
-
-    for project_id in active_project_ids_ordered(conn)? {
-        let roster = crate::domain::epic::list_epics(conn, &project_id)?;
-        for epic in roster.epics {
-            if epic_integration_branch_name(&epic.key, &epic.title) == name {
-                return Ok(ResolveOutcome::Resolved(IdentityResolution {
-                    project_id,
-                    item_kind: "epic".to_string(),
-                    item_id: epic.id,
-                    item_key: epic.key,
-                    matched_sha: None,
-                    run_id: None,
-                }));
-            }
-        }
-    }
-
-    Ok(ResolveOutcome::NotFound)
+        }),
+        None => ResolveOutcome::NotFound,
+    })
 }
 
 /// Resolve a hash, abbreviated or full: iterate every active project's repository in order,
@@ -151,9 +124,9 @@ fn resolve_branch(conn: &Connection, name: &str) -> anyhow::Result<ResolveOutcom
 /// collecting every repository the sha actually resolves in (a non-zero `git show` exit means the
 /// sha is not present there — never an error, just the next repository). Zero repositories
 /// resolved is `NotFound`; more than one is [`ResolveOutcome::AmbiguousAcrossRepositories`];
-/// exactly one looks the trailer's task key up in that project's own `tasks` table.
+/// exactly one looks the trailer's Story key up in that project's own `stories` table.
 fn resolve_sha(conn: &Connection, sha: &str) -> anyhow::Result<ResolveOutcome> {
-    // (project_id, full sha, task trailer value if non-empty, run trailer value if non-empty)
+    // (project_id, full sha, Story trailer value if non-empty, run trailer value if non-empty)
     let mut matched: Vec<(String, String, Option<String>, Option<String>)> = Vec::new();
 
     for (project_id, repo_path) in active_projects_ordered(conn)? {
@@ -182,7 +155,7 @@ fn resolve_sha(conn: &Connection, sha: &str) -> anyhow::Result<ResolveOutcome> {
         // produces (unit separator, 0x1F) — the key literals are imported from `git_hooks`, never
         // retyped here.
         let format_arg = format!(
-            "--format=%(trailers:key={TRAILER_TASK_KEY},valueonly)%x1f%(trailers:key={TRAILER_RUN_KEY},valueonly)"
+            "--format=%(trailers:key={TRAILER_STORY_KEY},valueonly)%x1f%(trailers:key={TRAILER_RUN_KEY},valueonly)"
         );
         let output = match git_at(repo_path, &["show", "-s", &format_arg, sha, "--"]) {
             Ok(output) => output,
@@ -191,13 +164,13 @@ fn resolve_sha(conn: &Connection, sha: &str) -> anyhow::Result<ResolveOutcome> {
         let text = String::from_utf8_lossy(&output.stdout);
         let text = text.trim_end_matches('\n');
         let mut parts = text.splitn(2, '\u{1f}');
-        let task_key = parts.next().unwrap_or("").trim().to_string();
+        let story_key = parts.next().unwrap_or("").trim().to_string();
         let run_val = parts.next().unwrap_or("").trim().to_string();
 
         matched.push((
             project_id,
             full_sha,
-            if task_key.is_empty() { None } else { Some(task_key) },
+            if story_key.is_empty() { None } else { Some(story_key) },
             if run_val.is_empty() { None } else { Some(run_val) },
         ));
     }
@@ -205,27 +178,27 @@ fn resolve_sha(conn: &Connection, sha: &str) -> anyhow::Result<ResolveOutcome> {
     match matched.len() {
         0 => Ok(ResolveOutcome::NotFound),
         1 => {
-            let (project_id, full_sha, task_key_opt, run_opt) = matched.into_iter().next().unwrap();
-            let Some(task_key) = task_key_opt else {
-                // The commit exists in this repository but carries no task trailer at all —
+            let (project_id, full_sha, story_key_opt, run_opt) = matched.into_iter().next().unwrap();
+            let Some(story_key) = story_key_opt else {
+                // The commit exists in this repository but carries no Story trailer at all —
                 // never an error, just nothing found (D-129: trailer presence, not sha presence,
-                // is what "belongs to a task" means here).
+                // is what "belongs to a Story" means here).
                 return Ok(ResolveOutcome::NotFound);
             };
             // The stamped value is always lowercase (the hook extracts it from an already-
-            // lowercased branch segment, `branch::task_branch_name`'s own discipline) — compare
-            // case-insensitively against the task's real, display-cased key.
+            // lowercased branch segment, `branch::story_branch_name`'s own discipline) — compare
+            // case-insensitively against the Story's real, display-cased key.
             let found: Option<(String, String)> = conn
                 .query_row(
-                    "SELECT id, key FROM tasks WHERE project_id = ?1 AND LOWER(key) = ?2",
-                    params![project_id, task_key],
+                    "SELECT id, key FROM stories WHERE project_id = ?1 AND LOWER(key) = ?2",
+                    params![project_id, story_key],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .optional()?;
             match found {
                 Some((item_id, item_key)) => Ok(ResolveOutcome::Resolved(IdentityResolution {
                     project_id,
-                    item_kind: "task".to_string(),
+                    item_kind: "story".to_string(),
                     item_id,
                     item_key,
                     matched_sha: Some(full_sha),

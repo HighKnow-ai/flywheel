@@ -3,12 +3,11 @@
  *
  * Every keyed reader in the renderer used to carry its own copy of the same effect — subscribe,
  * `cancelled`/`unlisten` bookkeeping, invalidate on every event — and ignored the payload, so an
- * event in project A re-fetched project B's views (and, for `useChangeFlags`, spawned git against
- * B's worktrees). Routing the decision through one hook means the readers cannot drift apart.
+ * event in project A re-fetched project B's views. Routing the decision through one hook means the readers cannot drift apart.
  *
  * Three scope kinds, because there are three genuine routing decisions in the tree:
  * - `project` — the reader's keys embed a `projectId`; only that project's events wake it.
- * - `viewed`  — the reader's keys embed an id (task, epic, run) that exists only inside the project
+ * - `viewed`  — the reader's keys embed an id (Story, Epic, run) that exists only inside the project
  *               currently being viewed; only the viewed project's events wake it.
  * - `account` — the reader's data is account-wide; every event wakes it.
  *

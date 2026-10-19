@@ -8,11 +8,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use core::branch::{epic_integration_branch_name, task_branch_name};
+mod common;
+
+use common::new_story;
+use core::branch::story_branch_name;
 use core::domain::actor::local_human_actor_id;
-use core::domain::epic::create_epic;
 use core::domain::project::{register_project, Project};
-use core::domain::task::create_task;
 use core::git_identity::{classify, resolve_identifier, GitIdentifier, IdentityResolution, ResolveOutcome};
 use rusqlite::{params, Connection};
 
@@ -124,11 +125,11 @@ fn head_sha(repo: &Path) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-fn insert_worktree_row(conn: &Connection, task_id: &str, project_id: &str, actor_id: &str, branch: &str) {
+fn insert_worktree_row(conn: &Connection, story_id: &str, project_id: &str, actor_id: &str, branch: &str) {
     conn.execute(
-        "INSERT INTO worktrees (id, task_id, project_id, path, branch, base_branch, status, created_by, created_at)
+        "INSERT INTO worktrees (id, story_id, project_id, path, branch, base_branch, status, created_by, created_at)
          VALUES (?1, ?2, ?3, '/tmp/unused-in-this-test', ?4, 'main', 'active', ?5, '2026-01-01T00:00:00.000Z')",
-        params![core::ids::new_id(), task_id, project_id, branch, actor_id],
+        params![core::ids::new_id(), story_id, project_id, branch, actor_id],
     )
     .expect("insert worktree row should succeed");
 }
@@ -194,50 +195,26 @@ fn classify_rejects_everything_else() {
 // --- resolve_identifier: branches, no git invocation -------------------------------------------
 
 #[test]
-fn resolve_identifier_for_a_task_branch_returns_the_owning_task() {
+fn resolve_identifier_for_a_story_branch_returns_the_owning_story() {
     let scratch = tempfile::tempdir().expect("scratch dir");
     let runtime = tempfile::tempdir().expect("runtime dir");
     let repo = fresh_repo(scratch.path());
     let mut conn = open_scratch_db();
     let (actor_id, project) = open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID1");
 
-    let task =
-        create_task(&mut conn, &project.id, &actor_id, "Branch resolves to task", None).expect("create_task");
-    let branch = task_branch_name(&task.key, &task.title);
-    insert_worktree_row(&conn, &task.id, &project.id, &actor_id, &branch);
+    let story = new_story(&mut conn, &project.id, &actor_id, "Branch resolves to story");
+    let branch = story_branch_name(&story.key, &story.title);
+    insert_worktree_row(&conn, &story.id, &project.id, &actor_id, &branch);
 
     let outcome = resolve_identifier(&conn, &GitIdentifier::Branch(branch)).expect("resolve_identifier");
     match outcome {
         ResolveOutcome::Resolved(IdentityResolution { project_id, item_kind, item_id, item_key, matched_sha, run_id }) => {
             assert_eq!(project_id, project.id);
-            assert_eq!(item_kind, "task");
-            assert_eq!(item_id, task.id);
-            assert_eq!(item_key, task.key);
+            assert_eq!(item_kind, "story");
+            assert_eq!(item_id, story.id);
+            assert_eq!(item_key, story.key);
             assert_eq!(matched_sha, None);
             assert_eq!(run_id, None);
-        }
-        other => panic!("expected Resolved, got {other:?}"),
-    }
-}
-
-#[test]
-fn resolve_identifier_for_an_epic_integration_branch_returns_the_epic() {
-    let scratch = tempfile::tempdir().expect("scratch dir");
-    let runtime = tempfile::tempdir().expect("runtime dir");
-    let repo = fresh_repo(scratch.path());
-    let mut conn = open_scratch_db();
-    let (actor_id, project) = open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID2");
-
-    let epic = create_epic(&mut conn, &project.id, &actor_id, "Epic needing resolution", None).expect("create_epic");
-    let branch = epic_integration_branch_name(&epic.key, &epic.title);
-
-    let outcome = resolve_identifier(&conn, &GitIdentifier::Branch(branch)).expect("resolve_identifier");
-    match outcome {
-        ResolveOutcome::Resolved(resolution) => {
-            assert_eq!(resolution.project_id, project.id);
-            assert_eq!(resolution.item_kind, "epic");
-            assert_eq!(resolution.item_id, epic.id);
-            assert_eq!(resolution.item_key, epic.key);
         }
         other => panic!("expected Resolved, got {other:?}"),
     }
@@ -246,15 +223,15 @@ fn resolve_identifier_for_an_epic_integration_branch_returns_the_epic() {
 // --- resolve_identifier: shas, against real stamped commits -------------------------------------
 
 #[test]
-fn resolve_identifier_for_a_stamped_sha_returns_the_task_and_run_id() {
+fn resolve_identifier_for_a_stamped_sha_returns_the_story_and_run_id() {
     let scratch = tempfile::tempdir().expect("scratch dir");
     let runtime = tempfile::tempdir().expect("runtime dir");
     let repo = fresh_repo(scratch.path());
     let mut conn = open_scratch_db();
     let (actor_id, project) = open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID3");
 
-    let task = create_task(&mut conn, &project.id, &actor_id, "Stamped commit resolves", None).expect("create_task");
-    let branch = task_branch_name(&task.key, &task.title);
+    let story = new_story(&mut conn, &project.id, &actor_id, "Stamped commit resolves");
+    let branch = story_branch_name(&story.key, &story.title);
     commit_on_branch(&repo, &branch, Some("run-xyz"));
     let full_sha = head_sha(&repo);
 
@@ -263,9 +240,9 @@ fn resolve_identifier_for_a_stamped_sha_returns_the_task_and_run_id() {
     match outcome {
         ResolveOutcome::Resolved(resolution) => {
             assert_eq!(resolution.project_id, project.id);
-            assert_eq!(resolution.item_kind, "task");
-            assert_eq!(resolution.item_id, task.id);
-            assert_eq!(resolution.item_key, task.key);
+            assert_eq!(resolution.item_kind, "story");
+            assert_eq!(resolution.item_id, story.id);
+            assert_eq!(resolution.item_key, story.key);
             assert_eq!(resolution.matched_sha.as_deref(), Some(full_sha.as_str()));
             assert_eq!(resolution.run_id.as_deref(), Some("run-xyz"));
         }
@@ -322,8 +299,8 @@ fn resolve_identifier_for_a_sha_present_in_two_registered_repositories_is_ambigu
     let (actor_id, project_a) =
         open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo_a, "GID6A");
 
-    let task = create_task(&mut conn, &project_a.id, &actor_id, "Shared commit", None).expect("create_task");
-    let branch = task_branch_name(&task.key, &task.title);
+    let story = new_story(&mut conn, &project_a.id, &actor_id, "Shared commit");
+    let branch = story_branch_name(&story.key, &story.title);
     commit_on_branch(&repo_a, &branch, Some("run-shared"));
     let full_sha = head_sha(&repo_a);
 
@@ -360,8 +337,8 @@ fn resolve_identifier_is_deterministic_across_two_calls_on_unchanged_input() {
     let mut conn = open_scratch_db();
     let (actor_id, project) = open_registered_project(scratch.path(), runtime.path(), &mut conn, &repo, "GID8");
 
-    let task = create_task(&mut conn, &project.id, &actor_id, "Deterministic resolve", None).expect("create_task");
-    let branch = task_branch_name(&task.key, &task.title);
+    let story = new_story(&mut conn, &project.id, &actor_id, "Deterministic resolve");
+    let branch = story_branch_name(&story.key, &story.title);
     commit_on_branch(&repo, &branch, Some("run-det"));
     let full_sha = head_sha(&repo);
 

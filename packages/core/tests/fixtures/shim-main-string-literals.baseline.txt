@@ -14,7 +14,6 @@
 --classify-invocation
 --gate-push
 --ignore-environment
---scope-check
 --split-string
 --unset
 --unset=
@@ -42,14 +41,12 @@ at
 attempt
 attempts
 builtin
-cannot resolve {prefix:?}: {err}
 category
 command
 contention
 decision
 deny
 destructiveCategory
-entries
 env
 eval
 failed to connect to the permission socket at {socket_path:?}: {err}
@@ -59,10 +56,6 @@ failed to spawn real git at {real_git:?}: {e}
 flywheel-shim: --gate-push received an unrecognised category name: {category_name:?}
 flywheel-shim: --gate-push requires a category name as its first argument
 flywheel-shim: --gate-push requires at least one token describing the git command being gated
-flywheel-shim: --scope-check could not read a valid scope marker at {marker_arg:?}
-flywheel-shim: --scope-check found an unreadable entry in the scope marker
-flywheel-shim: --scope-check requires <marker-path> <absolute-target-path>
-flywheel-shim: --scope-check: {why}
 flywheel-shim: failed to spawn real rm at {real_rm:?}: {err}
 flywheel-shim: refusing to run — invoked as {:?}, which this build does not dispatch to any known target
 flywheel-shim: {message}
@@ -78,10 +71,7 @@ kind
 lock_exhausted
 max
 namesGatedProgram
-no component of {target:?} exists
-outsideWorktree
 program
-relative
 repository
 requestId
 rm
@@ -93,9 +83,7 @@ the permission socket closed before answering
 the permission socket returned an unrecognised answer: {response_line:?}
 the permission socket's answer did not parse as JSON: {err}
 toolName
-unarmed
 {output}
-{prefix:?} is a dangling symlink
 {run_id}.jsonl
 {var_name} does not name an absolute path: {path:?}
 {var_name} does not name an existing executable: {path:?}

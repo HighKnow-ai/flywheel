@@ -7,6 +7,10 @@
  * Every component that needs to call into the Rust core, or subscribe to board-changed
  * push notifications, does so through `invokeCommand` / `subscribeBoardChanged` — never
  * by importing `invoke`/`listen` directly.
+ *
+ * Every DTO below mirrors a `#[serde(rename_all = "camelCase")]` struct in
+ * `src-tauri/src/commands/*.rs` field-for-field, and every wrapper's argument names are the
+ * camelCase form of the command's own snake_case parameters.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -48,8 +52,8 @@ export async function subscribeBoardChanged(
 }
 
 /**
- * Open the native folder picker for project registration (01-UI-SPEC.md "Board list", the
- * "Register Project…" flow). Returns the chosen absolute path, or `null` if the user cancelled.
+ * Open the native folder picker for project registration (the "Register Project…" flow). Returns
+ * the chosen absolute path, or `null` if the user cancelled.
  *
  * This module is also the only place `@tauri-apps/plugin-dialog` is imported, extending the same
  * single-seam rule `invokeCommand`/`subscribeBoardChanged` follow above.
@@ -61,115 +65,326 @@ export async function openFolderDialog(): Promise<string | null> {
 
 /**
  * Subscribe to `menu:action`, the event `src-tauri/src/menu.rs`'s `on_menu_event` handler emits
- * when the user clicks a native menu item (01-09-PLAN.md Task 2). The payload is the exact
- * `state/keyboard.ts` `ActionId` string the corresponding keystroke would resolve to — menu items
- * invoke the same registered action ids as the keyboard/palette, never a broader capability
- * (threat T-01-02: "no menu item is given a broader capability").
+ * when the user clicks a native menu item. The payload is the exact `state/keyboard.ts` `ActionId`
+ * string the corresponding keystroke would resolve to — menu items invoke the same registered
+ * action ids as the keyboard/palette, never a broader capability (threat T-01-02).
  */
 export async function subscribeMenuAction(handler: (actionId: string) => void): Promise<UnlistenFn> {
   return listen<string>("menu:action", (event) => handler(event.payload));
 }
 
-/**
- * Start a fresh agent run against `taskId` (D-30, plan 02-01; `instruction`/D-27 added plan
- * 02-04). Thin typed wrapper over `agent_run_start`, following `invokeCommand`'s own single-seam
- * rule.
- */
-export interface AgentRunDto {
+// ---------------------------------------------------------------------------------------------
+// Board records: Milestone -> Epic -> Story, with a Story's Acceptance criteria, Checks and Task
+// checklist, and the developer's side of Proposals (GLOSSARY.md "Board records"). Every mutation
+// below is stamped with the local human actor in the Rust command; no wrapper carries an actor.
+// ---------------------------------------------------------------------------------------------
+
+/** A Milestone on a project's Roadmap — mirrors `commands/roadmap.rs`'s `MilestoneDto`. */
+export interface MilestoneDto {
   id: string;
-  taskId: string;
-  status: string;
-  permissionMode: string;
-  /** Set only when a user's own launch overlaps a DIFFERENT live task: one sentence Rust composed
-   * from the stored rows (`overlap_warning`), to be shown verbatim and never recomputed here. */
-  overlapWarning?: string | null;
+  projectId: string;
+  title: string;
+  exitTest: string | null;
+  /** The state with In progress derived: `shaping`, `ready`, `in_progress`, `done` or `dropped`. */
+  state: string;
+  /** Whether this is the Current Milestone (the first in Roadmap order not done or dropped). */
+  current: boolean;
+  rank: string;
 }
 
+/** Add a Milestone at the end of the project's Roadmap, in Shaping. */
+export async function milestoneCreate(
+  projectId: string,
+  title: string,
+  exitTest?: string | null,
+): Promise<MilestoneDto> {
+  return invokeCommand<MilestoneDto>("milestone_create", { projectId, title, exitTest: exitTest ?? null });
+}
+
+/** The project's Roadmap: every Milestone in rank order. Read-only. */
+export async function milestoneList(projectId: string): Promise<MilestoneDto[]> {
+  return invokeCommand<MilestoneDto[]>("milestone_list", { projectId });
+}
+
+/** Move a Milestone (`shaping`, `ready`, `done` or `dropped`); the domain refuses the rest. */
+export async function milestoneSetState(milestoneId: string, to: string): Promise<void> {
+  await invokeCommand<void>("milestone_set_state", { milestoneId, to });
+}
+
+/** An Epic in one Milestone — mirrors `commands/epic.rs`'s `EpicDto`. */
+export interface EpicDto {
+  id: string;
+  projectId: string;
+  milestoneId: string;
+  key: string;
+  title: string;
+  problem: string | null;
+  scope: string | null;
+  outOfScope: string | null;
+  exitTest: string | null;
+  /** The state with In progress derived: `shaping`, `ready`, `in_progress` or `done`. */
+  state: string;
+  rank: string;
+}
+
+/** The Epic's spec and exit test, as `epicUpdate` rewrites them. */
+export interface EpicSpecInput {
+  problem?: string | null;
+  scope?: string | null;
+  outOfScope?: string | null;
+  exitTest?: string | null;
+}
+
+/** Create an Epic at the end of `milestoneId`, in Shaping. */
+export async function epicCreate(milestoneId: string, title: string): Promise<EpicDto> {
+  return invokeCommand<EpicDto>("epic_create", { milestoneId, title });
+}
+
+/** Every Epic of a Milestone, in rank order. Read-only. */
+export async function epicList(milestoneId: string): Promise<EpicDto[]> {
+  return invokeCommand<EpicDto[]>("epic_list", { milestoneId });
+}
+
+/** Rewrite an Epic's title, spec and exit test. */
+export async function epicUpdate(epicId: string, title: string, spec: EpicSpecInput = {}): Promise<void> {
+  await invokeCommand<void>("epic_update", {
+    epicId,
+    title,
+    problem: spec.problem ?? null,
+    scope: spec.scope ?? null,
+    outOfScope: spec.outOfScope ?? null,
+    exitTest: spec.exitTest ?? null,
+  });
+}
+
+/** Move an Epic (`shaping`, `ready` or `done`); the domain refuses the rest. */
+export async function epicSetState(epicId: string, to: string): Promise<void> {
+  await invokeCommand<void>("epic_set_state", { epicId, to });
+}
+
+/** A Story in one Epic — mirrors `commands/story.rs`'s `StoryDto`. */
+export interface StoryDto {
+  id: string;
+  projectId: string;
+  epicId: string;
+  key: string;
+  title: string;
+  description: string | null;
+  /** `shaping`, `ready`, `running`, `in_review`, `merged` or `dropped`. */
+  state: string;
+  runsAfterStoryId: string | null;
+  rank: string;
+}
+
+/** Create a Story at the end of `epicId`'s execution order, in Shaping. */
+export async function storyCreate(epicId: string, title: string): Promise<StoryDto> {
+  return invokeCommand<StoryDto>("story_create", { epicId, title });
+}
+
+/** Every Story of an Epic, in execution order. Read-only. */
+export async function storyList(epicId: string): Promise<StoryDto[]> {
+  return invokeCommand<StoryDto[]>("story_list", { epicId });
+}
+
+/** One Story, or `null` when it does not exist. Read-only. */
+export async function storyGet(storyId: string): Promise<StoryDto | null> {
+  return invokeCommand<StoryDto | null>("story_get", { storyId });
+}
+
+/** Rewrite a Story's title and description. */
+export async function storyUpdate(storyId: string, title: string, description?: string | null): Promise<void> {
+  await invokeCommand<void>("story_update", { storyId, title, description: description ?? null });
+}
+
+/** Move a Story along the spec's transition table; the domain refuses any other move. */
+export async function storySetState(storyId: string, to: string): Promise<void> {
+  await invokeCommand<void>("story_set_state", { storyId, to });
+}
+
+/** A criterion's Check — mirrors `commands/criterion.rs`'s `CheckDto`. */
+export interface CheckDto {
+  id: string;
+  command: string;
+  timeoutSecs: number;
+  /** `not_run`, `passed`, `failed` or `timed_out`. */
+  result: string;
+  /** The commit the current result ran against; `null` when not run. */
+  commitSha: string | null;
+}
+
+/** An Acceptance criterion of one Story — mirrors `commands/criterion.rs`'s `AcceptanceCriterionDto`. */
+export interface AcceptanceCriterionDto {
+  id: string;
+  storyId: string;
+  statement: string;
+  accepted: boolean;
+  acceptedAt: string | null;
+  rank: string;
+  /** `null` means the criterion is judged at review. */
+  check: CheckDto | null;
+}
+
+/** Add a criterion at the end of `storyId`'s list. */
+export async function criterionCreate(storyId: string, statement: string): Promise<AcceptanceCriterionDto> {
+  return invokeCommand<AcceptanceCriterionDto>("criterion_create", { storyId, statement });
+}
+
+/** A Story's criteria, in order, each with its Check and current result. Read-only. */
+export async function criterionList(storyId: string): Promise<AcceptanceCriterionDto[]> {
+  return invokeCommand<AcceptanceCriterionDto[]>("criterion_list", { storyId });
+}
+
+/** Rewrite a criterion's statement (clears an acceptance already recorded). */
+export async function criterionAmend(criterionId: string, statement: string): Promise<void> {
+  await invokeCommand<void>("criterion_amend", { criterionId, statement });
+}
+
+/** Accept a criterion at review. Human-only. */
+export async function criterionAccept(criterionId: string): Promise<void> {
+  await invokeCommand<void>("criterion_accept", { criterionId });
+}
+
+/** Withdraw a criterion's acceptance. Human-only. */
+export async function criterionUnaccept(criterionId: string): Promise<void> {
+  await invokeCommand<void>("criterion_unaccept", { criterionId });
+}
+
+/** Delete a criterion and its Check. */
+export async function criterionDelete(criterionId: string): Promise<void> {
+  await invokeCommand<void>("criterion_delete", { criterionId });
+}
+
+/** Attach or replace the Check on a criterion; replacing it resets its result. Human-only. */
+export async function checkSet(criterionId: string, command: string, timeoutSecs?: number | null): Promise<void> {
+  await invokeCommand<void>("check_set", { criterionId, command, timeoutSecs: timeoutSecs ?? null });
+}
+
+/** Remove the Check from a criterion, which is then judged at review. Human-only. */
+export async function checkRemove(criterionId: string): Promise<void> {
+  await invokeCommand<void>("check_remove", { criterionId });
+}
+
+/** One Task on a Story's checklist — mirrors `commands/Story.rs`'s `TaskDto`. */
+export interface TaskDto {
+  id: string;
+  storyId: string;
+  title: string;
+  /** `open`, `doing`, `done` or `dropped`. */
+  state: string;
+  droppedReason: string | null;
+  rank: string;
+}
+
+/** Add a Task at the end of a Story's checklist. */
+export async function taskAdd(storyId: string, title: string): Promise<TaskDto> {
+  return invokeCommand<TaskDto>("task_add", { storyId, title });
+}
+
+/** A Story's checklist, in order. Read-only. */
+export async function taskList(storyId: string): Promise<TaskDto[]> {
+  return invokeCommand<TaskDto[]>("task_list", { storyId });
+}
+
+/** Move a Task to `open`, `doing`, `done` or `dropped` (a drop needs its one-line reason). */
+export async function taskSetState(taskId: string, to: string, droppedReason?: string | null): Promise<void> {
+  await invokeCommand<void>("task_set_state", { taskId, to, droppedReason: droppedReason ?? null });
+}
+
+/** A Proposal an agent filed — mirrors `commands/proposal.rs`'s `ProposalDto`. */
+export interface ProposalDto {
+  id: string;
+  projectId: string;
+  agentRunId: string | null;
+  epicId: string | null;
+  /** `create`, `amend`, `reorder` or `retire`. */
+  verb: string;
+  /** `milestone`, `epic`, `story`, `criterion`, `adr` or `glossary_term`. */
+  targetType: string;
+  targetId: string | null;
+  payload: unknown;
+  rationale: string | null;
+  state: string;
+  createdAt: string;
+}
+
+/** A project's pending Proposals, oldest first. Read-only. */
+export async function proposalListPending(projectId: string): Promise<ProposalDto[]> {
+  return invokeCommand<ProposalDto[]>("proposal_list_pending", { projectId });
+}
+
+/** Accept a pending Proposal. Human-only. */
+export async function proposalAccept(proposalId: string): Promise<void> {
+  await invokeCommand<void>("proposal_accept", { proposalId });
+}
+
+/** Reject a pending Proposal, keeping the reason for the Epic's packet. Human-only. */
+export async function proposalReject(proposalId: string, reason?: string | null): Promise<void> {
+  await invokeCommand<void>("proposal_reject", { proposalId, reason: reason ?? null });
+}
+
+/** One event of an activity trail — mirrors `commands/events.rs`'s `EventDto`. `description` is the
+ * core's one-line sentence; the raw payload never crosses the IPC boundary. */
+export interface EventDto {
+  id: string;
+  projectId: string;
+  origin: string;
+  sequence: number;
+  actorId: string;
+  eventType: string;
+  description: string;
+  occurredAt: string;
+}
+
+/** A Story's or an Epic's chronological activity trail, windowed. Read-only. */
+export async function eventsActivityTrail(
+  parentKind: "story" | "epic",
+  parentId: string,
+  limit?: number,
+  offset?: number,
+): Promise<EventDto[]> {
+  return invokeCommand<EventDto[]>("events_activity_trail", { parentKind, parentId, limit, offset });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Agent sessions on a Story.
+// ---------------------------------------------------------------------------------------------
+
+/** A started agent run — mirrors `commands/agent_run.rs`'s `AgentRunDto`. */
+export interface AgentRunDto {
+  id: string;
+  storyId: string;
+  status: string;
+  permissionMode: string;
+}
+
+/**
+ * Start a fresh agent run on `storyId` (D-30: always fresh, never `--resume`). Thin typed wrapper
+ * over `agent_run_start`.
+ */
 export async function startAgentRun(
-  taskId: string,
+  storyId: string,
   permissionMode: string,
   instruction?: string,
 ): Promise<AgentRunDto> {
-  return invokeCommand<AgentRunDto>("agent_run_start", { taskId, permissionMode, instruction });
+  return invokeCommand<AgentRunDto>("agent_run_start", { storyId, permissionMode, instruction });
 }
 
 /**
- * One decision entry inside a summary's `decisions` list, or the packet's own deduplicated
- * `decisions` list — mirrors `commands/agent_run.rs`'s `DecisionDto` field-for-field (plan 04-09
- * Task 1).
- */
-export interface DecisionDto {
-  id: string;
-  statement: string;
-}
-
-/**
- * One prior-session summary, oldest-first — mirrors `commands/agent_run.rs`'s
- * `SessionSummaryDto` field-for-field.
+ * One prior-session summary, oldest-first — mirrors `commands/agent_run.rs`'s `SessionSummaryDto`.
+ * `isStub` marks the fallback summary written when the agent did not report one.
  */
 export interface SessionSummaryDto {
   agentRunId: string;
   createdAt: string;
-  autoGenerated: boolean;
-  changedFiles: string[];
-  changedProse: string | null;
-  remains: string | null;
-  nextSessionMustKnow: string | null;
-  decisions: DecisionDto[];
+  isStub: boolean;
+  nextSessionMustKnow: string;
+  decisions: string;
 }
 
 /**
- * A full acceptance-criterion row (BOARD-02/BOARD-03) — mirrors `commands/criterion.rs`'s
- * `CriterionDto` field-for-field, including the revision markers D-77/D-79 added (plan 04-10).
- * Distinct from this file's own `CriterionDto` above (the launch sheet's read-only
- * statement/verificationHint-only projection of `commands/agent_run.rs`'s differently-scoped,
- * same-named Rust struct) — the two Rust structs share a name but not a shape.
- */
-export interface AcceptanceCriterionDto {
-  id: string;
-  parentType: string;
-  parentId: string;
-  statement: string;
-  verificationHint: string | null;
-  checked: boolean;
-  rank: string;
-  revision: number;
-  revisionOf: string | null;
-  supersededAt: string | null;
-}
-
-/**
- * Revise a criterion (D-76/D-77, plan 04-10) — the developer-facing edit surface. The domain
- * layer decides whether this lands as an in-place edit or mints an appended revision; this
- * wrapper carries no lock logic of its own. Thin typed wrapper over `criterion_revise`.
- */
-export async function reviseCriterion(
-  criterionId: string,
-  statement: string,
-  verificationHint: string | null,
-): Promise<AcceptanceCriterionDto> {
-  return invokeCommand<AcceptanceCriterionDto>("criterion_revise", {
-    criterionId,
-    statement,
-    verificationHint,
-  });
-}
-
-/**
- * A criterion's whole revision chain, newest first (D-79's expand-to-prior-text read, plan
- * 04-10). Read-only. Thin typed wrapper over `criterion_revisions`.
- */
-export async function criterionRevisions(criterionId: string): Promise<AcceptanceCriterionDto[]> {
-  return invokeCommand<AcceptanceCriterionDto[]>("criterion_revisions", { criterionId });
-}
-
-/**
- * A bounded page of an agent run's durable session log (D-33, D-34, plan 02-07 Task 1) — the same
- * `LIMIT`/`OFFSET` windowed-read shape `events_activity_trail` already uses, server-capped at
- * 100 rows regardless of what is requested (T-02-06). `total` is the log's true complete-line
- * count at read time, so `useSessionFeed` (`board/useBoardQuery.ts`) can page backwards from the
- * tail rather than forward from the start. Mirrors `commands/agent_run.rs`'s `LogWindowDto`
- * field-for-field.
+ * A bounded page of an agent run's durable session log (D-33, D-34) — server-capped at 100 rows
+ * regardless of what is requested. `total` is the log's true complete-line count at read time, so
+ * `useSessionFeed` (`board/useBoardQuery.ts`) can page backwards from the tail.
  */
 export interface LogWindowDto {
   entries: Record<string, unknown>[];
@@ -191,9 +406,8 @@ export async function agentRunLogWindow(
 }
 
 /**
- * The raw view's own bounded read (D-32's escape hatch, plan 02-07 Task 1/3) — the same windowing
- * shape `agentRunLogWindow` uses, but each entry is a line's VERBATIM text plus its 0-based line
- * number, never a parsed value. Mirrors `commands/agent_run.rs`'s `RawLogWindowDto` field-for-field.
+ * The raw view's own bounded read (D-32's escape hatch) — each entry is a line's VERBATIM text plus
+ * its 0-based line number, never a parsed value.
  */
 export interface RawLogLineDto {
   line: number;
@@ -219,52 +433,46 @@ export async function agentRunRawWindow(
   });
 }
 
-/**
- * One row of a task's Runs section (02-UI-SPEC.md "Runs section", plan 02-07 Task 1) — mirrors
- * `commands/agent_run.rs`'s `RunSummaryDto` field-for-field.
- */
+/** One of a Story's agent runs — mirrors `commands/agent_run.rs`'s `RunSummaryDto`. */
 export interface RunSummaryDto {
   id: string;
-  taskId: string;
+  storyId: string;
   status: string;
   startedAt: string;
   endedAt: string | null;
   costUsd: number | null;
   tokensIn: number | null;
   tokensOut: number | null;
-  /** D-30's session identity (plan 02-08 Task 2) — `null` until the sidecar's `init` event
-   * reports it. The Runs section renders it alongside the run's own id (`Run · session
-   * {externalSessionId}`) so a run and its session read as one linked record. */
+  /** D-30's session identity — `null` until the sidecar's `init` event reports it. */
   externalSessionId: string | null;
-  /** `agent_runs.acknowledged_at` verbatim (plan 03-10, D-49) — `null` until the abandoned-run
-   * row's Acknowledge button writes it. The Acknowledge button renders only while
-   * `status === "abandoned"` AND this is `null`. */
+  /** `null` until the run is acknowledged. */
   acknowledgedAt: string | null;
-  /** The abandoned-run explanation's own timestamp (plan 03-10, D-50) — non-null only when this
-   * run's status is `abandoned` AND a kill record exists for it and parsed successfully. `null`
-   * for every other status, and also `null` when no kill record exists or it is malformed — the
-   * two are indistinguishable on the wire, both rendering the same honest fallback sentence. */
+  /** The abandoned-run explanation's own timestamp, or `null`. */
   abandonedReason: string | null;
 }
 
-/**
- * `taskId`'s agent runs, newest first, bounded (plan 02-07 Task 1). Thin typed wrapper over
- * `agent_runs_for_task`. Read-only.
- */
-export async function agentRunsForTask(
-  taskId: string,
+/** `storyId`'s agent runs, newest first, bounded. Read-only. Thin wrapper over `agent_runs_for_story`. */
+export async function agentRunsForStory(
+  storyId: string,
   limit?: number,
   offset?: number,
 ): Promise<RunSummaryDto[]> {
-  return invokeCommand<RunSummaryDto[]>("agent_runs_for_task", { taskId, limit, offset });
+  return invokeCommand<RunSummaryDto[]>("agent_runs_for_story", { storyId, limit, offset });
+}
+
+/** Every session summary recorded for `storyId`. Read-only. Thin wrapper over `story_session_summaries`. */
+export async function sessionSummariesForStory(storyId: string): Promise<SessionSummaryDto[]> {
+  return invokeCommand<SessionSummaryDto[]>("story_session_summaries", { storyId });
+}
+
+/** The most recent agent run id for `storyId`, or `null`. Thin wrapper over `story_latest_agent_run`. */
+export async function latestAgentRunIdForStory(storyId: string): Promise<string | null> {
+  return invokeCommand<string | null>("story_latest_agent_run", { storyId });
 }
 
 /**
- * A task's worktree summary line (02-UI-SPEC.md "Worktree summary", plan 02-07 Task 1) — `null`
- * for a task with no worktree yet. Mirrors `commands/agent_run.rs`'s `WorktreeSummaryDto`
- * field-for-field. Thin typed wrapper over `worktree_summary`. Read-only. `status` (plan 03-09,
- * WORK-06/D-45) lets the renderer branch on `"missing"` — the missing-worktree decision banner —
- * without a second call.
+ * A Story's worktree summary line — `null` for a Story with no worktree yet. `status` lets the
+ * renderer branch on `"missing"` without a second call.
  */
 export interface WorktreeSummaryDto {
   branch: string;
@@ -272,71 +480,46 @@ export interface WorktreeSummaryDto {
   status: string;
 }
 
-export async function worktreeSummary(taskId: string): Promise<WorktreeSummaryDto | null> {
-  return invokeCommand<WorktreeSummaryDto | null>("worktree_summary", { taskId });
+export async function worktreeSummary(storyId: string): Promise<WorktreeSummaryDto | null> {
+  return invokeCommand<WorktreeSummaryDto | null>("worktree_summary", { storyId });
 }
 
-/**
- * D-45's "Recreate Worktree" decision (plan 03-09, WORK-06). Re-runs worktree creation against
- * the same recorded branch/base a `missing` row already carries. Refuses (rejects) on any
- * non-`missing` row, naming the actual status. Thin typed wrapper over `worktree_recreate`.
- */
-export async function worktreeRecreate(taskId: string): Promise<void> {
-  await invokeCommand<void>("worktree_recreate", { taskId });
+/** D-45's "Recreate Worktree" decision. Refuses on any non-`missing` row. */
+export async function worktreeRecreate(storyId: string): Promise<void> {
+  await invokeCommand<void>("worktree_recreate", { storyId });
 }
 
-/**
- * D-45's "Remove Record" decision (plan 03-09, WORK-06). Drops the `worktrees` row only — there
- * is nothing on disk to touch. Refuses (rejects) on any non-`missing` row. Thin typed wrapper
- * over `worktree_forget_record`.
- */
-export async function worktreeForgetRecord(taskId: string): Promise<void> {
-  await invokeCommand<void>("worktree_forget_record", { taskId });
+/** D-45's "Remove Record" decision: drops the `worktrees` row only. Refuses on any non-`missing` row. */
+export async function worktreeForgetRecord(storyId: string): Promise<void> {
+  await invokeCommand<void>("worktree_forget_record", { storyId });
 }
 
-/**
- * One `git status --porcelain` entry (WORK-03, plan 03-01 Task 1) — mirrors
- * `commands/agent_run.rs`'s `PorcelainEntryDto` field-for-field.
- */
+/** One `git status --porcelain` entry — mirrors `commands/agent_run.rs`'s `PorcelainEntryDto`. */
 export interface PorcelainEntryDto {
   code: string;
   path: string;
 }
 
-/**
- * The worktree-removal dialog's fresh-at-open-time read (WORK-03, D-41/D-42, plan 03-01 Task 1) —
- * mirrors `commands/agent_run.rs`'s `WorktreeRemovalCheckDto` field-for-field. `null` when the
- * task has no `worktrees` row at all.
- */
+/** The worktree-removal check's fresh read — `null` when the Story has no `worktrees` row. */
 export interface WorktreeRemovalCheckDto {
-  taskKey: string;
+  storyKey: string;
   path: string;
   branch: string;
   entries: PorcelainEntryDto[];
   dirtyCount: number;
 }
 
-/**
- * A fresh, never-cached `git status --porcelain` read for `taskId`'s worktree (WORK-03,
- * D-41/D-42, plan 03-01 Task 1). Read-only. Thin typed wrapper over `worktree_remove_check`.
- */
-export async function worktreeRemovalCheck(taskId: string): Promise<WorktreeRemovalCheckDto | null> {
-  return invokeCommand<WorktreeRemovalCheckDto | null>("worktree_remove_check", { taskId });
+/** A fresh, never-cached `git status --porcelain` read for `storyId`'s worktree. Read-only. */
+export async function worktreeRemovalCheck(storyId: string): Promise<WorktreeRemovalCheckDto | null> {
+  return invokeCommand<WorktreeRemovalCheckDto | null>("worktree_remove_check", { storyId });
 }
 
-/**
- * Remove `taskId`'s worktree (WORK-03, D-41/D-42/D-43, plan 03-01 Task 1). The backend re-reads
- * porcelain itself and refuses on any uncommitted change — this call carries no force flag or
- * override of any kind (D-43). Thin typed wrapper over `worktree_remove`.
- */
-export async function worktreeRemove(taskId: string): Promise<void> {
-  await invokeCommand<void>("worktree_remove", { taskId });
+/** Remove `storyId`'s worktree. The backend refuses on any uncommitted change; no force flag (D-43). */
+export async function worktreeRemove(storyId: string): Promise<void> {
+  await invokeCommand<void>("worktree_remove", { storyId });
 }
 
-/**
- * One row of a task's commit window (Phase 7 plan 07-01, LINK-02) — mirrors
- * `commands/git_truth.rs`'s `CommitRowDto` field-for-field.
- */
+/** One row of a Story's commit window — mirrors `commands/git_truth.rs`'s `CommitRowDto`. */
 export interface CommitRowDto {
   sha: string;
   shortSha: string;
@@ -347,10 +530,8 @@ export interface CommitRowDto {
 }
 
 /**
- * A task's full git truth (Phase 7 plan 07-01, LINK-02/LINK-09) — mirrors
- * `commands/git_truth.rs`'s `GitFactsDto` field-for-field. `null` for a task with no worktree
- * yet. `ahead`/`behind` are both `null` together when the comparison target does not resolve
- * locally (D-116) — never a fabricated `0`.
+ * A Story's full git truth — mirrors `commands/git_truth.rs`'s `GitFactsDto`. `ahead`/`behind` are
+ * both `null` together when the comparison target does not resolve locally (D-116).
  */
 export interface GitFactsDto {
   branch: string;
@@ -364,62 +545,41 @@ export interface GitFactsDto {
   uncommitted: PorcelainEntryDto[];
 }
 
-/**
- * `taskId`'s full git truth, or `null` when the task has no worktree yet. Read-only. Thin typed
- * wrapper over `git_facts`.
- */
-export async function gitFacts(taskId: string): Promise<GitFactsDto | null> {
-  return invokeCommand<GitFactsDto | null>("git_facts", { taskId });
+/** `storyId`'s full git truth, or `null` when it has no worktree yet. Read-only. */
+export async function gitFacts(storyId: string): Promise<GitFactsDto | null> {
+  return invokeCommand<GitFactsDto | null>("git_facts", { storyId });
+}
+
+/** Declares which Story is in focus for the hot git-truth tier (`null` = none). */
+export async function gitTruthFocusStory(storyId: string | null): Promise<void> {
+  await invokeCommand<void>("git_truth_focus_story", { storyId });
 }
 
 /**
- * Declares which task's item detail panel is currently open (D-114's hot-tier "open panel"
- * half) — `null` means no panel is open. Thin typed wrapper over `git_truth_focus_task`.
- */
-export async function gitTruthFocusTask(taskId: string | null): Promise<void> {
-  await invokeCommand<void>("git_truth_focus_task", { taskId });
-}
-
-/**
- * Reports which agent run's session surface is the visible one, or `null` when none is (Phase 10
- * plan 10-07, D-174), so the core can withhold the one banner for the session the user is already
- * looking at. Thin typed wrapper over `fleet_watch_run`; display input only.
+ * Reports which agent run's session surface is the visible one, or `null` when none is (D-174), so
+ * the core can withhold the one banner for the session the user is already looking at.
  */
 export async function fleetWatchRun(agentRunId: string | null): Promise<void> {
   await invokeCommand<void>("fleet_watch_run", { agentRunId });
 }
 
-/**
- * Which of the two "open this worktree" actions a call targets (D-130, LINK-11) — mirrors
- * `domain::worktree::OpenSurface`'s serde representation (`#[serde(rename_all = "lowercase")]`)
- * field-for-field.
- */
+/** Which of the two "open this worktree" actions a call targets (D-130, LINK-11). */
 export type WorktreeOpenSurface = "editor" | "terminal";
 
 /**
- * Open `taskId`'s worktree in the user's own editor or terminal (D-130, LINK-11), running the
- * command template stored for `surface` with the worktree path substituted. The backend resolves
- * the full argv and spawns it directly with no shell interpreter — this call carries no program
- * name, argument or path, only the task id and the surface. Thin typed wrapper over
- * `worktree_open`.
+ * Open `storyId`'s worktree in the user's own editor or terminal (D-130). The backend resolves the
+ * full argv and spawns it directly with no shell — this call carries only the Story id and surface.
  */
-export async function worktreeOpen(taskId: string, surface: WorktreeOpenSurface): Promise<void> {
-  await invokeCommand<void>("worktree_open", { taskId, surface });
+export async function worktreeOpen(storyId: string, surface: WorktreeOpenSurface): Promise<void> {
+  await invokeCommand<void>("worktree_open", { storyId, surface });
 }
 
-/**
- * `surface`'s stored open-command template, or its own default when unset (D-130) — the Settings
- * surface's pre-filled field value. Read-only. Thin typed wrapper over `open_command_template`.
- */
+/** `surface`'s stored open-command template, or its own default when unset (D-130). Read-only. */
 export async function openCommandTemplate(surface: WorktreeOpenSurface): Promise<string> {
   return invokeCommand<string>("open_command_template", { surface });
 }
 
-/**
- * Set `surface`'s stored open-command template (D-130). Rejects (rejects the returned promise)
- * on an empty or whitespace-only template, naming the surface — the core's own rejection text,
- * not a client-side validation. Thin typed wrapper over `set_open_command_template`.
- */
+/** Set `surface`'s stored open-command template (D-130). Rejects an empty template. */
 export async function setOpenCommandTemplate(
   surface: WorktreeOpenSurface,
   template: string,
@@ -427,10 +587,8 @@ export async function setOpenCommandTemplate(
   await invokeCommand<void>("set_open_command_template", { surface, template });
 }
 
-/**
- * A resolved git identifier's board item (Phase 7 plan 07-05, LINK-04/D-128) — mirrors
- * `commands/git_identity.rs`'s `GitIdentityResolutionDto` field-for-field.
- */
+/** A resolved git identifier's Story — mirrors `commands/git_identity.rs`'s `GitIdentityResolutionDto`.
+ * `itemKind` is `"story"`. */
 export interface GitIdentityResolutionDto {
   projectId: string;
   itemKind: string;
@@ -441,21 +599,14 @@ export interface GitIdentityResolutionDto {
   runId: string | null;
 }
 
-/**
- * Every shape `git_identifier_resolve` can return (Phase 7 plan 07-05) — mirrors
- * `commands/git_identity.rs`'s `GitIdentityOutcomeDto`, internally tagged on `outcome` so a
- * caller narrows on one field rather than guessing which payload fields are present.
- */
+/** Every shape `git_identifier_resolve` can return, internally tagged on `outcome`. */
 export type GitIdentityOutcomeDto =
   | { outcome: "resolved"; resolution: GitIdentityResolutionDto }
   | { outcome: "notFound" }
   | { outcome: "ambiguousPrefix"; matches: number }
   | { outcome: "ambiguousAcrossRepositories"; repositories: number };
 
-/**
- * Resolve a pasted commit hash or `flywheel/` branch name to its board item (D-127/D-128,
- * LINK-04). Read-only. Thin typed wrapper over `git_identifier_resolve`.
- */
+/** Resolve a pasted commit hash or `flywheel/` branch name to its Story (D-127/D-128). Read-only. */
 export async function gitIdentifierResolve(raw: string): Promise<GitIdentityOutcomeDto> {
   return invokeCommand<GitIdentityOutcomeDto>("git_identifier_resolve", { raw });
 }
@@ -463,7 +614,7 @@ export async function gitIdentifierResolve(raw: string): Promise<GitIdentityOutc
 /**
  * Subscribe to `agent:event`, the Rust core's live push of one normalised agent event at a time
  * (D-32) — the session surface invalidates its windowed read on this, never trusting a streamed
- * event as already-persisted (mirrors `subscribeBoardChanged`'s own D-04 discipline).
+ * event as already-persisted.
  */
 export async function subscribeAgentEvent(
   handler: (event: Record<string, unknown>) => void,
@@ -471,82 +622,51 @@ export async function subscribeAgentEvent(
   return listen<Record<string, unknown>>("agent:event", (event) => handler(event.payload));
 }
 
-/**
- * What `agent_run_stop` returns (CR-04, plan 02-11) — the mirror of the Rust command's
- * `AgentRunStopDto`.
- */
+/** What `agent_run_stop` returns — the mirror of the Rust command's `AgentRunStopDto`. */
 export interface AgentRunStopResult {
   status: string;
   sidecarWarning: string | null;
 }
 
 /**
- * Stop a running agent run (D-35: interrupt, then force; plan 02-02; CR-04 fix in plan 02-11).
- * Thin typed wrapper over `agent_run_stop`, following `invokeCommand`'s single-seam rule. This
- * call's resolution carries the status Flywheel RECORDED — the terminal write is never gated on
- * the sidecar's acknowledgement, so this promise always resolves to a terminal status once the
- * command succeeds. The pushed `agent:event`'s `session_closed` reason remains the source for
- * what the agent process actually did on its own; the two can legitimately disagree when the
- * sidecar is unreachable, which is exactly what `sidecarWarning` is for.
+ * Stop a running agent run (D-35: interrupt, then force). The resolution carries the status
+ * Flywheel RECORDED; `sidecarWarning` is set when the sidecar could not confirm.
  */
 export async function stopAgentRun(agentRunId: string): Promise<AgentRunStopResult> {
   return invokeCommand<AgentRunStopResult>("agent_run_stop", { agentRunId });
 }
 
 /**
- * Discard a live agent run in one action (D-66/D-67, CTX-08, plan 04-13) — the phase's flagship
- * verb. Gives the agent's own closing summary a bounded window to land, then ends the session
- * through the EXACT SAME interrupt-then-force path `stopAgentRun` uses. Thin typed wrapper over
- * `agent_run_discard`, mirroring `stopAgentRun`'s own wrapper shape exactly and returning the same
- * DTO type — the renderer's existing status/warning handling applies unchanged, since the caller
- * cannot (and does not need to) tell from the return shape alone whether the summary that ended up
- * recorded was agent-authored or the fallback synthesizer's.
+ * Discard a live agent run in one action (D-66/D-67): give the agent's closing summary a bounded
+ * window to land, then end the session through the same path `stopAgentRun` uses.
  */
 export async function discardSession(agentRunId: string): Promise<AgentRunStopResult> {
   return invokeCommand<AgentRunStopResult>("agent_run_discard", { agentRunId });
 }
 
 /**
- * Every session summary recorded for `taskId` (plan 04-09 Task 3) — the item detail panel's own
- * read. Read-only. Thin typed wrapper over
- * `task_session_summaries`, reusing the same `SessionSummaryDto` the launch sheet already uses —
- * no second DTO shape.
- */
-export async function sessionSummariesForTask(taskId: string): Promise<SessionSummaryDto[]> {
-  return invokeCommand<SessionSummaryDto[]>("task_session_summaries", { taskId });
-}
-
-/**
- * The acknowledgment of a finished run (D-49 for `abandoned`, widened by plan 10-04 to `completed`,
- * `failed` and `interrupted`). Thin typed wrapper over `agent_run_acknowledge`. Changes nothing about
- * the run's status — it records only that the user has dealt with it, which is what clears its fleet
- * row. A no-op (rejects nothing, writes nothing) when the target run is live or already acknowledged;
- * the backend's statement guards this, not the renderer.
+ * Acknowledge a finished run. Changes nothing about its status — it records only that the user has
+ * dealt with it, which is what clears its fleet row. A no-op on a live or already-acknowledged run.
  */
 export async function acknowledgeAgentRun(agentRunId: string): Promise<void> {
   await invokeCommand<void>("agent_run_acknowledge", { agentRunId });
 }
 
-/** One id's outcome of a batch acknowledge; `acknowledged: false` with no `error` covers an unknown,
- * live or already-acknowledged run, and never fails the rest of the batch. `error` is set when the
- * write itself failed, which is not the same as there being nothing to dismiss. */
+/** One id's outcome of a batch acknowledge. */
 export interface AcknowledgeResultDto {
   agentRunId: string;
   acknowledged: boolean;
   error?: string | null;
 }
 
-/** The fleet's "Dismiss finished" action (plan 10-04): ids only. A list longer than the server-side
- * cap is refused as a whole, so the promise rejects rather than dismissing part of it. */
+/** The fleet's "Dismiss finished" action: ids only. An over-long list is refused as a whole. */
 export async function agentRunAcknowledgeMany(agentRunIds: string[]): Promise<AcknowledgeResultDto[]> {
   return invokeCommand<AcknowledgeResultDto[]>("agent_run_acknowledge_many", { agentRunIds });
 }
 
 /**
- * Answer a pending permission request from the board (AGNT-06, D-38, plan 02-05). `decision` is
- * exactly `"allow"`, `"deny"` or `"allow_always"` — validated server-side before any database
- * call, so an unrecognised value never reaches `packages/core`. Thin typed wrapper over
- * `agent_run_answer_permission`, following `invokeCommand`'s single-seam rule.
+ * Answer a pending permission request (AGNT-06, D-38). `decision` is exactly `"allow"`, `"deny"` or
+ * `"allow_always"` — validated server-side before any database call.
  */
 export async function answerPermissionRequest(
   requestId: string,
@@ -556,88 +676,45 @@ export async function answerPermissionRequest(
 }
 
 /**
- * One project-scoped allow-always rule (D-38) — mirrors `commands/agent_run.rs`'s
- * `PermissionRuleDto` field-for-field.
+ * One project-scoped permission rule — mirrors `commands/agent_run.rs`'s `PermissionRuleDto`. A rule
+ * only ever allows: `tool` is the tool it covers and `pattern` narrows it.
  */
 export interface PermissionRuleDto {
   id: string;
   projectId: string;
-  toolName: string;
-  decision: string;
+  tool: string;
+  pattern: string;
   createdAt: string;
 }
 
-/**
- * List `projectId`'s allow-always rules (D-38, plan 02-10's Settings surface). Read-only.
- */
+/** List `projectId`'s permission rules. Read-only. */
 export async function listPermissionRules(projectId: string): Promise<PermissionRuleDto[]> {
   return invokeCommand<PermissionRuleDto[]>("permission_rules_list", { projectId });
 }
 
-/**
- * Revoke an allow-always rule (D-38, plan 02-10's Settings surface).
- */
+/** Revoke a permission rule. */
 export async function revokePermissionRule(ruleId: string): Promise<void> {
   await invokeCommand<void>("permission_rule_revoke", { ruleId });
 }
 
-/**
- * One pending `permission_requests` row (AGNT-06, plan 02-06) — mirrors
- * `commands/agent_run.rs`'s `PendingPermissionRequestDto` field-for-field. The permission-request
- * card's own data source.
- */
+/** One pending permission request — mirrors `commands/agent_run.rs`'s `PendingPermissionRequestDto`. */
 export interface PendingPermissionRequestDto {
   id: string;
   toolName: string;
   inputPayload: string | null;
   createdAt: string;
-  /** `null` for a routine request, or one of `DestructiveCategory::as_str()`'s kebab-case names
-   * (e.g. `"force-push"`, `"uncategorized"`) for a destructive one — selects the destructive-
-   * action gate card's variant (03-12, D-55/D-56). */
+  /** `null` for a routine request, or a `DestructiveCategory` kebab-case name for a destructive one. */
   destructiveCategory: string | null;
 }
 
-/**
- * Every pending permission request for `agentRunId`, oldest first (AGNT-06, plan 02-06 Task 2).
- * Read-only. Thin typed wrapper over `agent_run_pending_permissions`.
- */
+/** Every pending permission request for `agentRunId`, oldest first. Read-only. */
 export async function pendingPermissionRequests(agentRunId: string): Promise<PendingPermissionRequestDto[]> {
   return invokeCommand<PendingPermissionRequestDto[]>("agent_run_pending_permissions", { agentRunId });
 }
 
-/**
- * The most recent agent run id for `taskId`, or `null` if the task has never had a run (AGNT-06,
- * plan 02-06 Task 2) — the item detail panel's own resolution of "this task's active run." Thin
- * typed wrapper over `task_latest_agent_run`.
- */
-export async function latestAgentRunIdForTask(taskId: string): Promise<string | null> {
-  return invokeCommand<string | null>("task_latest_agent_run", { taskId });
-}
-
-/** A board item's key and title — enough to name it (plan 11-22, finish-review four-1). */
-export interface ItemHeaderDto {
-  key: string;
-  title: string;
-}
-
-/** The task a session serves, by id; `null` when it no longer exists. Thin typed wrapper over `task_header`. */
-export async function taskHeader(taskId: string): Promise<ItemHeaderDto | null> {
-  return invokeCommand<ItemHeaderDto | null>("task_header", { taskId });
-}
-
-/** The epic an authoring session serves, by id; `null` when it no longer exists. Wrapper over `epic_header`. */
-export async function epicHeader(epicId: string): Promise<ItemHeaderDto | null> {
-  return invokeCommand<ItemHeaderDto | null>("epic_header", { epicId });
-}
-
-/**
- * D-37's board-visible blocked signal for one project (plan 02-06 Task 3): every blocked task id
- * plus the count, read together so the board row indicator and the project-rail badge always agree
- * (one read, never two that could disagree at different moments). Read-only. Thin typed wrapper
- * over `board_blocked_summary`.
- */
+/** D-37's blocked signal for one project: every blocked Story id plus the count, read together. */
 export interface BlockedSummaryDto {
-  blockedTaskIds: string[];
+  blockedStoryIds: string[];
   blockedCount: number;
 }
 
@@ -645,15 +722,10 @@ export async function blockedSummary(projectId: string): Promise<BlockedSummaryD
   return invokeCommand<BlockedSummaryDto>("board_blocked_summary", { projectId });
 }
 
-/**
- * D-46's board-visible "recovery needed" signal for one project (plan 03-11): every task id with
- * an outstanding recovery item (a missing worktree, or an unacknowledged abandoned run) plus the
- * count, read together so the board row pill and the project-rail badge always agree. Read-only.
- * Thin typed wrapper over `board_recovery_summary`. Mirrors `commands/agent_run.rs`'s
- * `RecoverySummaryDto` field-for-field.
- */
+/** D-46's "recovery needed" signal for one project: every Story id with an outstanding recovery item
+ * (a missing worktree, or an unacknowledged abandoned run) plus the count, read together. */
 export interface RecoverySummaryDto {
-  recoveryTaskIds: string[];
+  recoveryStoryIds: string[];
   recoveryCount: number;
 }
 
@@ -661,125 +733,70 @@ export async function boardRecoverySummary(projectId: string): Promise<RecoveryS
   return invokeCommand<RecoverySummaryDto>("board_recovery_summary", { projectId });
 }
 
-/**
- * One genuinely-alive orphaned run the launch reconciler found (plan 03-06, PROC-05, D-46) —
- * mirrors `commands/agent_run.rs`'s `PendingOrphanDto` field-for-field. Carries no cost or token
- * fields (those are AGNT-08, Phase 10) and no live stream handle — the process here is being
- * killed, not observed.
- */
+/** One genuinely-alive orphaned run the launch reconciler found (PROC-05, D-46) — mirrors
+ * `commands/agent_run.rs`'s `PendingOrphanDto`. */
 export interface PendingOrphanDto {
   runId: string;
-  taskId: string | null;
-  taskKey: string | null;
-  taskTitle: string | null;
-  epicId: string | null;
-  epicKey: string | null;
-  epicTitle: string | null;
+  storyId: string;
+  storyKey: string;
+  storyTitle: string;
   projectId: string;
   externalSessionId: string | null;
   pid: number;
   startedAt: string;
 }
 
-/**
- * The launch-time live-orphan list (plan 03-06). Read-only. Thin typed wrapper over
- * `agent_runs_pending_orphans` — the same list `main.rs`'s `.setup()` resolved once at startup,
- * before any window was shown.
- */
+/** The launch-time live-orphan list. Read-only. */
 export async function pendingOrphans(): Promise<PendingOrphanDto[]> {
   return invokeCommand<PendingOrphanDto[]>("agent_runs_pending_orphans");
 }
 
-/**
- * What `orphan_kill` returns (plan 03-06, T-03-06-04) — mirrors `commands/agent_run.rs`'s
- * `OrphanKillDto` field-for-field. `killed: false` means the process was still alive after the
- * signal and the bounded re-check — never a success the backend did not actually observe.
- */
+/** What `orphan_kill` returns. `killed: false` means the process survived the signal. */
 export interface OrphanKillDto {
   killed: boolean;
   pid: number;
   detail: string | null;
 }
 
-/**
- * Kill one live orphan by `agentRunId` (plan 03-06, D-30, D-48) — the only verb the
- * orphan-recovery modal offers. Thin typed wrapper over `orphan_kill`. The run reaches
- * `abandoned` in the database regardless of `killed`; a `false` result means the process itself
- * survived the signal, which the modal renders rather than dismissing the row.
- */
+/** Kill one live orphan by `agentRunId` — the only verb the orphan-recovery modal offers. */
 export async function orphanKill(agentRunId: string): Promise<OrphanKillDto> {
   return invokeCommand<OrphanKillDto>("orphan_kill", { agentRunId });
 }
 
-/**
- * One registered project's credential-mode override (D-39, plan 02-09) — mirrors
- * `commands/settings.rs`'s `ProjectCredentialOverrideDto` field-for-field. `credentialMode` is
- * `null` when the project has no override ("use the global default").
- */
+// ---------------------------------------------------------------------------------------------
+// Settings.
+// ---------------------------------------------------------------------------------------------
+
+/** One registered project's credential-mode override (D-39); `null` means "use the global default". */
 export interface ProjectCredentialOverrideDto {
   projectId: string;
   projectName: string;
   credentialMode: string | null;
 }
 
-/**
- * The full Settings read (D-39, plan 02-09) — mirrors `commands/settings.rs`'s `SettingsDto`
- * field-for-field. Never carries the API key value itself, only whether one is configured and
- * when.
- */
+/** The full Settings read (D-39) — never carries the API key value itself. */
 export interface SettingsDto {
   globalCredentialMode: string;
   projectOverrides: ProjectCredentialOverrideDto[];
   apiKeyConfigured: boolean;
   apiKeyConfiguredAt: string | null;
-  dispatchCap: DispatchCapDto;
-  /** The one global OS-notification switch (Phase 10 plan 10-07, D-176). */
+  /** The one global OS-notification switch (D-176). */
   notificationsEnabled: boolean;
 }
 
-/**
- * The global parallel-agent cap beside the number of agent slots in use right now (Phase 9 plan
- * 09-04, D-159) — mirrors `commands/settings.rs`'s `DispatchCapDto` field-for-field. The occupied
- * count is read from the database, so it includes every project and every run kind.
- */
-export interface DispatchCapDto {
-  maxParallel: number;
-  occupiedSlots: number;
-}
-
-/**
- * Set the global cap on concurrently running agent sessions (1 to 8). Human-only. It gates the
- * dispatcher's own spawns only and never a user's own launch. Thin typed wrapper over
- * `settings_set_dispatch_max_parallel`.
- */
-export async function settingsSetDispatchMaxParallel(value: number): Promise<DispatchCapDto> {
-  return invokeCommand<DispatchCapDto>("settings_set_dispatch_max_parallel", { value });
-}
-
-/**
- * Set the one global switch for OS notifications on a blocked, finished or failed agent (Phase 10
- * plan 10-07, D-176). Human-only. Returns the stored value. Thin typed wrapper over
- * `settings_set_notifications_enabled`.
- */
+/** Set the one global switch for OS notifications. Human-only. Returns the stored value. */
 export async function settingsSetNotificationsEnabled(value: boolean): Promise<boolean> {
   return invokeCommand<boolean>("settings_set_notifications_enabled", { value });
 }
 
-/**
- * Read the full Settings state (D-39, plan 02-09's mechanism; plan 02-10 renders it). Read-only.
- * Thin typed wrapper over `settings_get`.
- */
+/** Read the full Settings state. Read-only. */
 export async function getSettings(): Promise<SettingsDto> {
   return invokeCommand<SettingsDto>("settings_get");
 }
 
 /**
- * Set the credential mode at either scope (D-39, plan 02-09), or clear a project's override back
- * to "use the global default" (`mode: null`, plan 02-10 Task 1 — the per-project row's third
- * segmented-control option). `scope` is exactly `"global"` or `"project"`; `projectId` is required
- * (and only meaningful) for `"project"`; `null` is only meaningful for `"project"` — the global
- * default itself cannot be cleared, only reassigned to one of the two real modes. Thin typed
- * wrapper over `settings_set_credential_mode`.
+ * Set the credential mode at either scope (D-39), or clear a project's override back to "use the
+ * global default" (`mode: null`, project scope only).
  */
 export async function setCredentialMode(
   scope: "global" | "project",
@@ -789,28 +806,17 @@ export async function setCredentialMode(
   await invokeCommand<void>("settings_set_credential_mode", { scope, projectId, mode });
 }
 
-/**
- * Store the API key in the macOS Keychain (D-39, plan 02-09). Thin typed wrapper over
- * `settings_store_api_key` — the value never round-trips back out through any command.
- */
+/** Store the API key in the macOS Keychain — the value never round-trips back out. */
 export async function storeApiKey(value: string): Promise<void> {
   await invokeCommand<void>("settings_store_api_key", { value });
 }
 
-/**
- * Clear the stored API key (D-39, plan 02-09). Idempotent. Thin typed wrapper over
- * `settings_clear_api_key`.
- */
+/** Clear the stored API key. Idempotent. */
 export async function clearApiKey(): Promise<void> {
   await invokeCommand<void>("settings_clear_api_key");
 }
 
-/**
- * Whether the local `claude` backend binary is resolvable, and its reported version (plan 02-09
- * Task 3) — mirrors `commands/settings.rs`'s `BackendCapabilityDto` field-for-field. Read-only:
- * never spawns a session, never touches a credential. Thin typed wrapper over
- * `backend_capability_probe`.
- */
+/** Whether the local `claude` backend binary is resolvable, and its reported version. */
 export interface BackendCapabilityDto {
   available: boolean;
   version: string | null;
@@ -821,85 +827,14 @@ export async function backendCapabilityProbe(): Promise<BackendCapabilityDto> {
   return invokeCommand<BackendCapabilityDto>("backend_capability_probe");
 }
 
-/**
- * One normalised pull/merge request (Phase 7 plan 07-08, LINK-05/LINK-06) — mirrors
- * `commands/forge.rs`'s `ForgeRequestDto` field-for-field. `state`/`ci` are the exact Rust variant
- * names `forge::ForgeState`/`forge::CiResult` serialize as — one source for these words.
- */
-export interface ForgeRequestDto {
-  state: "None" | "Open" | "ChangesRequested" | "Merged" | "ClosedUnmerged";
-  ci: "None" | "Pending" | "Passed" | "Failed";
-  number: number;
-  title: string;
-  url: string;
-  ciUrl: string | null;
-  isDraft: boolean;
-  targetBranch: string;
-}
+// ---------------------------------------------------------------------------------------------
+// The fleet and the worktree inventory.
+// ---------------------------------------------------------------------------------------------
 
 /**
- * `forgeRequestForTask`'s whole result (Phase 7 plan 07-08) — mirrors `commands/forge.rs`'s
- * `ForgeReadDto` field-for-field, a tagged union on `outcome`. `cliFailed`/`malformedJson` never
- * carry the CLI's raw stderr — the error category only (T-07-08-01).
- */
-export type ForgeReadDto =
-  | { outcome: "noWorktree" }
-  | { outcome: "noForgeConfigured" }
-  | { outcome: "noRequest" }
-  | { outcome: "request"; request: ForgeRequestDto; unmetCriteria: number }
-  | { outcome: "cliNotInstalled"; cli: string }
-  | { outcome: "cliNotAuthenticated"; cli: string }
-  | { outcome: "cliFailed"; cli: string }
-  | { outcome: "malformedJson"; cli: string };
-
-/**
- * `taskId`'s live forge request (Phase 7 plan 07-08, LINK-05/LINK-06, D-75) — derived fresh on
- * every call, never a cached verdict. Read-only (it shells out to the user's own
- * already-authenticated `gh`/`glab` CLI, but mutates nothing in Flywheel's own database). Thin
- * typed wrapper over `forge_request_for_task`.
- */
-export async function forgeRequestForTask(taskId: string): Promise<ForgeReadDto> {
-  return invokeCommand<ForgeReadDto>("forge_request_for_task", { taskId });
-}
-
-/**
- * The board's bounded, log-only CI-failure/unmet-criteria rollup for one project (Phase 7 plan
- * 07-08, D-124/D-123) — mirrors `commands/forge.rs`'s `ForgeFlagDto` field-for-field. Read-only.
- * Thin typed wrapper over `board_forge_flags`.
- */
-export interface ForgeFlagDto {
-  taskId: string;
-  ciFailed: boolean;
-  unmetCriteria: number;
-}
-
-export async function boardForgeFlags(projectId: string): Promise<ForgeFlagDto[]> {
-  return invokeCommand<ForgeFlagDto[]>("board_forge_flags", { projectId });
-}
-
-/**
- * One active worktree's change state (Phase 8.1 plan 01, D-15/D-16) — mirrors
- * `commands/change_flags.rs`'s `ChangeFlagDto` field-for-field. `ahead: null` is cannot-measure
- * (the base ref did not resolve), which is NOT the same as `0` (level with its base). A task with
- * no active worktree has no entry at all. Read-only; takes a project id and nothing else.
- */
-export interface ChangeFlagDto {
-  taskId: string;
-  /** The task's epic (`null` = no epic), so the board can roll flags up per epic. */
-  epicId: string | null;
-  ahead: number | null;
-  dirty: boolean;
-}
-
-export async function boardChangeFlags(projectId: string): Promise<ChangeFlagDto[]> {
-  return invokeCommand<ChangeFlagDto[]>("board_change_flags", { projectId });
-}
-
-/**
- * One row of the fleet (Phase 10 plan 10-01, FLEET-01) — mirrors `commands/fleet.rs`'s `FleetRowDto`
- * field-for-field. `fleetState` is the derived state the row draws (`awaiting_review` is a `completed`
- * run whose task is not yet Done; the run status is `runStatus`). `subjectKind` is `task`, `epic` or
- * `authoring`; a run with no task carries `taskKey: null` and the renderer must still draw it.
+ * One row of the fleet (FLEET-01) — mirrors `commands/fleet.rs`'s `FleetRowDto`. `fleetState` is the
+ * derived state the row draws (`awaiting_review` is a `completed` run whose Story is not yet merged
+ * or dropped); the run status is `runStatus`.
  */
 export interface FleetRowDto {
   agentRunId: string;
@@ -907,14 +842,10 @@ export interface FleetRowDto {
   projectName: string;
   projectKeyPrefix: string;
   projectStatus: string;
-  subjectKind: "task" | "epic" | "authoring";
-  taskId: string | null;
-  taskKey: string | null;
-  taskTitle: string | null;
-  taskStatus: string | null;
-  epicId: string | null;
-  epicKey: string | null;
-  authoringStage: string | null;
+  storyId: string;
+  storyKey: string;
+  storyTitle: string;
+  storyState: string;
   runStatus: string;
   fleetState: string;
   startedAt: string;
@@ -924,13 +855,11 @@ export interface FleetRowDto {
   costUsd: number | null;
   tokensIn: number | null;
   tokensOut: number | null;
-  /** The end of the run's session log, raw (plan 10-03, D-167); empty for a run that is not live. The
-   * renderer turns it into one line through the session feed's own normaliser. */
+  /** The end of the run's session log, raw; empty for a run that is not live. */
   activity: FleetActivityDto;
 }
 
-/** Raw tail lines of a live run's session log, oldest first. Empty `lines` means nothing could be read;
- * `truncated` means something was there but did not fit the read window. */
+/** Raw tail lines of a live run's session log, oldest first. */
 export interface FleetActivityDto {
   lines: string[];
   truncated: boolean;
@@ -940,22 +869,16 @@ export interface FleetListDto {
   rows: FleetRowDto[];
   /** The length of `rows` — one source, so the header count and the list cannot disagree. */
   totalRows: number;
-  /** Sum of the visible rows' recorded costs, computed by the core read; `null` when no row has one.
-   * An estimate from a bundled price table, not billing data (plan 10-04). */
+  /** Sum of the visible rows' recorded costs; `null` when no row has one. An estimate. */
   visibleCostUsd: number | null;
 }
 
-/** Every agent run across every registered project, banded and ordered by the Rust core (D-164,
- * D-168). Read-only and takes no argument: no project id, path or actor can be named. */
+/** Every agent run across every registered project, banded and ordered by the Rust core. */
 export async function fleetList(): Promise<FleetListDto> {
   return invokeCommand<FleetListDto>("fleet_list");
 }
 
-/**
- * One agent blocked at a pending permission request (plan 10-05, FLEET-02) — mirrors
- * `commands/fleet.rs`'s `BlockedQueueEntryDto` field-for-field. One entry per blocked run: its
- * earliest-created pending request.
- */
+/** One agent blocked at a pending permission request (FLEET-02) — mirrors `BlockedQueueEntryDto`. */
 export interface BlockedQueueEntryDto {
   requestId: string;
   toolName: string;
@@ -966,43 +889,37 @@ export interface BlockedQueueEntryDto {
   projectId: string;
   projectName: string;
   projectKeyPrefix: string;
-  subjectKind: "task" | "epic" | "authoring";
-  taskId: string | null;
-  taskKey: string | null;
-  taskTitle: string | null;
-  epicId: string | null;
-  epicKey: string | null;
-  authoringStage: string | null;
+  storyId: string;
+  storyKey: string;
+  storyTitle: string;
   blockedSince: string;
 }
 
-/** Every agent across every registered project blocked at a pending permission request, longest
- * waiting first (D-172). Read-only, no argument. Answer through `answerPermissionRequest`. */
+/** Every blocked agent across every registered project, longest waiting first (D-172). */
 export async function fleetBlockedQueue(): Promise<BlockedQueueEntryDto[]> {
   return invokeCommand<BlockedQueueEntryDto[]>("fleet_blocked_queue");
 }
 
-/** The closed reason words the core's `ReclaimReason` can return (plan 10-08). */
+/** The closed reason words the core's `ReclaimReason` can return. */
 export type InventoryReason =
-  | "task_done"
   | "merged"
+  | "dropped"
   | "agent_running"
   | "blocked"
   | "uncommitted_changes"
   | "project_unreachable"
   | "directory_missing"
-  | "task_open";
+  | "story_open";
 
 /**
- * One task worktree (plan 10-08, WORK-07) — mirrors `commands/fleet.rs`'s `WorktreeInventoryRowDto`
- * field-for-field. `sizeBytes: null` means never measured, which is not zero. `disposition` is the
- * chip and `reason` is the basis the core derived it from.
+ * One Story worktree (WORK-07) — mirrors `commands/fleet.rs`'s `WorktreeInventoryRowDto`.
+ * `sizeBytes: null` means never measured, which is not zero.
  */
 export interface WorktreeInventoryRowDto {
-  taskId: string;
-  taskKey: string;
-  taskTitle: string;
-  taskStatus: string;
+  storyId: string;
+  storyKey: string;
+  storyTitle: string;
+  storyState: string;
   projectId: string;
   projectName: string;
   projectStatus: string;
@@ -1013,425 +930,43 @@ export interface WorktreeInventoryRowDto {
   reason: InventoryReason;
 }
 
-/** Every task worktree across every registered project, largest first. Read-only, no argument. */
+/** Every Story worktree across every registered project, largest first. Read-only. */
 export async function worktreeInventory(): Promise<WorktreeInventoryRowDto[]> {
   return invokeCommand<WorktreeInventoryRowDto[]>("worktree_inventory");
 }
 
-/** One worktree's measurement outcome (plan 10-08). `sizeBytes: null` with `bounded` set means the
- * walk could not finish and nothing was cached. */
+/** One worktree's measurement outcome. `sizeBytes: null` with `bounded` set means the walk could not
+ * finish and nothing was cached. */
 export interface WorktreeMeasureDto {
-  taskId: string;
+  storyId: string;
   sizeBytes: number | null;
   bounded: boolean;
   error: string | null;
 }
 
-/** Measure and cache the disk size of the named worktrees, or of all of them. Ids only: every path
- * is derived in the core. */
-export async function worktreeMeasure(taskIds?: string[]): Promise<WorktreeMeasureDto[]> {
-  return invokeCommand<WorktreeMeasureDto[]>("worktree_measure", { taskIds: taskIds ?? null });
+/** Measure and cache the disk size of the named Stories' worktrees, or of all of them. Ids only. */
+export async function worktreeMeasure(storyIds?: string[]): Promise<WorktreeMeasureDto[]> {
+  return invokeCommand<WorktreeMeasureDto[]>("worktree_measure", { storyIds: storyIds ?? null });
 }
 
-/**
- * One selected worktree's outcome (plan 10-09, WORK-07, D-179) — mirrors `commands/fleet.rs`'s
- * `ReclaimOutcomeDto`. `removed` is the only success claim. A refused row carries `reason` (it was not,
- * or no longer is, reclaimable) or `error` (the removal itself failed, or the id named no worktree).
- */
+/** One selected worktree's reclaim outcome. `removed` is the only success claim. */
 export interface ReclaimOutcomeDto {
-  taskId: string;
+  storyId: string;
   removed: boolean;
   reason: InventoryReason | null;
   error: string | null;
 }
 
-/** Reclaim the named worktrees. Ids only: no path, ref, actor, and no way to skip a guard. The core
- * re-derives each row's eligibility itself, so this selection is advisory. At most 50 per call. */
-export async function worktreeReclaim(taskIds: string[]): Promise<ReclaimOutcomeDto[]> {
-  return invokeCommand<ReclaimOutcomeDto[]>("worktree_reclaim", { taskIds });
-}
-
-/**
- * The fixed forge vocabulary (D-119) — `null` clears a project's override back to detection. Thin
- * typed wrapper over `settings_set_project_forge`.
- */
-export type ProjectForge = "github" | "gitlab" | "local";
-
-export async function settingsSetProjectForge(
-  projectId: string,
-  forge: ProjectForge | null,
-): Promise<void> {
-  await invokeCommand<void>("settings_set_project_forge", { projectId, forge });
-}
-
-/**
- * One registered project's forge override (Phase 7 plan 07-08, D-119) — mirrors
- * `commands/forge.rs`'s `ProjectForgeOverrideDto` field-for-field. `forge` is `null` when the
- * project has no override ("use detection") — the Settings surface's own read half of
- * `settingsSetProjectForge` above, so the per-project select can show the CURRENT value rather
- * than always resetting to "Detected". Thin typed wrapper over `project_forge_overrides`.
- */
-export interface ProjectForgeOverrideDto {
-  projectId: string;
-  projectName: string;
-  forge: ProjectForge | null;
-}
-
-export async function projectForgeOverrides(): Promise<ProjectForgeOverrideDto[]> {
-  return invokeCommand<ProjectForgeOverrideDto[]>("project_forge_overrides");
-}
-
-/**
- * The request draft a human previews before Flywheel opens a request on the forge (Phase 7 plan
- * 07-09, D-118) — mirrors `commands/forge.rs`'s `RequestDraftDto` field-for-field.
- */
-export interface RequestDraftDto {
-  title: string;
-  body: string;
-  headBranch: string;
-  targetBranch: string;
-  /** SHA-256 of the title and body, computed by the core. Echo it back; never compute one. */
-  contentHash: string;
-}
-
-/**
- * `taskId`'s deterministic request draft (Phase 7 plan 07-09, D-118) — read-only, the exact text
- * `forgeOpenRequest` will publish if confirmed. Thin typed wrapper over `forge_request_draft`.
- */
-export async function forgeRequestDraft(taskId: string): Promise<RequestDraftDto> {
-  return invokeCommand<RequestDraftDto>("forge_request_draft", { taskId });
-}
-
-/**
- * Open a pull/merge request for `taskId` (Phase 7 plan 07-09, D-118) — the one irreversible
- * outward action this plan adds. Takes a task id alone: there is no title, body, branch or
- * target parameter for a caller to supply, which is what makes the published text equal the
- * previewed text by construction (T-07-09-01) rather than by trust. Thin typed wrapper over
- * `forge_open_request`. On failure the rejection's message is one of `"cliNotInstalled:<cli>"`,
- * `"cliNotAuthenticated:<cli>"`, `"cliFailed:<cli>"` or `"malformedJson:<cli>"` — the same four
- * categories `forgeRequestForTask` surfaces as `outcome`, packed into the `Err(String)` this
- * command's signature is fixed to. Never the CLI's raw stderr (T-07-09-08).
- */
-export async function forgeOpenRequest(taskId: string): Promise<ForgeRequestDto> {
-  return invokeCommand<ForgeRequestDto>("forge_open_request", { taskId });
-}
-
-/** Why an epic's integration branch cannot be proposed yet (Phase 8 plan 08-08, REVW-05) — mirrors
- * `commands::forge::blocker_name`. */
-export type EpicRequestBlockerDto = "noIntegrationBranch" | "nothingToPropose" | "noForgeConfigured" | "noRemote";
-
-/** `blocker` is why the action is unavailable, if it is; `draft` is absent when there is no
- * integration branch to draft from. Mirrors `commands::forge::EpicRequestPreviewDto`. */
-export interface EpicRequestPreviewDto {
-  blocker: EpicRequestBlockerDto | null;
-  draft: RequestDraftDto | null;
-}
-
-/** What opening an epic's request did — mirrors `commands::forge::EpicRequestOutcomeDto`. A push that
- * landed without a request is its own variant; neither failure carries CLI output. */
-export type EpicRequestOutcomeDto =
-  | { kind: "opened"; request: ForgeRequestDto }
-  | { kind: "alreadyOpen"; request: ForgeRequestDto }
-  | { kind: "pushRejected" }
-  | { kind: "pushedButNotOpened"; branch: string };
-
-/** `epicId`'s deterministic request draft and the named blocker, if any. Read-only. Takes an epic id
- * alone, like its task sibling. Thin wrapper over `forge_epic_request_draft`. */
-export async function forgeEpicRequestDraft(epicId: string): Promise<EpicRequestPreviewDto> {
-  return invokeCommand<EpicRequestPreviewDto>("forge_epic_request_draft", { epicId });
-}
-
-/** Propose `epicId`'s integration branch to the forge. The body is assembled by the same core function
- * that produced the preview; the caller supplies no text, only `contentHash`, the preview's own value
- * echoed back unmodified. The renderer computes no digest of its own. A rejection's message is
- * `"draftChanged"` (the board moved since the preview; nothing was pushed), `"blocked:<blocker>"`, or
- * one of the `"<category>:<cli>"` strings `forgeOpenRequest` documents. Thin wrapper over
- * `forge_open_epic_request`. */
-export async function forgeOpenEpicRequest(epicId: string, contentHash: string): Promise<EpicRequestOutcomeDto> {
-  return invokeCommand<EpicRequestOutcomeDto>("forge_open_epic_request", { epicId, contentHash });
-}
-
-/** The existing request for the epic's integration branch, read live, or `null`. Read-only. Thin
- * wrapper over `forge_request_for_epic`. */
-export async function forgeRequestForEpic(epicId: string): Promise<ForgeRequestDto | null> {
-  return invokeCommand<ForgeRequestDto | null>("forge_request_for_epic", { epicId });
-}
-
-export type ReviewScopeDto = "task" | "epic";
-
-/** The evidence behind a checked criterion (Phase 8 plan 08-02, REVW-03) — mirrors
- * `commands::review::AnchorDto`. `side` says which side of the diff the line numbers index. */
-export interface AnchorDto {
-  path: string;
-  side: "old" | "new";
-  lineStart: number;
-  lineEnd: number;
-  sha: string;
-}
-
-/** How an anchor has aged, derived from git on every read (D-141) — mirrors `StalenessDto`.
- * `commits` is set only for `changed`. `unknown` is never to be shown as current. */
-export interface StalenessDto {
-  state: "untouched" | "changed" | "movedOrChanged" | "unknown";
-  commits: number | null;
-}
-
-/** One current criterion with its evidence — mirrors `commands::review::ReviewCriterionStateDto`.
- * `anchor === null` is the no-evidence state; `staleness === null` means no anchor or no branch. */
-export interface ReviewCriterionStateDto {
-  criterion: AcceptanceCriterionDto;
-  anchor: AnchorDto | null;
-  staleness: StalenessDto | null;
-}
-
-/** Every current criterion of a task or epic with its anchor and staleness. Read-only. Thin
- * wrapper over `review_criteria_state`. */
-export async function reviewCriteriaState(
-  scope: ReviewScopeDto,
-  itemId: string,
-): Promise<ReviewCriterionStateDto[]> {
-  return invokeCommand<ReviewCriterionStateDto[]>("review_criteria_state", { scope, itemId });
-}
-
-/** The outcome of a live file-set widen — mirrors `commands::file_set::WidenResultDto`. The
- * verdict is the Rust core's (a transaction re-checked against every in-flight set); the renderer
- * only displays it. `refusal` is ready-to-show text; `markerError` is set when the widen committed
- * but the running agent's scope file could not be rewritten. */
-export interface WidenResultDto {
-  status: "accepted" | "refused" | "marker_not_rewritten";
-  entries: string[];
-  refusal: string | null;
-  collidingPath: string | null;
-  otherTaskKey: string | null;
-  markerError: string | null;
-}
-
-/** Widen a task's declared file-set by ONE entry, live (D-152). Takes a task id and an entry string
- * and nothing else — the actor is resolved server-side. Human-only; no MCP tool exists for it.
- * Thin wrapper over `task_file_set_widen`. */
-export async function widenFileSet(taskId: string, entry: string): Promise<WidenResultDto> {
-  return invokeCommand<WidenResultDto>("task_file_set_widen", { taskId, entry });
-}
-
-/** One task's scope-refusal count — mirrors `commands::file_set::ScopeFlagDto`. A task with no
- * refusal is absent from the list, not present with zero. */
-export interface ScopeFlagDto {
-  taskId: string;
-  count: number;
-}
-
-/** Per-task scope-refusal counts for a project, one call per board read (D-153). Read-only; takes a
- * project id and nothing else. Thin wrapper over `board_scope_flags`. */
-export async function boardScopeFlags(projectId: string): Promise<ScopeFlagDto[]> {
-  return invokeCommand<ScopeFlagDto[]>("board_scope_flags", { projectId });
-}
-
-/** One declaration of a task's file-set — mirrors `commands::file_set::FileSetDeclarationDto`.
- * `draftedByAgent` is the Rust core's verdict, derived from the declaring event's actor; the
- * renderer displays it and never works it out. `undeclared` means the planner said it could not
- * determine the set, which is not the same as an empty one. */
-export interface FileSetDeclarationDto {
-  actorName: string;
-  draftedByAgent: boolean;
-  declaredAt: string;
-  before: string[];
-  entries: string[];
-  undeclared: boolean;
-}
-
-/** The latest declaration of a task's set, flat, with the older ones in `history` (newest first,
- * bounded; `historyTruncated` says when it was cut) — mirrors `FileSetProvenanceDto`. */
-export interface FileSetProvenanceDto extends FileSetDeclarationDto {
-  history: FileSetDeclarationDto[];
-  historyTruncated: boolean;
-}
-
-/** Who declared a task's file-set, from the event log. `null` when nobody declared it. Read-only;
- * a task id and nothing else. Thin wrapper over `task_file_set_provenance`. */
-export async function taskFileSetProvenance(taskId: string): Promise<FileSetProvenanceDto | null> {
-  return invokeCommand<FileSetProvenanceDto | null>("task_file_set_provenance", { taskId });
-}
-
-/** The repository's tracked paths for autocomplete — mirrors `TrackedPathsDto`. `notShown` counts the
- * paths the bounded list left out. */
-export interface TrackedPathsDto {
-  paths: string[];
-  notShown: number;
-}
-
-/** The plan's repository's tracked paths (`git ls-files`, so tracked files only). Read-only; a plan
- * id and nothing else. Thin wrapper over `repo_tracked_paths`. */
-export async function repoTrackedPaths(planId: string): Promise<TrackedPathsDto> {
-  return invokeCommand<TrackedPathsDto>("repo_tracked_paths", { planId });
-}
-
-/** D-12: counts and a boolean, never statements. `hasCoverage` is the Rust core's definition of "no
- * criteria" (zero current AND zero pending drafts); the renderer never recomputes it. A NULL
- * verification hint IS the judgement-only flag (D-24), so that count is derived there too. */
-export interface CriterionCoverageDto {
-  currentCount: number;
-  pendingDraftCount: number;
-  hasCoverage: boolean;
-  judgementOnlyCount: number;
-  /** The task's project, from the core: what the composed criteria form needs to create a criterion. */
-  projectId: string | null;
-}
-
-/** Thin wrapper over `task_criterion_coverage`. Read-only. */
-export async function taskCriterionCoverage(taskId: string): Promise<CriterionCoverageDto> {
-  return invokeCommand<CriterionCoverageDto>("task_criterion_coverage", { taskId });
-}
-
-/** D-13: a deliberate "proceed without criteria". Appends one `task.criteria_waived` event; writes
- * no status. Thin wrapper over `task_criteria_waive`. */
-export async function waiveTaskCriteria(taskId: string): Promise<void> {
-  await invokeCommand<void>("task_criteria_waive", { taskId });
+/** Reclaim the named Stories' worktrees. Ids only; the core re-derives eligibility. At most 50. */
+export async function worktreeReclaim(storyIds: string[]): Promise<ReclaimOutcomeDto[]> {
+  return invokeCommand<ReclaimOutcomeDto[]>("worktree_reclaim", { storyIds });
 }
 
 // ---------------------------------------------------------------------------------------------
-// Phase 9 plan 09-09: the fan-out surface. Every verdict below (a sequencing edge, the paths that
-// earned it, a refusal, a gate reason) is the Rust core's. The renderer displays these DTOs and
-// computes none of them.
+// Projects.
 // ---------------------------------------------------------------------------------------------
 
-/** One colliding pair of declared entries — mirrors `commands::dispatch::CollidingPathDto`. */
-export interface CollidingPathDto {
-  before: string;
-  after: string;
-}
-
-/** "`beforeTaskId` runs first, `afterTaskId` waits" — mirrors `DispatchEdgeDto`. */
-export interface DispatchEdgeDto {
-  beforeTaskId: string;
-  afterTaskId: string;
-  /** `overlap` or `widen`. */
-  cause: string;
-  collidingPaths: CollidingPathDto[];
-}
-
-/** One task of a plan — mirrors `DispatchTaskDto`. `entries` is the declared file-set as stored. */
-export interface DispatchTaskDto {
-  taskId: string;
-  taskKey: string;
-  title: string;
-  wave: number;
-  state: string;
-  rationale: string | null;
-  attention: string | null;
-  entries: string[];
-}
-
-/** A plan — mirrors `DispatchPlanDto`. For a draft the edges are a preview (`edgesFrozen: false`)
- * that approval recomputes; otherwise they are the rows that were acted on. */
-export interface DispatchPlanDto {
-  id: string;
-  epicId: string;
-  /** `draft`, `approved`, `running`, `paused`, `completed` or `aborted`. */
-  status: string;
-  waveCursor: number;
-  tasks: DispatchTaskDto[];
-  edges: DispatchEdgeDto[];
-  edgesFrozen: boolean;
-}
-
-/** One edit to a draft: a wave move and/or a replacement of the declared entries. */
-export interface DispatchEditInput {
-  taskId: string;
-  wave?: number;
-  entries?: string[];
-}
-
-/** The epic's most recent plan, or `null` when it has none. Read-only. Thin wrapper over `dispatch_plan_get`. */
-export async function dispatchPlanGet(epicId: string): Promise<DispatchPlanDto | null> {
-  return invokeCommand<DispatchPlanDto | null>("dispatch_plan_get", { epicId });
-}
-
-/** Wave moves and entry edits on a draft. A refused entry rejects with the named refusal and changes
- * nothing. Thin wrapper over `dispatch_plan_edit`. */
-export async function dispatchPlanEdit(planId: string, edits: DispatchEditInput[]): Promise<DispatchPlanDto> {
-  return invokeCommand<DispatchPlanDto>("dispatch_plan_edit", { planId, edits });
-}
-
-/** Approve a draft and start it. Human-only; the ONLY call that starts dispatch. Thin wrapper over
- * `dispatch_plan_approve`. */
-export async function dispatchPlanApprove(planId: string): Promise<DispatchPlanDto> {
-  return invokeCommand<DispatchPlanDto>("dispatch_plan_approve", { planId });
-}
-
-/** Hand a stuck task (run failed or stopped, or merge conflict) back to the dispatcher. Human-only; a
- * refusal rejects with the core's own words. Returns the refreshed plan. Thin wrapper over `retry_task`. */
-export async function retryTask(taskId: string): Promise<DispatchPlanDto> {
-  return invokeCommand<DispatchPlanDto>("retry_task", { taskId });
-}
-
-/** Leave a stuck task out so its wave can advance. Human-only; same refusals as `retryTask`. Thin
- * wrapper over `skip_task`. */
-export async function skipTask(taskId: string): Promise<DispatchPlanDto> {
-  return invokeCommand<DispatchPlanDto>("skip_task", { taskId });
-}
-
-/** Stop starting new work; running sessions are untouched. Human-only. */
-export async function dispatchPlanPause(planId: string): Promise<DispatchPlanDto> {
-  return invokeCommand<DispatchPlanDto>("dispatch_plan_pause", { planId });
-}
-
-/** Continue a paused plan. Human-only. */
-export async function dispatchPlanResume(planId: string): Promise<DispatchPlanDto> {
-  return invokeCommand<DispatchPlanDto>("dispatch_plan_resume", { planId });
-}
-
-/** End the plan; running sessions are untouched. Human-only. */
-export async function dispatchPlanStop(planId: string): Promise<DispatchPlanDto> {
-  return invokeCommand<DispatchPlanDto>("dispatch_plan_stop", { planId });
-}
-
-/** Advance the wave cursor now, from the warning tier. Human-only. Thin wrapper over `dispatch_advance_now`. */
-export async function dispatchAdvanceNow(planId: string): Promise<DispatchPlanDto> {
-  return invokeCommand<DispatchPlanDto>("dispatch_advance_now", { planId });
-}
-
-/** The answer to "why were these two sequenced?" — mirrors `WhyDto`. It reads the edge frozen at
- * approval, which is what was acted on, so it can differ from what the sets say today. */
-export interface WhyDto {
-  /** `sequenced`, `differentWaves`, `disjointSets` or `notInPlan`. */
-  kind: string;
-  sentence: string;
-  beforeTaskId: string | null;
-  afterTaskId: string | null;
-  cause: string | null;
-  collidingPaths: CollidingPathDto[];
-}
-
-export async function dispatchWhy(planId: string, taskA: string, taskB: string): Promise<WhyDto> {
-  return invokeCommand<WhyDto>("dispatch_why", { planId, taskA, taskB });
-}
-
-/** The account-limit gate as the dispatcher reads it — mirrors `GateDto`. `message` is the reason
- * the user reads, written by the core; `resumeAt` is epoch seconds or `null` when the reset is unknown. */
-export interface GateDto {
-  /** `open`, `warning` or `paused`. */
-  state: string;
-  message: string;
-  resumeAt: number | null;
-}
-
-export async function dispatchGateState(): Promise<GateDto> {
-  return invokeCommand<GateDto>("dispatch_gate_state");
-}
-
-/** Open a paused gate on the user's word. Human-only. */
-export async function dispatchGateResumeNow(): Promise<GateDto> {
-  return invokeCommand<GateDto>("dispatch_gate_resume_now");
-}
-
-/** Subscribe to `dispatch:gate_changed`, which the Rust core emits when the gate changes state. */
-export async function subscribeDispatchGateChanged(handler: () => void): Promise<UnlistenFn> {
-  return listen("dispatch:gate_changed", () => handler());
-}
-
-/** Remove a project from every list (D-200). A reversible soft-hide, never a delete: its board,
- * worktrees, runs and activity trail stay in SQLite. The id is the only argument; the actor is
- * resolved in the Rust command. */
+/** Remove a project from every list (D-200). A reversible soft-hide, never a delete. */
 export async function projectHide(projectId: string): Promise<void> {
   return invokeCommand<void>("project_hide", { projectId });
 }

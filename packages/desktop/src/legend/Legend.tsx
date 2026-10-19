@@ -31,7 +31,7 @@ const SWATCH_BASE: CSSProperties = {
 /**
  * Row-state marks map onto the CSS roles the board paints, so the legend proves the real value and not
  * a copy. The selected surfaces are 1.07 and 1.04 against the ground, which no one can see in a 20px
- * swatch, so the swatch also draws what the board draws to tell them apart: the 2px rule (A-06). A task
+ * swatch, so the swatch also draws what the board draws to tell them apart: the 2px rule (A-06). A Story
  * row is the pattern: the focused rule is full ink on the selected surface, the unfocused one is the
  * lighter rule on the idle surface.
  */

@@ -38,7 +38,7 @@ export type FocusRegion =
   | "fleet-surface";
 
 /** Every board action reachable from the keyboard, the palette, or (menu.rs) the native menu.
- * `create-issue`/`open-legend`/`filter-status`/`filter-epic`/`filter-assignee`/`filter-priority`
+ * `open-legend`/`filter-status`/`filter-epic`/`filter-assignee`/`filter-priority`
  * carry no key binding in Phase 1 (palette/menu-only) — see the `command-palette`-region entries
  * below, which exist purely so `CommandPalette.tsx` can generate their command-list entry from
  * this one table too, per its own acceptance criterion ("no hand-written array of command
@@ -48,9 +48,8 @@ export type ActionId =
   | "switch-project"
   | "focus-search"
   | "register-project"
-  | "create-task"
+  | "create-story"
   | "create-epic"
-  | "create-issue"
   | "open-legend"
   | "filter-status"
   | "filter-epic"
@@ -90,13 +89,13 @@ export type ActionId =
   // ...and its secondary target: the board item the row's subject names, in whatever project it lives.
   | "open-fleet-row-subject"
   // D-84/D-88 (plan 05-02): start a fresh epic-authoring session. Command-palette-only in this
-  // plan (no key binding yet), mirroring `create-issue`/`open-legend`'s own palette-only entries
+  // plan (no key binding yet), mirroring `open-legend`'s own palette-only entry
   // above — the palette is the least invasive entry point and it re-enters the same
   // `dispatchAction` pipeline every other action uses.
   | "shape-epic"
   // D-91 (plan 05-10): reopen an existing epic's authoring session (SHAPE-05) — a `board-list`
   // binding, epic-row-only, mirroring `open-epic-picker`'s own row-kind refusal pattern (inverted:
-  // refused on a TASK row rather than an epic row). Also reachable from `ItemDetailPanel.tsx`'s
+  // refused on a Story row rather than an epic row). Also reachable from `ItemDetailPanel.tsx`'s
   // own Continue Shaping section for the same reason `start-work`'s own button exists beside its
   // keyboard binding.
   | "continue-shaping"
@@ -162,8 +161,8 @@ export const BINDINGS: Binding[] = [
     shift: true,
     label: "Register Project…",
   },
-  { id: "create-task", region: "global", key: "n", meta: true, label: "Create Task" },
-  { id: "create-epic", region: "global", key: "n", meta: true, shift: true, label: "Create Epic" },
+  { id: "create-story", region: "global", key: "n", meta: true, label: "New Story" },
+  { id: "create-epic", region: "global", key: "n", meta: true, shift: true, label: "New Epic" },
   ...Array.from({ length: 9 }, (_, index) => ({
     id: "switch-project" as const,
     region: "global" as const,
@@ -187,7 +186,7 @@ export const BINDINGS: Binding[] = [
   // against every region of this table and every `event.key` read in the source). Epic header rows only.
   { id: "expand-row", region: "board-list", key: "ArrowRight", label: "Expand epic" },
   { id: "collapse-row", region: "board-list", key: "ArrowLeft", label: "Collapse epic" },
-  { id: "create-task", region: "board-list", key: "c", label: "Create Task" },
+  { id: "create-story", region: "board-list", key: "c", label: "New Story" },
   { id: "open-priority-picker", region: "board-list", key: "p", label: "Set Priority" },
   { id: "open-assignee-picker", region: "board-list", key: "a", label: "Set Assignee" },
   // The epic picker is bound to `m` for "move under" (the action, not the noun), a free mnemonic
@@ -212,7 +211,7 @@ export const BINDINGS: Binding[] = [
   // ---- Live session surface (D-31) --------------------------------------------------------
   { id: "stop-session", region: "session-surface", key: ".", meta: true, label: "Stop Session" },
   { id: "toggle-raw-view", region: "session-surface", key: "r", label: "Toggle Raw View" },
-  // D-88/D-90 (plan 05-03): `n` is free in this region — the global `Cmd+N` create-task binding
+  // D-88/D-90 (plan 05-03): `n` is free in this region — the global `Cmd+N` create-story binding
   // carries `meta`, and `resolveBinding` requires `Boolean(binding.meta) === event.metaKey`, so a
   // bare `n` here can never match that global entry regardless of scan order.
   { id: "advance-stage", region: "session-surface", key: "n", label: "Advance Authoring Stage" },
@@ -252,7 +251,7 @@ export const BINDINGS: Binding[] = [
     region: "proposal-tray",
     key: "a",
     shift: true,
-    label: "Accept Task and Its Criteria",
+    label: "Accept Story and Its Criteria",
   },
   { id: "move-down", region: "proposal-tray", key: "j", label: "Move selection down" },
   { id: "move-down", region: "proposal-tray", key: "ArrowDown", label: "Move selection down" },
@@ -315,11 +314,10 @@ export const BINDINGS: Binding[] = [
   // `m` and `r` also exist in other regions (`open-epic-picker`; `continue-shaping`/`toggle-raw-view`).
   // That is not a collision: `resolveBinding` filters by region, as `j`/`k` are already shared between
   // `board-list` and `review-surface`.
-  { id: "open-merge", region: "review-surface", key: "m", label: "Merge this task" },
+  { id: "open-merge", region: "review-surface", key: "m", label: "Merge this Story" },
   { id: "open-epic-request", region: "review-surface", key: "r", label: "Open request for this epic" },
 
   // ---- Command-palette-only (no keystroke; CommandPalette.tsx's generator source) --------
-  { id: "create-issue", region: "command-palette", label: "Create Issue" },
   { id: "open-legend", region: "command-palette", label: "Open Legend" },
   { id: "filter-status", region: "command-palette", label: "Filter by Status" },
   { id: "filter-epic", region: "command-palette", label: "Filter by Epic" },
@@ -446,7 +444,7 @@ export function actionLabel(id: ActionId): string {
  * drift independently. `"open-settings"` is plan 02-10 Task 3's addition (D-39). */
 export const MENU_ACTION_IDS: readonly ActionId[] = [
   "register-project",
-  "create-task",
+  "create-story",
   "create-epic",
   "open-palette",
   "open-settings",
@@ -518,7 +516,7 @@ export type UiSurface =
   | "board"
   // D-39: Settings may be opened regardless of what the content area was showing underneath it.
   | "settings"
-  // D-31: the live session surface, pushed into from a task.
+  // D-31: the live session surface, pushed into from a Story.
   | "session"
   // Phase 10 (D-163): the fleet surface.
   | "fleet"
@@ -685,8 +683,7 @@ function layerStateFromStoreFields(fields: RawLayerFields): LayerState {
 
 /** The one place this module touches the store via a one-shot read — used by `useGlobalBindings`,
  * which reads the layer stack fresh at keystroke time rather than from a subscribed value. No
- * import cycle: `uiStore.ts` imports only a type from `board/useBoardQuery`, and nothing imports
- * this module from either. */
+ * import cycle: `uiStore.ts` imports nothing from this module. */
 function currentLayerState(): LayerState {
   return layerStateFromStoreFields(useUiStore.getState());
 }
@@ -745,7 +742,7 @@ export interface EscapeLadderState extends LayerState {
 }
 
 /** Pure — the caller applies whatever state change closing the returned layer implies. Escape
- * from the session surface returns to the board with focus restored to the task's row (D-31),
+ * from the session surface returns to the board with focus restored to the Story's row (D-31),
  * ranked directly under the palette since the surface replaces the board's own content area —
  * the item detail panel it would otherwise rank against is not simultaneously open. */
 export function nextEscapeLayer(state: EscapeLadderState): EscapeLayer | null {

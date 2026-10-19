@@ -1,5 +1,5 @@
-//! PROC-06/D-35's database and worktree half: a stopped run closes `interrupted`, the task stays
-//! `in_progress`, and the worktree keeps every uncommitted byte — the "nothing committed on your
+//! PROC-06/D-35's database and worktree half: a stopped run closes `interrupted`, the Story stays
+//! `running`, and the worktree keeps every uncommitted byte — the "nothing committed on your
 //! behalf" guarantee expressed as an unchanged commit count, not as a comment. See
 //! `packages/sidecar/test/stop.test.mjs` for the sidecar's own process-group half of D-35.
 
@@ -11,7 +11,7 @@ use std::path::Path;
 use std::process::Command;
 
 use core::domain::agent_run::{interrupt_agent_run, start_agent_run};
-use core::domain::task::create_task;
+use core::domain::story::{set_story_state, StoryState};
 
 /// Run `git -C <repo_path> <args>` and return trimmed stdout — a minimal local helper mirroring
 /// `core::git::git_at`'s own explicit-path discipline, kept separate here so this test never
@@ -32,15 +32,16 @@ fn git_output(repo_path: &Path, args: &[&str]) -> String {
 }
 
 #[test]
-fn interrupt_agent_run_closes_interrupted_leaves_task_in_progress_and_keeps_the_worktree_dirty() {
+fn interrupt_agent_run_closes_interrupted_leaves_story_running_and_keeps_the_worktree_dirty() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Stop-path task", None)
-            .expect("create_task should succeed");
+        let story = common::new_story(&mut conn, &project.id, &actor_id, "Stop-path story");
+        set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready).expect("Shaping -> Ready");
+        set_story_state(&mut conn, &actor_id, &story.id, StoryState::Running).expect("Ready -> Running");
 
         let commit_count_before = git_output(repo_dir.path(), &["rev-list", "--count", "HEAD"]);
 
-        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_agent_run should succeed");
 
         let worktree_path: String = conn
@@ -58,31 +59,31 @@ fn interrupt_agent_run_closes_interrupted_leaves_task_in_progress_and_keeps_the_
         // --- Behavior: run moves to interrupted, ended_at is set ---
         let status: String = conn
             .query_row(
-                "SELECT status FROM agent_runs WHERE id = ?1",
+                "SELECT status FROM sessions WHERE id = ?1",
                 rusqlite::params![run.id],
                 |row| row.get(0),
             )
-            .expect("agent_runs row should exist");
+            .expect("sessions row should exist");
         assert_eq!(status, "interrupted", "the run must close as interrupted, never as failed");
 
         let ended_at: Option<String> = conn
             .query_row(
-                "SELECT ended_at FROM agent_runs WHERE id = ?1",
+                "SELECT ended_at FROM sessions WHERE id = ?1",
                 rusqlite::params![run.id],
                 |row| row.get(0),
             )
-            .expect("agent_runs row should exist");
+            .expect("sessions row should exist");
         assert!(ended_at.is_some(), "ended_at must be set after an interrupt");
 
-        // --- Behavior: the task's workflow status is unchanged (still in_progress) ---
-        let task_status: String = conn
+        // --- Behavior: the Story's state is unchanged (still running) ---
+        let story_state: String = conn
             .query_row(
-                "SELECT status FROM tasks WHERE id = ?1",
-                rusqlite::params![task.id],
+                "SELECT state FROM stories WHERE id = ?1",
+                rusqlite::params![story.id],
                 |row| row.get(0),
             )
-            .expect("task row should exist");
-        assert_eq!(task_status, "in_progress", "a stop must never move the task out of In Progress");
+            .expect("story row should exist");
+        assert_eq!(story_state, "running", "a stop must never move the Story out of Running");
 
         // --- Behavior: the worktree still exists and the uncommitted file is byte-identical ---
         assert!(Path::new(&worktree_path).exists(), "the worktree path must still exist after a stop");
@@ -134,11 +135,11 @@ fn interrupt_agent_run_closes_interrupted_leaves_task_in_progress_and_keeps_the_
 
         let status_after_second_call: String = conn
             .query_row(
-                "SELECT status FROM agent_runs WHERE id = ?1",
+                "SELECT status FROM sessions WHERE id = ?1",
                 rusqlite::params![run.id],
                 |row| row.get(0),
             )
-            .expect("agent_runs row should exist");
+            .expect("sessions row should exist");
         assert_eq!(status_after_second_call, "interrupted", "the status must remain interrupted, not overwritten");
     });
 }
@@ -148,7 +149,7 @@ fn interrupt_agent_run_on_an_unknown_run_id_is_a_no_op() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, _project, _repo_dir) = common::seeded_git_project();
 
-        // No agent_runs row exists for this id at all — must not error and must not panic.
+        // No sessions row exists for this id at all — must not error and must not panic.
         interrupt_agent_run(&mut conn, "01ARZ3NDEKTSV4RRFFQ69G5FAV", &actor_id)
             .expect("interrupting an unknown agent_run_id must be a harmless no-op");
     });

@@ -80,7 +80,6 @@ function settingsFixture(overrides: Partial<SettingsDto> = {}): SettingsDto {
     projectOverrides: [],
     apiKeyConfigured: false,
     apiKeyConfiguredAt: null,
-    dispatchCap: { maxParallel: 3, occupiedSlots: 0 },
     notificationsEnabled: true,
     ...overrides,
   };
@@ -315,8 +314,8 @@ function ruleFixture(overrides: Partial<PermissionRuleDto> = {}): PermissionRule
   return {
     id: "rule-1",
     projectId: "proj-a",
-    toolName: "Bash",
-    decision: "allow_always",
+    tool: "Bash",
+    pattern: "*",
     createdAt: "2026-01-10T00:00:00.000Z",
     ...overrides,
   };
@@ -340,8 +339,8 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
     listPermissionRulesMock.mockImplementation((projectId: string) =>
       Promise.resolve(
         projectId === "proj-a"
-          ? [ruleFixture({ id: "rule-a", projectId: "proj-a", toolName: "Bash" })]
-          : [ruleFixture({ id: "rule-b", projectId: "proj-b", toolName: "Edit" })],
+          ? [ruleFixture({ id: "rule-a", projectId: "proj-a", tool: "Bash" })]
+          : [ruleFixture({ id: "rule-b", projectId: "proj-b", tool: "Edit" })],
       ),
     );
     renderSettings();
@@ -378,7 +377,7 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
   it("truncates a long tool name with an ellipsis rather than widening the table", async () => {
     mockProjects([PROJECT_A]);
     const longName = "A".repeat(200);
-    listPermissionRulesMock.mockResolvedValue([ruleFixture({ toolName: longName })]);
+    listPermissionRulesMock.mockResolvedValue([ruleFixture({ tool: longName })]);
     renderSettings();
 
     const toolCell = await screen.findByText(longName);
@@ -404,7 +403,7 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
 
   it("names a failed revoke in place and keeps the row, which is still granted authority", async () => {
     mockProjects([PROJECT_A]);
-    listPermissionRulesMock.mockResolvedValue([ruleFixture({ id: "rule-a", toolName: "Bash" })]);
+    listPermissionRulesMock.mockResolvedValue([ruleFixture({ id: "rule-a", tool: "Bash" })]);
     revokePermissionRuleMock.mockReset().mockRejectedValue(new Error("database is locked"));
     renderSettings();
 
@@ -455,7 +454,7 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
  * `useGlobalBindings({ "open-settings": () => setSettingsOpen(true) })` registration plus a
  * `settingsOpen ? <SettingsSurface .../> : ...` swap) — isolated here rather than rendering the
  * whole `App` tree, which would require mocking every command the board/project-rail surfaces
- * issue for no additional coverage of the mechanism this task actually adds.
+ * issue for no additional coverage of the mechanism this Story actually adds.
  */
 function SettingsRoute() {
   const settingsOpen = useUiStore((state) => state.settingsOpen);

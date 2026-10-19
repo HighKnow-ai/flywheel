@@ -29,8 +29,8 @@ const PROJECTS = [
   { id: "proj-B", keyPrefix: "BET", name: "Beta", repoPath: "/repo/beta", defaultBranch: "main", status: "active" },
 ];
 const BOARDS: Record<string, unknown[]> = {
-  "proj-A": [{ id: "task-a1", key: "ALP-1", title: "Alpha one", status: "backlog", rank: "10", priority: 0, epicId: null }],
-  "proj-B": [{ id: "task-b7", key: "BET-7", title: "Beta seven", status: "backlog", rank: "10", priority: 0, epicId: null }],
+  "proj-A": [{ id: "story-a1", key: "ALP-1", title: "Alpha one", status: "backlog", rank: "10", priority: 0, epicId: null }],
+  "proj-B": [{ id: "story-b7", key: "BET-7", title: "Beta seven", status: "backlog", rank: "10", priority: 0, epicId: null }],
 };
 
 vi.mock(import("../../../adapters/tauri"), async (importOriginal) => ({
@@ -53,7 +53,7 @@ vi.mock(import("../../../adapters/tauri"), async (importOriginal) => ({
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
   gitFacts: () => Promise.resolve(null),
-  gitTruthFocusTask: () => Promise.resolve(),
+  gitTruthFocusStory: () => Promise.resolve(),
   agentRunLogWindow: (_id: string, offset: number, limit: number) =>
     Promise.resolve({
       entries: [{ type: "assistant_text", seq: 0, at: new Date().toISOString(), raw: "{}", text: "Reading the reconciliation module." }],
@@ -72,14 +72,10 @@ function fleetRow(overrides: Partial<FleetRowDto>): FleetRowDto {
     projectName: "Beta",
     projectKeyPrefix: "BET",
     projectStatus: "active",
-    subjectKind: "task",
-    taskId: "task-b7",
-    taskKey: "BET-7",
-    taskTitle: "Beta seven",
-    taskStatus: "in_progress",
-    epicId: null,
-    epicKey: null,
-    authoringStage: null,
+    storyId: "story-b7",
+    storyKey: "BET-7",
+    storyTitle: "Beta seven",
+    storyState: "running",
     runStatus: "running",
     fleetState: "running",
     startedAt: new Date(Date.now() - 125_000).toISOString(),
@@ -144,7 +140,7 @@ describe("AppShell in WebKit: where a fleet row takes you, with real key presses
     expect(useUiStore.getState().currentProjectId).toBe("proj-A");
     await userEvent.keyboard("j");
     await userEvent.keyboard("b");
-    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("task-b7"));
+    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("story-b7"));
     expect(useUiStore.getState().currentProjectId).toBe("proj-B");
     expect(useUiStore.getState().activeAgentRunId, "the jump to the item never opens the session").toBeNull();
     await waitFor(() => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
@@ -155,7 +151,7 @@ describe("AppShell in WebKit: where a fleet row takes you, with real key presses
   it("clicking the subject key does the same, and does not also open the session", async () => {
     const { container } = await mountOnFleet("proj-A");
     await userEvent.click(container.querySelector("[data-subject-target]") as HTMLElement);
-    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("task-b7"));
+    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("story-b7"));
     expect(useUiStore.getState().currentProjectId).toBe("proj-B");
     expect(useUiStore.getState().activeAgentRunId).toBeNull();
   });

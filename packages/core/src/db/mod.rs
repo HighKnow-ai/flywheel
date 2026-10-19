@@ -19,33 +19,11 @@ use self::backup::{backup_database_file, prune_backups, restore_from_backup, DEF
 /// registered — [`MIGRATIONS`] is built from this list, and `tests/migration_safety.rs` (DATA-08)
 /// reads it too, via [`migration_sources`], to build its "N-1" and "N-plus-one-bad-migration"
 /// fixtures from the real sources rather than a hand-duplicated, driftable copy.
+///
+/// The list starts at the MVP baseline (ADR 0003): v0.1's migrations 0001–0024 were replaced by it,
+/// and a v0.1 database is moved aside by [`move_aside_legacy_database`] rather than upgraded.
 fn migration_source_list() -> Vec<&'static str> {
-    vec![
-        include_str!("migrations/0001_actors.sql"),
-        include_str!("migrations/0002_board_schema.sql"),
-        include_str!("migrations/0003_agent_runtime.sql"),
-        include_str!("migrations/0004_permission_gate.sql"),
-        include_str!("migrations/0005_credentials.sql"),
-        include_str!("migrations/0006_recovery_statuses.sql"),
-        include_str!("migrations/0007_destructive_gate.sql"),
-        include_str!("migrations/0008_session_summaries.sql"),
-        include_str!("migrations/0009_criteria_revisions.sql"),
-        include_str!("migrations/0010_authoring_runs.sql"),
-        include_str!("migrations/0011_authoring_staging.sql"),
-        include_str!("migrations/0012_authoring_proposals_project_status_index.sql"),
-        include_str!("migrations/0013_authoring_summaries.sql"),
-        include_str!("migrations/0014_permission_requests_authoring.sql"),
-        include_str!("migrations/0015_proposal_triage_extension.sql"),
-        include_str!("migrations/0016_authoring_proposals_fts.sql"),
-        include_str!("migrations/0017_forge_setting.sql"),
-        include_str!("migrations/0018_criterion_anchors.sql"),
-        include_str!("migrations/0019_fan_out.sql"),
-        include_str!("migrations/0020_fleet.sql"),
-        include_str!("migrations/0021_fleet_review_backlog.sql"),
-        include_str!("migrations/0022_project_hidden.sql"),
-        include_str!("migrations/0023_drop_estimate.sql"),
-        include_str!("migrations/0024_cycles.sql"),
-    ]
+    vec![include_str!("migrations/0001_baseline.sql")]
 }
 
 /// Public accessor for [`migration_source_list`] — the same ordered SQL sources [`MIGRATIONS`]
@@ -168,6 +146,80 @@ fn refuse_if_schema_ahead(
     Ok(())
 }
 
+/// The marker a moved-aside v0.1 database carries in its file name: `flywheel.db` becomes
+/// `flywheel.v0.1-20261017T101500Z.db` beside it.
+pub const LEGACY_SUFFIX: &str = ".v0.1-";
+
+/// ADR 0003's one-way door: if `db_path` holds a v0.1 database, rename it (and its `-wal`/`-shm`
+/// files) aside with a timestamp and return where it went, so the caller creates an empty baseline
+/// in its place. The file is never migrated, rewritten or deleted.
+///
+/// A file is v0.1 when it holds at least one table and no `stories` table: every v0.1 schema, at
+/// any of its 24 versions, lacks it, and the baseline creates it in its first migration. A missing
+/// file, an empty file, and a baseline database at any version are left where they are, so a
+/// database written by a newer build still reaches the too-far-ahead refusal below untouched.
+pub fn move_aside_legacy_database(db_path: &Path) -> anyhow::Result<Option<PathBuf>> {
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let is_legacy = {
+        let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .with_context(|| format!("failed to open {db_path:?} read-only to check its schema"))?;
+        let (tables, has_stories): (i64, bool) = conn
+            .query_row(
+                "SELECT COUNT(*), COALESCE(SUM(name = 'stories'), 0) > 0 FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .with_context(|| format!("failed to read the schema of {db_path:?}"))?;
+        tables > 0 && !has_stories
+    };
+    if !is_legacy {
+        return Ok(None);
+    }
+
+    // Fold any write-ahead log into the main file first, so the moved file is complete on its own
+    // and no v0.1 page is left in a `-wal` the new database would then inherit.
+    {
+        let conn = Connection::open(db_path).with_context(|| format!("failed to open {db_path:?} to checkpoint it"))?;
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+            .with_context(|| format!("failed to checkpoint {db_path:?} before moving it aside"))?;
+    }
+
+    let target = legacy_target(db_path);
+    std::fs::rename(db_path, &target).with_context(|| format!("failed to move {db_path:?} aside to {target:?}"))?;
+    for suffix in ["-wal", "-shm"] {
+        let side = sibling_with_suffix(db_path, suffix);
+        if side.exists() {
+            let side_target = sibling_with_suffix(&target, suffix);
+            std::fs::rename(&side, &side_target)
+                .with_context(|| format!("failed to move {side:?} aside to {side_target:?}"))?;
+        }
+    }
+    Ok(Some(target))
+}
+
+/// `<dir>/<stem>.v0.1-<UTC timestamp>.<ext>` beside `db_path`, made unique with the milliseconds
+/// when a second move lands in the same second.
+fn legacy_target(db_path: &Path) -> PathBuf {
+    let stem = db_path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "flywheel".into());
+    let ext = db_path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_else(|| "db".into());
+    let now = chrono::Utc::now();
+    let candidate = db_path.with_file_name(format!("{stem}{LEGACY_SUFFIX}{}.{ext}", now.format("%Y%m%dT%H%M%SZ")));
+    if !candidate.exists() {
+        return candidate;
+    }
+    db_path.with_file_name(format!("{stem}{LEGACY_SUFFIX}{}.{ext}", now.format("%Y%m%dT%H%M%S%.3fZ")))
+}
+
+/// `path` with `suffix` appended to its file name (`flywheel.db` + `-wal`).
+fn sibling_with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    name.push(suffix);
+    path.with_file_name(name)
+}
+
 /// [`open_and_migrate`] against an explicit migration set. The product always passes the full
 /// [`MIGRATIONS`]; a maintenance tool that must leave a database at the schema an installed older
 /// build still understands passes a truncated set built from [`migration_sources`] (plan 11-21,
@@ -178,6 +230,12 @@ pub fn open_and_migrate_with(
     backups_dir: &Path,
     migrations: &Migrations<'_>,
 ) -> anyhow::Result<Connection> {
+    // ADR 0003: a v0.1 database is moved aside before anything else reads its version, because
+    // its `user_version` (up to 24) is "ahead" of the baseline and would otherwise be refused.
+    if let Some(moved_to) = move_aside_legacy_database(db_path)? {
+        eprintln!("moved a v0.1 database aside to {moved_to:?}; starting with an empty board");
+    }
+
     // Decided before every filesystem write (WR-01): see `refuse_if_schema_ahead`.
     refuse_if_schema_ahead(db_path, backups_dir, migrations)?;
 
@@ -194,18 +252,14 @@ pub fn open_and_migrate_with(
 
     apply_pragmas(&conn).context("failed to apply pragmas after opening the database")?;
 
-    // Migration `0006_recovery_statuses.sql` rebuilds `worktrees` and `agent_runs` (SQLite
-    // cannot ALTER a CHECK constraint in place), and both are the parent side of a real foreign
-    // key that a sibling table declares against them (`agent_runs.worktree_id` -> `worktrees.id`,
-    // `permission_requests.agent_run_id` -> `agent_runs.id`). `DROP TABLE` on a table that is the
-    // parent of an existing foreign key with matching child rows fails under
-    // `PRAGMA foreign_keys = ON` — verified directly against a real `sqlite3` binary while writing
-    // this migration. Toggling the pragma from INSIDE a migration's own SQL is a documented
-    // no-op (`rusqlite_migration` runs every migration body inside its own transaction, and
-    // SQLite ignores `PRAGMA foreign_keys` once a transaction is already open), so it is toggled
-    // here instead, at the connection level, around the whole `to_latest()` call — exactly as
-    // `rusqlite_migration`'s own `foreign_key_check()` documentation recommends for a migration
-    // that rebuilds a referenced table.
+    // A future migration that rebuilds a table (SQLite cannot ALTER a CHECK constraint in place)
+    // must `DROP TABLE` a table that is the parent side of a real foreign key (`sessions.worktree_id`
+    // -> `worktrees.id`, for example), which fails under `PRAGMA foreign_keys = ON` when child rows
+    // exist. Toggling the pragma from INSIDE a migration's own SQL is a documented no-op
+    // (`rusqlite_migration` runs every migration body inside its own transaction, and SQLite
+    // ignores `PRAGMA foreign_keys` once a transaction is already open), so it is toggled here
+    // instead, at the connection level, around the whole `to_latest()` call — exactly as
+    // `rusqlite_migration`'s own `foreign_key_check()` documentation recommends.
     conn.pragma_update(None, "foreign_keys", "OFF")
         .context("failed to disable foreign_keys before migrating")?;
 

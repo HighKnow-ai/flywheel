@@ -1,6 +1,6 @@
 //! LINK-02/LINK-09's command surface (Phase 7 plan 07-01): `git_facts` is a read-only projection
-//! of `flywheel_core::git_facts::GitFacts`, and `git_truth_focus_task` writes exactly one
-//! in-memory field (`AppState.focused_task`, D-114's "open detail panel" half) and can never reach
+//! of `flywheel_core::git_facts::GitFacts`, and `git_truth_focus_story` writes exactly one
+//! in-memory field (`AppState.focused_story`, D-114's "open detail panel" half) and can never reach
 //! the database or the filesystem.
 
 use serde::Serialize;
@@ -9,7 +9,7 @@ use tauri::State;
 use crate::commands::agent_run::PorcelainEntryDto;
 use crate::state::AppState;
 
-/// One row of a task's commit window, projected for the renderer — mirrors
+/// One row of a Story's commit window, projected for the renderer — mirrors
 /// `flywheel_core::git_facts::CommitRow` field-for-field.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,9 +35,9 @@ impl From<flywheel_core::git_facts::CommitRow> for CommitRowDto {
     }
 }
 
-/// A task's full git truth, projected for the renderer — mirrors
+/// A Story's full git truth, projected for the renderer — mirrors
 /// `flywheel_core::git_facts::GitFacts` field-for-field, following `WorktreeSummaryDto`'s own
-/// "`None`/`null` for a task with no worktree yet, never a row of empty strings" discipline (the
+/// "`None`/`null` for a Story with no worktree yet, never a row of empty strings" discipline (the
 /// command below returns `Option<GitFactsDto>`, not this type alone).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,24 +69,24 @@ impl From<flywheel_core::git_facts::GitFacts> for GitFactsDto {
     }
 }
 
-/// `task_id`'s full git truth (LINK-02, LINK-09), or `null` when the task has no worktree yet.
-/// Read-only — delegates straight to `flywheel_core::git_facts::git_facts_for_task`.
+/// `story_id`'s full git truth (LINK-02, LINK-09), or `null` when the Story has no worktree yet.
+/// Read-only — delegates straight to `flywheel_core::git_facts::git_facts_for_story`.
 #[tauri::command]
 pub fn git_facts(
     state: State<AppState>,
-    task_id: String,
+    story_id: String,
 ) -> Result<Option<GitFactsDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let facts =
-        flywheel_core::git_facts::git_facts_for_task(&conn, &task_id).map_err(|e| e.to_string())?;
+        flywheel_core::git_facts::git_facts_for_story(&conn, &story_id).map_err(|e| e.to_string())?;
     Ok(facts.map(GitFactsDto::from))
 }
 
-/// Declares which task's item detail panel is currently open (D-114's hot-tier "open panel"
-/// half) — writes `AppState.focused_task` and nothing else. `None` means no panel is open.
+/// Declares which Story's item detail panel is currently open (D-114's hot-tier "open panel"
+/// half) — writes `AppState.focused_story` and nothing else. `None` means no panel is open.
 #[tauri::command]
-pub fn git_truth_focus_task(state: State<AppState>, task_id: Option<String>) -> Result<(), String> {
-    let mut focused = state.focused_task.lock().map_err(|e| e.to_string())?;
-    *focused = task_id;
+pub fn git_truth_focus_story(state: State<AppState>, story_id: Option<String>) -> Result<(), String> {
+    let mut focused = state.focused_story.lock().map_err(|e| e.to_string())?;
+    *focused = story_id;
     Ok(())
 }

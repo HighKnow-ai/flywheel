@@ -1,58 +1,13 @@
 //! Proves `proc::output_with_timeout` bounds every subprocess hang (code review WR-02) and that
-//! the `gh`/`glab`/`git` spawn helpers route through it. Structured on `tests/forge_degrade.rs`'s
-//! PATH-sabotage pattern: a module-level serialising mutex, a `tempfile::tempdir()` scratch
-//! directory holding executable shell stubs, and `PATH` restored before every helper returns.
+//! the `git` spawn helper still routes through it unchanged.
 
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
 use core::proc::{output_with_timeout, FORGE_CLI_TIMEOUT_SECS, GIT_TIMEOUT_SECS};
 
-/// Serializes every call in this binary that mutates `PATH` — mirrors `forge_degrade.rs`'s own
-/// `ENV_LOCK` (each `tests/*.rs` file compiles to its own binary, so this static cannot race with
-/// that one).
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 /// Short enough that every guard-behaviour test below runs in well under a second.
 const SHORT_CEILING: Duration = Duration::from_millis(300);
-
-/// Write an executable shell stub at `dir`/`name` running `body`.
-fn write_stub(dir: &Path, name: &str, body: &str) {
-    let path = dir.join(name);
-    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("failed to write stub script");
-    let mut perms = std::fs::metadata(&path).expect("stub metadata").permissions();
-    perms.set_mode(0o755);
-    std::fs::set_permissions(&path, perms).expect("failed to chmod stub");
-}
-
-/// Prepend `dir` to `PATH` for the duration of `f`, serialized against every other caller in this
-/// binary via [`ENV_LOCK`], then restore the original `PATH` before returning.
-fn with_stub_on_path<T>(dir: &Path, f: impl FnOnce() -> T) -> T {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-
-    let original_path = std::env::var_os("PATH");
-    let prepended = match &original_path {
-        Some(p) => format!("{}:{}", dir.display(), p.to_string_lossy()),
-        None => dir.display().to_string(),
-    };
-    // SAFETY: the mutex above serializes every caller in this binary, so no other thread reads or
-    // mutates PATH while it's set, and this helper always restores it before returning.
-    unsafe {
-        std::env::set_var("PATH", &prepended);
-    }
-
-    let result = f();
-
-    unsafe {
-        match &original_path {
-            Some(p) => std::env::set_var("PATH", p),
-            None => std::env::remove_var("PATH"),
-        }
-    }
-    result
-}
 
 #[test]
 fn fast_child_returns_unchanged_output() {
@@ -122,59 +77,6 @@ fn stdin_payload_is_written_and_closed_before_exit() {
 fn ceiling_constants_match_wr_02() {
     assert_eq!(FORGE_CLI_TIMEOUT_SECS, 30);
     assert_eq!(GIT_TIMEOUT_SECS, 120);
-}
-
-/// Ignored solely because it burns the real 30-second `FORGE_CLI_TIMEOUT_SECS` ceiling, which
-/// would slow every default workspace run; this plan's own `<verify>` block runs it explicitly
-/// via `cargo test -p core --test subprocess_timeout -- --ignored`.
-#[test]
-#[ignore]
-fn gh_request_for_branch_against_a_hung_gh_returns_bounded_error() {
-    let stub_dir = tempfile::tempdir().expect("failed to create scratch stub dir");
-    write_stub(stub_dir.path(), "gh", "sleep 40");
-
-    with_stub_on_path(stub_dir.path(), || {
-        let repo = tempfile::tempdir().expect("failed to create scratch repo dir");
-        let start = Instant::now();
-        let result = core::forge::github::request_for_branch(repo.path(), "whatever");
-        let elapsed = start.elapsed();
-
-        assert!(result.is_err(), "a hung gh should surface as an error, not a hang");
-        assert!(
-            elapsed >= Duration::from_secs(FORGE_CLI_TIMEOUT_SECS),
-            "returned before the forge CLI ceiling: {elapsed:?}"
-        );
-        assert!(
-            elapsed < Duration::from_secs(FORGE_CLI_TIMEOUT_SECS + 10),
-            "returned long after the forge CLI ceiling: {elapsed:?}"
-        );
-    });
-}
-
-/// Ignored for the same reason as the `gh` arm above: it burns the real 30-second
-/// `FORGE_CLI_TIMEOUT_SECS` ceiling, so the default `cargo test` run skips it.
-#[test]
-#[ignore]
-fn glab_request_for_branch_against_a_hung_glab_returns_bounded_error() {
-    let stub_dir = tempfile::tempdir().expect("failed to create scratch stub dir");
-    write_stub(stub_dir.path(), "glab", "sleep 40");
-
-    with_stub_on_path(stub_dir.path(), || {
-        let repo = tempfile::tempdir().expect("failed to create scratch repo dir");
-        let start = Instant::now();
-        let result = core::forge::gitlab::request_for_branch(repo.path(), "whatever");
-        let elapsed = start.elapsed();
-
-        assert!(result.is_err(), "a hung glab should surface as an error, not a hang");
-        assert!(
-            elapsed >= Duration::from_secs(FORGE_CLI_TIMEOUT_SECS),
-            "returned before the forge CLI ceiling: {elapsed:?}"
-        );
-        assert!(
-            elapsed < Duration::from_secs(FORGE_CLI_TIMEOUT_SECS + 10),
-            "returned long after the forge CLI ceiling: {elapsed:?}"
-        );
-    });
 }
 
 /// Proves the guard did not change the success path for `git.rs`'s own spawn helper: a real

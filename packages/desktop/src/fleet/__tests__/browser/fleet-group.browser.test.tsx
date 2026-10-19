@@ -65,14 +65,10 @@ function fleetRow(id: string, overrides: Partial<FleetRowDto> = {}): FleetRowDto
     projectName: "Alpha",
     projectKeyPrefix: "ALP",
     projectStatus: "active",
-    subjectKind: "task",
-    taskId: `task-${id}`,
-    taskKey: `ALP-${id}`,
-    taskTitle: "Wire the thing",
-    taskStatus: "in_progress",
-    epicId: null,
-    epicKey: null,
-    authoringStage: null,
+    storyId: `story-${id}`,
+    storyKey: `ALP-${id}`,
+    storyTitle: "Wire the thing",
+    storyState: "running",
     runStatus: "running",
     fleetState: "running",
     startedAt: new Date(Date.now() - 125_000).toISOString(),
@@ -95,8 +91,8 @@ function stressRows(): FleetRowDto[] {
     fleetRow("102", { fleetState: "awaiting_review", runStatus: "completed", endedAt: ended, costUsd: 1.2345, tokensIn: 12_345_678, tokensOut: 987_654 }),
     fleetRow("103", { fleetState: "abandoned", runStatus: "abandoned", endedAt: ended }),
     fleetRow("104", { activity: { lines: [line({ type: "assistant_text", seq: 1, text: LONG_NARRATION })], truncated: false } }),
-    fleetRow("105", { taskTitle: LONG_TITLE, activity: { lines: [line({ type: "tool_call", seq: 1, toolName: "Read", input: { file_path: "packages/desktop/src-tauri/src/commands/some/deeply/nested/module/file.rs" } })], truncated: false } }),
-    fleetRow("106", { projectName: LONG_PROJECT, taskTitle: LONG_TITLE }),
+    fleetRow("105", { storyTitle: LONG_TITLE, activity: { lines: [line({ type: "tool_call", seq: 1, toolName: "Read", input: { file_path: "packages/desktop/src-tauri/src/commands/some/deeply/nested/module/file.rs" } })], truncated: false } }),
+    fleetRow("106", { projectName: LONG_PROJECT, storyTitle: LONG_TITLE }),
     fleetRow("107", { fleetState: "completed", runStatus: "completed", endedAt: ended, costUsd: 0.0421, tokensIn: 1_234_567, tokensOut: 45_678 }),
     fleetRow("108", { fleetState: "failed", runStatus: "failed", endedAt: ended, costUsd: 12.3456, tokensIn: 98_765_432, tokensOut: 8_765_432, projectName: LONG_PROJECT }),
     fleetRow("109", { fleetState: "interrupted", runStatus: "interrupted", endedAt: ended }),
@@ -305,22 +301,22 @@ describe.each(WIDTHS)("the fleet surface at %ipx", (width) => {
 // ---------------------------------------------------------------------------------------------
 
 const DISPOSITION_OF: Record<InventoryReason, WorktreeInventoryRowDto["disposition"]> = {
-  task_done: "reclaimable",
+  merged: "reclaimable",
   merged: "reclaimable",
   agent_running: "in_use",
   blocked: "in_use",
   uncommitted_changes: "keep",
   project_unreachable: "keep",
   directory_missing: "keep",
-  task_open: "keep",
+  story_open: "keep",
 };
 
 function inventoryRow(id: string, reason: InventoryReason, overrides: Partial<WorktreeInventoryRowDto> = {}): WorktreeInventoryRowDto {
   return {
-    taskId: id,
-    taskKey: `ALP-${id}`,
-    taskTitle: "Wire the thing",
-    taskStatus: "done",
+    storyId: id,
+    storyKey: `ALP-${id}`,
+    storyTitle: "Wire the thing",
+    storyState: "merged",
     projectId: "proj-1",
     projectName: "Alpha",
     projectStatus: "active",
@@ -338,7 +334,7 @@ function inventoryRow(id: string, reason: InventoryReason, overrides: Partial<Wo
 function inventoryRows(): WorktreeInventoryRowDto[] {
   return [
     ...RECLAIM_REASONS.map((reason, i) => inventoryRow(`${i + 1}`, reason)),
-    inventoryRow("20", "task_done", { projectName: LONG_PROJECT }),
+    inventoryRow("20", "merged", { projectName: LONG_PROJECT }),
     inventoryRow("21", "merged", { sizeBytes: 1023.9 * 1024 ** 4, sizeMeasuredAt: new Date(Date.now() - 40 * 86_400_000).toISOString() }),
     inventoryRow("22", "uncommitted_changes", { sizeBytes: null, sizeMeasuredAt: null }),
   ];
@@ -407,7 +403,7 @@ describe.each(WIDTHS)("the worktree inventory at %ipx", (width) => {
   it("lays the columns out the same in every row, and does not scroll sideways", async () => {
     const container = await mountInventory(inventoryRows(), width);
     const items = Array.from(container.querySelectorAll<HTMLElement>("[data-worktree-row]"));
-    for (const field of ["project", "task", "size", "disposition"]) {
+    for (const field of ["project", "story", "size", "disposition"]) {
       const lefts = items.map((r) => rect(r.querySelector(`[data-field="${field}"]`) as Element).left);
       expect(Math.max(...lefts) - Math.min(...lefts), `${field} column: left edges differ between rows`).toBeLessThanOrEqual(TOL);
     }

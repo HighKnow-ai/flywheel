@@ -230,7 +230,7 @@ async function main() {
       assert.ok(fs.existsSync(path.join(selected[0].path, "bulk")), "the worktrees really carry the bulk files");
 
       // Reclaim runs as its own process; fleet_list calls are issued back to back until it exits.
-      const reclaim = spawn(bin, ["reclaim", ...selected.map((w) => w.taskId)], { env, stdio: ["ignore", "pipe", "pipe"] });
+      const reclaim = spawn(bin, ["reclaim", ...selected.map((w) => w.storyId)], { env, stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "";
       let stderr = "";
       reclaim.stdout.on("data", (d) => (stdout += d));
@@ -261,12 +261,12 @@ async function main() {
       // Exactly the selected directories are gone.
       assert.equal(outcomes.length, 3);
       for (const w of selected) {
-        const o = outcomes.find((x) => x.taskId === w.taskId);
-        assert.ok(o?.removed, `${w.taskId} must report removed: ${JSON.stringify(o)}`);
+        const o = outcomes.find((x) => x.storyId === w.storyId);
+        assert.ok(o?.removed, `${w.storyId} must report removed: ${JSON.stringify(o)}`);
         assert.equal(fs.existsSync(w.path), false, `${w.path} must be gone from disk`);
       }
       assert.equal(fs.existsSync(spared.path), true, "the reclaimable worktree that was not selected is untouched");
-      assert.equal(outcomes.some((o) => o.taskId === spared.taskId), false, "...and was never named in the batch");
+      assert.equal(outcomes.some((o) => o.storyId === spared.storyId), false, "...and was never named in the batch");
       const liveRow = fleet().rows.find((r) => r.projectName === "Charlie" && r.runStatus === "running");
       assert.ok(liveRow, "the live run's row survived the reclaim");
 

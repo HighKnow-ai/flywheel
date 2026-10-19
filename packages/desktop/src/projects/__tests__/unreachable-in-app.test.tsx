@@ -21,7 +21,7 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
   gitFacts: () => Promise.resolve(null),
-  gitTruthFocusTask: () => Promise.resolve(),
+  gitTruthFocusStory: () => Promise.resolve(),
 }));
 
 const PROJECTS: Project[] = [

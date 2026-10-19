@@ -161,7 +161,7 @@ export const MARKS: Mark[] = [
     label: "Low",
     meaning: "Lowest declared priority: keyed 4, one bar filled.",
   },
-  // The orphan-task pill (D-13, 01-UI-SPEC.md "Board list") — a task with no epic shows this
+  // The orphan-Story pill (D-13, 01-UI-SPEC.md "Board list") — a Story with no epic shows this
   // muted pill in the epic field slot, never a blank.
   {
     id: "epic-pill-none",
@@ -243,7 +243,7 @@ export const MARKS: Mark[] = [
   {
     id: "criterion-no-evidence",
     channel: "criteria",
-    // Not CircleSlash: "No epic" wears that on the same task row, and "No evidence" is a link to code that is absent.
+    // Not CircleSlash: "No epic" wears that on the same Story row, and "No evidence" is a link to code that is absent.
     glyph: "Unlink",
     label: "No evidence",
     meaning: "This criterion was checked without pointing at any code.",
@@ -334,9 +334,9 @@ export const MARKS: Mark[] = [
       "This project's marker no longer matches its last known path: paired with the literal word \"Unreachable,\" never a colour change alone.",
   },
   // Agent run-status marks (02-UI-SPEC.md "Run Status", AGNT-06) — the five run states plus the
-  // orthogonal blocked indicator that layers onto a task's existing five-state status glyph rather
+  // orthogonal blocked indicator that layers onto a Story's existing five-state status glyph rather
   // than replacing it. Published here before any surface renders them (02-04 through 02-08 own the
-  // rendering); this task only defines the vocabulary.
+  // rendering); this Story only defines the vocabulary.
   {
     id: "run-running",
     channel: "agent",
@@ -366,7 +366,7 @@ export const MARKS: Mark[] = [
     meaning:
       "This run was stopped by the user: a normal, deliberate outcome, not an error.",
   },
-  // One mark for both places it is drawn: the run's status word and the task row's pill. They are the same
+  // One mark for both places it is drawn: the run's status word and the Story row's pill. They are the same
   // fact (an agent is waiting on a permission answer), so the legend carries one entry with both contexts,
   // not two rows titled "Blocked" that cannot be told apart.
   {
@@ -431,7 +431,7 @@ export const MARKS: Mark[] = [
       "A red build on this task's branch: visible on the row so a backlog being drained by agents doesn't need every task opened to spot one. It never changes the task's status.",
   },
   // Phase 8.1 plan 01 (D-15): the board row's graded change annotation — how much real work sits
-  // behind a task's worktree. Deliberately NOT alert-shaped: neither is a fifth pill beside
+  // behind a Story's worktree. Deliberately NOT alert-shaped: neither is a fifth pill beside
   // Blocked / Needs Decision / CI failed, and neither uses an alert colour. Outline icons from the
   // locked icon library, per this registry's rule. Glyphs settled by amendment A-05 (08.1-09,
   // 2026-10-08): `Triangle` + count and `Dot` — outline-only rule upheld, filled glyphs declined.
@@ -454,8 +454,8 @@ export const MARKS: Mark[] = [
     meaning:
       "This task's worktree has changes that are not committed yet. Shown only when there are some: absence means a clean tree or no worktree.",
   },
-  // D-153 (phase 09): how many times the scope hook refused this task's agent a write outside its
-  // declared file-set. A count, graded like the change cues: absent for a task with none.
+  // D-153 (phase 09): how many times the scope hook refused this Story's agent a write outside its
+  // declared file-set. A count, graded like the change cues: absent for a Story with none.
   {
     id: "scope-denied",
     channel: "agent",
@@ -508,7 +508,7 @@ export const MARKS: Mark[] = [
   },
   // Phase 14 plan 04 (D-19). The state vocabulary names two states the registry did not yet define. Awaiting
   // review REPLACES the old reuse of the status channel's In Review mark (D-170): the state now has a mark in
-  // its own right, so the agent channel can say it without borrowing a task-status shape. Merged shares the
+  // its own right, so the agent channel can say it without borrowing a Story-status shape. Merged shares the
   // GitMerge glyph with the criteria channel's Integrated on purpose: it is the same fact, a branch folded
   // into its target, and two glyphs for one fact would be the undocumented variation the registry forbids.
   {
@@ -536,13 +536,13 @@ export const MARKS_BY_ID: Record<string, Mark> = Object.fromEntries(
   MARKS.map((mark) => [mark.id, mark]),
 );
 
-/** `tasks.status` value -> the matching status Mark's id (see migration `0002_board_schema.sql`). */
+/** `Stories.status` value -> the matching status Mark's id (see migration `0002_board_schema.sql`). */
 export function statusMarkId(status: string): string {
   return `status-${status.replace(/_/g, "-")}`;
 }
 
 /**
- * `tasks.priority` (0-4, keyed exactly as the keyboard map) -> the matching priority Mark's id.
+ * `Stories.priority` (0-4, keyed exactly as the keyboard map) -> the matching priority Mark's id.
  * `0` ("No priority") sorts LAST in every board query (Open Decisions #6) — this lookup is only
  * the keymap/label mapping, never the sort position.
  */
@@ -565,7 +565,7 @@ export function priorityMarkId(priority: number): string {
  */
 export const STATUS_MARKS: Mark[] = MARKS.filter((mark) => mark.channel === "status");
 
-/** A status Mark's id (`status-in-progress`) -> the schema's `tasks.status`/`epics.status` value
+/** A status Mark's id (`status-in-progress`) -> the schema's `Stories.status`/`epics.status` value
  * (`in_progress`) — the exact inverse of `statusMarkId`, derived by string transform rather than
  * a second literal list of state names. */
 export function statusValueFromMarkId(markId: string): string {

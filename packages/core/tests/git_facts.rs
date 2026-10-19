@@ -8,13 +8,11 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use core::branch::epic_integration_branch_name;
+use common::new_story;
 use core::domain::actor::local_human_actor_id;
-use core::domain::epic::create_epic;
 use core::domain::project::create_project;
-use core::domain::task::create_task;
 use core::git::{ahead_behind, fetch_origin, last_fetch_at};
-use core::git_facts::git_facts_for_task;
+use core::git_facts::git_facts_for_story;
 use core::ids::new_id;
 use rusqlite::{params, Connection};
 
@@ -67,17 +65,17 @@ fn commit_file(repo: &Path, filename: &str, contents: &str, message: &str) {
 }
 
 /// A DB + real-repo fixture: a project registered at `main_repo` (with `origin` pushed to a
-/// throwaway local bare remote), one task (carrying an epic when `with_epic` is true), and a real
+/// throwaway local bare remote), one Story, and a real
 /// `git worktree` checked out on a fresh branch from `main`, with a matching `worktrees` row.
 struct Fixture {
     _root: tempfile::TempDir,
     conn: Connection,
-    task_id: String,
+    story_id: String,
     worktree_path: PathBuf,
     branch: String,
 }
 
-fn setup(with_epic: bool) -> Fixture {
+fn setup() -> Fixture {
     let root = tempfile::tempdir().expect("failed to create scratch root");
 
     let origin = init_bare(root.path(), "origin.git");
@@ -85,8 +83,8 @@ fn setup(with_epic: bool) -> Fixture {
     run_git_ok(&main_repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
     run_git_ok(&main_repo, &["push", "-u", "origin", "main"]);
 
-    let worktree_path = root.path().join("task_worktree");
-    let branch = "flywheel/fly-1-a-task".to_string();
+    let worktree_path = root.path().join("story_worktree");
+    let branch = "flywheel/fly-1-a-story".to_string();
     run_git_ok(
         &main_repo,
         &["worktree", "add", worktree_path.to_str().unwrap(), "-b", &branch, "main"],
@@ -110,24 +108,15 @@ fn setup(with_epic: bool) -> Fixture {
     )
     .expect("create_project should succeed");
 
-    let epic_id = if with_epic {
-        let epic = create_epic(&mut conn, &project.id, &actor_id, "A Fixture Epic", None)
-            .expect("create_epic should succeed");
-        Some(epic.id)
-    } else {
-        None
-    };
-
-    let task = create_task(&mut conn, &project.id, &actor_id, "A Task", epic_id.as_deref())
-        .expect("create_task should succeed");
+    let story = new_story(&mut conn, &project.id, &actor_id, "A Story");
 
     conn.execute(
         "INSERT INTO worktrees (
-            id, task_id, project_id, path, branch, base_branch, status, created_by, created_at
+            id, story_id, project_id, path, branch, base_branch, status, created_by, created_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, 'main', 'active', ?6, ?7)",
         params![
             new_id(),
-            task.id,
+            story.id,
             project.id,
             worktree_path.to_string_lossy().into_owned(),
             branch,
@@ -137,7 +126,7 @@ fn setup(with_epic: bool) -> Fixture {
     )
     .expect("failed to insert worktree row");
 
-    Fixture { _root: root, conn, task_id: task.id, worktree_path, branch }
+    Fixture { _root: root, conn, story_id: story.id, worktree_path, branch }
 }
 
 #[test]
@@ -161,24 +150,24 @@ fn ahead_behind_against_unresolvable_target_withholds_the_figure() {
 }
 
 #[test]
-fn git_facts_for_task_with_no_worktree_row_returns_none() {
-    let fixture = setup(false);
+fn git_facts_for_story_with_no_worktree_row_returns_none() {
+    let fixture = setup();
     fixture
         .conn
-        .execute("DELETE FROM worktrees WHERE task_id = ?1", params![fixture.task_id])
+        .execute("DELETE FROM worktrees WHERE story_id = ?1", params![fixture.story_id])
         .expect("failed to delete worktree row");
 
     let facts =
-        git_facts_for_task(&fixture.conn, &fixture.task_id).expect("git_facts_for_task should succeed");
+        git_facts_for_story(&fixture.conn, &fixture.story_id).expect("git_facts_for_story should succeed");
     assert!(facts.is_none());
 }
 
 #[test]
-fn git_facts_for_task_clean_level_worktree_has_empty_commits_and_uncommitted() {
-    let fixture = setup(false);
+fn git_facts_for_story_clean_level_worktree_has_empty_commits_and_uncommitted() {
+    let fixture = setup();
 
-    let facts = git_facts_for_task(&fixture.conn, &fixture.task_id)
-        .expect("git_facts_for_task should succeed")
+    let facts = git_facts_for_story(&fixture.conn, &fixture.story_id)
+        .expect("git_facts_for_story should succeed")
         .expect("a worktree row exists, so facts should be Some");
 
     assert_eq!(facts.branch, fixture.branch);
@@ -190,16 +179,16 @@ fn git_facts_for_task_clean_level_worktree_has_empty_commits_and_uncommitted() {
 }
 
 #[test]
-fn git_facts_for_task_commits_are_newest_first_and_stable_across_two_reads() {
-    let fixture = setup(false);
+fn git_facts_for_story_commits_are_newest_first_and_stable_across_two_reads() {
+    let fixture = setup();
     commit_file(&fixture.worktree_path, "a.txt", "a\n", "add a");
     commit_file(&fixture.worktree_path, "b.txt", "b\n", "add b");
 
-    let first = git_facts_for_task(&fixture.conn, &fixture.task_id)
-        .expect("git_facts_for_task should succeed")
+    let first = git_facts_for_story(&fixture.conn, &fixture.story_id)
+        .expect("git_facts_for_story should succeed")
         .expect("facts should be Some");
-    let second = git_facts_for_task(&fixture.conn, &fixture.task_id)
-        .expect("git_facts_for_task should succeed")
+    let second = git_facts_for_story(&fixture.conn, &fixture.story_id)
+        .expect("git_facts_for_story should succeed")
         .expect("facts should be Some");
 
     assert_eq!(first.commits.len(), 2);
@@ -237,35 +226,11 @@ fn fetch_origin_skips_without_fetching_when_no_remote_is_configured() {
 }
 
 #[test]
-fn target_ref_for_epic_task_is_the_epic_integration_branch() {
-    let fixture = setup(true);
+fn target_ref_for_a_story_is_the_project_default_branch() {
+    let fixture = setup();
 
-    let (epic_id,): (String,) = fixture
-        .conn
-        .query_row("SELECT epic_id FROM tasks WHERE id = ?1", params![fixture.task_id], |row| {
-            Ok((row.get(0)?,))
-        })
-        .expect("task should carry an epic_id");
-    let (epic_key, epic_title): (String, String) = fixture
-        .conn
-        .query_row("SELECT key, title FROM epics WHERE id = ?1", params![epic_id], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
-        .expect("epic row should exist");
-    let expected = format!("origin/{}", epic_integration_branch_name(&epic_key, &epic_title));
-
-    let facts = git_facts_for_task(&fixture.conn, &fixture.task_id)
-        .expect("git_facts_for_task should succeed")
-        .expect("facts should be Some");
-    assert_eq!(facts.target_ref, expected);
-}
-
-#[test]
-fn target_ref_for_epicless_task_is_the_project_default_branch() {
-    let fixture = setup(false);
-
-    let facts = git_facts_for_task(&fixture.conn, &fixture.task_id)
-        .expect("git_facts_for_task should succeed")
+    let facts = git_facts_for_story(&fixture.conn, &fixture.story_id)
+        .expect("git_facts_for_story should succeed")
         .expect("facts should be Some");
     assert_eq!(facts.target_ref, "origin/main");
 }

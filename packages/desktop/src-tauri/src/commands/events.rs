@@ -64,9 +64,9 @@ fn resolve_cursor_limit(limit: Option<i64>) -> i64 {
     limit.unwrap_or(CURSOR_DEFAULT_LIMIT).clamp(1, CURSOR_MAX_LIMIT)
 }
 
-/// A task's or an epic's own chronological activity trail (BOARD-09) — its own events plus, for
-/// a task, its acceptance criteria's events, ascending by event id, windowed by `limit`/`offset`
-/// (D-03). `parentKind` must be `"task"` or `"epic"`; anything else is rejected here, before it
+/// A Story's or an Epic's own chronological activity trail (BOARD-09) — its own events plus, for
+/// a Story, its criteria's, Tasks' and sessions' events, ascending by event id, windowed by `limit`/`offset`
+/// (D-03). `parentKind` must be `"story"` or `"epic"`; anything else is rejected here, before it
 /// ever reaches the core.
 #[tauri::command]
 pub fn events_activity_trail(
@@ -76,9 +76,9 @@ pub fn events_activity_trail(
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<EventDto>, String> {
-    if parent_kind != "task" && parent_kind != "epic" {
+    if parent_kind != "story" && parent_kind != "epic" {
         return Err(format!(
-            "parentKind must be \"task\" or \"epic\", got {parent_kind:?}"
+            "parentKind must be \"story\" or \"epic\", got {parent_kind:?}"
         ));
     }
     let limit = resolve_trail_limit(limit);

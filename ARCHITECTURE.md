@@ -15,8 +15,8 @@ drives individual Claude Code sessions through the Agent SDK. A React renderer
 
 ## 2. Workspace members
 
-The Cargo workspace has three members: `packages/core` (domain crate: schema, persistence, git,
-dispatch), `packages/desktop/src-tauri` (the Tauri application) and `packages/shim` (the
+The Cargo workspace has three members: `packages/core` (domain crate: schema, record domain,
+persistence, git), `packages/desktop/src-tauri` (the Tauri application) and `packages/shim` (the
 `flywheel-shim` binary).
 `packages/sidecar` is deliberately **not** a Cargo workspace member: it is an npm package whose
 compiled output is staged into the application bundle (§7).
@@ -27,7 +27,8 @@ compiled output is staged into the application bundle (§7).
 file. The sidecar asks the Rust core over the sidecar IPC channel when it needs data. Schema changes
 are versioned migrations in `packages/core/src/db/migrations`, applied with `rusqlite_migration`,
 and `packages/core/src/db/backup.rs` copies the database file before any migration runs (D-18).
-Migration safety is backup-first, not down-migrations.
+Migration safety is backup-first, not down-migrations. The list starts at one baseline migration
+holding the MVP model (ADR 0003); a v0.1 database is moved aside on open, never upgraded.
 
 ## 4. Append-only event log
 

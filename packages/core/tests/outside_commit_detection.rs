@@ -1,6 +1,6 @@
 //! LINK-10 coverage for `git_facts.rs`'s `record_outside_commits`/`made_outside_flywheel` (Phase 7
 //! plan 07-06 Task 1): every bullet in the plan's `<behavior>` block, proven against a real
-//! `git init`-ed tempdir repository and real `agent_runs` rows — never a hand-typed trailer check
+//! `git init`-ed tempdir repository and real `sessions` rows — never a hand-typed trailer check
 //! (D-129, forced by D-126: the commit-msg hook stamps every commit on a `flywheel/` branch
 //! identically, agent-made or hand-typed, so trailer presence cannot distinguish them).
 //!
@@ -19,8 +19,7 @@ use std::process::{Command, Output};
 
 use core::domain::actor::{local_human_actor_id, system_actor};
 use core::domain::project::create_project;
-use core::domain::task::create_task;
-use core::git_facts::{git_facts_for_task, record_outside_commits, EVENT_OUTSIDE_COMMIT};
+use core::git_facts::{git_facts_for_story, record_outside_commits, EVENT_OUTSIDE_COMMIT};
 use core::ids::new_id;
 use core::query::events::activity_trail;
 use rusqlite::{params, Connection};
@@ -60,8 +59,8 @@ fn init_repo(root: &Path, name: &str) -> PathBuf {
 }
 
 /// A real bare repository used as the throwaway local `origin` — so `target_ref` ("origin/main")
-/// resolves locally and `git_facts_for_task`'s commit range is `origin/main..HEAD` (only commits
-/// unique to the task's branch), matching `git_facts.rs`'s own test fixture.
+/// resolves locally and `git_facts_for_story`'s commit range is `origin/main..HEAD` (only commits
+/// unique to the Story's branch), matching `git_facts.rs`'s own test fixture.
 fn init_bare(root: &Path, name: &str) -> PathBuf {
     let repo = root.join(name);
     run_git_ok(root, &["init", "--bare", "--initial-branch", "main", repo.to_str().unwrap()]);
@@ -70,7 +69,7 @@ fn init_bare(root: &Path, name: &str) -> PathBuf {
 
 /// Commit `filename` with a committer/author timestamp pinned to `timestamp` (an RFC3339 literal)
 /// via `GIT_COMMITTER_DATE`/`GIT_AUTHOR_DATE` — the one deterministic lever this file uses to put
-/// a commit at an exact instant relative to an `agent_runs` window's boundaries.
+/// a commit at an exact instant relative to a `sessions` window's boundaries.
 fn commit_file_at(repo: &Path, filename: &str, contents: &str, message: &str, timestamp: &str) {
     std::fs::write(repo.join(filename), contents).expect("failed to write file");
     run_git_ok(repo, &["add", filename]);
@@ -90,13 +89,13 @@ fn commit_file_at(repo: &Path, filename: &str, contents: &str, message: &str, ti
 }
 
 /// A DB + real-repo fixture: a project registered at `main_repo` (with `origin` pushed to a
-/// throwaway local bare remote), one epic-less task, and a real `git worktree` checked out on a
+/// throwaway local bare remote), one Story, and a real `git worktree` checked out on a
 /// fresh branch from `main`, with a matching `worktrees` row. Mirrors `git_facts.rs`'s own
 /// `setup()` fixture.
 struct Fixture {
     _root: tempfile::TempDir,
     conn: Connection,
-    task_id: String,
+    story_id: String,
     project_id: String,
     branch: String,
     worktree_path: PathBuf,
@@ -111,8 +110,8 @@ fn setup() -> Fixture {
     run_git_ok(&main_repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
     run_git_ok(&main_repo, &["push", "-u", "origin", "main"]);
 
-    let worktree_path = root.path().join("task_worktree");
-    let branch = "flywheel/fly-1-a-task".to_string();
+    let worktree_path = root.path().join("story_worktree");
+    let branch = "flywheel/fly-1-a-story".to_string();
     run_git_ok(
         &main_repo,
         &["worktree", "add", worktree_path.to_str().unwrap(), "-b", &branch, "main"],
@@ -137,16 +136,15 @@ fn setup() -> Fixture {
     )
     .expect("create_project should succeed");
 
-    let task = create_task(&mut conn, &project.id, &actor_id, "A Task", None)
-        .expect("create_task should succeed");
+    let story = common::new_story(&mut conn, &project.id, &actor_id, "A Story");
 
     conn.execute(
         "INSERT INTO worktrees (
-            id, task_id, project_id, path, branch, base_branch, status, created_by, created_at
+            id, story_id, project_id, path, branch, base_branch, status, created_by, created_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, 'main', 'active', ?6, ?7)",
         params![
             new_id(),
-            task.id,
+            story.id,
             project.id,
             worktree_path.to_string_lossy().into_owned(),
             branch,
@@ -159,7 +157,7 @@ fn setup() -> Fixture {
     Fixture {
         _root: root,
         conn,
-        task_id: task.id,
+        story_id: story.id,
         project_id: project.id,
         branch,
         worktree_path,
@@ -167,30 +165,13 @@ fn setup() -> Fixture {
     }
 }
 
-/// Insert one `triggers` row (required by `agent_runs.trigger_id`'s NOT NULL FK), scoped to
-/// `task_id`, source `user_action` — the only source this crate's own application code ever
-/// writes (DATA-04).
-fn insert_trigger(conn: &Connection, project_id: &str, task_id: &str, actor_id: &str) -> String {
-    let id = new_id();
-    conn.execute(
-        "INSERT INTO triggers (
-            id, project_id, target_task_id, target_epic_id, source, config, enabled,
-            last_fired_at, created_by, created_at
-        ) VALUES (?1, ?2, ?3, NULL, 'user_action', NULL, 1, NULL, ?4, ?5)",
-        params![id, project_id, task_id, actor_id, "2026-01-01T00:00:00.000Z"],
-    )
-    .expect("failed to insert fixture trigger");
-    id
-}
-
-/// Insert one `agent_runs` row with an exact `started_at`/`ended_at` window — `ended_at: None`
+/// Insert one `sessions` row with an exact `started_at`/`ended_at` window — `ended_at: None`
 /// means a still-live run (`status = 'running'`), matching the real schema's nullable column.
 #[allow(clippy::too_many_arguments)]
 fn insert_agent_run(
     conn: &Connection,
-    task_id: &str,
+    story_id: &str,
     project_id: &str,
-    trigger_id: &str,
     actor_id: &str,
     started_at: &str,
     ended_at: Option<&str>,
@@ -198,18 +179,16 @@ fn insert_agent_run(
     let id = new_id();
     let status = if ended_at.is_some() { "completed" } else { "running" };
     conn.execute(
-        "INSERT INTO agent_runs (
-            id, worktree_id, task_id, epic_id, project_id, trigger_id, adapter, actor_id, status,
+        "INSERT INTO sessions (
+            id, worktree_id, story_id, project_id, adapter, actor_id, status,
             external_session_id, permission_mode, cost_usd, tokens_in, tokens_out, log_path,
-            started_at, ended_at, acknowledged_at, exit_summary_id, criteria_revision_pin,
-            authoring_stage
-        ) VALUES (?1, NULL, ?2, NULL, ?3, ?4, 'claude_code', ?5, ?6, NULL, 'default', NULL, NULL, \
-            NULL, ?7, ?8, ?9, NULL, NULL, NULL, NULL)",
+            started_at, ended_at, acknowledged_at
+        ) VALUES (?1, NULL, ?2, ?3, 'claude_code', ?4, ?5, NULL, 'default', NULL, NULL, \
+            NULL, ?6, ?7, ?8, NULL)",
         params![
             id,
-            task_id,
+            story_id,
             project_id,
-            trigger_id,
             actor_id,
             status,
             format!("/tmp/log-{id}.jsonl"),
@@ -217,17 +196,17 @@ fn insert_agent_run(
             ended_at,
         ],
     )
-    .expect("failed to insert fixture agent_run");
+    .expect("failed to insert fixture session");
     id
 }
 
-/// Counts only [`EVENT_OUTSIDE_COMMIT`] rows for `task_id` — `create_task` itself appends its own
-/// `task.created` event, so a bare `COUNT(*)` over every event would not isolate this detector's
+/// Counts only [`EVENT_OUTSIDE_COMMIT`] rows for `story_id` — `create_story` itself appends its own
+/// `story.created` event, so a bare `COUNT(*)` over every event would not isolate this detector's
 /// own writes.
-fn count_outside_commit_events_for_task(conn: &Connection, task_id: &str) -> i64 {
+fn count_outside_commit_events_for_story(conn: &Connection, story_id: &str) -> i64 {
     conn.query_row(
-        "SELECT COUNT(*) FROM events WHERE task_id = ?1 AND event_type = ?2",
-        params![task_id, EVENT_OUTSIDE_COMMIT],
+        "SELECT COUNT(*) FROM events WHERE story_id = ?1 AND event_type = ?2",
+        params![story_id, EVENT_OUTSIDE_COMMIT],
         |row| row.get(0),
     )
     .expect("failed to count events")
@@ -243,20 +222,17 @@ fn commit_strictly_inside_an_agent_run_window_is_not_marked() {
         "inside the window",
         "2026-01-01T10:00:00+00:00",
     );
-    let trigger_id =
-        insert_trigger(&fixture.conn, &fixture.project_id, &fixture.task_id, &fixture.system_actor_id);
     insert_agent_run(
         &fixture.conn,
-        &fixture.task_id,
+        &fixture.story_id,
         &fixture.project_id,
-        &trigger_id,
         &fixture.system_actor_id,
         "2026-01-01T09:00:00+00:00",
         Some("2026-01-01T11:00:00+00:00"),
     );
 
-    let facts = git_facts_for_task(&fixture.conn, &fixture.task_id)
-        .expect("git_facts_for_task should succeed")
+    let facts = git_facts_for_story(&fixture.conn, &fixture.story_id)
+        .expect("git_facts_for_story should succeed")
         .expect("facts should be Some");
     assert_eq!(facts.commits.len(), 1);
     assert!(
@@ -264,10 +240,10 @@ fn commit_strictly_inside_an_agent_run_window_is_not_marked() {
         "a commit strictly inside a recorded run window must not be marked"
     );
 
-    let appended = record_outside_commits(&mut fixture.conn, &fixture.task_id, &fixture.system_actor_id)
+    let appended = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
         .expect("record_outside_commits should succeed");
     assert_eq!(appended, 0, "a covered commit must append no event");
-    assert_eq!(count_outside_commit_events_for_task(&fixture.conn, &fixture.task_id), 0);
+    assert_eq!(count_outside_commit_events_for_story(&fixture.conn, &fixture.story_id), 0);
 }
 
 #[test]
@@ -280,20 +256,17 @@ fn commit_exactly_at_a_runs_started_at_is_not_marked() {
         "at started_at",
         "2026-01-01T09:00:00+00:00",
     );
-    let trigger_id =
-        insert_trigger(&fixture.conn, &fixture.project_id, &fixture.task_id, &fixture.system_actor_id);
     insert_agent_run(
         &fixture.conn,
-        &fixture.task_id,
+        &fixture.story_id,
         &fixture.project_id,
-        &trigger_id,
         &fixture.system_actor_id,
         "2026-01-01T09:00:00+00:00",
         Some("2026-01-01T11:00:00+00:00"),
     );
 
-    let facts = git_facts_for_task(&fixture.conn, &fixture.task_id)
-        .expect("git_facts_for_task should succeed")
+    let facts = git_facts_for_story(&fixture.conn, &fixture.story_id)
+        .expect("git_facts_for_story should succeed")
         .expect("facts should be Some");
     assert!(
         !facts.commits[0].made_outside_flywheel,
@@ -311,20 +284,17 @@ fn commit_exactly_at_a_runs_ended_at_is_not_marked() {
         "at ended_at",
         "2026-01-01T11:00:00+00:00",
     );
-    let trigger_id =
-        insert_trigger(&fixture.conn, &fixture.project_id, &fixture.task_id, &fixture.system_actor_id);
     insert_agent_run(
         &fixture.conn,
-        &fixture.task_id,
+        &fixture.story_id,
         &fixture.project_id,
-        &trigger_id,
         &fixture.system_actor_id,
         "2026-01-01T09:00:00+00:00",
         Some("2026-01-01T11:00:00+00:00"),
     );
 
-    let facts = git_facts_for_task(&fixture.conn, &fixture.task_id)
-        .expect("git_facts_for_task should succeed")
+    let facts = git_facts_for_story(&fixture.conn, &fixture.story_id)
+        .expect("git_facts_for_story should succeed")
         .expect("facts should be Some");
     assert!(
         !facts.commits[0].made_outside_flywheel,
@@ -342,27 +312,24 @@ fn commit_after_a_completed_runs_ended_at_and_inside_no_other_window_is_marked()
         "after the run ended",
         "2026-01-01T12:00:00+00:00",
     );
-    let trigger_id =
-        insert_trigger(&fixture.conn, &fixture.project_id, &fixture.task_id, &fixture.system_actor_id);
     insert_agent_run(
         &fixture.conn,
-        &fixture.task_id,
+        &fixture.story_id,
         &fixture.project_id,
-        &trigger_id,
         &fixture.system_actor_id,
         "2026-01-01T09:00:00+00:00",
         Some("2026-01-01T11:00:00+00:00"),
     );
 
-    let facts = git_facts_for_task(&fixture.conn, &fixture.task_id)
-        .expect("git_facts_for_task should succeed")
+    let facts = git_facts_for_story(&fixture.conn, &fixture.story_id)
+        .expect("git_facts_for_story should succeed")
         .expect("facts should be Some");
     assert!(
         facts.commits[0].made_outside_flywheel,
         "a commit after a completed run's ended_at, covered by no window, must be marked"
     );
 
-    let appended = record_outside_commits(&mut fixture.conn, &fixture.task_id, &fixture.system_actor_id)
+    let appended = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
         .expect("record_outside_commits should succeed");
     assert_eq!(appended, 1);
 }
@@ -377,20 +344,17 @@ fn commit_landing_while_a_run_has_ended_at_null_is_not_marked() {
         "during a still-live run",
         "2026-01-01T15:00:00+00:00",
     );
-    let trigger_id =
-        insert_trigger(&fixture.conn, &fixture.project_id, &fixture.task_id, &fixture.system_actor_id);
     insert_agent_run(
         &fixture.conn,
-        &fixture.task_id,
+        &fixture.story_id,
         &fixture.project_id,
-        &trigger_id,
         &fixture.system_actor_id,
         "2026-01-01T09:00:00+00:00",
         None,
     );
 
-    let facts = git_facts_for_task(&fixture.conn, &fixture.task_id)
-        .expect("git_facts_for_task should succeed")
+    let facts = git_facts_for_story(&fixture.conn, &fixture.story_id)
+        .expect("git_facts_for_story should succeed")
         .expect("facts should be Some");
     assert!(
         !facts.commits[0].made_outside_flywheel,
@@ -399,18 +363,18 @@ fn commit_landing_while_a_run_has_ended_at_null_is_not_marked() {
 }
 
 #[test]
-fn every_commit_on_a_task_with_zero_agent_runs_rows_is_marked() {
+fn every_commit_on_a_story_with_zero_sessions_rows_is_marked() {
     let fixture = setup();
     commit_file_at(&fixture.worktree_path, "a.txt", "a\n", "first", "2026-01-01T10:00:00+00:00");
     commit_file_at(&fixture.worktree_path, "b.txt", "b\n", "second", "2026-01-01T11:00:00+00:00");
 
-    let facts = git_facts_for_task(&fixture.conn, &fixture.task_id)
-        .expect("git_facts_for_task should succeed")
+    let facts = git_facts_for_story(&fixture.conn, &fixture.story_id)
+        .expect("git_facts_for_story should succeed")
         .expect("facts should be Some");
     assert_eq!(facts.commits.len(), 2);
     assert!(
         facts.commits.iter().all(|c| c.made_outside_flywheel),
-        "with zero agent_runs rows, every commit on the branch must be marked"
+        "with zero sessions rows, every commit on the branch must be marked"
     );
 }
 
@@ -418,15 +382,15 @@ fn every_commit_on_a_task_with_zero_agent_runs_rows_is_marked() {
 fn a_branch_with_zero_commits_yields_no_marker_and_no_event() {
     let mut fixture = setup();
 
-    let facts = git_facts_for_task(&fixture.conn, &fixture.task_id)
-        .expect("git_facts_for_task should succeed")
+    let facts = git_facts_for_story(&fixture.conn, &fixture.story_id)
+        .expect("git_facts_for_story should succeed")
         .expect("facts should be Some");
     assert!(facts.commits.is_empty(), "a freshly cut branch has no commits of its own yet");
 
-    let appended = record_outside_commits(&mut fixture.conn, &fixture.task_id, &fixture.system_actor_id)
+    let appended = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
         .expect("record_outside_commits should succeed");
     assert_eq!(appended, 0);
-    assert_eq!(count_outside_commit_events_for_task(&fixture.conn, &fixture.task_id), 0);
+    assert_eq!(count_outside_commit_events_for_story(&fixture.conn, &fixture.story_id), 0);
 }
 
 #[test]
@@ -434,15 +398,15 @@ fn record_outside_commits_appends_one_event_for_a_newly_marked_commit_with_full_
     let mut fixture = setup();
     commit_file_at(&fixture.worktree_path, "a.txt", "a\n", "hand-typed", "2026-01-01T10:00:00+00:00");
 
-    let appended = record_outside_commits(&mut fixture.conn, &fixture.task_id, &fixture.system_actor_id)
+    let appended = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
         .expect("record_outside_commits should succeed");
     assert_eq!(appended, 1);
 
     let (actor_id, payload_text): (String, String) = fixture
         .conn
         .query_row(
-            "SELECT actor_id, payload FROM events WHERE task_id = ?1 AND event_type = ?2",
-            params![fixture.task_id, EVENT_OUTSIDE_COMMIT],
+            "SELECT actor_id, payload FROM events WHERE story_id = ?1 AND event_type = ?2",
+            params![fixture.story_id, EVENT_OUTSIDE_COMMIT],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("the appended event row should exist");
@@ -463,18 +427,18 @@ fn record_outside_commits_is_idempotent_on_a_second_call() {
     let mut fixture = setup();
     commit_file_at(&fixture.worktree_path, "a.txt", "a\n", "hand-typed", "2026-01-01T10:00:00+00:00");
 
-    let first = record_outside_commits(&mut fixture.conn, &fixture.task_id, &fixture.system_actor_id)
+    let first = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
         .expect("record_outside_commits should succeed");
-    let second = record_outside_commits(&mut fixture.conn, &fixture.task_id, &fixture.system_actor_id)
+    let second = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
         .expect("record_outside_commits should succeed");
 
     assert_eq!(first, 1);
     assert_eq!(second, 0, "re-running over the same unchanged branch must append nothing further");
-    assert_eq!(count_outside_commit_events_for_task(&fixture.conn, &fixture.task_id), 1);
+    assert_eq!(count_outside_commit_events_for_story(&fixture.conn, &fixture.story_id), 1);
 }
 
 #[test]
-fn record_outside_commits_never_writes_tasks_or_appends_for_covered_commits() {
+fn record_outside_commits_never_writes_stories_or_appends_for_covered_commits() {
     let mut fixture = setup();
     commit_file_at(
         &fixture.worktree_path,
@@ -483,13 +447,10 @@ fn record_outside_commits_never_writes_tasks_or_appends_for_covered_commits() {
         "an agent's own commit",
         "2026-01-01T10:00:00+00:00",
     );
-    let trigger_id =
-        insert_trigger(&fixture.conn, &fixture.project_id, &fixture.task_id, &fixture.system_actor_id);
     insert_agent_run(
         &fixture.conn,
-        &fixture.task_id,
+        &fixture.story_id,
         &fixture.project_id,
-        &trigger_id,
         &fixture.system_actor_id,
         "2026-01-01T09:00:00+00:00",
         Some("2026-01-01T11:00:00+00:00"),
@@ -497,23 +458,23 @@ fn record_outside_commits_never_writes_tasks_or_appends_for_covered_commits() {
 
     let status_before: String = fixture
         .conn
-        .query_row("SELECT status FROM tasks WHERE id = ?1", params![fixture.task_id], |row| {
+        .query_row("SELECT state FROM stories WHERE id = ?1", params![fixture.story_id], |row| {
             row.get(0)
         })
-        .expect("task should exist");
+        .expect("story should exist");
 
-    let appended = record_outside_commits(&mut fixture.conn, &fixture.task_id, &fixture.system_actor_id)
+    let appended = record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
         .expect("record_outside_commits should succeed");
     assert_eq!(appended, 0);
 
     let status_after: String = fixture
         .conn
-        .query_row("SELECT status FROM tasks WHERE id = ?1", params![fixture.task_id], |row| {
+        .query_row("SELECT state FROM stories WHERE id = ?1", params![fixture.story_id], |row| {
             row.get(0)
         })
-        .expect("task should exist");
-    assert_eq!(status_before, status_after, "a covered commit must never touch tasks.status");
-    assert_eq!(count_outside_commit_events_for_task(&fixture.conn, &fixture.task_id), 0);
+        .expect("story should exist");
+    assert_eq!(status_before, status_after, "a covered commit must never touch stories.state");
+    assert_eq!(count_outside_commit_events_for_story(&fixture.conn, &fixture.story_id), 0);
 }
 
 #[test]
@@ -521,10 +482,10 @@ fn the_appended_events_description_via_activity_trail_equals_the_payload_label()
     let mut fixture = setup();
     commit_file_at(&fixture.worktree_path, "a.txt", "a\n", "hand-typed", "2026-01-01T10:00:00+00:00");
 
-    record_outside_commits(&mut fixture.conn, &fixture.task_id, &fixture.system_actor_id)
+    record_outside_commits(&mut fixture.conn, &fixture.story_id, &fixture.system_actor_id)
         .expect("record_outside_commits should succeed");
 
-    let trail = activity_trail(&fixture.conn, "task", &fixture.task_id, 50, 0)
+    let trail = activity_trail(&fixture.conn, "story", &fixture.story_id, 50, 0)
         .expect("activity_trail should succeed");
     let event = trail
         .iter()

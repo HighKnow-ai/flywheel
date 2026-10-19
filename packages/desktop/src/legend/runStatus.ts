@@ -16,7 +16,7 @@
  * migration `0006_recovery_statuses.sql`, D-49). */
 export type RunStatus = "running" | "blocked" | "completed" | "failed" | "interrupted" | "abandoned";
 
-/** A fleet row's state (D-168): the run status, except a `completed` run whose task is not yet Done
+/** A fleet row's state (D-168): the run status, except a `completed` run whose Story is not yet Done
  * reads `awaiting_review`. Derived by the Rust core's fleet read and stored in no column. */
 export type FleetState = RunStatus | "awaiting_review";
 

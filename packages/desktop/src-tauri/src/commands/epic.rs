@@ -1,257 +1,112 @@
-//! `epic_create` / `epic_update` / `epic_delete` — the epic mutation surface. Epic status has no
-//! command: it is derived from the epic's tasks (D-13) and is not IPC-writable (D-14).
-//! Every handler resolves `actor_id` server-side (T-01-04, never from a renderer-supplied claim)
-//! and emits `board:changed` after a successful mutation (D-04).
+//! `epic_create` / `epic_list` / `epic_update` / `epic_set_state` — the Epic command surface. An
+//! Epic sits in one Milestone and carries a short spec (problem, scope, out of scope) and an exit
+//! test (`domain::epic`). Every handler stamps the local human actor server-side (T-01-04) and
+//! emits `board:changed` after a successful mutation.
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use super::{emit_board_changed, project_of};
-
+use super::{emit_board_changed, validate_text, MAX_PROSE_LEN, MAX_TITLE_LEN};
 use crate::state::AppState;
-
-const MAX_TITLE_LEN: usize = 500;
-const MAX_DESCRIPTION_LEN: usize = 20_000;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpicDto {
     pub id: String,
     pub project_id: String,
+    pub milestone_id: String,
     pub key: String,
     pub title: String,
-    pub description: Option<String>,
-    pub status: String,
+    pub problem: Option<String>,
+    pub scope: Option<String>,
+    pub out_of_scope: Option<String>,
+    pub exit_test: Option<String>,
+    /// The state with In progress derived: `shaping`, `ready`, `in_progress` or `done`.
+    pub state: String,
     pub rank: String,
-    pub priority: i64,
 }
 
-impl From<flywheel_core::domain::epic::Epic> for EpicDto {
-    fn from(epic: flywheel_core::domain::epic::Epic) -> Self {
-        Self {
-            id: epic.id,
-            project_id: epic.project_id,
-            key: epic.key,
-            title: epic.title,
-            description: epic.description,
-            status: epic.status,
-            rank: epic.rank,
-            priority: epic.priority,
-        }
-    }
+fn to_dto(conn: &rusqlite::Connection, epic: flywheel_core::domain::epic::Epic) -> Result<EpicDto, String> {
+    let state = flywheel_core::domain::epic::epic_state(conn, &epic.id).map_err(|e| e.to_string())?;
+    Ok(EpicDto {
+        id: epic.id,
+        project_id: epic.project_id,
+        milestone_id: epic.milestone_id,
+        key: epic.key,
+        title: epic.title,
+        problem: epic.spec.problem,
+        scope: epic.spec.scope,
+        out_of_scope: epic.spec.out_of_scope,
+        exit_test: epic.spec.exit_test,
+        state: state.as_str().to_string(),
+        rank: epic.rank,
+    })
 }
 
-/// The three fields the epic pill, the filter chips and the `ParentPicker` option lists consume
-/// (G-01-2), plus the two the roster header's sub-label reads (08.1-14 finish review) — the narrow
-/// DTO `epic_list_all` returns, deliberately not the full `EpicDto`.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EpicSummaryDto {
-    pub id: String,
-    pub key: String,
-    pub title: String,
-    pub status: String,
-    /// `null` until the epic's integration branch is first cut (D-25).
-    pub integration_branch: Option<String>,
-}
-
-impl From<flywheel_core::domain::epic::EpicSummary> for EpicSummaryDto {
-    fn from(summary: flywheel_core::domain::epic::EpicSummary) -> Self {
-        Self {
-            id: summary.id,
-            key: summary.key,
-            title: summary.title,
-            status: summary.status,
-            integration_branch: summary.integration_branch,
-        }
-    }
-}
-
-/// [`epic_list_all`]'s wire shape (D-16, D-87, plan 05-04) — the roster page plus `total` and
-/// `truncated` so the renderer can tell "every epic" from "the first `EPIC_ROSTER_CEILING`" and
-/// surface the difference rather than swallow it.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EpicRosterDto {
-    pub epics: Vec<EpicSummaryDto>,
-    pub total: i64,
-    pub truncated: bool,
-}
-
-impl From<flywheel_core::domain::epic::EpicRoster> for EpicRosterDto {
-    fn from(roster: flywheel_core::domain::epic::EpicRoster) -> Self {
-        Self {
-            epics: roster.epics.into_iter().map(EpicSummaryDto::from).collect(),
-            total: roster.total,
-            truncated: roster.truncated,
-        }
-    }
-}
-
-/// List every epic in `project_id` (BOARD-06, G-01-2), up to `domain::epic::EPIC_ROSTER_CEILING`
-/// (plan 05-04, closing `01-SECURITY.md` AR-01-04's re-rate trigger). No longer literally exempt
-/// from a windowing contract — the roster now carries `total`/`truncated` so a truncation is
-/// surfaced rather than silent, which is what let this exemption close without reopening G-01-2.
-/// Unlike every other handler in this file, it takes no `AppHandle` and emits nothing — it is a
-/// pure read.
+/// Create an Epic at the end of `milestone_id`, in Shaping.
 #[tauri::command]
-pub fn epic_list_all(state: State<AppState>, project_id: String) -> Result<EpicRosterDto, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let roster = flywheel_core::domain::epic::list_epics(&conn, &project_id).map_err(|e| e.to_string())?;
-    Ok(roster.into())
-}
-
-fn validate_title(title: &str) -> Result<(), String> {
-    if title.is_empty() || title.len() > MAX_TITLE_LEN {
-        return Err(format!(
-            "title must be 1-{MAX_TITLE_LEN} characters, got {} characters",
-            title.len()
-        ));
-    }
-    Ok(())
-}
-
-fn validate_description(description: &Option<String>) -> Result<(), String> {
-    if let Some(d) = description {
-        if d.len() > MAX_DESCRIPTION_LEN {
-            return Err(format!(
-                "description must be at most {MAX_DESCRIPTION_LEN} characters, got {} characters",
-                d.len()
-            ));
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub fn epic_create(
-    state: State<AppState>,
-    app: AppHandle,
-    project_id: String,
-    title: String,
-) -> Result<EpicDto, String> {
-    let title = title.trim();
-    validate_title(title)?;
-
+pub fn epic_create(state: State<AppState>, app: AppHandle, milestone_id: String, title: String) -> Result<EpicDto, String> {
+    validate_text("title", &title, MAX_TITLE_LEN)?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    let epic = flywheel_core::domain::epic::create_epic(&mut conn, &project_id, &actor_id, title, None)
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let epic = flywheel_core::domain::epic::create_epic(&mut conn, &actor_id, &milestone_id, &title)
         .map_err(|e| e.to_string())?;
+    let dto = to_dto(&conn, epic)?;
     drop(conn);
-
-    let dto: EpicDto = epic.into();
-    emit_board_changed(&app, Some(project_id.as_str()), "epic", Some(dto.id.as_str()));
+    emit_board_changed(&app, Some(&dto.project_id), "epic", Some(&dto.id));
     Ok(dto)
 }
 
+/// Every Epic of a Milestone, in rank order.
 #[tauri::command]
+pub fn epic_list(state: State<AppState>, milestone_id: String) -> Result<Vec<EpicDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    flywheel_core::domain::epic::epics_in_milestone(&conn, &milestone_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|epic| to_dto(&conn, epic))
+        .collect()
+}
+
+/// Rewrite an Epic's title, spec and exit test.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn epic_update(
     state: State<AppState>,
     app: AppHandle,
     epic_id: String,
-    title: Option<String>,
-    description: Option<String>,
-) -> Result<EpicDto, String> {
-    if let Some(t) = &title {
-        validate_title(t.trim())?;
+    title: String,
+    problem: Option<String>,
+    scope: Option<String>,
+    out_of_scope: Option<String>,
+    exit_test: Option<String>,
+) -> Result<(), String> {
+    validate_text("title", &title, MAX_TITLE_LEN)?;
+    for (field, value) in [("problem", &problem), ("scope", &scope), ("outOfScope", &out_of_scope), ("exitTest", &exit_test)] {
+        if let Some(value) = value {
+            validate_text(field, value, MAX_PROSE_LEN)?;
+        }
     }
-    validate_description(&description)?;
-
+    let spec = flywheel_core::domain::epic::EpicSpec { problem, scope, out_of_scope, exit_test };
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    let epic = flywheel_core::domain::epic::update_epic(
-        &mut conn,
-        &actor_id,
-        &epic_id,
-        title.as_deref().map(str::trim),
-        description.as_deref(),
-    )
-    .map_err(|e| e.to_string())?;
-    let project_id = project_of(&conn, "epics", &epic_id);
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::epic::update_epic(&mut conn, &actor_id, &epic_id, &title, &spec).map_err(|e| e.to_string())?;
+    let project_id = super::project_of(&conn, "epics", &epic_id);
     drop(conn);
-
-    let dto: EpicDto = epic.into();
-    emit_board_changed(&app, project_id.as_deref(), "epic", Some(dto.id.as_str()));
-    Ok(dto)
-}
-
-#[tauri::command]
-pub fn epic_delete(state: State<AppState>, app: AppHandle, epic_id: String) -> Result<(), String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    // Read before the delete: the row (and its project) is gone afterwards.
-    let project_id = project_of(&conn, "epics", &epic_id);
-    flywheel_core::domain::epic::delete_epic(&mut conn, &actor_id, &epic_id)
-        .map_err(|e| e.to_string())?;
-    drop(conn);
-
-    emit_board_changed(&app, project_id.as_deref(), "epic", Some(epic_id.as_str()));
+    emit_board_changed(&app, project_id.as_deref(), "epic", Some(&epic_id));
     Ok(())
 }
 
-/// Move an epic up or down by one position within its priority band (`⌘↑`/`⌘↓`, D-11, BOARD-05).
-/// Mirrors `commands::task::task_reorder`'s shape exactly.
+/// The developer moves an Epic: `ready` closes shaping, `done` confirms the exit test, `shaping`
+/// reopens shaping (declining the exit test). The domain refuses the rest.
 #[tauri::command]
-pub fn epic_reorder(
-    state: State<AppState>,
-    app: AppHandle,
-    epic_id: String,
-    direction: String,
-) -> Result<(), String> {
-    let direction = flywheel_core::ranking::ReorderDirection::parse(&direction)
-        .map_err(|e| e.to_string())?;
-
+pub fn epic_set_state(state: State<AppState>, app: AppHandle, epic_id: String, to: String) -> Result<(), String> {
+    let to = flywheel_core::domain::epic::EpicState::parse(&to).map_err(|e| e.to_string())?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::epic::reorder_epic(&mut conn, &actor_id, &epic_id, direction)
-        .map_err(|e| e.to_string())?;
-    let project_id = project_of(&conn, "epics", &epic_id);
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::epic::set_epic_state(&mut conn, &actor_id, &epic_id, to).map_err(|e| e.to_string())?;
+    let project_id = super::project_of(&conn, "epics", &epic_id);
     drop(conn);
-
-    emit_board_changed(&app, project_id.as_deref(), "epic", Some(epic_id.as_str()));
-    Ok(())
-}
-
-/// Set an epic's priority — mirrors `commands::task::task_set_priority`'s shape exactly.
-#[tauri::command]
-pub fn epic_set_priority(
-    state: State<AppState>,
-    app: AppHandle,
-    epic_id: String,
-    priority: i64,
-) -> Result<(), String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::epic::set_priority(&mut conn, &actor_id, &epic_id, priority)
-        .map_err(|e| e.to_string())?;
-    let project_id = project_of(&conn, "epics", &epic_id);
-    drop(conn);
-
-    emit_board_changed(&app, project_id.as_deref(), "epic", Some(epic_id.as_str()));
-    Ok(())
-}
-
-/// Set an epic's assignee — mirrors `commands::task::task_set_assignee`'s shape exactly.
-#[tauri::command]
-pub fn epic_set_assignee(
-    state: State<AppState>,
-    app: AppHandle,
-    epic_id: String,
-    assignee_id: Option<String>,
-) -> Result<(), String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::epic::set_assignee(&mut conn, &actor_id, &epic_id, assignee_id.as_deref())
-        .map_err(|e| e.to_string())?;
-    let project_id = project_of(&conn, "epics", &epic_id);
-    drop(conn);
-
-    emit_board_changed(&app, project_id.as_deref(), "epic", Some(epic_id.as_str()));
+    emit_board_changed(&app, project_id.as_deref(), "epic", Some(&epic_id));
     Ok(())
 }

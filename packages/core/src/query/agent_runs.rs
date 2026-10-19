@@ -1,5 +1,5 @@
-//! Bounded reads over `agent_runs`/`worktrees` for the item detail panel's Runs section and
-//! worktree summary (D-31, D-34, 02-UI-SPEC.md "Item detail panel additions") — literal SQL,
+//! Bounded reads over `sessions`/`worktrees` for a Story's session list and worktree summary
+//! (D-31, D-34, 02-UI-SPEC.md "Item detail panel additions") — literal SQL,
 //! bound through `params![]`, following `query::events`'s own discipline (T-01-01/T-01-23): no
 //! `format!`/string-interpolated SQL anywhere in this module.
 //!
@@ -11,7 +11,7 @@
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
 
-/// One row of a task's Runs section, newest first (02-UI-SPEC.md "Runs section"). `cost_usd`/
+/// One row of a Story's session list, newest first (02-UI-SPEC.md "Runs section"). `cost_usd`/
 /// `tokens_in`/`tokens_out` are `NULL` until the run's first `cost_update`/`result` event lands —
 /// the renderer's own concern to distinguish "not yet reported" from "reported as zero."
 ///
@@ -22,7 +22,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 /// the sidecar's own `init` event reports it (AGNT-01) — a run in flight before that event lands
 /// renders its run identity alone.
 ///
-/// `acknowledged_at` (added plan 03-10 Task 2, D-49) is `agent_runs.acknowledged_at`'s own value
+/// `acknowledged_at` (added plan 03-10 Task 2, D-49) is `sessions.acknowledged_at`'s own value
 /// verbatim — `NULL` until the abandoned-run acknowledgment row's Acknowledge button writes it
 /// (`agent_run_acknowledge`, `commands/agent_run.rs`). Meaningless for any status other than
 /// `abandoned`, but read for every row regardless — a status can change under a caller between two
@@ -30,7 +30,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunRow {
     pub id: String,
-    pub task_id: String,
+    pub story_id: String,
     pub status: String,
     pub started_at: String,
     pub ended_at: Option<String>,
@@ -41,14 +41,14 @@ pub struct RunRow {
     pub acknowledged_at: Option<String>,
 }
 
-const RUNS_FOR_TASK_SQL: &str = "SELECT id, task_id, status, started_at, ended_at, cost_usd, \
-    tokens_in, tokens_out, external_session_id, acknowledged_at FROM agent_runs WHERE task_id = ?1 \
+const RUNS_FOR_STORY_SQL: &str = "SELECT id, story_id, status, started_at, ended_at, cost_usd, \
+    tokens_in, tokens_out, external_session_id, acknowledged_at FROM sessions WHERE story_id = ?1 \
     ORDER BY started_at DESC, id DESC LIMIT ?2 OFFSET ?3";
 
 fn row_to_run(row: &rusqlite::Row) -> rusqlite::Result<RunRow> {
     Ok(RunRow {
         id: row.get(0)?,
-        task_id: row.get(1)?,
+        story_id: row.get(1)?,
         status: row.get(2)?,
         started_at: row.get(3)?,
         ended_at: row.get(4)?,
@@ -60,56 +60,56 @@ fn row_to_run(row: &rusqlite::Row) -> rusqlite::Result<RunRow> {
     })
 }
 
-/// `task_id`'s agent runs, newest first by `started_at` then `id` (a total order — two runs can
+/// `story_id`'s agent runs, newest first by `started_at` then `id` (a total order — two runs can
 /// never share a `started_at` down to the same tie-break, matching `query::events::activity_trail`'s
 /// own "no bare timestamp sort" discipline applied here to a second column). Bounded by `limit`
-/// with an `offset` cursor, never the whole run history at once. A task with no runs yet returns
+/// with an `offset` cursor, never the whole run history at once. A Story with no sessions yet returns
 /// an empty vector, never an error.
-pub fn runs_for_task(
+pub fn runs_for_story(
     conn: &Connection,
-    task_id: &str,
+    story_id: &str,
     limit: i64,
     offset: i64,
 ) -> anyhow::Result<Vec<RunRow>> {
-    let mut stmt = conn.prepare(RUNS_FOR_TASK_SQL)?;
+    let mut stmt = conn.prepare(RUNS_FOR_STORY_SQL)?;
     let rows = stmt
-        .query_map(params![task_id, limit, offset], row_to_run)?
+        .query_map(params![story_id, limit, offset], row_to_run)?
         .collect::<Result<Vec<_>, _>>();
-    rows.context("failed to list agent runs for task")
+    rows.context("failed to list sessions for the Story")
 }
 
-/// A task's worktree summary (02-UI-SPEC.md "Worktree summary") — `branch`/`path` as
+/// A Story's worktree summary (02-UI-SPEC.md "Worktree summary") — `branch`/`path` as
 /// `ensure_worktree` recorded them at creation time (D-23/D-24), never re-derived at read time.
-/// `task_key` (plan 03-01 Task 1, WORK-03) is joined in from `tasks` so the worktree-removal
-/// dialog's heading can print the task key without a second query. `status` (plan 03-03 Task 3,
+/// `story_key` (plan 03-01 Task 1, WORK-03) is joined in from `stories` so the worktree-removal
+/// dialog's heading can print the Story key without a second query. `status` (plan 03-03 Task 3,
 /// WORK-06) lets the renderer branch on `missing` — D-45's recovery banner — without a second
 /// query either.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorktreeSummary {
     pub branch: String,
     pub path: String,
-    pub task_key: String,
+    pub story_key: String,
     pub status: String,
 }
 
-const WORKTREE_SUMMARY_SQL: &str = "SELECT worktrees.branch, worktrees.path, tasks.key, worktrees.status \
-    FROM worktrees JOIN tasks ON worktrees.task_id = tasks.id WHERE worktrees.task_id = ?1";
+const WORKTREE_SUMMARY_SQL: &str = "SELECT worktrees.branch, worktrees.path, stories.key, worktrees.status \
+    FROM worktrees JOIN stories ON worktrees.story_id = stories.id WHERE worktrees.story_id = ?1";
 
-/// `task_id`'s worktree summary, or `None` for a task with no worktree yet (one worktree per
-/// task, ever — LINK-01/WORK-08's own UNIQUE constraint) — never a row of empty strings standing
+/// `story_id`'s worktree summary, or `None` for a Story with no worktree yet (one worktree per
+/// Story, ever — LINK-01/WORK-08's own UNIQUE constraint) — never a row of empty strings standing
 /// in for absence.
-pub fn worktree_summary_for_task(
+pub fn worktree_summary_for_story(
     conn: &Connection,
-    task_id: &str,
+    story_id: &str,
 ) -> anyhow::Result<Option<WorktreeSummary>> {
-    conn.query_row(WORKTREE_SUMMARY_SQL, params![task_id], |row| {
+    conn.query_row(WORKTREE_SUMMARY_SQL, params![story_id], |row| {
         Ok(WorktreeSummary {
             branch: row.get(0)?,
             path: row.get(1)?,
-            task_key: row.get(2)?,
+            story_key: row.get(2)?,
             status: row.get(3)?,
         })
     })
     .optional()
-    .context("failed to read worktree summary for task")
+    .context("failed to read worktree summary for the Story")
 }

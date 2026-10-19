@@ -3,8 +3,8 @@
  * - A measured size renders with its age; a never-measured size renders empty text and no byte figure.
  * - Each of the three chips renders with its reason word, and every reason the core can return has one.
  * - An unreachable-project row reads keep, with that reason.
- * - Re-measure calls the adapter once; the empty state names the task-worktrees-only limit.
- * - Rows render in the order the core sent them (equal sizes: task key ascending).
+ * - Re-measure calls the adapter once; the empty state names the Story-worktrees-only limit.
+ * - Rows render in the order the core sent them (equal sizes: Story key ascending).
  * - The rail's Worktrees row is a button that opens the view, and the view offers no bulk control.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +16,7 @@ import { resetUiState, useUiStore } from "../../state/uiStore";
 import { RECLAIM_REASONS, RECLAIM_REASON_WORDS, WorktreeInventory, formatBytes } from "../WorktreeInventory";
 
 const inventoryMock = vi.fn<() => Promise<WorktreeInventoryRowDto[]>>();
-const measureMock = vi.fn<(taskIds?: string[]) => Promise<WorktreeMeasureDto[]>>();
+const measureMock = vi.fn<(storyIds?: string[]) => Promise<WorktreeMeasureDto[]>>();
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -33,10 +33,10 @@ vi.mock("../../adapters/tauri", async () => {
 
 function row(overrides: Partial<WorktreeInventoryRowDto>): WorktreeInventoryRowDto {
   return {
-    taskId: "task-1",
-    taskKey: "ALP-1",
-    taskTitle: "Wire the thing",
-    taskStatus: "done",
+    storyId: "story-1",
+    storyKey: "ALP-1",
+    storyTitle: "Wire the thing",
+    storyState: "done",
     projectId: "proj-1",
     projectName: "Alpha",
     projectStatus: "active",
@@ -44,7 +44,7 @@ function row(overrides: Partial<WorktreeInventoryRowDto>): WorktreeInventoryRowD
     sizeBytes: 3 * 1024 * 1024 * 1024,
     sizeMeasuredAt: new Date(Date.now() - 180_000).toISOString(),
     disposition: "reclaimable",
-    reason: "task_done",
+    reason: "merged",
     ...overrides,
   };
 }
@@ -96,9 +96,9 @@ describe("WorktreeInventory", () => {
 
   it("renders each chip with its glyph word and its reason", async () => {
     inventoryMock.mockResolvedValue([
-      row({ taskId: "a", taskKey: "ALP-1", disposition: "reclaimable", reason: "merged" }),
-      row({ taskId: "b", taskKey: "ALP-2", disposition: "in_use", reason: "agent_running" }),
-      row({ taskId: "c", taskKey: "ALP-3", disposition: "keep", reason: "uncommitted_changes" }),
+      row({ storyId: "a", storyKey: "ALP-1", disposition: "reclaimable", reason: "merged" }),
+      row({ storyId: "b", storyKey: "ALP-2", disposition: "in_use", reason: "agent_running" }),
+      row({ storyId: "c", storyKey: "ALP-3", disposition: "keep", reason: "uncommitted_changes" }),
     ]);
     renderInventory();
     await screen.findByText("ALP-1");
@@ -151,7 +151,7 @@ describe("WorktreeInventory", () => {
     const fresh = row({ sizeBytes: null, sizeMeasuredAt: null });
     const measured = row({ sizeBytes: 2.5 * 1024 ** 3, sizeMeasuredAt: new Date().toISOString() });
     inventoryMock.mockResolvedValueOnce([fresh]).mockResolvedValue([measured]);
-    measureMock.mockResolvedValue([{ taskId: "task-1", sizeBytes: measured.sizeBytes, bounded: false, error: null }]);
+    measureMock.mockResolvedValue([{ storyId: "story-1", sizeBytes: measured.sizeBytes, bounded: false, error: null }]);
     const { container } = renderInventory();
     await screen.findByText("ALP-1");
     const sizeCell = () => container.querySelector("[data-field='size']") as HTMLElement;
@@ -168,30 +168,29 @@ describe("WorktreeInventory", () => {
 
   it("says when a walk could not finish instead of showing a size", async () => {
     inventoryMock.mockResolvedValue([row({ sizeBytes: null, sizeMeasuredAt: null })]);
-    measureMock.mockResolvedValue([{ taskId: "task-1", sizeBytes: null, bounded: true, error: null }]);
+    measureMock.mockResolvedValue([{ storyId: "story-1", sizeBytes: null, bounded: true, error: null }]);
     renderInventory();
     await screen.findByText("ALP-1");
     fireEvent.click(screen.getByRole("button", { name: "Re-measure sizes" }));
     expect(await screen.findByRole("status")).toHaveTextContent("1 worktree could not be measured completely");
   });
 
-  it("renders the empty state with a zero count and the task-worktrees-only limit", async () => {
+  it("renders the empty state with a zero count", async () => {
     inventoryMock.mockResolvedValue([]);
     renderInventory();
     expect(await screen.findByText("No worktrees")).toBeInTheDocument();
     expect(screen.getByText("0 worktrees")).toBeInTheDocument();
-    expect(screen.getByText(/Only task worktrees are listed/)).toHaveTextContent(/epic's integration worktree/);
   });
 
-  it("renders equal-size rows in the order the core sent them, task key ascending", async () => {
+  it("renders equal-size rows in the order the core sent them, Story key ascending", async () => {
     const size = 2048;
     inventoryMock.mockResolvedValue([
-      row({ taskId: "a", taskKey: "ALP-1", sizeBytes: size }),
-      row({ taskId: "b", taskKey: "ALP-2", sizeBytes: size }),
+      row({ storyId: "a", storyKey: "ALP-1", sizeBytes: size }),
+      row({ storyId: "b", storyKey: "ALP-2", sizeBytes: size }),
     ]);
     renderInventory();
     await screen.findByText("ALP-1");
-    const keys = Array.from(document.querySelectorAll("[data-field='task']")).map((el) => el.textContent);
+    const keys = Array.from(document.querySelectorAll("[data-field='story']")).map((el) => el.textContent);
     expect(keys).toEqual(["ALP-1", "ALP-2"]);
   });
 });

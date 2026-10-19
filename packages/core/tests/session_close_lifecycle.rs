@@ -2,7 +2,7 @@
 //! in production, so a unit test of `apply_session_closed` alone would repeat the exact mistake
 //! this gap closes. This file drives a REAL sidecar process (`packages/sidecar/dist/index.js`,
 //! driving `packages/sidecar/test/fake-claude.mjs` as its backend) to a natural completion and
-//! asserts the `agent_runs` row through the database — the only shape of test that can fail when a
+//! asserts the `sessions` row through the database — the only shape of test that can fail when a
 //! call site is missing, which asserting on `apply_session_closed`/`close_agent_run` directly never
 //! could.
 //!
@@ -22,7 +22,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use core::domain::agent_run::{apply_session_closed, interrupt_agent_run, start_agent_run, SessionClosedOutcome};
-use core::domain::task::create_task;
+use core::domain::story::{set_story_state, StoryState};
 use core::ids::is_ulid;
 
 /// CARGO_MANIFEST_DIR is packages/core — walk up two levels to the workspace root, exactly as
@@ -77,9 +77,10 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
         let fake_claude = fake_claude_path();
 
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Session-close lifecycle task", None)
-            .expect("create_task should succeed");
-        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+        let story = common::new_story(&mut conn, &project.id, &actor_id, "Session-close lifecycle story");
+        set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready).expect("Shaping -> Ready");
+        set_story_state(&mut conn, &actor_id, &story.id, StoryState::Running).expect("Ready -> Running");
+        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_agent_run should succeed");
         let worktree_path: String = conn
             .query_row(
@@ -173,11 +174,11 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
             Option<i64>,
         ) = conn
             .query_row(
-                "SELECT status, ended_at, cost_usd, tokens_in, tokens_out FROM agent_runs WHERE id = ?1",
+                "SELECT status, ended_at, cost_usd, tokens_in, tokens_out FROM sessions WHERE id = ?1",
                 rusqlite::params![run.id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
             )
-            .expect("agent_runs row should exist");
+            .expect("sessions row should exist");
 
         assert_eq!(status, "completed", "a session that exits 0 with no interrupt requested must close completed");
         assert!(ended_at.is_some(), "ended_at must be set after the terminal event is applied");
@@ -197,12 +198,12 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
             "exactly one terminal event row must exist for a naturally-completed run"
         );
 
-        let task_status: String = conn
-            .query_row("SELECT status FROM tasks WHERE id = ?1", rusqlite::params![task.id], |row| row.get(0))
-            .expect("task row should exist");
+        let story_state: String = conn
+            .query_row("SELECT state FROM stories WHERE id = ?1", rusqlite::params![story.id], |row| row.get(0))
+            .expect("story row should exist");
         assert_eq!(
-            task_status, "in_progress",
-            "a run reaching a terminal status must never move its owning task out of in_progress (D-29)"
+            story_state, "running",
+            "a session reaching a terminal status must never move its owning Story out of running (D-29)"
         );
     });
 }
@@ -211,20 +212,19 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
 fn a_terminal_event_never_overwrites_an_explicit_stop() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Stop-then-terminal-event task", None)
-            .expect("create_task should succeed");
-        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+        let story = common::new_story(&mut conn, &project.id, &actor_id, "Stop-then-terminal-event story");
+        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_agent_run should succeed");
 
         interrupt_agent_run(&mut conn, &run.id, &actor_id).expect("interrupt_agent_run should succeed");
 
         let ended_at_after_stop: Option<String> = conn
             .query_row(
-                "SELECT ended_at FROM agent_runs WHERE id = ?1",
+                "SELECT ended_at FROM sessions WHERE id = ?1",
                 rusqlite::params![run.id],
                 |row| row.get(0),
             )
-            .expect("agent_runs row should exist");
+            .expect("sessions row should exist");
         assert!(ended_at_after_stop.is_some(), "ended_at must be set after the explicit Stop");
 
         // A terminal event carrying a completion reason and a cost arrives afterwards — exactly
@@ -245,11 +245,11 @@ fn a_terminal_event_never_overwrites_an_explicit_stop() {
 
         let (status, ended_at, cost_usd): (String, Option<String>, Option<f64>) = conn
             .query_row(
-                "SELECT status, ended_at, cost_usd FROM agent_runs WHERE id = ?1",
+                "SELECT status, ended_at, cost_usd FROM sessions WHERE id = ?1",
                 rusqlite::params![run.id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
-            .expect("agent_runs row should exist");
+            .expect("sessions row should exist");
         assert_eq!(status, "interrupted", "the explicit-Stop status must never be overwritten by a later terminal event");
         assert_eq!(ended_at, ended_at_after_stop, "the end time recorded by the explicit Stop must be unchanged");
         assert_eq!(cost_usd, Some(0.0099), "the cost column, previously empty, must be backfilled from the event");
@@ -272,8 +272,8 @@ fn a_terminal_event_never_overwrites_an_explicit_stop() {
         assert_eq!(outcome_again, SessionClosedOutcome::AlreadyTerminal);
 
         let cost_after_second_event: Option<f64> = conn
-            .query_row("SELECT cost_usd FROM agent_runs WHERE id = ?1", rusqlite::params![run.id], |row| row.get(0))
-            .expect("agent_runs row should exist");
+            .query_row("SELECT cost_usd FROM sessions WHERE id = ?1", rusqlite::params![run.id], |row| row.get(0))
+            .expect("sessions row should exist");
         assert_eq!(cost_after_second_event, Some(0.0099), "a fully-backfilled row must never be overwritten again");
         assert_eq!(terminal_event_count(&conn, &run.id), 1);
     });
@@ -284,7 +284,7 @@ fn an_unknown_or_malformed_run_id_writes_nothing() {
     with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, _project, _repo_dir) = common::seeded_git_project();
 
-        // A well-formed ULID that matches no agent_runs row.
+        // A well-formed ULID that matches no sessions row.
         let unknown_run_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
         assert!(is_ulid(unknown_run_id), "the fixture id itself must be a well-formed ULID");
         let unknown_event = serde_json::json!({
@@ -308,9 +308,9 @@ fn an_unknown_or_malformed_run_id_writes_nothing() {
             apply_session_closed(&mut conn, &malformed_event).expect("a malformed run id must not error");
         assert_eq!(malformed_outcome, SessionClosedOutcome::Ignored);
 
-        let agent_runs_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM agent_runs", [], |row| row.get(0))
+        let sessions_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
             .expect("count query should succeed");
-        assert_eq!(agent_runs_count, 0, "neither case should have written any agent_runs row");
+        assert_eq!(sessions_count, 0, "neither case should have written any sessions row");
     });
 }

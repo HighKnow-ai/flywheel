@@ -15,17 +15,15 @@ use core::domain::agent_run::start_agent_run;
 use core::domain::permission_request::{
     answer_request, create_pending_request, DestructiveAllowAlwaysRejected,
 };
-use core::domain::task::create_task;
 use rusqlite::Connection;
 
-/// Seed one project with one task and one `running` agent run — everything the two
+/// Seed one project with one Story and one `running` agent run — everything the two
 /// `permission_request` integration tests below need.
 fn seeded_running_run() -> (Connection, String, String) {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
-        let task = create_task(&mut conn, &project.id, &actor_id, "Gated task", None)
-            .expect("create_task should succeed");
-        let run = start_agent_run(&mut conn, &task.id, "acceptEdits", &actor_id)
+        let story = common::new_story(&mut conn, &project.id, &actor_id, "Gated story");
+        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
             .expect("start_agent_run should succeed");
         (conn, actor_id, run.id)
     })
@@ -510,17 +508,12 @@ fn uncategorized_deliberately_nonsensical_argument_vector() {
 // --- migration wiring ---
 
 #[test]
-fn migration_source_list_registers_the_destructive_gate_column_exactly_once() {
-    // Deviation (Rule 1): this test previously also asserted migration 0007 was the LAST
-    // registered migration and that exactly seven migrations existed — both became false the
-    // moment plan 04-01 appended `0008_session_summaries.sql` to the list. The
-    // exactly-once-registered assertion for `destructive_category` is unrelated to list length
-    // or position and remains meaningful; the length/position assertions are removed rather than
-    // hardcoded to a new number, so the next migration addition does not require touching this
-    // test again for a fact this test was never really about.
+fn migration_source_list_defines_the_destructive_gate_column_exactly_once() {
+    // The schema of record is one baseline migration; `permission_requests.destructive_category`
+    // must be declared in exactly one registered migration, never zero, never twice.
     let sources = core::db::migration_sources();
-    let occurrences = sources.iter().filter(|s| s.contains("ADD COLUMN destructive_category")).count();
-    assert_eq!(occurrences, 1, "destructive_category must be added by exactly one migration");
+    let occurrences = sources.iter().map(|s| s.matches("destructive_category TEXT").count()).sum::<usize>();
+    assert_eq!(occurrences, 1, "destructive_category must be defined by exactly one migration");
 }
 
 // --- create_pending_request: validates destructive_category against the enum's string set ---

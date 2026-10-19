@@ -214,8 +214,7 @@ export function OrphanRecoveryModal() {
           >
             {rows.map((row, index) => {
               const { orphan } = row;
-              const hasTask = isNonEmptyString(orphan.taskKey) || isNonEmptyString(orphan.taskTitle);
-              const hasEpic = isNonEmptyString(orphan.epicKey) || isNonEmptyString(orphan.epicTitle);
+              const hasStory = isNonEmptyString(orphan.storyKey) || isNonEmptyString(orphan.storyTitle);
               // A run with no session id has nothing to say here: the bare word "Run" dangled with no
               // separator and no id after it, so the line is not printed at all.
               const identityLine = orphan.externalSessionId ? `Run · session ${orphan.externalSessionId}` : null;
@@ -246,42 +245,21 @@ export function OrphanRecoveryModal() {
                   </div>
 
                   <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
-                    {hasTask ? (
+                    {hasStory ? (
                       <>
                         <span
                           className="type-body"
                           style={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace', flexShrink: 0 }}
                         >
-                          {orphan.taskKey}
+                          {orphan.storyKey}
                         </span>
                         <span className="type-body" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {orphan.taskTitle}
+                          {orphan.storyTitle}
                         </span>
                       </>
-                    ) : hasEpic ? (
-                      <>
-                        <span
-                          className="type-body"
-                          style={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace', flexShrink: 0 }}
-                        >
-                          {orphan.epicKey}
-                        </span>
-                        <span className="type-body" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {orphan.epicTitle ?? "Shaping an epic"}
-                        </span>
-                      </>
-                    ) : orphan.taskId === null ? (
-                      // An authoring run always carries `taskId: null` (D-84, never both never
-                      // neither) — this case is a fresh-epic session, where no `epics` row exists
-                      // yet for `epicKey`/`epicTitle` to resolve against. Not the generic
-                      // "unresolvable" fallback below, which is reserved for a genuine task run
-                      // whose task row is somehow missing.
-                      <span className="type-body" style={{ color: "var(--text-muted-rack)" }}>
-                        Shaping a new epic
-                      </span>
                     ) : (
                       <span className="type-body" style={{ color: "var(--text-muted-rack)" }}>
-                        an unresolvable task
+                        an unresolvable Story
                       </span>
                     )}
                   </div>
