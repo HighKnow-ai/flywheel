@@ -131,26 +131,33 @@ pub(crate) fn create_summary_in_tx(
 pub const STUB_LAST_MESSAGE_MAX_CHARS: usize = 600;
 
 /// Write the stub summary for a session that ended without one (docs/mvp-spec.md §4.5): the reason
-/// it ended, the Task it was doing, if any, and its last assistant message, truncated. Runs inside
+/// it ended, the Task it was doing, if any, with its note, and its last assistant message, truncated. Runs inside
 /// the caller's transaction (the one writing the terminal status) and has no dedupe of its own: the
 /// caller's [`latest_summary_for_run`] check is the guard. `close_reason` is the ending label's
 /// words ([`crate::domain::session_ending::EndingReason::words`]).
 pub fn synthesize_fallback_summary(tx: &Transaction, session_id: &str, close_reason: &str) -> anyhow::Result<String> {
     let now = crate::domain::now();
-    let doing: Option<String> = tx
+    let doing: Option<(String, Option<String>)> = tx
         .query_row(
-            "SELECT t.title FROM tasks t JOIN sessions r ON r.story_id = t.story_id
+            "SELECT t.title, t.note FROM tasks t JOIN sessions r ON r.story_id = t.story_id
              WHERE r.id = ?1 AND t.state = 'doing'",
             params![session_id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?;
     let mut note = format!("The previous session ended ({close_reason}) without handing off.");
-    match doing {
-        Some(title) => note.push_str(&format!(" It was doing \"{title}\"; re-verify that Task before going on.")),
+    match &doing {
+        Some((title, _)) => note.push_str(&format!(" It was doing \"{title}\"; re-verify that Task before going on.")),
         None => note.push_str(" No Task was marked doing."),
     }
-    note.push_str(" The worktree is left exactly as it was: it is the authority on what is finished.");
+    // Issue #96: what the session had written down on the doing Task, so the next one starts from
+    // it rather than redoing the work.
+    if let Some(task_note) = doing.as_ref().and_then(|(_, n)| n.as_deref()).map(str::trim).filter(|n| !n.is_empty()) {
+        note.push_str(&format!("\n\nIts note on that Task:\n> {}\n\n", task_note.replace('\n', "\n> ")));
+    } else {
+        note.push(' ');
+    }
+    note.push_str("The worktree is left exactly as it was: it is the authority on what is finished.");
     if let Some(last) = crate::session_log::last_assistant_message(session_id) {
         let text = last.text.trim();
         if !text.is_empty() {

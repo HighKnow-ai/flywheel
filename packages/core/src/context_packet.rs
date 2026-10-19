@@ -80,6 +80,10 @@ wrong, say so in your hand-off.
 code and docs the Story touches, then write it as your plan. Do not add a Task to survey or explore \
 the repo. At most one Task is doing at a time. Drop a Task with a one-line reason \
 rather than deleting it.
+- Keep the doing Task's note current through `task_update`: whenever you learn something the next \
+session would otherwise have to find again (findings, file paths, decisions, what is left), write it \
+there at once, and always when you finish or leave a Task. Each write replaces the whole note, and it \
+is the only part of your work on a Task that outlives this session besides the worktree.
 - You write to the board only through Proposals, which do nothing until the developer accepts them. \
 At most 3 open Proposals per session. A Proposal never pauses you; if you cannot go on without an \
 answer, ask a question instead.
@@ -254,9 +258,15 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
             Some(reason) => writeln!(out, "- [{}] {} ({})", task.state, task.title, reason)?,
             None => writeln!(out, "- [{}] {}", task.state, task.title)?,
         }
+        if let Some(note) = non_blank(&task.note) {
+            writeln!(out, "  Note: {}", note.replace('\n', "\n  "))?;
+        }
     }
     if tasks.iter().any(|t| t.state == "doing") {
-        out.push_str("\nThe doing Task was in progress when the last session ended: re-verify it before going on.\n");
+        out.push_str(
+            "\nThe doing Task was in progress when the last session ended: re-verify it before going on, \
+             starting from its note rather than redoing what the note already records.\n",
+        );
     }
 
     // 7. Review feedback and the resume note

@@ -107,6 +107,7 @@ const ROSTER: &[&str] = &[
     "task::task_list",
     "task::task_move",
     "task::task_rename",
+    "task::task_set_note",
     "task::task_set_state",
     "worktree_open::open_command_template",
     "worktree_open::set_open_command_template",

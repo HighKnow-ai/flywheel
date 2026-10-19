@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 
 import { buildClaudeArgv, ClaudeCodeAdapter } from "../dist/claude-code-adapter.js";
-import { BOARD_TOOL_NAMES, BOARD_TOOL_QUALIFIED_NAMES, HANDOFF_TOOL_NAMES, TASK_TOOL_NAMES, TASK_TOOL_QUALIFIED_NAMES, MCP_SERVER_NAME } from "../dist/mcp-permission-server.js";
+import { BOARD_TOOL_DEFINITIONS, BOARD_TOOL_NAMES,BOARD_TOOL_QUALIFIED_NAMES, HANDOFF_TOOL_NAMES, TASK_TOOL_NAMES, TASK_TOOL_QUALIFIED_NAMES, MCP_SERVER_NAME } from "../dist/mcp-permission-server.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.env.FLYWHEEL_CLAUDE_BIN = path.join(__dirname, "fake-claude.mjs");
@@ -179,5 +179,36 @@ test("a hand-off is held until the core answers, and the agent receives the core
   const result = unknownLines(events, "task_tool_result")[0];
   assert.equal(result.isError, false);
   assert.deepEqual(JSON.parse(result.text), answer);
+  await session;
+});
+
+// Issue #96: `task_update` takes an optional `note`, which replaces the Task's previous note. The
+// sidecar offers it in the schema and relays it untouched; the core saves it.
+test("task_update offers an optional note, and state is no longer required", () => {
+  const update = BOARD_TOOL_DEFINITIONS.find((tool) => tool.name === "task_update");
+  assert.equal(update.inputSchema.properties.note.type, "string");
+  assert.match(update.inputSchema.properties.note.description, /Replaces the Task's previous note/);
+  assert.deepEqual(update.inputSchema.required, ["task_id"], "a note-only update needs no state");
+  assert.match(update.description, /note/);
+});
+
+test("a task_update note reaches the core untouched, and the agent receives the core's checklist with it", async () => {
+  const adapter = new ClaudeCodeAdapter();
+  const events = [];
+  const runId = "task-tool-run-note";
+  const args = { task_id: "t1", note: "Survey done: the board tools are in task_tool.rs.\nLeft: the UI." };
+  const session = startWithTaskCall(adapter, runId, events, { name: "task_update", arguments: args });
+
+  await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
+  const request = events.find((e) => e.type === "board_tool_request");
+  assert.equal(request.tool, "task_update");
+  assert.deepEqual(request.args, args);
+
+  const checklist = { tasks: [{ task_id: "t1", title: "Survey the repo", state: "doing", note: args.note }] };
+  adapter.resolveBoardTool(runId, request.requestId, checklist);
+  await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
+  const result = unknownLines(events, "task_tool_result")[0];
+  assert.equal(result.isError, false);
+  assert.deepEqual(JSON.parse(result.text), checklist);
   await session;
 });

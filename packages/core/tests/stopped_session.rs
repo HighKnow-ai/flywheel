@@ -15,7 +15,7 @@ use core::domain::session::{apply_session_closed, interrupt_session, mark_abando
 use core::domain::session_ending::{classify_session_closed, EndingReason, LastAssistantMessage};
 use core::domain::session_summary::{create_summary, latest_summary_for_run};
 use core::domain::story::{set_story_state, Story, StoryState};
-use core::domain::task::{add_task, set_task_state, tasks_for_story, TaskState};
+use core::domain::task::{add_task, set_task_note, set_task_state, tasks_for_story, TaskState};
 use core::query::permissions::pending_requests_for_run;
 use core::query::sessions::{runs_for_story, stopped_session_for_story};
 use core::session_log::{last_assistant_message, session_log_path};
@@ -201,6 +201,38 @@ fn a_killed_session_flags_the_story_stopped_and_leaves_a_stub_with_the_last_mess
         assert!(packet.contains("Resume note: Pick the parser back up"));
         assert!(packet.contains("re-verify"), "the packet tells the agent to re-verify the doing Task");
         remove_log(&f.run.id);
+    });
+}
+
+// Issue #96: a session stopped mid-Task leaves what it had written on the doing Task, and the next
+// session's packet carries it, so it does not redo the survey.
+#[test]
+fn a_session_stopped_mid_task_leaves_the_doing_tasks_note_in_the_stub_and_the_packet() {
+    with_scratch_worktree_root(|_| {
+        let mut f = running_story();
+        let doing = tasks_for_story(&f.conn, &f.story.id).unwrap().remove(0);
+        let learned = "Parser entry is src/parse.rs::parse_line.\nLeft: the error path.";
+        set_task_note(&mut f.conn, &f.run.actor_id, &doing.id, learned).unwrap();
+        let later = add_task(&mut f.conn, &f.run.actor_id, &f.story.id, "Document the grammar").unwrap();
+        set_task_note(&mut f.conn, &f.actor_id, &later.id, "Use the README's table.").unwrap();
+
+        apply_session_closed(&mut f.conn, &closed(&f.run.id, "failed", None, Some(143))).unwrap();
+
+        let stub = latest_summary_for_run(&f.conn, &f.run.id).unwrap().expect("a stub summary");
+        let must_know = &stub.next_session_must_know;
+        assert!(must_know.contains("Its note on that Task:"), "{must_know}");
+        assert!(must_know.contains("> Parser entry is src/parse.rs::parse_line.\n> Left: the error path."), "{must_know}");
+        assert!(!must_know.contains("README's table"), "only the doing Task's note goes in the stub: {must_know}");
+        assert!(must_know.contains("The worktree is left exactly as it was"), "{must_know}");
+
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        let tasks = packet.split("## Tasks").nth(1).unwrap().split("\n## ").next().unwrap();
+        assert!(
+            tasks.contains("- [doing] Wire the parser\n  Note: Parser entry is src/parse.rs::parse_line.\n  Left: the error path.\n"),
+            "the doing Task's note sits under it: {tasks}"
+        );
+        assert!(tasks.contains("- [open] Document the grammar\n  Note: Use the README's table.\n"), "{tasks}");
+        assert!(tasks.contains("starting from its note"), "{tasks}");
     });
 }
 

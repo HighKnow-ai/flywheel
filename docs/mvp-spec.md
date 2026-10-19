@@ -165,7 +165,7 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
    - `GLOSSARY.md` by path only
 4. Sibling Stories: title and state only
 5. The Story, with each criterion's Check command and latest result
-6. The Task checklist with states
+6. The Task checklist with states, each Task's note under it
 7. Review feedback and the resume note, if any
 8. Session summaries: the last 3 in full, older ones as one line ("N earlier sessions omitted")
 9. The diff so far: stat and file names, no hunks. Uncommitted changes left by a stopped session are marked as such.
@@ -180,6 +180,7 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
 - In its first session, the Story agent reads the code and docs the Story touches, then writes the checklist as its plan, grounded in what it found. It writes no "survey" or "explore the repo" Task. Cyril can add, edit, reorder or drop Tasks at any time.
 - States: *open*, *doing*, *done*, *dropped* (with a one-line reason). At most one *doing*, which is what the roster shows as "what its agent is doing now".
 - The agent updates Tasks through a board tool. Every change is written immediately, so a dead session keeps its checklist. Flywheel never infers ticks from the diff or the transcript.
+- **Note:** each Task has a short free-text note. The agent writes it through `task_update`'s optional `note` argument, which replaces the previous note. The standing instructions tell it to update the *doing* Task's note whenever it learns something the next session would otherwise have to find again (findings, file paths, decisions, what is left), and always when it finishes or leaves a Task. The Context packet shows each Task's note under it. The Story's checklist shows the note collapsed by default, and Cyril can edit it like any other Task field. ([Keep what a stopped session learned: a note on each Task](https://github.com/HighKnow-ai/flywheel/issues/96))
 - A flat ordered list, not linked to criteria. Open Tasks at hand-off only warn at review.
 - After a request for changes, the checklist is kept, and the agent adds a Task per review point before starting.
 
@@ -200,7 +201,7 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
 - **Never `claude --resume`.** Resume is always a fresh session from the Context packet, and the adapter's `resumeSession` stays unsupported.
 - **Ending reasons** are a best-effort label on Stopped, read from the result line and exit code: refusal, usage limit, API error, crash, app quit, stopped by Cyril, ended without hand-off, or unknown. Nothing branches on the reason. A clean exit without a hand-off counts as Stopped.
 - **The worktree is left exactly as it is.** No WIP commit and no reset. Wiping the work is Cyril's call, through Drop.
-- **Stub summary:** Flywheel writes a stub Session summary for a dead session: the reason, the *doing* Task and the last assistant message, truncated. It takes a slot in the last 3. The *doing* Task stays *doing*, and the packet tells the agent to re-verify it.
+- **Stub summary:** Flywheel writes a stub Session summary for a dead session: the reason, the *doing* Task with its note, and the last assistant message, truncated. It takes a slot in the last 3. The *doing* Task stays *doing*, and the packet tells the agent to re-verify it, starting from its note rather than redoing what the note records.
 - **Resume** is always Cyril's click, with an optional one-line note.
 - **Pending requests:** a pending Gated action or permission request expires with its session.
 - **Session list:** the Story lists its sessions with ID, start and end, ending reason and summary, and each dead session's feed stays readable. The Claude session ID is stored for debugging only, and the transcript is never parsed.

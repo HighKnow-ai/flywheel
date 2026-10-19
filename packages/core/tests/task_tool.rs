@@ -12,8 +12,8 @@ mod common;
 use common::with_scratch_worktree_root;
 use core::domain::session::{close_session, start_session, Session, SessionStatus};
 use core::domain::story::Story;
-use core::domain::task::{add_task, move_task, rename_task, set_task_state, tasks_for_story, TaskState};
-use core::domain::task_tool::{apply_task_tool_call, TaskToolCall};
+use core::domain::task::{add_task, move_task, rename_task, set_task_note, set_task_state, tasks_for_story, TaskState, MAX_TASK_NOTE_LEN};
+use core::domain::task_tool::{apply_task_tool_call, tasks_as_tool_result, TaskToolCall};
 use core::domain::worktree::ensure_worktree;
 use rusqlite::Connection;
 use serde_json::json;
@@ -87,7 +87,7 @@ fn the_tool_refuses_a_second_doing_task_and_a_drop_without_a_reason() {
             assert!(err.to_string().contains("reason"), "{args}: {err}");
         }
         // The core refuses it too, for a caller that skips the parser.
-        let unparsed = TaskToolCall::Update { task_id: b.clone(), state: TaskState::Dropped, reason: None };
+        let unparsed = TaskToolCall::Update { task_id: b.clone(), state: Some(TaskState::Dropped), reason: None, note: None };
         assert!(apply_task_tool_call(&mut conn, &session.id, &unparsed).is_err());
 
         apply_task_tool_call(
@@ -187,4 +187,82 @@ fn the_developer_renames_and_reorders_tasks_in_the_table_the_next_packet_reads()
         .query_row("SELECT COUNT(*) FROM events WHERE event_type IN ('task.renamed', 'task.moved')", [], |r| r.get(0))
         .unwrap();
     assert_eq!(events, 4, "every edit leaves an event");
+}
+
+// Issue #96: a note on each Task, written at once and replaced whole, so what a session learned on
+// a Task outlives the session.
+#[test]
+fn task_update_saves_a_note_at_once_and_each_write_replaces_the_last() {
+    with_scratch_worktree_root(|_| {
+        let (mut conn, _actor, _repo, story, session) = live_session();
+        let a = apply_task_tool_call(&mut conn, &session.id, &call("task_add", json!({ "titles": ["Survey the repo"] })))
+            .unwrap()
+            .tasks[0]
+            .id
+            .clone();
+
+        // State and note in one call.
+        let outcome = apply_task_tool_call(
+            &mut conn,
+            &session.id,
+            &call("task_update", json!({ "task_id": a, "state": "doing", "note": "  Board tools live in task_tool.rs.  " })),
+        )
+        .unwrap();
+        assert_eq!(outcome.tasks[0].state, "doing");
+        assert_eq!(outcome.tasks[0].note.as_deref(), Some("Board tools live in task_tool.rs."));
+        assert_eq!(tasks_as_tool_result(&outcome.tasks)["tasks"][0]["note"], "Board tools live in task_tool.rs.");
+
+        // A note alone, without a state: replaces the previous note, leaves the state alone.
+        apply_task_tool_call(
+            &mut conn,
+            &session.id,
+            &call("task_update", json!({ "task_id": a, "note": "Read task_tool.rs and context_packet.rs. Left: the UI." })),
+        )
+        .unwrap();
+        let stored = &tasks_for_story(&conn, &story.id).unwrap()[0];
+        assert_eq!(stored.state, "doing");
+        assert_eq!(stored.note.as_deref(), Some("Read task_tool.rs and context_packet.rs. Left: the UI."));
+
+        // The session dies; the note stays on the board.
+        close_session(&mut conn, &session.id, SessionStatus::Failed, None, None, None).unwrap();
+        assert_eq!(
+            tasks_for_story(&conn, &story.id).unwrap()[0].note.as_deref(),
+            Some("Read task_tool.rs and context_packet.rs. Left: the UI.")
+        );
+    });
+}
+
+#[test]
+fn task_update_refuses_a_call_with_neither_state_nor_note_and_an_oversized_note() {
+    let err = TaskToolCall::parse("task_update", &json!({ "task_id": "t" })).unwrap_err();
+    assert!(err.to_string().contains("note"), "{err}");
+    let long = "x".repeat(MAX_TASK_NOTE_LEN + 1);
+    let err = TaskToolCall::parse("task_update", &json!({ "task_id": "t", "note": long })).unwrap_err();
+    assert!(err.to_string().contains("at most"), "{err}");
+    let err = TaskToolCall::parse("task_update", &json!({ "task_id": "t", "note": 3 })).unwrap_err();
+    assert!(err.to_string().contains("string"), "{err}");
+    // A reason still belongs only to a drop, even on a note-only call.
+    assert!(TaskToolCall::parse("task_update", &json!({ "task_id": "t", "note": "n", "reason": "r" })).is_err());
+}
+
+#[test]
+fn the_developer_replaces_and_clears_a_note() {
+    with_scratch_worktree_root(|_| {
+        let (mut conn, actor, _repo, story, _session) = live_session();
+        let task = add_task(&mut conn, &actor, &story.id, "Survey the repo").unwrap();
+        assert_eq!(task.note, None);
+
+        set_task_note(&mut conn, &actor, &task.id, "First").unwrap();
+        set_task_note(&mut conn, &actor, &task.id, "Second, replacing the first").unwrap();
+        assert_eq!(tasks_for_story(&conn, &story.id).unwrap()[0].note.as_deref(), Some("Second, replacing the first"));
+
+        set_task_note(&mut conn, &actor, &task.id, "   ").unwrap();
+        assert_eq!(tasks_for_story(&conn, &story.id).unwrap()[0].note, None, "a blank note clears it");
+
+        assert!(set_task_note(&mut conn, &actor, &task.id, &"x".repeat(MAX_TASK_NOTE_LEN + 1)).is_err());
+        let events: i64 = conn
+            .query_row("SELECT COUNT(*) FROM events WHERE event_type = 'task.note_set'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(events, 3, "each accepted write is on the activity trail");
+    });
 }

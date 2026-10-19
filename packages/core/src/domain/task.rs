@@ -1,11 +1,15 @@
-//! The Task checklist (docs/mvp-spec.md §4.3): the steps a Story's agent writes as its plan at the
-//! start of its first session and keeps up to date. A Task is not a board item of its own: it
+//! The Task checklist (docs/mvp-spec.md §4.3): the steps a Story's agent writes as its plan in its first
+//! session, after reading the code and docs the Story touches, and keeps up to date. A Task is not a board item of its own: it
 //! always belongs to one Story, and shaping never produces one.
 //!
 //! States are open, doing, done and dropped (with a one-line reason). At most one Task of a Story
 //! is doing — that is what the roster shows as "what its agent is doing now" — and the schema's
 //! partial unique index holds the rule even against a writer that forgets it. Every change is
 //! written immediately, so a dead session keeps its checklist.
+//!
+//! Each Task carries a note (issue #96): plain text the agent keeps current with what it has learned
+//! while working the Task, so a session that stops mid-Task leaves that behind for the next one. A
+//! write replaces the whole note; the developer can edit it like any other Task field.
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -53,7 +57,14 @@ pub struct Task {
     pub state: String,
     pub dropped_reason: Option<String>,
     pub rank: String,
+    /// What the agent (or the developer) has written down while working this Task; `None` when
+    /// there is no note.
+    pub note: Option<String>,
 }
+
+/// The longest note a Task takes, in characters. A note is short: what the next session would
+/// otherwise have to find again, not a transcript.
+pub const MAX_TASK_NOTE_LEN: usize = 4000;
 
 fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
     Ok(Task {
@@ -63,6 +74,7 @@ fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
         state: row.get(3)?,
         dropped_reason: row.get(4)?,
         rank: row.get(5)?,
+        note: row.get(6)?,
     })
 }
 
@@ -102,13 +114,13 @@ pub fn add_task(conn: &mut Connection, actor_id: &str, story_id: &str, title: &s
         &now,
     )?;
     tx.commit().context("failed to commit add_task")?;
-    Ok(Task { id, story_id: story_id.to_string(), title: title.to_string(), state: "open".into(), dropped_reason: None, rank })
+    Ok(Task { id, story_id: story_id.to_string(), title: title.to_string(), state: "open".into(), dropped_reason: None, rank, note: None })
 }
 
 /// A Story's checklist, in order.
 pub fn tasks_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<Task>> {
     let mut stmt = conn.prepare(
-        "SELECT id, story_id, title, state, dropped_reason, rank FROM tasks WHERE story_id = ?1 ORDER BY rank, id",
+        "SELECT id, story_id, title, state, dropped_reason, rank, note FROM tasks WHERE story_id = ?1 ORDER BY rank, id",
     )?;
     let rows = stmt.query_map(params![story_id], row_to_task)?.collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the Story's Tasks")
@@ -203,6 +215,38 @@ pub fn rename_task(conn: &mut Connection, actor_id: &str, task_id: &str, title: 
         &now,
     )?;
     tx.commit().context("failed to commit rename_task")?;
+    Ok(())
+}
+
+/// Replace a Task's note with `note`. A blank note clears it. Written at once, like every Task
+/// change, so a session killed a moment later keeps what it wrote down.
+pub fn set_task_note(conn: &mut Connection, actor_id: &str, task_id: &str, note: &str) -> anyhow::Result<()> {
+    let note = note.trim();
+    anyhow::ensure!(
+        note.chars().count() <= MAX_TASK_NOTE_LEN,
+        "a Task note is at most {MAX_TASK_NOTE_LEN} characters"
+    );
+    let note = (!note.is_empty()).then_some(note);
+    let now = now();
+    let tx = conn.transaction()?;
+    let (story_id, _rank, project_id, epic_id) = task_scope(&tx, task_id)?;
+    tx.execute("UPDATE tasks SET note = ?1, updated_at = ?2 WHERE id = ?3", params![note, now, task_id])
+        .context("failed to write the Task note")?;
+    record_event(
+        &tx,
+        &project_id,
+        "task",
+        task_id,
+        EventScope { story_id: Some(&story_id), epic_id: Some(&epic_id) },
+        actor_id,
+        "task.note_set",
+        &serde_json::json!({
+            "field": "note",
+            "label": if note.is_some() { "Updated the Task's note" } else { "Cleared the Task's note" },
+        }),
+        &now,
+    )?;
+    tx.commit().context("failed to commit set_task_note")?;
     Ok(())
 }
 

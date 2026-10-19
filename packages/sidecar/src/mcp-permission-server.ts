@@ -87,7 +87,7 @@ export const TASK_TOOL_QUALIFIED_NAMES = TASK_TOOL_NAMES.map(qualified);
 export const BOARD_TOOL_QUALIFIED_NAMES = BOARD_TOOL_NAMES.map(qualified);
 
 /** What each board tool tells the agent, and the arguments it takes. */
-const BOARD_TOOL_DEFINITIONS = [
+export const BOARD_TOOL_DEFINITIONS = [
   {
     name: "task_list",
     description:
@@ -107,15 +107,20 @@ const BOARD_TOOL_DEFINITIONS = [
   {
     name: "task_update",
     description:
-      "Move one Task to open, doing, done or dropped. At most one Task is doing: finish or reopen it first. A dropped Task needs a one-line reason. Answers with the whole checklist.",
+      "Move one Task to open, doing, done or dropped, and/or replace its note. At most one Task is doing: finish or reopen it first. A dropped Task needs a one-line reason. Each change is saved at once. Answers with the whole checklist.",
     inputSchema: {
       type: "object",
       properties: {
         task_id: { type: "string" },
         state: { type: "string", enum: ["open", "doing", "done", "dropped"] },
         reason: { type: "string", description: "One line, required when state is dropped and only then." },
+        note: {
+          type: "string",
+          description:
+            "What you have learned on this Task that the next session would otherwise have to find again: findings, file paths, decisions, what is left. Replaces the Task's previous note; an empty string clears it. At most 4000 characters.",
+        },
       },
-      required: ["task_id", "state"],
+      required: ["task_id"],
     },
   },
   {

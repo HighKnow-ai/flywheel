@@ -18,7 +18,7 @@ use core::domain::proposal::{accept_proposal, file_proposal, reject_proposal, Ne
 use core::domain::session::start_session;
 use core::domain::session_summary::create_summary;
 use core::domain::story::{create_story, write_story_by_hand, HandWrittenCriterion, Story};
-use core::domain::task::{add_task, set_task_state, TaskState};
+use core::domain::task::{add_task, set_task_note, set_task_state, TaskState};
 use core::domain::worktree::ensure_worktree;
 use rusqlite::Connection;
 
@@ -276,6 +276,29 @@ fn tasks_show_their_states_and_a_doing_task_is_to_be_reverified() {
         let cache = tasks.find("[dropped] Cache (out of scope)").expect("dropped task with reason");
         assert!(plan < build && build < cache, "{tasks}");
         assert!(tasks.contains("re-verify"), "{tasks}");
+    });
+}
+
+// Issue #96: each Task's note sits under it, and the standing instructions ask the agent to keep
+// the doing Task's note current.
+#[test]
+fn each_tasks_note_sits_under_it_and_the_agent_is_told_to_keep_it_current() {
+    with_scratch_worktree_root(|_| {
+        let mut f = fixture();
+        let a = add_task(&mut f.conn, &f.actor_id, &f.story.id, "Survey the repo").unwrap();
+        add_task(&mut f.conn, &f.actor_id, &f.story.id, "Build").unwrap();
+        set_task_state(&mut f.conn, &f.actor_id, &a.id, TaskState::Doing, None).unwrap();
+        set_task_note(&mut f.conn, &f.actor_id, &a.id, "Read src/lib.rs.\nLeft: tests/.").unwrap();
+
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        let tasks = &packet[packet.find("\n## Tasks\n").unwrap()..packet.find("\n## Review feedback").unwrap()];
+        assert!(tasks.contains("- [doing] Survey the repo\n  Note: Read src/lib.rs.\n  Left: tests/.\n- [open] Build\n"), "{tasks}");
+        assert!(!tasks.contains("Note: \n"), "a Task without a note shows none: {tasks}");
+
+        let standing = &packet[..packet.find("\n## Milestone and Epic").unwrap()];
+        assert!(standing.contains("Keep the doing Task's note current through `task_update`"), "{standing}");
+        assert!(standing.contains("always when you finish or leave a Task"), "{standing}");
+        assert_eq!(packet, build_context_packet(&f.conn, &f.story.id, "").unwrap(), "still deterministic");
     });
 }
 
