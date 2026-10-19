@@ -175,6 +175,8 @@ fn main() {
             commands::menu::menu_set_action_enabled,
             commands::session::session_start,
             commands::session::story_start,
+            commands::session::story_resume,
+            commands::session::story_stopped,
             commands::session::session_log_window,
             commands::session::session_raw_window,
             commands::session::sessions_for_story,
