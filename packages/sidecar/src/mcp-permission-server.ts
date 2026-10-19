@@ -30,8 +30,8 @@
  *    process the backend (`claude`, or `fake-claude.mjs` in tests) spawns per the `--mcp-config`
  *    `buildClaudeArgv` builds, hosting the permission tool over the stdio transport
  *    (`StdioServerTransport`, matching the backend's own documented `--permission-prompt-tool`
- *    contract), plus the Story agent's three Task board tools (issue #52), which ride the same
- *    socket as held `kind: "task_tool"` calls the Rust core answers. Its handler connects a fresh socket to `socketPath` per call, forwards the
+ *    contract), plus the Story agent's board tools (Tasks, issue #52; the hand-off and Check run, issue #53), which ride the same
+ *    socket as held `kind: "board_tool"` calls the Rust core answers. Its handler connects a fresh socket to `socketPath` per call, forwards the
  *    request, and settles ONLY when the socket answers — no timer, no default, no local cache of
  *    a prior decision, no allowlist (02-RESEARCH.md pitfall 4: every allow-always lookup happens
  *    in the Rust core, never here — the sidecar asks and waits).
@@ -55,7 +55,7 @@ export const APPROVE_TOOL_NAME = "approve_action";
 
 /** The MCP server name this module registers under — the `--mcp-config` key naming exactly one
  * server (T-02-02). */
-export const MCP_SERVER_NAME = "flywheel-permissions";
+export const MCP_SERVER_NAME = "flywheel-board";
 
 /** The exact string `--permission-prompt-tool` is given — `mcp__{server}__{tool}`, the shape
  * Claude Code's own CLI reference documents. Declared exactly once in this sidecar's source. */
@@ -66,14 +66,28 @@ export const PERMISSION_TOOL_NAME = `mcp__${MCP_SERVER_NAME}__${APPROVE_TOOL_NAM
  * `packages/core/src/domain/task_tool.rs`, which is what parses and runs each call. */
 export const TASK_TOOL_NAMES = ["task_list", "task_add", "task_update"] as const;
 
-export type TaskToolName = (typeof TASK_TOOL_NAMES)[number];
+/** Issue #53 (docs/mvp-spec.md §4.4): the hand-off tool and the feedback-only Check tool, hosted on
+ * the same server and relayed the same way. Mirrors `HANDOFF_TOOL_NAMES` in
+ * `packages/core/src/domain/handoff.rs`, which is what parses and runs each call. */
+export const HANDOFF_TOOL_NAMES = ["checks_run", "handoff"] as const;
+
+/** Every board tool the Story agent has: held calls the Rust core answers. */
+export const BOARD_TOOL_NAMES = [...TASK_TOOL_NAMES, ...HANDOFF_TOOL_NAMES] as const;
+
+export type BoardToolName = (typeof BOARD_TOOL_NAMES)[number];
+
+const qualified = (name: string) => `mcp__${MCP_SERVER_NAME}__${name}`;
+
+/** The Task tools' fully-qualified names. */
+export const TASK_TOOL_QUALIFIED_NAMES = TASK_TOOL_NAMES.map(qualified);
 
 /** The fully-qualified names `buildClaudeArgv` pre-approves with `--allowedTools`: writing the
- * checklist costs nothing and must never wait on a permission card. */
-export const TASK_TOOL_QUALIFIED_NAMES = TASK_TOOL_NAMES.map((name) => `mcp__${MCP_SERVER_NAME}__${name}`);
+ * checklist, running the Checks and handing off cost nothing and must never wait on a permission
+ * card. */
+export const BOARD_TOOL_QUALIFIED_NAMES = BOARD_TOOL_NAMES.map(qualified);
 
-/** What each Task tool tells the agent, and the arguments it takes. */
-const TASK_TOOL_DEFINITIONS = [
+/** What each board tool tells the agent, and the arguments it takes. */
+const BOARD_TOOL_DEFINITIONS = [
   {
     name: "task_list",
     description:
@@ -104,24 +118,43 @@ const TASK_TOOL_DEFINITIONS = [
       required: ["task_id", "state"],
     },
   },
+  {
+    name: "checks_run",
+    description:
+      "Run your Story's Checks now, for feedback only: each runs from the worktree root, one at a time, and nothing is recorded. Answers with each Check's command, result (passed, failed, timed_out) and output tail. Checks can take minutes. You cannot edit or delete a Check: only the developer can.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "handoff",
+    description:
+      "Hand your Story off for review once its work is committed. Bring your Task checklist up to date first, with no Task left doing: the hand-off is refused otherwise. Flywheel then runs every Check, records each result against your branch's commit, and moves the Story to In review whatever the results. Leave a summary for the next session: what it must know, and what was decided (including any Check you think is wrong, and why). End your turn once it answers.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        next_session_must_know: { type: "string", minLength: 1 },
+        decisions: { type: "string" },
+      },
+      required: ["next_session_must_know", "decisions"],
+    },
+  },
 ] as const;
 
 /** Issue #52: the wire shape a Task tool call sends over the per-run socket. A HELD call, like the
  * permission request: the agent waits for the Rust core's answer (the checklist, or the reason it
  * refused). Carries no run, session or Story id: identity comes from the socket the call arrives
  * on, never from an argument. */
-export interface TaskToolRequestPayload {
-  kind: "task_tool";
+export interface BoardToolRequestPayload {
+  kind: "board_tool";
   requestId: string;
-  tool: TaskToolName;
+  tool: BoardToolName;
   args: unknown;
 }
 
-function isTaskToolPayload(parsed: unknown): parsed is TaskToolRequestPayload {
+function isBoardToolPayload(parsed: unknown): parsed is BoardToolRequestPayload {
   return (
     parsed !== null &&
     typeof parsed === "object" &&
-    (parsed as { kind?: unknown }).kind === "task_tool" &&
+    (parsed as { kind?: unknown }).kind === "board_tool" &&
     typeof (parsed as { requestId?: unknown }).requestId === "string"
   );
 }
@@ -189,7 +222,7 @@ export interface PermissionServerHandle {
   /** Issue #52: settle a held Task tool call with the core's checklist, or with the reason it
    * refused. Shares `pending` and the "an unknown requestId is ignored with a logged notice"
    * contract with {@link resolvePermission}. */
-  answerTaskTool(requestId: string, result: unknown, error?: string): void;
+  answerBoardTool(requestId: string, result: unknown, error?: string): void;
   /** Stop listening and remove the socket file. Safe to call more than once. */
   close(): void;
 }
@@ -209,7 +242,7 @@ export interface PermissionServerHandle {
 export function startPermissionServer(
   onRequest: (payload: PermissionRequestPayload) => void,
   onNotice: (payload: PermissionNoticePayload) => void,
-  onTaskTool?: (payload: TaskToolRequestPayload) => void,
+  onBoardTool?: (payload: BoardToolRequestPayload) => void,
 ): PermissionServerHandle {
   const socketPath = path.join(socketBaseDir(), `flywheel-permission-${randomUUID()}.sock`);
   // A stale socket file from a previous run that was killed without cleanup would make `listen`
@@ -235,18 +268,18 @@ export function startPermissionServer(
         return;
       }
 
-      // Issue #52: a Task tool call carries `kind: "task_tool"` exactly, checked BEFORE the broader
+      // Issue #52: a Task tool call carries `kind: "board_tool"` exactly, checked BEFORE the broader
       // notice check below (which matches any string `kind`). It is HELD like a permission request,
       // because the agent needs the core's answer back. With no handler there is nobody to answer,
       // so the call is refused at once rather than left hanging.
-      if (isTaskToolPayload(parsed)) {
-        if (!onTaskTool) {
+      if (isBoardToolPayload(parsed)) {
+        if (!onBoardTool) {
           socket.end(JSON.stringify({ error: "this session has no Task board tool" }) + "\n");
           return;
         }
         pending.set(parsed.requestId, socket);
         socket.on("close", () => pending.delete(parsed.requestId));
-        onTaskTool(parsed);
+        onBoardTool(parsed);
         return;
       }
 
@@ -289,16 +322,16 @@ export function startPermissionServer(
       const socket = pending.get(requestId);
       if (!socket) {
         // An answer whose request id matches no held call — ignored, resolves nothing else.
-        console.error(`[flywheel-permissions] no held call for requestId=${requestId} — ignoring`);
+        console.error(`[flywheel-board] no held call for requestId=${requestId} — ignoring`);
         return;
       }
       pending.delete(requestId);
       socket.end(JSON.stringify({ decision }) + "\n");
     },
-    answerTaskTool(requestId, result, error) {
+    answerBoardTool(requestId, result, error) {
       const socket = pending.get(requestId);
       if (!socket) {
-        console.error(`[flywheel-permissions] no held Task tool call for requestId=${requestId} — ignoring`);
+        console.error(`[flywheel-board] no held board tool call for requestId=${requestId} — ignoring`);
         return;
       }
       pending.delete(requestId);
@@ -323,15 +356,15 @@ export function startPermissionServer(
  * parses and refuses them, this process validates nothing. A refusal reaches the agent as a tool
  * error carrying the core's own reason, so it can correct the call.
  */
-function relayTaskToolCall(
+function relayBoardToolCall(
   socketPath: string,
-  tool: TaskToolName,
+  tool: BoardToolName,
   args: unknown,
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
   const requestId = randomUUID();
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath, () => {
-      const payload: TaskToolRequestPayload = { kind: "task_tool", requestId, tool, args };
+      const payload: BoardToolRequestPayload = { kind: "board_tool", requestId, tool, args };
       socket.write(JSON.stringify(payload) + "\n");
     });
     socket.on("error", (err) => reject(err));
@@ -357,7 +390,7 @@ function relayTaskToolCall(
  * The standalone MCP server role. Connects a FRESH socket per tool call to `socketPath`,
  * forwards the call, and resolves ONLY when the socket answers — never locally. The response
  * shape (`{behavior: "allow"|"deny", ...}`) matches Claude Code's own documented
- * `--permission-prompt-tool` contract. It hosts `approve_action` and the Task tools ({@link TASK_TOOL_NAMES}).
+ * `--permission-prompt-tool` contract. It hosts `approve_action` and the board tools ({@link BOARD_TOOL_NAMES}).
  */
 async function runStandaloneServer(socketPath: string): Promise<void> {
   const server = new Server({ name: MCP_SERVER_NAME, version: "0.1.0" }, { capabilities: { tools: {} } });
@@ -376,7 +409,7 @@ async function runStandaloneServer(socketPath: string): Promise<void> {
           required: ["tool_name"],
         },
       },
-      ...TASK_TOOL_DEFINITIONS,
+      ...BOARD_TOOL_DEFINITIONS,
     ],
   }));
 
@@ -420,8 +453,8 @@ async function runStandaloneServer(socketPath: string): Promise<void> {
       });
     }
 
-    if ((TASK_TOOL_NAMES as readonly string[]).includes(request.params.name)) {
-      return relayTaskToolCall(socketPath, request.params.name as TaskToolName, request.params.arguments ?? {});
+    if ((BOARD_TOOL_NAMES as readonly string[]).includes(request.params.name)) {
+      return relayBoardToolCall(socketPath, request.params.name as BoardToolName, request.params.arguments ?? {});
     }
 
     throw new Error(`unknown tool: ${request.params.name}`);

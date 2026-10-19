@@ -45,11 +45,11 @@ interface PermissionAnswerRequest {
   decision: "allow" | "deny";
 }
 
-/** Issue #52: the Rust core's answer to one held Task tool call — the Story's checklist after the
+/** Issues #52, #53: the Rust core's answer to one held board tool call — its result
  * call (`result`), or the reason the core refused it (`error`). */
-interface TaskToolAnswerRequest {
+interface BoardToolAnswerRequest {
   id: string;
-  op: "task_tool_answer";
+  op: "board_tool_answer";
   runId: string;
   requestId: string;
   result?: unknown;
@@ -94,7 +94,7 @@ type SidecarRequest =
   | InterruptRequest
   | KillRequest
   | PermissionAnswerRequest
-  | TaskToolAnswerRequest
+  | BoardToolAnswerRequest
   | CapabilityProbeRequest
   | ShutdownRequest
   | PingRequest;
@@ -219,11 +219,11 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
       }
       return;
     }
-    case "task_tool_answer": {
-      // Issue #52: the ONLY caller of resolveTaskTool — the core's answer settles a held Task tool
-      // call; the sidecar never writes or reads a Task itself.
+    case "board_tool_answer": {
+      // Issue #52: the ONLY caller of resolveBoardTool — the core's answer settles a held board tool
+      // call; the sidecar never writes or reads the board itself.
       try {
-        adapter.resolveTaskTool(request.runId, request.requestId, request.result, request.error);
+        adapter.resolveBoardTool(request.runId, request.requestId, request.result, request.error);
         emitAck(request.id, true);
       } catch (err: unknown) {
         emitAck(request.id, false, String(err));

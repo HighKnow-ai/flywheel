@@ -166,11 +166,11 @@ export interface PermissionRequestEvent extends AgentEventBase {
   destructiveCategory?: string;
 }
 
-/** Issue #52: a Story agent's Task board tool call, held until the Rust core answers it through
- * `resolveTaskTool(runId, requestId, result, error)`. The core parses `args`, writes the checklist
+/** Issue #52: a Story agent's board tool call (Tasks, Checks, hand-off), held until the Rust core answers it through
+ * `resolveBoardTool(runId, requestId, result, error)`. The core parses `args`, writes the checklist
  * and answers with it; the sidecar decides nothing. */
-export interface TaskToolRequestEvent extends AgentEventBase {
-  type: "task_tool_request";
+export interface BoardToolRequestEvent extends AgentEventBase {
+  type: "board_tool_request";
   requestId: string;
   tool: string;
   args: unknown;
@@ -347,7 +347,7 @@ export type AgentEvent =
   | ToolCallEvent
   | ToolResultEvent
   | PermissionRequestEvent
-  | TaskToolRequestEvent
+  | BoardToolRequestEvent
   | CostUpdateEvent
   | SystemNoticeEvent
   | ResultEvent

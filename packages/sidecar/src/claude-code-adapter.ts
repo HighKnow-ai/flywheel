@@ -1111,14 +1111,14 @@ export class ClaudeCodeAdapter implements AgentAdapter {
         session.onEvent(event);
       }
     }, (payload) => {
-      // Issue #52: a Story agent's Task tool call, raised upstream and held until the Rust core
-      // answers through `resolveTaskTool`. Nothing here parses or checks the arguments.
+      // Issues #52, #53: a Story agent's board tool call, raised upstream and held until the Rust core
+      // answers through `resolveBoardTool`. Nothing here parses or checks the arguments.
       session.onEvent({
         runId: options.runId,
         seq: session.nextSeq++,
         at: new Date().toISOString(),
-        raw: JSON.stringify({ type: "task_tool_request", requestId: payload.requestId, tool: payload.tool, args: payload.args }),
-        type: "task_tool_request",
+        raw: JSON.stringify({ type: "board_tool_request", requestId: payload.requestId, tool: payload.tool, args: payload.args }),
+        type: "board_tool_request",
         requestId: payload.requestId,
         tool: payload.tool,
         args: payload.args,
@@ -1347,12 +1347,12 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     session.permissionServer.resolvePermission(requestId, decision);
   }
 
-  /** Issue #52: relay the Rust core's answer to `runId`'s held Task tool call — the checklist, or
+  /** Issue #52: relay the Rust core's answer to `runId`'s held board tool call — its result, or
    * the reason the core refused it. Same unknown-run guard as {@link resolvePermission}. */
-  resolveTaskTool(runId: string, requestId: string, result: unknown, error?: string): void {
+  resolveBoardTool(runId: string, requestId: string, result: unknown, error?: string): void {
     const session = liveSessions.get(runId);
     if (!session) throw new UnknownRunError(runId);
-    session.permissionServer.answerTaskTool(requestId, result, error);
+    session.permissionServer.answerBoardTool(requestId, result, error);
   }
 
   async killSession(runId: string): Promise<void> {
