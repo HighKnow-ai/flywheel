@@ -275,6 +275,10 @@ pub(crate) fn spawn_request(
     kind: SessionKind,
 ) -> serde_json::Value {
     let policy = kind.launch_policy();
+    // The kind's own env wins over the resolved one: nothing upstream can lower a Story session's
+    // MCP tool timeouts (issue #92).
+    let mut env = env.clone();
+    env.extend(policy.env.iter().map(|(name, value)| (name.to_string(), value.clone())));
     serde_json::json!({
         "id": outcome.run_id,
         "op": "spawn",
@@ -2062,6 +2066,19 @@ mod tests {
         assert_eq!(request["permissionPrompt"], true);
     }
 
+    /// Issue #92: the spawn request carries the Story kind's MCP tool timeouts in its env, over
+    /// whatever the resolved env held, so a waiting request outlives Claude Code's defaults.
+    #[test]
+    fn a_story_spawn_request_carries_the_kinds_mcp_tool_timeouts_over_the_resolved_env() {
+        let resolved: std::collections::HashMap<String, String> =
+            [("MCP_TOOL_TIMEOUT".to_string(), "60000".to_string()), ("KEEP".to_string(), "1".to_string())].into();
+        let request = spawn_request(&outcome_for_request(), &resolved, SessionKind::Story);
+        for (name, value) in SessionKind::Story.launch_policy().env {
+            assert_eq!(request["env"][name], value, "{name}");
+        }
+        assert_eq!(request["env"]["KEEP"], "1", "the resolved env is kept");
+    }
+
     #[test]
     fn a_shaping_spawn_request_is_read_only_and_never_wired_to_the_permission_prompt() {
         let request = spawn_request(&outcome_for_request(), &std::collections::HashMap::new(), SessionKind::Shaping);
@@ -3066,6 +3083,36 @@ mod tests {
             .expect("Resume");
             assert_eq!(start_path.as_deref(), Some(process_path.as_str()));
             assert_eq!(resume_path, start_path);
+        });
+    }
+
+    /// Issue #92: Start and Resume both spawn with the Story kind's MCP tool timeouts.
+    #[test]
+    fn start_and_resume_spawn_with_the_mcp_tool_timeouts() {
+        with_scratch_dirs(|| {
+            let (db, story, _repo) = ready_story();
+            let timeouts = |request: &serde_json::Value| -> Vec<String> {
+                ["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", "MCP_TOOL_TIMEOUT"]
+                    .iter()
+                    .map(|name| request["env"][*name].as_str().unwrap_or_else(|| panic!("{name} is set")).to_string())
+                    .collect()
+            };
+            let mut start = None;
+            let first = start_ready_story(&db, &story, "", found_claude, crate::sidecar::merge_shim_env_for_run, |_, request| {
+                start = Some(timeouts(request));
+                Ok(())
+            })
+            .expect("Start");
+            stop_session_recording_first(&mut db.lock().unwrap(), &first.run_id, || Ok(())).unwrap();
+            let mut resume = None;
+            resume_stopped_story(&db, &story, "", found_claude, crate::sidecar::merge_shim_env_for_run, |_, request| {
+                resume = Some(timeouts(request));
+                Ok(())
+            })
+            .expect("Resume");
+            let expected: Vec<String> = SessionKind::Story.launch_policy().env.into_iter().map(|(_, v)| v).collect();
+            assert_eq!(start, Some(expected));
+            assert_eq!(resume, start);
         });
     }
 

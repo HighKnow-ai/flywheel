@@ -61,6 +61,23 @@ pub struct LaunchPolicy {
     /// Whether the session is wired to Flywheel's permission-prompt tool. A session that is not
     /// never raises a permission request: whatever its mode does not allow is refused.
     pub raises_requests: bool,
+    /// Environment variables the kind sets on the spawn, over whatever the resolved env holds.
+    pub env: Vec<(&'static str, String)>,
+}
+
+/// How long Claude Code lets an MCP tool call run, or sit silent, before aborting it: 7 days, in
+/// milliseconds (issue #92). A permission request is a call to the permission-prompt tool that
+/// blocks until the developer answers, and §4.1 says it waits with no timeout, but Claude Code's
+/// defaults abort it after 30 minutes idle (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`, stdio) or about
+/// 28 hours (`MCP_TOOL_TIMEOUT`). Kept under 2^31 - 1 ms (about 24.8 days), past which a
+/// JavaScript timer fires at once instead of never.
+pub const MCP_TOOL_TIMEOUT_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
+/// The env that keeps a permission request waiting past Claude Code's MCP tool timeouts. The idle
+/// timeout is capped at `MCP_TOOL_TIMEOUT`, so both are raised.
+fn waiting_request_env() -> Vec<(&'static str, String)> {
+    let ms = MCP_TOOL_TIMEOUT_MS.to_string();
+    vec![("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", ms.clone()), ("MCP_TOOL_TIMEOUT", ms)]
 }
 
 impl SessionKind {
@@ -78,6 +95,9 @@ impl SessionKind {
     /// - A shaping session runs in `dontAsk`, which refuses whatever is not pre-approved instead of
     ///   prompting: it may read and call the Proposal tools, and nothing else — never Bash, and
     ///   never the Task tools or the hand-off.
+    /// - A Story session's MCP tool timeouts are raised to 7 days, so a request it raises waits
+    ///   for the developer instead of failing on Claude Code's side. A shaping session raises no
+    ///   request and keeps Claude Code's defaults.
     pub fn launch_policy(self) -> LaunchPolicy {
         match self {
             SessionKind::Story => LaunchPolicy {
@@ -85,12 +105,14 @@ impl SessionKind {
                 allowed_tools: std::iter::once("Bash".to_string()).chain(story_board_tools()).collect(),
                 disallowed_tools: Vec::new(),
                 raises_requests: true,
+                env: waiting_request_env(),
             },
             SessionKind::Shaping => LaunchPolicy {
                 permission_mode: "dontAsk",
                 allowed_tools: READ_ONLY_TOOLS.iter().map(|t| t.to_string()).chain(proposal_tools()).collect(),
                 disallowed_tools: WRITING_TOOLS.iter().map(|t| t.to_string()).collect(),
                 raises_requests: false,
+                env: Vec::new(),
             },
         }
     }
