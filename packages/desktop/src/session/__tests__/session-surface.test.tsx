@@ -7,12 +7,9 @@
  * - Plan 02-07 Task 2: the structured feed itself — one row per event kind, tool-call
  *   collapse/expand, the terminal row, the "Starting session…" pulse, bounded virtualization,
  *   and scroll-triggered older-page paging.
- * - Plan 02-16 Task 1/3 (G-02-3): the virtual row slot is clamped to the height the virtualizer
- *   reserved for it, and a multi-kilobyte event never overlaps the row rendered beneath it. jsdom
- *   performs no layout at all, so `getBoundingClientRect` returns zeroes here and a real painted
- *   overlap can never be observed in this environment — these assertions read the DECLARED
- *   geometry instead (the inline `height` and the pixel value inside `transform`), which is the
- *   only geometry that exists in jsdom, and which is precisely the geometry the defect got wrong.
+ * - Story #56: rows flow at their own height — no slot is clipped to a reserved height, so a long
+ *   agent turn reads in full (G-02-3's overlap cannot happen to rows in document flow); a running
+ *   call and the floor show the agent is still working.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -20,7 +17,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionSurface } from "../SessionSurface";
 import { sessionFeedQueryKey } from "../../board/useBoardQuery";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import { FEED_ROW_HEIGHT } from "../FeedRow";
 
 // Every test in this file shares the same module-level Zustand store — the Discard describe
 // block below is the first one in this file to write to it (`setLaunchSheetTaskId`), so it must
@@ -179,26 +175,6 @@ function makeOversizedEvent(seq: number) {
   };
 }
 
-/** Reads one `feed-row-slot` element's DECLARED geometry — the inline `height` and the pixel
- * value inside its `transform`. Both are declared inline by Task 1, so both are readable in
- * jsdom (which performs no layout). Fails loudly, with the element's own `outerHTML` in the
- * message, when either value is absent — an absent height IS the defect this plan closes and
- * must never be silently coerced to zero. */
-function readSlotGeometry(slot: Element): { height: number; translateY: number } {
-  const style = (slot as HTMLElement).style;
-  const heightRaw = style.height;
-  const transformRaw = style.transform;
-  const heightMatch = /^([\d.]+)px$/.exec(heightRaw);
-  const transformMatch = /translateY\(([\d.]+)px\)/.exec(transformRaw);
-  if (!heightMatch) {
-    throw new Error(`feed-row-slot has no declared pixel height: ${slot.outerHTML}`);
-  }
-  if (!transformMatch) {
-    throw new Error(`feed-row-slot has no declared translateY transform: ${slot.outerHTML}`);
-  }
-  return { height: Number(heightMatch[1]), translateY: Number(transformMatch[1]) };
-}
-
 function renderSurface(queryClient = new QueryClient()) {
   return render(
     <QueryClientProvider client={queryClient}>
@@ -220,13 +196,7 @@ describe("SessionSurface", () => {
     expect(screen.getByText("Event number 2")).toBeInTheDocument();
   });
 
-  it("every rendered row slot declares the height the virtualizer reserved and clips its overflow", async () => {
-    // G-02-3 structural half: jsdom performs no layout at all — `getBoundingClientRect` returns
-    // zeroes here, so a real painted overlap can never be observed in this environment. These
-    // assertions read the DECLARED geometry instead — the inline `height` and `overflow` values
-    // React put on the wrapper — which is the only geometry that exists in jsdom, and which is
-    // precisely the geometry the defect got wrong. Task 3 below adds the behavioural half with an
-    // oversized event, still reading this same declared geometry.
+  it("no row slot is clipped to a reserved height", async () => {
     const events = [makeEvent(0), makeEvent(1), makeEvent(2)];
     mockWindowReads(() => events);
 
@@ -237,9 +207,36 @@ describe("SessionSurface", () => {
     expect(slots.length).toBe(3);
     slots.forEach((slot) => {
       const style = (slot as HTMLElement).style;
-      expect(style.height).not.toBe("");
-      expect(style.overflow).toBe("hidden");
+      expect(style.height).toBe("");
+      expect(style.overflow).not.toBe("hidden");
+      // Measured, not reserved: the virtualizer reads the mounted row's height through this hook.
+      expect((slot as HTMLElement).dataset.index).toBeDefined();
     });
+  });
+
+  it("mounts only a window of rows for a 2,000-event session, and follows the tail while live", async () => {
+    const events = Array.from({ length: 2000 }, (_, i) => makeEvent(i));
+    // Serve the whole log in one page, so all 2,000 rows are in the feed at once.
+    invokeCommandMock.mockImplementation((command: string, args: { offset: number; limit: number }) =>
+      Promise.resolve(
+        command === "session_log_window" ? { entries: events, offset: args.offset, limit: args.limit, total: events.length } : undefined,
+      ),
+    );
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    renderSurface();
+
+    await screen.findByText("Event number 0");
+    const slots = document.querySelectorAll('[data-testid="feed-row-slot"]');
+    expect(slots.length).toBeGreaterThan(0);
+    expect(slots.length).toBeLessThan(100);
+    // The list still reserves the height of every row, so the scrollbar spans the whole session.
+    const list = screen.getByRole("list", { name: "Session events" });
+    expect(Number.parseFloat(list.style.height)).toBeGreaterThan(2000 * 20);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "end" });
+    // @ts-expect-error test-only cleanup of the stub installed above
+    delete Element.prototype.scrollIntoView;
   });
 
   it("shows the ← Board affordance and calls onBack when clicked", async () => {
@@ -637,13 +634,13 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     renderSurface();
 
     await screen.findByText("Bash · npm test");
-    expect(screen.queryByText(/"command"/)).not.toBeInTheDocument();
+    expect(screen.queryByText("command")).not.toBeInTheDocument();
 
     const toggle = screen.getByRole("button", { name: /Bash · npm test/ });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     toggle.click();
 
-    expect(await screen.findByText(/"command"/)).toBeInTheDocument();
+    expect(await screen.findByText("command")).toBeInTheDocument();
     expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 
@@ -656,7 +653,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     const toggle = await screen.findByRole("button", { name: /Bash · npm test/ });
     toggle.click();
 
-    expect(await screen.findByText(/"command"/)).toBeInTheDocument();
+    expect(await screen.findByText("command")).toBeInTheDocument();
     expect(screen.getByText(/5 passed/)).toBeInTheDocument();
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
   });
@@ -674,14 +671,14 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
 
     const toggle = await screen.findByRole("button", { name: /Bash · npm test/ });
     toggle.click();
-    await screen.findByText(/"command"/);
+    await screen.findByText("command");
 
     events = [...events, makeEvent(1), makeEvent(2), makeEvent(3)];
     await queryClient.invalidateQueries({ queryKey: sessionFeedQueryKey("run-1") });
 
     await waitFor(() => expect(screen.getAllByRole("listitem").length).toBe(4));
     expect(screen.getByRole("button", { name: /Bash · npm test/ })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText(/"command"/)).toBeInTheDocument();
+    expect(screen.getByText("command")).toBeInTheDocument();
   });
 
   it("renders a system notice as a single muted micro-role line", async () => {
@@ -707,15 +704,16 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     await screen.findByText("mystery raw text");
   });
 
-  it("renders an unpaired tool_result as a raw fallback line rather than disappearing", async () => {
+  it("renders an unpaired tool_result as a result row with its text rather than disappearing", async () => {
     const events = [makeToolResult(0, "Bash", "orphaned output")];
     mockWindowReads(() => events);
 
     renderSurface();
 
-    // No matching `tool_call` was ever loaded to pair against, so the row falls back to the
-    // event's own verbatim `raw` text rather than vanishing (T-02-33).
-    await screen.findByText("result-0");
+    // No matching `tool_call` was ever loaded to pair against: the row still shows the result's own
+    // text (T-02-33), never the raw log line.
+    await screen.findByText("result · orphaned output");
+    expect(screen.queryByText("result-0")).not.toBeInTheDocument();
   });
 
   it("renders the failed terminal row with the exact gloss and the error subtype", async () => {
@@ -802,40 +800,15 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     await screen.findByText("Event number 0");
   });
 
-  it("G-02-3: a multi-kilobyte event never overlaps the row beneath it", async () => {
-    const events = [makeOversizedEvent(0), makeEvent(1), makeEvent(2)];
+  it("a multi-kilobyte agent turn renders in full, with no disclosure to open first", async () => {
+    const events = [makeOversizedEvent(0), makeEvent(1)];
     mockWindowReads(() => events);
 
     renderSurface();
-
-    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(3));
-    const slots = Array.from(document.querySelectorAll('[data-testid="feed-row-slot"]'));
-    expect(slots.length).toBe(3);
-
-    const geometries = slots.map(readSlotGeometry);
-    for (let i = 0; i < geometries.length - 1; i += 1) {
-      const earlier = geometries[i];
-      const later = geometries[i + 1];
-      expect(earlier.translateY + earlier.height).toBeLessThanOrEqual(later.translateY);
-    }
-
-    // The oversized row's declared height equals the collapsed constant imported from FeedRow —
-    // proving the reservation did not silently grow to accommodate the payload.
-    expect(geometries[0].height).toBe(FEED_ROW_HEIGHT);
-  });
-
-  it("G-02-3: an oversized row's full text is reachable in place", async () => {
-    const events = [makeOversizedEvent(0)];
-    mockWindowReads(() => events);
-
-    renderSurface();
-
-    const toggle = await screen.findByRole("button", { name: /Expand full text/ });
-    expect(screen.queryByText(new RegExp(OVERSIZED_EVENT_MARKER))).not.toBeInTheDocument();
-
-    toggle.click();
 
     expect(await screen.findByText(new RegExp(OVERSIZED_EVENT_MARKER))).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Expand full text/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Event number 1")).toBeInTheDocument();
   });
 });
 
@@ -1015,7 +988,7 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
   it("every state has a floor: waiting on the agent, waiting on the developer, the run's end", async () => {
     mockCombinedReads({ events: [makeToolCall(0, "Bash", { command: "npm test" })] });
     const a = renderSurface();
-    expect(await screen.findByText("Waiting on the agent.")).toBeInTheDocument();
+    expect(await screen.findByText(/^The agent is working: Bash · npm test\. Last activity .+ ago\.$/)).toBeInTheDocument();
     a.unmount();
 
     mockCombinedReads({});
@@ -1025,6 +998,26 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
       </QueryClientProvider>,
     );
     expect(await screen.findByText(/This run has ended\./)).toBeInTheDocument();
+  });
+
+  it("Story #56: a long call with heartbeats reads as still running, and its noise never becomes a row", async () => {
+    const startedAt = new Date(Date.now() - 5_000).toISOString();
+    const at = new Date().toISOString();
+    mockCombinedReads({
+      events: [
+        { runId: "run-1", seq: 0, at: startedAt, raw: "h", type: "system_notice", text: "system: hook_started" },
+        { runId: "run-1", seq: 1, at: startedAt, raw: "t", type: "thinking", text: "", hasSignature: true },
+        { ...makeToolCall(2, "Bash", { command: "cargo test --workspace" }), at: startedAt, toolUseId: "toolu_long" },
+        { runId: "run-1", seq: 3, at, raw: "p1", type: "tool_progress", toolUseId: "toolu_long", toolName: "Bash", elapsedSeconds: 30 },
+        { runId: "run-1", seq: 4, at, raw: "p2", type: "tool_progress", toolUseId: "toolu_long", toolName: "Bash", elapsedSeconds: 60 },
+        { runId: "run-1", seq: 5, at, raw: "r", type: "rate_limit", status: "allowed_warning" },
+      ],
+    });
+    renderSurface();
+    const call = await screen.findByRole("button", { name: /Bash · cargo test --workspace/ });
+    expect(call).toHaveTextContent("running · 1m");
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent(/^The agent is working: Bash · cargo test --workspace\. Last activity \d+s ago\.$/);
   });
 
   it("while running, Stop leads and Discard sits on the plain edge", async () => {

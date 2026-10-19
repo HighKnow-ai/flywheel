@@ -10,17 +10,11 @@
  * Plan 02-07 Task 2 replaces the tracer's plain row-per-raw-event render with the real
  * structured feed (D-32): `useSessionFeed` (`board/useBoardQuery.ts`) pages a bounded window in
  * from the TAIL of the persisted log (D-33), older pages fetched as the user scrolls toward the
- * top of what is loaded — never the whole transcript in memory (PROC-07). `FeedRow.tsx` renders
- * one row per normalised event; `buildFeedRows` below is the pairing/filtering step that turns
- * the raw windowed-read entries into that row list — a `tool_call` paired with its own
- * `tool_result` by `toolName` (FIFO — no correlation id exists on either event), `init`/
- * `cost_update`/`permission_request`/`session_closed` suppressed from the row list (each is
- * either metadata the header/status-strip consumes elsewhere, or — for `session_closed` — the
- * terminal row's own data source), and any other kind falling back to a raw, verbatim row rather
- * than silently disappearing (T-02-33). Virtualized with this codebase's own
- * `@tanstack/react-virtual` configuration — a fixed size per row kind, `virtualizer.measure()`
- * (never `measureElement`) invalidating the size cache when a tool-call row's expand state
- * changes, matching Phase 1's explicit rejection of measured virtualization.
+ * top of what is loaded — never the whole transcript in memory (PROC-07). `feedRows.ts` turns the
+ * entries into rows (pairing, filtering, cards) and `FeedRow.tsx` renders each one.
+ *
+ * Story #56 replaced the fixed 32px virtual slots (which clipped every agent turn to one line of
+ * unrendered markdown) with measured, variable-height virtual rows.
  */
 import {
   useEffect,
@@ -48,6 +42,7 @@ import {
   TERMINAL_STATUSES,
   formatCostUsd,
   formatCount,
+  formatAge,
   formatElapsed,
   isRunStatus,
 } from "../legend/runStatus";
@@ -55,7 +50,8 @@ import type { RunStatus } from "../legend/runStatus";
 import { useRegionBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
 import { PermissionRequestCard, type PermissionDecision } from "./PermissionRequestCard";
-import { FeedRow, feedRowEstimateSize, prefersReducedMotion, useExpandedRows, type FeedRowData } from "./FeedRow";
+import { FeedRow, feedRowEstimateSize, prefersReducedMotion, useExpandedRows } from "./FeedRow";
+import { buildFeedRows, findLiveCallKey, toolCallLabel } from "./feedRows";
 import { RawLogView } from "./RawLogView";
 import "./session.css";
 
@@ -188,140 +184,8 @@ export interface SessionSurfaceProps {
   initialFeedOffset?: number | null;
 }
 
-/** Event kinds the feed suppresses from its own row list — each is either consumed elsewhere
- * (`init`/`cost_update`/`result` feed the header/status-strip; `permission_request` is the
- * dedicated `PermissionRequestCard` mount below) or is the terminal row's own data source
- * (`session_closed`, resolved by `findTerminalInfo`) — a standalone `result` normally arrives
- * immediately before `session_closed` and would otherwise render as a redundant raw line right
- * before the real terminal row appears. Suppressing is not dropping: nothing here is a candidate
- * for the raw-fallback rule below, because each is already rendered somewhere. */
-const SUPPRESSED_EVENT_TYPES = new Set([
-  "init",
-  "cost_update",
-  "result",
-  "permission_request",
-  "session_closed",
-  // D-53/plan 03-13: the exhaustion notice's own row is a hard no — see `buildFeedRows` below,
-  // which never even lets one of these reach `FeedRow.tsx`'s own (defense-in-depth) no-render
-  // case. Suppressed here for the same reason `session_closed` is: it is rendered elsewhere (the
-  // Activity Trail), never as a feed row at all.
-  "git_lock_exhausted",
-  // Task 3, plan 05-12: the backend restating a turn the Rust core has already recorded — the
-  // developer_turn row (Task 2, above) is where that content renders. Suppressing here is not
-  // dropping: the same words are already on screen, written by the component that knows who
-  // actually said them.
-  "backend_echo",
-]);
-
-/** A stable React/expand-tracking key for one raw log entry — `seq` (every normalised
- * `AgentEvent` carries one, AGNT-01) is preferred because it never shifts when the tail page's
- * own OFFSET changes as the log crosses a page boundary; a malformed line (session_log.rs's own
- * synthesized `unknown` entry) falls back to its `line` number, and the flattened array position
- * is the last resort for a genuinely shapeless entry. */
-function keyForEvent(event: Record<string, unknown>, index: number): string {
-  if (typeof event.seq === "number") return `seq-${event.seq}`;
-  // Task 2, plan 05-12: a `developer_turn` entry (the application's own record of a turn it sent,
-  // `sidecar.rs`'s `build_authoring_turn_line`) carries no `seq` at all — it is written directly
-  // to the session log by the Rust core, never through the sidecar's own per-session seq counter.
-  // Without this branch it would fall straight to the `idx-${index}` last resort below, which
-  // shifts as older pages load (this function's own comment on `seq`'s general preference) —
-  // `turnId` is the one field every such entry carries that is BOTH present and stable, so it is
-  // checked ahead of the line-number fallback.
-  if (typeof event.turnId === "string") return `turn-${event.turnId}`;
-  if (typeof event.line === "number") return `line-${event.line}`;
-  return `idx-${index}`;
-}
-
-function rawTextFor(event: Record<string, unknown>): string {
-  if (typeof event.raw === "string") return event.raw;
-  try {
-    return JSON.stringify(event);
-  } catch {
-    return String(event);
-  }
-}
-
-/**
- * Turn the flattened, ascending-chronological windowed-read entries into the feed's own row
- * list (D-32). A `tool_call` is paired with the next same-`toolName` `tool_result` (FIFO per
- * tool name — the sidecar's own `AgentEvent` union carries no call-correlation id, so exact
- * pairing under concurrent same-named calls is a known, accepted simplification; every event
- * still renders SOMETHING regardless, per T-02-33). An unpaired `tool_result` (no matching
- * pending call, or no `toolName` at all) falls back to a raw row rather than disappearing.
- */
-export function buildFeedRows(entries: Record<string, unknown>[]): FeedRowData[] {
-  const rows: FeedRowData[] = [];
-  const pendingByTool = new Map<string, number[]>();
-
-  entries.forEach((event, index) => {
-    const type = typeof event.type === "string" ? event.type : "unknown";
-    const key = keyForEvent(event, index);
-
-    if (type === "tool_result") {
-      const toolName = typeof event.toolName === "string" ? event.toolName : undefined;
-      const queue = toolName ? pendingByTool.get(toolName) : undefined;
-      if (queue && queue.length > 0) {
-        const targetIndex = queue.shift() as number;
-        const target = rows[targetIndex];
-        if (target && target.kind === "tool_call") {
-          rows[targetIndex] = { ...target, output: event.output };
-        }
-        return;
-      }
-      rows.push({ kind: "raw", key, raw: rawTextFor(event) });
-      return;
-    }
-
-    if (SUPPRESSED_EVENT_TYPES.has(type)) return;
-
-    if (type === "assistant_text") {
-      rows.push({ kind: "assistant_text", key, text: typeof event.text === "string" ? event.text : "" });
-      return;
-    }
-
-    // Task 2, plan 05-12: a turn the application sent into this session (`sidecar.rs`'s
-    // `build_authoring_turn_line`) — its own row kind, never the generic raw fallback below (which
-    // would show the JSON-stringified line) and never merged into `assistant_text` above (which
-    // would attribute the developer's own words to the agent).
-    if (type === "developer_turn") {
-      rows.push({ kind: "developer_turn", key, text: typeof event.text === "string" ? event.text : "" });
-      return;
-    }
-
-    if (type === "tool_call") {
-      const toolName = typeof event.toolName === "string" ? event.toolName : "tool";
-      rows.push({ kind: "tool_call", key, toolName, input: event.input });
-      const queue = pendingByTool.get(toolName) ?? [];
-      queue.push(rows.length - 1);
-      pendingByTool.set(toolName, queue);
-      return;
-    }
-
-    if (type === "system_notice") {
-      rows.push({ kind: "system_notice", key, text: typeof event.text === "string" ? event.text : "" });
-      return;
-    }
-
-    // D-53/plan 03-13: the shim's retry notice — routed to FeedRow.tsx's own "git_retry" case,
-    // which reuses the system/transient row kind's exact treatment. `git_lock_exhausted` is
-    // suppressed above (SUPPRESSED_EVENT_TYPES) and never reaches this point at all.
-    if (type === "git_retry") {
-      rows.push({
-        kind: "git_retry",
-        key,
-        attempt: typeof event.attempt === "number" ? event.attempt : 0,
-        max: typeof event.max === "number" ? event.max : 0,
-      });
-      return;
-    }
-
-    // Anything else — including session_log.rs's own `unknown` entry for a malformed line —
-    // never disappears (T-02-33).
-    rows.push({ kind: "raw", key, raw: rawTextFor(event) });
-  });
-
-  return rows;
-}
+/** Re-exported for the fleet's activity cell, which reads the same rows (`fleet/FleetSurface.tsx`). */
+export { buildFeedRows } from "./feedRows";
 
 interface TerminalInfo {
   reason: RunStatus;
@@ -499,6 +363,39 @@ function StartingSessionRow() {
   );
 }
 
+/** Every state has a floor, so the surface never ends in blank ground (08.1-17 closure). It states who
+ * the run is waiting on; while the agent works it says what on and when it last showed life (Story
+ * #56: a healthy run must not look stalled). Its own component, so its once-a-second tick re-renders
+ * this line and nothing else. */
+function SessionFloor({
+  ended,
+  waitingOnYou,
+  running,
+  doing,
+  lastActivityAt,
+}: {
+  ended: boolean;
+  waitingOnYou: boolean;
+  running: boolean;
+  doing: string | null;
+  lastActivityAt: string | undefined;
+}) {
+  const working = running && !waitingOnYou && !ended;
+  const now = useNowTick(working);
+  let text: string;
+  if (ended) text = "This run has ended. Nothing more will be added to this transcript.";
+  else if (waitingOnYou) text = "Waiting on you: answer the permission request above.";
+  else if (working) {
+    const what = doing ? `The agent is working: ${doing}.` : "The agent is working.";
+    text = lastActivityAt ? `${what} Last activity ${formatAge(lastActivityAt, now)} ago.` : what;
+  } else text = "Waiting on the agent.";
+  return (
+    <p role="status" className="session-floor type-label" title={text}>
+      {text}
+    </p>
+  );
+}
+
 const SCROLL_TOP_FETCH_THRESHOLD_PX = 40;
 
 /** The title of a run whose board item cannot be resolved (read failed, item gone, or no id). A live run
@@ -672,27 +569,30 @@ export function SessionSurface({
   // The call in flight: the newest tool call that has no result yet, while the run is running. A notice
   // after it (a retry) does not end it. A call left unpaired in a finished or blocked run is not live, so
   // it never pulses.
-  const liveRowKey =
-    status === "running"
-      ? ([...feedRows].reverse().find((r) => r.kind === "tool_call" && r.output === undefined)?.key ?? null)
-      : null;
+  const liveRowKey = status === "running" ? findLiveCallKey(feedRows) : null;
+  const liveRow = liveRowKey ? feedRows.find((row) => row.key === liveRowKey) : undefined;
+  // The newest entry of any kind, rows or not: a reasoning block or a heartbeat is not a row, but it is
+  // the agent showing signs of life, which is what tells a working run from a stalled one.
+  const lastActivityAt = [...entries].reverse().find((entry) => typeof entry.at === "string")?.at as string | undefined;
 
+  // Virtualized with measured rows (Story #56): a long Story session logs thousands of events, so only a
+  // window of rows is mounted. Rows are variable height (markdown turns, cards, expanded calls), so each
+  // mounted row is measured (`measureElement`, re-measured by its ResizeObserver when it grows) and
+  // `feedRowEstimateSize` is only the first guess. A zero measurement (no layout, as in jsdom) falls back
+  // to the guess rather than collapsing every row onto the first.
   const rowVirtualizer = useVirtualizer({
     count: feedRows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: (index) => feedRowEstimateSize(feedRows[index], expanded.has(feedRows[index].key)),
+    getItemKey: (index) => feedRows[index].key,
+    measureElement: (element) => {
+      const measured = element.getBoundingClientRect().height;
+      if (measured > 0) return measured;
+      const row = feedRows[Number((element as HTMLElement).dataset.index)];
+      return row ? feedRowEstimateSize(row, expanded.has(row.key)) : 0;
+    },
     overscan: 10,
   });
-
-  // A tool-call row's expand/collapse toggle changes its OWN fixed size (never a measured one —
-  // `feedRowEstimateSize` still returns one of exactly two constants); `measure()` invalidates
-  // the virtualizer's cached sizes so the new `estimateSize` output takes effect. This is not
-  // `measureElement` (DOM-based, per-row measurement) — it is a deterministic recomputation from
-  // the same fixed-size function.
-  useEffect(() => {
-    rowVirtualizer.measure();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded]);
 
   function handleScroll(event: UIEvent<HTMLDivElement>) {
     if (
@@ -806,22 +706,12 @@ export function SessionSurface({
               return (
                 <div
                   key={row.key}
+                  ref={rowVirtualizer.measureElement}
+                  data-index={virtualRow.index}
                   data-testid="feed-row-slot"
-                  // G-02-3: this wrapper occupies EXACTLY the height the virtualizer reserved
-                  // for this row (`virtualRow.size`, produced by `feedRowEstimateSize`'s fixed
-                  // per-row-kind constant — never corrected by measurement) and clips anything
-                  // that exceeds it. `feedRowEstimateSize` decided where the NEXT row starts, so
-                  // a row free to paint past its own reservation paints over every row
-                  // positioned after it — which is exactly what gap G-02-3 reported.
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: virtualRow.size,
-                    overflow: "hidden",
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
+                  // Positioned, never sized: the row's own content sets its height and the virtualizer
+                  // measures it, so a long turn is never clipped and never paints over the next row.
+                  style={{ position: "absolute", top: 0, left: 0, width: "100%", minWidth: 0, transform: `translateY(${virtualRow.start}px)` }}
                 >
                   <FeedRow row={row} expanded={expanded.has(row.key)} onToggleExpand={() => toggle(row.key)} live={row.key === liveRowKey} />
                 </div>
@@ -843,17 +733,13 @@ export function SessionSurface({
           </div>
         </div>
       )}
-      {/* Every state has a floor, so the surface never ends in blank ground (08.1-17 closure). It
-          states who the run is waiting on. */}
-      {(
-        <p role="status" className="session-floor type-label">
-          {!showStop
-            ? "This run has ended. Nothing more will be added to this transcript."
-            : pendingRequests.length > 0
-              ? "Waiting on you: answer the permission request above."
-              : "Waiting on the agent."}
-        </p>
-      )}
+      <SessionFloor
+        ended={!showStop}
+        waitingOnYou={pendingRequests.length > 0}
+        running={status === "running"}
+        doing={liveRow && liveRow.kind === "tool_call" ? toolCallLabel(liveRow.toolName, liveRow.input) : null}
+        lastActivityAt={lastActivityAt}
+      />
       </div>
       </div>
     </div>

@@ -294,6 +294,12 @@ interface ClaudeStreamMessage {
        * for presence (see `ThinkingEvent.hasSignature`'s own doc comment, `adapter.ts`) — it is
        * NEVER carried onto any normalised event, lifecycle record or artifact. */
       signature?: string;
+      /** Story #56: a real `tool_result` block's output — a string, or an array of content blocks
+       * whose `text` blocks carry it (measured: `scripts/uat/fixtures/live-opus5-ask-user-question.json`).
+       * `text` above is the older, fake-backend spelling and is still read when this is absent. */
+      content?: unknown;
+      /** Story #56: a `tool_result` block's own statement that the tool failed. */
+      is_error?: boolean;
     }>;
   };
   /** G-05-6: the wire's own statement that this assistant envelope is a non-conversation error
@@ -358,8 +364,36 @@ interface ClaudeStreamRateLimit {
   };
 }
 
+/** Story #56: Claude Code's heartbeat for a tool call still running — the walk (2026-10-16, entry
+ * 34) logged `elapsed_time_seconds` 30 and 60 on a long Bash call. Every field is optional: a
+ * partial line degrades to the fields it has. */
+interface ClaudeStreamToolProgress {
+  type: "tool_progress";
+  tool_use_id?: string;
+  tool_name?: string;
+  elapsed_time_seconds?: number;
+}
+
+/** Story #56: a tool result's output as text — `content` when it is a string, its `text` blocks
+ * joined by newlines when it is an array, else the legacy `text` field. Non-text blocks (an image)
+ * carry nothing a feed row can print and are skipped. */
+function toolResultOutput(block: { content?: unknown; text?: string }): unknown {
+  const { content } = block;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((part): part is { type: string; text: string } =>
+        part !== null && typeof part === "object" && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string",
+      )
+      .map((part) => part.text)
+      .join("\n");
+  }
+  return block.text;
+}
+
 type ClaudeStreamEvent =
   | ClaudeStreamInit
+  | ClaudeStreamToolProgress
   | ClaudeStreamMessage
   | ClaudeStreamResult
   | ClaudeStreamRateLimit
@@ -604,7 +638,8 @@ export function normaliseStreamEvent(
       return {
         ...base,
         type: "tool_result",
-        output: toolResult.text,
+        output: toolResultOutput(toolResult),
+        ...(typeof toolResult.is_error === "boolean" ? { isError: toolResult.is_error } : {}),
         ...(typeof toolResult.tool_use_id === "string" && toolResult.tool_use_id.length > 0
           ? { toolUseId: toolResult.tool_use_id }
           : {}),
@@ -712,6 +747,21 @@ export function normaliseStreamEvent(
       ...(typeof info?.isUsingOverage === "boolean" ? { isUsingOverage: info.isUsingOverage } : {}),
       // Plan 09-05: derived from the top-level status alone (see rateLimitTier).
       ...(rateLimitTier(info?.status) ? { tier: rateLimitTier(info?.status) } : {}),
+    };
+  }
+
+  // Story #56: the heartbeat of a long tool call. Without it the feed showed a healthy run as
+  // stalled; each field is spread only on its own strict type check, like the rate-limit branch.
+  if (parsed.type === "tool_progress") {
+    const progress = parsed as ClaudeStreamToolProgress;
+    return {
+      ...base,
+      type: "tool_progress",
+      ...(typeof progress.tool_use_id === "string" && progress.tool_use_id.length > 0
+        ? { toolUseId: progress.tool_use_id }
+        : {}),
+      ...(typeof progress.tool_name === "string" && progress.tool_name.length > 0 ? { toolName: progress.tool_name } : {}),
+      ...(typeof progress.elapsed_time_seconds === "number" ? { elapsedSeconds: progress.elapsed_time_seconds } : {}),
     };
   }
 
