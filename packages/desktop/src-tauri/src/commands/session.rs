@@ -1972,7 +1972,15 @@ mod tests {
     fn a_story_spawn_request_asks_for_accept_edits_a_broad_bash_allow_and_the_permission_prompt() {
         let request = spawn_request(&outcome_for_request(), &std::collections::HashMap::new(), SessionKind::Story);
         assert_eq!(request["permissionMode"], "acceptEdits");
-        assert_eq!(request["allowedTools"], serde_json::json!(["Bash"]));
+        assert_eq!(
+            request["allowedTools"],
+            serde_json::json!([
+                "Bash",
+                "mcp__flywheel-permissions__task_list",
+                "mcp__flywheel-permissions__task_add",
+                "mcp__flywheel-permissions__task_update"
+            ])
+        );
         assert_eq!(request["disallowedTools"], serde_json::json!([]));
         assert_eq!(request["permissionPrompt"], true);
     }
@@ -1982,8 +1990,7 @@ mod tests {
         let request = spawn_request(&outcome_for_request(), &std::collections::HashMap::new(), SessionKind::Shaping);
         assert_eq!(request["permissionMode"], "dontAsk");
         assert_eq!(request["permissionPrompt"], false);
-        let allowed: Vec<String> = serde_json::from_value(request["allowedTools"].clone()).unwrap();
-        assert!(!allowed.iter().any(|t| t == "Bash" || t == "Edit" || t == "Write"), "{allowed:?}");
+        assert_eq!(request["allowedTools"], serde_json::json!(["Read", "Glob", "Grep", "mcp__flywheel-proposals"]));
         let denied: Vec<String> = serde_json::from_value(request["disallowedTools"].clone()).unwrap();
         assert!(denied.iter().any(|t| t == "Bash"), "{denied:?}");
     }
@@ -2809,7 +2816,7 @@ mod tests {
             // The session kind, not the developer, decides the mode: Start takes none, and the
             // request and the session row both carry the Story kind's.
             assert_eq!(sent["permissionMode"], "acceptEdits");
-            assert_eq!(sent["allowedTools"], serde_json::json!(["Bash"]));
+            assert_eq!(sent["allowedTools"][0], "Bash");
             let recorded: String = conn
                 .query_row("SELECT permission_mode FROM sessions WHERE id = ?1", rusqlite::params![outcome.run_id], |r| {
                     r.get(0)

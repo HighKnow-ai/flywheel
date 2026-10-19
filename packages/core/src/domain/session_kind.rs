@@ -10,6 +10,17 @@ pub const PROPOSAL_SERVER: &str = "flywheel-proposals";
 /// The Proposal tools a shaping session may call, in Claude Code's `--allowedTools` syntax.
 pub const PROPOSAL_TOOLS: [&str; 1] = ["mcp__flywheel-proposals"];
 
+/// The MCP server every session that raises requests is wired to: it hosts the permission-prompt
+/// tool and the Task board tools. Mirrors `MCP_SERVER_NAME` in
+/// `packages/sidecar/src/mcp-permission-server.ts`.
+pub const PERMISSION_SERVER: &str = "flywheel-permissions";
+
+/// The Task board tools in `--allowedTools` syntax (`mcp__flywheel-permissions__task_list`, …),
+/// so a Story session's checklist writes never wait on a permission card (issue #52).
+pub fn task_tools() -> Vec<String> {
+    crate::domain::task_tool::TASK_TOOL_NAMES.iter().map(|name| format!("mcp__{PERMISSION_SERVER}__{name}")).collect()
+}
+
 /// The tools that only read, which a shaping session may call.
 const READ_ONLY_TOOLS: [&str; 3] = ["Read", "Glob", "Grep"];
 
@@ -46,18 +57,20 @@ impl SessionKind {
 
     /// The launch flags this kind fixes.
     ///
-    /// - A Story session runs in `acceptEdits` with every Bash command allowed, so it edits files
+    /// - A Story session runs in `acceptEdits` with every Bash command and the Task board tools
+    ///   allowed, so it edits files
     ///   and runs builds and tests in its worktree without asking. Claude Code's own
     ///   working-directory boundary keeps writes inside the worktree, and the shim still asks for
     ///   every Gated action, because the shim intercepts the command itself, after Claude Code has
     ///   allowed it. Any other request raises a card.
     /// - A shaping session runs in `dontAsk`, which refuses whatever is not pre-approved instead of
-    ///   prompting: it may read and call the Proposal tools, and nothing else.
+    ///   prompting: it may read and call the Proposal tools, and nothing else — never Bash, and
+    ///   never the Task tools, whose server it is not even wired to.
     pub fn launch_policy(self) -> LaunchPolicy {
         match self {
             SessionKind::Story => LaunchPolicy {
                 permission_mode: "acceptEdits",
-                allowed_tools: vec!["Bash".to_string()],
+                allowed_tools: std::iter::once("Bash".to_string()).chain(task_tools()).collect(),
                 disallowed_tools: Vec::new(),
                 raises_requests: true,
             },

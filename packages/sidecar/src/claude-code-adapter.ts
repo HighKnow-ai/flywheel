@@ -29,7 +29,6 @@ import {
   MCP_SERVER_NAME,
   PERMISSION_TOOL_NAME,
   startPermissionServer,
-  TASK_TOOL_QUALIFIED_NAMES,
   type PermissionNoticePayload,
   type PermissionServerHandle,
 } from "./mcp-permission-server.js";
@@ -237,16 +236,15 @@ export function buildClaudeArgv(options: {
   prompt: string;
   permissionMode: string;
   /** `--allowedTools`, comma-joined into one argument so the variadic flag never swallows the
-   * next one. Omitted or empty, the flag is left out. */
+   * next one. Omitted or empty, the flag is left out. The Rust core's launch policy fills it per
+   * session kind: a Story session's carries Bash and the Task board tools (issue #52), so a
+   * checklist write never waits on a permission card. */
   allowedTools?: string[];
   /** `--disallowedTools`, joined the same way. */
   disallowedTools?: string[];
   permissionPromptToolName?: string;
   mcpConfig?: string;
   settingsPath?: string;
-  /** Issue #52: fully-qualified tool names pre-approved with one comma-joined `--allowedTools`
-   * value, so they never route through the permission-prompt tool (the Task board tools). */
-  allowedTools?: string[];
 }): string[] {
   const argv = [
     "-p",
@@ -275,9 +273,6 @@ export function buildClaudeArgv(options: {
   }
   if (options.settingsPath) {
     argv.push("--settings", options.settingsPath);
-  }
-  if (options.allowedTools && options.allowedTools.length > 0) {
-    argv.push("--allowedTools", options.allowedTools.join(","));
   }
   return argv;
 }
@@ -1178,7 +1173,6 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       permissionPromptToolName: raisesRequests ? PERMISSION_TOOL_NAME : undefined,
       mcpConfig: raisesRequests ? mcpConfig : undefined,
       settingsPath,
-      allowedTools: [...TASK_TOOL_QUALIFIED_NAMES],
     });
 
     // plan 03-02 (D-47/PROC-03): spawn the watchdog wrapper, never the backend directly — the

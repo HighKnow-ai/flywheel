@@ -8,7 +8,16 @@ use core::permission_pattern::suggested_rule;
 fn a_story_session_accepts_edits_and_allows_every_bash_command_without_asking() {
     let policy = SessionKind::Story.launch_policy();
     assert_eq!(policy.permission_mode, "acceptEdits");
-    assert_eq!(policy.allowed_tools, vec!["Bash".to_string()], "the broad Bash allow is the whole tool");
+    assert_eq!(
+        policy.allowed_tools,
+        vec![
+            "Bash",
+            "mcp__flywheel-permissions__task_list",
+            "mcp__flywheel-permissions__task_add",
+            "mcp__flywheel-permissions__task_update",
+        ],
+        "the broad Bash allow is the whole tool, plus the Task board tools"
+    );
     assert!(policy.disallowed_tools.is_empty());
     assert!(policy.raises_requests, "a Story session still raises a request for anything else");
 }
@@ -19,6 +28,8 @@ fn a_shaping_session_is_read_only_plus_the_proposal_tools_and_never_raises_a_req
     // `dontAsk` denies whatever is not pre-approved instead of prompting.
     assert_eq!(policy.permission_mode, "dontAsk");
     assert!(!policy.raises_requests);
+    assert_eq!(policy.allowed_tools, vec!["Read", "Glob", "Grep", "mcp__flywheel-proposals"], "read-only plus Proposals, exactly");
+    assert!(!policy.allowed_tools.iter().any(|t| t.contains("task_")), "never the Task tools");
     for read_only in ["Read", "Glob", "Grep"] {
         assert!(policy.allowed_tools.iter().any(|t| t == read_only), "{read_only} must be allowed");
     }
