@@ -141,6 +141,7 @@ use std::process::{Command, ExitCode, Output};
 use flywheel_core::destructive::{
     classify_in, DestructiveCategory, GateContext, Verdict, DEFAULT_BRANCH_ENV, STORY_BRANCH_ENV, WORKTREE_ENV,
 };
+use flywheel_core::git_hooks::PUSH_APPROVAL_ENV;
 
 /// What one real-git invocation attempt produced, captured so the retry executor can inspect
 /// `stderr` for the lock-contention matcher while the ORIGINAL bytes are still forwarded verbatim
@@ -175,6 +176,9 @@ fn main() -> ExitCode {
     }
     if args.get(1).and_then(|a| a.to_str()) == Some("--gate-push") {
         return run_gate_push(&args[2..]);
+    }
+    if args.get(1).and_then(|a| a.to_str()) == Some("--check-push-approval") {
+        return run_check_push_approval();
     }
 
     let invoked_stem = args
@@ -290,7 +294,9 @@ fn reconstruct_command_text(program: &str, args: &[String]) -> String {
 /// What the permission round trip decided (D-55/D-58) — never cached, never reused; a fresh value
 /// computed from a fresh socket connection on every single call.
 enum PermissionOutcome {
-    Allow,
+    /// Carries the approval the server issued for this one invocation, when it was asked for one
+    /// (issue #81) and answered with one.
+    Allow(Option<String>),
     Deny,
     /// The round trip itself could not be completed (no socket configured, connection refused, a
     /// malformed answer). Carries a human-readable explanation. Always treated as a refusal to
@@ -306,7 +312,15 @@ enum PermissionOutcome {
 /// command, each open their own fresh connection and each raise their own new request on the
 /// sidecar side — there is no way for this function to answer itself from memory of an earlier
 /// call, because it holds none.
-fn request_permission(program: &str, string_args: &[String], category: DestructiveCategory) -> PermissionOutcome {
+///
+/// `issue_approval` (issue #81) asks the server to answer an `allow` with an approval for this one
+/// invocation, which [`run_git`] hands to its git child so the `pre-push` hook does not ask again.
+fn request_permission(
+    program: &str,
+    string_args: &[String],
+    category: DestructiveCategory,
+    issue_approval: bool,
+) -> PermissionOutcome {
     let Some(socket_path) = env::var_os("FLYWHEEL_PERMISSION_SOCKET") else {
         return PermissionOutcome::Error(
             "FLYWHEEL_PERMISSION_SOCKET is not set — refusing a destructive command with nothing to ask".to_string(),
@@ -324,7 +338,7 @@ fn request_permission(program: &str, string_args: &[String], category: Destructi
 
     let command_text = reconstruct_command_text(program, string_args);
     let request_id = flywheel_core::ids::new_id();
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "requestId": request_id,
         "toolName": "Bash",
         "input": {
@@ -332,6 +346,9 @@ fn request_permission(program: &str, string_args: &[String], category: Destructi
             "destructiveCategory": category.as_str(),
         },
     });
+    if issue_approval {
+        payload["issueApproval"] = serde_json::Value::Bool(true);
+    }
     let mut line = payload.to_string();
     line.push('\n');
     if let Err(err) = stream.write_all(line.as_bytes()) {
@@ -347,7 +364,13 @@ fn request_permission(program: &str, string_args: &[String], category: Destructi
         Ok(0) => PermissionOutcome::Error("the permission socket closed before answering".to_string()),
         Ok(_) => match serde_json::from_str::<serde_json::Value>(response_line.trim()) {
             Ok(value) => match value.get("decision").and_then(|d| d.as_str()) {
-                Some("allow") => PermissionOutcome::Allow,
+                Some("allow") => PermissionOutcome::Allow(
+                    value
+                        .get("approval")
+                        .and_then(|a| a.as_str())
+                        .filter(|a| !a.is_empty())
+                        .map(str::to_string),
+                ),
                 Some("deny") => PermissionOutcome::Deny,
                 _ => PermissionOutcome::Error(format!(
                     "the permission socket returned an unrecognised answer: {response_line:?}"
@@ -404,21 +427,68 @@ fn print_denied(category: DestructiveCategory) {
 /// `None` means "verdict was Safe, or was Destructive and the user allowed it," i.e. the caller's
 /// own normal exec path should run.
 fn destructive_gate(program: &str, string_args: &[String]) -> Option<ExitCode> {
+    gate_with_approval(program, string_args, false).err()
+}
+
+/// [`destructive_gate`], also asking the server for an approval on a Gated action (issue #81).
+/// `Ok(approval)` means the caller's exec path should run: `approval` is `Some` only when the
+/// developer allowed a Gated action and the server issued one for this invocation.
+fn gate_with_approval(program: &str, string_args: &[String], issue_approval: bool) -> Result<Option<String>, ExitCode> {
     let verdict = classify_in(program, string_args, &gate_context());
     let Verdict::Destructive(category) = verdict else {
-        return None;
+        return Ok(None);
     };
 
-    match request_permission(program, string_args, category) {
-        PermissionOutcome::Allow => None,
+    match request_permission(program, string_args, category, issue_approval) {
+        PermissionOutcome::Allow(approval) => Ok(approval),
         PermissionOutcome::Deny => {
             print_denied(category);
-            Some(ExitCode::FAILURE)
+            Err(ExitCode::FAILURE)
         }
         PermissionOutcome::Error(message) => {
             eprintln!("flywheel-shim: {message}");
-            Some(ExitCode::FAILURE)
+            Err(ExitCode::FAILURE)
         }
+    }
+}
+
+/// Issue #81: one round trip about an approval the server issued — `kind` is
+/// `push_approval_check` (is it still on record?) or `push_approval_revoke` (forget it). Returns
+/// the server's boolean answer under `answer_key`; any failure along the way reads as `false`, so
+/// a broken socket never stands in for an approval.
+fn push_approval_round_trip(kind: &str, approval: &str, answer_key: &str) -> bool {
+    let Some(socket_path) = env::var_os("FLYWHEEL_PERMISSION_SOCKET") else {
+        return false;
+    };
+    let Ok(mut stream) = UnixStream::connect(&socket_path) else {
+        return false;
+    };
+    let mut line = serde_json::json!({ "kind": kind, "approval": approval }).to_string();
+    line.push('\n');
+    if stream.write_all(line.as_bytes()).is_err() {
+        return false;
+    }
+    let mut answer = String::new();
+    if BufReader::new(stream).read_line(&mut answer).is_err() {
+        return false;
+    }
+    serde_json::from_str::<serde_json::Value>(answer.trim())
+        .ok()
+        .and_then(|value| value.get(answer_key).and_then(|v| v.as_bool()))
+        .unwrap_or(false)
+}
+
+/// `--check-push-approval` (issue #81): the `pre-push` hook's question "did the developer already
+/// approve this very push through the shim?". Exits zero only when the approval in
+/// [`PUSH_APPROVAL_ENV`] is still on the permission socket's record. It never asks the developer
+/// anything and never consumes the approval: the shim revokes it when its git child exits, so it
+/// covers every ref and every lock retry of that one invocation and nothing after it.
+fn run_check_push_approval() -> ExitCode {
+    let approval = env::var(PUSH_APPROVAL_ENV).unwrap_or_default();
+    if !approval.is_empty() && push_approval_round_trip("push_approval_check", &approval, "approved") {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
     }
 }
 
@@ -451,8 +521,8 @@ fn run_gate_push(args: &[OsString]) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    match request_permission("git", &tokens, category) {
-        PermissionOutcome::Allow => ExitCode::SUCCESS,
+    match request_permission("git", &tokens, category, false) {
+        PermissionOutcome::Allow(_) => ExitCode::SUCCESS,
         PermissionOutcome::Deny => {
             print_denied(category);
             ExitCode::FAILURE
@@ -474,9 +544,13 @@ fn run_git(forwarded_args: &[OsString]) -> ExitCode {
     };
 
     let string_args = os_args_to_strings(forwarded_args);
-    if let Some(exit_code) = destructive_gate("git", &string_args) {
-        return exit_code;
-    }
+    // Issue #81: the approval for this one invocation, if the developer just allowed a Gated
+    // action. It goes only to the git child below — never an inherited value — so the pre-push
+    // hook skips its own prompt for this push and for nothing else.
+    let approval = match gate_with_approval("git", &string_args, true) {
+        Ok(approval) => approval,
+        Err(exit_code) => return exit_code,
+    };
 
     let command_text = reconstruct_command_text("git", &string_args);
     // Resolved ONCE and reused by both notices below (D-53) — the retry notice and the
@@ -489,8 +563,12 @@ fn run_git(forwarded_args: &[OsString]) -> ExitCode {
     let retry_result = flywheel_core::git_retry::with_lock_retry_notify(
         &command_text,
         |_attempt| {
-            let output = Command::new(&real_git)
-                .args(forwarded_args)
+            let mut command = Command::new(&real_git);
+            command.args(forwarded_args).env_remove(PUSH_APPROVAL_ENV);
+            if let Some(approval) = &approval {
+                command.env(PUSH_APPROVAL_ENV, approval);
+            }
+            let output = command
                 .output()
                 .map_err(|e| anyhow::anyhow!("failed to spawn real git at {real_git:?}: {e}"))?;
             let stderr_text = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -515,6 +593,11 @@ fn run_git(forwarded_args: &[OsString]) -> ExitCode {
             send_notice("git_retry", payload);
         },
     );
+
+    // The invocation is over: its approval must cover no later push.
+    if let Some(approval) = &approval {
+        push_approval_round_trip("push_approval_revoke", approval, "revoked");
+    }
 
     match retry_result {
         Ok(_outcome) => forward_and_exit(last_output),

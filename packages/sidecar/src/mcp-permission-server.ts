@@ -36,7 +36,7 @@
  *    a prior decision, no allowlist (02-RESEARCH.md pitfall 4: every allow-always lookup happens
  *    in the Rust core, never here — the sidecar asks and waits).
  */
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -163,6 +163,23 @@ export interface PermissionRequestPayload {
   requestId: string;
   toolName: string;
   input: unknown;
+  /** Issue #81: set by the shim on a Gated `git` call. An `allow` answer to such a request also
+   * carries an `approval` the shim hands to its git child, so git's pre-push hook does not ask the
+   * developer a second time for the same push. */
+  issueApproval?: boolean;
+}
+
+/** Issue #81: the two questions about an issued approval. Answered at once, never held: `check`
+ * (from the pre-push hook, via `flywheel-shim --check-push-approval`) answers `{approved}`, and
+ * `revoke` (from the shim, once its git child exits) answers `{revoked}`. */
+export interface PushApprovalPayload {
+  kind: "push_approval_check" | "push_approval_revoke";
+  approval?: unknown;
+}
+
+function isPushApprovalPayload(parsed: unknown): parsed is PushApprovalPayload {
+  const kind = (parsed as { kind?: unknown } | null)?.kind;
+  return kind === "push_approval_check" || kind === "push_approval_revoke";
 }
 
 /** Plan 03-13 (D-53): the shim's fire-and-forget notice shape — `kind` is what distinguishes this
@@ -256,6 +273,10 @@ export function startPermissionServer(
 
   let closed = false;
   const pending = new Map<string, net.Socket>();
+  // Issue #81: held requests whose `allow` should carry an approval, and the approvals issued and
+  // not yet revoked. In memory only, so an approval never outlives this session's socket.
+  const wantsApproval = new Set<string>();
+  const liveApprovals = new Set<string>();
 
   const server = net.createServer((socket) => {
     const rl = createInterface({ input: socket });
@@ -283,6 +304,17 @@ export function startPermissionServer(
         return;
       }
 
+      // Issue #81: checked BEFORE the notice check below, which matches any string `kind`.
+      if (isPushApprovalPayload(parsed)) {
+        const approval = typeof parsed.approval === "string" ? parsed.approval : "";
+        const answer =
+          parsed.kind === "push_approval_check"
+            ? { approved: approval !== "" && liveApprovals.has(approval) }
+            : { revoked: liveApprovals.delete(approval) };
+        socket.end(JSON.stringify(answer) + "\n");
+        return;
+      }
+
       // Plan 03-13 (D-53): a notice carries `kind`, the routine held-request payload never does.
       // Closed IMMEDIATELY — never added to `pending` — because a notice has no answer; the
       // held-connection path below is otherwise entirely unaffected by this branch's existence.
@@ -294,7 +326,11 @@ export function startPermissionServer(
 
       const request = parsed as PermissionRequestPayload;
       pending.set(request.requestId, socket);
-      socket.on("close", () => pending.delete(request.requestId));
+      if (request.issueApproval === true) wantsApproval.add(request.requestId);
+      socket.on("close", () => {
+        pending.delete(request.requestId);
+        wantsApproval.delete(request.requestId);
+      });
       onRequest(request);
     });
   });
@@ -326,7 +362,15 @@ export function startPermissionServer(
         return;
       }
       pending.delete(requestId);
-      socket.end(JSON.stringify({ decision }) + "\n");
+      const issue = decision === "allow" && wantsApproval.has(requestId);
+      wantsApproval.delete(requestId);
+      if (!issue) {
+        socket.end(JSON.stringify({ decision }) + "\n");
+        return;
+      }
+      const approval = randomBytes(32).toString("hex");
+      liveApprovals.add(approval);
+      socket.end(JSON.stringify({ decision, approval }) + "\n");
     },
     answerBoardTool(requestId, result, error) {
       const socket = pending.get(requestId);
