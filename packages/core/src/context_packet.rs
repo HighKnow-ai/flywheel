@@ -76,8 +76,9 @@ worktrees.
 - The Story's Acceptance criteria are what you are judged on. Each Check is a shell command run from \
 the worktree root at hand-off; exit 0 passes. You cannot edit or delete a Check. If you think one is \
 wrong, say so in your hand-off.
-- Keep the Task checklist current through the Flywheel board tools. If it is empty, write it as your \
-plan before anything else. At most one Task is doing at a time. Drop a Task with a one-line reason \
+- Keep the Task checklist current through the Flywheel board tools. If it is empty, first read the \
+code and docs the Story touches, then write it as your plan. Do not add a Task to survey or explore \
+the repo. At most one Task is doing at a time. Drop a Task with a one-line reason \
 rather than deleting it.
 - You write to the board only through Proposals, which do nothing until the developer accepts them. \
 At most 3 open Proposals per session. A Proposal never pauses you; if you cannot go on without an \
