@@ -9,7 +9,7 @@ mod common;
 
 use common::with_scratch_worktree_root;
 
-use core::domain::agent_run::{close_agent_run, start_agent_run, AgentRunStatus};
+use core::domain::session::{close_session, start_session, SessionStatus};
 use core::domain::worktree::ensure_worktree;
 
 #[test]
@@ -18,8 +18,8 @@ fn a_worktree_survives_two_runs() {
         let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Lifecycle story");
 
-        let run_1 = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("first start_agent_run should succeed");
+        let run_1 = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("first start_session should succeed");
         let worktree_1 =
             ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should return the existing row");
 
@@ -27,11 +27,11 @@ fn a_worktree_survives_two_runs() {
         let dirty_file = std::path::Path::new(&worktree_1.path).join("scratch.txt");
         std::fs::write(&dirty_file, b"uncommitted work\n").expect("failed to write the dirty file");
 
-        close_agent_run(&mut conn, &run_1.id, AgentRunStatus::Interrupted, None, None, None)
-            .expect("close_agent_run should succeed");
+        close_session(&mut conn, &run_1.id, SessionStatus::Interrupted, None, None, None)
+            .expect("close_session should succeed");
 
-        let run_2 = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("second start_agent_run should succeed");
+        let run_2 = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("second start_session should succeed");
         let worktree_2 =
             ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should return the existing row");
 

@@ -18,9 +18,11 @@
 //! never stored here.
 
 use anyhow::Context;
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 
+use crate::domain::acceptance_criterion::create_criterion_in_tx;
 use crate::domain::actor::assert_human_actor_in_tx;
+use crate::domain::check::set_check_in_tx;
 use crate::domain::{allocate_key, now, record_event, EventScope};
 use crate::ids::new_id;
 use crate::ranking::rank_after;
@@ -126,11 +128,25 @@ fn row_to_story(row: &Row) -> rusqlite::Result<Story> {
 /// Create a Story at the end of `epic_id`'s execution order, in Shaping. Its project is the
 /// Epic's. Refused when the Epic is Done.
 pub fn create_story(conn: &mut Connection, actor_id: &str, epic_id: &str, title: &str) -> anyhow::Result<Story> {
+    let tx = conn.transaction()?;
+    let story = create_story_in_tx(&tx, actor_id, epic_id, title, None)?;
+    tx.commit().context("failed to commit create_story")?;
+    Ok(story)
+}
+
+/// [`create_story`] inside the caller's transaction, with an optional description.
+fn create_story_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    epic_id: &str,
+    title: &str,
+    description: Option<&str>,
+) -> anyhow::Result<Story> {
     let title = title.trim();
     anyhow::ensure!(!title.is_empty(), "a Story needs a title");
+    let description = description.map(str::trim).filter(|d| !d.is_empty());
     let now = now();
     let id = new_id();
-    let tx = conn.transaction()?;
 
     let (project_id, epic_state): (String, String) = tx
         .query_row("SELECT project_id, state FROM epics WHERE id = ?1", params![epic_id], |r| {
@@ -145,16 +161,16 @@ pub fn create_story(conn: &mut Connection, actor_id: &str, epic_id: &str, title:
         })
         .optional()?;
     let rank = rank_after(last_rank.as_deref())?;
-    let key = allocate_key(&tx, &project_id)?;
+    let key = allocate_key(tx, &project_id)?;
 
     tx.execute(
-        "INSERT INTO stories (id, project_id, epic_id, key, title, state, rank, created_by, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'shaping', ?6, ?7, ?8, ?8)",
-        params![id, project_id, epic_id, key, title, rank, actor_id, now],
+        "INSERT INTO stories (id, project_id, epic_id, key, title, description, state, rank, created_by, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'shaping', ?7, ?8, ?9, ?9)",
+        params![id, project_id, epic_id, key, title, description, rank, actor_id, now],
     )
     .context("failed to insert the Story")?;
     record_event(
-        &tx,
+        tx,
         &project_id,
         "story",
         &id,
@@ -164,7 +180,6 @@ pub fn create_story(conn: &mut Connection, actor_id: &str, epic_id: &str, title:
         &serde_json::json!({ "title": title, "label": format!("Created Story {key} \"{title}\"") }),
         &now,
     )?;
-    tx.commit().context("failed to commit create_story")?;
 
     Ok(Story {
         id,
@@ -172,7 +187,7 @@ pub fn create_story(conn: &mut Connection, actor_id: &str, epic_id: &str, title:
         epic_id: epic_id.to_string(),
         key,
         title: title.to_string(),
-        description: None,
+        description: description.map(str::to_string),
         state: "shaping".to_string(),
         runs_after_story_id: None,
         rank,
@@ -233,8 +248,15 @@ pub fn update_story(
 /// may make that move: a human for every transition but the hand-off. The one writer of
 /// `stories.state`.
 pub fn set_story_state(conn: &mut Connection, actor_id: &str, story_id: &str, to: StoryState) -> anyhow::Result<()> {
-    let now = now();
     let tx = conn.transaction()?;
+    set_story_state_in_tx(&tx, actor_id, story_id, to)?;
+    tx.commit().context("failed to commit set_story_state")?;
+    Ok(())
+}
+
+/// [`set_story_state`] inside the caller's transaction.
+fn set_story_state_in_tx(tx: &Transaction, actor_id: &str, story_id: &str, to: StoryState) -> anyhow::Result<()> {
+    let now = now();
     let (project_id, epic_id, current): (String, String, String) = tx
         .query_row("SELECT project_id, epic_id, state FROM stories WHERE id = ?1", params![story_id], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -248,13 +270,13 @@ pub fn set_story_state(conn: &mut Connection, actor_id: &str, story_id: &str, to
         to.as_str()
     );
     if is_human_transition(from, to) {
-        assert_human_actor_in_tx(&tx, actor_id)?;
+        assert_human_actor_in_tx(tx, actor_id)?;
     }
 
     tx.execute("UPDATE stories SET state = ?1, updated_at = ?2 WHERE id = ?3", params![to.as_str(), now, story_id])
         .context("failed to write the Story state")?;
     record_event(
-        &tx,
+        tx,
         &project_id,
         "story",
         story_id,
@@ -267,6 +289,57 @@ pub fn set_story_state(conn: &mut Connection, actor_id: &str, story_id: &str, to
         }),
         &now,
     )?;
-    tx.commit().context("failed to commit set_story_state")?;
     Ok(())
+}
+
+/// One Acceptance criterion of a Story written by hand, with its optional Check command. A blank
+/// command means the criterion is judged at review.
+#[derive(Debug, Clone, Copy)]
+pub struct HandWrittenCriterion<'a> {
+    pub statement: &'a str,
+    pub check_command: Option<&'a str>,
+}
+
+/// Write a Story by hand (Milestone 2's stand-in for shaping, issue #50): the Story inside
+/// `epic_id`, its criteria in order and their Checks, then Shaping → Ready, all in one
+/// transaction. Shaping replaces this in Milestone 3.
+///
+/// Developer-only, and a Story needs at least one criterion before it is Ready. Any refusal (no
+/// Epic, no title, no criterion, a blank statement) writes nothing.
+pub fn write_story_by_hand(
+    conn: &mut Connection,
+    actor_id: &str,
+    epic_id: &str,
+    title: &str,
+    description: Option<&str>,
+    criteria: &[HandWrittenCriterion],
+) -> anyhow::Result<Story> {
+    anyhow::ensure!(!criteria.is_empty(), "a Story needs at least one Acceptance criterion before it is Ready");
+    let tx = conn.transaction()?;
+    assert_human_actor_in_tx(&tx, actor_id)?;
+    let mut story = create_story_in_tx(&tx, actor_id, epic_id, title, description)?;
+    for criterion in criteria {
+        let created = create_criterion_in_tx(&tx, actor_id, &story.id, criterion.statement)?;
+        if let Some(command) = criterion.check_command.map(str::trim).filter(|c| !c.is_empty()) {
+            set_check_in_tx(&tx, actor_id, &created.id, command, None)?;
+        }
+    }
+    set_story_state_in_tx(&tx, actor_id, &story.id, StoryState::Ready)?;
+    tx.commit().context("failed to commit write_story_by_hand")?;
+    story.state = StoryState::Ready.as_str().to_string();
+    Ok(story)
+}
+
+/// Every Story of a project, in Roadmap order: Milestone rank, then Epic rank, then Story rank.
+pub fn stories_in_project(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<Story>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.project_id, s.epic_id, s.key, s.title, s.description, s.state, s.runs_after_story_id, s.rank
+         FROM stories s
+         JOIN epics e ON e.id = s.epic_id
+         JOIN milestones m ON m.id = e.milestone_id
+         WHERE s.project_id = ?1
+         ORDER BY m.rank, m.id, e.rank, e.id, s.rank, s.id",
+    )?;
+    let rows = stmt.query_map(params![project_id], row_to_story)?.collect::<Result<Vec<_>, _>>();
+    rows.context("failed to read the project's Stories")
 }

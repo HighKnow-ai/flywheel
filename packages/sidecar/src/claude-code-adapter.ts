@@ -395,7 +395,7 @@ function optionalUsageNumber(usage: ClaudeStreamUsage | undefined, field: keyof 
   return typeof value === "number" ? value : undefined;
 }
 
-/** Sum the three input-side usage fields into the one figure `agent_runs.tokens_in` records
+/** Sum the three input-side usage fields into the one figure `sessions.tokens_in` records
  * (G-02-4's "Token accounting decision"). MEASURED, not assumed: the plain `input_tokens` field
  * alone read 2 for a turn that actually consumed roughly 33,000 input tokens, because the bulk
  * arrived as cache creation and cache reads — recording it alone would store a number that is

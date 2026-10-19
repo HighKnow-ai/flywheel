@@ -25,8 +25,8 @@ vi.mock("../../adapters/tauri", async () => {
     ...actual,
     fleetList: () => fleetListMock(),
     fleetBlockedQueue: () => Promise.resolve([]),
-    acknowledgeAgentRun: (id: string) => acknowledgeMock(id),
-    agentRunAcknowledgeMany: (ids: string[]) => acknowledgeManyMock(ids),
+    acknowledgeSession: (id: string) => acknowledgeMock(id),
+    sessionAcknowledgeMany: (ids: string[]) => acknowledgeManyMock(ids),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
     subscribeAgentEvent: () => Promise.resolve(() => {}),
   };
@@ -34,7 +34,7 @@ vi.mock("../../adapters/tauri", async () => {
 
 function row(overrides: Partial<FleetRowDto>): FleetRowDto {
   return {
-    agentRunId: "run-1",
+    sessionId: "run-1",
     projectId: "proj-1",
     projectName: "Alpha",
     projectKeyPrefix: "ALP",
@@ -58,9 +58,9 @@ function row(overrides: Partial<FleetRowDto>): FleetRowDto {
 
 const ENDED = "2026-10-12T01:00:00Z";
 const failed = (id: string, extra: Partial<FleetRowDto> = {}) =>
-  row({ agentRunId: id, runStatus: "failed", fleetState: "failed", endedAt: ENDED, storyKey: id, ...extra });
+  row({ sessionId: id, runStatus: "failed", fleetState: "failed", endedAt: ENDED, storyKey: id, ...extra });
 const completed = (id: string, extra: Partial<FleetRowDto> = {}) =>
-  row({ agentRunId: id, runStatus: "completed", fleetState: "completed", endedAt: ENDED, storyKey: id, ...extra });
+  row({ sessionId: id, runStatus: "completed", fleetState: "completed", endedAt: ENDED, storyKey: id, ...extra });
 
 function list(rows: FleetRowDto[], visibleCostUsd: number | null = null): FleetListDto {
   return { rows, totalRows: rows.length, visibleCostUsd };
@@ -92,7 +92,7 @@ afterEach(() => {
 
 describe("spend cell", () => {
   it("is empty text for a running row, never $0.00", async () => {
-    fleetListMock.mockResolvedValue(list([row({ agentRunId: "live", costUsd: null })]));
+    fleetListMock.mockResolvedValue(list([row({ sessionId: "live", costUsd: null })]));
     const { container } = renderFleet();
     await screen.findByText("Wire the thing");
     expect(spendOf(container, "live").textContent).toBe("");
@@ -100,7 +100,7 @@ describe("spend cell", () => {
   });
 
   it("is empty even if a live row somehow carried a cost", async () => {
-    fleetListMock.mockResolvedValue(list([row({ agentRunId: "live", costUsd: 0.5 })]));
+    fleetListMock.mockResolvedValue(list([row({ sessionId: "live", costUsd: 0.5 })]));
     const { container } = renderFleet();
     await screen.findByText("Wire the thing");
     expect(spendOf(container, "live").textContent).toBe("");
@@ -162,7 +162,7 @@ describe("footer total", () => {
 
 describe("dismiss", () => {
   it("exists on a terminal row and not on a live one", async () => {
-    fleetListMock.mockResolvedValue(list([row({ agentRunId: "live" }), failed("done")]));
+    fleetListMock.mockResolvedValue(list([row({ sessionId: "live" }), failed("done")]));
     const { container } = renderFleet();
     await screen.findByText("Dismiss");
     expect(container.querySelector('[data-run-id="done"] [data-field="dismiss"] button')).not.toBeNull();
@@ -179,7 +179,7 @@ describe("dismiss", () => {
   });
 
   it("Dismiss finished sends the ids of the terminal rows in one call and skips live rows", async () => {
-    fleetListMock.mockResolvedValue(list([row({ agentRunId: "live" }), failed("f1"), completed("c1")]));
+    fleetListMock.mockResolvedValue(list([row({ sessionId: "live" }), failed("f1"), completed("c1")]));
     renderFleet();
     fireEvent.click(await screen.findByText("Dismiss finished"));
     expect(acknowledgeManyMock).toHaveBeenCalledTimes(1);
@@ -198,8 +198,8 @@ describe("dismiss", () => {
   it("reports how many runs a batch dismiss could not write, and nothing for a benign no-op", async () => {
     fleetListMock.mockResolvedValue(list([failed("f1"), completed("c1")]));
     acknowledgeManyMock.mockResolvedValueOnce([
-      { agentRunId: "f1", acknowledged: false, error: null }, // already acknowledged: not a failure
-      { agentRunId: "c1", acknowledged: false, error: "database is locked" },
+      { sessionId: "f1", acknowledged: false, error: null }, // already acknowledged: not a failure
+      { sessionId: "c1", acknowledged: false, error: "database is locked" },
     ]);
     renderFleet();
     fireEvent.click(await screen.findByText("Dismiss finished"));
@@ -215,7 +215,7 @@ describe("dismiss", () => {
   });
 
   it("is offered on the DONE / FAILED band only", async () => {
-    fleetListMock.mockResolvedValue(list([row({ agentRunId: "live" })]));
+    fleetListMock.mockResolvedValue(list([row({ sessionId: "live" })]));
     renderFleet();
     await screen.findByText("Wire the thing");
     expect(screen.queryByText("Dismiss finished")).toBeNull();

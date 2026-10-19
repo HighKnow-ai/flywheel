@@ -6,7 +6,7 @@
 use serde::Serialize;
 use tauri::State;
 
-use crate::commands::agent_run::PorcelainEntryDto;
+use crate::commands::session::PorcelainEntryDto;
 use crate::state::AppState;
 
 /// One row of a Story's commit window, projected for the renderer — mirrors

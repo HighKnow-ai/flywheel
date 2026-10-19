@@ -87,7 +87,7 @@ pub fn settings_set_notifications_enabled(state: State<AppState>, value: bool) -
 }
 
 /// Rejects a `mode` outside exactly `"local"`/`"api_key"` before any DB call (mirrors
-/// `agent_run.rs`'s `validate_permission_mode`'s own reasoning) — named in the error so the
+/// `session.rs`'s `validate_permission_mode`'s own reasoning) — named in the error so the
 /// rejected value is legible.
 fn validate_mode(mode: &str) -> Result<(), String> {
     if mode != "local" && mode != "api_key" {

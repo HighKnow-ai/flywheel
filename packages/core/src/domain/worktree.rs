@@ -233,7 +233,7 @@ pub fn remove_worktree_for_story(
 /// nothing yet, so the porcelain check cannot see it. The single-worktree remove keeps its
 /// established behaviour (its callers and tests remove worktrees whose runs are still recorded as
 /// live). This narrows the window to the gap between the query and the `git` call; it does not
-/// close it -- that would need a marker `agent_run_start` refuses against.
+/// close it -- that would need a marker `session_start` refuses against.
 pub fn remove_worktree_for_story_refusing_live_run(
     conn: &mut Connection,
     story_id: &str,
@@ -738,7 +738,7 @@ pub enum ReclaimReason {
     /// The Story is Dropped.
     Dropped,
     /// A run against this worktree is running.
-    AgentRunning,
+    Sessionning,
     /// A run against this worktree is blocked on a permission request.
     Blocked,
     /// The tree has uncommitted changes.
@@ -757,7 +757,7 @@ impl ReclaimReason {
         match self {
             ReclaimReason::Merged => "merged",
             ReclaimReason::Dropped => "dropped",
-            ReclaimReason::AgentRunning => "agent_running",
+            ReclaimReason::Sessionning => "sessionning",
             ReclaimReason::Blocked => "blocked",
             ReclaimReason::UncommittedChanges => "uncommitted_changes",
             ReclaimReason::ProjectUnreachable => "project_unreachable",
@@ -817,7 +817,7 @@ pub fn reclaim_eligibility(
         return ReclaimDisposition::Keep(ReclaimReason::DirectoryMissing);
     }
     if let Some(status) = live_run {
-        let reason = if status == "blocked" { ReclaimReason::Blocked } else { ReclaimReason::AgentRunning };
+        let reason = if status == "blocked" { ReclaimReason::Blocked } else { ReclaimReason::Sessionning };
         return ReclaimDisposition::InUse(reason);
     }
     if dirty {

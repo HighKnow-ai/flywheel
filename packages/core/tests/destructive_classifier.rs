@@ -11,7 +11,7 @@ mod common;
 use common::with_scratch_worktree_root;
 
 use core::destructive::{classify, DestructiveCategory, Verdict};
-use core::domain::agent_run::start_agent_run;
+use core::domain::session::start_session;
 use core::domain::permission_request::{
     answer_request, create_pending_request, DestructiveAllowAlwaysRejected,
 };
@@ -23,8 +23,8 @@ fn seeded_running_run() -> (Connection, String, String) {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Gated story");
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
         (conn, actor_id, run.id)
     })
 }

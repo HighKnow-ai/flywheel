@@ -34,7 +34,7 @@ fn a_dropped_story_with_no_run_and_a_clean_tree_is_reclaimable_as_dropped() {
 
 #[test]
 fn a_live_run_is_in_use_even_when_the_story_is_merged() {
-    assert_eq!(elig("merged", Some("running"), false, "active", true), D::InUse(R::AgentRunning));
+    assert_eq!(elig("merged", Some("running"), false, "active", true), D::InUse(R::Sessionning));
     assert_eq!(elig("merged", Some("blocked"), false, "active", true), D::InUse(R::Blocked));
 }
 
@@ -118,11 +118,11 @@ fn dispositions_across_merged_dropped_dirty_live_and_unreachable() {
         let (open, _) = mk(&mut conn, "open");
 
         let (live, _) = mk(&mut conn, "live");
-        core::domain::agent_run::start_agent_run(&mut conn, &live, "default", &actor).unwrap();
+        core::domain::session::start_session(&mut conn, &live, "default", &actor).unwrap();
         set_story_state(&conn, &live, "merged");
 
         let (blocked, _) = mk(&mut conn, "blocked");
-        let blocked_run = core::domain::agent_run::start_agent_run(&mut conn, &blocked, "default", &actor).unwrap();
+        let blocked_run = core::domain::session::start_session(&mut conn, &blocked, "default", &actor).unwrap();
         conn.execute("UPDATE sessions SET status = 'blocked' WHERE id = ?1", params![blocked_run.id]).unwrap();
 
         let all = rows(&conn);
@@ -130,7 +130,7 @@ fn dispositions_across_merged_dropped_dirty_live_and_unreachable() {
         assert_eq!(row_for(&all, &dropped).disposition, D::Reclaimable(R::Dropped));
         assert_eq!(row_for(&all, &dirty).disposition, D::Keep(R::UncommittedChanges));
         assert_eq!(row_for(&all, &open).disposition, D::Keep(R::StoryOpen));
-        assert_eq!(row_for(&all, &live).disposition, D::InUse(R::AgentRunning));
+        assert_eq!(row_for(&all, &live).disposition, D::InUse(R::Sessionning));
         assert_eq!(row_for(&all, &blocked).disposition, D::InUse(R::Blocked));
 
         // The project becomes unreachable: every one of its rows is kept with that reason.

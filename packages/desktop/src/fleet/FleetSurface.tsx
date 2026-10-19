@@ -24,7 +24,7 @@
  * gets cleared by accident. Dismiss stays a focusable button.
  */
 import { useEffect, useState, type MouseEvent } from "react";
-import { acknowledgeAgentRun, agentRunAcknowledgeMany, type FleetActivityDto, type FleetRowDto } from "../adapters/tauri";
+import { acknowledgeSession, sessionAcknowledgeMany, type FleetActivityDto, type FleetRowDto } from "../adapters/tauri";
 import { StateBadge, rowVariant } from "../legend/StateBadge";
 import {
   FLEET_BANDS,
@@ -244,7 +244,7 @@ export function SubjectTarget({
 
 /** The row's primary action (D-166, FLEET-03): open this run's session, handing over everything the
  * surface needs to mount in its correct shape in ONE call — the run, its Story and its status
- * (`setActiveAgentRunId` sets them together). The status is the raw run status the
+ * (`setActiveSessionId` sets them together). The status is the raw run status the
  * row is already showing — `awaiting_review` is a fleet-only state, the session knows that run as
  * `completed` — so a terminal run does not read "Running" while nothing re-reads it (Pitfall 7).
  *
@@ -254,10 +254,10 @@ export function SubjectTarget({
  * intended. The triage surface clears itself first, which is the opposite pattern. */
 function sessionOpenerArgs(row: FleetRowDto): Parameters<UiOpener> {
   const status = isRunStatus(row.runStatus) ? row.runStatus : null;
-  return [row.agentRunId, row.storyId, null, status];
+  return [row.sessionId, row.storyId, null, status];
 }
 
-type UiOpener = ReturnType<typeof useUiStore.getState>["setActiveAgentRunId"];
+type UiOpener = ReturnType<typeof useUiStore.getState>["setActiveSessionId"];
 
 export function FleetRowView({
   row,
@@ -282,7 +282,7 @@ export function FleetRowView({
     <div
       role="listitem"
       data-fleet-state={state}
-      data-run-id={row.agentRunId}
+      data-run-id={row.sessionId}
       data-selected={selected ? "true" : undefined}
       aria-current={selected ? "true" : undefined}
       className="type-body"
@@ -344,7 +344,7 @@ export function FleetRowView({
               // Its own act: a click here must not also bubble into the row and open the session.
               event.stopPropagation();
               setDismissFailed(false);
-              void acknowledgeAgentRun(row.agentRunId).catch(() => setDismissFailed(true));
+              void acknowledgeSession(row.sessionId).catch(() => setDismissFailed(true));
             }}
           >
             Dismiss
@@ -399,7 +399,7 @@ export function FleetBand({
               className="type-label"
               onClick={() => {
                 setDismissNotice(null);
-                void agentRunAcknowledgeMany(rows.filter(isTerminalRun).map((r) => r.agentRunId))
+                void sessionAcknowledgeMany(rows.filter(isTerminalRun).map((r) => r.sessionId))
                   .then((results) => {
                     // A write that failed is not "nothing to dismiss": only an `error` is reported.
                     const failed = results.filter((r) => r.error).length;
@@ -416,10 +416,10 @@ export function FleetBand({
       <div role="list">
         {rows.map((row) => (
           <FleetRowView
-            key={row.agentRunId}
+            key={row.sessionId}
             row={row}
             now={now}
-            selected={row.agentRunId === selectedRunId}
+            selected={row.sessionId === selectedRunId}
             onOpenSession={onOpenSession}
             onOpenSubject={onOpenSubject}
           />
@@ -440,7 +440,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
   // unset target reads as the fleet list.
   const view = useUiStore((state) => state.fleetSurface?.view ?? "fleet");
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
-  const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
+  const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
   const setCurrentProjectId = useUiStore((state) => state.setCurrentProjectId);
   const setPendingFocusItemId = useUiStore((state) => state.setPendingFocusItemId);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -459,10 +459,10 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
     else byBand.set(band, [row]);
   }
   // Selection moves through the rows in the order they are drawn: band by band, as grouped above.
-  const drawnRows = FLEET_BANDS.flatMap((band) => byBand.get(band.id) ?? []).map((r) => ({ ...r, id: r.agentRunId }));
+  const drawnRows = FLEET_BANDS.flatMap((band) => byBand.get(band.id) ?? []).map((r) => ({ ...r, id: r.sessionId }));
   const openSession = (row: FleetRowDto) => {
-    setSelectedRunId(row.agentRunId);
-    setActiveAgentRunId(...sessionOpenerArgs(row));
+    setSelectedRunId(row.sessionId);
+    setActiveSessionId(...sessionOpenerArgs(row));
   };
   // The secondary target: switch to the row's project, leave a one-shot request for the board to act on
   // (the board's own project-change clear would undo anything set directly, Finding 9), and close the
@@ -470,12 +470,12 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
   const openSubject = (row: FleetRowDto) => {
     const target = subjectTargetId(row);
     if (target === null) return;
-    setSelectedRunId(row.agentRunId);
+    setSelectedRunId(row.sessionId);
     setCurrentProjectId(row.projectId);
     setPendingFocusItemId(target);
     setFleetSurface(null);
   };
-  const selectedRow = view === "fleet" ? drawnRows.find((r) => r.agentRunId === selectedRunId) : undefined;
+  const selectedRow = view === "fleet" ? drawnRows.find((r) => r.sessionId === selectedRunId) : undefined;
   // The queue view owns `a`/`d`/shift-`a` through its keyboard-owner card, and the layer refuses those
   // ids here anyway; this surface registers nothing while the queue is showing.
   useRegionBindings(

@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 use core::domain::acceptance_criterion::{accept_criterion, create_criterion, unaccept_criterion};
 use core::domain::actor::{assert_human_actor, assert_human_actor_in_tx, local_human_actor_id, system_actor};
-use core::domain::agent_run::agent_actor_id;
+use core::domain::session::agent_actor_id;
 use core::domain::check::{remove_check, set_check};
 use core::domain::epic::{set_epic_state, EpicState};
 use core::domain::milestone::{set_milestone_state, MilestoneState};
@@ -431,7 +431,7 @@ const ALLOWED_CALLERS: [AllowedCaller; 6] = [
     AllowedCaller { suffix: "packages/core/src/domain/proposal.rs", reason: "declares accept_proposal / reject_proposal", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/criterion.rs", reason: "the human's acceptance and Check controls", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/proposal.rs", reason: "the human's Proposal decisions", test_only: false },
-    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/agent_run.rs", reason: "calls only from a #[cfg(test)] fixture", test_only: true },
+    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/session.rs", reason: "calls only from a #[cfg(test)] fixture", test_only: true },
 ];
 
 fn is_ident_char(c: char) -> bool {
@@ -524,7 +524,7 @@ fn the_authority_gate_fires_on_a_planted_call() {
     assert!(authority_offenders("packages/sidecar/src/planted.ts", "// accept_proposal(conn);\n").is_empty());
     assert!(authority_offenders("packages/sidecar/src/planted.ts", "accept_proposal_in_tx(tx);\n").is_empty());
     // A test-only entry is permitted below its `#[cfg(test)]` line and an offender above it.
-    let agent_run = "packages/desktop/src-tauri/src/commands/agent_run.rs";
-    assert_eq!(authority_offenders(agent_run, "accept_criterion(c);\n#[cfg(test)]\nmod t {}\n").len(), 1);
-    assert!(authority_offenders(agent_run, "#[cfg(test)]\nmod t { fn f() { accept_criterion(c); } }\n").is_empty());
+    let session = "packages/desktop/src-tauri/src/commands/session.rs";
+    assert_eq!(authority_offenders(session, "accept_criterion(c);\n#[cfg(test)]\nmod t {}\n").len(), 1);
+    assert!(authority_offenders(session, "#[cfg(test)]\nmod t { fn f() { accept_criterion(c); } }\n").is_empty());
 }

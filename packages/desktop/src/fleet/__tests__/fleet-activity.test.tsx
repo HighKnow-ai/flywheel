@@ -44,7 +44,7 @@ function activity(...lines: string[]): FleetActivityDto {
 
 function row(id: string, overrides: Partial<FleetRowDto> = {}): FleetRowDto {
   return {
-    agentRunId: id,
+    sessionId: id,
     projectId: "proj-1",
     projectName: "Alpha",
     projectKeyPrefix: "ALP",

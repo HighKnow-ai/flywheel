@@ -2,8 +2,8 @@
 //! driven through this crate's own domain and query functions against a scratch
 //! `FLYWHEEL_APP_DATA_DIR` database (plan 11-15, register items D-REV-48, 49, 50, 55).
 //!
-//! The Tauri commands those items name (`fleet_list`, `fleet_blocked_queue`, `agent_run_acknowledge`,
-//! `agent_run_answer_permission`, `worktree_reclaim`) live in the desktop crate, which needs an
+//! The Tauri commands those items name (`fleet_list`, `fleet_blocked_queue`, `session_acknowledge`,
+//! `session_answer_permission`, `worktree_reclaim`) live in the desktop crate, which needs an
 //! `AppHandle` and a cold build of 13 minutes. Each is a thin wrapper over a function in THIS crate,
 //! so this binary calls that function, the same way the other `uat_*` bridges do:
 //!
@@ -11,8 +11,8 @@
 //!                                  row (a four-line copy of the private `attach_activity` in
 //!                                  `commands/fleet.rs`; the live-status set is repeated below)
 //!   fleet_blocked_queue         -> `query::fleet::blocked_queue`
-//!   agent_run_acknowledge       -> `domain::agent_run::acknowledge_run`
-//!   agent_run_answer_permission -> `domain::permission_request::answer_request` (its DB half; the
+//!   session_acknowledge       -> `domain::session::acknowledge_run`
+//!   session_answer_permission -> `domain::permission_request::answer_request` (its DB half; the
 //!                                  sidecar relay and the `allow_always` rule write are not driven)
 //!   worktree_reclaim            -> `domain::worktree::reclaim_worktrees` on a connection of its
 //!                                  own, opened and given pragmas exactly as the command does
@@ -45,7 +45,7 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use core::domain::agent_run::{close_agent_run, start_agent_run, AgentRunStatus};
+use core::domain::session::{close_session, start_session, SessionStatus};
 use core::domain::story::{self, StoryState};
 use core::domain::{actor, epic, milestone, permission_request, project, worktree};
 use rusqlite::Connection;
@@ -128,12 +128,12 @@ fn main() {
         "start-run" => {
             let usage = "start-run <project_id> <title>";
             let (project_id, title) = (arg(&args, 1, usage), arg(&args, 2, usage));
-            require_env("FLYWHEEL_WORKTREE_ROOT", "start_agent_run would create a worktree under ~/Flywheel/");
+            require_env("FLYWHEEL_WORKTREE_ROOT", "start_session would create a worktree under ~/Flywheel/");
             let mut conn = open_conn();
             let actor_id = human(&conn);
             let s = new_story(&mut conn, &project_id, &actor_id, &title);
-            let run = start_agent_run(&mut conn, &s.id, "default", &actor_id)
-                .unwrap_or_else(|e| fail(&format!("start_agent_run: {e:#}")));
+            let run = start_session(&mut conn, &s.id, "default", &actor_id)
+                .unwrap_or_else(|e| fail(&format!("start_session: {e:#}")));
             println!("{}", json!({ "storyId": s.id, "runId": run.id }));
         }
         "block-run" => {
@@ -155,13 +155,13 @@ fn main() {
             let usage = "finish-run <run_id> <completed|failed>";
             let (run_id, status) = (arg(&args, 1, usage), arg(&args, 2, usage));
             let status = match status.as_str() {
-                "completed" => AgentRunStatus::Completed,
-                "failed" => AgentRunStatus::Failed,
+                "completed" => SessionStatus::Completed,
+                "failed" => SessionStatus::Failed,
                 other => fail(&format!("status must be completed or failed, got {other:?}")),
             };
             let mut conn = open_conn();
-            close_agent_run(&mut conn, &run_id, status, None, None, None)
-                .unwrap_or_else(|e| fail(&format!("close_agent_run: {e:#}")));
+            close_session(&mut conn, &run_id, status, None, None, None)
+                .unwrap_or_else(|e| fail(&format!("close_session: {e:#}")));
             println!("{}", json!({ "closed": true }));
         }
         "append-log" => {
@@ -183,12 +183,12 @@ fn main() {
                 .into_iter()
                 .map(|r| {
                     let activity = if is_live(&r.run_status) {
-                        core::session_log::read_tail(&r.agent_run_id).map(|t| t.lines).unwrap_or_default()
+                        core::session_log::read_tail(&r.session_id).map(|t| t.lines).unwrap_or_default()
                     } else {
                         Vec::new()
                     };
                     json!({
-                        "agentRunId": r.agent_run_id,
+                        "sessionId": r.session_id,
                         "projectName": r.project_name,
                         "runStatus": r.run_status,
                         "fleetState": r.fleet_state,
@@ -210,7 +210,7 @@ fn main() {
                 .map(|e| {
                     json!({
                         "requestId": e.request_id,
-                        "agentRunId": e.agent_run_id,
+                        "sessionId": e.session_id,
                         "projectName": e.project_name,
                     })
                 })
@@ -220,14 +220,14 @@ fn main() {
         "acknowledge" => {
             let run_id = arg(&args, 1, "acknowledge <run_id>");
             let conn = open_conn();
-            let changed = core::domain::agent_run::acknowledge_run(&conn, &run_id)
+            let changed = core::domain::session::acknowledge_run(&conn, &run_id)
                 .unwrap_or_else(|e| fail(&format!("acknowledge_run: {e:#}")));
             println!("{}", json!({ "changed": changed }));
         }
         "answer" => {
             let usage = "answer <request_id> <allow|deny>";
             let (request_id, decision) = (arg(&args, 1, usage), arg(&args, 2, usage));
-            // `commands/agent_run.rs::db_decision_for`, for the two decisions this bridge needs.
+            // `commands/session.rs::db_decision_for`, for the two decisions this bridge needs.
             let db_decision = match decision.as_str() {
                 "allow" => "allowed",
                 "deny" => "denied",
@@ -237,7 +237,7 @@ fn main() {
             let actor_id = human(&conn);
             let answered = permission_request::answer_request(&mut conn, &request_id, db_decision, &actor_id)
                 .unwrap_or_else(|e| fail(&format!("answer_request: {e:#}")));
-            println!("{}", json!({ "runId": answered.agent_run_id }));
+            println!("{}", json!({ "runId": answered.session_id }));
         }
         "make-reclaimable" => {
             let usage = "make-reclaimable <project_id> <title>";

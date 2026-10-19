@@ -9,7 +9,7 @@
 //! (Acceptance criteria and their Checks), `task` (the Story checklist) and `proposal`.
 
 pub mod actor;
-pub mod agent_run;
+pub mod session;
 pub mod criterion;
 pub mod epic;
 pub mod events;

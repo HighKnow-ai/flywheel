@@ -58,10 +58,10 @@ const PENDING_REQUESTS_FOR_RUN_SQL: &str =
 /// Every pending `permission_requests` row for one session, oldest first. Ordinarily at most one
 /// row, but two concurrent held calls can each raise their own pending row for the SAME session —
 /// this reads ALL of them, never just the latest. Do not introduce a `LIMIT` here.
-pub fn pending_requests_for_run(conn: &Connection, agent_run_id: &str) -> anyhow::Result<Vec<PendingPermissionRequest>> {
+pub fn pending_requests_for_run(conn: &Connection, session_id: &str) -> anyhow::Result<Vec<PendingPermissionRequest>> {
     let mut stmt = conn.prepare(PENDING_REQUESTS_FOR_RUN_SQL)?;
     let rows = stmt
-        .query_map(params![agent_run_id], |row| {
+        .query_map(params![session_id], |row| {
             Ok(PendingPermissionRequest {
                 id: row.get(0)?,
                 tool_name: row.get(1)?,

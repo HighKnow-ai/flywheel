@@ -7,7 +7,7 @@ mod common;
 
 use common::with_scratch_worktree_root;
 
-use core::domain::agent_run::{acknowledge_run, mark_abandoned, start_agent_run};
+use core::domain::session::{acknowledge_run, mark_abandoned, start_session};
 use core::domain::project;
 use core::domain::worktree::{ensure_worktree, reconcile_worktrees};
 use core::query::recovery::{recovery_count_for_project, recovery_story_ids_for_project};
@@ -54,8 +54,8 @@ fn an_unacknowledged_abandoned_run_story_is_in_the_set() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Abandoned run story");
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
         mark_abandoned(&mut conn, &run.id, &actor_id, Some("killed-by-user-at-launch"))
             .expect("mark_abandoned should succeed");
 
@@ -77,8 +77,8 @@ fn an_acknowledged_abandoned_run_with_a_healthy_worktree_is_excluded() {
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Acknowledged story");
         // A healthy, present worktree — never marked missing.
         ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
         mark_abandoned(&mut conn, &run.id, &actor_id, Some("killed-by-user-at-launch"))
             .expect("mark_abandoned should succeed");
         assert!(
@@ -107,8 +107,8 @@ fn a_story_with_both_conditions_appears_exactly_once_and_counts_once() {
         std::fs::remove_dir_all(&worktree.path).expect("failed to delete the worktree directory");
         reconcile_worktrees(&mut conn, &actor_id).expect("reconcile_worktrees should succeed");
 
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
         mark_abandoned(&mut conn, &run.id, &actor_id, Some("killed-by-user-at-launch"))
             .expect("mark_abandoned should succeed");
 
@@ -171,8 +171,8 @@ fn count_and_ids_agree_across_a_mixed_multi_story_fixture() {
 
         // Story 2: unacknowledged abandoned run only.
         let story2 = common::new_story(&mut conn, &project.id, &actor_id, "Story 2");
-        let run2 = start_agent_run(&mut conn, &story2.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let run2 = start_session(&mut conn, &story2.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
         mark_abandoned(&mut conn, &run2.id, &actor_id, None).expect("mark_abandoned should succeed");
 
         // Story 3: healthy — no recovery item at all.

@@ -13,8 +13,8 @@ import { useUiStore } from "../state/uiStore";
  */
 export function useWatchedRun(): void {
   const settingsOpen = useUiStore((state) => state.settingsOpen);
-  const activeAgentRunId = useUiStore((state) => state.activeAgentRunId);
-  const watched = settingsOpen ? null : activeAgentRunId;
+  const activeSessionId = useUiStore((state) => state.activeSessionId);
+  const watched = settingsOpen ? null : activeSessionId;
 
   useEffect(() => {
     Promise.resolve(fleetWatchRun(watched)).catch(() => {});

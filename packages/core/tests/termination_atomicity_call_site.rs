@@ -5,7 +5,7 @@
 //! two levels from `CARGO_MANIFEST_DIR`, an `is_whole_line_comment` helper stripping whole-line
 //! `//` comments so a doc comment can neither satisfy nor violate a rule, region locators that find
 //! a function by its signature line rather than by a fixed line offset, and failure messages that
-//! name the file and quote the region examined. `agent_run_stop_ordering.rs` is this repo's second
+//! name the file and quote the region examined. `session_stop_ordering.rs` is this repo's second
 //! precedent for a source-structural ordering assertion; this file matches that house style too,
 //! rather than inventing a third.
 //!
@@ -31,7 +31,7 @@ fn workspace_root() -> PathBuf {
 
 /// Strip a whole-line `//` comment (leading whitespace then `//`) — a doc comment describing the
 /// rule must not itself satisfy or violate it. Mirrors `session_closed_call_site.rs`'s and
-/// `agent_run_stop_ordering.rs`'s own identical helper.
+/// `session_stop_ordering.rs`'s own identical helper.
 fn is_whole_line_comment(line: &str) -> bool {
     line.trim_start().starts_with("//")
 }
@@ -55,114 +55,114 @@ fn function_region<'a>(lines: &'a [&'a str], signature_substr: &str) -> &'a [&'a
 
 /// Property 1: over the WHOLE of `region`, non-comment lines only, does the connection-level core
 /// interrupt entry point get called? Searches for the qualified call text ending in an open
-/// parenthesis (`agent_run::interrupt_agent_run(`) so the in-tx sibling's own name
-/// (`interrupt_agent_run_in_tx(`) can never match.
+/// parenthesis (`session::interrupt_session(`) so the in-tx sibling's own name
+/// (`interrupt_session_in_tx(`) can never match.
 fn calls_connection_level_interrupt(region: &[&str]) -> bool {
     region
         .iter()
         .filter(|line| !is_whole_line_comment(line))
-        .any(|line| line.contains("agent_run::interrupt_agent_run("))
+        .any(|line| line.contains("session::interrupt_session("))
 }
 
-/// Property 2: within `region` (expected to be `stop_agent_run_recording_first`'s own body), count
+/// Property 2: within `region` (expected to be `stop_session_recording_first`'s own body), count
 /// non-comment lines that open a transaction on the connection (`conn.transaction()`).
 fn connection_transaction_open_count(region: &[&str]) -> usize {
     region.iter().filter(|line| !is_whole_line_comment(line)).filter(|line| line.contains("conn.transaction()")).count()
 }
 
-/// Property 3: within `region` (expected to be `interrupt_agent_run`'s own body), does a
+/// Property 3: within `region` (expected to be `interrupt_session`'s own body), does a
 /// non-comment line reference the in-tx sibling?
 fn references_in_tx_sibling(region: &[&str]) -> bool {
-    region.iter().filter(|line| !is_whole_line_comment(line)).any(|line| line.contains("interrupt_agent_run_in_tx"))
+    region.iter().filter(|line| !is_whole_line_comment(line)).any(|line| line.contains("interrupt_session_in_tx"))
 }
 
 #[test]
 fn the_stop_discard_path_never_calls_the_connection_level_interrupt_entry_point() {
     let root = workspace_root();
-    let agent_run_rs = root.join("packages/desktop/src-tauri/src/commands/agent_run.rs");
-    let contents = std::fs::read_to_string(&agent_run_rs).expect("agent_run.rs should exist");
+    let session_rs = root.join("packages/desktop/src-tauri/src/commands/session.rs");
+    let contents = std::fs::read_to_string(&session_rs).expect("session.rs should exist");
     let lines: Vec<&str> = contents.lines().collect();
 
     assert!(
         !calls_connection_level_interrupt(&lines),
         "expected NO non-comment line in {} to call the core connection-level interrupt entry \
-         point (`agent_run::interrupt_agent_run(`) — its presence means the Stop/Discard path has \
+         point (`session::interrupt_session(`) — its presence means the Stop/Discard path has \
          been rewired to a call that commits its own transaction, reopening gap #1 of \
          04-VERIFICATION.md (a crash between the terminal write and the fallback-summary insert \
          could again leave a terminal run with no summary).",
-        agent_run_rs.display()
+        session_rs.display()
     );
 }
 
 #[test]
-fn stop_agent_run_recording_first_opens_exactly_one_connection_transaction() {
+fn stop_session_recording_first_opens_exactly_one_connection_transaction() {
     let root = workspace_root();
-    let agent_run_rs = root.join("packages/desktop/src-tauri/src/commands/agent_run.rs");
-    let contents = std::fs::read_to_string(&agent_run_rs).expect("agent_run.rs should exist");
+    let session_rs = root.join("packages/desktop/src-tauri/src/commands/session.rs");
+    let contents = std::fs::read_to_string(&session_rs).expect("session.rs should exist");
     let lines: Vec<&str> = contents.lines().collect();
 
-    let region = function_region(&lines, "fn stop_agent_run_recording_first(");
+    let region = function_region(&lines, "fn stop_session_recording_first(");
     let region_text = region.join("\n");
     let count = connection_transaction_open_count(region);
 
     match count {
         0 => panic!(
-            "expected exactly ONE `conn.transaction()` call within `stop_agent_run_recording_first`'s \
+            "expected exactly ONE `conn.transaction()` call within `stop_session_recording_first`'s \
              own body in {}, found ZERO — the terminal write is no longer inside any transaction at \
              all. Region:\n{region_text}",
-            agent_run_rs.display()
+            session_rs.display()
         ),
         1 => {}
         n => panic!(
-            "expected exactly ONE `conn.transaction()` call within `stop_agent_run_recording_first`'s \
+            "expected exactly ONE `conn.transaction()` call within `stop_session_recording_first`'s \
              own body in {}, found {n} — the pre-fix two-transaction shape is back (gap #1 of \
              04-VERIFICATION.md reopened). Region:\n{region_text}",
-            agent_run_rs.display()
+            session_rs.display()
         ),
     }
 }
 
 #[test]
-fn interrupt_agent_run_in_tx_is_defined_and_referenced_by_its_connection_level_wrapper() {
+fn interrupt_session_in_tx_is_defined_and_referenced_by_its_connection_level_wrapper() {
     let root = workspace_root();
-    let agent_run_rs = root.join("packages/core/src/domain/agent_run.rs");
-    let contents = std::fs::read_to_string(&agent_run_rs).expect("agent_run.rs should exist");
+    let session_rs = root.join("packages/core/src/domain/session.rs");
+    let contents = std::fs::read_to_string(&session_rs).expect("session.rs should exist");
     let lines: Vec<&str> = contents.lines().collect();
 
     let is_defined = lines
         .iter()
         .filter(|line| !is_whole_line_comment(line))
-        .any(|line| line.contains("fn interrupt_agent_run_in_tx("));
+        .any(|line| line.contains("fn interrupt_session_in_tx("));
     assert!(
         is_defined,
-        "expected a non-comment `fn interrupt_agent_run_in_tx(` definition in {} — its absence means \
-         the caller-transaction sibling `apply_session_closed`'s own `close_agent_run_in_tx` \
+        "expected a non-comment `fn interrupt_session_in_tx(` definition in {} — its absence means \
+         the caller-transaction sibling `apply_session_closed`'s own `close_session_in_tx` \
          precedent requires has been removed, which would force every terminal-transition caller \
          back to composing on separate connection-level transactions (gap #1 of \
          04-VERIFICATION.md).",
-        agent_run_rs.display()
+        session_rs.display()
     );
 
-    let wrapper_region = function_region(&lines, "pub fn interrupt_agent_run(");
+    let wrapper_region = function_region(&lines, "pub fn interrupt_session(");
     let wrapper_region_text = wrapper_region.join("\n");
     assert!(
         references_in_tx_sibling(wrapper_region),
-        "expected `interrupt_agent_run`'s own body in {} to reference `interrupt_agent_run_in_tx` — \
+        "expected `interrupt_session`'s own body in {} to reference `interrupt_session_in_tx` — \
          its absence means the connection-level entry point has drifted back into carrying its own \
          copy of the statement body while the in-tx sibling rots, unreachable by any composing \
          caller. Region:\n{wrapper_region_text}",
-        agent_run_rs.display()
+        session_rs.display()
     );
 }
 
 #[test]
 fn a_reintroduced_connection_level_interrupt_call_trips_property_one() {
     // Falsifiability companion, mirroring session_closed_call_site.rs's and
-    // agent_run_stop_ordering.rs's own seeded-violation tests: proves this file's own matching
+    // session_stop_ordering.rs's own seeded-violation tests: proves this file's own matching
     // logic actually detects the violation, not just that it is structurally present today.
     let correct = "\
-pub(crate) fn stop_agent_run_in_tx(tx: &Transaction, agent_run_id: &str, actor_id: &str) -> Result<String, String> {
-    flywheel_core::domain::agent_run::interrupt_agent_run_in_tx(tx, agent_run_id, actor_id)
+pub(crate) fn stop_session_in_tx(tx: &Transaction, session_id: &str, actor_id: &str) -> Result<String, String> {
+    flywheel_core::domain::session::interrupt_session_in_tx(tx, session_id, actor_id)
         .map_err(|e| e.to_string())?;
     Ok(String::new())
 }
@@ -170,20 +170,20 @@ pub(crate) fn stop_agent_run_in_tx(tx: &Transaction, agent_run_id: &str, actor_i
     assert!(!calls_connection_level_interrupt(&correct.lines().collect::<Vec<_>>()));
 
     let reverted = "\
-pub(crate) fn stop_agent_run_recording_first(
+pub(crate) fn stop_session_recording_first(
     conn: &mut Connection,
-    agent_run_id: &str,
+    session_id: &str,
     interrupt: impl FnOnce() -> Result<(), String>,
-) -> Result<AgentRunStopDto, String> {
+) -> Result<SessionStopDto, String> {
     let interrupt_result = interrupt();
     let human_actor_id = flywheel_core::domain::actor::local_human_actor_id(conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::agent_run::interrupt_agent_run(conn, agent_run_id, &human_actor_id)
+    flywheel_core::domain::session::interrupt_session(conn, session_id, &human_actor_id)
         .map_err(|e| e.to_string())?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    flywheel_core::domain::session_summary::synthesize_fallback_summary(&tx, agent_run_id, \"interrupted\")
+    flywheel_core::domain::session_summary::synthesize_fallback_summary(&tx, session_id, \"interrupted\")
         .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
-    Ok(AgentRunStopDto { agent_run_id: agent_run_id.to_string(), status: \"interrupted\".to_string(), sidecar_warning: None })
+    Ok(SessionStopDto { session_id: session_id.to_string(), status: \"interrupted\".to_string(), sidecar_warning: None })
 }
 ";
     assert!(
@@ -192,8 +192,8 @@ pub(crate) fn stop_agent_run_recording_first(
     );
 
     let commented_out = "\
-pub(crate) fn stop_agent_run_recording_first() {
-    // flywheel_core::domain::agent_run::interrupt_agent_run(conn, agent_run_id, &human_actor_id)
+pub(crate) fn stop_session_recording_first() {
+    // flywheel_core::domain::session::interrupt_session(conn, session_id, &human_actor_id)
 }
 ";
     assert!(
@@ -206,13 +206,13 @@ pub(crate) fn stop_agent_run_recording_first() {
 fn property_two_distinguishes_zero_one_and_two_transaction_opens() {
     // Falsifiability companion for property 2: the count must read 0 for no transaction, 1 for the
     // fixed shape, and 2 for a body that textually opens the connection-level transaction twice —
-    // e.g. a future edit that inlines `stop_agent_run_in_tx`'s composition directly into
-    // `stop_agent_run_recording_first` and duplicates the `conn.transaction()` call instead of
+    // e.g. a future edit that inlines `stop_session_in_tx`'s composition directly into
+    // `stop_session_recording_first` and duplicates the `conn.transaction()` call instead of
     // sharing one. (The OTHER pre-fix reintroduction shape — calling back through the connection-
-    // level `interrupt_agent_run`, whose own internal transaction is invisible to this per-line
+    // level `interrupt_session`, whose own internal transaction is invisible to this per-line
     // text scan across a function-call boundary — is what property 1's gate catches directly.)
     let one_transaction = "\
-fn stop_agent_run_recording_first(
+fn stop_session_recording_first(
     conn: &mut Connection,
 ) -> Result<String, String> {
     let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -221,11 +221,11 @@ fn stop_agent_run_recording_first(
 }
 ";
     let lines: Vec<&str> = one_transaction.lines().collect();
-    let region = function_region(&lines, "fn stop_agent_run_recording_first(");
+    let region = function_region(&lines, "fn stop_session_recording_first(");
     assert_eq!(connection_transaction_open_count(region), 1);
 
     let two_transactions = "\
-fn stop_agent_run_recording_first(
+fn stop_session_recording_first(
     conn: &mut Connection,
 ) -> Result<String, String> {
     let tx1 = conn.transaction().map_err(|e| e.to_string())?;
@@ -236,7 +236,7 @@ fn stop_agent_run_recording_first(
 }
 ";
     let lines_two: Vec<&str> = two_transactions.lines().collect();
-    let region_two = function_region(&lines_two, "fn stop_agent_run_recording_first(");
+    let region_two = function_region(&lines_two, "fn stop_session_recording_first(");
     assert_eq!(
         connection_transaction_open_count(region_two),
         2,
@@ -245,14 +245,14 @@ fn stop_agent_run_recording_first(
     );
 
     let zero_transactions = "\
-fn stop_agent_run_recording_first(
+fn stop_session_recording_first(
     conn: &mut Connection,
 ) -> Result<String, String> {
     Ok(String::new())
 }
 ";
     let lines_zero: Vec<&str> = zero_transactions.lines().collect();
-    let region_zero = function_region(&lines_zero, "fn stop_agent_run_recording_first(");
+    let region_zero = function_region(&lines_zero, "fn stop_session_recording_first(");
     assert_eq!(connection_transaction_open_count(region_zero), 0);
 }
 
@@ -260,28 +260,28 @@ fn stop_agent_run_recording_first(
 fn a_missing_in_tx_reference_trips_property_three() {
     // Falsifiability companion for property 3.
     let correct = "\
-pub fn interrupt_agent_run(conn: &mut Connection, agent_run_id: &str, actor_id: &str) -> anyhow::Result<()> {
+pub fn interrupt_session(conn: &mut Connection, session_id: &str, actor_id: &str) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
-    interrupt_agent_run_in_tx(&tx, agent_run_id, actor_id)?;
+    interrupt_session_in_tx(&tx, session_id, actor_id)?;
     tx.commit()?;
     Ok(())
 }
 ";
     let lines: Vec<&str> = correct.lines().collect();
-    let region = function_region(&lines, "pub fn interrupt_agent_run(");
+    let region = function_region(&lines, "pub fn interrupt_session(");
     assert!(references_in_tx_sibling(region));
 
     let drifted = "\
-pub fn interrupt_agent_run(conn: &mut Connection, agent_run_id: &str, actor_id: &str) -> anyhow::Result<()> {
+pub fn interrupt_session(conn: &mut Connection, session_id: &str, actor_id: &str) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
     // Carries its own copy of the statement body instead of delegating.
-    tx.execute(\"UPDATE agent_runs SET status = 'interrupted' WHERE id = ?1\", [])?;
+    tx.execute(\"UPDATE sessions SET status = 'interrupted' WHERE id = ?1\", [])?;
     tx.commit()?;
     Ok(())
 }
 ";
     let lines_drifted: Vec<&str> = drifted.lines().collect();
-    let region_drifted = function_region(&lines_drifted, "pub fn interrupt_agent_run(");
+    let region_drifted = function_region(&lines_drifted, "pub fn interrupt_session(");
     assert!(
         !references_in_tx_sibling(region_drifted),
         "the fixture deliberately carries its own copy of the statement body instead of delegating — \

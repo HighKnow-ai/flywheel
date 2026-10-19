@@ -6,8 +6,8 @@
 //! the transactional-outbox pattern every domain mutation in this crate uses (`domain::event`):
 //! one `conn.transaction()`, the row write, `next_sequence` + `append_event` inside it, one
 //! commit. `create_pending_request` additionally moves its run to `blocked`
-//! (`domain::agent_run::set_run_blocked`) and `answer_request` moves it back to `running`
-//! (`domain::agent_run::clear_run_blocked`) — both calls happen INSIDE the same transaction as
+//! (`domain::session::set_run_blocked`) and `answer_request` moves it back to `running`
+//! (`domain::session::clear_run_blocked`) — both calls happen INSIDE the same transaction as
 //! the request row's own write, so a blocked run and its pending request can never disagree.
 //!
 //! The once-only property is a property of `answer_request`'s guarded UPDATE (its WHERE clause
@@ -20,18 +20,18 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::destructive::DestructiveCategory;
-use crate::domain::agent_run::{clear_run_blocked, set_run_blocked};
+use crate::domain::session::{clear_run_blocked, set_run_blocked};
 use crate::domain::event::{append_event, next_sequence};
 use crate::ids::new_id;
 
 /// A `permission_requests` row, as read back after [`create_pending_request`] or
 /// [`answer_request`] commits.
 ///
-/// `agent_run_id` names the `sessions` row that raised it; `story_id` is that session's Story.
+/// `session_id` names the `sessions` row that raised it; `story_id` is that session's Story.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PermissionRequest {
     pub id: String,
-    pub agent_run_id: String,
+    pub session_id: String,
     pub story_id: String,
     pub project_id: String,
     pub tool_name: String,
@@ -48,7 +48,7 @@ pub struct PermissionRequest {
 
 /// Returned by [`answer_request`] when the target row is no longer `pending` — the once-only
 /// answer property surfaces as this error rather than as a silent success, so a caller (the
-/// `agent_run_answer_permission` Tauri command) can tell "I answered it" apart from "someone else
+/// `session_answer_permission` Tauri command) can tell "I answered it" apart from "someone else
 /// already did," downcastable via `anyhow::Error::downcast_ref::<AlreadyAnsweredError>()`
 /// (mirroring `tests/hierarchy_workflow.rs`'s own downcast-to-a-concrete-error pattern for
 /// asserting a specific failure mode, not merely "an error occurred").
@@ -97,7 +97,7 @@ impl std::error::Error for DestructiveAllowAlwaysRejected {}
 fn row_to_request(row: &Row) -> rusqlite::Result<PermissionRequest> {
     Ok(PermissionRequest {
         id: row.get(0)?,
-        agent_run_id: row.get(1)?,
+        session_id: row.get(1)?,
         story_id: row.get(2)?,
         project_id: row.get(3)?,
         tool_name: row.get(4)?,
@@ -128,16 +128,16 @@ pub fn find_request(conn: &Connection, request_id: &str) -> anyhow::Result<Optio
         .context("failed to look up a permission request")
 }
 
-/// The pending request for `agent_run_id`, if one exists — a run can have at most one `pending`
+/// The pending request for `session_id`, if one exists — a run can have at most one `pending`
 /// request open at a time in this phase's flow (the sidecar holds one tool call open per gated
 /// call before the next one is raised).
-pub fn pending_for_run(conn: &Connection, agent_run_id: &str) -> anyhow::Result<Option<PermissionRequest>> {
-    conn.query_row(PENDING_FOR_RUN_SQL, params![agent_run_id], row_to_request)
+pub fn pending_for_run(conn: &Connection, session_id: &str) -> anyhow::Result<Option<PermissionRequest>> {
+    conn.query_row(PENDING_FOR_RUN_SQL, params![session_id], row_to_request)
         .optional()
         .context("failed to look up the pending permission request for this run")
 }
 
-/// Raise a pending permission request for `agent_run_id` (AGNT-06). One transaction: resolve
+/// Raise a pending permission request for `session_id` (AGNT-06). One transaction: resolve
 /// `story_id`/`project_id` from the session, insert the `permission_requests` row with
 /// `status = 'pending'`, move the run to `blocked` (`set_run_blocked`, same transaction), and
 /// append a `permission_request.raised` event carrying a human-renderable label — then commit
@@ -153,7 +153,7 @@ pub fn pending_for_run(conn: &Connection, agent_run_id: &str) -> anyhow::Result<
 /// function is the one place that vocabulary is enforced.
 pub fn create_pending_request(
     conn: &mut Connection,
-    agent_run_id: &str,
+    session_id: &str,
     tool_name: &str,
     input_payload: Option<&str>,
     actor_id: &str,
@@ -177,10 +177,10 @@ pub fn create_pending_request(
     let (story_id, project_id): (String, String) = tx
         .query_row(
             "SELECT story_id, project_id FROM sessions WHERE id = ?1",
-            params![agent_run_id],
+            params![session_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
-        .with_context(|| format!("session {agent_run_id:?} not found"))?;
+        .with_context(|| format!("session {session_id:?} not found"))?;
     let epic_id: Option<String> = tx
         .query_row("SELECT epic_id FROM stories WHERE id = ?1", params![story_id], |row| row.get(0))
         .optional()?;
@@ -192,7 +192,7 @@ pub fn create_pending_request(
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', NULL, NULL, ?7, ?8, ?9)",
         params![
             id,
-            agent_run_id,
+            session_id,
             story_id,
             project_id,
             tool_name,
@@ -204,7 +204,7 @@ pub fn create_pending_request(
     )
     .context("failed to insert permission_requests row")?;
 
-    set_run_blocked(&tx, agent_run_id).context("failed to move the run to blocked")?;
+    set_run_blocked(&tx, session_id).context("failed to move the run to blocked")?;
 
     let sequence = next_sequence(&tx, &project_id, "local")?;
     let payload = serde_json::json!({
@@ -233,7 +233,7 @@ pub fn create_pending_request(
 
     Ok(PermissionRequest {
         id,
-        agent_run_id: agent_run_id.to_string(),
+        session_id: session_id.to_string(),
         story_id,
         project_id,
         tool_name: tool_name.to_string(),
@@ -257,7 +257,7 @@ pub fn create_pending_request(
 /// concurrent second answer could still win.
 ///
 /// On success: clears the run's blocked status back to `running`
-/// (`domain::agent_run::clear_run_blocked`, same transaction) and appends a
+/// (`domain::session::clear_run_blocked`, same transaction) and appends a
 /// `permission_request.answered` event whose label matches the decision — all in one transaction.
 pub fn answer_request(
     conn: &mut Connection,
@@ -304,7 +304,7 @@ pub fn answer_request(
         return Err(AlreadyAnsweredError { request_id: request_id.to_string() }.into());
     }
 
-    let (agent_run_id, story_id, project_id, tool_name, created_at, answered_category): (
+    let (session_id, story_id, project_id, tool_name, created_at, answered_category): (
         String,
         String,
         String,
@@ -323,7 +323,7 @@ pub fn answer_request(
         .query_row("SELECT epic_id FROM stories WHERE id = ?1", params![story_id], |row| row.get(0))
         .optional()?;
 
-    clear_run_blocked(&tx, &agent_run_id).context("failed to clear the run's blocked status")?;
+    clear_run_blocked(&tx, &session_id).context("failed to clear the run's blocked status")?;
 
     let label = match decision {
         "allowed" => format!("Allowed {tool_name}"),
@@ -358,7 +358,7 @@ pub fn answer_request(
 
     Ok(PermissionRequest {
         id: request_id.to_string(),
-        agent_run_id,
+        session_id,
         story_id,
         project_id,
         tool_name,

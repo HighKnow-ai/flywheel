@@ -3,7 +3,8 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./adapters/queryClient";
 import { subscribeMenuAction } from "./adapters/tauri";
 import { FirstRun } from "./board/FirstRun";
-import { useBoardChangedSubscription, useProjects } from "./board/useBoardQuery";
+import { StoryBoard } from "./board/StoryBoard";
+import { useProjects } from "./board/useBoardQuery";
 import { useWatchedRun } from "./fleet/useWatchedRun";
 import { LaunchSheet } from "./launch-sheet/LaunchSheet";
 import { ProjectRail } from "./projects/ProjectRail";
@@ -28,36 +29,17 @@ import "./styles/type.css";
 import "./styles/motion.css";
 import "./App.css";
 
-/**
- * The project's content area while no board exists: the board UI was deleted by the MVP's delete
- * pass (issue #38) and a later Story rebuilds it. It keeps the one `board:changed` subscription so
- * the readers that survive (the rail's counts, the fleet) still refresh.
- */
-function EmptyBoard({ projectId, projectName }: { projectId: string; projectName: string }) {
-  useBoardChangedSubscription(projectId);
-  return (
-    <div className="board-shell" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <header
-        className="board-header type-heading"
-        style={{ padding: "var(--space-md)", color: "var(--text-primary-rack)" }}
-      >
-        {projectName}
-      </header>
-    </div>
-  );
-}
-
 function AppShell() {
   const projectsQuery = useProjects();
   const currentProjectId = useUiStore((state) => state.currentProjectId);
   const setCurrentProjectId = useUiStore((state) => state.setCurrentProjectId);
   // D-31: the live session surface, pushed into from a Story and popped back out of — the board
   // stays the board (this state is `null` whenever no session is being watched).
-  const activeAgentRunId = useUiStore((state) => state.activeAgentRunId);
-  const activeAgentRunStoryId = useUiStore((state) => state.activeAgentRunStoryId);
-  const activeAgentRunInitialLogOffset = useUiStore((state) => state.activeAgentRunInitialLogOffset);
-  const activeAgentRunInitialStatus = useUiStore((state) => state.activeAgentRunInitialStatus);
-  const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
+  const activeSessionId = useUiStore((state) => state.activeSessionId);
+  const activeSessionStoryId = useUiStore((state) => state.activeSessionStoryId);
+  const activeSessionInitialLogOffset = useUiStore((state) => state.activeSessionInitialLogOffset);
+  const activeSessionInitialStatus = useUiStore((state) => state.activeSessionInitialStatus);
+  const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
   // Phase 10 plan 10-01 (D-163): the fleet surface — opened from the project rail's Fleet row, the
   // global `open-fleet` binding, the palette and the native menu.
   const fleetSurface = useUiStore((state) => state.fleetSurface);
@@ -189,7 +171,7 @@ function AppShell() {
   // field; the string ids use truthiness, exactly as the conditional this replaced did.
   const surface = activeSurface({
     settingsOpen,
-    sessionOpen: Boolean(activeAgentRunId),
+    sessionOpen: Boolean(activeSessionId),
     fleetOpen: fleetSurface !== null,
     worktreeInventoryOpen,
     projectUnreachable: project.status === "unreachable",
@@ -200,14 +182,14 @@ function AppShell() {
         // D-39: same "pushed into, popped back out of" shell as the session surface.
         return <SettingsSurface onBack={() => setSettingsOpen(false)} />;
       case "session":
-        if (!activeAgentRunId) return null;
+        if (!activeSessionId) return null;
         return (
           <SessionSurface
-            agentRunId={activeAgentRunId}
-            storyId={activeAgentRunStoryId}
-            initialFeedOffset={activeAgentRunInitialLogOffset}
-            initialStatus={activeAgentRunInitialStatus}
-            onBack={() => setActiveAgentRunId(null)}
+            sessionId={activeSessionId}
+            storyId={activeSessionStoryId}
+            initialFeedOffset={activeSessionInitialLogOffset}
+            initialStatus={activeSessionInitialStatus}
+            onBack={() => setActiveSessionId(null)}
           />
         );
       case "fleet":
@@ -225,7 +207,15 @@ function AppShell() {
       case "project-unreachable":
         return <ProjectUnreachable project={project} />;
       case "board":
-        return <EmptyBoard projectId={project.id} projectName={project.name} />;
+        // The bare board (issue #50): the Story list with Start, and the hand-written Story form.
+        // Start opens the new session's surface, the same push the launch sheet makes.
+        return (
+          <StoryBoard
+            projectId={project.id}
+            projectName={project.name}
+            onStarted={(sessionId, storyId) => setActiveSessionId(sessionId, storyId)}
+          />
+        );
       default: {
         // A `UiSurface` variant without an arm above is a compile error here, not a silent blank.
         const unhandled: never = surface;
@@ -249,10 +239,10 @@ function AppShell() {
       <LaunchSheet
         storyId={launchSheetStoryId}
         onClose={() => setLaunchSheetStoryId(null)}
-        onStarted={(agentRunId) => {
+        onStarted={(sessionId) => {
           // `launchSheetStoryId` is captured in this closure at its render-time value, still the
           // Story this run just started for — read BEFORE it is cleared below.
-          setActiveAgentRunId(agentRunId, launchSheetStoryId);
+          setActiveSessionId(sessionId, launchSheetStoryId);
           setLaunchSheetStoryId(null);
         }}
       />

@@ -60,11 +60,23 @@ pub fn create_criterion(
     story_id: &str,
     statement: &str,
 ) -> anyhow::Result<AcceptanceCriterion> {
+    let tx = conn.transaction()?;
+    let criterion = create_criterion_in_tx(&tx, actor_id, story_id, statement)?;
+    tx.commit().context("failed to commit create_criterion")?;
+    Ok(criterion)
+}
+
+/// [`create_criterion`] inside the caller's transaction.
+pub(crate) fn create_criterion_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    story_id: &str,
+    statement: &str,
+) -> anyhow::Result<AcceptanceCriterion> {
     let statement = statement.trim();
     anyhow::ensure!(!statement.is_empty(), "a criterion needs a statement");
     let now = now();
     let id = new_id();
-    let tx = conn.transaction()?;
     let (project_id, epic_id): (String, String) = tx
         .query_row("SELECT project_id, epic_id FROM stories WHERE id = ?1", params![story_id], |r| {
             Ok((r.get(0)?, r.get(1)?))
@@ -85,7 +97,7 @@ pub fn create_criterion(
     )
     .context("failed to insert the criterion")?;
     record_event(
-        &tx,
+        tx,
         &project_id,
         "criterion",
         &id,
@@ -95,7 +107,6 @@ pub fn create_criterion(
         &serde_json::json!({ "statement": statement, "label": format!("Added criterion \"{statement}\"") }),
         &now,
     )?;
-    tx.commit().context("failed to commit create_criterion")?;
     Ok(AcceptanceCriterion {
         id,
         story_id: story_id.to_string(),

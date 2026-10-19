@@ -97,7 +97,7 @@ describe("WorktreeInventory", () => {
   it("renders each chip with its glyph word and its reason", async () => {
     inventoryMock.mockResolvedValue([
       row({ storyId: "a", storyKey: "ALP-1", disposition: "reclaimable", reason: "merged" }),
-      row({ storyId: "b", storyKey: "ALP-2", disposition: "in_use", reason: "agent_running" }),
+      row({ storyId: "b", storyKey: "ALP-2", disposition: "in_use", reason: "sessionning" }),
       row({ storyId: "c", storyKey: "ALP-3", disposition: "keep", reason: "uncommitted_changes" }),
     ]);
     renderInventory();
@@ -114,7 +114,7 @@ describe("WorktreeInventory", () => {
       expect(chip.querySelector("svg")).not.toBeNull();
     }
     expect(screen.getByText(RECLAIM_REASON_WORDS.merged)).toBeInTheDocument();
-    expect(screen.getByText(RECLAIM_REASON_WORDS.agent_running)).toBeInTheDocument();
+    expect(screen.getByText(RECLAIM_REASON_WORDS.sessionning)).toBeInTheDocument();
     expect(screen.getByText(RECLAIM_REASON_WORDS.uncommitted_changes)).toBeInTheDocument();
   });
 

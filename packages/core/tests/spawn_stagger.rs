@@ -2,7 +2,7 @@
 //! spawn or sidecar process is needed for these timing assertions. Tolerances are generous (a
 //! lower-bound-only assertion, per plan 03-04 Task 1's own instruction) so this suite is not flaky
 //! on a loaded CI machine. Task 3 extends this file with the structural no-bypass gate over
-//! `packages/desktop/src-tauri/src/commands/agent_run.rs`.
+//! `packages/desktop/src-tauri/src/commands/session.rs`.
 
 use core::git_retry::{SpawnFloor, SPAWN_FLOOR_MS};
 
@@ -75,13 +75,13 @@ fn same_repository_pair_is_staggered_while_a_different_repository_is_not() {
 }
 
 /// D-52 as a structural guarantee, not a convention (mirrors `supervisor_cwd.rs`'s own idiom): the
-/// real `agent_run.rs` command file, read from disk, must contain `send_spawn_request(` at least
+/// real `session.rs` command file, read from disk, must contain `send_spawn_request(` at least
 /// once and ZERO bare `.send_request(` calls — the only way a spawn request can leave that file is
 /// through the gated path.
 #[test]
-fn agent_run_rs_contains_no_bare_send_request_call_and_at_least_one_gated_spawn_call() {
+fn session_rs_contains_no_bare_send_request_call_and_at_least_one_gated_spawn_call() {
     let root = workspace_root();
-    let path = root.join("packages/desktop/src-tauri/src/commands/agent_run.rs");
+    let path = root.join("packages/desktop/src-tauri/src/commands/session.rs");
     let contents = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("failed to read {path:?}: {e}"));
 

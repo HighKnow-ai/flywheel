@@ -5,7 +5,7 @@
 
 mod common;
 
-use core::domain::agent_run::AgentRunStatus;
+use core::domain::session::SessionStatus;
 use core::ids::new_id;
 use rusqlite::{params, Connection};
 
@@ -105,6 +105,6 @@ fn acknowledged_at_exists_is_nullable_and_defaults_to_null() {
 }
 
 #[test]
-fn agent_run_status_abandoned_as_str_matches_the_check_constraint() {
-    assert_eq!(AgentRunStatus::Abandoned.as_str(), "abandoned");
+fn session_status_abandoned_as_str_matches_the_check_constraint() {
+    assert_eq!(SessionStatus::Abandoned.as_str(), "abandoned");
 }

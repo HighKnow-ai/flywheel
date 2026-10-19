@@ -6,8 +6,8 @@
  * register id and a verdict, so the output maps onto the register without interpretation:
  *
  *   D-REV-48  appending to a live run's log makes `fleet_list` return the new tail
- *   D-REV-49  `agent_run_acknowledge` drops a finished run's row from `fleet_list`
- *   D-REV-50  `fleet_blocked_queue` shrinks by exactly one per `agent_run_answer_permission`
+ *   D-REV-49  `session_acknowledge` drops a finished run's row from `fleet_list`
+ *   D-REV-50  `fleet_blocked_queue` shrinks by exactly one per `session_answer_permission`
  *   D-REV-55  `worktree_reclaim` removes exactly the selected directories, and `fleet_list` is
  *             answerable while it runs
  *
@@ -92,7 +92,7 @@ async function main() {
       return { status: r.status, stderr: r.stderr.trim() };
     };
     const fleet = () => ops("fleet-list");
-    const row = (list, runId) => list.rows.find((r) => r.agentRunId === runId);
+    const row = (list, runId) => list.rows.find((r) => r.sessionId === runId);
 
     const repoA = path.join(root, "repos", "alpha");
     const repoB = path.join(root, "repos", "bravo");
@@ -211,7 +211,7 @@ async function main() {
         "2 blocked runs in 2 projects: queue 2 -> 1 -> 0, one answer each, the other agent's entry untouched",
         "control: re-answering an answered request is refused and the queue does not move",
         "NOT covered: the keypress -> Tauri round trip, a real sidecar raising the requests, the owner marking's look",
-        "NOT covered: the sidecar relay and the allow_always rule write (the desktop half of agent_run_answer_permission)",
+        "NOT covered: the sidecar relay and the allow_always rule write (the desktop half of session_answer_permission)",
       ];
     });
 

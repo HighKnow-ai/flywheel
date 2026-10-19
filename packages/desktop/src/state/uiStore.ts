@@ -41,17 +41,17 @@ interface UiState {
   /** The agent run id currently occupying the session surface (D-31), or `null` when the board is
    * showing. Lives here so any opener (the launch sheet, the fleet) can route to the surface that
    * replaces the whole content area at the `AppShell` level. */
-  activeAgentRunId: string | null;
-  /** The Story `activeAgentRunId` belongs to — set together with `activeAgentRunId` at every call
+  activeSessionId: string | null;
+  /** The Story `activeSessionId` belongs to — set together with `activeSessionId` at every call
    * site that opens the live session surface and already has the Story id in scope. Exists so the
    * session surface can name its Story and its Discard verb can hand off to the launch sheet for the
    * SAME Story without a new backend read. */
-  activeAgentRunStoryId: string | null;
+  activeSessionStoryId: string | null;
   /** A one-shot initial position for the session feed (D-99) — `null` opens the feed at its tail. */
-  activeAgentRunInitialLogOffset: number | null;
-  /** The status the opener already knows for `activeAgentRunId` (Phase 10 plan 10-06, Pitfall 7), or
+  activeSessionInitialLogOffset: number | null;
+  /** The status the opener already knows for `activeSessionId` (Phase 10 plan 10-06, Pitfall 7), or
    * `null` for every caller that does not — the session then falls back to its running default. */
-  activeAgentRunInitialStatus: RunStatus | null;
+  activeSessionInitialStatus: RunStatus | null;
   /** The Story the launch sheet (D-27) is currently open for, or `null` when it is closed. Mounted
    * once at the `App.tsx` level; whatever opens it does not import the sheet component itself. */
   launchSheetStoryId: string | null;
@@ -75,10 +75,10 @@ interface UiState {
   setDeleteTarget: (target: UiState["deleteTarget"]) => void;
   setActivePicker: (picker: UiState["activePicker"]) => void;
   setQuickAddOpen: (open: boolean) => void;
-  /** Sets every `activeAgentRun*` field together in one `set` call, so the session surface never
+  /** Sets every `activeSession*` field together in one `set` call, so the session surface never
    * reads a run id paired with another run's Story or status. */
-  setActiveAgentRunId: (
-    agentRunId: string | null,
+  setActiveSessionId: (
+    sessionId: string | null,
     storyId?: string | null,
     initialLogOffset?: number | null,
     initialStatus?: RunStatus | null,
@@ -102,10 +102,10 @@ const INITIAL_STATE = {
   deleteTarget: null,
   activePicker: null,
   quickAddOpen: false,
-  activeAgentRunId: null,
-  activeAgentRunStoryId: null,
-  activeAgentRunInitialLogOffset: null,
-  activeAgentRunInitialStatus: null,
+  activeSessionId: null,
+  activeSessionStoryId: null,
+  activeSessionInitialLogOffset: null,
+  activeSessionInitialStatus: null,
   launchSheetStoryId: null,
   settingsOpen: false,
   fleetSurface: null,
@@ -123,12 +123,12 @@ export const useUiStore = create<UiState>((set, get) => ({
   setDeleteTarget: (target) => set({ deleteTarget: target }),
   setActivePicker: (picker) => set({ activePicker: picker }),
   setQuickAddOpen: (open) => set({ quickAddOpen: open }),
-  setActiveAgentRunId: (agentRunId, storyId = null, initialLogOffset = null, initialStatus = null) =>
+  setActiveSessionId: (sessionId, storyId = null, initialLogOffset = null, initialStatus = null) =>
     set({
-      activeAgentRunId: agentRunId,
-      activeAgentRunStoryId: storyId,
-      activeAgentRunInitialLogOffset: initialLogOffset,
-      activeAgentRunInitialStatus: initialStatus,
+      activeSessionId: sessionId,
+      activeSessionStoryId: storyId,
+      activeSessionInitialLogOffset: initialLogOffset,
+      activeSessionInitialStatus: initialStatus,
     }),
   setLaunchSheetStoryId: (storyId) => set({ launchSheetStoryId: storyId }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),

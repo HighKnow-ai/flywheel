@@ -1,12 +1,15 @@
-//! `story_create` / `story_list` / `story_get` / `story_update` / `story_set_state` — the Story
+//! `story_create` / `story_list` / `story_get` / `story_update` / `story_set_state`, plus
+//! `story_write_by_hand` and `story_list_for_project` for the hand-written Story form — the Story
 //! command surface. A Story sits in one Epic and is the unit an agent executes in its own worktree
 //! (`domain::story`). Every handler stamps the local human actor server-side (T-01-04), so every
 //! transition reached from here is the developer's act; the hand-off is the session's, never an IPC
 //! command's.
 
-use serde::Serialize;
+use flywheel_core::domain::story::HandWrittenCriterion;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
+use super::criterion::MAX_CHECK_COMMAND_LEN;
 use super::{emit_board_changed, validate_text, MAX_PROSE_LEN, MAX_TITLE_LEN};
 use crate::state::AppState;
 
@@ -105,4 +108,99 @@ pub fn story_set_state(state: State<AppState>, app: AppHandle, story_id: String,
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
     Ok(())
+}
+
+/// The most criteria one hand-written Story may carry over IPC.
+const MAX_CRITERIA: usize = 50;
+
+/// One criterion of a hand-written Story, as the form sends it. A missing or blank
+/// `check_command` means the criterion is judged at review.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CriterionInput {
+    pub statement: String,
+    pub check_command: Option<String>,
+}
+
+/// Bound every field of a hand-written Story before anything touches the database.
+fn validate_hand_written(title: &str, description: Option<&str>, criteria: &[CriterionInput]) -> Result<(), String> {
+    validate_text("title", title, MAX_TITLE_LEN)?;
+    if let Some(description) = description {
+        validate_text("description", description, MAX_PROSE_LEN)?;
+    }
+    if criteria.len() > MAX_CRITERIA {
+        return Err(format!("a Story may carry at most {MAX_CRITERIA} criteria, got {}", criteria.len()));
+    }
+    for criterion in criteria {
+        validate_text("statement", &criterion.statement, MAX_PROSE_LEN)?;
+        if let Some(command) = &criterion.check_command {
+            validate_text("command", command, MAX_CHECK_COMMAND_LEN)?;
+        }
+    }
+    Ok(())
+}
+
+/// Write a Story by hand inside `epic_id`, with its criteria and their optional Checks, straight
+/// into Ready (Milestone 2's stand-in for shaping; `domain::story::write_story_by_hand`).
+#[tauri::command]
+pub fn story_write_by_hand(
+    state: State<AppState>,
+    app: AppHandle,
+    epic_id: String,
+    title: String,
+    description: Option<String>,
+    criteria: Vec<CriterionInput>,
+) -> Result<StoryDto, String> {
+    validate_hand_written(&title, description.as_deref(), &criteria)?;
+    let written: Vec<HandWrittenCriterion> = criteria
+        .iter()
+        .map(|c| HandWrittenCriterion { statement: &c.statement, check_command: c.check_command.as_deref() })
+        .collect();
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let story = flywheel_core::domain::story::write_story_by_hand(
+        &mut conn,
+        &actor_id,
+        &epic_id,
+        &title,
+        description.as_deref(),
+        &written,
+    )
+    .map_err(|e| e.to_string())?;
+    drop(conn);
+    emit_board_changed(&app, Some(&story.project_id), "story", Some(&story.id));
+    Ok(story.into())
+}
+
+/// Every Story of a project, in Roadmap order (Milestone, then Epic, then Story).
+#[tauri::command]
+pub fn story_list_for_project(state: State<AppState>, project_id: String) -> Result<Vec<StoryDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let stories = flywheel_core::domain::story::stories_in_project(&conn, &project_id).map_err(|e| e.to_string())?;
+    Ok(stories.into_iter().map(StoryDto::from).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn input(statement: &str, check: Option<&str>) -> CriterionInput {
+        CriterionInput { statement: statement.to_string(), check_command: check.map(str::to_string) }
+    }
+
+    #[test]
+    fn a_bounded_hand_written_story_passes_validation() {
+        assert!(validate_hand_written("Title", Some("why"), &[input("ok", Some("cargo test"))]).is_ok());
+    }
+
+    #[test]
+    fn oversized_fields_and_too_many_criteria_are_refused_before_the_database() {
+        let long = "x".repeat(MAX_PROSE_LEN + 1);
+        assert!(validate_hand_written(&"t".repeat(MAX_TITLE_LEN + 1), None, &[]).is_err());
+        assert!(validate_hand_written("t", Some(&long), &[]).is_err());
+        assert!(validate_hand_written("t", None, &[input(&long, None)]).is_err());
+        assert!(validate_hand_written("t", None, &[input("ok", Some(&"c".repeat(MAX_CHECK_COMMAND_LEN + 1)))]).is_err());
+        let many: Vec<CriterionInput> = (0..=MAX_CRITERIA).map(|_| input("ok", None)).collect();
+        assert!(validate_hand_written("t", None, &many).unwrap_err().contains("at most"));
+    }
 }

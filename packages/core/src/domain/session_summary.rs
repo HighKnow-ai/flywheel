@@ -20,7 +20,7 @@ use crate::ids::new_id;
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionSummary {
     pub id: String,
-    pub agent_run_id: String,
+    pub session_id: String,
     pub story_id: String,
     pub next_session_must_know: String,
     pub decisions: String,
@@ -32,7 +32,7 @@ pub struct SessionSummary {
 fn row_to_summary(row: &Row) -> rusqlite::Result<SessionSummary> {
     Ok(SessionSummary {
         id: row.get(0)?,
-        agent_run_id: row.get(1)?,
+        session_id: row.get(1)?,
         story_id: row.get(2)?,
         next_session_must_know: row.get(3)?,
         decisions: row.get(4)?,
@@ -53,7 +53,7 @@ const LATEST_SUMMARY_FOR_RUN_SQL: &str = "SELECT id, session_id, story_id, next_
 /// and its event, inside the caller's transaction.
 fn insert_summary_row(
     tx: &Transaction,
-    agent_run_id: &str,
+    session_id: &str,
     next_session_must_know: &str,
     decisions: &str,
     is_stub: bool,
@@ -62,17 +62,17 @@ fn insert_summary_row(
     let (story_id, project_id, actor_id): (String, String, String) = tx
         .query_row(
             "SELECT story_id, project_id, actor_id FROM sessions WHERE id = ?1",
-            params![agent_run_id],
+            params![session_id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
-        .with_context(|| format!("session {agent_run_id:?} not found"))?;
+        .with_context(|| format!("session {session_id:?} not found"))?;
     let epic_id: String =
         tx.query_row("SELECT epic_id FROM stories WHERE id = ?1", params![story_id], |r| r.get(0))?;
     let id = new_id();
     tx.execute(
         "INSERT INTO session_summaries (id, session_id, story_id, next_session_must_know, decisions, is_stub, created_by, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![id, agent_run_id, story_id, next_session_must_know, decisions, is_stub, actor_id, now],
+        params![id, session_id, story_id, next_session_must_know, decisions, is_stub, actor_id, now],
     )
     .context("failed to insert the session summary")?;
     crate::domain::record_event(
@@ -84,7 +84,7 @@ fn insert_summary_row(
         &actor_id,
         "session_summary.recorded",
         &serde_json::json!({
-            "session_id": agent_run_id,
+            "session_id": session_id,
             "is_stub": is_stub,
             "label": if is_stub { "Flywheel wrote a stub summary for a session that ended without handing off" } else { "Recorded a session summary" },
         }),
@@ -92,7 +92,7 @@ fn insert_summary_row(
     )?;
     Ok(SessionSummary {
         id,
-        agent_run_id: agent_run_id.to_string(),
+        session_id: session_id.to_string(),
         story_id,
         next_session_must_know: next_session_must_know.to_string(),
         decisions: decisions.to_string(),
@@ -105,13 +105,13 @@ fn insert_summary_row(
 /// Record the summary a session hands off with.
 pub fn create_summary(
     conn: &mut Connection,
-    agent_run_id: &str,
+    session_id: &str,
     next_session_must_know: &str,
     decisions: &str,
 ) -> anyhow::Result<SessionSummary> {
     let now = crate::domain::now();
     let tx = conn.transaction()?;
-    let summary = insert_summary_row(&tx, agent_run_id, next_session_must_know, decisions, false, &now)?;
+    let summary = insert_summary_row(&tx, session_id, next_session_must_know, decisions, false, &now)?;
     tx.commit().context("failed to commit create_summary")?;
     Ok(summary)
 }
@@ -119,13 +119,13 @@ pub fn create_summary(
 /// Write the stub summary for a session that ended without one: the reason it ended and the Task it
 /// was doing, if any. Runs inside the caller's transaction (the one writing the terminal status)
 /// and has no dedupe of its own: the caller's [`latest_summary_for_run`] check is the guard.
-pub fn synthesize_fallback_summary(tx: &Transaction, agent_run_id: &str, close_reason: &str) -> anyhow::Result<String> {
+pub fn synthesize_fallback_summary(tx: &Transaction, session_id: &str, close_reason: &str) -> anyhow::Result<String> {
     let now = crate::domain::now();
     let doing: Option<String> = tx
         .query_row(
             "SELECT t.title FROM tasks t JOIN sessions r ON r.story_id = t.story_id
              WHERE r.id = ?1 AND t.state = 'doing'",
-            params![agent_run_id],
+            params![session_id],
             |r| r.get(0),
         )
         .optional()?;
@@ -135,7 +135,7 @@ pub fn synthesize_fallback_summary(tx: &Transaction, agent_run_id: &str, close_r
         None => note.push_str(" No Task was marked doing."),
     }
     note.push_str(" The worktree is left exactly as it was: it is the authority on what is finished.");
-    let summary = insert_summary_row(tx, agent_run_id, &note, "", true, &now)?;
+    let summary = insert_summary_row(tx, session_id, &note, "", true, &now)?;
     Ok(summary.id)
 }
 
@@ -148,8 +148,8 @@ pub fn list_summaries_for_story(conn: &Connection, story_id: &str) -> anyhow::Re
 }
 
 /// The latest summary of one session, if it has one.
-pub fn latest_summary_for_run(conn: &Connection, agent_run_id: &str) -> anyhow::Result<Option<SessionSummary>> {
-    conn.query_row(LATEST_SUMMARY_FOR_RUN_SQL, params![agent_run_id], row_to_summary)
+pub fn latest_summary_for_run(conn: &Connection, session_id: &str) -> anyhow::Result<Option<SessionSummary>> {
+    conn.query_row(LATEST_SUMMARY_FOR_RUN_SQL, params![session_id], row_to_summary)
         .optional()
         .context("failed to read the session's latest summary")
 }

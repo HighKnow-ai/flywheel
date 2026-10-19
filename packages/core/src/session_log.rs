@@ -1,7 +1,7 @@
-//! The durable JSONL session-log writer (D-34): one append-only file per agent run, beside the
+//! The durable JSONL session-log writer (D-34): one append-only file per session, beside the
 //! database, written by the Rust core's sidecar reader loop and never by the renderer.
 //!
-//! `agent_runs.log_path` (migration `0003_agent_runtime.sql`) is a pointer to a file this module
+//! `sessions.log_path` (the baseline migration) is a pointer to a file this module
 //! resolves and writes — matching `Artifact.storage_ref`'s own "pointer, not blob" contract.
 
 use std::fs::{File, OpenOptions};
@@ -21,12 +21,12 @@ pub fn sessions_dir() -> anyhow::Result<PathBuf> {
     Ok(app_data.join("sessions"))
 }
 
-/// The path a given agent run's durable log lives at: `<app-data>/sessions/<agent_run_id>.jsonl`.
+/// The path a given agent run's durable log lives at: `<app-data>/sessions/<session_id>.jsonl`.
 ///
 /// This is the fail-closed join site for the whole module — the ONE place a run id becomes a
 /// path. `count_lines`, `read_window` and `SessionLogWriter::open` all funnel through it, which is
 /// what makes the guard below structural rather than a convention every caller must remember.
-/// `agent_run_id` is rejected via [`crate::ids::is_ulid`] — the single shared shape predicate —
+/// `session_id` is rejected via [`crate::ids::is_ulid`] — the single shared shape predicate —
 /// BEFORE `sessions_dir()` is ever resolved: no app-data lookup, no directory creation and no
 /// `format!` join happens for an id that is not ULID-shaped. `packages/desktop/src-tauri/src/
 /// sidecar.rs`'s `is_plausible_run_id` is the other user of this same predicate (it delegates to
@@ -34,13 +34,13 @@ pub fn sessions_dir() -> anyhow::Result<PathBuf> {
 /// renderer-facing IPC boundary can never disagree about what a valid run id is. The rejected id
 /// is never echoed into the error message — the message describes the shape requirement only,
 /// never reflecting caller-controlled text into logs or the UI.
-pub fn session_log_path(agent_run_id: &str) -> anyhow::Result<PathBuf> {
-    if !crate::ids::is_ulid(agent_run_id) {
+pub fn session_log_path(session_id: &str) -> anyhow::Result<PathBuf> {
+    if !crate::ids::is_ulid(session_id) {
         anyhow::bail!(
             "agent run id must be a 26-character Crockford-base32 ULID; refusing to build a session log path"
         );
     }
-    Ok(sessions_dir()?.join(format!("{agent_run_id}.jsonl")))
+    Ok(sessions_dir()?.join(format!("{session_id}.jsonl")))
 }
 
 /// The single writer of record for one agent run's session log. Opens the file append-only,
@@ -52,14 +52,14 @@ pub struct SessionLogWriter {
 }
 
 impl SessionLogWriter {
-    /// Open (creating if absent) the log file for `agent_run_id`, creating its parent
+    /// Open (creating if absent) the log file for `session_id`, creating its parent
     /// `sessions/` directory if it does not exist yet. Its caller on the shared sidecar reader
     /// loop (`packages/desktop/src-tauri/src/sidecar.rs`'s `persist_event_line`) MUST treat this
     /// function's `Err` as a value to route to `PersistOutcome::OpenFailed` — never as an unwind
     /// — because that caller is the ONE reader task for every run the application supervises
     /// (CR-03, PROC-07).
-    pub fn open(agent_run_id: &str) -> anyhow::Result<Self> {
-        let path = session_log_path(agent_run_id)?;
+    pub fn open(session_id: &str) -> anyhow::Result<Self> {
+        let path = session_log_path(session_id)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create session log directory {parent:?}"))?;
@@ -85,8 +85,8 @@ impl SessionLogWriter {
 /// Free-function equivalent of [`SessionLogWriter::open`] + a single
 /// [`SessionLogWriter::append_event_line`] call, for callers (tests, one-shot writers) that don't
 /// need to hold a writer open across multiple lines.
-pub fn append_event_line(agent_run_id: &str, line: &str) -> anyhow::Result<()> {
-    let mut writer = SessionLogWriter::open(agent_run_id)?;
+pub fn append_event_line(session_id: &str, line: &str) -> anyhow::Result<()> {
+    let mut writer = SessionLogWriter::open(session_id)?;
     writer.append_event_line(line)
 }
 
@@ -131,13 +131,13 @@ fn file_ends_with_newline(file: &mut File) -> std::io::Result<bool> {
     Ok(last_byte[0] == b'\n')
 }
 
-/// The number of COMPLETE lines currently in `agent_run_id`'s durable log (D-33) — so a renderer
+/// The number of COMPLETE lines currently in `session_id`'s durable log (D-33) — so a renderer
 /// can page backwards from the tail without first reading the whole file. A run whose log file
 /// does not exist yet (no output produced) returns `0`, not an error — a normal state, not a
 /// failure. Never materialises the file's content into one buffer: reads it as a byte stream,
 /// counting newline-terminated lines one at a time.
-pub fn count_lines(agent_run_id: &str) -> anyhow::Result<usize> {
-    let path = session_log_path(agent_run_id)?;
+pub fn count_lines(session_id: &str) -> anyhow::Result<usize> {
+    let path = session_log_path(session_id)?;
     let mut file = match File::open(&path) {
         Ok(file) => file,
         Err(_) => return Ok(0),
@@ -169,7 +169,7 @@ fn parse_log_line(line: &str, line_number: usize) -> serde_json::Value {
     }
 }
 
-/// A bounded window over `agent_run_id`'s durable JSONL log (PROC-07, D-33) — the mechanical form
+/// A bounded window over `session_id`'s durable JSONL log (PROC-07, D-33) — the mechanical form
 /// of "flat memory by construction, not by ceiling." Opens the file with a buffered reader, skips
 /// `offset` complete lines, and yields at most `min(limit, LOG_WINDOW_MAX_LIMIT)` of them: it
 /// never reads the file into a single string and never collects the whole file into a vector, so
@@ -182,14 +182,14 @@ fn parse_log_line(line: &str, line_number: usize) -> serde_json::Value {
 /// log file does not exist yet returns an empty window with `total: 0`, not an error. The
 /// trailing fragment of an in-flight write (a final line with no `\n` yet) is excluded from both
 /// the window and `total` — a reader only ever sees complete lines.
-pub fn read_window(agent_run_id: &str, offset: usize, limit: usize) -> anyhow::Result<LogWindow> {
+pub fn read_window(session_id: &str, offset: usize, limit: usize) -> anyhow::Result<LogWindow> {
     let effective_limit = limit.min(LOG_WINDOW_MAX_LIMIT);
-    let total = count_lines(agent_run_id)?;
+    let total = count_lines(session_id)?;
     if total == 0 {
         return Ok(LogWindow { entries: Vec::new(), offset, limit: effective_limit, total: 0 });
     }
 
-    let path = session_log_path(agent_run_id)?;
+    let path = session_log_path(session_id)?;
     let file =
         File::open(&path).with_context(|| format!("failed to open session log file {path:?}"))?;
     let reader = BufReader::new(file);
@@ -234,15 +234,15 @@ pub struct LogTail {
     pub truncated: bool,
 }
 
-/// The end of `agent_run_id`'s durable log, in bounded time and bytes: seeks from the end of the file
+/// The end of `session_id`'s durable log, in bounded time and bytes: seeks from the end of the file
 /// and reads at most [`LOG_TAIL_MAX_BYTES`], never the whole log and never [`read_window`]'s
 /// whole-file line counter, so a caller can afford it per live row on every refresh.
 ///
 /// A missing file is empty, not an error. An in-flight final line (no trailing `\n`) is dropped, as
 /// in [`read_window`]. When the read starts mid-file its first fragment is dropped too, so a line
 /// larger than the window yields no line at all (and `truncated`) rather than a cut-off one.
-pub fn read_tail(agent_run_id: &str) -> anyhow::Result<LogTail> {
-    let path = session_log_path(agent_run_id)?;
+pub fn read_tail(session_id: &str) -> anyhow::Result<LogTail> {
+    let path = session_log_path(session_id)?;
     let mut file = match File::open(&path) {
         Ok(file) => file,
         Err(_) => return Ok(LogTail::default()),

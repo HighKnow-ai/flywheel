@@ -17,7 +17,7 @@ vi.mock("../../adapters/tauri", async () => {
   return {
     ...actual,
     storyGet: (storyId: string) => storyMock(storyId),
-    startAgentRun: (storyId: string, permissionMode: string, instruction?: string) =>
+    startSession: (storyId: string, permissionMode: string, instruction?: string) =>
       startMock(storyId, permissionMode, instruction),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
   };

@@ -26,7 +26,7 @@ const FLEET_ROWS_CAP: usize = 200;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FleetRowDto {
-    pub agent_run_id: String,
+    pub session_id: String,
     pub project_id: String,
     pub project_name: String,
     pub project_key_prefix: String,
@@ -62,7 +62,7 @@ pub struct FleetActivityDto {
 impl From<flywheel_core::query::fleet::FleetRow> for FleetRowDto {
     fn from(row: flywheel_core::query::fleet::FleetRow) -> Self {
         Self {
-            agent_run_id: row.agent_run_id,
+            session_id: row.session_id,
             project_id: row.project_id,
             project_name: row.project_name,
             project_key_prefix: row.project_key_prefix,
@@ -108,7 +108,7 @@ fn attach_activity(
     read: impl Fn(&str) -> anyhow::Result<flywheel_core::session_log::LogTail>,
 ) {
     for row in rows.iter_mut().filter(|row| is_live(&row.run_status)) {
-        if let Ok(tail) = read(&row.agent_run_id) {
+        if let Ok(tail) = read(&row.session_id) {
             row.activity = FleetActivityDto { lines: tail.lines, truncated: tail.truncated };
         }
     }
@@ -154,7 +154,7 @@ pub struct BlockedQueueEntryDto {
     pub input_payload: Option<String>,
     pub created_at: String,
     pub destructive_category: Option<String>,
-    pub agent_run_id: String,
+    pub session_id: String,
     pub project_id: String,
     pub project_name: String,
     pub project_key_prefix: String,
@@ -172,7 +172,7 @@ impl From<flywheel_core::query::fleet::BlockedQueueEntry> for BlockedQueueEntryD
             input_payload: e.input_payload,
             created_at: e.created_at,
             destructive_category: e.destructive_category,
-            agent_run_id: e.agent_run_id,
+            session_id: e.session_id,
             project_id: e.project_id,
             project_name: e.project_name,
             project_key_prefix: e.project_key_prefix,
@@ -186,7 +186,7 @@ impl From<flywheel_core::query::fleet::BlockedQueueEntry> for BlockedQueueEntryD
 
 /// Every agent across every registered project currently blocked at a pending permission request
 /// (FLEET-02, D-172): live blocks only, one entry per run. Read-only, cross-project by design, takes
-/// no arguments. Answering goes through the existing, unchanged `agent_run_answer_permission` (D-173).
+/// no arguments. Answering goes through the existing, unchanged `session_answer_permission` (D-173).
 /// Pure database read, so it is a plain sync command like the other short reads.
 #[tauri::command]
 pub fn fleet_blocked_queue(state: State<'_, AppState>) -> Result<Vec<BlockedQueueEntryDto>, String> {
@@ -201,13 +201,13 @@ pub fn fleet_blocked_queue(state: State<'_, AppState>) -> Result<Vec<BlockedQueu
 /// nothing else; `None` means no session is showing. Suppression additionally needs the window to
 /// be focused, which Rust reads itself at fire time (T-10-07-03).
 #[tauri::command]
-pub fn fleet_watch_run(state: State<AppState>, agent_run_id: Option<String>) -> Result<(), String> {
-    set_watched_run(&state, agent_run_id)
+pub fn fleet_watch_run(state: State<AppState>, session_id: Option<String>) -> Result<(), String> {
+    set_watched_run(&state, session_id)
 }
 
-fn set_watched_run(state: &AppState, agent_run_id: Option<String>) -> Result<(), String> {
+fn set_watched_run(state: &AppState, session_id: Option<String>) -> Result<(), String> {
     let mut watched = state.watched_run.lock().map_err(|e| e.to_string())?;
-    *watched = agent_run_id;
+    *watched = session_id;
     Ok(())
 }
 
@@ -453,7 +453,7 @@ mod tests {
 
     fn row(id: &str, run_status: &str) -> FleetRowDto {
         FleetRowDto {
-            agent_run_id: id.to_string(),
+            session_id: id.to_string(),
             project_id: "p".into(),
             project_name: "P".into(),
             project_key_prefix: "P".into(),

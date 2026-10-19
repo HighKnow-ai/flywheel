@@ -10,12 +10,12 @@ use common::with_scratch_worktree_root;
 use std::path::Path;
 use std::process::Command;
 
-use core::domain::agent_run::{interrupt_agent_run, start_agent_run};
+use core::domain::session::{interrupt_session, start_session};
 use core::domain::story::{set_story_state, StoryState};
 
 /// Run `git -C <repo_path> <args>` and return trimmed stdout — a minimal local helper mirroring
 /// `core::git::git_at`'s own explicit-path discipline, kept separate here so this test never
-/// depends on the production wrapper it is proving `domain::agent_run` never calls.
+/// depends on the production wrapper it is proving `domain::session` never calls.
 fn git_output(repo_path: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
         .arg("-C")
@@ -32,7 +32,7 @@ fn git_output(repo_path: &Path, args: &[&str]) -> String {
 }
 
 #[test]
-fn interrupt_agent_run_closes_interrupted_leaves_story_running_and_keeps_the_worktree_dirty() {
+fn interrupt_session_closes_interrupted_leaves_story_running_and_keeps_the_worktree_dirty() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Stop-path story");
@@ -41,8 +41,8 @@ fn interrupt_agent_run_closes_interrupted_leaves_story_running_and_keeps_the_wor
 
         let commit_count_before = git_output(repo_dir.path(), &["rev-list", "--count", "HEAD"]);
 
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
 
         let worktree_path: String = conn
             .query_row(
@@ -54,7 +54,7 @@ fn interrupt_agent_run_closes_interrupted_leaves_story_running_and_keeps_the_wor
         let dirty_file = Path::new(&worktree_path).join("scratch.txt");
         std::fs::write(&dirty_file, b"uncommitted work\n").expect("failed to write the dirty file");
 
-        interrupt_agent_run(&mut conn, &run.id, &actor_id).expect("interrupt_agent_run should succeed");
+        interrupt_session(&mut conn, &run.id, &actor_id).expect("interrupt_session should succeed");
 
         // --- Behavior: run moves to interrupted, ended_at is set ---
         let status: String = conn
@@ -107,30 +107,30 @@ fn interrupt_agent_run_closes_interrupted_leaves_story_running_and_keeps_the_wor
              committed on the user's behalf"
         );
 
-        // --- Behavior: exactly one agent_run.interrupted event exists ---
+        // --- Behavior: exactly one session.interrupted event exists ---
         let interrupted_event_count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM events WHERE event_type = 'agent_run.interrupted' AND stream_id = ?1",
+                "SELECT COUNT(*) FROM events WHERE event_type = 'session.interrupted' AND stream_id = ?1",
                 rusqlite::params![run.id],
                 |row| row.get(0),
             )
-            .expect("failed to count agent_run.interrupted events");
+            .expect("failed to count session.interrupted events");
         assert_eq!(interrupted_event_count, 1);
 
         // --- Behavior: a run already in a terminal state is idempotent — no second event ---
-        interrupt_agent_run(&mut conn, &run.id, &actor_id)
-            .expect("a second interrupt_agent_run call on an already-terminal run must not error");
+        interrupt_session(&mut conn, &run.id, &actor_id)
+            .expect("a second interrupt_session call on an already-terminal run must not error");
 
         let interrupted_event_count_after_second_call: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM events WHERE event_type = 'agent_run.interrupted' AND stream_id = ?1",
+                "SELECT COUNT(*) FROM events WHERE event_type = 'session.interrupted' AND stream_id = ?1",
                 rusqlite::params![run.id],
                 |row| row.get(0),
             )
-            .expect("failed to count agent_run.interrupted events");
+            .expect("failed to count session.interrupted events");
         assert_eq!(
             interrupted_event_count_after_second_call, 1,
-            "a second interrupt on an already-terminal run must not append a second agent_run.interrupted event"
+            "a second interrupt on an already-terminal run must not append a second session.interrupted event"
         );
 
         let status_after_second_call: String = conn
@@ -145,12 +145,12 @@ fn interrupt_agent_run_closes_interrupted_leaves_story_running_and_keeps_the_wor
 }
 
 #[test]
-fn interrupt_agent_run_on_an_unknown_run_id_is_a_no_op() {
+fn interrupt_session_on_an_unknown_run_id_is_a_no_op() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, _project, _repo_dir) = common::seeded_git_project();
 
         // No sessions row exists for this id at all — must not error and must not panic.
-        interrupt_agent_run(&mut conn, "01ARZ3NDEKTSV4RRFFQ69G5FAV", &actor_id)
-            .expect("interrupting an unknown agent_run_id must be a harmless no-op");
+        interrupt_session(&mut conn, "01ARZ3NDEKTSV4RRFFQ69G5FAV", &actor_id)
+            .expect("interrupting an unknown session_id must be a harmless no-op");
     });
 }

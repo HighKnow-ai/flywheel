@@ -5,7 +5,7 @@
 //! identically, agent-made or hand-typed, so trailer presence cannot distinguish them).
 //!
 //! Boundary timestamps are plain RFC3339 literals, not values read back from `git log` — D-129's
-//! coverage comparison parses both sides as `chrono` instants (`git_facts.rs::is_covered_by_agent_run`),
+//! coverage comparison parses both sides as `chrono` instants (`git_facts.rs::is_covered_by_session`),
 //! so `"...+00:00"` and the `%cI`-normalized `"...Z"` git itself emits for the same instant compare
 //! equal regardless of their literal spelling; committer timestamps are pinned via
 //! `GIT_COMMITTER_DATE`/`GIT_AUTHOR_DATE` so every boundary case (strictly inside, exactly at
@@ -168,7 +168,7 @@ fn setup() -> Fixture {
 /// Insert one `sessions` row with an exact `started_at`/`ended_at` window — `ended_at: None`
 /// means a still-live run (`status = 'running'`), matching the real schema's nullable column.
 #[allow(clippy::too_many_arguments)]
-fn insert_agent_run(
+fn insert_session(
     conn: &Connection,
     story_id: &str,
     project_id: &str,
@@ -213,7 +213,7 @@ fn count_outside_commit_events_for_story(conn: &Connection, story_id: &str) -> i
 }
 
 #[test]
-fn commit_strictly_inside_an_agent_run_window_is_not_marked() {
+fn commit_strictly_inside_an_session_window_is_not_marked() {
     let mut fixture = setup();
     commit_file_at(
         &fixture.worktree_path,
@@ -222,7 +222,7 @@ fn commit_strictly_inside_an_agent_run_window_is_not_marked() {
         "inside the window",
         "2026-01-01T10:00:00+00:00",
     );
-    insert_agent_run(
+    insert_session(
         &fixture.conn,
         &fixture.story_id,
         &fixture.project_id,
@@ -256,7 +256,7 @@ fn commit_exactly_at_a_runs_started_at_is_not_marked() {
         "at started_at",
         "2026-01-01T09:00:00+00:00",
     );
-    insert_agent_run(
+    insert_session(
         &fixture.conn,
         &fixture.story_id,
         &fixture.project_id,
@@ -284,7 +284,7 @@ fn commit_exactly_at_a_runs_ended_at_is_not_marked() {
         "at ended_at",
         "2026-01-01T11:00:00+00:00",
     );
-    insert_agent_run(
+    insert_session(
         &fixture.conn,
         &fixture.story_id,
         &fixture.project_id,
@@ -312,7 +312,7 @@ fn commit_after_a_completed_runs_ended_at_and_inside_no_other_window_is_marked()
         "after the run ended",
         "2026-01-01T12:00:00+00:00",
     );
-    insert_agent_run(
+    insert_session(
         &fixture.conn,
         &fixture.story_id,
         &fixture.project_id,
@@ -344,7 +344,7 @@ fn commit_landing_while_a_run_has_ended_at_null_is_not_marked() {
         "during a still-live run",
         "2026-01-01T15:00:00+00:00",
     );
-    insert_agent_run(
+    insert_session(
         &fixture.conn,
         &fixture.story_id,
         &fixture.project_id,
@@ -447,7 +447,7 @@ fn record_outside_commits_never_writes_stories_or_appends_for_covered_commits() 
         "an agent's own commit",
         "2026-01-01T10:00:00+00:00",
     );
-    insert_agent_run(
+    insert_session(
         &fixture.conn,
         &fixture.story_id,
         &fixture.project_id,

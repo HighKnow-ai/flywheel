@@ -6,7 +6,7 @@
 //! The board reads (Roadmap, roster, Needs you) are rebuilt by the board surface; the record reads
 //! a surface needs today live beside their writers in `crate::domain`.
 
-pub mod agent_runs;
+pub mod sessions;
 pub mod events;
 pub mod fleet;
 pub mod permissions;

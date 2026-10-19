@@ -26,7 +26,7 @@ function entry(n: number, overrides: Partial<BlockedQueueEntryDto> = {}): Blocke
     inputPayload: `{"command":"echo ${n}"}`,
     createdAt: "2026-10-12T11:50:00Z",
     destructiveCategory: null,
-    agentRunId: `run-${n}`,
+    sessionId: `run-${n}`,
     projectId: `proj-${n}`,
     projectName: `Project ${n}`,
     projectKeyPrefix: `P${n}`,

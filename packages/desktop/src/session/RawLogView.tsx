@@ -1,6 +1,6 @@
 /**
  * The raw view (D-32's escape hatch, 02-UI-SPEC.md "View raw" affordance, plan 02-07 Task 3): the
- * verbatim persisted log, monospace, line-numbered, read-only, paged through `agentRunRawWindow`
+ * verbatim persisted log, monospace, line-numbered, read-only, paged through `sessionRawWindow`
  * with the same bounded, tail-first window `useSessionFeed` uses (D-33) — never the whole file at
  * once. This is what lets a user check a structured feed row's ground truth without leaving the
  * app: the file must be written regardless (D-34), so this view is cheap.
@@ -12,18 +12,18 @@
  */
 import { useEffect, useMemo, type UIEvent } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { agentRunRawWindow, subscribeAgentEvent, type RawLogWindowDto } from "../adapters/tauri";
+import { sessionRawWindow, subscribeAgentEvent, type RawLogWindowDto } from "../adapters/tauri";
 
 const PAGE_SIZE = 50;
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 const SCROLL_TOP_FETCH_THRESHOLD_PX = 40;
 
 export interface RawLogViewProps {
-  agentRunId: string;
+  sessionId: string;
 }
 
-export function rawLogQueryKey(agentRunId: string) {
-  return ["agent-run-raw-log", agentRunId] as const;
+export function rawLogQueryKey(sessionId: string) {
+  return ["agent-run-raw-log", sessionId] as const;
 }
 
 type RawWindowPageParam = number | "tail";
@@ -32,19 +32,19 @@ type RawWindowPageParam = number | "tail";
  * learns the log's true `total` (every `read_window`-backed call reports it regardless of the
  * requested window), then — only if the log is longer than one page — a second call requests the
  * actual last page. */
-async function fetchRawPage(agentRunId: string, pageParam: RawWindowPageParam): Promise<RawLogWindowDto> {
+async function fetchRawPage(sessionId: string, pageParam: RawWindowPageParam): Promise<RawLogWindowDto> {
   if (pageParam !== "tail") {
-    return agentRunRawWindow(agentRunId, pageParam, PAGE_SIZE);
+    return sessionRawWindow(sessionId, pageParam, PAGE_SIZE);
   }
-  const probe = await agentRunRawWindow(agentRunId, 0, PAGE_SIZE);
+  const probe = await sessionRawWindow(sessionId, 0, PAGE_SIZE);
   if (probe.total <= PAGE_SIZE) return probe;
   const tailOffset = probe.total - PAGE_SIZE;
-  return agentRunRawWindow(agentRunId, tailOffset, PAGE_SIZE);
+  return sessionRawWindow(sessionId, tailOffset, PAGE_SIZE);
 }
 
-export function RawLogView({ agentRunId }: RawLogViewProps) {
+export function RawLogView({ sessionId }: RawLogViewProps) {
   const queryClient = useQueryClient();
-  const queryKey = rawLogQueryKey(agentRunId);
+  const queryKey = rawLogQueryKey(sessionId);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -58,11 +58,11 @@ export function RawLogView({ agentRunId }: RawLogViewProps) {
       unlisten?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentRunId, queryClient]);
+  }, [sessionId, queryClient]);
 
   const query = useInfiniteQuery({
     queryKey,
-    queryFn: ({ pageParam }) => fetchRawPage(agentRunId, pageParam as RawWindowPageParam),
+    queryFn: ({ pageParam }) => fetchRawPage(sessionId, pageParam as RawWindowPageParam),
     initialPageParam: "tail" as RawWindowPageParam,
     getNextPageParam: () => undefined,
     getPreviousPageParam: (firstPage) =>

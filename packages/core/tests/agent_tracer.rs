@@ -5,7 +5,7 @@
 
 mod common;
 
-use core::domain::agent_run::{agent_actor_id, start_agent_run};
+use core::domain::session::{agent_actor_id, start_session};
 use core::domain::worktree::ensure_worktree;
 use core::git::worktree_list;
 use core::session_log::session_log_path;
@@ -19,8 +19,8 @@ fn start_work_creates_worktree_branch_and_linked_rows() {
 
         let story = common::new_story(&mut conn, &project.id, &human_actor_id, "Wire the tracer path");
 
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &human_actor_id)
-            .expect("start_agent_run should succeed");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &human_actor_id)
+            .expect("start_session should succeed");
 
         // The worktree directory exists on disk.
         let worktree = ensure_worktree(&mut conn, &story.id, &human_actor_id)

@@ -46,7 +46,7 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
     // Re-read rather than edit local state, so the keyboard owner moves because the list moved.
     void queryClient.invalidateQueries({ queryKey: blockedQueueQueryKey() });
     void queryClient.invalidateQueries({ queryKey: fleetQueryKey() });
-    void queryClient.invalidateQueries({ queryKey: pendingPermissionRequestsQueryKey(entry.agentRunId) });
+    void queryClient.invalidateQueries({ queryKey: pendingPermissionRequestsQueryKey(entry.sessionId) });
   }
 
   if (entries.length === 0) {
@@ -67,9 +67,9 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
         const subject = subjectText(entry);
         return (
           <div
-            key={entry.agentRunId}
+            key={entry.sessionId}
             role="listitem"
-            data-run-id={entry.agentRunId}
+            data-run-id={entry.sessionId}
             data-keyboard-owner={owner ? "true" : undefined}
             style={{
               display: "flex",

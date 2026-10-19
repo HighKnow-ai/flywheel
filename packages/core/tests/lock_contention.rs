@@ -362,7 +362,7 @@ fn companion_no_shim_ten_concurrent_commits_is_evidence_only_and_never_a_gate() 
 mod record_lock_exhaustion_tests {
     use crate::common;
     use core::domain::actor::{local_human_actor_id, system_actor};
-    use core::domain::agent_run::{record_lock_exhaustion, start_agent_run, AgentRunStatus};
+    use core::domain::session::{record_lock_exhaustion, start_session, SessionStatus};
     
     fn event_count(conn: &rusqlite::Connection, run_id: &str) -> i64 {
         conn.query_row(
@@ -378,8 +378,8 @@ mod record_lock_exhaustion_tests {
         crate::with_scratch_env(|| {
             let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
             let story = common::new_story(&mut conn, &project.id, &human_actor_id, "Lock exhaustion story");
-            let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &human_actor_id)
-                .expect("start_agent_run should succeed");
+            let run = start_session(&mut conn, &story.id, "acceptEdits", &human_actor_id)
+                .expect("start_session should succeed");
             let system = system_actor(&conn).expect("system actor should exist");
 
             record_lock_exhaustion(&mut conn, &run.id, "/repo/path", "git commit", 5, &system.id)
@@ -412,8 +412,8 @@ mod record_lock_exhaustion_tests {
         crate::with_scratch_env(|| {
             let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
             let story = common::new_story(&mut conn, &project.id, &human_actor_id, "Repeated exhaustion story");
-            let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &human_actor_id)
-                .expect("start_agent_run should succeed");
+            let run = start_session(&mut conn, &story.id, "acceptEdits", &human_actor_id)
+                .expect("start_session should succeed");
             let system = system_actor(&conn).expect("system actor should exist");
 
             record_lock_exhaustion(&mut conn, &run.id, "/repo/path", "git commit", 5, &system.id)
@@ -430,9 +430,9 @@ mod record_lock_exhaustion_tests {
         crate::with_scratch_env(|| {
             let (mut conn, human_actor_id, project, _repo_dir) = common::seeded_git_project();
             let story = common::new_story(&mut conn, &project.id, &human_actor_id, "Status-neutral story");
-            let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &human_actor_id)
-                .expect("start_agent_run should succeed");
-            assert_eq!(run.status, AgentRunStatus::Running);
+            let run = start_session(&mut conn, &story.id, "acceptEdits", &human_actor_id)
+                .expect("start_session should succeed");
+            assert_eq!(run.status, SessionStatus::Running);
             let system = system_actor(&conn).expect("system actor should exist");
 
             record_lock_exhaustion(&mut conn, &run.id, "/repo/path", "git commit", 5, &system.id)

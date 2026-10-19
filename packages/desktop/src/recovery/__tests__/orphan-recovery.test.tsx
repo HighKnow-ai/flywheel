@@ -19,7 +19,7 @@ const orphanKillMock = vi.fn();
 
 vi.mock("../../adapters/tauri", () => ({
   pendingOrphans: () => pendingOrphansMock(),
-  orphanKill: (agentRunId: string) => orphanKillMock(agentRunId),
+  orphanKill: (sessionId: string) => orphanKillMock(sessionId),
 }));
 
 function makeOrphan(overrides: Partial<PendingOrphanDto> = {}): PendingOrphanDto {

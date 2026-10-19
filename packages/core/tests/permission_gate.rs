@@ -7,7 +7,7 @@ mod common;
 use common::with_scratch_worktree_root;
 
 use core::destructive::DestructiveCategory;
-use core::domain::agent_run::start_agent_run;
+use core::domain::session::start_session;
 use core::domain::permission_request::{answer_request, create_pending_request, AlreadyAnsweredError};
 use core::domain::permission_rule::{matching_rule, revoke_rule, rules_for_project, upsert_rule, WHOLE_TOOL};
 use core::domain::project;
@@ -17,7 +17,7 @@ use core::query::permissions::{
 };
 use rusqlite::Connection;
 
-/// Seed one project with one Story and one `running` session (via the real `start_agent_run`,
+/// Seed one project with one Story and one `running` session (via the real `start_session`,
 /// exercising the real worktree-creation path exactly as `stop_lifecycle.rs` does) — everything
 /// this file's tests need to raise a permission request against a real, referentially-valid
 /// session id.
@@ -25,8 +25,8 @@ fn seeded_running_run() -> (Connection, String, String, String, String) {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Gated story");
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
         (conn, actor_id, project.id, story.id, run.id)
     })
 }
@@ -226,14 +226,14 @@ fn blocked_count_and_ids_reflect_only_stories_whose_most_recent_run_is_blocked()
             .is_empty());
 
         let blocked_story = common::new_story(&mut conn, &project.id, &actor_id, "Blocked story");
-        let blocked_run = start_agent_run(&mut conn, &blocked_story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let blocked_run = start_session(&mut conn, &blocked_story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
         create_pending_request(&mut conn, &blocked_run.id, "Bash", None, &actor_id, None)
             .expect("create_pending_request should succeed");
 
         let running_story = common::new_story(&mut conn, &project.id, &actor_id, "Still running story");
-        start_agent_run(&mut conn, &running_story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        start_session(&mut conn, &running_story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
 
         let count = blocked_count_for_project(&conn, &project.id)
             .expect("blocked_count_for_project should succeed");
@@ -327,8 +327,8 @@ fn latest_run_id_for_story_resolves_the_most_recently_started_run() {
             None
         );
 
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
         assert_eq!(
             latest_run_id_for_story(&conn, &story.id).expect("latest_run_id_for_story should succeed"),
             Some(run.id)

@@ -26,7 +26,7 @@
 //! This module's own working directory is fixed by the OS at process launch and is NEVER read or
 //! reassigned (PROC-02, ARCHITECTURE.md Anti-Pattern 3 — "the supervisor must never drift into a
 //! worker's worktree" enforced structurally, not by convention) — every path this module hands the
-//! sidecar (a worktree path, in a `spawn` request built by `commands::agent_run::agent_run_start`)
+//! sidecar (a worktree path, in a `spawn` request built by `commands::session::session_start`)
 //! is already absolute by the time it arrives here. `packages/core/tests/supervisor_cwd.rs`
 //! enforces this as a gate: it scans this file's own source for any ambient-current-directory
 //! call and fails the build if one appears.
@@ -64,13 +64,13 @@ enum SidecarStdoutLine {
 }
 
 /// Resolve which credential a spawn for `project_id` should use, and the environment additions
-/// the sidecar's spawn request should carry (D-39). Called from `commands::agent_run::
-/// agent_run_start` ONCE per spawn, immediately before the spawn request is built — NEVER cached
+/// the sidecar's spawn request should carry (D-39). Called from `commands::session::
+/// session_start` ONCE per spawn, immediately before the spawn request is built — NEVER cached
 /// on `AppState` or anywhere else (T-02-41): a cached credential would outlive the setting that
 /// produced it, breaking a per-project override the moment a user changes it mid-session. This is
 /// a thin wrapper over `flywheel_core::credentials::resolve_credential` — the actual credential
 /// read happens there, this function exists only so the spawn-request call site in
-/// `commands::agent_run` names a function local to the sidecar-facing module it calls into.
+/// `commands::session` names a function local to the sidecar-facing module it calls into.
 pub fn resolved_env_for_run(
     conn: &Connection,
     project_id: &str,
@@ -117,12 +117,12 @@ pub fn resolved_env_for_run(
 }
 
 /// D-51 (plan 03-04): merge the per-run PATH-shim entries into an already-resolved spawn
-/// environment. Called AFTER `start_agent_run` produces a real `run_id` — [`resolved_env_for_run`]
+/// environment. Called AFTER `start_session` produces a real `run_id` — [`resolved_env_for_run`]
 /// above intentionally runs BEFORE the run/worktree row is created (D-39), so a credential
 /// resolution failure never orphans a running `sessions` row; the shim's own installed directory
 /// is keyed by `run_id`, which does not exist yet at that point, so this step cannot live inside
 /// that same function. A shim-install failure here still refuses the SPAWN itself —
-/// `agent_run_start` propagates the error and never sends the request to the sidecar — exactly as
+/// `session_start` propagates the error and never sends the request to the sidecar — exactly as
 /// it already refuses on a credential failure, even though by this point the row and worktree
 /// already exist (closing that narrower gap would require making run ids predictable before
 /// creation, out of this plan's scope).
@@ -132,7 +132,7 @@ pub fn resolved_env_for_run(
 /// plan 03-24's current classification contract (Task 2) — a broken or stale install refuses the
 /// spawn here rather than producing a session whose destructive commands nothing intercepts. The
 /// `.context(...)`
-/// string below is what `agent_run_start` turns into `Err(String)` and what
+/// string below is what `session_start` turns into `Err(String)` and what
 /// `LaunchSheet.tsx`'s existing `handleSubmit` catch renders in the launch sheet's error slot — the
 /// one sentence a human actually reads when a session cannot be protected.
 pub fn merge_shim_env_for_run(
@@ -162,7 +162,7 @@ pub struct SidecarHandle {
     pending_acks:
         Mutex<HashMap<String, std::sync::mpsc::Sender<Result<serde_json::Value, String>>>>,
     /// Maps a `permission_requests.id` (the DATABASE row id — the only id the board/renderer
-    /// ever sees or names) to the `(run_id, mcp_request_id)` pair `agent_run_answer_permission`
+    /// ever sees or names) to the `(run_id, mcp_request_id)` pair `session_answer_permission`
     /// needs to relay a decision back to the SPECIFIC held MCP tool call the sidecar's
     /// permission server is holding open. The two ids are deliberately distinct
     /// (`permission_request.rs`'s own doc comment on the sidecar side) — this map is their only
@@ -271,7 +271,7 @@ impl SidecarHandle {
     /// spawns against the SAME repository can begin within `SPAWN_FLOOR_MS` of each other — the
     /// gate is unbypassable from the command layer precisely because there is no other way to
     /// reach the sidecar's stdin for a spawn request. Callers MUST invoke this only after their
-    /// own database connection has already been dropped (`agent_run_start`'s own comment on its
+    /// own database connection has already been dropped (`session_start`'s own comment on its
     /// call site names why): the floor's sleep must never run while holding the SQLite mutex
     /// (T-03-04-05).
     pub fn send_spawn_request(&self, repo_path: &str, request_json: &str) -> anyhow::Result<()> {
@@ -280,12 +280,12 @@ impl SidecarHandle {
     }
 
     /// Send an `interrupt` request for `run_id` over the sidecar's stdin and block until its
-    /// acknowledgement arrives (D-35). Since plan 02-11 (CR-04), `agent_run_stop` no longer
+    /// acknowledgement arrives (D-35). Since plan 02-11 (CR-04), `session_stop` no longer
     /// gates its terminal write on this call: the interrupt is still sent and this call still
     /// waits on it, but its outcome can only widen the command's returned `sidecar_warning` — it
     /// can never delay or prevent the domain write that records the run's terminal status. The
-    /// request `id` is `run_id` itself, matching `agent_run_start`'s own convention
-    /// (`commands/agent_run.rs`).
+    /// request `id` is `run_id` itself, matching `session_start`'s own convention
+    /// (`commands/session.rs`).
     pub fn interrupt_run(&self, run_id: &str) -> anyhow::Result<()> {
         let (tx, rx) = std::sync::mpsc::channel::<Result<serde_json::Value, String>>();
         {
@@ -620,7 +620,7 @@ fn emit_persistence_failure_notice(app: &AppHandle, run_id: &str, detail: &str) 
 /// D-53 (plan 03-13): apply one `git_lock_exhausted` notice event to the database — resolves the
 /// seeded SYSTEM actor server-side (`flywheel_core::domain::actor::system_actor`, per
 /// `03-UI-SPEC.md`'s "Git lock-exhaustion entry") and calls
-/// `flywheel_core::domain::agent_run::record_lock_exhaustion`. Mirrors `persist_event_line`'s own
+/// `flywheel_core::domain::session::record_lock_exhaustion`. Mirrors `persist_event_line`'s own
 /// discipline: a failure here is a logged value, never a panic and never an early return that
 /// abandons the shared reader loop (CR-03) — one run's failed exhaustion write can never silence
 /// every other run's feed.
@@ -644,7 +644,7 @@ fn handle_inbound_git_lock_exhausted(app: &AppHandle, event: &serde_json::Value)
     let result = flywheel_core::domain::actor::system_actor(&conn)
         .context("failed to resolve the seeded system actor")
         .and_then(|actor| {
-            flywheel_core::domain::agent_run::record_lock_exhaustion(
+            flywheel_core::domain::session::record_lock_exhaustion(
                 &mut conn,
                 run_id,
                 repository,
@@ -658,7 +658,7 @@ fn handle_inbound_git_lock_exhausted(app: &AppHandle, event: &serde_json::Value)
 
     match result {
         Ok(()) => {
-            crate::commands::emit_board_changed(app, project_id.as_deref(), "agent_run", Some(run_id));
+            crate::commands::emit_board_changed(app, project_id.as_deref(), "session", Some(run_id));
         }
         Err(err) => {
             eprintln!("failed to record a git lock exhaustion for run {run_id}: {err:#}");
@@ -1110,7 +1110,7 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                             if event.get("type").and_then(|v| v.as_str())
                                 == Some("permission_request")
                             {
-                                crate::commands::agent_run::handle_inbound_permission_request(
+                                crate::commands::session::handle_inbound_permission_request(
                                     &app_for_reader,
                                     &event,
                                 );
@@ -1126,7 +1126,7 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                             // watching.
                             if event.get("type").and_then(|v| v.as_str()) == Some("session_closed")
                             {
-                                crate::commands::agent_run::handle_inbound_session_closed(
+                                crate::commands::session::handle_inbound_session_closed(
                                     &app_for_reader,
                                     &event,
                                 );

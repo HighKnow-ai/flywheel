@@ -3,7 +3,7 @@
  * (02-UI-SPEC.md Discretion #6): the `feed` variant inline in the session transcript
  * (`SessionSurface.tsx`, plan 02-06 Task 2) and the `compact` variant inside the 480px item detail
  * panel (`ItemDetailPanel.tsx`, same Story). Both instances read the SAME
- * `usePendingPermissionRequests(agentRunId)` query (`board/useBoardQuery.ts`) and answer through
+ * `usePendingPermissionRequests(sessionId)` query (`board/useBoardQuery.ts`) and answer through
  * the same `answerPermissionRequest` mutation, so answering in either place resolves both within
  * one pushed-delta cycle (E3's `partial` consideration) — this component itself is presentational:
  * it renders whatever pending set its caller passes and reports back through `onAnswer`.

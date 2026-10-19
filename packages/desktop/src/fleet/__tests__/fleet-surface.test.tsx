@@ -7,7 +7,7 @@
  * - A run with no Story is still a row (an authoring run, a planning run, a run with no subject).
  * - The empty state renders its copy, no band header and a zero count; one run renders one header.
  * - The "Fleet" open path: the store keeps the fleet open under a session, so popping the session
- *   (`setActiveAgentRunId(null)`) lands back on the fleet, and `App.tsx` checks the fleet branch
+ *   (`setActiveSessionId(null)`) lands back on the fleet, and `App.tsx` checks the fleet branch
  *   BELOW the session branch.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,9 +32,9 @@ vi.mock("../../adapters/tauri", async () => {
     subscribeBoardChanged: () => Promise.resolve(() => {}),
     subscribeAgentEvent: () => Promise.resolve(() => {}),
     // The session surface's own reads, for the shared-vocabulary test below: an empty feed.
-    agentRunLogWindow: (_agentRunId: string, offset: number, limit: number) =>
+    sessionLogWindow: (_sessionId: string, offset: number, limit: number) =>
       Promise.resolve({ entries: [], offset, limit, total: 0 }),
-    agentRunRawWindow: (_agentRunId: string, offset: number, limit: number) =>
+    sessionRawWindow: (_sessionId: string, offset: number, limit: number) =>
       Promise.resolve({ entries: [], offset, limit, total: 0 }),
     pendingPermissionRequests: () => Promise.resolve([]),
   };
@@ -42,7 +42,7 @@ vi.mock("../../adapters/tauri", async () => {
 
 function row(overrides: Partial<FleetRowDto>): FleetRowDto {
   return {
-    agentRunId: "run-1",
+    sessionId: "run-1",
     projectId: "proj-1",
     projectName: "Alpha",
     projectKeyPrefix: "ALP",
@@ -91,9 +91,9 @@ describe("FleetSurface bands", () => {
   it("renders the three band headers in the fixed order", async () => {
     fleetListMock.mockResolvedValue(
       list([
-        row({ agentRunId: "r-blocked", fleetState: "blocked", runStatus: "blocked" }),
-        row({ agentRunId: "r-running", fleetState: "running" }),
-        row({ agentRunId: "r-failed", fleetState: "failed", runStatus: "failed", endedAt: new Date().toISOString() }),
+        row({ sessionId: "r-blocked", fleetState: "blocked", runStatus: "blocked" }),
+        row({ sessionId: "r-running", fleetState: "running" }),
+        row({ sessionId: "r-failed", fleetState: "failed", runStatus: "failed", endedAt: new Date().toISOString() }),
       ]),
     );
     renderFleet();
@@ -108,7 +108,7 @@ describe("FleetSurface bands", () => {
       list(
         states.map((state, i) =>
           row({
-            agentRunId: `r-${state}`,
+            sessionId: `r-${state}`,
             storyKey: `ALP-${i + 1}`,
             fleetState: state,
             runStatus: state === "awaiting_review" ? "completed" : state,
@@ -133,8 +133,8 @@ describe("FleetSurface bands", () => {
   it("puts interrupted under DONE / FAILED in the quiet class, and abandoned under NEEDS YOU in needs-you", async () => {
     fleetListMock.mockResolvedValue(
       list([
-        row({ agentRunId: "r-int", fleetState: "interrupted", runStatus: "interrupted", endedAt: new Date().toISOString() }),
-        row({ agentRunId: "r-ab", fleetState: "abandoned", runStatus: "abandoned" }),
+        row({ sessionId: "r-int", fleetState: "interrupted", runStatus: "interrupted", endedAt: new Date().toISOString() }),
+        row({ sessionId: "r-ab", fleetState: "abandoned", runStatus: "abandoned" }),
       ]),
     );
     renderFleet();
@@ -161,7 +161,7 @@ describe("FleetSurface bands", () => {
     fleetListMock.mockResolvedValue(
       list(
         states.map((state, i) =>
-          row({ agentRunId: `r-${state}`, storyKey: `ALP-${i + 1}`, fleetState: state, runStatus: state, endedAt: new Date().toISOString() }),
+          row({ sessionId: `r-${state}`, storyKey: `ALP-${i + 1}`, fleetState: state, runStatus: state, endedAt: new Date().toISOString() }),
         ),
       ),
     );
@@ -178,9 +178,9 @@ describe("FleetSurface bands", () => {
   it("shows the project as a column on every row and never groups by it", async () => {
     fleetListMock.mockResolvedValue(
       list([
-        row({ agentRunId: "a", projectName: "Alpha", startedAt: "2026-01-01T01:00:00Z" }),
-        row({ agentRunId: "b", projectName: "Bravo", startedAt: "2026-01-01T02:00:00Z" }),
-        row({ agentRunId: "c", projectName: "Alpha", startedAt: "2026-01-01T03:00:00Z" }),
+        row({ sessionId: "a", projectName: "Alpha", startedAt: "2026-01-01T01:00:00Z" }),
+        row({ sessionId: "b", projectName: "Bravo", startedAt: "2026-01-01T02:00:00Z" }),
+        row({ sessionId: "c", projectName: "Alpha", startedAt: "2026-01-01T03:00:00Z" }),
       ]),
     );
     renderFleet();
@@ -213,9 +213,9 @@ describe("FleetSurface header and empty state", () => {
   it("counts the agents and how many need the user", async () => {
     fleetListMock.mockResolvedValue(
       list([
-        row({ agentRunId: "a", fleetState: "blocked", runStatus: "blocked" }),
-        row({ agentRunId: "b", fleetState: "awaiting_review", runStatus: "completed" }),
-        row({ agentRunId: "c", fleetState: "running" }),
+        row({ sessionId: "a", fleetState: "blocked", runStatus: "blocked" }),
+        row({ sessionId: "b", fleetState: "awaiting_review", runStatus: "completed" }),
+        row({ sessionId: "c", fleetState: "running" }),
       ]),
     );
     renderFleet();
@@ -226,10 +226,10 @@ describe("FleetSurface header and empty state", () => {
 describe("the fleet opens under the session", () => {
   it("keeps the fleet open when a session is opened and then closed", () => {
     useUiStore.getState().setFleetSurface({ view: "fleet" });
-    useUiStore.getState().setActiveAgentRunId("run-1", "story-1");
+    useUiStore.getState().setActiveSessionId("run-1", "story-1");
     expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
-    useUiStore.getState().setActiveAgentRunId(null);
-    expect(useUiStore.getState().activeAgentRunId).toBeNull();
+    useUiStore.getState().setActiveSessionId(null);
+    expect(useUiStore.getState().activeSessionId).toBeNull();
     expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
   });
 
@@ -280,7 +280,7 @@ describe("the vocabulary", () => {
 
 describe("one vocabulary across the fleet and the session surface", () => {
   it("renders an abandoned run's word from the same map on both surfaces", async () => {
-    fleetListMock.mockResolvedValue(list([row({ agentRunId: "r-ab", fleetState: "abandoned", runStatus: "abandoned" })]));
+    fleetListMock.mockResolvedValue(list([row({ sessionId: "r-ab", fleetState: "abandoned", runStatus: "abandoned" })]));
     const fleet = renderFleet();
     const fleetRow = await waitFor(() => {
       const el = document.querySelector('[data-fleet-state="abandoned"]');
@@ -293,7 +293,7 @@ describe("one vocabulary across the fleet and the session surface", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="r-ab" storyId="story-1" initialStatus="abandoned" onBack={() => {}} />
+        <SessionSurface sessionId="r-ab" storyId="story-1" initialStatus="abandoned" onBack={() => {}} />
       </QueryClientProvider>,
     );
     const sessionWord = (await screen.findByText(RUN_STATUS_LABELS.abandoned)).textContent;
@@ -305,7 +305,7 @@ describe("one vocabulary across the fleet and the session surface", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="r-failed" storyId="story-1" initialStatus="failed" onBack={() => {}} />
+        <SessionSurface sessionId="r-failed" storyId="story-1" initialStatus="failed" onBack={() => {}} />
       </QueryClientProvider>,
     );
     expect(await screen.findByText("Failed")).toBeInTheDocument();
