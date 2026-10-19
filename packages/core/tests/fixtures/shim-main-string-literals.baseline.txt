@@ -10,6 +10,7 @@
 # never hand-listed.
  
 --
+--check-push-approval
 --classify-command
 --classify-invocation
 --gate-push
@@ -41,6 +42,8 @@ PATH
 PATH=
 alias
 allow
+approval
+approved
 at
 attempt
 attempts
@@ -76,14 +79,18 @@ git_retry
 hash
 input
 invokedBareName
+issueApproval
 kind
 lock_exhausted
 max
 namesGatedProgram
 npm
 program
+push_approval_check
+push_approval_revoke
 repository
 requestId
+revoked
 rm
 runId
 safe

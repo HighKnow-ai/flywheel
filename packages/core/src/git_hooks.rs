@@ -31,6 +31,13 @@ pub const PRE_PUSH_MARKER: &str = "flywheel-pre-push-gate";
 /// [`install_commit_msg_hook`]/[`uninstall_commit_msg_hook`].
 pub const COMMIT_MSG_MARKER: &str = "flywheel-commit-msg-trailer";
 
+/// Issue #81: the variable through which the shim hands the `git` child it spawns the approval the
+/// developer just gave for that one invocation. The `pre-push` hook passes it back to the
+/// permission socket (`flywheel-shim --check-push-approval`) and skips its own prompts only when
+/// the socket's server still holds it on record. The shim sets it on that one child and never
+/// forwards an inherited value, and revokes it once the child exits.
+pub const PUSH_APPROVAL_ENV: &str = "FLYWHEEL_PUSH_APPROVAL";
+
 /// The commit-msg trailer key naming the originating Story (D-125/D-126, LINK-03). The single
 /// declaration both the writer in this file and plan 07-05's reader import — there is no second
 /// copy of this literal anywhere in the workspace.
@@ -81,6 +88,18 @@ case "$PWD" in
   "$FLYWHEEL_WORKTREE_ROOT"/*) ;;
   *) exit 0 ;;
 esac
+
+# One prompt per Gated action (issue #81). The shim already asked the developer about this very
+# push and handed git the approval it was given; the permission socket's server holds that
+# approval on record until the shim's git invocation exits. When it checks out, this push was
+# approved once already, so the hook does not ask again. A forged, spent or absent value falls
+# through to the hook's own checks below.
+if [ -n "${approval_env}" ] && [ -n "$FLYWHEEL_PERMISSION_SOCKET" ] && [ -x "$FLYWHEEL_SHIM_BIN" ]; then
+  if "$FLYWHEEL_SHIM_BIN" --check-push-approval; then
+    while read -r _; do :; done
+    exit 0
+  fi
+fi
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   # Branch deletion (category: branch-deletion): the local object name is all zeroes. A pattern
@@ -145,6 +164,7 @@ done
 exit 0
 "#,
         marker = PRE_PUSH_MARKER,
+        approval_env = PUSH_APPROVAL_ENV,
         real_git = shell_quote(real_git),
         shim_bin = shell_quote(shim_bin),
         worktree_root = shell_quote(worktree_root),
