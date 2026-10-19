@@ -53,11 +53,11 @@ function AppShell() {
   const setCurrentProjectId = useUiStore((state) => state.setCurrentProjectId);
   // D-31: the live session surface, pushed into from a Story and popped back out of — the board
   // stays the board (this state is `null` whenever no session is being watched).
-  const activeAgentRunId = useUiStore((state) => state.activeAgentRunId);
-  const activeAgentRunStoryId = useUiStore((state) => state.activeAgentRunStoryId);
-  const activeAgentRunInitialLogOffset = useUiStore((state) => state.activeAgentRunInitialLogOffset);
-  const activeAgentRunInitialStatus = useUiStore((state) => state.activeAgentRunInitialStatus);
-  const setActiveAgentRunId = useUiStore((state) => state.setActiveAgentRunId);
+  const activeSessionId = useUiStore((state) => state.activeSessionId);
+  const activeSessionStoryId = useUiStore((state) => state.activeSessionStoryId);
+  const activeSessionInitialLogOffset = useUiStore((state) => state.activeSessionInitialLogOffset);
+  const activeSessionInitialStatus = useUiStore((state) => state.activeSessionInitialStatus);
+  const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
   // Phase 10 plan 10-01 (D-163): the fleet surface — opened from the project rail's Fleet row, the
   // global `open-fleet` binding, the palette and the native menu.
   const fleetSurface = useUiStore((state) => state.fleetSurface);
@@ -189,7 +189,7 @@ function AppShell() {
   // field; the string ids use truthiness, exactly as the conditional this replaced did.
   const surface = activeSurface({
     settingsOpen,
-    sessionOpen: Boolean(activeAgentRunId),
+    sessionOpen: Boolean(activeSessionId),
     fleetOpen: fleetSurface !== null,
     worktreeInventoryOpen,
     projectUnreachable: project.status === "unreachable",
@@ -200,14 +200,14 @@ function AppShell() {
         // D-39: same "pushed into, popped back out of" shell as the session surface.
         return <SettingsSurface onBack={() => setSettingsOpen(false)} />;
       case "session":
-        if (!activeAgentRunId) return null;
+        if (!activeSessionId) return null;
         return (
           <SessionSurface
-            agentRunId={activeAgentRunId}
-            storyId={activeAgentRunStoryId}
-            initialFeedOffset={activeAgentRunInitialLogOffset}
-            initialStatus={activeAgentRunInitialStatus}
-            onBack={() => setActiveAgentRunId(null)}
+            sessionId={activeSessionId}
+            storyId={activeSessionStoryId}
+            initialFeedOffset={activeSessionInitialLogOffset}
+            initialStatus={activeSessionInitialStatus}
+            onBack={() => setActiveSessionId(null)}
           />
         );
       case "fleet":
@@ -249,10 +249,10 @@ function AppShell() {
       <LaunchSheet
         storyId={launchSheetStoryId}
         onClose={() => setLaunchSheetStoryId(null)}
-        onStarted={(agentRunId) => {
+        onStarted={(sessionId) => {
           // `launchSheetStoryId` is captured in this closure at its render-time value, still the
           // Story this run just started for — read BEFORE it is cleared below.
-          setActiveAgentRunId(agentRunId, launchSheetStoryId);
+          setActiveSessionId(sessionId, launchSheetStoryId);
           setLaunchSheetStoryId(null);
         }}
       />

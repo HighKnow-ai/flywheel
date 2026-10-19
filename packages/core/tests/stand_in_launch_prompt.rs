@@ -5,7 +5,7 @@
 mod common;
 
 use core::domain::acceptance_criterion::create_criterion;
-use core::domain::agent_run::stand_in_launch_prompt;
+use core::domain::session::stand_in_launch_prompt;
 
 use common::{new_story, seeded_project};
 

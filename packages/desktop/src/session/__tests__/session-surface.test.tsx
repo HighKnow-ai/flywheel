@@ -1,6 +1,6 @@
 /**
  * Behavior under test:
- * - Plan 02-01 Task 1: a rendered row exists for every event a stubbed `agent_run_log_window`
+ * - Plan 02-01 Task 1: a rendered row exists for every event a stubbed `session_log_window`
  *   read returns.
  * - Plan 02-02 Task 3: the Stop control's three-state contract.
  * - Plan 02-06 Task 2: the permission-request card's feed mount.
@@ -40,10 +40,10 @@ vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
   return {
     ...actual,
-    agentRunLogWindow: (agentRunId: string, offset: number, limit: number) =>
-      invokeCommandMock("agent_run_log_window", { agentRunId, offset, limit }),
-    agentRunRawWindow: (agentRunId: string, offset: number, limit: number) =>
-      invokeCommandMock("agent_run_raw_window", { agentRunId, offset, limit }),
+    sessionLogWindow: (sessionId: string, offset: number, limit: number) =>
+      invokeCommandMock("session_log_window", { sessionId, offset, limit }),
+    sessionRawWindow: (sessionId: string, offset: number, limit: number) =>
+      invokeCommandMock("session_raw_window", { sessionId, offset, limit }),
     subscribeAgentEvent: (handler: (event: Record<string, unknown>) => void) => {
       capturedAgentEventHandler = handler;
       return Promise.resolve(() => {
@@ -51,16 +51,16 @@ vi.mock("../../adapters/tauri", async () => {
       });
     },
     subscribeBoardChanged: () => Promise.resolve(() => {}),
-    // Default: an AgentRunStopResult with no warning, so every pre-existing test in this file
+    // Default: an SessionStopResult with no warning, so every pre-existing test in this file
     // (none of which assert on the resolved value) keeps working unchanged.
-    stopAgentRun: (agentRunId: string) =>
-      invokeCommandMock("agent_run_stop", { agentRunId }).then(
+    stopSession: (sessionId: string) =>
+      invokeCommandMock("session_stop", { sessionId }).then(
         (result: unknown) => result ?? { status: "interrupted", sidecarWarning: null },
       ),
-    // Discard's own wrapper (plan 04-13) — mirrors `stopAgentRun`'s mock shape exactly, routed
+    // Discard's own wrapper (plan 04-13) — mirrors `stopSession`'s mock shape exactly, routed
     // through the SAME `invokeCommandMock`, under its own command name.
-    discardSession: (agentRunId: string) =>
-      invokeCommandMock("agent_run_discard", { agentRunId }).then(
+    discardSession: (sessionId: string) =>
+      invokeCommandMock("session_discard", { sessionId }).then(
         (result: unknown) => result ?? { status: "interrupted", sidecarWarning: null },
       ),
     // The permission-request card's feed mount (plan 02-06 Task 2) — no pending requests by
@@ -73,7 +73,7 @@ vi.mock("../../adapters/tauri", async () => {
 });
 
 /** A `LogWindowDto`-shaped stub response (plan 02-07 Task 1) — mirrors what
- * `commands/agent_run.rs`'s real `agent_run_log_window` returns. */
+ * `commands/session.rs`'s real `session_log_window` returns. */
 function windowFor(events: Record<string, unknown>[], offset: number, limit: number) {
   return {
     entries: events.slice(offset, offset + limit),
@@ -85,7 +85,7 @@ function windowFor(events: Record<string, unknown>[], offset: number, limit: num
 
 function mockWindowReads(getEvents: () => Record<string, unknown>[]) {
   invokeCommandMock.mockImplementation((command: string, args: { offset: number; limit: number }) => {
-    if (command === "agent_run_log_window") {
+    if (command === "session_log_window") {
       return Promise.resolve(windowFor(getEvents(), args.offset, args.limit));
     }
     return Promise.resolve(undefined);
@@ -93,7 +93,7 @@ function mockWindowReads(getEvents: () => Record<string, unknown>[]) {
 }
 
 /** A `RawLogWindowDto`-shaped stub response (plan 02-07 Task 1) — mirrors what
- * `commands/agent_run.rs`'s real `agent_run_raw_window` returns. */
+ * `commands/session.rs`'s real `session_raw_window` returns. */
 function rawWindowFor(lines: string[], offset: number, limit: number) {
   return {
     lines: lines.slice(offset, offset + limit).map((text, i) => ({ line: offset + i, text })),
@@ -103,15 +103,15 @@ function rawWindowFor(lines: string[], offset: number, limit: number) {
   };
 }
 
-/** Stubs BOTH `agent_run_log_window` and `agent_run_raw_window` from one call — the raw view and
+/** Stubs BOTH `session_log_window` and `session_raw_window` from one call — the raw view and
  * the structured feed are independent reads (plan 02-07 Task 3), so a test exercising the toggle
  * needs both stubbed at once. */
 function mockCombinedReads(opts: { events?: Record<string, unknown>[]; rawLines?: string[] }) {
   invokeCommandMock.mockImplementation((command: string, args: { offset: number; limit: number }) => {
-    if (command === "agent_run_log_window") {
+    if (command === "session_log_window") {
       return Promise.resolve(windowFor(opts.events ?? [], args.offset, args.limit));
     }
-    if (command === "agent_run_raw_window") {
+    if (command === "session_raw_window") {
       return Promise.resolve(rawWindowFor(opts.rawLines ?? [], args.offset, args.limit));
     }
     return Promise.resolve(undefined);
@@ -202,7 +202,7 @@ function readSlotGeometry(slot: Element): { height: number; translateY: number }
 function renderSurface(queryClient = new QueryClient()) {
   return render(
     <QueryClientProvider client={queryClient}>
-      <SessionSurface agentRunId="run-1" onBack={() => {}} />
+      <SessionSurface sessionId="run-1" onBack={() => {}} />
     </QueryClientProvider>,
   );
 }
@@ -249,7 +249,7 @@ describe("SessionSurface", () => {
     const onBack = vi.fn();
     render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="run-1" onBack={onBack} />
+        <SessionSurface sessionId="run-1" onBack={onBack} />
       </QueryClientProvider>,
     );
 
@@ -265,7 +265,7 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
     const queryClient = new QueryClient();
     return render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus={status} />
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus={status} />
       </QueryClientProvider>,
     );
   }
@@ -284,14 +284,14 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
 
   it("reads Stopping… and is disabled immediately after activation", async () => {
     invokeCommandMock.mockImplementation((command: string) => {
-      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
-      if (command === "agent_run_stop") return new Promise(() => {}); // never resolves within the test
+      if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "session_stop") return new Promise(() => {}); // never resolves within the test
       return Promise.resolve(undefined);
     });
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="running" />
       </QueryClientProvider>,
     );
 
@@ -304,8 +304,8 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
 
   it("leaves the stopping state from the command result when no session_closed push arrives", async () => {
     invokeCommandMock.mockImplementation((command: string) => {
-      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
-      if (command === "agent_run_stop") {
+      if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "session_stop") {
         return Promise.resolve({
           status: "interrupted",
           sidecarWarning:
@@ -317,7 +317,7 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="running" />
       </QueryClientProvider>,
     );
 
@@ -338,14 +338,14 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
 
   it("renders no warning notice when the sidecar confirms the interrupt", async () => {
     invokeCommandMock.mockImplementation((command: string) => {
-      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
-      if (command === "agent_run_stop") return Promise.resolve({ status: "interrupted", sidecarWarning: null });
+      if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "session_stop") return Promise.resolve({ status: "interrupted", sidecarWarning: null });
       return Promise.resolve(undefined);
     });
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="running" />
       </QueryClientProvider>,
     );
 
@@ -361,7 +361,7 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="running" />
       </QueryClientProvider>,
     );
 
@@ -395,16 +395,16 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
    * whose first argument is the stop command name rather than asserted via a bare
    * `toHaveBeenCalledTimes` on the shared mock.
    */
-  it("clicking Stop three times in one synchronous tick sends exactly one agent_run_stop command", async () => {
+  it("clicking Stop three times in one synchronous tick sends exactly one session_stop command", async () => {
     invokeCommandMock.mockImplementation((command: string) => {
-      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
-      if (command === "agent_run_stop") return new Promise(() => {}); // never resolves within the test
+      if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "session_stop") return new Promise(() => {}); // never resolves within the test
       return Promise.resolve(undefined);
     });
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="running" />
       </QueryClientProvider>,
     );
 
@@ -414,16 +414,16 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
     stopButton.click();
 
     await waitFor(() => {
-      const stopCalls = invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "agent_run_stop");
+      const stopCalls = invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "session_stop");
       expect(stopCalls).toHaveLength(1);
     });
   });
 
-  it("re-enables Stop after a rejected stop, and a further click sends a second agent_run_stop command", async () => {
+  it("re-enables Stop after a rejected stop, and a further click sends a second session_stop command", async () => {
     let stopCallCount = 0;
     invokeCommandMock.mockImplementation((command: string) => {
-      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
-      if (command === "agent_run_stop") {
+      if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "session_stop") {
         stopCallCount += 1;
         return stopCallCount === 1
           ? Promise.reject(new Error("ipc failure"))
@@ -434,7 +434,7 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="running" />
       </QueryClientProvider>,
     );
 
@@ -446,7 +446,7 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
     screen.getByRole("button", { name: "Stop" }).click();
 
     await waitFor(() => {
-      const stopCalls = invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "agent_run_stop");
+      const stopCalls = invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "session_stop");
       expect(stopCalls).toHaveLength(2);
     });
   });
@@ -455,7 +455,7 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
 describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () => {
   // `impl`, when supplied, is installed INSTEAD OF the plain window-only mock below — never
   // BEFORE it. `mockWindowReads` itself calls `invokeCommandMock.mockImplementation(...)`, so
-  // installing a caller's own `agent_run_discard` behavior before calling this helper would be
+  // installing a caller's own `session_discard` behavior before calling this helper would be
   // silently overwritten the instant this helper's own default runs.
   function renderDiscard(
     status: "running" | "blocked" | "completed" | "failed" | "interrupted" = "running",
@@ -469,7 +469,7 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
     const queryClient = new QueryClient();
     return render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="run-1" storyId="story-1" onBack={() => {}} initialStatus={status} />
+        <SessionSurface sessionId="run-1" storyId="story-1" onBack={() => {}} initialStatus={status} />
       </QueryClientProvider>,
     );
   }
@@ -490,12 +490,12 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
   });
 
   it(
-    "clicking Discard twice in one synchronous tick sends exactly one agent_run_discard command, " +
+    "clicking Discard twice in one synchronous tick sends exactly one session_discard command, " +
       "with no confirmation dialog appearing in between",
     async () => {
       renderDiscard("running", (command) => {
-        if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
-        if (command === "agent_run_discard") return new Promise(() => {}); // never resolves within the test
+        if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
+        if (command === "session_discard") return new Promise(() => {}); // never resolves within the test
         return Promise.resolve(undefined);
       });
 
@@ -510,7 +510,7 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
 
       await waitFor(() => {
         const discardCalls = invokeCommandMock.mock.calls.filter(
-          (call: unknown[]) => call[0] === "agent_run_discard",
+          (call: unknown[]) => call[0] === "session_discard",
         );
         expect(discardCalls).toHaveLength(1);
       });
@@ -519,8 +519,8 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
 
   it("reads Discarding… and disables both Discard and Stop immediately after activation", async () => {
     renderDiscard("running", (command) => {
-      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
-      if (command === "agent_run_discard") return new Promise(() => {}); // never resolves within the test
+      if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "session_discard") return new Promise(() => {}); // never resolves within the test
       return Promise.resolve(undefined);
     });
 
@@ -534,8 +534,8 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
 
   it("opens the launch sheet for this session's own Story once the discard resolves", async () => {
     renderDiscard("running", (command) => {
-      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
-      if (command === "agent_run_discard") {
+      if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "session_discard") {
         return Promise.resolve({ status: "interrupted", sidecarWarning: null });
       }
       return Promise.resolve(undefined);
@@ -551,8 +551,8 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
 
   it("renders the muted warning notice and never opens the launch sheet when the discard call is rejected", async () => {
     renderDiscard("running", (command) => {
-      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], 0, 50));
-      if (command === "agent_run_discard") return Promise.reject(new Error("ipc failure"));
+      if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "session_discard") return Promise.reject(new Error("ipc failure"));
       return Promise.resolve(undefined);
     });
 
@@ -615,7 +615,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} />
+        <SessionSurface sessionId="run-1" onBack={() => {}} />
       </QueryClientProvider>,
     );
 
@@ -668,7 +668,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} />
+        <SessionSurface sessionId="run-1" onBack={() => {}} />
       </QueryClientProvider>,
     );
 
@@ -782,7 +782,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     // hook re-fetches the real tail window at offset 10.
     await waitFor(() =>
       expect(invokeCommandMock).toHaveBeenCalledWith(
-        "agent_run_log_window",
+        "session_log_window",
         expect.objectContaining({ offset: 10, limit: 50 }),
       ),
     );
@@ -795,7 +795,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
 
     await waitFor(() =>
       expect(invokeCommandMock).toHaveBeenCalledWith(
-        "agent_run_log_window",
+        "session_log_window",
         expect.objectContaining({ offset: 0, limit: 50 }),
       ),
     );
@@ -932,7 +932,7 @@ describe("SessionSurface raw view, status strip, and run-status badge (plan 02-0
       mockCombinedReads({});
       const { container, unmount } = render(
         <QueryClientProvider client={new QueryClient()}>
-          <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus={status} />
+          <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus={status} />
         </QueryClientProvider>,
       );
       expect(screen.getByText(label)).toBeInTheDocument();
@@ -945,7 +945,7 @@ describe("SessionSurface raw view, status strip, and run-status badge (plan 02-0
     mockCombinedReads({});
     const { container } = render(
       <QueryClientProvider client={new QueryClient()}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="running" />
       </QueryClientProvider>,
     );
     expect(container.querySelector(".agent-pulse")).not.toBeNull();
@@ -956,7 +956,7 @@ describe("SessionSurface raw view, status strip, and run-status badge (plan 02-0
     mockCombinedReads({});
     const { container } = render(
       <QueryClientProvider client={new QueryClient()}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="running" />
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="running" />
       </QueryClientProvider>,
     );
     expect(screen.getByText("Running")).toBeInTheDocument();
@@ -993,7 +993,7 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
     mockCombinedReads({ events: [makeToolCall(0, "Bash", { command: "npm test" })] });
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="failed" />
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="failed" />
       </QueryClientProvider>,
     );
     const ended = await screen.findByRole("button", { name: /Bash · npm test/ });
@@ -1021,7 +1021,7 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
     mockCombinedReads({});
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} initialStatus="completed" />
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="completed" />
       </QueryClientProvider>,
     );
     expect(await screen.findByText(/This run has ended\./)).toBeInTheDocument();
@@ -1040,12 +1040,12 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
 describe("the header names the Story the session serves (11-22, finish-review four-1)", () => {
   function renderHeader(props: { storyId?: string | null }, reads: Record<string, () => Promise<unknown>>) {
     invokeCommandMock.mockImplementation((command: string, args: { offset: number; limit: number }) => {
-      if (command === "agent_run_log_window") return Promise.resolve(windowFor([], args.offset, args.limit));
+      if (command === "session_log_window") return Promise.resolve(windowFor([], args.offset, args.limit));
       return reads[command]?.() ?? Promise.resolve(undefined);
     });
     render(
       <QueryClientProvider client={new QueryClient()}>
-        <SessionSurface agentRunId="run-1" onBack={() => {}} {...props} />
+        <SessionSurface sessionId="run-1" onBack={() => {}} {...props} />
       </QueryClientProvider>,
     );
   }

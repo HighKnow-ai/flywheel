@@ -134,7 +134,7 @@ fn worktree_summary_for_story_on_a_story_with_no_worktrees_row_returns_none() {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "No worktree story");
 
-        let summary = core::query::agent_runs::worktree_summary_for_story(&conn, &story.id)
+        let summary = core::query::sessions::worktree_summary_for_story(&conn, &story.id)
             .expect("worktree_summary_for_story should succeed");
         assert!(summary.is_none(), "a Story with no worktree row must resolve to None");
 

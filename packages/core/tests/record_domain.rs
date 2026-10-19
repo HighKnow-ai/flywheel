@@ -7,7 +7,7 @@ mod common;
 
 use core::domain::acceptance_criterion::create_criterion;
 use core::domain::adr_link::{adr_links_for_project, link_adr, AdrLinkTarget};
-use core::domain::agent_run::agent_actor_id;
+use core::domain::session::agent_actor_id;
 use core::domain::check::{current_result, record_check_run, set_check, CheckResult, CheckRunRecord};
 use core::domain::epic::{create_epic, epic_state, set_epic_state, update_epic, EpicSpec, EpicState};
 use core::domain::milestone::{

@@ -16,7 +16,7 @@ use common::with_scratch_worktree_root;
 
 use std::path::{Path, PathBuf};
 
-use core::domain::agent_run::start_agent_run;
+use core::domain::session::start_session;
 use core::domain::worktree::{ensure_worktree, remove_worktree_for_story};
 use core::query::events::activity_trail;
 use rusqlite::Connection;
@@ -182,9 +182,9 @@ fn starting_a_session_appends_its_started_event_and_no_state_event() {
         let (mut conn, human, project, _repo) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &human, "Session edge");
 
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &human).expect("start_agent_run");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &human).expect("start_session");
 
-        assert_eq!(events_of(&conn, &story.id, "agent_run.started").len(), 1);
+        assert_eq!(events_of(&conn, &story.id, "session.started").len(), 1);
         assert!(events_of(&conn, &story.id, "story.state_changed").is_empty());
         assert_eq!(state_of(&conn, &story.id), "shaping", "a session starting is not a state signal");
         assert!(!run.id.is_empty());

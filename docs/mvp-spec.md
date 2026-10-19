@@ -315,7 +315,7 @@ The sidebar shows each project's Needs-you count and the running sessions in eve
 
 ### Gates, UAT and tests
 
-- **Source-scanning gates kept:** `supervisor_cwd`, `handler_roster`, `board_changed_payload`, `no_agent_status_write`, `authority_human_only`, `app_exit_ordering`, `session_closed_call_site`, `termination_atomicity_call_site`, `agent_run_stop_ordering`, `runtime_context_call_sites`, `table_classification`.
+- **Source-scanning gates kept:** `supervisor_cwd`, `handler_roster`, `board_changed_payload`, `no_agent_status_write`, `authority_human_only`, `app_exit_ordering`, `session_closed_call_site`, `termination_atomicity_call_site`, `session_stop_ordering`, `runtime_context_call_sites`, `table_classification`.
 - **Gates deleted:** `spine_pin`, `pm_vocabulary_gate`, `estimate_absent`, `priority_is_opt_in`, `brand-rule`, `state-token-gate`, `board-changed-adoption`, the 6 unrun `*.browser.test.tsx` files, and the `?raw` text assertions in the TS finish/polish tests.
 - **Gate policy:** no new source-scanning gate unless it protects the core value (human-only acceptance, criteria anchored to Stories).
 - **UAT:**

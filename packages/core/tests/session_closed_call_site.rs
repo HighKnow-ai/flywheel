@@ -105,7 +105,7 @@ tauri::async_runtime::spawn(async move {
     while let Some(event) = rx.recv().await {
         let _ = app_for_reader.emit(\"agent:event\", &event);
         if event.get(\"type\").and_then(|v| v.as_str()) == Some(\"session_closed\") {
-            crate::commands::agent_run::handle_inbound_session_closed(&app_for_reader, &event);
+            crate::commands::session::handle_inbound_session_closed(&app_for_reader, &event);
         }
     }
 });
@@ -136,7 +136,7 @@ tauri::async_runtime::spawn(async move {
     while let Some(event) = rx.recv().await {
         let _ = app_for_reader.emit(\"agent:event\", &event);
         // if event.get(\"type\").and_then(|v| v.as_str()) == Some(\"session_closed\") {
-        //     crate::commands::agent_run::handle_inbound_session_closed(&app_for_reader, &event);
+        //     crate::commands::session::handle_inbound_session_closed(&app_for_reader, &event);
         // }
     }
 });
@@ -151,7 +151,7 @@ tauri::async_runtime::spawn(async move {
 tauri::async_runtime::spawn(async move {
     while let Some(event) = rx.recv().await {
         if event.get(\"type\").and_then(|v| v.as_str()) == Some(\"session_closed\") {
-            crate::commands::agent_run::handle_inbound_session_closed(&app_for_reader, &event);
+            crate::commands::session::handle_inbound_session_closed(&app_for_reader, &event);
         }
         let _ = app_for_reader.emit(\"agent:event\", &event);
     }

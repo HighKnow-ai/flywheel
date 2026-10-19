@@ -32,7 +32,7 @@ pub const FLEET_ROWS_MAX_LIMIT: usize = 200;
 /// `completed`, `failed`, `interrupted`, `abandoned`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FleetRow {
-    pub agent_run_id: String,
+    pub session_id: String,
     pub project_id: String,
     pub project_name: String,
     pub project_key_prefix: String,
@@ -66,7 +66,7 @@ pub struct FleetList {
 /// The fleet statement. The `ORDER BY` sits in an outer select so it can name the `fleet_state`
 /// and `blocked_since` aliases instead of restating the `CASE` and the correlated subselect.
 pub const FLEET_SQL: &str = "SELECT * FROM ( \
-    SELECT ar.id AS agent_run_id, ar.project_id AS project_id, p.name AS project_name, \
+    SELECT ar.id AS session_id, ar.project_id AS project_id, p.name AS project_name, \
         p.key_prefix AS project_key_prefix, p.status AS project_status, \
         ar.story_id AS story_id, s.key AS story_key, s.title AS story_title, s.state AS story_state, \
         ar.status AS run_status, \
@@ -98,7 +98,7 @@ pub const FLEET_SQL: &str = "SELECT * FROM ( \
             ELSE 5 \
         END ASC, \
         COALESCE(blocked_since, ended_at, started_at) ASC, \
-        agent_run_id ASC \
+        session_id ASC \
     LIMIT ?1";
 
 /// Every Story session across every registered project that belongs on the fleet, banded and
@@ -110,7 +110,7 @@ pub fn fleet_rows(conn: &Connection, limit: usize) -> anyhow::Result<FleetList> 
     let rows = stmt
         .query_map(params![limit], |row| {
             Ok(FleetRow {
-                agent_run_id: row.get(0)?,
+                session_id: row.get(0)?,
                 project_id: row.get(1)?,
                 project_name: row.get(2)?,
                 project_key_prefix: row.get(3)?,
@@ -149,7 +149,7 @@ pub struct BlockedQueueEntry {
     pub input_payload: Option<String>,
     pub created_at: String,
     pub destructive_category: Option<String>,
-    pub agent_run_id: String,
+    pub session_id: String,
     pub project_id: String,
     pub project_name: String,
     pub project_key_prefix: String,
@@ -192,7 +192,7 @@ pub fn blocked_queue(conn: &Connection, limit: usize) -> anyhow::Result<Vec<Bloc
                 blocked_since: created_at.clone(),
                 created_at,
                 destructive_category: row.get(4)?,
-                agent_run_id: row.get(5)?,
+                session_id: row.get(5)?,
                 project_id: row.get(6)?,
                 project_name: row.get(7)?,
                 project_key_prefix: row.get(8)?,

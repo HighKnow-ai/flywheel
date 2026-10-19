@@ -19,7 +19,7 @@ import { createPortal } from "react-dom";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { useQuery } from "@tanstack/react-query";
-import { startAgentRun, storyGet } from "../adapters/tauri";
+import { startSession, storyGet } from "../adapters/tauri";
 import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
 import "../session/session.css";
 
@@ -35,12 +35,12 @@ function launchSheetStoryQueryKey(storyId: string) {
 
 export interface LaunchSheetProps {
   /** The Story the sheet is open for, or `null` to render nothing (App.tsx-level mount pattern —
-   * mirrors `SessionSurface`'s own `activeAgentRunId === null` convention). */
+   * mirrors `SessionSurface`'s own `activeSessionId === null` convention). */
   storyId: string | null;
   onClose: () => void;
-  /** Called with the new run's id once `startAgentRun` resolves — the caller decides what
+  /** Called with the new run's id once `startSession` resolves — the caller decides what
    * "route to the session surface" means. */
-  onStarted: (agentRunId: string) => void;
+  onStarted: (sessionId: string) => void;
 }
 
 export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
@@ -88,7 +88,7 @@ export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
     startingRef.current = true;
     setStarting(true);
     setError(null);
-    startAgentRun(storyId as string, RUN_PERMISSION_MODE, instruction)
+    startSession(storyId as string, RUN_PERMISSION_MODE, instruction)
       .then((run) => onStarted(run.id))
       .catch((err: unknown) => {
         startingRef.current = false;

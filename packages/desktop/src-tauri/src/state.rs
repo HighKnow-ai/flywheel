@@ -16,13 +16,13 @@ pub struct AppState {
     pub db: Mutex<Connection>,
     pub sidecar: Option<SidecarHandle>,
     /// The launch-time classification's live-orphan list (plan 03-06, PROC-05, D-46) — populated
-    /// EXACTLY ONCE, in `main.rs`'s `.setup()` closure, from `flywheel_core::domain::agent_run::
-    /// reconcile_agent_runs`'s own return value, before any window is shown. `orphan_kill`
-    /// (`commands::agent_run`) drains entries out of it as the user resolves each one; nothing
+    /// EXACTLY ONCE, in `main.rs`'s `.setup()` closure, from `flywheel_core::domain::session::
+    /// reconcile_sessions`'s own return value, before any window is shown. `orphan_kill`
+    /// (`commands::session`) drains entries out of it as the user resolves each one; nothing
     /// else in this codebase ever repopulates it at runtime — a process orphaned DURING this
     /// session (rather than left over from a previous one) is covered by `RunEvent::Exit` and the
     /// per-session watchdog (plan 03-02), never by this field.
-    pub pending_orphans: Mutex<Vec<flywheel_core::domain::agent_run::LiveOrphan>>,
+    pub pending_orphans: Mutex<Vec<flywheel_core::domain::session::LiveOrphan>>,
     /// D-114's "open detail panel" half of the git-truth hot tier (Phase 7 plan 07-01,
     /// `scheduler.rs`): the renderer declares which Story it is focused on via
     /// `git_truth_focus_story`, and `None` means none. This is display-freshness

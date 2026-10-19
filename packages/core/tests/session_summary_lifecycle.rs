@@ -8,8 +8,8 @@ mod common;
 
 use common::with_scratch_worktree_root;
 
-use core::domain::agent_run::{
-    apply_session_closed, close_agent_run, start_agent_run, AgentRun, AgentRunStatus,
+use core::domain::session::{
+    apply_session_closed, close_session, start_session, Session, SessionStatus,
     SessionClosedOutcome,
 };
 use core::domain::project::Project;
@@ -24,12 +24,12 @@ use tempfile::TempDir;
 
 /// A minimal fixture: a project, one Story, and one started session — the shape
 /// [`create_summary`] needs (a session id), without each test re-deriving it.
-fn seeded_story_and_run() -> (Connection, String, Project, TempDir, Story, AgentRun) {
+fn seeded_story_and_run() -> (Connection, String, Project, TempDir, Story, Session) {
     let (mut conn, actor_id, project, repo_dir) = common::seeded_git_project();
     let story = common::new_story(&mut conn, &project.id, &actor_id, "Summary fixture");
     ensure_worktree(&mut conn, &story.id, &actor_id).expect("ensure_worktree should succeed");
-    let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-        .expect("start_agent_run should succeed");
+    let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+        .expect("start_session should succeed");
     (conn, actor_id, project, repo_dir, story, run)
 }
 
@@ -78,7 +78,7 @@ fn create_summary_resolves_the_story_and_the_actor_from_the_session_row() {
         let summary = create_summary(&mut conn, &run.id, "know this", "decided that")
             .expect("create_summary should succeed");
 
-        assert_eq!(summary.agent_run_id, run.id);
+        assert_eq!(summary.session_id, run.id);
         assert_eq!(summary.story_id, story.id, "the Story must come from the session row");
         assert_eq!(summary.created_by, run.actor_id, "the actor must be the session's own agent actor");
         assert_ne!(summary.created_by, human_actor_id);
@@ -265,7 +265,7 @@ fn apply_session_closed_interrupted_writes_a_stub_summary() {
             "reason": "interrupted",
         });
         let outcome = apply_session_closed(&mut conn, &event).expect("apply_session_closed should succeed");
-        assert_eq!(outcome, SessionClosedOutcome::Closed(AgentRunStatus::Interrupted));
+        assert_eq!(outcome, SessionClosedOutcome::Closed(SessionStatus::Interrupted));
 
         assert_eq!(
             summary_count(&conn, &run.id),
@@ -353,12 +353,12 @@ fn apply_session_closed_with_a_non_ulid_run_id_writes_no_summary() {
 }
 
 #[test]
-fn close_agent_run_still_works_directly_after_the_in_tx_refactor() {
+fn close_session_still_works_directly_after_the_in_tx_refactor() {
     with_scratch_worktree_root(|_| {
         let (mut conn, _actor_id, _project, _repo_dir, _story, run) = seeded_story_and_run();
 
-        close_agent_run(&mut conn, &run.id, AgentRunStatus::Completed, Some(0.01), Some(10), Some(2))
-            .expect("close_agent_run should still succeed after the refactor");
+        close_session(&mut conn, &run.id, SessionStatus::Completed, Some(0.01), Some(10), Some(2))
+            .expect("close_session should still succeed after the refactor");
 
         let (status, cost_usd): (String, Option<f64>) = conn
             .query_row(
@@ -370,9 +370,9 @@ fn close_agent_run_still_works_directly_after_the_in_tx_refactor() {
         assert_eq!(status, "completed");
         assert_eq!(cost_usd, Some(0.01));
 
-        // `close_agent_run` alone (its lower-level statement body, called directly rather than
+        // `close_session` alone (its lower-level statement body, called directly rather than
         // through `apply_session_closed`) must not synthesize a stub — that behavior belongs only
         // to `apply_session_closed`'s own call site (production's one caller).
-        assert_eq!(summary_count(&conn, &run.id), 0, "close_agent_run alone must not synthesize a summary");
+        assert_eq!(summary_count(&conn, &run.id), 0, "close_session alone must not synthesize a summary");
     });
 }

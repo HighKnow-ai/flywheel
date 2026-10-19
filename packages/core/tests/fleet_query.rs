@@ -9,7 +9,7 @@ mod common;
 
 use core::db::open_and_migrate;
 use core::domain::actor::local_human_actor_id;
-use core::domain::agent_run::{acknowledge_run, ACKNOWLEDGEABLE_STATUSES};
+use core::domain::session::{acknowledge_run, ACKNOWLEDGEABLE_STATUSES};
 use core::domain::project::{create_project, Project};
 use core::ids::new_id;
 use core::query::fleet::{blocked_queue, fleet_rows, FLEET_ROWS_MAX_LIMIT};
@@ -85,7 +85,7 @@ fn story(f: &mut Fixture, project_id: &str, title: &str, state: &str) -> String 
 }
 
 fn ids(rows: &core::query::fleet::FleetList) -> Vec<String> {
-    rows.rows.iter().map(|r| r.agent_run_id.clone()).collect()
+    rows.rows.iter().map(|r| r.session_id.clone()).collect()
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn a_completed_run_reads_awaiting_review_only_while_its_story_is_not_closed() {
     let closed_run = run(&closed, &mut f);
 
     let list = fleet_rows(&f.conn, 50).unwrap();
-    let state = |id: &str| list.rows.iter().find(|r| r.agent_run_id == id).unwrap().fleet_state.clone();
+    let state = |id: &str| list.rows.iter().find(|r| r.session_id == id).unwrap().fleet_state.clone();
     assert_eq!(state(&open_run), "awaiting_review");
     assert_eq!(state(&closed_run), "completed");
     // The run status column is untouched — the state is derived, not stored.
@@ -314,7 +314,7 @@ fn moving_a_story_to_merged_does_not_clear_its_row_it_re_reads_as_plain_complete
     let p = project(&mut f, "Alpha", "ALP");
     let t = story(&mut f, &p.id, "t", "in_review");
     let run = insert_run(&mut f, &p.id, &Run { story_id: Some(&t), status: "completed", started_at: "2026-01-01T01:00:00Z", ended_at: Some("2026-01-01T01:10:00Z"), ..Default::default() });
-    let state = |f: &Fixture| fleet_rows(&f.conn, 50).unwrap().rows.into_iter().find(|r| r.agent_run_id == run).map(|r| r.fleet_state);
+    let state = |f: &Fixture| fleet_rows(&f.conn, 50).unwrap().rows.into_iter().find(|r| r.session_id == run).map(|r| r.fleet_state);
     assert_eq!(state(&f).as_deref(), Some("awaiting_review"));
 
     f.conn.execute("UPDATE stories SET state = 'merged' WHERE id = ?1", params![t]).unwrap();
@@ -332,7 +332,7 @@ fn spend_projects_null_for_a_live_run_and_its_cost_for_a_failed_one() {
     let failed = insert_run(&mut f, &p.id, &Run { story_id: Some(&t2), status: "failed", started_at: "2026-01-01T01:00:00Z", ended_at: Some("2026-01-01T01:10:00Z"), cost: Some(0.42), ..Default::default() });
 
     let list = fleet_rows(&f.conn, 50).unwrap();
-    let cost = |id: &str| list.rows.iter().find(|r| r.agent_run_id == id).unwrap().cost_usd;
+    let cost = |id: &str| list.rows.iter().find(|r| r.session_id == id).unwrap().cost_usd;
     assert_eq!(cost(&live), None);
     assert_eq!(cost(&failed), Some(0.42));
 }
@@ -389,7 +389,7 @@ fn the_queue_spans_projects_and_carries_each_project_name() {
     assert_eq!((q[0].project_name.as_str(), q[0].request_id.as_str()), ("Alpha", rid("req-a").as_str()));
     assert_eq!((q[1].project_name.as_str(), q[1].request_id.as_str()), ("Beta", rid("req-b").as_str()));
     assert_eq!(q[0].tool_name, "Bash");
-    assert_eq!(q[0].agent_run_id, ra);
+    assert_eq!(q[0].session_id, ra);
 }
 
 #[test]

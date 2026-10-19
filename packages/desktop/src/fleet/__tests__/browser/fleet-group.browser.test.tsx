@@ -60,7 +60,7 @@ const line = (event: Record<string, unknown>) => JSON.stringify(event);
 
 function fleetRow(id: string, overrides: Partial<FleetRowDto> = {}): FleetRowDto {
   return {
-    agentRunId: id,
+    sessionId: id,
     projectId: "proj-1",
     projectName: "Alpha",
     projectKeyPrefix: "ALP",
@@ -303,7 +303,7 @@ describe.each(WIDTHS)("the fleet surface at %ipx", (width) => {
 const DISPOSITION_OF: Record<InventoryReason, WorktreeInventoryRowDto["disposition"]> = {
   merged: "reclaimable",
   merged: "reclaimable",
-  agent_running: "in_use",
+  sessionning: "in_use",
   blocked: "in_use",
   uncommitted_changes: "keep",
   project_unreachable: "keep",

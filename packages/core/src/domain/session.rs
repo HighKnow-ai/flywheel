@@ -1,5 +1,5 @@
-//! A Story's agent sessions — the `sessions` table (D-29, D-30, D-34, DATA-04): `start_agent_run`,
-//! `close_agent_run`, `apply_session_closed`, the Stop and abandon paths and the launch reconciler.
+//! A Story's agent sessions — the `sessions` table (D-29, D-30, D-34, DATA-04): `start_session`,
+//! `close_session`, `apply_session_closed`, the Stop and abandon paths and the launch reconciler.
 //! Every session belongs to exactly one Story and runs in that Story's worktree; it is always a
 //! fresh session, never `claude --resume`.
 //!
@@ -10,10 +10,10 @@
 //! `apply_session_closed` (G-02-4) is the terminal-event applier — the link between the sidecar's
 //! `session_closed` event and the session's row. It also owns the idempotency decision D-35's
 //! explicit-Stop path requires: a terminal event must never overwrite a status
-//! `interrupt_agent_run` already wrote, and must never append a second terminal event for the same
+//! `interrupt_session` already wrote, and must never append a second terminal event for the same
 //! session.
 //!
-//! The Rust names keep the `agent_run` spelling of the plumbing this module was kept from; the
+//! The Rust names keep the `session` spelling of the plumbing this module was kept from; the
 //! table they read and write is `sessions`.
 
 use anyhow::Context;
@@ -57,26 +57,26 @@ pub fn stand_in_launch_prompt(conn: &Connection, story_id: &str, instruction: &s
     Ok(out)
 }
 
-/// One `sessions` row, as read back immediately after [`start_agent_run`] commits.
+/// One `sessions` row, as read back immediately after [`start_session`] commits.
 #[derive(Debug, Clone, PartialEq)]
-pub struct AgentRun {
+pub struct Session {
     pub id: String,
     pub worktree_id: Option<String>,
     pub story_id: String,
     pub project_id: String,
     pub adapter: String,
     pub actor_id: String,
-    pub status: AgentRunStatus,
+    pub status: SessionStatus,
     pub external_session_id: Option<String>,
     pub permission_mode: String,
     pub log_path: String,
 }
 
 /// The Story a session works and that Story's Epic — the scope every session event carries.
-fn session_scope(tx: &Connection, agent_run_id: &str) -> anyhow::Result<Option<(String, String, String)>> {
+fn session_scope(tx: &Connection, session_id: &str) -> anyhow::Result<Option<(String, String, String)>> {
     tx.query_row(
         "SELECT r.project_id, r.story_id, s.epic_id FROM sessions r JOIN stories s ON s.id = r.story_id WHERE r.id = ?1",
-        params![agent_run_id],
+        params![session_id],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     )
     .optional()
@@ -85,7 +85,7 @@ fn session_scope(tx: &Connection, agent_run_id: &str) -> anyhow::Result<Option<(
 
 /// The six values `sessions.status`'s CHECK constraint accepts (the baseline migration, D-49).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentRunStatus {
+pub enum SessionStatus {
     Running,
     Blocked,
     Completed,
@@ -97,15 +97,15 @@ pub enum AgentRunStatus {
     Abandoned,
 }
 
-impl AgentRunStatus {
+impl SessionStatus {
     pub fn as_str(self) -> &'static str {
         match self {
-            AgentRunStatus::Running => "running",
-            AgentRunStatus::Blocked => "blocked",
-            AgentRunStatus::Completed => "completed",
-            AgentRunStatus::Failed => "failed",
-            AgentRunStatus::Interrupted => "interrupted",
-            AgentRunStatus::Abandoned => "abandoned",
+            SessionStatus::Running => "running",
+            SessionStatus::Blocked => "blocked",
+            SessionStatus::Completed => "completed",
+            SessionStatus::Failed => "failed",
+            SessionStatus::Interrupted => "interrupted",
+            SessionStatus::Abandoned => "abandoned",
         }
     }
 }
@@ -129,16 +129,16 @@ pub fn agent_actor_id(conn: &Connection) -> anyhow::Result<String> {
 /// Ensures the Story's worktree exists first (create-or-reuse, `domain::worktree::ensure_worktree`
 /// — its own inner transaction, committed before this function opens its own). Then, in ONE
 /// transaction: inserts the `sessions` row with `status = 'running'` and appends
-/// `agent_run.started`, attributed to the agent actor.
+/// `session.started`, attributed to the agent actor.
 ///
 /// This function writes no Story state (DRFT-04, D-13): starting a session is not a state signal.
 /// Ready → Running is the developer's act, through `story::set_story_state`.
-pub fn start_agent_run(
+pub fn start_session(
     conn: &mut Connection,
     story_id: &str,
     permission_mode: &str,
     human_actor_id: &str,
-) -> anyhow::Result<AgentRun> {
+) -> anyhow::Result<Session> {
     let worktree = ensure_worktree(conn, story_id, human_actor_id)
         .with_context(|| format!("failed to ensure a worktree for Story {story_id:?}"))?;
 
@@ -170,7 +170,7 @@ pub fn start_agent_run(
 
     let sequence = next_sequence(&tx, &project_id, "local")?;
     let started_payload = serde_json::json!({
-        "field": "agent_run",
+        "field": "session",
         "before": null,
         "after": run_id,
         "label": "Started agent run",
@@ -180,40 +180,40 @@ pub fn start_agent_run(
         &project_id,
         "local",
         sequence,
-        "agent_run",
+        "session",
         &run_id,
         Some(story_id),
         Some(&epic_id),
         &agent_id,
-        "agent_run.started",
+        "session.started",
         &started_payload,
         &now,
     )?;
 
-    tx.commit().context("failed to commit start_agent_run transaction")?;
+    tx.commit().context("failed to commit start_session transaction")?;
 
-    Ok(AgentRun {
+    Ok(Session {
         id: run_id,
         worktree_id: Some(worktree.id),
         story_id: story_id.to_string(),
         project_id,
         adapter: "claude_code".to_string(),
         actor_id: agent_id,
-        status: AgentRunStatus::Running,
+        status: SessionStatus::Running,
         external_session_id: None,
         permission_mode: permission_mode.to_string(),
         log_path,
     })
 }
 
-/// The statement body [`close_agent_run`] issues, factored out so [`apply_session_closed`] can run
+/// The statement body [`close_session`] issues, factored out so [`apply_session_closed`] can run
 /// it inside ITS OWN transaction — alongside the fallback-summary presence check — rather than
 /// opening a second, separate transaction and breaking "the status update and the summary insert
 /// commit together or not at all" (T-04-07).
-fn close_agent_run_in_tx(
+fn close_session_in_tx(
     tx: &Transaction,
     run_id: &str,
-    status: AgentRunStatus,
+    status: SessionStatus,
     cost_usd: Option<f64>,
     tokens_in: Option<i64>,
     tokens_out: Option<i64>,
@@ -234,7 +234,7 @@ fn close_agent_run_in_tx(
 
     let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
-        "field": "agent_run",
+        "field": "session",
         "before": "running",
         "after": status.as_str(),
         "label": format!("Agent run {}", status.as_str()),
@@ -244,12 +244,12 @@ fn close_agent_run_in_tx(
         &project_id,
         "local",
         sequence,
-        "agent_run",
+        "session",
         run_id,
         Some(&story_id),
         Some(&epic_id),
         &agent_id,
-        "agent_run.closed",
+        "session.closed",
         &payload,
         &now,
     )?;
@@ -261,19 +261,19 @@ fn close_agent_run_in_tx(
 /// the Story's state.
 ///
 /// Called only by test code today (production's one caller, `apply_session_closed`, runs
-/// [`close_agent_run_in_tx`] directly inside its own transaction). Never synthesizes a fallback
+/// [`close_session_in_tx`] directly inside its own transaction). Never synthesizes a fallback
 /// summary, since that behavior belongs to `apply_session_closed`'s own call site.
-pub fn close_agent_run(
+pub fn close_session(
     conn: &mut Connection,
     run_id: &str,
-    status: AgentRunStatus,
+    status: SessionStatus,
     cost_usd: Option<f64>,
     tokens_in: Option<i64>,
     tokens_out: Option<i64>,
 ) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
-    close_agent_run_in_tx(&tx, run_id, status, cost_usd, tokens_in, tokens_out)?;
-    tx.commit().context("failed to commit close_agent_run transaction")?;
+    close_session_in_tx(&tx, run_id, status, cost_usd, tokens_in, tokens_out)?;
+    tx.commit().context("failed to commit close_session transaction")?;
     Ok(())
 }
 
@@ -307,7 +307,7 @@ pub fn record_lock_exhaustion(
         &project_id,
         "local",
         sequence,
-        "agent_run",
+        "session",
         run_id,
         Some(&story_id),
         Some(&epic_id),
@@ -326,7 +326,7 @@ pub fn record_lock_exhaustion(
 pub enum SessionClosedOutcome {
     /// The session reached this terminal status for the first time — exactly one terminal event
     /// was appended.
-    Closed(AgentRunStatus),
+    Closed(SessionStatus),
     /// The session was already terminal and the event carried no figure the row was missing.
     AlreadyTerminal,
     /// The session was already terminal, but the event carried at least one figure (cost or a
@@ -355,9 +355,9 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
     }
 
     let status = match event.get("reason").and_then(|v| v.as_str()) {
-        Some("completed") => AgentRunStatus::Completed,
-        Some("failed") => AgentRunStatus::Failed,
-        Some("interrupted") => AgentRunStatus::Interrupted,
+        Some("completed") => SessionStatus::Completed,
+        Some("failed") => SessionStatus::Failed,
+        Some("interrupted") => SessionStatus::Interrupted,
         _ => return Ok(SessionClosedOutcome::Ignored),
     };
 
@@ -407,7 +407,7 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
     // (T-04-07), so a session is never terminal without a summary.
     let tx = conn.transaction()?;
 
-    close_agent_run_in_tx(&tx, run_id, status, cost_usd, tokens_in, tokens_out)?;
+    close_session_in_tx(&tx, run_id, status, cost_usd, tokens_in, tokens_out)?;
 
     if crate::domain::session_summary::latest_summary_for_run(&tx, run_id)?.is_none() {
         crate::domain::session_summary::synthesize_fallback_summary(&tx, run_id, status.as_str())?;
@@ -424,13 +424,13 @@ pub const ACKNOWLEDGEABLE_STATUSES: [&str; 4] = ["abandoned", "completed", "fail
 /// Stamp `acknowledged_at` on a finished session, the ONE statement that does so. The status guard
 /// is inside the statement, so a live session is refused whoever the caller is, and an already
 /// acknowledged session keeps its first timestamp. Returns whether a row changed.
-pub fn acknowledge_run(conn: &Connection, agent_run_id: &str) -> anyhow::Result<bool> {
+pub fn acknowledge_run(conn: &Connection, session_id: &str) -> anyhow::Result<bool> {
     let [a, b, c, d] = ACKNOWLEDGEABLE_STATUSES;
     let changed = conn
         .execute(
             "UPDATE sessions SET acknowledged_at = ?1
              WHERE id = ?2 AND acknowledged_at IS NULL AND status IN (?3, ?4, ?5, ?6)",
-            params![Utc::now().to_rfc3339(), agent_run_id, a, b, c, d],
+            params![Utc::now().to_rfc3339(), session_id, a, b, c, d],
         )
         .context("failed to acknowledge the session")?;
     Ok(changed == 1)
@@ -439,32 +439,32 @@ pub fn acknowledge_run(conn: &Connection, agent_run_id: &str) -> anyhow::Result<
 /// Move a session to `blocked` (AGNT-06, D-37) inside the CALLER'S transaction — called only from
 /// `domain::permission_request::create_pending_request`, so a blocked session and its pending
 /// request are written together or not at all.
-pub fn set_run_blocked(tx: &Transaction, agent_run_id: &str) -> anyhow::Result<()> {
-    tx.execute("UPDATE sessions SET status = 'blocked' WHERE id = ?1", params![agent_run_id])
+pub fn set_run_blocked(tx: &Transaction, session_id: &str) -> anyhow::Result<()> {
+    tx.execute("UPDATE sessions SET status = 'blocked' WHERE id = ?1", params![session_id])
         .context("failed to move the session to blocked")?;
     Ok(())
 }
 
 /// Move a session back to `running` inside the CALLER'S transaction — the exact inverse of
 /// [`set_run_blocked`], called only from `domain::permission_request::answer_request`.
-pub fn clear_run_blocked(tx: &Transaction, agent_run_id: &str) -> anyhow::Result<()> {
-    tx.execute("UPDATE sessions SET status = 'running' WHERE id = ?1", params![agent_run_id])
+pub fn clear_run_blocked(tx: &Transaction, session_id: &str) -> anyhow::Result<()> {
+    tx.execute("UPDATE sessions SET status = 'running' WHERE id = ?1", params![session_id])
         .context("failed to clear the session's blocked status")?;
     Ok(())
 }
 
-/// The statement body [`interrupt_agent_run`] issues, factored out so the Stop/Discard path
-/// (`commands::agent_run::stop_agent_run_in_tx`) can compose it with the presence-checked fallback
+/// The statement body [`interrupt_session`] issues, factored out so the Stop/Discard path
+/// (`commands::session::stop_session_in_tx`) can compose it with the presence-checked fallback
 /// summary inside ONE transaction it owns (D-64, CTX-01). Unknown and already-terminal sessions are
 /// a plain `Ok(())`; the caller owns the transaction's lifetime.
-pub fn interrupt_agent_run_in_tx(tx: &Transaction, agent_run_id: &str, actor_id: &str) -> anyhow::Result<()> {
+pub fn interrupt_session_in_tx(tx: &Transaction, session_id: &str, actor_id: &str) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
 
     let existing: Option<(String, String, String, String, String)> = tx
         .query_row(
             "SELECT r.project_id, r.story_id, s.epic_id, s.key, r.status
              FROM sessions r JOIN stories s ON s.id = r.story_id WHERE r.id = ?1",
-            params![agent_run_id],
+            params![session_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         )
         .optional()
@@ -481,13 +481,13 @@ pub fn interrupt_agent_run_in_tx(tx: &Transaction, agent_run_id: &str, actor_id:
 
     tx.execute(
         "UPDATE sessions SET status = 'interrupted', ended_at = ?1 WHERE id = ?2",
-        params![now, agent_run_id],
+        params![now, session_id],
     )
     .context("failed to interrupt the session")?;
 
     let sequence = next_sequence(tx, &project_id, "local")?;
     let payload = serde_json::json!({
-        "field": "agent_run",
+        "field": "session",
         "before": current_status,
         "after": "interrupted",
         "label": format!("Stopped agent run on {story_key}"),
@@ -497,12 +497,12 @@ pub fn interrupt_agent_run_in_tx(tx: &Transaction, agent_run_id: &str, actor_id:
         &project_id,
         "local",
         sequence,
-        "agent_run",
-        agent_run_id,
+        "session",
+        session_id,
         Some(&story_id),
         Some(&epic_id),
         actor_id,
-        "agent_run.interrupted",
+        "session.interrupted",
         &payload,
         &now,
     )?;
@@ -514,17 +514,17 @@ pub fn interrupt_agent_run_in_tx(tx: &Transaction, agent_run_id: &str, actor_id:
 /// database half of "stop means interrupt, then force"). Idempotent on a terminal session and a
 /// no-op on an unknown one. Never touches the Story's state and performs no git operation: the
 /// worktree is left exactly as the agent left it.
-pub fn interrupt_agent_run(conn: &mut Connection, agent_run_id: &str, actor_id: &str) -> anyhow::Result<()> {
+pub fn interrupt_session(conn: &mut Connection, session_id: &str, actor_id: &str) -> anyhow::Result<()> {
     let tx = conn.transaction()?;
-    interrupt_agent_run_in_tx(&tx, agent_run_id, actor_id)?;
-    tx.commit().context("failed to commit interrupt_agent_run transaction")?;
+    interrupt_session_in_tx(&tx, session_id, actor_id)?;
+    tx.commit().context("failed to commit interrupt_session transaction")?;
     Ok(())
 }
 
 /// Mark a session `abandoned` (D-49) — the launch reconciler's own verb, never called by a live
 /// session. Already-terminal and unknown sessions are a no-op returning `Ok(false)`.
 ///
-/// On a real transition it writes the status and `ended_at`, appends `agent_run.abandoned`
+/// On a real transition it writes the status and `ended_at`, appends `session.abandoned`
 /// (carrying `reason` when the caller supplied one) and, inside the same transaction, the stub
 /// summary when the session left none (T-05-09-01): no terminal status exists without a summary.
 pub fn mark_abandoned(conn: &mut Connection, run_id: &str, actor_id: &str, reason: Option<&str>) -> anyhow::Result<bool> {
@@ -556,7 +556,7 @@ pub fn mark_abandoned(conn: &mut Connection, run_id: &str, actor_id: &str, reaso
 
     let sequence = next_sequence(&tx, &project_id, "local")?;
     let payload = serde_json::json!({
-        "field": "agent_run",
+        "field": "session",
         "before": current_status,
         "after": "abandoned",
         "reason": reason,
@@ -567,12 +567,12 @@ pub fn mark_abandoned(conn: &mut Connection, run_id: &str, actor_id: &str, reaso
         &project_id,
         "local",
         sequence,
-        "agent_run",
+        "session",
         run_id,
         Some(&story_id),
         Some(&epic_id),
         actor_id,
-        "agent_run.abandoned",
+        "session.abandoned",
         &payload,
         &now,
     )?;
@@ -585,16 +585,16 @@ pub fn mark_abandoned(conn: &mut Connection, run_id: &str, actor_id: &str, reaso
     Ok(true)
 }
 
-/// Every session still `running` or `blocked` when [`reconcile_agent_runs`] runs, joined to its
+/// Every session still `running` or `blocked` when [`reconcile_sessions`] runs, joined to its
 /// Story for the recovery modal's key and title — one query, a compile-time literal.
-const IN_FLIGHT_AGENT_RUNS_SELECT_SQL: &str = "
+const IN_FLIGHT_SESSIONS_SELECT_SQL: &str = "
     SELECT r.id, r.story_id, r.project_id, r.external_session_id, s.key, s.title
     FROM sessions r
     JOIN stories s ON s.id = r.story_id
     WHERE r.status IN ('running', 'blocked')
 ";
 
-/// One session [`reconcile_agent_runs`] found genuinely alive at launch (PROC-05, D-46). Written to
+/// One session [`reconcile_sessions`] found genuinely alive at launch (PROC-05, D-46). Written to
 /// no status at all — a status write for a process that is still running would be the board lying
 /// about a live fact — so this is the ONLY record of it; the user's kill decision resolves it.
 #[derive(Debug, Clone, PartialEq)]
@@ -615,11 +615,11 @@ pub struct LiveOrphan {
 /// it is and returned as a [`LiveOrphan`]). A malformed kill record reads as "no evidence of a
 /// kill", never as "killed". Never resumes, re-attaches to or re-spawns any process; idempotent
 /// through [`mark_abandoned`]'s own terminal guard.
-pub fn reconcile_agent_runs(conn: &mut Connection, actor_id: &str) -> anyhow::Result<Vec<LiveOrphan>> {
+pub fn reconcile_sessions(conn: &mut Connection, actor_id: &str) -> anyhow::Result<Vec<LiveOrphan>> {
     #[allow(clippy::type_complexity)]
     let in_flight: Vec<(String, String, String, Option<String>, String, String)> = {
         let mut stmt = conn
-            .prepare(IN_FLIGHT_AGENT_RUNS_SELECT_SQL)
+            .prepare(IN_FLIGHT_SESSIONS_SELECT_SQL)
             .context("failed to prepare the in-flight sessions reconciliation query")?;
         let rows = stmt
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)))
@@ -708,14 +708,14 @@ fn send_group_kill_signal(pid: i32) {
 #[cfg(not(unix))]
 fn send_group_kill_signal(_pid: i32) {}
 
-/// Kill one live orphan by `agent_run_id` (plan 03-06, D-48, T-03-06-04) — the only verb the
+/// Kill one live orphan by `session_id` (plan 03-06, D-48, T-03-06-04) — the only verb the
 /// orphan-recovery modal offers (D-30, `03-UI-SPEC.md` discretion item 1). Reads the run's own
 /// descriptor from disk — never a pid supplied by the caller (T-03-06-03) — re-checks liveness
 /// (the process may have exited on its own between launch and the user's press), sends a fatal
 /// signal to the process GROUP, waits a short bounded interval, then re-checks liveness again.
 ///
 /// Writes the run to `abandoned` with reason `killed-by-user-at-launch` REGARDLESS of whether
-/// the signal succeeded, following `commands::agent_run::stop_agent_run_recording_first`'s own
+/// the signal succeeded, following `commands::session::stop_session_recording_first`'s own
 /// CR-04 shape: the domain write must be reachable even when the external operation failed. A
 /// run with no descriptor on disk at all has nothing left to signal — treated the same as an
 /// already-dead process, never as an error, since the abandoning write is still exactly correct.

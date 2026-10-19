@@ -7,7 +7,7 @@ use common::with_scratch_worktree_root;
 
 use std::path::Path;
 
-use core::domain::agent_run::{mark_abandoned, start_agent_run, AgentRunStatus};
+use core::domain::session::{mark_abandoned, start_session, SessionStatus};
 use core::domain::worktree::{ensure_worktree, reconcile_worktrees};
 
 fn worktree_status(conn: &rusqlite::Connection, worktree_id: &str) -> String {
@@ -197,8 +197,8 @@ fn mark_abandoned_transitions_a_running_run_and_appends_one_event() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Abandon story");
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
 
         let wrote = mark_abandoned(&mut conn, &run.id, &actor_id, Some("watchdog killed it"))
             .expect("mark_abandoned should succeed");
@@ -211,9 +211,9 @@ fn mark_abandoned_transitions_a_running_run_and_appends_one_event() {
                 |row| row.get(0),
             )
             .expect("sessions row should exist");
-        assert_eq!(status, AgentRunStatus::Abandoned.as_str());
+        assert_eq!(status, SessionStatus::Abandoned.as_str());
 
-        assert_eq!(event_count(&conn, &project.id, "agent_run.abandoned"), 1);
+        assert_eq!(event_count(&conn, &project.id, "session.abandoned"), 1);
     });
 }
 
@@ -222,18 +222,18 @@ fn mark_abandoned_is_a_no_op_on_an_already_terminal_run() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Already terminal story");
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
 
-        core::domain::agent_run::close_agent_run(
+        core::domain::session::close_session(
             &mut conn,
             &run.id,
-            AgentRunStatus::Completed,
+            SessionStatus::Completed,
             None,
             None,
             None,
         )
-        .expect("close_agent_run should succeed");
+        .expect("close_session should succeed");
 
         let wrote = mark_abandoned(&mut conn, &run.id, &actor_id, None)
             .expect("mark_abandoned should succeed as a no-op");
@@ -247,7 +247,7 @@ fn mark_abandoned_is_a_no_op_on_an_already_terminal_run() {
             )
             .expect("sessions row should exist");
         assert_eq!(status, "completed", "an already-terminal run must never be overwritten");
-        assert_eq!(event_count(&conn, &project.id, "agent_run.abandoned"), 0);
+        assert_eq!(event_count(&conn, &project.id, "session.abandoned"), 0);
     });
 }
 
@@ -256,15 +256,15 @@ fn mark_abandoned_twice_in_a_row_is_idempotent() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Idempotent abandon story");
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
 
         assert!(mark_abandoned(&mut conn, &run.id, &actor_id, None).expect("first call should succeed"));
         assert!(
             !mark_abandoned(&mut conn, &run.id, &actor_id, None).expect("second call should succeed"),
             "a second mark_abandoned call must be a no-op"
         );
-        assert_eq!(event_count(&conn, &project.id, "agent_run.abandoned"), 1);
+        assert_eq!(event_count(&conn, &project.id, "session.abandoned"), 1);
     });
 }
 
@@ -278,7 +278,7 @@ mod recreate_and_forget {
     use core::domain::worktree::{
         ensure_worktree, forget_worktree_record, reconcile_worktrees, recreate_worktree_for_story,
     };
-    use core::query::agent_runs::worktree_summary_for_story;
+    use core::query::sessions::worktree_summary_for_story;
 
     use super::{event_count, with_scratch_worktree_root};
 

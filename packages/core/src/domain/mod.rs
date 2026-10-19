@@ -8,7 +8,7 @@
 //! Epic and carries its [`acceptance_criterion`]s (each with an optional [`check`]) and its
 //! [`task`] checklist. Agents write to the board only through [`proposal`]s. ADRs live in the
 //! managed repo and the board keeps an [`adr_link`] to them. A Story's agent sessions are
-//! [`agent_run`]s (the `sessions` table), each leaving a [`session_summary`].
+//! [`session`]s (the `sessions` table), each leaving a [`session_summary`].
 
 use anyhow::Context;
 use rusqlite::{params, Transaction};
@@ -18,7 +18,7 @@ use crate::domain::event::{append_event, next_sequence};
 pub mod acceptance_criterion;
 pub mod actor;
 pub mod adr_link;
-pub mod agent_run;
+pub mod session;
 pub mod check;
 pub mod epic;
 pub mod event;

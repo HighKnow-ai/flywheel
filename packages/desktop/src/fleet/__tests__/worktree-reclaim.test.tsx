@@ -54,7 +54,7 @@ function row(overrides: Partial<WorktreeInventoryRowDto>): WorktreeInventoryRowD
 const ROWS = [
   row({ storyId: "a", storyKey: "ALP-1", sizeBytes: 512 * MIB }),
   row({ storyId: "b", storyKey: "ALP-2", sizeBytes: 1024 * MIB, reason: "merged" }),
-  row({ storyId: "c", storyKey: "ALP-3", disposition: "in_use", reason: "agent_running" }),
+  row({ storyId: "c", storyKey: "ALP-3", disposition: "in_use", reason: "sessionning" }),
   row({ storyId: "d", storyKey: "ALP-4", disposition: "keep", reason: "uncommitted_changes" }),
 ];
 

@@ -87,7 +87,7 @@ pub fn list_actors(conn: &Connection) -> anyhow::Result<Vec<Actor>> {
 ///
 /// The type is read from the `actors` table inside the SAME transaction as the write that follows,
 /// so it cannot be bypassed by a caller holding a stale or invented notion of who it is. This
-/// generalises the precedent `start_agent_run` already uses to refuse the system actor. Every
+/// generalises the precedent `start_session` already uses to refuse the system actor. Every
 /// authority transition (checking a criterion, sending reviewed work back, accepting,
 /// rejecting or deferring a proposal) calls it as the first statement after its transaction opens.
 /// Branch merge is not among them: it records its event through `merge::record_merge_event`,

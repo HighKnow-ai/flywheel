@@ -54,20 +54,20 @@ vi.mock(import("../../../adapters/tauri"), async (importOriginal) => ({
   openFolderDialog: () => Promise.resolve(null),
   gitFacts: () => Promise.resolve(null),
   gitTruthFocusStory: () => Promise.resolve(),
-  agentRunLogWindow: (_id: string, offset: number, limit: number) =>
+  sessionLogWindow: (_id: string, offset: number, limit: number) =>
     Promise.resolve({
       entries: [{ type: "assistant_text", seq: 0, at: new Date().toISOString(), raw: "{}", text: "Reading the reconciliation module." }],
       offset,
       limit,
       total: 1,
     }),
-  agentRunRawWindow: (_id: string, offset: number, limit: number) => Promise.resolve({ entries: [], offset, limit, total: 0 }),
+  sessionRawWindow: (_id: string, offset: number, limit: number) => Promise.resolve({ entries: [], offset, limit, total: 0 }),
   pendingPermissionRequests: () => Promise.resolve([]),
 }));
 
 function fleetRow(overrides: Partial<FleetRowDto>): FleetRowDto {
   return {
-    agentRunId: "run-b",
+    sessionId: "run-b",
     projectId: "proj-B",
     projectName: "Beta",
     projectKeyPrefix: "BET",
@@ -118,7 +118,7 @@ describe("AppShell in WebKit: where a fleet row takes you, with real key presses
     await userEvent.keyboard("{Enter}");
     await waitFor(() => expect(sessionBack()).not.toBeNull());
     expect(fleetRows().length, "the fleet gave way to the session").toBe(0);
-    expect(useUiStore.getState().activeAgentRunId).toBe("run-b");
+    expect(useUiStore.getState().activeSessionId).toBe("run-b");
     await waitFor(() => expect(document.body.textContent).toContain("Reading the reconciliation module."));
 
     await userEvent.click(sessionBack() as HTMLElement);
@@ -132,7 +132,7 @@ describe("AppShell in WebKit: where a fleet row takes you, with real key presses
     const { container } = await mountOnFleet();
     await userEvent.click(container.querySelector('[data-run-id="run-b"] [data-field="state"]') as HTMLElement);
     await waitFor(() => expect(sessionBack()).not.toBeNull());
-    expect(useUiStore.getState().activeAgentRunId).toBe("run-b");
+    expect(useUiStore.getState().activeSessionId).toBe("run-b");
   });
 
   it("j then b on a row in another project switches the project and opens that item's detail panel", async () => {
@@ -142,7 +142,7 @@ describe("AppShell in WebKit: where a fleet row takes you, with real key presses
     await userEvent.keyboard("b");
     await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("story-b7"));
     expect(useUiStore.getState().currentProjectId).toBe("proj-B");
-    expect(useUiStore.getState().activeAgentRunId, "the jump to the item never opens the session").toBeNull();
+    expect(useUiStore.getState().activeSessionId, "the jump to the item never opens the session").toBeNull();
     await waitFor(() => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain("BET-7");
     expect(fleetRows().length).toBe(0);
@@ -153,6 +153,6 @@ describe("AppShell in WebKit: where a fleet row takes you, with real key presses
     await userEvent.click(container.querySelector("[data-subject-target]") as HTMLElement);
     await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("story-b7"));
     expect(useUiStore.getState().currentProjectId).toBe("proj-B");
-    expect(useUiStore.getState().activeAgentRunId).toBeNull();
+    expect(useUiStore.getState().activeSessionId).toBeNull();
   });
 });

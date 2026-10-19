@@ -36,7 +36,7 @@ import * as icons from "lucide-react";
 import {
   answerPermissionRequest,
   discardSession,
-  stopAgentRun,
+  stopSession,
   storyGet,
   subscribeAgentEvent,
 } from "../adapters/tauri";
@@ -168,7 +168,7 @@ function StatusStrip({
 }
 
 export interface SessionSurfaceProps {
-  agentRunId: string;
+  sessionId: string;
   onBack: () => void;
   /** The Story this session belongs to (D-66/D-67) — `null` only for a caller that has not threaded
    * it through. Needed so `handleDiscard` can hand off to the launch sheet for the SAME Story on
@@ -183,7 +183,7 @@ export interface SessionSurfaceProps {
   /** A one-shot initial position for the feed (D-99, plan 06-08) — `null`/`undefined` (the
    * default) preserves this surface's existing "open at the tail" behaviour byte-for-byte, for
    * every pre-existing call site. Set only by the triage surface's turn-pointer jump
-   * (`App.tsx`'s `activeAgentRunInitialLogOffset`), which has a recorded log offset to open at
+   * (`App.tsx`'s `activeSessionInitialLogOffset`), which has a recorded log offset to open at
    * rather than "whatever the tail currently is" — threaded straight into `useSessionFeed`. */
   initialFeedOffset?: number | null;
 }
@@ -506,7 +506,7 @@ const SCROLL_TOP_FETCH_THRESHOLD_PX = 40;
 const SESSION_FALLBACK_TITLE = "Session";
 
 export function SessionSurface({
-  agentRunId,
+  sessionId,
   onBack,
   storyId = null,
   initialStatus = null,
@@ -555,12 +555,12 @@ export function SessionSurface({
     "toggle-raw-view": () => setRawViewOpen((prev) => !prev),
   });
 
-  const feedQuery = useSessionFeed(agentRunId, initialFeedOffset);
+  const feedQuery = useSessionFeed(sessionId, initialFeedOffset);
 
   // The permission-request card's `feed` mount (AGNT-06, plan 02-06 Task 2) — this run's pending
   // set, read from the ONE shared query the item detail panel's compact mount also reads for the
-  // same `agentRunId`, so answering in either place clears both (Discretion #6).
-  const pendingQuery = usePendingPermissionRequests(agentRunId);
+  // same `sessionId`, so answering in either place clears both (Discretion #6).
+  const pendingQuery = usePendingPermissionRequests(sessionId);
   const pendingRequests = pendingQuery.data ?? [];
 
   async function handleAnswer(requestId: string, decision: PermissionDecision) {
@@ -568,7 +568,7 @@ export function SessionSurface({
   }
 
   // The terminal status word arrives through the same pushed delta a live `agent:event` push
-  // drives (a `session_closed` event's `reason`, plan 02-02 D-35) — never from `stopAgentRun`'s
+  // drives (a `session_closed` event's `reason`, plan 02-02 D-35) — never from `stopSession`'s
   // own resolved promise, which is why the Stop control below never assumes its own write landed.
   // `useSessionFeed` itself owns invalidating the windowed read on this same subscription.
   useEffect(() => {
@@ -581,7 +581,7 @@ export function SessionSurface({
       // emits this SAME `agent:event` channel's synthetic `system_notice` the first time this
       // run's session-log persist fails. Scoped to THIS surface's own run — a notice for a
       // different run must never show here (one run's I/O fault stays scoped to that run).
-      if (event.flywheelPersistenceFailure === true && event.runId === agentRunId) {
+      if (event.flywheelPersistenceFailure === true && event.runId === sessionId) {
         setPersistenceFailed(true);
         setPersistenceFailureText(typeof event.text === "string" ? event.text : null);
       }
@@ -590,7 +590,7 @@ export function SessionSurface({
     });
     return () => unlisten?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentRunId]);
+  }, [sessionId]);
 
   // The command's own resolution now carries the status Flywheel RECORDED (plan 02-11, CR-04) —
   // the terminal write is never gated on the sidecar's acknowledgement, so this promise always
@@ -603,7 +603,7 @@ export function SessionSurface({
     if (stoppingRef.current) return;
     stoppingRef.current = true;
     setStopping(true);
-    stopAgentRun(agentRunId)
+    stopSession(sessionId)
       .then((result) => {
         // Never cleared here: a successful stop drives `status` to a terminal value, `showStop`
         // goes false and the button unmounts — there is nothing left to guard.
@@ -631,7 +631,7 @@ export function SessionSurface({
     if (discardingRef.current) return;
     discardingRef.current = true;
     setDiscarding(true);
-    discardSession(agentRunId)
+    discardSession(sessionId)
       .then((result) => {
         // Mirrors `handleStop`'s own resolution handling exactly — a real `session_closed` push
         // (the effect above) remains the source for what the agent process actually did and still
@@ -780,7 +780,7 @@ export function SessionSurface({
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       {rawViewOpen ? (
-        <RawLogView agentRunId={agentRunId} />
+        <RawLogView sessionId={sessionId} />
       ) : (
         <div
           ref={parentRef}

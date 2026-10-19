@@ -22,12 +22,12 @@ const HELPER_CALL: &str = "emit_board_changed(";
 /// the build) while two PRs that each delete a different command touch different lines and merge
 /// without conflict. Add or remove a line in the same diff as a file that gains or loses its emits.
 const EMITTING_FILES: &[&str] = &[
-    "src/commands/agent_run.rs",
     "src/commands/criterion.rs",
     "src/commands/epic.rs",
     "src/commands/fleet.rs",
     "src/commands/proposal.rs",
     "src/commands/roadmap.rs",
+    "src/commands/session.rs",
     "src/commands/story.rs",
     "src/commands/task.rs",
     "src/scheduler.rs",

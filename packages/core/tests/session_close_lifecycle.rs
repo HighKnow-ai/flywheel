@@ -1,9 +1,9 @@
-//! G-02-4's own end-to-end proof: `close_agent_run` was thoroughly unit-tested and never called
+//! G-02-4's own end-to-end proof: `close_session` was thoroughly unit-tested and never called
 //! in production, so a unit test of `apply_session_closed` alone would repeat the exact mistake
 //! this gap closes. This file drives a REAL sidecar process (`packages/sidecar/dist/index.js`,
 //! driving `packages/sidecar/test/fake-claude.mjs` as its backend) to a natural completion and
 //! asserts the `sessions` row through the database — the only shape of test that can fail when a
-//! call site is missing, which asserting on `apply_session_closed`/`close_agent_run` directly never
+//! call site is missing, which asserting on `apply_session_closed`/`close_session` directly never
 //! could.
 //!
 //! The overwrite and unknown/malformed cases below need no child process: they construct the
@@ -21,7 +21,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use core::domain::agent_run::{apply_session_closed, interrupt_agent_run, start_agent_run, SessionClosedOutcome};
+use core::domain::session::{apply_session_closed, interrupt_session, start_session, SessionClosedOutcome};
 use core::domain::story::{set_story_state, StoryState};
 use core::ids::is_ulid;
 
@@ -58,12 +58,12 @@ fn fake_claude_path() -> PathBuf {
     path
 }
 
-/// Count of terminal-event rows (`agent_run.closed` OR `agent_run.interrupted`) appended for
+/// Count of terminal-event rows (`session.closed` OR `session.interrupted`) appended for
 /// `run_id` — the activity trail's own way of proving "exactly one terminal event", regardless of
 /// which of the two terminal-writing paths produced it.
 fn terminal_event_count(conn: &rusqlite::Connection, run_id: &str) -> i64 {
     conn.query_row(
-        "SELECT COUNT(*) FROM events WHERE stream_id = ?1 AND event_type IN ('agent_run.closed', 'agent_run.interrupted')",
+        "SELECT COUNT(*) FROM events WHERE stream_id = ?1 AND event_type IN ('session.closed', 'session.interrupted')",
         rusqlite::params![run_id],
         |row| row.get(0),
     )
@@ -80,8 +80,8 @@ fn a_session_driven_to_natural_completion_reaches_a_terminal_status() {
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Session-close lifecycle story");
         set_story_state(&mut conn, &actor_id, &story.id, StoryState::Ready).expect("Shaping -> Ready");
         set_story_state(&mut conn, &actor_id, &story.id, StoryState::Running).expect("Ready -> Running");
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
         let worktree_path: String = conn
             .query_row(
                 "SELECT path FROM worktrees WHERE id = ?1",
@@ -213,10 +213,10 @@ fn a_terminal_event_never_overwrites_an_explicit_stop() {
     with_scratch_worktree_root(|_| {
         let (mut conn, actor_id, project, _repo_dir) = common::seeded_git_project();
         let story = common::new_story(&mut conn, &project.id, &actor_id, "Stop-then-terminal-event story");
-        let run = start_agent_run(&mut conn, &story.id, "acceptEdits", &actor_id)
-            .expect("start_agent_run should succeed");
+        let run = start_session(&mut conn, &story.id, "acceptEdits", &actor_id)
+            .expect("start_session should succeed");
 
-        interrupt_agent_run(&mut conn, &run.id, &actor_id).expect("interrupt_agent_run should succeed");
+        interrupt_session(&mut conn, &run.id, &actor_id).expect("interrupt_session should succeed");
 
         let ended_at_after_stop: Option<String> = conn
             .query_row(
@@ -228,7 +228,7 @@ fn a_terminal_event_never_overwrites_an_explicit_stop() {
         assert!(ended_at_after_stop.is_some(), "ended_at must be set after the explicit Stop");
 
         // A terminal event carrying a completion reason and a cost arrives afterwards — exactly
-        // the race G-02-4 names: `interrupt_agent_run` already recorded the explicit Stop, and the
+        // the race G-02-4 names: `interrupt_session` already recorded the explicit Stop, and the
         // sidecar's own session_closed event for the same run shows up later.
         let event = serde_json::json!({
             "type": "session_closed",

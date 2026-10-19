@@ -58,7 +58,7 @@ pub struct CommitRow {
 /// D-129's coverage predicate, read once per Story (not once per commit): every session window
 /// for `story_id`. A literal `&str` — no `format!`, no runtime SQL assembly — matching this
 /// crate's `T-01-01`/`T-01-23` discipline.
-pub const AGENT_RUN_COVERAGE_SQL: &str =
+pub const SESSION_COVERAGE_SQL: &str =
     "SELECT started_at, ended_at FROM sessions WHERE story_id = ?1";
 
 /// D-115's event type: a commit on a Story's branch that landed outside any recorded session
@@ -68,8 +68,8 @@ pub const EVENT_OUTSIDE_COMMIT: &str = "story.outside_commit_detected";
 
 /// Read every session window for `story_id` once (D-129's coverage predicate), as
 /// `(started_at, ended_at)` RFC3339-string pairs.
-fn agent_run_windows(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<(String, Option<String>)>> {
-    let mut stmt = conn.prepare(AGENT_RUN_COVERAGE_SQL)?;
+fn session_windows(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<(String, Option<String>)>> {
+    let mut stmt = conn.prepare(SESSION_COVERAGE_SQL)?;
     let rows = stmt
         .query_map(params![story_id], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()
@@ -85,7 +85,7 @@ fn agent_run_windows(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<(S
 /// Timestamps are parsed as RFC3339 instants (not compared as raw strings) so a commit's own
 /// timezone offset (`git log --format=%cI`) compares correctly against a session row's UTC
 /// timestamp regardless of offset.
-fn is_covered_by_agent_run(committed_at: &str, windows: &[(String, Option<String>)]) -> bool {
+fn is_covered_by_session(committed_at: &str, windows: &[(String, Option<String>)]) -> bool {
     let Ok(committed) = chrono::DateTime::parse_from_rfc3339(committed_at) else {
         return false;
     };
@@ -186,9 +186,9 @@ pub fn git_facts_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<
         })
         .collect();
 
-    let run_windows = agent_run_windows(conn, story_id)?;
+    let run_windows = session_windows(conn, story_id)?;
     for commit in &mut commits {
-        commit.made_outside_flywheel = !is_covered_by_agent_run(&commit.committed_at, &run_windows);
+        commit.made_outside_flywheel = !is_covered_by_session(&commit.committed_at, &run_windows);
     }
 
     let commits_truncated = commits.len().saturating_sub(COMMIT_WINDOW);

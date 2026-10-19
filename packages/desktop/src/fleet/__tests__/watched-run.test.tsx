@@ -19,7 +19,7 @@ beforeEach(() => {
   fleetWatchRunMock.mockResolvedValue(undefined);
   act(() => {
     useUiStore.setState({
-      activeAgentRunId: null,
+      activeSessionId: null,
       settingsOpen: false,
       fleetSurface: null,
     });
@@ -36,7 +36,7 @@ describe("useWatchedRun", () => {
 
   it("reports the session run when it is the visible surface", () => {
     renderHook(() => useWatchedRun());
-    act(() => useUiStore.setState({ activeAgentRunId: "run-1" }));
+    act(() => useUiStore.setState({ activeSessionId: "run-1" }));
     expect(last()).toBe("run-1");
   });
 
@@ -48,7 +48,7 @@ describe("useWatchedRun", () => {
 
   it("clears the report when a higher-precedence surface comes on top, and restores it after", () => {
     renderHook(() => useWatchedRun());
-    act(() => useUiStore.setState({ activeAgentRunId: "run-1" }));
+    act(() => useUiStore.setState({ activeSessionId: "run-1" }));
     for (const patch of [{ settingsOpen: true }]) {
       act(() => useUiStore.setState(patch as never));
       expect(last()).toBeNull();

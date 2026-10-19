@@ -1,15 +1,15 @@
-//! `agent_run_start` / `agent_run_log_window` — a Story session's one mutating start command and the
+//! `session_start` / `session_log_window` — a Story session's one mutating start command and the
 //! session surface's one read (D-27, D-31, D-33, D-34). Until the MVP's Context packet exists a
-//! session starts from `flywheel_core::domain::agent_run::stand_in_launch_prompt`.
-//! `agent_run_start` resolves the human actor server-side (T-01-04), calls straight through to
-//! `flywheel_core::domain::agent_run::start_agent_run` (worktree create-or-reuse + the
+//! session starts from `flywheel_core::domain::session::stand_in_launch_prompt`.
+//! `session_start` resolves the human actor server-side (T-01-04), calls straight through to
+//! `flywheel_core::domain::session::start_session` (worktree create-or-reuse + the
 //! transactional-outbox write), and then sends exactly one `spawn` request to the sidecar with
-//! the absolute worktree path — never a relative one (PROC-02). `agent_run_log_window` reads the
+//! the absolute worktree path — never a relative one (PROC-02). `session_log_window` reads the
 //! durable JSONL log D-34 names, windowed with the same `LIMIT`/`OFFSET` shape
 //! `query::events::activity_trail` already uses (D-33), capped server-side at 100 rows (T-02-06).
 //!
 //! `handle_inbound_permission_request`/`process_inbound_permission_request` and
-//! `agent_run_answer_permission`/`answer_permission_request` (AGNT-06, D-38) are the answer
+//! `session_answer_permission`/`answer_permission_request` (AGNT-06, D-38) are the answer
 //! round trip's two halves — inbound (a `permission_request` event arriving on `sidecar.rs`'s
 //! reader loop) and outbound (a board decision reaching the held call). Both split their DB-only
 //! logic into a plain, Tauri-free function so the decision logic is unit-testable without a real
@@ -17,9 +17,9 @@
 //!
 //! `handle_inbound_session_closed` (G-02-4) follows the same split for the terminal path: a
 //! `session_closed` event is handled by this Tauri-facing half, which calls straight through to the
-//! DB-only `flywheel_core::domain::agent_run::apply_session_closed`.
+//! DB-only `flywheel_core::domain::session::apply_session_closed`.
 //!
-//! The Rust and IPC names keep the `agent_run` spelling of the session plumbing this module was
+//! The Rust and IPC names keep the `session` spelling of the session plumbing this module was
 //! kept from; every session belongs to one Story.
 
 use std::io::{BufRead, BufReader};
@@ -70,7 +70,7 @@ fn validate_instruction(instruction: Option<&str>) -> Result<String, String> {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummaryDto {
-    pub agent_run_id: String,
+    pub session_id: String,
     pub created_at: String,
     pub is_stub: bool,
     pub next_session_must_know: String,
@@ -80,7 +80,7 @@ pub struct SessionSummaryDto {
 impl From<SessionSummary> for SessionSummaryDto {
     fn from(summary: SessionSummary) -> Self {
         Self {
-            agent_run_id: summary.agent_run_id,
+            session_id: summary.session_id,
             created_at: summary.created_at,
             is_stub: summary.is_stub,
             next_session_must_know: summary.next_session_must_know,
@@ -94,15 +94,15 @@ const LOG_WINDOW_MAX_LIMIT: i64 = 100;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentRunDto {
+pub struct SessionDto {
     pub id: String,
     pub story_id: String,
     pub status: String,
     pub permission_mode: String,
 }
 
-/// What [`start_agent_run_recording_first`] produced — the DB-only half of a start's outcome,
-/// everything [`agent_run_start`] needs to finish the Tauri- and process-facing half (merge the shim
+/// What [`start_session_recording_first`] produced — the DB-only half of a start's outcome,
+/// everything [`session_start`] needs to finish the Tauri- and process-facing half (merge the shim
 /// env, send the spawn request, emit `board:changed`) without touching the database again.
 pub(crate) struct StartRunOutcome {
     pub run_id: String,
@@ -110,27 +110,27 @@ pub(crate) struct StartRunOutcome {
     pub prompt: String,
 }
 
-/// The DB-only half of [`agent_run_start`], extracted so it is unit-testable against a bare
+/// The DB-only half of [`session_start`], extracted so it is unit-testable against a bare
 /// `&mut Connection`. Performs, in exactly this order:
-/// 1. `start_agent_run` (the worktree and the session row).
+/// 1. `start_session` (the worktree and the session row).
 /// 2. `stand_in_launch_prompt`.
 /// 3. the `SELECT path FROM worktrees WHERE id = ?1` read for the worktree path.
 ///
 /// Steps 2-3 run AFTER the session row exists, so an error from either closes that row `failed`
 /// before it propagates (D-REV-46): a `running` row with no session behind it would read as live
 /// until the app restarts.
-pub(crate) fn start_agent_run_recording_first(
+pub(crate) fn start_session_recording_first(
     conn: &mut Connection,
     story_id: &str,
     permission_mode: &str,
     instruction: &str,
     human_actor_id: &str,
 ) -> Result<StartRunOutcome, String> {
-    let run = flywheel_core::domain::agent_run::start_agent_run(conn, story_id, permission_mode, human_actor_id)
+    let run = flywheel_core::domain::session::start_session(conn, story_id, permission_mode, human_actor_id)
         .map_err(|e| e.to_string())?;
 
     let built = (|| -> Result<(String, String), String> {
-        let prompt = flywheel_core::domain::agent_run::stand_in_launch_prompt(conn, story_id, instruction)
+        let prompt = flywheel_core::domain::session::stand_in_launch_prompt(conn, story_id, instruction)
             .map_err(|e| e.to_string())?;
         let worktree_path: String = conn
             .query_row("SELECT path FROM worktrees WHERE id = ?1", rusqlite::params![run.worktree_id], |row| row.get(0))
@@ -150,10 +150,10 @@ pub(crate) fn start_agent_run_recording_first(
 /// row, never a `running` one (D-REV-46). Best-effort on the close itself: the original failure is
 /// the error worth reporting.
 pub(crate) fn fail_launch(conn: &mut Connection, run_id: &str, why: String) -> String {
-    let _ = flywheel_core::domain::agent_run::close_agent_run(
+    let _ = flywheel_core::domain::session::close_session(
         conn,
         run_id,
-        flywheel_core::domain::agent_run::AgentRunStatus::Failed,
+        flywheel_core::domain::session::SessionStatus::Failed,
         None,
         None,
         None,
@@ -165,13 +165,13 @@ pub(crate) fn fail_launch(conn: &mut Connection, run_id: &str, why: String) -> S
 /// `permission_mode` and the operator's free-text `instruction` (T-02-19/T-02-20) before any DB
 /// or sidecar call happens, then delegates everything else to [`launch_run_for_story`].
 #[tauri::command]
-pub fn agent_run_start(
+pub fn session_start(
     state: State<AppState>,
     app: AppHandle,
     story_id: String,
     permission_mode: String,
     instruction: Option<String>,
-) -> Result<AgentRunDto, String> {
+) -> Result<SessionDto, String> {
     validate_permission_mode(&permission_mode)?;
     let instruction = validate_instruction(instruction.as_deref())?;
     launch_run_for_story(&state, &app, &story_id, &permission_mode, &instruction)
@@ -237,7 +237,7 @@ pub(crate) fn prepare_launch(
             .to_string());
     }
 
-    let outcome = start_agent_run_recording_first(conn, story_id, permission_mode, instruction, &initiator_id)?;
+    let outcome = start_session_recording_first(conn, story_id, permission_mode, instruction, &initiator_id)?;
     Ok(PreparedLaunch { outcome, repo_path, env })
 }
 
@@ -286,7 +286,7 @@ pub(crate) fn launch_run_for_story(
     story_id: &str,
     permission_mode: &str,
     instruction: &str,
-) -> Result<AgentRunDto, String> {
+) -> Result<SessionDto, String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let PreparedLaunch { outcome, repo_path, env } = prepare_launch(&mut conn, story_id, permission_mode, instruction)?;
     spawn_prepared_run(
@@ -300,26 +300,26 @@ pub(crate) fn launch_run_for_story(
     )?;
 
     let project_id = project_of_locked(&state.db, "stories", story_id);
-    emit_board_changed(app, project_id.as_deref(), "agent_run", Some(&outcome.run_id));
+    emit_board_changed(app, project_id.as_deref(), "session", Some(&outcome.run_id));
 
-    Ok(AgentRunDto {
+    Ok(SessionDto {
         id: outcome.run_id,
         story_id: story_id.to_string(),
-        // `start_agent_run` always inserts a fresh session with `status = 'running'`.
+        // `start_session` always inserts a fresh session with `status = 'running'`.
         status: "running".to_string(),
         permission_mode: permission_mode.to_string(),
     })
 }
 
-/// What [`agent_run_stop`] recorded (CR-04, D-35, PROC-06). `status` is read back from
+/// What [`session_stop`] recorded (CR-04, D-35, PROC-06). `status` is read back from
 /// `sessions` after the write, never a hard-coded literal, and `sidecar_warning` is populated
 /// only when the sidecar's interrupt request could not be confirmed — a `None` here means the
 /// interrupt was acknowledged (or no sidecar was attached at all), never that nothing was
 /// recorded.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentRunStopDto {
-    pub agent_run_id: String,
+pub struct SessionStopDto {
+    pub session_id: String,
     pub status: String,
     pub sidecar_warning: Option<String>,
 }
@@ -327,12 +327,12 @@ pub struct AgentRunStopDto {
 /// The Stop/Discard termination unit (D-64, CTX-01, gap #1 of 04-VERIFICATION.md): runs, inside
 /// the CALLER's transaction, the core in-tx interrupt sibling followed by the presence-checked
 /// fallback-summary insert — mirroring the shape `apply_session_closed` already gives the
-/// natural-close variant via `close_agent_run_in_tx`. Composing these two writes on the same
+/// natural-close variant via `close_session_in_tx`. Composing these two writes on the same
 /// `&Transaction` is what makes "a terminated run always has a summary" a property of the
 /// database rather than of call ordering: a crash between the two writes now rolls back BOTH,
 /// leaving the run exactly as it was, instead of leaving a terminal run with no summary at all.
 ///
-/// The status read happens AFTER `interrupt_agent_run_in_tx`'s write, and is issued against this
+/// The status read happens AFTER `interrupt_session_in_tx`'s write, and is issued against this
 /// same `tx` — never a separate connection-level read — so the synthesized fallback summary
 /// records the run's terminal status, never the pre-terminal one. This ordering is load-bearing:
 /// reading the status before the interrupt write, or off a different connection/transaction,
@@ -340,18 +340,18 @@ pub struct AgentRunStopDto {
 /// wrong one if a concurrent write raced in between).
 ///
 /// Returns the run's terminal status string, read back from `sessions` on this same `tx`.
-pub(crate) fn stop_agent_run_in_tx(
+pub(crate) fn stop_session_in_tx(
     tx: &Transaction,
-    agent_run_id: &str,
+    session_id: &str,
     actor_id: &str,
 ) -> Result<String, String> {
-    flywheel_core::domain::agent_run::interrupt_agent_run_in_tx(tx, agent_run_id, actor_id)
+    flywheel_core::domain::session::interrupt_session_in_tx(tx, session_id, actor_id)
         .map_err(|e| e.to_string())?;
 
     let status: String = tx
         .query_row(
             "SELECT status FROM sessions WHERE id = ?1",
-            rusqlite::params![agent_run_id],
+            rusqlite::params![session_id],
             |row| row.get(0),
         )
         .map_err(|e| e.to_string())?;
@@ -360,47 +360,47 @@ pub(crate) fn stop_agent_run_in_tx(
     // second, synthesized row over an agent-authored one. Only an ABSENT summary triggers the
     // fallback (D-64). The presence check and the insert both run on THIS `tx`, so the decision
     // and the write cannot disagree with a concurrent insert on a different connection.
-    if flywheel_core::domain::session_summary::latest_summary_for_run(tx, agent_run_id)
+    if flywheel_core::domain::session_summary::latest_summary_for_run(tx, session_id)
         .map_err(|e| e.to_string())?
         .is_none()
     {
-        flywheel_core::domain::session_summary::synthesize_fallback_summary(tx, agent_run_id, &status)
+        flywheel_core::domain::session_summary::synthesize_fallback_summary(tx, session_id, &status)
             .map_err(|e| e.to_string())?;
     }
 
     Ok(status)
 }
 
-/// The DB-only half of [`agent_run_stop`] (CR-04): records the run's terminal status
+/// The DB-only half of [`session_stop`] (CR-04): records the run's terminal status
 /// UNCONDITIONALLY, regardless of what `interrupt` returns. `interrupt` is invoked exactly once,
 /// FIRST, but its `Result` is captured in a local rather than propagated with `?` or an early
 /// `return` — a sidecar that crashed, wedged, or never acknowledged the request can therefore
 /// only widen the returned DTO's `sidecar_warning`, never starve the domain write below it. This
-/// is the actual fix for CR-04: the previous `agent_run_stop` applied `?` directly to
+/// is the actual fix for CR-04: the previous `session_stop` applied `?` directly to
 /// `interrupt_run`'s result, so a sidecar that failed to answer within
 /// `SidecarHandle::INTERRUPT_ACK_TIMEOUT` left the run stuck `running`/`blocked` forever with no
 /// force path — precisely the moment a user most needs Stop to work (PROC-06 "at any time").
 ///
 /// `actor_id` is resolved server-side (T-01-04) — never accepted from the renderer. The terminal
 /// write and the presence-checked fallback-summary insert now run inside ONE transaction, via
-/// [`stop_agent_run_in_tx`] (D-64, CTX-01, gap #1 of 04-VERIFICATION.md) — mirroring the pattern
-/// `apply_session_closed` documents for the natural-close variant. `interrupt_agent_run_in_tx` is
+/// [`stop_session_in_tx`] (D-64, CTX-01, gap #1 of 04-VERIFICATION.md) — mirroring the pattern
+/// `apply_session_closed` documents for the natural-close variant. `interrupt_session_in_tx` is
 /// idempotent on an already-terminal run (D-35), so calling this seam twice on the same run
-/// appends no second `agent_run.interrupted` event and does not overwrite the recorded status.
+/// appends no second `session.interrupted` event and does not overwrite the recorded status.
 /// `Err` from this function means only that the terminal write itself failed — never that the
 /// sidecar did not answer.
-pub(crate) fn stop_agent_run_recording_first(
+pub(crate) fn stop_session_recording_first(
     conn: &mut Connection,
-    agent_run_id: &str,
+    session_id: &str,
     interrupt: impl FnOnce() -> Result<(), String>,
-) -> Result<AgentRunStopDto, String> {
+) -> Result<SessionStopDto, String> {
     let interrupt_result = interrupt();
 
     let human_actor_id =
         flywheel_core::domain::actor::local_human_actor_id(conn).map_err(|e| e.to_string())?;
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let status = stop_agent_run_in_tx(&tx, agent_run_id, &human_actor_id)?;
+    let status = stop_session_in_tx(&tx, session_id, &human_actor_id)?;
     tx.commit().map_err(|e| e.to_string())?;
 
     let sidecar_warning = interrupt_result.err().map(|e| {
@@ -409,20 +409,20 @@ pub(crate) fn stop_agent_run_recording_first(
         )
     });
 
-    Ok(AgentRunStopDto { agent_run_id: agent_run_id.to_string(), status, sidecar_warning })
+    Ok(SessionStopDto { session_id: session_id.to_string(), status, sidecar_warning })
 }
 
 /// Stop a running agent run (D-35: interrupt, then force; CR-04). The interrupt request is still
 /// sent to the sidecar FIRST, over `SidecarHandle::interrupt_run`, and this command still blocks
 /// until it acknowledges (or times out) — but that outcome can only ADD a warning to the
-/// returned DTO, never prevent the terminal write: see `stop_agent_run_recording_first`, which
+/// returned DTO, never prevent the terminal write: see `stop_session_recording_first`, which
 /// keeps the interrupt's `Result` in a local instead of propagating it with `?`. A sidecar that
 /// is crashed, wedged, or never acknowledges the interrupt therefore still leaves the run at a
 /// terminal status, exactly once, regardless of what the sidecar side did. `Err` from THIS
 /// command now means only that the terminal write itself could not be recorded — it no longer
 /// means "the sidecar did not answer". `actor_id` is resolved server-side (T-01-04, T-02-13) —
 /// never accepted from the renderer. Drops the connection lock before emitting `board:changed`
-/// with an `{ entity: "agent_run", id }` payload, the same shape `task_create` uses (D-04).
+/// with an `{ entity: "session", id }` payload, the same shape `task_create` uses (D-04).
 ///
 /// CR-01 (`02-REVIEW.md` gap-closure round): the interrupt call — which can block for up to
 /// `SidecarHandle::INTERRUPT_ACK_TIMEOUT` (30s) — MUST run before `state.db.lock()` is acquired,
@@ -433,29 +433,29 @@ pub(crate) fn stop_agent_run_recording_first(
 /// silently regresses — there is no compiler error for it, only degraded behavior under exactly
 /// the failure mode CR-04 exists to make graceful.
 #[tauri::command]
-pub fn agent_run_stop(
+pub fn session_stop(
     state: State<AppState>,
     app: AppHandle,
-    agent_run_id: String,
-) -> Result<AgentRunStopDto, String> {
+    session_id: String,
+) -> Result<SessionStopDto, String> {
     // Resolve the interrupt outcome BEFORE touching `state.db` — see the CR-01 note above.
     let interrupt_result = match state.sidecar.as_ref() {
-        Some(sidecar) => sidecar.interrupt_run(&agent_run_id).map_err(|e| e.to_string()),
+        Some(sidecar) => sidecar.interrupt_run(&session_id).map_err(|e| e.to_string()),
         None => Ok(()),
     };
 
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let dto = stop_agent_run_recording_first(&mut conn, &agent_run_id, move || interrupt_result)?;
-    let project_id = project_of(&conn, "sessions", &agent_run_id);
+    let dto = stop_session_recording_first(&mut conn, &session_id, move || interrupt_result)?;
+    let project_id = project_of(&conn, "sessions", &session_id);
     drop(conn);
 
-    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
+    emit_board_changed(&app, project_id.as_deref(), "session", Some(&session_id));
 
     Ok(dto)
 }
 
 /// The bounded wait a discard gives the agent's own closing summary before falling through to the
-/// same interrupt-then-force path [`agent_run_stop`] already walks (D-66, plan 04-13's own
+/// same interrupt-then-force path [`session_stop`] already walks (D-66, plan 04-13's own
 /// resolution of D-66's open timing item — the backend runs headless, so there is no channel to
 /// inject an extra user turn into a live session; every briefing's own Closing Requirement section
 /// already tells the agent, by exact tool name, to record its summary as its final turn, and this
@@ -468,29 +468,29 @@ pub fn agent_run_stop(
 /// 8_000 + 5_000).
 pub const DISCARD_SUMMARY_WAIT_MS: u64 = 8_000;
 
-/// How often [`agent_run_discard`]'s own loop re-checks for a recorded summary or a terminal
+/// How often [`session_discard`]'s own loop re-checks for a recorded summary or a terminal
 /// status — modest enough not to hammer the shared DB mutex, short enough that the bounded wait
 /// actually behaves like a poll rather than one long sleep.
 const DISCARD_POLL_INTERVAL_MS: u64 = 200;
 
 /// One poll iteration's read: has a summary landed for this run yet, and has the run already
 /// reached a terminal status on its own? Takes a plain `&Connection` — never the lock itself — so
-/// [`agent_run_discard`]'s own loop can take and release `state.db.lock()` once per poll, never
-/// holding it across the whole wait (T-04-36): `agent_run_stop`'s own CR-01 comment states the
+/// [`session_discard`]'s own loop can take and release `state.db.lock()` once per poll, never
+/// holding it across the whole wait (T-04-36): `session_stop`'s own CR-01 comment states the
 /// reason in this exact file — holding the app's one `Mutex<Connection>` across a multi-second wait
 /// freezes every other board read in the app — and that reasoning applies here with more force,
 /// because this window is longer. A read error on either query degrades to "no summary yet, not
 /// terminal yet" (T-04-37) — a poll must never fail the discard because it happened to error once.
-fn discard_poll_snapshot(conn: &Connection, agent_run_id: &str) -> (bool, bool) {
+fn discard_poll_snapshot(conn: &Connection, session_id: &str) -> (bool, bool) {
     let has_summary =
-        flywheel_core::domain::session_summary::latest_summary_for_run(conn, agent_run_id)
+        flywheel_core::domain::session_summary::latest_summary_for_run(conn, session_id)
             .ok()
             .flatten()
             .is_some();
     let status: Option<String> = conn
         .query_row(
             "SELECT status FROM sessions WHERE id = ?1",
-            rusqlite::params![agent_run_id],
+            rusqlite::params![session_id],
             |row| row.get(0),
         )
         .ok();
@@ -504,28 +504,28 @@ fn discard_poll_snapshot(conn: &Connection, agent_run_id: &str) -> (bool, bool) 
 /// Discard a live run in one action (D-66/D-67, plan 04-13, CTX-08 — the phase's flagship path,
 /// the user-visible half of everything the previous twelve plans built): give the agent's own
 /// closing summary a bounded window to land, then end the session through the EXACT SAME path
-/// [`agent_run_stop`] already walks — a thin wrapper around it, never a second termination
+/// [`session_stop`] already walks — a thin wrapper around it, never a second termination
 /// implementation. A surfaced contradiction or a missing summary must never stand between the
 /// developer and a fresh session (T-04-37): the wait is bounded by [`DISCARD_SUMMARY_WAIT_MS`]
 /// regardless of whether the agent ever answers, and a poll error along the way is simply treated
 /// as "no summary yet" rather than aborting the discard.
 ///
-/// Returns the SAME [`AgentRunStopDto`] `agent_run_stop` returns, so the renderer's existing
+/// Returns the SAME [`SessionStopDto`] `session_stop` returns, so the renderer's existing
 /// handling applies unchanged — the caller cannot tell, from the return shape alone, whether the
 /// summary that ended up recorded was agent-authored or the fallback synthesizer's.
 #[tauri::command]
-pub fn agent_run_discard(
+pub fn session_discard(
     state: State<AppState>,
     app: AppHandle,
-    agent_run_id: String,
-) -> Result<AgentRunStopDto, String> {
+    session_id: String,
+) -> Result<SessionStopDto, String> {
     let deadline =
         std::time::Instant::now() + std::time::Duration::from_millis(DISCARD_SUMMARY_WAIT_MS);
     loop {
         // Lock taken and released each iteration — never held across the wait (T-04-36, see
         // discard_poll_snapshot's own doc comment).
         let (has_summary, is_terminal) = match state.db.lock() {
-            Ok(conn) => discard_poll_snapshot(&conn, &agent_run_id),
+            Ok(conn) => discard_poll_snapshot(&conn, &session_id),
             Err(_) => (false, false),
         };
         if has_summary || is_terminal {
@@ -537,20 +537,20 @@ pub fn agent_run_discard(
         std::thread::sleep(std::time::Duration::from_millis(DISCARD_POLL_INTERVAL_MS));
     }
 
-    // From here on, exactly what agent_run_stop performs: the CR-01 resolve-the-interrupt-before-
+    // From here on, exactly what session_stop performs: the CR-01 resolve-the-interrupt-before-
     // locking-the-shared-db-mutex ordering, then the ONE shared termination tail
-    // (stop_agent_run_recording_first), then the same board:changed emit shape agent_run_stop uses.
+    // (stop_session_recording_first), then the same board:changed emit shape session_stop uses.
     let interrupt_result = match state.sidecar.as_ref() {
-        Some(sidecar) => sidecar.interrupt_run(&agent_run_id).map_err(|e| e.to_string()),
+        Some(sidecar) => sidecar.interrupt_run(&session_id).map_err(|e| e.to_string()),
         None => Ok(()),
     };
 
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let dto = stop_agent_run_recording_first(&mut conn, &agent_run_id, move || interrupt_result)?;
-    let project_id = project_of(&conn, "sessions", &agent_run_id);
+    let dto = stop_session_recording_first(&mut conn, &session_id, move || interrupt_result)?;
+    let project_id = project_of(&conn, "sessions", &session_id);
     drop(conn);
 
-    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
+    emit_board_changed(&app, project_id.as_deref(), "session", Some(&session_id));
 
     Ok(dto)
 }
@@ -605,7 +605,7 @@ pub fn process_inbound_permission_request(
     };
 
     let agent_id =
-        flywheel_core::domain::agent_run::agent_actor_id(conn).map_err(|e| e.to_string())?;
+        flywheel_core::domain::session::agent_actor_id(conn).map_err(|e| e.to_string())?;
 
     // D-57: a destructive request never consults an existing per-project rule — see this
     // function's own doc comment for why that bypass is load-bearing, not an optimisation.
@@ -713,12 +713,12 @@ fn permission_transition(
 fn closed_transition(
     conn: &Connection,
     run_id: &str,
-    outcome: &flywheel_core::domain::agent_run::SessionClosedOutcome,
+    outcome: &flywheel_core::domain::session::SessionClosedOutcome,
 ) -> Option<crate::notify::Transition> {
-    use flywheel_core::domain::agent_run::{AgentRunStatus, SessionClosedOutcome};
+    use flywheel_core::domain::session::{SessionStatus, SessionClosedOutcome};
     let kind = match outcome {
-        SessionClosedOutcome::Closed(AgentRunStatus::Completed) => crate::notify::TransitionKind::Completed,
-        SessionClosedOutcome::Closed(AgentRunStatus::Failed) => crate::notify::TransitionKind::Failed,
+        SessionClosedOutcome::Closed(SessionStatus::Completed) => crate::notify::TransitionKind::Completed,
+        SessionClosedOutcome::Closed(SessionStatus::Failed) => crate::notify::TransitionKind::Failed,
         _ => return None,
     };
     let (project_name, subject_label) = notify_context(conn, run_id);
@@ -802,7 +802,7 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
         }
         PermissionRequestOutcome::Pending { db_request_id } => {
             sidecar.register_pending_permission_request(&db_request_id, run_id, request_id);
-            emit_board_changed(app, project_id.as_deref(), "agent_run", Some(run_id));
+            emit_board_changed(app, project_id.as_deref(), "session", Some(run_id));
             if let Some(t) = transition {
                 crate::notify::push(t);
             }
@@ -813,7 +813,7 @@ pub fn handle_inbound_permission_request(app: &AppHandle, event: &serde_json::Va
 
 /// The Tauri-facing half of the terminal-event path (G-02-4) — called from `sidecar.rs`'s reader
 /// loop for every `session_closed` event, mirroring [`handle_inbound_permission_request`]'s own
-/// split: the DB-only decision (`flywheel_core::domain::agent_run::apply_session_closed`) stays
+/// split: the DB-only decision (`flywheel_core::domain::session::apply_session_closed`) stays
 /// testable without a real spawned sidecar, and this half performs the IPC-adjacent side effect
 /// (the `board:changed` emit) the outcome implies.
 ///
@@ -825,7 +825,7 @@ pub fn handle_inbound_session_closed(app: &AppHandle, event: &serde_json::Value)
     let Some(state) = app.try_state::<AppState>() else { return };
     let Ok(mut conn) = state.db.lock() else { return };
 
-    let outcome = match flywheel_core::domain::agent_run::apply_session_closed(&mut conn, event) {
+    let outcome = match flywheel_core::domain::session::apply_session_closed(&mut conn, event) {
         Ok(outcome) => outcome,
         Err(_) => return,
     };
@@ -836,11 +836,11 @@ pub fn handle_inbound_session_closed(app: &AppHandle, event: &serde_json::Value)
 
     let changed = matches!(
         outcome,
-        flywheel_core::domain::agent_run::SessionClosedOutcome::Closed(_)
-            | flywheel_core::domain::agent_run::SessionClosedOutcome::BackfilledTerminal
+        flywheel_core::domain::session::SessionClosedOutcome::Closed(_)
+            | flywheel_core::domain::session::SessionClosedOutcome::BackfilledTerminal
     );
     if let (true, Some(run_id)) = (changed, run_id) {
-        emit_board_changed(app, project_id.as_deref(), "agent_run", Some(run_id));
+        emit_board_changed(app, project_id.as_deref(), "session", Some(run_id));
     }
     if let Some(t) = transition {
         crate::notify::push(t);
@@ -863,7 +863,7 @@ fn db_decision_for(decision: &str) -> Result<&'static str, String> {
     }
 }
 
-/// What `agent_run_answer_permission` relays to the sidecar after a successful DB answer — kept
+/// What `session_answer_permission` relays to the sidecar after a successful DB answer — kept
 /// as a return value (never performed here) so the outbound path's decision logic is
 /// unit-testable without a real spawned sidecar process.
 #[derive(Debug, Clone, PartialEq)]
@@ -903,7 +903,7 @@ pub fn answer_permission_request(
     }
 
     let relay_decision: &'static str = if decision == "deny" { "deny" } else { "allow" };
-    Ok(PermissionRelayInstruction { run_id: answered.agent_run_id, decision: relay_decision })
+    Ok(PermissionRelayInstruction { run_id: answered.session_id, decision: relay_decision })
 }
 
 /// Answer a pending permission request from the board (AGNT-06, D-38). `actor_id` is resolved
@@ -911,7 +911,7 @@ pub fn answer_permission_request(
 /// returns the already-answered error, that error is returned to the renderer and NOTHING is
 /// relayed to the sidecar — the held call was already settled by whichever answer won.
 #[tauri::command]
-pub fn agent_run_answer_permission(
+pub fn session_answer_permission(
     state: State<AppState>,
     app: AppHandle,
     request_id: String,
@@ -931,7 +931,7 @@ pub fn agent_run_answer_permission(
             .map_err(|e| e.to_string())?;
     }
 
-    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&instruction.run_id));
+    emit_board_changed(&app, project_id.as_deref(), "session", Some(&instruction.run_id));
 
     Ok(())
 }
@@ -1017,26 +1017,26 @@ impl From<flywheel_core::query::permissions::PendingPermissionRequest> for Pendi
     }
 }
 
-/// List every pending permission request for `agent_run_id`, oldest first (AGNT-06, plan 02-06
+/// List every pending permission request for `session_id`, oldest first (AGNT-06, plan 02-06
 /// Task 2) — the permission-request card's data source, shared by both mount points (the session
-/// feed and the item detail panel both call this with the same `agent_run_id`). Read-only.
+/// feed and the item detail panel both call this with the same `session_id`). Read-only.
 #[tauri::command]
-pub fn agent_run_pending_permissions(
+pub fn session_pending_permissions(
     state: State<AppState>,
-    agent_run_id: String,
+    session_id: String,
 ) -> Result<Vec<PendingPermissionRequestDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let rows = flywheel_core::query::permissions::pending_requests_for_run(&conn, &agent_run_id)
+    let rows = flywheel_core::query::permissions::pending_requests_for_run(&conn, &session_id)
         .map_err(|e| e.to_string())?;
     Ok(rows.into_iter().map(Into::into).collect())
 }
 
 /// The most recent agent run id for `story_id`, or `null` if the Story has never had a run (AGNT-06,
 /// plan 02-06 Task 2) — the item detail panel's own resolution of "this Story's active run," so its
-/// compact permission-request card mount can read the exact same `agent_run_id`-keyed query the
+/// compact permission-request card mount can read the exact same `session_id`-keyed query the
 /// session feed's mount uses. Read-only.
 #[tauri::command]
-pub fn story_latest_agent_run(state: State<AppState>, story_id: String) -> Result<Option<String>, String> {
+pub fn story_latest_session(state: State<AppState>, story_id: String) -> Result<Option<String>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     flywheel_core::query::permissions::latest_run_id_for_story(&conn, &story_id).map_err(|e| e.to_string())
 }
@@ -1092,7 +1092,7 @@ fn resolve_log_window_limit(limit: Option<i64>) -> i64 {
     limit.unwrap_or(LOG_WINDOW_DEFAULT_LIMIT).clamp(1, LOG_WINDOW_MAX_LIMIT)
 }
 
-/// A bounded page of `agent_run_id`'s durable JSONL log (D-33/D-34, plan 02-07 Task 1) — a thin
+/// A bounded page of `session_id`'s durable JSONL log (D-33/D-34, plan 02-07 Task 1) — a thin
 /// DTO wrapper over `flywheel_core::session_log::LogWindow`. `limit` is clamped server-side to at
 /// most 100 regardless of what is requested (T-02-06) — the desktop layer's own clamp on top of
 /// `read_window`'s own internal one, so the ceiling holds even if a future call site here forgets
@@ -1119,20 +1119,20 @@ impl From<flywheel_core::session_log::LogWindow> for LogWindowDto {
     }
 }
 
-// The shape guard for `agent_run_id` lives in `flywheel_core::session_log::session_log_path`
-// (the single join site both this command and `agent_run_raw_window` funnel through) — NOT here.
+// The shape guard for `session_id` lives in `flywheel_core::session_log::session_log_path`
+// (the single join site both this command and `session_raw_window` funnel through) — NOT here.
 // Adding a second check in this command would be a second implementation of the same rule, the
 // exact drift plan 03-15 exists to prevent (see `session_log_path`'s own doc comment).
 #[tauri::command]
-pub fn agent_run_log_window(
-    agent_run_id: String,
+pub fn session_log_window(
+    session_id: String,
     offset: Option<i64>,
     limit: Option<i64>,
 ) -> Result<LogWindowDto, String> {
     let limit = resolve_log_window_limit(limit);
     let offset = offset.unwrap_or(0).max(0);
 
-    flywheel_core::session_log::read_window(&agent_run_id, offset as usize, limit as usize)
+    flywheel_core::session_log::read_window(&session_id, offset as usize, limit as usize)
         .map(LogWindowDto::from)
         .map_err(|e| e.to_string())
 }
@@ -1157,28 +1157,28 @@ pub struct RawLogWindowDto {
 }
 
 /// The raw view's own bounded read (plan 02-07 Task 1/3, D-32) — the same windowing shape
-/// `agent_run_log_window` uses (offset/limit clamped identically, `total` from
+/// `session_log_window` uses (offset/limit clamped identically, `total` from
 /// `session_log::count_lines`), but returning each line's VERBATIM text instead of its parsed
 /// value. Never reads the whole file into memory: bounded skip/take over a buffered reader,
 /// mirroring `session_log::read_window`'s own discipline.
 #[tauri::command]
-pub fn agent_run_raw_window(
-    agent_run_id: String,
+pub fn session_raw_window(
+    session_id: String,
     offset: Option<i64>,
     limit: Option<i64>,
 ) -> Result<RawLogWindowDto, String> {
     let limit = resolve_log_window_limit(limit);
     let offset = offset.unwrap_or(0).max(0);
 
-    let total = flywheel_core::session_log::count_lines(&agent_run_id).map_err(|e| e.to_string())?;
+    let total = flywheel_core::session_log::count_lines(&session_id).map_err(|e| e.to_string())?;
     let path =
-        flywheel_core::session_log::session_log_path(&agent_run_id).map_err(|e| e.to_string())?;
+        flywheel_core::session_log::session_log_path(&session_id).map_err(|e| e.to_string())?;
     let lines = read_raw_line_window(&path, offset as usize, limit as usize, total);
 
     Ok(RawLogWindowDto { lines, offset, limit, total: total as i64 })
 }
 
-/// The actual bounded verbatim read behind [`agent_run_raw_window`] — split out so it is
+/// The actual bounded verbatim read behind [`session_raw_window`] — split out so it is
 /// unit-testable directly, without going through Tauri's `State<AppState>` extraction machinery.
 /// A missing file (or a `total` of zero) returns an empty window. Never steps past `total`
 /// lines, so an in-flight write's trailing fragment (excluded from `total` by
@@ -1214,11 +1214,11 @@ fn read_raw_line_window(
     out
 }
 
-const AGENT_RUNS_FOR_STORY_DEFAULT_LIMIT: i64 = 50;
-const AGENT_RUNS_FOR_STORY_MAX_LIMIT: i64 = 50;
+const SESSIONS_FOR_STORY_DEFAULT_LIMIT: i64 = 50;
+const SESSIONS_FOR_STORY_MAX_LIMIT: i64 = 50;
 
-fn resolve_agent_runs_limit(limit: Option<i64>) -> i64 {
-    limit.unwrap_or(AGENT_RUNS_FOR_STORY_DEFAULT_LIMIT).clamp(1, AGENT_RUNS_FOR_STORY_MAX_LIMIT)
+fn resolve_sessions_limit(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(SESSIONS_FOR_STORY_DEFAULT_LIMIT).clamp(1, SESSIONS_FOR_STORY_MAX_LIMIT)
 }
 
 /// One row of a Story's Runs section (02-UI-SPEC.md "Runs section") — mirrors
@@ -1254,8 +1254,8 @@ pub struct RunSummaryDto {
     pub abandoned_reason: Option<String>,
 }
 
-impl From<flywheel_core::query::agent_runs::RunRow> for RunSummaryDto {
-    fn from(run: flywheel_core::query::agent_runs::RunRow) -> Self {
+impl From<flywheel_core::query::sessions::RunRow> for RunSummaryDto {
+    fn from(run: flywheel_core::query::sessions::RunRow) -> Self {
         let abandoned_reason = if run.status == "abandoned" {
             match flywheel_core::runtime_protocol::read_kill_record(&run.id) {
                 flywheel_core::runtime_protocol::KillRecordRead::Found(record) => Some(record.killed_at),
@@ -1284,17 +1284,17 @@ impl From<flywheel_core::query::agent_runs::RunRow> for RunSummaryDto {
 /// `story_id`'s agent runs, newest first, bounded (plan 02-07 Task 1, 02-UI-SPEC.md "Runs
 /// section") — the item detail panel's Runs section reads this. Read-only.
 #[tauri::command]
-pub fn agent_runs_for_story(
+pub fn sessions_for_story(
     state: State<AppState>,
     story_id: String,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<RunSummaryDto>, String> {
-    let limit = resolve_agent_runs_limit(limit);
+    let limit = resolve_sessions_limit(limit);
     let offset = offset.unwrap_or(0).max(0);
 
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let rows = flywheel_core::query::agent_runs::runs_for_story(&conn, &story_id, limit, offset)
+    let rows = flywheel_core::query::sessions::runs_for_story(&conn, &story_id, limit, offset)
         .map_err(|e| e.to_string())?;
     Ok(rows.into_iter().map(RunSummaryDto::from).collect())
 }
@@ -1305,7 +1305,7 @@ pub fn agent_runs_for_story(
 /// `flywheel_core::domain::session_summary::list_summaries_for_story`, reusing the same
 /// `SessionSummaryDto` the launch sheet's preview already declares — no second DTO shape. A
 /// read: locks the database, calls the domain read, maps, returns; no mutation and no emit,
-/// mirroring `agent_runs_for_story`'s own shape immediately above.
+/// mirroring `sessions_for_story`'s own shape immediately above.
 #[tauri::command]
 pub fn story_session_summaries(
     state: State<AppState>,
@@ -1319,23 +1319,23 @@ pub fn story_session_summaries(
 
 /// The acknowledgment of a finished run (D-49 for `abandoned`, widened by D-165 / plan 10-04 to
 /// `completed`, `failed` and `interrupted`). The statement lives in exactly one place,
-/// `flywheel_core::domain::agent_run::acknowledge_run`, whose `WHERE` clause refuses a live run, so
+/// `flywheel_core::domain::session::acknowledge_run`, whose `WHERE` clause refuses a live run, so
 /// this command cannot dismiss one however it is called. No actor is needed: the statement changes
 /// one timestamp column and appends no event. Emits `board:changed` with
-/// `{ entity: "agent_run", id: agent_run_id }` so `useAgentRuns` and the fleet re-read.
+/// `{ entity: "session", id: session_id }` so `useSessions` and the fleet re-read.
 #[tauri::command]
-pub fn agent_run_acknowledge(
+pub fn session_acknowledge(
     state: State<AppState>,
     app: AppHandle,
-    agent_run_id: String,
+    session_id: String,
 ) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    flywheel_core::domain::agent_run::acknowledge_run(&conn, &agent_run_id)
+    flywheel_core::domain::session::acknowledge_run(&conn, &session_id)
         .map_err(|e| e.to_string())?;
-    let project_id = project_of(&conn, "sessions", &agent_run_id);
+    let project_id = project_of(&conn, "sessions", &session_id);
     drop(conn);
 
-    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
+    emit_board_changed(&app, project_id.as_deref(), "session", Some(&session_id));
 
     Ok(())
 }
@@ -1344,54 +1344,54 @@ pub fn agent_run_acknowledge(
 /// window it clears.
 const ACKNOWLEDGE_MANY_CAP: usize = 200;
 
-/// One id's outcome in [`agent_run_acknowledge_many`]. `acknowledged` is false for an unknown id,
+/// One id's outcome in [`session_acknowledge_many`]. `acknowledged` is false for an unknown id,
 /// a live run or an already-acknowledged run -- all of them benign -- and `error` is set, with
 /// `acknowledged` false, when the write itself failed (locked database, I/O), so a failed dismiss
 /// is never mistaken for "nothing to do". The batch never aborts on one id.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AcknowledgeResultDto {
-    pub agent_run_id: String,
+    pub session_id: String,
     pub acknowledged: bool,
     pub error: Option<String>,
 }
 
-/// Acknowledge each id through [`flywheel_core::domain::agent_run::acknowledge_run`]. A list longer
+/// Acknowledge each id through [`flywheel_core::domain::session::acknowledge_run`]. A list longer
 /// than [`ACKNOWLEDGE_MANY_CAP`] is refused as a whole, before anything is written, as the reclaim
 /// batch is -- never silently truncated.
-fn acknowledge_many(conn: &Connection, agent_run_ids: Vec<String>) -> Result<Vec<AcknowledgeResultDto>, String> {
-    if agent_run_ids.len() > ACKNOWLEDGE_MANY_CAP {
+fn acknowledge_many(conn: &Connection, session_ids: Vec<String>) -> Result<Vec<AcknowledgeResultDto>, String> {
+    if session_ids.len() > ACKNOWLEDGE_MANY_CAP {
         return Err(format!(
-            "agent_run_acknowledge_many refused: {} runs named, at most {ACKNOWLEDGE_MANY_CAP} at a time",
-            agent_run_ids.len()
+            "session_acknowledge_many refused: {} runs named, at most {ACKNOWLEDGE_MANY_CAP} at a time",
+            session_ids.len()
         ));
     }
-    Ok(agent_run_ids
+    Ok(session_ids
         .into_iter()
-        .map(|agent_run_id| {
-            match flywheel_core::domain::agent_run::acknowledge_run(conn, &agent_run_id) {
-                Ok(acknowledged) => AcknowledgeResultDto { agent_run_id, acknowledged, error: None },
-                Err(e) => AcknowledgeResultDto { agent_run_id, acknowledged: false, error: Some(format!("{e:#}")) },
+        .map(|session_id| {
+            match flywheel_core::domain::session::acknowledge_run(conn, &session_id) {
+                Ok(acknowledged) => AcknowledgeResultDto { session_id, acknowledged, error: None },
+                Err(e) => AcknowledgeResultDto { session_id, acknowledged: false, error: Some(format!("{e:#}")) },
             }
         })
         .collect())
 }
 
 /// The fleet's "Dismiss finished" action: acknowledge each id through the same single statement as
-/// [`agent_run_acknowledge`], at most [`ACKNOWLEDGE_MANY_CAP`] of them, one result per id. Ids only
+/// [`session_acknowledge`], at most [`ACKNOWLEDGE_MANY_CAP`] of them, one result per id. Ids only
 /// from the renderer; one `board:changed` is emitted for the whole batch.
 #[tauri::command]
-pub fn agent_run_acknowledge_many(
+pub fn session_acknowledge_many(
     state: State<AppState>,
     app: AppHandle,
-    agent_run_ids: Vec<String>,
+    session_ids: Vec<String>,
 ) -> Result<Vec<AcknowledgeResultDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let results = acknowledge_many(&conn, agent_run_ids);
+    let results = acknowledge_many(&conn, session_ids);
     drop(conn);
 
     // A batch can span projects, and no single project is honest here: broadcast.
-    emit_board_changed(&app, None, "agent_run", None);
+    emit_board_changed(&app, None, "session", None);
 
     results
 }
@@ -1409,8 +1409,8 @@ pub struct WorktreeSummaryDto {
     pub status: String,
 }
 
-impl From<flywheel_core::query::agent_runs::WorktreeSummary> for WorktreeSummaryDto {
-    fn from(summary: flywheel_core::query::agent_runs::WorktreeSummary) -> Self {
+impl From<flywheel_core::query::sessions::WorktreeSummary> for WorktreeSummaryDto {
+    fn from(summary: flywheel_core::query::sessions::WorktreeSummary) -> Self {
         Self { branch: summary.branch, path: summary.path, status: summary.status }
     }
 }
@@ -1423,7 +1423,7 @@ pub fn worktree_summary(
     story_id: String,
 ) -> Result<Option<WorktreeSummaryDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let summary = flywheel_core::query::agent_runs::worktree_summary_for_story(&conn, &story_id)
+    let summary = flywheel_core::query::sessions::worktree_summary_for_story(&conn, &story_id)
         .map_err(|e| e.to_string())?;
     Ok(summary.map(WorktreeSummaryDto::from))
 }
@@ -1468,7 +1468,7 @@ pub fn worktree_remove_check(
 ) -> Result<Option<WorktreeRemovalCheckDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let Some(summary) =
-        flywheel_core::query::agent_runs::worktree_summary_for_story(&conn, &story_id)
+        flywheel_core::query::sessions::worktree_summary_for_story(&conn, &story_id)
             .map_err(|e| e.to_string())?
     else {
         return Ok(None);
@@ -1523,7 +1523,7 @@ pub fn worktree_remove(
 /// non-`missing` row (naming the actual status in the error) — this command carries no
 /// force/override parameter beyond `story_id`, so there is no second guard here and no way around
 /// the first. `recreate_worktree_for_story` shells out to git; the connection lock is dropped
-/// before that call so a slow git operation never holds `state.db` (mirrors `agent_run_start`'s
+/// before that call so a slow git operation never holds `state.db` (mirrors `session_start`'s
 /// own resolve-before-lock discipline for `send_spawn_request`, see the comment above it). Emits
 /// `board:changed` with `{ entity: "worktree", id: story_id }` on success — `useWorktreeSummary`'s
 /// existing invalidation is what makes the banner disappear once the row reads `active` again.
@@ -1570,7 +1570,7 @@ pub fn worktree_forget_record(state: State<AppState>, app: AppHandle, story_id: 
 }
 
 /// One genuinely-alive orphaned run the launch reconciler found (plan 03-06, PROC-05, D-46) —
-/// mirrors `flywheel_core::domain::agent_run::LiveOrphan` field-for-field in camelCase, carrying
+/// mirrors `flywheel_core::domain::session::LiveOrphan` field-for-field in camelCase, carrying
 /// nothing `03-UI-SPEC.md`'s orphan-recovery modal does not render: no cost, no token counts
 /// (those are AGNT-08, Phase 10) and no live stream handle — the process here is being killed,
 /// not observed.
@@ -1588,8 +1588,8 @@ pub struct PendingOrphanDto {
     pub started_at: String,
 }
 
-impl From<flywheel_core::domain::agent_run::LiveOrphan> for PendingOrphanDto {
-    fn from(orphan: flywheel_core::domain::agent_run::LiveOrphan) -> Self {
+impl From<flywheel_core::domain::session::LiveOrphan> for PendingOrphanDto {
+    fn from(orphan: flywheel_core::domain::session::LiveOrphan) -> Self {
         Self {
             run_id: orphan.run_id,
             story_id: orphan.story_id,
@@ -1605,16 +1605,16 @@ impl From<flywheel_core::domain::agent_run::LiveOrphan> for PendingOrphanDto {
 
 /// The launch-time live-orphan list (plan 03-06) — read-only, cloned out of
 /// `AppState.pending_orphans`, which `main.rs`'s `.setup()` populates exactly once from
-/// `reconcile_agent_runs`'s own return value. After every row has been resolved via
+/// `reconcile_sessions`'s own return value. After every row has been resolved via
 /// [`orphan_kill`] this returns an empty list.
 #[tauri::command]
-pub fn agent_runs_pending_orphans(state: State<AppState>) -> Result<Vec<PendingOrphanDto>, String> {
+pub fn sessions_pending_orphans(state: State<AppState>) -> Result<Vec<PendingOrphanDto>, String> {
     let orphans = state.pending_orphans.lock().map_err(|e| e.to_string())?;
     Ok(orphans.iter().cloned().map(PendingOrphanDto::from).collect())
 }
 
 /// What [`orphan_kill`] returns (plan 03-06, T-03-06-04) — mirrors
-/// `flywheel_core::domain::agent_run::OrphanKillOutcome` field-for-field in camelCase.
+/// `flywheel_core::domain::session::OrphanKillOutcome` field-for-field in camelCase.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrphanKillDto {
@@ -1623,68 +1623,68 @@ pub struct OrphanKillDto {
     pub detail: Option<String>,
 }
 
-/// Remove `agent_run_id` from `pending` ONLY when `killed` is true (plan 03-06, T-03-06-04) — a
+/// Remove `session_id` from `pending` ONLY when `killed` is true (plan 03-06, T-03-06-04) — a
 /// failed kill leaves the row mounted so the recovery modal keeps showing it, rather than
 /// dismissing a row this call never actually resolved. Factored out of [`orphan_kill`] so this
 /// decision is unit-testable against a bare `Vec`, mirroring
 /// `process_inbound_permission_request`'s own split from its Tauri-facing caller.
 fn retain_pending_orphan_unless_killed(
-    pending: &mut Vec<flywheel_core::domain::agent_run::LiveOrphan>,
-    agent_run_id: &str,
+    pending: &mut Vec<flywheel_core::domain::session::LiveOrphan>,
+    session_id: &str,
     killed: bool,
 ) {
     if killed {
-        pending.retain(|orphan| orphan.run_id != agent_run_id);
+        pending.retain(|orphan| orphan.run_id != session_id);
     }
 }
 
 /// Kill one live orphan (plan 03-06, D-30, D-48) — the only verb the orphan-recovery modal offers.
-/// `agent_run_id` is the ONLY input; the pid actually signalled is read from the descriptor this
+/// `session_id` is the ONLY input; the pid actually signalled is read from the descriptor this
 /// application itself wrote at spawn time, never supplied by the renderer (T-03-06-03). Rejects
-/// with a not-found error when `agent_run_id` no longer names an entry in `pending_orphans` —
+/// with a not-found error when `session_id` no longer names an entry in `pending_orphans` —
 /// checked BEFORE the domain call runs, so a second kill for a run already resolved (by an
 /// earlier kill, or by never having been a real live orphan at all) reports that honestly rather
 /// than performing a redundant signal and claiming a success it did not observe.
 ///
-/// `actor_id` is resolved server-side (T-01-04). Unlike `agent_run_stop`'s CR-01 sidecar wait
+/// `actor_id` is resolved server-side (T-01-04). Unlike `session_stop`'s CR-01 sidecar wait
 /// (up to 30s), `kill_orphan`'s own post-signal wait is bounded at ~200ms
-/// (`domain::agent_run::ORPHAN_KILL_RECHECK_DELAY`) — short enough that holding `state.db` across
+/// (`domain::session::ORPHAN_KILL_RECHECK_DELAY`) — short enough that holding `state.db` across
 /// it, for this one call, does not risk starving every other board command the way a wedged
 /// sidecar would; the CR-01 discipline of resolving an external wait before locking the database
 /// is honoured in spirit (a bounded, short wait) rather than by an unneeded split of the already
 /// tested domain function.
 ///
-/// Emits `board:changed` with `{ entity: "agent_run", id: agent_run_id }` in BOTH outcomes — the
+/// Emits `board:changed` with `{ entity: "session", id: session_id }` in BOTH outcomes — the
 /// run reaches `abandoned` in the database either way (`kill_orphan`'s own CR-04 shape), and the
 /// board must reflect that even when the process itself survived the signal.
 #[tauri::command]
 pub fn orphan_kill(
     state: State<AppState>,
     app: AppHandle,
-    agent_run_id: String,
+    session_id: String,
 ) -> Result<OrphanKillDto, String> {
     {
         let pending = state.pending_orphans.lock().map_err(|e| e.to_string())?;
-        if !pending.iter().any(|orphan| orphan.run_id == agent_run_id) {
-            return Err(format!("no pending orphan found for agent_run_id {agent_run_id:?}"));
+        if !pending.iter().any(|orphan| orphan.run_id == session_id) {
+            return Err(format!("no pending orphan found for session_id {session_id:?}"));
         }
     }
 
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    let outcome = flywheel_core::domain::agent_run::kill_orphan(&mut conn, &agent_run_id, &actor_id)
+    let outcome = flywheel_core::domain::session::kill_orphan(&mut conn, &session_id, &actor_id)
         .map_err(|e| e.to_string())?;
-    let project_id = project_of(&conn, "sessions", &agent_run_id);
+    let project_id = project_of(&conn, "sessions", &session_id);
     drop(conn);
 
     {
         let mut pending = state.pending_orphans.lock().map_err(|e| e.to_string())?;
         // Removed only on a genuine success (see retain_pending_orphan_unless_killed's own doc).
-        retain_pending_orphan_unless_killed(&mut pending, &agent_run_id, outcome.killed);
+        retain_pending_orphan_unless_killed(&mut pending, &session_id, outcome.killed);
     }
 
-    emit_board_changed(&app, project_id.as_deref(), "agent_run", Some(&agent_run_id));
+    emit_board_changed(&app, project_id.as_deref(), "session", Some(&session_id));
 
     Ok(OrphanKillDto { killed: outcome.killed, pid: outcome.pid, detail: outcome.detail })
 }
@@ -1698,8 +1698,8 @@ mod scratch_root;
 mod tests {
     use super::*;
 
-    fn sample_live_orphan(run_id: &str) -> flywheel_core::domain::agent_run::LiveOrphan {
-        flywheel_core::domain::agent_run::LiveOrphan {
+    fn sample_live_orphan(run_id: &str) -> flywheel_core::domain::session::LiveOrphan {
+        flywheel_core::domain::session::LiveOrphan {
             run_id: run_id.to_string(),
             story_id: "story-1".to_string(),
             story_key: "FLY-1".to_string(),
@@ -1767,15 +1767,15 @@ mod tests {
     /// command is one of the two IPC boundaries a renderer can actually reach (plan 03-15,
     /// T-03-15-01) — this test proves the guard is inherited here, not that it is re-implemented.
     #[test]
-    fn agent_run_log_window_rejects_a_run_id_that_is_not_ulid_shaped() {
-        let result = agent_run_log_window("../../../etc/passwd".to_string(), None, None);
-        assert!(result.is_err(), "a traversal-shaped agent_run_id must be rejected");
+    fn session_log_window_rejects_a_run_id_that_is_not_ulid_shaped() {
+        let result = session_log_window("../../../etc/passwd".to_string(), None, None);
+        assert!(result.is_err(), "a traversal-shaped session_id must be rejected");
     }
 
     #[test]
-    fn agent_run_raw_window_rejects_a_run_id_that_is_not_ulid_shaped() {
-        let result = agent_run_raw_window("../../../etc/passwd".to_string(), None, None);
-        assert!(result.is_err(), "a traversal-shaped agent_run_id must be rejected");
+    fn session_raw_window_rejects_a_run_id_that_is_not_ulid_shaped() {
+        let result = session_raw_window("../../../etc/passwd".to_string(), None, None);
+        assert!(result.is_err(), "a traversal-shaped session_id must be rejected");
     }
 
     /// One Milestone, one Epic under it and one Story under that, through the core's own writers.
@@ -1841,18 +1841,18 @@ mod tests {
     }
 
     /// A fresh migrated database with one project, one Story and one `running` `sessions` row —
-    /// inserted directly via literal SQL rather than `start_agent_run` (which requires a real git
+    /// inserted directly via literal SQL rather than `start_session` (which requires a real git
     /// repository for `ensure_worktree`) since `process_inbound_permission_request`/
     /// `answer_permission_request` only ever read `sessions.project_id`/`story_id` and update
     /// its `status` column. `worktree_id` stays `NULL` (nullable in the baseline schema).
-    fn seeded_conn_with_running_agent_run() -> (Connection, String, String, String) {
+    fn seeded_conn_with_running_session() -> (Connection, String, String, String) {
         let (conn, story_id) = seeded_conn_with_story();
         let project_id: String = conn
             .query_row("SELECT project_id FROM stories WHERE id = ?1", rusqlite::params![story_id], |row| {
                 row.get(0)
             })
             .expect("story's project_id should be readable");
-        let agent_actor_id = flywheel_core::domain::agent_run::agent_actor_id(&conn)
+        let agent_actor_id = flywheel_core::domain::session::agent_actor_id(&conn)
             .expect("seeded agent actor should exist");
 
         let now = "2026-01-01T00:00:00.000Z";
@@ -1875,7 +1875,7 @@ mod tests {
 
     #[test]
     fn a_running_run_that_gets_a_pending_request_notifies_once_with_the_tool_name_only() {
-        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_agent_run();
+        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
         let t = permission_transition(&conn, &run_id, Some("running"), "Bash").expect("a transition");
         assert_eq!(t.kind, crate::notify::TransitionKind::Blocked);
         assert_eq!(t.run_id, run_id);
@@ -1887,7 +1887,7 @@ mod tests {
 
     #[test]
     fn acknowledge_many_refuses_an_over_cap_list_as_a_whole_and_writes_nothing() {
-        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_agent_run();
+        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
         conn.execute("UPDATE sessions SET status = 'completed', ended_at = started_at WHERE id = ?1", [&run_id])
             .unwrap();
         let mut ids = vec![run_id.clone()];
@@ -1904,7 +1904,7 @@ mod tests {
 
     #[test]
     fn acknowledge_many_tells_an_unknown_id_from_a_write_error_and_acknowledges_the_rest() {
-        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_agent_run();
+        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
         conn.execute("UPDATE sessions SET status = 'completed', ended_at = started_at WHERE id = ?1", [&run_id])
             .unwrap();
 
@@ -1922,14 +1922,14 @@ mod tests {
 
     #[test]
     fn a_run_already_blocked_that_gets_a_second_request_notifies_nothing() {
-        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_agent_run();
+        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
         assert!(permission_transition(&conn, &run_id, Some("blocked"), "Bash").is_none());
         assert!(permission_transition(&conn, &run_id, None, "Bash").is_none());
     }
 
     #[test]
     fn a_pending_request_with_no_target_still_notifies_and_reads_as_text() {
-        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_agent_run();
+        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
         let t = permission_transition(&conn, &run_id, Some("running"), "WebSearch")
             .expect("a transition");
         let mut co = crate::notify::Coalescer::new(crate::notify::COALESCE_WINDOW);
@@ -1943,19 +1943,19 @@ mod tests {
 
     #[test]
     fn only_completed_and_failed_closes_notify() {
-        use flywheel_core::domain::agent_run::{AgentRunStatus, SessionClosedOutcome};
-        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_agent_run();
+        use flywheel_core::domain::session::{SessionStatus, SessionClosedOutcome};
+        let (conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
         let kind = |o: SessionClosedOutcome| closed_transition(&conn, &run_id, &o).map(|t| t.kind);
         assert_eq!(
-            kind(SessionClosedOutcome::Closed(AgentRunStatus::Completed)),
+            kind(SessionClosedOutcome::Closed(SessionStatus::Completed)),
             Some(crate::notify::TransitionKind::Completed)
         );
         assert_eq!(
-            kind(SessionClosedOutcome::Closed(AgentRunStatus::Failed)),
+            kind(SessionClosedOutcome::Closed(SessionStatus::Failed)),
             Some(crate::notify::TransitionKind::Failed)
         );
-        assert_eq!(kind(SessionClosedOutcome::Closed(AgentRunStatus::Interrupted)), None);
-        assert_eq!(kind(SessionClosedOutcome::Closed(AgentRunStatus::Abandoned)), None);
+        assert_eq!(kind(SessionClosedOutcome::Closed(SessionStatus::Interrupted)), None);
+        assert_eq!(kind(SessionClosedOutcome::Closed(SessionStatus::Abandoned)), None);
         assert_eq!(kind(SessionClosedOutcome::AlreadyTerminal), None);
         assert_eq!(kind(SessionClosedOutcome::BackfilledTerminal), None);
         assert_eq!(kind(SessionClosedOutcome::UnknownRun), None);
@@ -1964,7 +1964,7 @@ mod tests {
 
     #[test]
     fn a_missing_project_or_story_row_degrades_to_generic_words_and_never_panics() {
-        let (conn, _run_id, _story_id, _project_id) = seeded_conn_with_running_agent_run();
+        let (conn, _run_id, _story_id, _project_id) = seeded_conn_with_running_session();
         assert_eq!(notify_context(&conn, "no-such-run"), ("Flywheel".to_string(), "An agent".to_string()));
         let t = permission_transition(&conn, "no-such-run", Some("running"), "Bash")
             .expect("still a transition");
@@ -1973,7 +1973,7 @@ mod tests {
 
     #[test]
     fn a_matching_allow_rule_auto_resolves_with_no_pending_row_and_the_run_stays_running() {
-        let (mut conn, run_id, _story_id, project_id) = seeded_conn_with_running_agent_run();
+        let (mut conn, run_id, _story_id, project_id) = seeded_conn_with_running_session();
         let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
             .expect("seeded human actor should exist");
         flywheel_core::domain::permission_rule::upsert_rule(
@@ -2013,7 +2013,7 @@ mod tests {
 
     #[test]
     fn no_matching_rule_produces_a_pending_row_and_blocks_the_run() {
-        let (mut conn, run_id, _story_id, _project_id) = seeded_conn_with_running_agent_run();
+        let (mut conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
 
         let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None, None)
             .expect("process_inbound_permission_request should succeed");
@@ -2041,7 +2041,7 @@ mod tests {
 
     #[test]
     fn an_unknown_run_id_is_a_harmless_no_op() {
-        let (mut conn, _run_id, _story_id, _project_id) = seeded_conn_with_running_agent_run();
+        let (mut conn, _run_id, _story_id, _project_id) = seeded_conn_with_running_session();
         let outcome = process_inbound_permission_request(&mut conn, "not-a-real-run-id", "Bash", None, None)
             .expect("an unknown run_id must not error");
         assert_eq!(outcome, PermissionRequestOutcome::UnknownRun);
@@ -2058,7 +2058,7 @@ mod tests {
 
     #[test]
     fn answer_permission_request_rejects_an_invalid_decision_before_touching_the_database() {
-        let (mut conn, run_id, _story_id, _project_id) = seeded_conn_with_running_agent_run();
+        let (mut conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
         let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None, None)
             .expect("should succeed");
         let db_request_id = match outcome {
@@ -2084,7 +2084,7 @@ mod tests {
 
     #[test]
     fn answering_allow_always_writes_the_answered_row_and_exactly_one_permission_rule() {
-        let (mut conn, run_id, _story_id, project_id) = seeded_conn_with_running_agent_run();
+        let (mut conn, run_id, _story_id, project_id) = seeded_conn_with_running_session();
         let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None, None)
             .expect("should succeed");
         let db_request_id = match outcome {
@@ -2119,7 +2119,7 @@ mod tests {
 
     #[test]
     fn answering_an_already_answered_request_returns_the_already_answered_error_with_nothing_left_to_relay() {
-        let (mut conn, run_id, _story_id, _project_id) = seeded_conn_with_running_agent_run();
+        let (mut conn, run_id, _story_id, _project_id) = seeded_conn_with_running_session();
         let outcome = process_inbound_permission_request(&mut conn, &run_id, "Bash", None, None)
             .expect("should succeed");
         let db_request_id = match outcome {
@@ -2130,7 +2130,7 @@ mod tests {
             .expect("seeded human actor should exist");
 
         // First answer: succeeds and produces exactly one relay instruction — the caller
-        // (`agent_run_answer_permission`) would call `sidecar.relay_permission_answer` exactly
+        // (`session_answer_permission`) would call `sidecar.relay_permission_answer` exactly
         // once for this Ok result.
         let first = answer_permission_request(&mut conn, &db_request_id, "allow", &actor_id);
         assert!(first.is_ok(), "the first answer must succeed and produce one relay instruction");
@@ -2139,7 +2139,7 @@ mod tests {
         // `if let Some(sidecar) = ...` relay branch is never reached a second time — this IS the
         // "relays nothing" property this acceptance criterion names, since the command's
         // structure only ever calls `relay_permission_answer` after an `Ok` result (see
-        // `agent_run_answer_permission`'s own body, which returns via `?` before reaching the
+        // `session_answer_permission`'s own body, which returns via `?` before reaching the
         // relay on an `Err`).
         let second = answer_permission_request(&mut conn, &db_request_id, "deny", &actor_id);
         assert!(second.is_err(), "answering an already-answered request must be refused");
@@ -2155,9 +2155,9 @@ mod tests {
     }
 
     /// A fresh migrated database with one project, one Story, one worktree row and one `running`
-    /// `sessions` row — inserted directly via literal SQL (not `domain::agent_run::start_agent_run`,
+    /// `sessions` row — inserted directly via literal SQL (not `domain::session::start_session`,
     /// which shells out to real git against the helper's placeholder project path).
-    /// `stop_agent_run_recording_first` takes a bare `&mut Connection` and a closure, so no real
+    /// `stop_session_recording_first` takes a bare `&mut Connection` and a closure, so no real
     /// worktree on disk and no Tauri `AppHandle` are needed for these tests.
     fn seeded_conn_with_running_run() -> (Connection, String, String) {
         let (conn, story_id) = seeded_conn_with_story();
@@ -2168,7 +2168,7 @@ mod tests {
             .expect("story's project_id should be readable");
         let human_actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn)
             .expect("seeded human actor should exist");
-        let agent_actor_id = flywheel_core::domain::agent_run::agent_actor_id(&conn)
+        let agent_actor_id = flywheel_core::domain::session::agent_actor_id(&conn)
             .expect("seeded agent actor should exist");
 
         let now = "2026-01-01T00:00:00.000Z";
@@ -2202,13 +2202,13 @@ mod tests {
     }
 
     /// D-64/CTX-01, gap #1 of 04-VERIFICATION.md: opening a transaction, running
-    /// `stop_agent_run_in_tx` inside it, and dropping the transaction WITHOUT committing must
+    /// `stop_session_in_tx` inside it, and dropping the transaction WITHOUT committing must
     /// leave the run exactly as it was before — `running`, no `ended_at`,
-    /// zero `session_summaries` rows and zero `agent_run.interrupted` events for it. The pre-fix
+    /// zero `session_summaries` rows and zero `session.interrupted` events for it. The pre-fix
     /// shape could not satisfy this at all: its terminal write committed on its own connection-
     /// level transaction, so there was no encompassing transaction a caller could roll back to
     /// undo it (RED evidence, captured empirically before this rewrite landed: calling the old
-    /// `stop_agent_run_recording_first` and then attempting the equivalent of a rollback left the
+    /// `stop_session_recording_first` and then attempting the equivalent of a rollback left the
     /// run already committed as `status = "interrupted"`, `ended_at = Some(...)` — both writes
     /// were already durable by the time the function returned).
     #[test]
@@ -2218,8 +2218,8 @@ mod tests {
             .expect("seeded human actor should exist");
 
         let tx = conn.transaction().expect("opening a transaction should succeed");
-        let status = stop_agent_run_in_tx(&tx, &run_id, &human_actor_id)
-            .expect("stop_agent_run_in_tx should succeed inside an open transaction");
+        let status = stop_session_in_tx(&tx, &run_id, &human_actor_id)
+            .expect("stop_session_in_tx should succeed inside an open transaction");
         assert_eq!(status, "interrupted", "the in-tx write must still report the terminal status it wrote");
 
         // Roll back instead of committing — simulates a crash between the write and the commit.
@@ -2253,14 +2253,14 @@ mod tests {
 
         let terminal_event_count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM events WHERE event_type = 'agent_run.interrupted' AND stream_id = ?1",
+                "SELECT COUNT(*) FROM events WHERE event_type = 'session.interrupted' AND stream_id = ?1",
                 rusqlite::params![run_id],
                 |row| row.get(0),
             )
             .expect("count query should succeed");
         assert_eq!(
             terminal_event_count, 0,
-            "a rolled-back termination unit must leave zero agent_run.interrupted events"
+            "a rolled-back termination unit must leave zero session.interrupted events"
         );
     }
 
@@ -2271,13 +2271,13 @@ mod tests {
     fn stop_records_interrupted_even_when_the_sidecar_never_acks() {
         let (mut conn, _story_id, run_id) = seeded_conn_with_running_run();
 
-        let dto = stop_agent_run_recording_first(&mut conn, &run_id, || {
+        let dto = stop_session_recording_first(&mut conn, &run_id, || {
             Err("sidecar did not acknowledge the interrupt request within 30s".to_string())
         })
-        .expect("stop_agent_run_recording_first should succeed even when the interrupt closure fails");
+        .expect("stop_session_recording_first should succeed even when the interrupt closure fails");
 
         assert_eq!(dto.status, "interrupted");
-        assert_eq!(dto.agent_run_id, run_id);
+        assert_eq!(dto.session_id, run_id);
         let warning = dto.sidecar_warning.expect("a failed interrupt must produce a sidecar_warning");
         assert!(
             warning.contains("could not confirm the agent process stopped"),
@@ -2300,7 +2300,7 @@ mod tests {
     }
 
     /// A second stop against the same dead sidecar must be safe (D-35 idempotence): no second
-    /// `agent_run.interrupted` event, and the recorded status is never overwritten.
+    /// `session.interrupted` event, and the recorded status is never overwritten.
     #[test]
     fn stop_twice_with_a_dead_sidecar_appends_exactly_one_interrupted_event() {
         let (mut conn, _story_id, run_id) = seeded_conn_with_running_run();
@@ -2308,19 +2308,19 @@ mod tests {
         let failing_interrupt =
             || Err("sidecar did not acknowledge the interrupt request within 30s".to_string());
 
-        stop_agent_run_recording_first(&mut conn, &run_id, failing_interrupt)
+        stop_session_recording_first(&mut conn, &run_id, failing_interrupt)
             .expect("first stop should succeed even when the interrupt closure fails");
-        stop_agent_run_recording_first(&mut conn, &run_id, failing_interrupt)
+        stop_session_recording_first(&mut conn, &run_id, failing_interrupt)
             .expect("second stop on an already-terminal run should be a harmless idempotent no-op");
 
         let event_count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM events WHERE event_type = 'agent_run.interrupted' AND stream_id = ?1",
+                "SELECT COUNT(*) FROM events WHERE event_type = 'session.interrupted' AND stream_id = ?1",
                 rusqlite::params![run_id],
                 |row| row.get(0),
             )
             .expect("count query should succeed");
-        assert_eq!(event_count, 1, "a second stop must append no second agent_run.interrupted event");
+        assert_eq!(event_count, 1, "a second stop must append no second session.interrupted event");
 
         let status: String = conn
             .query_row("SELECT status FROM sessions WHERE id = ?1", rusqlite::params![run_id], |row| {
@@ -2348,7 +2348,7 @@ mod tests {
     /// A fresh migrated database, one project pointing at a REAL git repository (one commit on
     /// `main`), and one Story under it — the desktop-crate mirror of
     /// `packages/core/tests/common/mod.rs`'s `seeded_git_project`, needed here because
-    /// `start_agent_run_recording_first` calls straight through to `start_agent_run`, which
+    /// `start_session_recording_first` calls straight through to `start_session`, which
     /// creates a real worktree (`ensure_worktree`) and therefore needs a real repository to clone
     /// from. Returns the connection, the human actor id, the project id, the Story id, and the
     /// repository's own `TempDir` (kept alive by the caller for the test's duration).
@@ -2416,7 +2416,7 @@ mod tests {
         for status in ["running", "blocked"] {
             with_scratch_dirs(|| {
                 let (mut conn, actor, _p, story, _repo) = seeded_git_conn_with_story();
-                let first = start_agent_run_recording_first(&mut conn, &story, "acceptEdits", "", &actor).unwrap();
+                let first = start_session_recording_first(&mut conn, &story, "acceptEdits", "", &actor).unwrap();
                 conn.execute("UPDATE sessions SET status = ?1 WHERE id = ?2", rusqlite::params![status, first.run_id])
                     .unwrap();
                 let before = launch_footprint(&conn, &story);

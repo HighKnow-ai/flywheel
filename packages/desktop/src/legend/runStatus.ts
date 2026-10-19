@@ -12,8 +12,7 @@
  * separately (elapsed time, token count, dollar cost), so a figure reads the same on every surface.
  */
 
-/** The six values `agent_runs.status` can hold (migration `0003_agent_runtime.sql`; `abandoned` added by
- * migration `0006_recovery_statuses.sql`, D-49). */
+/** The six values `sessions.status` can hold (the baseline migration; `abandoned` is D-49). */
 export type RunStatus = "running" | "blocked" | "completed" | "failed" | "interrupted" | "abandoned";
 
 /** A fleet row's state (D-168): the run status, except a `completed` run whose Story is not yet Done
@@ -30,7 +29,7 @@ export const RUN_STATUS_LABELS: Record<FleetState, string> = {
   awaiting_review: "Awaiting review",
 };
 
-/** `agent_runs.status` / fleet state -> the published mark id (`legend/marks.ts`). `awaiting_review` has its
+/** `sessions.status` / fleet state -> the published mark id (`legend/marks.ts`). `awaiting_review` has its
  * own `agent`-channel mark since Phase 14 (D-19); it used to reuse the `status` channel's In Review mark
  * (D-170), which left the state undefined in the registry in its own right. */
 export const RUN_STATUS_MARK_IDS: Record<FleetState, string> = {

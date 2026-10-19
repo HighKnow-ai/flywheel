@@ -40,21 +40,21 @@ vi.mock("../../adapters/tauri", async () => {
     fleetBlockedQueue: () => Promise.resolve([]),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
     subscribeAgentEvent: () => Promise.resolve(() => {}),
-    acknowledgeAgentRun: () => Promise.resolve(),
-    agentRunAcknowledgeMany: () => Promise.resolve(),
+    acknowledgeSession: () => Promise.resolve(),
+    sessionAcknowledgeMany: () => Promise.resolve(),
     // The rest of what the real shell and a mounted session reach for (plan 11-15).
     fleetWatchRun: () => Promise.resolve(),
     subscribeMenuAction: () => Promise.resolve(() => {}),
     openFolderDialog: () => Promise.resolve(null),
-    agentRunLogWindow: (id: string, offset: number, limit: number) => logWindowMock(id, offset, limit),
-    agentRunRawWindow: (_id: string, offset: number, limit: number) => Promise.resolve({ entries: [], offset, limit, total: 0 }),
+    sessionLogWindow: (id: string, offset: number, limit: number) => logWindowMock(id, offset, limit),
+    sessionRawWindow: (_id: string, offset: number, limit: number) => Promise.resolve({ entries: [], offset, limit, total: 0 }),
     pendingPermissionRequests: () => Promise.resolve([]),
   };
 });
 
 function row(overrides: Partial<FleetRowDto>): FleetRowDto {
   return {
-    agentRunId: "run-1",
+    sessionId: "run-1",
     projectId: "proj-1",
     projectName: "Alpha",
     projectKeyPrefix: "ALP",
@@ -83,11 +83,11 @@ function list(rows: FleetRowDto[]): FleetListDto {
 /** The real setters, wrapped so a test can assert what the surface called and with what. */
 function spyOnStore() {
   const original = useUiStore.getState();
-  const setActiveAgentRunId = vi.fn(original.setActiveAgentRunId);
+  const setActiveSessionId = vi.fn(original.setActiveSessionId);
   const setFleetSurface = vi.fn(original.setFleetSurface);
   const setCurrentProjectId = vi.fn(original.setCurrentProjectId);
-  useUiStore.setState({ setActiveAgentRunId, setFleetSurface, setCurrentProjectId });
-  return { setActiveAgentRunId, setFleetSurface, setCurrentProjectId };
+  useUiStore.setState({ setActiveSessionId, setFleetSurface, setCurrentProjectId });
+  return { setActiveSessionId, setFleetSurface, setCurrentProjectId };
 }
 
 async function renderFleet(rows: FleetRowDto[]) {
@@ -126,49 +126,49 @@ afterEach(() => {
 describe("the primary target: a row opens that run's session", () => {
   it("Enter on a selected row opens the session with its identifiers and the row's status", async () => {
     const spies = spyOnStore();
-    await renderFleet([row({ agentRunId: "run-t", storyId: "story-9" })]);
+    await renderFleet([row({ sessionId: "run-t", storyId: "story-9" })]);
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "Enter" });
-    expect(spies.setActiveAgentRunId).toHaveBeenCalledTimes(1);
-    expect(spies.setActiveAgentRunId).toHaveBeenCalledWith("run-t", "story-9", null, "running");
+    expect(spies.setActiveSessionId).toHaveBeenCalledTimes(1);
+    expect(spies.setActiveSessionId).toHaveBeenCalledWith("run-t", "story-9", null, "running");
   });
 
   it("a click on the row does the same thing as Enter", async () => {
     const spies = spyOnStore();
-    const { container } = await renderFleet([row({ agentRunId: "run-t", storyId: "story-9" })]);
+    const { container } = await renderFleet([row({ sessionId: "run-t", storyId: "story-9" })]);
     fireEvent.click(rowFor(container, "run-t"));
-    expect(spies.setActiveAgentRunId).toHaveBeenCalledTimes(1);
-    expect(spies.setActiveAgentRunId).toHaveBeenCalledWith("run-t", "story-9", null, "running");
+    expect(spies.setActiveSessionId).toHaveBeenCalledTimes(1);
+    expect(spies.setActiveSessionId).toHaveBeenCalledWith("run-t", "story-9", null, "running");
   });
 
   it("a failed row hands the session its failed status, not the running default", async () => {
     const { container } = await renderFleet([
-      row({ agentRunId: "run-f", runStatus: "failed", fleetState: "failed", endedAt: new Date().toISOString() }),
+      row({ sessionId: "run-f", runStatus: "failed", fleetState: "failed", endedAt: new Date().toISOString() }),
     ]);
     fireEvent.click(rowFor(container, "run-f"));
-    expect(useUiStore.getState().activeAgentRunId).toBe("run-f");
-    expect(useUiStore.getState().activeAgentRunInitialStatus).toBe("failed");
+    expect(useUiStore.getState().activeSessionId).toBe("run-f");
+    expect(useUiStore.getState().activeSessionInitialStatus).toBe("failed");
   });
 
   it("an awaiting-review row opens as the completed run it is", async () => {
     const { container } = await renderFleet([
-      row({ agentRunId: "run-r", runStatus: "completed", fleetState: "awaiting_review", endedAt: new Date().toISOString() }),
+      row({ sessionId: "run-r", runStatus: "completed", fleetState: "awaiting_review", endedAt: new Date().toISOString() }),
     ]);
     fireEvent.click(rowFor(container, "run-r"));
-    expect(useUiStore.getState().activeAgentRunInitialStatus).toBe("completed");
+    expect(useUiStore.getState().activeSessionInitialStatus).toBe("completed");
   });
 
   it("Dismiss is its own action and never also opens the session", async () => {
     const spies = spyOnStore();
     const { container } = await renderFleet([
-      row({ agentRunId: "run-d", runStatus: "completed", fleetState: "completed", endedAt: new Date().toISOString() }),
+      row({ sessionId: "run-d", runStatus: "completed", fleetState: "completed", endedAt: new Date().toISOString() }),
     ]);
     fireEvent.click(within(rowFor(container, "run-d")).getByRole("button", { name: /Dismiss/ }));
-    expect(spies.setActiveAgentRunId).not.toHaveBeenCalled();
+    expect(spies.setActiveSessionId).not.toHaveBeenCalled();
   });
 
   it("opening a session leaves the fleet open, so popping the session lands on the fleet", async () => {
-    const { container } = await renderFleet([row({ agentRunId: "run-t" })]);
+    const { container } = await renderFleet([row({ sessionId: "run-t" })]);
     fireEvent.click(rowFor(container, "run-t"));
     expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
     // The shell's order (`activeSurface`, plan 13-08): the session outranks the fleet...
@@ -182,17 +182,17 @@ describe("the primary target: a row opens that run's session", () => {
       }),
     ).toBe("session");
     // ...so clearing the run, with the fleet field still set, leaves the fleet as the thing to render.
-    act(() => useUiStore.getState().setActiveAgentRunId(null));
+    act(() => useUiStore.getState().setActiveSessionId(null));
     const state = useUiStore.getState();
-    expect(state.activeAgentRunId).toBeNull();
+    expect(state.activeSessionId).toBeNull();
     expect(state.fleetSurface).not.toBeNull();
   });
 
   it("does nothing on Enter when no row is selected", async () => {
     const spies = spyOnStore();
-    await renderFleet([row({ agentRunId: "run-t" })]);
+    await renderFleet([row({ sessionId: "run-t" })]);
     fireEvent.keyDown(window, { key: "Enter" });
-    expect(spies.setActiveAgentRunId).not.toHaveBeenCalled();
+    expect(spies.setActiveSessionId).not.toHaveBeenCalled();
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
   });
 });
@@ -203,7 +203,7 @@ describe("the secondary target: the subject key reaches its board item", () => {
     useUiStore.setState({ currentProjectId: "proj-A" });
     const spies = spyOnStore();
     const { container } = await renderFleet([
-      row({ agentRunId: "run-b", projectId: "proj-B", projectName: "Beta", storyId: "story-b7", storyKey: "BET-7" }),
+      row({ sessionId: "run-b", projectId: "proj-B", projectName: "Beta", storyId: "story-b7", storyKey: "BET-7" }),
     ]);
     fireEvent.click(within(rowFor(container, "run-b")).getByRole("button", { name: /Open BET-7 on the board/ }));
     expect(spies.setCurrentProjectId).toHaveBeenCalledWith("proj-B");
@@ -215,23 +215,23 @@ describe("the secondary target: the subject key reaches its board item", () => {
 
   it("activating it does not also open the session", async () => {
     const spies = spyOnStore();
-    const { container } = await renderFleet([row({ agentRunId: "run-b", storyId: "story-b7", storyKey: "BET-7" })]);
+    const { container } = await renderFleet([row({ sessionId: "run-b", storyId: "story-b7", storyKey: "BET-7" })]);
     fireEvent.click(within(rowFor(container, "run-b")).getByRole("button", { name: /Open BET-7 on the board/ }));
-    expect(spies.setActiveAgentRunId).not.toHaveBeenCalled();
-    expect(useUiStore.getState().activeAgentRunId).toBeNull();
+    expect(spies.setActiveSessionId).not.toHaveBeenCalled();
+    expect(useUiStore.getState().activeSessionId).toBeNull();
   });
 
   it("a row in an unreachable project exposes no target, because its board is not there to land on", async () => {
-    const { container } = await renderFleet([row({ agentRunId: "run-u", projectStatus: "unreachable" })]);
+    const { container } = await renderFleet([row({ sessionId: "run-u", projectStatus: "unreachable" })]);
     expect(container.querySelector("[data-subject-target]")).toBeNull();
   });
 
   it("`b` reaches the selected row's item whatever its position, and never opens the session", async () => {
     const spies = spyOnStore();
     await renderFleet([
-      row({ agentRunId: "run-1", storyId: "story-1", storyKey: "ALP-1" }),
-      row({ agentRunId: "run-2", storyId: "story-2", storyKey: "ALP-2" }),
-      row({ agentRunId: "run-3", projectId: "proj-C", storyId: "story-3", storyKey: "CHA-3" }),
+      row({ sessionId: "run-1", storyId: "story-1", storyKey: "ALP-1" }),
+      row({ sessionId: "run-2", storyId: "story-2", storyKey: "ALP-2" }),
+      row({ sessionId: "run-3", projectId: "proj-C", storyId: "story-3", storyKey: "CHA-3" }),
     ]);
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "j" });
@@ -239,18 +239,18 @@ describe("the secondary target: the subject key reaches its board item", () => {
     fireEvent.keyDown(window, { key: "b" });
     expect(useUiStore.getState().pendingFocusItemId).toBe("story-3");
     expect(useUiStore.getState().currentProjectId).toBe("proj-C");
-    expect(spies.setActiveAgentRunId).not.toHaveBeenCalled();
+    expect(spies.setActiveSessionId).not.toHaveBeenCalled();
   });
 
   it("two rows for the same Story each open their own run's session and both resolve the same item", async () => {
     const spies = spyOnStore();
     const { container } = await renderFleet([
-      row({ agentRunId: "run-x", storyId: "story-1", storyKey: "ALP-1", runStatus: "failed", fleetState: "failed" }),
-      row({ agentRunId: "run-y", storyId: "story-1", storyKey: "ALP-1", runStatus: "running", fleetState: "running" }),
+      row({ sessionId: "run-x", storyId: "story-1", storyKey: "ALP-1", runStatus: "failed", fleetState: "failed" }),
+      row({ sessionId: "run-y", storyId: "story-1", storyKey: "ALP-1", runStatus: "running", fleetState: "running" }),
     ]);
     fireEvent.click(rowFor(container, "run-x"));
     fireEvent.click(rowFor(container, "run-y"));
-    expect(spies.setActiveAgentRunId.mock.calls.map((c) => c[0])).toEqual(["run-x", "run-y"]);
+    expect(spies.setActiveSessionId.mock.calls.map((c) => c[0])).toEqual(["run-x", "run-y"]);
     for (const id of ["run-x", "run-y"]) {
       useUiStore.getState().setPendingFocusItemId(null);
       fireEvent.click(within(rowFor(container, id)).getByRole("button", { name: /Open ALP-1 on the board/ }));
@@ -287,7 +287,7 @@ function stubShellReads() {
 const FEED_LINE = { type: "assistant_text", seq: 0, at: new Date().toISOString(), raw: "{}", text: "Reading the reconciliation module." };
 
 /** The run in project B that every shell test starts from: live, with output on disk. */
-const RUN_B = row({ agentRunId: "run-b", projectId: "proj-B", projectName: "Beta", storyId: "story-b7", storyKey: "BET-7", storyTitle: "Beta seven" });
+const RUN_B = row({ sessionId: "run-b", projectId: "proj-B", projectName: "Beta", storyId: "story-b7", storyKey: "BET-7", storyTitle: "Beta seven" });
 
 async function mountShellOnFleet(rows: FleetRowDto[], currentProjectId = "proj-A") {
   useUiStore.setState({ currentProjectId, fleetSurface: { view: "fleet" } });
@@ -317,7 +317,7 @@ describe("AppShell: where a fleet row takes you", () => {
     fireEvent.keyDown(window, { key: "Enter" });
     await waitFor(() => expect(sessionBack()).not.toBeNull());
     expect(fleetRows().length, "the fleet gave way to the session").toBe(0);
-    expect(useUiStore.getState().activeAgentRunId).toBe("run-b");
+    expect(useUiStore.getState().activeSessionId).toBe("run-b");
     await waitFor(() => expect(logWindowMock).toHaveBeenCalled());
     expect(logWindowMock.mock.calls.every((call) => call[0] === "run-b"), "every log read names the row's own run").toBe(true);
     expect(await screen.findByText("Reading the reconciliation module.")).toBeInTheDocument();
@@ -328,7 +328,7 @@ describe("AppShell: where a fleet row takes you", () => {
     fireEvent.click(rowFor(container, "run-b"));
     await waitFor(() => expect(sessionBack()).not.toBeNull());
     expect(fleetRows().length).toBe(0);
-    expect(useUiStore.getState().activeAgentRunId).toBe("run-b");
+    expect(useUiStore.getState().activeSessionId).toBe("run-b");
     expect(await screen.findByText("Reading the reconciliation module.")).toBeInTheDocument();
   });
 
@@ -341,7 +341,7 @@ describe("AppShell: where a fleet row takes you", () => {
 
     await waitFor(() => expect(fleetRows().length).toBe(1));
     expect(sessionBack(), "the session is gone").toBeNull();
-    expect(useUiStore.getState().activeAgentRunId).toBeNull();
+    expect(useUiStore.getState().activeSessionId).toBeNull();
     expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
   });
 
@@ -351,7 +351,7 @@ describe("AppShell: where a fleet row takes you", () => {
   // an expected failure rather than asserted as correct; when the selection survives the round trip this
   // turns red, which is the cue to make it a plain `it`. Logged in deferred-items.md.
   it.fails("Back from the session returns to the fleet with the same row selected", async () => {
-    const { container } = await mountShellOnFleet([RUN_B, row({ agentRunId: "run-other", storyId: "story-o", storyKey: "ALP-2" })]);
+    const { container } = await mountShellOnFleet([RUN_B, row({ sessionId: "run-other", storyId: "story-o", storyKey: "ALP-2" })]);
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "Enter" });
@@ -359,7 +359,7 @@ describe("AppShell: where a fleet row takes you", () => {
     fireEvent.click(sessionBack() as HTMLElement);
     await waitFor(() => expect(fleetRows().length).toBe(2));
     const selected = container.querySelector("[data-selected='true']") as HTMLElement | null;
-    expect(selected?.dataset.runId).toBe(useUiStore.getState().activeAgentRunId ?? "run-other");
+    expect(selected?.dataset.runId).toBe(useUiStore.getState().activeSessionId ?? "run-other");
   });
 
   it("opening a session from the fleet reaches for no command the stub does not know about", async () => {
@@ -393,7 +393,7 @@ describe("AppShell: where a fleet row takes you", () => {
   it.fails("a finished run with no output opens a session that does not claim to be starting", async () => {
     noLog();
     const { container } = await mountShellOnFleet([
-      row({ agentRunId: "run-f", projectId: "proj-B", runStatus: "failed", fleetState: "failed", endedAt: new Date().toISOString() }),
+      row({ sessionId: "run-f", projectId: "proj-B", runStatus: "failed", fleetState: "failed", endedAt: new Date().toISOString() }),
     ]);
     fireEvent.click(rowFor(container, "run-f"));
     await waitFor(() => expect(sessionBack()).not.toBeNull());

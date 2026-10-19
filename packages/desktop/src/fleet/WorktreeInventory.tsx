@@ -52,7 +52,7 @@ function Icon({ name, size = 14 }: { name: string; size?: number }) {
 export const RECLAIM_REASONS: readonly InventoryReason[] = [
   "merged",
   "dropped",
-  "agent_running",
+  "sessionning",
   "blocked",
   "uncommitted_changes",
   "project_unreachable",
@@ -64,7 +64,7 @@ export const RECLAIM_REASONS: readonly InventoryReason[] = [
 export const RECLAIM_REASON_WORDS: Record<InventoryReason, string> = {
   merged: "Story merged",
   dropped: "Story dropped",
-  agent_running: "agent running",
+  sessionning: "agent running",
   blocked: "agent blocked on you",
   uncommitted_changes: "uncommitted changes",
   project_unreachable: "project unreachable",

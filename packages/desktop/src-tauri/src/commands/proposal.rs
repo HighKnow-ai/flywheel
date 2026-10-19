@@ -14,7 +14,7 @@ use crate::state::AppState;
 pub struct ProposalDto {
     pub id: String,
     pub project_id: String,
-    pub agent_run_id: Option<String>,
+    pub session_id: Option<String>,
     pub epic_id: Option<String>,
     /// `create`, `amend`, `reorder` or `retire`.
     pub verb: String,
@@ -32,7 +32,7 @@ impl From<flywheel_core::domain::proposal::Proposal> for ProposalDto {
         Self {
             id: p.id,
             project_id: p.project_id,
-            agent_run_id: p.session_id,
+            session_id: p.session_id,
             epic_id: p.epic_id,
             verb: p.verb,
             target_type: p.target_type,

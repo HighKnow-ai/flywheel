@@ -147,7 +147,7 @@ fn an_offset_beyond_the_end_of_the_file_returns_an_empty_window_with_the_true_to
 }
 
 /// The guard `session_log_path` itself carries (plan 03-15, T-03-15-01): an implausible
-/// `agent_run_id` must never become a path, before `sessions_dir()` is ever resolved. Each
+/// `session_id` must never become a path, before `sessions_dir()` is ever resolved. Each
 /// candidate below is a shape the old unvalidated `join(format!(...))` would have accepted.
 #[test]
 fn session_log_path_rejects_every_implausible_shape_and_accepts_a_real_ulid() {

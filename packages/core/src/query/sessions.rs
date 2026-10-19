@@ -24,7 +24,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 ///
 /// `acknowledged_at` (added plan 03-10 Task 2, D-49) is `sessions.acknowledged_at`'s own value
 /// verbatim — `NULL` until the abandoned-run acknowledgment row's Acknowledge button writes it
-/// (`agent_run_acknowledge`, `commands/agent_run.rs`). Meaningless for any status other than
+/// (`session_acknowledge`, `commands/session.rs`). Meaningless for any status other than
 /// `abandoned`, but read for every row regardless — a status can change under a caller between two
 /// reads, and this column carries no branch of its own.
 #[derive(Debug, Clone, PartialEq)]

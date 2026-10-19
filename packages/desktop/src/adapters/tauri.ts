@@ -294,7 +294,7 @@ export async function taskSetState(taskId: string, to: string, droppedReason?: s
 export interface ProposalDto {
   id: string;
   projectId: string;
-  agentRunId: string | null;
+  sessionId: string | null;
   epicId: string | null;
   /** `create`, `amend`, `reorder` or `retire`. */
   verb: string;
@@ -349,8 +349,8 @@ export async function eventsActivityTrail(
 // Agent sessions on a Story.
 // ---------------------------------------------------------------------------------------------
 
-/** A started agent run — mirrors `commands/agent_run.rs`'s `AgentRunDto`. */
-export interface AgentRunDto {
+/** A started agent run — mirrors `commands/session.rs`'s `SessionDto`. */
+export interface SessionDto {
   id: string;
   storyId: string;
   status: string;
@@ -359,22 +359,22 @@ export interface AgentRunDto {
 
 /**
  * Start a fresh agent run on `storyId` (D-30: always fresh, never `--resume`). Thin typed wrapper
- * over `agent_run_start`.
+ * over `session_start`.
  */
-export async function startAgentRun(
+export async function startSession(
   storyId: string,
   permissionMode: string,
   instruction?: string,
-): Promise<AgentRunDto> {
-  return invokeCommand<AgentRunDto>("agent_run_start", { storyId, permissionMode, instruction });
+): Promise<SessionDto> {
+  return invokeCommand<SessionDto>("session_start", { storyId, permissionMode, instruction });
 }
 
 /**
- * One prior-session summary, oldest-first — mirrors `commands/agent_run.rs`'s `SessionSummaryDto`.
+ * One prior-session summary, oldest-first — mirrors `commands/session.rs`'s `SessionSummaryDto`.
  * `isStub` marks the fallback summary written when the agent did not report one.
  */
 export interface SessionSummaryDto {
-  agentRunId: string;
+  sessionId: string;
   createdAt: string;
   isStub: boolean;
   nextSessionMustKnow: string;
@@ -393,13 +393,13 @@ export interface LogWindowDto {
   total: number;
 }
 
-export async function agentRunLogWindow(
-  agentRunId: string,
+export async function sessionLogWindow(
+  sessionId: string,
   offset: number,
   limit: number,
 ): Promise<LogWindowDto> {
-  return invokeCommand<LogWindowDto>("agent_run_log_window", {
-    agentRunId,
+  return invokeCommand<LogWindowDto>("session_log_window", {
+    sessionId,
     offset,
     limit,
   });
@@ -421,19 +421,19 @@ export interface RawLogWindowDto {
   total: number;
 }
 
-export async function agentRunRawWindow(
-  agentRunId: string,
+export async function sessionRawWindow(
+  sessionId: string,
   offset: number,
   limit: number,
 ): Promise<RawLogWindowDto> {
-  return invokeCommand<RawLogWindowDto>("agent_run_raw_window", {
-    agentRunId,
+  return invokeCommand<RawLogWindowDto>("session_raw_window", {
+    sessionId,
     offset,
     limit,
   });
 }
 
-/** One of a Story's agent runs — mirrors `commands/agent_run.rs`'s `RunSummaryDto`. */
+/** One of a Story's agent runs — mirrors `commands/session.rs`'s `RunSummaryDto`. */
 export interface RunSummaryDto {
   id: string;
   storyId: string;
@@ -451,13 +451,13 @@ export interface RunSummaryDto {
   abandonedReason: string | null;
 }
 
-/** `storyId`'s agent runs, newest first, bounded. Read-only. Thin wrapper over `agent_runs_for_story`. */
-export async function agentRunsForStory(
+/** `storyId`'s agent runs, newest first, bounded. Read-only. Thin wrapper over `sessions_for_story`. */
+export async function sessionsForStory(
   storyId: string,
   limit?: number,
   offset?: number,
 ): Promise<RunSummaryDto[]> {
-  return invokeCommand<RunSummaryDto[]>("agent_runs_for_story", { storyId, limit, offset });
+  return invokeCommand<RunSummaryDto[]>("sessions_for_story", { storyId, limit, offset });
 }
 
 /** Every session summary recorded for `storyId`. Read-only. Thin wrapper over `story_session_summaries`. */
@@ -465,9 +465,9 @@ export async function sessionSummariesForStory(storyId: string): Promise<Session
   return invokeCommand<SessionSummaryDto[]>("story_session_summaries", { storyId });
 }
 
-/** The most recent agent run id for `storyId`, or `null`. Thin wrapper over `story_latest_agent_run`. */
-export async function latestAgentRunIdForStory(storyId: string): Promise<string | null> {
-  return invokeCommand<string | null>("story_latest_agent_run", { storyId });
+/** The most recent agent run id for `storyId`, or `null`. Thin wrapper over `story_latest_session`. */
+export async function latestSessionIdForStory(storyId: string): Promise<string | null> {
+  return invokeCommand<string | null>("story_latest_session", { storyId });
 }
 
 /**
@@ -494,7 +494,7 @@ export async function worktreeForgetRecord(storyId: string): Promise<void> {
   await invokeCommand<void>("worktree_forget_record", { storyId });
 }
 
-/** One `git status --porcelain` entry — mirrors `commands/agent_run.rs`'s `PorcelainEntryDto`. */
+/** One `git status --porcelain` entry — mirrors `commands/session.rs`'s `PorcelainEntryDto`. */
 export interface PorcelainEntryDto {
   code: string;
   path: string;
@@ -559,8 +559,8 @@ export async function gitTruthFocusStory(storyId: string | null): Promise<void> 
  * Reports which agent run's session surface is the visible one, or `null` when none is (D-174), so
  * the core can withhold the one banner for the session the user is already looking at.
  */
-export async function fleetWatchRun(agentRunId: string | null): Promise<void> {
-  await invokeCommand<void>("fleet_watch_run", { agentRunId });
+export async function fleetWatchRun(sessionId: string | null): Promise<void> {
+  await invokeCommand<void>("fleet_watch_run", { sessionId });
 }
 
 /** Which of the two "open this worktree" actions a call targets (D-130, LINK-11). */
@@ -622,8 +622,8 @@ export async function subscribeAgentEvent(
   return listen<Record<string, unknown>>("agent:event", (event) => handler(event.payload));
 }
 
-/** What `agent_run_stop` returns — the mirror of the Rust command's `AgentRunStopDto`. */
-export interface AgentRunStopResult {
+/** What `session_stop` returns — the mirror of the Rust command's `SessionStopDto`. */
+export interface SessionStopResult {
   status: string;
   sidecarWarning: string | null;
 }
@@ -632,36 +632,36 @@ export interface AgentRunStopResult {
  * Stop a running agent run (D-35: interrupt, then force). The resolution carries the status
  * Flywheel RECORDED; `sidecarWarning` is set when the sidecar could not confirm.
  */
-export async function stopAgentRun(agentRunId: string): Promise<AgentRunStopResult> {
-  return invokeCommand<AgentRunStopResult>("agent_run_stop", { agentRunId });
+export async function stopSession(sessionId: string): Promise<SessionStopResult> {
+  return invokeCommand<SessionStopResult>("session_stop", { sessionId });
 }
 
 /**
  * Discard a live agent run in one action (D-66/D-67): give the agent's closing summary a bounded
- * window to land, then end the session through the same path `stopAgentRun` uses.
+ * window to land, then end the session through the same path `stopSession` uses.
  */
-export async function discardSession(agentRunId: string): Promise<AgentRunStopResult> {
-  return invokeCommand<AgentRunStopResult>("agent_run_discard", { agentRunId });
+export async function discardSession(sessionId: string): Promise<SessionStopResult> {
+  return invokeCommand<SessionStopResult>("session_discard", { sessionId });
 }
 
 /**
  * Acknowledge a finished run. Changes nothing about its status — it records only that the user has
  * dealt with it, which is what clears its fleet row. A no-op on a live or already-acknowledged run.
  */
-export async function acknowledgeAgentRun(agentRunId: string): Promise<void> {
-  await invokeCommand<void>("agent_run_acknowledge", { agentRunId });
+export async function acknowledgeSession(sessionId: string): Promise<void> {
+  await invokeCommand<void>("session_acknowledge", { sessionId });
 }
 
 /** One id's outcome of a batch acknowledge. */
 export interface AcknowledgeResultDto {
-  agentRunId: string;
+  sessionId: string;
   acknowledged: boolean;
   error?: string | null;
 }
 
 /** The fleet's "Dismiss finished" action: ids only. An over-long list is refused as a whole. */
-export async function agentRunAcknowledgeMany(agentRunIds: string[]): Promise<AcknowledgeResultDto[]> {
-  return invokeCommand<AcknowledgeResultDto[]>("agent_run_acknowledge_many", { agentRunIds });
+export async function sessionAcknowledgeMany(sessionIds: string[]): Promise<AcknowledgeResultDto[]> {
+  return invokeCommand<AcknowledgeResultDto[]>("session_acknowledge_many", { sessionIds });
 }
 
 /**
@@ -672,11 +672,11 @@ export async function answerPermissionRequest(
   requestId: string,
   decision: "allow" | "deny" | "allow_always",
 ): Promise<void> {
-  await invokeCommand<void>("agent_run_answer_permission", { requestId, decision });
+  await invokeCommand<void>("session_answer_permission", { requestId, decision });
 }
 
 /**
- * One project-scoped permission rule — mirrors `commands/agent_run.rs`'s `PermissionRuleDto`. A rule
+ * One project-scoped permission rule — mirrors `commands/session.rs`'s `PermissionRuleDto`. A rule
  * only ever allows: `tool` is the tool it covers and `pattern` narrows it.
  */
 export interface PermissionRuleDto {
@@ -697,7 +697,7 @@ export async function revokePermissionRule(ruleId: string): Promise<void> {
   await invokeCommand<void>("permission_rule_revoke", { ruleId });
 }
 
-/** One pending permission request — mirrors `commands/agent_run.rs`'s `PendingPermissionRequestDto`. */
+/** One pending permission request — mirrors `commands/session.rs`'s `PendingPermissionRequestDto`. */
 export interface PendingPermissionRequestDto {
   id: string;
   toolName: string;
@@ -707,9 +707,9 @@ export interface PendingPermissionRequestDto {
   destructiveCategory: string | null;
 }
 
-/** Every pending permission request for `agentRunId`, oldest first. Read-only. */
-export async function pendingPermissionRequests(agentRunId: string): Promise<PendingPermissionRequestDto[]> {
-  return invokeCommand<PendingPermissionRequestDto[]>("agent_run_pending_permissions", { agentRunId });
+/** Every pending permission request for `sessionId`, oldest first. Read-only. */
+export async function pendingPermissionRequests(sessionId: string): Promise<PendingPermissionRequestDto[]> {
+  return invokeCommand<PendingPermissionRequestDto[]>("session_pending_permissions", { sessionId });
 }
 
 /** D-37's blocked signal for one project: every blocked Story id plus the count, read together. */
@@ -734,7 +734,7 @@ export async function boardRecoverySummary(projectId: string): Promise<RecoveryS
 }
 
 /** One genuinely-alive orphaned run the launch reconciler found (PROC-05, D-46) — mirrors
- * `commands/agent_run.rs`'s `PendingOrphanDto`. */
+ * `commands/session.rs`'s `PendingOrphanDto`. */
 export interface PendingOrphanDto {
   runId: string;
   storyId: string;
@@ -748,7 +748,7 @@ export interface PendingOrphanDto {
 
 /** The launch-time live-orphan list. Read-only. */
 export async function pendingOrphans(): Promise<PendingOrphanDto[]> {
-  return invokeCommand<PendingOrphanDto[]>("agent_runs_pending_orphans");
+  return invokeCommand<PendingOrphanDto[]>("sessions_pending_orphans");
 }
 
 /** What `orphan_kill` returns. `killed: false` means the process survived the signal. */
@@ -758,9 +758,9 @@ export interface OrphanKillDto {
   detail: string | null;
 }
 
-/** Kill one live orphan by `agentRunId` — the only verb the orphan-recovery modal offers. */
-export async function orphanKill(agentRunId: string): Promise<OrphanKillDto> {
-  return invokeCommand<OrphanKillDto>("orphan_kill", { agentRunId });
+/** Kill one live orphan by `sessionId` — the only verb the orphan-recovery modal offers. */
+export async function orphanKill(sessionId: string): Promise<OrphanKillDto> {
+  return invokeCommand<OrphanKillDto>("orphan_kill", { sessionId });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -837,7 +837,7 @@ export async function backendCapabilityProbe(): Promise<BackendCapabilityDto> {
  * or dropped); the run status is `runStatus`.
  */
 export interface FleetRowDto {
-  agentRunId: string;
+  sessionId: string;
   projectId: string;
   projectName: string;
   projectKeyPrefix: string;
@@ -885,7 +885,7 @@ export interface BlockedQueueEntryDto {
   inputPayload: string | null;
   createdAt: string;
   destructiveCategory: string | null;
-  agentRunId: string;
+  sessionId: string;
   projectId: string;
   projectName: string;
   projectKeyPrefix: string;
@@ -904,7 +904,7 @@ export async function fleetBlockedQueue(): Promise<BlockedQueueEntryDto[]> {
 export type InventoryReason =
   | "merged"
   | "dropped"
-  | "agent_running"
+  | "sessionning"
   | "blocked"
   | "uncommitted_changes"
   | "project_unreachable"

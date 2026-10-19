@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  agentRunLogWindow,
+  sessionLogWindow,
   boardRecoverySummary,
   invokeCommand,
   pendingOrphans,
@@ -80,18 +80,18 @@ export function useBoardChangedSubscription(projectId?: string) {
   );
 }
 
-/** `usePendingPermissionRequests`' query key, keyed by `agentRunId` — the one shared query BOTH
+/** `usePendingPermissionRequests`' query key, keyed by `sessionId` — the one shared query BOTH
  * the permission-request card's mount points read (AGNT-06, D-37/D-38, plan 02-06 Task 2,
  * Discretion #6: "one query, one key, consumed by both mount points, so the two instances cannot
  * disagree"). Exported so the fleet's blocked queue lands on the exact key the session feed's
  * mount uses for the same run. */
-export function pendingPermissionRequestsQueryKey(agentRunId: string) {
-  return ["pending-permission-requests", agentRunId] as const;
+export function pendingPermissionRequestsQueryKey(sessionId: string) {
+  return ["pending-permission-requests", sessionId] as const;
 }
 
 /**
  * The permission-request card's one shared source of truth (AGNT-06, D-37/D-38, plan 02-06 Task
- * 2) — every mount point (`SessionSurface.tsx`'s `feed` variant, the fleet's blocked queue) calls this with the SAME `agentRunId` and read the SAME query, so answering at either
+ * 2) — every mount point (`SessionSurface.tsx`'s `feed` variant, the fleet's blocked queue) calls this with the SAME `sessionId` and read the SAME query, so answering at either
  * place invalidates both instances within one pushed-delta cycle rather than leaving a stale
  * second copy (E3's `partial` consideration). `null`/`undefined` (no run yet, e.g. a Story
  * that has never had a run) disables the query entirely — never a call with an empty id.
@@ -99,19 +99,19 @@ export function pendingPermissionRequestsQueryKey(agentRunId: string) {
  * Invalidated on BOTH `subscribeBoardChanged` (D-04 — the answer round trip's own emit, and the
  * inbound rule-check-or-block path's emit) and `subscribeAgentEvent` (a fresh `permission_request`
  * event arrives on this channel too, per `sidecar.rs`'s reader loop) — never polled. Each mount
- * point registers its own pair of listeners (scoped to ITS OWN `agentRunId`), following this
+ * point registers its own pair of listeners (scoped to ITS OWN `sessionId`), following this
  * file's existing per-hook subscription pattern rather than adding a third global listener.
  */
-export function usePendingPermissionRequests(agentRunId: string | null | undefined) {
+export function usePendingPermissionRequests(sessionId: string | null | undefined) {
   const queryClient = useQueryClient();
   useBoardChangedInvalidation(
     { kind: "viewed" },
-    agentRunId ? [pendingPermissionRequestsQueryKey(agentRunId)] : [],
+    sessionId ? [pendingPermissionRequestsQueryKey(sessionId)] : [],
   );
 
   useEffect(() => {
-    if (!agentRunId) return undefined;
-    const queryKey = pendingPermissionRequestsQueryKey(agentRunId);
+    if (!sessionId) return undefined;
+    const queryKey = pendingPermissionRequestsQueryKey(sessionId);
     let unlistenAgent: (() => void) | undefined;
     let cancelled = false;
 
@@ -124,12 +124,12 @@ export function usePendingPermissionRequests(agentRunId: string | null | undefin
       cancelled = true;
       unlistenAgent?.();
     };
-  }, [agentRunId, queryClient]);
+  }, [sessionId, queryClient]);
 
   return useQuery({
-    queryKey: pendingPermissionRequestsQueryKey(agentRunId ?? "none"),
-    queryFn: () => pendingPermissionRequests(agentRunId as string),
-    enabled: Boolean(agentRunId),
+    queryKey: pendingPermissionRequestsQueryKey(sessionId ?? "none"),
+    queryFn: () => pendingPermissionRequests(sessionId as string),
+    enabled: Boolean(sessionId),
   });
 }
 
@@ -145,7 +145,7 @@ export function recoverySummaryQueryKey(projectId: string | undefined) {
  * unacknowledged abandoned run) plus the count (D-46, plan 03-11) — feeds `ProjectRail.tsx`'s
  * second count badge. Invalidated by
  * `subscribeBoardChanged` — every command that resolves a recovery item
- * (`worktree_recreate`/`worktree_forget_record`/`agent_run_acknowledge`) already emits
+ * (`worktree_recreate`/`worktree_forget_record`/`session_acknowledge`) already emits
  * `board:changed`, so the pill clears through the same push-invalidate path the rest of the board
  * uses, with no second mechanism. `undefined` disables the query entirely (no project selected
  * yet).
@@ -183,13 +183,13 @@ export function usePendingOrphans() {
 }
 
 /** `useSessionFeed`'s own page size (plan 02-07 Task 1/2, D-33) — matches
- * `commands/agent_run.rs`'s `LOG_WINDOW_DEFAULT_LIMIT`. */
+ * `commands/session.rs`'s `LOG_WINDOW_DEFAULT_LIMIT`. */
 const SESSION_FEED_PAGE_SIZE = 50;
 
-/** `useSessionFeed`'s query key, keyed by `agentRunId` — exported so `SessionSurface.tsx` (and
+/** `useSessionFeed`'s query key, keyed by `sessionId` — exported so `SessionSurface.tsx` (and
  * any future caller) can invalidate/read the same cache entry without re-deriving the key shape. */
-export function sessionFeedQueryKey(agentRunId: string) {
-  return ["agent-run-log", agentRunId] as const;
+export function sessionFeedQueryKey(sessionId: string) {
+  return ["agent-run-log", sessionId] as const;
 }
 
 /** `useInfiniteQuery`'s own page-identity value: `"tail"` for the initial (most-recent) page,
@@ -203,16 +203,16 @@ type SessionFeedPageParam = number | "tail";
  * page at `total - PAGE_SIZE`. A log no longer than one page needs only the first call — its own
  * `offset: 0` window already covers everything. */
 async function fetchSessionFeedPage(
-  agentRunId: string,
+  sessionId: string,
   pageParam: SessionFeedPageParam,
 ): Promise<LogWindowDto> {
   if (pageParam !== "tail") {
-    return agentRunLogWindow(agentRunId, pageParam, SESSION_FEED_PAGE_SIZE);
+    return sessionLogWindow(sessionId, pageParam, SESSION_FEED_PAGE_SIZE);
   }
-  const probe = await agentRunLogWindow(agentRunId, 0, SESSION_FEED_PAGE_SIZE);
+  const probe = await sessionLogWindow(sessionId, 0, SESSION_FEED_PAGE_SIZE);
   if (probe.total <= SESSION_FEED_PAGE_SIZE) return probe;
   const tailOffset = probe.total - SESSION_FEED_PAGE_SIZE;
-  return agentRunLogWindow(agentRunId, tailOffset, SESSION_FEED_PAGE_SIZE);
+  return sessionLogWindow(sessionId, tailOffset, SESSION_FEED_PAGE_SIZE);
 }
 
 /**
@@ -236,9 +236,9 @@ async function fetchSessionFeedPage(
  * rather than `"tail"` — the same `fetchSessionFeedPage` codepath every older page already uses,
  * never a second fetch shape.
  */
-export function useSessionFeed(agentRunId: string, initialOffset?: number | null) {
+export function useSessionFeed(sessionId: string, initialOffset?: number | null) {
   const queryClient = useQueryClient();
-  const queryKey = sessionFeedQueryKey(agentRunId);
+  const queryKey = sessionFeedQueryKey(sessionId);
 
   // A live `agent:event` push invalidates the windowed read (D-32/D-04) — the stream itself is
   // never treated as the source of truth, only the persisted log read back through the command.
@@ -254,11 +254,11 @@ export function useSessionFeed(agentRunId: string, initialOffset?: number | null
       unlisten?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentRunId, queryClient]);
+  }, [sessionId, queryClient]);
 
   return useInfiniteQuery({
     queryKey,
-    queryFn: ({ pageParam }) => fetchSessionFeedPage(agentRunId, pageParam as SessionFeedPageParam),
+    queryFn: ({ pageParam }) => fetchSessionFeedPage(sessionId, pageParam as SessionFeedPageParam),
     initialPageParam: (initialOffset ?? "tail") as SessionFeedPageParam,
     // The feed never pages "forward" past the tail — new events arrive by the tail page itself
     // re-resolving on invalidation (see doc comment above), not by fetching a page after it.
