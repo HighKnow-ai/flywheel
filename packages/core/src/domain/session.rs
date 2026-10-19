@@ -435,11 +435,22 @@ pub fn set_run_blocked(tx: &Transaction, session_id: &str) -> anyhow::Result<()>
     Ok(())
 }
 
-/// Move a session back to `running` inside the CALLER'S transaction — the exact inverse of
+/// Move a session back to `running` inside the CALLER'S transaction — the inverse of
 /// [`set_run_blocked`], called only from `domain::permission_request::answer_request`.
+///
+/// Only once NO request of the session is still pending, and only from `blocked`. Claude Code
+/// raises several requests at once; v0.1 wrote `running` after the first answer while the rest
+/// still waited, and every surface reading the status lost the session (issue #57). The surfaces
+/// now derive Waiting on you from the pending rows themselves; this guard keeps the stored status
+/// from contradicting them, and never revives a session that has already ended.
 pub fn clear_run_blocked(tx: &Transaction, session_id: &str) -> anyhow::Result<()> {
-    tx.execute("UPDATE sessions SET status = 'running' WHERE id = ?1", params![session_id])
-        .context("failed to clear the session's blocked status")?;
+    tx.execute(
+        "UPDATE sessions SET status = 'running' WHERE id = ?1 AND status = 'blocked' \
+         AND NOT EXISTS (SELECT 1 FROM permission_requests WHERE session_id = ?1 AND status = 'pending' \
+         AND expired_at IS NULL)",
+        params![session_id],
+    )
+    .context("failed to clear the session's blocked status")?;
     Ok(())
 }
 

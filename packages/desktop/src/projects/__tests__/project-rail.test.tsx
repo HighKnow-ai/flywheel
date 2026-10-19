@@ -137,20 +137,29 @@ describe("ProjectRail's Worktrees entry point (Phase 10 plan 10-08, WORK-07)", (
   });
 });
 
-describe("ProjectRail's review queue entry points (Phase 10 plan 10-05, FLEET-02)", () => {
-  it("renders the Blocked row as a button that opens the blocked queue", () => {
+describe("ProjectRail's Waiting on you row (#57, docs/mvp-spec.md §4.1)", () => {
+  it("puts Waiting on you at the top of the sidebar, above the projects, as a button that opens the queue", () => {
     renderWithClient(
       <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
     );
-    const group = screen.getByRole("group", { name: "Review queue" });
-    const row = within(group).getByRole("button", { name: "Open blocked queue" });
+    const groups = screen.getAllByRole("group").map((g) => g.getAttribute("aria-labelledby"));
+    expect(groups[0]).toBe("rail-waiting");
+    const group = screen.getByRole("group", { name: "Waiting on you" });
+    const row = within(group).getByRole("button", { name: "Open Waiting on you" });
     expect(row.tagName).toBe("BUTTON");
     fireEvent.click(row);
     expect(useUiStore.getState().fleetSurface).toEqual({ view: "queue" });
   });
 
-  it("counts blocked agents fleet-wide, not just the current project's share", async () => {
-    // Two blocked agents in project A, one in project B; the current project is A.
+  it("never words it Blocked", () => {
+    renderWithClient(
+      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
+    );
+    expect(screen.queryByText("Blocked")).toBeNull();
+  });
+
+  it("counts waiting requests across every project, not just the current project's share", async () => {
+    // Two waiting requests in project A, one in project B; the current project is A.
     fleetBlockedQueueMock.mockResolvedValue([
       { requestId: "r1", projectId: "proj-1" },
       { requestId: "r2", projectId: "proj-1" },
@@ -163,19 +172,19 @@ describe("ProjectRail's review queue entry points (Phase 10 plan 10-05, FLEET-02
         onSelect={() => {}}
       />,
     );
-    const row = await screen.findByRole("button", { name: "Open blocked queue, 3 waiting" });
-    expect(row.querySelector('[data-count="blocked"]')).toHaveTextContent("3");
+    const row = await screen.findByRole("button", { name: "Open Waiting on you, 3 waiting" });
+    expect(row.querySelector('[data-count="waiting"]')).toHaveTextContent("3");
   });
 
-  it("shows no figure at all at zero blocked agents", async () => {
+  it("shows no figure at all when nothing is waiting", async () => {
     renderWithClient(
       <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
     );
     await waitFor(() => expect(fleetBlockedQueueMock).toHaveBeenCalled());
-    expect(document.querySelector('[data-count="blocked"]')).toBeNull();
+    expect(document.querySelector('[data-count="waiting"]')).toBeNull();
   });
 
-  it("keeps the blocked count and the needs-decision count as separate figures, and Needs decision opens the fleet list", async () => {
+  it("keeps the waiting count and the needs-decision count as separate figures, and Needs decision opens the fleet list", async () => {
     invokeCommandMock.mockImplementation((command: string) =>
       command === "board_recovery_summary"
         ? Promise.resolve({ recoveryTaskIds: [], recoveryCount: 4 })
@@ -185,9 +194,9 @@ describe("ProjectRail's review queue entry points (Phase 10 plan 10-05, FLEET-02
     renderWithClient(
       <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
     );
-    const blocked = await screen.findByRole("button", { name: /Open blocked queue/ });
+    const waiting = await screen.findByRole("button", { name: /Open Waiting on you/ });
     const decision = await screen.findByRole("button", { name: "Open decisions" });
-    expect(blocked.querySelector('[data-count="blocked"]')).toHaveTextContent("2");
+    expect(waiting.querySelector('[data-count="waiting"]')).toHaveTextContent("2");
     expect(decision.querySelector('[data-count="needs-decision"]')).toHaveTextContent("4");
     expect(screen.queryByText("6")).not.toBeInTheDocument();
     fireEvent.click(decision);
@@ -377,6 +386,21 @@ describe("ProjectRail's running sessions per project (#58)", () => {
       "Open THF-2 Second session",
     ]);
     expect(screen.queryByText("FLY-3")).not.toBeInTheDocument();
+    // The session waiting on you is flagged with the word, never "Blocked"; the busy one is not.
+    expect(within(threadfin).getByText("Waiting on you")).toBeInTheDocument();
+    expect(within(flywheel).queryByText("Waiting on you")).toBeNull();
+  });
+
+  it("flags a session from the derived fleet state, not its stored status", async () => {
+    // Stored as blocked but holding nothing: the core reads it as running.
+    fleetListMock.mockResolvedValue({
+      rows: [fleetRow({ sessionId: "r-1", storyKey: "FLY-1", storyTitle: "First", fleetState: "running", runStatus: "blocked" })],
+      totalRows: 1,
+      visibleCostUsd: null,
+    });
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
+    const list = await screen.findByRole("list", { name: "Flywheel running sessions" });
+    expect(within(list).queryByText("Waiting on you")).toBeNull();
   });
 
   it("renders no session list for a project with nothing running", async () => {

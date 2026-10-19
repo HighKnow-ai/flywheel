@@ -1,5 +1,14 @@
 //! Phase 10 plan 10-07 (FLEET-05, D-174..D-176, D-181): operating-system notifications for an agent
-//! that blocks, finishes or fails.
+//! that finishes or fails, and (issue #57, docs/mvp-spec.md §4.1) for a request still Waiting on you
+//! after about 30 s while the app is unfocused.
+//!
+//! Waiting on you is not a transition. v0.1 announced a block once, on the `running` -> `blocked`
+//! edge, three seconds after the request: the moment the developer had just started the work and
+//! was still in the app. Nothing ever looked again, so a request still waiting after he left was
+//! never announced, and the edge itself was lost whenever an answer reset the stored status while
+//! other requests still waited. [`WaitingWatch`] instead re-reads the waiting requests from the
+//! database on every poll and announces each one once, only after [`WAITING_NOTIFY_AFTER`] and only
+//! while the window is unfocused.
 //!
 //! The same split `scheduler.rs` uses: the decisions are pure functions with the clock injected
 //! ([`Coalescer`], [`should_suppress`], [`banner_body`]), and a thin shell ([`push`],
@@ -10,7 +19,7 @@
 //! A banner is text only. Click-through is out of scope for this phase (D-181) — no action handler
 //! and no payload is attached.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -32,15 +41,21 @@ const BURST_BOUND: usize = 6;
 const BURST_SPAN: Duration = Duration::from_secs(60);
 const TICK: Duration = Duration::from_millis(500);
 
-/// The three notifiable transitions. `interrupted` (user-initiated) and `abandoned` (an
-/// application-restart artefact) have no representation, so D-174's exclusions are enforced by the
-/// type rather than by a filter someone can forget.
+/// What a banner announces. `interrupted` (user-initiated) and `abandoned` (an application-restart
+/// artefact) have no representation, so D-174's exclusions are enforced by the type rather than by
+/// a filter someone can forget. `Waiting` is never pushed through the [`Coalescer`]: only
+/// [`WaitingWatch`] builds it, from the requests that are waiting right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransitionKind {
-    Blocked,
+    Waiting,
     Completed,
     Failed,
 }
+
+/// How long a request waits unanswered before a banner may announce it (docs/mvp-spec.md §4.1).
+pub const WAITING_NOTIFY_AFTER: Duration = Duration::from_secs(30);
+/// How often the waiting requests are re-read while the window is unfocused.
+const WAITING_POLL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Transition {
@@ -48,7 +63,7 @@ pub struct Transition {
     pub project_name: String,
     pub subject_label: String,
     pub kind: TransitionKind,
-    /// Name of the tool a `Blocked` transition waits on. Deliberately the NAME only: a command, path
+    /// Name of the tool a `Waiting` banner waits on. Deliberately the NAME only: a command, path
     /// or URL can carry a secret, and the OS notification centre persists and syncs off-device.
     pub tool: Option<String>,
 }
@@ -65,9 +80,12 @@ impl Banner {
     pub fn text(&self) -> (String, String) {
         match self {
             Banner::Single { title, body } => (title.clone(), body.clone()),
+            Banner::Summary { count, projects, kind: Some(TransitionKind::Waiting) } => {
+                (format!("{count} requests are waiting on you"), projects.join(" · "))
+            }
             Banner::Summary { count, projects, kind } => {
                 let what = match kind {
-                    Some(TransitionKind::Blocked) => "are blocked",
+                    Some(TransitionKind::Waiting) => "are waiting on you",
                     Some(TransitionKind::Completed) => "finished",
                     Some(TransitionKind::Failed) => "failed",
                     None => "changed state",
@@ -80,8 +98,8 @@ impl Banner {
 
 fn single(t: &Transition) -> Banner {
     let (state, body) = match t.kind {
-        TransitionKind::Blocked => (
-            "is blocked",
+        TransitionKind::Waiting => (
+            "is waiting on you",
             match &t.tool {
                 Some(tool) => banner_body(tool),
                 None => "Waiting on a permission request.".to_string(),
@@ -104,7 +122,7 @@ fn cap(raw: &str, max: usize) -> String {
     cut
 }
 
-/// The banner body for a blocked run: the tool name and nothing else. Never any part of the tool's
+/// The banner body for a waiting request: the tool name and nothing else. Never any part of the tool's
 /// input (command, path, URL): a capped command is still a command, and `export TOKEN=...` puts the
 /// secret in the first few characters. The notification centre retains and syncs what it is given.
 pub fn banner_body(tool_name: &str) -> String {
@@ -177,6 +195,116 @@ impl Coalescer {
     }
 }
 
+/// One request Waiting on you, as the poll reads it: what a banner may name, and when it was raised.
+/// Never the tool's input (see [`banner_body`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WaitingRequest {
+    pub request_id: String,
+    pub project_name: String,
+    pub story_key: String,
+    pub tool_name: String,
+    /// RFC 3339, as `permission_requests.created_at` stores it.
+    pub created_at: String,
+}
+
+/// Which waiting requests have been announced. Pure: the clock, the focus and the switch are passed
+/// in, and the waiting requests are whatever the database holds at that moment, so a request that
+/// was answered simply stops being offered.
+#[derive(Debug, Default)]
+pub struct WaitingWatch {
+    announced: HashSet<String>,
+}
+
+impl WaitingWatch {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The banner for the requests that have waited at least [`WAITING_NOTIFY_AFTER`] and were not
+    /// yet announced, or `None`. Never while the window is focused: those requests stay unannounced
+    /// and are offered again on the next poll, so leaving the app later still announces them. Each
+    /// request is announced at most once.
+    pub fn take_due(
+        &mut self,
+        waiting: &[WaitingRequest],
+        now: chrono::DateTime<chrono::Utc>,
+        window_focused: bool,
+        enabled: bool,
+    ) -> Option<Banner> {
+        self.announced.retain(|id| waiting.iter().any(|w| &w.request_id == id));
+        if window_focused || !enabled {
+            return None;
+        }
+        let due: Vec<&WaitingRequest> = waiting
+            .iter()
+            .filter(|w| !self.announced.contains(&w.request_id) && has_waited_long_enough(&w.created_at, now))
+            .collect();
+        for w in &due {
+            self.announced.insert(w.request_id.clone());
+        }
+        match due.as_slice() {
+            [] => None,
+            [only] => Some(Banner::Single {
+                title: format!("{} · {} is waiting on you", only.project_name, only.story_key),
+                body: banner_body(&only.tool_name),
+            }),
+            all => {
+                let mut projects: Vec<String> = Vec::new();
+                for w in all {
+                    if !projects.contains(&w.project_name) {
+                        projects.push(w.project_name.clone());
+                    }
+                }
+                Some(Banner::Summary { count: all.len(), projects, kind: Some(TransitionKind::Waiting) })
+            }
+        }
+    }
+}
+
+/// Whether a request raised at `created_at` has waited [`WAITING_NOTIFY_AFTER`] by `now`. A
+/// timestamp that does not parse counts as old enough: announcing a request is better than missing it.
+fn has_waited_long_enough(created_at: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
+    match chrono::DateTime::parse_from_rfc3339(created_at) {
+        Ok(at) => {
+            now.signed_duration_since(at.with_timezone(&chrono::Utc)).to_std().unwrap_or(Duration::ZERO)
+                >= WAITING_NOTIFY_AFTER
+        }
+        Err(_) => true,
+    }
+}
+
+/// One poll of the waiting requests, with every input explicit so a test can drive it. While the
+/// window is focused it returns at once, without touching the database. Otherwise it reads the
+/// waiting requests (the same derived read the queue shows) and the switch, then asks the watch.
+pub fn waiting_tick(
+    watch: &Mutex<WaitingWatch>,
+    db: &Mutex<Connection>,
+    now: chrono::DateTime<chrono::Utc>,
+    window_focused: bool,
+) -> Option<Banner> {
+    if window_focused {
+        return None;
+    }
+    let (waiting, enabled) = {
+        let conn = db.lock().ok()?;
+        let waiting: Vec<WaitingRequest> =
+            flywheel_core::query::fleet::blocked_queue(&conn, flywheel_core::query::fleet::BLOCKED_QUEUE_MAX_LIMIT)
+                .ok()?
+                .into_iter()
+                .map(|e| WaitingRequest {
+                    request_id: e.request_id,
+                    project_name: e.project_name,
+                    story_key: e.story_key,
+                    tool_name: e.tool_name,
+                    created_at: e.created_at,
+                })
+                .collect();
+        let enabled = flywheel_core::domain::settings::notifications_enabled(&conn).unwrap_or(true);
+        (waiting, enabled)
+    };
+    watch.lock().ok()?.take_due(&waiting, now, window_focused, enabled)
+}
+
 /// One tick of the shell, with every input explicit so a test can drive it. The switch is read
 /// from the database HERE, at fire time, so toggling it takes effect on the next transition with no
 /// restart. A failed read degrades to enabled, like the setting itself.
@@ -234,6 +362,25 @@ fn show_due_banner(app: &AppHandle) {
     }
 }
 
+fn waiting_watch() -> &'static Mutex<WaitingWatch> {
+    static WATCH: OnceLock<Mutex<WaitingWatch>> = OnceLock::new();
+    WATCH.get_or_init(|| Mutex::new(WaitingWatch::new()))
+}
+
+/// Polls the waiting requests and shows their banner, if one is due. Blocking for the same reasons
+/// as [`show_due_banner`], so it too runs only on the blocking pool.
+fn show_waiting_banner(app: &AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else { return };
+    let focused = app.get_webview_window("main").and_then(|w| w.is_focused().ok()).unwrap_or(false);
+    let Some(banner) = waiting_tick(waiting_watch(), &state.db, chrono::Utc::now(), focused) else {
+        return;
+    };
+    let (title, body) = banner.text();
+    if let Err(e) = app.notification().builder().title(title).body(body).show() {
+        eprintln!("notify: could not show a banner: {e}");
+    }
+}
+
 /// Starts the one task that closes each window and shows the banner. The async side only asks
 /// whether a window is due (a brief in-memory lock); everything that can block goes to
 /// `spawn_blocking`, so a held database mutex or a slow banner parks a pool thread, never a tokio
@@ -241,8 +388,16 @@ fn show_due_banner(app: &AppHandle) {
 pub fn spawn_notify_task(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(TICK);
+        let mut last_waiting_poll = Instant::now();
         loop {
             interval.tick().await;
+            if last_waiting_poll.elapsed() >= WAITING_POLL {
+                last_waiting_poll = Instant::now();
+                let app = app.clone();
+                if let Err(e) = tauri::async_runtime::spawn_blocking(move || show_waiting_banner(&app)).await {
+                    eprintln!("notify: the waiting poll failed: {e}");
+                }
+            }
             let due = coalescer().lock().map(|co| co.is_due(Instant::now())).unwrap_or(false);
             if !due {
                 continue;
@@ -302,7 +457,6 @@ mod tests {
     #[test]
     fn the_state_word_follows_the_kind() {
         for (kind, word) in [
-            (TransitionKind::Blocked, "is blocked"),
             (TransitionKind::Completed, "has finished"),
             (TransitionKind::Failed, "has failed"),
         ] {
@@ -342,8 +496,8 @@ mod tests {
     #[test]
     fn the_same_run_and_kind_twice_collapses_to_one() {
         let (mut co, t0) = (Coalescer::new(COALESCE_WINDOW), Instant::now());
-        co.push(t("a", "api", TransitionKind::Blocked), t0);
-        co.push(t("a", "api", TransitionKind::Blocked), t0 + Duration::from_secs(1));
+        co.push(t("a", "api", TransitionKind::Completed), t0);
+        co.push(t("a", "api", TransitionKind::Completed), t0 + Duration::from_secs(1));
         assert!(matches!(drain(&mut co, after(t0)), Some(Banner::Single { .. })));
     }
 
@@ -381,24 +535,84 @@ mod tests {
         assert!(long.chars().count() <= TOOL_CAP);
     }
 
+    fn waiting(id: &str, project: &str, created_at: &str) -> WaitingRequest {
+        WaitingRequest {
+            request_id: id.into(),
+            project_name: project.into(),
+            story_key: "STO-1".into(),
+            tool_name: "Bash".into(),
+            created_at: created_at.into(),
+        }
+    }
+
+    fn at(rfc3339: &str) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339(rfc3339).unwrap().with_timezone(&chrono::Utc)
+    }
+
+    const RAISED: &str = "2026-10-19T10:00:00+00:00";
+
     #[test]
-    fn a_blocked_banner_never_carries_the_tool_input() {
-        let (mut co, t0) = (Coalescer::new(COALESCE_WINDOW), Instant::now());
-        let mut tr = t("a", "api", TransitionKind::Blocked);
-        tr.tool = Some("Bash".into());
-        co.push(tr, t0);
-        let Some(banner) = drain(&mut co, after(t0)) else { panic!() };
-        let (title, body) = banner.text();
-        assert_eq!(body, "Bash");
-        assert_eq!(title, "api · TASK-02 is blocked");
+    fn the_wait_before_a_banner_is_thirty_seconds() {
+        assert_eq!(WAITING_NOTIFY_AFTER, Duration::from_secs(30));
     }
 
     #[test]
-    fn a_blocked_transition_without_a_tool_still_has_a_body() {
-        let (mut co, t0) = (Coalescer::new(COALESCE_WINDOW), Instant::now());
-        co.push(t("a", "api", TransitionKind::Blocked), t0);
-        let Some(Banner::Single { body, .. }) = drain(&mut co, after(t0)) else { panic!() };
-        assert!(!body.is_empty());
+    fn a_request_is_announced_after_thirty_seconds_unanswered_while_unfocused() {
+        let mut watch = WaitingWatch::new();
+        let w = [waiting("r1", "api", RAISED)];
+        assert_eq!(watch.take_due(&w, at("2026-10-19T10:00:29+00:00"), false, true), None, "29 s is too soon");
+        let banner = watch.take_due(&w, at("2026-10-19T10:00:30+00:00"), false, true).expect("a banner at 30 s");
+        assert_eq!(banner.text(), ("api · STO-1 is waiting on you".to_string(), "Bash".to_string()));
+        assert_eq!(watch.take_due(&w, at("2026-10-19T10:05:00+00:00"), false, true), None, "announced once");
+    }
+
+    #[test]
+    fn a_request_is_never_announced_while_the_app_is_focused_and_is_once_it_is_left() {
+        let mut watch = WaitingWatch::new();
+        let w = [waiting("r1", "api", RAISED)];
+        for later in ["2026-10-19T10:00:30+00:00", "2026-10-19T10:10:00+00:00"] {
+            assert_eq!(watch.take_due(&w, at(later), true, true), None, "focused: never");
+        }
+        assert!(watch.take_due(&w, at("2026-10-19T10:10:02+00:00"), false, true).is_some(), "left: announced");
+    }
+
+    #[test]
+    fn an_answered_request_is_not_announced() {
+        let mut watch = WaitingWatch::new();
+        assert_eq!(watch.take_due(&[], at("2026-10-19T10:01:00+00:00"), false, true), None);
+    }
+
+    #[test]
+    fn the_switch_off_announces_nothing() {
+        let mut watch = WaitingWatch::new();
+        let w = [waiting("r1", "api", RAISED)];
+        assert_eq!(watch.take_due(&w, at("2026-10-19T10:01:00+00:00"), false, false), None);
+    }
+
+    #[test]
+    fn several_due_requests_are_one_summary() {
+        let mut watch = WaitingWatch::new();
+        let w = [waiting("r1", "web", RAISED), waiting("r2", "api", RAISED), waiting("r3", "web", RAISED)];
+        let banner = watch.take_due(&w, at("2026-10-19T10:01:00+00:00"), false, true).expect("a banner");
+        assert_eq!(banner.text(), ("3 requests are waiting on you".to_string(), "web · api".to_string()));
+    }
+
+    #[test]
+    fn a_waiting_banner_never_carries_the_tool_input() {
+        let mut watch = WaitingWatch::new();
+        let mut w = waiting("r1", "api", RAISED);
+        w.tool_name = "Bash".into();
+        let banner = watch.take_due(&[w], at("2026-10-19T10:01:00+00:00"), false, true).unwrap();
+        assert_eq!(banner.text().1, "Bash");
+    }
+
+    /// Focused, the poll returns before it takes the database lock: a held lock cannot delay it.
+    #[test]
+    fn a_focused_poll_never_touches_the_database() {
+        let db = seeded_db();
+        let watch = Mutex::new(WaitingWatch::new());
+        let _held = db.lock().unwrap();
+        assert_eq!(waiting_tick(&watch, &db, at("2026-10-19T10:05:00+00:00"), true), None);
     }
 
     #[test]

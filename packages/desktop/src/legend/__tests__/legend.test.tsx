@@ -68,7 +68,7 @@ describe("agent channel", () => {
       { id: "run-completed", glyph: "CircleCheckBig", label: "Completed" },
       { id: "run-failed", glyph: "CircleX", label: "Failed" },
       { id: "run-interrupted", glyph: "CircleSlash", label: "Interrupted" },
-      { id: "blocked-indicator", glyph: "ShieldAlert", label: "Blocked" },
+      { id: "blocked-indicator", glyph: "ShieldAlert", label: "Waiting on you" },
       { id: "worktree-missing", glyph: "TriangleAlert", label: "Missing" },
       { id: "run-abandoned", glyph: "Unplug", label: "Abandoned" },
       { id: "recovery-needed", glyph: "TriangleAlert", label: "Needs Decision" },
@@ -282,11 +282,11 @@ describe("the legend can be used to tell its marks apart (08.1 finish-review clo
     expect(clashes).toEqual([]);
   });
 
-  it("carries one Blocked mark with both contexts, not two rows with the same word and the same shield", () => {
-    const blocked = MARKS.filter((m) => m.label === "Blocked");
+  it("carries one Waiting on you mark with both contexts, not two rows with the same word and the same shield", () => {
+    const blocked = MARKS.filter((m) => m.label === "Waiting on you");
     expect(blocked.map((m) => m.id)).toEqual(["blocked-indicator"]);
     expect(blocked[0].meaning).toMatch(/run/i);
-    expect(blocked[0].meaning).toMatch(/task row/i);
+    expect(blocked[0].meaning).toMatch(/Story row/i);
     expect(MARKS.find((m) => m.id === "run-blocked")).toBeUndefined();
   });
 

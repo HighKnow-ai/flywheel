@@ -525,7 +525,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
         <button type="button" onClick={onClose} className="type-label admin-back">
           ← Board
         </button>
-        <span className="type-heading">{view === "queue" ? "Blocked queue" : "Fleet"}</span>
+        <span className="type-heading">{view === "queue" ? "Waiting on you" : "Fleet"}</span>
         <div role="group" aria-label="Fleet views" style={{ display: "flex", gap: "var(--space-xs)" }}>
           <button
             type="button"
@@ -541,7 +541,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
             aria-pressed={view === "queue"}
             onClick={() => setFleetSurface({ view: "queue" })}
           >
-            {`Blocked ${queue.length}`}
+            {`Waiting on you ${queue.length}`}
           </button>
         </div>
         <span
@@ -549,14 +549,14 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
           aria-live="polite"
           style={{ marginLeft: "auto", color: "var(--text-muted-rack)" }}
         >
-          {view === "queue" ? `${queue.length} blocked` : countText}
+          {view === "queue" ? `${queue.length} waiting` : countText}
         </span>
       </header>
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {view === "queue" ? (
           blocked.isError ? (
             <p role="alert" className="type-body" style={{ padding: "var(--space-lg)", color: "var(--destructive-text-rack)" }}>
-              Could not load the blocked queue. It will retry on the next change.
+              Could not load what is waiting on you. It will retry on the next change.
             </p>
           ) : (
             blocked.isSuccess && <BlockedQueue entries={queue} now={now} />

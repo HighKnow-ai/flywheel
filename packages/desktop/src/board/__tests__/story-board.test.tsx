@@ -18,6 +18,7 @@ const storyListForProject = vi.fn();
 const storyWriteByHand = vi.fn();
 const storyStart = vi.fn();
 const storyContextPacketSize = vi.fn();
+const blockedSummary = vi.fn();
 let boardChanged: ((payload: { projectId: string }) => void) | null = null;
 
 vi.mock("../../adapters/tauri", async () => {
@@ -33,6 +34,7 @@ vi.mock("../../adapters/tauri", async () => {
     storyStart: (...args: unknown[]) => storyStart(...args),
     taskList: () => Promise.resolve([]),
     storyContextPacketSize: (...args: unknown[]) => storyContextPacketSize(...args),
+    blockedSummary: (...args: unknown[]) => blockedSummary(...args),
     subscribeBoardChanged: (handler: (payload: { projectId: string }) => void) => {
       boardChanged = handler;
       return Promise.resolve(() => {});
@@ -93,6 +95,7 @@ beforeEach(() => {
   storyWriteByHand.mockReset().mockResolvedValue(story("s1", "FLY-2", "S", "ready"));
   storyStart.mockReset().mockResolvedValue({ id: "run-1", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
   storyContextPacketSize.mockReset().mockResolvedValue({ bytes: 4000, approxTokens: 1000, overSoftLimit: false });
+  blockedSummary.mockReset().mockResolvedValue({ blockedStoryIds: [], blockedCount: 0 });
 });
 
 describe("StoryBoard: the Context packet size (issue #51)", () => {
@@ -168,6 +171,39 @@ describe("StoryBoard: the Story list", () => {
 
     await within(list).findByText("Running");
     expect(within(list).queryByText("Ready")).toBeNull();
+  });
+
+  it("shows Waiting on you, tinted, in place of the state word of a Story whose session waits on you (#57)", async () => {
+    storyListForProject.mockResolvedValue([
+      story("s1", "FLY-2", "Waiting one", "running"),
+      story("s2", "FLY-3", "Busy one", "running"),
+    ]);
+    blockedSummary.mockResolvedValue({ blockedStoryIds: ["s1"], blockedCount: 1 });
+    renderBoard();
+
+    const list = await screen.findByRole("list", { name: "Stories" });
+    await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(2));
+    const [waiting, busy] = within(list).getAllByRole("listitem");
+    const flag = await within(waiting).findByText("Waiting on you");
+    expect(flag.closest("[data-state-class]")).toHaveAttribute("data-state-class", "needs-you");
+    expect(within(waiting).queryByText("Running")).toBeNull();
+    expect(within(busy).getByText("Running")).toBeInTheDocument();
+    expect(blockedSummary).toHaveBeenCalledWith("p1");
+  });
+
+  it("drops Waiting on you live once the request is answered", async () => {
+    storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Waiting one", "running")]);
+    blockedSummary.mockResolvedValue({ blockedStoryIds: ["s1"], blockedCount: 1 });
+    renderBoard();
+    const list = await screen.findByRole("list", { name: "Stories" });
+    await within(list).findByText("Waiting on you");
+
+    blockedSummary.mockResolvedValue({ blockedStoryIds: [], blockedCount: 0 });
+    await waitFor(() => expect(boardChanged).not.toBeNull());
+    act(() => boardChanged?.({ projectId: "p1" }));
+
+    await within(list).findByText("Running");
+    expect(within(list).queryByText("Waiting on you")).toBeNull();
   });
 
   it("Start calls the core's story_start and hands the new session on", async () => {

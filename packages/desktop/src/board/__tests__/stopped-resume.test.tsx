@@ -17,6 +17,7 @@ const storyResume = vi.fn();
 const storyDrop = vi.fn();
 const sessionsForStory = vi.fn();
 const sessionSummariesForStory = vi.fn();
+const blockedSummary = vi.fn(() => Promise.resolve({ blockedStoryIds: [] as string[], blockedCount: 0 }));
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -29,6 +30,7 @@ vi.mock("../../adapters/tauri", async () => {
     storyDrop: (...args: unknown[]) => storyDrop(...args),
     sessionsForStory: (...args: unknown[]) => sessionsForStory(...args),
     sessionSummariesForStory: (...args: unknown[]) => sessionSummariesForStory(...args),
+    blockedSummary: () => blockedSummary(),
     taskList: () => Promise.resolve([]),
     storyContextPacketSize: () => Promise.resolve({ bytes: 400, approxTokens: 100, overSoftLimit: false }),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
@@ -75,6 +77,7 @@ async function storyRow() {
 beforeEach(() => {
   useUiStore.setState({ currentProjectId: "p1" });
   storyListForProject.mockReset().mockResolvedValue([story("running")]);
+  blockedSummary.mockReset().mockResolvedValue({ blockedStoryIds: [], blockedCount: 0 });
   storyStopped.mockReset().mockResolvedValue({ sessionId: "01JSESSIONDEAD", endingReason: "crash", endedAt: "2026-10-19T10:00:00Z" });
   storyResume.mockReset().mockResolvedValue({ id: "01JSESSIONNEXT", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
   storyDrop.mockReset().mockResolvedValue(undefined);
@@ -89,6 +92,15 @@ describe("StoryBoard: a Stopped Story (issue #54)", () => {
     expect(await within(row).findByText("Stopped: crash")).toBeInTheDocument();
     expect(within(row).queryByText("Running")).toBeNull();
     expect(storyStopped).toHaveBeenCalledWith("s1");
+  });
+
+  it("never shows Waiting on you on a Stopped Story, even if a stale read still lists it (#57)", async () => {
+    blockedSummary.mockResolvedValue({ blockedStoryIds: ["s1"], blockedCount: 1 });
+    renderBoard();
+    const row = await storyRow();
+    expect(await within(row).findByText("Stopped: crash")).toBeInTheDocument();
+    await waitFor(() => expect(blockedSummary).toHaveBeenCalled());
+    expect(within(row).queryByText("Waiting on you")).toBeNull();
   });
 
   it("reads a clean exit without a hand-off as such", async () => {

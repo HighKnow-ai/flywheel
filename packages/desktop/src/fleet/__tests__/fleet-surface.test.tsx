@@ -319,13 +319,13 @@ describe("the fleet surface's two views (plan 10-05)", () => {
     fleetListMock.mockResolvedValue({ rows: [], totalRows: 0, visibleCostUsd: null });
     useUiStore.getState().setFleetSurface({ view: "queue" });
     const { findByText, getByRole, findByRole } = renderFleet();
-    expect(await findByText("No agent is blocked")).toBeTruthy();
-    expect(getByRole("button", { name: "Blocked 0" })).toHaveAttribute("aria-pressed", "true");
+    expect(await findByText("Nothing is waiting on you")).toBeTruthy();
+    expect(getByRole("button", { name: "Waiting on you 0" })).toHaveAttribute("aria-pressed", "true");
 
     fireEvent.click(getByRole("button", { name: "All agents" }));
     expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
     expect(await findByText("No agents running")).toBeTruthy();
-    expect(await findByRole("button", { name: "Blocked 0" })).toHaveAttribute("aria-pressed", "false");
+    expect(await findByRole("button", { name: "Waiting on you 0" })).toHaveAttribute("aria-pressed", "false");
   });
 });
 

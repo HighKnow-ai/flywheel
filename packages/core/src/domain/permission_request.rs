@@ -256,8 +256,8 @@ pub fn create_pending_request(
 /// that zero-affected-rows count IS the once-only property, not a read-then-write race a
 /// concurrent second answer could still win.
 ///
-/// On success: clears the run's blocked status back to `running`
-/// (`domain::session::clear_run_blocked`, same transaction) and appends a
+/// On success: clears the run's blocked status back to `running` once no other request of the
+/// session is still pending (`domain::session::clear_run_blocked`, same transaction) and appends a
 /// `permission_request.answered` event whose label matches the decision — all in one transaction.
 pub fn answer_request(
     conn: &mut Connection,

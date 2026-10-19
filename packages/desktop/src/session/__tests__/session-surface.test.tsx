@@ -371,7 +371,7 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
   it("renders the exact run-status word for each of the five statuses", () => {
     const cases: Array<["running" | "blocked" | "completed" | "failed" | "interrupted", string]> = [
       ["running", "Running"],
-      ["blocked", "Blocked"],
+      ["blocked", "Waiting on you"],
       ["completed", "Completed"],
       ["failed", "Failed"],
       ["interrupted", "Interrupted"],
@@ -896,7 +896,7 @@ describe("SessionSurface raw view, status strip, and run-status badge (plan 02-0
   it("renders the correct glyph-and-word pair for each of the five run statuses", () => {
     const cases: Array<["running" | "blocked" | "completed" | "failed" | "interrupted", string]> = [
       ["running", "Running"],
-      ["blocked", "Blocked"],
+      ["blocked", "Waiting on you"],
       ["completed", "Completed"],
       ["failed", "Failed"],
       ["interrupted", "Interrupted"],
