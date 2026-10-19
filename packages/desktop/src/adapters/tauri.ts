@@ -432,6 +432,41 @@ export async function storyStart(storyId: string, instruction?: string): Promise
 }
 
 /**
+ * How a session ended (`sessions.ending_reason`, docs/mvp-spec.md §4.5): a best-effort label.
+ * `stopped_by_developer` is a stop the developer made, which stays out of Needs you.
+ */
+export type EndingReason =
+  | "refusal"
+  | "usage_limit"
+  | "api_error"
+  | "crash"
+  | "app_quit"
+  | "stopped_by_developer"
+  | "ended_without_hand_off"
+  | "handed_off"
+  | "unknown";
+
+/** A Stopped Story's dead session — mirrors `commands/session.rs`'s `StoppedDto`. */
+export interface StoppedDto {
+  sessionId: string;
+  endingReason: EndingReason | null;
+  endedAt: string | null;
+}
+
+/** The Story's Stopped attention, or `null` when it is not Stopped. Read-only. */
+export async function storyStopped(storyId: string): Promise<StoppedDto | null> {
+  return invokeCommand<StoppedDto | null>("story_stopped", { storyId });
+}
+
+/**
+ * Resume a Stopped Story: a fresh session in its worktree from the Context packet, with the
+ * optional one-line note. Never `claude --resume`. The core refuses a Story that is not Stopped.
+ */
+export async function storyResume(storyId: string, note?: string): Promise<SessionDto> {
+  return invokeCommand<SessionDto>("story_resume", { storyId, note: note ?? null });
+}
+
+/**
  * One prior-session summary, oldest-first — mirrors `commands/session.rs`'s `SessionSummaryDto`.
  * `isStub` marks the fallback summary written when the agent did not report one.
  */
@@ -511,6 +546,8 @@ export interface RunSummaryDto {
   acknowledgedAt: string | null;
   /** The abandoned-run explanation's own timestamp, or `null`. */
   abandonedReason: string | null;
+  /** How the session ended, or `null` while it is live. */
+  endingReason: EndingReason | null;
 }
 
 /** `storyId`'s agent runs, newest first, bounded. Read-only. Thin wrapper over `sessions_for_story`. */
