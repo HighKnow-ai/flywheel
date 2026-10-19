@@ -128,3 +128,21 @@ fn every_allowed_board_tool_is_one_the_board_server_registers() {
         assert!(story.contains(&format!("{prefix}{tool}")), "the Story session must pre-approve {tool}");
     }
 }
+
+/// Issue #92: a permission request is an MCP tool call that blocks until the developer answers, and
+/// Claude Code aborts an MCP tool call past `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` (30 minutes for a
+/// stdio server) or `MCP_TOOL_TIMEOUT` (about 28 hours). A Story session raises both to at least
+/// 7 days, and stays at or under Node's 2^31 - 1 ms timer ceiling, past which a timer fires at once.
+#[test]
+fn a_story_session_keeps_a_request_waiting_past_claude_codes_mcp_tool_timeouts() {
+    const SEVEN_DAYS_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+    const NODE_TIMER_CEILING_MS: u64 = (1 << 31) - 1;
+    let policy = SessionKind::Story.launch_policy();
+    let names: Vec<&str> = policy.env.iter().map(|(name, _)| *name).collect();
+    assert_eq!(names, ["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", "MCP_TOOL_TIMEOUT"]);
+    for (name, value) in &policy.env {
+        let ms: u64 = value.parse().expect("milliseconds");
+        assert!(ms >= SEVEN_DAYS_MS, "{name}={ms} is under 7 days");
+        assert!(ms <= NODE_TIMER_CEILING_MS, "{name}={ms} would overflow a Node timer");
+    }
+}
