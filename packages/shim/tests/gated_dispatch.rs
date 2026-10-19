@@ -157,6 +157,8 @@ fn publishing_commands_are_gated_and_everything_else_passes_through() {
         ("cargo", "FLYWHEEL_REAL_CARGO", &["build", "--release"], &["publish"]),
         ("gh", "FLYWHEEL_REAL_GH", &["pr", "view", "1"], &["pr", "merge", "1"]),
         ("gh", "FLYWHEEL_REAL_GH", &["issue", "list"], &["release", "create", "v1"]),
+        ("gh", "FLYWHEEL_REAL_GH", &["release", "list"], &["release", "upload", "v1", "a.tgz"]),
+        ("gh", "FLYWHEEL_REAL_GH", &["release", "view", "v1"], &["release", "delete", "v1"]),
     ] {
         let (script, marker) = fake_tool(dir.path(), name);
 

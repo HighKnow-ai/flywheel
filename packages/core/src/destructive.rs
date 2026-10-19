@@ -548,14 +548,19 @@ fn classify_cargo(args: &[String]) -> Verdict {
     }
 }
 
-/// `gh pr merge` and every `gh release` subcommand.
+/// `gh pr merge`, and the `gh release` subcommands that publish or change a release.
 fn classify_gh(args: &[String]) -> Verdict {
     const VALUE_OPTIONS: &[&str] = &["-R", "--repo", "--hostname"];
     let Some((idx, command)) = first_command(args, VALUE_OPTIONS) else {
         return Verdict::Safe;
     };
     match command {
-        "release" => gated(DestructiveCategory::Publish),
+        // Only the subcommands that publish or change a release; `list`, `view` and `download`
+        // are read-only.
+        "release" => match first_command(&args[idx + 1..], VALUE_OPTIONS) {
+            Some((_, "create" | "edit" | "delete" | "delete-asset" | "upload")) => gated(DestructiveCategory::Publish),
+            _ => Verdict::Safe,
+        },
         "pr" => match first_command(&args[idx + 1..], VALUE_OPTIONS) {
             Some((_, "merge")) => gated(DestructiveCategory::Publish),
             _ => Verdict::Safe,

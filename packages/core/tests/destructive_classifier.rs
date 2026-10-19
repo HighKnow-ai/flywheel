@@ -437,6 +437,17 @@ mod destructive_gated_actions {
         assert_eq!(run("gh", &["release", "create", "v1.0.0"]), gated(DestructiveCategory::Publish));
         assert_eq!(run("gh", &["release", "upload", "v1.0.0", "a.tgz"]), gated(DestructiveCategory::Publish));
         assert_eq!(run("gh", &["release", "delete", "v1.0.0"]), gated(DestructiveCategory::Publish));
+        assert_eq!(run("gh", &["release", "edit", "v1.0.0", "--draft=false"]), gated(DestructiveCategory::Publish));
+        assert_eq!(run("gh", &["release", "delete-asset", "v1.0.0", "a.tgz"]), gated(DestructiveCategory::Publish));
+        assert_eq!(run("gh", &["-R", "o/r", "release", "create", "v1.0.0"]), gated(DestructiveCategory::Publish));
+    }
+
+    #[test]
+    fn allowed_read_only_gh_release_subcommands() {
+        assert_eq!(run("gh", &["release", "list"]), Verdict::Safe);
+        assert_eq!(run("gh", &["release", "view", "v1.0.0"]), Verdict::Safe);
+        assert_eq!(run("gh", &["release", "download", "v1.0.0"]), Verdict::Safe);
+        assert_eq!(run("gh", &["-R", "o/r", "release", "list"]), Verdict::Safe);
     }
 
     #[test]
