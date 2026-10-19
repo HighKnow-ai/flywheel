@@ -1116,6 +1116,17 @@ pub fn spawn_sidecar(app: &AppHandle) -> anyhow::Result<SidecarHandle> {
                                 );
                             }
 
+                            // Issue #52: a Story agent's Task board tool call, held in the sidecar
+                            // until this core writes it and answers with the checklist.
+                            if event.get("type").and_then(|v| v.as_str())
+                                == Some("task_tool_request")
+                            {
+                                crate::commands::task::handle_inbound_task_tool_request(
+                                    &app_for_reader,
+                                    &event,
+                                );
+                            }
+
                             // G-02-4: the terminal-event consumer the sidecar's `session_closed`
                             // event never had. Without this call site, a run that ends on its own
                             // — completed or failed — stays `running` on the board forever, with
