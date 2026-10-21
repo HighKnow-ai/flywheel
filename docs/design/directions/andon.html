@@ -1,0 +1,1140 @@
+<!doctype html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Andon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --floor:#e6e8ec; --panel:#ffffff; --panel-2:#f4f5f7; --ink:#111318; --muted:#525866; --faint:#676d79; --rule:#d9dce1;
+  --side:#f8f9fa; --side-2:#e9ebef; --on-side:#111318; --on-side-muted:#525866;
+  --strip:#17191e; --lamp:#25282f; --on-strip:#f2f3f5; --on-strip-muted:#a4a9b3;
+  --blue:#3c64dd; --blue-ink:#2a50c6; --blue-wash:#e8edfc; --on-blue:#fff; --blue-lamp:#a9bcff;
+  --yellow:#ffd400; --on-yellow:#14120a; --yellow-wash:#fff7cc;
+  --red:#d42c1f; --red-ink:#b42318; --red-wash:#fdeceb;
+  --hover:#eef0f3;
+  --c-merged:#111318; --c-review:#7d838f; --c-running:#3c64dd; --c-ready:#c3c7ce; --c-shaping:#c3c7ce; --c-dropped:#ffffff;
+}
+:root[data-theme="dark"]{
+  --floor:#0b0c0e; --panel:#1a1c20; --panel-2:#23262b; --ink:#eceef1; --muted:#a0a6b1; --faint:#80868f; --rule:#2c2f36;
+  --side:#121316; --side-2:#1e2025; --on-side:#eceef1; --on-side-muted:#a0a6b1;
+  --strip:#000000; --lamp:#1a1c20; --on-strip:#f2f3f5; --on-strip-muted:#9aa0aa;
+  --blue:#3c64dd; --blue-ink:#8ea8ff; --blue-wash:#19213a; --on-blue:#fff; --blue-lamp:#a9bcff;
+  --yellow:#ffd400; --on-yellow:#14120a; --yellow-wash:#352d00;
+  --red:#d42c1f; --red-ink:#ff8a7f; --red-wash:#3a1613;
+  --hover:#23262b;
+  --c-merged:#eceef1; --c-review:#7d838f; --c-running:#3c64dd; --c-ready:#4a4f58; --c-shaping:#3a3e46; --c-dropped:#1a1c20;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:#5f636b}
+body{font-family:"Barlow",system-ui,sans-serif;color:var(--ink);font-size:14px;line-height:1.4;-webkit-font-smoothing:antialiased;padding:40px;display:flex;flex-direction:column;gap:40px;align-items:center}
+.cond{font-family:"Barlow Semi Condensed","Barlow",sans-serif}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px}
+.tnum{font-variant-numeric:tabular-nums}
+.i{width:16px;height:16px;flex:none}
+.frame{width:1440px;height:900px;background:var(--floor);display:grid;grid-template-columns:248px 1fr;grid-template-rows:72px 1fr;overflow:hidden}
+.lbl{color:#fff;font:600 14px Barlow,sans-serif;align-self:flex-start;margin-bottom:-28px}
+/* sidebar */
+.side{grid-row:1/3;border-right:1px solid var(--rule);background:var(--side);color:var(--on-side);display:flex;flex-direction:column;padding:14px 10px 10px}
+.lights{display:flex;gap:8px;padding:2px 8px 16px}
+.lights i{width:12px;height:12px;border-radius:50%;background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+.brand{display:flex;align-items:center;gap:10px;padding:0 8px 16px;font-weight:700;font-size:18px;letter-spacing:-.01em}
+.logo{width:28px;height:28px;border-radius:7px}
+.nav{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:7px;font-weight:600;font-size:14px;cursor:pointer}
+.nav:hover{background:var(--side-2)}
+.nav .i{width:18px;height:18px}
+.nav .grow{flex:1}
+.nav.cur{background:var(--panel);box-shadow:0 0 0 1px var(--rule),0 1px 2px rgba(0,0,0,.06);font-weight:700}
+.nav.quiet{color:var(--on-side-muted);font-weight:500}
+.nav .key{opacity:.7;font-size:11px}
+.cnt{min-width:24px;height:22px;border-radius:5px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+.cnt.y{background:var(--yellow);color:var(--on-yellow)}
+.cnt.z{color:var(--on-side-muted)}
+.grp{font:600 12.5px "Barlow Semi Condensed",sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--on-side-muted);padding:18px 10px 6px}
+.spacer{flex:1}
+.foot{border-top:1px solid var(--rule);padding-top:8px}
+.ssub{margin:2px 0 6px 20px;border-left:1px solid var(--rule);padding-left:6px;display:flex;flex-direction:column;gap:1px}
+.ss{display:grid;grid-template-columns:20px 1fr;gap:0 9px;padding:5px 8px;border-radius:6px;cursor:pointer;align-items:center}
+.ss:hover{background:var(--side-2)}
+.ss .dot{width:20px;height:20px;border-radius:5px;display:flex;align-items:center;justify-content:center}.ss .dot .i{width:13px;height:13px}
+.ss .t{font-size:13px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ss .l{grid-column:2;font-size:12.5px;color:var(--on-side-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot.waiting{background:var(--yellow);color:var(--on-yellow)}
+.dot.running{background:var(--blue);color:#fff}
+.dot.stopped{background:var(--red);color:#fff}
+.ss.waiting .l{color:var(--ink);font-weight:700}
+.ss.cur{background:var(--panel);box-shadow:0 0 0 1px var(--rule)}
+/* andon strip */
+.strip{border-bottom:1px solid var(--rule);background:var(--strip);display:flex;align-items:center;gap:8px;padding:0 16px;color:var(--on-strip)}
+.strip .lab{display:flex;flex-direction:column;font:600 12px "Barlow Semi Condensed",sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--on-strip-muted);padding-right:8px;line-height:1.25}
+.strip .lab b{font:700 22px Barlow,sans-serif;letter-spacing:0;color:#fff}
+.lamp{height:52px;min-width:0;flex:1;max-width:330px;background:var(--lamp);border-radius:8px;display:grid;grid-template-columns:auto 1fr auto;grid-template-rows:auto auto;gap:0 10px;align-items:center;padding:0 12px;cursor:pointer;position:relative;border:1px solid rgba(255,255,255,.06)}
+.lamp:hover{border-color:rgba(255,255,255,.35)}
+.lamp .bulb{grid-row:1/3;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.lamp .bulb .i{width:15px;height:15px}
+.lamp .t{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lamp .t .mono{font-size:12px;opacity:.75;margin-right:5px}
+.lamp .l{font-size:12.5px;color:var(--on-strip-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lamp .go{grid-row:1/3;grid-column:3;width:16px;height:16px;opacity:.6}
+.lamp.running .bulb{background:var(--blue);color:#fff;box-shadow:0 0 12px rgba(60,100,221,.6)}
+.lamp.stopped .bulb{background:#e0392b;color:#fff}
+.lamp.waiting{background:var(--yellow);color:var(--on-yellow);border-color:var(--yellow)}
+.lamp.waiting .bulb{background:var(--on-yellow);color:var(--yellow)}
+.lamp.waiting .l{color:#2e2800;font-weight:600}
+.lamp.sel{outline:2px solid #fff;outline-offset:2px}
+.lamp.empty{background:transparent;border:1px dashed rgba(255,255,255,.14);flex:.6;color:var(--on-strip-muted);font-size:12.5px;display:flex;align-items:center;justify-content:center;cursor:default}
+.strip .all{color:#fff;font-weight:600;font-size:13px;display:inline-flex;gap:6px;align-items:center;padding:0 10px;height:36px;border-radius:7px;border:1px solid rgba(255,255,255,.2);white-space:nowrap}
+/* main area */
+.main{min-width:0;min-height:0;display:flex;flex-direction:column;padding:16px 20px;gap:14px;overflow:hidden}
+.bar-top{display:flex;align-items:center;gap:10px}
+.bar-top .grow{flex:1}
+.crumb{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted);font-weight:500}
+.crumb b{color:var(--ink);font-weight:700}
+.btn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 14px;border-radius:7px;font:600 14px Barlow,sans-serif;border:1.5px solid transparent;background:transparent;color:var(--ink);cursor:pointer;white-space:nowrap}
+.btn .i{width:17px;height:17px}
+.btn.primary{background:var(--blue);color:#fff;box-shadow:0 1px 0 rgba(0,0,0,.15)}
+.btn.call{background:var(--yellow);color:var(--on-yellow);box-shadow:0 1px 0 rgba(0,0,0,.15)}
+.btn.sec{background:var(--panel);border-color:var(--rule);color:var(--ink);box-shadow:0 1px 0 rgba(0,0,0,.04)}
+.btn.sec:hover{border-color:var(--ink)}
+.btn.ghost:hover{background:var(--hover)}
+.btn.danger{color:var(--red-ink)}
+.btn.sm{height:30px;padding:0 11px;font-size:13.5px}
+.btn.sm .i{width:15px;height:15px}
+.search{display:flex;align-items:center;gap:8px;height:34px;width:240px;padding:0 10px;border-radius:7px;background:var(--panel);border:1px solid var(--rule);color:var(--faint)}
+.search kbd{margin-left:auto;font:500 12px Barlow,sans-serif;border:1px solid var(--rule);border-radius:4px;padding:0 5px}
+.card{background:var(--panel);border-radius:10px;box-shadow:0 1px 2px rgba(15,20,30,.08),0 0 0 1px var(--rule)}
+/* production board header */
+.prod{display:grid;grid-template-columns:1fr auto;gap:12px 28px;padding:16px 20px}
+.prod .mt{display:flex;align-items:center;gap:10px}
+.prod .mt .i{width:20px;height:20px;color:var(--muted)}
+.prod h1{font-size:26px;font-weight:700;letter-spacing:-.015em;line-height:1.1}
+.pill{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:12px;font:600 12.5px Barlow,sans-serif;white-space:nowrap}
+.pill .i{width:14px;height:14px}
+.pill.prog{background:var(--panel-2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--rule)}
+.pill.shape{background:var(--panel-2);color:var(--muted);box-shadow:inset 0 0 0 1px var(--rule)}
+.prod .exit{font-size:14.5px;line-height:1.45;max-width:72ch;color:var(--ink)}
+.prod .exit b{font-weight:700}
+.prod .nx{font-size:13.5px;color:var(--muted);display:flex;gap:14px;align-items:center}
+.prod .nx a{color:var(--blue-ink);font-weight:600;display:inline-flex;gap:4px;align-items:center}
+.counts{grid-column:2;grid-row:1/4;display:grid;grid-template-columns:repeat(5,auto);gap:6px;align-self:start}
+.cbox{min-width:96px;border-radius:8px;padding:8px 12px 7px;background:var(--panel-2);box-shadow:inset 0 0 0 1px var(--rule),inset 0 4px 0 var(--c,transparent);display:flex;flex-direction:column;gap:2px}
+.cbox .n{font:700 34px/1 Barlow,sans-serif;letter-spacing:-.02em}
+.cbox .n small{font-size:18px;color:var(--muted);font-weight:600}
+.cbox .k{font:600 12.5px "Barlow Semi Condensed",sans-serif;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);display:flex;gap:5px;align-items:center}
+.cbox .k .i{width:13px;height:13px}
+.cbox.lit{background:var(--yellow);color:var(--on-yellow);box-shadow:none}.cbox.lit .k{color:var(--on-yellow)}
+.cbox.main{background:var(--strip);box-shadow:none;color:#fff;grid-row:span 2;justify-content:space-between}
+.cbox.main .n{font-size:52px}
+.cbox.main .n small{color:#a4a9b3;font-size:26px}
+.cbox.main .k{color:#a4a9b3}
+.sbar{grid-column:1/3;display:flex;height:12px;border-radius:6px;overflow:hidden;gap:2px}
+.sbar span{display:block}
+.seg-merged{background:var(--c-merged)}.seg-review{background:var(--c-review)}.seg-running{background:var(--c-running)}.seg-ready{background:var(--c-ready)}
+.seg-shaping{background:repeating-linear-gradient(-45deg,var(--c-shaping) 0 3px,transparent 3px 6px);box-shadow:inset 0 0 0 1px var(--c-shaping)}
+.seg-dropped{background:var(--c-dropped);box-shadow:inset 0 0 0 1px var(--c-ready)}
+.seg-waiting{background:var(--yellow)}.seg-stopped{background:var(--red)}
+/* body columns */
+.cols{flex:1;min-height:0;display:grid;grid-template-columns:400px 1fr;gap:14px}
+.h2{display:flex;align-items:center;gap:8px;font-size:17px;font-weight:700;padding:0 2px 8px}
+.h2 .i{width:19px;height:19px}
+.h2 .grow{flex:1}
+.needs{display:flex;flex-direction:column;gap:8px;min-height:0;overflow:hidden}
+.need{padding:12px 14px;display:flex;flex-direction:column;gap:5px;cursor:pointer}
+.need:hover{box-shadow:0 2px 8px rgba(15,20,30,.1),0 0 0 1px var(--ink)}
+.need .hd{display:flex;gap:8px;align-items:center}
+.need .hd .grow{flex:1}
+.need .age{font-size:12.5px;color:var(--muted)}
+.kind{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px 0 7px;border-radius:5px;font:700 12.5px "Barlow Semi Condensed",sans-serif;letter-spacing:.04em;text-transform:uppercase}
+.kind .i{width:14px;height:14px}
+.kind.question{background:var(--yellow);color:var(--on-yellow)}
+.kind.stopped{background:var(--red);color:#fff}
+.kind.review{background:var(--panel-2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--rule)}
+.kind.shaping{background:var(--panel-2);color:var(--muted);box-shadow:inset 0 0 0 1px var(--rule)}
+.need .ti{font-size:14.5px;font-weight:700;line-height:1.3}
+.need .ti .mono{color:var(--muted);margin-right:6px}
+.need .ln{font-size:13px;color:var(--muted)}
+.need .acts{display:flex;gap:8px;margin-top:3px}
+.need.lit{background:var(--yellow-wash);box-shadow:0 0 0 2px var(--yellow),0 2px 10px rgba(0,0,0,.08)}
+.roster{display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden}
+.epic{padding:4px 0 2px}
+.epic .eh{display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;align-items:center;padding:10px 14px 10px}
+.epic .eh .i{width:19px;height:19px;color:var(--muted)}
+.epic .eh .t{font-size:16px;font-weight:700;display:flex;gap:10px;align-items:center}
+.epic .eh .r{display:flex;gap:10px;align-items:center;font-size:13.5px;color:var(--muted)}
+.epic .eh .r b{color:var(--ink)}
+.epic .eh .sbar{grid-column:2/4;height:8px}
+.row{display:grid;grid-template-columns:150px 54px minmax(0,1fr) auto 16px;gap:10px;align-items:center;padding:0 14px;height:44px;border-top:1px solid var(--rule);cursor:pointer}
+.row:hover,.row.hov{background:var(--hover)}
+.row.sel{background:var(--blue-wash);box-shadow:inset 3px 0 0 var(--blue)}
+.st{justify-self:start;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px 0 7px;border-radius:12px;font:600 13px Barlow,sans-serif;white-space:nowrap}
+.st .i{width:15px;height:15px}
+.st.running{background:var(--blue-wash);color:var(--blue-ink)}
+.st.review{background:var(--panel-2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--rule)}
+.st.ready{background:var(--panel-2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--rule)}
+.st.shaping{color:var(--muted);box-shadow:inset 0 0 0 1px dashed var(--rule);border:1px dashed var(--faint)}
+.st.merged{color:var(--muted);box-shadow:inset 0 0 0 1px var(--rule)}
+
+.st.dropped{color:var(--faint);border:1px solid var(--rule)}
+.st.waiting{background:var(--yellow);color:var(--on-yellow);font-weight:700}
+.st.stopped{background:var(--red);color:#fff;font-weight:700}
+.row .k{color:var(--muted)}
+.row .tt{min-width:0;display:flex;flex-direction:column}
+.row .ti{font-weight:600;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .de{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row.done .ti{color:var(--muted);font-weight:500}
+.row .chev{width:15px;height:15px;color:var(--faint)}
+.row .meta{font-size:12.5px;color:var(--muted)}
+.row.waiting{background:var(--yellow-wash)}
+.eshape{display:flex;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--rule);color:var(--muted);font-size:13.5px}
+.eshape .btn{margin-left:auto}
+/* story panel */
+.split{flex:1;min-height:0;display:grid;grid-template-columns:470px 1fr;gap:14px}
+.split .roster .row{grid-template-columns:118px minmax(0,1fr) 16px}
+.split .roster .row .k,.split .roster .row .act{display:none}
+.panel{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.ph{padding:14px 18px 12px;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;gap:6px}
+.ph .top{display:flex;gap:8px;align-items:center;font-size:13.5px;color:var(--muted)}
+.ph .top .grow{flex:1}
+.ph h1{font-size:24px;font-weight:700;letter-spacing:-.015em;line-height:1.15}
+.ph .facts{display:flex;gap:14px;font-size:13px;color:var(--muted);align-items:center;flex-wrap:wrap}
+.ph .facts span{display:inline-flex;gap:5px;align-items:center}
+.ph .facts .i{width:15px;height:15px}
+.station{margin:14px 18px 0;border-radius:10px;background:var(--strip);color:#fff;padding:14px 16px;display:grid;grid-template-columns:auto 1fr auto;gap:4px 14px;align-items:center}
+.station .bulb{grid-row:1/3;width:40px;height:40px;border-radius:50%;background:var(--blue);box-shadow:0 0 16px rgba(60,100,221,.65);display:flex;align-items:center;justify-content:center}
+.station .bulb .i{width:22px;height:22px;color:#fff}
+.station .s1{font:600 12.5px "Barlow Semi Condensed",sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--blue-lamp)}
+.station .s2{font-size:16px;font-weight:700;line-height:1.3}
+.station .acts{grid-column:3;grid-row:1/3;display:flex;gap:8px}
+.station .btn.sec{background:transparent;border-color:rgba(255,255,255,.35);color:#fff}
+.station .feed{grid-column:1/4;margin-top:10px;border-top:1px solid rgba(255,255,255,.12);padding-top:6px;display:flex;flex-direction:column}
+.fr{display:grid;grid-template-columns:18px 52px 1fr auto;gap:8px;align-items:center;padding:5px 0;font-size:13px}
+.fr .i{width:15px;height:15px;color:#a3abb9}
+.fr b{font-weight:600;color:#cfd5df}
+.fr .a{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fr .r{font-size:12.5px;color:#a3abb9}
+.fr.turn{grid-template-columns:18px 1fr;color:#e6e9ef;line-height:1.4;align-items:start}
+.fr.live .r{color:var(--blue-lamp);font-weight:600;display:inline-flex;gap:6px;align-items:center}
+.livedot{width:8px;height:8px;border-radius:50%;background:#7f9bff;box-shadow:0 0 0 3px rgba(127,155,255,.3)}
+.pbody{padding:6px 18px 16px;display:grid;grid-template-columns:1fr 1fr;gap:18px;overflow:hidden;flex:1}
+.sec h2{display:flex;align-items:center;gap:7px;font-size:15px;font-weight:700;padding:10px 0 6px}
+.sec h2 .i{width:17px;height:17px;color:var(--muted)}
+.sec h2 .n{color:var(--muted);font-weight:500}
+.sec h2 .grow{flex:1}
+.link{color:var(--blue-ink);font-weight:600;font-size:13.5px;display:inline-flex;gap:4px;align-items:center;cursor:pointer}
+.link .i{width:15px;height:15px}
+.crit{padding:8px 0;border-top:1px solid var(--rule);display:flex;flex-direction:column;gap:4px}
+.crit .t{font-size:13.5px;font-weight:600;line-height:1.35}
+.crit .c{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.crit .cmd{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.chk{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px 0 6px;border-radius:11px;font:600 12.5px Barlow,sans-serif}
+.chk .i{width:14px;height:14px}
+.chk.passed{background:var(--panel-2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--rule)}
+.chk.failed{background:var(--red);color:#fff}
+.chk.notrun{box-shadow:inset 0 0 0 1px var(--rule);color:var(--muted)}
+.chk.timeout{background:var(--panel-2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--rule)}
+
+.chk.review{border:1px dashed var(--faint);color:var(--muted)}
+.chk.stale{background:var(--panel-2);color:var(--muted)}
+.task{display:grid;grid-template-columns:18px 1fr;gap:3px 9px;padding:7px 0;border-top:1px solid var(--rule);align-items:start}
+.task .tb{width:17px;height:17px;margin-top:1px}
+.task .tb .i{width:17px;height:17px}
+.task .t{font-size:13.5px;line-height:1.35}
+.task.done .tb{color:var(--ink)}
+.task.done .t{color:var(--muted)}
+.task.doing .tb{color:var(--blue-ink)}
+.task.doing .t{font-weight:700}
+.task.open .tb{color:var(--faint)}
+.task.dropped .tb,.task.dropped .t{color:var(--faint)}
+.task .nt{grid-column:2;font-size:12.5px;line-height:1.45;background:var(--panel-2);border-radius:6px;padding:6px 9px;box-shadow:inset 0 0 0 1px var(--rule)}
+.desc{font-size:14px;line-height:1.5;color:var(--ink);padding:12px 18px 0}
+/* wait */
+.wgrid{flex:1;min-height:0;display:grid;grid-template-columns:1fr 330px;gap:14px}
+.sfeed{display:flex;flex-direction:column;overflow:hidden}
+.sfh{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--rule)}
+.sfh h1{font-size:19px;font-weight:700}
+.sfh .grow{flex:1}
+.sfb{padding:8px 18px 12px;display:flex;flex-direction:column;gap:2px;overflow:hidden}
+.fr2{display:grid;grid-template-columns:18px 56px 1fr auto;gap:8px;align-items:center;padding:6px 8px;margin:0 -8px;border-radius:6px;font-size:13.5px;cursor:pointer}
+.fr2:hover{background:var(--hover)}
+.fr2 .i{width:16px;height:16px;color:var(--muted)}
+.fr2 b{font-weight:600}
+.fr2 .r{font-size:12.5px;color:var(--muted)}
+.fr2 .r.ok{color:var(--ink);font-weight:600}
+.turn{display:grid;grid-template-columns:18px 1fr;gap:8px;padding:8px 0;font-size:14.5px;line-height:1.5;max-width:82ch}
+.turn .i{width:17px;height:17px;color:var(--blue-ink);margin-top:3px}
+.call{margin-top:8px;border-radius:10px;overflow:hidden;box-shadow:0 0 0 2px var(--yellow),0 6px 20px rgba(0,0,0,.12)}
+.call .ch{background:var(--yellow);color:var(--on-yellow);display:flex;align-items:center;gap:10px;padding:10px 16px}
+.call .ch .i{width:20px;height:20px}
+.call .ch b{font-size:16px;font-weight:700}
+.call .ch .grow{flex:1}
+.call .ch span{font-size:13px;font-weight:600}
+.qs{display:grid;grid-template-columns:1fr 1fr;background:var(--panel)}
+.q{padding:12px 16px;display:flex;flex-direction:column;gap:6px}
+.q+.q{border-left:1px solid var(--rule)}
+.q .tag{display:flex;gap:7px;align-items:center;font:600 12.5px "Barlow Semi Condensed",sans-serif;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.q .tag .num{width:20px;height:20px;border-radius:5px;background:var(--ink);color:var(--panel);display:inline-flex;align-items:center;justify-content:center;font-size:12px;letter-spacing:0}
+.q .qq{font-size:14.5px;font-weight:700;line-height:1.35;margin-bottom:2px}
+.opt{display:grid;grid-template-columns:18px 1fr;gap:1px 9px;padding:7px 10px;border-radius:8px;border:1.5px solid var(--rule);align-items:start;cursor:pointer;background:var(--panel)}
+.opt:hover{border-color:var(--ink)}
+.opt.on{border-color:var(--blue);background:var(--blue-wash)}
+.opt .rd{width:17px;height:17px;margin-top:1px;color:var(--faint)}
+.opt.on .rd{color:var(--blue)}
+.opt .rd .i{width:17px;height:17px}
+.opt .l{font-weight:700;font-size:14px;display:flex;gap:8px;align-items:center}
+.opt .rec{font:600 12px Barlow,sans-serif;color:var(--blue-ink);background:var(--panel);border-radius:9px;padding:0 7px;box-shadow:inset 0 0 0 1px currentColor;line-height:18px}
+.opt .d{grid-column:2;font-size:13px;color:var(--muted)}
+.opt input{grid-column:2;height:28px;border:1px solid var(--rule);border-radius:6px;padding:0 8px;font:14px Barlow,sans-serif;background:var(--panel);color:var(--ink)}
+.cf{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--panel-2);border-top:1px solid var(--rule)}
+.cf .hint{font-size:13px;color:var(--muted)}
+.cf .grow{flex:1}
+.ctx{padding:4px 16px 14px;overflow:hidden}
+.mc{display:flex;gap:8px;font-size:13px;line-height:1.4;padding:5px 0}
+.mc .i{width:15px;height:15px;flex:none;margin-top:2px;color:var(--faint)}
+.mc.doing{font-weight:700}
+.mc.done .i{color:var(--ink)}.mc.doing .i{color:var(--blue-ink)}
+</style><script>const t=new URLSearchParams(location.search).get("theme");if(t)document.documentElement.dataset.theme=t;</script></head><body>
+<div class="lbl">Board</div><section class="frame" id="board"><aside class="side"><div class="lights"><i></i><i></i><i></i></div>
+  <div class="brand"><svg class="logo" aria-hidden="true" version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+	 viewBox="0 0 1024 1024" xml:space="preserve">
+
+<rect fill="hsl(225, 70%, 55%)" x="0" y="0" width="1024" height="1024" rx="200" ry="200" />
+
+
+<g fill="white" transform="translate(512 512) scale(1.20) translate(-512 -537)">
+<path d="M739.546021,497.345581
+	C732.165222,535.622009 714.228455,567.946594 688.521973,596.320984
+	C677.455322,608.536194 666.589233,620.920227 657.010071,634.410400
+	C644.973328,651.361816 636.673584,669.828125 632.284607,690.148865
+	C627.954102,710.198853 612.032349,723.148438 591.535950,723.192078
+	C539.386475,723.303101 487.236664,723.296387 435.087128,723.226074
+	C415.959991,723.200256 398.812592,711.327209 394.814972,692.692383
+	C387.479889,658.499939 369.225769,630.955933 346.242065,605.724487
+	C331.872284,589.949463 318.196533,573.609924 307.702484,554.849304
+	C293.998444,530.349976 286.420746,504.008392 283.614868,476.200989
+	C279.699829,437.401276 285.854889,400.113770 301.870789,364.689819
+	C322.898254,318.181305 356.515015,283.058014 401.214020,258.665924
+	C441.132385,236.882568 484.234375,227.161407 529.309265,231.092621
+	C614.887817,238.556351 679.410339,279.859680 720.069336,356.211029
+	C739.248901,392.227264 745.494019,431.273315 743.166626,471.765167
+	C742.681396,480.206940 741.494202,488.636108 739.546021,497.345581
+	M487.499969,697.700562
+	C521.330505,697.699463 555.161011,697.706543 588.991516,697.692444
+	C599.773132,697.687988 604.787598,694.083740 607.108215,683.664551
+	C613.626160,654.400208 627.438354,628.904724 646.266174,605.839600
+	C658.382202,590.996887 671.930298,577.346313 683.237366,561.849792
+	C715.140808,518.125793 724.215515,469.205231 714.236389,416.741150
+	C707.429504,380.954834 691.050415,349.459381 665.859680,322.961273
+	C615.686768,270.184509 554.093018,247.928650 482.193024,258.530090
+	C412.126434,268.861145 360.795593,307.269073 328.111816,369.952362
+	C312.961975,399.007721 306.877106,430.378021 308.232391,463.195557
+	C309.072418,483.535858 313.492432,503.035553 320.694183,522.004089
+	C330.159912,546.935730 346.179260,567.494385 363.748016,587.051392
+	C389.512177,615.731262 411.754883,646.359314 419.545227,685.324219
+	C421.230499,693.753479 427.282227,697.664124 436.003876,697.689026
+	C452.835785,697.737000 469.667908,697.701233 487.499969,697.700562
+	z"/>
+<path d="M599.940918,772.675232
+	C602.262573,772.688293 604.100647,772.613159 605.926208,772.731201
+	C613.082092,773.194153 618.081177,778.315002 618.281433,785.311035
+	C618.469238,791.870178 613.805237,797.434570 606.711487,797.981812
+	C599.754822,798.518555 592.722046,798.399841 585.738953,798.136414
+	C581.798645,797.987732 579.954163,799.454407 578.251648,802.998840
+	C565.277771,830.008728 544.130615,845.201660 513.708923,845.261963
+	C482.933105,845.322937 461.440979,830.115906 448.174683,802.813660
+	C446.571472,799.514282 444.783844,797.985840 441.032837,798.142273
+	C434.713593,798.405701 428.362579,798.460083 422.047394,798.147949
+	C410.276459,797.566101 404.368286,787.173767 410.362427,778.004944
+	C412.548187,774.661560 415.679230,773.050964 419.535492,772.758911
+	C421.690704,772.595703 423.864105,772.646118 426.029327,772.646362
+	C483.836731,772.652466 541.644104,772.664612 599.940918,772.675232
+	M539.176453,811.700562
+	C543.659546,808.176514 548.131104,804.643005 550.630981,798.765625
+	C525.204712,798.765625 500.627289,798.765625 475.791534,798.765625
+	C484.647827,816.906250 514.868042,828.570557 539.176453,811.700562
+	z"/>
+<path d="M495.000000,734.758118
+	C532.647766,734.755859 569.795593,734.753845 606.943359,734.752441
+	C609.941406,734.752319 612.934570,734.702087 615.850281,735.642517
+	C621.508728,737.467651 625.234070,742.848633 624.755371,748.605103
+	C624.252197,754.655273 620.070007,759.243042 614.106445,760.149475
+	C612.635437,760.373047 611.115906,760.322205 609.618713,760.322510
+	C545.817810,760.333923 482.016937,760.337463 418.216034,760.337036
+	C416.550690,760.337036 414.874786,760.392212 413.221863,760.233459
+	C407.323212,759.667114 402.879944,755.622498 401.832520,749.973267
+	C400.742706,744.095703 403.639801,738.740173 409.240967,736.125000
+	C412.057495,734.809875 415.025299,734.736328 418.038818,734.738403
+	C443.525879,734.756104 469.012939,734.754395 495.000000,734.758118
+	z"/>
+<path d="M344.674835,451.789001
+	C346.201965,435.972443 352.185730,422.744446 364.062195,412.630920
+	C367.368591,409.815338 368.244110,407.416260 367.340576,402.929901
+	C361.132050,372.101166 381.996552,336.227814 419.694061,336.780670
+	C424.571564,336.852203 425.526733,334.726776 425.722015,330.551056
+	C426.508636,313.733429 437.894409,298.806396 453.474030,293.786377
+	C474.690338,286.950012 497.540985,300.230133 502.108459,322.099884
+	C502.855988,325.679291 503.335724,329.289581 503.334503,332.991608
+	C503.302368,430.446686 503.342102,527.901733 503.313507,625.356812
+	C503.306641,648.755493 484.784271,670.028931 458.601898,667.448486
+	C442.747955,665.885986 426.763031,651.887878 422.858002,634.767334
+	C421.641113,629.432312 420.297485,624.014587 421.640289,618.493347
+	C422.407990,615.336914 421.444336,613.838196 418.329071,612.607727
+	C405.911865,607.703247 397.953674,598.343018 397.720276,585.139526
+	C397.576904,577.031616 394.977722,573.730042 388.191650,570.190552
+	C377.052277,564.380432 371.799469,553.934753 371.691467,541.344727
+	C371.653778,536.954407 370.729919,534.149536 366.545288,531.731506
+	C354.806488,524.948669 348.727448,509.452148 352.261658,495.745850
+	C353.553314,490.736511 353.284637,486.668671 350.611389,482.108032
+	C345.238770,472.942139 343.842010,462.745148 344.674835,451.789001
+	M406.981720,471.500305
+	C406.983215,466.168304 407.104187,460.832733 406.944092,455.505585
+	C406.837769,451.968628 407.919891,450.230164 411.801697,450.551666
+	C415.276978,450.839539 418.817688,450.853516 422.288788,450.538727
+	C426.254547,450.179047 427.490570,451.606079 427.430634,455.570801
+	C427.229156,468.898987 427.466614,482.233429 427.310059,495.562836
+	C427.265381,499.366516 428.431763,501.000031 432.413055,500.964539
+	C447.742828,500.827667 463.074768,500.834290 478.404968,500.933502
+	C482.041504,500.957031 483.572418,499.468506 483.567505,495.917358
+	C483.559662,490.261810 483.469391,484.595245 483.356323,478.953918
+	C482.488403,435.641113 483.625671,392.328857 483.190765,349.017822
+	C483.123993,342.368317 483.933014,335.719666 483.004425,329.063599
+	C481.704712,319.747253 475.932770,313.669617 467.008972,312.406677
+	C459.553314,311.351532 451.883514,316.053375 448.075134,323.614685
+	C445.525269,328.677307 446.399445,334.030426 446.011414,339.298462
+	C445.756348,342.761627 447.021423,345.112854 449.716339,347.428619
+	C458.482056,354.961060 463.674652,364.734161 466.009186,375.980591
+	C467.198639,381.710602 463.867004,387.122742 458.691010,388.544891
+	C453.630280,389.935364 448.524780,387.199768 446.284393,381.790375
+	C445.650909,380.260834 445.250946,378.627502 444.825134,377.020264
+	C442.375427,367.773865 436.689545,361.536163 427.588867,358.508911
+	C409.748596,352.574585 389.879822,365.726624 387.414551,385.293793
+	C386.855927,389.727448 385.014099,394.339294 387.362793,398.724030
+	C388.022278,398.815491 388.351135,398.917633 388.669861,398.892334
+	C389.165527,398.852936 389.660339,398.751740 390.145172,398.634094
+	C412.644592,393.174988 431.929810,399.384308 448.474579,414.977478
+	C453.980957,420.167145 458.206238,426.457428 460.856537,433.554199
+	C463.748474,441.297974 458.720062,447.665802 450.476746,447.356049
+	C445.168121,447.156555 442.716797,443.692322 440.501526,439.512024
+	C430.732788,421.077881 411.816162,413.185425 392.473053,419.330414
+	C369.416016,426.655273 357.431885,454.373047 369.677643,473.684143
+	C374.998322,482.074585 377.686829,489.324127 372.984161,499.068420
+	C369.265656,506.773499 374.648895,515.022705 382.715729,516.512817
+	C394.023560,518.601746 397.738098,524.837402 392.841797,535.316650
+	C388.304260,545.028015 397.833282,556.065369 406.980286,553.798828
+	C406.980286,526.748718 406.980286,499.624451 406.981720,471.500305
+	M427.370178,539.505737
+	C427.361145,549.168579 427.284332,558.832092 427.382263,568.493835
+	C427.413696,571.593933 426.945007,573.813171 423.104004,573.373230
+	C420.373749,573.060425 419.169952,574.777954 418.646881,577.095703
+	C418.095703,579.537781 417.796906,582.025940 418.190399,584.532776
+	C418.878937,588.919250 421.548492,591.679443 425.569244,593.200989
+	C429.550659,594.707642 432.166260,592.587341 434.627776,589.771973
+	C439.500519,584.198608 445.092682,579.467773 451.974213,576.557922
+	C457.267578,574.319519 462.596466,575.936584 465.169830,580.240540
+	C467.759399,584.571594 466.598633,590.805115 462.337616,594.190125
+	C460.397156,595.731628 458.122009,596.852966 455.993774,598.156860
+	C443.542023,605.785706 438.511414,624.378296 445.508667,636.916870
+	C452.778107,649.943237 471.631317,650.370728 479.385223,637.703003
+	C482.633392,632.396362 483.605011,626.545898 483.571167,620.469910
+	C483.420044,593.327271 483.219299,566.184937 483.071655,539.042297
+	C483.046295,534.380188 483.208344,529.717346 483.252655,525.054504
+	C483.282318,521.932800 482.229156,520.197815 478.574219,520.235901
+	C463.248596,520.395569 447.920197,520.361572 432.593414,520.283447
+	C429.201324,520.266113 427.612915,521.852051 427.513336,525.018311
+	C427.372009,529.512329 427.408630,534.011902 427.370178,539.505737
+	z"/>
+<path d="M569.685181,292.904968
+	C588.369751,298.843201 598.576233,311.270508 600.409851,330.402954
+	C600.807068,334.548157 601.783325,336.858276 606.925720,336.816071
+	C635.170349,336.584229 654.400391,356.407501 659.320496,382.476135
+	C660.764648,390.127441 660.640625,397.700439 658.514404,405.206696
+	C657.794617,407.747650 658.443665,409.721771 660.528503,411.372589
+	C673.421265,421.581635 679.748352,435.262726 681.648987,451.311584
+	C683.072815,463.333282 680.239075,474.455231 674.476562,484.878693
+	C672.997192,487.554749 672.594482,489.881653 673.303284,492.857391
+	C677.581543,510.819244 672.990479,522.629456 657.693542,533.181885
+	C655.802124,534.486633 655.140503,535.890259 655.142578,538.118469
+	C655.158203,555.001221 647.810608,567.147705 631.864563,573.525146
+	C629.391724,574.514099 628.890747,575.857910 629.057190,578.442749
+	C630.070679,594.173218 623.112854,605.799988 608.680725,612.302856
+	C605.176270,613.881836 604.597412,615.703125 604.726929,619.519653
+	C605.322571,637.072510 599.789978,652.222168 584.187927,661.754150
+	C569.807556,670.539856 554.765686,670.326172 540.934509,660.634827
+	C528.526123,651.940369 522.863342,638.896057 522.809875,623.990112
+	C522.585693,561.519592 522.703064,499.047882 522.701843,436.576599
+	C522.701172,401.925873 522.626648,367.274841 522.754639,332.624573
+	C522.823853,313.887115 533.715210,298.805664 550.570496,293.565277
+	C556.725586,291.651611 562.968384,291.163818 569.685181,292.904968
+	M589.147766,483.646545
+	C582.644043,490.333191 576.307251,497.194611 569.566284,503.632843
+	C566.190186,506.857269 565.826965,509.054932 569.234680,512.592834
+	C579.402039,523.148438 589.361084,533.913696 599.128479,544.841125
+	C603.085815,549.268433 607.041748,552.774902 613.270447,553.940979
+	C619.952393,555.191895 625.857971,555.213684 630.724060,549.904541
+	C635.393066,544.810425 635.219238,539.421875 632.242920,533.333191
+	C628.542480,525.763123 633.050049,517.416931 641.403809,516.757324
+	C650.621033,516.029541 658.179688,505.666779 652.598267,496.773712
+	C648.122314,489.641937 650.020020,483.366974 654.502991,476.919830
+	C663.657898,463.753815 663.470276,449.803619 655.348877,436.509186
+	C638.972229,409.701355 601.331055,411.219788 586.027405,438.970062
+	C582.817993,444.789856 582.772278,444.746063 578.150940,440.370636
+	C575.395264,437.761688 573.153992,433.752014 568.108643,436.549744
+	C566.750854,437.302673 565.690918,435.937347 565.702881,434.295105
+	C565.715454,432.565186 566.490540,431.081329 567.259277,429.599609
+	C580.210754,404.635345 607.303711,392.050079 634.946533,398.320770
+	C638.685242,399.168884 639.713867,397.967377 639.735657,394.435272
+	C639.784119,386.578644 638.029419,379.219391 633.997437,372.497894
+	C626.313354,359.688293 612.603760,354.083069 599.349976,358.317596
+	C588.998962,361.624725 583.506165,369.235504 580.760925,379.397308
+	C578.775024,386.748444 573.583252,390.214203 567.746521,388.582977
+	C561.819824,386.926483 559.161499,381.424011 560.771851,374.114777
+	C562.835815,364.746429 566.911743,356.054810 574.215332,350.096252
+	C580.567993,344.913391 581.218933,339.015778 580.652405,332.012085
+	C579.738464,320.712250 571.033875,312.093140 560.626221,312.265106
+	C550.767456,312.427979 543.235901,321.155670 543.010071,332.719940
+	C542.945007,336.051086 542.970398,339.383972 542.950867,342.716064
+	C542.647583,394.525238 543.585205,446.338745 542.422180,498.145416
+	C542.386536,499.735016 541.891357,501.519684 543.500427,502.808746
+	C545.425964,502.735016 546.303101,501.132324 547.417175,499.992706
+	C562.089111,484.984436 576.711121,469.927368 591.383972,454.919983
+	C592.764893,453.507538 594.282654,451.451141 595.945312,451.224823
+	C603.607605,450.181641 611.323303,450.649597 620.566406,450.765320
+	C610.066101,462.878693 599.708130,472.874298 589.147766,483.646545
+	M575.169861,642.742065
+	C580.965881,638.440002 583.467041,632.415771 583.663086,625.461670
+	C584.022705,612.702942 578.732849,603.097778 567.464233,596.690247
+	C559.931824,592.407288 557.590881,586.200500 560.780640,580.731812
+	C564.077393,575.079712 570.830444,574.253418 578.409424,578.600525
+	C583.816162,581.701782 588.240723,585.963074 592.454468,590.486877
+	C596.095093,594.395386 599.639160,594.578735 603.798157,591.200378
+	C607.898804,587.869446 609.463379,581.725098 607.639038,576.743164
+	C606.863892,574.626282 605.700073,573.161316 603.322937,573.429932
+	C599.517761,573.859985 597.236816,571.771912 594.881348,569.173645
+	C581.915100,554.870972 568.836121,540.670227 555.739380,526.486633
+	C554.573975,525.224487 553.666992,523.242737 551.402588,523.630188
+	C548.453735,524.134766 542.481201,532.153320 542.528320,535.376831
+	C542.664429,544.693604 542.842896,554.010437 542.880493,563.327759
+	C542.963074,583.790710 542.525635,604.267212 543.136963,624.713196
+	C543.696655,643.429626 560.113220,652.607605 575.169861,642.742065
+	z"/>
+</g>
+</svg>
+Flywheel</div>
+  <div class="nav"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10.268 21a2 2 0 0 0 3.464 0" /> <path d="M22 8c0-2.3-.8-4.3-2-6" /> <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /> <path d="M4 2C2.8 3.7 2 5.7 2 8" /> </svg><span class="grow">Needs you</span><span class="cnt y">4</span></div>
+  <div class="nav"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /> </svg><span class="grow">All agents</span><span class="cnt z">3</span></div>
+  <div class="grp">Projects</div>
+  <div class="nav cur"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /> </svg><span class="grow">flywheel <span class="mono key">FLY</span></span><span class="cnt y">4</span></div>
+  <div class="ssub"><div class="ss waiting "><span class="dot waiting"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /> </svg></span><span class="t"><span class="mono" style="font-size:12px;opacity:.8">FLY-6</span> Show project progress at a glance</span><span class="l">Waiting on you · 4 min</span></div><div class="ss running "><span class="dot running"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 12a9 9 0 1 1-6.219-8.56" /> </svg></span><span class="t"><span class="mono" style="font-size:12px;opacity:.8">FLY-4</span> Make clicking and navigation predictable</span><span class="l">Make Waiting on you and All agents replace…</span></div><div class="ss stopped "><span class="dot stopped"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="10" x2="10" y1="15" y2="9" /> <line x1="14" x2="14" y1="15" y2="9" /> </svg></span><span class="t"><span class="mono" style="font-size:12px;opacity:.8">FLY-7</span> Restyle every screen of the M2 flow</span><span class="l">Stopped: usage limit</span></div></div>
+  <div class="nav"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /> </svg><span class="grow">highknow-web <span class="mono key">HKW</span></span><span class="cnt z">0</span></div>
+  <div class="spacer"></div>
+  <div class="foot"><div class="nav quiet"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg><span class="grow">Register project…</span></div><div class="nav quiet"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /> <path d="m3.3 7 8.7 5 8.7-5" /> <path d="M12 22V12" /> </svg><span class="grow">Worktrees</span></div><div class="nav quiet"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /> <circle cx="12" cy="12" r="3" /> </svg><span class="grow">Settings</span></div></div>
+  </aside><div class="strip"><div class="lab">Agents<b class="tnum">3</b></div><div class="lamp waiting "><span class="bulb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /> </svg></span><span class="t"><span class="mono">FLY-6</span>Show project progress at a glance</span><span class="l">Waiting on you · asks 2 questions · 4 min</span><svg class="i go" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="lamp running "><span class="bulb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 12a9 9 0 1 1-6.219-8.56" /> </svg></span><span class="t"><span class="mono">FLY-4</span>Make clicking and navigation predictable</span><span class="l">Doing: Make Waiting on you and All agents…</span><svg class="i go" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="lamp stopped "><span class="bulb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="10" x2="10" y1="15" y2="9" /> <line x1="14" x2="14" y1="15" y2="9" /> </svg></span><span class="t"><span class="mono">FLY-7</span>Restyle every screen of the M2 flow</span><span class="l">Stopped: usage limit · 38 min</span><svg class="i go" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="lamp empty">No other agent running · highknow-web idle</div><span class="all"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /> </svg>All agents</span></div>
+  <main class="main">
+    <div class="bar-top"><div class="crumb"><b>flywheel</b><span>/</span><span>Roadmap</span><span>/</span><b>M3 Shaping</b></div><span class="grow"></span><div class="search"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg>Search<kbd>⌘K</kbd></div><button class="btn sec"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg>Epic</button><button class="btn primary"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg>Story</button></div>
+    <div class="card prod">
+    <div class="mt"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 22V4a1 1 0 0 1 .4-.8A6 6 0 0 1 8 2c3 0 5 2 7.333 2q2 0 3.067-.8A1 1 0 0 1 20 4v10a1 1 0 0 1-.4.8A6 6 0 0 1 16 16c-3 0-5-2-8-2a6 6 0 0 0-4 1.528" /> </svg><h1>M3 · Shaping</h1><span class="pill prog"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 12a9 9 0 1 1-6.219-8.56" /> </svg>In progress</span><span class="grow"></span></div>
+    <p class="exit"><b>Exit test:</b> Cyril takes a one-line idea to an Epic with Ready Stories, each with accepted criteria and Checks, entirely in Flywheel’s dock and board.</p>
+    <div class="nx"><span>Next: M4 Board and review</span><a><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M4 22V4a1 1 0 0 1 .4-.8A6 6 0 0 1 8 2c3 0 5 2 7.333 2q2 0 3.067-.8A1 1 0 0 1 20 4v10a1 1 0 0 1-.4.8A6 6 0 0 1 16 16c-3 0-5-2-8-2a6 6 0 0 0-4 1.528" /> </svg>Roadmap</a><a><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg>Milestone</a></div>
+    <div class="counts">
+      <div class="cbox main"><span class="k">Stories merged</span><span class="n tnum">2<small>/11</small></span></div>
+      <div class="cbox" style="--c:var(--c-review)"><span class="n tnum">1</span><span class="k"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="18" cy="18" r="3" /> <circle cx="6" cy="6" r="3" /> <path d="M13 6h3a2 2 0 0 1 2 2v7" /> <line x1="6" x2="6" y1="9" y2="21" /> </svg>In review</span></div>
+      <div class="cbox" style="--c:var(--c-running)"><span class="n tnum">3</span><span class="k"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 12a9 9 0 1 1-6.219-8.56" /> </svg>Running</span></div>
+      <div class="cbox" style="--c:var(--c-ready)"><span class="n tnum">2</span><span class="k"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg>Ready</span></div>
+      <div class="cbox" style="--c:var(--c-shaping)"><span class="n tnum">2</span><span class="k"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10.1 2.182a10 10 0 0 1 3.8 0" /> <path d="M13.9 21.818a10 10 0 0 1-3.8 0" /> <path d="M17.609 3.721a10 10 0 0 1 2.69 2.7" /> <path d="M2.182 13.9a10 10 0 0 1 0-3.8" /> <path d="M20.279 17.609a10 10 0 0 1-2.7 2.69" /> <path d="M21.818 10.1a10 10 0 0 1 0 3.8" /> <path d="M3.721 6.391a10 10 0 0 1 2.7-2.69" /> <path d="M6.391 20.279a10 10 0 0 1-2.69-2.7" /> </svg>Shaping</span></div>
+      <div class="cbox lit" style="--c:var(--yellow)"><span class="n tnum">1</span><span class="k"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /> </svg>Waiting on you</span></div>
+      <div class="cbox" style="--c:var(--red)"><span class="n tnum">1</span><span class="k"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="10" x2="10" y1="15" y2="9" /> <line x1="14" x2="14" y1="15" y2="9" /> </svg>Stopped</span></div>
+      <div class="cbox" style="--c:var(--c-ready)"><span class="n tnum">1</span><span class="k"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="9" x2="15" y1="15" y2="9" /> </svg>Dropped</span></div>
+      <div class="cbox" style="--c:var(--c-merged)"><span class="n tnum">0<small>/3</small></span><span class="k"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" /> <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" /> <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" /> </svg>Epics done</span></div>
+    </div>
+    <div class="sbar"><span class="seg-merged" style="flex:2"></span><span class="seg-review" style="flex:1"></span><span class="seg-waiting" style="flex:1"></span><span class="seg-stopped" style="flex:1"></span><span class="seg-running" style="flex:1"></span><span class="seg-ready" style="flex:2"></span><span class="seg-shaping" style="flex:2"></span><span class="seg-dropped" style="flex:1"></span></div>
+  </div>
+    <div class="cols">
+      <div class="needs"><div class="h2"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10.268 21a2 2 0 0 0 3.464 0" /> <path d="M22 8c0-2.3-.8-4.3-2-6" /> <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /> <path d="M4 2C2.8 3.7 2 5.7 2 8" /> </svg>Needs you<span class="cnt y" style="background:var(--yellow);color:var(--on-yellow)">4</span></div>
+      <div class="card need lit"><div class="hd"><span class="kind question"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719" /> <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /> <path d="M12 17h.01" /> </svg>Question</span><span class="grow"></span><span class="age">4 min</span></div>
+        <div class="ti"><span class="mono">FLY-6</span>Show project progress at a glance on the board</div><div class="ln">2 questions: should Dropped Stories count in the bar? Which counts go on the header line?</div>
+        <div class="acts"><button class="btn call sm"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719" /> <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /> <path d="M12 17h.01" /> </svg>Answer</button></div></div><div class="card need "><div class="hd"><span class="kind stopped"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="10" x2="10" y1="15" y2="9" /> <line x1="14" x2="14" y1="15" y2="9" /> </svg>Stopped</span><span class="grow"></span><span class="age">38 min</span></div>
+        <div class="ti"><span class="mono">FLY-7</span>Restyle every screen of the M2 flow in the new world</div><div class="ln">Usage limit at 13:41 · was doing “Restyle the board’s Story rows”</div>
+        <div class="acts"><button class="btn primary sm"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /> <path d="M3 3v5h5" /> </svg>Resume</button><button class="btn danger sm"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10 11v6" /> <path d="M14 11v6" /> <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /> <path d="M3 6h18" /> <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /> </svg>Drop</button></div></div><div class="card need "><div class="hd"><span class="kind review"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="18" cy="18" r="3" /> <circle cx="6" cy="6" r="3" /> <path d="M13 6h3a2 2 0 0 1 2 2v7" /> <line x1="6" x2="6" y1="9" y2="21" /> </svg>Review</span><span class="grow"></span><span class="age">1 h</span></div>
+        <div class="ti"><span class="mono">FLY-3</span>Pick Flywheel’s new visual world from three rendered directions</div><div class="ln">Handed off 12:05 · Checks 2/2 passed · 9 files changed</div>
+        <div class="acts"><button class="btn sec sm"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="18" cy="18" r="3" /> <circle cx="6" cy="6" r="3" /> <path d="M13 6h3a2 2 0 0 1 2 2v7" /> <line x1="6" x2="6" y1="9" y2="21" /> </svg>Open review</button></div></div><div class="card need "><div class="hd"><span class="kind shaping"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10.1 2.182a10 10 0 0 1 3.8 0" /> <path d="M13.9 21.818a10 10 0 0 1-3.8 0" /> <path d="M17.609 3.721a10 10 0 0 1 2.69 2.7" /> <path d="M2.182 13.9a10 10 0 0 1 0-3.8" /> <path d="M20.279 17.609a10 10 0 0 1-2.7 2.69" /> <path d="M21.818 10.1a10 10 0 0 1 0 3.8" /> <path d="M3.721 6.391a10 10 0 0 1 2.7-2.69" /> <path d="M6.391 20.279a10 10 0 0 1-2.69-2.7" /> </svg>Shaping Round</span><span class="grow"></span><span class="age">2 h</span></div>
+        <div class="ti"><span class="mono">E-60</span>Milestone and Roadmap shaping</div><div class="ln">Round 2 of Stage 1: 3 questions, each with a recommended answer</div>
+        <div class="acts"><button class="btn sec sm"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg>Continue shaping</button></div></div></div>
+      <div class="roster"><div class="card epic"><div class="eh"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" /> <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" /> <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" /> </svg><span class="t">Design system and a legible app<span class="pill prog">In progress</span></span>
+    <span class="r"><span><b class="tnum">1 of 7</b> merged</span><button class="btn ghost sm"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg>Story</button></span>
+    <div class="sbar"><span class="seg-merged" style="flex:1"></span><span class="seg-review" style="flex:1"></span><span class="seg-running" style="flex:3"></span><span class="seg-ready" style="flex:1"></span><span class="seg-dropped" style="flex:1"></span></div></div>
+    <div class="row  waiting  ">
+    <span class="st waiting"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /> </svg>Waiting on you</span>
+    <span class="mono k">FLY-6</span>
+    <span class="tt"><span class="ti">Show project progress at a glance on the board</span><span class="de">Asks: should Dropped Stories count in the bar?</span></span>
+    <button class="btn call sm act"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719" /> <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /> <path d="M12 17h.01" /> </svg>Answer</button><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="row    ">
+    <span class="st stopped"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="10" x2="10" y1="15" y2="9" /> <line x1="14" x2="14" y1="15" y2="9" /> </svg>Stopped</span>
+    <span class="mono k">FLY-7</span>
+    <span class="tt"><span class="ti">Restyle every screen of the M2 flow in the new world</span><span class="de">Stopped: usage limit · was doing “Restyle the board’s Story rows”</span></span>
+    <button class="btn primary sm act"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /> <path d="M3 3v5h5" /> </svg>Resume</button><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="row   hov ">
+    <span class="st running"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 12a9 9 0 1 1-6.219-8.56" /> </svg>Running</span>
+    <span class="mono k">FLY-4</span>
+    <span class="tt"><span class="ti">Make clicking and navigation predictable</span><span class="de">Doing: Make Waiting on you and All agents replace an open feed</span></span>
+    <button class="btn sec sm act"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 19h8" /> <path d="m4 17 6-6-6-6" /> </svg>Open session</button><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="row    ">
+    <span class="st review"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="18" cy="18" r="3" /> <circle cx="6" cy="6" r="3" /> <path d="M13 6h3a2 2 0 0 1 2 2v7" /> <line x1="6" x2="6" y1="9" y2="21" /> </svg>In review</span>
+    <span class="mono k">FLY-3</span>
+    <span class="tt"><span class="ti">Pick Flywheel’s new visual world from three rendered directions</span><span class="de">+1,284 −12 · 9 files · Checks 2/2 passed</span></span>
+    <button class="btn sec sm act"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="18" cy="18" r="3" /> <circle cx="6" cy="6" r="3" /> <path d="M13 6h3a2 2 0 0 1 2 2v7" /> <line x1="6" x2="6" y1="9" y2="21" /> </svg>Open review</button><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="row    ">
+    <span class="st ready"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg>Ready</span>
+    <span class="mono k">FLY-5</span>
+    <span class="tt"><span class="ti">Build the new world’s tokens, icons and shared components</span><span class="de">Runs after FLY-3</span></span>
+    <button class="btn primary sm act"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /> </svg>Start</button><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="row done   ">
+    <span class="st merged"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="18" cy="18" r="3" /> <circle cx="6" cy="6" r="3" /> <path d="M6 21V9a9 9 0 0 0 9 9" /> </svg>Merged</span>
+    <span class="mono k">FLY-2</span>
+    <span class="tt"><span class="ti">Refresh PRODUCT.md and critique the built app</span><span class="de">Merged 21 Oct</span></span>
+    <span class="meta act">criteria 4/4 · tasks 5/5</span><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="row done   ">
+    <span class="st dropped"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="9" x2="15" y1="15" y2="9" /> </svg>Dropped</span>
+    <span class="mono k">FLY-11</span>
+    <span class="tt"><span class="ti">Prototype the dock as a modal sheet</span><span class="de">Dropped: the dock sits beside the board instead</span></span>
+    <span class="meta act"></span><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div></div></div>
+    </div>
+  </main></section>
+<div class="lbl">Story detail with its live agent</div><section class="frame" id="story"><aside class="side"><div class="lights"><i></i><i></i><i></i></div>
+  <div class="brand"><svg class="logo" aria-hidden="true" version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+	 viewBox="0 0 1024 1024" xml:space="preserve">
+
+<rect fill="hsl(225, 70%, 55%)" x="0" y="0" width="1024" height="1024" rx="200" ry="200" />
+
+
+<g fill="white" transform="translate(512 512) scale(1.20) translate(-512 -537)">
+<path d="M739.546021,497.345581
+	C732.165222,535.622009 714.228455,567.946594 688.521973,596.320984
+	C677.455322,608.536194 666.589233,620.920227 657.010071,634.410400
+	C644.973328,651.361816 636.673584,669.828125 632.284607,690.148865
+	C627.954102,710.198853 612.032349,723.148438 591.535950,723.192078
+	C539.386475,723.303101 487.236664,723.296387 435.087128,723.226074
+	C415.959991,723.200256 398.812592,711.327209 394.814972,692.692383
+	C387.479889,658.499939 369.225769,630.955933 346.242065,605.724487
+	C331.872284,589.949463 318.196533,573.609924 307.702484,554.849304
+	C293.998444,530.349976 286.420746,504.008392 283.614868,476.200989
+	C279.699829,437.401276 285.854889,400.113770 301.870789,364.689819
+	C322.898254,318.181305 356.515015,283.058014 401.214020,258.665924
+	C441.132385,236.882568 484.234375,227.161407 529.309265,231.092621
+	C614.887817,238.556351 679.410339,279.859680 720.069336,356.211029
+	C739.248901,392.227264 745.494019,431.273315 743.166626,471.765167
+	C742.681396,480.206940 741.494202,488.636108 739.546021,497.345581
+	M487.499969,697.700562
+	C521.330505,697.699463 555.161011,697.706543 588.991516,697.692444
+	C599.773132,697.687988 604.787598,694.083740 607.108215,683.664551
+	C613.626160,654.400208 627.438354,628.904724 646.266174,605.839600
+	C658.382202,590.996887 671.930298,577.346313 683.237366,561.849792
+	C715.140808,518.125793 724.215515,469.205231 714.236389,416.741150
+	C707.429504,380.954834 691.050415,349.459381 665.859680,322.961273
+	C615.686768,270.184509 554.093018,247.928650 482.193024,258.530090
+	C412.126434,268.861145 360.795593,307.269073 328.111816,369.952362
+	C312.961975,399.007721 306.877106,430.378021 308.232391,463.195557
+	C309.072418,483.535858 313.492432,503.035553 320.694183,522.004089
+	C330.159912,546.935730 346.179260,567.494385 363.748016,587.051392
+	C389.512177,615.731262 411.754883,646.359314 419.545227,685.324219
+	C421.230499,693.753479 427.282227,697.664124 436.003876,697.689026
+	C452.835785,697.737000 469.667908,697.701233 487.499969,697.700562
+	z"/>
+<path d="M599.940918,772.675232
+	C602.262573,772.688293 604.100647,772.613159 605.926208,772.731201
+	C613.082092,773.194153 618.081177,778.315002 618.281433,785.311035
+	C618.469238,791.870178 613.805237,797.434570 606.711487,797.981812
+	C599.754822,798.518555 592.722046,798.399841 585.738953,798.136414
+	C581.798645,797.987732 579.954163,799.454407 578.251648,802.998840
+	C565.277771,830.008728 544.130615,845.201660 513.708923,845.261963
+	C482.933105,845.322937 461.440979,830.115906 448.174683,802.813660
+	C446.571472,799.514282 444.783844,797.985840 441.032837,798.142273
+	C434.713593,798.405701 428.362579,798.460083 422.047394,798.147949
+	C410.276459,797.566101 404.368286,787.173767 410.362427,778.004944
+	C412.548187,774.661560 415.679230,773.050964 419.535492,772.758911
+	C421.690704,772.595703 423.864105,772.646118 426.029327,772.646362
+	C483.836731,772.652466 541.644104,772.664612 599.940918,772.675232
+	M539.176453,811.700562
+	C543.659546,808.176514 548.131104,804.643005 550.630981,798.765625
+	C525.204712,798.765625 500.627289,798.765625 475.791534,798.765625
+	C484.647827,816.906250 514.868042,828.570557 539.176453,811.700562
+	z"/>
+<path d="M495.000000,734.758118
+	C532.647766,734.755859 569.795593,734.753845 606.943359,734.752441
+	C609.941406,734.752319 612.934570,734.702087 615.850281,735.642517
+	C621.508728,737.467651 625.234070,742.848633 624.755371,748.605103
+	C624.252197,754.655273 620.070007,759.243042 614.106445,760.149475
+	C612.635437,760.373047 611.115906,760.322205 609.618713,760.322510
+	C545.817810,760.333923 482.016937,760.337463 418.216034,760.337036
+	C416.550690,760.337036 414.874786,760.392212 413.221863,760.233459
+	C407.323212,759.667114 402.879944,755.622498 401.832520,749.973267
+	C400.742706,744.095703 403.639801,738.740173 409.240967,736.125000
+	C412.057495,734.809875 415.025299,734.736328 418.038818,734.738403
+	C443.525879,734.756104 469.012939,734.754395 495.000000,734.758118
+	z"/>
+<path d="M344.674835,451.789001
+	C346.201965,435.972443 352.185730,422.744446 364.062195,412.630920
+	C367.368591,409.815338 368.244110,407.416260 367.340576,402.929901
+	C361.132050,372.101166 381.996552,336.227814 419.694061,336.780670
+	C424.571564,336.852203 425.526733,334.726776 425.722015,330.551056
+	C426.508636,313.733429 437.894409,298.806396 453.474030,293.786377
+	C474.690338,286.950012 497.540985,300.230133 502.108459,322.099884
+	C502.855988,325.679291 503.335724,329.289581 503.334503,332.991608
+	C503.302368,430.446686 503.342102,527.901733 503.313507,625.356812
+	C503.306641,648.755493 484.784271,670.028931 458.601898,667.448486
+	C442.747955,665.885986 426.763031,651.887878 422.858002,634.767334
+	C421.641113,629.432312 420.297485,624.014587 421.640289,618.493347
+	C422.407990,615.336914 421.444336,613.838196 418.329071,612.607727
+	C405.911865,607.703247 397.953674,598.343018 397.720276,585.139526
+	C397.576904,577.031616 394.977722,573.730042 388.191650,570.190552
+	C377.052277,564.380432 371.799469,553.934753 371.691467,541.344727
+	C371.653778,536.954407 370.729919,534.149536 366.545288,531.731506
+	C354.806488,524.948669 348.727448,509.452148 352.261658,495.745850
+	C353.553314,490.736511 353.284637,486.668671 350.611389,482.108032
+	C345.238770,472.942139 343.842010,462.745148 344.674835,451.789001
+	M406.981720,471.500305
+	C406.983215,466.168304 407.104187,460.832733 406.944092,455.505585
+	C406.837769,451.968628 407.919891,450.230164 411.801697,450.551666
+	C415.276978,450.839539 418.817688,450.853516 422.288788,450.538727
+	C426.254547,450.179047 427.490570,451.606079 427.430634,455.570801
+	C427.229156,468.898987 427.466614,482.233429 427.310059,495.562836
+	C427.265381,499.366516 428.431763,501.000031 432.413055,500.964539
+	C447.742828,500.827667 463.074768,500.834290 478.404968,500.933502
+	C482.041504,500.957031 483.572418,499.468506 483.567505,495.917358
+	C483.559662,490.261810 483.469391,484.595245 483.356323,478.953918
+	C482.488403,435.641113 483.625671,392.328857 483.190765,349.017822
+	C483.123993,342.368317 483.933014,335.719666 483.004425,329.063599
+	C481.704712,319.747253 475.932770,313.669617 467.008972,312.406677
+	C459.553314,311.351532 451.883514,316.053375 448.075134,323.614685
+	C445.525269,328.677307 446.399445,334.030426 446.011414,339.298462
+	C445.756348,342.761627 447.021423,345.112854 449.716339,347.428619
+	C458.482056,354.961060 463.674652,364.734161 466.009186,375.980591
+	C467.198639,381.710602 463.867004,387.122742 458.691010,388.544891
+	C453.630280,389.935364 448.524780,387.199768 446.284393,381.790375
+	C445.650909,380.260834 445.250946,378.627502 444.825134,377.020264
+	C442.375427,367.773865 436.689545,361.536163 427.588867,358.508911
+	C409.748596,352.574585 389.879822,365.726624 387.414551,385.293793
+	C386.855927,389.727448 385.014099,394.339294 387.362793,398.724030
+	C388.022278,398.815491 388.351135,398.917633 388.669861,398.892334
+	C389.165527,398.852936 389.660339,398.751740 390.145172,398.634094
+	C412.644592,393.174988 431.929810,399.384308 448.474579,414.977478
+	C453.980957,420.167145 458.206238,426.457428 460.856537,433.554199
+	C463.748474,441.297974 458.720062,447.665802 450.476746,447.356049
+	C445.168121,447.156555 442.716797,443.692322 440.501526,439.512024
+	C430.732788,421.077881 411.816162,413.185425 392.473053,419.330414
+	C369.416016,426.655273 357.431885,454.373047 369.677643,473.684143
+	C374.998322,482.074585 377.686829,489.324127 372.984161,499.068420
+	C369.265656,506.773499 374.648895,515.022705 382.715729,516.512817
+	C394.023560,518.601746 397.738098,524.837402 392.841797,535.316650
+	C388.304260,545.028015 397.833282,556.065369 406.980286,553.798828
+	C406.980286,526.748718 406.980286,499.624451 406.981720,471.500305
+	M427.370178,539.505737
+	C427.361145,549.168579 427.284332,558.832092 427.382263,568.493835
+	C427.413696,571.593933 426.945007,573.813171 423.104004,573.373230
+	C420.373749,573.060425 419.169952,574.777954 418.646881,577.095703
+	C418.095703,579.537781 417.796906,582.025940 418.190399,584.532776
+	C418.878937,588.919250 421.548492,591.679443 425.569244,593.200989
+	C429.550659,594.707642 432.166260,592.587341 434.627776,589.771973
+	C439.500519,584.198608 445.092682,579.467773 451.974213,576.557922
+	C457.267578,574.319519 462.596466,575.936584 465.169830,580.240540
+	C467.759399,584.571594 466.598633,590.805115 462.337616,594.190125
+	C460.397156,595.731628 458.122009,596.852966 455.993774,598.156860
+	C443.542023,605.785706 438.511414,624.378296 445.508667,636.916870
+	C452.778107,649.943237 471.631317,650.370728 479.385223,637.703003
+	C482.633392,632.396362 483.605011,626.545898 483.571167,620.469910
+	C483.420044,593.327271 483.219299,566.184937 483.071655,539.042297
+	C483.046295,534.380188 483.208344,529.717346 483.252655,525.054504
+	C483.282318,521.932800 482.229156,520.197815 478.574219,520.235901
+	C463.248596,520.395569 447.920197,520.361572 432.593414,520.283447
+	C429.201324,520.266113 427.612915,521.852051 427.513336,525.018311
+	C427.372009,529.512329 427.408630,534.011902 427.370178,539.505737
+	z"/>
+<path d="M569.685181,292.904968
+	C588.369751,298.843201 598.576233,311.270508 600.409851,330.402954
+	C600.807068,334.548157 601.783325,336.858276 606.925720,336.816071
+	C635.170349,336.584229 654.400391,356.407501 659.320496,382.476135
+	C660.764648,390.127441 660.640625,397.700439 658.514404,405.206696
+	C657.794617,407.747650 658.443665,409.721771 660.528503,411.372589
+	C673.421265,421.581635 679.748352,435.262726 681.648987,451.311584
+	C683.072815,463.333282 680.239075,474.455231 674.476562,484.878693
+	C672.997192,487.554749 672.594482,489.881653 673.303284,492.857391
+	C677.581543,510.819244 672.990479,522.629456 657.693542,533.181885
+	C655.802124,534.486633 655.140503,535.890259 655.142578,538.118469
+	C655.158203,555.001221 647.810608,567.147705 631.864563,573.525146
+	C629.391724,574.514099 628.890747,575.857910 629.057190,578.442749
+	C630.070679,594.173218 623.112854,605.799988 608.680725,612.302856
+	C605.176270,613.881836 604.597412,615.703125 604.726929,619.519653
+	C605.322571,637.072510 599.789978,652.222168 584.187927,661.754150
+	C569.807556,670.539856 554.765686,670.326172 540.934509,660.634827
+	C528.526123,651.940369 522.863342,638.896057 522.809875,623.990112
+	C522.585693,561.519592 522.703064,499.047882 522.701843,436.576599
+	C522.701172,401.925873 522.626648,367.274841 522.754639,332.624573
+	C522.823853,313.887115 533.715210,298.805664 550.570496,293.565277
+	C556.725586,291.651611 562.968384,291.163818 569.685181,292.904968
+	M589.147766,483.646545
+	C582.644043,490.333191 576.307251,497.194611 569.566284,503.632843
+	C566.190186,506.857269 565.826965,509.054932 569.234680,512.592834
+	C579.402039,523.148438 589.361084,533.913696 599.128479,544.841125
+	C603.085815,549.268433 607.041748,552.774902 613.270447,553.940979
+	C619.952393,555.191895 625.857971,555.213684 630.724060,549.904541
+	C635.393066,544.810425 635.219238,539.421875 632.242920,533.333191
+	C628.542480,525.763123 633.050049,517.416931 641.403809,516.757324
+	C650.621033,516.029541 658.179688,505.666779 652.598267,496.773712
+	C648.122314,489.641937 650.020020,483.366974 654.502991,476.919830
+	C663.657898,463.753815 663.470276,449.803619 655.348877,436.509186
+	C638.972229,409.701355 601.331055,411.219788 586.027405,438.970062
+	C582.817993,444.789856 582.772278,444.746063 578.150940,440.370636
+	C575.395264,437.761688 573.153992,433.752014 568.108643,436.549744
+	C566.750854,437.302673 565.690918,435.937347 565.702881,434.295105
+	C565.715454,432.565186 566.490540,431.081329 567.259277,429.599609
+	C580.210754,404.635345 607.303711,392.050079 634.946533,398.320770
+	C638.685242,399.168884 639.713867,397.967377 639.735657,394.435272
+	C639.784119,386.578644 638.029419,379.219391 633.997437,372.497894
+	C626.313354,359.688293 612.603760,354.083069 599.349976,358.317596
+	C588.998962,361.624725 583.506165,369.235504 580.760925,379.397308
+	C578.775024,386.748444 573.583252,390.214203 567.746521,388.582977
+	C561.819824,386.926483 559.161499,381.424011 560.771851,374.114777
+	C562.835815,364.746429 566.911743,356.054810 574.215332,350.096252
+	C580.567993,344.913391 581.218933,339.015778 580.652405,332.012085
+	C579.738464,320.712250 571.033875,312.093140 560.626221,312.265106
+	C550.767456,312.427979 543.235901,321.155670 543.010071,332.719940
+	C542.945007,336.051086 542.970398,339.383972 542.950867,342.716064
+	C542.647583,394.525238 543.585205,446.338745 542.422180,498.145416
+	C542.386536,499.735016 541.891357,501.519684 543.500427,502.808746
+	C545.425964,502.735016 546.303101,501.132324 547.417175,499.992706
+	C562.089111,484.984436 576.711121,469.927368 591.383972,454.919983
+	C592.764893,453.507538 594.282654,451.451141 595.945312,451.224823
+	C603.607605,450.181641 611.323303,450.649597 620.566406,450.765320
+	C610.066101,462.878693 599.708130,472.874298 589.147766,483.646545
+	M575.169861,642.742065
+	C580.965881,638.440002 583.467041,632.415771 583.663086,625.461670
+	C584.022705,612.702942 578.732849,603.097778 567.464233,596.690247
+	C559.931824,592.407288 557.590881,586.200500 560.780640,580.731812
+	C564.077393,575.079712 570.830444,574.253418 578.409424,578.600525
+	C583.816162,581.701782 588.240723,585.963074 592.454468,590.486877
+	C596.095093,594.395386 599.639160,594.578735 603.798157,591.200378
+	C607.898804,587.869446 609.463379,581.725098 607.639038,576.743164
+	C606.863892,574.626282 605.700073,573.161316 603.322937,573.429932
+	C599.517761,573.859985 597.236816,571.771912 594.881348,569.173645
+	C581.915100,554.870972 568.836121,540.670227 555.739380,526.486633
+	C554.573975,525.224487 553.666992,523.242737 551.402588,523.630188
+	C548.453735,524.134766 542.481201,532.153320 542.528320,535.376831
+	C542.664429,544.693604 542.842896,554.010437 542.880493,563.327759
+	C542.963074,583.790710 542.525635,604.267212 543.136963,624.713196
+	C543.696655,643.429626 560.113220,652.607605 575.169861,642.742065
+	z"/>
+</g>
+</svg>
+Flywheel</div>
+  <div class="nav"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10.268 21a2 2 0 0 0 3.464 0" /> <path d="M22 8c0-2.3-.8-4.3-2-6" /> <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /> <path d="M4 2C2.8 3.7 2 5.7 2 8" /> </svg><span class="grow">Needs you</span><span class="cnt y">4</span></div>
+  <div class="nav"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /> </svg><span class="grow">All agents</span><span class="cnt z">3</span></div>
+  <div class="grp">Projects</div>
+  <div class="nav "><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /> </svg><span class="grow">flywheel <span class="mono key">FLY</span></span><span class="cnt y">4</span></div>
+  <div class="ssub"><div class="ss waiting "><span class="dot waiting"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /> </svg></span><span class="t"><span class="mono" style="font-size:12px;opacity:.8">FLY-6</span> Show project progress at a glance</span><span class="l">Waiting on you · 4 min</span></div><div class="ss running cur"><span class="dot running"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 12a9 9 0 1 1-6.219-8.56" /> </svg></span><span class="t"><span class="mono" style="font-size:12px;opacity:.8">FLY-4</span> Make clicking and navigation predictable</span><span class="l">Make Waiting on you and All agents replace…</span></div><div class="ss stopped "><span class="dot stopped"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="10" x2="10" y1="15" y2="9" /> <line x1="14" x2="14" y1="15" y2="9" /> </svg></span><span class="t"><span class="mono" style="font-size:12px;opacity:.8">FLY-7</span> Restyle every screen of the M2 flow</span><span class="l">Stopped: usage limit</span></div></div>
+  <div class="nav"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /> </svg><span class="grow">highknow-web <span class="mono key">HKW</span></span><span class="cnt z">0</span></div>
+  <div class="spacer"></div>
+  <div class="foot"><div class="nav quiet"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg><span class="grow">Register project…</span></div><div class="nav quiet"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /> <path d="m3.3 7 8.7 5 8.7-5" /> <path d="M12 22V12" /> </svg><span class="grow">Worktrees</span></div><div class="nav quiet"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /> <circle cx="12" cy="12" r="3" /> </svg><span class="grow">Settings</span></div></div>
+  </aside><div class="strip"><div class="lab">Agents<b class="tnum">3</b></div><div class="lamp waiting "><span class="bulb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /> </svg></span><span class="t"><span class="mono">FLY-6</span>Show project progress at a glance</span><span class="l">Waiting on you · asks 2 questions · 4 min</span><svg class="i go" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="lamp running sel"><span class="bulb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 12a9 9 0 1 1-6.219-8.56" /> </svg></span><span class="t"><span class="mono">FLY-4</span>Make clicking and navigation predictable</span><span class="l">Doing: Make Waiting on you and All agents…</span><svg class="i go" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="lamp stopped "><span class="bulb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="10" x2="10" y1="15" y2="9" /> <line x1="14" x2="14" y1="15" y2="9" /> </svg></span><span class="t"><span class="mono">FLY-7</span>Restyle every screen of the M2 flow</span><span class="l">Stopped: usage limit · 38 min</span><svg class="i go" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="lamp empty">No other agent running · highknow-web idle</div><span class="all"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /> </svg>All agents</span></div>
+  <main class="main">
+    <div class="bar-top"><div class="crumb"><b>flywheel</b><span>/</span><b>M3 Shaping</b><span>/</span><span>FLY-4</span></div><span class="grow"></span><div class="search"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg>Search<kbd>⌘K</kbd></div><button class="btn sec"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg>Epic</button><button class="btn primary"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg>Story</button></div>
+    <div class="split">
+      <div class="roster"><div class="card epic"><div class="eh"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" /> <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" /> <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" /> </svg><span class="t">Design system and a legible app<span class="pill prog">In progress</span></span>
+    <span class="r"><span><b class="tnum">1 of 7</b> merged</span><button class="btn ghost sm"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg>Story</button></span>
+    <div class="sbar"><span class="seg-merged" style="flex:1"></span><span class="seg-review" style="flex:1"></span><span class="seg-running" style="flex:3"></span><span class="seg-ready" style="flex:1"></span><span class="seg-dropped" style="flex:1"></span></div></div>
+    <div class="row  waiting  ">
+    <span class="st waiting"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /> </svg>Waiting on you</span>
+    <span class="mono k">FLY-6</span>
+    <span class="tt"><span class="ti"><span class="mono" style="color:var(--muted);margin-right:6px">FLY-6</span>Show project progress at a glance on the board</span><span class="de">Asks: should Dropped Stories count in the bar?</span></span>
+    <button class="btn call sm act"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719" /> <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /> <path d="M12 17h.01" /> </svg>Answer</button><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="row    ">
+    <span class="st stopped"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="10" x2="10" y1="15" y2="9" /> <line x1="14" x2="14" y1="15" y2="9" /> </svg>Stopped</span>
+    <span class="mono k">FLY-7</span>
+    <span class="tt"><span class="ti"><span class="mono" style="color:var(--muted);margin-right:6px">FLY-7</span>Restyle every screen of the M2 flow in the new world</span><span class="de">Stopped: usage limit · was doing “Restyle the board’s Story rows”</span></span>
+    <button class="btn primary sm act"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /> <path d="M3 3v5h5" /> </svg>Resume</button><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="row    sel">
+    <span class="st running"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 12a9 9 0 1 1-6.219-8.56" /> </svg>Running</span>
+    <span class="mono k">FLY-4</span>
+    <span class="tt"><span class="ti"><span class="mono" style="color:var(--muted);margin-right:6px">FLY-4</span>Make clicking and navigation predictable</span><span class="de">Doing: Make Waiting on you and All agents replace an open feed</span></span>
+    <button class="btn sec sm act"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 19h8" /> <path d="m4 17 6-6-6-6" /> </svg>Open session</button><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="row    ">
+    <span class="st review"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="18" cy="18" r="3" /> <circle cx="6" cy="6" r="3" /> <path d="M13 6h3a2 2 0 0 1 2 2v7" /> <line x1="6" x2="6" y1="9" y2="21" /> </svg>In review</span>
+    <span class="mono k">FLY-3</span>
+    <span class="tt"><span class="ti"><span class="mono" style="color:var(--muted);margin-right:6px">FLY-3</span>Pick Flywheel’s new visual world from three rendered directions</span><span class="de">+1,284 −12 · 9 files · Checks 2/2 passed</span></span>
+    <button class="btn sec sm act"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="18" cy="18" r="3" /> <circle cx="6" cy="6" r="3" /> <path d="M13 6h3a2 2 0 0 1 2 2v7" /> <line x1="6" x2="6" y1="9" y2="21" /> </svg>Open review</button><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="row    ">
+    <span class="st ready"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg>Ready</span>
+    <span class="mono k">FLY-5</span>
+    <span class="tt"><span class="ti"><span class="mono" style="color:var(--muted);margin-right:6px">FLY-5</span>Build the new world’s tokens, icons and shared components</span><span class="de">Runs after FLY-3</span></span>
+    <button class="btn primary sm act"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /> </svg>Start</button><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="row done   ">
+    <span class="st merged"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="18" cy="18" r="3" /> <circle cx="6" cy="6" r="3" /> <path d="M6 21V9a9 9 0 0 0 9 9" /> </svg>Merged</span>
+    <span class="mono k">FLY-2</span>
+    <span class="tt"><span class="ti"><span class="mono" style="color:var(--muted);margin-right:6px">FLY-2</span>Refresh PRODUCT.md and critique the built app</span><span class="de">Merged 21 Oct</span></span>
+    <span class="meta act">criteria 4/4 · tasks 5/5</span><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="row done   ">
+    <span class="st dropped"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="9" x2="15" y1="15" y2="9" /> </svg>Dropped</span>
+    <span class="mono k">FLY-11</span>
+    <span class="tt"><span class="ti"><span class="mono" style="color:var(--muted);margin-right:6px">FLY-11</span>Prototype the dock as a modal sheet</span><span class="de">Dropped: the dock sits beside the board instead</span></span>
+    <span class="meta act"></span><svg class="i chev" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div></div></div>
+      <div class="card panel">
+        <div class="ph"><div class="top"><button class="btn ghost sm"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m12 19-7-7 7-7" /> <path d="M19 12H5" /> </svg>Back</button><span class="mono">FLY-4</span><span>·</span><span>Design system and a legible app</span><span class="grow"></span><button class="btn danger sm"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10 11v6" /> <path d="M14 11v6" /> <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /> <path d="M3 6h18" /> <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /> </svg>Drop…</button><button class="btn ghost sm"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 6 6 18" /> <path d="m6 6 12 12" /> </svg>Close</button></div>
+          <h1>Make clicking and navigation predictable</h1>
+          <div class="facts"><span class="st running"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 12a9 9 0 1 1-6.219-8.56" /> </svg>Running</span><span><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <line x1="6" x2="6" y1="3" y2="15" /> <circle cx="18" cy="6" r="3" /> <circle cx="6" cy="18" r="3" /> <path d="M18 9a9 9 0 0 1-9 9" /> </svg><span class="mono">story/fly-4-navigation</span></span><span><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M13 5h8" /> <path d="M13 12h8" /> <path d="M13 19h8" /> <path d="m3 17 2 2 4-4" /> <path d="m3 7 2 2 4-4" /> </svg>Tasks 2/5</span><span><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /> </svg>Checks 1/4</span><span>Context packet ~9.4K tokens</span></div></div>
+        <div class="station"><span class="bulb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 8V4H8" /> <rect x="4" y="8" rx="2" /> <path d="M2 14h2" /> <path d="M20 14h2" /> <path d="M15 13v2" /> <path d="M9 13v2" /> </svg></span><span class="s1">Agent running · Session 2 · 18 min · last activity 3 s ago</span><span class="s2">Make Waiting on you and All agents replace an open feed</span>
+          <span class="acts"><button class="btn primary"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 19h8" /> <path d="m4 17 6-6-6-6" /> </svg>Open session</button><button class="btn sec"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="3" y="3" rx="2" /> </svg>Stop</button></span>
+          <div class="feed"><div class="fr "><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /> <path d="M14 2v4a2 2 0 0 0 2 2h4" /> <path d="M10 9H8" /> <path d="M16 13H8" /> <path d="M16 17H8" /> </svg><b>Read</b><span class="a mono">packages/desktop/src/state/keyboard.ts</span><span class="r">612 lines</span></div><div class="fr "><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /> <path d="m15 5 4 4" /> </svg><b>Edit</b><span class="a mono">packages/desktop/src/state/uiStore.ts</span><span class="r">+12 −4</span></div><div class="fr turn"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 8V4H8" /> <rect x="4" y="8" rx="2" /> <path d="M2 14h2" /> <path d="M20 14h2" /> <path d="M15 13v2" /> <path d="M9 13v2" /> </svg><span>activeSurface still ranks the session above the fleet, so opening All agents under a feed shows nothing. Moving the fleet check first.</span></div><div class="fr live"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 19h8" /> <path d="m4 17 6-6-6-6" /> </svg><b>Run</b><span class="a mono">npm --prefix packages/desktop test -- navigation</span><span class="r"><span class="livedot"></span>running · 0:41</span></div></div></div>
+        <div class="pbody">
+          <div class="sec"><h2><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /> </svg>Acceptance criteria<span class="n">1/5</span><span class="grow"></span><span class="link"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /> <path d="M3 3v5h5" /> </svg>Re-run</span></h2><div class="crit"><span class="t">A Story row on the board, in the sidebar and in Needs you opens the Story view</span><span class="c"><span class="chk passed"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /> </svg>Passed</span><span class="chk stale"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /> <path d="M3 3v5h5" /> <path d="M12 7v5l4 2" /> </svg>Stale</span><span class="cmd mono">npm test -- navigation</span></span></div><div class="crit"><span class="t">Start and Resume leave the developer where they were</span><span class="c"><span class="chk failed"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m15 9-6 6" /> <path d="m9 9 6 6" /> </svg>Failed</span><span class="cmd mono">npm test -- story-board</span></span></div><div class="crit"><span class="t">Choosing a project in the sidebar replaces an open session or the fleet</span><span class="c"><span class="chk notrun"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg>Not run</span><span class="cmd mono">npm test -- project-rail</span></span></div><div class="crit"><span class="t">Back and ⌘[ return to the previous place</span><span class="c"><span class="chk timeout"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 22h14" /> <path d="M5 2h14" /> <path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22" /> <path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2" /> </svg>Timed out</span><span class="cmd mono">npm test -- keyboard</span></span></div><div class="crit"><span class="t">Nothing opens a session on its own</span><span class="c"><span class="chk review"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="18" cy="18" r="3" /> <circle cx="6" cy="6" r="3" /> <path d="M13 6h3a2 2 0 0 1 2 2v7" /> <line x1="6" x2="6" y1="9" y2="21" /> </svg>Judged at review</span><span class="link"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg>Add a Check</span></span></div></div>
+          <div class="sec"><h2><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M13 5h8" /> <path d="M13 12h8" /> <path d="M13 19h8" /> <path d="m3 17 2 2 4-4" /> <path d="m3 7 2 2 4-4" /> </svg>Tasks<span class="n">2/5</span><span class="grow"></span><span class="link"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg>Add</span></h2><div class="task done"><span class="tb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /> </svg></span><span class="t">Add navHistory and goBack to the UI store</span></div><div class="task done"><span class="tb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /> </svg></span><span class="t">Open the Story view from a board row</span></div><div class="task doing"><span class="tb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 12a9 9 0 1 1-6.219-8.56" /> </svg></span><span class="t">Make Waiting on you and All agents replace an open feed</span><span class="nt">setFleetSurface now goes through go(); keyboard.ts:548 still ranks the session above the fleet. Fix that next, then re-run the navigation test.</span></div><div class="task open"><span class="tb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg></span><span class="t">Mark the current project and Story in the sidebar</span></div><div class="task open"><span class="tb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg></span><span class="t">Add ⌘[ to the keyboard map</span></div><div class="task dropped"><span class="tb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="9" x2="15" y1="15" y2="9" /> </svg></span><span class="t">Keep pendingFocusItemId for the fleet jump · <i>openStory replaces it</i></span></div></div>
+        </div>
+      </div>
+    </div>
+  </main></section>
+<div class="lbl">Waiting on you: the agent's question</div><section class="frame" id="wait"><aside class="side"><div class="lights"><i></i><i></i><i></i></div>
+  <div class="brand"><svg class="logo" aria-hidden="true" version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+	 viewBox="0 0 1024 1024" xml:space="preserve">
+
+<rect fill="hsl(225, 70%, 55%)" x="0" y="0" width="1024" height="1024" rx="200" ry="200" />
+
+
+<g fill="white" transform="translate(512 512) scale(1.20) translate(-512 -537)">
+<path d="M739.546021,497.345581
+	C732.165222,535.622009 714.228455,567.946594 688.521973,596.320984
+	C677.455322,608.536194 666.589233,620.920227 657.010071,634.410400
+	C644.973328,651.361816 636.673584,669.828125 632.284607,690.148865
+	C627.954102,710.198853 612.032349,723.148438 591.535950,723.192078
+	C539.386475,723.303101 487.236664,723.296387 435.087128,723.226074
+	C415.959991,723.200256 398.812592,711.327209 394.814972,692.692383
+	C387.479889,658.499939 369.225769,630.955933 346.242065,605.724487
+	C331.872284,589.949463 318.196533,573.609924 307.702484,554.849304
+	C293.998444,530.349976 286.420746,504.008392 283.614868,476.200989
+	C279.699829,437.401276 285.854889,400.113770 301.870789,364.689819
+	C322.898254,318.181305 356.515015,283.058014 401.214020,258.665924
+	C441.132385,236.882568 484.234375,227.161407 529.309265,231.092621
+	C614.887817,238.556351 679.410339,279.859680 720.069336,356.211029
+	C739.248901,392.227264 745.494019,431.273315 743.166626,471.765167
+	C742.681396,480.206940 741.494202,488.636108 739.546021,497.345581
+	M487.499969,697.700562
+	C521.330505,697.699463 555.161011,697.706543 588.991516,697.692444
+	C599.773132,697.687988 604.787598,694.083740 607.108215,683.664551
+	C613.626160,654.400208 627.438354,628.904724 646.266174,605.839600
+	C658.382202,590.996887 671.930298,577.346313 683.237366,561.849792
+	C715.140808,518.125793 724.215515,469.205231 714.236389,416.741150
+	C707.429504,380.954834 691.050415,349.459381 665.859680,322.961273
+	C615.686768,270.184509 554.093018,247.928650 482.193024,258.530090
+	C412.126434,268.861145 360.795593,307.269073 328.111816,369.952362
+	C312.961975,399.007721 306.877106,430.378021 308.232391,463.195557
+	C309.072418,483.535858 313.492432,503.035553 320.694183,522.004089
+	C330.159912,546.935730 346.179260,567.494385 363.748016,587.051392
+	C389.512177,615.731262 411.754883,646.359314 419.545227,685.324219
+	C421.230499,693.753479 427.282227,697.664124 436.003876,697.689026
+	C452.835785,697.737000 469.667908,697.701233 487.499969,697.700562
+	z"/>
+<path d="M599.940918,772.675232
+	C602.262573,772.688293 604.100647,772.613159 605.926208,772.731201
+	C613.082092,773.194153 618.081177,778.315002 618.281433,785.311035
+	C618.469238,791.870178 613.805237,797.434570 606.711487,797.981812
+	C599.754822,798.518555 592.722046,798.399841 585.738953,798.136414
+	C581.798645,797.987732 579.954163,799.454407 578.251648,802.998840
+	C565.277771,830.008728 544.130615,845.201660 513.708923,845.261963
+	C482.933105,845.322937 461.440979,830.115906 448.174683,802.813660
+	C446.571472,799.514282 444.783844,797.985840 441.032837,798.142273
+	C434.713593,798.405701 428.362579,798.460083 422.047394,798.147949
+	C410.276459,797.566101 404.368286,787.173767 410.362427,778.004944
+	C412.548187,774.661560 415.679230,773.050964 419.535492,772.758911
+	C421.690704,772.595703 423.864105,772.646118 426.029327,772.646362
+	C483.836731,772.652466 541.644104,772.664612 599.940918,772.675232
+	M539.176453,811.700562
+	C543.659546,808.176514 548.131104,804.643005 550.630981,798.765625
+	C525.204712,798.765625 500.627289,798.765625 475.791534,798.765625
+	C484.647827,816.906250 514.868042,828.570557 539.176453,811.700562
+	z"/>
+<path d="M495.000000,734.758118
+	C532.647766,734.755859 569.795593,734.753845 606.943359,734.752441
+	C609.941406,734.752319 612.934570,734.702087 615.850281,735.642517
+	C621.508728,737.467651 625.234070,742.848633 624.755371,748.605103
+	C624.252197,754.655273 620.070007,759.243042 614.106445,760.149475
+	C612.635437,760.373047 611.115906,760.322205 609.618713,760.322510
+	C545.817810,760.333923 482.016937,760.337463 418.216034,760.337036
+	C416.550690,760.337036 414.874786,760.392212 413.221863,760.233459
+	C407.323212,759.667114 402.879944,755.622498 401.832520,749.973267
+	C400.742706,744.095703 403.639801,738.740173 409.240967,736.125000
+	C412.057495,734.809875 415.025299,734.736328 418.038818,734.738403
+	C443.525879,734.756104 469.012939,734.754395 495.000000,734.758118
+	z"/>
+<path d="M344.674835,451.789001
+	C346.201965,435.972443 352.185730,422.744446 364.062195,412.630920
+	C367.368591,409.815338 368.244110,407.416260 367.340576,402.929901
+	C361.132050,372.101166 381.996552,336.227814 419.694061,336.780670
+	C424.571564,336.852203 425.526733,334.726776 425.722015,330.551056
+	C426.508636,313.733429 437.894409,298.806396 453.474030,293.786377
+	C474.690338,286.950012 497.540985,300.230133 502.108459,322.099884
+	C502.855988,325.679291 503.335724,329.289581 503.334503,332.991608
+	C503.302368,430.446686 503.342102,527.901733 503.313507,625.356812
+	C503.306641,648.755493 484.784271,670.028931 458.601898,667.448486
+	C442.747955,665.885986 426.763031,651.887878 422.858002,634.767334
+	C421.641113,629.432312 420.297485,624.014587 421.640289,618.493347
+	C422.407990,615.336914 421.444336,613.838196 418.329071,612.607727
+	C405.911865,607.703247 397.953674,598.343018 397.720276,585.139526
+	C397.576904,577.031616 394.977722,573.730042 388.191650,570.190552
+	C377.052277,564.380432 371.799469,553.934753 371.691467,541.344727
+	C371.653778,536.954407 370.729919,534.149536 366.545288,531.731506
+	C354.806488,524.948669 348.727448,509.452148 352.261658,495.745850
+	C353.553314,490.736511 353.284637,486.668671 350.611389,482.108032
+	C345.238770,472.942139 343.842010,462.745148 344.674835,451.789001
+	M406.981720,471.500305
+	C406.983215,466.168304 407.104187,460.832733 406.944092,455.505585
+	C406.837769,451.968628 407.919891,450.230164 411.801697,450.551666
+	C415.276978,450.839539 418.817688,450.853516 422.288788,450.538727
+	C426.254547,450.179047 427.490570,451.606079 427.430634,455.570801
+	C427.229156,468.898987 427.466614,482.233429 427.310059,495.562836
+	C427.265381,499.366516 428.431763,501.000031 432.413055,500.964539
+	C447.742828,500.827667 463.074768,500.834290 478.404968,500.933502
+	C482.041504,500.957031 483.572418,499.468506 483.567505,495.917358
+	C483.559662,490.261810 483.469391,484.595245 483.356323,478.953918
+	C482.488403,435.641113 483.625671,392.328857 483.190765,349.017822
+	C483.123993,342.368317 483.933014,335.719666 483.004425,329.063599
+	C481.704712,319.747253 475.932770,313.669617 467.008972,312.406677
+	C459.553314,311.351532 451.883514,316.053375 448.075134,323.614685
+	C445.525269,328.677307 446.399445,334.030426 446.011414,339.298462
+	C445.756348,342.761627 447.021423,345.112854 449.716339,347.428619
+	C458.482056,354.961060 463.674652,364.734161 466.009186,375.980591
+	C467.198639,381.710602 463.867004,387.122742 458.691010,388.544891
+	C453.630280,389.935364 448.524780,387.199768 446.284393,381.790375
+	C445.650909,380.260834 445.250946,378.627502 444.825134,377.020264
+	C442.375427,367.773865 436.689545,361.536163 427.588867,358.508911
+	C409.748596,352.574585 389.879822,365.726624 387.414551,385.293793
+	C386.855927,389.727448 385.014099,394.339294 387.362793,398.724030
+	C388.022278,398.815491 388.351135,398.917633 388.669861,398.892334
+	C389.165527,398.852936 389.660339,398.751740 390.145172,398.634094
+	C412.644592,393.174988 431.929810,399.384308 448.474579,414.977478
+	C453.980957,420.167145 458.206238,426.457428 460.856537,433.554199
+	C463.748474,441.297974 458.720062,447.665802 450.476746,447.356049
+	C445.168121,447.156555 442.716797,443.692322 440.501526,439.512024
+	C430.732788,421.077881 411.816162,413.185425 392.473053,419.330414
+	C369.416016,426.655273 357.431885,454.373047 369.677643,473.684143
+	C374.998322,482.074585 377.686829,489.324127 372.984161,499.068420
+	C369.265656,506.773499 374.648895,515.022705 382.715729,516.512817
+	C394.023560,518.601746 397.738098,524.837402 392.841797,535.316650
+	C388.304260,545.028015 397.833282,556.065369 406.980286,553.798828
+	C406.980286,526.748718 406.980286,499.624451 406.981720,471.500305
+	M427.370178,539.505737
+	C427.361145,549.168579 427.284332,558.832092 427.382263,568.493835
+	C427.413696,571.593933 426.945007,573.813171 423.104004,573.373230
+	C420.373749,573.060425 419.169952,574.777954 418.646881,577.095703
+	C418.095703,579.537781 417.796906,582.025940 418.190399,584.532776
+	C418.878937,588.919250 421.548492,591.679443 425.569244,593.200989
+	C429.550659,594.707642 432.166260,592.587341 434.627776,589.771973
+	C439.500519,584.198608 445.092682,579.467773 451.974213,576.557922
+	C457.267578,574.319519 462.596466,575.936584 465.169830,580.240540
+	C467.759399,584.571594 466.598633,590.805115 462.337616,594.190125
+	C460.397156,595.731628 458.122009,596.852966 455.993774,598.156860
+	C443.542023,605.785706 438.511414,624.378296 445.508667,636.916870
+	C452.778107,649.943237 471.631317,650.370728 479.385223,637.703003
+	C482.633392,632.396362 483.605011,626.545898 483.571167,620.469910
+	C483.420044,593.327271 483.219299,566.184937 483.071655,539.042297
+	C483.046295,534.380188 483.208344,529.717346 483.252655,525.054504
+	C483.282318,521.932800 482.229156,520.197815 478.574219,520.235901
+	C463.248596,520.395569 447.920197,520.361572 432.593414,520.283447
+	C429.201324,520.266113 427.612915,521.852051 427.513336,525.018311
+	C427.372009,529.512329 427.408630,534.011902 427.370178,539.505737
+	z"/>
+<path d="M569.685181,292.904968
+	C588.369751,298.843201 598.576233,311.270508 600.409851,330.402954
+	C600.807068,334.548157 601.783325,336.858276 606.925720,336.816071
+	C635.170349,336.584229 654.400391,356.407501 659.320496,382.476135
+	C660.764648,390.127441 660.640625,397.700439 658.514404,405.206696
+	C657.794617,407.747650 658.443665,409.721771 660.528503,411.372589
+	C673.421265,421.581635 679.748352,435.262726 681.648987,451.311584
+	C683.072815,463.333282 680.239075,474.455231 674.476562,484.878693
+	C672.997192,487.554749 672.594482,489.881653 673.303284,492.857391
+	C677.581543,510.819244 672.990479,522.629456 657.693542,533.181885
+	C655.802124,534.486633 655.140503,535.890259 655.142578,538.118469
+	C655.158203,555.001221 647.810608,567.147705 631.864563,573.525146
+	C629.391724,574.514099 628.890747,575.857910 629.057190,578.442749
+	C630.070679,594.173218 623.112854,605.799988 608.680725,612.302856
+	C605.176270,613.881836 604.597412,615.703125 604.726929,619.519653
+	C605.322571,637.072510 599.789978,652.222168 584.187927,661.754150
+	C569.807556,670.539856 554.765686,670.326172 540.934509,660.634827
+	C528.526123,651.940369 522.863342,638.896057 522.809875,623.990112
+	C522.585693,561.519592 522.703064,499.047882 522.701843,436.576599
+	C522.701172,401.925873 522.626648,367.274841 522.754639,332.624573
+	C522.823853,313.887115 533.715210,298.805664 550.570496,293.565277
+	C556.725586,291.651611 562.968384,291.163818 569.685181,292.904968
+	M589.147766,483.646545
+	C582.644043,490.333191 576.307251,497.194611 569.566284,503.632843
+	C566.190186,506.857269 565.826965,509.054932 569.234680,512.592834
+	C579.402039,523.148438 589.361084,533.913696 599.128479,544.841125
+	C603.085815,549.268433 607.041748,552.774902 613.270447,553.940979
+	C619.952393,555.191895 625.857971,555.213684 630.724060,549.904541
+	C635.393066,544.810425 635.219238,539.421875 632.242920,533.333191
+	C628.542480,525.763123 633.050049,517.416931 641.403809,516.757324
+	C650.621033,516.029541 658.179688,505.666779 652.598267,496.773712
+	C648.122314,489.641937 650.020020,483.366974 654.502991,476.919830
+	C663.657898,463.753815 663.470276,449.803619 655.348877,436.509186
+	C638.972229,409.701355 601.331055,411.219788 586.027405,438.970062
+	C582.817993,444.789856 582.772278,444.746063 578.150940,440.370636
+	C575.395264,437.761688 573.153992,433.752014 568.108643,436.549744
+	C566.750854,437.302673 565.690918,435.937347 565.702881,434.295105
+	C565.715454,432.565186 566.490540,431.081329 567.259277,429.599609
+	C580.210754,404.635345 607.303711,392.050079 634.946533,398.320770
+	C638.685242,399.168884 639.713867,397.967377 639.735657,394.435272
+	C639.784119,386.578644 638.029419,379.219391 633.997437,372.497894
+	C626.313354,359.688293 612.603760,354.083069 599.349976,358.317596
+	C588.998962,361.624725 583.506165,369.235504 580.760925,379.397308
+	C578.775024,386.748444 573.583252,390.214203 567.746521,388.582977
+	C561.819824,386.926483 559.161499,381.424011 560.771851,374.114777
+	C562.835815,364.746429 566.911743,356.054810 574.215332,350.096252
+	C580.567993,344.913391 581.218933,339.015778 580.652405,332.012085
+	C579.738464,320.712250 571.033875,312.093140 560.626221,312.265106
+	C550.767456,312.427979 543.235901,321.155670 543.010071,332.719940
+	C542.945007,336.051086 542.970398,339.383972 542.950867,342.716064
+	C542.647583,394.525238 543.585205,446.338745 542.422180,498.145416
+	C542.386536,499.735016 541.891357,501.519684 543.500427,502.808746
+	C545.425964,502.735016 546.303101,501.132324 547.417175,499.992706
+	C562.089111,484.984436 576.711121,469.927368 591.383972,454.919983
+	C592.764893,453.507538 594.282654,451.451141 595.945312,451.224823
+	C603.607605,450.181641 611.323303,450.649597 620.566406,450.765320
+	C610.066101,462.878693 599.708130,472.874298 589.147766,483.646545
+	M575.169861,642.742065
+	C580.965881,638.440002 583.467041,632.415771 583.663086,625.461670
+	C584.022705,612.702942 578.732849,603.097778 567.464233,596.690247
+	C559.931824,592.407288 557.590881,586.200500 560.780640,580.731812
+	C564.077393,575.079712 570.830444,574.253418 578.409424,578.600525
+	C583.816162,581.701782 588.240723,585.963074 592.454468,590.486877
+	C596.095093,594.395386 599.639160,594.578735 603.798157,591.200378
+	C607.898804,587.869446 609.463379,581.725098 607.639038,576.743164
+	C606.863892,574.626282 605.700073,573.161316 603.322937,573.429932
+	C599.517761,573.859985 597.236816,571.771912 594.881348,569.173645
+	C581.915100,554.870972 568.836121,540.670227 555.739380,526.486633
+	C554.573975,525.224487 553.666992,523.242737 551.402588,523.630188
+	C548.453735,524.134766 542.481201,532.153320 542.528320,535.376831
+	C542.664429,544.693604 542.842896,554.010437 542.880493,563.327759
+	C542.963074,583.790710 542.525635,604.267212 543.136963,624.713196
+	C543.696655,643.429626 560.113220,652.607605 575.169861,642.742065
+	z"/>
+</g>
+</svg>
+Flywheel</div>
+  <div class="nav"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10.268 21a2 2 0 0 0 3.464 0" /> <path d="M22 8c0-2.3-.8-4.3-2-6" /> <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /> <path d="M4 2C2.8 3.7 2 5.7 2 8" /> </svg><span class="grow">Needs you</span><span class="cnt y">4</span></div>
+  <div class="nav"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /> </svg><span class="grow">All agents</span><span class="cnt z">3</span></div>
+  <div class="grp">Projects</div>
+  <div class="nav "><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /> </svg><span class="grow">flywheel <span class="mono key">FLY</span></span><span class="cnt y">4</span></div>
+  <div class="ssub"><div class="ss waiting cur"><span class="dot waiting"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /> </svg></span><span class="t"><span class="mono" style="font-size:12px;opacity:.8">FLY-6</span> Show project progress at a glance</span><span class="l">Waiting on you · 4 min</span></div><div class="ss running "><span class="dot running"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 12a9 9 0 1 1-6.219-8.56" /> </svg></span><span class="t"><span class="mono" style="font-size:12px;opacity:.8">FLY-4</span> Make clicking and navigation predictable</span><span class="l">Make Waiting on you and All agents replace…</span></div><div class="ss stopped "><span class="dot stopped"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="10" x2="10" y1="15" y2="9" /> <line x1="14" x2="14" y1="15" y2="9" /> </svg></span><span class="t"><span class="mono" style="font-size:12px;opacity:.8">FLY-7</span> Restyle every screen of the M2 flow</span><span class="l">Stopped: usage limit</span></div></div>
+  <div class="nav"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /> </svg><span class="grow">highknow-web <span class="mono key">HKW</span></span><span class="cnt z">0</span></div>
+  <div class="spacer"></div>
+  <div class="foot"><div class="nav quiet"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg><span class="grow">Register project…</span></div><div class="nav quiet"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" /> <path d="m3.3 7 8.7 5 8.7-5" /> <path d="M12 22V12" /> </svg><span class="grow">Worktrees</span></div><div class="nav quiet"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /> <circle cx="12" cy="12" r="3" /> </svg><span class="grow">Settings</span></div></div>
+  </aside><div class="strip"><div class="lab">Agents<b class="tnum">3</b></div><div class="lamp waiting sel"><span class="bulb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /> </svg></span><span class="t"><span class="mono">FLY-6</span>Show project progress at a glance</span><span class="l">Waiting on you · asks 2 questions · 4 min</span><svg class="i go" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="lamp running "><span class="bulb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 12a9 9 0 1 1-6.219-8.56" /> </svg></span><span class="t"><span class="mono">FLY-4</span>Make clicking and navigation predictable</span><span class="l">Doing: Make Waiting on you and All agents…</span><svg class="i go" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="lamp stopped "><span class="bulb"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <line x1="10" x2="10" y1="15" y2="9" /> <line x1="14" x2="14" y1="15" y2="9" /> </svg></span><span class="t"><span class="mono">FLY-7</span>Restyle every screen of the M2 flow</span><span class="l">Stopped: usage limit · 38 min</span><svg class="i go" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m9 18 6-6-6-6" /> </svg></div><div class="lamp empty">No other agent running · highknow-web idle</div><span class="all"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /> </svg>All agents</span></div>
+  <main class="main">
+    <div class="bar-top"><button class="btn ghost"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m12 19-7-7 7-7" /> <path d="M19 12H5" /> </svg>Back</button><div class="crumb"><b>flywheel</b><span>/</span><span>FLY-6</span><span>/</span><b>Session 1</b></div><span class="grow"></span><div class="search"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg>Search<kbd>⌘K</kbd></div><button class="btn sec"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg>Epic</button><button class="btn primary"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="M12 5v14" /> </svg>Story</button></div>
+    <div class="wgrid">
+      <div class="card sfeed">
+        <div class="sfh"><span class="st waiting"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" /> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" /> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" /> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /> </svg>Waiting on you · 4 min</span><h1><span class="mono" style="color:var(--muted);font-size:13px;margin-right:6px">FLY-6</span>Show project progress at a glance on the board</h1><span class="grow"></span><button class="btn ghost sm"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /> <path d="M14 2v4a2 2 0 0 0 2 2h4" /> <path d="M10 9H8" /> <path d="M16 13H8" /> <path d="M16 17H8" /> </svg>Raw</button><button class="btn sec sm"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect x="3" y="3" rx="2" /> </svg>Stop session</button></div>
+        <div class="sfb"><div class="turn"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 8V4H8" /> <rect x="4" y="8" rx="2" /> <path d="M2 14h2" /> <path d="M20 14h2" /> <path d="M15 13v2" /> <path d="M9 13v2" /> </svg><p>Reading the Milestone and Epic records the header will need.</p></div><div class="fr2"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /> <path d="M14 2v4a2 2 0 0 0 2 2h4" /> <path d="M10 9H8" /> <path d="M16 13H8" /> <path d="M16 17H8" /> </svg><b>Read</b><span class="mono">packages/core/src/domain/milestone.rs</span><span class="r ">212 lines</span></div><div class="fr2"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m21 21-4.34-4.34" /> <circle cx="11" cy="11" r="8" /> </svg><b>Search</b><span class="mono">“Dropped” in GLOSSARY.md</span><span class="r ">3 matches</span></div><div class="fr2"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /> <path d="m15 5 4 4" /> </svg><b>Edit</b><span class="mono">packages/desktop/src/board/MilestoneHeader.tsx</span><span class="r ">+48 −0</span></div><div class="fr2"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 19h8" /> <path d="m4 17 6-6-6-6" /> </svg><b>Run</b><span class="mono">npm --prefix packages/desktop test -- milestone-header</span><span class="r ok">passed · 2.1 s</span></div><div class="turn"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 8V4H8" /> <rect x="4" y="8" rx="2" /> <path d="M2 14h2" /> <path d="M20 14h2" /> <path d="M15 13v2" /> <path d="M9 13v2" /> </svg><p>The glossary counts a Dropped Story as closed for its Epic, but the bar is about progress you can see at a glance. That is your call, so I am asking before I draw it.</p></div>
+          <div class="call"><div class="ch"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719" /> <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /> <path d="M12 17h.01" /> </svg><b>The agent asks you 2 questions</b><span class="grow"></span><span>The session waits until you answer</span></div>
+            <div class="qs"><div class="q"><div class="tag"><span class="num">1</span>Dropped</div><div class="qq">The Milestone header shows a stacked bar of Story states. Should Dropped Stories count in the bar?</div>
+    <div class="opt on"><span class="rd"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /> </svg></span><span class="l">Count them as closed<span class="rec">Recommended</span></span><span class="d">Matches the glossary: a Dropped Story counts as closed for its Epic.</span></div><div class="opt "><span class="rd"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg></span><span class="l">Leave them out</span><span class="d">The bar shows only work that will ship.</span></div><div class="opt "><span class="rd"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg></span><span class="l">Other</span><input placeholder="Type your own answer"></div></div><div class="q"><div class="tag"><span class="num">2</span>Counts · pick any</div><div class="qq">Which counts go on the header line?</div>
+    <div class="opt on"><span class="rd"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /> </svg></span><span class="l">Epics done / Epics<span class="rec">Recommended</span></span></div><div class="opt on"><span class="rd"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /> </svg></span><span class="l">Stories merged / Stories<span class="rec">Recommended</span></span></div><div class="opt "><span class="rd"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg></span><span class="l">Stories running now</span></div><div class="opt "><span class="rd"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg></span><span class="l">Other</span><input placeholder="Type your own answer"></div></div></div>
+            <div class="cf"><button class="btn primary"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" /> <path d="m21.854 2.147-10.94 10.939" /> </svg>Send answers</button><span class="hint">Both answered. You can still change them.</span><span class="grow"></span><span class="hint">⌘↩</span></div></div>
+        </div>
+      </div>
+      <div class="card ctx">
+        <div class="sec"><h2><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 3v14" /> <path d="M12 3v8" /> <path d="M19 3v18" /> </svg>FLY-6<span class="grow"></span><span class="link"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M5 12h14" /> <path d="m12 5 7 7-7 7" /> </svg>Open Story</span></h2></div>
+        <div class="sec"><h2><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /> </svg>Acceptance criteria<span class="n">0/4</span></h2>
+          <div class="mc"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg>The header shows the Current Milestone, its Exit test and the next Milestone</div>
+          <div class="mc"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg>A stacked bar shows Story states with “Epics done / Epics · Stories merged / Stories”</div>
+          <div class="mc"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg>Each Epic row shows its own bar and “n of m Stories merged”</div>
+          <div class="mc"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="18" cy="18" r="3" /> <circle cx="6" cy="6" r="3" /> <path d="M13 6h3a2 2 0 0 1 2 2v7" /> <line x1="6" x2="6" y1="9" y2="21" /> </svg>A new project with no Milestone shows how to add one</div></div>
+        <div class="sec"><h2><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M13 5h8" /> <path d="M13 12h8" /> <path d="M13 19h8" /> <path d="m3 17 2 2 4-4" /> <path d="m3 7 2 2 4-4" /> </svg>Tasks<span class="n">2/5</span></h2>
+          <div class="mc done"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /> </svg>Read the Milestone and Epic counts in one query</div>
+          <div class="mc done"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="m9 12 2 2 4-4" /> </svg>Draw MilestoneHeader with the exit test</div>
+          <div class="mc doing"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M21 12a9 9 0 1 1-6.219-8.56" /> </svg>Agree how Dropped Stories count in the bar</div>
+          <div class="mc"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg>Draw the Epic row bar</div>
+          <div class="mc"><svg class="i " aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> </svg>Empty states</div></div>
+      </div>
+    </div>
+  </main></section>
+</body></html>
