@@ -347,7 +347,7 @@ export function endingWords(reason: EndingReason | null): string {
 }
 
 /** An RFC 3339 timestamp as the session list shows it: `2026-10-19 10:00`. */
-function formatWhen(iso: string): string {
+export function formatWhen(iso: string): string {
   return iso.replace("T", " ").slice(0, 16);
 }
 

@@ -17,7 +17,7 @@ use core::domain::session_summary::{create_summary, latest_summary_for_run};
 use core::domain::story::{set_story_state, Story, StoryState};
 use core::domain::task::{add_task, set_task_note, set_task_state, tasks_for_story, TaskState};
 use core::query::permissions::pending_requests_for_run;
-use core::query::sessions::{runs_for_story, stopped_session_for_story};
+use core::query::sessions::{run_by_id, runs_for_story, stopped_session_for_story};
 use core::session_log::{last_assistant_message, session_log_path};
 use rusqlite::{params, Connection};
 use serde_json::json;
@@ -326,6 +326,24 @@ fn the_session_list_carries_each_sessions_ending_reason() {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].ending_reason.as_deref(), Some("stopped_by_developer"));
         assert!(rows[0].ended_at.is_some());
+    });
+}
+
+#[test]
+fn one_session_is_read_by_id_with_its_stored_status_and_ending() {
+    with_scratch_worktree_root(|_| {
+        let mut f = running_story();
+        let live = run_by_id(&f.conn, &f.run.id).unwrap().expect("the session exists");
+        assert_eq!(live.status, "running");
+        assert!(live.ended_at.is_none() && live.ending_reason.is_none());
+
+        interrupt_session(&mut f.conn, &f.run.id, &f.actor_id).unwrap();
+        let ended = run_by_id(&f.conn, &f.run.id).unwrap().expect("the session exists");
+        assert_eq!(ended.status, "interrupted");
+        assert_eq!(ended.ending_reason.as_deref(), Some("stopped_by_developer"));
+        assert!(ended.ended_at.is_some());
+
+        assert!(run_by_id(&f.conn, "no-such-session").unwrap().is_none());
     });
 }
 

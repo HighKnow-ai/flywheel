@@ -194,6 +194,8 @@ function AppShell() {
         if (!activeSessionId) return null;
         return (
           <SessionSurface
+            // One surface per session: what it heard about one session never carries into another.
+            key={activeSessionId}
             sessionId={activeSessionId}
             storyId={activeSessionStoryId}
             initialFeedOffset={activeSessionInitialLogOffset}

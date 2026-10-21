@@ -311,6 +311,7 @@ export function answer(cmd: string, args: Args): unknown {
       return arg(args, "storyId") === "s-7" ? { sessionId: "ses-7b", endingReason: "usage_limit", endedAt: ago(4200) } : null;
     case "task_list": return TASKS[arg(args, "storyId")] ?? [];
     case "sessions_for_story": return RUNS[arg(args, "storyId")] ?? [];
+    case "session_get": return Object.values(RUNS).flat().find((r) => r.id === arg(args, "sessionId")) ?? null;
     case "story_session_summaries": return SUMMARIES[arg(args, "storyId")] ?? [];
     case "story_latest_session": return RUNS[arg(args, "storyId")]?.[0]?.id ?? null;
     case "board_blocked_summary": {

@@ -575,6 +575,12 @@ export async function sessionsForStory(
   return invokeCommand<RunSummaryDto[]>("sessions_for_story", { storyId, limit, offset });
 }
 
+/** One session's stored row (status, start and end, ending reason), or `null` for an unknown id.
+ * Read-only. Thin wrapper over `session_get`. */
+export async function sessionGet(sessionId: string): Promise<RunSummaryDto | null> {
+  return invokeCommand<RunSummaryDto | null>("session_get", { sessionId });
+}
+
 /** Every session summary recorded for `storyId`. Read-only. Thin wrapper over `story_session_summaries`. */
 export async function sessionSummariesForStory(storyId: string): Promise<SessionSummaryDto[]> {
   return invokeCommand<SessionSummaryDto[]>("story_session_summaries", { storyId });

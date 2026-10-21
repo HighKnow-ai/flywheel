@@ -71,6 +71,7 @@ const ROSTER: &[&str] = &[
     "session::session_answer_permission",
     "session::session_answer_question",
     "session::session_discard",
+    "session::session_get",
     "session::session_log_window",
     "session::session_pending_permissions",
     "session::session_raw_window",

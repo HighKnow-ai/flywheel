@@ -31,11 +31,14 @@ import {
   answerPermissionRequest,
   answerQuestion,
   discardSession,
+  sessionGet,
   stopSession,
   storyGet,
   subscribeAgentEvent,
 } from "../adapters/tauri";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
+import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
+import { endingWords, formatWhen } from "../board/StoryBoard";
 import { MARKS_BY_ID } from "../legend/marks";
 import { StateBadge } from "../legend/StateBadge";
 import {
@@ -442,7 +445,27 @@ export function SessionSurface({
   initialStatus = null,
   initialFeedOffset = null,
 }: SessionSurfaceProps) {
-  const [status, setStatus] = useState<RunStatus>(initialStatus ?? "running");
+  // What this view has heard: the caller's status, then any `session_closed` push or Stop/Discard
+  // result. It is only a fallback for the stored row below (issue #110).
+  const [heardStatus, setStatus] = useState<RunStatus>(initialStatus ?? "running");
+  // Issue #110: the session's stored row is the source of truth for whether it has ended, how and
+  // when. Without it, a finished session opened from its Story read "Running" with a Stop button,
+  // because nothing but a live push ever moved the status off its "running" default. Re-read on
+  // every board change, since the core writes the end after it pushes `session_closed`.
+  const storedQueryKey = useMemo(() => ["session", sessionId], [sessionId]);
+  const { data: stored } = useQuery({
+    queryKey: storedQueryKey,
+    queryFn: () =>
+      sessionGet(sessionId)
+        .then((row) => row ?? null)
+        .catch(() => null),
+    retry: false,
+  });
+  useBoardChangedInvalidation({ kind: "account" }, [storedQueryKey]);
+  const storedEnded =
+    stored != null &&
+    (stored.endedAt !== null || (isRunStatus(stored.status) && TERMINAL_STATUSES.includes(stored.status)));
+  const status: RunStatus = storedEnded && isRunStatus(stored.status) ? stored.status : heardStatus;
   // Core Value (finish-review four-1): the header names the Story this session serves. A failed or
   // empty read resolves to `null` and the header says "Session".
   const { data: itemHeader } = useQuery({
@@ -509,7 +532,8 @@ export function SessionSurface({
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     subscribeAgentEvent((event) => {
-      if (event.type === "session_closed" && isRunStatus(event.reason)) {
+      // Another session's close is not this one's (issue #110).
+      if (event.type === "session_closed" && event.runId === sessionId && isRunStatus(event.reason)) {
         setStatus(event.reason);
       }
       // The incomplete-transcript banner (plan 02-12, CR-03/PROC-07): the Rust-side reader loop
@@ -595,7 +619,7 @@ export function SessionSurface({
       });
   }
 
-  const showStop = !TERMINAL_STATUSES.includes(status);
+  const showStop = !storedEnded && !TERMINAL_STATUSES.includes(status);
 
   const entries = useMemo(
     () => feedQuery.data?.pages.flatMap((page) => page.entries) ?? [],
@@ -696,6 +720,15 @@ export function SessionSurface({
           </span>
         )}
         <RunStatusBadge status={status} />
+        {storedEnded && stored && (
+          // How and when an ended session ended (docs/mvp-spec.md §4.5), the same words the Story's
+          // session list uses.
+          <span className="type-label" data-testid="session-ending" style={{ color: "var(--text-muted-rack)" }}>
+            {`Ended: ${endingWords(stored.endingReason)} · ${formatWhen(stored.startedAt)}${
+              stored.endedAt ? ` to ${formatWhen(stored.endedAt)}` : ""
+            }`}
+          </span>
+        )}
 
         <StatusStrip entries={entries} running={status === "running" || status === "blocked"} />
 

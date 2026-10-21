@@ -81,6 +81,17 @@ pub fn runs_for_story(
     rows.context("failed to list sessions for the Story")
 }
 
+const RUN_BY_ID_SQL: &str = "SELECT id, story_id, status, started_at, ended_at, cost_usd, \
+    tokens_in, tokens_out, external_session_id, acknowledged_at, ending_reason FROM sessions WHERE id = ?1";
+
+/// One session's stored row, or `None` for an unknown id. The session view reads its status, times
+/// and ending reason from here (issue #110), so a finished session never reads as live.
+pub fn run_by_id(conn: &Connection, session_id: &str) -> anyhow::Result<Option<RunRow>> {
+    conn.query_row(RUN_BY_ID_SQL, params![session_id], row_to_run)
+        .optional()
+        .context("failed to read the session")
+}
+
 /// The dead session a Stopped Story shows (docs/mvp-spec.md §2 "Attention", §4.5).
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoppedSession {

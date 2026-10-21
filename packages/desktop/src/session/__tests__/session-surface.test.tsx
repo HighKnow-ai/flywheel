@@ -65,6 +65,8 @@ vi.mock("../../adapters/tauri", async () => {
     answerPermissionRequest: () => Promise.resolve(undefined),
     // The header's two narrow board reads (plan 11-22, four-1), routed through the same mock.
     storyGet: (storyId: string) => invokeCommandMock("story_get", { storyId }),
+    // The session's stored row (issue #110). Unstubbed it resolves to nothing, as for an unknown id.
+    sessionGet: (sessionId: string) => invokeCommandMock("session_get", { sessionId }),
   };
 });
 
@@ -1061,5 +1063,105 @@ describe("the header names the Story the session serves (11-22, finish-review fo
     await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("story_get", { storyId: "story-1" }));
     expect(screen.getByText("Session")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Issue #110: the header and controls follow the session's STORED status, not the "running" default
+ * a surface opened without a caller-supplied status used to keep for good. Opened from its Story (no
+ * `initialStatus`), a finished session must say how and when it ended and offer no Stop.
+ */
+describe("SessionSurface status from the stored session row (issue #110)", () => {
+  function storedRow(overrides: Record<string, unknown>) {
+    return {
+      id: "run-1",
+      storyId: "story-1",
+      status: "running",
+      startedAt: "2026-10-19T10:00:00Z",
+      endedAt: null,
+      costUsd: null,
+      tokensIn: null,
+      tokensOut: null,
+      externalSessionId: null,
+      acknowledgedAt: null,
+      abandonedReason: null,
+      endingReason: null,
+      ...overrides,
+    };
+  }
+
+  function mockStoredRow(row: Record<string, unknown>) {
+    invokeCommandMock.mockImplementation((command: string, args: { offset: number; limit: number }) => {
+      if (command === "session_log_window") return Promise.resolve(windowFor([], args.offset, args.limit));
+      if (command === "session_get") return Promise.resolve(row);
+      return Promise.resolve(undefined);
+    });
+  }
+
+  function renderOpenedFromStory(row: Record<string, unknown>) {
+    mockStoredRow(row);
+    return render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface sessionId="run-1" onBack={() => {}} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("a handed-off session shows how and when it ended, and offers no Stop or Discard", async () => {
+    renderOpenedFromStory(
+      storedRow({ status: "completed", endedAt: "2026-10-19T10:40:00Z", endingReason: "handed_off" }),
+    );
+
+    const ending = await screen.findByTestId("session-ending");
+    expect(ending).toHaveTextContent("Ended: handed off · 2026-10-19 10:00 to 2026-10-19 10:40");
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.queryByText("Running")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
+    expect(screen.getByText(/This run has ended/)).toBeInTheDocument();
+  });
+
+  it("a session stopped by Cyril shows the stop, its times, and offers no Stop", async () => {
+    renderOpenedFromStory(
+      storedRow({ status: "interrupted", endedAt: "2026-10-19T10:15:00Z", endingReason: "stopped_by_developer" }),
+    );
+
+    const ending = await screen.findByTestId("session-ending");
+    expect(ending).toHaveTextContent("Ended: stopped by you · 2026-10-19 10:00 to 2026-10-19 10:15");
+    expect(screen.getByText("Interrupted")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+  });
+
+  it("the stored end wins over a caller that still thinks the session is running", async () => {
+    mockStoredRow(storedRow({ status: "failed", endedAt: "2026-10-19T10:05:00Z", endingReason: "crash" }));
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="running" />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("session-ending")).toHaveTextContent("Ended: crash");
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+  });
+
+  it("a live session still shows Running with Stop and Discard, and no ending", async () => {
+    renderOpenedFromStory(storedRow({}));
+
+    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("session_get", { sessionId: "run-1" }));
+    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+    expect(screen.queryByTestId("session-ending")).not.toBeInTheDocument();
+  });
+
+  it("another session's close does not end this one", async () => {
+    renderOpenedFromStory(storedRow({}));
+
+    await screen.findByRole("button", { name: "Stop" });
+    capturedAgentEventHandler?.({ ...makeSessionClosed(1, "completed"), runId: "run-2" });
+
+    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("session_get", { sessionId: "run-1" }));
+    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
   });
 });
