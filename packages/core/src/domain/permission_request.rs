@@ -212,7 +212,11 @@ pub fn create_pending_request(
         "before": null,
         "after": id,
         "tool_name": tool_name,
-        "label": format!("{tool_name} asked to run"),
+        "label": if crate::domain::question::is_question(tool_name) {
+            "The agent asked a question".to_string()
+        } else {
+            format!("{tool_name} asked to run")
+        },
     });
     append_event(
         &tx,
@@ -267,6 +271,16 @@ pub fn answer_request(
 ) -> anyhow::Result<PermissionRequest> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
+
+    // Issue #100: a question is answered with answers (`domain::question::answer_question`), never
+    // with allow or deny, and no rule may ever be granted from it.
+    let tool: Option<String> = tx
+        .query_row("SELECT tool_name FROM permission_requests WHERE id = ?1", params![request_id], |row| row.get(0))
+        .optional()
+        .context("failed to read the request's tool before answering it")?;
+    if tool.as_deref().is_some_and(crate::domain::question::is_question) {
+        bail!("request {request_id:?} is the agent's question: answer it, it is not allowed or denied");
+    }
 
     // D-57 (plan 03-07): a destructive request can never be granted `allowed_always` — the
     // persistable-grant decision is structurally absent from this path, not merely discouraged.

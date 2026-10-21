@@ -20,10 +20,11 @@
  * standing rule offered.
  */
 import { useQueryClient } from "@tanstack/react-query";
-import { answerPermissionRequest, type BlockedQueueEntryDto } from "../adapters/tauri";
+import { answerPermissionRequest, answerQuestion, type BlockedQueueEntryDto } from "../adapters/tauri";
 import { pendingPermissionRequestsQueryKey } from "../board/useBoardQuery";
 import { formatAge } from "../legend/runStatus";
 import { PermissionRequestCard, type PermissionDecision } from "../session/PermissionRequestCard";
+import { ASK_USER_QUESTION_TOOL } from "../session/feedRows";
 import { blockedQueueQueryKey, fleetQueryKey } from "./useFleet";
 
 /** What the waiting session is about: its Story's key and title. */
@@ -48,6 +49,16 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
     rule?: string,
   ) {
     await answerPermissionRequest(requestId, decision, rule);
+    refresh(entry);
+  }
+
+  /** Issue #100: an agent's question is answered here too, with answers, never Allow / Deny. */
+  async function onAnswerQuestion(entry: BlockedQueueEntryDto, requestId: string, picks: Record<string, string[]>) {
+    await answerQuestion(requestId, picks);
+    refresh(entry);
+  }
+
+  function refresh(entry: BlockedQueueEntryDto) {
     // Re-read rather than edit local state, so the keyboard owner moves because the list moved.
     void queryClient.invalidateQueries({ queryKey: blockedQueueQueryKey() });
     void queryClient.invalidateQueries({ queryKey: fleetQueryKey() });
@@ -65,10 +76,13 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
     );
   }
 
+  // A question takes no keystroke (issue #100), so A and D belong to the first permission request.
+  const ownerIndex = entries.findIndex((e) => e.toolName !== ASK_USER_QUESTION_TOOL);
+
   return (
     <div role="list" aria-label="Requests waiting on you" style={{ display: "flex", flexDirection: "column" }}>
       {entries.map((entry, index) => {
-        const owner = index === 0;
+        const owner = index === ownerIndex;
         const subject = subjectText(entry);
         return (
           <div
@@ -119,6 +133,7 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
                 },
               ]}
               onAnswer={(requestId, decision, rule) => onAnswer(entry, requestId, decision, rule)}
+              onAnswerQuestion={(requestId, picks) => onAnswerQuestion(entry, requestId, picks)}
             />
           </div>
         );

@@ -32,6 +32,7 @@ import {
   startPermissionServer,
   type PermissionNoticePayload,
   type PermissionServerHandle,
+  type QuestionAnswers,
 } from "./mcp-permission-server.js";
 
 /** The binary name/path this adapter spawns — overridable via `FLYWHEEL_CLAUDE_BIN` so tests can
@@ -1350,10 +1351,10 @@ export class ClaudeCodeAdapter implements AgentAdapter {
    * spawned (mirrors `interruptSession`/`killSession`'s own guard); a `requestId` matching no
    * currently-held call for a known run is a logged no-op inside
    * `PermissionServerHandle.resolvePermission` itself, never an error here. */
-  resolvePermission(runId: string, requestId: string, decision: "allow" | "deny"): void {
+  resolvePermission(runId: string, requestId: string, decision: "allow" | "deny", answers?: QuestionAnswers): void {
     const session = liveSessions.get(runId);
     if (!session) throw new UnknownRunError(runId);
-    session.permissionServer.resolvePermission(requestId, decision);
+    session.permissionServer.resolvePermission(requestId, decision, answers);
   }
 
   /** Issue #52: relay the Rust core's answer to `runId`'s held board tool call — its result, or

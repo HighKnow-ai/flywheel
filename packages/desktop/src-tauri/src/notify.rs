@@ -126,6 +126,10 @@ fn cap(raw: &str, max: usize) -> String {
 /// input (command, path, URL): a capped command is still a command, and `export TOKEN=...` puts the
 /// secret in the first few characters. The notification centre retains and syncs what it is given.
 pub fn banner_body(tool_name: &str) -> String {
+    // Issue #100: a question is the agent asking, not a tool waiting for permission.
+    if flywheel_core::domain::question::is_question(tool_name) {
+        return "The agent has a question for you.".to_string();
+    }
     let tool = cap(tool_name, TOOL_CAP);
     if tool.is_empty() { "a tool".to_string() } else { tool }
 }
