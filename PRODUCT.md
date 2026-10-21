@@ -2,198 +2,181 @@
 
 <!-- impeccable:product-schema 1 -->
 
+> **Provenance.** Rewritten on 2026-10-21 for issue #102 with `impeccable init`, from `docs/mvp-spec.md`,
+> `GLOSSARY.md`, `CLAUDE.md` and the owner's written input on issue #102 and Epic #97. Init's interview
+> could not run in that session (no question tool was available to the agent), so nothing here comes
+> from a fresh interview: every fact is taken from those documents, and the few that are inferences are
+> marked *(inferred)*. `docs/mvp-spec.md` wins wherever this file and it disagree. Records and states
+> use the glossary's terms exactly.
+
 ## Platform
 
 web
 
-Rendered in a macOS-native WebView inside a Tauri v2 desktop shell. It is a **macOS desktop
-application**, not a website: macOS window chrome, the macOS menu bar, ⌘-based key idioms, and
-native materials are all in scope. Windows and Linux are explicitly out of v1 (confirmed
-2026-09-09).
+Rendered in a macOS WebView (WKWebView) inside a Tauri v2 desktop shell. It is a **macOS desktop
+application**, not a website: macOS window chrome, the macOS menu bar, ⌘-based key idioms and native
+materials are all in scope. Desktop only in v1; Windows, Linux, mobile and web are out of v1.
 
 ## Stack
 
-Locked before this record was written, in `.claude/CLAUDE.md` § Technology Stack:
-Tauri v2 (Rust core, `rusqlite`/SQLite store of record) + a bundled Node.js sidecar hosting the
-Claude Agent SDK + a React renderer. Supporting UI libraries already chosen:
-`@tanstack/react-query` (server state), `@tanstack/react-virtual` (list virtualization),
-`react-diff-view` and `@monaco-editor/react` (later phases), `@xyflow/react` (later phases),
-Zustand or Jotai (local UI state only).
+Decided in `CLAUDE.md` § Technology Stack: Tauri v2 (Rust core, SQLite through `rusqlite` as the store
+of record) with a bundled Node.js sidecar that drives the developer's own `claude` binary, and a React
+renderer. UI libraries installed: `@tanstack/react-query` (server state only), `@tanstack/react-virtual`,
+`react-diff-view`, Zustand (UI state only), `lucide-react` for icons. Not installed, and not to be planned
+on without an install that actually runs: Monaco, `@xyflow/react`.
 
-**Binding renderer constraint:** every Tauri `invoke`/`listen` call sits behind one thin adapter
-module, so the same React tree can later be pointed at a REST/WebSocket relay client with a
-single-file swap.
+**Binding renderer constraint:** every Tauri `invoke`/`listen` call goes through one adapter module
+(`packages/desktop/src/adapters/tauri.ts`), so the same React tree can later point at a relay client.
 
 ## Users
 
-**Primary user: a solo developer running "loop engineering"** — continuously draining a backlog by
-supervising many AI coding agents at once across many projects, rather than hand-driving one
-terminal at a time. Cyril is the first user and the product is designed against his real project
-structure.
+**One Developer**, who acts as product owner, architect and developer in turn (glossary: Developer).
+Cyril is the first user and every role in the MVP. He runs "loop engineering": draining a backlog with
+AI agents across several of his own projects instead of hand-driving one terminal at a time.
 
-The situation is sustained, high-frequency, expert desk work: the app is open all day on a
-developer's own machine, alongside a terminal and an editor, and is returned to dozens of times an
-hour. The job is *supervision* — knowing what every agent is doing, what is blocked, what needs a
-human decision, and what to hand out next.
+The situation is sustained expert desk work. Flywheel is open all day beside a terminal and an editor,
+glanced at constantly and read carefully now and then. The job splits in two:
 
-A future team audience (teammates sharing a git repository and sharing project state through a
-relay) is a confirmed direction (decision D-20) but not a v1 audience.
+- **Shaping:** turning an idea into an Epic with Stories, Acceptance criteria and Checks, with an agent
+  challenging each record until nothing in it is open.
+- **Supervision:** knowing at a glance what every Story session is doing, what is Waiting on you, what is
+  Stopped, what is In review, and how far the Current Milestone has come.
+
+A team audience sharing a project through a relay is a possible later direction, not a v1 audience.
 
 ## Product Purpose
 
-Flywheel is an Agentic Development Environment: a desktop application that lets one developer
-supervise many AI coding agents at once, across many projects, by multiplexing git worktrees.
+Flywheel is a project board where one Developer shapes work with AI agents and has them carry it out.
+Agents suggest work and challenge the Developer's thinking at every level; the Developer decides.
 
-Work is not organised as chat sessions or as files in a planning folder — it lives as epics, tasks
-and issues on a project board that the agents read from *and write to*. The agent challenges the
-developer Socratically while an epic is shaped, decomposes it into tasks, fans those tasks out into
-isolated worktrees, executes them, and proposes new issues back onto the board as it learns.
+The board holds a **Roadmap** of **Milestones**; each Milestone holds **Epics**; each Epic holds
+**Stories**. A Story is the unit an agent executes, in its own git worktree and branch. It carries
+**Acceptance criteria**, each with an optional **Check**, and its agent keeps a **Task** checklist.
+Agents change the board only through **Proposals** the Developer accepts.
 
-Success is that a developer can keep more concurrent agent work in flight, with less lost context
-and fewer abandoned threads, than they could by driving terminals by hand.
+**Success, in the MVP's own exit test:** Cyril runs one week of real work across his own projects from
+Flywheel without dropping back to a bare Claude Code terminal.
 
 ## Positioning
 
-**Every unit of agent work is anchored to a structured board item with real acceptance criteria —
+**Every unit of agent work is anchored to a structured board record with real Acceptance criteria,
 never a chat blob.** If everything else fails, this must hold.
 
-The mechanism a neighbouring product could not truthfully copy: *the board is the
-context-reconstitution mechanism that makes `/clear` free.* A worktree is a cheap, durable resource
-owned by a task and outliving many agent sessions; an agent context is expensive, short-lived and
-disposable. Chat-native tools cannot discard a context without losing the thread, so their contexts
-rot. A board-native ADE can discard contexts constantly and lose nothing, because every new session
-reconstitutes from the issue, its acceptance criteria, prior session summaries and the diff so far.
+The mechanism a chat-native tool cannot copy: *the board is what makes `/clear` free.* A worktree is
+cheap and durable and belongs to its Story across many sessions; an agent context is expensive and
+disposable. Every new Story session is rebuilt from a **Context packet** read off the board and the
+worktree (the Epic spec, the Story and its criteria with their Check results, the Task checklist with
+each Task's note, the last **Session summaries**, the diff so far). Ending a session loses nothing, so
+Flywheel can end sessions freely, and Resume is always a fresh session from that packet.
 
 ## Operating Context
 
-- **Local-first, credentials-never-leave-the-desk.** Agents run as OS processes on the developer's
-  own machine using their existing local agent credentials.
-- **Always-on desk companion.** Open all day beside a terminal and an editor; glanced at constantly,
-  read carefully occasionally.
-- **Multi-project by default.** The user registers several of their own local git repositories as
-  projects and moves between their boards. A single fleet-wide store, not one database per repo.
-- **Rituals it must serve:** shaping an epic; decomposing it into tasks with acceptance criteria;
-  handing work out; checking what is in flight; reviewing a diff; triaging agent-proposed issues.
-- **Adjacent tools it sits beside:** the terminal, the editor, `git`, and the forge (GitHub).
+- **Local-first.** Agents run on the Developer's machine with his existing Claude Code credentials.
+  Credentials never leave the desk.
+- **Multi-project.** Several local git repositories registered as projects, one fleet-wide store.
+- **Records and states** (glossary terms, fixed):
+  - Story state: Shaping → Ready → Running → In review → Merged, or Dropped from any state but Merged.
+  - Epic state and Milestone state: Shaping → Ready → In progress → Done (Milestones can also be
+    Dropped). Done only when the Developer confirms the Exit test.
+  - Task states: open, doing, done, dropped (with a reason). At most one doing: that is "what its agent
+    is doing now".
+  - Check results: not run, passed, failed, timed out; stale when the branch moves.
+- **Attention, worked out from the session and never stored:** **Waiting on you** (a live session held
+  by a Gated action, a permission request, a question the agent asked, or an open shaping question) and
+  **Stopped** (a Running Story with no live session and no hand-off). Attention is shown in place of the
+  state word.
+- **Needs you:** the ranked list of everything waiting on the Developer in a project, oldest first
+  within a kind: Gated actions and permission requests, Stopped sessions, reviews, Confirm exit test,
+  Proposals, shaping Rounds.
+- **Rituals it must serve:**
+  - shaping a Milestone's Exit test and an Epic in Stages and Rounds of numbered questions with
+    recommended answers, in a dock beside the board;
+  - starting a Ready Story, following its session feed, answering what it is Waiting on you for,
+    stopping it and resuming it;
+  - glancing at project progress: the Current Milestone, its Epics and their Stories by state;
+  - reviewing a Story In review against its criteria and Checks, and merging it;
+  - triaging Proposals filed during execution.
+- **Permissions:** allow by default inside the Story's worktree; a permission request outside it is
+  asked once with **Allow once** / **Always allow `<pattern>` in this project**; a **Gated action**
+  (every `git push`, destructive git, deleting outside the worktree, publishing) is asked every time
+  with Allow once / Deny and never covered by a rule.
+- **Adjacent tools:** the terminal, the editor, `git` and GitHub. GitHub Issues stays Flywheel's own
+  plan of record until the MVP exit test passes.
 
 ## Capabilities and Constraints
 
-**Confirmed for the first phase (the board itself):**
-- A fixed three-level hierarchy — epic → task → issue — that cannot be reconfigured.
-- A fixed workflow — Backlog → Todo → In Progress → In Review → Done — that cannot be customised.
-- Acceptance criteria as discrete, individually checkable rows with their own identity, carried on
-  tasks and epics but not on issues. Each is a checkable statement plus a verification hint.
-- A human-readable per-project key (`FLY-142`) on every item alongside its ULID, because git branch
-  names and commit trailers derive from it. It must be typeable, greppable and stable.
-- Manual rank (fractional index) *and* a priority field; priority sorts first, manual rank orders
-  within a priority band.
-- A nullable coarse `estimate` that nothing aggregates — no velocity, no burndown, no capacity,
-  nowhere in the UI. Retrospection comes from measured agent-run data, not human estimates.
-- Every mutation is actor-attributed, with humans and agents as distinct actors of one model, and is
-  written to an append-only event log in the same transaction as the row it updates.
-- The item activity trail renders straight from that event log; there is deliberately no second,
-  denormalised history table.
-
-**Binding constraints:**
-- **Rigidity is the feature.** Non-configurability is a product commitment, not an unfinished
-  settings screen. Never design an affordance to customise the hierarchy or the workflow.
-- **Performance is a design constraint, not a later optimisation.** Search, filter, reorder and
-  navigation must feel instant on a project holding at least 1,000 items. Virtualised rendering and
-  indexed queries from the first build.
-- **Search, filter and sort execute as indexed SQL in the Rust core.** There is deliberately no
-  second in-memory filtering implementation in the renderer — "the board disagrees with itself" is
-  the trust failure this product cannot have.
-- **No v1 decision may foreclose** scheduled automations, team collaboration, a mobile/web relay, or
-  additional agent backends.
-- **The open/paid boundary must fall on a clean module seam.** The desktop app is open source; the
-  cloud/relay/teams layer is commercial.
-- **Terminology is fixed:** project, epic, task, issue, acceptance criterion, worktree, agent run,
-  session, artifact, actor, event.
-
-**Explicitly undecided:**
-- The estimate scale itself (S/M/L vs Fibonacci).
-- Whether the project key prefix is derived from the repository name or user-chosen, and whether it
-  stays editable once items exist.
-- Whether search spans projects or is per-project.
+- **One opinionated way of working.** Fixed records, fixed states, one shaping primitive (grilling).
+  No configurable workflow, no swappable skill packs.
+- **Human-only decisions.** Accepting a criterion at review, merging, closing a Stage, confirming an
+  Exit test and accepting a Proposal are the Developer's actions, never an agent's.
+- **A Story's agent writes its Task checklist** in its first session, after reading the code the Story
+  touches; the Developer can edit it at any time. Flywheel never infers ticks from the diff.
+- **Checks** are shell commands run by Flywheel at hand-off; a result belongs to the commit it ran on.
+- **The session feed is readable:** agent turns as markdown, tool calls and Proposals as structured
+  rows, noise left out. A healthy run must not look stalled.
+- **Every action the flow needs has a visible control**, not only a palette entry or a hidden key
+  (spec §7, Epic #97).
+- **Architecture:** no v1 decision may foreclose scheduled automations, teams, a relay, or more agent
+  backends; Claude Code is the only backend in v1, behind an adapter interface. The open-source desktop
+  app and the commercial cloud layer meet on a clean module seam.
+- **Undecided:** the visual world that replaces "Mission Control" (Story #103); the layout of the
+  Roadmap strip and roster (Epic M4 "Board and review").
 
 ## Brand Commitments
 
-The product is **"Flywheel" by HighKnow**. The name is fixed. "Harness" was rejected because it
-collides with Harness.io, a large company in the identical category.
+The product is **"Flywheel" by HighKnow**. The name is fixed ("Harness" collides with Harness.io).
 
-**Pinned brand colour: `#3c64dd`** = `hsl(225, 70%, 55%)`. Supplied by the owner on 2026-09-09 as
-"main color", and independently pinned in HighKnow's existing token file (`tailwind-preset.css`,
-"PINNED BY THE OWNER, 2026-08-17: *Keep my main color*"), where it is recorded as having been read
-out of the logo. It outranks any direction that cannot carry it.
+**Pinned brand colour: `#3c64dd`** (`hsl(225, 70%, 55%)`), read from the HighKnow logo and pinned by the
+owner. **The pin is on the hue, not on the hex:** where `#3c64dd` cannot be read on a surface (it measures
+3.66:1 on near-black), the same hue is lifted until it can, and the lift is recorded.
 
-**The pin is on the hue, not on the hex** — the owner's own recorded rule: *"a brand that cannot be
-read on its own product surface has not been honoured by being pasted in unchanged."* The precedent
-set alongside it is `--color-brand-lift: #7d99ff`, the same hue lifted for a dark ground because
-`#3c64dd` measures 3.66:1 on near-black and fails AA for body text. Flywheel inherits the rule, and
-derives its own lifts where its own grounds require them.
+**Mark:** Flywheel ships under the HighKnow lightbulb-brain mark (decided 2026-10-07). Only the app icon,
+the About item and the first-run and sidebar surfaces render a logo.
 
-**The HighKnow mark** (`logo.svg`, 1024×1024, `rx=200`): a lightbulb whose filament is a brain, with
-**H** and **K** formed by the two hemispheres. White line-art of uniform weight with rounded joins,
-drawn as filled outlines rather than strokes, on a brand-blue rounded square. This is the **company**
-mark. Whether Flywheel ships it as its own product mark, or earns a distinct one under it, is an open
-decision for the owner.
+**House method, kept from the HighKnow token file:**
+- Contrast is **measured and recorded at the point of decision**, and re-verified by a runnable
+  assertion, not by a comment.
+- **Meaning never rests on colour alone:** every state carries an icon or a word too.
+- Every colour token carries exactly one meaning.
+- Type is self-hosted, so an approval on one machine renders identically on another.
 
-**Inherited house method** — demonstrated by the existing token file and adopted here as discipline,
-not as values:
-- Contrast ratios are **measured and recorded at the point of decision**, and re-verified by a
-  runnable assertion rather than by the comment claiming it.
-- Every colour token carries **exactly one meaning**; giving a reserved signal a second job spends it.
-- Secondary text on a tinted surface is **tinted from that surface's hue, never neutral grey**.
-- Type is **self-hosted for reproducibility**, so an approval on one machine renders identically on
-  another.
-- **Exactly one easing curve** across the product.
-- **Meaning never rests on colour alone** — every state carries an icon or a label too.
-
-**Not inherited: the sibling product's token values.** `tailwind-preset.css` is HighKnow's
-*call-capture* product — its light "companion" scale and dark "overlay" scale were derived from that
-product's scenes (a panel floating over a customer's video tile; a sit-and-read summary surface).
-Flywheel's scene is a dense, all-day, keyboard-driven board on a developer's macOS desktop, and its
-own scale must be derived from that scene. Public Sans, the neutral ramps, and the semantic accents
-(`--color-absent`, `--color-warn`, `--color-error`) are precedent to reason from, not defaults to
-adopt.
-
-**Decided (2026-10-07):** Flywheel ships under the HighKnow lightbulb-brain mark. Flywheel earning
-its own mark under the HighKnow name stays available if it ever gets a commercial identity of its
-own. Only the app icon, the About item and the first-run and project-rail surfaces render a logo.
-
-(The visual world itself was settled on 2026-09-09 in an Impeccable direction round and lives in
-`planning-archive:.planning/phases/01-the-board-is-the-store-of-record/01-UI-SPEC.md`, not here — a visual world is
-not product truth.)
+**Decided 2026-10-21 (issue #102 input):** the "Mission Control" visual world is **replaced, not
+refined**, and all design work goes through the `impeccable` skill. Its look is evidence for the new
+direction, not a constraint on it. Its specific rules (no filled buttons, the brand spent only on
+progress, square rows, no tinted rows) no longer bind.
 
 ## Evidence on Hand
 
-- Real project artifacts to design against: this repository's former `.planning/` structure (git tag
-  `planning-archive`) — a real
-  roadmap of 11 phases, 93 requirements, and phase context documents. This is genuine content of
-  exactly the shape the board must hold, and it is the honest source for demonstration data.
-- **No customers, benchmarks, pricing, testimonials, uptime figures, or performance measurements
-  exist.** None may be fabricated. The "1,000 items with no perceptible lag" figure is a
-  *requirement to meet*, not a measured result to advertise.
-- No screenshots, logos, or marketing material exist yet.
+- **Real content to design against:** Flywheel's own backlog in GitHub Issues (Milestones M1 to M5,
+  Epics #45 to #65 and #97, their Stories), and the archived `.planning/` tree at the git tag
+  `planning-archive`.
+- **Owner feedback from the M2 runs:** issue #102 ("navigation is difficult … nothing really stands out
+  … elements I expect to be clickable are not … randomly opens the agent … very few icons … I cannot
+  quantify project progress at a glance") and Epic #97's comment (writing Milestones, Epics and Stories
+  by hand was tedious; no Check was ever added in three runs).
+- **Renders of the built app:** `docs/design/critique-2026-10/` (light and dark, every M2 screen), made
+  from the real components over seeded data (`packages/desktop/src/test/critique/`).
+- **No customers, benchmarks, pricing, testimonials or performance measurements exist.** None may be
+  fabricated.
 
 ## Product Principles
 
-1. **The board is the store of record.** If the board and any other surface disagree about what
-   happened, the board is right and the other surface is a bug.
-2. **Rigidity over configurability.** A fixed hierarchy and a fixed workflow are the product. Every
-   settings affordance not shipped is a decision, not an omission.
-3. **Anchored, never conversational.** Every unit of agent work points at a structured item with
-   real acceptance criteria. Nothing important lives only in a chat transcript.
-4. **Attribution is not optional.** Every change names its actor and its moment. Humans and agents
-   are peers in one actor model, and the trail is readable by a person, not just by a sync engine.
-5. **Supervision speed is the felt quality.** This is expert software used all day at high
-   frequency; keystroke latency, information density and predictable focus outrank first-run charm.
+1. **The board is the store of record.** If the board and any other surface disagree, the board is right
+   and the other surface is a bug.
+2. **Anchored, never conversational.** Every unit of agent work points at a Story with real Acceptance
+   criteria; nothing important lives only in a transcript.
+3. **The Developer decides.** Agents propose and ask; acceptance, merge and every Gated action are the
+   Developer's explicit, visible act.
+4. **Supervision at a glance.** What needs the Developer, what is running and how far the Milestone has
+   come must be readable in one look, without opening anything. *(inferred from the #102 input and spec
+   §7)*
+5. **Predictable over clever.** A click goes where it says, and nothing opens on its own. *(inferred
+   from the #102 input)*
 
 ## Accessibility & Inclusion
 
-- **Full keyboard operability is a hard product requirement (BOARD-07), not an accessibility
-  nicety.** Board navigation and every common item action must be drivable entirely from the
-  keyboard, with a ⌘K command palette as the discoverable escape hatch so coverage is never gated on
-  memorising bindings.
-- Beyond that, no product-specific standard (WCAG level, screen-reader target, localisation) has
-  been established. Undecided, not waived.
+- **Meaning never on colour alone** and **measured contrast** are binding (Brand Commitments).
+- Every action the flow needs is reachable from a visible control; the keyboard is an accelerator, not
+  the only path.
+- No further standard (WCAG level, screen-reader target, localisation) has been set: undecided, not
+  waived.

@@ -1,0 +1,332 @@
+# Critique of the built app, October 2026
+
+**DEGRADED: single-context** (run without impeccable's two isolated sub-agent assessors: the task's rules
+allowed helper agents only where impeccable ships one, and critique's design-review and detector
+assessors are not shipped agents. The design review below was written and its scores fixed before the
+detector output was read.)
+
+Issue #102, Epic #97. Run with `impeccable critique` on 2026-10-21, against `main` at `ddb8a5d5`.
+
+The owner has already decided to **replace** the "Mission Control" world, so this is not a polish list. It
+is the evidence the next Story (#103, "Pick Flywheel's new visual world") designs against: what the
+screens do today, why each of Cyril's five complaints happens, and which screens and states a new world
+has to cover.
+
+## How the screens were rendered
+
+The renderer reaches Tauri only through `packages/desktop/src/adapters/tauri.ts`, which calls `invoke` and
+`listen` from `@tauri-apps/api`. The cheapest honest render is the real `<App />` with only that transport
+faked:
+
+- `packages/desktop/src/test/critique/m2-fixture.ts` answers every IPC command with Tauri's own `mockIPC`,
+  from seeded data shaped like Flywheel's own backlog: two projects, the Milestone "Shaping" with two
+  Epics, a Story in every Story state, a live session, a Gated action, a permission request, an agent's
+  question, a Stopped Story and a handed-off session. No database is opened.
+- `m2-flow.critique.browser.test.tsx` mounts the app in Playwright's WebKit (the engine closest to the
+  shipped WKWebView) at **1440 × 900**, walks the M2 flow by clicking the real controls, and screenshots
+  each screen in the light and the dark scheme. Re-shoot with
+  `CRITIQUE_SCHEME=light npx vitest run --config vitest.critique.config.ts src/test/critique` (and `dark`)
+  in `packages/desktop`.
+- `packages/desktop/critique.html` mounts the same app over the same data for any browser (`npx vite`,
+  then `/critique.html`, `?session=ses-4b&story=s-4` or `?fleet=queue`). The URL detector scan used it.
+
+Every component, hook, query and style is the shipped code. What is not real: the data, and the fact that
+nothing changes when a write is made.
+
+## Screens
+
+Each pair is light, then dark. Files are in [`critique-2026-10/`](critique-2026-10/).
+
+| # | Screen | Light | Dark |
+|---|---|---|---|
+| 01 | Project board, first viewport | ![](critique-2026-10/01-board-light.webp) | ![](critique-2026-10/01-board-dark.webp) |
+| 02 | Board, the Write a Story form | ![](critique-2026-10/02-board-write-story-light.webp) | ![](critique-2026-10/02-board-write-story-dark.webp) |
+| 03 | Story detail: Tasks open, a note open | ![](critique-2026-10/03-story-tasks-light.webp) | ![](critique-2026-10/03-story-tasks-dark.webp) |
+| 04 | Story detail: a Stopped Story's Tasks and sessions | ![](critique-2026-10/04-story-stopped-sessions-light.webp) | ![](critique-2026-10/04-story-stopped-sessions-dark.webp) |
+| 05 | Resume with a note | ![](critique-2026-10/05-story-resume-light.webp) | ![](critique-2026-10/05-story-resume-dark.webp) |
+| 06 | Drop confirmation | ![](critique-2026-10/06-story-drop-confirm-light.webp) | ![](critique-2026-10/06-story-drop-confirm-dark.webp) |
+| 07 | Session feed, running | ![](critique-2026-10/07-feed-running-light.webp) | ![](critique-2026-10/07-feed-running-dark.webp) |
+| 08 | Feed, a failed call expanded | ![](critique-2026-10/08-feed-call-expanded-light.webp) | ![](critique-2026-10/08-feed-call-expanded-dark.webp) |
+| 09 | Feed, Gated action card | ![](critique-2026-10/09-feed-gated-action-light.webp) | ![](critique-2026-10/09-feed-gated-action-dark.webp) |
+| 10 | Feed, the agent's question | ![](critique-2026-10/10-feed-question-light.webp) | ![](critique-2026-10/10-feed-question-dark.webp) |
+| 11 | Feed, permission request with Always allow | ![](critique-2026-10/11-feed-permission-request-light.webp) | ![](critique-2026-10/11-feed-permission-request-dark.webp) |
+| 12 | Feed of a handed-off session, opened from the Story | ![](critique-2026-10/12-feed-handed-off-light.webp) | ![](critique-2026-10/12-feed-handed-off-dark.webp) |
+| 13 | Waiting on you queue (sidebar → Requests) | ![](critique-2026-10/13-waiting-on-you-queue-light.webp) | ![](critique-2026-10/13-waiting-on-you-queue-dark.webp) |
+| 14 | Fleet, all agents | ![](critique-2026-10/14-fleet-light.webp) | ![](critique-2026-10/14-fleet-dark.webp) |
+| 15 | Click a project in the sidebar while a feed is open | ![](critique-2026-10/15-nav-project-click-keeps-feed-light.webp) | ![](critique-2026-10/15-nav-project-click-keeps-feed-dark.webp) |
+| 16 | Click a project in the sidebar while the fleet is open | ![](critique-2026-10/16-nav-project-click-keeps-fleet-light.webp) | ![](critique-2026-10/16-nav-project-click-keeps-fleet-dark.webp) |
+
+What each screen shows, in one line:
+
+- **Sidebar** (every shot): logo, WAITING ON YOU → "Requests 3", PROJECTS with each project's live
+  sessions under it, "Register Project…", "Remove from Flywheel…", FLEET → "All agents", "Worktrees".
+  Running-session rows are 11px text that truncates the Story title to two letters ("FLY-5 Pu…") to make
+  room for "Waiting on you".
+- **Project board** (01, 02): the project name, then one flat list of every Story in the project, then a
+  three-fieldset form. No Milestone, no Epic, no Acceptance criteria, no Checks and no progress anywhere
+  on the list.
+- **Story detail** (03 to 06): there is no Story detail. "Tasks (1/4)" and "Sessions" expand inline under
+  the row; Resume and Drop replace part of the row with a form.
+- **Session feed** (07 to 12): a header (← Board, key and title, run status, elapsed time, View raw, Stop,
+  Discard), the transcript anchored to the bottom of an otherwise empty pane, and a one-line floor.
+- **Permission and question cards** (09 to 11, 13): the Gated action card (red edge, Deny leads), the
+  question card (radios, checkboxes, Other, Send answer), the permission request (Allow once, Deny ›, a
+  Pattern field, "Always allow this pattern in this project ›").
+- **Waiting on you queue and fleet** (13, 14): the same cards stacked across projects, and a banded
+  table of every run.
+
+## Design Health Score
+
+| # | Heuristic | Score | Key issue |
+|---|---|---|---|
+| 1 | Visibility of system status | 1 | No progress anywhere; a handed-off session reads "Running" with a live Stop button (12); the board never shows criteria or Check results. |
+| 2 | Match system / real world | 2 | Glossary words are used correctly, but the board is not shaped like the model it names: no Milestone, no Epic, a flat Story list. |
+| 3 | User control and freedom | 1 | Clicking a project in the sidebar does not leave an open feed or the fleet (15, 16); "← Board" from a feed opened in the fleet lands on the fleet. |
+| 4 | Consistency and standards | 2 | The same "Waiting on you" is a yellow pill on the board, bold yellow text in the sidebar and an icon badge in the header; rail session rows are buttons that look like captions. |
+| 5 | Error prevention | 2 | Drop sits beside Start and Resume at the same weight; the Gated action card is well guarded (Deny leads, no rule). |
+| 6 | Recognition rather than recall | 1 | To see what a Story's agent is doing you must know to use the sidebar row or "Sessions → Open feed"; the Story row, its title and its "Running" word do nothing. |
+| 7 | Flexibility and efficiency | 2 | Keyboard map exists; the M2 actions are reachable, but every one is a same-weight outlined button among six on the row. |
+| 8 | Aesthetic and minimalist design | 1 | Every element has the same visual weight; region contrast is 1.03 to 1.06; 13 to 15 controls per Story row once expanded. |
+| 9 | Error recovery | 3 | Stopped is explicit with its reason, Resume takes a note, stub summaries say what the dead session was doing. |
+| 10 | Help and documentation | 2 | Plain copy ("A Story is written inside an Epic: choose one above"), but nothing explains what a Context packet figure means or where criteria went. |
+| **Total** | | **17/40** | **Poor** |
+
+## Design specificity verdict
+
+**Design review.** Category-interchangeable, and in places not designed at all. The board is the scaffold
+the M2 Story #50 said it was ("a plain live list … Scaffolding: … the board surface replaces the list"),
+and it shipped as the home screen. Nothing on it is specific to Flywheel's model: a key, a title, a grey
+token count, a state word in 11px and a row of outlined buttons would fit any task list. The places that
+do carry Flywheel's character are the cards that Waiting on you produces: the Gated action card (09) and
+the question card (10) are the clearest, most product-specific surfaces in the app, because they are the
+only ones with a single job and a decided hierarchy. The rest of the "Mission Control" world (no fills,
+no tinted rows, hairline rules, the brand only on progress) removed hierarchy faster than it added
+meaning, and the one thing the brand was reserved for, progress, has no surface to appear on: the brand
+blue appears nowhere in screens 01 to 16 except the focus ring.
+
+**Deterministic scan.** `impeccable detect` over the source of the M2 surfaces (`StoryBoard.tsx`,
+`TaskChecklist.tsx`, `session/`, `ProjectRail.tsx`, `FleetSurface.tsx`, `BlockedQueue.tsx`, `App.tsx`)
+found **0** issues. Over the rendered app at 1440 × 900 (board, running feed, Gated action feed, question
+feed, Waiting on you queue, through `critique.html`) it found **one rule on all five pages:
+`monotonous-spacing`** ("~4px used 12/12 times (100%)": no rhythm, no grouping by space). That agrees
+with the review's main finding: nothing is grouped or separated by spacing, so nothing stands out. The
+detector does not measure surface contrast between regions, which is where this design fails (see
+complaint 1), so a clean contrast report is not evidence of hierarchy.
+
+**Visual overlays.** None: no browser automation tool that can inject the overlay was available. The URL
+scan ran headless.
+
+## Cyril's five complaints, scored and explained
+
+Scores are 0 (not a problem in the build) to 4 (the build causes it every time).
+
+### 1. "Navigation is difficult, there is a lot of information and nothing really stands out because the design has zero contrast." Score: 4
+
+Causes, in order of weight:
+
+1. **Region contrast is near zero, by rule.** Text contrast is fine (ink 15.8:1, muted 6.1:1). What is
+   missing is contrast between *things*. The sidebar against the board measures 1.06:1 in light and
+   1.03:1 in dark; the "Waiting on you" wash against the ground 1.06:1 and 1.04:1; the row hairlines
+   1.43:1. "Mission Control" chose this ("no fills, no tinted rows, no cards"), and its own DESIGN.md
+   records that the selected-row wash was capped at 1.074:1. The eye has no regions to land on.
+2. **One weight for everything.** Body 13px, labels 11px, headings 15px (a 1.15 step), two weights. On
+   the board the project name is the only heading; "Stories" and "Write a Story" are 11px grey labels. The
+   Story title, its "Doing:" line and its token count compete at nearly the same size.
+3. **Every action is the same button.** Each Story row carries three to four outlined buttons of the same
+   size (Tasks, Sessions, Drop, then Start or Resume); the lead action differs only by a 2px border. With
+   Tasks open (03) a row holds 13 to 15 buttons. The detector's `monotonous-spacing` finding is the same
+   problem in space: a single 4px rhythm, so nothing is grouped.
+4. **Information without a rank.** The row prints the Context packet size (~9.4K tokens) on every Story
+   at the same weight as its state, while the thing a supervisor needs (is it waiting on me, is it done)
+   is a small word at the far right.
+5. **Navigation is broken, not just hard** (see complaint 3 for the mechanism): with a feed open, clicking
+   another project in the sidebar highlights it and changes nothing else (15); with the fleet open, the
+   same (16).
+
+### 2. "Some elements I expect to be clickable, to see what the agent is doing, are not." Score: 4
+
+Causes:
+
+1. **The Story row is inert.** On the board (01) the key, the title, the "Doing: …" line and the
+   "Running" or "Waiting on you" word are plain text. The only paths to a Story's live feed are the
+   sidebar's session rows or "Sessions" → "Open feed" (04). The one sentence that says what the agent is
+   doing is the one that cannot be clicked.
+2. **The Waiting on you pill on the board is not a control.** It tells you to act and gives you nowhere to
+   act; the card that answers it lives in the feed or the queue.
+3. **Sidebar session rows are buttons styled as captions** (11px muted text, no edge, no hover until
+   pointed at), so the clickable thing looks like the inert thing and the inert thing (the board row)
+   looks like the one that should open.
+4. **Story detail does not exist**, so there is no destination to click to. Tasks, sessions, Resume and
+   Drop unfold inline in the list (03 to 06), and a Story's Acceptance criteria and Checks are not shown
+   anywhere after it is written: no component reads `criterion_list`.
+5. **Feed rows hide their disclosure.** A tool call is expandable only through a 7px "▸" glyph and the
+   row text (08); nothing marks it as a control.
+
+### 3. "Sometimes it randomly opens the agent when I would not expect it." Score: 3
+
+The behaviour is deterministic, but its rules are invisible, so it reads as random. Causes, all in code:
+
+1. **Start and Resume push straight into the feed.** `StoryBoard`'s `onStarted` calls
+   `setActiveSessionId`, replacing the board with the session the moment Start resolves. Clicking Start to
+   start several Stories in a row takes you out of the board each time.
+2. **The open feed outranks everything.** `activeSurface` (`state/keyboard.ts:548`) ranks the session above
+   the fleet and the board, and choosing a project (`setCurrentProjectId`) does not clear it. So after
+   opening one feed, the next project you pick still shows that feed (15), which feels like the agent
+   "opened itself" over the project you asked for. The sidebar's "Requests" and "All agents" open the
+   fleet *underneath* an open feed: nothing visible happens.
+3. **"← Board" does not always go to the board.** A feed opened from the fleet returns to the fleet,
+   while the button still says "Board".
+4. **Sidebar session rows sit directly under the project name** at almost the same size, so a click
+   aimed at a project often lands on one of its sessions.
+5. **Discard opens the launch sheet** for the same Story with no step between.
+
+### 4. "There are very few icons, or none at all." Score: 4
+
+Causes:
+
+1. **The board and the Story's Tasks use no icons at all.** `StoryBoard.tsx` and `TaskChecklist.tsx`
+   import nothing from `lucide-react`; their 27 buttons are words. State words (Shaping, Ready, Running,
+   In review, Merged, Dropped) have no mark; only Waiting on you gets one.
+2. **The sidebar has two icons** (`Plus`, `TriangleAlert` for an unreachable project). Sections, projects,
+   the fleet and the worktrees have none.
+3. **The feed uses text glyphs** ("▸", "·", "—") where a tool's kind (read, edit, run, board tool) would
+   be told at a glance by an icon; Bash, Read and `mcp__flywheel-board__task_add` look identical.
+4. **The rule that limited icons was the old world's**, not a product constraint: "Mission Control" put
+   meaning in words and kept marks outline-only and sparse. PRODUCT.md keeps "meaning never on colour
+   alone", which an icon *plus* a word satisfies better than a word alone.
+
+### 5. "I cannot quantify project progress at a glance." Score: 4
+
+Causes:
+
+1. **No progress is shown anywhere.** The board has no Milestone, no Epic, no counts and no bar. Spec §7's
+   Milestone header ("a stacked bar of Story states with Epics done / Epics · Stories merged / Stories")
+   and the roster's per-Epic bar were never built in M2 (they belong to M4 Epic #61), and "Mission
+   Control"'s epic-row progress bar went with the old board in the M1 delete pass (#38).
+2. **The list cannot be read as progress.** Stories from every Epic and both ends of the life cycle
+   (Shaping and Merged) sit in one flat list, ordered by rank, with the state as an 11px word on the
+   right. Counting means reading every row.
+3. **Done work does not look done.** Merged and Dropped rows are visually identical to Ready ones apart
+   from that word.
+4. **Task fractions are hidden in button labels** ("Tasks (1/4)"), and criteria/Check results, the real
+   measure of a Story's progress, are not shown at all.
+
+## Overall impression
+
+The plumbing under the M2 flow works and the copy is honest. The surface does not do the one job PRODUCT.md
+gives it: supervision at a glance. Every screen is a list of same-weight text and same-weight buttons on
+an almost uniform ground, and the navigation model has a precedence rule the user cannot see. The biggest
+opportunity is structural before it is visual: a board shaped like the model (Milestone → Epics →
+Stories, with progress), a real Story detail as the place a click goes, and one predictable rule for
+what replaces the content area.
+
+## What's working
+
+- **The Gated action card (09).** One job, one sentence of consequence ("This would push
+  story/fly-5-tokens to the remote, where others can see it."), the literal command, Deny leading. It is
+  the only element in the app with a decided hierarchy, and it should survive the new world in substance.
+- **The question card (10).** Numbered questions with recommended options, "Other" with a free answer,
+  "Answer every question to send". It is already close to the shaping dock's Round card in spec §3.
+- **Honest status copy.** "Stopped: usage limit", stub summaries that name the doing Task, "Last activity
+  13s ago", "This run has ended. Nothing more will be added".
+
+## Priority issues
+
+- **[P0] The board has no shape and no progress.** Why: complaints 1 and 5; the exit test of Epic #97
+  needs Cyril to read status without explanation. Fix: Milestone header with a stacked bar and counts,
+  Epics as groups with their own bar, Stories under them, Needs you above the roster (spec §7).
+  Command: `/impeccable shape` then new-work in #103.
+- **[P0] Navigation precedence is invisible and sticky.** Why: complaints 1 and 3; screens 15 and 16. Fix:
+  one rule: a sidebar choice always replaces the content area; Back returns to where you came from and
+  says so; Start does not leave the board unless asked. Story #104.
+- **[P1] The Story has no detail surface, and its criteria and Checks are never shown.** Why: complaint 2,
+  and the product's core value ("anchored to real Acceptance criteria") is invisible after writing. Fix: a
+  Story detail (panel or page) that is the destination of a row click: criteria with Check chips, Tasks,
+  sessions, the live feed one click away. #103 mockups, #107.
+- **[P1] No hierarchy in type, surface or action.** Why: complaint 1. Fix: a type scale with real steps,
+  regions with measurable contrast, one primary action per region, destructive actions separated.
+  `/impeccable typeset`, `/impeccable layout` inside the new world (#105).
+- **[P1] A finished session opened from its Story reads "Running" with Stop and Discard (12).** Why: wrong
+  status at the moment Cyril checks whether work is done. Fix: the Story's session list passes the run's
+  status like the sidebar and fleet do. Story #104 or #107.
+- **[P2] Icons.** Why: complaint 4. Fix: an icon per state, per record type, per tool kind, always with
+  its word. #105.
+
+## Persona red flags
+
+**Cyril, supervising five Stories across two projects (project persona).** Opens Flywheel: the sidebar says
+"Requests 3" in small yellow; the board lists nine Stories with no grouping. To find which Story needs him
+he reads the yellow pills on the right, then cannot click them; he goes to the sidebar, where the
+session rows are truncated to "FLY-5 Pu…". He answers the push in the feed, clicks "highknow-web" to check
+the other project, and still sees the same feed (15).
+
+**Cyril, shaping by hand (project persona).** Scrolls past the whole Story list to a three-fieldset form
+(02). Must pick a Milestone, then an Epic, before the Story fields enable; Check commands are optional
+fields beside each criterion, which is why three M2 runs never added a Check (Epic #97 comment). After
+Create Story, the criteria and Checks he wrote are never shown again.
+
+**Alex (power user).** The keyboard map still lists board bindings (`j`/`k`, `o`, `w` Start Work, `l` Open
+Live Session), but no mounted component registers the `board-list` region any more: on the Story list
+there is no selection to move and none of those keys does anything.
+
+**Jordan (first-timer).** "Context packet ~9.4K tokens" on every row, "Sessions", "Discard" next to
+"Stop", and "Waiting on you: answer the permission request above" under a *question* (10): vocabulary
+without explanation.
+
+## Minor observations
+
+- The feed is bottom-anchored, so a short transcript leaves two thirds of the pane empty above it
+  (07, 09, 11, 12).
+- The feed floor says "answer the permission request above" when the open request is a question (10).
+- Fleet: Story titles truncate to about 14 characters, and cost prints four decimals ("$3.1000"; the
+  figure is fixture data, the format is the shipped `formatCostUsd`).
+- The resume note and Drop form reflow the row (05, 06) instead of opening in place of the actions.
+- Tool names print raw (`mcp__flywheel-board__task_update`).
+- The sidebar's "Remove from Flywheel…" sits among the project rows at the same weight as "Register
+  Project…".
+
+## Questions for #103
+
+1. Is the Story detail a panel beside the board (the board stays visible) or a page you push into?
+   *Recommended: a panel, so the roster stays readable and Back is never ambiguous.*
+2. Should Start leave you on the board? *Recommended: yes; the row shows Running and its doing Task, and a
+   click on it opens the feed.*
+3. How loud should Waiting on you be? *Recommended: the one loud colour in the app, with an icon and a
+   count, everywhere it appears, and always a control.*
+
+Questions skipped for the owner in this run: the run had no question tool, so these are handed to #103
+instead of asked.
+
+## Screens and states #103's mockups must cover
+
+Each in light and dark, at 1440 × 900, and the board and Story detail also at the 900px minimum window
+width (`tauri.conf.json` `minWidth`).
+
+1. **Sidebar**
+   - projects with each one's Needs-you count; the current project
+   - live sessions under a project: running with its doing Task, Waiting on you, Stopped
+   - nothing waiting; several waiting across projects; an unreachable project
+2. **Project board** (spec §7)
+   - Milestone header: name, Exit test, stacked bar of Story states, "Epics done / Epics · Stories
+     merged / Stories"
+   - Needs you list: a Gated action, a permission request, a question, a Stopped session, a review
+   - roster: an Epic per row with its bar and "n of m Stories merged", Stories under it
+   - a Story row in each state and attention: Shaping, Ready (Start), Running (doing Task), Running +
+     Waiting on you, Running + Stopped (Resume), In review, Merged, Dropped
+   - visible controls to add a Milestone, an Epic and a Story
+   - empty states: a new project with no Milestone; a Milestone with no Epics
+3. **Story detail**
+   - description; Acceptance criteria with Check chips: not run, passed, failed, timed out, stale,
+     "judged at review"; a visible "add a Check" control
+   - Task checklist: open, doing with its note, done, dropped with reason; add, edit, reorder
+   - sessions with summaries and a stub summary; Context packet size, normal and over the soft limit
+   - actions: Start, Stop, Resume with a note, Drop with confirmation; the way to the live feed
+4. **Session feed**
+   - running and healthy (a live call with its clock); a failed call expanded; a long agent turn in
+     markdown
+   - Waiting on you: Gated action; permission request with the Always allow pattern, and a refused rule
+     with its reason; a question with single choice, multiple choice and Other
+   - ended: handed off (In review); Stopped with its ending reason; failed with detail; the raw view
+5. **Waiting on you queue** across projects, and the **fleet** of all runs
+6. **Navigation**: from the sidebar, the board, a Story row and a notification, where each click lands,
+   and how Back returns
