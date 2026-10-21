@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * Screenshots of every screen of the M2 flow, for the design critique (issue #102).
  *

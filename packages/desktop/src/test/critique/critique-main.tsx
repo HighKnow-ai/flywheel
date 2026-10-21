@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /**
  * Dev-only entry for `critique.html` (issue #102): mounts the real app over the seeded fake backend, so
  * the screens can be opened in any browser or scanned by a URL-based design detector. Query parameters
