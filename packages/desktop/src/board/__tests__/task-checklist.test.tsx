@@ -52,7 +52,7 @@ function renderBoard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <StoryBoard projectId="p1" projectName="Threadfin" onStarted={vi.fn()} />
+      <StoryBoard projectId="p1" projectName="Threadfin" />
     </QueryClientProvider>,
   );
 }

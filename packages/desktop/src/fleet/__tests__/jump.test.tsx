@@ -199,25 +199,28 @@ describe("the primary target: a row opens that run's session", () => {
 });
 
 
-describe("the secondary target: the subject key reaches its board item", () => {
-  it("activating it in another project switches the project and hands the board a focus request", async () => {
+describe("the secondary target: the subject key opens its Story (issue #104)", () => {
+  it("activating it in another project switches the project and opens that Story in place of the fleet", async () => {
     useUiStore.setState({ currentProjectId: "proj-A" });
     const spies = spyOnStore();
     const { container } = await renderFleet([
       row({ sessionId: "run-b", projectId: "proj-B", projectName: "Beta", storyId: "story-b7", storyKey: "BET-7" }),
     ]);
-    fireEvent.click(within(rowFor(container, "run-b")).getByRole("button", { name: /Open BET-7 on the board/ }));
-    expect(spies.setCurrentProjectId).toHaveBeenCalledWith("proj-B");
+    fireEvent.click(within(rowFor(container, "run-b")).getByRole("button", { name: /Open Story BET-7/ }));
     const state = useUiStore.getState();
     expect(state.currentProjectId).toBe("proj-B");
-    expect(state.pendingFocusItemId).toBe("story-b7");
+    expect(state.currentStoryId).toBe("story-b7");
     expect(state.fleetSurface).toBeNull();
+    expect(spies.setActiveSessionId).not.toHaveBeenCalled();
+    // Back returns to the fleet it came from.
+    state.goBack();
+    expect(useUiStore.getState().fleetSurface).not.toBeNull();
   });
 
   it("activating it does not also open the session", async () => {
     const spies = spyOnStore();
     const { container } = await renderFleet([row({ sessionId: "run-b", storyId: "story-b7", storyKey: "BET-7" })]);
-    fireEvent.click(within(rowFor(container, "run-b")).getByRole("button", { name: /Open BET-7 on the board/ }));
+    fireEvent.click(within(rowFor(container, "run-b")).getByRole("button", { name: /Open Story BET-7/ }));
     expect(spies.setActiveSessionId).not.toHaveBeenCalled();
     expect(useUiStore.getState().activeSessionId).toBeNull();
   });
@@ -238,7 +241,7 @@ describe("the secondary target: the subject key reaches its board item", () => {
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "b" });
-    expect(useUiStore.getState().pendingFocusItemId).toBe("story-3");
+    expect(useUiStore.getState().currentStoryId).toBe("story-3");
     expect(useUiStore.getState().currentProjectId).toBe("proj-C");
     expect(spies.setActiveSessionId).not.toHaveBeenCalled();
   });
@@ -253,9 +256,9 @@ describe("the secondary target: the subject key reaches its board item", () => {
     fireEvent.click(rowFor(container, "run-y"));
     expect(spies.setActiveSessionId.mock.calls.map((c) => c[0])).toEqual(["run-x", "run-y"]);
     for (const id of ["run-x", "run-y"]) {
-      useUiStore.getState().setPendingFocusItemId(null);
-      fireEvent.click(within(rowFor(container, id)).getByRole("button", { name: /Open ALP-1 on the board/ }));
-      expect(useUiStore.getState().pendingFocusItemId).toBe("story-1");
+      useUiStore.setState({ currentStoryId: null });
+      fireEvent.click(within(rowFor(container, id)).getByRole("button", { name: /Open Story ALP-1/ }));
+      expect(useUiStore.getState().currentStoryId).toBe("story-1");
     }
   });
 });

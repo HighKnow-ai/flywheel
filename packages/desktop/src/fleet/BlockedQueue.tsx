@@ -18,6 +18,9 @@
  *
  * A Gated action raised by the shim lands here like any other request, with Deny leading and no
  * standing rule offered.
+ *
+ * Every entry goes somewhere (issue #104): its Story key opens the Story, and its "Open session"
+ * control, and only that, opens the live session it came from.
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { answerPermissionRequest, answerQuestion, type BlockedQueueEntryDto } from "../adapters/tauri";
@@ -25,7 +28,19 @@ import { pendingPermissionRequestsQueryKey } from "../board/useBoardQuery";
 import { formatAge } from "../legend/runStatus";
 import { PermissionRequestCard, type PermissionDecision } from "../session/PermissionRequestCard";
 import { ASK_USER_QUESTION_TOOL } from "../session/feedRows";
+import { useUiStore } from "../state/uiStore";
 import { blockedQueueQueryKey, fleetQueryKey } from "./useFleet";
+
+/** A control that keeps the look of the text it replaces: it only gains a destination. */
+const textControlStyle = {
+  padding: 0,
+  border: "none",
+  background: "none",
+  color: "inherit",
+  font: "inherit",
+  textAlign: "left" as const,
+  cursor: "pointer",
+};
 
 /** What the waiting session is about: its Story's key and title. */
 function subjectText(entry: BlockedQueueEntryDto): { key: string; detail: string | null } {
@@ -41,6 +56,8 @@ export interface BlockedQueueProps {
 
 export function BlockedQueue({ entries, now }: BlockedQueueProps) {
   const queryClient = useQueryClient();
+  const openStory = useUiStore((state) => state.openStory);
+  const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
 
   async function onAnswer(
     entry: BlockedQueueEntryDto,
@@ -102,10 +119,26 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
             <div className="type-label" style={{ display: "flex", gap: "var(--space-sm)", alignItems: "baseline", minWidth: 0 }}>
               <span style={{ color: "var(--blocked-text-rack)", fontWeight: 600 }}>Waiting on you</span>
               <span data-field="project">{entry.projectName}</span>
-              <span className="tabular-nums" data-field="subject">
+              <button
+                type="button"
+                className="type-label tabular-nums"
+                data-field="subject"
+                aria-label={`Open Story ${subject.key}`}
+                title={`Open Story ${subject.key}`}
+                onClick={() => openStory(entry.projectId, entry.storyId)}
+                style={textControlStyle}
+              >
                 {subject.key}
                 {subject.detail ? <span style={{ color: "var(--text-muted-rack)" }}>{` ${subject.detail}`}</span> : null}
-              </span>
+              </button>
+              <button
+                type="button"
+                className="control-edge session-action type-label"
+                aria-label={`Open live session of ${subject.key}`}
+                onClick={() => setActiveSessionId(entry.sessionId, entry.storyId, null, "blocked")}
+              >
+                Open session
+              </button>
               {owner && (
                 <span data-field="owner" style={{ color: "var(--text-muted-rack)" }}>
                   Keys A and D answer this one

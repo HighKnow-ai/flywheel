@@ -239,7 +239,7 @@ describe("SessionSurface", () => {
     delete Element.prototype.scrollIntoView;
   });
 
-  it("shows the ← Board affordance and calls onBack when clicked", async () => {
+  it("shows the ← Back affordance and calls onBack when clicked", async () => {
     mockWindowReads(() => []);
 
     const queryClient = new QueryClient();
@@ -250,7 +250,7 @@ describe("SessionSurface", () => {
       </QueryClientProvider>,
     );
 
-    const backButton = await screen.findByRole("button", { name: "← Board" });
+    const backButton = await screen.findByRole("button", { name: "← Back" });
     backButton.click();
     expect(onBack).toHaveBeenCalledTimes(1);
   });
@@ -583,7 +583,7 @@ describe("SessionSurface persistence-failure banner (plan 02-12, CR-03/PROC-07)"
     mockWindowReads(() => []);
     renderSurface();
 
-    await screen.findByRole("button", { name: "← Board" });
+    await screen.findByRole("button", { name: "← Back" });
     capturedAgentEventHandler?.(
       makePersistenceFailureNotice("run-1", "Flywheel could not write this session's log — the transcript below may be incomplete."),
     );
@@ -595,7 +595,7 @@ describe("SessionSurface persistence-failure banner (plan 02-12, CR-03/PROC-07)"
     mockWindowReads(() => []);
     renderSurface();
 
-    await screen.findByRole("button", { name: "← Board" });
+    await screen.findByRole("button", { name: "← Back" });
     capturedAgentEventHandler?.(
       makePersistenceFailureNotice("run-9-a-different-run", "Some other run's log failed to open."),
     );
@@ -1060,6 +1060,6 @@ describe("the header names the Story the session serves (11-22, finish-review fo
     renderHeader({ storyId: "story-1" }, { story_get: () => Promise.reject(new Error("boom")) });
     await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("story_get", { storyId: "story-1" }));
     expect(screen.getByText("Session")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "← Board" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
   });
 });

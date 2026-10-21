@@ -1,7 +1,7 @@
 /**
  * The Settings surface (D-39, 02-UI-SPEC.md "Settings surface" — the product's first Settings
  * surface). Same shell pattern as `session/SessionSurface.tsx`: a full surface that replaces the
- * board's content area, the project rail stays visible, a `← Board` back affordance returns —
+ * board's content area, the project rail stays visible, a `← Back` back affordance returns —
  * never a modal, because this holds a form the user may want to leave open and return to
  * (02-UI-SPEC.md Open Decision #1: no unsaved-state warning, because every field here commits on
  * interaction, so there is nothing to lose by navigating away).
@@ -344,7 +344,7 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
     <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--text-primary-rack)" }}>
       <header className="admin-header">
         <button type="button" onClick={onBack} className="type-label admin-back">
-          ← Board
+          ← Back
         </button>
         <span className="type-heading">Settings</span>
       </header>

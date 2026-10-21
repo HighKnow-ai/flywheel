@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryBoard } from "../StoryBoard";
-import { useUiStore } from "../../state/uiStore";
+import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { EpicDto, MilestoneDto, StoryDto } from "../../adapters/tauri";
 
 const milestoneList = vi.fn();
@@ -66,14 +66,13 @@ function story(id: string, key: string, title: string, state: string): StoryDto 
   return { id, projectId: "p1", epicId: "e1", key, title, description: null, state, runsAfterStoryId: null, rank: "a" };
 }
 
-function renderBoard(onStarted = vi.fn()) {
+function renderBoard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <StoryBoard projectId="p1" projectName="Threadfin" onStarted={onStarted} />
+      <StoryBoard projectId="p1" projectName="Threadfin" />
     </QueryClientProvider>,
   );
-  return { onStarted };
 }
 
 /** Choose Milestone m1, wait for its Epics to load, then choose Epic e1. */
@@ -86,6 +85,7 @@ async function chooseEpic() {
 
 beforeEach(() => {
   boardChanged = null;
+  resetUiState();
   useUiStore.setState({ currentProjectId: "p1" });
   milestoneList.mockReset().mockResolvedValue([]);
   milestoneCreate.mockReset().mockResolvedValue(milestone("m1", "M1"));
@@ -206,23 +206,25 @@ describe("StoryBoard: the Story list", () => {
     expect(within(list).queryByText("Waiting on you")).toBeNull();
   });
 
-  it("Start calls the core's story_start and hands the new session on", async () => {
+  it("Start calls the core's story_start and stays on the board: it never opens the session (issue #104)", async () => {
     storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Ready one", "ready")]);
-    const { onStarted } = renderBoard();
+    renderBoard();
     fireEvent.click(await screen.findByRole("button", { name: "Start FLY-2" }));
 
-    await waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1", "s1"));
-    expect(storyStart).toHaveBeenCalledWith("s1");
+    await waitFor(() => expect(storyStart).toHaveBeenCalledWith("s1"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start FLY-2" })).not.toBeDisabled());
+    expect(useUiStore.getState().activeSessionId).toBeNull();
+    expect(useUiStore.getState().currentStoryId).toBeNull();
   });
 
   it("shows the core's refusal when Start fails", async () => {
     storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Ready one", "ready")]);
     storyStart.mockRejectedValue(new Error("Start needs a Ready Story; this one is running"));
-    const { onStarted } = renderBoard();
+    renderBoard();
     fireEvent.click(await screen.findByRole("button", { name: "Start FLY-2" }));
 
     expect(await screen.findByText("Start needs a Ready Story; this one is running")).toBeInTheDocument();
-    expect(onStarted).not.toHaveBeenCalled();
+    expect(useUiStore.getState().activeSessionId).toBeNull();
   });
 });
 

@@ -34,9 +34,9 @@ export interface LaunchSheetProps {
    * mirrors `SessionSurface`'s own `activeSessionId === null` convention). */
   storyId: string | null;
   onClose: () => void;
-  /** Called with the new run's id once `startSession` resolves — the caller decides what
-   * "route to the session surface" means. */
-  onStarted: (sessionId: string) => void;
+  /** Called with the new run's id and its Story's project once `startSession` resolves. The caller
+   * decides where to land; it never opens the session on its own (issue #104). */
+  onStarted: (sessionId: string, projectId: string | null) => void;
 }
 
 export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
@@ -86,7 +86,7 @@ export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
     setError(null);
     // No permission mode is sent: the session kind decides it, never the developer (ADR 0001).
     startSession(storyId as string, instruction)
-      .then((run) => onStarted(run.id))
+      .then((run) => onStarted(run.id, storyQuery.data?.projectId ?? null))
       .catch((err: unknown) => {
         startingRef.current = false;
         setStarting(false);

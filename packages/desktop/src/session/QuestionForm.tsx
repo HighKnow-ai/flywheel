@@ -9,9 +9,14 @@
  * checks it and builds the answers Claude Code reads.
  *
  * The form waits for as long as it takes: nothing here times out, and it is never dismissible.
+ *
+ * A half-typed answer is a draft kept in UI state under the request id (issue #104), not in the form:
+ * the feed is virtualised, so the row holding this form unmounts when it scrolls out of view, and the
+ * same request is answerable from the feed and from Waiting on you. Sending clears the draft.
  */
 import { useId, useRef, useState, type FormEvent } from "react";
 import type { QuestionPrompt } from "./feedRows";
+import { useUiStore, type QuestionDraft } from "../state/uiStore";
 import "./session.css";
 
 /** What the developer picked, keyed by each question's text. */
@@ -21,13 +26,11 @@ export interface QuestionFormProps {
   questions: QuestionPrompt[];
   /** Resolves once the answer is stored and relayed; a rejection shows its reason and re-enables the form. */
   onSubmit: (picks: QuestionPicks) => Promise<void>;
+  /** The request id the draft is kept under. Without one, the draft lives and dies with the form. */
+  draftKey?: string;
 }
 
-interface Choice {
-  labels: string[];
-  other: boolean;
-  otherText: string;
-}
+type Choice = QuestionDraft;
 
 const EMPTY: Choice = { labels: [], other: false, otherText: "" };
 
@@ -43,9 +46,23 @@ function rejectionReason(err: unknown): string {
   return String(err);
 }
 
-export function QuestionForm({ questions, onSubmit }: QuestionFormProps) {
+/** The form's choices: the stored draft when there is a key, local state otherwise. */
+function useChoices(questions: QuestionPrompt[], draftKey: string | undefined) {
+  const [local, setLocal] = useState<Choice[]>(() => questions.map(() => EMPTY));
+  const stored = useUiStore((state) => (draftKey ? state.questionDrafts[draftKey] : undefined));
+  const setQuestionDraft = useUiStore((state) => state.setQuestionDraft);
+  if (!draftKey) return [local, setLocal, () => {}] as const;
+  const choices = stored ?? questions.map(() => EMPTY);
+  const setChoices = (next: (prev: Choice[]) => Choice[]) => {
+    const current = useUiStore.getState().questionDrafts[draftKey] ?? questions.map(() => EMPTY);
+    setQuestionDraft(draftKey, next(current));
+  };
+  return [choices, setChoices, () => setQuestionDraft(draftKey, null)] as const;
+}
+
+export function QuestionForm({ questions, onSubmit, draftKey }: QuestionFormProps) {
   const formId = useId();
-  const [choices, setChoices] = useState<Choice[]>(() => questions.map(() => EMPTY));
+  const [choices, setChoices, clearDraft] = useChoices(questions, draftKey);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sendingRef = useRef(false);
@@ -86,6 +103,7 @@ export function QuestionForm({ questions, onSubmit }: QuestionFormProps) {
     try {
       await onSubmit(picks);
       // On success the card leaves once the pending set re-reads; the ref stays set until then.
+      clearDraft();
     } catch (err) {
       sendingRef.current = false;
       setSending(false);

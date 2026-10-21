@@ -52,6 +52,8 @@ export interface FeedRowProps {
   /** Issue #100: only for a `question` row whose question is still open. Present, the card is the
    * answer form; it never offers Allow or Deny. */
   onAnswerQuestion?: (picks: QuestionPicks) => Promise<void>;
+  /** Issue #104: the open question's request id, under which its half-typed answer is kept. */
+  questionDraftKey?: string;
 }
 
 /** Whether the OS reports a reduced-motion preference, checked once at mount. Guarded for an
@@ -316,10 +318,12 @@ function QuestionCard({
   questions,
   answer,
   onAnswer,
+  draftKey,
 }: {
   questions: QuestionPrompt[];
   answer?: unknown;
   onAnswer?: (picks: QuestionPicks) => Promise<void>;
+  draftKey?: string;
 }) {
   const heading = questions.length > 1 ? `${questions.length} questions from the agent` : "Question from the agent";
   if (onAnswer && answer === undefined) {
@@ -329,7 +333,7 @@ function QuestionCard({
           <span className="type-heading" style={{ color: "var(--blocked-text-rack)" }}>
             {`${heading} · waiting on you`}
           </span>
-          <QuestionForm questions={questions} onSubmit={onAnswer} />
+          <QuestionForm questions={questions} onSubmit={onAnswer} draftKey={draftKey} />
         </div>
       </div>
     );
@@ -422,7 +426,7 @@ function RawRow({ raw, expanded, onToggleExpand }: { raw: string; expanded: bool
   );
 }
 
-export function FeedRow({ row, expanded, onToggleExpand, live = false, now, onAnswerQuestion }: FeedRowProps) {
+export function FeedRow({ row, expanded, onToggleExpand, live = false, now, onAnswerQuestion, questionDraftKey }: FeedRowProps) {
   switch (row.kind) {
     case "assistant_text":
       return (
@@ -452,7 +456,9 @@ export function FeedRow({ row, expanded, onToggleExpand, live = false, now, onAn
     case "proposal":
       return <ProposalCard row={row} />;
     case "question":
-      return <QuestionCard questions={row.questions} answer={row.answer} onAnswer={onAnswerQuestion} />;
+      return (
+        <QuestionCard questions={row.questions} answer={row.answer} onAnswer={onAnswerQuestion} draftKey={questionDraftKey} />
+      );
     case "raw":
       return <RawRow raw={row.raw} expanded={expanded} onToggleExpand={onToggleExpand} />;
     default: {

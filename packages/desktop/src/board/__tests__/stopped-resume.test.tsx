@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryBoard } from "../StoryBoard";
-import { useUiStore } from "../../state/uiStore";
+import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { RunSummaryDto, SessionSummaryDto, StoryDto } from "../../adapters/tauri";
 
 const storyListForProject = vi.fn();
@@ -59,15 +59,12 @@ function run(id: string, endingReason: RunSummaryDto["endingReason"], endedAt: s
 }
 
 function renderBoard() {
-  const onStarted = vi.fn();
-  const onOpenSession = vi.fn();
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <StoryBoard projectId="p1" projectName="Threadfin" onStarted={onStarted} onOpenSession={onOpenSession} />
+      <StoryBoard projectId="p1" projectName="Threadfin" />
     </QueryClientProvider>,
   );
-  return { onStarted, onOpenSession };
 }
 
 async function storyRow() {
@@ -75,6 +72,7 @@ async function storyRow() {
 }
 
 beforeEach(() => {
+  resetUiState();
   useUiStore.setState({ currentProjectId: "p1" });
   storyListForProject.mockReset().mockResolvedValue([story("running")]);
   blockedSummary.mockReset().mockResolvedValue({ blockedStoryIds: [], blockedCount: 0 });
@@ -117,15 +115,16 @@ describe("StoryBoard: a Stopped Story (issue #54)", () => {
     expect(within(row).queryByRole("button", { name: /Resume/ })).toBeNull();
   });
 
-  it("resumes with a one-line note and opens the new session", async () => {
-    const { onStarted } = renderBoard();
+  it("resumes with a one-line note and stays where it is: the new session is not opened (issue #104)", async () => {
+    renderBoard();
     const row = await storyRow();
     fireEvent.click(await within(row).findByRole("button", { name: "Resume FLY-2" }));
     fireEvent.change(within(row).getByLabelText("Resume note for FLY-2"), { target: { value: "Pick the parser back up" } });
     fireEvent.click(within(row).getByRole("button", { name: "Start the new session for FLY-2" }));
 
     await waitFor(() => expect(storyResume).toHaveBeenCalledWith("s1", "Pick the parser back up"));
-    await waitFor(() => expect(onStarted).toHaveBeenCalledWith("01JSESSIONNEXT", "s1"));
+    await waitFor(() => expect(within(row).queryByLabelText("Resume note for FLY-2")).toBeNull());
+    expect(useUiStore.getState().activeSessionId).toBeNull();
   });
 
   it("resumes with no note at all", async () => {
@@ -199,7 +198,7 @@ describe("StoryBoard: the Story's session list (issue #54)", () => {
       decisions: "",
     };
     sessionSummariesForStory.mockResolvedValue([summary]);
-    const { onOpenSession } = renderBoard();
+    renderBoard();
     const row = await storyRow();
     fireEvent.click(await within(row).findByRole("button", { name: "Sessions of FLY-2" }));
 
@@ -214,6 +213,7 @@ describe("StoryBoard: the Story's session list (issue #54)", () => {
     expect(within(items[1]).getByText(/2026-10-19 10:00/)).toBeInTheDocument();
 
     fireEvent.click(within(items[1]).getByRole("button", { name: /Open feed/ }));
-    expect(onOpenSession).toHaveBeenCalledWith("01JSESSIONDEAD0000000000000", "s1");
+    expect(useUiStore.getState().activeSessionId).toBe("01JSESSIONDEAD0000000000000");
+    expect(useUiStore.getState().activeSessionStoryId).toBe("s1");
   });
 });

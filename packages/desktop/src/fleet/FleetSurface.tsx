@@ -250,8 +250,8 @@ export function SubjectTarget({
       type="button"
       data-subject-target
       className="type-label tabular-nums"
-      aria-label={`Open ${label} on the board`}
-      title={`Open ${label} on the board`}
+      aria-label={`Open Story ${label}`}
+      title={`Open Story ${label}`}
       onClick={(event: MouseEvent) => {
         event.stopPropagation();
         onOpen();
@@ -462,8 +462,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
   const view = useUiStore((state) => state.fleetSurface?.view ?? "fleet");
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
-  const setCurrentProjectId = useUiStore((state) => state.setCurrentProjectId);
-  const setPendingFocusItemId = useUiStore((state) => state.setPendingFocusItemId);
+  const openStory = useUiStore((state) => state.openStory);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const rows = fleet.data?.rows ?? [];
   const total = fleet.data?.totalRows ?? 0;
@@ -485,16 +484,13 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
     setSelectedRunId(row.sessionId);
     setActiveSessionId(...sessionOpenerArgs(row));
   };
-  // The secondary target: switch to the row's project, leave a one-shot request for the board to act on
-  // (the board's own project-change clear would undo anything set directly, Finding 9), and close the
-  // fleet so the board shows. Opens nothing else — the session is the primary target, not this one.
+  // The secondary target: the row's Story, opened in its own project (issue #104). It replaces the
+  // fleet, which stays one Back away. Opens nothing else — the session is the primary target.
   const openSubject = (row: FleetRowDto) => {
     const target = subjectTargetId(row);
     if (target === null) return;
     setSelectedRunId(row.sessionId);
-    setCurrentProjectId(row.projectId);
-    setPendingFocusItemId(target);
-    setFleetSurface(null);
+    openStory(row.projectId, target);
   };
   const selectedRow = view === "fleet" ? drawnRows.find((r) => r.sessionId === selectedRunId) : undefined;
   // The queue view owns `a`/`d`/shift-`a` through its keyboard-owner card, and the layer refuses those
@@ -523,7 +519,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
     <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--text-primary-rack)" }}>
       <header className="admin-header">
         <button type="button" onClick={onClose} className="type-label admin-back">
-          ← Board
+          ← Back
         </button>
         <span className="type-heading">{view === "queue" ? "Waiting on you" : "Fleet"}</span>
         <div role="group" aria-label="Fleet views" style={{ display: "flex", gap: "var(--space-xs)" }}>
