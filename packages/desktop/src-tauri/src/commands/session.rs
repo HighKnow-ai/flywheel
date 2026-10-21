@@ -1549,6 +1549,16 @@ pub fn sessions_for_story(
     Ok(rows.into_iter().map(RunSummaryDto::from).collect())
 }
 
+/// One session's stored row (issue #110): its status, start and end, and ending reason. The session
+/// view reads it so its header and controls follow what was recorded, not what the view last heard.
+/// `None` for an unknown id. Read-only.
+#[tauri::command]
+pub fn session_get(state: State<AppState>, session_id: String) -> Result<Option<RunSummaryDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let row = flywheel_core::query::sessions::run_by_id(&conn, &session_id).map_err(|e| e.to_string())?;
+    Ok(row.map(RunSummaryDto::from))
+}
+
 /// Every session summary recorded for `story_id` (plan 04-09 Task 3) — the item detail panel's
 /// own read, resolving CONTEXT.md's open question about where summaries render: under the run
 /// row that produced them, not a separate top-level section. Delegates straight to

@@ -192,6 +192,7 @@ fn main() {
             commands::session::session_log_window,
             commands::session::session_raw_window,
             commands::session::sessions_for_story,
+            commands::session::session_get,
             commands::session::story_session_summaries,
             commands::session::session_acknowledge,
             commands::session::session_acknowledge_many,

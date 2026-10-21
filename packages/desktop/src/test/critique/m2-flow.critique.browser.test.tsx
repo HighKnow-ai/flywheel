@@ -14,7 +14,7 @@
  *   CRITIQUE_SCHEME=light npx vitest run --config vitest.critique.config.ts src/test/critique
  *   CRITIQUE_SCHEME=dark  npx vitest run --config vitest.critique.config.ts src/test/critique
  */
-import { afterEach, beforeEach, describe, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { page, userEvent } from "vitest/browser";
 import { clearMocks } from "@tauri-apps/api/mocks";
@@ -141,6 +141,9 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await click("Sessions of FLY-3");
     await click("Open feed of session ses-3a");
     await screen.findByText(/Rendering the three directions/);
+    // Issue #110: a finished session says how it ended and offers no Stop.
+    await screen.findByText(/Ended: handed off/);
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
     await shot("12-feed-handed-off");
   });
 
