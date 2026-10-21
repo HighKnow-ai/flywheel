@@ -43,6 +43,8 @@ interface PermissionAnswerRequest {
   runId: string;
   requestId: string;
   decision: "allow" | "deny";
+  /** Issue #100: the developer's answers, when the held call was an `AskUserQuestion`. */
+  answers?: Record<string, string>;
 }
 
 /** Issues #52, #53: the Rust core's answer to one held board tool call — its result
@@ -212,7 +214,7 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
       // thing that ever settles a held permission-prompt tool call (RESEARCH.md pitfall 4: the
       // sidecar itself decides nothing).
       try {
-        adapter.resolvePermission(request.runId, request.requestId, request.decision);
+        adapter.resolvePermission(request.runId, request.requestId, request.decision, request.answers);
         emitAck(request.id, true);
       } catch (err: unknown) {
         emitAck(request.id, false, String(err));

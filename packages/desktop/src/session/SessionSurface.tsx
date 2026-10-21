@@ -29,6 +29,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import * as icons from "lucide-react";
 import {
   answerPermissionRequest,
+  answerQuestion,
   discardSession,
   stopSession,
   storyGet,
@@ -51,11 +52,43 @@ import { useRegionBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
 import { PermissionRequestCard, type PermissionDecision } from "./PermissionRequestCard";
 import { FeedRow, feedRowEstimateSize, prefersReducedMotion, useExpandedRows } from "./FeedRow";
-import { buildFeedRows, findLiveCallKey, toolCallLabel } from "./feedRows";
+import {
+  ASK_USER_QUESTION_TOOL,
+  buildFeedRows,
+  findLiveCallKey,
+  questionsFromPayload,
+  sameQuestions,
+  toolCallLabel,
+  type FeedRowData,
+} from "./feedRows";
+import type { PendingPermissionRequest } from "./PermissionRequestCard";
+import type { QuestionPicks } from "./QuestionForm";
 import { RawLogView } from "./RawLogView";
 import "./session.css";
 
 const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+
+/**
+ * Issue #100: which open question each unanswered question card in the feed answers, by row key. A
+ * pending `AskUserQuestion` request is matched to the newest unanswered question row asking the same
+ * questions; a request with no such row (its call not in the loaded window yet) stays in the card
+ * below the feed, which answers it the same way.
+ */
+export function openQuestionRows(rows: FeedRowData[], pending: PendingPermissionRequest[]): Map<string, string> {
+  const byRow = new Map<string, string>();
+  for (const request of pending) {
+    if (request.toolName !== ASK_USER_QUESTION_TOOL) continue;
+    const questions = questionsFromPayload(request.inputPayload);
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      const row = rows[i];
+      if (row.kind === "question" && row.answer === undefined && !byRow.has(row.key) && sameQuestions(row.questions, questions)) {
+        byRow.set(row.key, request.id);
+        break;
+      }
+    }
+  }
+  return byRow;
+}
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
 
@@ -464,6 +497,10 @@ export function SessionSurface({
     await answerPermissionRequest(requestId, decision, rule);
   }
 
+  async function handleAnswerQuestion(requestId: string, picks: QuestionPicks) {
+    await answerQuestion(requestId, picks);
+  }
+
   // The terminal status word arrives through the same pushed delta a live `agent:event` push
   // drives (a `session_closed` event's `reason`, plan 02-02 D-35) — never from `stopSession`'s
   // own resolved promise, which is why the Stop control below never assumes its own write landed.
@@ -564,6 +601,12 @@ export function SessionSurface({
     [feedQuery.data],
   );
   const feedRows = useMemo(() => buildFeedRows(entries), [entries]);
+  // Issue #100: an open question is answered in its own feed card; whatever has no card stays below.
+  const questionRows = useMemo(() => openQuestionRows(feedRows, pendingRequests), [feedRows, pendingRequests]);
+  const footerRequests = useMemo(() => {
+    const answeredInFeed = new Set(questionRows.values());
+    return pendingRequests.filter((r) => !answeredInFeed.has(r.id));
+  }, [pendingRequests, questionRows]);
   const terminalInfo = useMemo(() => findTerminalInfo(entries), [entries]);
   const showStartingPulse = feedRows.length === 0 && !terminalInfo;
   // The call in flight: the newest tool call that has no result yet, while the run is running. A notice
@@ -713,7 +756,17 @@ export function SessionSurface({
                   // measures it, so a long turn is never clipped and never paints over the next row.
                   style={{ position: "absolute", top: 0, left: 0, width: "100%", minWidth: 0, transform: `translateY(${virtualRow.start}px)` }}
                 >
-                  <FeedRow row={row} expanded={expanded.has(row.key)} onToggleExpand={() => toggle(row.key)} live={row.key === liveRowKey} />
+                  <FeedRow
+                    row={row}
+                    expanded={expanded.has(row.key)}
+                    onToggleExpand={() => toggle(row.key)}
+                    live={row.key === liveRowKey}
+                    onAnswerQuestion={
+                      questionRows.has(row.key)
+                        ? (picks) => handleAnswerQuestion(questionRows.get(row.key) as string, picks)
+                        : undefined
+                    }
+                  />
                 </div>
               );
             })}
@@ -723,9 +776,14 @@ export function SessionSurface({
 
           {stopWarning && <StopWarningNotice warning={stopWarning} />}
 
-          {pendingRequests.length > 0 && (
+          {footerRequests.length > 0 && (
             <div style={{ marginTop: "var(--space-md)" }}>
-              <PermissionRequestCard variant="feed" requests={pendingRequests} onAnswer={handleAnswer} />
+              <PermissionRequestCard
+                variant="feed"
+                requests={footerRequests}
+                onAnswer={handleAnswer}
+                onAnswerQuestion={handleAnswerQuestion}
+              />
             </div>
           )}
 

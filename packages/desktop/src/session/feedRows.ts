@@ -281,6 +281,25 @@ function rawTextFor(event: Record<string, unknown>): string {
   }
 }
 
+/** Issue #100: the tool name of an agent's question, held as a question rather than a permission request. */
+export const ASK_USER_QUESTION_TOOL = "AskUserQuestion";
+
+/** The questions of an `AskUserQuestion` call's raw input payload (a JSON string), or `[]`. */
+export function questionsFromPayload(inputPayload: string | null): QuestionPrompt[] {
+  if (!inputPayload) return [];
+  try {
+    return questionsFrom({ input: JSON.parse(inputPayload) as unknown });
+  } catch {
+    return [];
+  }
+}
+
+/** Whether two question lists ask the same questions, in the same order: how the feed's question
+ * card finds the pending request it answers. */
+export function sameQuestions(a: QuestionPrompt[], b: QuestionPrompt[]): boolean {
+  return a.length > 0 && a.length === b.length && a.every((q, i) => q.question === b[i].question);
+}
+
 function questionsFrom(event: Record<string, unknown>): QuestionPrompt[] {
   const parsed = Array.isArray(event.questions) ? event.questions : undefined;
   const fromInput =

@@ -203,6 +203,7 @@ fn main() {
             commands::session::session_stop,
             commands::session::session_discard,
             commands::session::session_answer_permission,
+            commands::session::session_answer_question,
             commands::session::permission_rules_list,
             commands::session::permission_rule_revoke,
             commands::session::session_pending_permissions,

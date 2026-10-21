@@ -77,7 +77,7 @@ _Avoid_: Turn, interview, questionnaire
 ## Agent work
 
 **Waiting on you**:
-A session that is live but can't go on until the developer answers it: a Gated action, a permission request, or an open shaping question.
+A session that is live but can't go on until the developer answers it: a Gated action, a permission request, a question the agent asked, or an open shaping question.
 _Avoid_: Blocked, paused
 
 **Stopped**:

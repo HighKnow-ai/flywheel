@@ -471,3 +471,43 @@
 .launch-field {
   background: var(--surface-dominant);
 }
+
+/* --- An agent's question (issue #100) -------------------------------------------------------------- */
+
+/* One question per fieldset: its header and text, its options, then "Other" with a free-text field. */
+.question-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.question-fieldset {
+  border: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.question-legend {
+  margin-bottom: var(--space-xs);
+  overflow-wrap: anywhere;
+  padding: 0;
+}
+
+.question-option {
+  align-items: baseline;
+  cursor: pointer;
+  display: flex;
+  gap: var(--space-sm);
+  overflow-wrap: anywhere;
+}
+
+.question-other {
+  box-sizing: border-box;
+  margin-left: calc(13px + var(--space-sm));
+  max-width: calc(100% - 13px - var(--space-sm));
+}

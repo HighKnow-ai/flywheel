@@ -28,6 +28,8 @@
  * `stream-json` schema, but `normaliseStreamEvent` already tolerates and forwards any
  * unrecognised shape as `type: "unknown"` while preserving its verbatim `raw` text, so the test
  * reads the outcome straight off that field without needing a schema change.
+ * `FLYWHEEL_FAKE_PERMISSION_CALL=<json {tool_name, input}>` replaces the default Bash call (issue
+ * #100 sends an `AskUserQuestion` this way), and the line carries the whole `response` too.
  *
  * **Environment-check mode** (`FLYWHEEL_FAKE_CHECK_ENV_VAR=<name>`, plan 02-09's D-39 credential
  * tests): proves the child process actually observed a value passed through its own environment
@@ -111,11 +113,13 @@ async function callPermissionToolOnce(label) {
   try {
     const result = await client.callTool({
       name: rawToolName,
-      arguments: { tool_name: "Bash", input: { command: `echo ${label}` } },
+      arguments: process.env.FLYWHEEL_FAKE_PERMISSION_CALL
+        ? JSON.parse(process.env.FLYWHEEL_FAKE_PERMISSION_CALL)
+        : { tool_name: "Bash", input: { command: `echo ${label}` } },
     });
     const text = result.content?.[0]?.text ?? "{}";
     const parsed = JSON.parse(text);
-    printLine({ type: "permission_tool_result", label, behavior: parsed.behavior });
+    printLine({ type: "permission_tool_result", label, behavior: parsed.behavior, response: parsed });
   } finally {
     await client.close();
   }

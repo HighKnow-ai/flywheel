@@ -795,7 +795,9 @@ pub fn process_inbound_permission_request(
 
     // D-57: a destructive request never consults an existing per-project rule — see this
     // function's own doc comment for why that bypass is load-bearing, not an optimisation.
-    let rule = if destructive_category.is_some() {
+    // Issue #100: nor does an agent's question. A rule would allow it with no answers, and the
+    // agent would read "The user did not answer the questions."
+    let rule = if destructive_category.is_some() || flywheel_core::domain::question::is_question(tool_name) {
         None
     } else {
         let input: serde_json::Value =
@@ -1129,6 +1131,35 @@ pub fn session_answer_permission(
     Ok(())
 }
 
+/// Answer an agent's open question (issue #100, docs/mvp-spec.md §2 "Attention"). `answers` maps each
+/// question's text to the option labels the developer picked and/or the text they typed;
+/// `domain::question::answer_question` checks it, keeps the answers on the request and clears
+/// Waiting on you, and the answers are relayed to the held permission-prompt call, which answers
+/// Claude Code with `allow` and the questions plus answers. `actor_id` is resolved server-side.
+#[tauri::command]
+pub fn session_answer_question(
+    state: State<AppState>,
+    app: AppHandle,
+    request_id: String,
+    answers: std::collections::BTreeMap<String, Vec<String>>,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id =
+        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let answered = flywheel_core::domain::question::answer_question(&mut conn, &request_id, &answers, &actor_id)
+        .map_err(|e| e.to_string())?;
+    drop(conn);
+
+    if let Some(sidecar) = state.sidecar.as_ref() {
+        sidecar
+            .relay_question_answer(&request_id, &serde_json::Value::Object(answered.answers))
+            .map_err(|e| e.to_string())?;
+    }
+
+    emit_board_changed(&app, Some(&answered.project_id), "session", Some(&answered.session_id));
+    Ok(())
+}
+
 /// One `permission_rules` row, projected for the wire (camelCase) — plan 02-10's Settings
 /// surface read/revoke path (D-38).
 #[derive(Debug, Clone, Serialize)]
@@ -1203,12 +1234,15 @@ pub struct PendingPermissionRequestDto {
 
 /// The rule a request's card pre-fills: the request's own suggested pattern
 /// ([`flywheel_core::permission_pattern::suggested_rule`]), or `None` for a Gated action, which no
-/// rule may ever cover.
+/// rule may ever cover, and for an agent's question (issue #100), which is answered, never allowed.
 pub(crate) fn card_suggested_rule(
     tool_name: &str,
     input_payload: Option<&str>,
     destructive_category: Option<&str>,
 ) -> Option<String> {
+    if flywheel_core::domain::question::is_question(tool_name) {
+        return None;
+    }
     match destructive_category {
         Some(_) => None,
         None => Some(flywheel_core::permission_pattern::suggested_rule(tool_name, input_payload)),
@@ -2392,6 +2426,39 @@ mod tests {
             PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
             other => panic!("expected Pending, got {other:?}"),
         }
+    }
+
+    /// Issue #100: an agent's question is held for the developer even when an old "Always allow
+    /// AskUserQuestion" rule exists (the pre-#100 card offered one), it offers no rule, and it is
+    /// answered with answers, never with allow/deny.
+    #[test]
+    fn an_agent_question_is_held_with_no_rule_and_answered_only_with_answers() {
+        let (mut conn, run_id, _story_id, project_id) = seeded_conn_with_running_session();
+        let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+        let whole_tool = flywheel_core::permission_pattern::suggested_pattern("AskUserQuestion", &serde_json::Value::Null);
+        flywheel_core::domain::permission_rule::upsert_rule(&mut conn, &project_id, "AskUserQuestion", &whole_tool, &actor_id)
+            .expect("the pre-#100 card could store this rule");
+        let input = serde_json::json!({ "questions": [{ "question": "Which?", "header": "H", "multiSelect": false,
+            "options": [{ "label": "A", "description": "" }, { "label": "B", "description": "" }] }] })
+        .to_string();
+        let request = match process_inbound_permission_request(&mut conn, &run_id, "AskUserQuestion", Some(&input), None)
+            .unwrap()
+        {
+            PermissionRequestOutcome::Pending { db_request_id } => db_request_id,
+            other => panic!("a question must be held, got {other:?}"),
+        };
+        assert_eq!(card_suggested_rule("AskUserQuestion", Some(&input), None), None);
+        for decision in ["allow", "deny", "allow_always"] {
+            assert!(answer_permission_request(&mut conn, &request, decision, None, &actor_id).is_err(), "{decision}");
+        }
+        let answers = std::collections::BTreeMap::from([("Which?".to_string(), vec!["B".to_string()])]);
+        let answered =
+            flywheel_core::domain::question::answer_question(&mut conn, &request, &answers, &actor_id).unwrap();
+        assert_eq!(serde_json::Value::Object(answered.answers), serde_json::json!({ "Which?": "B" }));
+        assert!(flywheel_core::domain::permission_rule::rules_for_project(&conn, &project_id)
+            .unwrap()
+            .iter()
+            .all(|r| r.tool == "AskUserQuestion"), "answering grants no rule");
     }
 
     #[test]

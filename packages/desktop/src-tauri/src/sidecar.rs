@@ -409,6 +409,31 @@ impl SidecarHandle {
         self.relay_permission_answer_direct(&run_id, &mcp_request_id, decision)
     }
 
+    /// Relay the developer's answers to an agent's question (issue #100) to its held call: an
+    /// `allow` carrying `answers`, which the permission-prompt tool turns into the questions plus
+    /// answers Claude Code reads. Same lookup and no-op contract as [`Self::relay_permission_answer`].
+    pub fn relay_question_answer(&self, db_request_id: &str, answers: &serde_json::Value) -> anyhow::Result<()> {
+        let entry = {
+            let mut map = self
+                .pending_permission_requests
+                .lock()
+                .map_err(|_| anyhow::anyhow!("pending permission requests mutex poisoned"))?;
+            map.remove(db_request_id)
+        };
+        let Some((run_id, mcp_request_id)) = entry else {
+            return Ok(());
+        };
+        let request = serde_json::json!({
+            "id": format!("permission-answer-{mcp_request_id}"),
+            "op": "permission_answer",
+            "runId": run_id,
+            "requestId": mcp_request_id,
+            "decision": "allow",
+            "answers": answers,
+        });
+        self.send_request(&request.to_string())
+    }
+
     /// Relay a decision directly by `(run_id, mcp_request_id)` — used by the rule-short-circuit
     /// inbound path (T-02-24), which never creates a `permission_requests` row and so has
     /// nothing to look up in [`Self::pending_permission_requests`].

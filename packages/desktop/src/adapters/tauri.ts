@@ -795,6 +795,16 @@ export async function answerPermissionRequest(
 }
 
 /**
+ * Answer an agent's open question (issue #100). `answers` maps each question's text to the option
+ * labels the developer picked and/or the text they typed. The backend checks every question is
+ * answered (one value for a single-choice question), stores the answers and relays them to the
+ * agent. A question is never allowed or denied: `answerPermissionRequest` refuses one.
+ */
+export async function answerQuestion(requestId: string, answers: Record<string, string[]>): Promise<void> {
+  await invokeCommand<void>("session_answer_question", { requestId, answers });
+}
+
+/**
  * One project-scoped permission rule — mirrors `commands/session.rs`'s `PermissionRuleDto`. A rule
  * only ever allows: `tool` is the tool it covers and `pattern` narrows it.
  */

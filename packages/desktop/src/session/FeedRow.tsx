@@ -15,6 +15,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { formatAge } from "../legend/runStatus";
 import { Markdown } from "./Markdown";
+import { QuestionForm, type QuestionPicks } from "./QuestionForm";
 import {
   gitRetryText,
   payloadText,
@@ -48,6 +49,9 @@ export interface FeedRowProps {
   live?: boolean;
   /** The clock for a live row's "running" time. Omitted, the row ticks its own once a second. */
   now?: number;
+  /** Issue #100: only for a `question` row whose question is still open. Present, the card is the
+   * answer form; it never offers Allow or Deny. */
+  onAnswerQuestion?: (picks: QuestionPicks) => Promise<void>;
 }
 
 /** Whether the OS reports a reduced-motion preference, checked once at mount. Guarded for an
@@ -89,7 +93,7 @@ export function feedRowEstimateSize(row: FeedRowData, expanded: boolean): number
     case "proposal":
       return 140;
     case "question":
-      return 60 + row.questions.reduce((h, q) => h + 40 + 22 * q.options.length, 0);
+      return 60 + row.questions.reduce((h, q) => h + 76 + 22 * q.options.length, 0);
     case "git_lock_exhausted":
       return 0;
     default:
@@ -308,12 +312,33 @@ function ProposalCard({ row }: { row: Extract<FeedRowData, { kind: "proposal" }>
   );
 }
 
-function QuestionCard({ questions, answer }: { questions: QuestionPrompt[]; answer?: unknown }) {
+function QuestionCard({
+  questions,
+  answer,
+  onAnswer,
+}: {
+  questions: QuestionPrompt[];
+  answer?: unknown;
+  onAnswer?: (picks: QuestionPicks) => Promise<void>;
+}) {
+  const heading = questions.length > 1 ? `${questions.length} questions from the agent` : "Question from the agent";
+  if (onAnswer && answer === undefined) {
+    return (
+      <div role="listitem" className="feed-row">
+        <div className="session-card feed-card" data-card="question" data-open="true">
+          <span className="type-heading" style={{ color: "var(--blocked-text-rack)" }}>
+            {`${heading} · waiting on you`}
+          </span>
+          <QuestionForm questions={questions} onSubmit={onAnswer} />
+        </div>
+      </div>
+    );
+  }
   return (
     <div role="listitem" className="feed-row">
       <div className="session-card feed-card" data-card="question">
         <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
-          {questions.length > 1 ? `${questions.length} questions from the agent` : "Question from the agent"}
+          {heading}
         </span>
         {questions.map((q, i) => (
           <div key={i} className="feed-question">
@@ -397,7 +422,7 @@ function RawRow({ raw, expanded, onToggleExpand }: { raw: string; expanded: bool
   );
 }
 
-export function FeedRow({ row, expanded, onToggleExpand, live = false, now }: FeedRowProps) {
+export function FeedRow({ row, expanded, onToggleExpand, live = false, now, onAnswerQuestion }: FeedRowProps) {
   switch (row.kind) {
     case "assistant_text":
       return (
@@ -427,7 +452,7 @@ export function FeedRow({ row, expanded, onToggleExpand, live = false, now }: Fe
     case "proposal":
       return <ProposalCard row={row} />;
     case "question":
-      return <QuestionCard questions={row.questions} answer={row.answer} />;
+      return <QuestionCard questions={row.questions} answer={row.answer} onAnswer={onAnswerQuestion} />;
     case "raw":
       return <RawRow raw={row.raw} expanded={expanded} onToggleExpand={onToggleExpand} />;
     default: {

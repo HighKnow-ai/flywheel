@@ -233,6 +233,45 @@ function isNoticePayload(parsed: unknown): parsed is PermissionNoticePayload {
   );
 }
 
+/** Issue #100: the developer's answers to an `AskUserQuestion` call, keyed by each question's own
+ * `question` text, each value the chosen option label, the labels of a multi-select joined with
+ * ", ", or the developer's own free text. The Rust core builds and checks this map
+ * (`flywheel_core::domain::question::answers_for`); this process passes it through untouched. */
+export type QuestionAnswers = Record<string, string>;
+
+/** What the Rust core relays to settle one held `approve_action` call. */
+export interface PermissionReply {
+  decision: "allow" | "deny";
+  /** Issue #81: the push approval an `allow` to a Gated `git` call carries for the shim. */
+  approval?: string;
+  /** Issue #100: present only when the held call was an `AskUserQuestion` the developer answered. */
+  answers?: QuestionAnswers;
+}
+
+/**
+ * The JSON the permission-prompt tool answers Claude Code with, for one relayed reply.
+ *
+ * A plain `allow` passes the tool's input back unchanged. An answered `AskUserQuestion` (issue
+ * #100) is also an `allow`, but its `updatedInput` carries the original `questions` plus an
+ * `answers` record keyed by each question's `question` text, each value the chosen label (several
+ * joined with ", ") or the developer's free text. Without `answers`, the CLI tells the agent "The
+ * user did not answer the questions." Source: Claude Agent SDK docs, "Handle approvals and user
+ * input" > "Handle clarifying questions" > "Return answers to Claude" and "Response format"
+ * (https://code.claude.com/docs/en/agent-sdk/user-input), confirmed against `claude` 2.1.304 in
+ * headless stream-json mode with `--permission-prompt-tool`: the agent's tool result read
+ * `Your questions have been answered: "Which colour should the button be?"="Blue", "Which platforms
+ * should we ship to?"="macOS, Linux"`.
+ */
+export function permissionPromptResponse(input: unknown, reply: PermissionReply): Record<string, unknown> {
+  if (reply.decision !== "allow") return { behavior: "deny", message: "Denied by user" };
+  if (reply.answers !== undefined) {
+    const questions =
+      input !== null && typeof input === "object" ? (input as { questions?: unknown }).questions : undefined;
+    return { behavior: "allow", updatedInput: { questions: questions ?? [], answers: reply.answers } };
+  }
+  return { behavior: "allow", updatedInput: input ?? {} };
+}
+
 export interface PermissionServerHandle {
   /** The Unix domain socket path the standalone server (spawned by the backend) connects to —
    * embedded verbatim into the `--mcp-config` JSON `buildClaudeArgv` builds. */
@@ -240,7 +279,7 @@ export interface PermissionServerHandle {
   /** Settle a held call. A `requestId` matching no held call is ignored with a logged notice and
    * resolves nothing else — never an error, and never treated as "resolve some other call
    * instead." */
-  resolvePermission(requestId: string, decision: "allow" | "deny"): void;
+  resolvePermission(requestId: string, decision: "allow" | "deny", answers?: QuestionAnswers): void;
   /** Issue #52: settle a held Task tool call with the core's checklist, or with the reason it
    * refused. Shares `pending` and the "an unknown requestId is ignored with a logged notice"
    * contract with {@link resolvePermission}. */
@@ -359,7 +398,7 @@ export function startPermissionServer(
 
   return {
     socketPath,
-    resolvePermission(requestId, decision) {
+    resolvePermission(requestId, decision, answers) {
       const socket = pending.get(requestId);
       if (!socket) {
         // An answer whose request id matches no held call — ignored, resolves nothing else.
@@ -370,7 +409,8 @@ export function startPermissionServer(
       const issue = decision === "allow" && wantsApproval.has(requestId);
       wantsApproval.delete(requestId);
       if (!issue) {
-        socket.end(JSON.stringify({ decision }) + "\n");
+        const reply: PermissionReply = decision === "allow" && answers !== undefined ? { decision, answers } : { decision };
+        socket.end(JSON.stringify(reply) + "\n");
         return;
       }
       const approval = randomBytes(32).toString("hex");
@@ -480,22 +520,14 @@ async function runStandaloneServer(socketPath: string): Promise<void> {
         socket.on("error", (err) => reject(err));
         const rl = createInterface({ input: socket });
         rl.once("line", (line) => {
-          let parsed: { decision: "allow" | "deny" };
+          let parsed: PermissionReply;
           try {
-            parsed = JSON.parse(line) as { decision: "allow" | "deny" };
+            parsed = JSON.parse(line) as PermissionReply;
           } catch (err) {
             reject(err);
             return;
           }
-          if (parsed.decision === "allow") {
-            resolve({
-              content: [{ type: "text", text: JSON.stringify({ behavior: "allow", updatedInput: args.input ?? {} }) }],
-            });
-          } else {
-            resolve({
-              content: [{ type: "text", text: JSON.stringify({ behavior: "deny", message: "Denied by user" }) }],
-            });
-          }
+          resolve({ content: [{ type: "text", text: JSON.stringify(permissionPromptResponse(args.input, parsed)) }] });
         });
         // Deliberately no setTimeout/setInterval anywhere in this function — the promise settles
         // ONLY when the socket answers (AGNT-06's central falsifiability requirement).

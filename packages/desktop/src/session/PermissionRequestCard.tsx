@@ -19,6 +19,10 @@
  *   cover a Gated action, so this variant renders no pattern field and no Always allow action at
  *   all — absent, never disabled.
  *
+ * - **An agent's question** (issue #100, `toolName` `AskUserQuestion`) is not a permission request at
+ *   all: it renders as the question form (`QuestionForm.tsx`), with no Allow, no Deny, no pattern and
+ *   no keyboard shortcut, and is answered through `onAnswerQuestion`.
+ *
  * **Not dismissible — deliberately, and this is the one place in the whole product that departs
  * from the shared Escape ladder** (`state/keyboard.ts`'s own doc comment on `EscapeLayer`,
  * T-02-16). This file owns no local key handler and no dismissable-layer wrapper — closing the
@@ -30,6 +34,8 @@ import { useId, useRef, useState, type ComponentType, type FormEvent } from "rea
 import * as icons from "lucide-react";
 import { MARKS_BY_ID } from "../legend/marks";
 import { useRegionBindings } from "../state/keyboard";
+import { ASK_USER_QUESTION_TOOL, questionsFromPayload } from "./feedRows";
+import { QuestionForm, type QuestionPicks } from "./QuestionForm";
 import "./session.css";
 
 export type PermissionRequestCardVariant = "feed" | "compact";
@@ -194,6 +200,8 @@ export interface PermissionRequestCardProps {
    * per blocked agent (the fleet's blocked queue) must pass `true` to exactly one of them, or one
    * `a` press answers every agent at once. */
   keyboardEnabled?: boolean;
+  /** Issue #100: answers an agent's question. Without it a question renders read-only. */
+  onAnswerQuestion?: (requestId: string, picks: QuestionPicks) => Promise<void>;
 }
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
@@ -432,11 +440,45 @@ function PermissionRequestRow({
   );
 }
 
+/** Issue #100: an agent's question, held for an answer. Shares the card's frame and nothing else. */
+function QuestionRequestRow({
+  request,
+  onAnswerQuestion,
+}: {
+  request: PendingPermissionRequest;
+  onAnswerQuestion?: (requestId: string, picks: QuestionPicks) => Promise<void>;
+}) {
+  const questions = questionsFromPayload(request.inputPayload);
+  const glyph = MARKS_BY_ID["blocked-indicator"];
+  return (
+    <div role="group" aria-label="The agent has a question" className="session-card" data-card="question">
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
+        <span aria-hidden="true" style={{ color: "var(--blocked-text-rack)", flexShrink: 0, display: "inline-flex" }}>
+          <Icon name={glyph?.glyph ?? "ShieldAlert"} />
+        </span>
+        <span className="type-heading">
+          {questions.length > 1 ? `The agent has ${questions.length} questions` : "The agent has a question"}
+        </span>
+      </div>
+      {onAnswerQuestion ? (
+        <QuestionForm questions={questions} onSubmit={(picks) => onAnswerQuestion(request.id, picks)} />
+      ) : (
+        questions.map((q, i) => (
+          <p key={i} className="type-body" style={{ margin: 0, overflowWrap: "anywhere" }}>
+            {q.question}
+          </p>
+        ))
+      )}
+    </div>
+  );
+}
+
 export function PermissionRequestCard({
   variant,
   requests,
   onAnswer,
   keyboardEnabled = true,
+  onAnswerQuestion,
 }: PermissionRequestCardProps) {
   if (requests.length === 0) return null;
 
@@ -446,15 +488,19 @@ export function PermissionRequestCard({
       aria-label="Pending permission requests"
       style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)", minWidth: 0 }}
     >
-      {requests.map((request, index) => (
-        <PermissionRequestRow
-          key={request.id}
-          request={request}
-          variant={variant}
-          keyboardEnabled={keyboardEnabled && index === 0}
-          onAnswer={onAnswer}
-        />
-      ))}
+      {requests.map((request, index) =>
+        request.toolName === ASK_USER_QUESTION_TOOL ? (
+          <QuestionRequestRow key={request.id} request={request} onAnswerQuestion={onAnswerQuestion} />
+        ) : (
+          <PermissionRequestRow
+            key={request.id}
+            request={request}
+            variant={variant}
+            keyboardEnabled={keyboardEnabled && index === 0}
+            onAnswer={onAnswer}
+          />
+        ),
+      )}
     </div>
   );
 }
