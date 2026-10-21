@@ -1,4 +1,9 @@
 /**
+ * The click model (issue #104): a Story row opens the Story (`StoryView.tsx`), anywhere on the row
+ * that is not a control of its own, the key, the title and the *doing* Task included. The live agent
+ * opens only from a control labelled as the session ("Open session", "Open feed"). Start and Resume
+ * start a session and stay where they are: nothing here opens a session on its own.
+ *
  * The bare board for Milestone 2 (issue #50): a plain live list of the project's Stories with
  * their state, a Start control, the *doing* Task and the Task checklist (issue #52), and a form that writes a Milestone, an Epic and a Story with
  * its Acceptance criteria and optional Checks. Scaffolding: shaping replaces the form's role in
@@ -9,7 +14,7 @@
  * control that makes a criterion on its own. Every read is keyed under the project so the one
  * `board:changed` subscription keeps the list live; the renderer never trusts its own write.
  */
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type MouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   blockedSummary,
@@ -27,15 +32,17 @@ import {
   storyStopped,
   storyWriteByHand,
   type EndingReason,
+  type StoppedDto,
   type StoryDto,
 } from "../adapters/tauri";
 import { useBoardChangedSubscription } from "./useBoardQuery";
 import { DoingTask, TaskChecklist, useStoryTasks } from "./TaskChecklist";
 import { StateBadge } from "../legend/StateBadge";
+import { useUiStore } from "../state/uiStore";
 import "../session/session.css";
 
 /** The words for each Story state (GLOSSARY.md "Story state"). */
-const STORY_STATE_WORDS: Record<string, string> = {
+export const STORY_STATE_WORDS: Record<string, string> = {
   shaping: "Shaping",
   ready: "Ready",
   running: "Running",
@@ -44,20 +51,16 @@ const STORY_STATE_WORDS: Record<string, string> = {
   dropped: "Dropped",
 };
 
-function errorText(err: unknown): string {
+export function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
 export interface StoryBoardProps {
   projectId: string;
   projectName: string;
-  /** Called with the new session's id and its Story once Start or Resume resolves. */
-  onStarted: (sessionId: string, storyId: string) => void;
-  /** Called to open a past session's feed from the Story's session list; defaults to `onStarted`. */
-  onOpenSession?: (sessionId: string, storyId: string) => void;
 }
 
-export function StoryBoard({ projectId, projectName, onStarted, onOpenSession }: StoryBoardProps) {
+export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
   useBoardChangedSubscription(projectId);
   return (
     <div className="board-shell" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -79,22 +82,14 @@ export function StoryBoard({ projectId, projectName, onStarted, onOpenSession }:
           color: "var(--text-primary-rack)",
         }}
       >
-        <StoryList projectId={projectId} onStarted={onStarted} onOpenSession={onOpenSession ?? onStarted} />
+        <StoryList projectId={projectId} />
         <StoryForm projectId={projectId} />
       </div>
     </div>
   );
 }
 
-function StoryList({
-  projectId,
-  onStarted,
-  onOpenSession,
-}: {
-  projectId: string;
-  onStarted: StoryBoardProps["onStarted"];
-  onOpenSession: StoryBoardProps["onStarted"];
-}) {
+function StoryList({ projectId }: { projectId: string }) {
   const storiesQuery = useQuery({
     queryKey: ["board", projectId, "stories"],
     queryFn: () => storyListForProject(projectId),
@@ -129,8 +124,6 @@ function StoryList({
             projectId={projectId}
             story={story}
             waitingOnYou={waitingIds.has(story.id)}
-            onStarted={onStarted}
-            onOpenSession={onOpenSession}
           />
         ))}
       </ul>
@@ -138,46 +131,145 @@ function StoryList({
   );
 }
 
-function StoryRow({
-  projectId,
-  story,
-  waitingOnYou,
-  onStarted,
-  onOpenSession,
-}: {
-  projectId: string;
-  story: StoryDto;
-  /** A live session of this Story holds a Gated action or permission request. */
-  waitingOnYou: boolean;
-  onStarted: StoryBoardProps["onStarted"];
-  onOpenSession: StoryBoardProps["onStarted"];
-}) {
-  const [starting, setStarting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showTasks, setShowTasks] = useState(false);
-  const [showSessions, setShowSessions] = useState(false);
-  const tasks = useStoryTasks(projectId, story.id).data ?? [];
-  // Stopped is attention, worked out by the core from the Story's sessions: only a Running Story can be.
+/** Whether a click landed on a control of its own inside a row, which then owns the click. */
+export function isOwnControl(event: MouseEvent): boolean {
+  const target = event.target as HTMLElement | null;
+  const control = target?.closest("button, a, input, select, textarea, label, form, ol, ul, p, [role='group']");
+  return Boolean(control && control !== event.currentTarget && event.currentTarget.contains(control));
+}
+
+/** Stopped is attention, worked out by the core from the Story's sessions: only a Running Story can be. */
+export function useStopped(projectId: string, story: StoryDto): StoppedDto | null {
   const stoppedQuery = useQuery({
     queryKey: ["board", projectId, "stopped", story.id],
     queryFn: () => storyStopped(story.id),
     enabled: story.state === "running",
   });
-  const stopped = story.state === "running" ? (stoppedQuery.data ?? null) : null;
+  return story.state === "running" ? (stoppedQuery.data ?? null) : null;
+}
+
+/** The Story's live session id, if one is running: the newest of its sessions with no end. Read under
+ * the same key as the session list, so `board:changed` keeps both current. */
+export function useLiveSessionId(projectId: string, story: StoryDto): string | null {
+  const sessionsQuery = useQuery({
+    queryKey: ["board", projectId, "sessions", story.id],
+    queryFn: () => sessionsForStory(story.id),
+    enabled: story.state === "running",
+  });
+  if (story.state !== "running") return null;
+  return (sessionsQuery.data ?? []).find((session) => session.endedAt === null)?.id ?? null;
+}
+
+/** The one explicit way to the live agent (issue #104): a control labelled as the session. Renders
+ * nothing while the Story has no live session. */
+export function OpenSessionControl({ projectId, story }: { projectId: string; story: StoryDto }) {
+  const liveSessionId = useLiveSessionId(projectId, story);
+  const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
+  if (!liveSessionId) return null;
+  return (
+    <button
+      type="button"
+      aria-label={`Open live session of ${story.key}`}
+      onClick={() => setActiveSessionId(liveSessionId, story.id)}
+      className="control-edge session-action type-body"
+    >
+      Open session
+    </button>
+  );
+}
+
+/** Start a Ready Story. The session starts in the background: Start never opens it (issue #104). */
+export function StartControl({ story, onError }: { story: StoryDto; onError: (message: string | null) => void }) {
+  const [starting, setStarting] = useState(false);
 
   function handleStart() {
     if (starting) return;
     setStarting(true);
-    setError(null);
+    onError(null);
     storyStart(story.id)
-      .then((session) => onStarted(session.id, story.id))
-      .catch((err: unknown) => setError(errorText(err)))
+      .catch((err: unknown) => onError(errorText(err)))
       .finally(() => setStarting(false));
   }
 
   return (
+    <button
+      type="button"
+      aria-label={`Start ${story.key}`}
+      onClick={handleStart}
+      disabled={starting}
+      className="control-edge session-action session-action-lead type-body"
+    >
+      {starting ? "Starting…" : "Start"}
+    </button>
+  );
+}
+
+/** The state word, or the attention flag that replaces it. */
+export function StoryStateWord({
+  story,
+  stopped,
+  waitingOnYou,
+}: {
+  story: StoryDto;
+  stopped: StoppedDto | null;
+  waitingOnYou: boolean;
+}) {
+  if (stopped) {
+    // A Stopped Story has no live session, so it is never Waiting on you (the core agrees).
+    return (
+      <span className="type-label" style={{ color: "var(--state-needs-you-text)" }}>
+        {`Stopped: ${endingWords(stopped.endingReason)}`}
+      </span>
+    );
+  }
+  // The attention flag replaces the state word, tinted, and outranks every other status.
+  if (waitingOnYou) return <StateBadge state="blocked" variant="wash" />;
+  return <span className="type-label">{STORY_STATE_WORDS[story.state] ?? story.state}</span>;
+}
+
+/** The control that opens a Story: its key and title, looking exactly as the text they were. */
+const storyOpenStyle = {
+  display: "inline-flex",
+  gap: "var(--space-sm)",
+  alignItems: "baseline",
+  flex: 1,
+  minWidth: 0,
+  padding: 0,
+  border: "none",
+  background: "none",
+  color: "inherit",
+  font: "inherit",
+  textAlign: "left" as const,
+  cursor: "pointer",
+};
+
+function StoryRow({
+  projectId,
+  story,
+  waitingOnYou,
+}: {
+  projectId: string;
+  story: StoryDto;
+  /** A live session of this Story holds a Gated action or permission request. */
+  waitingOnYou: boolean;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [showTasks, setShowTasks] = useState(false);
+  const [showSessions, setShowSessions] = useState(false);
+  const tasks = useStoryTasks(projectId, story.id).data ?? [];
+  const stopped = useStopped(projectId, story);
+  const openStory = useUiStore((state) => state.openStory);
+
+  return (
     <li
+      data-story-id={story.id}
+      // Anywhere on the row that is not a control of its own opens the Story: the doing Task and the
+      // state word go there too. The key-and-title button is the same target for the keyboard.
+      onClick={(event) => {
+        if (!isOwnControl(event)) openStory(projectId, story.id);
+      }}
       style={{
+        cursor: "pointer",
         display: "flex",
         flexWrap: "wrap",
         alignItems: "center",
@@ -186,25 +278,23 @@ function StoryRow({
         borderBottom: "1px solid var(--divider)",
       }}
     >
-      <span className="type-label" style={{ color: "var(--text-muted-rack)", minWidth: "5em" }}>
-        {story.key}
-      </span>
-      <span className="type-body" style={{ flex: 1, minWidth: 0 }}>
-        {story.title}
-      </span>
+      <button
+        type="button"
+        aria-label={`Open Story ${story.key} ${story.title}`}
+        onClick={() => openStory(projectId, story.id)}
+        style={storyOpenStyle}
+      >
+        <span className="type-label" style={{ color: "var(--text-muted-rack)", minWidth: "5em" }}>
+          {story.key}
+        </span>
+        <span className="type-body" style={{ flex: 1, minWidth: 0 }}>
+          {story.title}
+        </span>
+      </button>
       <DoingTask tasks={tasks} storyKey={story.key} />
       {story.state !== "merged" && story.state !== "dropped" && <PacketSize story={story} />}
-      {stopped ? (
-        // A Stopped Story has no live session, so it is never Waiting on you (the core agrees).
-        <span className="type-label" style={{ color: "var(--state-needs-you-text)" }}>
-          {`Stopped: ${endingWords(stopped.endingReason)}`}
-        </span>
-      ) : waitingOnYou ? (
-        // The attention flag replaces the state word, tinted, and outranks every other status.
-        <StateBadge state="blocked" variant="wash" />
-      ) : (
-        <span className="type-label">{STORY_STATE_WORDS[story.state] ?? story.state}</span>
-      )}
+      <StoryStateWord story={story} stopped={stopped} waitingOnYou={waitingOnYou} />
+      <OpenSessionControl projectId={projectId} story={story} />
       <button
         type="button"
         aria-label={`Tasks of ${story.key}`}
@@ -225,26 +315,16 @@ function StoryRow({
           Sessions
         </button>
       )}
-      {stopped && <ResumeControl story={story} onStarted={onStarted} />}
+      {stopped && <ResumeControl story={story} />}
       {story.state !== "merged" && story.state !== "dropped" && <DropControl story={story} />}
-      {story.state === "ready" && (
-        <button
-          type="button"
-          aria-label={`Start ${story.key}`}
-          onClick={handleStart}
-          disabled={starting}
-          className="control-edge session-action session-action-lead type-body"
-        >
-          {starting ? "Starting…" : "Start"}
-        </button>
-      )}
+      {story.state === "ready" && <StartControl story={story} onError={setError} />}
       {error && (
         <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text-rack)" }}>
           {error}
         </p>
       )}
       {showTasks && <TaskChecklist storyKey={story.key} storyId={story.id} tasks={tasks} />}
-      {showSessions && <SessionList projectId={projectId} story={story} onOpenSession={onOpenSession} />}
+      {showSessions && <SessionList projectId={projectId} story={story} />}
     </li>
   );
 }
@@ -262,7 +342,7 @@ const ENDING_WORDS: Record<EndingReason, string> = {
   unknown: "unknown",
 };
 
-function endingWords(reason: EndingReason | null): string {
+export function endingWords(reason: EndingReason | null): string {
   return reason ? (ENDING_WORDS[reason] ?? reason) : "unknown";
 }
 
@@ -273,9 +353,10 @@ function formatWhen(iso: string): string {
 
 /**
  * Resume a Stopped Story (docs/mvp-spec.md §4.5): always the developer's click, with an optional
- * one-line note. The core starts a fresh session in the same worktree from the Context packet.
+ * one-line note. The core starts a fresh session in the same worktree from the Context packet. Like
+ * Start, Resume stays where it is: the new session opens only from its own control (issue #104).
  */
-function ResumeControl({ story, onStarted }: { story: StoryDto; onStarted: StoryBoardProps["onStarted"] }) {
+export function ResumeControl({ story }: { story: StoryDto }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -288,10 +369,9 @@ function ResumeControl({ story, onStarted }: { story: StoryDto; onStarted: Story
     setError(null);
     const trimmed = note.trim();
     storyResume(story.id, trimmed === "" ? undefined : trimmed)
-      .then((session) => {
+      .then(() => {
         setOpen(false);
         setNote("");
-        onStarted(session.id, story.id);
       })
       .catch((err: unknown) => setError(errorText(err)))
       .finally(() => setBusy(false));
@@ -350,7 +430,7 @@ function ResumeControl({ story, onStarted }: { story: StoryDto; onStarted: Story
  * removes the worktree and branch with any uncommitted work. The core refuses while a session is
  * live; its reason is shown as is. `board:changed` refreshes the row.
  */
-function DropControl({ story }: { story: StoryDto }) {
+export function DropControl({ story }: { story: StoryDto }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -428,15 +508,8 @@ function DropControl({ story }: { story: StoryDto }) {
  * The Story's sessions, newest first (docs/mvp-spec.md §4.5): ID, start and end, ending reason and
  * summary. Each opens its feed, which stays readable after the session dies.
  */
-function SessionList({
-  projectId,
-  story,
-  onOpenSession,
-}: {
-  projectId: string;
-  story: StoryDto;
-  onOpenSession: StoryBoardProps["onStarted"];
-}) {
+export function SessionList({ projectId, story }: { projectId: string; story: StoryDto }) {
+  const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
   const sessionsQuery = useQuery({
     queryKey: ["board", projectId, "sessions", story.id],
     queryFn: () => sessionsForStory(story.id),
@@ -488,7 +561,7 @@ function SessionList({
                 <button
                   type="button"
                   aria-label={`Open feed of session ${session.id}`}
-                  onClick={() => onOpenSession(session.id, story.id)}
+                  onClick={() => setActiveSessionId(session.id, story.id)}
                   className="control-edge session-action type-body"
                 >
                   Open feed
@@ -518,7 +591,7 @@ function formatTokens(tokens: number): string {
  * The size of the Context packet the Story's next session starts from, with a soft warning above
  * about 20K tokens. Keyed under the project so `board:changed` keeps it current.
  */
-function PacketSize({ story }: { story: StoryDto }) {
+export function PacketSize({ story }: { story: StoryDto }) {
   const sizeQuery = useQuery({
     queryKey: ["board", story.projectId, "packet-size", story.id],
     queryFn: () => storyContextPacketSize(story.id),

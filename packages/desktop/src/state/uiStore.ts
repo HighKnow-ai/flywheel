@@ -63,10 +63,15 @@ interface UiState {
   /** Whether the worktree inventory (WORK-07) is open. Mutually exclusive with `fleetSurface`:
    * opening either closes the other. */
   worktreeInventoryOpen: boolean;
-  /** A one-shot request to select a board item and open its detail (FLEET-03). The request outlives
-   * a project switch, and `consumePendingFocusItemId` reads and clears it in one call so it can
-   * never fire twice. */
-  pendingFocusItemId: string | null;
+  /** The Story open in the Story view of `currentProjectId` (issue #104), or `null` for the board.
+   * Opening a Story never opens its session: only an explicit session control does. */
+  currentStoryId: string | null;
+  /** The places visited before this one, oldest first (issue #104). Every opener below pushes the place
+   * it leaves; `goBack` (the Back controls and ⌘[) pops it. Closing a surface pushes nothing. */
+  navHistory: NavPlace[];
+  /** Half-typed answers to an agent's question, keyed by the request id (issue #104). Kept here, not
+   * in the feed row, because a virtualised row unmounts when it scrolls out of view. */
+  questionDrafts: Record<string, QuestionDraft[]>;
   /** The version string of the update offer the user dismissed (D-187). */
   dismissedUpdateVersion: string | null;
   setPaletteOpen: (open: boolean) => void;
@@ -89,10 +94,73 @@ interface UiState {
   setFleetSurface: (target: FleetSurfaceTarget | null) => void;
   /** Opens/closes the worktree inventory; opening it closes the fleet surface. */
   setWorktreeInventoryOpen: (open: boolean) => void;
-  setPendingFocusItemId: (id: string | null) => void;
   setDismissedUpdateVersion: (version: string | null) => void;
-  /** Returns the pending focus request and clears it in the same call. */
-  consumePendingFocusItemId: () => string | null;
+  /** Opens a Story's view in its project (issue #104). Never opens its session. */
+  openStory: (projectId: string, storyId: string) => void;
+  /** Returns to the place before this one; with no history, to the current project's board. */
+  goBack: () => void;
+  setQuestionDraft: (requestId: string, draft: QuestionDraft[] | null) => void;
+}
+
+/** One question's half-typed answer: the picked option labels, and the typed "Other" answer. */
+export interface QuestionDraft {
+  labels: string[];
+  other: boolean;
+  otherText: string;
+}
+
+/** Where the developer is: every field that decides which surface, project, Story and session show. */
+export type NavPlace = Pick<
+  UiState,
+  | "currentProjectId"
+  | "currentStoryId"
+  | "activeSessionId"
+  | "activeSessionStoryId"
+  | "activeSessionInitialLogOffset"
+  | "activeSessionInitialStatus"
+  | "fleetSurface"
+  | "worktreeInventoryOpen"
+  | "settingsOpen"
+>;
+
+/** How many places Back remembers. */
+const MAX_HISTORY = 50;
+
+/** Every full-pane surface closed and no session open: what remains is the board or a Story view. */
+const NO_SURFACE = {
+  activeSessionId: null,
+  activeSessionStoryId: null,
+  activeSessionInitialLogOffset: null,
+  activeSessionInitialStatus: null,
+  fleetSurface: null,
+  worktreeInventoryOpen: false,
+  settingsOpen: false,
+} satisfies Partial<NavPlace>;
+
+function placeOf(state: NavPlace): NavPlace {
+  return {
+    currentProjectId: state.currentProjectId,
+    currentStoryId: state.currentStoryId,
+    activeSessionId: state.activeSessionId,
+    activeSessionStoryId: state.activeSessionStoryId,
+    activeSessionInitialLogOffset: state.activeSessionInitialLogOffset,
+    activeSessionInitialStatus: state.activeSessionInitialStatus,
+    fleetSurface: state.fleetSurface,
+    worktreeInventoryOpen: state.worktreeInventoryOpen,
+    settingsOpen: state.settingsOpen,
+  };
+}
+
+function samePlace(a: NavPlace, b: NavPlace): boolean {
+  return (
+    a.currentProjectId === b.currentProjectId &&
+    a.currentStoryId === b.currentStoryId &&
+    a.activeSessionId === b.activeSessionId &&
+    a.activeSessionStoryId === b.activeSessionStoryId &&
+    a.fleetSurface?.view === b.fleetSurface?.view &&
+    a.worktreeInventoryOpen === b.worktreeInventoryOpen &&
+    a.settingsOpen === b.settingsOpen
+  );
 }
 
 const INITIAL_STATE = {
@@ -110,40 +178,78 @@ const INITIAL_STATE = {
   settingsOpen: false,
   fleetSurface: null,
   worktreeInventoryOpen: false,
-  pendingFocusItemId: null,
   dismissedUpdateVersion: null,
+  currentStoryId: null,
+  navHistory: [] as NavPlace[],
+  questionDrafts: {} as Record<string, QuestionDraft[]>,
 } satisfies Partial<UiState>;
 
-export const useUiStore = create<UiState>((set, get) => ({
+export const useUiStore = create<UiState>((set, get) => {
+  /** Moves to the place `patch` describes, remembering the one it leaves. Moving to the same place
+   * pushes nothing, so a second click on what is already showing never fills Back with repeats. */
+  function go(patch: Partial<NavPlace>) {
+    const from = placeOf(get());
+    const to = { ...from, ...patch };
+    if (samePlace(from, to)) {
+      set(patch);
+      return;
+    }
+    set({ ...patch, navHistory: [...get().navHistory, from].slice(-MAX_HISTORY) });
+  }
+
+  return {
   ...INITIAL_STATE,
 
   setPaletteOpen: (open) => set({ paletteOpen: open }),
-  setCurrentProjectId: (id) => set({ currentProjectId: id }),
+  // Choosing a project shows its board: whatever surface was open closes, so the click is never
+  // swallowed by a session or the fleet sitting on top (issue #104).
+  setCurrentProjectId: (id) =>
+    id === null ? set({ currentProjectId: null, currentStoryId: null }) : go({ currentProjectId: id, currentStoryId: null, ...NO_SURFACE }),
   setDetailItemId: (id) => set({ detailItemId: id }),
   setDeleteTarget: (target) => set({ deleteTarget: target }),
   setActivePicker: (picker) => set({ activePicker: picker }),
   setQuickAddOpen: (open) => set({ quickAddOpen: open }),
-  setActiveSessionId: (sessionId, storyId = null, initialLogOffset = null, initialStatus = null) =>
-    set({
+  setActiveSessionId: (sessionId, storyId = null, initialLogOffset = null, initialStatus = null) => {
+    const fields = {
       activeSessionId: sessionId,
       activeSessionStoryId: storyId,
       activeSessionInitialLogOffset: initialLogOffset,
       activeSessionInitialStatus: initialStatus,
-    }),
-  setLaunchSheetStoryId: (storyId) => set({ launchSheetStoryId: storyId }),
-  setSettingsOpen: (open) => set({ settingsOpen: open }),
-  setFleetSurface: (target) =>
-    set(target ? { fleetSurface: target, worktreeInventoryOpen: false } : { fleetSurface: null }),
-  setWorktreeInventoryOpen: (open) =>
-    set(open ? { worktreeInventoryOpen: true, fleetSurface: null } : { worktreeInventoryOpen: false }),
-  setPendingFocusItemId: (id) => set({ pendingFocusItemId: id }),
-  setDismissedUpdateVersion: (version) => set({ dismissedUpdateVersion: version }),
-  consumePendingFocusItemId: () => {
-    const id = get().pendingFocusItemId;
-    if (id !== null) set({ pendingFocusItemId: null });
-    return id;
+    };
+    // Opening is a move Back can undo; closing (`null`) is not a new place.
+    if (sessionId === null) set(fields);
+    else go({ ...fields, settingsOpen: false });
   },
-}));
+  setLaunchSheetStoryId: (storyId) => set({ launchSheetStoryId: storyId }),
+  setSettingsOpen: (open) => (open ? go({ settingsOpen: true }) : set({ settingsOpen: false })),
+  // Opening the fleet or the inventory replaces whatever shows, a session included, so the click
+  // always lands where it says. The session stays one Back away.
+  setFleetSurface: (target) =>
+    target
+      ? go({ ...NO_SURFACE, fleetSurface: target })
+      : set({ fleetSurface: null }),
+  setWorktreeInventoryOpen: (open) =>
+    open ? go({ ...NO_SURFACE, worktreeInventoryOpen: true }) : set({ worktreeInventoryOpen: false }),
+  setDismissedUpdateVersion: (version) => set({ dismissedUpdateVersion: version }),
+  openStory: (projectId, storyId) => go({ ...NO_SURFACE, currentProjectId: projectId, currentStoryId: storyId }),
+  goBack: () => {
+    const history = get().navHistory;
+    const previous = history[history.length - 1];
+    if (previous) {
+      set({ ...previous, navHistory: history.slice(0, -1) });
+      return;
+    }
+    // Nothing remembered (the app just opened on a surface): Back lands on the project's board.
+    set({ ...NO_SURFACE, currentStoryId: null });
+  },
+  setQuestionDraft: (requestId, draft) => {
+    const drafts = { ...get().questionDrafts };
+    if (draft === null) delete drafts[requestId];
+    else drafts[requestId] = draft;
+    set({ questionDrafts: drafts });
+  },
+  };
+});
 
 /** Resets every UI field back to its initial value — the shared reset the test suites use. Zustand's
  * `setState` merges rather than replaces, so a hand-written reset that forgot a field would leak it

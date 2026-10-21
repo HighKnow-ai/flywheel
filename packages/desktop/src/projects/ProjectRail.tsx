@@ -37,7 +37,12 @@
  * Each project entry carries its running sessions beneath it (docs/mvp-spec.md §7, #58): one row per live
  * (running or blocked) Story session, read from the fleet's own query so the rail and the fleet surface
  * can never disagree. A row names the Story and what its agent is doing now (the *doing* Task, else the
- * Story title), and opening it opens that session's feed. A project with nothing running shows no list.
+ * Story title). The row opens the Story; its "Session" control, and only that, opens the live session
+ * (issue #104). A project with nothing running shows no list.
+ *
+ * The rail shows where the developer is (issue #104): the current project is marked, and so is the
+ * current Story under it (the Story open in the Story view, or the Story of the open session), as its
+ * running row or, when it is not running, as a row of its own.
  *
  * The `+` affordance at the rail's foot opens the SAME registration flow ⌘⇧O and the native File
  * menu use (`RegisterProjectFlow.tsx`) — never a second, rail-local copy of that sequence.
@@ -52,9 +57,9 @@
  * spend attached). That one remains the CURRENT project's count.
  */
 import { useState, type CSSProperties } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, TriangleAlert } from "lucide-react";
-import { projectHide, type FleetRowDto } from "../adapters/tauri";
+import { projectHide, storyGet, type FleetRowDto, type StoryDto } from "../adapters/tauri";
 import glyphUrl from "../assets/logo-glyph.svg";
 import type { Project } from "../board/useBoardQuery";
 import { useRecoverySummary } from "../board/useBoardQuery";
@@ -137,44 +142,110 @@ const sessionRowStyle: CSSProperties = {
   color: "var(--text-muted-rack)",
 };
 
+// The current Story takes the current project's neutral mark (issue #104), never a new style.
+const currentSessionRowStyle: CSSProperties = {
+  background: currentEntryStyle.background,
+  boxShadow: currentEntryStyle.boxShadow,
+  fontWeight: currentEntryStyle.fontWeight,
+};
+
 /** A live session: one a person could be watching. Finished sessions stay on the fleet surface only. */
 function isLiveSession(row: FleetRowDto): boolean {
   return row.runStatus === "running" || row.runStatus === "blocked";
 }
 
-/** One project's running sessions, under its entry. Renders nothing when none is running. */
-function RunningSessions({ projectName, sessions }: { projectName: string; sessions: FleetRowDto[] }) {
+/** The Story the developer is on: the one open in the Story view, or the open session's. */
+function usePlaceStoryId(): string | null {
+  return useUiStore((state) => (state.activeSessionId ? state.activeSessionStoryId : state.currentStoryId));
+}
+
+/** The current Story's record, read under the Story view's own key so the two share one read. Only
+ * the Story view's Story is read here; a session's Story is named by its running row. */
+function useCurrentStory(currentProjectId: string | undefined): StoryDto | null {
+  const storyId = useUiStore((state) => (state.activeSessionId ? null : state.currentStoryId));
+  const query = useQuery({
+    queryKey: ["board", currentProjectId, "story", storyId],
+    queryFn: () => storyGet(storyId as string),
+    enabled: Boolean(storyId && currentProjectId),
+  });
+  return storyId ? (query.data ?? null) : null;
+}
+
+const sessionControlStyle: CSSProperties = {
+  ...rowStyle,
+  minHeight: 24,
+  padding: "2px var(--space-xs)",
+  flexShrink: 0,
+  cursor: "pointer",
+  color: "var(--text-muted-rack)",
+};
+
+/** One project's running sessions, under its entry, plus the current Story when it is not running.
+ * Renders nothing when neither is there. */
+function RunningSessions({
+  projectId,
+  projectName,
+  sessions,
+  currentStory,
+}: {
+  projectId: string;
+  projectName: string;
+  sessions: FleetRowDto[];
+  currentStory: StoryDto | null;
+}) {
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
-  if (sessions.length === 0) return null;
+  const openStory = useUiStore((state) => state.openStory);
+  const activeSessionId = useUiStore((state) => state.activeSessionId);
+  const placeStoryId = usePlaceStoryId();
+  const extraStory =
+    currentStory && currentStory.projectId === projectId && !sessions.some((s) => s.storyId === currentStory.id)
+      ? currentStory
+      : null;
+  if (sessions.length === 0 && !extraStory) return null;
   return (
     <ul
       role="list"
       aria-label={`${projectName} running sessions`}
       style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 2 }}
     >
+      {extraStory && (
+        <li style={{ display: "flex" }}>
+          <button
+            type="button"
+            className="type-label"
+            aria-current="location"
+            aria-label={`Open Story ${extraStory.key} ${extraStory.title}`}
+            title={`${extraStory.key} ${extraStory.title}`}
+            onClick={() => openStory(projectId, extraStory.id)}
+            style={{ ...sessionRowStyle, ...currentSessionRowStyle }}
+          >
+            <span className="tabular-nums" style={{ flexShrink: 0, color: "var(--text-primary-rack)" }}>
+              {extraStory.key}
+            </span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+              {extraStory.title}
+            </span>
+          </button>
+        </li>
+      )}
       {sessions.map((session) => {
         const doing = session.doingTaskTitle;
         const subject = `${session.storyKey} ${session.storyTitle}`.trim();
         // The core's derived fleet state, never the stored status: a session is waiting on you only
         // while it holds a pending request (#57).
         const waiting = session.fleetState === "blocked";
+        const here = session.storyId === placeStoryId;
         return (
-          <li key={session.sessionId}>
+          <li key={session.sessionId} style={{ display: "flex", alignItems: "center" }}>
             <button
               type="button"
               className="type-label"
-              data-session-id={session.sessionId}
-              aria-label={doing ? `Open ${subject} session, doing ${doing}` : `Open ${subject} session`}
+              data-story-id={session.storyId}
+              aria-current={here ? "location" : undefined}
+              aria-label={doing ? `Open Story ${subject}, doing ${doing}` : `Open Story ${subject}`}
               title={doing ? `${subject}: ${doing}` : subject}
-              onClick={() =>
-                setActiveSessionId(
-                  session.sessionId,
-                  session.storyId,
-                  null,
-                  isRunStatus(session.runStatus) ? session.runStatus : null,
-                )
-              }
-              style={sessionRowStyle}
+              onClick={() => openStory(session.projectId, session.storyId)}
+              style={here ? { ...sessionRowStyle, ...currentSessionRowStyle } : sessionRowStyle}
             >
               <span className="tabular-nums" style={{ flexShrink: 0, color: "var(--text-primary-rack)" }}>
                 {session.storyKey}
@@ -188,6 +259,26 @@ function RunningSessions({ projectName, sessions }: { projectName: string; sessi
                   {RUN_STATUS_LABELS.blocked}
                 </span>
               )}
+            </button>
+            {/* The one explicit way to the live agent from the sidebar (issue #104). */}
+            <button
+              type="button"
+              className="type-label"
+              data-session-id={session.sessionId}
+              aria-current={session.sessionId === activeSessionId ? "page" : undefined}
+              aria-label={`Open ${subject} session`}
+              title={`Open the live session of ${session.storyKey}`}
+              onClick={() =>
+                setActiveSessionId(
+                  session.sessionId,
+                  session.storyId,
+                  null,
+                  isRunStatus(session.runStatus) ? session.runStatus : null,
+                )
+              }
+              style={sessionControlStyle}
+            >
+              Session
             </button>
           </li>
         );
@@ -255,6 +346,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   // Every project's running sessions, from the fleet's one app-wide read (#58). Also above the early
   // return, for the same reason.
   const liveSessions = (useFleet().data?.rows ?? []).filter(isLiveSession);
+  const currentStory = useCurrentStory(currentProjectId);
 
   const currentProject = projects.find((project) => project.id === currentProjectId);
 
@@ -367,8 +459,10 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                 </span>
               </button>
               <RunningSessions
+                projectId={project.id}
                 projectName={project.name}
                 sessions={liveSessions.filter((session) => session.projectId === project.id)}
+                currentStory={currentStory}
               />
             </div>
           );

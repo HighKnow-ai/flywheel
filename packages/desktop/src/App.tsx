@@ -5,6 +5,7 @@ import { subscribeMenuAction } from "./adapters/tauri";
 import { FirstRun } from "./board/FirstRun";
 import { LaunchEnvironmentNotice } from "./board/LaunchEnvironmentNotice";
 import { StoryBoard } from "./board/StoryBoard";
+import { StoryView } from "./board/StoryView";
 import { useProjects } from "./board/useBoardQuery";
 import { useWatchedRun } from "./fleet/useWatchedRun";
 import { LaunchSheet } from "./launch-sheet/LaunchSheet";
@@ -40,13 +41,16 @@ function AppShell() {
   const activeSessionStoryId = useUiStore((state) => state.activeSessionStoryId);
   const activeSessionInitialLogOffset = useUiStore((state) => state.activeSessionInitialLogOffset);
   const activeSessionInitialStatus = useUiStore((state) => state.activeSessionInitialStatus);
-  const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
+  // Issue #104: the Story open in the Story view, and the one Back every surface uses.
+  const currentStoryId = useUiStore((state) => state.currentStoryId);
+  const openStory = useUiStore((state) => state.openStory);
+  const goBack = useUiStore((state) => state.goBack);
   // Phase 10 plan 10-01 (D-163): the fleet surface — opened from the project rail's Fleet row, the
   // global `open-fleet` binding, the palette and the native menu.
   const fleetSurface = useUiStore((state) => state.fleetSurface);
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
+  // The fleet and inventory close through Back, like every other surface (issue #104).
   const worktreeInventoryOpen = useUiStore((state) => state.worktreeInventoryOpen);
-  const setWorktreeInventoryOpen = useUiStore((state) => state.setWorktreeInventoryOpen);
   // D-27: the launch sheet, mounted once here — `null` means closed. Opened by setting this Story id.
   const launchSheetStoryId = useUiStore((state) => state.launchSheetStoryId);
   const setLaunchSheetStoryId = useUiStore((state) => state.setLaunchSheetStoryId);
@@ -100,6 +104,7 @@ function AppShell() {
     },
     "open-settings": () => setSettingsOpen(true),
     "open-fleet": () => setFleetSurface({ view: "fleet" }),
+    "go-back": () => goBack(),
   });
 
   // Bridges a native menu click/accelerator (`src-tauri/src/menu.rs`'s `on_menu_event`) into the
@@ -178,12 +183,13 @@ function AppShell() {
     fleetOpen: fleetSurface !== null,
     worktreeInventoryOpen,
     projectUnreachable: project.status === "unreachable",
+    storyOpen: currentStoryId !== null,
   });
   function renderSurface(): React.ReactNode {
     switch (surface) {
       case "settings":
         // D-39: same "pushed into, popped back out of" shell as the session surface.
-        return <SettingsSurface onBack={() => setSettingsOpen(false)} />;
+        return <SettingsSurface onBack={goBack} />;
       case "session":
         if (!activeSessionId) return null;
         return (
@@ -192,33 +198,33 @@ function AppShell() {
             storyId={activeSessionStoryId}
             initialFeedOffset={activeSessionInitialLogOffset}
             initialStatus={activeSessionInitialStatus}
-            onBack={() => setActiveSessionId(null)}
+            onBack={goBack}
           />
         );
       case "fleet":
         return (
           <Suspense fallback={null}>
-            <FleetSurface onClose={() => setFleetSurface(null)} />
+            <FleetSurface onClose={goBack} />
           </Suspense>
         );
       case "worktree-inventory":
         return (
           <Suspense fallback={null}>
-            <WorktreeInventory onClose={() => setWorktreeInventoryOpen(false)} />
+            <WorktreeInventory onClose={goBack} />
           </Suspense>
         );
       case "project-unreachable":
         return <ProjectUnreachable project={project} />;
+      case "story":
+        if (!currentStoryId) return null;
+        return (
+          <StoryView projectId={project.id} projectName={project.name} storyId={currentStoryId} onBack={goBack} />
+        );
       case "board":
         // The bare board (issue #50): the Story list with Start, and the hand-written Story form.
-        // Start opens the new session's surface, the same push the launch sheet makes.
-        return (
-          <StoryBoard
-            projectId={project.id}
-            projectName={project.name}
-            onStarted={(sessionId, storyId) => setActiveSessionId(sessionId, storyId)}
-          />
-        );
+        // Start starts the session and stays on the board: the session opens only from its own
+        // control (issue #104).
+        return <StoryBoard projectId={project.id} projectName={project.name} />;
       default: {
         // A `UiSurface` variant without an arm above is a compile error here, not a silent blank.
         const unhandled: never = surface;
@@ -242,11 +248,13 @@ function AppShell() {
       <LaunchSheet
         storyId={launchSheetStoryId}
         onClose={() => setLaunchSheetStoryId(null)}
-        onStarted={(sessionId) => {
+        onStarted={(_sessionId, projectId) => {
           // `launchSheetStoryId` is captured in this closure at its render-time value, still the
-          // Story this run just started for — read BEFORE it is cleared below.
-          setActiveSessionId(sessionId, launchSheetStoryId);
+          // Story this run just started for — read BEFORE it is cleared below. The new session is
+          // not opened (issue #104): the developer lands on its Story, which offers "Open session".
+          const storyId = launchSheetStoryId;
           setLaunchSheetStoryId(null);
+          if (storyId && projectId) openStory(projectId, storyId);
         }}
       />
       {registerNoticeNode}

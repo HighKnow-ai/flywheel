@@ -83,6 +83,9 @@ export type ActionId =
   // Phase 10 plan 10-01 (D-163): open the fleet surface — one global binding, reachable identically
   // from the keystroke, the command palette and the native menu (never a broader capability).
   | "open-fleet"
+  // Issue #104: back to the previous place (project, Story, session or surface). `⌘[`, and the Back
+  // control every surface carries.
+  | "go-back"
   // Phase 10 plan 10-06 (D-166, FLEET-03): the fleet list's primary action — open the selected row's
   // session. Region-scoped to the fleet surface; Enter on a focused button keeps its own activation.
   | "open-fleet-row"
@@ -236,6 +239,8 @@ export const BINDINGS: Binding[] = [
   // D-163: `⌘⇧F`. The uniqueness test in `keyboard-fleet.test.ts` proves no other global binding
   // shares this key-plus-modifier combination (`⌘F` is Search Board, which differs by shift).
   { id: "open-fleet", region: "global", key: "f", meta: true, shift: true, label: "Open Fleet" },
+  // Issue #104: `⌘[`, the macOS convention for Back.
+  { id: "go-back", region: "global", key: "[", meta: true, label: "Back" },
 
   // ---- Proposal tray (D-92/D-95, plan 05-07) — region-scoped so `a`/`d`/`Shift+A` here reuse
   // the exact permission-card vocabulary without colliding with it (a different region namespace
@@ -523,7 +528,9 @@ export type UiSurface =
   // Plan 10-08 (WORK-07): the worktree inventory, beside the fleet.
   | "worktree-inventory"
   // D-16: an unreachable project replaces the board entirely and offers only relocation.
-  | "project-unreachable";
+  | "project-unreachable"
+  // Issue #104: one Story of the current project, opened from its row. Never its session.
+  | "story";
 
 /** The booleans `activeSurface` decides from. Booleans, not the store's nullable ids, so the
  * resolver stays pure; the one caller (`App.tsx`) knows what "open" means for each store field. */
@@ -533,6 +540,8 @@ export interface SurfaceState {
   fleetOpen: boolean;
   worktreeInventoryOpen: boolean;
   projectUnreachable: boolean;
+  /** Issue #104: a Story of the current project is open. Optional so older callers read as the board. */
+  storyOpen?: boolean;
 }
 
 /** The single surface showing, in the precedence order the content area has always encoded.
@@ -547,13 +556,14 @@ export function activeSurface(state: SurfaceState): UiSurface {
   // D-31: the board underneath (filters, selection, scroll) is untouched while this is open.
   if (state.sessionOpen) return "session";
   // Phase 10 (D-163): BELOW the session on purpose. A session opened from the fleet only sets the
-  // session id, so the session's own "← Board" lands back on the fleet, which is where draining a
+  // session id, so Back from the session (history, issue #104) lands on the fleet, which is where draining a
   // queue needs to land. Do not copy the triage surface's clear-itself-before-opening-a-session.
   if (state.fleetOpen) return "fleet";
   // Plan 10-08 (WORK-07): beside the fleet, below the session, for the same reason.
   if (state.worktreeInventoryOpen) return "worktree-inventory";
   // D-16: never a board rendered against a repository Flywheel can no longer verify.
   if (state.projectUnreachable) return "project-unreachable";
+  if (state.storyOpen) return "story";
   return "board";
 }
 

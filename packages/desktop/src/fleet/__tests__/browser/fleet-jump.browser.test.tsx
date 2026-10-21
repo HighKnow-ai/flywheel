@@ -8,7 +8,7 @@
  *
  * What it proves: Enter on a selected row and a click both replace the fleet with that run's session; the
  * session's Back returns to the fleet; the `b` key on a row in another project switches the project and
- * opens that item's detail panel. What it does NOT prove: the Tauri IPC behind any read (the adapter is
+ * opens that Story's view (issue #104). What it does NOT prove: the Tauri IPC behind any read (the adapter is
  * stubbed), and that a packaged WKWebView delivers the same key events (this is Playwright's WebKit build,
  * not the shipped one).
  *
@@ -136,23 +136,21 @@ describe("AppShell in WebKit: where a fleet row takes you, with real key presses
     expect(useUiStore.getState().activeSessionId).toBe("run-b");
   });
 
-  it("j then b on a row in another project switches the project and opens that item's detail panel", async () => {
+  it("j then b on a row in another project switches the project and opens that Story", async () => {
     await mountOnFleet("proj-A");
     expect(useUiStore.getState().currentProjectId).toBe("proj-A");
     await userEvent.keyboard("j");
     await userEvent.keyboard("b");
-    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("story-b7"));
+    await waitFor(() => expect(useUiStore.getState().currentStoryId).toBe("story-b7"));
     expect(useUiStore.getState().currentProjectId).toBe("proj-B");
-    expect(useUiStore.getState().activeSessionId, "the jump to the item never opens the session").toBeNull();
-    await waitFor(() => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("BET-7");
+    expect(useUiStore.getState().activeSessionId, "the jump to the Story never opens the session").toBeNull();
     expect(fleetRows().length).toBe(0);
   });
 
   it("clicking the subject key does the same, and does not also open the session", async () => {
     const { container } = await mountOnFleet("proj-A");
     await userEvent.click(container.querySelector("[data-subject-target]") as HTMLElement);
-    await waitFor(() => expect(useUiStore.getState().detailItemId).toBe("story-b7"));
+    await waitFor(() => expect(useUiStore.getState().currentStoryId).toBe("story-b7"));
     expect(useUiStore.getState().currentProjectId).toBe("proj-B");
     expect(useUiStore.getState().activeSessionId).toBeNull();
   });

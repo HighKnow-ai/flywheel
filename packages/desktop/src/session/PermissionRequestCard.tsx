@@ -461,7 +461,7 @@ function QuestionRequestRow({
         </span>
       </div>
       {onAnswerQuestion ? (
-        <QuestionForm questions={questions} onSubmit={(picks) => onAnswerQuestion(request.id, picks)} />
+        <QuestionForm questions={questions} onSubmit={(picks) => onAnswerQuestion(request.id, picks)} draftKey={request.id} />
       ) : (
         questions.map((q, i) => (
           <p key={i} className="type-body" style={{ margin: 0, overflowWrap: "anywhere" }}>

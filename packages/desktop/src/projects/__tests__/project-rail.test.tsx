@@ -24,6 +24,7 @@ import { resetUiState, useUiStore } from "../../state/uiStore";
 const invokeCommandMock = vi.fn();
 const fleetBlockedQueueMock = vi.fn(() => Promise.resolve<unknown[]>([]));
 const fleetListMock = vi.fn(() => Promise.resolve<FleetListDto>({ rows: [], totalRows: 0, visibleCostUsd: null }));
+const storyGetMock = vi.fn((_storyId: string) => Promise.resolve<unknown>(null));
 
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
@@ -36,6 +37,7 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeMenuAction: () => Promise.resolve(() => {}),
   openFolderDialog: () => Promise.resolve(null),
   projectHide: (projectId: string) => invokeCommandMock("project_hide", { projectId }),
+  storyGet: (storyId: string) => storyGetMock(storyId),
 }));
 
 function project(overrides: Partial<Project>): Project {
@@ -62,6 +64,8 @@ beforeEach(() => {
   fleetBlockedQueueMock.mockResolvedValue([]);
   fleetListMock.mockReset();
   fleetListMock.mockResolvedValue({ rows: [], totalRows: 0, visibleCostUsd: null });
+  storyGetMock.mockReset();
+  storyGetMock.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -380,9 +384,11 @@ describe("ProjectRail's running sessions per project (#58)", () => {
     const flywheel = await screen.findByRole("list", { name: "Flywheel running sessions" });
     const threadfin = screen.getByRole("list", { name: "Threadfin running sessions" });
     expect(within(flywheel).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
-      "Open FLY-1 First session, doing Write the query",
+      "Open Story FLY-1 First, doing Write the query",
+      "Open FLY-1 First session",
     ]);
     expect(within(threadfin).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Open Story THF-2 Second",
       "Open THF-2 Second session",
     ]);
     expect(screen.queryByText("FLY-3")).not.toBeInTheDocument();
@@ -409,16 +415,67 @@ describe("ProjectRail's running sessions per project (#58)", () => {
     expect(screen.queryByRole("list", { name: "Flywheel running sessions" })).not.toBeInTheDocument();
   });
 
-  it("opens the session's feed when a running session is clicked", async () => {
+  it("opens the session's feed only from its explicit Session control", async () => {
     fleetListMock.mockResolvedValue({
       rows: [fleetRow({ sessionId: "r-run", storyId: "s-1", storyKey: "FLY-1", storyTitle: "First" })],
       totalRows: 1,
       visibleCostUsd: null,
     });
     renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Open FLY-1 First session" }));
+    const control = await screen.findByRole("button", { name: "Open FLY-1 First session" });
+    expect(control).toHaveTextContent("Session");
+    fireEvent.click(control);
     expect(useUiStore.getState().activeSessionId).toBe("r-run");
     expect(useUiStore.getState().activeSessionStoryId).toBe("s-1");
     expect(useUiStore.getState().activeSessionInitialStatus).toBe("running");
+  });
+});
+
+describe("the sidebar's click model and current place (issue #104)", () => {
+  it("a running row opens its Story, never its session", async () => {
+    fleetListMock.mockResolvedValue({
+      rows: [fleetRow({ sessionId: "r-run", projectId: "proj-1", storyId: "s-1", storyKey: "FLY-1", storyTitle: "First" })],
+      totalRows: 1,
+      visibleCostUsd: null,
+    });
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Story FLY-1 First" }));
+    expect(useUiStore.getState().currentStoryId).toBe("s-1");
+    expect(useUiStore.getState().currentProjectId).toBe("proj-1");
+    expect(useUiStore.getState().activeSessionId).toBeNull();
+  });
+
+  it("marks the current project, and the current Story's running row", async () => {
+    fleetListMock.mockResolvedValue({
+      rows: [
+        fleetRow({ sessionId: "r-1", projectId: "proj-1", storyId: "s-1", storyKey: "FLY-1", storyTitle: "First" }),
+        fleetRow({ sessionId: "r-2", projectId: "proj-1", storyId: "s-2", storyKey: "FLY-2", storyTitle: "Second" }),
+      ],
+      totalRows: 2,
+      visibleCostUsd: null,
+    });
+    useUiStore.setState({ currentProjectId: "proj-1", activeSessionId: "r-2", activeSessionStoryId: "s-2" });
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
+    expect(screen.getByRole("button", { name: "Flywheel" })).toHaveAttribute("aria-current", "true");
+    expect(await screen.findByRole("button", { name: "Open Story FLY-2 Second" })).toHaveAttribute("aria-current", "location");
+    expect(screen.getByRole("button", { name: "Open FLY-2 Second session" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Open Story FLY-1 First" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("marks the open Story under its project even when it is not running", async () => {
+    storyGetMock.mockResolvedValue({
+      id: "s-9",
+      projectId: "proj-1",
+      epicId: "e1",
+      key: "FLY-9",
+      title: "Quiet",
+      description: null,
+      state: "ready",
+      runsAfterStoryId: null,
+      rank: "a",
+    });
+    useUiStore.setState({ currentProjectId: "proj-1", currentStoryId: "s-9" });
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
+    expect(await screen.findByRole("button", { name: "Open Story FLY-9 Quiet" })).toHaveAttribute("aria-current", "location");
   });
 });

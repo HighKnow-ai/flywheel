@@ -1,6 +1,6 @@
 /**
  * The live session surface (D-31, plan 02-01 Task 1): a full content-area surface, pushed into
- * from a Story and popped back out of via the `← Board` affordance — never a tab inside the 480px
+ * from a Story and popped back out of via the `← Back` affordance — never a tab inside the 480px
  * item detail panel and never a dockable pane. The board stays the board.
  *
  * Plan 02-02 Task 3 adds the Stop affordance and the run-status word. Plan 02-06 Task 2 mounts
@@ -449,7 +449,7 @@ export function SessionSurface({
     queryKey: ["session-header", storyId],
     queryFn: () =>
       (storyId ? storyGet(storyId) : Promise.resolve(null))
-        .then((story) => (story ? { key: story.key, title: story.title } : null))
+        .then((story) => (story ? { key: story.key, title: story.title, projectId: story.projectId } : null))
         .catch(() => null),
     enabled: Boolean(storyId),
     retry: false,
@@ -471,6 +471,7 @@ export function SessionSurface({
   const discardingRef = useRef(false);
   const [stopWarning, setStopWarning] = useState<string | null>(null);
   const setLaunchSheetStoryId = useUiStore((state) => state.setLaunchSheetStoryId);
+  const openStory = useUiStore((state) => state.openStory);
   const [persistenceFailed, setPersistenceFailed] = useState(false);
   const [persistenceFailureText, setPersistenceFailureText] = useState<string | null>(null);
   const [rawViewOpen, setRawViewOpen] = useState(false);
@@ -674,11 +675,26 @@ export function SessionSurface({
     >
       <header className="session-header">
         <button type="button" onClick={onBack} className="session-back type-label">
-          ← Board
+          ← Back
         </button>
-        <span className="type-heading session-title" title={headerText}>
-          {headerText}
-        </span>
+        {itemHeader && storyId ? (
+          // Where the developer is (issue #104): the session's Story, which is one click away. The
+          // control keeps the title's look; it only gains a destination.
+          <button
+            type="button"
+            className="type-heading session-title"
+            title={`Open Story ${headerText}`}
+            aria-label={`Open Story ${headerText}`}
+            onClick={() => openStory(itemHeader.projectId, storyId)}
+            style={{ padding: 0, border: "none", background: "none", color: "inherit", font: "inherit", textAlign: "left", cursor: "pointer" }}
+          >
+            {headerText}
+          </button>
+        ) : (
+          <span className="type-heading session-title" title={headerText}>
+            {headerText}
+          </span>
+        )}
         <RunStatusBadge status={status} />
 
         <StatusStrip entries={entries} running={status === "running" || status === "blocked"} />
@@ -766,6 +782,7 @@ export function SessionSurface({
                         ? (picks) => handleAnswerQuestion(questionRows.get(row.key) as string, picks)
                         : undefined
                     }
+                    questionDraftKey={questionRows.get(row.key)}
                   />
                 </div>
               );

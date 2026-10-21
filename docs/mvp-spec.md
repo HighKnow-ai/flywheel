@@ -273,6 +273,8 @@ The project screen, top to bottom:
 
 The sidebar shows each project's Needs-you count and the running sessions in every project. Creating an Epic or a Story and moving a Story between Epics are reachable from visible controls, not only from the palette or a hidden key.
 
+**Click model** ([#104](https://github.com/HighKnow-ai/flywheel/issues/104)): a Story row, wherever it shows (the board, the sidebar's running list, Needs you), opens the Story. The live session opens only from a control labelled as the session, which every place showing a running Story offers. Nothing opens a session on its own: not Start, not Resume, not a new session event. Back and ⌘[ return to the previous place, and the sidebar marks the current project and Story. The fleet's "All agents" list is a list of sessions, so its row opens that session and its Story key opens the Story.
+
 ## 8. Review and merge
 
 ([What are a Check and a Task checklist, and who keeps them current?](https://github.com/HighKnow-ai/flywheel/issues/23), [How does an agent propose an ADR, and how is it challenged?](https://github.com/HighKnow-ai/flywheel/issues/16), [What states do Stories and Epics have, and how is "Needs you" ranked?](https://github.com/HighKnow-ai/flywheel/issues/20))

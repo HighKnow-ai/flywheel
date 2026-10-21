@@ -390,7 +390,7 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
     <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--text-primary-rack)" }}>
       <header className="admin-header">
         <button type="button" onClick={onClose} className="type-label admin-back">
-          ← Board
+          ← Back
         </button>
         <span className="type-heading">WORKTREES</span>
         <button type="button" className="type-label" disabled={measuring} onClick={() => void remeasure()}>
