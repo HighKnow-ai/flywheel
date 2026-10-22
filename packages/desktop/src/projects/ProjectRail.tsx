@@ -99,9 +99,9 @@ const sectionStyle: CSSProperties = { display: "flex", flexDirection: "column", 
 const sectionLabelStyle: CSSProperties = {
   margin: 0,
   padding: "0 var(--space-sm) var(--space-xs)",
-  fontWeight: 400,
-  fontStretch: "75%",
-  letterSpacing: "0.04em",
+  fontFamily: "var(--font-ui-condensed)",
+  fontWeight: 600,
+  letterSpacing: "0.06em",
   textTransform: "uppercase",
   color: "var(--muted-foreground)",
 };
