@@ -66,6 +66,28 @@ jobs:
 
       - run: npm --prefix packages/desktop test
 
+      # The desktop browser arm (vitest.browser*.config.ts): layout, containment and colour measured in
+      # a real engine, which jsdom cannot do. WebKit because the macOS shell renders in WKWebView; this
+      # runner is macOS, so Playwright's WebKit needs no system packages (no --with-deps). The browser
+      # build is cached on the exact Playwright version from the lockfile.
+      - name: Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./packages/desktop/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-webkit-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+
+      - run: packages/desktop/node_modules/.bin/playwright install webkit
+
+      # Light, dark and reduced motion: each a separate Playwright context (see each config's header).
+      - name: Desktop browser tests (WebKit)
+        run: |
+          npm --prefix packages/desktop run test:browser
+          npm --prefix packages/desktop run test:browser:dark
+          npm --prefix packages/desktop run test:browser:motion
+
       - run: npm --prefix packages/desktop run build
 
       # Unsigned (D-185). The .dmg bundle costs 5-8 minutes and is the step that flaked, so it runs
