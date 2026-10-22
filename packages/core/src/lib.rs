@@ -24,5 +24,6 @@ pub mod query;
 pub mod ranking;
 pub mod runtime_protocol;
 pub mod schema_classification;
+pub mod shaping_packet;
 pub mod shim;
 pub mod session_log;
