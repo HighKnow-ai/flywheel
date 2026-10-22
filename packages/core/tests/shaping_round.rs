@@ -50,6 +50,7 @@ fn question(n: usize) -> NewQuestion {
         grounding: format!("Read docs/spec.md §{n}"),
         recommended_answer: format!("Yes, thing {n}"),
         because: format!("Thing {n} is in scope"),
+        adr: None,
     }
 }
 
@@ -262,4 +263,126 @@ fn each_post_and_answer_appends_an_event_scoped_to_the_epic() {
             ("round.answered".to_string(), epic),
         ]
     );
+}
+
+/// Issue #129: one `adr` question as `round_post` carries it, with its draft and its four bar lines.
+fn adr_question_args() -> serde_json::Value {
+    serde_json::json!({
+        "kind": "adr",
+        "title": "Record the shaping store",
+        "question": "Record \"the board is the shaping store\" as ADR 0005?",
+        "grounding": "Read docs/adr/0002 and the Round 1 answers",
+        "recommended_answer": "Yes",
+        "because": "It settles where every answer lives",
+        "adr": {
+            "path": "docs/adr/0005-board-is-the-shaping-store.md",
+            "text": "# The board is the shaping store\n\nEvery answer is written to the board as it is made.\n",
+            "hard_to_reverse": "Every later Story reads its context from the board",
+            "surprising": "A reader expects shaping notes in the repo",
+            "losing_alternative": "A .planning/ folder of markdown",
+            "relates_to": "ADR-0002",
+        },
+    })
+}
+
+#[test]
+fn an_adr_question_is_posted_with_its_draft_and_bar_lines() {
+    let mut f = shaping();
+    let mut args = round_post_args(1);
+    args["questions"].as_array_mut().unwrap().push(adr_question_args());
+    let call = ShapingToolCall::parse("round_post", &args).unwrap();
+    apply_shaping_tool_call(&mut f.conn, &f.session_id, "req-1", &call).unwrap();
+
+    let round = &rounds_for_epic(&f.conn, &f.epic_id).unwrap()[0];
+    assert!(round.questions[0].adr.is_none(), "an ordinary question carries no draft");
+    let adr = round.questions[1].adr.as_ref().expect("the ADR question keeps its draft");
+    assert_eq!(adr.path, "docs/adr/0005-board-is-the-shaping-store.md");
+    assert!(adr.text.starts_with("# The board is the shaping store"));
+    assert_eq!(adr.hard_to_reverse, "Every later Story reads its context from the board");
+    assert_eq!(adr.surprising, "A reader expects shaping notes in the repo");
+    assert_eq!(adr.losing_alternative, "A .planning/ folder of markdown");
+    assert_eq!(adr.relates_to.as_deref(), Some("ADR-0002"));
+    assert_eq!(round.questions[1].recommended_answer, "Yes");
+    let kinds: Vec<String> = f
+        .conn
+        .prepare("SELECT kind FROM round_questions ORDER BY number")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(kinds, ["question", "adr"]);
+}
+
+#[test]
+fn an_adr_question_without_any_of_its_first_three_bar_lines_is_refused() {
+    for line in ["hard_to_reverse", "surprising", "losing_alternative"] {
+        for blank in [false, true] {
+            let mut q = adr_question_args();
+            if blank {
+                q["adr"][line] = serde_json::json!("   ");
+            } else {
+                q["adr"].as_object_mut().unwrap().remove(line);
+            }
+            let args = serde_json::json!({ "note": "n", "questions": [q] });
+            let refused = ShapingToolCall::parse("round_post", &args).unwrap_err().to_string();
+            assert!(refused.contains(line), "the refusal names the missing bar line {line}: {refused}");
+            assert!(refused.contains("no ADR"), "{refused}");
+        }
+    }
+    // "Relates to" may be none.
+    let mut q = adr_question_args();
+    q["adr"].as_object_mut().unwrap().remove("relates_to");
+    let call = ShapingToolCall::parse("round_post", &serde_json::json!({ "note": "n", "questions": [q] })).unwrap();
+    let ShapingToolCall::RoundPost(round) = call else { panic!("a Round") };
+    assert_eq!(round.questions[0].adr.as_ref().unwrap().relates_to, None);
+
+    // The domain refuses it too, whoever builds the Round, and writes nothing.
+    let mut f = shaping();
+    let ShapingToolCall::RoundPost(mut round) =
+        ShapingToolCall::parse("round_post", &serde_json::json!({ "note": "n", "questions": [adr_question_args()] })).unwrap()
+    else {
+        panic!("a Round")
+    };
+    round.questions[0].adr.as_mut().unwrap().surprising = " ".into();
+    let refused = post_round(&mut f.conn, &f.session_id, Some("req-1"), &round).unwrap_err().to_string();
+    assert!(refused.contains("surprising"), "{refused}");
+    let rounds: i64 = f.conn.query_row("SELECT COUNT(*) FROM rounds", [], |r| r.get(0)).unwrap();
+    assert_eq!(rounds, 0, "a refused Round writes nothing");
+}
+
+#[test]
+fn an_adr_question_needs_a_draft_at_an_adr_path_and_a_yes_or_no_recommendation() {
+    let parse = |q: serde_json::Value| {
+        ShapingToolCall::parse("round_post", &serde_json::json!({ "note": "n", "questions": [q] }))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    };
+    let mut no_draft = adr_question_args();
+    no_draft.as_object_mut().unwrap().remove("adr");
+    assert!(parse(no_draft).unwrap_err().contains("`adr` is missing"));
+
+    let up = "..";
+    for path in [
+        "src/adr.md".to_string(),
+        format!("docs/adr/{up}/{up}/etc.md"),
+        "docs/adr/0005-x.txt".to_string(),
+        "/docs/adr/0005-x.md".to_string(),
+        "docs/adr/sub/0005.md".to_string(),
+    ] {
+        let mut q = adr_question_args();
+        q["adr"]["path"] = serde_json::json!(path);
+        assert!(parse(q).unwrap_err().contains("docs/adr/NNNN-slug.md"), "{path} is refused");
+    }
+    let mut q = adr_question_args();
+    q["adr"]["text"] = serde_json::json!("");
+    assert!(parse(q).unwrap_err().contains("text"));
+
+    let mut q = adr_question_args();
+    q["recommended_answer"] = serde_json::json!("Probably, once the Stage closes");
+    assert!(parse(q).unwrap_err().contains("Yes or No"));
+
+    let mut q = adr_question_args();
+    q["kind"] = serde_json::json!("essay");
+    assert!(parse(q).unwrap_err().contains("kind"));
 }

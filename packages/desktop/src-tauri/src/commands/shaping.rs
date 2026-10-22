@@ -91,6 +91,25 @@ pub struct RoundQuestionDto {
     /// `recommended` or `own`, once answered.
     pub answered_with: Option<String>,
     pub answered_at: Option<String>,
+    /// `question`, or `adr` for an ADR offered inside the Round (issue #129), answered Yes or No.
+    pub kind: String,
+    /// An ADR question's draft and its bar lines.
+    pub adr: Option<AdrDraftDto>,
+    /// The accepted ADR Proposal an ADR question's Yes filed.
+    pub adr_proposal_id: Option<String>,
+}
+
+/// An ADR draft as the dock shows it (issue #129): the file and the four bar lines beside it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdrDraftDto {
+    pub path: String,
+    pub text: String,
+    pub hard_to_reverse: String,
+    pub surprising: String,
+    pub losing_alternative: String,
+    /// `None` reads as "none".
+    pub relates_to: Option<String>,
 }
 
 /// A Round with its questions, in order.
@@ -122,6 +141,11 @@ pub struct EpicShapingDto {
     /// The Epic's undecided and rejected Proposals, oldest first (issue #125): ghost fields and
     /// struck-through lines. An accepted one is in the field it rewrote.
     pub proposals: Vec<super::proposal::ProposalDto>,
+    /// The ADRs linked to the Epic, by repo-relative path (issue #129): its ADR chips once merged.
+    pub adr_links: Vec<String>,
+    /// The Epic's accepted ADR and glossary Proposals, oldest first (issue #129): its ADR and
+    /// glossary chips before a Story writes them into the repo.
+    pub accepted_knowledge: Vec<super::proposal::ProposalDto>,
 }
 
 impl From<flywheel_core::domain::round::Round> for RoundDto {
@@ -150,6 +174,16 @@ impl From<flywheel_core::domain::round::Round> for RoundDto {
                     answer: q.answer,
                     answered_with: q.answered_with,
                     answered_at: q.answered_at,
+                    kind: if q.adr.is_some() { "adr" } else { "question" }.to_string(),
+                    adr: q.adr.map(|a| AdrDraftDto {
+                        path: a.path,
+                        text: a.text,
+                        hard_to_reverse: a.hard_to_reverse,
+                        surprising: a.surprising,
+                        losing_alternative: a.losing_alternative,
+                        relates_to: a.relates_to,
+                    }),
+                    adr_proposal_id: q.adr_proposal_id,
                 })
                 .collect(),
         }
@@ -171,8 +205,21 @@ pub(crate) fn read_epic_shaping(conn: &Connection, epic_id: &str) -> Result<Epic
     let stages = flywheel_core::domain::stage::stages_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
     let rounds = flywheel_core::domain::round::rounds_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
     let proposals = flywheel_core::domain::proposal::proposals_on_epic(conn, epic_id).map_err(|e| e.to_string())?;
+    let (accepted, proposals): (Vec<_>, Vec<_>) = proposals.into_iter().partition(|p| p.state == "accepted");
+    let adr_links = flywheel_core::domain::adr_link::adr_links_for_project(conn, &epic.project_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|l| matches!(&l.target, flywheel_core::domain::adr_link::AdrLinkTarget::Epic(id) if id == epic_id))
+        .map(|l| l.path)
+        .collect();
     Ok(EpicShapingDto {
-        proposals: proposals.into_iter().filter(|p| p.state != "accepted").map(Into::into).collect(),
+        proposals: proposals.into_iter().map(Into::into).collect(),
+        adr_links,
+        accepted_knowledge: accepted
+            .into_iter()
+            .filter(|p| p.target_type == "adr" || p.target_type == "glossary_term")
+            .map(Into::into)
+            .collect(),
         epic,
         stages: stages
             .into_iter()
@@ -560,6 +607,67 @@ mod tests {
             assert_eq!(body["result"]["answers"][0]["answer"], "Yes");
             assert_eq!(body["result"]["answers"][1]["answer"], "Desktop and web");
             assert!(!read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap().rounds[0].waiting_on_you);
+        });
+    }
+
+    /// Issue #129: the dock reads an ADR question's draft and bar lines, and once it is answered Yes
+    /// the Epic card reads the accepted ADR beside the ADRs linked to the Epic, as chips.
+    #[test]
+    fn an_adr_question_reads_with_its_draft_and_its_yes_shows_on_the_epic_card() {
+        with_scratch(|| {
+            let (db, epic_id, _checkout) = shaping_epic();
+            let run_id = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
+            let args = serde_json::json!({
+                "note": "One decision to record.",
+                "questions": [{
+                    "kind": "adr", "title": "Record the store", "question": "Record it as ADR 0005?",
+                    "grounding": "docs/adr/0002", "recommended_answer": "Yes", "because": "It is hard to reverse",
+                    "adr": {
+                        "path": "docs/adr/0005-store.md", "text": "# The board is the store\n",
+                        "hard_to_reverse": "Every Story reads it", "surprising": "Notes usually live in the repo",
+                        "losing_alternative": "A .planning/ folder",
+                    },
+                }],
+            });
+            let (answer, _) = answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-3", "round_post", &args);
+            assert_eq!(answer, None, "the Round is held");
+            {
+                let mut conn = db.lock().unwrap();
+                let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+                let project: String =
+                    conn.query_row("SELECT project_id FROM epics WHERE id = ?1", [&epic_id], |r| r.get(0)).unwrap();
+                flywheel_core::domain::adr_link::link_adr(
+                    &mut conn,
+                    &human,
+                    &project,
+                    "docs/adr/0002-repo-holds-code-knowledge.md",
+                    &flywheel_core::domain::adr_link::AdrLinkTarget::Epic(epic_id.clone()),
+                )
+                .unwrap();
+            }
+
+            let view = read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap();
+            let q = &view.rounds[0].questions[0];
+            assert_eq!(q.kind, "adr");
+            let adr = q.adr.as_ref().expect("the draft reaches the dock");
+            assert_eq!(adr.path, "docs/adr/0005-store.md");
+            assert_eq!(adr.losing_alternative, "A .planning/ folder");
+            assert_eq!(adr.relates_to, None);
+            assert_eq!(view.adr_links, ["docs/adr/0002-repo-holds-code-knowledge.md"]);
+            assert!(view.accepted_knowledge.is_empty());
+
+            answer_and_release(&db, |conn, human| {
+                flywheel_core::domain::round::answer_round_question(conn, human, &q.id, &RoundAnswer::Own("Yes".into()))
+            })
+            .unwrap();
+            let view = read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap();
+            let q = &view.rounds[0].questions[0];
+            assert_eq!(q.answer.as_deref(), Some("Yes"));
+            assert_eq!(view.accepted_knowledge.len(), 1, "the accepted ADR is a chip on the Epic card");
+            let accepted = &view.accepted_knowledge[0];
+            assert_eq!((accepted.target_type.as_str(), accepted.state.as_str()), ("adr", "accepted"));
+            assert_eq!(q.adr_proposal_id.as_deref(), Some(accepted.id.as_str()));
+            assert!(view.proposals.is_empty(), "an accepted ADR is never a ghost");
         });
     }
 

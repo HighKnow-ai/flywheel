@@ -51,6 +51,7 @@ fn round_of(n: usize, note: &str) -> NewRound {
                 grounding: format!("Read docs/spec.md §{i}"),
                 recommended_answer: format!("Yes, thing {i}"),
                 because: format!("Thing {i} is in scope"),
+                adr: None,
             })
             .collect(),
     }

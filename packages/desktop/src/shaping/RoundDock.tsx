@@ -8,7 +8,9 @@
  * edge and the yellow band, as the session feed's question card does (#100). Under its note, a bar that
  * stays on screen while the questions scroll carries the one filled action of the region, Accept all
  * recommended, which answers every question still open with the
- * agent's recommendation (questions only: it never decides a Proposal), beside the count answered.
+ * agent's recommendation (questions only: it never decides a Proposal), beside the count answered. An ADR
+ * offered in the Round (issue #129) is left out of it: its Yes accepts a Proposal, so each ADR is answered on
+ * its own, the hint says so, and the button is off once only ADRs are left open.
  *
  * Every answer is its own write: the dock never batches, so an answer is on the board the moment it is
  * given, and the agent receives them all once the last one lands. Earlier Rounds follow, folded.
@@ -138,6 +140,9 @@ function RoundCard({
   const waiting = open && round.waitingOnYou;
   const total = round.questions.length;
   const answered = round.questions.filter((q) => q.answer !== null).length;
+  const isAdr = (q: RoundDto["questions"][number]) => q.kind === "adr";
+  const openPlain = round.questions.filter((q) => q.answer === null && !isAdr(q)).length;
+  const openAdrs = round.questions.filter((q) => q.answer === null && isAdr(q)).length;
   const stage = STAGE_LABELS[round.stageKind] ?? round.stageKind;
   const headingId = `round-${round.id}`;
 
@@ -190,7 +195,7 @@ function RoundCard({
       {open && (
         // The Round's one filled action, kept on screen while the questions scroll under it.
         <div className="sticky top-0 z-10 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-card px-4 py-3">
-          <Button onClick={() => void acceptAll()} disabled={accepting || answered === total}>
+          <Button onClick={() => void acceptAll()} disabled={accepting || openPlain === 0}>
             <CheckCheck aria-hidden="true" />
             {accepting ? "Accepting…" : "Accept all recommended"}
           </Button>
@@ -198,7 +203,17 @@ function RoundCard({
             {answered} of {total} answered
           </span>
           <span className="min-w-0 text-small text-muted-foreground">
-            {waiting ? "The agent goes on once every question is answered." : "Every answer is saved as you give it."}
+            {openAdrs > 0 && openPlain === 0
+              ? openAdrs === 1
+                ? "Only the ADR is left: answer it Yes or No."
+                : `Only the ${openAdrs} ADRs are left: answer each Yes or No.`
+              : openAdrs > 0
+                ? openAdrs === 1
+                  ? "The ADR is answered on its own: Accept all leaves it open."
+                  : `Each ADR is answered on its own: Accept all leaves these ${openAdrs} open.`
+                : waiting
+                ? "The agent goes on once every question is answered."
+                : "Every answer is saved as you give it."}
           </span>
           {error && (
             <p role="alert" className="m-0 w-full text-small break-words text-destructive-text">

@@ -125,6 +125,7 @@ Regions are told apart by three things together: a ground step, the 1px `--borde
 | Checks: passed, failed, not run, timed out, stale, judged at review | `circle-check`, `circle-x`, `circle`, `hourglass`, `history`, `git-pull-request` |
 | Tasks: open, doing, done, dropped | `circle`, `loader-circle`, `circle-check`, `circle-slash` |
 | Records: Milestone, Epic, project, worktree, session | `flag`, `layers`, `folder`, `box`, `terminal` |
+| Repo knowledge: an ADR, a glossary term (#129) | `scroll-text`, `book-a` |
 | Needs-you kinds: question, Gated action, permission request, review, shaping Round | `message-circle-question-mark`, `shield-alert`, `key-round`, `git-pull-request`, `circle-dashed` |
 | Feed rows: Read, Edit, Run, Search, board tool, agent turn | `file-text`, `pencil`, `terminal`, `search`, `kanban`, `bot` |
 | Actions: Start, Stop, Resume, Drop, add, Back, opens, Open session | `play`, `square`, `rotate-ccw`, `trash-2`, `plus`, `arrow-left`, `chevron-right`, `square-arrow-out-up-right` |

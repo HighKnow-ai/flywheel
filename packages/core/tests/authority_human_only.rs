@@ -244,6 +244,7 @@ fn posted_round() -> (Connection, String, String) {
         grounding: "Read the spec".into(),
         recommended_answer: "Yes".into(),
         because: "It is in scope".into(),
+        adr: None,
     };
     let round = post_round(
         &mut conn,

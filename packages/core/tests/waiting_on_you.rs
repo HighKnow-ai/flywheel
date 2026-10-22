@@ -237,6 +237,7 @@ mod shaping {
                     grounding: "GLOSSARY.md".into(),
                     recommended_answer: "Yes".into(),
                     because: "Because".into(),
+                    adr: None,
                 })
                 .collect(),
         }

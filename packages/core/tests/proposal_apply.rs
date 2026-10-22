@@ -136,6 +136,7 @@ fn the_proposal_records_the_stage_and_the_round_it_was_filed_in() {
         grounding: "GLOSSARY.md".into(),
         recommended_answer: "Yes".into(),
         because: "One user".into(),
+        adr: None,
     };
     let round = post_round(&mut f.conn, &f.session_id, Some("req-1"), &NewRound { note: "Settles it.".into(), questions: vec![q] }).unwrap();
     accept_all_recommended(&mut f.conn, &f.human, &round.id).unwrap();

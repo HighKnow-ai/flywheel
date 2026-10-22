@@ -145,6 +145,17 @@ test("round_post is listed to a shaping session with what each question carries"
   assert.match(post.description, /waits until every question is answered/);
 });
 
+test("round_post offers an ADR as a question with its draft and its bar lines (issue #129)", () => {
+  const post = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "round_post");
+  const item = post.inputSchema.properties.questions.items;
+  assert.deepEqual(item.properties.kind.enum, ["question", "adr"]);
+  const adr = item.properties.adr;
+  assert.deepEqual(adr.required, ["path", "text", "hard_to_reverse", "surprising", "losing_alternative"]);
+  assert.ok(adr.properties.relates_to, "Relates to is the fourth bar line, and may be none");
+  assert.match(post.description, /kind "adr"/);
+  assert.match(post.description, /Yes or No/);
+});
+
 test("round_post is relayed as a held board_tool_request, answered only when the core answers", async () => {
   const adapter = new ClaudeCodeAdapter();
   const events = [];

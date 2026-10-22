@@ -15,7 +15,8 @@ use core::domain::check::{check_for_criterion, record_check_run, CheckResult, Ch
 use core::domain::epic::{create_epic, update_epic, EpicSpec};
 use core::domain::milestone::create_milestone;
 use core::domain::proposal::{accept_proposal, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb};
-use core::domain::session::start_session;
+use core::domain::round::{answer_round_question, post_round, AdrDraft, NewQuestion, NewRound, RoundAnswer};
+use core::domain::session::{start_session, start_shaping_session, ShapingSubject};
 use core::domain::session_summary::create_summary;
 use core::domain::story::{create_story, write_story_by_hand, HandWrittenCriterion, Story};
 use core::domain::task::{add_task, set_task_note, set_task_state, TaskState};
@@ -207,6 +208,9 @@ fn an_accepted_unmerged_adr_on_the_epic_is_sent_as_full_text() {
                 payload: serde_json::json!({
                     "path": "docs/adr/0007-packet.md",
                     "text": "# Build the packet in Rust\n\nThe core owns it.\n",
+                    "hard_to_reverse": "Every session is rebuilt from it",
+                    "surprising": "The sidecar drives sessions but does not build their packet",
+                    "losing_alternative": "Building it in the sidecar",
                 }),
                 rationale: None,
             },
@@ -223,6 +227,48 @@ fn an_accepted_unmerged_adr_on_the_epic_is_sent_as_full_text() {
         let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
         assert!(packet.contains("- docs/adr/0007-packet.md: Build the packet in Rust\n"), "{packet}");
         assert!(!packet.contains("The core owns it."), "{packet}");
+    });
+}
+
+/// Issue #129: an ADR offered as a question inside the Epic's shaping Round and answered Yes is an
+/// accepted ADR Proposal on the Epic, so the Epic's Story packet carries it as full text; one
+/// answered No reaches no packet.
+#[test]
+fn an_adr_accepted_in_a_shaping_round_reaches_the_epics_story_packet_as_full_text() {
+    with_scratch_worktree_root(|_| {
+        let mut f = fixture();
+        let session = start_shaping_session(&mut f.conn, &ShapingSubject::Epic(f.story.epic_id.clone()), "dontAsk", &f.actor_id)
+            .unwrap();
+        let offer = |n: u32, title: &str| NewQuestion {
+            title: format!("Record ADR {n:04}"),
+            question: format!("Record \"{title}\" as ADR {n:04}?"),
+            grounding: "Read the ADR index".into(),
+            recommended_answer: "Yes".into(),
+            because: "It is hard to reverse".into(),
+            adr: Some(AdrDraft {
+                path: format!("docs/adr/{n:04}-round.md"),
+                text: format!("# {title}\n\nDecided in the shaping Round.\n"),
+                hard_to_reverse: "Every Story builds on it".into(),
+                surprising: "A reader expects the opposite".into(),
+                losing_alternative: "The opposite".into(),
+                relates_to: None,
+            }),
+        };
+        let round = post_round(
+            &mut f.conn,
+            &session.id,
+            Some("req-1"),
+            &NewRound { note: "Two decisions.".into(), questions: vec![offer(8, "Keep Rounds on the board"), offer(9, "Dropped idea")] },
+        )
+        .unwrap();
+        answer_round_question(&mut f.conn, &f.actor_id, &round.questions[0].id, &RoundAnswer::Own("Yes".into())).unwrap();
+        answer_round_question(&mut f.conn, &f.actor_id, &round.questions[1].id, &RoundAnswer::Own("No".into())).unwrap();
+
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        assert!(packet.contains("write it verbatim at `docs/adr/0008-round.md`"), "{packet}");
+        assert!(packet.contains("# Keep Rounds on the board\n\nDecided in the shaping Round.\n"), "{packet}");
+        assert!(!packet.contains("Dropped idea"), "an ADR answered No reaches no packet:\n{packet}");
+        assert!(!packet.contains("Every Story builds on it"), "the bar lines are never written into the file:\n{packet}");
     });
 }
 

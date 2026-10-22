@@ -21,7 +21,7 @@ import { clearMocks } from "@tauri-apps/api/mocks";
 import { queryClient } from "../../adapters/queryClient";
 import { resetUiState } from "../../state/uiStore";
 import App from "../../App";
-import { installFixtureBackend, setShapingSessionLive } from "./m2-fixture";
+import { installFixtureBackend, offerAdrsInShaping, setShapingSessionLive } from "./m2-fixture";
 
 const SCHEME = import.meta.env.VITE_CRITIQUE_SCHEME as string | undefined;
 const OUT = "../../../../../target/critique-2026-10";
@@ -316,6 +316,57 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await click("Open FLY-8 Epic shaping and its Rounds");
     await screen.findByRole("region", { name: /Round 2/ });
     await shot("32-epic-shaping-continue");
+  });
+
+  it("33 Epic shaping: an ADR offered as a question, the draft beside its bar lines (issue #129)", async () => {
+    offerAdrsInShaping(true);
+    await boardReady();
+    await click("Answer the Round on FLY-8");
+    const adr = await screen.findByRole("group", { name: "Question 5: Record the Stage close" });
+    adr.scrollIntoView({ block: "center" });
+    await shot("33-epic-shaping-adr-question");
+  });
+
+  it("34 Epic shaping: the Epic card's ADR and glossary chips (issue #129)", async () => {
+    offerAdrsInShaping(true);
+    await boardReady();
+    await click("Answer the Round on FLY-8");
+    const chips = await screen.findByRole("list", { name: "ADRs and glossary" });
+    chips.closest("section")?.scrollIntoView({ block: "start" });
+    await shot("34-epic-shaping-adr-chips");
+  });
+
+  it("36 Epic shaping: an ADR answered Yes folds to a settled line (issue #129)", async () => {
+    offerAdrsInShaping(true);
+    await boardReady();
+    await click("Answer the Round on FLY-8");
+    const folded = await screen.findByRole("group", { name: "Question 3: Record the shaping record" });
+    folded.scrollIntoView({ block: "center" });
+    await shot("36-epic-shaping-adr-answered");
+  });
+
+  it("37 Epic shaping: only the ADR is left, Accept all is off and says why (issue #129)", async () => {
+    offerAdrsInShaping(true, true);
+    await boardReady();
+    await click("Answer the Round on FLY-8");
+    const adr = await screen.findByRole("group", { name: "Question 5: Record the Stage close" });
+    await screen.findByText("Only the ADR is left: answer it Yes or No.");
+    adr.scrollIntoView({ block: "end" });
+    await shot("37-epic-shaping-adr-only-left");
+  });
+
+  it("35 Epic shaping at the window's minimum width: an ADR question (issue #129)", async () => {
+    offerAdrsInShaping(true);
+    await page.viewport(900, 900);
+    try {
+      await boardReady();
+      await click("Answer the Round on FLY-8");
+      const adr = await screen.findByRole("group", { name: "Question 5: Record the Stage close" });
+      adr.scrollIntoView({ block: "start" });
+      await shot("35-epic-shaping-adr-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
   });
 
   it("16 navigation: picking a project while the fleet is open", async () => {

@@ -29,7 +29,7 @@ use rusqlite::OptionalExtension;
 use crate::domain::proposal::{file_proposal, NewProposal, ProposalTarget, ProposalVerb};
 use crate::domain::proposal_apply::SpecChange;
 use crate::domain::session::agent_actor_id;
-use crate::domain::round::{post_round, round_result, wait_round, NewQuestion, NewRound, RoundWait};
+use crate::domain::round::{post_round, round_result, wait_round, AdrDraft, NewQuestion, NewRound, RoundWait};
 
 /// The tool names the sidecar's MCP server registers for a shaping session, in the order it lists
 /// them. Mirrored by `SHAPING_TOOL_NAMES` in `packages/sidecar/src/mcp-permission-server.ts`.
@@ -68,12 +68,24 @@ impl ShapingToolCall {
                     .enumerate()
                     .map(|(i, q)| {
                         let at = format!("round_post: questions[{i}].");
+                        // Issue #129: an `adr` question offers an ADR draft with its bar lines.
+                        let adr = match q.get("kind").and_then(Value::as_str).unwrap_or("question") {
+                            "question" => None,
+                            "adr" => {
+                                let draft = q.get("adr").filter(|a| a.is_object()).with_context(|| {
+                                    format!("{at}`adr` is missing: an ADR question carries the draft and its bar lines")
+                                })?;
+                                Some(AdrDraft::from_payload_at(draft, &format!("{at}adr."))?)
+                            }
+                            other => anyhow::bail!("{at}`kind` is {other:?}; use \"question\" or \"adr\""),
+                        };
                         Ok(NewQuestion {
                             title: string_field(q, "title", &at)?,
                             question: string_field(q, "question", &at)?,
                             grounding: string_field(q, "grounding", &at)?,
                             recommended_answer: string_field(q, "recommended_answer", &at)?,
                             because: string_field(q, "because", &at)?,
+                            adr,
                         })
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;

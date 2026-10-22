@@ -164,7 +164,7 @@ export const SHAPING_TOOL_DEFINITIONS = [
   {
     name: "round_post",
     description:
-      "Post the next Round of the Stage you are shaping: a one-paragraph note on what the Round settles, then the numbered questions of the decision frontier. Each question has a short title (the line it folds to once answered), the question itself with its choices if it has any, a grounding line (what you read that raised it), your recommended answer worded so that accepting it answers the question, and a one-line reason for it. The developer answers each question on the board, accepting your recommendation or writing their own, and every answer is saved as it is given. This call waits until every question is answered, however long that takes, then answers with every answer, in order. Do not also ask the questions in your reply. Refused while a Round is still open in the Stage: wait on that one with round_wait instead.",
+      "Post the next Round of the Stage you are shaping: a one-paragraph note on what the Round settles, then the numbered questions of the decision frontier. Each question has a short title (the line it folds to once answered), the question itself with its choices if it has any, a grounding line (what you read that raised it), your recommended answer worded so that accepting it answers the question, and a one-line reason for it. The developer answers each question on the board, accepting your recommendation or writing their own, and every answer is saved as it is given. This call waits until every question is answered, however long that takes, then answers with every answer, in order. Do not also ask the questions in your reply. Refused while a Round is still open in the Stage: wait on that one with round_wait instead. When an answer settles a decision that is hard to reverse, would surprise a reader and beat a real alternative, offer it as an ADR: a question of kind \"adr\" whose `adr` carries the file's path (docs/adr/NNNN-slug.md, the next free number in the ADR index), its whole text as the Story will write it, and the bar lines shown beside it and never written into the file: why it is hard to reverse, why it would surprise a reader, which alternative lost, and which ADRs it relates to. Without the first three it is not an ADR: do not offer it. Check the ADR index first and supersede a related ADR rather than duplicate it. The developer answers an ADR question Yes or No, so recommend Yes or No: Yes attaches the ADR to the Epic as an accepted Proposal and the Epic's first Story writes it verbatim; No drops it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -181,6 +181,24 @@ export const SHAPING_TOOL_DEFINITIONS = [
               grounding: { type: "string", minLength: 1, description: "What you read that raised the question." },
               recommended_answer: { type: "string", minLength: 1, description: "Your answer, as the developer would give it." },
               because: { type: "string", minLength: 1, description: "One line: why you recommend it." },
+              kind: {
+                type: "string",
+                enum: ["question", "adr"],
+                description: "\"question\" (the default), or \"adr\" to offer an ADR draft, answered Yes or No.",
+              },
+              adr: {
+                type: "object",
+                description: "Only for kind \"adr\": the draft and its bar lines.",
+                properties: {
+                  path: { type: "string", minLength: 1, maxLength: 1000, description: "docs/adr/NNNN-slug.md" },
+                  text: { type: "string", minLength: 1, maxLength: 20000, description: "The ADR's whole text, as the Story will write it." },
+                  hard_to_reverse: { type: "string", minLength: 1, maxLength: 1000, description: "Why the decision is hard to reverse." },
+                  surprising: { type: "string", minLength: 1, maxLength: 1000, description: "Why it would surprise a reader." },
+                  losing_alternative: { type: "string", minLength: 1, maxLength: 1000, description: "Which alternative lost." },
+                  relates_to: { type: "string", maxLength: 1000, description: "The ADRs it relates to (ADR-NNNN…), or none." },
+                },
+                required: ["path", "text", "hard_to_reverse", "surprising", "losing_alternative"],
+              },
             },
             required: ["title", "question", "grounding", "recommended_answer", "because"],
           },

@@ -281,3 +281,136 @@ describe("the Epic card beside the dock (issue #123)", () => {
     );
   });
 });
+
+function adrQuestion(n: number, answered?: { answer: "Yes" | "No"; with: "recommended" | "own" }): RoundQuestionDto {
+  return {
+    ...question(n),
+    title: "Record the shaping store",
+    question: 'Record "the board is the shaping store" as ADR 0005?',
+    grounding: "Read docs/adr/0002 and Round 1",
+    recommendedAnswer: "Yes",
+    because: "It settles where every answer lives",
+    answer: answered?.answer ?? null,
+    answeredWith: answered?.with ?? null,
+    answeredAt: answered ? "2026-10-22T10:00:00Z" : null,
+    kind: "adr",
+    adr: {
+      path: "docs/adr/0005-board-is-the-shaping-store.md",
+      text: "# The board is the shaping store\n\nEvery answer is written to the board as it is made.\n",
+      hardToReverse: "Every later Story reads its context from the board",
+      surprising: "A reader expects shaping notes in the repo",
+      losingAlternative: "A .planning/ folder of markdown",
+      relatesTo: null,
+    },
+    adrProposalId: answered?.answer === "Yes" ? "pr-adr" : null,
+  };
+}
+
+describe("an ADR offered inside the Round (issue #129)", () => {
+  it("shows the draft with its path and the four bar lines beside it", async () => {
+    epicShapingRounds.mockResolvedValue(shaping([round([question(1), adrQuestion(2)])]));
+    renderView();
+    const adr = await card(2);
+    expect(adr.getAttribute("data-kind")).toBe("adr");
+    expect(within(adr).getByText("docs/adr/0005-board-is-the-shaping-store.md")).toBeTruthy();
+    expect(within(adr).getByText(/Every answer is written to the board as it is made\./)).toBeTruthy();
+    const bar = within(adr).getByRole("list", { name: "Bar lines" });
+    expect(within(bar).getByText("Hard to reverse")).toBeTruthy();
+    expect(within(bar).getByText("Every later Story reads its context from the board")).toBeTruthy();
+    expect(within(bar).getByText("Surprising")).toBeTruthy();
+    expect(within(bar).getByText("A reader expects shaping notes in the repo")).toBeTruthy();
+    expect(within(bar).getByText("Losing alternative")).toBeTruthy();
+    expect(within(bar).getByText("A .planning/ folder of markdown")).toBeTruthy();
+    expect(within(bar).getByText("Relates to")).toBeTruthy();
+    expect(within(bar).getByText("None")).toBeTruthy();
+    expect(within(adr).queryByRole("button", { name: /differently/ })).toBeNull();
+  });
+
+  it("Yes and No write through round_answer", async () => {
+    epicShapingRounds.mockResolvedValue(shaping([round([question(1), adrQuestion(2)])]));
+    renderView();
+    const adr = await card(2);
+    fireEvent.click(within(adr).getByRole("button", { name: "Yes, record it" }));
+    await waitFor(() => expect(roundAnswer).toHaveBeenCalledWith("q2", "Yes"));
+    fireEvent.click(within(adr).getByRole("button", { name: "No, don't record it" }));
+    await waitFor(() => expect(roundAnswer).toHaveBeenCalledWith("q2", "No"));
+  });
+
+  it("an answered ADR folds to one settled line, with no Change", async () => {
+    epicShapingRounds.mockResolvedValue(shaping([round([question(1), adrQuestion(2, { answer: "Yes", with: "recommended" })])]));
+    renderView();
+    const adr = await card(2);
+    expect(adr.getAttribute("data-answered")).toBe("true");
+    expect(within(adr).getByText(/Accepted on the Epic/)).toBeTruthy();
+    expect(within(adr).queryByRole("button")).toBeNull();
+  });
+
+  it("an ADR answered No folds to a line that says no ADR is written", async () => {
+    epicShapingRounds.mockResolvedValue(shaping([round([question(1), adrQuestion(2, { answer: "No", with: "own" })])]));
+    renderView();
+    const adr = await card(2);
+    expect(within(adr).getByText("No. Not recorded: no ADR is written")).toBeTruthy();
+    expect(within(adr).getByText("Your answer")).toBeTruthy();
+  });
+
+  it("Accept all recommended leaves the ADR questions to their own Yes or No, and says so", async () => {
+    epicShapingRounds.mockResolvedValue(shaping([round([question(1), adrQuestion(2)])]));
+    renderView();
+    const dock = await screen.findByRole("region", { name: /Round 1/ });
+    expect(within(dock).getByText(/ADR is answered on its own/)).toBeTruthy();
+    fireEvent.click(within(dock).getByRole("button", { name: /Accept all recommended/ }));
+    await waitFor(() => expect(roundAcceptAll).toHaveBeenCalledWith("r1"));
+  });
+
+  it("Accept all recommended is off when only an ADR question is left open", async () => {
+    epicShapingRounds.mockResolvedValue(
+      shaping([round([question(1, { answer: "Yes, cover thing 1", with: "recommended" }), adrQuestion(2)])]),
+    );
+    renderView();
+    const dock = await screen.findByRole("region", { name: /Round 1/ });
+    expect((within(dock).getByRole("button", { name: /Accept all recommended/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(dock).getByText("Only the ADR is left: answer it Yes or No.")).toBeTruthy();
+  });
+});
+
+describe("the Epic card's ADR and glossary chips (issue #129)", () => {
+  it("shows a chip per linked ADR, per accepted ADR and per accepted glossary term", async () => {
+    const accepted = (id: string, targetType: string, payload: Record<string, unknown>) => ({
+      id,
+      projectId: "p1",
+      sessionId: "run-s",
+      epicId: "e1",
+      verb: "create",
+      targetType,
+      targetId: null,
+      payload,
+      rationale: null,
+      state: "accepted",
+      createdAt: "2026-10-22T10:00:00Z",
+      rejectionReason: null,
+      stageId: "s1",
+      roundId: "r1",
+    });
+    epicShapingRounds.mockResolvedValue({
+      ...shaping([round([question(1)])]),
+      adrLinks: ["docs/adr/0002-repo-holds-code-knowledge-board-holds-work.md"],
+      acceptedKnowledge: [
+        accepted("pr-a", "adr", { path: "docs/adr/0005-board-is-the-shaping-store.md", text: "# T\n" }),
+        accepted("pr-g", "glossary_term", { term: "Round", definition: "A batch of questions" }),
+      ],
+    });
+    renderView();
+    const chips = await screen.findByRole("list", { name: "ADRs and glossary" });
+    expect(within(chips).getByText("0002-repo-holds-code-knowledge-board-holds-work.md")).toBeTruthy();
+    expect(within(chips).getByText("0005-board-is-the-shaping-store.md")).toBeTruthy();
+    expect(within(chips).getByText("Round")).toBeTruthy();
+    const pending = within(chips).getByText("0005-board-is-the-shaping-store.md").closest("li") as HTMLElement;
+    expect(within(pending).getByText(/not in the repo yet/)).toBeTruthy();
+  });
+
+  it("shows no chip row when the Epic has no ADR and no glossary term", async () => {
+    renderView();
+    await screen.findByText("Shaping in the app is worse than in a terminal.");
+    expect(screen.queryByRole("list", { name: "ADRs and glossary" })).toBeNull();
+  });
+});
