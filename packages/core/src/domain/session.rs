@@ -210,6 +210,10 @@ pub fn start_shaping_session(
     )
     .context("failed to insert the shaping sessions row")?;
 
+    // Issue #123: shaping a record starts in its open Stage, its first one when it has none yet.
+    // Opened by the developer's act of starting, so attributed to them, never to the agent.
+    crate::domain::stage::ensure_open_stage_in_tx(&tx, &project_id, subject, human_actor_id)?;
+
     let sequence = next_sequence(&tx, &project_id, "local")?;
     let payload = serde_json::json!({
         "field": "session",

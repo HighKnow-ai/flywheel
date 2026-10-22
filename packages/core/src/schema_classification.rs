@@ -57,6 +57,12 @@ pub const TABLE_CLASSES: &[(&str, TableClass)] = &[
     ("projects", TableClass::Infrastructure),
     // Agent-suggested changes awaiting the developer's decision.
     ("proposals", TableClass::Staging),
+    // A shaping question an agent asked, with its recommended answer, until the developer answers
+    // it; the answer is the developer's alone (`round::answer_round_question` is human-only).
+    ("round_questions", TableClass::Staging),
+    // A batch of questions a shaping session posted into a Stage, held open until every one is
+    // answered.
+    ("rounds", TableClass::Staging),
     // What a session left for the next one, so a fresh session can reconstitute.
     ("session_summaries", TableClass::Runtime),
     // One row per agent session, a Story session or a shaping one; the core writes it as it starts,
@@ -64,6 +70,9 @@ pub const TABLE_CLASSES: &[(&str, TableClass)] = &[
     ("sessions", TableClass::Runtime),
     // Application settings.
     ("settings", TableClass::Infrastructure),
+    // The steps of shaping an Epic or a Milestone; opened by the core when shaping starts, closed
+    // only by the developer. No agent writes one.
+    ("stages", TableClass::Canonical),
     // The Story: the unit of agent work, inside one Epic.
     ("stories", TableClass::Canonical),
     // A Story's checklist, written and kept current by its agent through the board tool.
