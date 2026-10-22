@@ -191,20 +191,27 @@ function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescripti
         target: "for review",
         metrics: base.metrics.length > 0 ? base.metrics : checkMetrics(answer),
       };
-    case "round_post": {
+    case "round_post":
+    case "round_wait": {
       // Issue #123: the call is held until every question is answered, so while it runs the agent is
-      // waiting on the developer, and once it answers it carries every answer.
+      // waiting on the developer, and once it answers it carries every answer. Issue #124: round_wait is a
+      // later session picking up the Round its predecessor left open, held the same way.
       const titles = (Array.isArray(input.questions) ? input.questions : []).map((q) => str(record(q).title)).filter(Boolean);
       const count = Array.isArray(input.questions) ? input.questions.length : 0;
       const answers = Array.isArray(answer.answers) ? answer.answers.map(record) : null;
       const recommended = answers ? answers.filter((a) => a.answered_with === "recommended").length : 0;
       const number = typeof answer.round === "number" ? ` ${answer.round}` : "";
+      const posted = tool === "round_post";
       return {
         ...base,
         kind: "question",
-        verb: `Posted Round${number}`,
+        verb: posted ? `Posted Round${number}` : `Resumed Round${number}`,
         liveVerb: "Waiting on your answers",
-        target: titles.length > 0 ? `${plural(count, "question")}: ${titles.join("; ")}` : plural(count, "question"),
+        target: !posted
+          ? ""
+          : titles.length > 0
+            ? `${plural(count, "question")}: ${titles.join("; ")}`
+            : plural(count, "question"),
         metrics:
           base.metrics.length > 0 || !answers
             ? base.metrics

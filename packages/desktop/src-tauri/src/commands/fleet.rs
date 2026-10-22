@@ -207,6 +207,59 @@ pub fn fleet_blocked_queue(state: State<'_, AppState>) -> Result<Vec<BlockedQueu
     Ok(entries.into_iter().map(BlockedQueueEntryDto::from).collect())
 }
 
+/// The server-side cap on the waiting-Rounds window.
+const WAITING_ROUNDS_CAP: usize = 200;
+
+/// Mirrors `flywheel_core::query::fleet::WaitingRound` field-for-field (issue #124): a shaping Round
+/// a live session is held on, with the Epic it shapes and how far it is answered.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WaitingRoundDto {
+    pub round_id: String,
+    pub round_number: i64,
+    pub stage_kind: String,
+    pub session_id: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub project_key_prefix: String,
+    pub epic_id: String,
+    pub epic_key: String,
+    pub epic_title: String,
+    pub waiting_since: String,
+    pub answered: i64,
+    pub questions: i64,
+}
+
+impl From<flywheel_core::query::fleet::WaitingRound> for WaitingRoundDto {
+    fn from(r: flywheel_core::query::fleet::WaitingRound) -> Self {
+        Self {
+            round_id: r.round_id,
+            round_number: r.round_number,
+            stage_kind: r.stage_kind,
+            session_id: r.session_id,
+            project_id: r.project_id,
+            project_name: r.project_name,
+            project_key_prefix: r.project_key_prefix,
+            epic_id: r.epic_id,
+            epic_key: r.epic_key,
+            epic_title: r.epic_title,
+            waiting_since: r.waiting_since,
+            answered: r.answered,
+            questions: r.questions,
+        }
+    }
+}
+
+/// Every shaping Round waiting on you across every registered project (issue #124): what lights a
+/// Round's lamp and joins the sidebar's Waiting-on-you count. Read-only, takes no arguments.
+#[tauri::command]
+pub fn fleet_waiting_rounds(state: State<'_, AppState>) -> Result<Vec<WaitingRoundDto>, String> {
+    let conn = state.db.lock().map_err(|e| ipc_error("fleet_waiting_rounds:lock", e))?;
+    let rounds = flywheel_core::query::fleet::waiting_rounds(&conn, WAITING_ROUNDS_CAP)
+        .map_err(|e| ipc_error("fleet_waiting_rounds:read", e))?;
+    Ok(rounds.into_iter().map(WaitingRoundDto::from).collect())
+}
+
 /// Declares which agent run's session surface is the visible one (D-174), so a notification for
 /// the session the user is already watching can be withheld. Writes `AppState.watched_run` and
 /// nothing else; `None` means no session is showing. Suppression additionally needs the window to

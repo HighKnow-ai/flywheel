@@ -19,6 +19,7 @@ const roundAccept = vi.fn();
 const roundAnswer = vi.fn();
 const roundAcceptAll = vi.fn();
 const epicUpdate = vi.fn();
+const shapingContinue = vi.fn();
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -31,6 +32,7 @@ vi.mock("../../adapters/tauri", async () => {
     roundAnswer: (...args: unknown[]) => roundAnswer(...args),
     roundAcceptAll: (...args: unknown[]) => roundAcceptAll(...args),
     epicUpdate: (...args: unknown[]) => epicUpdate(...args),
+    shapingContinue: (...args: unknown[]) => shapingContinue(...args),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
   };
 });
@@ -72,7 +74,7 @@ function round(questions: RoundQuestionDto[], held = true): RoundDto {
     number: 1,
     note: "This Round settles who the Epic is for.",
     state: "open",
-    held,
+    waitingOnYou: held,
     postedAt: "2026-10-22T09:00:00Z",
     answeredAt: null,
     questions,
@@ -105,6 +107,7 @@ beforeEach(() => {
   roundAnswer.mockReset().mockResolvedValue(undefined);
   roundAcceptAll.mockReset().mockResolvedValue(undefined);
   epicUpdate.mockReset().mockResolvedValue(undefined);
+  shapingContinue.mockReset().mockResolvedValue({ id: "run-2", epicId: "e1", status: "running", permissionMode: "dontAsk" });
 });
 
 describe("the Round dock (issue #123)", () => {
@@ -217,6 +220,47 @@ describe("the Round dock (issue #123)", () => {
     epicShapingRounds.mockResolvedValue(shaping([]));
     renderView();
     expect(await screen.findByText(/first Round lands here/)).toBeTruthy();
+  });
+});
+
+describe("a Round whose session died (issue #124)", () => {
+  beforeEach(() => {
+    epicShapingSession.mockResolvedValue(null);
+    epicShapingRounds.mockResolvedValue(
+      shaping([round([question(1, { answer: "Only the developer", with: "own" }), question(2), question(3)], false)]),
+    );
+  });
+
+  it("keeps the answers given, still takes answers, and says no session is live", async () => {
+    renderView();
+    const dock = await screen.findByRole("region", { name: /Round 1/ });
+    expect(within(dock).getByText("No live session: your answers are kept")).toBeTruthy();
+    expect(within(dock).queryByText("Waiting on you")).toBeNull();
+    expect(within(dock).getByText("1 of 3 answered")).toBeTruthy();
+    expect(within(await card(1)).getByText("Only the developer")).toBeTruthy();
+    // The Epic card names the same state as the board's (issue #124).
+    expect(await screen.findByText("Shaping Round waiting")).toBeTruthy();
+
+    fireEvent.click(within(await card(2)).getByRole("button", { name: "Accept the recommended answer to question 2" }));
+    await waitFor(() => expect(roundAccept).toHaveBeenCalledWith("q2"));
+  });
+
+  it("offers Continue shaping on the band, once, which starts a session through shaping_continue", async () => {
+    renderView();
+    const dock = await screen.findByRole("region", { name: /Round 1/ });
+    const resume = await within(dock).findByRole("button", { name: "Continue shaping FLY-4 Epic shaping" });
+    expect(screen.getAllByRole("button", { name: /Continue shaping/ })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /^Shape FLY-4/ })).toBeNull();
+    fireEvent.click(resume);
+    await waitFor(() => expect(shapingContinue).toHaveBeenCalledWith("e1"));
+  });
+
+  it("while a fresh session reads the Rounds, the band says it picks this one up, with no Continue shaping", async () => {
+    epicShapingSession.mockResolvedValue("run-2");
+    renderView();
+    const dock = await screen.findByRole("region", { name: /Round 1/ });
+    expect(await within(dock).findByText("The agent is reading your answers and picks this Round up")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Continue shaping/ })).toBeNull();
   });
 });
 

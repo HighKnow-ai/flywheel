@@ -12,11 +12,17 @@
  *
  * Every answer is its own write: the dock never batches, so an answer is on the board the moment it is
  * given, and the agent receives them all once the last one lands. Earlier Rounds follow, folded.
+ *
+ * A Round outlives its session (issue #124). An open Round no live session is held on wears the inset band,
+ * never yellow: it is not Waiting on you, though the dock still takes every answer. With no shaping session
+ * live, the band carries Continue shaping, which starts a fresh session that picks this Round up; while a
+ * fresh session is reading, before its `round_wait` takes the Round over, the band says so instead.
  */
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCheck, Hand, MessagesSquare } from "lucide-react";
-import { roundAccept, roundAcceptAll, roundAnswer, type RoundDto } from "../adapters/tauri";
+import { roundAccept, roundAcceptAll, roundAnswer, type EpicDto, type RoundDto } from "../adapters/tauri";
+import { ContinueShapingButton } from "../board/EpicShapingControl";
 import { QuestionCard } from "./QuestionCard";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -34,6 +40,9 @@ export interface RoundDockProps {
   rounds: RoundDto[];
   /** Whether a shaping session is live on the record: before its first Round, it is reading. */
   sessionLive: boolean;
+  /** The project and the Epic being shaped, for Continue shaping on an open Round with no live session. */
+  projectId: string;
+  epic: Pick<EpicDto, "id" | "key" | "title">;
   /** The query to refetch once an answer is stored. */
   queryKey: readonly unknown[];
   /** Which Rounds to draw: the current one, the earlier ones, or all of them (default). */
@@ -47,7 +56,7 @@ function reason(err: unknown): string {
   return String(err);
 }
 
-export function RoundDock({ rounds, sessionLive, queryKey, show = "all", className }: RoundDockProps) {
+export function RoundDock({ rounds, sessionLive, projectId, epic, queryKey, show = "all", className }: RoundDockProps) {
   const queryClient = useQueryClient();
   const refresh = () => queryClient.invalidateQueries({ queryKey });
 
@@ -78,35 +87,46 @@ export function RoundDock({ rounds, sessionLive, queryKey, show = "all", classNa
     await roundAnswer(id, text);
     await refresh();
   };
+  const card = (round: RoundDto) => (
+    <RoundCard
+      key={round.id}
+      round={round}
+      sessionLive={sessionLive}
+      resume={<ContinueShapingButton projectId={projectId} epic={epic} />}
+      onAccept={accept}
+      onAnswer={answer}
+      onAcceptAll={refresh}
+    />
+  );
 
   if (show === "earlier") {
     if (earlier.length === 0) return null;
     return (
       <div className={cn("flex min-w-0 flex-col gap-4", className)}>
-        {earlier.map((round) => (
-          <RoundCard key={round.id} round={round} onAccept={accept} onAnswer={answer} onAcceptAll={refresh} />
-        ))}
+        {earlier.map(card)}
       </div>
     );
   }
   return (
     <div className={cn("flex min-w-0 flex-col gap-4", className)}>
-      <RoundCard round={current} onAccept={accept} onAnswer={answer} onAcceptAll={refresh} />
-      {show === "all" &&
-        earlier.map((round) => (
-          <RoundCard key={round.id} round={round} onAccept={accept} onAnswer={answer} onAcceptAll={refresh} />
-        ))}
+      {card(current)}
+      {show === "all" && earlier.map(card)}
     </div>
   );
 }
 
 function RoundCard({
   round,
+  sessionLive,
+  resume,
   onAccept,
   onAnswer,
   onAcceptAll,
 }: {
   round: RoundDto;
+  sessionLive: boolean;
+  /** Continue shaping, drawn on the band of an open Round with no live shaping session. */
+  resume: React.ReactNode;
   onAccept: (id: string) => Promise<void>;
   onAnswer: (id: string, text: string) => Promise<void>;
   onAcceptAll: () => Promise<unknown>;
@@ -114,7 +134,8 @@ function RoundCard({
   const [accepting, setAccepting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const open = round.state === "open";
-  const waiting = open && round.held;
+  // The core's derivation: open with a LIVE session held on it (issue #124).
+  const waiting = open && round.waitingOnYou;
   const total = round.questions.length;
   const answered = round.questions.filter((q) => q.answer !== null).length;
   const stage = STAGE_LABELS[round.stageKind] ?? round.stageKind;
@@ -154,9 +175,16 @@ function RoundCard({
           Round {round.number}
           <span className="sr-only">, {stage}</span>
         </h2>
-        <span className={cn("ml-auto shrink-0 text-small font-semibold", !waiting && "text-muted-foreground")}>
-          {waiting ? "Waiting on you" : open ? "No live session: your answers are kept" : "Answered"}
+        <span className={cn("ml-auto min-w-0 text-right text-small font-semibold", !waiting && "text-muted-foreground")}>
+          {waiting
+            ? "Waiting on you"
+            : !open
+              ? "Answered"
+              : sessionLive
+                ? "The agent is reading your answers and picks this Round up"
+                : "No live session: your answers are kept"}
         </span>
+        {open && !waiting && !sessionLive && resume}
       </header>
       {open && <p className="m-0 px-4 pt-3 pb-1 text-body break-words">{round.note}</p>}
       {open && (

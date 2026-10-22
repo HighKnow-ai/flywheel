@@ -217,6 +217,76 @@ pub fn blocked_queue(conn: &Connection, limit: usize) -> anyhow::Result<Vec<Bloc
     Ok(rows)
 }
 
+/// The hard ceiling on one window of waiting Rounds.
+pub const WAITING_ROUNDS_MAX_LIMIT: usize = 200;
+
+/// One shaping Round Waiting on you (issue #124): open, with its call held by a LIVE shaping
+/// session, across every registered project. A shaping session has no Story, so it is not a
+/// [`FleetRow`]; the andon strip lights a lamp for each of these, and the sidebar's Waiting-on-you
+/// count adds them to the queue's requests.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WaitingRound {
+    pub round_id: String,
+    pub round_number: i64,
+    /// The Stage's kind: `challenge_spec`, `slice`, `criteria`.
+    pub stage_kind: String,
+    pub session_id: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub project_key_prefix: String,
+    pub epic_id: String,
+    pub epic_key: String,
+    pub epic_title: String,
+    /// When the Round was posted: it has waited on the developer since.
+    pub waiting_since: String,
+    /// How many of its questions are answered, and how many it asks.
+    pub answered: i64,
+    pub questions: i64,
+}
+
+/// Every waiting Round, longest waiting first, with the Round id as the final key so two reads of an
+/// unchanged database are byte-identical. A Milestone's Rounds join no Epic and are not read yet.
+pub const WAITING_ROUNDS_SQL: &str = concat!(
+    "SELECT r.id, r.number, st.kind, r.session_id, p.id, p.name, p.key_prefix, e.id, e.key, e.title, r.posted_at, \
+        (SELECT COUNT(*) FROM round_questions q WHERE q.round_id = r.id AND q.answer IS NOT NULL), \
+        (SELECT COUNT(*) FROM round_questions q WHERE q.round_id = r.id) \
+    FROM rounds r \
+    JOIN stages st ON st.id = r.stage_id \
+    JOIN epics e ON e.id = st.epic_id \
+    JOIN projects p ON p.id = st.project_id AND p.hidden = 0 \
+    WHERE ",
+    crate::query::round_waiting_on_you!(),
+    " ORDER BY r.posted_at ASC, r.id ASC LIMIT ?1"
+);
+
+/// Every shaping Round waiting on you across every registered project, at most `limit` (clamped to
+/// [`WAITING_ROUNDS_MAX_LIMIT`]).
+pub fn waiting_rounds(conn: &Connection, limit: usize) -> anyhow::Result<Vec<WaitingRound>> {
+    let limit = limit.min(WAITING_ROUNDS_MAX_LIMIT) as i64;
+    let mut stmt = conn.prepare(WAITING_ROUNDS_SQL)?;
+    let rows = stmt
+        .query_map(params![limit], |row| {
+            Ok(WaitingRound {
+                round_id: row.get(0)?,
+                round_number: row.get(1)?,
+                stage_kind: row.get(2)?,
+                session_id: row.get(3)?,
+                project_id: row.get(4)?,
+                project_name: row.get(5)?,
+                project_key_prefix: row.get(6)?,
+                epic_id: row.get(7)?,
+                epic_key: row.get(8)?,
+                epic_title: row.get(9)?,
+                waiting_since: row.get(10)?,
+                answered: row.get(11)?,
+                questions: row.get(12)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the waiting Rounds")?;
+    Ok(rows)
+}
+
 // ---------------------------------------------------------------------------------------------
 // The worktree inventory (WORK-07, D-177, D-178): Story worktrees across every project, each with
 // its cached disk size and a stated disposition. Two phases: a board half under the database lock,

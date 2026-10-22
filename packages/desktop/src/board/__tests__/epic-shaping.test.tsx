@@ -18,6 +18,7 @@ const milestoneProgress = vi.fn();
 const epicShape = vi.fn();
 const epicShapingSession = vi.fn();
 const epicShapingRounds = vi.fn();
+const shapingContinue = vi.fn();
 let boardChanged: ((payload: { projectId: string }) => void) | null = null;
 
 vi.mock("../../adapters/tauri", async () => {
@@ -31,9 +32,10 @@ vi.mock("../../adapters/tauri", async () => {
     epicShape: (...args: unknown[]) => epicShape(...args),
     epicShapingSession: (...args: unknown[]) => epicShapingSession(...args),
     epicShapingRounds: (...args: unknown[]) => epicShapingRounds(...args),
+    shapingContinue: (...args: unknown[]) => shapingContinue(...args),
     taskList: () => Promise.resolve([]),
     storyContextPacketSize: () => Promise.resolve({ bytes: 400, approxTokens: 100, overSoftLimit: false }),
-    blockedSummary: () => Promise.resolve({ blockedStoryIds: [], blockedCount: 0 }),
+    blockedSummary: () => Promise.resolve({ blockedStoryIds: [], waitingEpicIds: [], blockedCount: 0 }),
     subscribeBoardChanged: (handler: (payload: { projectId: string }) => void) => {
       boardChanged = handler;
       return Promise.resolve(() => {});
@@ -76,6 +78,7 @@ beforeEach(() => {
   epicShape.mockReset().mockResolvedValue({ id: "run-s", epicId: "e1", status: "running", permissionMode: "dontAsk" });
   epicShapingSession.mockReset().mockResolvedValue(null);
   epicShapingRounds.mockReset().mockResolvedValue({ epic: epic("e1", "FLY-1", "Epic shaping", "shaping"), stages: [], rounds: [] });
+  shapingContinue.mockReset().mockResolvedValue({ id: "run-2", epicId: "e1", status: "running", permissionMode: "dontAsk" });
 });
 
 describe("the Epic card's shaping control (issue #122)", () => {
@@ -169,6 +172,7 @@ describe("the Epic card's shaping control (issue #122)", () => {
           key: "FLY-1",
           title: "Epic shaping",
           state: "shaping",
+          attention: null,
           counts: { shaping: 1, ready: 0, running: 0, inReview: 0, merged: 0, dropped: 0, waitingOnYou: 0, stopped: 0, storiesTotal: 1 },
         },
       ],
@@ -191,7 +195,7 @@ describe("the Epic card and its Rounds (issue #123)", () => {
     number: 1,
     note: "n",
     state: "open",
-    held: true,
+    waitingOnYou: true,
     postedAt: "2026-10-22T09:00:00Z",
     answeredAt: null,
     questions: [],
@@ -214,7 +218,7 @@ describe("the Epic card and its Rounds (issue #123)", () => {
     epicShapingRounds.mockResolvedValue({
       epic: epic("e1", "FLY-1", "Epic shaping", "shaping"),
       stages: [],
-      rounds: [{ ...heldRound, state: "answered", held: false, answeredAt: "2026-10-22T10:00:00Z" }],
+      rounds: [{ ...heldRound, state: "answered", waitingOnYou: false, answeredAt: "2026-10-22T10:00:00Z" }],
     });
     renderBoard();
     expect(await within(await card("Epic shaping")).findByRole("button", { name: "Open shaping session of FLY-1" })).toBeInTheDocument();
@@ -226,5 +230,84 @@ describe("the Epic card and its Rounds (issue #123)", () => {
     expect(useUiStore.getState().currentEpicId).toBe("e1");
     expect(useUiStore.getState().activeSessionId).toBeNull();
     expect(within(await card("Board model")).queryByRole("button", { name: /and its Rounds/ })).toBeNull();
+  });
+});
+
+describe("a shaping session killed mid-Round (issue #124)", () => {
+  const openRound = {
+    id: "r1",
+    stageId: "s1",
+    stageKind: "challenge_spec",
+    number: 1,
+    note: "n",
+    state: "open",
+    waitingOnYou: false,
+    postedAt: "2026-10-22T09:00:00Z",
+    answeredAt: null,
+    questions: [],
+  };
+  const COUNTS = { shaping: 1, ready: 0, running: 0, inReview: 0, merged: 0, dropped: 0, waitingOnYou: 0, stopped: 0, storiesTotal: 1 };
+  function progressWith(attention: string | null): MilestoneProgressDto {
+    return {
+      milestoneId: "m1",
+      title: "Shaping",
+      exitTest: null,
+      state: "shaping",
+      current: true,
+      nextMilestoneTitle: null,
+      counts: COUNTS,
+      epicsDone: 0,
+      epicsTotal: 1,
+      epics: [{ epicId: "e1", key: "FLY-1", title: "Epic shaping", state: "shaping", attention, counts: COUNTS }],
+    };
+  }
+
+  it("offers Continue shaping in place of Shape when a Round outlived its session, and keeps you on the board", async () => {
+    epicShapingRounds.mockResolvedValue({ epic: epic("e1", "FLY-1", "Epic shaping", "shaping"), stages: [], rounds: [openRound] });
+    renderBoard();
+    const shaping = await card("Epic shaping");
+    const resume = await within(shaping).findByRole("button", { name: "Continue shaping FLY-1 Epic shaping" });
+    expect(within(shaping).queryByRole("button", { name: /^Shape FLY-1/ })).toBeNull();
+    expect(within(shaping).queryByRole("button", { name: /Answer the Round/ })).toBeNull();
+
+    fireEvent.click(resume);
+    await waitFor(() => expect(shapingContinue).toHaveBeenCalledWith("e1"));
+    expect(epicShape).not.toHaveBeenCalled();
+    expect(useUiStore.getState().activeSessionId).toBeNull();
+    expect(useUiStore.getState().currentEpicId).toBeNull();
+  });
+
+  it("an open Round with no live session reads Shaping Round waiting, never Waiting on you", async () => {
+    milestoneProgress.mockResolvedValue(progressWith("round_waiting"));
+    epicShapingRounds.mockResolvedValue({ epic: epic("e1", "FLY-1", "Epic shaping", "shaping"), stages: [], rounds: [openRound] });
+    renderBoard();
+    const shaping = await card("Epic shaping");
+    const pill = await within(shaping).findByText("Shaping Round waiting");
+    expect(pill.closest("[data-tone]")).toHaveAttribute("data-tone", "neutral");
+    expect(within(shaping).queryByText("Waiting on you")).toBeNull();
+  });
+
+  it("a live session held on a Round reads Waiting on you in place of Shaping, with Answer", async () => {
+    milestoneProgress.mockResolvedValue(progressWith("waiting_on_you"));
+    epicShapingSession.mockResolvedValue("run-s");
+    epicShapingRounds.mockResolvedValue({
+      epic: epic("e1", "FLY-1", "Epic shaping", "shaping"),
+      stages: [],
+      rounds: [{ ...openRound, waitingOnYou: true }],
+    });
+    renderBoard();
+    const shaping = await card("Epic shaping");
+    const pill = await within(shaping).findByText("Waiting on you");
+    expect(pill.closest("[data-tone]")).toHaveAttribute("data-tone", "attention");
+    expect(await within(shaping).findByRole("button", { name: "Answer the Round on FLY-1" })).toBeInTheDocument();
+  });
+
+  it("a fresh session that has not picked the Round up yet offers Open session, not Answer", async () => {
+    epicShapingSession.mockResolvedValue("run-2");
+    epicShapingRounds.mockResolvedValue({ epic: epic("e1", "FLY-1", "Epic shaping", "shaping"), stages: [], rounds: [openRound] });
+    renderBoard();
+    const shaping = await card("Epic shaping");
+    expect(await within(shaping).findByRole("button", { name: "Open shaping session of FLY-1" })).toBeInTheDocument();
+    expect(within(shaping).queryByRole("button", { name: /Continue shaping/ })).toBeNull();
   });
 });

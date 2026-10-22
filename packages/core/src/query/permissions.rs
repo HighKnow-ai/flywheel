@@ -1,11 +1,14 @@
 //! Bounded, literal-SQL reads over `sessions`/`permission_requests` for the board's Waiting on you
-//! signal (docs/mvp-spec.md §2 "Attention"): `blocked_story_ids_for_project` and
-//! `blocked_count_for_project`. Every statement below is a single literal `&str`, bound through
-//! `params![]`, never assembled by `format!`/string interpolation.
+//! signal (docs/mvp-spec.md §2 "Attention"): `blocked_story_ids_for_project`,
+//! `waiting_epic_ids_for_project` and `blocked_count_for_project`. Every statement below is a single
+//! literal `&str` (spliced with `concat!` at most), bound through `params![]`, never assembled by
+//! `format!`/string interpolation.
 //!
 //! A Story is Waiting on you when one of its LIVE sessions (`running` or `blocked`) holds a pending
 //! request. It is derived from the pending rows, never from `sessions.status = 'blocked'`, which
 //! v0.1 read and which a single answer could reset while other requests still waited (issue #57).
+//! An Epic is Waiting on you when a live shaping session is held on one of its open Rounds
+//! (issue #124, `crate::query::round_waiting_on_you`); a held Round never writes the session's status.
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -15,9 +18,22 @@ const BLOCKED_STORY_IDS_SQL: &str = "SELECT DISTINCT ar.story_id FROM sessions a
     AND EXISTS (SELECT 1 FROM permission_requests pr WHERE pr.session_id = ar.id AND pr.status = 'pending' AND pr.expired_at IS NULL) \
     ORDER BY ar.story_id ASC";
 
-const BLOCKED_COUNT_SQL: &str = "SELECT COUNT(DISTINCT ar.story_id) FROM sessions ar \
+const WAITING_EPIC_IDS_SQL: &str = concat!(
+    "SELECT DISTINCT st.epic_id FROM rounds r JOIN stages st ON st.id = r.stage_id \
+    WHERE st.project_id = ?1 AND st.epic_id IS NOT NULL AND ",
+    crate::query::round_waiting_on_you!(),
+    " ORDER BY st.epic_id ASC"
+);
+
+const BLOCKED_COUNT_SQL: &str = concat!(
+    "SELECT (SELECT COUNT(DISTINCT ar.story_id) FROM sessions ar \
     WHERE ar.project_id = ?1 AND ar.kind = 'story' AND ar.status IN ('running', 'blocked') \
-    AND EXISTS (SELECT 1 FROM permission_requests pr WHERE pr.session_id = ar.id AND pr.status = 'pending' AND pr.expired_at IS NULL)";
+    AND EXISTS (SELECT 1 FROM permission_requests pr WHERE pr.session_id = ar.id AND pr.status = 'pending' AND pr.expired_at IS NULL)) \
+    + (SELECT COUNT(DISTINCT st.epic_id) FROM rounds r JOIN stages st ON st.id = r.stage_id \
+    WHERE st.project_id = ?1 AND st.epic_id IS NOT NULL AND ",
+    crate::query::round_waiting_on_you!(),
+    ")"
+);
 
 /// Every distinct Story id in `project_id` that is Waiting on you: a live session of it holds a
 /// pending request. A project with no sessions at all returns an empty vector, never an error.
@@ -29,7 +45,19 @@ pub fn blocked_story_ids_for_project(conn: &Connection, project_id: &str) -> any
     rows.context("failed to list blocked Story ids for project")
 }
 
-/// The count of distinct Stories in `project_id` that are Waiting on you. Always equal to `blocked_story_ids_for_project(..).len()`.
+/// Every distinct Epic id in `project_id` that is Waiting on you (issue #124): a live shaping session
+/// is held on one of its open Rounds. Empty when nothing is, never an error.
+pub fn waiting_epic_ids_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<String>> {
+    let mut stmt = conn.prepare(WAITING_EPIC_IDS_SQL)?;
+    let rows = stmt
+        .query_map(params![project_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>();
+    rows.context("failed to list the Epics waiting on you for project")
+}
+
+/// The project's Needs-you count of what is Waiting on you: the distinct Stories and the distinct
+/// Epics (issue #124). Always equal to `blocked_story_ids_for_project(..).len()` plus
+/// `waiting_epic_ids_for_project(..).len()`.
 pub fn blocked_count_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<i64> {
     let count: i64 = conn
         .query_row(BLOCKED_COUNT_SQL, params![project_id], |row| row.get(0))

@@ -21,16 +21,25 @@
  *
  * Every entry goes somewhere (issue #104): its Story key opens the Story, and its "Open session"
  * control, and only that, opens the live session it came from.
+ *
+ * A shaping Round a live session is held on waits here too (issue #124), after the requests: its Epic, how
+ * far it is answered and how long it has waited. It takes no keystroke. A Round is answered question by
+ * question in its dock, so its Answer opens the Epic's shaping view, as the Epic card's Answer does.
  */
 import { useQueryClient } from "@tanstack/react-query";
-import { answerPermissionRequest, answerQuestion, type BlockedQueueEntryDto } from "../adapters/tauri";
+import {
+  answerPermissionRequest,
+  answerQuestion,
+  type BlockedQueueEntryDto,
+  type WaitingRoundDto,
+} from "../adapters/tauri";
 import { pendingPermissionRequestsQueryKey } from "../board/useBoardQuery";
 import { formatAge } from "../legend/runStatus";
 import { PermissionRequestCard, type PermissionDecision } from "../session/PermissionRequestCard";
 import { ASK_USER_QUESTION_TOOL } from "../session/feedRows";
 import { useUiStore } from "../state/uiStore";
 import { blockedQueueQueryKey, fleetQueryKey } from "./useFleet";
-import { ChevronRight, Terminal } from "lucide-react";
+import { ChevronRight, MessageCircleQuestionMark, Terminal } from "lucide-react";
 import { StateBadge } from "../components/StateBadge";
 import { Button } from "@/components/ui/button";
 
@@ -42,11 +51,13 @@ function subjectText(entry: BlockedQueueEntryDto): { key: string; detail: string
 export interface BlockedQueueProps {
   /** Entries in queue order, longest waiting first, as the core read returns them. */
   entries: BlockedQueueEntryDto[];
+  /** Issue #124: the shaping Rounds a live session is held on, longest waiting first. */
+  rounds?: WaitingRoundDto[];
   /** The shared clock, so the elapsed times tick on the surface's one interval. */
   now: number;
 }
 
-export function BlockedQueue({ entries, now }: BlockedQueueProps) {
+export function BlockedQueue({ entries, rounds = [], now }: BlockedQueueProps) {
   const queryClient = useQueryClient();
   const openStory = useUiStore((state) => state.openStory);
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
@@ -74,7 +85,7 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
     void queryClient.invalidateQueries({ queryKey: pendingPermissionRequestsQueryKey(entry.sessionId) });
   }
 
-  if (entries.length === 0) {
+  if (entries.length === 0 && rounds.length === 0) {
     return (
       <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-card px-5 py-6 shadow-card">
         <span className="text-section font-semibold">Nothing is waiting on you</span>
@@ -89,76 +100,153 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
   const ownerIndex = entries.findIndex((e) => e.toolName !== ASK_USER_QUESTION_TOOL);
 
   return (
-    <div role="list" aria-label="Requests waiting on you" className="flex flex-col gap-5">
-      {entries.map((entry, index) => {
-        const owner = index === ownerIndex;
-        const subject = subjectText(entry);
-        return (
-          <div
-            key={entry.requestId}
-            role="listitem"
-            data-run-id={entry.sessionId}
-            data-keyboard-owner={owner ? "true" : undefined}
-            className="flex flex-col gap-2"
+    <div className="flex flex-col gap-5">
+      {entries.length > 0 && (
+        <div role="list" aria-label="Requests waiting on you" className="flex flex-col gap-5">
+          {entries.map((entry, index) => {
+            const owner = index === ownerIndex;
+            const subject = subjectText(entry);
+            return (
+              <div
+                key={entry.requestId}
+                role="listitem"
+                data-run-id={entry.sessionId}
+                data-keyboard-owner={owner ? "true" : undefined}
+                className="flex flex-col gap-2"
+              >
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <StateBadge state="waiting_on_you" className="h-5.5 text-meta" />
+                  <span data-field="project" className="text-small text-muted-foreground">
+                    {entry.projectName}
+                  </span>
+                  <button
+                    type="button"
+                    data-field="subject"
+                    aria-label={`Open Story ${subject.key}`}
+                    title={`Open Story ${subject.key}`}
+                    onClick={() => openStory(entry.projectId, entry.storyId)}
+                    className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent"
+                  >
+                    <span className="shrink-0 font-mono text-meta text-muted-foreground">{subject.key}</span>
+                    {subject.detail ? " " : null}
+                    {subject.detail ? <span className="truncate text-body font-semibold">{subject.detail}</span> : null}
+                    <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-subtle-foreground" />
+                  </button>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    aria-label={`Open live session of ${subject.key}`}
+                    onClick={() => setActiveSessionId(entry.sessionId, entry.storyId, null, "blocked")}
+                  >
+                    <Terminal aria-hidden="true" />
+                    Open session
+                  </Button>
+                  {owner && (
+                    <span data-field="owner" className="text-meta text-muted-foreground">
+                      Keys A and D answer this one
+                    </span>
+                  )}
+                  <span
+                    data-field="age"
+                    aria-label={`Waiting ${formatAge(entry.blockedSince, now)}`}
+                    className="ml-auto text-small text-muted-foreground tabular-nums"
+                  >
+                    {formatAge(entry.blockedSince, now)}
+                  </span>
+                </div>
+                <PermissionRequestCard
+                  variant="feed"
+                  keyboardEnabled={owner}
+                  requests={[
+                    {
+                      id: entry.requestId,
+                      toolName: entry.toolName,
+                      inputPayload: entry.inputPayload,
+                      destructiveCategory: entry.destructiveCategory,
+                      suggestedRule: entry.suggestedRule,
+                    },
+                  ]}
+                  onAnswer={(requestId, decision, rule) => onAnswer(entry, requestId, decision, rule)}
+                  onAnswerQuestion={(requestId, picks) => onAnswerQuestion(entry, requestId, picks)}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {rounds.length > 0 && (
+        <div role="list" aria-label="Shaping Rounds waiting on you" className="flex flex-col gap-5">
+          {rounds.map((round) => (
+            <WaitingRoundItem key={round.roundId} round={round} now={now} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One shaping Round a live session is held on: the Epic it shapes, how far it is answered, Answer. */
+function WaitingRoundItem({ round, now }: { round: WaitingRoundDto; now: number }) {
+  const openEpic = useUiStore((state) => state.openEpic);
+  const age = formatAge(round.waitingSince, now);
+  return (
+    <div
+      role="listitem"
+      aria-label={`Round ${round.roundNumber} of ${round.epicKey} ${round.epicTitle}`}
+      data-round-id={round.roundId}
+      className="flex flex-col gap-2"
+    >
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+        <StateBadge state="waiting_on_you" className="h-5.5 text-meta" />
+        <span data-field="project" className="text-small text-muted-foreground">
+          {round.projectName}
+        </span>
+        <button
+          type="button"
+          data-field="subject"
+          aria-label={`Open Epic ${round.epicKey}`}
+          title={`Open Epic ${round.epicKey} and its Rounds`}
+          onClick={() => openEpic(round.projectId, round.epicId)}
+          className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent"
+        >
+          <span className="shrink-0 font-mono text-meta text-muted-foreground">{round.epicKey}</span>{" "}
+          <span className="truncate text-body font-semibold">{round.epicTitle}</span>
+          <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-subtle-foreground" />
+        </button>
+        <span
+          data-field="age"
+          aria-label={`Waiting ${age}`}
+          className="ml-auto text-small text-muted-foreground tabular-nums"
+        >
+          {age}
+        </span>
+      </div>
+      {/* The request card's frame (the 2px attention edge and the yellow band), so a Round reads as the
+          same kind of thing as every other entry here. */}
+      <div className="overflow-clip rounded-lg border-2 border-attention bg-card shadow-card">
+        <div className="flex min-h-11 items-center gap-2.5 bg-attention px-4 py-2.5 text-attention-foreground [&_svg]:size-[18px]">
+          <MessageCircleQuestionMark aria-hidden="true" />
+          <span className="text-row font-bold">Round {round.roundNumber}</span>
+          <span className="ml-auto text-small font-semibold">Shaping question</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+          <span className="text-small font-semibold tabular-nums">
+            {round.answered} of {round.questions} answered
+          </span>
+          <span className="min-w-0 flex-1 text-small text-muted-foreground">
+            The agent goes on once every question is answered.
+          </span>
+          <Button
+            variant="attention"
+            size="sm"
+            aria-label={`Answer Round ${round.roundNumber} of ${round.epicKey}`}
+            onClick={() => openEpic(round.projectId, round.epicId)}
           >
-            <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
-              <StateBadge state="waiting_on_you" className="h-5.5 text-meta" />
-              <span data-field="project" className="text-small text-muted-foreground">
-                {entry.projectName}
-              </span>
-              <button
-                type="button"
-                data-field="subject"
-                aria-label={`Open Story ${subject.key}`}
-                title={`Open Story ${subject.key}`}
-                onClick={() => openStory(entry.projectId, entry.storyId)}
-                className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent"
-              >
-                <span className="shrink-0 font-mono text-meta text-muted-foreground">{subject.key}</span>
-                {subject.detail ? " " : null}
-                {subject.detail ? <span className="truncate text-body font-semibold">{subject.detail}</span> : null}
-                <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-subtle-foreground" />
-              </button>
-              <Button
-                variant="outline"
-                size="xs"
-                aria-label={`Open live session of ${subject.key}`}
-                onClick={() => setActiveSessionId(entry.sessionId, entry.storyId, null, "blocked")}
-              >
-                <Terminal aria-hidden="true" />
-                Open session
-              </Button>
-              {owner && (
-                <span data-field="owner" className="text-meta text-muted-foreground">
-                  Keys A and D answer this one
-                </span>
-              )}
-              <span
-                data-field="age"
-                aria-label={`Waiting ${formatAge(entry.blockedSince, now)}`}
-                className="ml-auto text-small text-muted-foreground tabular-nums"
-              >
-                {formatAge(entry.blockedSince, now)}
-              </span>
-            </div>
-            <PermissionRequestCard
-              variant="feed"
-              keyboardEnabled={owner}
-              requests={[
-                {
-                  id: entry.requestId,
-                  toolName: entry.toolName,
-                  inputPayload: entry.inputPayload,
-                  destructiveCategory: entry.destructiveCategory,
-                  suggestedRule: entry.suggestedRule,
-                },
-              ]}
-              onAnswer={(requestId, decision, rule) => onAnswer(entry, requestId, decision, rule)}
-              onAnswerQuestion={(requestId, picks) => onAnswerQuestion(entry, requestId, picks)}
-            />
-          </div>
-        );
-      })}
+            <MessageCircleQuestionMark aria-hidden="true" />
+            Answer
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -12,6 +12,11 @@
 //! [`round_accept`], [`round_answer`] and [`round_accept_all`], each one transaction; the answer that
 //! completes the Round answers the held call through `send_board_tool_answer`, once the lock is
 //! released.
+//!
+//! Continue shaping (issue #124): [`shaping_continue`] starts a fresh session on an Epic whose
+//! Rounds outlived the session that posted them. Its packet carries every Round with its answers and
+//! tells the agent to call `round_wait`, which takes the open Round over and is held like a
+//! `round_post`, or is answered at once when the Round is already complete.
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -99,8 +104,9 @@ pub struct RoundDto {
     pub note: String,
     /// `open` or `answered`.
     pub state: String,
-    /// Whether the session that posted it still waits on its answers.
-    pub held: bool,
+    /// Issue #124: open with a LIVE session held on it, so Waiting on you. An open Round whose session
+    /// died is not, though its answers are still taken.
+    pub waiting_on_you: bool,
     pub posted_at: String,
     pub answered_at: Option<String>,
     pub questions: Vec<RoundQuestionDto>,
@@ -127,7 +133,7 @@ impl From<flywheel_core::domain::round::Round> for RoundDto {
             number: r.number,
             note: r.note,
             state: r.state,
-            held: r.held_request_id.is_some(),
+            waiting_on_you: r.waiting_on_you,
             posted_at: r.posted_at,
             answered_at: r.answered_at,
             questions: r
@@ -233,9 +239,10 @@ pub(crate) fn release_answer(release: &RoundRelease) -> serde_json::Value {
 }
 
 /// The core's handling of one shaping tool call (issue #123), as `handle_inbound_board_tool_request`
-/// routes it: `(Some(answer), _)` to answer at once (a refusal with its reason, or a filed Proposal),
-/// or `(None, project)` when the call is held until the developer answers the Round it posted. The
-/// project is `Some` whenever the board changed.
+/// routes it: `(Some(answer), _)` to answer at once (a refusal with its reason, a filed Proposal, or a
+/// `round_wait` on a Round already answered, with every answer), or `(None, project)` when the call is
+/// held until the developer answers the Round it posted or took over. The project is `Some` whenever
+/// the board may have changed.
 pub(crate) fn answer_shaping_tool_call(
     conn: &mut Connection,
     run_id: &str,
@@ -246,7 +253,7 @@ pub(crate) fn answer_shaping_tool_call(
     use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
     match ShapingToolCall::parse(tool, args).and_then(|call| apply_shaping_tool_call(conn, run_id, request_id, &call)) {
         Ok(ShapingToolOutcome::Held { project_id, .. }) => (None, Some(project_id)),
-        // Issue #125: a Proposal never holds the agent.
+        // Issue #125: a Proposal never holds the agent. Issue #124: nor does a round_wait on an answered Round.
         Ok(ShapingToolOutcome::Answered { result, project_id }) => (Some(serde_json::json!({ "result": result })), Some(project_id)),
         // The reason goes to the agent so it can correct its call.
         Err(e) => (Some(serde_json::json!({ "error": format!("{e:#}") })), None),
@@ -269,6 +276,42 @@ pub(crate) fn handle_shaping_tool_request(app: &AppHandle, run_id: &str, request
     if let Some(project_id) = changed {
         emit_board_changed(app, Some(&project_id), if tool == "round_post" { "round" } else { "proposal" }, None);
     }
+}
+
+/// Continue shaping (issue #124): start a fresh shaping session on an Epic whose earlier session
+/// ended with a Round open, or after it. The packet is rebuilt from the board, so it carries every
+/// Round with its answers and tells the agent to call `round_wait` on the open one. Refused for an
+/// Epic with no Round yet (Shape starts that one) and, like Shape, for one already being shaped.
+#[tauri::command]
+pub fn shaping_continue(state: State<AppState>, app: AppHandle, epic_id: String) -> Result<ShapingSessionDto, String> {
+    let run_id = continue_epic(&state.db, &epic_id, flywheel_core::login_path::claude_bin, |repo_path, request| {
+        send_gated_spawn(&state, repo_path, request)
+    })?;
+    let project_id = project_of_locked(&state.db, "epics", &epic_id);
+    emit_board_changed(&app, project_id.as_deref(), "session", Some(&run_id));
+    Ok(ShapingSessionDto {
+        id: run_id,
+        epic_id,
+        status: "running".to_string(),
+        permission_mode: SessionKind::Shaping.launch_policy().permission_mode.to_string(),
+    })
+}
+
+/// [`shaping_continue`]'s body: [`shape_epic`] once the Epic is known to have a Round to continue.
+pub(crate) fn continue_epic(
+    db: &std::sync::Mutex<Connection>,
+    epic_id: &str,
+    find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
+    send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
+) -> Result<String, String> {
+    {
+        let conn = db.lock().map_err(|e| e.to_string())?;
+        let rounds = flywheel_core::domain::round::rounds_for_epic(&conn, epic_id).map_err(|e| e.to_string())?;
+        if rounds.is_empty() {
+            return Err("this Epic has no Round to continue from; Shape it to start its first Round".to_string());
+        }
+    }
+    shape_epic(db, epic_id, find_claude, send)
 }
 
 /// [`epic_shape`]'s body, driven without a Tauri app handle. `find_claude` runs before anything is
@@ -499,7 +542,7 @@ mod tests {
             assert_eq!(view.stages.len(), 1);
             assert_eq!(view.stages[0].kind, "challenge_spec");
             let round = &view.rounds[0];
-            assert!(round.held);
+            assert!(round.waiting_on_you);
             assert_eq!(round.questions[0].recommended_answer, "Yes");
 
             let first = answer_and_release(&db, |conn, human| {
@@ -516,7 +559,7 @@ mod tests {
             let body = release_answer(&release);
             assert_eq!(body["result"]["answers"][0]["answer"], "Yes");
             assert_eq!(body["result"]["answers"][1]["answer"], "Desktop and web");
-            assert!(!read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap().rounds[0].held);
+            assert!(!read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap().rounds[0].waiting_on_you);
         });
     }
 
@@ -534,6 +577,63 @@ mod tests {
             );
             assert!(answer.unwrap()["error"].as_str().unwrap().contains("at least one question"));
             assert_eq!(changed, None);
+        });
+    }
+
+    /// Issue #124: Stop mid-Round, Continue shaping, and the fresh session's `round_wait` is held on the
+    /// open Round, then released by the last answer, with every answer.
+    #[test]
+    fn continue_shaping_starts_a_session_whose_round_wait_is_released_by_the_last_answer() {
+        with_scratch(|| {
+            let (db, epic_id, _checkout) = shaping_epic();
+            let err = continue_epic(&db, &epic_id, found_claude, |_, _| panic!("nothing to continue")).unwrap_err();
+            assert!(err.contains("no Round to continue"), "{err}");
+
+            let first = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
+            answer_shaping_tool_call(&mut db.lock().unwrap(), &first, "req-1", "round_post", &round_args());
+            let round = read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap().rounds.remove(0);
+            answer_and_release(&db, |conn, human| {
+                flywheel_core::domain::round::answer_round_question(conn, human, &round.questions[0].id, &RoundAnswer::Recommended)
+            })
+            .unwrap();
+            crate::commands::session::stop_session_recording_first(&mut db.lock().unwrap(), &first, || Ok(())).unwrap();
+            assert!(!read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap().rounds[0].waiting_on_you, "no live session");
+
+            let mut sent = None;
+            let next = continue_epic(&db, &epic_id, found_claude, |_, request| {
+                sent = Some(request.clone());
+                Ok(())
+            })
+            .expect("Continue shaping starts a session");
+            assert_ne!(next, first);
+            let prompt = sent.unwrap()["prompt"].as_str().unwrap().to_string();
+            assert!(prompt.contains("Answer (your recommendation, accepted): Yes"), "{prompt}");
+            assert!(prompt.contains("`round_wait`"), "{prompt}");
+
+            let (answer, changed) =
+                answer_shaping_tool_call(&mut db.lock().unwrap(), &next, "req-2", "round_wait", &serde_json::json!({}));
+            assert_eq!(answer, None, "round_wait is held");
+            assert!(changed.is_some());
+            assert!(read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap().rounds[0].waiting_on_you);
+
+            let last = answer_and_release(&db, |conn, human| {
+                flywheel_core::domain::round::answer_round_question(conn, human, &round.questions[1].id, &RoundAnswer::Recommended)
+            })
+            .unwrap();
+            let release = last.release.expect("the last answer releases round_wait");
+            assert_eq!((release.session_id.as_str(), release.request_id.as_str()), (next.as_str(), "req-2"));
+            assert_eq!(release_answer(&release)["result"]["answers"].as_array().unwrap().len(), 2);
+        });
+    }
+
+    #[test]
+    fn a_round_post_while_a_round_is_open_is_refused_naming_round_wait() {
+        with_scratch(|| {
+            let (db, epic_id, _checkout) = shaping_epic();
+            let run_id = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
+            answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-1", "round_post", &round_args());
+            let (answer, _) = answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-2", "round_post", &round_args());
+            assert!(answer.unwrap()["error"].as_str().unwrap().contains("round_wait"));
         });
     }
 

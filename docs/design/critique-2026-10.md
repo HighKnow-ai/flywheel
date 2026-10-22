@@ -115,7 +115,7 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 10 | Feed, the agent's question | ![](critique-2026-10/after/10-feed-question-light.webp) | ![](critique-2026-10/after/10-feed-question-dark.webp) |
 | 11 | Feed, permission request | ![](critique-2026-10/after/11-feed-permission-request-light.webp) | ![](critique-2026-10/after/11-feed-permission-request-dark.webp) |
 | 12 | Feed of a handed-off session | ![](critique-2026-10/after/12-feed-handed-off-light.webp) | ![](critique-2026-10/after/12-feed-handed-off-dark.webp) |
-| 13 | Waiting on you | ![](critique-2026-10/after/13-waiting-on-you-queue-light.webp) | ![](critique-2026-10/after/13-waiting-on-you-queue-dark.webp) |
+| 13 | Waiting on you, a shaping Round listed after the requests (#124) | ![](critique-2026-10/after/13-waiting-on-you-queue-light.webp) | ![](critique-2026-10/after/13-waiting-on-you-queue-dark.webp) |
 | 14 | All agents | ![](critique-2026-10/after/14-fleet-light.webp) | ![](critique-2026-10/after/14-fleet-dark.webp) |
 | 15 | A project chosen while a feed is open | ![](critique-2026-10/after/15-nav-project-click-keeps-feed-light.webp) | ![](critique-2026-10/after/15-nav-project-click-keeps-feed-dark.webp) |
 | 16 | A project chosen while All agents is open | ![](critique-2026-10/after/16-nav-project-click-keeps-fleet-light.webp) | ![](critique-2026-10/after/16-nav-project-click-keeps-fleet-dark.webp) |
@@ -128,11 +128,13 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 23 | Epic shaping: the Round dock waiting on you beside the Epic card, recommended answers pre-filled (#123) | ![](critique-2026-10/after/23-epic-shaping-round-dock-light.webp) | ![](critique-2026-10/after/23-epic-shaping-round-dock-dark.webp) |
 | 24 | Epic shaping: Answer differently opens on the recommendation (#123) | ![](critique-2026-10/after/24-epic-shaping-answer-differently-light.webp) | ![](critique-2026-10/after/24-epic-shaping-answer-differently-dark.webp) |
 | 25 | Epic shaping at the window's minimum width: the dock first (#123) | ![](critique-2026-10/after/25-epic-shaping-min-width-light.webp) | ![](critique-2026-10/after/25-epic-shaping-min-width-dark.webp) |
-| 26 | Board: an Epic whose shaping session waits on a Round offers Answer (#123) | ![](critique-2026-10/after/26-board-epic-answer-light.webp) | ![](critique-2026-10/after/26-board-epic-answer-dark.webp) |
+| 26 | Board: an Epic whose shaping session waits on a Round reads Waiting on you and offers Answer, and its Round lights a lamp (#123, #124) | ![](critique-2026-10/after/26-board-epic-answer-light.webp) | ![](critique-2026-10/after/26-board-epic-answer-dark.webp) |
 | 27 | Epic shaping: spec changes as ghost fields under the field each would rewrite, a rejected one struck through (#125) | ![](critique-2026-10/after/27-epic-shaping-ghost-fields-light.webp) | ![](critique-2026-10/after/27-epic-shaping-ghost-fields-dark.webp) |
 | 28 | Epic shaping: Amend opens the proposed text, accepted as edited in one act (#125) | ![](critique-2026-10/after/28-epic-shaping-amend-light.webp) | ![](critique-2026-10/after/28-epic-shaping-amend-dark.webp) |
 | 29 | Epic shaping: Reject asks for an optional reason (#125) | ![](critique-2026-10/after/29-epic-shaping-reject-reason-light.webp) | ![](critique-2026-10/after/29-epic-shaping-reject-reason-dark.webp) |
 | 30 | Epic shaping at the window's minimum width: rejecting a ghost field (#125) | ![](critique-2026-10/after/30-epic-shaping-ghost-min-width-light.webp) | ![](critique-2026-10/after/30-epic-shaping-ghost-min-width-dark.webp) |
+| 31 | Board: a killed shaping session leaves Shaping Round waiting and Continue shaping (#124) | ![](critique-2026-10/after/31-board-epic-continue-shaping-light.webp) | ![](critique-2026-10/after/31-board-epic-continue-shaping-dark.webp) |
+| 32 | Epic shaping: the open Round with no live session keeps its answers, Continue shaping on its band (#124) | ![](critique-2026-10/after/32-epic-shaping-continue-light.webp) | ![](critique-2026-10/after/32-epic-shaping-continue-dark.webp) |
 
 ## How the screens were rendered
 

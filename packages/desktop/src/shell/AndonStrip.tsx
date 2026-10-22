@@ -12,6 +12,10 @@
  * Clicking a lamp opens its Story, never its session (spec §7's click model, issue #104). The lamp of the
  * Story the developer is on carries a white outline.
  *
+ * A shaping session has no Story, so it is no fleet row; but while it is held on a Round it is Waiting on
+ * you, and its Round lights a lamp of its own among the waiting ones (issue #124): the Epic's key and title,
+ * "Round n · Waiting on you", and a click opens the Epic's shaping view, where the dock takes the answers.
+ *
  * Everything here is read from the fleet's one app-wide query (`useFleet`), the same read the sidebar and
  * All agents use, so the three can never disagree. A Stopped lamp reads its ending label from the same
  * `story_stopped` query the Story's own row uses.
@@ -19,9 +23,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, ChevronRight, CirclePause, Hand, LoaderCircle } from "lucide-react";
-import { storyStopped, type FleetRowDto } from "../adapters/tauri";
+import { storyStopped, type FleetRowDto, type WaitingRoundDto } from "../adapters/tauri";
 import { endingWords } from "../board/StoryControls";
-import { useFleet } from "../fleet/useFleet";
+import { useFleet, useWaitingRounds } from "../fleet/useFleet";
 import { formatAge } from "../legend/runStatus";
 import { prefersReducedMotion } from "../session/FeedRow";
 import { useUiStore } from "../state/uiStore";
@@ -37,7 +41,7 @@ export interface LampData {
 const LAMP_WIDTH = 248;
 const LAMP_GAP = 8;
 /** The "+n more" lamp is narrower: it carries a count and a word. */
-const MORE_WIDTH = 120;
+const MORE_WIDTH = 136;
 
 function isLive(row: FleetRowDto): boolean {
   return row.runStatus === "running" || row.runStatus === "blocked";
@@ -64,6 +68,35 @@ export function lampsFromFleet(rows: FleetRowDto[]): LampData[] {
     ...running.map((row) => ({ tone: "running" as const, row })),
     ...stopped.map((row) => ({ tone: "stopped" as const, row })),
   ];
+}
+
+/** A lamp on the strip: a Story session's, or a shaping Round's while a live session is held on it. */
+export type StripLamp =
+  | { kind: "session"; id: string; tone: LampTone; key: string; lamp: LampData }
+  | { kind: "round"; id: string; tone: "waiting"; key: string; since: string; round: WaitingRoundDto };
+
+/** Every lamp on the strip, in strip order: Waiting on you first (Story sessions and shaping Rounds
+ * together, longest waiting first), then Running, then Stopped. Pure, so the order is testable. */
+export function stripLamps(rows: FleetRowDto[], rounds: WaitingRoundDto[]): StripLamp[] {
+  const sessions = lampsFromFleet(rows).map(
+    (lamp): StripLamp => ({ kind: "session", id: lamp.row.sessionId, tone: lamp.tone, key: lamp.row.storyKey, lamp }),
+  );
+  const since = (l: StripLamp) =>
+    l.kind === "round" ? l.since : (l.lamp.row.blockedSince ?? l.lamp.row.startedAt);
+  const waiting = [
+    ...sessions.filter((l) => l.tone === "waiting"),
+    ...rounds.map(
+      (round): StripLamp => ({
+        kind: "round",
+        id: round.roundId,
+        tone: "waiting",
+        key: round.epicKey,
+        since: round.waitingSince,
+        round,
+      }),
+    ),
+  ].sort((a, b) => since(a).localeCompare(since(b)));
+  return [...waiting, ...sessions.filter((l) => l.tone !== "waiting")];
 }
 
 /** How many lamps fit a strip of `width` px, keeping room for the "+n more" lamp when some do not. */
@@ -116,6 +149,53 @@ function LampDetail({ lamp, now }: { lamp: LampData; now: number }) {
   return <>{row.doingTaskTitle ? `Doing: ${row.doingTaskTitle}` : `Running · ${formatAge(row.startedAt, now)}`}</>;
 }
 
+/** The lamp's body, shared by a Story session's lamp and a shaping Round's. */
+function lampClass(tone: LampTone, current: boolean) {
+  return cn(
+    "group/lamp flex h-13 shrink-0 items-center gap-2.5 rounded-lg border px-2.5 text-left transition-colors duration-(--duration-lamp) ease-(--ease) focus-visible:outline-strip-foreground",
+    tone === "waiting"
+      ? "border-attention bg-attention text-attention-foreground hover:bg-attention/90"
+      : "border-white/10 bg-lamp text-strip-foreground hover:bg-white/10",
+    current && "outline-2 outline-offset-2 outline-strip-foreground",
+  );
+}
+
+/** A shaping Round's lamp (issue #124): lit yellow, it names the Epic and the Round, and opens the Epic. */
+export function RoundLamp({ round, current, now }: { round: WaitingRoundDto; current: boolean; now: number }) {
+  const openEpic = useUiStore((state) => state.openEpic);
+  const subject = `${round.epicKey} ${round.epicTitle}`.trim();
+  return (
+    <button
+      type="button"
+      data-lamp="waiting"
+      data-epic-id={round.epicId}
+      aria-current={current ? "location" : undefined}
+      aria-label={`Open Epic ${subject}, Round ${round.roundNumber} Waiting on you`}
+      title={`${subject}: Round ${round.roundNumber}, ${round.answered} of ${round.questions} answered, waiting ${formatAge(round.waitingSince, now)}`}
+      onClick={() => openEpic(round.projectId, round.epicId)}
+      style={{ width: LAMP_WIDTH }}
+      className={lampClass("waiting", current)}
+    >
+      <span
+        aria-hidden="true"
+        className="flex size-7 shrink-0 items-center justify-center rounded-full bg-attention-foreground/10 text-attention-foreground"
+      >
+        <Hand size={16} strokeWidth={2} />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex min-w-0 items-baseline gap-1.5 text-small font-semibold">
+          <span className="shrink-0 font-mono text-meta font-normal">{round.epicKey}</span>
+          <span className="truncate">{round.epicTitle}</span>
+        </span>
+        <span className="truncate text-meta font-semibold text-attention-foreground">
+          {`Round ${round.roundNumber} · Waiting on you`}
+        </span>
+      </span>
+      <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-attention-foreground" />
+    </button>
+  );
+}
+
 export function Lamp({ lamp, current, now }: { lamp: LampData; current: boolean; now: number }) {
   const openStory = useUiStore((state) => state.openStory);
   const { row, tone } = lamp;
@@ -132,13 +212,7 @@ export function Lamp({ lamp, current, now }: { lamp: LampData; current: boolean;
       title={subject}
       onClick={() => openStory(row.projectId, row.storyId)}
       style={{ width: LAMP_WIDTH }}
-      className={cn(
-        "group/lamp flex h-13 shrink-0 items-center gap-2.5 rounded-lg border px-2.5 text-left transition-colors duration-(--duration-lamp) ease-(--ease) focus-visible:outline-strip-foreground",
-        tone === "waiting"
-          ? "border-attention bg-attention text-attention-foreground hover:bg-attention/90"
-          : "border-white/10 bg-lamp text-strip-foreground hover:bg-white/10",
-        current && "outline-2 outline-offset-2 outline-strip-foreground",
-      )}
+      className={lampClass(tone, current)}
     >
       <span
         aria-hidden="true"
@@ -176,9 +250,11 @@ export function Lamp({ lamp, current, now }: { lamp: LampData; current: boolean;
 
 export function AndonStrip() {
   const rows = useFleet().data?.rows ?? [];
-  const lamps = lampsFromFleet(rows);
+  const rounds = useWaitingRounds().data ?? [];
+  const lamps = stripLamps(rows, rounds);
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
   const placeStoryId = useUiStore((state) => (state.activeSessionId ? state.activeSessionStoryId : state.currentStoryId));
+  const placeEpicId = useUiStore((state) => (state.activeSessionId ? null : state.currentEpicId));
   const [laneRef, laneWidth] = useWidth<HTMLDivElement>();
   const now = useMinuteTick();
   const capacity = laneWidth > 0 ? lampCapacity(laneWidth, lamps.length) : lamps.length;
@@ -207,18 +283,26 @@ export function AndonStrip() {
         ) : (
           <>
             {shown.map((lamp) => (
-              <div role="listitem" key={lamp.row.sessionId} className="shrink-0">
-                <Lamp lamp={lamp} current={lamp.row.storyId === placeStoryId} now={now} />
+              <div role="listitem" key={lamp.id} className="shrink-0">
+                {lamp.kind === "round" ? (
+                  <RoundLamp round={lamp.round} current={lamp.round.epicId === placeEpicId} now={now} />
+                ) : (
+                  <Lamp lamp={lamp.lamp} current={lamp.lamp.row.storyId === placeStoryId} now={now} />
+                )}
               </div>
             ))}
             {hidden > 0 && (
               <div role="listitem" className="shrink-0">
                 <button
                   type="button"
-                  aria-label={`${hidden} more: ${hiddenTones.map((tone) => TONE_WORD[tone]).join(", ")}. Open All agents`}
-                  onClick={() => setFleetSurface({ view: "fleet" })}
+                  // A folded yellow lamp (a Story session's or a shaping Round's) is found in Waiting on you, which
+                  // lists both; All agents lists no shaping Round.
+                  aria-label={`${hidden} more: ${hiddenTones.map((tone) => TONE_WORD[tone]).join(", ")}. Open ${
+                    hiddenTones.includes("waiting") ? "Waiting on you" : "All agents"
+                  }`}
+                  onClick={() => setFleetSurface({ view: hiddenTones.includes("waiting") ? "queue" : "fleet" })}
                   style={{ width: MORE_WIDTH }}
-                  className="flex h-13 items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/25 text-small font-semibold text-strip-foreground transition-colors duration-(--duration-state) ease-(--ease) hover:bg-white/10 focus-visible:outline-strip-foreground"
+                  className="flex h-13 items-center justify-center gap-1.5 rounded-lg border border-dashed whitespace-nowrap border-white/25 text-small font-semibold text-strip-foreground transition-colors duration-(--duration-state) ease-(--ease) hover:bg-white/10 focus-visible:outline-strip-foreground"
                 >
                   {/* What the folded lamps are, by their bulbs: never a stateless count. */}
                   <span aria-hidden="true" className="flex -space-x-1">

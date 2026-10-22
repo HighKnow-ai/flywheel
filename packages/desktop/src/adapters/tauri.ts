@@ -144,6 +144,11 @@ export interface EpicProgressDto {
   /** The state with In progress derived: `shaping`, `ready`, `in_progress` or `done`. */
   state: string;
   counts: StoryStateCountsDto;
+  /**
+   * Issue #124, shown in place of the state word: `waiting_on_you` while a live shaping session is held on an
+   * open Round of the Epic, `round_waiting` while a Round is open with no live shaping session, else `null`.
+   */
+  attention: string | null;
 }
 
 /** The Milestone header's numbers — mirrors `commands/roadmap.rs`'s `MilestoneProgressDto`. */
@@ -236,6 +241,15 @@ export async function epicShape(epicId: string): Promise<ShapingSessionDto> {
   return invokeCommand<ShapingSessionDto>("epic_shape", { epicId });
 }
 
+/**
+ * Continue shaping (issue #124): a fresh shaping session on an Epic whose Rounds outlived the session that
+ * posted them. Its packet carries every Round with its answers, and it picks the open Round up with
+ * `round_wait`. Refused for an Epic with no Round yet (Shape starts that one).
+ */
+export async function shapingContinue(epicId: string): Promise<ShapingSessionDto> {
+  return invokeCommand<ShapingSessionDto>("shaping_continue", { epicId });
+}
+
 /** The Epic's live shaping session id, or `null` when none is live. */
 export async function epicShapingSession(epicId: string): Promise<string | null> {
   return invokeCommand<string | null>("epic_shaping_session", { epicId });
@@ -275,8 +289,11 @@ export interface RoundDto {
   note: string;
   /** `open` or `answered`. */
   state: string;
-  /** Whether the session that posted it still waits on its answers. */
-  held: boolean;
+  /**
+   * Issue #124: open with a LIVE shaping session held on it, so Waiting on you. An open Round whose session
+   * died is not, though the dock still takes its answers.
+   */
+  waitingOnYou: boolean;
   postedAt: string;
   answeredAt: string | null;
   questions: RoundQuestionDto[];
@@ -1015,6 +1032,9 @@ export async function pendingPermissionRequests(sessionId: string): Promise<Pend
 /** D-37's blocked signal for one project: every blocked Story id plus the count, read together. */
 export interface BlockedSummaryDto {
   blockedStoryIds: string[];
+  /** Issue #124: the Epics a live shaping session waits on, held on an open Round. */
+  waitingEpicIds: string[];
+  /** The project's count of what is Waiting on you: these Stories plus these Epics. */
   blockedCount: number;
 }
 
@@ -1212,6 +1232,29 @@ export interface BlockedQueueEntryDto {
 /** Every blocked agent across every registered project, longest waiting first (D-172). */
 export async function fleetBlockedQueue(): Promise<BlockedQueueEntryDto[]> {
   return invokeCommand<BlockedQueueEntryDto[]>("fleet_blocked_queue");
+}
+
+/** A shaping Round a live session is held on (issue #124) — mirrors `commands/fleet.rs`'s `WaitingRoundDto`. */
+export interface WaitingRoundDto {
+  roundId: string;
+  roundNumber: number;
+  stageKind: string;
+  sessionId: string;
+  projectId: string;
+  projectName: string;
+  projectKeyPrefix: string;
+  epicId: string;
+  epicKey: string;
+  epicTitle: string;
+  /** When the Round was posted: it has waited on the developer since. */
+  waitingSince: string;
+  answered: number;
+  questions: number;
+}
+
+/** Every shaping Round waiting on you, across every project, longest waiting first. */
+export async function fleetWaitingRounds(): Promise<WaitingRoundDto[]> {
+  return invokeCommand<WaitingRoundDto[]>("fleet_waiting_rounds");
 }
 
 /** The closed reason words the core's `ReclaimReason` can return. */

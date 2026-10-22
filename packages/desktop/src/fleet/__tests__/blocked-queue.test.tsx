@@ -7,7 +7,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { BlockedQueueEntryDto } from "../../adapters/tauri";
+import type { BlockedQueueEntryDto, WaitingRoundDto } from "../../adapters/tauri";
+import { resetUiState, useUiStore } from "../../state/uiStore";
 import { PermissionRequestCard } from "../../session/PermissionRequestCard";
 import { BlockedQueue } from "../BlockedQueue";
 
@@ -174,5 +175,49 @@ describe("BlockedQueue contents", () => {
     const pre = document.querySelector("pre") as HTMLElement;
     expect(pre.style.maxHeight).toBe("240px");
     expect(pre.style.overflowY).toBe("auto");
+  });
+});
+
+describe("a shaping Round waiting on you (issue #124)", () => {
+  const ROUND: WaitingRoundDto = {
+    roundId: "round-2",
+    roundNumber: 2,
+    stageKind: "challenge_spec",
+    sessionId: "run-shape",
+    projectId: "proj-1",
+    projectName: "Project 1",
+    projectKeyPrefix: "P1",
+    epicId: "e-59",
+    epicKey: "P1-8",
+    epicTitle: "Epic shaping",
+    waitingSince: "2026-10-12T11:40:00Z",
+    answered: 1,
+    questions: 4,
+  };
+
+  function renderWithRound(entries: BlockedQueueEntryDto[]) {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <BlockedQueue entries={entries} rounds={[ROUND]} now={NOW} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("lists the Round with its Epic, how far it is answered and its wait, and Answer opens the Epic", () => {
+    resetUiState();
+    renderWithRound([entry(1)]);
+    const item = screen.getByRole("listitem", { name: "Round 2 of P1-8 Epic shaping" });
+    expect(within(item).getByText("1 of 4 answered")).toBeTruthy();
+    expect(within(item).getByText("20m")).toBeTruthy();
+    fireEvent.click(within(item).getByRole("button", { name: "Answer Round 2 of P1-8" }));
+    expect(useUiStore.getState().currentEpicId).toBe("e-59");
+    expect(useUiStore.getState().activeSessionId).toBeNull();
+  });
+
+  it("is not an empty queue when only a Round waits, and takes no keystroke", () => {
+    renderWithRound([]);
+    expect(screen.queryByText("Nothing is waiting on you")).toBeNull();
+    press({ key: "a" });
+    expect(answerMock).not.toHaveBeenCalled();
   });
 });

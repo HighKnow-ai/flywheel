@@ -187,7 +187,9 @@ fn a_second_round_is_refused_while_one_is_open_in_the_stage_and_numbered_after_i
     let mut f = shaping();
     let round = post_round(&mut f.conn, &f.session_id, Some("req-1"), &round_of(1)).unwrap();
     let refused = post_round(&mut f.conn, &f.session_id, Some("req-2"), &round_of(1));
-    assert!(refused.unwrap_err().to_string().contains("still open"), "one open Round per Stage");
+    let refused = refused.unwrap_err().to_string();
+    assert!(refused.contains("still open"), "one open Round per Stage: {refused}");
+    assert!(refused.contains("round_wait"), "the refusal tells the agent to wait on the open Round: {refused}");
 
     accept_all_recommended(&mut f.conn, &f.human, &round.id).unwrap();
     let next = post_round(&mut f.conn, &f.session_id, Some("req-2"), &round_of(2)).unwrap();

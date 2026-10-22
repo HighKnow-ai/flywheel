@@ -26,6 +26,7 @@ import type {
   StoryDto,
   StoryStateCountsDto,
   TaskDto,
+  WaitingRoundDto,
 } from "../../adapters/tauri";
 import type { Project } from "../../board/useBoardQuery";
 
@@ -342,15 +343,15 @@ const PROGRESS: Record<string, MilestoneProgressDto> = {
     counts: counts({ merged: 1, inReview: 1, running: 1, waitingOnYou: 2, stopped: 1, ready: 1, shaping: 1, dropped: 1 }),
     epicsDone: 0, epicsTotal: 2,
     epics: [
-      { epicId: "e-97", key: "FLY-1", title: "Design system and a legible app", state: "in_progress", counts: counts({ merged: 1, inReview: 1, running: 1, waitingOnYou: 2, stopped: 1 }) },
-      { epicId: "e-59", key: "FLY-8", title: "Epic shaping", state: "shaping", counts: counts({ ready: 1, shaping: 1, dropped: 1 }) },
+      { epicId: "e-97", key: "FLY-1", title: "Design system and a legible app", state: "in_progress", attention: null, counts: counts({ merged: 1, inReview: 1, running: 1, waitingOnYou: 2, stopped: 1 }) },
+      { epicId: "e-59", key: "FLY-8", title: "Epic shaping", state: "shaping", attention: "waiting_on_you", counts: counts({ ready: 1, shaping: 1, dropped: 1 }) },
     ],
   },
   "p-hkw": {
     milestoneId: "m-h1", title: "Waitlist live", state: "in_progress", current: true, nextMilestoneTitle: null,
     exitTest: "A visitor can join the waitlist and gets a confirmation email.",
     counts: counts({ waitingOnYou: 1, ready: 1 }), epicsDone: 0, epicsTotal: 1,
-    epics: [{ epicId: "e-h1", key: "HKW-1", title: "Waitlist", state: "in_progress", counts: counts({ waitingOnYou: 1, ready: 1 }) }],
+    epics: [{ epicId: "e-h1", key: "HKW-1", title: "Waitlist", state: "in_progress", attention: null, counts: counts({ waitingOnYou: 1, ready: 1 }) }],
   },
 };
 
@@ -368,6 +369,29 @@ function progressOf(projectId: string, milestoneId: string): MilestoneProgressDt
     milestoneId: m.id, title: m.title, exitTest: m.exitTest, state: m.state, current: m.current,
     nextMilestoneTitle: next?.title ?? null, counts: counts({}), epicsDone: 0, epicsTotal: 0, epics: [],
   };
+}
+
+/**
+ * Whether Epic #59's shaping session is still live (issue #124). With it live, Round 2 is Waiting on you: its
+ * lamp is lit, it counts in Waiting on you and the Epic card offers Answer. Killed, the Round is still open
+ * with its answer kept, the Epic reads Shaping Round waiting and offers Continue shaping.
+ */
+let shapingSessionLive = true;
+
+/** Kill (or revive) Epic #59's shaping session before the first render. */
+export function setShapingSessionLive(live: boolean): void {
+  shapingSessionLive = live;
+}
+
+/** Round 2 of Epic #59 while its session is held on it: the lamp and the queue entry (issue #124). */
+function waitingRounds(): WaitingRoundDto[] {
+  if (!shapingSessionLive) return [];
+  return [{
+    roundId: "r-2", roundNumber: 2, stageKind: "challenge_spec", sessionId: "ses-shape-8",
+    projectId: "p-fly", projectName: "flywheel", projectKeyPrefix: "FLY",
+    epicId: "e-59", epicKey: "FLY-8", epicTitle: "Epic shaping",
+    waitingSince: ago(1800), answered: 1, questions: 4,
+  }];
 }
 
 /** Epic #59 in its Challenge Stage (issue #123): Round 1 answered, Round 2 waiting on the developer with
@@ -403,7 +427,7 @@ function shapingOf(epicId: string): EpicShapingDto | null {
     ],
     rounds: [
       {
-        id: "r-1", stageId: "st-1", stageKind: "challenge_spec", number: 1, state: "answered", held: false,
+        id: "r-1", stageId: "st-1", stageKind: "challenge_spec", number: 1, state: "answered", waitingOnYou: false,
         note: "This Round settles who shapes and where: the surface the developer answers on, and what a refusal may cost.",
         postedAt: ago(3600), answeredAt: ago(3000),
         questions: [
@@ -412,7 +436,7 @@ function shapingOf(epicId: string): EpicShapingDto | null {
         ],
       },
       {
-        id: "r-2", stageId: "st-1", stageKind: "challenge_spec", number: 2, state: "open", held: true,
+        id: "r-2", stageId: "st-1", stageKind: "challenge_spec", number: 2, state: "open", waitingOnYou: shapingSessionLive,
         note: "With the surface settled, this Round tightens the scope: how answers are given, what Accept all may touch, and how the Stage ends.",
         postedAt: ago(1800), answeredAt: null,
         questions: [
@@ -439,7 +463,13 @@ export function answer(cmd: string, args: Args): unknown {
     case "project_list": return PROJECTS;
     case "milestone_list": return MILESTONES[arg(args, "projectId")] ?? [];
     case "epic_list": return EPICS[arg(args, "milestoneId")] ?? [];
-    case "milestone_progress": return progressOf(arg(args, "projectId"), arg(args, "milestoneId"));
+    case "milestone_progress": {
+      const progress = progressOf(arg(args, "projectId"), arg(args, "milestoneId"));
+      if (!progress) return null;
+      // The Epic's attention follows its shaping session (issue #124).
+      const attention = shapingSessionLive ? "waiting_on_you" : "round_waiting";
+      return { ...progress, epics: progress.epics.map((e) => (e.epicId === "e-59" ? { ...e, attention } : e)) };
+    }
     case "story_list_for_project": return STORIES.filter((s) => s.projectId === arg(args, "projectId"));
     case "story_list": return STORIES.filter((s) => s.epicId === arg(args, "epicId"));
     case "story_get": return storyById(arg(args, "storyId")) ?? null;
@@ -455,12 +485,15 @@ export function answer(cmd: string, args: Args): unknown {
     case "story_session_summaries": return SUMMARIES[arg(args, "storyId")] ?? [];
     case "story_latest_session": return RUNS[arg(args, "storyId")]?.[0]?.id ?? null;
     case "board_blocked_summary": {
-      const ids = arg(args, "projectId") === "p-fly" ? ["s-5", "s-6"] : ["s-h2"];
-      return { blockedStoryIds: ids, blockedCount: ids.length };
+      const fly = arg(args, "projectId") === "p-fly";
+      const ids = fly ? ["s-5", "s-6"] : ["s-h2"];
+      const epics = fly && shapingSessionLive ? ["e-59"] : [];
+      return { blockedStoryIds: ids, waitingEpicIds: epics, blockedCount: ids.length + epics.length };
     }
     case "board_recovery_summary": return { recoveryStoryIds: [], recoveryCount: 0 };
     case "fleet_list": return { rows: FLEET_ROWS, totalRows: FLEET_ROWS.length, visibleCostUsd: 9.3 };
     case "fleet_blocked_queue": return QUEUE;
+    case "fleet_waiting_rounds": return waitingRounds();
     case "session_log_window": {
       const entries = LOGS[arg(args, "sessionId")] ?? [];
       return window_(entries, Number(args?.offset ?? 0), Number(args?.limit ?? 50));
@@ -473,7 +506,7 @@ export function answer(cmd: string, args: Args): unknown {
     case "git_facts": return null;
     case "proposal_list_pending": return [];
     case "criterion_list": return CRITERIA[arg(args, "storyId")] ?? [];
-    case "epic_shaping_session": return arg(args, "epicId") === "e-59" ? "ses-shape-8" : null;
+    case "epic_shaping_session": return arg(args, "epicId") === "e-59" && shapingSessionLive ? "ses-shape-8" : null;
     case "epic_shaping_rounds": return shapingOf(arg(args, "epicId"));
     default: return null;
   }

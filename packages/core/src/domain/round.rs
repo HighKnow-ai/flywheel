@@ -4,7 +4,10 @@
 //!
 //! - [`post_round`] writes a Round into the shaping session's open Stage. The session is the only
 //!   identity: the Stage, the subject and the project are read from it, never from an argument. It
-//!   is refused while a Round is still open in the Stage.
+//!   is refused while a Round is still open in the Stage, and the refusal names `round_wait`.
+//! - [`wait_round`] (issue #124) is a later session's way back onto the open Round: it takes the
+//!   Round over (its session and its held call become the caller's) and is held until the Round is
+//!   answered, or answered at once with the Stage's latest Round when that one is already complete.
 //! - [`answer_round_question`] answers one question, human-only, in its own transaction, so each
 //!   answer is in the database before the next is given. The answer that completes the Round also
 //!   closes it and hands back the held `round_post` call to answer ([`RoundRelease`]), with every
@@ -118,10 +121,14 @@ pub struct Round {
     pub note: String,
     /// `open` or `answered`.
     pub state: String,
-    /// The `round_post` call held until the Round is answered; `None` once it is.
+    /// The `round_post` or `round_wait` call held until the Round is answered; `None` once it is.
+    /// It stays set when the session holding it dies, until a `round_wait` takes the Round over.
     pub held_request_id: Option<String>,
     pub posted_at: String,
     pub answered_at: Option<String>,
+    /// Derived, never stored (issue #124): the Round is open and a LIVE session is held on it, so it is
+    /// Waiting on you (`crate::query::round_waiting_on_you`).
+    pub waiting_on_you: bool,
     pub questions: Vec<RoundQuestion>,
 }
 
@@ -170,9 +177,12 @@ fn questions_of(conn: &Connection, round_id: &str) -> anyhow::Result<Vec<RoundQu
     rows.context("failed to read the Round's questions")
 }
 
-const ROUND_SELECT: &str = "SELECT r.id, r.stage_id, s.kind, r.session_id, r.number, r.note, r.state, r.held_request_id,
-        r.posted_at, r.answered_at
-     FROM rounds r JOIN stages s ON s.id = r.stage_id";
+const ROUND_SELECT: &str = concat!(
+    "SELECT r.id, r.stage_id, s.kind, r.session_id, r.number, r.note, r.state, r.held_request_id, \
+        r.posted_at, r.answered_at, ",
+    crate::query::round_waiting_on_you!(),
+    " FROM rounds r JOIN stages s ON s.id = r.stage_id"
+);
 
 fn round_from_row(conn: &Connection, row: &rusqlite::Row) -> anyhow::Result<Round> {
     let id: String = row.get(0)?;
@@ -189,6 +199,7 @@ fn round_from_row(conn: &Connection, row: &rusqlite::Row) -> anyhow::Result<Roun
         held_request_id: row.get(7)?,
         posted_at: row.get(8)?,
         answered_at: row.get(9)?,
+        waiting_on_you: row.get(10)?,
     })
 }
 
@@ -254,35 +265,14 @@ pub fn post_round(
     let at = now();
     let tx = conn.transaction()?;
 
-    match session_kind(&tx, session_id)? {
-        None => bail!("session {session_id:?} not found"),
-        Some(SessionKind::Story) => {
-            bail!("round_post belongs to a shaping session; session {session_id:?} is a Story session")
-        }
-        Some(SessionKind::Shaping) => {}
-    }
-    let (status, epic_id, milestone_id): (String, Option<String>, Option<String>) = tx.query_row(
-        "SELECT status, epic_id, milestone_id FROM sessions WHERE id = ?1",
-        params![session_id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-    )?;
-    anyhow::ensure!(
-        status == "running" || status == "blocked",
-        "this session has ended ({status}); it can no longer post a Round"
-    );
-    let subject = match (epic_id.clone(), milestone_id) {
-        (Some(id), _) => ShapingSubject::Epic(id),
-        (None, Some(id)) => ShapingSubject::Milestone(id),
-        (None, None) => bail!("this shaping session has no Epic or Milestone to post a Round on"),
-    };
-    let stage = open_stage(&tx, &subject)?.context("the record being shaped has no open Stage")?;
-
+    let (stage, epic_id) = live_shaping_stage(&tx, session_id, "round_post", "post a Round")?;
     let open: Option<i64> = tx
         .query_row("SELECT number FROM rounds WHERE stage_id = ?1 AND state = 'open'", params![stage.id], |r| r.get(0))
         .optional()?;
     if let Some(n) = open {
         bail!(
-            "Round {n} is still open in the {} Stage: every question in it must be answered before the next Round is posted",
+            "Round {n} is still open in the {} Stage: every question in it must be answered before the next Round is \
+             posted. Call round_wait to wait for the developer's answers to Round {n}, then post the next Round.",
             stage.kind.label()
         );
     }
@@ -335,6 +325,113 @@ pub fn post_round(
     let posted = get_round(&tx, &round_id)?.context("the Round just posted")?;
     tx.commit().context("failed to commit post_round")?;
     Ok(posted)
+}
+
+/// The open Stage of the record the live shaping session `session_id` shapes, with its Epic, inside
+/// the caller's transaction. Refused for an unknown session, a Story session, an ended session and a
+/// record with no open Stage; `tool` and `act` word the refusal.
+fn live_shaping_stage(
+    tx: &Transaction,
+    session_id: &str,
+    tool: &str,
+    act: &str,
+) -> anyhow::Result<(crate::domain::stage::Stage, Option<String>)> {
+    match session_kind(tx, session_id)? {
+        None => bail!("session {session_id:?} not found"),
+        Some(SessionKind::Story) => {
+            bail!("{tool} belongs to a shaping session; session {session_id:?} is a Story session")
+        }
+        Some(SessionKind::Shaping) => {}
+    }
+    let (status, epic_id, milestone_id): (String, Option<String>, Option<String>) = tx.query_row(
+        "SELECT status, epic_id, milestone_id FROM sessions WHERE id = ?1",
+        params![session_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    anyhow::ensure!(status == "running" || status == "blocked", "this session has ended ({status}); it can no longer {act}");
+    let subject = match (epic_id.clone(), milestone_id) {
+        (Some(id), _) => ShapingSubject::Epic(id),
+        (None, Some(id)) => ShapingSubject::Milestone(id),
+        (None, None) => bail!("this shaping session has no Epic or Milestone to {act} on"),
+    };
+    let stage = open_stage(tx, &subject)?.context("the record being shaped has no open Stage")?;
+    Ok((stage, epic_id))
+}
+
+/// What a `round_wait` call left behind.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RoundWait {
+    /// The open Round is now held by this call, until its last question is answered.
+    Held(Round),
+    /// No Round is open and the Stage's latest Round is answered: the call is answered at once with it.
+    Answered(Round),
+}
+
+/// Wait on the open Round of the live shaping session `session_id`'s open Stage, as the agent
+/// (issue #124). One transaction. A Round outlives the session that posted it, so a later session
+/// takes the open Round over: its `session_id` and `held_request_id` become this session's and this
+/// call's, the Round's answers so far untouched, and `round.resumed` is appended. The call is then held
+/// until the last question is answered (`answer_round_question` releases it as it would a
+/// `round_post`). When no Round is open but the Stage's latest Round is answered (the developer
+/// finished it while no session was live), nothing is written and the call is answered at once.
+/// Refused like `post_round` for a Story session, an ended session or a record with no open Stage,
+/// when the Stage has no Round yet, and while another live session is held on the Round.
+pub fn wait_round(conn: &mut Connection, session_id: &str, held_request_id: &str) -> anyhow::Result<RoundWait> {
+    let agent = agent_actor_id(conn)?;
+    let at = now();
+    let tx = conn.transaction()?;
+    let (stage, epic_id) = live_shaping_stage(&tx, session_id, "round_wait", "wait on a Round")?;
+
+    let open: Option<String> = tx
+        .query_row("SELECT id FROM rounds WHERE stage_id = ?1 AND state = 'open'", params![stage.id], |r| r.get(0))
+        .optional()?;
+    let Some(round_id) = open else {
+        let latest: Option<String> = tx
+            .query_row(
+                "SELECT id FROM rounds WHERE stage_id = ?1 ORDER BY number DESC LIMIT 1",
+                params![stage.id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let latest = latest.with_context(|| {
+            format!(
+                "no Round has been posted in the {} Stage yet, so there is nothing to wait on: post the first one with round_post",
+                stage.kind.label()
+            )
+        })?;
+        let answered = get_round(&tx, &latest)?.context("the Stage's latest Round")?;
+        return Ok(RoundWait::Answered(answered));
+    };
+
+    let round = get_round(&tx, &round_id)?.context("the open Round")?;
+    if round.waiting_on_you && round.session_id.as_deref() != Some(session_id) {
+        bail!("Round {} is held by another live shaping session; only one session shapes a record at a time", round.number);
+    }
+    tx.execute(
+        "UPDATE rounds SET session_id = ?1, held_request_id = ?2 WHERE id = ?3 AND state = 'open'",
+        params![session_id, held_request_id, round_id],
+    )
+    .context("failed to take the open Round over")?;
+    let answered = round.questions.iter().filter(|q| q.answer.is_some()).count();
+    record_event(
+        &tx,
+        &stage.project_id,
+        "round",
+        &round_id,
+        EventScope { story_id: None, epic_id: epic_id.as_deref() },
+        &agent,
+        "round.resumed",
+        &json!({
+            "field": "session",
+            "before": round.session_id,
+            "after": session_id,
+            "label": format!("Resumed waiting on Round {}: {answered} of {} answered", round.number, round.questions.len()),
+        }),
+        &at,
+    )?;
+    let taken = get_round(&tx, &round_id)?.context("the Round just taken over")?;
+    tx.commit().context("failed to commit wait_round")?;
+    Ok(RoundWait::Held(taken))
 }
 
 /// Where a question sits: its Round, the Round's state, the Stage's project and Epic.

@@ -6,11 +6,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { FleetRowDto } from "../../adapters/tauri";
-import { AndonStrip, lampCapacity, lampsFromFleet } from "../AndonStrip";
+import type { FleetRowDto, WaitingRoundDto } from "../../adapters/tauri";
+import { AndonStrip, lampCapacity, lampsFromFleet, stripLamps } from "../AndonStrip";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 
 const fleetList = vi.fn();
+const fleetWaitingRounds = vi.fn();
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -18,6 +19,7 @@ vi.mock("../../adapters/tauri", async () => {
     ...actual,
     fleetList: () => fleetList(),
     fleetBlockedQueue: () => Promise.resolve([]),
+    fleetWaitingRounds: () => fleetWaitingRounds(),
     storyStopped: () => Promise.resolve({ sessionId: "r-dead", endingReason: "usage_limit", endedAt: null }),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
     subscribeAgentEvent: () => Promise.resolve(() => {}),
@@ -57,6 +59,51 @@ const DONE = row({ sessionId: "r-done", storyId: "s-done", storyKey: "FLY-3", st
 beforeEach(() => {
   resetUiState();
   fleetList.mockReset().mockResolvedValue({ rows: [RUNNING, DONE, DEAD, WAITING], totalRows: 4, visibleCostUsd: null });
+  fleetWaitingRounds.mockReset().mockResolvedValue([]);
+});
+
+const ROUND: WaitingRoundDto = {
+  roundId: "round-2",
+  roundNumber: 2,
+  stageKind: "challenge_spec",
+  sessionId: "r-shape",
+  projectId: "p1",
+  projectName: "Flywheel",
+  projectKeyPrefix: "FLY",
+  epicId: "e-59",
+  epicKey: "FLY-8",
+  epicTitle: "Epic shaping",
+  waitingSince: "2026-10-22T09:05:00Z",
+  answered: 1,
+  questions: 4,
+};
+
+describe("a shaping Round waiting on you (issue #124)", () => {
+  it("lights its own lamp among the waiting ones, longest waiting first, before Running and Stopped", () => {
+    expect(stripLamps([RUNNING, DEAD, WAITING], [ROUND]).map((l) => [l.tone, l.key])).toEqual([
+      ["waiting", "FLY-8"],
+      ["waiting", "FLY-6"],
+      ["running", "FLY-4"],
+      ["stopped", "FLY-7"],
+    ]);
+  });
+
+  it("names the Epic and the Round, and opens the Epic's shaping view, never the session", async () => {
+    fleetWaitingRounds.mockResolvedValue([ROUND]);
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AndonStrip />
+      </QueryClientProvider>,
+    );
+    const lamp = await screen.findByRole("button", { name: "Open Epic FLY-8 Epic shaping, Round 2 Waiting on you" });
+    expect(lamp).toHaveAttribute("data-lamp", "waiting");
+    expect(lamp).toHaveTextContent("Round 2 · Waiting on you");
+    expect(lamp).toHaveAttribute("title", expect.stringContaining("1 of 4 answered"));
+    fireEvent.click(lamp);
+    expect(useUiStore.getState().currentEpicId).toBe("e-59");
+    expect(useUiStore.getState().currentProjectId).toBe("p1");
+    expect(useUiStore.getState().activeSessionId).toBeNull();
+  });
 });
 
 describe("lampsFromFleet", () => {
@@ -106,6 +153,18 @@ describe("AndonStrip", () => {
     expect(useUiStore.getState().currentStoryId).toBe("s-wait");
     expect(useUiStore.getState().currentProjectId).toBe("p1");
     expect(useUiStore.getState().activeSessionId).toBeNull();
+  });
+
+  it("folds a waiting lamp into +n more, which then opens Waiting on you (issue #124)", async () => {
+    fleetWaitingRounds.mockResolvedValue([ROUND]);
+    const many = Array.from({ length: 6 }, (_, i) =>
+      row({ sessionId: `r-${i}`, storyId: `s-${i}`, storyKey: `FLY-${20 + i}`, storyTitle: `Running ${i}` }),
+    );
+    fleetList.mockResolvedValue({ rows: many, totalRows: many.length, visibleCostUsd: null });
+    renderStrip();
+    // jsdom has no layout: every lamp is shown, so check the rule on the pure order instead.
+    await screen.findByRole("button", { name: /Open Epic FLY-8/ });
+    expect(stripLamps(many, [ROUND])[0].kind).toBe("round");
   });
 
   it("keeps its height and says so when no agent is running", async () => {

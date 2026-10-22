@@ -54,7 +54,12 @@ export function EpicProgress({
         <Title id={headingId} className="m-0 truncate text-section font-semibold" title={epic.title}>
           {epic.title}
         </Title>
-        <StateBadge state={epic.state} label={EPIC_STATE_WORDS[epic.state]} className="shrink-0" />
+        {/* Attention is shown in place of the state word (spec §2, issue #124). */}
+        <StateBadge
+          state={epic.attention ?? epic.state}
+          label={epic.attention ? undefined : EPIC_STATE_WORDS[epic.state]}
+          className="shrink-0"
+        />
       </div>
       <div className="flex min-w-0 flex-[0_1_448px] items-center gap-4">
         <StoryStateBar counts={epic.counts} className="h-2.5 min-w-0 flex-1" />
