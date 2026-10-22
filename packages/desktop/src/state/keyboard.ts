@@ -530,7 +530,9 @@ export type UiSurface =
   // D-16: an unreachable project replaces the board entirely and offers only relocation.
   | "project-unreachable"
   // Issue #104: one Story of the current project, opened from its row. Never its session.
-  | "story";
+  | "story"
+  // Issue #123: one Epic of the current project in its shaping view, with its Round dock.
+  | "epic";
 
 /** The booleans `activeSurface` decides from. Booleans, not the store's nullable ids, so the
  * resolver stays pure; the one caller (`App.tsx`) knows what "open" means for each store field. */
@@ -542,6 +544,8 @@ export interface SurfaceState {
   projectUnreachable: boolean;
   /** Issue #104: a Story of the current project is open. Optional so older callers read as the board. */
   storyOpen?: boolean;
+  /** Issue #123: an Epic of the current project is open in its shaping view. */
+  epicOpen?: boolean;
 }
 
 /** The single surface showing, in the precedence order the content area has always encoded.
@@ -564,6 +568,7 @@ export function activeSurface(state: SurfaceState): UiSurface {
   // D-16: never a board rendered against a repository Flywheel can no longer verify.
   if (state.projectUnreachable) return "project-unreachable";
   if (state.storyOpen) return "story";
+  if (state.epicOpen) return "epic";
   return "board";
 }
 

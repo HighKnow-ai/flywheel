@@ -183,6 +183,26 @@ function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescripti
         target: "for review",
         metrics: base.metrics.length > 0 ? base.metrics : checkMetrics(answer),
       };
+    case "round_post": {
+      // Issue #123: the call is held until every question is answered, so while it runs the agent is
+      // waiting on the developer, and once it answers it carries every answer.
+      const titles = (Array.isArray(input.questions) ? input.questions : []).map((q) => str(record(q).title)).filter(Boolean);
+      const count = Array.isArray(input.questions) ? input.questions.length : 0;
+      const answers = Array.isArray(answer.answers) ? answer.answers.map(record) : null;
+      const recommended = answers ? answers.filter((a) => a.answered_with === "recommended").length : 0;
+      const number = typeof answer.round === "number" ? ` ${answer.round}` : "";
+      return {
+        ...base,
+        kind: "question",
+        verb: `Posted Round${number}`,
+        liveVerb: "Waiting on your answers",
+        target: titles.length > 0 ? `${plural(count, "question")}: ${titles.join("; ")}` : plural(count, "question"),
+        metrics:
+          base.metrics.length > 0 || !answers
+            ? base.metrics
+            : [{ text: `${answers.length} answered · ${recommended} recommended`, tone: "neutral" as const }],
+      };
+    }
     default:
       return {
         ...base,

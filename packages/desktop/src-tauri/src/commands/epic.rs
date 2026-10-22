@@ -26,7 +26,7 @@ pub struct EpicDto {
     pub rank: String,
 }
 
-fn to_dto(conn: &rusqlite::Connection, epic: flywheel_core::domain::epic::Epic) -> Result<EpicDto, String> {
+pub(crate) fn to_dto(conn: &rusqlite::Connection, epic: flywheel_core::domain::epic::Epic) -> Result<EpicDto, String> {
     let state = flywheel_core::domain::epic::epic_state(conn, &epic.id).map_err(|e| e.to_string())?;
     Ok(EpicDto {
         id: epic.id,

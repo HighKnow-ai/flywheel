@@ -106,10 +106,11 @@ pub struct RoundDto {
     pub questions: Vec<RoundQuestionDto>,
 }
 
-/// What the Epic's shaping view reads: its Stages in order and every Round, oldest first.
+/// What the Epic's shaping view reads: the Epic, its Stages in order and every Round, oldest first.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpicShapingDto {
+    pub epic: super::epic::EpicDto,
     pub stages: Vec<StageDto>,
     pub rounds: Vec<RoundDto>,
 }
@@ -154,9 +155,14 @@ pub fn epic_shaping_rounds(state: State<AppState>, epic_id: String) -> Result<Ep
 }
 
 pub(crate) fn read_epic_shaping(conn: &Connection, epic_id: &str) -> Result<EpicShapingDto, String> {
+    let epic = flywheel_core::domain::epic::get_epic(conn, epic_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Epic {epic_id:?} not found"))?;
+    let epic = super::epic::to_dto(conn, epic)?;
     let stages = flywheel_core::domain::stage::stages_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
     let rounds = flywheel_core::domain::round::rounds_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
     Ok(EpicShapingDto {
+        epic,
         stages: stages
             .into_iter()
             .map(|s| StageDto { id: s.id, kind: s.kind.as_str().to_string(), state: s.state, rank: s.rank })
