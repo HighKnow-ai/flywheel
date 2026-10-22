@@ -513,3 +513,17 @@ fn round_post_and_spec_changes_are_refused_in_a_roadmap_session_and_roadmap_tool
     let err = call(&mut f, &epic_session, "r", "roadmap_holds", json!({ "why": "x" })).unwrap_err();
     assert!(format!("{err:#}").contains("roadmap Round"), "{err:#}");
 }
+
+#[test]
+fn a_dropped_epic_leaves_the_milestones_epic_count() {
+    let mut f = fixture();
+    let s = revisit(&mut f);
+    let current = f.m_current.clone();
+    let p = propose(&mut f, &s, json!({ "change": "add_epic", "title": "Dock", "milestone_id": current, "why": "Belongs here" }));
+    accept(&mut f, &p);
+    let dock = epic::epics_in_milestone(&f.conn, &f.m_current).unwrap().pop().unwrap();
+    let p = propose(&mut f, &s, json!({ "change": "drop_epic", "epic_id": dock.id, "why": "Folded into Rounds" }));
+    accept(&mut f, &p);
+    let progress = core::query::progress::milestone_progress(&f.conn, &f.project_id, None).unwrap().unwrap();
+    assert_eq!(progress.epics_total, 1, "the dropped Epic is closed, not progress");
+}
