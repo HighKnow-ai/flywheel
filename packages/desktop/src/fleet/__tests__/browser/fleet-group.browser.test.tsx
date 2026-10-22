@@ -11,7 +11,8 @@
  * multi-second worktree walk leaves the window responsive (D-REV-54: needs the installed app).
  *
  * Widths. 1200 is the stage left after the project rail at the 1440 viewport; 900 is a deliberately
- * narrower stage. The row grid's minimum widths sum well under 900, so both are expected to fit.
+ * narrower stage. The row grid's minimum widths, gaps and padding sum to about 842px, so both are expected to
+ * fit, and every cell (the subject above all) must still be painted at 900.
  *
  * Provenance. Every row below is a SYNTHETIC fixture (the same shape the jsdom suites use), chosen to put
  * the longest text each column can carry into the row: it is a stress input, not a capture of a real fleet.
@@ -90,8 +91,8 @@ function stressRows(): FleetRowDto[] {
     fleetRow("101", { fleetState: "blocked", runStatus: "blocked", blockedSince: new Date(Date.now() - 41 * 60_000).toISOString(), activity: { lines: [line({ type: "tool_call", seq: 1, toolName: "Bash", input: { command: "git push origin --delete feature/doomed" } })], truncated: false } }),
     fleetRow("102", { fleetState: "awaiting_review", runStatus: "completed", endedAt: ended, costUsd: 1.2345, tokensIn: 12_345_678, tokensOut: 987_654 }),
     fleetRow("103", { fleetState: "abandoned", runStatus: "abandoned", endedAt: ended }),
-    fleetRow("104", { activity: { lines: [line({ type: "assistant_text", seq: 1, text: LONG_NARRATION })], truncated: false } }),
-    fleetRow("105", { storyTitle: LONG_TITLE, activity: { lines: [line({ type: "tool_call", seq: 1, toolName: "Read", input: { file_path: "packages/desktop/src-tauri/src/commands/some/deeply/nested/module/file.rs" } })], truncated: false } }),
+    fleetRow("104", { doingTaskTitle: "Task 1: wire the thing", activity: { lines: [line({ type: "assistant_text", seq: 1, text: LONG_NARRATION })], truncated: false } }),
+    fleetRow("105", { storyTitle: LONG_TITLE, doingTaskTitle: LONG_TITLE, activity: { lines: [line({ type: "tool_call", seq: 1, toolName: "Read", input: { file_path: "packages/desktop/src-tauri/src/commands/some/deeply/nested/module/file.rs" } })], truncated: false } }),
     fleetRow("106", { projectName: LONG_PROJECT, storyTitle: LONG_TITLE }),
     fleetRow("107", { fleetState: "completed", runStatus: "completed", endedAt: ended, costUsd: 0.0421, tokensIn: 1_234_567, tokensOut: 45_678 }),
     fleetRow("108", { fleetState: "failed", runStatus: "failed", endedAt: ended, costUsd: 12.3456, tokensIn: 98_765_432, tokensOut: 8_765_432, projectName: LONG_PROJECT }),
@@ -192,7 +193,7 @@ describe.each(WIDTHS)("the fleet surface at %ipx", (width) => {
     for (const row of rows) {
       const name = `${row.dataset.fleetState} row ${row.dataset.runId}`;
       const cells = fieldsOf(row);
-      expect(cells.length, `${name} carries its seven cells`).toBe(7);
+      expect(cells.length, `${name} carries its eight cells`).toBe(8);
       for (const cell of cells) expectInside(cell, row, `${name}, ${cell.dataset.field}`);
       const ordered = [...cells].sort((a, b) => rect(a).left - rect(b).left);
       for (let i = 1; i < ordered.length; i += 1) {
@@ -209,7 +210,7 @@ describe.each(WIDTHS)("the fleet surface at %ipx", (width) => {
     for (const row of Array.from(container.querySelectorAll<HTMLElement>('[role="listitem"]'))) {
       const name = `${row.dataset.fleetState} row ${row.dataset.runId}`;
       for (const field of ["state", "age", "dismiss"]) expectNotCut(fieldOf(row, field), `${name}, ${field}`);
-      for (const field of ["project", "subject", "activity", "spend"]) expectEllipsisWhenCut(fieldOf(row, field), `${name}, ${field}`);
+      for (const field of ["project", "subject", "doing-task", "activity", "spend"]) expectEllipsisWhenCut(fieldOf(row, field), `${name}, ${field}`);
     }
   });
 
@@ -302,7 +303,7 @@ describe.each(WIDTHS)("the fleet surface at %ipx", (width) => {
 
 const DISPOSITION_OF: Record<InventoryReason, WorktreeInventoryRowDto["disposition"]> = {
   merged: "reclaimable",
-  merged: "reclaimable",
+  dropped: "reclaimable",
   sessionning: "in_use",
   blocked: "in_use",
   uncommitted_changes: "keep",

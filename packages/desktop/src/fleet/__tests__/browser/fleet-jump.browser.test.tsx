@@ -61,7 +61,7 @@ vi.mock(import("../../../adapters/tauri"), async (importOriginal) => ({
       limit,
       total: 1,
     }),
-  sessionRawWindow: (_id: string, offset: number, limit: number) => Promise.resolve({ entries: [], offset, limit, total: 0 }),
+  sessionRawWindow: (_id: string, offset: number, limit: number) => Promise.resolve({ lines: [], offset, limit, total: 0 }),
   pendingPermissionRequests: () => Promise.resolve([]),
 }));
 

@@ -67,9 +67,15 @@ function useNowTick(enabled: boolean): number {
   return now;
 }
 
-/** Grid shared by the header-less rows so the columns line up down the whole list. */
+/** Grid shared by the header-less rows so the columns line up down the whole list.
+ *
+ * The subject (the Story's key and title, the row's identity) has a real floor. A `minmax(0, …)` subject let it
+ * collapse to 0px on the 900px stage: the grid grows the capped state and project tracks to their maxima before
+ * any `fr` track gets space, and the other tracks' floors left nothing over. The doing-Task, activity and spend
+ * floors give way instead; all three are cut with an ellipsis. Floors plus gaps and padding stay under the
+ * 900px stage `fleet-group.browser.test.tsx` measures. */
 const ROW_COLUMNS =
-  "minmax(150px, 172px) minmax(80px, 120px) minmax(0, 1.4fr) minmax(100px, 1fr) minmax(120px, 1.2fr) minmax(90px, 0.8fr) 56px 76px";
+  "minmax(150px, 172px) minmax(80px, 120px) minmax(96px, 1.4fr) minmax(64px, 1fr) minmax(96px, 1.2fr) minmax(80px, 0.8fr) 56px 76px";
 
 /** The activity line's width in characters, ellipsis at the TAIL — the start of a line (the tool, the
  * first clause) is what says what the agent is doing. Applied to every row kind alike. */
