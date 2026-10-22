@@ -330,9 +330,9 @@ describe("an ADR offered inside the Round (issue #129)", () => {
     epicShapingRounds.mockResolvedValue(shaping([round([question(1), adrQuestion(2)])]));
     renderView();
     const adr = await card(2);
-    fireEvent.click(within(adr).getByRole("button", { name: "Yes: record the ADR in question 2" }));
+    fireEvent.click(within(adr).getByRole("button", { name: "Yes, record it" }));
     await waitFor(() => expect(roundAnswer).toHaveBeenCalledWith("q2", "Yes"));
-    fireEvent.click(within(adr).getByRole("button", { name: "No: drop the ADR in question 2" }));
+    fireEvent.click(within(adr).getByRole("button", { name: "No, don't record it" }));
     await waitFor(() => expect(roundAnswer).toHaveBeenCalledWith("q2", "No"));
   });
 
@@ -343,6 +343,14 @@ describe("an ADR offered inside the Round (issue #129)", () => {
     expect(adr.getAttribute("data-answered")).toBe("true");
     expect(within(adr).getByText(/Accepted on the Epic/)).toBeTruthy();
     expect(within(adr).queryByRole("button")).toBeNull();
+  });
+
+  it("an ADR answered No folds to a line that says no ADR is written", async () => {
+    epicShapingRounds.mockResolvedValue(shaping([round([question(1), adrQuestion(2, { answer: "No", with: "own" })])]));
+    renderView();
+    const adr = await card(2);
+    expect(within(adr).getByText("No. Not recorded: no ADR is written")).toBeTruthy();
+    expect(within(adr).getByText("Your answer")).toBeTruthy();
   });
 
   it("Accept all recommended leaves the ADR questions to their own Yes or No, and says so", async () => {
@@ -361,6 +369,7 @@ describe("an ADR offered inside the Round (issue #129)", () => {
     renderView();
     const dock = await screen.findByRole("region", { name: /Round 1/ });
     expect((within(dock).getByRole("button", { name: /Accept all recommended/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(dock).getByText("Only the ADR is left: answer it Yes or No.")).toBeTruthy();
   });
 });
 

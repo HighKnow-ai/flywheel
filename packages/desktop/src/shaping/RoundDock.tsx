@@ -203,11 +203,15 @@ function RoundCard({
             {answered} of {total} answered
           </span>
           <span className="min-w-0 text-small text-muted-foreground">
-            {openAdrs > 0
+            {openAdrs > 0 && openPlain === 0
               ? openAdrs === 1
-                ? "The ADR is answered on its own: Accept all leaves it open."
-                : `Each ADR is answered on its own: Accept all leaves these ${openAdrs} open.`
-              : waiting
+                ? "Only the ADR is left: answer it Yes or No."
+                : `Only the ${openAdrs} ADRs are left: answer each Yes or No.`
+              : openAdrs > 0
+                ? openAdrs === 1
+                  ? "The ADR is answered on its own: Accept all leaves it open."
+                  : `Each ADR is answered on its own: Accept all leaves these ${openAdrs} open.`
+                : waiting
                 ? "The agent goes on once every question is answered."
                 : "Every answer is saved as you give it."}
           </span>
