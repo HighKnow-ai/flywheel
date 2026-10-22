@@ -107,6 +107,7 @@ const ROSTER: &[&str] = &[
     "shaping::round_accept_all",
     "shaping::round_answer",
     "shaping::shaping_continue",
+    "shaping::stage_close",
     "story::story_context_packet_size",
     "story::story_create",
     "story::story_drop",

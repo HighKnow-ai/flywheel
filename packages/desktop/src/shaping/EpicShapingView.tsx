@@ -2,7 +2,7 @@
  * An Epic in its shaping view (docs/mvp-spec.md §3 "Shaping an Epic", issue #123): the Epic card beside
  * the Round dock.
  *
- * The Epic card carries the record being shaped: its key, title and state, the Stage it is in, and its
+ * The Stage bar heads the view (`StageBar`, issue #126). The Epic card carries the record being shaped: its key, title and state, and its
  * spec (Problem, Scope, Out of scope, Exit test), each field still the developer's to edit in place through
  * `epic_update`, with an agent's pending spec change drawn under it as a ghost to decide in place (`GhostCard`,
  * issue #125), and its ADR and glossary chips (issue #129): the ADRs linked to it and the ADRs and terms
@@ -31,7 +31,8 @@ import { StateBadge } from "../components/StateBadge";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
 import { useUiStore } from "../state/uiStore";
 import { GhostCard, specChangeOf } from "./GhostCard";
-import { RoundDock, STAGE_LABELS } from "./RoundDock";
+import { RoundDock } from "./RoundDock";
+import { StageBar } from "./StageBar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -61,7 +62,7 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
 
   const data = shapingQuery.data;
   const epic = data?.epic;
-  const openStage = data?.stages.find((s) => s.state === "open") ?? data?.stages[data.stages.length - 1];
+  const openStage = data?.stages.find((s) => s.state === "open");
   // Attention in place of the state word, as the board's Epic card shows it (issue #124): the core's
   // `waitingOnYou`, or an open Round with no live shaping session.
   const rounds = data?.rounds ?? [];
@@ -89,45 +90,51 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
         ) : !data || !epic ? null : (
           // Stacked (under 1280px) in reading order: the current Round, the Epic it shapes, then the earlier
           // Rounds. From 1280px the Epic card holds the left column and both Round parts the right one.
-          <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 content-start items-start gap-5 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] xl:grid-rows-[auto_1fr]">
+          // The Stage bar heads both (issue #126): where shaping stands, and the one control that advances it.
+          <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 content-start items-start gap-5 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] xl:grid-rows-[auto_auto_1fr]">
+            {data.stages.length > 0 && (
+              <StageBar
+                stages={data.stages}
+                status={data.openStageStatus ?? null}
+                projectId={projectId}
+                sessionLive={Boolean(sessionQuery.data)}
+                className="xl:col-span-2 xl:row-start-1"
+              />
+            )}
             <RoundDock
               rounds={data.rounds}
+              openStage={openStage ?? null}
               sessionLive={Boolean(sessionQuery.data)}
               projectId={projectId}
               epic={epic}
               queryKey={queryKey}
               show="current"
-              className="xl:col-start-2 xl:row-start-1"
+              className="xl:col-start-2 xl:row-start-2"
             />
-            <div className="min-w-0 self-stretch xl:col-start-1 xl:row-span-2 xl:row-start-1">
+            <div className="min-w-0 self-stretch xl:col-start-1 xl:row-span-2 xl:row-start-2">
               <EpicCard
                 epic={epic}
                 attention={attention}
                 proposals={data.proposals ?? []}
                 knowledge={knowledgeChips(data.adrLinks ?? [], data.acceptedKnowledge ?? [])}
-                stage={openStage ? { kind: openStage.kind, rank: openStage.rank } : null}
                 queryKey={queryKey}
               />
             </div>
             <RoundDock
               rounds={data.rounds}
+              openStage={openStage ?? null}
               sessionLive={Boolean(sessionQuery.data)}
               projectId={projectId}
               epic={epic}
               queryKey={queryKey}
               show="earlier"
-              className="xl:col-start-2 xl:row-start-2"
+              className="xl:col-start-2 xl:row-start-3"
             />
           </div>
         )}
       </SurfaceBody>
     </div>
   );
-}
-
-/** How many Stages a record of the Stage's kind is shaped in. */
-function stageCount(kind: string) {
-  return kind === "exit_test" ? 1 : 3;
 }
 
 /** One ADR or glossary chip on the Epic card (issue #129). */
@@ -192,7 +199,6 @@ function EpicCard({
   attention,
   proposals,
   knowledge,
-  stage,
   queryKey,
 }: {
   epic: EpicDto;
@@ -201,7 +207,6 @@ function EpicCard({
   knowledge: KnowledgeChip[];
   /** The Epic's pending and rejected Proposals (issue #125), drawn on the field each would rewrite. */
   proposals: ProposalDto[];
-  stage: { kind: string; rank: number } | null;
   queryKey: readonly unknown[];
 }) {
   const headingId = useId();
@@ -226,15 +231,6 @@ function EpicCard({
         <h1 id={headingId} className="m-0 text-title font-semibold break-words">
           {epic.title}
         </h1>
-        {stage && (
-          <p className="m-0 text-small text-muted-foreground">
-            <span className="font-semibold text-foreground">{STAGE_LABELS[stage.kind] ?? stage.kind}</span>
-            <span className="tabular-nums">
-              {" "}
-              · Stage {stage.rank} of {stageCount(stage.kind)}
-            </span>
-          </p>
-        )}
         <KnowledgeChips chips={knowledge} />
       </header>
       <dl className="m-0 flex min-w-0 flex-col">

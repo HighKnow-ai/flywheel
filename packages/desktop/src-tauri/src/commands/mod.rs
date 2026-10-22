@@ -92,6 +92,7 @@ pub(crate) fn project_of(conn: &rusqlite::Connection, table: &str, id: &str) -> 
         }
         "proposals" => "SELECT project_id FROM proposals WHERE id = ?1",
         "sessions" => "SELECT project_id FROM sessions WHERE id = ?1",
+        "stages" => "SELECT project_id FROM stages WHERE id = ?1",
         "worktrees" => "SELECT project_id FROM worktrees WHERE id = ?1",
         "permission_rules" => "SELECT project_id FROM permission_rules WHERE id = ?1",
         _ => return None,
