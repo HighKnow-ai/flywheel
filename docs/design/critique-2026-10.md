@@ -43,8 +43,8 @@ cards, a light sidebar and a graphite strip. Colour is spent only where it chang
 Waiting-on-you rows are tinted yellow with a yellow pill and a yellow Answer, the Stopped Story is a red pill
 with its reason and a blue Resume, and the lit lamps in the strip say the same thing from every screen. Each
 row carries one action, the next one, instead of four outlined buttons. Type has real steps (12 to 24px,
-400 to 700), so the Story title, its row and its meta no longer compete. **Left:** the Milestone header that
-gives the board a head is #106's.
+400 to 700), so the Story title, its row and its meta no longer compete. The Milestone header (#106) heads
+the board with the one graphite lead box and the yellow Waiting-on-you count.
 
 #### 2. "Some elements I expect to be clickable, to see what the agent is doing, are not"
 
@@ -90,13 +90,14 @@ change to the feed's words, not its look, and is left for a follow-up.
 
 | Before | After |
 |---|---|
-| ![](critique-2026-10/01-board-light.webp) | ![](critique-2026-10/after/04-story-stopped-sessions-light.webp) |
+| ![](critique-2026-10/01-board-light.webp) | ![](critique-2026-10/after/01-board-light.webp) |
 
-**After, in part.** The board is shaped like the model: one card per Epic with its state and Milestone, its
+**After.** The board is shaped like the model: one card per Epic with its state and Milestone, its
 Stories under it as rows, done work quiet (Merged and Dropped in secondary ink). A Story states its progress
 in its own header (Tasks 1/3, Checks 0/2, its Context packet against the soft limit) and the strip counts the
-live agents. **Left:** the quantified answer (the Milestone header's stacked bar and counts, and each Epic's
-"n of m merged") is #106's, which mounts in the slots this board leaves for it.
+live agents. With #106 merged, the board answers the question in one look: the Milestone header's lead box
+(Stories merged 1/8), a count box per state and the stacked bar, and each Epic card heads with its own bar
+and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 
 ### Every screen, after
 
@@ -118,6 +119,7 @@ live agents. **Left:** the quantified answer (the Milestone header's stacked bar
 | 14 | All agents | ![](critique-2026-10/after/14-fleet-light.webp) | ![](critique-2026-10/after/14-fleet-dark.webp) |
 | 15 | A project chosen while a feed is open | ![](critique-2026-10/after/15-nav-project-click-keeps-feed-light.webp) | ![](critique-2026-10/after/15-nav-project-click-keeps-feed-dark.webp) |
 | 16 | A project chosen while All agents is open | ![](critique-2026-10/after/16-nav-project-click-keeps-fleet-light.webp) | ![](critique-2026-10/after/16-nav-project-click-keeps-fleet-dark.webp) |
+| 17 | Board at the 900px minimum window width | ![](critique-2026-10/after/17-board-min-width-light.webp) | ![](critique-2026-10/after/17-board-min-width-dark.webp) |
 
 ## How the screens were rendered
 

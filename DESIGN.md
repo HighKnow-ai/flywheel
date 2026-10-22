@@ -213,7 +213,7 @@ Kanban came from Toyota's line, and so does the andon: a lamp a station lights w
 
 The system is dense and calm. Most of any screen is neutral grey ink on white or near-black cards, and states that need nothing from you stay neutral, told apart by a Lucide icon and a word. Colour is spent only where it changes what you do next: yellow for Waiting on you, brand blue for an agent at work or your next action, red for Stopped or failed. It refuses the category default of a grey list of same-weight rows with one accent colour sprinkled everywhere.
 
-The system is built on shadcn/ui and Tailwind v4: every colour is a CSS custom property under shadcn's variable name in one stylesheet of record, with a light scheme on the root and a dark scheme on `.dark` (set from `prefers-color-scheme`). The tokens, type, icons, primitives and the state badge are built, and every screen of the M2 flow draws on them (#107): the sidebar, the andon strip, the board, the Story view, the session feed and its request cards, Waiting on you, All agents and the dialogs. Settings, Worktrees, first run and the recovery dialog keep their layout in two small legacy stylesheets (`styles/admin-surfaces.css`, `styles/states-and-confirms.css`) that read every value from these tokens; the agent turn's markdown has its own (`session/markdown.css`). The Milestone header and its count boxes have tokens (`chart-*`, the `lead`/`count`/`milestone` type steps) and arrive with #106.
+The system is built on shadcn/ui and Tailwind v4: every colour is a CSS custom property under shadcn's variable name in one stylesheet of record, with a light scheme on the root and a dark scheme on `.dark` (set from `prefers-color-scheme`). The tokens, type, icons, primitives and the state badge are built, and every screen of the M2 flow draws on them (#107): the sidebar, the andon strip, the board, the Story view, the session feed and its request cards, Waiting on you, All agents and the dialogs. Settings, Worktrees, first run and the recovery dialog keep their layout in two small legacy stylesheets (`styles/admin-surfaces.css`, `styles/states-and-confirms.css`) that read every value from these tokens; the agent turn's markdown has its own (`session/markdown.css`). The Milestone header (#106) draws the count boxes, the graphite lead box and the stacked bar on the `chart-*` tokens and the `lead`/`count`/`milestone` type steps.
 
 **Key Characteristics:**
 - Four tones, one meaning each: attention, running, destructive, neutral.
@@ -252,7 +252,7 @@ A neutral grey ramp with three signal hues and one hardware graphite; every toke
 - **Control Edge** (`input` / `dark-input`): the boundary of inputs, outline buttons, checkboxes and radios, held at 3:1 against the card.
 - **Sidebar** (`sidebar`, `sidebar-primary` for the current item as a raised card, `sidebar-accent` for hover; dark siblings).
 - **Strip Graphite** (`strip` / `dark-strip`), **Strip Ink** (`strip-foreground`), **Strip Meta** (`strip-muted-foreground`), **Unlit Lamp** (`lamp` / `dark-lamp`): the andon strip's hardware (`shell/AndonStrip.tsx`).
-- **Bar Greys** (`chart-1` to `chart-4`): the stacked bar's segments for Merged, In review, Running (the brand fill) and Ready. Reserved for the Milestone header.
+- **Bar Greys** (`chart-1` to `chart-4`): the stacked bar's segments for Merged, In review, Running (the brand fill) and Ready. Drawn by the Milestone header and each Epic's bar.
 
 ### Named Rules
 **The One Meaning Rule.** Yellow is Waiting on you, blue is an agent at work or your next action, red is Stopped or failed, graphite is the strip. No other hue exists, there is no green, and no signal colour ever doubles as a ground.
@@ -271,9 +271,9 @@ A neutral grey ramp with three signal hues and one hardware graphite; every toke
 **Character:** Barlow descends from the DIN road-sign lettering: plain, legible at a glance, at home on a factory board. All three families are SIL OFL 1.1 and self-hosted through `@fontsource` (Barlow 400, 400 italic, 500, 600, 700; Barlow Semi Condensed 600; JetBrains Mono 400), so a render on one machine matches another.
 
 ### Hierarchy
-- **Lead** (52px, line-height 1, tabular): the one lead count in the Milestone header. Reserved, not yet drawn.
-- **Count** (34px, line-height 1, tabular): count boxes. Reserved, not yet drawn.
-- **Milestone** (26px, 1.15): the Milestone name. Reserved, not yet drawn.
+- **Lead** (52px, line-height 1, tabular): the one lead count in the Milestone header. Drawn by the Milestone header.
+- **Count** (34px, line-height 1, tabular): count boxes. Drawn by the Milestone header.
+- **Milestone** (26px, 1.15): the Milestone name. Drawn by the Milestone header.
 - **Title** (24px, 1.2): a Story title.
 - **Section** (600, 17px, 1.3): section headings.
 - **Row** (15px, 1.35): row titles.
@@ -292,7 +292,7 @@ A neutral grey ramp with three signal hues and one hardware graphite; every toke
 
 A desktop window, 900px minimum width. A light sidebar on the left; content to the right on the grey floor. Spacing is a 4px base: 8 inside a group, 12 to 16 between groups, 20 between regions; the space tokens (`xs` to `2xl`) carry it for screens still on inline styles. Rows are 44px, sidebar rows 36px.
 
-The composition: a 72px andon strip across the content top on every screen, then a 56px top bar (Back, the breadcrumb, the ⌘K search and the surface's add or run controls), then the surface on the floor, 20px in from the edges, its content in cards up to 1240px wide. The board is the roster: one card per Epic, its Stories as rows (the Milestone header mounts above it with #106). The Story view is a title card, the live agent's station, then Acceptance criteria beside Tasks, then Sessions. Not built yet: Needs you as a 400px column beside the roster, and the Story view beside a 470px roster at content widths of 1280px and up; today the Story view takes the whole content area at every width.
+The composition: a 72px andon strip across the content top on every screen, then a 56px top bar (Back, the breadcrumb, the ⌘K search and the surface's add or run controls), then the surface on the floor, 20px in from the edges, its content in cards up to 1240px wide. The board is the Current Milestone's header (name, Exit test, lead box, count boxes, stacked bar), then the roster: one card per Epic, headed by its own stacked bar and "n of m Stories merged" when it is in the Current Milestone, its Stories as rows. Each Epic appears once. The Story view is a title card, the live agent's station, then Acceptance criteria beside Tasks, then Sessions. Not built yet: Needs you as a 400px column beside the roster, and the Story view beside a 470px roster at content widths of 1280px and up; today the Story view takes the whole content area at every width.
 
 **The click model.** What you click decides where you land, and every place is shown in the breadcrumb:
 - A project in the sidebar opens that project's board, replacing whatever was on top.
