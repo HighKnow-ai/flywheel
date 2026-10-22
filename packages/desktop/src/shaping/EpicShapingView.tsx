@@ -5,7 +5,8 @@
  * The Epic card carries the record being shaped: its key, title and state, the Stage it is in, and its
  * spec (Problem, Scope, Out of scope, Exit test), each field still the developer's to edit in place through
  * `epic_update`, with an agent's pending spec change drawn under it as a ghost to decide in place (`GhostCard`,
- * issue #125). The dock beside it holds the agent's Rounds ([`RoundDock`]). From 1280px the two sit side
+ * issue #125), and its ADR and glossary chips (issue #129): the ADRs linked to it and the ADRs and terms
+ * accepted on it that no Story has written into the repo yet. The dock beside it holds the agent's Rounds ([`RoundDock`]). From 1280px the two sit side
  * by side, the card at a reading measure and the dock taking the rest; below that they stack, the dock
  * first, so a Round waiting on you is the first thing on screen.
  *
@@ -14,7 +15,7 @@
  */
 import { useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Layers, PenLine, X } from "lucide-react";
+import { BookA, Check, Layers, PenLine, ScrollText, X } from "lucide-react";
 import {
   epicShapingRounds,
   epicShapingSession,
@@ -33,6 +34,8 @@ import { GhostCard, specChangeOf } from "./GhostCard";
 import { RoundDock, STAGE_LABELS } from "./RoundDock";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 /** The read the view and the board's Epic card share, keyed under the project. */
 export function epicShapingKey(projectId: string, epicId: string) {
@@ -101,6 +104,7 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
                 epic={epic}
                 attention={attention}
                 proposals={data.proposals ?? []}
+                knowledge={knowledgeChips(data.adrLinks ?? [], data.acceptedKnowledge ?? [])}
                 stage={openStage ? { kind: openStage.kind, rank: openStage.rank } : null}
                 queryKey={queryKey}
               />
@@ -126,15 +130,71 @@ function stageCount(kind: string) {
   return kind === "exit_test" ? 1 : 3;
 }
 
+/** One ADR or glossary chip on the Epic card (issue #129). */
+interface KnowledgeChip {
+  key: string;
+  kind: "adr" | "glossary";
+  /** What the chip reads: an ADR's file name, a glossary term. */
+  name: string;
+  /** The full path or the term, for the tooltip. */
+  title: string;
+  /** Accepted on the Epic and not written into the repo yet: its first Story writes it. */
+  pending: boolean;
+}
+
+/** The Epic's chips: every ADR linked to it, then every ADR and glossary term accepted on it, an accepted
+ * ADR already linked shown once. */
+function knowledgeChips(adrLinks: string[], accepted: ProposalDto[]): KnowledgeChip[] {
+  const fileName = (path: string) => path.split("/").pop() || path;
+  const chips: KnowledgeChip[] = adrLinks.map((path) => ({ key: `link:${path}`, kind: "adr", name: fileName(path), title: path, pending: false }));
+  for (const p of accepted) {
+    const payload = (p.payload ?? {}) as Record<string, unknown>;
+    if (p.targetType === "adr") {
+      const path = typeof payload.path === "string" ? payload.path : "";
+      if (!path || adrLinks.includes(path)) continue;
+      chips.push({ key: p.id, kind: "adr", name: fileName(path), title: path, pending: true });
+    } else if (p.targetType === "glossary_term") {
+      const term = [payload.term, payload.name, payload.title].find((v): v is string => typeof v === "string" && v.trim() !== "");
+      if (term) chips.push({ key: p.id, kind: "glossary", name: term, title: `GLOSSARY.md: ${term}`, pending: true });
+    }
+  }
+  return chips;
+}
+
+function KnowledgeChips({ chips }: { chips: KnowledgeChip[] }) {
+  if (chips.length === 0) return null;
+  return (
+    <ul aria-label="ADRs and glossary" className="m-0 flex min-w-0 list-none flex-wrap gap-1.5 p-0 pt-1">
+      {chips.map((chip) => (
+        <li key={chip.key} className="flex min-w-0 max-w-full">
+          <Badge
+            variant="outline"
+            title={chip.pending ? `${chip.title}, accepted on this Epic, not in the repo yet` : chip.title}
+            className={cn("max-w-full min-w-0 font-normal", chip.pending && "border-dashed")}
+          >
+            {chip.kind === "adr" ? <ScrollText aria-hidden="true" /> : <BookA aria-hidden="true" />}
+            <span className="sr-only">{chip.kind === "adr" ? "ADR " : "Glossary term "}</span>
+            <span className={cn("min-w-0 truncate", chip.kind === "adr" && "font-mono text-meta")}>{chip.name}</span>
+            {chip.pending && <span className="shrink-0 text-meta text-muted-foreground">· not in the repo yet</span>}
+          </Badge>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function EpicCard({
   epic,
   attention,
   proposals,
+  knowledge,
   stage,
   queryKey,
 }: {
   epic: EpicDto;
   attention: string | null;
+  /** The ADR and glossary chips (issue #129). */
+  knowledge: KnowledgeChip[];
   /** The Epic's pending and rejected Proposals (issue #125), drawn on the field each would rewrite. */
   proposals: ProposalDto[];
   stage: { kind: string; rank: number } | null;
@@ -171,6 +231,7 @@ function EpicCard({
             </span>
           </p>
         )}
+        <KnowledgeChips chips={knowledge} />
       </header>
       <dl className="m-0 flex min-w-0 flex-col">
         {fields.map((field) => (

@@ -278,6 +278,28 @@ export interface RoundQuestionDto {
   /** `recommended` or `own`, once answered. */
   answeredWith: string | null;
   answeredAt: string | null;
+  /**
+   * `question`, or `adr` for an ADR offered inside the Round (issue #129): answered Yes or No, its Yes settles
+   * an accepted ADR Proposal on the Epic, and its answer is final once given. Optional for older fixtures.
+   */
+  kind?: "question" | "adr";
+  /** An ADR question's draft and its bar lines. */
+  adr?: AdrDraftDto | null;
+  /** The accepted ADR Proposal an ADR question's Yes filed. */
+  adrProposalId?: string | null;
+}
+
+/** An ADR draft and the four bar lines shown beside it, never written into the file — mirrors `AdrDraftDto`. */
+export interface AdrDraftDto {
+  /** `docs/adr/NNNN-slug.md`. */
+  path: string;
+  /** The ADR's whole text, as the Story will write it. */
+  text: string;
+  hardToReverse: string;
+  surprising: string;
+  losingAlternative: string;
+  /** `null` reads as "none". */
+  relatesTo: string | null;
 }
 
 /** A Round of questions an agent posted into a Stage — mirrors `commands/shaping.rs`'s `RoundDto`. */
@@ -307,6 +329,10 @@ export interface EpicShapingDto {
   /** The Epic's undecided and rejected Proposals, oldest first (issue #125): ghost fields and struck-through
    * lines. An accepted one is already in the field it rewrote. */
   proposals: ProposalDto[];
+  /** The ADRs linked to the Epic, by repo-relative path (issue #129). Optional for older fixtures. */
+  adrLinks?: string[];
+  /** The Epic's accepted ADR and glossary Proposals (issue #129): chips until a Story writes them. */
+  acceptedKnowledge?: ProposalDto[];
 }
 
 /** The Epic's Stages and Rounds (issue #123): what the Round dock shows. Read-only. */
