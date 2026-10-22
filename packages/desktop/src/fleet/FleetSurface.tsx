@@ -357,11 +357,9 @@ export function FleetBand({
   const [dismissNotice, setDismissNotice] = useState<string | null>(null);
   return (
     <section data-band={band.id} aria-label={band.header} className="overflow-hidden rounded-lg border border-border bg-card shadow-card">
-      <div className="flex min-h-10 items-center justify-between gap-3 border-b border-border px-4">
-        <span className="flex items-baseline gap-2">
-          <h2 className="m-0 text-small font-semibold tracking-[0.02em] text-muted-foreground">{band.header}</h2>
-          <span className="text-small text-subtle-foreground tabular-nums">{rows.length}</span>
-        </span>
+      <div className="flex min-h-10 items-center gap-2 border-b border-border px-4">
+        <h2 className="m-0 text-small font-semibold tracking-[0.02em] text-muted-foreground">{band.header}</h2>
+        <span className="mr-auto text-small text-muted-foreground tabular-nums">{rows.length}</span>
         {band.id === "done-failed" && (
           <span className="flex items-center gap-2">
             {dismissNotice && (
