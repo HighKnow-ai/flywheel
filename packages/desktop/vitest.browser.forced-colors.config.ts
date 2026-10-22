@@ -3,10 +3,11 @@ import { playwright } from "@vitest/browser-playwright";
 import base from "./vitest.browser.config.ts";
 
 /**
- * The browser arm with the engine in forced-colors mode (Phase 14 plan 08, criterion 3, T-14-08-04).
+ * The browser arm with the engine in forced-colors mode (Phase 14 plan 08; re-pointed at the andon lamps and
+ * StateBadge by issue #135).
  *
  * Forced colors is the system (a Windows contrast theme: `forced-colors: active`) replacing the page's colours with
- * a small system palette. Everything in `styles/tokens.css` is then discarded, so whatever still tells one state from
+ * a small system palette. Everything in `styles/globals.css` is then discarded, so whatever still tells one state from
  * another is the glyph, the word and any boundary: exactly what this arm measures. jsdom does not model the
  * substitution at all, so it is observable only in an engine.
  *
@@ -32,7 +33,7 @@ export default defineConfig({
   test: {
     ...base.test,
     include: ["src/**/forced-colors.browser.test.tsx"],
-    // Read by `board/__tests__/browser/forced-colors.browser.test.tsx`, which fails if the engine did not
+    // Read by `shell/__tests__/browser/forced-colors.browser.test.tsx`, which fails if the engine did not
     // actually land in the mode this config claims (and, in every other arm, if it landed there by accident).
     env: { VITE_EXPECT_FORCED_COLORS: "active" },
     browser: {
