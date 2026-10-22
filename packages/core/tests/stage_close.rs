@@ -11,7 +11,9 @@
 mod common;
 
 use core::domain::proposal::{accept_proposal, count_undecided_proposals_in_stage, reject_proposal};
-use core::domain::round::{accept_all_recommended, post_round, NewQuestion, NewRound};
+use core::domain::round::{
+    accept_all_recommended, answer_round_question, post_round, AdrDraft, NewQuestion, NewRound, RoundAnswer,
+};
 use core::domain::session::{agent_actor_id, live_shaping_session, start_shaping_session, ShapingSubject};
 use core::domain::session_kind::SessionKind;
 use core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
@@ -64,6 +66,7 @@ impl Fixture {
                     grounding: "Read the spec".into(),
                     recommended_answer: "Yes".into(),
                     because: "It is in scope".into(),
+                    adr: None,
                 })
                 .collect(),
         };
@@ -274,4 +277,54 @@ fn no_held_round_call_outlives_a_closed_stage() {
         .query_row("SELECT COUNT(*) FROM rounds WHERE stage_id = ?1 AND held_request_id IS NOT NULL", [&stage_id], |r| r.get(0))
         .unwrap();
     assert_eq!(held, 0);
+}
+
+/// Issue #129's ADR question is a question like any other: unanswered, it keeps the Stage open.
+/// Accept all recommended leaves it for the developer, so the Stage closes only once it is answered.
+#[test]
+fn an_unanswered_adr_question_keeps_the_stage_open() {
+    let mut f = shaping();
+    let plain = NewQuestion {
+        title: "Who is it for".into(),
+        question: "Is it for one developer?".into(),
+        grounding: "Read the spec".into(),
+        recommended_answer: "Yes".into(),
+        because: "One user in the MVP".into(),
+        adr: None,
+    };
+    let adr = NewQuestion {
+        title: "Record the shaping store".into(),
+        question: "Record \"the board is the shaping store\" as ADR 0005?".into(),
+        grounding: "Read docs/adr/0002".into(),
+        recommended_answer: "Yes".into(),
+        because: "It settles where every answer lives".into(),
+        adr: Some(AdrDraft {
+            path: "docs/adr/0005-board-is-the-shaping-store.md".into(),
+            text: "# The board is the shaping store\n".into(),
+            hard_to_reverse: "Every later Story reads its context from the board".into(),
+            surprising: "A reader expects shaping notes in the repo".into(),
+            losing_alternative: "A .planning/ folder of markdown".into(),
+            relates_to: None,
+        }),
+    };
+    let round = post_round(
+        &mut f.conn,
+        &f.session_id,
+        Some("req-1"),
+        &NewRound { note: "Settles the store.".into(), questions: vec![plain, adr] },
+    )
+    .unwrap();
+    let stage_id = f.open_stage_id();
+    let _ = accept_all_recommended(&mut f.conn, &f.human, &round.id);
+
+    let status = stage_status(&f.conn, &stage_id).unwrap();
+    let labels: Vec<String> = status.open_items.iter().map(OpenItem::label).collect();
+    assert_eq!(labels, vec!["Question 2 of Round 1 is unanswered: Record the shaping store".to_string()]);
+    let err = format!("{:#}", close_stage(&mut f.conn, &f.human, &stage_id).unwrap_err());
+    assert!(err.contains("Record the shaping store"), "{err}");
+
+    answer_round_question(&mut f.conn, &f.human, &round.questions[1].id, &RoundAnswer::Own("Yes".into())).unwrap();
+    let status = stage_status(&f.conn, &stage_id).unwrap();
+    assert!(status.open_items.is_empty(), "the ADR accepted on Yes is decided, never pending: {:?}", status.open_items);
+    close_stage(&mut f.conn, &f.human, &stage_id).expect("closable once the ADR question is answered");
 }
