@@ -31,6 +31,7 @@ pub mod project;
 pub mod proposal;
 pub mod proposal_apply;
 pub mod question;
+pub mod roadmap_round;
 pub mod round;
 pub mod session_ending;
 pub mod session_summary;

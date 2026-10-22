@@ -5,6 +5,10 @@
 //! closing shaping, confirming the exit test, or declining it (which reopens shaping). Ready versus
 //! In progress is derived ([`epic_state`]): an Epic whose shaping is closed is In progress once any
 //! Story is past Ready. All Stories merging never closes an Epic on its own.
+//!
+//! An Epic is Dropped only by an accepted Roadmap Proposal (issue #133, `proposal_apply`), refused
+//! while it holds an open Story. A Dropped Epic stays readable and counts as closed for its
+//! Milestone, as a Dropped Story does for its Epic.
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
@@ -21,6 +25,8 @@ pub enum EpicState {
     Ready,
     InProgress,
     Done,
+    /// Retired by an accepted Roadmap Proposal (issue #133).
+    Dropped,
 }
 
 impl EpicState {
@@ -30,6 +36,7 @@ impl EpicState {
             EpicState::Ready => "ready",
             EpicState::InProgress => "in_progress",
             EpicState::Done => "done",
+            EpicState::Dropped => "dropped",
         }
     }
 
@@ -39,12 +46,13 @@ impl EpicState {
             "ready" => EpicState::Ready,
             "in_progress" => EpicState::InProgress,
             "done" => EpicState::Done,
+            "dropped" => EpicState::Dropped,
             other => anyhow::bail!("{other:?} is not an Epic state"),
         })
     }
 }
 
-/// An `epics` row. `state` is the stored value (`shaping`, `ready`, `done`).
+/// An `epics` row. `state` is the stored value (`shaping`, `ready`, `done`, `dropped`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Epic {
     pub id: String,
@@ -97,11 +105,26 @@ fn row_to_epic(row: &Row) -> rusqlite::Result<Epic> {
 /// Create an Epic at the end of `milestone_id`, in Shaping. Its project is the Milestone's.
 /// Refused when the Milestone is Done (frozen) or Dropped.
 pub fn create_epic(conn: &mut Connection, actor_id: &str, milestone_id: &str, title: &str) -> anyhow::Result<Epic> {
+    let tx = conn.transaction()?;
+    let epic = create_epic_in_tx(&tx, actor_id, milestone_id, title, &EpicSpec::default(), serde_json::json!({}))?;
+    tx.commit().context("failed to commit create_epic")?;
+    Ok(epic)
+}
+
+/// [`create_epic`] inside the caller's transaction, with its spec: what an accepted New Epic Proposal
+/// writes (issue #133). `detail` is merged into the `epic.created` payload (the Proposal it applies).
+pub(crate) fn create_epic_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    milestone_id: &str,
+    title: &str,
+    spec: &EpicSpec,
+    mut detail: serde_json::Value,
+) -> anyhow::Result<Epic> {
     let title = title.trim();
     anyhow::ensure!(!title.is_empty(), "an Epic needs a title");
     let now = now();
     let id = new_id();
-    let tx = conn.transaction()?;
 
     let (project_id, milestone_state): (String, String) = tx
         .query_row("SELECT project_id, state FROM milestones WHERE id = ?1", params![milestone_id], |r| {
@@ -121,26 +144,43 @@ pub fn create_epic(conn: &mut Connection, actor_id: &str, milestone_id: &str, ti
         )
         .optional()?;
     let rank = rank_after(last_rank.as_deref())?;
-    let key = allocate_key(&tx, &project_id)?;
+    let key = allocate_key(tx, &project_id)?;
 
     tx.execute(
-        "INSERT INTO epics (id, project_id, milestone_id, key, title, state, rank, created_by, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'shaping', ?6, ?7, ?8, ?8)",
-        params![id, project_id, milestone_id, key, title, rank, actor_id, now],
+        "INSERT INTO epics (id, project_id, milestone_id, key, title, problem, scope, out_of_scope, exit_test, state, rank,
+             created_by, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'shaping', ?10, ?11, ?12, ?12)",
+        params![
+            id,
+            project_id,
+            milestone_id,
+            key,
+            title,
+            spec.problem,
+            spec.scope,
+            spec.out_of_scope,
+            spec.exit_test,
+            rank,
+            actor_id,
+            now
+        ],
     )
     .context("failed to insert the Epic")?;
+    detail["title"] = serde_json::json!(title);
+    if detail.get("label").is_none() {
+        detail["label"] = serde_json::json!(format!("Created Epic {key} \"{title}\""));
+    }
     record_event(
-        &tx,
+        tx,
         &project_id,
         "epic",
         &id,
         EventScope { story_id: None, epic_id: Some(&id) },
         actor_id,
         "epic.created",
-        &serde_json::json!({ "title": title, "label": format!("Created Epic {key} \"{title}\"") }),
+        &detail,
         &now,
     )?;
-    tx.commit().context("failed to commit create_epic")?;
 
     Ok(Epic {
         id,
@@ -148,7 +188,7 @@ pub fn create_epic(conn: &mut Connection, actor_id: &str, milestone_id: &str, ti
         milestone_id: milestone_id.to_string(),
         key,
         title: title.to_string(),
-        spec: EpicSpec::default(),
+        spec: spec.clone(),
         state: "shaping".to_string(),
         rank,
     })
@@ -238,19 +278,35 @@ pub fn epic_state(conn: &Connection, epic_id: &str) -> anyhow::Result<EpicState>
 
 /// The developer moves an Epic. `Ready` closes shaping; `Done` confirms the exit test, allowed only
 /// once every Story is Merged or Dropped (and at least one exists); `Shaping` reopens shaping (what
-/// declining the exit test does). The one writer of `epics.state`.
+/// declining the exit test does); `Dropped` retires it, refused while it holds an open Story (issue
+/// #133: only an accepted Roadmap Proposal drops an Epic). The one writer of `epics.state`.
 pub fn set_epic_state(conn: &mut Connection, actor_id: &str, epic_id: &str, to: EpicState) -> anyhow::Result<()> {
-    let now = now();
     let tx = conn.transaction()?;
-    assert_human_actor_in_tx(&tx, actor_id)?;
-    let (project_id, current): (String, String) = tx
-        .query_row("SELECT project_id, state FROM epics WHERE id = ?1", params![epic_id], |r| {
-            Ok((r.get(0)?, r.get(1)?))
+    set_epic_state_in_tx(&tx, actor_id, epic_id, to, serde_json::json!({}))?;
+    tx.commit().context("failed to commit set_epic_state")?;
+    Ok(())
+}
+
+/// [`set_epic_state`] inside the caller's transaction. Human-only. `detail` is merged into the
+/// `epic.state_changed` payload (the Proposal it applies, say).
+pub(crate) fn set_epic_state_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    epic_id: &str,
+    to: EpicState,
+    mut detail: serde_json::Value,
+) -> anyhow::Result<()> {
+    let now = now();
+    assert_human_actor_in_tx(tx, actor_id)?;
+    let (project_id, current, key): (String, String, String) = tx
+        .query_row("SELECT project_id, state, key FROM epics WHERE id = ?1", params![epic_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })
         .with_context(|| format!("Epic {epic_id:?} not found"))?;
 
     anyhow::ensure!(to != EpicState::InProgress, "In progress is derived from the Epic's Stories");
     anyhow::ensure!(current != "done", "a Done Epic stays done");
+    anyhow::ensure!(current != "dropped", "a Dropped Epic stays dropped");
     if to == EpicState::Done {
         let (total, closed): (i64, i64) = tx.query_row(
             "SELECT COUNT(*), COUNT(*) FILTER (WHERE state IN ('merged', 'dropped')) FROM stories WHERE epic_id = ?1",
@@ -262,23 +318,38 @@ pub fn set_epic_state(conn: &mut Connection, actor_id: &str, epic_id: &str, to: 
             "the exit test is confirmed once every Story is Merged or Dropped ({closed} of {total})"
         );
     }
+    if to == EpicState::Dropped {
+        let open: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM stories WHERE epic_id = ?1 AND state NOT IN ('merged', 'dropped')",
+            params![epic_id],
+            |r| r.get(0),
+        )?;
+        anyhow::ensure!(
+            open == 0,
+            "Epic {key} holds {open} open Stor{}; drop or merge {} before dropping the Epic",
+            if open == 1 { "y" } else { "ies" },
+            if open == 1 { "it" } else { "them" }
+        );
+    }
 
     tx.execute("UPDATE epics SET state = ?1, updated_at = ?2 WHERE id = ?3", params![to.as_str(), now, epic_id])
         .context("failed to write the Epic state")?;
+    detail["field"] = serde_json::json!("state");
+    detail["before"] = serde_json::json!(current);
+    detail["after"] = serde_json::json!(to.as_str());
+    if detail.get("label").is_none() {
+        detail["label"] = serde_json::json!(format!("Moved Epic from {current} to {}", to.as_str()));
+    }
     record_event(
-        &tx,
+        tx,
         &project_id,
         "epic",
         epic_id,
         EventScope { story_id: None, epic_id: Some(epic_id) },
         actor_id,
         "epic.state_changed",
-        &serde_json::json!({
-            "field": "state", "before": current, "after": to.as_str(),
-            "label": format!("Moved Epic from {current} to {}", to.as_str()),
-        }),
+        &detail,
         &now,
     )?;
-    tx.commit().context("failed to commit set_epic_state")?;
     Ok(())
 }

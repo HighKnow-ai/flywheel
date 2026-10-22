@@ -11,6 +11,13 @@
 //! still recorded only ([`Applied::RecordedOnly`]) until the Story that gives it its effect adds a
 //! branch to [`apply_in_tx`] and, for a kind an agent files, a check to [`validate_payload`].
 //!
+//! A Roadmap change (issue #133, [`RoadmapChange`]) is what a roadmap Round proposes: create, amend,
+//! reorder or retire a Milestone, add an Epic or drop one. Accepted, a new Milestone enters Shaping at
+//! the end of the Roadmap, a new Epic enters Shaping at the end of the Milestone it names (the
+//! Milestone after the Current one unless the agent named another), and a drop goes through the
+//! state writers' own refusals: a Milestone holding an open Epic is not dropped, nor an Epic holding
+//! an open Story.
+//!
 //! An ADR draft (`create` on `adr`, issue #129) is checked here ([`AdrDraft`]) and has no effect on
 //! the board beyond its acceptance: accepted, it is attached to its Epic, and the Epic's Story
 //! packet carries it as full text until the repo holds the file (ADR 0002: Flywheel never writes
@@ -20,7 +27,11 @@ use anyhow::Context;
 use rusqlite::Transaction;
 use serde_json::{json, Value};
 
-use crate::domain::epic::{get_epic, update_epic_in_tx, EpicSpec};
+use crate::domain::epic::{create_epic_in_tx, get_epic, set_epic_state_in_tx, update_epic_in_tx, EpicSpec, EpicState};
+use crate::domain::milestone::{
+    create_milestone_in_tx, get_milestone, move_milestone_in_tx, set_milestone_state_in_tx, update_milestone_in_tx,
+    MilestoneState,
+};
 use crate::domain::proposal::{ProposalTarget, ProposalVerb};
 
 /// The longest an Epic spec field may be: what the desktop's `epic_update` accepts too.
@@ -220,11 +231,214 @@ pub fn is_adr_draft(verb: ProposalVerb, target: ProposalTarget) -> bool {
     verb == ProposalVerb::Create && target == ProposalTarget::Adr
 }
 
+/// The longest a Milestone or Epic title may be in a Roadmap change.
+pub const MAX_ROADMAP_TITLE_LEN: usize = 200;
+
+/// The longest a Milestone exit test or a new Epic's problem may be in a Roadmap change.
+pub const MAX_ROADMAP_TEXT_LEN: usize = 4_000;
+
+/// A Roadmap change (docs/mvp-spec.md §3 "Shaping a Milestone and the Roadmap", issue #133): what a
+/// roadmap Round's `propose_roadmap_change` files and what accepting it does. Each is one Proposal
+/// kind, a `(verb, target)` pair:
+///
+/// | Change | Proposal | Payload |
+/// |---|---|---|
+/// | `create_milestone` | create milestone | `title`, `exit_test`? |
+/// | `amend_milestone` | amend milestone (target: it) | `title`?, `exit_test`?, at least one |
+/// | `reorder_milestone` | reorder milestone (target: it) | `before_milestone_id`, or null for the end |
+/// | `retire_milestone` | retire milestone (target: it) | none |
+/// | `add_epic` | create epic | `milestone_id`, `title`, `problem`? |
+/// | `drop_epic` | retire epic (target: it) | none |
+#[derive(Debug, Clone, PartialEq)]
+pub enum RoadmapChange {
+    CreateMilestone { title: String, exit_test: Option<String> },
+    AmendMilestone { milestone_id: String, title: Option<String>, exit_test: Option<String> },
+    ReorderMilestone { milestone_id: String, before_milestone_id: Option<String> },
+    RetireMilestone { milestone_id: String },
+    AddEpic { milestone_id: String, title: String, problem: Option<String> },
+    DropEpic { epic_id: String },
+}
+
+/// A trimmed, non-blank string field of `value`, or `None`; refused when longer than `max`.
+fn optional_text(value: &Value, key: &str, max: usize, what: &str) -> anyhow::Result<Option<String>> {
+    let Some(raw) = value.get(key).filter(|v| !v.is_null()) else { return Ok(None) };
+    let text = raw.as_str().with_context(|| format!("`{key}` is not a string"))?.trim();
+    anyhow::ensure!(text.chars().count() <= max, "{what} is at most {max} characters");
+    Ok(if text.is_empty() { None } else { Some(text.to_string()) })
+}
+
+fn required_text(value: &Value, key: &str, max: usize, what: &str) -> anyhow::Result<String> {
+    optional_text(value, key, max, what)?.with_context(|| format!("{what} (`{key}`) is missing or blank"))
+}
+
+fn required_id(value: &Value, key: &str, what: &str) -> anyhow::Result<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .with_context(|| format!("`{key}` is missing: the id of the {what}"))
+}
+
+impl RoadmapChange {
+    /// The `change` names the tool takes, in the order it lists them.
+    pub const NAMES: [&'static str; 6] =
+        ["create_milestone", "amend_milestone", "reorder_milestone", "retire_milestone", "add_epic", "drop_epic"];
+
+    /// Whether a Proposal of `verb` on `target` is a Roadmap change. An `amend` on an `epic` is a
+    /// spec change, never a Roadmap one.
+    pub fn is_kind(verb: ProposalVerb, target: ProposalTarget) -> bool {
+        matches!(
+            (verb, target),
+            (_, ProposalTarget::Milestone)
+                | (ProposalVerb::Create, ProposalTarget::Epic)
+                | (ProposalVerb::Retire, ProposalTarget::Epic)
+        )
+    }
+
+    /// Read the tool's arguments: `change` names the kind, the other fields are its own.
+    pub fn from_args(args: &Value) -> anyhow::Result<Self> {
+        let change = args.get("change").and_then(Value::as_str).with_context(|| {
+            format!("`change` is missing: one of {}", Self::NAMES.join(", "))
+        })?;
+        let (verb, target, target_id) = match change {
+            "create_milestone" => (ProposalVerb::Create, ProposalTarget::Milestone, None),
+            "amend_milestone" => (ProposalVerb::Amend, ProposalTarget::Milestone, Some(required_id(args, "milestone_id", "Milestone to amend")?)),
+            "reorder_milestone" => {
+                (ProposalVerb::Reorder, ProposalTarget::Milestone, Some(required_id(args, "milestone_id", "Milestone to move")?))
+            }
+            "retire_milestone" => {
+                (ProposalVerb::Retire, ProposalTarget::Milestone, Some(required_id(args, "milestone_id", "Milestone to retire")?))
+            }
+            "add_epic" => (ProposalVerb::Create, ProposalTarget::Epic, None),
+            "drop_epic" => (ProposalVerb::Retire, ProposalTarget::Epic, Some(required_id(args, "epic_id", "Epic to drop")?)),
+            other => anyhow::bail!("`change` is {other:?}; use one of {}", Self::NAMES.join(", ")),
+        };
+        Self::from_proposal(verb, target, target_id.as_deref(), args)
+    }
+
+    /// Read a filed Proposal back. `payload` is checked as [`Self::to_payload`] writes it.
+    pub fn from_proposal(verb: ProposalVerb, target: ProposalTarget, target_id: Option<&str>, payload: &Value) -> anyhow::Result<Self> {
+        let target_of = |what: &str| -> anyhow::Result<String> {
+            target_id.map(str::to_string).with_context(|| format!("this Roadmap change names the {what} it lands on"))
+        };
+        Ok(match (verb, target) {
+            (ProposalVerb::Create, ProposalTarget::Milestone) => RoadmapChange::CreateMilestone {
+                title: required_text(payload, "title", MAX_ROADMAP_TITLE_LEN, "the new Milestone's outcome")?,
+                exit_test: optional_text(payload, "exit_test", MAX_ROADMAP_TEXT_LEN, "the exit test")?,
+            },
+            (ProposalVerb::Amend, ProposalTarget::Milestone) => {
+                let title = optional_text(payload, "title", MAX_ROADMAP_TITLE_LEN, "the Milestone's title")?;
+                let exit_test = optional_text(payload, "exit_test", MAX_ROADMAP_TEXT_LEN, "the exit test")?;
+                anyhow::ensure!(
+                    title.is_some() || exit_test.is_some(),
+                    "an amended Milestone changes its `title`, its `exit_test` or both: give the new text"
+                );
+                RoadmapChange::AmendMilestone { milestone_id: target_of("Milestone")?, title, exit_test }
+            }
+            (ProposalVerb::Reorder, ProposalTarget::Milestone) => {
+                let before = match payload.get("before_milestone_id") {
+                    None | Some(Value::Null) => None,
+                    Some(v) => Some(
+                        v.as_str()
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .context("`before_milestone_id` is the id of the Milestone to move before, or null for the end")?
+                            .to_string(),
+                    ),
+                };
+                RoadmapChange::ReorderMilestone { milestone_id: target_of("Milestone")?, before_milestone_id: before }
+            }
+            (ProposalVerb::Retire, ProposalTarget::Milestone) => {
+                RoadmapChange::RetireMilestone { milestone_id: target_of("Milestone")? }
+            }
+            (ProposalVerb::Create, ProposalTarget::Epic) => RoadmapChange::AddEpic {
+                milestone_id: required_id(payload, "milestone_id", "Milestone the Epic goes into")?,
+                title: required_text(payload, "title", MAX_ROADMAP_TITLE_LEN, "the new Epic's title")?,
+                problem: optional_text(payload, "problem", MAX_ROADMAP_TEXT_LEN, "the Epic's problem")?,
+            },
+            (ProposalVerb::Retire, ProposalTarget::Epic) => RoadmapChange::DropEpic { epic_id: target_of("Epic")? },
+            (verb, target) => anyhow::bail!("{} on a {} is not a Roadmap change", verb.as_str(), target.as_str()),
+        })
+    }
+
+    /// The Proposal this change files: its verb, target, target id and payload.
+    pub fn to_proposal(&self) -> (ProposalVerb, ProposalTarget, Option<&str>, Value) {
+        match self {
+            RoadmapChange::CreateMilestone { title, exit_test } => {
+                (ProposalVerb::Create, ProposalTarget::Milestone, None, json!({ "title": title, "exit_test": exit_test }))
+            }
+            RoadmapChange::AmendMilestone { milestone_id, title, exit_test } => (
+                ProposalVerb::Amend,
+                ProposalTarget::Milestone,
+                Some(milestone_id),
+                json!({ "title": title, "exit_test": exit_test }),
+            ),
+            RoadmapChange::ReorderMilestone { milestone_id, before_milestone_id } => (
+                ProposalVerb::Reorder,
+                ProposalTarget::Milestone,
+                Some(milestone_id),
+                json!({ "before_milestone_id": before_milestone_id }),
+            ),
+            RoadmapChange::RetireMilestone { milestone_id } => {
+                (ProposalVerb::Retire, ProposalTarget::Milestone, Some(milestone_id), json!({}))
+            }
+            RoadmapChange::AddEpic { milestone_id, title, problem } => (
+                ProposalVerb::Create,
+                ProposalTarget::Epic,
+                None,
+                json!({ "milestone_id": milestone_id, "title": title, "problem": problem }),
+            ),
+            RoadmapChange::DropEpic { epic_id } => (ProposalVerb::Retire, ProposalTarget::Epic, Some(epic_id), json!({})),
+        }
+    }
+
+    /// The change in one line, naming the records it touches as the board reads them: what a
+    /// roadmap packet lists for a rejected or a filed Proposal.
+    pub fn describe(&self, conn: &rusqlite::Connection) -> String {
+        let milestone = |id: &str| {
+            get_milestone(conn, id).ok().flatten().map_or_else(|| format!("Milestone {id}"), |m| format!("Milestone \"{}\"", m.title))
+        };
+        match self {
+            RoadmapChange::CreateMilestone { title, exit_test } => match exit_test {
+                Some(exit) => format!("New Milestone \"{title}\" (exit test: {exit})"),
+                None => format!("New Milestone \"{title}\""),
+            },
+            RoadmapChange::AmendMilestone { milestone_id, title, exit_test } => {
+                let mut parts = Vec::new();
+                if let Some(title) = title {
+                    parts.push(format!("title \"{title}\""));
+                }
+                if let Some(exit) = exit_test {
+                    parts.push(format!("exit test \"{exit}\""));
+                }
+                format!("Amend {}: {}", milestone(milestone_id), parts.join(", "))
+            }
+            RoadmapChange::ReorderMilestone { milestone_id, before_milestone_id } => match before_milestone_id {
+                Some(before) => format!("Move {} before {}", milestone(milestone_id), milestone(before)),
+                None => format!("Move {} to the end of the Roadmap", milestone(milestone_id)),
+            },
+            RoadmapChange::RetireMilestone { milestone_id } => format!("Retire {}", milestone(milestone_id)),
+            RoadmapChange::AddEpic { milestone_id, title, .. } => format!("New Epic \"{title}\" in {}", milestone(milestone_id)),
+            RoadmapChange::DropEpic { epic_id } => match get_epic(conn, epic_id).ok().flatten() {
+                Some(e) => format!("Drop Epic {} \"{}\"", e.key, e.title),
+                None => format!("Drop Epic {epic_id}"),
+            },
+        }
+    }
+}
+
 /// Check a payload for its kind, before it is filed or applied. Kinds this module does not check yet
-/// pass unchecked.
+/// pass unchecked. A Roadmap change's target is checked where it is filed (`roadmap_round`), since
+/// the payload alone does not carry it.
 pub fn validate_payload(verb: ProposalVerb, target: ProposalTarget, payload: &Value) -> anyhow::Result<()> {
     if is_spec_change(verb, target) {
         SpecChange::from_payload(payload)?;
+    }
+    if RoadmapChange::is_kind(verb, target) {
+        let placeholder = Some("target");
+        RoadmapChange::from_proposal(verb, target, placeholder, payload)?;
     }
     if is_adr_draft(verb, target) {
         AdrDraft::from_payload(payload)?;
@@ -237,6 +451,9 @@ pub fn validate_payload(verb: ProposalVerb, target: ProposalTarget, payload: &Va
 pub enum Applied {
     /// The Epic field was rewritten.
     SpecChange { epic_id: String, field: SpecField },
+    /// A Roadmap change (issue #133) landed on this Milestone or Epic: the one it created, amended,
+    /// moved or dropped.
+    Roadmap { record_id: String },
     /// No effect for this kind yet: the decision alone was recorded.
     RecordedOnly,
 }
@@ -244,6 +461,7 @@ pub enum Applied {
 /// The accepted Proposal being applied, as the deciding transaction read it.
 pub(crate) struct Accepted<'a> {
     pub id: &'a str,
+    pub project_id: &'a str,
     pub verb: ProposalVerb,
     pub target: ProposalTarget,
     pub target_id: Option<&'a str>,
@@ -253,6 +471,10 @@ pub(crate) struct Accepted<'a> {
 /// transaction, writing as `actor_id`, the developer who accepted it. An error rolls the decision
 /// back with it.
 pub(crate) fn apply_in_tx(tx: &Transaction, actor_id: &str, accepted: &Accepted, payload: &Value) -> anyhow::Result<Applied> {
+    if RoadmapChange::is_kind(accepted.verb, accepted.target) {
+        let change = RoadmapChange::from_proposal(accepted.verb, accepted.target, accepted.target_id, payload)?;
+        return apply_roadmap_change(tx, actor_id, accepted, &change);
+    }
     if !is_spec_change(accepted.verb, accepted.target) {
         return Ok(Applied::RecordedOnly);
     }
@@ -274,4 +496,61 @@ pub(crate) fn apply_in_tx(tx: &Transaction, actor_id: &str, accepted: &Accepted,
         }),
     )?;
     Ok(Applied::SpecChange { epic_id: epic_id.to_string(), field: change.field })
+}
+
+/// Apply an accepted Roadmap change through each record's own writer, so every refusal those writers
+/// make (a Done Milestone is frozen, a Milestone holding an open Epic is not dropped, an Epic holding an
+/// open Story is not dropped) refuses the acceptance too, and rolls the decision back with it.
+fn apply_roadmap_change(tx: &Transaction, actor_id: &str, accepted: &Accepted, change: &RoadmapChange) -> anyhow::Result<Applied> {
+    let detail = |label: String| json!({ "label": label, "proposal_id": accepted.id });
+    let record_id = match change {
+        RoadmapChange::CreateMilestone { title, exit_test } => {
+            create_milestone_in_tx(
+                tx,
+                accepted.project_id,
+                actor_id,
+                title,
+                exit_test.as_deref(),
+                detail(format!("Accepted a Proposal: added Milestone \"{title}\", in Shaping")),
+            )?
+            .id
+        }
+        RoadmapChange::AmendMilestone { milestone_id, title, exit_test } => {
+            let m = get_milestone(tx, milestone_id)?.with_context(|| format!("Milestone {milestone_id:?} not found"))?;
+            let new_title = title.clone().unwrap_or(m.title.clone());
+            let new_exit = exit_test.clone().or(m.exit_test.clone());
+            update_milestone_in_tx(
+                tx,
+                actor_id,
+                milestone_id,
+                &new_title,
+                new_exit.as_deref(),
+                detail(format!("Accepted a Proposal: amended Milestone \"{new_title}\"")),
+            )?;
+            milestone_id.clone()
+        }
+        RoadmapChange::ReorderMilestone { milestone_id, before_milestone_id } => {
+            move_milestone_in_tx(tx, actor_id, milestone_id, before_milestone_id.as_deref(), json!({ "proposal_id": accepted.id }))?;
+            milestone_id.clone()
+        }
+        RoadmapChange::RetireMilestone { milestone_id } => {
+            set_milestone_state_in_tx(
+                tx,
+                actor_id,
+                milestone_id,
+                MilestoneState::Dropped,
+                detail("Accepted a Proposal: retired the Milestone".to_string()),
+            )?;
+            milestone_id.clone()
+        }
+        RoadmapChange::AddEpic { milestone_id, title, problem } => {
+            let spec = EpicSpec { problem: problem.clone(), ..EpicSpec::default() };
+            create_epic_in_tx(tx, actor_id, milestone_id, title, &spec, json!({ "proposal_id": accepted.id }))?.id
+        }
+        RoadmapChange::DropEpic { epic_id } => {
+            set_epic_state_in_tx(tx, actor_id, epic_id, EpicState::Dropped, detail("Accepted a Proposal: dropped the Epic".to_string()))?;
+            epic_id.clone()
+        }
+    };
+    Ok(Applied::Roadmap { record_id })
 }

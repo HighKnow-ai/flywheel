@@ -121,12 +121,27 @@ pub fn write_stub_if_missing(tx: &Transaction, session_id: &str, close_reason: &
     Ok(())
 }
 
-/// What a shaping session shapes (docs/mvp-spec.md §3): an Epic, or a Milestone's exit test. The
-/// schema also admits the Roadmap (neither set) for the roadmap Round.
+/// What a shaping session shapes (docs/mvp-spec.md §3): an Epic, a Milestone's exit test, or the
+/// project's Roadmap in a roadmap Round (issue #133), a project-level session whose `epic_id` and
+/// `milestone_id` are both NULL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShapingSubject {
     Epic(String),
     Milestone(String),
+    /// The Roadmap of the project with this id.
+    Roadmap(String),
+}
+
+impl ShapingSubject {
+    /// The subject of a shaping session's row: its Epic, its Milestone, or, with neither, its
+    /// project's Roadmap.
+    pub fn of_row(project_id: &str, epic_id: Option<String>, milestone_id: Option<String>) -> ShapingSubject {
+        match (epic_id, milestone_id) {
+            (Some(id), _) => ShapingSubject::Epic(id),
+            (None, Some(id)) => ShapingSubject::Milestone(id),
+            (None, None) => ShapingSubject::Roadmap(project_id.to_string()),
+        }
+    }
 }
 
 /// One shaping `sessions` row, as read back after [`start_shaping_session`] commits.
@@ -152,6 +167,12 @@ pub fn live_shaping_session(conn: &Connection, subject: &ShapingSubject) -> anyh
             "SELECT id FROM sessions WHERE kind = 'shaping' AND milestone_id = ?1 AND status IN ('running', 'blocked')
              ORDER BY started_at DESC, id DESC LIMIT 1",
             id,
+        ),
+        ShapingSubject::Roadmap(project_id) => (
+            "SELECT id FROM sessions WHERE kind = 'shaping' AND project_id = ?1 AND epic_id IS NULL
+             AND milestone_id IS NULL AND status IN ('running', 'blocked')
+             ORDER BY started_at DESC, id DESC LIMIT 1",
+            project_id,
         ),
     };
     conn.query_row(sql, params![id], |row| row.get(0)).optional().context("failed to read the live shaping session")
@@ -194,6 +215,12 @@ pub fn start_shaping_session(
                     .with_context(|| format!("Milestone {id:?} not found"))?;
                 (project_id, state, format!("Milestone \"{title}\""), None, Some(id.as_str()))
             }
+            // Issue #133: the Roadmap is never in a state; it is revisited in a roadmap Round.
+            ShapingSubject::Roadmap(id) => {
+                tx.query_row("SELECT 1 FROM projects WHERE id = ?1", params![id], |r| r.get::<_, i64>(0))
+                    .with_context(|| format!("project {id:?} not found"))?;
+                (id.clone(), "shaping".to_string(), "the Roadmap".to_string(), None, None)
+            }
         };
     anyhow::ensure!(state == "shaping", "{label} is {state}; only a record in Shaping is shaped");
     anyhow::ensure!(
@@ -211,8 +238,23 @@ pub fn start_shaping_session(
     .context("failed to insert the shaping sessions row")?;
 
     // Issue #123: shaping a record starts in its open Stage, its first one when it has none yet.
-    // Opened by the developer's act of starting, so attributed to them, never to the agent.
-    crate::domain::stage::ensure_open_stage_in_tx(&tx, &project_id, subject, human_actor_id)?;
+    // Opened by the developer's act of starting, so attributed to them, never to the agent. Issue
+    // #133: the Roadmap has no Stage; its session works the project's open roadmap Round, opened
+    // here by the Revisit roadmap button when none is open, and takes it over.
+    match subject {
+        ShapingSubject::Roadmap(_) => {
+            crate::domain::roadmap_round::ensure_open_roadmap_round_in_tx(
+                &tx,
+                &project_id,
+                crate::domain::roadmap_round::RoadmapTrigger::Revisit,
+                Some(&run_id),
+                human_actor_id,
+            )?;
+        }
+        _ => {
+            crate::domain::stage::ensure_open_stage_in_tx(&tx, &project_id, subject, human_actor_id)?;
+        }
+    }
 
     let sequence = next_sequence(&tx, &project_id, "local")?;
     let payload = serde_json::json!({

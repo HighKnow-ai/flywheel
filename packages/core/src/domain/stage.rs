@@ -154,6 +154,8 @@ pub fn open_stage(conn: &Connection, subject: &ShapingSubject) -> anyhow::Result
         ShapingSubject::Milestone(id) => {
             (format!("SELECT {STAGE_COLUMNS} FROM stages WHERE milestone_id = ?1 AND state = 'open'"), id)
         }
+        // Issue #133: the Roadmap is shaped in roadmap Rounds, which have no Stage.
+        ShapingSubject::Roadmap(_) => return Ok(None),
     };
     conn.query_row(&sql, params![id], stage_from_row).optional().context("failed to read the open Stage")
 }
@@ -400,6 +402,7 @@ pub(crate) fn ensure_open_stage_in_tx(
     let (epic_id, milestone_id, kind) = match subject {
         ShapingSubject::Epic(id) => (Some(id.as_str()), None, StageKind::ChallengeSpec),
         ShapingSubject::Milestone(id) => (None, Some(id.as_str()), StageKind::ExitTest),
+        ShapingSubject::Roadmap(_) => anyhow::bail!("the Roadmap has no Stages: it is shaped in roadmap Rounds"),
     };
     let existing: i64 = tx.query_row(
         "SELECT COUNT(*) FROM stages WHERE epic_id IS ?1 AND milestone_id IS ?2",

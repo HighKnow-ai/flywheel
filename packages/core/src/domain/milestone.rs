@@ -11,7 +11,7 @@
 //! developer's alone: reordering the Roadmap is how the Current Milestone changes.
 
 use anyhow::Context;
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 
 use crate::domain::actor::assert_human_actor_in_tx;
 use crate::domain::{now, record_event, EventScope};
@@ -89,11 +89,26 @@ pub fn create_milestone(
     title: &str,
     exit_test: Option<&str>,
 ) -> anyhow::Result<Milestone> {
+    let tx = conn.transaction()?;
+    let milestone = create_milestone_in_tx(&tx, project_id, actor_id, title, exit_test, serde_json::json!({}))?;
+    tx.commit().context("failed to commit create_milestone")?;
+    Ok(milestone)
+}
+
+/// [`create_milestone`] inside the caller's transaction: what an accepted New Milestone Proposal
+/// writes (issue #133). `detail` is merged into the `milestone.created` payload.
+pub(crate) fn create_milestone_in_tx(
+    tx: &Transaction,
+    project_id: &str,
+    actor_id: &str,
+    title: &str,
+    exit_test: Option<&str>,
+    mut detail: serde_json::Value,
+) -> anyhow::Result<Milestone> {
     let title = title.trim();
     anyhow::ensure!(!title.is_empty(), "a Milestone needs a title");
     let now = now();
     let id = new_id();
-    let tx = conn.transaction()?;
 
     let last_rank: Option<String> = tx
         .query_row(
@@ -112,18 +127,11 @@ pub fn create_milestone(
     )
     .context("failed to insert the Milestone")?;
 
-    record_event(
-        &tx,
-        project_id,
-        "milestone",
-        &id,
-        EventScope::default(),
-        actor_id,
-        "milestone.created",
-        &serde_json::json!({ "title": title, "label": format!("Added Milestone \"{title}\"") }),
-        &now,
-    )?;
-    tx.commit().context("failed to commit create_milestone")?;
+    detail["title"] = serde_json::json!(title);
+    if detail.get("label").is_none() {
+        detail["label"] = serde_json::json!(format!("Added Milestone \"{title}\""));
+    }
+    record_event(tx, project_id, "milestone", &id, EventScope::default(), actor_id, "milestone.created", &detail, &now)?;
 
     Ok(Milestone {
         id,
@@ -133,6 +141,46 @@ pub fn create_milestone(
         state: "shaping".to_string(),
         rank,
     })
+}
+
+/// Rewrite a Milestone's title and exit test, inside the caller's transaction: what an accepted
+/// Amend Milestone Proposal writes (issue #133). Human-only. Refused for a Done Milestone (frozen:
+/// later changes go into a new Milestone) and a Dropped one. Amending an exit test after work started
+/// is an ordinary change: the text changes, the event records it and nothing is reopened.
+pub(crate) fn update_milestone_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    milestone_id: &str,
+    title: &str,
+    exit_test: Option<&str>,
+    mut detail: serde_json::Value,
+) -> anyhow::Result<()> {
+    assert_human_actor_in_tx(tx, actor_id)?;
+    let title = title.trim();
+    anyhow::ensure!(!title.is_empty(), "a Milestone needs a title");
+    let now = now();
+    let (project_id, state, before_title, before_exit): (String, String, String, Option<String>) = tx
+        .query_row(
+            "SELECT project_id, state, title, exit_test FROM milestones WHERE id = ?1",
+            params![milestone_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?
+        .with_context(|| format!("Milestone {milestone_id:?} not found"))?;
+    anyhow::ensure!(state != "done", "a Done Milestone is frozen; put later changes in a new Milestone");
+    anyhow::ensure!(state != "dropped", "a Dropped Milestone stays as it was dropped");
+    tx.execute(
+        "UPDATE milestones SET title = ?1, exit_test = ?2, updated_at = ?3 WHERE id = ?4",
+        params![title, exit_test, now, milestone_id],
+    )
+    .context("failed to update the Milestone")?;
+    detail["before"] = serde_json::json!({ "title": before_title, "exit_test": before_exit });
+    detail["after"] = serde_json::json!({ "title": title, "exit_test": exit_test });
+    if detail.get("label").is_none() {
+        detail["label"] = serde_json::json!(format!("Edited Milestone \"{title}\""));
+    }
+    record_event(tx, &project_id, "milestone", milestone_id, EventScope::default(), actor_id, "milestone.updated", &detail, &now)?;
+    Ok(())
 }
 
 /// One Milestone by id.
@@ -201,15 +249,29 @@ pub fn set_milestone_state(
     milestone_id: &str,
     to: MilestoneState,
 ) -> anyhow::Result<()> {
-    let now = now();
     let tx = conn.transaction()?;
-    assert_human_actor_in_tx(&tx, actor_id)?;
+    set_milestone_state_in_tx(&tx, actor_id, milestone_id, to, serde_json::json!({}))?;
+    tx.commit().context("failed to commit set_milestone_state")?;
+    Ok(())
+}
 
-    let (project_id, current): (String, String) = tx
+/// [`set_milestone_state`] inside the caller's transaction: what an accepted Retire Milestone
+/// Proposal writes (issue #133). `detail` is merged into the `milestone.state_changed` payload.
+pub(crate) fn set_milestone_state_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    milestone_id: &str,
+    to: MilestoneState,
+    mut detail: serde_json::Value,
+) -> anyhow::Result<()> {
+    let now = now();
+    assert_human_actor_in_tx(tx, actor_id)?;
+
+    let (project_id, current, title): (String, String, String) = tx
         .query_row(
-            "SELECT project_id, state FROM milestones WHERE id = ?1",
+            "SELECT project_id, state, title FROM milestones WHERE id = ?1",
             params![milestone_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .with_context(|| format!("Milestone {milestone_id:?} not found"))?;
 
@@ -218,11 +280,14 @@ pub fn set_milestone_state(
     anyhow::ensure!(current != "dropped", "a Dropped Milestone stays dropped");
     if to == MilestoneState::Dropped {
         let open_epics: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM epics WHERE milestone_id = ?1 AND state != 'done'",
+            "SELECT COUNT(*) FROM epics WHERE milestone_id = ?1 AND state NOT IN ('done', 'dropped')",
             params![milestone_id],
             |r| r.get(0),
         )?;
-        anyhow::ensure!(open_epics == 0, "a Milestone holding {open_epics} open Epic(s) cannot be dropped");
+        anyhow::ensure!(
+            open_epics == 0,
+            "Milestone \"{title}\" holds {open_epics} open Epic(s), so it cannot be dropped; a Milestone is dropped once each of its Epics is Done or Dropped"
+        );
     }
 
     tx.execute(
@@ -230,21 +295,13 @@ pub fn set_milestone_state(
         params![to.as_str(), now, milestone_id],
     )
     .context("failed to write the Milestone state")?;
-    record_event(
-        &tx,
-        &project_id,
-        "milestone",
-        milestone_id,
-        EventScope::default(),
-        actor_id,
-        "milestone.state_changed",
-        &serde_json::json!({
-            "field": "state", "before": current, "after": to.as_str(),
-            "label": format!("Moved Milestone from {current} to {}", to.as_str()),
-        }),
-        &now,
-    )?;
-    tx.commit().context("failed to commit set_milestone_state")?;
+    detail["field"] = serde_json::json!("state");
+    detail["before"] = serde_json::json!(current);
+    detail["after"] = serde_json::json!(to.as_str());
+    if detail.get("label").is_none() {
+        detail["label"] = serde_json::json!(format!("Moved Milestone from {current} to {}", to.as_str()));
+    }
+    record_event(tx, &project_id, "milestone", milestone_id, EventScope::default(), actor_id, "milestone.state_changed", &detail, &now)?;
     Ok(())
 }
 
@@ -260,10 +317,24 @@ pub fn move_milestone(
     milestone_id: &str,
     before_id: Option<&str>,
 ) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    move_milestone_in_tx(&tx, actor_id, milestone_id, before_id, serde_json::json!({}))?;
+    tx.commit().context("failed to commit move_milestone")?;
+    Ok(())
+}
+
+/// [`move_milestone`] inside the caller's transaction: what an accepted Reorder Milestone Proposal
+/// writes (issue #133). `detail` is merged into the `milestone.moved` payload.
+pub(crate) fn move_milestone_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    milestone_id: &str,
+    before_id: Option<&str>,
+    mut detail: serde_json::Value,
+) -> anyhow::Result<()> {
     anyhow::ensure!(before_id != Some(milestone_id), "a Milestone cannot move before itself");
     let now = now();
-    let tx = conn.transaction()?;
-    assert_human_actor_in_tx(&tx, actor_id)?;
+    assert_human_actor_in_tx(tx, actor_id)?;
 
     let (project_id, title, state, before_rank): (String, String, String, String) = tx
         .query_row(
@@ -300,20 +371,12 @@ pub fn move_milestone(
 
     tx.execute("UPDATE milestones SET rank = ?1, updated_at = ?2 WHERE id = ?3", params![rank, now, milestone_id])
         .context("failed to write the Milestone rank")?;
-    record_event(
-        &tx,
-        &project_id,
-        "milestone",
-        milestone_id,
-        EventScope::default(),
-        actor_id,
-        "milestone.moved",
-        &serde_json::json!({
-            "field": "rank", "before": before_rank, "after": rank,
-            "label": format!("Moved Milestone \"{title}\" on the Roadmap"),
-        }),
-        &now,
-    )?;
-    tx.commit().context("failed to commit move_milestone")?;
+    detail["field"] = serde_json::json!("rank");
+    detail["before"] = serde_json::json!(before_rank);
+    detail["after"] = serde_json::json!(rank);
+    if detail.get("label").is_none() {
+        detail["label"] = serde_json::json!(format!("Moved Milestone \"{title}\" on the Roadmap"));
+    }
+    record_event(tx, &project_id, "milestone", milestone_id, EventScope::default(), actor_id, "milestone.moved", &detail, &now)?;
     Ok(())
 }
