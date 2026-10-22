@@ -169,13 +169,17 @@ function KnowledgeChips({ chips }: { chips: KnowledgeChip[] }) {
         <li key={chip.key} className="flex min-w-0 max-w-full">
           <Badge
             variant="outline"
-            title={chip.pending ? `${chip.title}, accepted on this Epic, not in the repo yet` : chip.title}
+            title={chip.pending ? `${chip.title}, accepted on this Epic, not written yet` : chip.title}
             className={cn("max-w-full min-w-0 font-normal", chip.pending && "border-dashed")}
           >
             {chip.kind === "adr" ? <ScrollText aria-hidden="true" /> : <BookA aria-hidden="true" />}
             <span className="sr-only">{chip.kind === "adr" ? "ADR " : "Glossary term "}</span>
             <span className={cn("min-w-0 truncate", chip.kind === "adr" && "font-mono text-meta")}>{chip.name}</span>
-            {chip.pending && <span className="shrink-0 text-meta text-muted-foreground">· not in the repo yet</span>}
+            {chip.pending && (
+              <span className="shrink-0 text-meta text-muted-foreground">
+                {chip.kind === "adr" ? "· not in the repo yet" : "· not in GLOSSARY.md yet"}
+              </span>
+            )}
           </Badge>
         </li>
       ))}

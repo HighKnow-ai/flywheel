@@ -338,7 +338,7 @@ function AdrQuestionCard({ question: q, open, onAnswer, adr }: QuestionCardProps
       </div>
 
       <div className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-3 @xl:grid-cols-[minmax(0,1fr)_minmax(0,15rem)]">
-        <figure aria-labelledby={draftId} className="m-0 flex min-w-0 flex-col overflow-clip rounded-md border border-border bg-secondary">
+        <figure aria-labelledby={draftId} className="m-0 flex min-w-0 flex-col self-start overflow-clip rounded-md border border-border bg-secondary">
           <figcaption className="flex min-h-9 min-w-0 items-center gap-1.5 border-b border-border px-3 py-1.5 text-meta text-muted-foreground">
             <ScrollText aria-hidden="true" className="size-3.5 shrink-0" />
             <span className="shrink-0 font-semibold">ADR draft</span>
