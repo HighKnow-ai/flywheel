@@ -182,6 +182,7 @@ describe("a shaping Round waiting on you (issue #124)", () => {
   const ROUND: WaitingRoundDto = {
     roundId: "round-2",
     roundNumber: 2,
+    subject: "epic",
     stageKind: "challenge_spec",
     sessionId: "run-shape",
     projectId: "proj-1",
@@ -212,6 +213,25 @@ describe("a shaping Round waiting on you (issue #124)", () => {
     fireEvent.click(within(item).getByRole("button", { name: "Answer Round 2 of P1-8" }));
     expect(useUiStore.getState().currentEpicId).toBe("e-59");
     expect(useUiStore.getState().activeSessionId).toBeNull();
+  });
+
+  it("lists a roadmap Round with the project's Roadmap and its decisions, and Decide opens the board (issue #133)", () => {
+    resetUiState();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <BlockedQueue
+          entries={[]}
+          rounds={[{ ...ROUND, subject: "roadmap", stageKind: null, epicId: null, epicKey: null, epicTitle: null, roundNumber: 1, answered: 0, questions: 2 }]}
+          now={NOW}
+        />
+      </QueryClientProvider>,
+    );
+    const item = screen.getByRole("listitem", { name: "Roadmap Round 1 of the Project 1 Roadmap" });
+    expect(within(item).getByText("0 of 2 decided")).toBeTruthy();
+    expect(within(item).getByText("Roadmap change")).toBeTruthy();
+    fireEvent.click(within(item).getByRole("button", { name: "Decide Roadmap Round 1 of the Project 1 Roadmap" }));
+    expect(useUiStore.getState().currentProjectId).toBe("proj-1");
+    expect(useUiStore.getState().currentEpicId).toBeNull();
   });
 
   it("is not an empty queue when only a Round waits, and takes no keystroke", () => {

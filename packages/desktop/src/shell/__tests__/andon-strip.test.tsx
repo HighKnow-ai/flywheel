@@ -65,6 +65,7 @@ beforeEach(() => {
 const ROUND: WaitingRoundDto = {
   roundId: "round-2",
   roundNumber: 2,
+  subject: "epic",
   stageKind: "challenge_spec",
   sessionId: "r-shape",
   projectId: "p1",
@@ -102,6 +103,28 @@ describe("a shaping Round waiting on you (issue #124)", () => {
     fireEvent.click(lamp);
     expect(useUiStore.getState().currentEpicId).toBe("e-59");
     expect(useUiStore.getState().currentProjectId).toBe("p1");
+    expect(useUiStore.getState().activeSessionId).toBeNull();
+  });
+
+  it("lights a roadmap Round's lamp for the project's Roadmap, and opens the project's board (issue #133)", async () => {
+    resetUiState();
+    useUiStore.setState({ currentProjectId: "p0", currentEpicId: "e-0" });
+    const roadmap: WaitingRoundDto = {
+      ...ROUND, roundId: "rr-1", roundNumber: 1, subject: "roadmap", stageKind: null, epicId: null, epicKey: null, epicTitle: null,
+      answered: 1, questions: 3,
+    };
+    fleetWaitingRounds.mockResolvedValue([roadmap]);
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AndonStrip />
+      </QueryClientProvider>,
+    );
+    const lamp = await screen.findByRole("button", { name: "Open the Flywheel Roadmap, Roadmap Round 1 Waiting on you" });
+    expect(lamp).toHaveTextContent("Roadmap Round 1 · Waiting on you");
+    expect(lamp).toHaveAttribute("title", expect.stringContaining("1 of 3 decided"));
+    fireEvent.click(lamp);
+    expect(useUiStore.getState().currentProjectId).toBe("p1");
+    expect(useUiStore.getState().currentEpicId).toBeNull();
     expect(useUiStore.getState().activeSessionId).toBeNull();
   });
 });

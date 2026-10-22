@@ -65,6 +65,22 @@ pub struct RoadmapProposalDto {
     #[serde(flatten)]
     pub proposal: ProposalDto,
     pub summary: String,
+    /// The Milestone its ghost row sits under on the strip: the Milestone it changes, the new Epic's
+    /// Milestone, or the dropped Epic's. `None` for a new Milestone, which sits at the end.
+    pub anchor_milestone_id: Option<String>,
+}
+
+/// Where a Roadmap Proposal's ghost row sits: under the Milestone it lands on.
+fn anchor_of(conn: &Connection, p: &flywheel_core::domain::proposal::Proposal) -> Option<String> {
+    match (p.verb.as_str(), p.target_type.as_str()) {
+        ("create", "milestone") => None,
+        (_, "milestone") => p.target_id.clone(),
+        ("create", "epic") => p.payload.get("milestone_id").and_then(|v| v.as_str()).map(str::to_string),
+        ("retire", "epic") => p.target_id.as_deref().and_then(|id| {
+            conn.query_row("SELECT milestone_id FROM epics WHERE id = ?1", [id], |r| r.get(0)).ok()
+        }),
+        _ => None,
+    }
 }
 
 /// What the Roadmap strip reads about roadmap Rounds.
@@ -168,7 +184,11 @@ pub(crate) fn read_roadmap_round(conn: &Connection, project_id: &str) -> Result<
         Some(round) => flywheel_core::domain::proposal::proposals_in_round(conn, &round.id)
             .map_err(|e| e.to_string())?
             .into_iter()
-            .map(|p| RoadmapProposalDto { summary: describe_proposal(conn, &p), proposal: p.into() })
+            .map(|p| RoadmapProposalDto {
+                summary: describe_proposal(conn, &p),
+                anchor_milestone_id: anchor_of(conn, &p),
+                proposal: p.into(),
+            })
             .collect(),
         None => Vec::new(),
     };

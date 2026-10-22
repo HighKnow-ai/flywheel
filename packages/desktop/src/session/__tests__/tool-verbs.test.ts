@@ -224,6 +224,22 @@ describe("describeToolCall: board tools by their meaning", () => {
     });
   });
 
+  // Issue #133: a roadmap Round's tools.
+  it("reads propose_roadmap_change and roadmap_holds, and a roadmap round_wait's decisions", () => {
+    expect(
+      describeToolCall({ toolName: `${BOARD}propose_roadmap_change`, input: { change: "create_milestone", title: "Mobile", why: "x" } }),
+    ).toMatchObject({ kind: "board", verb: "Proposed", liveVerb: "Proposing", target: "New Milestone: Mobile" });
+    expect(describeToolCall({ toolName: `${BOARD}roadmap_holds`, input: { why: "The next Milestone is right" } })).toMatchObject({
+      verb: "Said the Roadmap still holds",
+      target: "The next Milestone is right",
+    });
+    const output = JSON.stringify({ round: 1, decisions: [{ state: "accepted" }, { state: "rejected" }] });
+    expect(describeToolCall({ toolName: `${BOARD}round_wait`, input: {}, output })).toMatchObject({
+      verb: "Roadmap Round 1 decided",
+      metrics: [{ text: "1 accepted · 1 rejected", tone: "neutral" }],
+    });
+  });
+
   it("never prints a raw mcp__ name, for any server", () => {
     for (const toolName of [`${BOARD}story_get`, "mcp__github__create_issue", "mcp__x"]) {
       const d = describeToolCall({ toolName, input: {} });

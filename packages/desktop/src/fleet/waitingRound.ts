@@ -1,0 +1,64 @@
+/**
+ * How a waiting Round reads wherever Waiting on you shows it (the andon lamp, the sidebar and the Waiting
+ * on you queue). An Epic's Round (issue #124) names its Epic and opens the Epic's shaping view; a roadmap
+ * Round (issue #133) names the project's Roadmap and opens the project's board, where its ghost rows sit
+ * on the Roadmap strip.
+ */
+import type { WaitingRoundDto } from "../adapters/tauri";
+import { useUiStore } from "../state/uiStore";
+
+export interface WaitingRoundWords {
+  /** The short code-face key: the Epic's key, or "Roadmap". */
+  key: string;
+  /** The record's title: the Epic's, or the project's name. */
+  title: string;
+  /** The record as a sentence names it: "Epic FLY-1 Waitlist", "the Threadfin Roadmap". */
+  record: string;
+  /** "Round 2", "Roadmap Round 1". */
+  round: string;
+  /** "1 of 3 answered", "1 of 2 decided". */
+  progress: string;
+  /** What the queue says the agent waits for. */
+  hint: string;
+  /** The queue band's kind word. */
+  kind: string;
+  /** The answer button's word. */
+  action: string;
+}
+
+export function waitingRoundWords(round: WaitingRoundDto): WaitingRoundWords {
+  if (round.subject === "roadmap") {
+    return {
+      key: "Roadmap",
+      title: round.projectName,
+      record: `the ${round.projectName} Roadmap`,
+      round: `Roadmap Round ${round.roundNumber}`,
+      progress: `${round.answered} of ${round.questions} decided`,
+      hint: "The agent goes on once every proposed change is decided.",
+      kind: "Roadmap change",
+      action: "Decide",
+    };
+  }
+  const key = round.epicKey ?? "";
+  const title = round.epicTitle ?? "";
+  return {
+    key,
+    title,
+    record: `Epic ${`${key} ${title}`.trim()}`,
+    round: `Round ${round.roundNumber}`,
+    progress: `${round.answered} of ${round.questions} answered`,
+    hint: "The agent goes on once every question is answered.",
+    kind: "Shaping question",
+    action: "Answer",
+  };
+}
+
+/** Opens what a waiting Round is about: its Epic's shaping view, or its project's board. */
+export function useOpenWaitingRound(): (round: WaitingRoundDto) => void {
+  const openEpic = useUiStore((state) => state.openEpic);
+  const openProject = useUiStore((state) => state.setCurrentProjectId);
+  return (round) => {
+    if (round.subject === "roadmap" || round.epicId === null) openProject(round.projectId);
+    else openEpic(round.projectId, round.epicId);
+  };
+}

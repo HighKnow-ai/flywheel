@@ -12,6 +12,8 @@
  *   keeps its place: it has no handle, does not drag, and reads quieter.
  * - **+ Milestone** takes a one-line outcome and adds it at the end of the Roadmap, in Shaping, through
  *   the existing `milestone_create`, then picks it.
+ * - **Revisit roadmap** starts a roadmap Round (issue #133, `RoadmapRound.tsx`): its band sits under the
+ *   header, and each change it proposes is a ghost row under the Milestone it lands on, decided in place.
  *
  * Server data stays in React Query under the board's key (`board:changed` keeps it live), and the strip
  * never reorders its own copy: the new order is what the core says after the move.
@@ -26,6 +28,7 @@ import { Input } from "../components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
 import { useUiStore } from "../state/uiStore";
 import { EPIC_STATE_WORDS } from "./EpicProgress";
+import { GhostRow, LastRoundNote, RevisitRoadmapButton, RoundBand, useRoadmapRound } from "./RoadmapRound";
 import { errorText } from "./StoryControls";
 import { cn } from "@/lib/utils";
 
@@ -62,6 +65,13 @@ function beforeIdFor(milestones: MilestoneDto[], from: number, to: number): stri
 export function RoadmapStrip({ projectId }: { projectId: string }) {
   const roadmap = useRoadmap(projectId);
   const milestones = roadmap.data ?? [];
+  const roundView = useRoadmapRound(projectId).data;
+  const openRound = roundView?.open ?? null;
+  const proposals = openRound ? (roundView?.proposals ?? []) : [];
+  const ghostsUnder = (milestoneId: string) => proposals.filter((p) => p.anchorMilestoneId === milestoneId);
+  const trailingGhosts = proposals.filter(
+    (p) => p.anchorMilestoneId === null || !milestones.some((m) => m.id === p.anchorMilestoneId),
+  );
   const { shown } = useMilestoneSelection(projectId);
   const selectMilestone = useUiStore((state) => state.selectMilestone);
   const [error, setError] = useState<string | null>(null);
@@ -130,7 +140,12 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
     <section
       aria-labelledby={headingId}
       data-slot="roadmap-strip"
-      className="flex flex-col rounded-lg border border-border bg-card text-card-foreground shadow-card"
+      data-round-waiting={openRound?.waitingOnYou || undefined}
+      className={cn(
+        "flex flex-col overflow-clip rounded-lg bg-card text-card-foreground shadow-card",
+        // A roadmap Round its session waits on wears the request card's 2px attention edge.
+        openRound?.waitingOnYou ? "border-2 border-attention" : "border border-border",
+      )}
     >
       <header className="flex min-h-11 items-center gap-3 border-b border-border py-1.5 pr-2 pl-4">
         <h2 id={headingId} className="m-0 text-section font-semibold">
@@ -141,20 +156,24 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
             {milestones.length === 1 ? "1 Milestone" : `${milestones.length} Milestones`}
           </span>
         )}
-        <Button
-          variant="outline"
-          size="sm"
-          className="ml-auto"
-          ref={addRef}
-          aria-label="Add a Milestone"
-          aria-expanded={adding}
-          aria-controls={adding ? formId : undefined}
-          onClick={() => setAdding(true)}
-        >
-          <Plus aria-hidden="true" />
-          Milestone
-        </Button>
+        {!openRound && roundView?.last && <LastRoundNote round={roundView.last} now={Date.now()} />}
+        <span className="ml-auto flex items-center gap-1.5">
+          {!openRound && roadmap.isSuccess && milestones.length > 0 && <RevisitRoadmapButton projectId={projectId} />}
+          <Button
+            variant="outline"
+            size="sm"
+            ref={addRef}
+            aria-label="Add a Milestone"
+            aria-expanded={adding}
+            aria-controls={adding ? formId : undefined}
+            onClick={() => setAdding(true)}
+          >
+            <Plus aria-hidden="true" />
+            Milestone
+          </Button>
+        </span>
       </header>
+      {openRound && <RoundBand projectId={projectId} round={openRound} proposals={proposals} />}
 
       <p id={handleHintId} className="sr-only">
         Press the Up or Down arrow to move it on the Roadmap, or drag the row.
@@ -170,7 +189,7 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
         </p>
       )}
 
-      {milestones.length > 0 && (
+      {(milestones.length > 0 || proposals.length > 0) && (
         <ol ref={listRef} aria-label="Milestones in Roadmap order" className="m-0 list-none p-0">
           {milestones.map((milestone, index) => {
             const closed = isClosed(milestone);
@@ -178,7 +197,7 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
             const dropping = dropTarget === milestone.id && dragging !== null && dragging !== milestone.id;
             const stateWord = EPIC_STATE_WORDS[milestone.state] ?? milestone.state;
             const exitTestId = `${headingId}-exit-${milestone.id}`;
-            return (
+            return [
               <li
                 key={milestone.id}
                 data-milestone-title={milestone.title}
@@ -290,9 +309,13 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                     )}
                   />
                 </button>
-              </li>
-            );
+              </li>,
+              ...ghostsUnder(milestone.id).map((p) => <GhostRow key={p.id} projectId={projectId} proposal={p} />),
+            ];
           })}
+          {trailingGhosts.map((p) => (
+            <GhostRow key={p.id} projectId={projectId} proposal={p} />
+          ))}
         </ol>
       )}
 

@@ -387,7 +387,7 @@ export function setShapingSessionLive(live: boolean): void {
 function waitingRounds(): WaitingRoundDto[] {
   if (!shapingSessionLive) return [];
   return [{
-    roundId: "r-2", roundNumber: 2, stageKind: "challenge_spec", sessionId: "ses-shape-8",
+    roundId: "r-2", roundNumber: 2, subject: "epic", stageKind: "challenge_spec", sessionId: "ses-shape-8",
     projectId: "p-fly", projectName: "flywheel", projectKeyPrefix: "FLY",
     epicId: "e-59", epicKey: "FLY-8", epicTitle: "Epic shaping",
     waitingSince: ago(1800), answered: 1, questions: 4,
