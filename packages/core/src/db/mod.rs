@@ -31,6 +31,7 @@ fn migration_source_list() -> Vec<&'static str> {
         include_str!("migrations/0005_shaping_sessions.sql"),
         include_str!("migrations/0006_shaping_rounds.sql"),
         include_str!("migrations/0007_proposal_stage_round.sql"),
+        include_str!("migrations/0008_adr_questions.sql"),
     ]
 }
 

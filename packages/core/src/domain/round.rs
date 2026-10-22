@@ -13,7 +13,12 @@
 //!   closes it and hands back the held `round_post` call to answer ([`RoundRelease`]), with every
 //!   answer, when the session that posted it is still live.
 //! - [`accept_all_recommended`] answers every open question of a Round with its recommendation.
-//!   Questions only: it never decides a Proposal.
+//!   Questions only: it never decides a Proposal, so it leaves an ADR question open.
+//!
+//! An ADR question (issue #129, docs/mvp-spec.md §3 "ADRs in shaping") offers an ADR draft with its
+//! bar lines ([`AdrDraft`]) and is answered Yes or No. "Yes" files an ADR Proposal on the Epic and
+//! accepts it, as the developer, in the answer's own transaction (through `proposal`'s filing and
+//! deciding, never around them); "No" drops the draft. Either answer is settled once given.
 //!
 //! An answer may change while its Round is open; once the last question is answered the Round is
 //! settled. A Round outlives its session: answering goes on without one, and nothing is lost.
@@ -23,6 +28,8 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 
 use crate::domain::actor::assert_human_actor_in_tx;
+use crate::domain::proposal::{accept_proposal_in_tx, file_proposal_in_tx, NewProposal, ProposalTarget, ProposalVerb};
+pub use crate::domain::proposal_apply::AdrDraft;
 use crate::domain::session::{agent_actor_id, session_kind, ShapingSubject};
 use crate::domain::session_kind::SessionKind;
 use crate::domain::stage::{open_stage, StageKind};
@@ -48,6 +55,9 @@ pub struct NewQuestion {
     pub recommended_answer: String,
     /// The one-line reason for the recommendation.
     pub because: String,
+    /// `Some` for an ADR question (issue #129): the draft offered and its bar lines. Its
+    /// recommended answer is Yes or No.
+    pub adr: Option<AdrDraft>,
 }
 
 /// A Round as an agent posts it: its one-paragraph note and its numbered questions, in order.
@@ -79,8 +89,34 @@ impl NewRound {
             text_field(&at("grounding"), &q.grounding, MAX_ROUND_TEXT_LEN)?;
             text_field(&at("recommended_answer"), &q.recommended_answer, MAX_ROUND_TEXT_LEN)?;
             text_field(&at("because"), &q.because, MAX_ROUND_TEXT_LEN)?;
+            if let Some(adr) = &q.adr {
+                AdrDraft::from_payload_at(&adr.to_payload(), &format!("questions[{i}].adr."))?;
+                anyhow::ensure!(
+                    yes_or_no(&q.recommended_answer).is_some(),
+                    "{}: an ADR question is answered Yes or No; recommend one of them",
+                    at("recommended_answer")
+                );
+            }
         }
         Ok(())
+    }
+}
+
+/// An ADR question's answer read as Yes (`true`) or No (`false`): the word alone, any case, with
+/// trailing punctuation. Anything else is `None`.
+pub fn yes_or_no(answer: &str) -> Option<bool> {
+    match answer.trim().trim_end_matches(['.', '!']).to_ascii_lowercase().as_str() {
+        "yes" => Some(true),
+        "no" => Some(false),
+        _ => None,
+    }
+}
+
+fn yes_no_word(yes: bool) -> &'static str {
+    if yes {
+        "Yes"
+    } else {
+        "No"
     }
 }
 
@@ -108,6 +144,10 @@ pub struct RoundQuestion {
     pub answered_with: Option<String>,
     pub answered_by: Option<String>,
     pub answered_at: Option<String>,
+    /// `Some` for an ADR question: the draft and its bar lines (issue #129).
+    pub adr: Option<AdrDraft>,
+    /// The accepted ADR Proposal its "Yes" filed.
+    pub adr_proposal_id: Option<String>,
 }
 
 /// One `rounds` row with its questions, in order.
@@ -164,14 +204,39 @@ fn question_from_row(row: &rusqlite::Row) -> rusqlite::Result<RoundQuestion> {
         answered_with: row.get(8)?,
         answered_by: row.get(9)?,
         answered_at: row.get(10)?,
+        adr: adr_from_row(row, 11)?,
+        adr_proposal_id: row.get(18)?,
     })
 }
 
+/// The ADR draft of a `round_questions` row whose `kind` is at `at`, followed by `adr_path`,
+/// `adr_text` and the four bar lines.
+fn adr_from_row(row: &rusqlite::Row, at: usize) -> rusqlite::Result<Option<AdrDraft>> {
+    let kind: String = row.get(at)?;
+    if kind != "adr" {
+        return Ok(None);
+    }
+    Ok(Some(AdrDraft {
+        path: row.get(at + 1)?,
+        text: row.get(at + 2)?,
+        hard_to_reverse: row.get(at + 3)?,
+        surprising: row.get(at + 4)?,
+        losing_alternative: row.get(at + 5)?,
+        relates_to: row.get(at + 6)?,
+    }))
+}
+
+/// A question's kind and ADR columns, in the order [`adr_from_row`] reads them.
+const ADR_COLUMNS: &str =
+    "kind, adr_path, adr_text, bar_hard_to_reverse, bar_surprising, bar_losing_alternative, bar_relates_to";
+
 fn questions_of(conn: &Connection, round_id: &str) -> anyhow::Result<Vec<RoundQuestion>> {
     let mut stmt = conn.prepare(
-        "SELECT id, number, title, question, grounding, recommended_answer, because, answer, answered_with,
-                answered_by, answered_at
-         FROM round_questions WHERE round_id = ?1 ORDER BY number",
+        &format!(
+            "SELECT id, number, title, question, grounding, recommended_answer, because, answer, answered_with,
+                    answered_by, answered_at, {ADR_COLUMNS}, adr_proposal_id
+             FROM round_questions WHERE round_id = ?1 ORDER BY number"
+        ),
     )?;
     let rows = stmt.query_map(params![round_id], question_from_row)?.collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the Round's questions")
@@ -231,13 +296,28 @@ pub fn round_result(round: &Round) -> Value {
         .questions
         .iter()
         .map(|q| {
-            json!({
+            let mut answer = json!({
                 "number": q.number,
                 "title": q.title,
                 "question": q.question,
                 "answer": q.answer,
                 "answered_with": q.answered_with,
-            })
+            });
+            if let Some(adr) = &q.adr {
+                answer["kind"] = json!("adr");
+                answer["adr"] = match &q.adr_proposal_id {
+                    Some(id) => json!({
+                        "path": adr.path,
+                        "proposal_id": id,
+                        "outcome": "Accepted and attached to the Epic: the Epic's first Story writes it verbatim. Do not offer it again.",
+                    }),
+                    None => json!({
+                        "path": adr.path,
+                        "outcome": "Dropped: no ADR is written. Do not offer it again without new evidence.",
+                    }),
+                };
+            }
+            answer
         })
         .collect();
     json!({
@@ -266,6 +346,10 @@ pub fn post_round(
     let tx = conn.transaction()?;
 
     let (stage, epic_id) = live_shaping_stage(&tx, session_id, "round_post", "post a Round")?;
+    anyhow::ensure!(
+        epic_id.is_some() || round.questions.iter().all(|q| q.adr.is_none()),
+        "an ADR is offered while shaping an Epic, and attached to it; this session shapes a Milestone"
+    );
     let open: Option<i64> = tx
         .query_row("SELECT number FROM rounds WHERE stage_id = ?1 AND state = 'open'", params![stage.id], |r| r.get(0))
         .optional()?;
@@ -287,9 +371,19 @@ pub fn post_round(
     )
     .context("failed to insert the Round")?;
     for (i, q) in round.questions.iter().enumerate() {
+        // An ADR question's draft is stored as `AdrDraft` reads it back: trimmed, "none" as NULL, and
+        // its recommendation as the bare Yes or No.
+        let adr = q.adr.as_ref().map(|a| AdrDraft::from_payload(&a.to_payload())).transpose()?;
+        let recommended = match (&adr, yes_or_no(&q.recommended_answer)) {
+            (Some(_), Some(yes)) => yes_no_word(yes).to_string(),
+            _ => q.recommended_answer.trim().to_string(),
+        };
         tx.execute(
-            "INSERT INTO round_questions (id, round_id, number, title, question, grounding, recommended_answer, because)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            &format!(
+                "INSERT INTO round_questions (id, round_id, number, title, question, grounding, recommended_answer, because,
+                     {ADR_COLUMNS})
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"
+            ),
             params![
                 new_id(),
                 round_id,
@@ -297,8 +391,15 @@ pub fn post_round(
                 q.title.trim(),
                 q.question.trim(),
                 q.grounding.trim(),
-                q.recommended_answer.trim(),
-                q.because.trim()
+                recommended,
+                q.because.trim(),
+                if adr.is_some() { "adr" } else { "question" },
+                adr.as_ref().map(|a| &a.path),
+                adr.as_ref().map(|a| &a.text),
+                adr.as_ref().map(|a| &a.hard_to_reverse),
+                adr.as_ref().map(|a| &a.surprising),
+                adr.as_ref().map(|a| &a.losing_alternative),
+                adr.as_ref().and_then(|a| a.relates_to.as_ref()),
             ],
         )
         .context("failed to insert a Round question")?;
@@ -444,13 +545,20 @@ struct QuestionPlace {
     answer: Option<String>,
     project_id: String,
     epic_id: Option<String>,
+    /// The session that posted the Round: an ADR Proposal is filed under it.
+    session_id: Option<String>,
+    adr: Option<AdrDraft>,
 }
 
 fn question_place(tx: &Transaction, question_id: &str) -> anyhow::Result<QuestionPlace> {
     tx.query_row(
-        "SELECT q.round_id, r.number, r.state, q.number, q.recommended_answer, q.answer, s.project_id, s.epic_id
-         FROM round_questions q JOIN rounds r ON r.id = q.round_id JOIN stages s ON s.id = r.stage_id
-         WHERE q.id = ?1",
+        &format!(
+            "SELECT q.round_id, r.number, r.state, q.number, q.recommended_answer, q.answer, s.project_id, s.epic_id,
+                    r.session_id, q.{}
+             FROM round_questions q JOIN rounds r ON r.id = q.round_id JOIN stages s ON s.id = r.stage_id
+             WHERE q.id = ?1",
+            ADR_COLUMNS.replace(", ", ", q.")
+        ),
         params![question_id],
         |r| {
             Ok(QuestionPlace {
@@ -462,6 +570,8 @@ fn question_place(tx: &Transaction, question_id: &str) -> anyhow::Result<Questio
                 answer: r.get(5)?,
                 project_id: r.get(6)?,
                 epic_id: r.get(7)?,
+                session_id: r.get(8)?,
+                adr: adr_from_row(r, 9)?,
             })
         },
     )
@@ -478,7 +588,7 @@ fn write_answer(
     answer: &RoundAnswer,
     at: &str,
 ) -> anyhow::Result<()> {
-    let (text, with) = match answer {
+    let (mut text, mut with) = match answer {
         RoundAnswer::Recommended => (place.recommended_answer.clone(), "recommended"),
         RoundAnswer::Own(own) => {
             let own = own.trim();
@@ -487,9 +597,26 @@ fn write_answer(
             (own.to_string(), "own")
         }
     };
+    let mut adr_proposal_id: Option<String> = None;
+    if let Some(draft) = &place.adr {
+        if let Some(given) = &place.answer {
+            bail!(
+                "question {} of Round {} offered an ADR and was answered {given}; that answer is settled",
+                place.number,
+                place.round_number
+            );
+        }
+        let yes = yes_or_no(&text).context("an ADR question is answered Yes or No")?;
+        text = yes_no_word(yes).to_string();
+        with = if yes_or_no(&place.recommended_answer) == Some(yes) { "recommended" } else { "own" };
+        if yes {
+            adr_proposal_id = Some(accept_adr_in_tx(tx, actor_id, place, draft, at)?);
+        }
+    }
     tx.execute(
-        "UPDATE round_questions SET answer = ?1, answered_with = ?2, answered_by = ?3, answered_at = ?4 WHERE id = ?5",
-        params![text, with, actor_id, at, question_id],
+        "UPDATE round_questions SET answer = ?1, answered_with = ?2, answered_by = ?3, answered_at = ?4, adr_proposal_id = ?5
+         WHERE id = ?6",
+        params![text, with, actor_id, at, adr_proposal_id, question_id],
     )
     .context("failed to store the answer")?;
     record_event(
@@ -510,6 +637,31 @@ fn write_answer(
         at,
     )?;
     Ok(())
+}
+
+/// "Yes" to an ADR question: file the draft as an ADR Proposal on the Epic, then accept it, both as
+/// the developer and inside the answer's transaction, through `proposal`'s own filing and deciding.
+/// Returns the Proposal's id.
+fn accept_adr_in_tx(tx: &Transaction, actor_id: &str, place: &QuestionPlace, draft: &AdrDraft, at: &str) -> anyhow::Result<String> {
+    let epic_id = place.epic_id.as_deref().context("an ADR is attached to the Epic being shaped; this Round shapes no Epic")?;
+    let rationale = format!("Offered as question {} of Round {} and accepted there", place.number, place.round_number);
+    let id = file_proposal_in_tx(
+        tx,
+        actor_id,
+        &NewProposal {
+            project_id: &place.project_id,
+            session_id: place.session_id.as_deref(),
+            epic_id: Some(epic_id),
+            verb: ProposalVerb::Create,
+            target: ProposalTarget::Adr,
+            target_id: None,
+            payload: draft.to_payload(),
+            rationale: Some(&rationale),
+        },
+        at,
+    )?;
+    accept_proposal_in_tx(tx, actor_id, &id, at)?;
+    Ok(id)
 }
 
 /// Close the Round once no question in it is unanswered, inside the caller's transaction: mark it
@@ -583,7 +735,9 @@ pub fn answer_round_question(
 }
 
 /// Answer every still-open question of an open Round with its recommended answer, as the developer,
-/// in one transaction, and close the Round. Questions only: no Proposal is decided here.
+/// in one transaction, and close the Round once nothing in it is left open. Questions only: no
+/// Proposal is decided here, so an ADR question, whose Yes accepts a Proposal, stays open for its own
+/// Yes or No. Refused when only ADR questions are left open.
 pub fn accept_all_recommended(conn: &mut Connection, actor_id: &str, round_id: &str) -> anyhow::Result<AnswerOutcome> {
     let at = now();
     let tx = conn.transaction()?;
@@ -596,11 +750,21 @@ pub fn accept_all_recommended(conn: &mut Connection, actor_id: &str, round_id: &
         bail!("Round {number} is answered; its answers are settled");
     }
     let open: Vec<String> = {
-        let mut stmt = tx.prepare("SELECT id FROM round_questions WHERE round_id = ?1 AND answer IS NULL ORDER BY number")?;
+        let mut stmt = tx.prepare(
+            "SELECT id FROM round_questions WHERE round_id = ?1 AND answer IS NULL AND kind = 'question' ORDER BY number",
+        )?;
         let ids = stmt.query_map(params![round_id], |r| r.get(0))?.collect::<Result<Vec<_>, _>>()?;
         ids
     };
-    anyhow::ensure!(!open.is_empty(), "no question in Round {number} is left open");
+    if open.is_empty() {
+        let open_adrs: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM round_questions WHERE round_id = ?1 AND answer IS NULL AND kind = 'adr'",
+            params![round_id],
+            |r| r.get(0),
+        )?;
+        anyhow::ensure!(open_adrs == 0, "only ADR questions are left open in Round {number}: answer each one Yes or No");
+        bail!("no question in Round {number} is left open");
+    }
     let mut project_id = String::new();
     for question_id in &open {
         let place = question_place(&tx, question_id)?;

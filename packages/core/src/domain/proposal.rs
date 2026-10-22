@@ -191,13 +191,20 @@ fn shaping_place(tx: &Transaction, session_id: &str) -> anyhow::Result<Option<(O
 /// Proposals is refused; a shaping session is not capped, and its Proposal records the Stage and
 /// Round it was filed in. A payload malformed for its kind is refused.
 pub fn file_proposal(conn: &mut Connection, actor_id: &str, new: &NewProposal) -> anyhow::Result<Proposal> {
-    validate_payload(new.verb, new.target, &new.payload)?;
-    let now = now();
-    let id = new_id();
     let tx = conn.transaction()?;
+    let id = file_proposal_in_tx(&tx, actor_id, new, &now())?;
+    tx.commit()?;
+    get_proposal(conn, &id)?.context("the filed Proposal could not be read back")
+}
+
+/// [`file_proposal`]'s body inside the caller's transaction, returning the new Proposal's id. A
+/// Round's ADR question files through it and decides in the same transaction (issue #129).
+pub(crate) fn file_proposal_in_tx(tx: &Transaction, actor_id: &str, new: &NewProposal, now: &str) -> anyhow::Result<String> {
+    validate_payload(new.verb, new.target, &new.payload)?;
+    let id = new_id();
     let (stage_id, round_id) = match new.session_id {
         None => (None, None),
-        Some(session_id) => match shaping_place(&tx, session_id)? {
+        Some(session_id) => match shaping_place(tx, session_id)? {
             Some(place) => place,
             None => {
                 let open: i64 = tx.query_row(
@@ -235,7 +242,7 @@ pub fn file_proposal(conn: &mut Connection, actor_id: &str, new: &NewProposal) -
     )
     .context("failed to file the Proposal")?;
     record_event(
-        &tx,
+        tx,
         new.project_id,
         "proposal",
         &id,
@@ -246,10 +253,9 @@ pub fn file_proposal(conn: &mut Connection, actor_id: &str, new: &NewProposal) -
             "verb": new.verb.as_str(), "target_type": new.target.as_str(),
             "label": format!("Proposed to {} a {}", new.verb.as_str(), new.target.as_str()),
         }),
-        &now,
+        now,
     )?;
-    tx.commit()?;
-    get_proposal(conn, &id)?.context("the filed Proposal could not be read back")
+    Ok(id)
 }
 
 /// One Proposal by id.
@@ -310,10 +316,22 @@ enum Decision<'a> {
 }
 
 fn decide(conn: &mut Connection, actor_id: &str, proposal_id: &str, decision: Decision) -> anyhow::Result<Applied> {
-    let now = now();
     let tx = conn.transaction()?;
-    assert_human_actor_in_tx(&tx, actor_id)?;
-    let p = get_proposal(&tx, proposal_id)?.with_context(|| format!("Proposal {proposal_id:?} not found"))?;
+    let applied = decide_in_tx(&tx, actor_id, proposal_id, decision, &now())?;
+    tx.commit()?;
+    Ok(applied)
+}
+
+/// Accept a pending Proposal as it is inside the caller's transaction: [`accept_proposal`]'s body.
+/// A Round's ADR question files its Proposal and accepts it here, in the answer's transaction, so
+/// the answer, the filing and the decision commit together or not at all (issue #129). Human-only.
+pub(crate) fn accept_proposal_in_tx(tx: &Transaction, actor_id: &str, proposal_id: &str, now: &str) -> anyhow::Result<Applied> {
+    decide_in_tx(tx, actor_id, proposal_id, Decision::Accept { amended: None }, now)
+}
+
+fn decide_in_tx(tx: &Transaction, actor_id: &str, proposal_id: &str, decision: Decision, now: &str) -> anyhow::Result<Applied> {
+    assert_human_actor_in_tx(tx, actor_id)?;
+    let p = get_proposal(tx, proposal_id)?.with_context(|| format!("Proposal {proposal_id:?} not found"))?;
     anyhow::ensure!(p.state == "pending", "Proposal {proposal_id:?} was already {}", p.state);
     let scope = EventScope { story_id: None, epic_id: p.epic_id.as_deref() };
 
@@ -324,7 +342,7 @@ fn decide(conn: &mut Connection, actor_id: &str, proposal_id: &str, decision: De
                 params![reason, actor_id, now, proposal_id],
             )?;
             record_event(
-                &tx,
+                tx,
                 &p.project_id,
                 "proposal",
                 proposal_id,
@@ -335,7 +353,7 @@ fn decide(conn: &mut Connection, actor_id: &str, proposal_id: &str, decision: De
                     "field": "state", "before": "pending", "after": "rejected", "reason": reason,
                     "label": "Rejected a Proposal",
                 }),
-                &now,
+                now,
             )?;
             Applied::RecordedOnly
         }
@@ -352,9 +370,9 @@ fn decide(conn: &mut Connection, actor_id: &str, proposal_id: &str, decision: De
                 params![payload.to_string(), actor_id, now, proposal_id],
             )?;
             let accepted = Accepted { id: proposal_id, verb, target, target_id: p.target_id.as_deref() };
-            let applied = apply_in_tx(&tx, actor_id, &accepted, payload)?;
+            let applied = apply_in_tx(tx, actor_id, &accepted, payload)?;
             record_event(
-                &tx,
+                tx,
                 &p.project_id,
                 "proposal",
                 proposal_id,
@@ -368,12 +386,11 @@ fn decide(conn: &mut Connection, actor_id: &str, proposal_id: &str, decision: De
                     "applied": payload,
                     "label": if amended.is_some() { "Amended and accepted a Proposal" } else { "Accepted a Proposal" },
                 }),
-                &now,
+                now,
             )?;
             applied
         }
     };
-    tx.commit()?;
     Ok(applied)
 }
 
