@@ -152,6 +152,9 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 47 | Roadmap strip: an open roadmap Round with no live session; Dismiss asks first because it would reject the undecided changes (#133) | ![](critique-2026-10/after/47-roadmap-round-dismiss-light.webp) | ![](critique-2026-10/after/47-roadmap-round-dismiss-dark.webp) |
 | 48 | Waiting on you queue: a roadmap Round, "1 of 4 decided" and Decide, beside an Epic's Round (#133) | ![](critique-2026-10/after/48-queue-roadmap-round-light.webp) | ![](critique-2026-10/after/48-queue-roadmap-round-dark.webp) |
 | 49 | Roadmap strip at the window's minimum width: the band and ghost rows wrap (#133) | ![](critique-2026-10/after/49-roadmap-ghost-rows-min-width-light.webp) | ![](critique-2026-10/after/49-roadmap-ghost-rows-min-width-dark.webp) |
+| 43 | Epic shaping: slicing, the Stories as columns in execution order, ghost columns for proposed Stories, a proposed move on its column and the runs-after brackets between the Stories they link (#127) | ![](critique-2026-10/after/43-epic-shaping-story-columns-light.webp) | ![](critique-2026-10/after/43-epic-shaping-story-columns-dark.webp) |
+| 44 | Epic shaping: Amend opens a proposed Story's title, description and runs-after reason in its ghost column (#127) | ![](critique-2026-10/after/44-epic-shaping-amend-story-light.webp) | ![](critique-2026-10/after/44-epic-shaping-amend-story-dark.webp) |
+| 45 | Epic shaping at the window's minimum width: the Story columns scroll sideways (#127) | ![](critique-2026-10/after/45-epic-shaping-story-columns-min-width-light.webp) | ![](critique-2026-10/after/45-epic-shaping-story-columns-min-width-dark.webp) |
 
 ## How the screens were rendered
 
