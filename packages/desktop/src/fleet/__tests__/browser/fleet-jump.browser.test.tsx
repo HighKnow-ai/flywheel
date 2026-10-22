@@ -98,7 +98,11 @@ async function mountOnFleet(currentProjectId = "proj-A") {
   return view;
 }
 
-const sessionBack = () => document.querySelector<HTMLElement>(".session-back");
+/** The session's Back control, present only while the session surface shows. */
+const sessionBack = () =>
+  document.querySelector("[data-testid='session-feed-scroll']")
+    ? Array.from(document.querySelectorAll<HTMLElement>("header button")).find((b) => b.textContent?.trim() === "Back") ?? null
+    : null;
 const fleetRows = () => document.querySelectorAll("[data-run-id]");
 
 beforeEach(() => {

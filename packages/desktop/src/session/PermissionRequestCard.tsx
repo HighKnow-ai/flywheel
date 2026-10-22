@@ -43,7 +43,6 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ASK_USER_QUESTION_TOOL, questionsFromPayload } from "./feedRows";
 import { QuestionForm, type QuestionPicks } from "./QuestionForm";
-import "./session.css";
 
 export type PermissionRequestCardVariant = "feed" | "compact";
 

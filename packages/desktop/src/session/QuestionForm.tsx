@@ -21,7 +21,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useUiStore, type QuestionDraft } from "../state/uiStore";
-import "./session.css";
 
 /** What the developer picked, keyed by each question's text. */
 export type QuestionPicks = Record<string, string[]>;

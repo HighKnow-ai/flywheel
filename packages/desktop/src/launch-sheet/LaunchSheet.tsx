@@ -21,7 +21,9 @@ import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { useQuery } from "@tanstack/react-query";
 import { startSession, storyGet } from "../adapters/tauri";
 import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
-import "../session/session.css";
+import { Play } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
 const INSTRUCTION_PLACEHOLDER = "Anything else the agent should know for this run? (optional)";
 
@@ -123,76 +125,46 @@ export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
         onPointerDownOutside={handleCancel}
         asChild
       >
-        <div role="presentation" className="launch-scrim">
+        <div role="presentation" className="fixed inset-0 z-50 flex items-center justify-center bg-(--scrim)">
           <div
             role="dialog"
             aria-label="Launch sheet"
             onKeyDown={handleDialogKeyDown}
-            className="launch-sheet"
+            className="flex flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-overlay"
             style={{ width: 640, maxHeight: "80vh" }}
           >
-            <header
-              style={{
-                padding: "var(--space-md)",
-                borderBottom: "1px solid var(--border)",
-                flexShrink: 0,
-              }}
-            >
-              <span className="type-heading">{headerLabel}</span>
+            <header className="shrink-0 border-b border-border px-5 py-4">
+              <span className="text-section font-semibold">{headerLabel}</span>
             </header>
 
-            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--space-md)" }}>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {story && (
-                <section>
-                  <div className="type-label" style={{ color: "var(--muted-foreground)" }}>
-                    Story
-                  </div>
-                  <div className="type-body">{story.title}</div>
+                <section className="flex flex-col gap-1">
+                  <div className="text-meta font-semibold text-muted-foreground">Story</div>
+                  <div className="text-row font-semibold">{story.title}</div>
                 </section>
               )}
-              {error && (
-                <p className="type-body" style={{ color: "var(--destructive-text)" }}>
-                  {error}
-                </p>
-              )}
+              {error && <p className="mt-3 mb-0 text-small text-destructive-text">{error}</p>}
             </div>
 
-            <div
-              style={{
-                flexShrink: 0,
-                borderTop: "1px solid var(--border)",
-                padding: "var(--space-md)",
-                display: "flex",
-                flexDirection: "column",
-                gap: "var(--space-md)",
-              }}
-            >
-              <textarea
+            <div className="flex shrink-0 flex-col gap-4 border-t border-border bg-muted/50 px-5 py-4">
+              <Textarea
                 ref={instructionRef}
                 aria-label="Instruction"
                 placeholder={INSTRUCTION_PLACEHOLDER}
                 value={instruction}
                 onChange={(event) => setInstruction(event.target.value)}
                 rows={3}
-                className="control-edge session-field launch-field type-body"
               />
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-sm)" }}>
-                <button
-                  type="button"
-                  onClick={handleCancel}
-                  className="control-edge session-action type-body"
-                >
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="ghost" onClick={handleCancel}>
                   Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={starting}
-                  className="control-edge session-action session-action-lead type-body"
-                >
+                </Button>
+                <Button type="button" onClick={handleSubmit} disabled={starting}>
+                  <Play aria-hidden="true" />
                   {submitLabel}
-                </button>
+                </Button>
               </div>
             </div>
           </div>

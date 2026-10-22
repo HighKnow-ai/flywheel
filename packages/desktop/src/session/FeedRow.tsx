@@ -42,7 +42,6 @@ import {
   type FeedRowData,
   type QuestionPrompt,
 } from "./feedRows";
-import "./session.css";
 
 export { feedRowText, toolCallLabel, toolCallTarget, type FeedRowData } from "./feedRows";
 
@@ -189,14 +188,14 @@ export function Fields({ value, depth = 0 }: { value: unknown; depth?: number })
     return <span className="text-muted-foreground">none</span>;
   }
   if (typeof value === "string") {
-    return value.includes("\n") ? <pre className="feed-field-text">{value}</pre> : <span>{value}</span>;
+    return value.includes("\n") ? <pre className="m-0 font-mono text-small break-words whitespace-pre-wrap">{value}</pre> : <span>{value}</span>;
   }
   if (typeof value === "number" || typeof value === "boolean") return <span>{String(value)}</span>;
   if (depth >= FIELDS_MAX_DEPTH) return <span>{payloadText(value)}</span>;
   if (Array.isArray(value)) {
     if (value.length === 0) return <span className="text-muted-foreground">none</span>;
     return (
-      <ul className="feed-field-list">
+      <ul className="m-0 list-disc pl-5">
         {value.map((item, i) => (
           <li key={i}>
             <Fields value={item} depth={depth + 1} />
@@ -209,11 +208,11 @@ export function Fields({ value, depth = 0 }: { value: unknown; depth?: number })
     const entries = Object.entries(value as Record<string, unknown>);
     if (entries.length === 0) return <span className="text-muted-foreground">none</span>;
     return (
-      <dl className="feed-fields">
+      <dl className="m-0 flex flex-col gap-1.5">
         {entries.map(([k, v]) => (
-          <div key={k} className="feed-field">
+          <div key={k}>
             <dt className="text-meta font-semibold">{k}</dt>
-            <dd>
+            <dd className="m-0 break-words">
               <Fields value={v} depth={depth + 1} />
             </dd>
           </div>
@@ -226,7 +225,7 @@ export function Fields({ value, depth = 0 }: { value: unknown; depth?: number })
 
 /** A tool's output: text as preformatted text, anything structured as fields. */
 function OutputView({ output }: { output: unknown }) {
-  if (typeof output === "string") return <pre className="feed-field-text">{output || "(no output)"}</pre>;
+  if (typeof output === "string") return <pre className="m-0 font-mono text-small break-words whitespace-pre-wrap">{output || "(no output)"}</pre>;
   return <Fields value={output} />;
 }
 

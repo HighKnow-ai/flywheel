@@ -1,18 +1,13 @@
 /*
- * The app shell's shared rules that screens still name as classes until #107 restyles them on
- * components/ui/. Tokens, type and browser surfaces live in styles/globals.css.
+ * The shared rules the screens outside the M2 flow (Settings, Worktrees, first run, recovery) still name
+ * as classes; the M2 flow is drawn on components/ui/ (#107). Tokens, type and browser surfaces live in
+ * styles/globals.css.
  *
  * Everything here sits in the `base` cascade layer, below Tailwind's utilities, so a shadcn/ui component
  * dropped into a screen is never restyled by a legacy element rule (a bare `button:hover` here would
  * otherwise beat `bg-primary`).
  */
 @layer base {
-  .rack-ground {
-    height: 100%;
-    background: var(--card);
-    color: var(--foreground);
-  }
-
   /* A plain <button> not yet moved onto <Button>: a quiet hover, a dimmed disabled state. */
   button {
     font-family: inherit;
@@ -41,12 +36,7 @@
     border-color: var(--foreground);
   }
 
-  /* A rail row hovers with the sidebar accent, inset because the rows set `background` inline. */
-  .project-rail button:not([aria-current]):hover:not(:disabled) {
-    box-shadow: inset 0 0 0 1000px var(--sidebar-accent);
-  }
-
-  /* The rail's identity mark is ink, masked from the HighKnow glyph. */
+  /* The sidebar's identity mark is ink, masked from the HighKnow glyph. */
   .rail-mark {
     background-color: var(--foreground);
     display: block;

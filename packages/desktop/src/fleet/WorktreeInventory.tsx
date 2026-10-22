@@ -38,6 +38,9 @@ import { MARKS_BY_ID } from "../legend/marks";
 import { formatAge } from "../legend/runStatus";
 import { useWorktreeInventory, worktreeInventoryQueryKey } from "./useFleet";
 import "../styles/admin-surfaces.css";
+import { RefreshCw } from "lucide-react";
+import { PageHeader } from "../shell/PageHeader";
+import { Button } from "@/components/ui/button";
 import "../styles/states-and-confirms.css";
 
 /** Every reason the core's `ReclaimReason` can return, so a test can prove each one has a word. */
@@ -380,22 +383,21 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--foreground)" }}>
-      <header className="admin-header">
-        <button type="button" onClick={onClose} className="type-label admin-back">
-          ← Back
-        </button>
-        <span className="type-heading">WORKTREES</span>
-        <button type="button" className="type-label" disabled={measuring} onClick={() => void remeasure()}>
-          {measuring ? "Measuring…" : "Re-measure sizes"}
-        </button>
-        <span
-          className="type-label tabular-nums"
-          aria-live="polite"
-          style={{ marginLeft: "auto", color: "var(--muted-foreground)" }}
-        >
-          {`${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"}`}
-        </span>
-      </header>
+      <PageHeader
+        onBack={onClose}
+        crumbs={[{ label: "Worktrees" }]}
+        actions={
+          <>
+            <span aria-live="polite" className="text-small text-muted-foreground tabular-nums">
+              {`${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"}`}
+            </span>
+            <Button variant="outline" disabled={measuring} onClick={() => void remeasure()}>
+              <RefreshCw aria-hidden="true" />
+              {measuring ? "Measuring…" : "Re-measure sizes"}
+            </Button>
+          </>
+        }
+      />
       {notice !== null && (
         <p role="status" className="type-label" style={{ padding: "var(--space-xs) var(--space-md)", color: "var(--muted-foreground)" }}>
           {notice}

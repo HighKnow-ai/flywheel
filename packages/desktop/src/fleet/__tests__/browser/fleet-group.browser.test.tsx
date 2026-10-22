@@ -287,7 +287,7 @@ describe.each(WIDTHS)("the fleet surface at %ipx", (width) => {
   it("holds the header count and the estimate footer inside the surface", async () => {
     const container = await mountFleet(stressRows(), width);
     const stage = container.querySelector("[data-stage]") as HTMLElement;
-    const header = container.querySelector("header.admin-header") as HTMLElement;
+    const header = container.querySelector("header") as HTMLElement;
     for (const child of Array.from(header.children)) expectInside(child, header, `header child "${child.textContent}"`);
     const footer = container.querySelector("[data-fleet-footer]") as HTMLElement;
     expectInside(footer, stage, "estimate footer");

@@ -47,6 +47,7 @@ import { useProjects } from "../board/useBoardQuery";
 import { NotificationsControl } from "./NotificationsControl";
 import { PermissionRulesTable } from "./PermissionRulesTable";
 import "../styles/admin-surfaces.css";
+import { PageHeader } from "../shell/PageHeader";
 
 /** The two credential-mode values the schema/commands accept (`commands/settings.rs`'s
  * `validate_mode`) — the exact labels 02-UI-SPEC.md's Copywriting Contract specifies. */
@@ -342,12 +343,7 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--foreground)" }}>
-      <header className="admin-header">
-        <button type="button" onClick={onBack} className="type-label admin-back">
-          ← Back
-        </button>
-        <span className="type-heading">Settings</span>
-      </header>
+      <PageHeader onBack={onBack} crumbs={[{ label: "Settings" }]} />
 
       <div className="admin-body">
         <section className="admin-section">
