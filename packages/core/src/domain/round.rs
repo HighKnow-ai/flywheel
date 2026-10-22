@@ -365,9 +365,9 @@ pub fn post_round(
 
     let round_id = new_id();
     tx.execute(
-        "INSERT INTO rounds (id, stage_id, session_id, number, note, state, held_request_id, posted_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'open', ?6, ?7)",
-        params![round_id, stage.id, session_id, number, round.note.trim(), held_request_id, at],
+        "INSERT INTO rounds (id, project_id, stage_id, session_id, number, note, state, held_request_id, posted_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'open', ?7, ?8)",
+        params![round_id, stage.project_id, stage.id, session_id, number, round.note.trim(), held_request_id, at],
     )
     .context("failed to insert the Round")?;
     for (i, q) in round.questions.iter().enumerate() {
