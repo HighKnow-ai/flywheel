@@ -146,6 +146,71 @@ pub struct EpicShapingDto {
     /// The Epic's accepted ADR and glossary Proposals, oldest first (issue #129): its ADR and
     /// glossary chips before a Story writes them into the repo.
     pub accepted_knowledge: Vec<super::proposal::ProposalDto>,
+    /// What is still open in the open Stage (issue #126): what the Close Stage button lists. `None`
+    /// before shaping has opened a Stage.
+    pub open_stage_status: Option<StageStatusDto>,
+}
+
+/// One item that keeps a Stage open.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenItemDto {
+    /// `question` or `proposal`.
+    pub kind: String,
+    /// The question's or the Proposal's id.
+    pub id: String,
+    /// The item in words: "Question 2 of Round 1 is unanswered: Audience".
+    pub label: String,
+    /// A question's Round and number; `None` for a Proposal.
+    pub round: Option<i64>,
+    pub number: Option<i64>,
+    /// A question's title, or what a Proposal would do ("change the Problem").
+    pub title: String,
+}
+
+/// What is still open in a Stage, and whether the developer may close it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StageStatusDto {
+    pub stage_id: String,
+    pub open_items: Vec<OpenItemDto>,
+    /// Empty spec fields, listed but never blocking.
+    pub warnings: Vec<String>,
+    /// The Stage closing this one opens (`slice`, `criteria`), or `None` for the last Stage.
+    pub next: Option<String>,
+    pub closable: bool,
+}
+
+impl From<flywheel_core::domain::stage::StageStatus> for StageStatusDto {
+    fn from(s: flywheel_core::domain::stage::StageStatus) -> Self {
+        use flywheel_core::domain::stage::OpenItem;
+        Self {
+            closable: s.closable(),
+            stage_id: s.stage.id,
+            open_items: s
+                .open_items
+                .iter()
+                .map(|item| {
+                    let (kind, id, round, number, title) = match item {
+                        OpenItem::Question { question_id, round, number, title, .. } => {
+                            ("question", question_id, Some(*round), Some(*number), title)
+                        }
+                        OpenItem::Proposal { proposal_id, summary } => ("proposal", proposal_id, None, None, summary),
+                    };
+                    OpenItemDto {
+                        kind: kind.to_string(),
+                        id: id.clone(),
+                        label: item.label(),
+                        round,
+                        number,
+                        title: title.clone(),
+                    }
+                })
+                .collect(),
+            warnings: s.warnings,
+            next: s.next.map(|k| k.as_str().to_string()),
+        }
+    }
 }
 
 impl From<flywheel_core::domain::round::Round> for RoundDto {
@@ -205,6 +270,10 @@ pub(crate) fn read_epic_shaping(conn: &Connection, epic_id: &str) -> Result<Epic
     let stages = flywheel_core::domain::stage::stages_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
     let rounds = flywheel_core::domain::round::rounds_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
     let proposals = flywheel_core::domain::proposal::proposals_on_epic(conn, epic_id).map_err(|e| e.to_string())?;
+    let open_stage_status = match stages.iter().find(|s| s.state == "open") {
+        Some(open) => Some(flywheel_core::domain::stage::stage_status(conn, &open.id).map_err(|e| e.to_string())?.into()),
+        None => None,
+    };
     let (accepted, proposals): (Vec<_>, Vec<_>) = proposals.into_iter().partition(|p| p.state == "accepted");
     let adr_links = flywheel_core::domain::adr_link::adr_links_for_project(conn, &epic.project_id)
         .map_err(|e| e.to_string())?
@@ -213,6 +282,7 @@ pub(crate) fn read_epic_shaping(conn: &Connection, epic_id: &str) -> Result<Epic
         .map(|l| l.path)
         .collect();
     Ok(EpicShapingDto {
+        open_stage_status,
         proposals: proposals.into_iter().map(Into::into).collect(),
         adr_links,
         accepted_knowledge: accepted
@@ -359,6 +429,87 @@ pub(crate) fn continue_epic(
         }
     }
     shape_epic(db, epic_id, find_claude, send)
+}
+
+/// What Close Stage did (issue #126): the Stage it opened and the session it started on it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StageCloseDto {
+    pub closed_stage_id: String,
+    pub opened: StageDto,
+    /// The next Stage's shaping session, started from a fresh packet; `None` when it could not start.
+    pub session: Option<ShapingSessionDto>,
+    /// Why the next Stage's session did not start, when it did not. The Stage is closed regardless;
+    /// Shape starts the session.
+    pub launch_error: Option<String>,
+    /// Set when the session that worked the closed Stage was recorded as ended but its process could
+    /// not be confirmed stopped.
+    pub sidecar_warning: Option<String>,
+}
+
+/// Close Stage (issue #126): the developer closes the Epic's open Stage once nothing in it is open,
+/// which opens the next Stage, ends the session that worked the closed one and starts the next
+/// Stage's shaping session from a fresh packet. Human-only: the actor is resolved here, and the core
+/// refuses any other inside its transaction.
+#[tauri::command]
+pub fn stage_close(state: State<AppState>, app: AppHandle, stage_id: String) -> Result<StageCloseDto, String> {
+    let dto = close_stage_and_shape(
+        &state.db,
+        &stage_id,
+        |session_id| match state.sidecar.as_ref() {
+            Some(sidecar) => sidecar.interrupt_run(session_id).map_err(|e| e.to_string()),
+            None => Ok(()),
+        },
+        flywheel_core::login_path::claude_bin,
+        |repo_path, request| send_gated_spawn(&state, repo_path, request),
+    )?;
+    let project_id = project_of_locked(&state.db, "stages", &dto.closed_stage_id);
+    emit_board_changed(&app, project_id.as_deref(), "stage", Some(&dto.closed_stage_id));
+    Ok(dto)
+}
+
+/// [`stage_close`]'s body, driven without a Tauri app handle. The close is one core transaction
+/// (`stage::close_stage`): it refuses while anything is open and ends the live session in the same
+/// write. Only once that has committed and the lock is released is the ended session's process
+/// interrupted (which may block on the sidecar), then the next Stage's session started as Shape
+/// starts one. A session that cannot start leaves the Stage closed and says why.
+pub(crate) fn close_stage_and_shape(
+    db: &std::sync::Mutex<Connection>,
+    stage_id: &str,
+    interrupt: impl FnOnce(&str) -> Result<(), String>,
+    find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
+    send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
+) -> Result<StageCloseDto, String> {
+    let closed = {
+        let mut conn = db.lock().map_err(|e| e.to_string())?;
+        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        flywheel_core::domain::stage::close_stage(&mut conn, &human, stage_id).map_err(|e| format!("{e:#}"))?
+    };
+    let sidecar_warning = closed.ended_session.as_deref().and_then(|id| interrupt(id).err()).map(|e| {
+        format!("Flywheel recorded the last Stage's session as ended, but could not confirm its agent process stopped: {e}")
+    });
+    let opened = StageDto {
+        id: closed.opened.id.clone(),
+        kind: closed.opened.kind.as_str().to_string(),
+        state: closed.opened.state.clone(),
+        rank: closed.opened.rank,
+    };
+    let (session, launch_error) = match &closed.opened.epic_id {
+        Some(epic_id) => match shape_epic(db, epic_id, find_claude, send) {
+            Ok(id) => (
+                Some(ShapingSessionDto {
+                    id,
+                    epic_id: epic_id.clone(),
+                    status: "running".to_string(),
+                    permission_mode: SessionKind::Shaping.launch_policy().permission_mode.to_string(),
+                }),
+                None,
+            ),
+            Err(why) => (None, Some(why)),
+        },
+        None => (None, None),
+    };
+    Ok(StageCloseDto { closed_stage_id: closed.closed.id, opened, session, launch_error, sidecar_warning })
 }
 
 /// [`epic_shape`]'s body, driven without a Tauri app handle. `find_claude` runs before anything is
@@ -780,6 +931,99 @@ mod tests {
             let run = flywheel_core::query::sessions::run_by_id(&db.lock().unwrap(), &run_id).unwrap().unwrap();
             assert_eq!(run.story_id, None);
             assert_eq!(run.status, "running");
+        });
+    }
+
+    fn open_status(db: &std::sync::Mutex<Connection>, epic_id: &str) -> StageStatusDto {
+        read_epic_shaping(&db.lock().unwrap(), epic_id).unwrap().open_stage_status.expect("an open Stage")
+    }
+
+    /// Issue #126: the view lists what is open in the Stage, and Close Stage is refused until nothing is.
+    #[test]
+    fn the_view_lists_what_is_open_and_close_stage_is_refused_until_nothing_is() {
+        with_scratch(|| {
+            let (db, epic_id, _checkout) = shaping_epic();
+            assert!(read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap().open_stage_status.is_none(), "no Stage before Shape");
+            let run_id = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
+            answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-1", "round_post", &round_args());
+
+            let status = open_status(&db, &epic_id);
+            assert!(!status.closable);
+            assert_eq!(status.next.as_deref(), Some("slice"));
+            let labels: Vec<&str> = status.open_items.iter().map(|i| i.label.as_str()).collect();
+            assert_eq!(
+                labels,
+                ["Question 1 of Round 1 is unanswered: Audience", "Question 2 of Round 1 is unanswered: Surface"]
+            );
+            assert_eq!(status.warnings.len(), 3, "Problem, Scope and Exit test are empty: {:?}", status.warnings);
+
+            let err = close_stage_and_shape(&db, &status.stage_id, |_| panic!("nothing to interrupt"), found_claude, |_, _| {
+                panic!("nothing may be spawned")
+            })
+            .unwrap_err();
+            assert!(err.contains("Question 2 of Round 1 is unanswered: Surface"), "{err}");
+            assert_eq!(flywheel_core::domain::session::live_shaping_session(&db.lock().unwrap(), &ShapingSubject::Epic(epic_id.clone())).unwrap(), Some(run_id));
+        });
+    }
+
+    /// Closing the Stage ends the session that worked it, interrupts its process once the close has
+    /// committed, and starts the next Stage's session from a packet that names it.
+    #[test]
+    fn close_stage_opens_the_next_stage_and_starts_its_session_from_a_fresh_packet() {
+        with_scratch(|| {
+            let (db, epic_id, _checkout) = shaping_epic();
+            let first = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
+            let stage_id = open_status(&db, &epic_id).stage_id;
+
+            let mut interrupted = None;
+            let mut sent = None;
+            let dto = close_stage_and_shape(
+                &db,
+                &stage_id,
+                |session| {
+                    let conn = db.lock().expect("the lock is released before the interrupt");
+                    let status: String =
+                        conn.query_row("SELECT status FROM sessions WHERE id = ?1", [session], |r| r.get(0)).unwrap();
+                    interrupted = Some((session.to_string(), status));
+                    Ok(())
+                },
+                found_claude,
+                |_, request| {
+                    sent = Some(request.clone());
+                    Ok(())
+                },
+            )
+            .expect("Close Stage");
+
+            assert_eq!(interrupted, Some((first.clone(), "interrupted".to_string())), "recorded first, then interrupted");
+            assert_eq!((dto.opened.kind.as_str(), dto.opened.rank), ("slice", 2));
+            assert_eq!(dto.launch_error, None);
+            assert_eq!(dto.sidecar_warning, None);
+            let next = dto.session.expect("the next Stage's session started");
+            assert_ne!(next.id, first);
+            let prompt = sent.expect("one spawn")["prompt"].as_str().unwrap().to_string();
+            assert!(prompt.contains("This session works the second Stage, Slice into Stories"), "{prompt}");
+
+            let view = read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap();
+            let stages: Vec<(&str, &str)> = view.stages.iter().map(|s| (s.kind.as_str(), s.state.as_str())).collect();
+            assert_eq!(stages, [("challenge_spec", "closed"), ("slice", "open")]);
+        });
+    }
+
+    #[test]
+    fn a_next_session_that_cannot_start_leaves_the_stage_closed_and_says_why() {
+        with_scratch(|| {
+            let (db, epic_id, _checkout) = shaping_epic();
+            shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
+            let stage_id = open_status(&db, &epic_id).stage_id;
+            let dto = close_stage_and_shape(&db, &stage_id, |_| Err("sidecar gone".into()), found_claude, |_, _| {
+                Err("spawn boom".to_string())
+            })
+            .expect("the close itself succeeds");
+            assert!(dto.session.is_none());
+            assert!(dto.launch_error.as_deref().is_some_and(|e| e.contains("spawn boom")), "{:?}", dto.launch_error);
+            assert!(dto.sidecar_warning.as_deref().is_some_and(|w| w.contains("sidecar gone")), "{:?}", dto.sidecar_warning);
+            assert_eq!(open_status(&db, &epic_id).next.as_deref(), Some("criteria"), "the Slice Stage is open");
         });
     }
 }

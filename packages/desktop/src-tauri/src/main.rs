@@ -164,6 +164,7 @@ fn main() {
             commands::shaping::round_answer,
             commands::shaping::round_accept_all,
             commands::shaping::shaping_continue,
+            commands::shaping::stage_close,
             commands::story::story_create,
             commands::story::story_drop,
             commands::story::story_list,

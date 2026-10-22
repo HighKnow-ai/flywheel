@@ -23,7 +23,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCheck, Hand, MessagesSquare } from "lucide-react";
-import { roundAccept, roundAcceptAll, roundAnswer, type EpicDto, type RoundDto } from "../adapters/tauri";
+import { roundAccept, roundAcceptAll, roundAnswer, type EpicDto, type RoundDto, type StageDto } from "../adapters/tauri";
 import { ContinueShapingButton } from "../board/EpicShapingControl";
 import { QuestionCard } from "./QuestionCard";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,12 @@ export const STAGE_LABELS: Record<string, string> = {
 export interface RoundDockProps {
   /** Every Round of the record, oldest first. */
   rounds: RoundDto[];
+  /**
+   * The open Stage (issue #126): only one of its Rounds is current, so a Stage just opened starts with no
+   * Round, and the closed Stages' Rounds are earlier ones, named with their Stage. Left out, the newest Round
+   * is current.
+   */
+  openStage?: StageDto | null;
   /** Whether a shaping session is live on the record: before its first Round, it is reading. */
   sessionLive: boolean;
   /** The project and the Epic being shaped, for Continue shaping on an open Round with no live session. */
@@ -58,29 +64,23 @@ function reason(err: unknown): string {
   return String(err);
 }
 
-export function RoundDock({ rounds, sessionLive, projectId, epic, queryKey, show = "all", className }: RoundDockProps) {
+export function RoundDock({
+  rounds,
+  openStage,
+  sessionLive,
+  projectId,
+  epic,
+  queryKey,
+  show = "all",
+  className,
+}: RoundDockProps) {
   const queryClient = useQueryClient();
   const refresh = () => queryClient.invalidateQueries({ queryKey });
-
-  if (rounds.length === 0) {
-    if (show === "earlier") return null;
-    return (
-      <section
-        aria-label="Rounds"
-        className={cn("flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card px-5 py-6 shadow-card", className)}
-      >
-        <h2 className="m-0 text-section font-semibold">No Round yet</h2>
-        <p className="m-0 max-w-[60ch] text-body text-muted-foreground">
-          {sessionLive
-            ? "The agent is reading the Epic and the code it touches. Its first Round lands here."
-            : "Shape this Epic to start a shaping session. The agent's first Round lands here."}
-        </p>
-      </section>
-    );
-  }
-
-  const current = rounds[rounds.length - 1];
-  const earlier = rounds.slice(0, -1).reverse();
+  const newest = rounds[rounds.length - 1];
+  const current = newest && (openStage === undefined || newest.stageId === openStage?.id) ? newest : null;
+  const earlier = (current ? rounds.slice(0, -1) : rounds).slice().reverse();
+  // A Round of a Stage already closed is named with its Stage: each Stage numbers its Rounds from 1.
+  const closedStage = (round: RoundDto) => openStage !== undefined && round.stageId !== openStage?.id;
   const accept = async (id: string) => {
     await roundAccept(id);
     await refresh();
@@ -95,6 +95,7 @@ export function RoundDock({ rounds, sessionLive, projectId, epic, queryKey, show
       round={round}
       sessionLive={sessionLive}
       resume={<ContinueShapingButton projectId={projectId} epic={epic} />}
+      stageShown={closedStage(round)}
       onAccept={accept}
       onAnswer={answer}
       onAcceptAll={refresh}
@@ -103,15 +104,28 @@ export function RoundDock({ rounds, sessionLive, projectId, epic, queryKey, show
 
   if (show === "earlier") {
     if (earlier.length === 0) return null;
-    return (
-      <div className={cn("flex min-w-0 flex-col gap-4", className)}>
-        {earlier.map(card)}
-      </div>
-    );
+    return <div className={cn("flex min-w-0 flex-col gap-4", className)}>{earlier.map(card)}</div>;
   }
+  const stageName = openStage && earlier.length > 0 ? ` in ${STAGE_LABELS[openStage.kind] ?? openStage.kind}` : "";
   return (
     <div className={cn("flex min-w-0 flex-col gap-4", className)}>
-      {card(current)}
+      {current ? (
+        card(current)
+      ) : (
+        <section
+          aria-label="Rounds"
+          className="flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card px-5 py-6 shadow-card"
+        >
+          <h2 className="m-0 text-section font-semibold">No Round yet{stageName}</h2>
+          <p className="m-0 max-w-[60ch] text-body text-muted-foreground">
+            {sessionLive
+              ? "The agent is reading the Epic and the code it touches. Its first Round lands here."
+              : earlier.length > 0
+                ? "No session is working this Stage. Continue shaping starts one; its first Round lands here."
+                : "Shape this Epic to start a shaping session. The agent's first Round lands here."}
+          </p>
+        </section>
+      )}
       {show === "all" && earlier.map(card)}
     </div>
   );
@@ -121,6 +135,7 @@ function RoundCard({
   round,
   sessionLive,
   resume,
+  stageShown,
   onAccept,
   onAnswer,
   onAcceptAll,
@@ -129,6 +144,8 @@ function RoundCard({
   sessionLive: boolean;
   /** Continue shaping, drawn on the band of an open Round with no live shaping session. */
   resume: React.ReactNode;
+  /** Name the Round's Stage beside its number: it belongs to a Stage already closed. */
+  stageShown: boolean;
   onAccept: (id: string) => Promise<void>;
   onAnswer: (id: string, text: string) => Promise<void>;
   onAcceptAll: () => Promise<unknown>;
@@ -178,7 +195,11 @@ function RoundCard({
         {waiting ? <Hand aria-hidden="true" /> : <MessagesSquare aria-hidden="true" className="text-muted-foreground" />}
         <h2 id={headingId} className="m-0 min-w-0 truncate text-row font-bold">
           Round {round.number}
-          <span className="sr-only">, {stage}</span>
+          {stageShown ? (
+            <span className="font-semibold text-muted-foreground"> · {stage}</span>
+          ) : (
+            <span className="sr-only">, {stage}</span>
+          )}
         </h2>
         <span className={cn("ml-auto min-w-0 text-right text-small font-semibold", !waiting && "text-muted-foreground")}>
           {waiting

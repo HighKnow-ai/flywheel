@@ -76,12 +76,11 @@ changes until they decide, so keep shaping without waiting for it.
 
 An Epic is shaped in three Stages, one after another: challenge the spec, slice it into Stories, \
 write the Acceptance criteria. The developer closes each Stage; nothing advances on its own. This \
-session works the first Stage, Challenge the spec: probe the problem, the scope, what is out of scope \
-and the exit test until each is clear, small enough to ship as one Epic and observable. Do not slice \
-the Epic into Stories or write criteria yet.
+session works the {ordinal} Stage, {stage}: {purpose}
 
 The Stage is done when its frontier is empty: every branch of the tree visited, nothing left silently \
-assumed. Say so, and leave closing the Stage to the developer.
+assumed. Say so, and leave closing the Stage to the developer. A closed Stage stays closed: its \
+answers are settled, and a later session never reopens it.
 ";
 
 /// The closing instruction for a Stage with no Round yet: `{stage}` is the open Stage's label.
@@ -129,12 +128,22 @@ pub fn build_epic_shaping_packet(conn: &Connection, epic_id: &str) -> anyhow::Re
         conn.query_row("SELECT repo_path FROM projects WHERE id = ?1", params![epic.project_id], |r| r.get(0))?;
     let checkout = PathBuf::from(repo_path);
 
+    // Issue #126: the instructions follow the open Stage. Before shaping starts there is none yet,
+    // and the first one, Challenge the spec, is what starting opens.
+    let stage = open_stage(conn, &ShapingSubject::Epic(epic.id.clone()))?;
+    let stage_kind = stage.as_ref().map_or(StageKind::ChallengeSpec, |s| s.kind);
+
     let mut out = String::new();
     writeln!(out, "# Shaping packet: Epic {} {}", epic.key, epic.title)?;
 
     // 1. Standing instructions
     section(&mut out, "Standing instructions");
-    out.push_str(STANDING_INSTRUCTIONS);
+    out.push_str(
+        &STANDING_INSTRUCTIONS
+            .replace("{ordinal}", stage_kind.ordinal())
+            .replace("{stage}", stage_kind.label())
+            .replace("{purpose}", stage_kind.purpose()),
+    );
 
     // 2. Milestone (one line) and the Epic spec in full
     section(&mut out, "Milestone and Epic");
@@ -210,8 +219,6 @@ pub fn build_epic_shaping_packet(conn: &Connection, epic_id: &str) -> anyhow::Re
 
     // 6. Closing instruction: wait on the open Round, post the next one, or post the first
     section(&mut out, "Closing instruction");
-    let stage = open_stage(conn, &ShapingSubject::Epic(epic.id.clone()))?;
-    let stage_kind = stage.as_ref().map_or(StageKind::ChallengeSpec, |s| s.kind);
     let in_stage: Vec<&Round> =
         rounds.iter().filter(|r| stage.as_ref().is_some_and(|s| s.id == r.stage_id)).collect();
     let closing = match in_stage.iter().find(|r| r.state == "open") {

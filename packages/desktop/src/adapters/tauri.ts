@@ -333,6 +333,55 @@ export interface EpicShapingDto {
   adrLinks?: string[];
   /** The Epic's accepted ADR and glossary Proposals (issue #129): chips until a Story writes them. */
   acceptedKnowledge?: ProposalDto[];
+  /** What is still open in the open Stage (issue #126), or `null` before shaping has opened one. */
+  openStageStatus?: StageStatusDto | null;
+}
+
+/** One thing that keeps a Stage open — mirrors `commands/shaping.rs`'s `OpenItemDto`. */
+export interface OpenItemDto {
+  /** `question` or `proposal`. */
+  kind: string;
+  /** The question's or the Proposal's id. */
+  id: string;
+  /** The item in words: "Question 2 of Round 1 is unanswered: Audience". */
+  label: string;
+  /** A question's Round and number; `null` for a Proposal. */
+  round: number | null;
+  number: number | null;
+  /** A question's title, or what a Proposal would do ("change the Problem"). */
+  title: string;
+}
+
+/** What is still open in a Stage — mirrors `commands/shaping.rs`'s `StageStatusDto`. */
+export interface StageStatusDto {
+  stageId: string;
+  /** Unanswered questions, then undecided Proposals. The Stage closes only once this is empty. */
+  openItems: OpenItemDto[];
+  /** Empty spec fields: listed, never blocking. */
+  warnings: string[];
+  /** The Stage closing this one opens, or `null` for the last Stage. */
+  next: string | null;
+  closable: boolean;
+}
+
+/** What Close Stage did — mirrors `commands/shaping.rs`'s `StageCloseDto`. */
+export interface StageCloseDto {
+  closedStageId: string;
+  opened: StageDto;
+  /** The next Stage's shaping session, or `null` when it could not start (`launchError` says why). */
+  session: ShapingSessionDto | null;
+  launchError: string | null;
+  /** Set when the closed Stage's session was recorded as ended but its process could not be confirmed stopped. */
+  sidecarWarning: string | null;
+}
+
+/**
+ * Close Stage (issue #126): close the Epic's open Stage once nothing in it is open, open the next one and start
+ * its shaping session from a fresh packet. Human-only; refused while anything is open, the refusal naming each
+ * item.
+ */
+export async function stageClose(stageId: string): Promise<StageCloseDto> {
+  return invokeCommand<StageCloseDto>("stage_close", { stageId });
 }
 
 /** The Epic's Stages and Rounds (issue #123): what the Round dock shows. Read-only. */

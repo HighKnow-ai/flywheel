@@ -17,11 +17,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { page, userEvent } from "vitest/browser";
-import { clearMocks } from "@tauri-apps/api/mocks";
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { queryClient } from "../../adapters/queryClient";
+import type { EpicShapingDto } from "../../adapters/tauri";
 import { resetUiState } from "../../state/uiStore";
 import App from "../../App";
-import { installFixtureBackend, offerAdrsInShaping, setShapingSessionLive } from "./m2-fixture";
+import { answer, installFixtureBackend, offerAdrsInShaping, setShapingSessionLive } from "./m2-fixture";
 
 const SCHEME = import.meta.env.VITE_CRITIQUE_SCHEME as string | undefined;
 const OUT = "../../../../../target/critique-2026-10";
@@ -44,6 +45,59 @@ async function boardReady() {
   await settle();
 }
 
+/**
+ * Issue #126: FLY-8 with its Challenge Stage settled: Round 2 answered, no spec change left pending (the
+ * rejected one stays struck through), so nothing keeps the Stage open and Close Stage is enabled.
+ */
+function closableShaping({ closed = false } = {}) {
+  mockIPC(
+    (cmd, payload) => {
+      const base = answer(cmd, payload as Record<string, unknown> | undefined);
+      if (closed && cmd === "epic_shaping_session") return null;
+      // Every Round is answered, so FLY-8 waits on no one: no lamp, no Needs-you count, no attention pill.
+      if (cmd === "fleet_waiting_rounds") return [];
+      if (cmd === "board_blocked_summary" && base) {
+        const summary = base as { blockedStoryIds: string[]; waitingEpicIds: string[] };
+        return { ...summary, waitingEpicIds: [], blockedCount: summary.blockedStoryIds.length };
+      }
+      if (cmd === "milestone_progress" && base) {
+        const progress = base as { epics: { epicId: string; attention: string | null }[] };
+        return { ...progress, epics: progress.epics.map((e) => (e.epicId === "e-59" ? { ...e, attention: null } : e)) };
+      }
+      if (cmd !== "epic_shaping_rounds" || !base) return base;
+      const shaping = base as EpicShapingDto;
+      // `closed`: Close Stage was clicked, and the Slice Stage is open with no Round yet.
+      const stages = closed
+        ? [
+            { ...shaping.stages[0], state: "closed" },
+            { id: "st-2", kind: "slice", state: "open", rank: 2 },
+          ]
+        : shaping.stages;
+      return {
+        ...shaping,
+        stages,
+        rounds: shaping.rounds.map((r) => ({
+          ...r,
+          state: "answered",
+          waitingOnYou: false,
+          answeredAt: r.answeredAt ?? r.postedAt,
+          questions: r.questions.map((q) => ({
+            ...q,
+            answer: q.answer ?? q.recommendedAnswer,
+            answeredWith: q.answeredWith ?? "recommended",
+            answeredAt: q.answeredAt ?? r.postedAt,
+          })),
+        })),
+        proposals: shaping.proposals.filter((p) => p.state !== "pending"),
+        openStageStatus: closed
+          ? { stageId: "st-2", openItems: [], warnings: ["The Exit test is not written yet"], next: "criteria", closable: true }
+          : shaping.openStageStatus && { ...shaping.openStageStatus, openItems: [], closable: true },
+      };
+    },
+    { shouldMockEvents: true },
+  );
+}
+
 async function click(label: string | RegExp) {
   await userEvent.click(await screen.findByRole("button", { name: label }));
 }
@@ -57,6 +111,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     resetUiState();
     queryClient.clear();
     setShapingSessionLive(true);
+    offerAdrsInShaping(false);
     installFixtureBackend();
   });
   afterEach(() => {
@@ -364,6 +419,55 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
       const adr = await screen.findByRole("group", { name: "Question 5: Record the Stage close" });
       adr.scrollIntoView({ block: "start" });
       await shot("35-epic-shaping-adr-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
+  it("38 Epic shaping: the Stage bar lists what keeps the Stage open (issue #126)", async () => {
+    offerAdrsInShaping(true);
+    await boardReady();
+    await click("Answer the Round on FLY-8");
+    await screen.findByRole("list", { name: "Still open" });
+    await shot("38-epic-shaping-stage-bar-open");
+  });
+
+  it("39 Epic shaping: nothing open, Close Stage is the next action (issue #126)", async () => {
+    offerAdrsInShaping(true);
+    closableShaping();
+    await boardReady();
+    await click("Open FLY-8 Epic shaping and its Rounds");
+    await screen.findByText(/Nothing in Challenge the spec is open/);
+    await shot("39-epic-shaping-stage-closable");
+  });
+
+  it("40 Epic shaping: confirming Close Stage (issue #126)", async () => {
+    offerAdrsInShaping(true);
+    closableShaping();
+    await boardReady();
+    await click("Open FLY-8 Epic shaping and its Rounds");
+    await click("Close Stage");
+    await screen.findByRole("alertdialog");
+    await shot("40-epic-shaping-close-stage-confirm");
+  });
+
+  it("42 Epic shaping: the Slice Stage just opened, the Challenge Rounds below it (issue #126)", async () => {
+    offerAdrsInShaping(true);
+    closableShaping({ closed: true });
+    await boardReady();
+    await click("Open FLY-8 Epic shaping and its Rounds");
+    await screen.findByRole("heading", { name: "No Round yet in Slice into Stories" });
+    await shot("42-epic-shaping-slice-opened");
+  });
+
+  it("41 Epic shaping at the window's minimum width: the Stage bar with open items (issue #126)", async () => {
+    offerAdrsInShaping(true);
+    await page.viewport(900, 900);
+    try {
+      await boardReady();
+      await click("Answer the Round on FLY-8");
+      await screen.findByRole("list", { name: "Still open" });
+      await shot("41-epic-shaping-stage-bar-min-width");
     } finally {
       await page.viewport(1440, 900);
     }
