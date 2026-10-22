@@ -6,7 +6,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { StoryView } from "../StoryView";
+import { StoryView, stationTail } from "../StoryView";
+import { buildFeedRows } from "../../session/feedRows";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { RunSummaryDto, StoryDto } from "../../adapters/tauri";
 
@@ -97,6 +98,25 @@ describe("the agent station (Story #118)", () => {
     expect(lines[3]).toHaveTextContent("npm test");
     expect(lines[3]).toHaveTextContent(/running · /);
     expect(station.innerHTML).not.toContain("mcp__");
+  });
+
+  it("names the session and the agent's pace: session n, how long, last activity", async () => {
+    sessionsForStory.mockResolvedValue([LIVE, { ...LIVE, id: "ses-old", endedAt: "2026-10-19T08:00:00Z" }]);
+    renderStory();
+    const station = await screen.findByRole("region", { name: "Live agent" });
+    expect(await within(station).findByText(/^Session 2 · .+ · last activity .+ ago$/)).toBeInTheDocument();
+  });
+
+  it("interleaves the agent's newest turn among the calls, one line, at most one", () => {
+    const rows = buildFeedRows([
+      call("x1", "Read", { file_path: "a.ts" }),
+      ev({ type: "assistant_text", text: "Old turn." }),
+      call("x2", "Read", { file_path: "b.ts" }),
+      ev({ type: "assistant_text", text: "**Found it.** Moving the check first.\n\nMore." }),
+      call("x3", "Bash", { command: "npm test" }),
+    ]);
+    const tail = stationTail(rows);
+    expect(tail.map((row) => row.kind)).toEqual(["tool_call", "tool_call", "assistant_text", "tool_call"]);
   });
 
   it("stops the live session only after the developer confirms, and opens nothing", async () => {

@@ -13,9 +13,10 @@ export type ToolKind = "read" | "edit" | "write" | "run" | "search" | "web" | "b
 
 /**
  * A metric's tone. `failed` is a call that reported failure: it stays neutral ink, told apart by its icon
- * and word. `failed-check` is a failed Check, the one failure that is red (direction.md § Colour).
+ * and word. `failed-check` is a failed Check, the one failure that is red (direction.md § Colour). `ok` is a
+ * command that finished cleanly, set in ink like the mockup's "passed" (never green: there is none).
  */
-export type MetricTone = "neutral" | "failed" | "failed-check";
+export type MetricTone = "neutral" | "ok" | "failed" | "failed-check";
 
 export interface ToolMetric {
   text: string;
@@ -91,6 +92,18 @@ function splitMcp(toolName: string): { server: string; tool: string } | null {
 }
 
 const words = (name: string) => name.replace(/[_-]+/g, " ").trim();
+
+/** A camel-case tool name in words: `ExitPlanMode` → "exit plan mode". */
+const camelWords = (name: string) => words(name.replace(/([a-z])([A-Z])/g, "$1 $2")).toLowerCase();
+
+/** A search pattern as a person reads it: quoted, the common regex escapes undone (`\(` → `(`), and the
+ * place searched when one was given (`“Dropped” in GLOSSARY.md`). */
+function searchTarget(input: Record<string, unknown>): string {
+  const pattern = str(input.pattern).replace(/\\([()[\]{}.*+?^$|\\/])/g, "$1");
+  const scope = str(input.path).split("/").filter(Boolean).pop() ?? str(input.glob);
+  const where = scope || str(input.glob);
+  return where ? `“${pattern}” in ${where}` : `“${pattern}”`;
+}
 
 /** A tool's name fit to print: a built-in tool as itself, an MCP tool as "server · tool" in words. */
 export function toolDisplayName(toolName: string): string {
@@ -222,15 +235,28 @@ export function describeToolCall(call: ToolCallInput): ToolCallDescription {
         metrics: failed.length > 0 ? failed : [{ text: plural(lineCount(str(input.content)), "line"), tone: "neutral" }],
       };
     case "Bash":
-      return code("Ran", "Running", "run", str(input.command), [{ text: "exit 0", tone: "neutral" }]);
+      // Claude Code marks a non-zero exit as an error, so a clean answer is a clean exit.
+      return code("Ran", "Running", "run", str(input.command), [{ text: "done", tone: "ok" }]);
+    case "BashOutput":
+      return code("Read output", "Reading output", "run", str(input.bash_id) || str(input.shell_id), []);
+    case "KillShell":
+    case "KillBash":
+      return code("Stopped command", "Stopping command", "run", str(input.shell_id) || str(input.bash_id), []);
+    case "LS":
+      return code("Listed", "Listing", "read", str(input.path), []);
     case "Grep":
     case "Glob": {
       const lines = text.split("\n").filter((line) => line.trim() !== "");
       const none = lines.length === 0 || /^No (files|matches) found/i.test(lines[0]);
-      return code("Searched", "Searching", "search", str(input.pattern), [
+      return code("Searched", "Searching", "search", searchTarget(input), [
         { text: none ? "no results" : plural(lines.length, "result"), tone: "neutral" },
       ]);
     }
+    case "ExitPlanMode":
+      return { ...code("Proposed plan", "Proposing plan", "other", "", []), targetIsCode: false };
+    case "Skill":
+    case "SlashCommand":
+      return { ...code("Used", "Using", "other", str(input.skill) || str(input.command) || words(camelWords(call.toolName)), []), targetIsCode: false };
     case "WebFetch":
       return code("Fetched", "Fetching", "web", str(input.url), []);
     case "WebSearch":
@@ -243,8 +269,11 @@ export function describeToolCall(call: ToolCallInput): ToolCallDescription {
     case "AskUserQuestion":
       return { ...code("Asked", "Asking", "question", "a question", []), targetIsCode: false };
     default: {
-      const target = str(input.command) || str(input.file_path) || str(input.path) || str(input.pattern) || str(input.url) || str(input.description);
-      return code(call.toolName, call.toolName, "other", target, []);
+      // A tool this module does not know: "Used", and the tool's name in words as what it used, so no
+      // camel-case tool name ever sits in the verb column.
+      const subject = str(input.file_path) || str(input.path) || str(input.description);
+      const name = camelWords(call.toolName);
+      return { ...code("Used", "Using", "other", subject ? `${name} · ${subject}` : name, []), targetIsCode: false };
     }
   }
 }

@@ -47,10 +47,10 @@ describe("a tool call", () => {
 
   it("is one compact row: a plain verb, its target and its metrics, the output hidden until expanded", () => {
     const { container } = renderRow({ ...call, startedAt: "2026-10-19T10:00:00.000Z", endedAt: "2026-10-19T10:00:41.000Z" });
-    expect(screen.getByRole("button", { name: "Ran · npm test, exit 0" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "Ran · npm test, done" })).toHaveAttribute("aria-expanded", "false");
     expect(container.querySelector(".feed-call-verb")?.textContent).toBe("Ran");
     const metrics = [...(container.querySelector(".feed-call-metrics")?.children ?? [])].map((el) => el.textContent);
-    expect(metrics).toEqual(["exit 0", "41s"]);
+    expect(metrics).toEqual(["done", "41s"]);
     expect(container.textContent).not.toContain("5 passed");
   });
 

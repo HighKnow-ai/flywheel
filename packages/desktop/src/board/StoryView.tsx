@@ -8,10 +8,10 @@
  * session and what it is doing, with Open session (or Answer, while it waits on you). Opening a Story never
  * opens its session: the live agent opens only from that control; past sessions open from "Open feed".
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bot, CircleCheck, ListChecks, Terminal } from "lucide-react";
-import { blockedSummary, storyGet, type StoryDto } from "../adapters/tauri";
+import { blockedSummary, sessionsForStory, storyGet, type StoryDto } from "../adapters/tauri";
 import { CriteriaList, checkPasses, useCriteria } from "./CriteriaList";
 import {
   AnswerControl,
@@ -125,47 +125,127 @@ function Count({ done, total, label }: { done: number; total: number; label: str
   );
 }
 
-/** How many of the agent's last tool calls the station shows: enough to read its pace at a glance. */
+/** How many lines the station's live tail shows: enough to read the agent's pace at a glance. */
 export const STATION_TAIL_LENGTH = 4;
 
-/** The live tail: the agent's last few tool calls, worded as the feed words them, the one in flight
- * with its running clock. Read from the same windowed log the session feed reads, so the two agree. */
-function LiveTail({ sessionId, waitingOnYou }: { sessionId: string; waitingOnYou: boolean }) {
-  const feedQuery = useSessionFeed(sessionId);
-  const rows = useMemo(
-    () => buildFeedRows(feedQuery.data?.pages.flatMap((page) => page.entries) ?? []),
-    [feedQuery.data],
-  );
-  const calls = rows.filter((row): row is Extract<FeedRowData, { kind: "tool_call" }> => row.kind === "tool_call");
-  const tail = calls.slice(-STATION_TAIL_LENGTH);
+type CallRow = Extract<FeedRowData, { kind: "tool_call" }>;
+type TurnRow = Extract<FeedRowData, { kind: "assistant_text" }>;
+
+/**
+ * The live tail's lines, oldest first: the agent's last tool calls and, when it came among them, its
+ * newest turn, as the mockup's station interleaves them. At most one turn, so the calls keep the room.
+ */
+export function stationTail(rows: FeedRowData[], length = STATION_TAIL_LENGTH): (CallRow | TurnRow)[] {
+  const tail: (CallRow | TurnRow)[] = [];
+  let sawTurn = false;
+  for (let i = rows.length - 1; i >= 0 && tail.length < length; i -= 1) {
+    const row = rows[i];
+    if (row.kind === "tool_call") tail.unshift(row);
+    else if (row.kind === "assistant_text" && !sawTurn && row.text.trim() !== "") {
+      sawTurn = true;
+      tail.unshift(row);
+    }
+  }
+  return tail;
+}
+
+/** A turn as one plain line: its first non-empty line, with markdown's emphasis and code marks removed. */
+function turnLine(text: string): string {
+  const line = text.split("\n").find((l) => l.trim() !== "") ?? "";
+  return line.replace(/[*_`]+/g, "").replace(/^\s*[-#>]+\s*/, "").trim();
+}
+
+/** Re-renders every second, for the station's "last activity" age. */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
+/** The live tail: the last few lines of the session, worded as the feed words them, the call in flight
+ * with its running clock. On graphite the list takes the `dark` scope, so running ink and a failed Check's
+ * red read in their dark-ground values (direction.md § Colour: the brand hue is lifted on dark grounds). */
+function LiveTail({ rows, waitingOnYou }: { rows: FeedRowData[]; waitingOnYou: boolean }) {
+  const tail = stationTail(rows);
   // While the session waits on you, the unanswered call is held, not running: it never wears the clock.
   const liveKey = waitingOnYou ? null : findLiveCallKey(rows);
   if (tail.length === 0) return null;
   return (
     <ol
       aria-label="Last tool calls"
-      className={cn("m-0 flex list-none flex-col border-t px-0 pt-1.5", waitingOnYou ? "border-border" : "border-white/15")}
+      className={cn(
+        "m-0 flex list-none flex-col border-t px-0 pt-1.5",
+        waitingOnYou ? "border-border" : "dark border-white/15 text-strip-foreground",
+      )}
     >
-      {tail.map((row) => (
-        <li key={row.key} className="flex min-w-0 items-center gap-2.5 py-1" data-live={row.key === liveKey ? "true" : undefined}>
-          <ToolCallLine row={row} live={row.key === liveKey} surface={waitingOnYou ? "card" : "strip"} />
-        </li>
-      ))}
+      {tail.map((row) =>
+        row.kind === "tool_call" ? (
+          <li key={row.key} className="flex min-w-0 items-center gap-2.5 py-1" data-live={row.key === liveKey ? "true" : undefined}>
+            <ToolCallLine row={row} live={row.key === liveKey} surface={waitingOnYou ? "card" : "strip"} />
+          </li>
+        ) : (
+          <li key={row.key} className="flex min-w-0 items-center gap-2.5 py-1" data-turn="true">
+            <Bot aria-hidden="true" size={16} className={cn("shrink-0", waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground")} />
+            <span className={cn("min-w-0 flex-1 truncate text-small", waitingOnYou ? "text-foreground" : "text-strip-foreground")}>
+              {turnLine(row.text)}
+            </span>
+          </li>
+        ),
+      )}
     </ol>
   );
 }
 
 /**
- * The live agent on this Story, as the Andon mockup's station: what it is doing and since when, the way
- * into its session (Open session, or Answer while it waits on you), Stop, and the live tail of its last
- * tool calls. Graphite while the agent works; the yellow tint while it waits on you.
+ * The live agent on this Story, as the Andon mockup's station: what it is doing, its session and pace
+ * (session n · how long · last activity), the way into its session (Open session, or Answer while it waits
+ * on you), Stop, and the live tail. Graphite while the agent works; the yellow tint while it waits on you.
  */
 function AgentStation({ projectId, story, waitingOnYou }: { projectId: string; story: StoryDto; waitingOnYou: boolean }) {
   const live = useLiveSession(projectId, story);
-  const tasks = useStoryTasks(projectId, story.id).data ?? [];
   if (!live) return null;
+  return <LiveStation projectId={projectId} story={story} sessionId={live.id} startedAt={live.startedAt} waitingOnYou={waitingOnYou} />;
+}
+
+function LiveStation({
+  projectId,
+  story,
+  sessionId,
+  startedAt,
+  waitingOnYou,
+}: {
+  projectId: string;
+  story: StoryDto;
+  sessionId: string;
+  startedAt: string;
+  waitingOnYou: boolean;
+}) {
+  const tasks = useStoryTasks(projectId, story.id).data ?? [];
+  // The same read as the session list, so the ordinal matches what it shows (newest first).
+  const sessions = useQuery({
+    queryKey: ["board", projectId, "sessions", story.id],
+    queryFn: () => sessionsForStory(story.id),
+  }).data ?? [];
+  const feedQuery = useSessionFeed(sessionId);
+  const entries = useMemo(() => feedQuery.data?.pages.flatMap((page) => page.entries) ?? [], [feedQuery.data]);
+  const rows = useMemo(() => buildFeedRows(entries), [entries]);
+  const now = useNow();
   const doing = tasks.find((task) => task.state === "doing");
   const pulse = !waitingOnYou && !prefersReducedMotion();
+  const index = sessions.findIndex((session) => session.id === sessionId);
+  const ordinal = index >= 0 ? sessions.length - index : null;
+  // The newest entry of any kind is the agent's last sign of life, rows or not (a heartbeat counts).
+  const lastActivityAt = [...entries].reverse().find((entry) => typeof entry.at === "string")?.at as string | undefined;
+  const pace = [
+    ordinal ? `Session ${ordinal}` : "Live session",
+    formatAge(startedAt, now),
+    lastActivityAt ? `last activity ${formatAge(lastActivityAt, now)} ago` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <section
       aria-label="Live agent"
@@ -188,15 +268,13 @@ function AgentStation({ projectId, story, waitingOnYou }: { projectId: string; s
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="text-row font-semibold">{doing ? doing.title : "Reading the Story and the code it touches"}</span>
-          <span className={cn("flex flex-wrap items-center gap-2 text-small", waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground")}>
+          <span
+            className={cn("flex flex-wrap items-center gap-2 text-small tabular-nums", waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground")}
+            title={`Started ${formatWhen(startedAt)}`}
+          >
             <StateBadge state={waitingOnYou ? "waiting_on_you" : "running"} pulse={pulse} className="h-5.5 text-meta" />
-            {`Live session since ${formatWhen(live.startedAt)}, ${formatAge(live.startedAt, Date.now())} ago`}
+            {pace}
           </span>
-          {doing?.note && (
-            <span className={cn("line-clamp-2 text-small", waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground")}>
-              {doing.note}
-            </span>
-          )}
         </div>
         <span className="flex shrink-0 items-center gap-2">
           {waitingOnYou ? (
@@ -204,10 +282,10 @@ function AgentStation({ projectId, story, waitingOnYou }: { projectId: string; s
           ) : (
             <OpenSessionControl projectId={projectId} story={story} variant="default" />
           )}
-          <StopControl story={story} sessionId={live.id} onStrip={!waitingOnYou} />
+          <StopControl story={story} sessionId={sessionId} onStrip={!waitingOnYou} />
         </span>
       </div>
-      <LiveTail sessionId={live.id} waitingOnYou={waitingOnYou} />
+      <LiveTail rows={rows} waitingOnYou={waitingOnYou} />
     </section>
   );
 }

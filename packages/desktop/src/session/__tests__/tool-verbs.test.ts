@@ -49,7 +49,7 @@ describe("describeToolCall: Claude Code's own tools", () => {
       liveVerb: "Running",
       target: "npm test",
       targetIsCode: true,
-      metrics: [{ text: "exit 0", tone: "neutral" }],
+      metrics: [{ text: "done", tone: "ok" }],
     });
     expect(describeToolCall({ toolName: "Bash", input: { command: "npm test" }, output: "Exit code 2\nFAIL", isError: true }).metrics).toEqual([
       { text: "exit 2", tone: "failed" },
@@ -67,7 +67,7 @@ describe("describeToolCall: Claude Code's own tools", () => {
     expect(describeToolCall({ toolName: "Grep", input: { pattern: "foo", path: "src" }, output: "a.ts:1\nb.ts:2\n" })).toMatchObject({
       kind: "search",
       verb: "Searched",
-      target: "foo",
+      target: "“foo” in src",
       metrics: [{ text: "2 results", tone: "neutral" }],
     });
     expect(describeToolCall({ toolName: "Glob", input: { pattern: "*.ts" }, output: "No files found" }).metrics).toEqual([
@@ -83,7 +83,23 @@ describe("describeToolCall: Claude Code's own tools", () => {
   });
 
   it("names an unknown built-in tool by its own name", () => {
-    expect(describeToolCall({ toolName: "ExitPlanMode", input: {} })).toMatchObject({ kind: "other", verb: "ExitPlanMode" });
+    expect(describeToolCall({ toolName: "FancyNewTool", input: {} })).toMatchObject({ kind: "other", verb: "Used", target: "fancy new tool" });
+  });
+
+  it("gives the other built-in tools a plain verb too", () => {
+    expect(describeToolCall({ toolName: "ExitPlanMode", input: {} }).verb).toBe("Proposed plan");
+    expect(describeToolCall({ toolName: "BashOutput", input: { bash_id: "b1" } }).verb).toBe("Read output");
+    expect(describeToolCall({ toolName: "KillShell", input: { shell_id: "b1" } }).verb).toBe("Stopped command");
+    expect(describeToolCall({ toolName: "LS", input: { path: "src" } })).toMatchObject({ verb: "Listed", target: "src" });
+    expect(describeToolCall({ toolName: "Skill", input: { skill: "tdd" } })).toMatchObject({ verb: "Used", target: "tdd" });
+  });
+
+  it("quotes a search pattern, undoes its regex escapes, and names where it looked", () => {
+    expect(describeToolCall({ toolName: "Grep", input: { pattern: "setActiveSessionId\\(", path: "packages/desktop/src" } }).target).toBe(
+      "“setActiveSessionId(” in src",
+    );
+    expect(describeToolCall({ toolName: "Grep", input: { pattern: "Dropped", path: "GLOSSARY.md" } }).target).toBe("“Dropped” in GLOSSARY.md");
+    expect(describeToolCall({ toolName: "Glob", input: { pattern: "*.ts" } }).target).toBe("“*.ts”");
   });
 });
 

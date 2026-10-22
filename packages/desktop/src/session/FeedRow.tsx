@@ -172,7 +172,7 @@ function RunningFor({
   const nowMs = now ?? ticked;
   const seconds = runningSeconds(startedAt, heartbeatSeconds, nowMs);
   return (
-    <span className={cn("feed-call-state ml-auto shrink-0 font-sans text-meta font-semibold tabular-nums", className)} data-state="running">
+    <span className={cn("feed-call-state shrink-0 font-sans text-meta font-semibold tabular-nums", className)} data-state="running">
       {`running · ${formatDuration(seconds)}`}
     </span>
   );
@@ -264,11 +264,12 @@ function CallMetrics({ metrics, seconds, surface }: { metrics: ToolMetric[]; sec
           className={cn(
             "inline-flex items-center gap-1",
             metric.tone !== "neutral" && "font-semibold",
-            metric.tone === "failed" && (onStrip ? "text-strip-foreground" : "text-foreground"),
-            metric.tone === "failed-check" && (onStrip ? "text-strip-foreground" : "text-destructive-text"),
+            (metric.tone === "failed" || metric.tone === "ok") && (onStrip ? "text-strip-foreground" : "text-foreground"),
+            // On the strip the line sits in a `dark` scope, so this is the red lifted for a dark ground.
+            metric.tone === "failed-check" && "text-destructive-text",
           )}
         >
-          {metric.tone !== "neutral" && (
+          {(metric.tone === "failed" || metric.tone === "failed-check") && (
             <CircleX aria-hidden="true" size={14} className={cn(metric.tone === "failed-check" && "text-destructive")} />
           )}
           {metric.text}
@@ -318,21 +319,13 @@ export function ToolCallLine({
         {described.target}
       </span>
       {live ? (
-        <>
-          <RunningFor
-            startedAt={row.startedAt}
-            heartbeatSeconds={row.elapsedSeconds}
-            now={now}
-            className={onStrip ? "text-strip-foreground" : "text-running"}
-          />
-          {/* The live mark: the running icon after the call. Under reduced motion the pulse class is
-              omitted, so it is a plain, fully legible mark and never frozen mid-cycle. */}
-          <LoaderCircle
-            aria-hidden="true"
-            size={15}
-            className={cn("feed-caret shrink-0", onStrip ? "text-primary" : "text-running", !prefersReducedMotion() && "agent-pulse")}
-          />
-        </>
+        // The live mark leads the clock, as the mockup's live dot does, so the clock right-aligns with the
+        // durations above it. Running ink: on the strip the line's `dark` scope lifts it to the dark blue.
+        // Under reduced motion the pulse class is omitted, so the mark is plain and never frozen mid-cycle.
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 text-running">
+          <LoaderCircle aria-hidden="true" size={15} className={cn("feed-caret shrink-0", !prefersReducedMotion() && "agent-pulse")} />
+          <RunningFor startedAt={row.startedAt} heartbeatSeconds={row.elapsedSeconds} now={now} />
+        </span>
       ) : (
         <CallMetrics metrics={described.metrics} seconds={toolCallSeconds(row.startedAt, row.endedAt)} surface={surface} />
       )}
