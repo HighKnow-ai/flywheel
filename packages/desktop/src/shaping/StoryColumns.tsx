@@ -35,7 +35,7 @@ const MAX_TITLE_LEN = 500;
 const MAX_DESCRIPTION_LEN = 20_000;
 const MAX_RUNS_AFTER_REASON_LEN = 500;
 /** A column's width; the brackets above the columns meet their centres, half of it in. */
-const COLUMN_WIDTH = "15rem";
+const COLUMN_WIDTH = "17.5rem";
 
 /** A New Story Proposal's payload (`proposal_apply::NewStory`). */
 interface NewStoryPayload {
@@ -86,6 +86,12 @@ function reason(err: unknown): string {
   return String(err);
 }
 
+/** One end of a bracket: a Story by its key, a pending Story by its column number in a dashed chip. */
+interface ColumnRef {
+  number: number;
+  key: string | null;
+}
+
 interface Constraint {
   key: string;
   /** 1-based column of the Story it runs after. */
@@ -94,6 +100,10 @@ interface Constraint {
   to: number;
   /** How the Story it runs after is named. */
   fromName: string;
+  /** The two ends as the bracket draws them: the Story that waits, then the one it runs after. */
+  ends: [ColumnRef, ColumnRef];
+  /** The Story that waits is placed before the one it runs after: said, never refused. */
+  earlier: boolean;
   sentence: string;
   reason: string;
   provisional: boolean;
@@ -139,6 +149,11 @@ export function StoryColumns({ stories, proposals, queryKey, className }: StoryC
         from,
         to: index + 1,
         fromName: shortName(target),
+        ends: [
+          { number: index + 1, key: column.kind === "story" ? column.story.key : null },
+          { number: from, key: target.kind === "story" ? target.story.key : null },
+        ] as [ColumnRef, ColumnRef],
+        earlier: from > index + 1,
         sentence: `${shortName(column)} runs after ${shortName(target)}${earlier}`,
         reason: why ?? "",
         provisional,
@@ -247,8 +262,17 @@ function Bracket({ constraint }: { constraint: Constraint }) {
       style={{ gridColumn: `${left} / ${right + 1}` }}
       title={constraint.reason ? `${constraint.sentence}: ${constraint.reason}` : constraint.sentence}
     >
-      <span className="flex min-w-0 flex-1 items-center justify-center gap-1 px-2 text-meta">
-        <span className={cn("shrink-0 font-semibold", provisional ? "text-running" : "text-foreground")}>{constraint.sentence}</span>
+      <span className="sr-only">
+        {constraint.sentence}
+        {constraint.reason ? `: ${constraint.reason}` : ""}
+      </span>
+      <span aria-hidden="true" className="flex min-w-0 flex-1 items-center justify-center gap-1.5 px-2 text-meta">
+        <span className={cn("flex shrink-0 items-center gap-1.5", provisional ? "text-running" : "text-foreground")}>
+          <End end={constraint.ends[0]} />
+          <span className="font-semibold">runs after</span>
+          <End end={constraint.ends[1]} />
+          {constraint.earlier && <span className="text-muted-foreground">yet comes first</span>}
+        </span>
         {constraint.reason && (
           <>
             <span aria-hidden="true" className="shrink-0 text-subtle-foreground">
@@ -274,6 +298,10 @@ function Bracket({ constraint }: { constraint: Constraint }) {
       </span>
     </li>
   );
+}
+
+function End({ end }: { end: ColumnRef }) {
+  return end.key ? <span className="font-mono text-small text-foreground">{end.key}</span> : <NumberChip number={end.number} ghost />;
 }
 
 function NumberChip({ number, ghost }: { number: number; ghost?: boolean }) {
@@ -620,7 +648,7 @@ function GhostColumn({
       )}
 
       {mode === "idle" && (
-        <div className="flex flex-wrap items-center gap-x-1 gap-y-2">
+        <div className="flex items-center gap-1">
           <Button variant="outline" size="sm" disabled={busy} aria-label={`Accept ${name}`} onClick={() => void decide(() => proposalAccept(proposal.id))}>
             <Check aria-hidden="true" />
             {busy ? "Saving…" : "Accept"}
