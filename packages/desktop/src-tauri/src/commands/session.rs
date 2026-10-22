@@ -302,6 +302,8 @@ pub(crate) fn spawn_request_in(
         "allowedTools": policy.allowed_tools,
         "disallowedTools": policy.disallowed_tools,
         "permissionPrompt": policy.raises_requests,
+        // The board's MCP server lists each kind only its own tools (issue #123).
+        "sessionKind": kind.as_str(),
         "env": env,
     })
 }
@@ -2118,6 +2120,7 @@ mod tests {
         );
         assert_eq!(request["disallowedTools"], serde_json::json!([]));
         assert_eq!(request["permissionPrompt"], true);
+        assert_eq!(request["sessionKind"], "story");
     }
 
     /// Issue #92: the spawn request carries the Story kind's MCP tool timeouts in its env, over
@@ -2138,9 +2141,17 @@ mod tests {
         let request = spawn_request(&outcome_for_request(), &std::collections::HashMap::new(), SessionKind::Shaping);
         assert_eq!(request["permissionMode"], "dontAsk");
         assert_eq!(request["permissionPrompt"], false);
-        assert_eq!(request["allowedTools"], serde_json::json!(["Read", "Glob", "Grep"]));
+        assert_eq!(request["sessionKind"], "shaping", "the board server lists it the shaping tools");
+        assert_eq!(
+            request["allowedTools"],
+            serde_json::json!(["Read", "Glob", "Grep", "mcp__flywheel-board__round_post"])
+        );
         let denied: Vec<String> = serde_json::from_value(request["disallowedTools"].clone()).unwrap();
         assert!(denied.iter().any(|t| t == "Bash"), "{denied:?}");
+        // Issue #123: held on its Round, it waits past Claude Code's MCP tool timeouts.
+        for (name, value) in SessionKind::Shaping.launch_policy().env {
+            assert_eq!(request["env"][name], value, "{name}");
+        }
     }
 
     #[test]

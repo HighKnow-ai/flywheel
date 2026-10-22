@@ -14,7 +14,12 @@ import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 
 import { buildClaudeArgv, ClaudeCodeAdapter } from "../dist/claude-code-adapter.js";
-import { BOARD_TOOL_NAMES, MCP_SERVER_NAME, PERMISSION_TOOL_NAME } from "../dist/mcp-permission-server.js";
+import {
+  MCP_SERVER_NAME,
+  PERMISSION_TOOL_NAME,
+  SHAPING_TOOL_DEFINITIONS,
+  SHAPING_TOOL_NAMES,
+} from "../dist/mcp-permission-server.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.env.FLYWHEEL_CLAUDE_BIN = path.join(__dirname, "fake-claude.mjs");
@@ -84,6 +89,7 @@ test("a shaping session reaches the board's MCP server and is never wired to the
     allowedTools: ["Read", "Glob", "Grep"],
     disallowedTools: ["Bash", "Edit", "Write", "NotebookEdit", "AskUserQuestion"],
     permissionPrompt: false,
+    sessionKind: "shaping",
     env: {
       FLYWHEEL_FAKE_ECHO_ARGV: "1",
       FLYWHEEL_FAKE_CALL_TASK_TOOL: JSON.stringify({ name: "task_list", arguments: {} }),
@@ -99,14 +105,100 @@ test("a shaping session reaches the board's MCP server and is never wired to the
   assert.equal(argv[argv.indexOf("--permission-mode") + 1], "dontAsk");
   assert.equal(argv[argv.indexOf("--disallowedTools") + 1], "Bash,Edit,Write,NotebookEdit,AskUserQuestion");
 
-  // The backend connects to the board server and sees its tools.
+  // The backend connects to the board server and sees the shaping tools, and only them: no
+  // permission prompt, no Task tool, no hand-off.
   await waitForCondition(() => unknownLines(events, "task_tools_listed").length === 1);
-  assert.deepEqual(unknownLines(events, "task_tools_listed")[0].names, ["approve_action", ...BOARD_TOOL_NAMES]);
+  assert.deepEqual(unknownLines(events, "task_tools_listed")[0].names, [...SHAPING_TOOL_NAMES]);
+
+  // A Story board tool is not this server's to relay for a shaping session: refused at once, and
+  // nothing reaches the core.
+  await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
+  assert.equal(unknownLines(events, "task_tool_result")[0].isError, true);
+  assert.ok(!events.some((e) => e.type === "board_tool_request"), "nothing was relayed");
+  await session;
+});
+
+const ROUND = {
+  note: "This Round settles who the Epic is for.",
+  questions: [
+    {
+      title: "Audience",
+      question: "Is the Epic for the developer alone?",
+      grounding: "Read GLOSSARY.md, Developer",
+      recommended_answer: "Yes, the one developer",
+      because: "The MVP has one user",
+    },
+  ],
+};
+
+test("round_post is listed to a shaping session with what each question carries", () => {
+  assert.deepEqual([...SHAPING_TOOL_NAMES], ["round_post"]);
+  const post = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "round_post");
+  assert.deepEqual(post.inputSchema.required, ["note", "questions"]);
+  assert.deepEqual(post.inputSchema.properties.questions.items.required, [
+    "title",
+    "question",
+    "grounding",
+    "recommended_answer",
+    "because",
+  ]);
+  assert.match(post.description, /waits until every question is answered/);
+});
+
+test("round_post is relayed as a held board_tool_request, answered only when the core answers", async () => {
+  const adapter = new ClaudeCodeAdapter();
+  const events = [];
+  const runId = "shaping-run-round";
+  const session = adapter.startSession({
+    runId,
+    worktreePath: process.cwd(),
+    prompt: "shape the Epic",
+    permissionMode: "dontAsk",
+    allowedTools: ["Read", "Glob", "Grep", `mcp__${MCP_SERVER_NAME}__round_post`],
+    permissionPrompt: false,
+    sessionKind: "shaping",
+    env: { FLYWHEEL_FAKE_CALL_TASK_TOOL: JSON.stringify({ name: "round_post", arguments: ROUND }) },
+    onEvent: (event) => events.push(event),
+  });
+
+  await waitForCondition(() => unknownLines(events, "task_tools_listed").length === 1);
+  assert.ok(unknownLines(events, "task_tools_listed")[0].names.includes("round_post"));
 
   await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
   const request = events.find((e) => e.type === "board_tool_request");
-  adapter.resolveBoardTool(runId, request.requestId, undefined, "a shaping session has no Story");
+  assert.equal(request.tool, "round_post");
+  assert.deepEqual(request.args, ROUND, "the Round reaches the core untouched");
+  assert.equal(typeof request.requestId, "string");
+
+  // Held: nothing reaches the agent while the developer answers.
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(unknownLines(events, "task_tool_result").length, 0, "the call is held until the core answers");
+
+  const answers = { round: 1, answers: [{ number: 1, answer: "Yes, the one developer", answered_with: "recommended" }] };
+  adapter.resolveBoardTool(runId, request.requestId, answers);
+  await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
+  const result = unknownLines(events, "task_tool_result")[0];
+  assert.equal(result.isError, false);
+  assert.deepEqual(JSON.parse(result.text), answers);
+  await session;
+});
+
+test("a Story session's board server does not list round_post, and refuses it unrelayed", async () => {
+  const adapter = new ClaudeCodeAdapter();
+  const events = [];
+  const session = adapter.startSession({
+    runId: "story-run-no-round",
+    worktreePath: process.cwd(),
+    prompt: "work the Story",
+    permissionMode: "acceptEdits",
+    sessionKind: "story",
+    env: { FLYWHEEL_FAKE_CALL_TASK_TOOL: JSON.stringify({ name: "round_post", arguments: ROUND }) },
+    onEvent: (event) => events.push(event),
+  });
+  await waitForCondition(() => unknownLines(events, "task_tools_listed").length === 1);
+  assert.ok(!unknownLines(events, "task_tools_listed")[0].names.includes("round_post"));
   await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
   assert.equal(unknownLines(events, "task_tool_result")[0].isError, true);
+  assert.ok(!events.some((e) => e.type === "board_tool_request"), "nothing was relayed");
   await session;
 });

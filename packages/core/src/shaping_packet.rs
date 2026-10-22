@@ -46,18 +46,15 @@ every decision branches into the decisions that hang off it.
 Work the tree in Rounds. The frontier is every decision whose prerequisites are already settled: the \
 questions you can ask now without guessing at answers you have not heard yet. Ask the whole frontier \
 in one Round, then wait for the developer's answers before the next Round. A Round is a one-paragraph \
-note on what it settles, then the numbered questions. Each question carries a grounding line (what \
-you read that raised it), your recommended answer and a one-line reason for it. Word each question so \
-\"yes\" accepts your recommended answer. Post a Round as your reply, in this format:
+note on what it settles, then the numbered questions. Each question carries a short title, a grounding \
+line (what you read that raised it), your recommended answer and a one-line reason for it. Word each \
+question so \"yes\" accepts your recommended answer.
 
-~~~
-Round <n>: <the note>
-
-Q1. <question title>: <the question, with its choices if it has any>
-Grounding: <what you read>
-Recommended: <your recommended answer>
-Because: <one line>
-~~~
+Post each Round with the `round_post` tool. The developer answers it on the board, question by \
+question, accepting your recommendation or writing their own, and every answer is saved as it is \
+given. The call waits until the developer has answered every question, however long that takes, then \
+answers with every answer in order. Never ask a Round's questions in your reply: a question asked \
+there reaches nobody.
 
 Each Round the developer answers reshapes the tree: settled decisions push the frontier outward and \
 unblock the questions that hung on them. Recompute the frontier and ask the next Round. A question \
@@ -79,7 +76,7 @@ assumed. Say so, and leave closing the Stage to the developer.
 
 const CLOSING_INSTRUCTION: &str = "\
 Read the Epic above, then whatever in the repository, the ADRs and the glossary it touches. Then post \
-the first Round of the Challenge the spec Stage.
+the first Round of the Challenge the spec Stage with `round_post`.
 ";
 
 /// The words for an Epic state (GLOSSARY.md "Epic state").
