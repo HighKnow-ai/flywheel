@@ -22,6 +22,7 @@ pub mod project;
 pub mod proposal;
 pub mod roadmap;
 pub mod settings;
+pub mod shaping;
 pub mod story;
 pub mod task;
 pub mod worktree_open;
