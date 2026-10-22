@@ -17,10 +17,16 @@ function TooltipProvider({
   )
 }
 
+/* Each tooltip carries its own provider (as shadcn's current template does), so a component that uses one
+ * renders on its own, in a test or a story, without the app shell's provider above it. */
 function Tooltip({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+  return (
+    <TooltipProvider delayDuration={400}>
+      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+    </TooltipProvider>
+  )
 }
 
 function TooltipTrigger({

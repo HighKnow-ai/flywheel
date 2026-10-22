@@ -23,6 +23,11 @@
  *   all: it renders as the question form (`QuestionForm.tsx`), with no Allow, no Deny, no pattern and
  *   no keyboard shortcut, and is answered through `onAnswerQuestion`.
  *
+ * **Drawn as Waiting on you** (direction.md § Colour): every request card wears the safety-yellow header,
+ * because each one holds a live agent until the developer answers. A request's Allow once is the attention
+ * button; on a Gated action Deny leads as the filled neutral (ink) and Allow once is outline, so
+ * approve-by-muscle-memory lands on the safe answer.
+ *
  * **Not dismissible — deliberately, and this is the one place in the whole product that departs
  * from the shared Escape ladder** (`state/keyboard.ts`'s own doc comment on `EscapeLayer`,
  * T-02-16). This file owns no local key handler and no dismissable-layer wrapper — closing the
@@ -30,13 +35,14 @@
  * shortcuts (`a`/`d`/Shift+A) resolve through `state/keyboard.ts`'s shared `useRegionBindings`
  * hook, which ignores keys typed into the pattern field.
  */
-import { useId, useRef, useState, type FormEvent } from "react";
-import { Icon } from "../components/Icon";
-import { MARKS_BY_ID } from "../legend/marks";
+import { createContext, useContext, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Check, KeyRound, MessageCircleQuestionMark, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { useRegionBindings } from "../state/keyboard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { ASK_USER_QUESTION_TOOL, questionsFromPayload } from "./feedRows";
 import { QuestionForm, type QuestionPicks } from "./QuestionForm";
-import "./session.css";
 
 export type PermissionRequestCardVariant = "feed" | "compact";
 
@@ -233,7 +239,6 @@ function PermissionRequestRow({
   const [pattern, setPattern] = useState<string>(request.suggestedRule ?? request.toolName);
   const patternId = useId();
   const isGated = request.destructiveCategory !== null;
-  const glyph = MARKS_BY_ID[isGated ? "destructive-gate" : "blocked-indicator"];
   const consequenceCopy = isGated ? consequenceCopyFor(request.destructiveCategory as string, request.inputPayload) : null;
   // A Bash call shows the literal command it would run; any other tool shows its raw input.
   const literal = commandFromPayload(request.inputPayload) ?? request.inputPayload ?? "";
@@ -294,140 +299,154 @@ function PermissionRequestRow({
   );
 
   const payloadMaxHeight = variant === "compact" ? 160 : 240;
-  const mono = "var(--font-code)";
 
   return (
-    <div
+    <RequestFrame
       role="group"
-      aria-label={`${request.toolName} wants to:`}
-      className={`session-card${isGated ? " session-card-destructive" : ""}`}
+      ariaLabel={`${request.toolName} wants to:`}
+      card={isGated ? "gated" : "permission"}
+      icon={isGated ? <ShieldAlert /> : <KeyRound />}
+      title={isGated ? "Gated action — needs your OK every time" : "Permission request"}
+      aside={isGated ? "No rule can cover it" : "The session waits until you answer"}
     >
-      {isGated && (
-        <span className="type-heading" style={{ color: "var(--destructive-text)" }}>
-          Gated action — needs your OK every time
-        </span>
-      )}
+      {/* A long tool name truncates; the card never widens for it. */}
+      <span
+        className="min-w-0 text-row font-semibold"
+        title={`${request.toolName} wants to:`}
+        style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+      >
+        {request.toolName} wants to:
+      </span>
 
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
-        <span
-          aria-hidden="true"
-          style={{
-            color: isGated ? "var(--destructive-text)" : "var(--foreground)",
-            flexShrink: 0,
-            display: "inline-flex",
-          }}
-        >
-          <Icon name={glyph?.glyph ?? "ShieldAlert"} />
-        </span>
-        <span
-          className="type-heading"
-          title={`${request.toolName} wants to:`}
-          style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        >
-          {request.toolName} wants to:
-        </span>
-      </div>
-
+      {/* A long branch name in the sentence wraps rather than being cut. */}
       {consequenceCopy && (
-        <p className="type-body" style={{ margin: 0, overflowWrap: "anywhere" }}>
+        <p className="m-0 text-body" style={{ overflowWrap: "anywhere" }}>
           {consequenceCopy}
         </p>
       )}
 
+      {/* A large payload scrolls inside a bounded block. */}
       <pre
-        className="type-body"
         data-field="literal"
-        style={{
-          margin: 0,
-          fontFamily: mono,
-          whiteSpace: "pre-wrap",
-          overflowWrap: "anywhere",
-          maxHeight: payloadMaxHeight,
-          overflowY: "auto",
-          color: "var(--foreground)",
-        }}
+        className="m-0 rounded-md border border-border bg-muted px-3 py-2 font-mono text-small whitespace-pre-wrap text-foreground"
+        style={{ maxHeight: payloadMaxHeight, overflowY: "auto", overflowWrap: "anywhere" }}
       >
         {literal}
       </pre>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
-        <div style={{ display: "flex", gap: "var(--space-sm)" }}>
+      <div className="flex flex-col gap-3">
+        <div className="flex gap-2">
           {isGated ? (
             <>
-              {/* Reversed emphasis: Deny takes the lead position a request's Allow once occupies,
-                  so approve-by-muscle-memory lands on the safe answer. */}
-              <button
-                type="button"
-                disabled={state.answering}
-                onClick={() => void answer("deny")}
-                className="control-edge session-action session-action-lead session-action-destructive type-body"
-              >
+              {/* Reversed emphasis: Deny leads, filled in ink, where a request's Allow once sits, so
+                  approve-by-muscle-memory lands on the safe answer. */}
+              <Button variant="neutral" disabled={state.answering} onClick={() => void answer("deny")}>
+                <X aria-hidden="true" />
                 Deny
-              </button>
-              <button
-                type="button"
-                disabled={state.answering}
-                onClick={() => void answer("allow")}
-                className="control-edge session-action type-body"
-              >
+              </Button>
+              <Button variant="outline" disabled={state.answering} onClick={() => void answer("allow")}>
+                <Check aria-hidden="true" />
                 Allow once
-              </button>
+              </Button>
             </>
           ) : (
             <>
-              <button
-                type="button"
-                disabled={state.answering}
-                onClick={() => void answer("allow")}
-                className="control-edge session-action session-action-lead type-body"
-              >
+              <Button variant="attention" disabled={state.answering} onClick={() => void answer("allow")}>
+                <Check aria-hidden="true" />
                 Allow once
-              </button>
-              {/* Deny is the quiet answer: text and a caret, no box. */}
-              <button
-                type="button"
-                disabled={state.answering}
-                onClick={() => void answer("deny")}
-                className="session-text-action type-body"
-              >
+              </Button>
+              <Button variant="ghost" disabled={state.answering} onClick={() => void answer("deny")}>
+                <X aria-hidden="true" />
                 Deny
-                <span aria-hidden="true">›</span>
-              </button>
+              </Button>
             </>
           )}
         </div>
-        {/* The standing rule is absent from a Gated action's card — never rendered-and-disabled —
-            because no rule may ever cover one. It sits below a hairline gutter, away from the two
-            quick answers, with its pattern pre-filled and editable. */}
+        {/* The standing rule is absent from a Gated action's card, never rendered-and-disabled, because no
+            rule may ever cover one. It sits below a rule, away from the two quick answers, with its pattern
+            pre-filled and editable. */}
         {!isGated && (
-          <form className="session-grant session-grant-form" onSubmit={submitRule}>
-            <label htmlFor={patternId} className="type-label session-grant-label">
+          <form className="flex flex-col gap-1.5 border-t border-border pt-3" onSubmit={submitRule}>
+            <label htmlFor={patternId} className="text-small font-semibold text-muted-foreground">
               Pattern
             </label>
-            <input
-              id={patternId}
-              value={pattern}
-              onChange={(e) => setPattern(e.target.value)}
-              disabled={state.answering}
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              className="control-edge session-field session-grant-pattern type-body"
-              style={{ fontFamily: mono }}
-            />
-            <button type="submit" disabled={state.answering} className="session-text-action type-label">
-              Always allow this pattern <strong>in this project</strong>
-              <span aria-hidden="true">›</span>
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                id={patternId}
+                value={pattern}
+                onChange={(e) => setPattern(e.target.value)}
+                disabled={state.answering}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                className="min-w-56 flex-1 font-mono text-small"
+              />
+              <Button type="submit" variant="outline" disabled={state.answering}>
+                <ShieldCheck aria-hidden="true" />
+                Always allow this pattern <span className="font-bold">in this project</span>
+              </Button>
+            </div>
           </form>
         )}
       </div>
 
       {state.error && (
-        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text)", overflowWrap: "anywhere" }}>
+        <p role="alert" className="m-0 text-small break-words text-destructive-text">
           {state.error}
         </p>
       )}
+    </RequestFrame>
+  );
+}
+
+/** Whether a request sits inside the session's own card. There it is a band across the card's full width
+ * (a yellow header and two yellow rules), never a card inside a card; on the floor (Waiting on you) it is
+ * its own card. */
+export const RequestInCard = createContext(false);
+
+/** The frame every request shares: Waiting on you's yellow header (its icon, its title, a note on the
+ * right), then the body. */
+function RequestFrame({
+  role,
+  ariaLabel,
+  card,
+  icon,
+  title,
+  aside,
+  children,
+}: {
+  role: "group";
+  ariaLabel: string;
+  card: string;
+  icon: ReactNode;
+  title: string;
+  aside?: string;
+  children: ReactNode;
+}) {
+  const inCard = useContext(RequestInCard);
+  return (
+    <div
+      role={role}
+      aria-label={ariaLabel}
+      data-card={card}
+      className={cn(
+        "session-card min-w-0 overflow-hidden border-attention bg-card",
+        inCard ? "-mx-5 border-y-2" : "rounded-lg border-2 shadow-card",
+      )}
+    >
+      <div
+        className={cn(
+          "flex items-center gap-2.5 bg-attention py-2.5 text-attention-foreground [&_svg]:size-[18px] [&_svg]:shrink-0",
+          inCard ? "px-5" : "px-4",
+        )}
+      >
+        <span aria-hidden="true" className="flex">
+          {icon}
+        </span>
+        <span className="text-row font-bold">{title}</span>
+        {aside && <span className="ml-auto text-small font-semibold">{aside}</span>}
+      </div>
+      <div className={cn("flex min-w-0 flex-col gap-3 py-4", inCard ? "px-5" : "px-4")}>{children}</div>
     </div>
   );
 }
@@ -441,27 +460,25 @@ function QuestionRequestRow({
   onAnswerQuestion?: (requestId: string, picks: QuestionPicks) => Promise<void>;
 }) {
   const questions = questionsFromPayload(request.inputPayload);
-  const glyph = MARKS_BY_ID["blocked-indicator"];
   return (
-    <div role="group" aria-label="The agent has a question" className="session-card" data-card="question">
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
-        <span aria-hidden="true" style={{ color: "var(--foreground)", flexShrink: 0, display: "inline-flex" }}>
-          <Icon name={glyph?.glyph ?? "ShieldAlert"} />
-        </span>
-        <span className="type-heading">
-          {questions.length > 1 ? `The agent has ${questions.length} questions` : "The agent has a question"}
-        </span>
-      </div>
+    <RequestFrame
+      role="group"
+      ariaLabel="The agent has a question"
+      card="question"
+      icon={<MessageCircleQuestionMark />}
+      title={questions.length > 1 ? `The agent asks you ${questions.length} questions` : "The agent asks you a question"}
+      aside="The session waits until you answer"
+    >
       {onAnswerQuestion ? (
         <QuestionForm questions={questions} onSubmit={(picks) => onAnswerQuestion(request.id, picks)} draftKey={request.id} />
       ) : (
         questions.map((q, i) => (
-          <p key={i} className="type-body" style={{ margin: 0, overflowWrap: "anywhere" }}>
+          <p key={i} className="m-0 text-body break-words">
             {q.question}
           </p>
         ))
       )}
-    </div>
+    </RequestFrame>
   );
 }
 
@@ -475,11 +492,7 @@ export function PermissionRequestCard({
   if (requests.length === 0) return null;
 
   return (
-    <div
-      role="region"
-      aria-label="Pending permission requests"
-      style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)", minWidth: 0 }}
-    >
+    <div role="region" aria-label="Pending permission requests" className="flex min-w-0 flex-col gap-3">
       {requests.map((request, index) =>
         request.toolName === ASK_USER_QUESTION_TOOL ? (
           <QuestionRequestRow key={request.id} request={request} onAnswerQuestion={onAnswerQuestion} />

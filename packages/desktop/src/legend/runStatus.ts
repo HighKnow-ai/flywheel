@@ -1,12 +1,11 @@
 /**
- * The ONE run-status vocabulary (Phase 10 plan 10-01, RESEARCH Finding 14): the words, `agent`-channel
- * mark ids for a run's status, plus the fleet's derived `awaiting_review` state and its
+ * The ONE run-status vocabulary (Phase 10 plan 10-01, RESEARCH Finding 14): the words for a run's status, plus the fleet's derived `awaiting_review` state and its
  * three bands. The runs section, the session surface and the fleet surface all import from here;
  * none declares its own copy, so a seventh state or a re-worded label is a one-file change.
  *
- * Never colour alone (T-02-17): every state is a glyph (via its mark id in `legend/marks.ts`) plus a word.
- * The colour is not declared here: `legend/StateBadge.tsx` draws a state in its class's colour (Phase 14, D-17),
- * so a state's colour is the same wherever it is drawn.
+ * Never colour alone (T-02-17): every state is an icon plus a word. Neither the icon nor the colour is
+ * declared here: `components/StateBadge.tsx` draws a state from its one vocabulary, so a state looks the same
+ * wherever it is drawn.
  *
  * This module also owns the three formatters the session surface and the runs section used to declare
  * separately (elapsed time, token count, dollar cost), so a figure reads the same on every surface.
@@ -28,20 +27,8 @@ export const RUN_STATUS_LABELS: Record<FleetState, string> = {
   failed: "Failed",
   interrupted: "Interrupted",
   abandoned: "Abandoned",
-  awaiting_review: "Awaiting review",
-};
-
-/** `sessions.status` / fleet state -> the published mark id (`legend/marks.ts`). `awaiting_review` has its
- * own `agent`-channel mark since Phase 14 (D-19); it used to reuse the `status` channel's In Review mark
- * (D-170), which left the state undefined in the registry in its own right. */
-export const RUN_STATUS_MARK_IDS: Record<FleetState, string> = {
-  running: "run-running",
-  blocked: "blocked-indicator",
-  completed: "run-completed",
-  failed: "run-failed",
-  interrupted: "run-interrupted",
-  abandoned: "run-abandoned",
-  awaiting_review: "run-awaiting-review",
+  // The Story is In review: the same words the board uses for it.
+  awaiting_review: "In review",
 };
 
 export const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "interrupted", "abandoned"];

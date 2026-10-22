@@ -11,9 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { WorktreeInventoryRowDto, WorktreeMeasureDto } from "../../adapters/tauri";
-import { MARKS_BY_ID } from "../../legend/marks";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import { RECLAIM_REASONS, RECLAIM_REASON_WORDS, WorktreeInventory, formatBytes } from "../WorktreeInventory";
+import { RECLAIM_REASONS, RECLAIM_REASON_WORDS, WorktreeInventory, formatBytes, DISPOSITION_CHIPS } from "../WorktreeInventory";
 
 const inventoryMock = vi.fn<() => Promise<WorktreeInventoryRowDto[]>>();
 const measureMock = vi.fn<(storyIds?: string[]) => Promise<WorktreeMeasureDto[]>>();
@@ -102,15 +101,15 @@ describe("WorktreeInventory", () => {
     ]);
     renderInventory();
     await screen.findByText("ALP-1");
-    const cases: Array<[string, string, string]> = [
-      ["a", "reclaimable", "worktree-reclaimable"],
-      ["b", "in_use", "worktree-in-use"],
-      ["c", "keep", "worktree-keep"],
+    const cases: Array<[string, keyof typeof DISPOSITION_CHIPS]> = [
+      ["a", "reclaimable"],
+      ["b", "in_use"],
+      ["c", "keep"],
     ];
-    for (const [id, disposition, markId] of cases) {
+    for (const [id, disposition] of cases) {
       const li = document.querySelector(`[data-worktree-row='${id}']`) as HTMLElement;
       const chip = li.querySelector(`[data-disposition='${disposition}']`) as HTMLElement;
-      expect(chip.textContent).toContain(MARKS_BY_ID[markId].label);
+      expect(chip.textContent).toContain(DISPOSITION_CHIPS[disposition].label);
       expect(chip.querySelector("svg")).not.toBeNull();
     }
     expect(screen.getByText(RECLAIM_REASON_WORDS.merged)).toBeInTheDocument();

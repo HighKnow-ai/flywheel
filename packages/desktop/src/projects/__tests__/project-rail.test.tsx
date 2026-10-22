@@ -369,7 +369,7 @@ describe("ProjectRail's running sessions per project (#58)", () => {
       rows: [
         fleetRow({ sessionId: "r-blocked", projectId: "proj-2", storyId: "s-2", storyKey: "THF-2", storyTitle: "Second", fleetState: "blocked", runStatus: "blocked" }),
         fleetRow({ sessionId: "r-run", storyKey: "FLY-1", storyTitle: "First", doingTaskTitle: "Write the query" }),
-        fleetRow({ sessionId: "r-done", storyId: "s-3", storyKey: "FLY-3", storyTitle: "Finished", fleetState: "failed", runStatus: "failed" }),
+        fleetRow({ sessionId: "r-done", storyId: "s-3", storyKey: "FLY-3", storyTitle: "Finished", storyState: "in_review", fleetState: "awaiting_review", runStatus: "completed" }),
       ],
       totalRows: 3,
       visibleCostUsd: null,
@@ -395,6 +395,27 @@ describe("ProjectRail's running sessions per project (#58)", () => {
     // The session waiting on you is flagged by the hand named Waiting on you, never "Blocked"; the busy one is not.
     expect(within(threadfin).getByRole("img", { name: "Waiting on you" })).toBeInTheDocument();
     expect(within(flywheel).queryByRole("img", { name: "Waiting on you" })).toBeNull();
+  });
+
+  it("keeps a Stopped Story under its project, flagged Stopped, with no session control", async () => {
+    fleetListMock.mockResolvedValue({
+      rows: [
+        fleetRow({ sessionId: "r-run", storyKey: "FLY-1", storyTitle: "First" }),
+        fleetRow({ sessionId: "r-dead", storyId: "s-7", storyKey: "FLY-7", storyTitle: "Halted", storyState: "running", fleetState: "interrupted", runStatus: "interrupted", endedAt: new Date().toISOString() }),
+      ],
+      totalRows: 2,
+      visibleCostUsd: null,
+    });
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
+    const list = await screen.findByRole("list", { name: "Flywheel running sessions" });
+    await waitFor(() =>
+      expect(within(list).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+        "Open Story FLY-1 First",
+        "Open FLY-1 First session",
+        "Open Story FLY-7 Halted, Stopped",
+      ]),
+    );
+    expect(within(list).getByRole("img", { name: "Stopped" })).toBeInTheDocument();
   });
 
   it("flags a session from the derived fleet state, not its stored status", async () => {

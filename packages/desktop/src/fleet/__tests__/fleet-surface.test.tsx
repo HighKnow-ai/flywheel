@@ -14,8 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { FleetListDto, FleetRowDto } from "../../adapters/tauri";
-import { MARKS_BY_ID } from "../../legend/marks";
-import { RUN_STATUS_LABELS, RUN_STATUS_MARK_IDS } from "../../legend/runStatus";
+import { RUN_STATUS_LABELS } from "../../legend/runStatus";
+import { STATE_VOCABULARY } from "../../components/StateBadge";
 import { activeSurface } from "../../state/keyboard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import { SessionSurface } from "../../session/SessionSurface";
@@ -134,7 +134,8 @@ describe("FleetSurface bands", () => {
   it("puts interrupted under DONE / FAILED in the quiet class, and abandoned under NEEDS YOU in needs-you", async () => {
     fleetListMock.mockResolvedValue(
       list([
-        row({ sessionId: "r-int", fleetState: "interrupted", runStatus: "interrupted", endedAt: new Date().toISOString() }),
+        // The Story moved on (In review), so this interrupted run is history, not a Stopped Story.
+        row({ sessionId: "r-int", storyState: "in_review", fleetState: "interrupted", runStatus: "interrupted", endedAt: new Date().toISOString() }),
         row({ sessionId: "r-ab", fleetState: "abandoned", runStatus: "abandoned" }),
       ]),
     );
@@ -261,18 +262,37 @@ describe("the activity column", () => {
       ]),
     );
     renderFleet();
-    const item = (await screen.findAllByRole("listitem"))[0];
+    // The first fleet row: every list item on the surface but the breadcrumb's.
+    const item = await waitFor(() => {
+      const row = screen.getAllByRole("listitem").find((el) => !el.closest("nav"));
+      if (!row) throw new Error("no fleet row yet");
+      return row;
+    });
     expect(within(item).queryByText("Still going.")).toBeNull();
     expect(item.querySelector('[data-field="activity"]')?.textContent).toBe("");
   });
 });
 
 describe("the vocabulary", () => {
-  it("maps awaiting review to its own agent-channel mark (D-19) and defines every mark id it names", () => {
-    expect(RUN_STATUS_MARK_IDS.awaiting_review).toBe("run-awaiting-review");
-    for (const id of Object.values(RUN_STATUS_MARK_IDS)) {
-      expect(MARKS_BY_ID[id], id).toBeDefined();
+  it("draws every fleet state, awaiting review included (D-19), from the one state vocabulary", () => {
+    for (const state of Object.keys(RUN_STATUS_LABELS)) {
+      expect(STATE_VOCABULARY[state as keyof typeof STATE_VOCABULARY], state).toBeDefined();
     }
+  });
+});
+
+describe("a Stopped Story on the fleet", () => {
+  it("reads Stopped, in red, on the newest ended run of a Running Story with no live session", async () => {
+    fleetListMock.mockResolvedValue(
+      list([row({ sessionId: "r-dead", storyState: "running", fleetState: "interrupted", runStatus: "interrupted", endedAt: new Date().toISOString() })]),
+    );
+    renderFleet();
+    const dead = await waitFor(() => {
+      const el = document.querySelector('[data-fleet-state="interrupted"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(within(dead).getByText("Stopped").getAttribute("data-tone")).toBe("destructive");
   });
 });
 

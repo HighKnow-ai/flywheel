@@ -82,8 +82,8 @@ import {
  *
  * Named imports, never `import * as icons`: the namespace import pulled all of Lucide (about 1,600 icons)
  * into the main bundle. A screen that knows its icon at compile time imports it directly; this registry
- * is for names that arrive as data (the mark registry in legend/marks.ts, the state vocabulary in
- * components/StateBadge.tsx). A test asserts every name those registries use is here.
+ * is for names that arrive as data (the state vocabulary in components/StateBadge.tsx). A test asserts every
+ * name that vocabulary uses is here.
  */
 export const ICONS = {
   Activity,

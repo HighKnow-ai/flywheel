@@ -5,7 +5,7 @@ import { milestoneProgress, type MilestoneProgressDto } from "../adapters/tauri"
 import { Icon, type IconName } from "../components/Icon";
 import { StateBadge } from "../components/StateBadge";
 import { Skeleton } from "../components/ui/skeleton";
-import { EPIC_STATE_WORDS, EpicProgress } from "./EpicProgress";
+import { EPIC_STATE_WORDS } from "./EpicProgress";
 import { BAR_SEGMENTS, StoryStateBar, type BarSegment } from "./StoryStateBar";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +20,8 @@ const BOX_ORDER: readonly BarSegment["key"][] = ["inReview", "running", "ready",
  * The Milestone header (docs/mvp-spec.md §7, issue #106), drawn as the Andon production board
  * (docs/design/direction.md, `directions/andon.html`): the Current Milestone's name and state, its Exit test
  * as prose, the next Milestone, a graphite lead box "Stories merged n/m", one count box per state, "Epics
- * done", the stacked bar, and each Epic of the Milestone as a row with its own bar.
+ * done" and the stacked bar. Each Epic's own bar sits on its card in the roster below (`StoryBoard.tsx`), so
+ * every Epic appears once on the board.
  *
  * Every number comes from the core's `milestone_progress` (one SQL statement for the header, one for the
  * Epic rows); the renderer counts nothing. Keyed under the project, so `board:changed` keeps it live.
@@ -116,16 +117,6 @@ function MilestoneProgress({ progress }: { progress: MilestoneProgressDto }) {
       </div>
 
       <StoryStateBar counts={counts} />
-
-      {progress.epics.length > 0 && (
-        <ul aria-label={`Epics of ${progress.title}`} className="-mx-5 -mb-4 border-t border-border">
-          {progress.epics.map((epic) => (
-            <li key={epic.epicId} className="border-b border-border px-5 py-1.5 last:border-b-0">
-              <EpicProgress epic={epic} />
-            </li>
-          ))}
-        </ul>
-      )}
     </HeaderCard>
   );
 }

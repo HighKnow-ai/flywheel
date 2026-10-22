@@ -25,7 +25,7 @@ import {
 } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Icon } from "../components/Icon";
+import { CirclePause, FileText, ListTree, Square, TriangleAlert, X } from "lucide-react";
 import {
   answerPermissionRequest,
   answerQuestion,
@@ -37,8 +37,7 @@ import {
 } from "../adapters/tauri";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
-import { endingWords, formatWhen } from "../board/StoryBoard";
-import { MARKS_BY_ID } from "../legend/marks";
+import { endingWords, formatWhen } from "../board/StoryControls";
 import { StateBadge } from "../components/StateBadge";
 import {
   RUN_STATUS_LABELS,
@@ -52,7 +51,7 @@ import {
 import type { RunStatus } from "../legend/runStatus";
 import { useRegionBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
-import { PermissionRequestCard, type PermissionDecision } from "./PermissionRequestCard";
+import { PermissionRequestCard, RequestInCard, type PermissionDecision } from "./PermissionRequestCard";
 import { FeedRow, feedRowEstimateSize, prefersReducedMotion, useExpandedRows } from "./FeedRow";
 import {
   ASK_USER_QUESTION_TOOL,
@@ -66,9 +65,11 @@ import {
 import type { PendingPermissionRequest } from "./PermissionRequestCard";
 import type { QuestionPicks } from "./QuestionForm";
 import { RawLogView } from "./RawLogView";
-import "./session.css";
+import { useProjects } from "../board/useBoardQuery";
+import { PageHeader } from "../shell/PageHeader";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-const MONO_STACK = "var(--font-code)";
 
 /**
  * Issue #100: which open question each unanswered question card in the feed answers, by row key. A
@@ -154,33 +155,25 @@ function StatusStrip({
   const costUsd = latestNumericField(entries, ["totalCostUsd", "cost_usd"]);
 
   return (
-    <div
-      style={{
-        marginLeft: "auto",
-        display: "flex",
-        alignItems: "center",
-        gap: "var(--space-md)",
-        color: "var(--muted-foreground)",
-      }}
-    >
-      <span className="type-label tabular-nums" aria-label="Elapsed time">
+    <div className="ml-auto flex items-center gap-4 text-small text-muted-foreground">
+      <span className="tabular-nums" aria-label="Elapsed time">
         {formatElapsed(startedAt, now)}
       </span>
       {/* Figures or nothing. The backend reports totals once, on the terminal `result`, so for the whole
           of a running session there is nothing to print; three dashes beside two bare words read as
           broken data, not as absent data (08.1-17 closure). The meter grows when the figures exist. */}
       {tokensIn !== undefined && (
-        <span className="type-label tabular-nums" aria-label="Tokens in">
+        <span className="tabular-nums" aria-label="Tokens in">
           {formatCount(tokensIn)} in
         </span>
       )}
       {tokensOut !== undefined && (
-        <span className="type-label tabular-nums" aria-label="Tokens out">
+        <span className="tabular-nums" aria-label="Tokens out">
           {formatCount(tokensOut)} out
         </span>
       )}
       {costUsd !== undefined && (
-        <span className="type-label tabular-nums" aria-label="Cost">
+        <span className="tabular-nums" aria-label="Cost">
           {formatCostUsd(costUsd)}
         </span>
       )}
@@ -251,35 +244,19 @@ const TASK_STOPPED_GLOSS =
 function TerminalRow({ info }: { info: TerminalInfo }) {
   if (info.reason === "failed") {
     return (
-      <div
-        role="listitem"
-        className="session-notice"
-        style={{ marginTop: "var(--space-sm)" }}
-      >
-        <p className="type-body" style={{ margin: 0, color: "var(--foreground)" }}>
+      <div role="listitem" className="mt-3 flex flex-col gap-1.5 rounded-md border border-border bg-muted px-4 py-3">
+        <p className="m-0 flex items-center gap-2 text-body font-semibold">
+          <span aria-hidden="true" className="flex size-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground">
+            <X size={13} strokeWidth={2.5} />
+          </span>
           {FAILED_RUN_GLOSS}
         </p>
-        {info.subtype && (
-          <p
-            className="type-label"
-            style={{ margin: "var(--space-xs) 0 0 0", fontFamily: MONO_STACK, color: "var(--destructive-text)" }}
-          >
-            {info.subtype}
-          </p>
-        )}
+        {info.subtype && <p className="m-0 font-mono text-small text-destructive-text">{info.subtype}</p>}
         {info.detail && (
           <div
             data-testid="terminal-detail"
-            className="type-label"
-            style={{
-              marginTop: "var(--space-xs)",
-              maxHeight: TERMINAL_DETAIL_MAX_HEIGHT,
-              overflowY: "auto",
-              fontFamily: MONO_STACK,
-              whiteSpace: "pre-wrap",
-              overflowWrap: "anywhere",
-              color: "var(--muted-foreground)",
-            }}
+            className="overflow-y-auto font-mono text-small break-words whitespace-pre-wrap text-muted-foreground"
+            style={{ maxHeight: TERMINAL_DETAIL_MAX_HEIGHT }}
           >
             {info.detail}
           </div>
@@ -289,17 +266,9 @@ function TerminalRow({ info }: { info: TerminalInfo }) {
   }
 
   return (
-    <div
-      role="listitem"
-      className="type-label"
-      style={{ marginTop: "var(--space-sm)", padding: "var(--space-sm) var(--space-md)", color: "var(--muted-foreground)" }}
-    >
-      {RUN_STATUS_LABELS[info.reason]}
-      {info.reason === "interrupted" && (
-        <p style={{ margin: "var(--space-xs) 0 0 0" }}>
-          {TASK_STOPPED_GLOSS}
-        </p>
-      )}
+    <div role="listitem" className="mt-3 flex flex-col gap-1 rounded-md border border-border bg-muted px-4 py-3 text-small text-muted-foreground">
+      <span className="font-semibold text-foreground">{RUN_STATUS_LABELS[info.reason]}</span>
+      {info.reason === "interrupted" && <p className="m-0">{TASK_STOPPED_GLOSS}</p>}
     </div>
   );
 }
@@ -312,34 +281,13 @@ const STOP_WARNING_GLOSS = "Flywheel could not confirm the agent process actuall
  * **interrupted** weight: `--text-muted-rack` and the CircleSlash mark, never the failed run's
  * `--destructive-text-rack` stripe or CircleX glyph, because the run DID reach `interrupted`. */
 function StopWarningNotice({ warning }: { warning: string }) {
-  const mark = MARKS_BY_ID["run-interrupted"];
   return (
-    <div
-      role="listitem"
-      className="session-notice"
-      style={{ marginTop: "var(--space-sm)" }}
-    >
-      <p
-        className="type-body"
-        style={{
-          margin: 0,
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-xs)",
-          color: "var(--foreground)",
-        }}
-      >
-        <span aria-hidden="true" style={{ display: "inline-flex", color: "var(--muted-foreground)" }}>
-          <Icon name={mark?.glyph ?? "CircleSlash"} />
-        </span>
+    <div role="listitem" className="mt-3 flex flex-col gap-1 rounded-md border border-border bg-muted px-4 py-3">
+      <p className="m-0 flex items-center gap-2 text-body">
+        <CirclePause aria-hidden="true" size={16} className="shrink-0 text-muted-foreground" />
         {STOP_WARNING_GLOSS}
       </p>
-      <p
-        className="type-label"
-        style={{ margin: "var(--space-xs) 0 0 0", fontFamily: MONO_STACK, color: "var(--muted-foreground)" }}
-      >
-        {warning}
-      </p>
+      <p className="m-0 font-mono text-small text-muted-foreground">{warning}</p>
     </div>
   );
 }
@@ -352,24 +300,9 @@ function StopWarningNotice({ warning }: { warning: string }) {
  * competes with the bounded-window property `buildFeedRows`/`useSessionFeed` maintain. */
 function PersistenceFailureBanner({ text }: { text: string }) {
   return (
-    <div
-      role="listitem"
-      className="session-notice"
-      style={{ marginBottom: "var(--space-sm)" }}
-    >
-      <p
-        className="type-body"
-        style={{
-          margin: 0,
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-xs)",
-          color: "var(--foreground)",
-        }}
-      >
-        <span aria-hidden="true" style={{ display: "inline-flex", color: "var(--muted-foreground)" }}>
-          <Icon name="TriangleAlert" />
-        </span>
+    <div role="listitem" className="mb-3 rounded-md border border-border bg-muted px-4 py-3">
+      <p className="m-0 flex items-center gap-2 text-body">
+        <TriangleAlert aria-hidden="true" size={16} className="shrink-0 text-muted-foreground" />
         {text}
       </p>
     </div>
@@ -382,7 +315,7 @@ function PersistenceFailureBanner({ text }: { text: string }) {
  * empty). */
 function StartingSessionRow() {
   return (
-    <div role="listitem" className="type-body" style={{ padding: "var(--space-xs) 0", color: "var(--muted-foreground)" }}>
+    <div role="listitem" className="py-1 text-body text-muted-foreground">
       Starting session…
     </div>
   );
@@ -408,15 +341,34 @@ function SessionFloor({
   const working = running && !waitingOnYou && !ended;
   const now = useNowTick(working);
   let text: string;
+  // The call the agent is in, set in the code face: a command never renders in the reading face.
+  let doingNode: React.ReactNode = null;
   if (ended) text = "This run has ended. Nothing more will be added to this transcript.";
-  else if (waitingOnYou) text = "Waiting on you: answer the permission request above.";
+  else if (waitingOnYou) text = "Waiting on you: answer the request above.";
   else if (working) {
     const what = doing ? `The agent is working: ${doing}.` : "The agent is working.";
-    text = lastActivityAt ? `${what} Last activity ${formatAge(lastActivityAt, now)} ago.` : what;
+    const since = lastActivityAt ? ` Last activity ${formatAge(lastActivityAt, now)} ago.` : "";
+    text = `${what}${since}`;
+    if (doing) {
+      doingNode = (
+        <>
+          {"The agent is working: "}
+          <span className="font-mono">{doing}</span>
+          {`.${since}`}
+        </>
+      );
+    }
   } else text = "Waiting on the agent.";
   return (
-    <p role="status" className="session-floor type-label" title={text}>
-      {text}
+    <p
+      role="status"
+      title={text}
+      className={cn(
+        "m-0 shrink-0 truncate border-t border-border px-5 py-2.5 text-small",
+        waitingOnYou && !ended ? "bg-attention-muted font-semibold text-foreground" : "text-muted-foreground",
+      )}
+    >
+      {doingNode ?? text}
     </p>
   );
 }
@@ -467,6 +419,8 @@ export function SessionSurface({
     retry: false,
   });
   const headerText = itemHeader ? `${itemHeader.key} ${itemHeader.title}` : SESSION_FALLBACK_TITLE;
+  const projectName = (useProjects().data ?? []).find((project) => project.id === itemHeader?.projectId)?.name ?? null;
+  const setCurrentProjectId = useUiStore((state) => state.setCurrentProjectId);
   const [stopping, setStopping] = useState(false);
   // `stopping` alone is not a sufficient guard against two activations in one synchronous tick —
   // React has not necessarily flushed the re-render that disables the Stop button before a
@@ -678,41 +632,49 @@ export function SessionSurface({
   }, [feedRows.length, pendingRequests.length, terminalInfo, initialFeedOffset]);
 
   return (
-    <div
-      style={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        color: "var(--foreground)",
-      }}
-    >
-      <header className="session-header">
-        <button type="button" onClick={onBack} className="session-back type-label">
-          ← Back
-        </button>
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader
+        onBack={onBack}
+        crumbs={[
+          ...(projectName && itemHeader
+            ? [{ label: projectName, onSelect: () => setCurrentProjectId(itemHeader.projectId), ariaLabel: `Open the ${projectName} board` }]
+            : []),
+          ...(itemHeader && storyId
+            ? [{ label: itemHeader.key, mono: true, onSelect: () => openStory(itemHeader.projectId, storyId), ariaLabel: `Open Story ${itemHeader.key}` }]
+            : []),
+          { label: sessionId, mono: true },
+        ]}
+      />
+      <div className="flex min-h-0 flex-1 flex-col px-5 pb-5">
+      <section
+        aria-label="Session"
+        className={cn(
+          "flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-card",
+          showStop && pendingRequests.length > 0 && "border-attention",
+        )}
+      >
+      <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-5 py-3">
+        <RunStatusBadge status={status} />
         {itemHeader && storyId ? (
-          // Where the developer is (issue #104): the session's Story, which is one click away. The
-          // control keeps the title's look; it only gains a destination.
+          // Where the developer is (issue #104): the session's Story, which is one click away.
           <button
             type="button"
-            className="type-heading session-title"
             title={`Open Story ${headerText}`}
             aria-label={`Open Story ${headerText}`}
             onClick={() => openStory(itemHeader.projectId, storyId)}
-            style={{ padding: 0, border: "none", background: "none", color: "inherit", font: "inherit", textAlign: "left", cursor: "pointer" }}
+            className="min-w-0 truncate rounded-sm text-left text-section font-semibold underline-offset-4 hover:underline"
           >
             {headerText}
           </button>
         ) : (
-          <span className="type-heading session-title" title={headerText}>
+          <span className="min-w-0 truncate text-section font-semibold" title={headerText}>
             {headerText}
           </span>
         )}
-        <RunStatusBadge status={status} />
         {storedEnded && stored && (
           // How and when an ended session ended (docs/mvp-spec.md §4.5), the same words the Story's
           // session list uses.
-          <span className="type-label" data-testid="session-ending" style={{ color: "var(--muted-foreground)" }}>
+          <span className="text-small text-muted-foreground" data-testid="session-ending">
             {`Ended: ${endingWords(stored.endingReason)} · ${formatWhen(stored.startedAt)}${
               stored.endedAt ? ` to ${formatWhen(stored.endedAt)}` : ""
             }`}
@@ -721,45 +683,29 @@ export function SessionSurface({
 
         <StatusStrip entries={entries} running={status === "running" || status === "blocked"} />
 
-        <button
-          type="button"
-          onClick={() => setRawViewOpen((prev) => !prev)}
-          className="control-edge session-action type-label"
-        >
+        <Button variant="ghost" size="sm" onClick={() => setRawViewOpen((prev) => !prev)}>
+          {rawViewOpen ? <ListTree aria-hidden="true" /> : <FileText aria-hidden="true" />}
           {rawViewOpen ? "View structured" : "View raw"}
-        </button>
+        </Button>
 
         {showStop && (
-          // While a run is live the lead is Stop, the one action a running session offers. It was on Discard,
-          // the most destructive control on the page (08.1-17 closure).
-          <button
-            type="button"
-            onClick={handleStop}
-            disabled={stopping || discarding}
-            className="control-edge session-action session-action-lead type-label"
-          >
+          // While a run is live the lead is Stop, the one action a running session offers. Outline, not
+          // filled: the next action on this screen is the agent's, or the answer it waits on.
+          <Button variant="outline" size="sm" onClick={handleStop} disabled={stopping || discarding}>
+            <Square aria-hidden="true" />
             {stopping ? "Stopping…" : "Stop"}
-          </button>
+          </Button>
         )}
 
         {showStop && (
-          // D-67: the flagship verb, beside Stop — never a modifier folded into it. Never the lead while a
-          // run is live: it ends the session and starts another, so it sits on the plain control edge and
-          // Stop leads. Not filled: the brand carries progress, never an action.
-          <button
-            type="button"
-            onClick={handleDiscard}
-            disabled={stopping || discarding}
-            className="control-edge session-action type-label"
-          >
+          // D-67: ends the session and starts another for the same Story, beside Stop and never its lead.
+          <Button variant="ghost" size="sm" onClick={handleDiscard} disabled={stopping || discarding}>
             {discarding ? "Discarding…" : "Discard"}
-          </button>
+          </Button>
         )}
-
       </header>
 
-      <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <div className="flex min-h-0 flex-1 flex-col">
       {rawViewOpen ? (
         <RawLogView sessionId={sessionId} />
       ) : (
@@ -767,12 +713,13 @@ export function SessionSurface({
           ref={parentRef}
           onScroll={handleScroll}
           data-testid="session-feed-scroll"
-          // A transcript sits on the floor like a terminal's: the newest row at the bottom edge, growing upward.
-          // `margin-top: auto` on the one child (not `justify-content: flex-end`) so a transcript taller than
-          // the pane still scrolls from its top. The first 30 seconds of a run are a few rows, not a blank page.
-          style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--space-md)", display: "flex", flexDirection: "column" }}
+          // A transcript reads from the top of its card, like the Story it serves; follow-the-tail keeps the
+          // newest row in view once it outgrows the pane. A short run is a few rows under the header, never
+          // a few rows under a blank page (critique 2026-10, minor observation).
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-4"
         >
-          <div style={{ marginTop: "auto", flexShrink: 0 }}>
+          <RequestInCard.Provider value={true}>
+          <div className="shrink-0">
           {persistenceFailed && (
             <PersistenceFailureBanner
               text={persistenceFailureText ?? "Flywheel could not write this session's log — the transcript below may be incomplete."}
@@ -816,7 +763,7 @@ export function SessionSurface({
           {stopWarning && <StopWarningNotice warning={stopWarning} />}
 
           {footerRequests.length > 0 && (
-            <div style={{ marginTop: "var(--space-md)" }}>
+            <div className="mt-4">
               <PermissionRequestCard
                 variant="feed"
                 requests={footerRequests}
@@ -828,6 +775,7 @@ export function SessionSurface({
 
           <div ref={tailRef} />
           </div>
+          </RequestInCard.Provider>
         </div>
       )}
       <SessionFloor
@@ -838,6 +786,7 @@ export function SessionSurface({
         lastActivityAt={lastActivityAt}
       />
       </div>
+      </section>
       </div>
     </div>
   );

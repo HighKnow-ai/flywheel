@@ -10,7 +10,7 @@
  * the app's own window, and a `javascript:` target must never become clickable.
  */
 import type { ReactNode } from "react";
-import "./session.css";
+import "./markdown.css";
 
 type Block =
   | { type: "heading"; level: number; text: string }

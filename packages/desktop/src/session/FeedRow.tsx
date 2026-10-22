@@ -13,7 +13,25 @@
  * Which log entries become which rows is `feedRows.ts`; this module is presentational only.
  */
 import { useEffect, useState, type ReactNode } from "react";
+import {
+  Bot,
+  ChevronRight,
+  CircleX,
+  FilePlus,
+  FileText,
+  Globe,
+  Kanban,
+  LoaderCircle,
+  MessageCircleQuestionMark,
+  Pencil,
+  Search,
+  Terminal,
+  UserRound,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { formatAge } from "../legend/runStatus";
+import { cn } from "@/lib/utils";
 import { Markdown } from "./Markdown";
 import { QuestionForm, type QuestionPicks } from "./QuestionForm";
 import {
@@ -21,14 +39,12 @@ import {
   payloadText,
   proposalKind,
   toolCallLabel,
+  toolCallTarget,
   type FeedRowData,
   type QuestionPrompt,
 } from "./feedRows";
-import "./session.css";
 
 export { feedRowText, toolCallLabel, toolCallTarget, type FeedRowData } from "./feedRows";
-
-const MONO_STACK = "var(--font-code)";
 
 /** An expanded payload block's fixed max height (px): its own scroll absorbs a long payload. */
 const EXPANDED_SUBBLOCK_MAX_HEIGHT = 240;
@@ -103,6 +119,37 @@ export function feedRowEstimateSize(row: FeedRowData, expanded: boolean): number
   }
 }
 
+/** The icon for a tool's kind (direction.md § Icons: Read, Edit, Run, Search, board tool), so a Bash call, a
+ * Read and a board write are told apart at a glance, each still beside its word. */
+export function toolIcon(toolName: string): LucideIcon {
+  if (toolName.startsWith("mcp__flywheel")) return Kanban;
+  switch (toolName) {
+    case "Read":
+      return FileText;
+    case "Edit":
+    case "MultiEdit":
+    case "NotebookEdit":
+      return Pencil;
+    case "Write":
+      return FilePlus;
+    case "Bash":
+      return Terminal;
+    case "Grep":
+    case "Glob":
+      return Search;
+    case "WebFetch":
+    case "WebSearch":
+      return Globe;
+    case "Task":
+    case "Agent":
+      return Bot;
+    case "AskUserQuestion":
+      return MessageCircleQuestionMark;
+    default:
+      return Wrench;
+  }
+}
+
 /** Re-renders once a second while `enabled`; the live row's own boundary, so the tick never
  * re-renders the rest of the feed. */
 function useSecondTick(enabled: boolean): number {
@@ -128,7 +175,7 @@ function RunningFor({ startedAt, heartbeatSeconds, now }: { startedAt?: string; 
   const nowMs = now ?? ticked;
   const seconds = runningSeconds(startedAt, heartbeatSeconds, nowMs);
   return (
-    <span className="type-label tabular-nums feed-call-state" data-state="running">
+    <span className="feed-call-state shrink-0 font-sans text-small text-running tabular-nums" data-state="running">
       {`running · ${formatAge(new Date(nowMs - seconds * 1000).toISOString(), nowMs)}`}
     </span>
   );
@@ -139,17 +186,17 @@ function RunningFor({ startedAt, heartbeatSeconds, now }: { startedAt?: string; 
  * JSON. */
 export function Fields({ value, depth = 0 }: { value: unknown; depth?: number }): ReactNode {
   if (value === undefined || value === null || value === "") {
-    return <span style={{ color: "var(--muted-foreground)" }}>none</span>;
+    return <span className="text-muted-foreground">none</span>;
   }
   if (typeof value === "string") {
-    return value.includes("\n") ? <pre className="feed-field-text">{value}</pre> : <span>{value}</span>;
+    return value.includes("\n") ? <pre className="m-0 font-mono text-small break-words whitespace-pre-wrap">{value}</pre> : <span className="font-mono text-small break-words">{value}</span>;
   }
   if (typeof value === "number" || typeof value === "boolean") return <span>{String(value)}</span>;
   if (depth >= FIELDS_MAX_DEPTH) return <span>{payloadText(value)}</span>;
   if (Array.isArray(value)) {
-    if (value.length === 0) return <span style={{ color: "var(--muted-foreground)" }}>none</span>;
+    if (value.length === 0) return <span className="text-muted-foreground">none</span>;
     return (
-      <ul className="feed-field-list">
+      <ul className="m-0 list-disc pl-5">
         {value.map((item, i) => (
           <li key={i}>
             <Fields value={item} depth={depth + 1} />
@@ -160,13 +207,13 @@ export function Fields({ value, depth = 0 }: { value: unknown; depth?: number })
   }
   if (typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>);
-    if (entries.length === 0) return <span style={{ color: "var(--muted-foreground)" }}>none</span>;
+    if (entries.length === 0) return <span className="text-muted-foreground">none</span>;
     return (
-      <dl className="feed-fields">
+      <dl className="m-0 flex flex-col gap-1.5">
         {entries.map(([k, v]) => (
-          <div key={k} className="feed-field">
-            <dt className="type-label">{k}</dt>
-            <dd>
+          <div key={k}>
+            <dt className="text-meta font-semibold">{k}</dt>
+            <dd className="m-0 break-words">
               <Fields value={v} depth={depth + 1} />
             </dd>
           </div>
@@ -179,17 +226,23 @@ export function Fields({ value, depth = 0 }: { value: unknown; depth?: number })
 
 /** A tool's output: text as preformatted text, anything structured as fields. */
 function OutputView({ output }: { output: unknown }) {
-  if (typeof output === "string") return <pre className="feed-field-text">{output || "(no output)"}</pre>;
+  if (typeof output === "string") return <pre className="m-0 font-mono text-small break-words whitespace-pre-wrap">{output || "(no output)"}</pre>;
   return <Fields value={output} />;
 }
 
 function Chevron({ expanded }: { expanded: boolean }) {
   return (
-    <span aria-hidden="true" style={{ flexShrink: 0, display: "inline-block", transition: "none" }}>
-      {expanded ? "▾" : "▸"}
-    </span>
+    <ChevronRight
+      aria-hidden="true"
+      size={14}
+      className={cn("shrink-0 text-subtle-foreground transition-transform duration-(--duration-state) ease-(--ease)", expanded && "rotate-90")}
+    />
   );
 }
+
+/** A tool call or a result as one disclosure line: a bounded row with a chevron, an accent hover. */
+const disclosureClass =
+  "feed-disclosure feed-call -mx-2 flex w-[calc(100%+1rem)] min-w-0 items-center gap-2.5 rounded-md px-2 py-1 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent";
 
 function ToolCallRow({
   row,
@@ -205,43 +258,68 @@ function ToolCallRow({
   now?: number;
 }) {
   const outputLine = row.output !== undefined ? firstLine(payloadText(row.output)) : "";
+  const KindIcon = toolIcon(row.toolName);
   return (
     <div role="listitem" className="feed-row">
       <button
         type="button"
         onClick={onToggleExpand}
         aria-expanded={expanded}
-        className="feed-disclosure feed-call type-body tabular-nums"
+        className={disclosureClass}
         data-live={live ? "true" : undefined}
-        style={{ fontFamily: MONO_STACK }}
+        // The visible words exactly, so the two faces inside the label never split the accessible name.
+        aria-label={[toolCallLabel(row.toolName, row.input), live ? "running" : row.isError ? "failed" : null].filter(Boolean).join(", ")}
       >
         <Chevron expanded={expanded} />
-        <span className="feed-call-label">{toolCallLabel(row.toolName, row.input)}</span>
+        <KindIcon aria-hidden="true" size={16} className="shrink-0 text-muted-foreground" />
+        {/* The same words as toolCallLabel: the tool in the reading face, what it acts on in the code face. */}
+        <span className="feed-call-label min-w-0 truncate text-small text-foreground" title={toolCallLabel(row.toolName, row.input)}>
+          <span className="font-medium">{row.toolName}</span>
+          {toolCallTarget(row.input) && (
+            <>
+              <span className="text-subtle-foreground">{" · "}</span>
+              <span className="font-mono">{toolCallTarget(row.input)}</span>
+            </>
+          )}
+        </span>
         {live ? (
           <>
             <RunningFor startedAt={row.startedAt} heartbeatSeconds={row.elapsedSeconds} now={now} />
-            {/* The live mark: a block caret after the call. Under reduced motion the pulse class is
-                omitted, so the caret is a plain, fully legible mark and never frozen mid-cycle. */}
-            <span aria-hidden="true" className={prefersReducedMotion() ? "feed-caret" : "feed-caret agent-pulse"}>
-              ▍
-            </span>
+            {/* The live mark: the running icon after the call. Under reduced motion the pulse class is
+                omitted, so it is a plain, fully legible mark and never frozen mid-cycle. */}
+            <LoaderCircle
+              aria-hidden="true"
+              size={15}
+              className={cn("feed-caret shrink-0 text-running", !prefersReducedMotion() && "agent-pulse")}
+            />
           </>
         ) : row.isError ? (
-          <span className="type-label feed-call-state" data-state="failed">
+          <span className="feed-call-state ml-auto inline-flex shrink-0 items-center gap-1 text-small font-semibold text-destructive-text" data-state="failed">
+            <CircleX aria-hidden="true" size={14} />
             failed
           </span>
         ) : (
-          !expanded && outputLine && <span className="type-label feed-call-output">{outputLine}</span>
+          !expanded &&
+          outputLine && (
+            <span className="feed-call-output ml-auto min-w-0 max-w-[40%] shrink truncate font-mono text-meta text-subtle-foreground">
+              {outputLine}
+            </span>
+          )
         )}
       </button>
 
       {expanded && (
-        <div className="feed-call-detail" style={{ maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT }}>
-          <div className="type-label feed-detail-heading">Input</div>
+        <div
+          className="feed-call-detail mt-1 mb-2 ml-6 overflow-y-auto rounded-md border border-border bg-muted px-3 py-2 text-small break-words"
+          style={{ maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT }}
+        >
+          <div className="feed-detail-heading mb-1 text-meta font-semibold text-muted-foreground">Input</div>
           <Fields value={row.input} />
           {row.output !== undefined && (
             <>
-              <div className="type-label feed-detail-heading">{row.isError ? "Error" : "Output"}</div>
+              <div className="feed-detail-heading mt-2 mb-1 text-meta font-semibold text-muted-foreground">
+                {row.isError ? "Error" : "Output"}
+              </div>
               <OutputView output={row.output} />
             </>
           )}
@@ -267,23 +345,18 @@ function ToolResultRow({
   return (
     <div role="listitem" className="feed-row">
       {expandable ? (
-        <button
-          type="button"
-          onClick={onToggleExpand}
-          aria-expanded={expanded}
-          className="feed-disclosure feed-call type-body"
-          style={{ fontFamily: MONO_STACK }}
-        >
+        <button type="button" onClick={onToggleExpand} aria-expanded={expanded} className={disclosureClass}>
           <Chevron expanded={expanded} />
-          <span className="feed-call-label">{summary}</span>
+          <span className="feed-call-label min-w-0 truncate font-mono text-small text-muted-foreground">{summary}</span>
         </button>
       ) : (
-        <span className="type-body feed-call-label" style={{ fontFamily: MONO_STACK, color: "var(--muted-foreground)" }}>
-          {summary}
-        </span>
+        <span className="feed-call-label block truncate py-1 font-mono text-small text-muted-foreground">{summary}</span>
       )}
       {expandable && expanded && (
-        <div className="feed-call-detail" style={{ maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT }}>
+        <div
+          className="feed-call-detail mt-1 mb-2 ml-6 overflow-y-auto rounded-md border border-border bg-muted px-3 py-2 text-small break-words"
+          style={{ maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT }}
+        >
           <OutputView output={row.output} />
         </div>
       )}
@@ -297,15 +370,16 @@ function ProposalCard({ row }: { row: Extract<FeedRowData, { kind: "proposal" }>
   const kind = proposalKind(row.toolName);
   return (
     <div role="listitem" className="feed-row">
-      <div className="session-card feed-card" data-card="proposal">
-        <span className="type-label" style={{ color: "var(--muted-foreground)" }}>
+      <div className="session-card my-2 flex flex-col gap-1.5 border-l border-input py-1 pl-4" data-card="proposal">
+        <span className="inline-flex items-center gap-1.5 text-meta font-semibold text-muted-foreground">
+          <Kanban aria-hidden="true" size={14} />
           {kind ? `Proposal · ${kind}` : "Proposal"}
         </span>
-        {typeof title === "string" && title && <span className="type-heading">{title}</span>}
-        {typeof why === "string" && why && <p className="type-body feed-card-text">{why}</p>}
+        {typeof title === "string" && title && <span className="text-row font-semibold">{title}</span>}
+        {typeof why === "string" && why && <p className="m-0 text-body break-words">{why}</p>}
         {Object.keys(rest).length > 0 && <Fields value={rest} />}
         {row.output !== undefined && (
-          <span className="type-label" style={{ color: row.isError ? "var(--destructive-text)" : "var(--muted-foreground)" }}>
+          <span className={cn("text-small", row.isError ? "text-destructive-text" : "text-muted-foreground")}>
             {payloadText(row.output)}
           </span>
         )}
@@ -325,42 +399,44 @@ function QuestionCard({
   onAnswer?: (picks: QuestionPicks) => Promise<void>;
   draftKey?: string;
 }) {
-  const heading = questions.length > 1 ? `${questions.length} questions from the agent` : "Question from the agent";
+  const heading = questions.length > 1 ? `The agent asks you ${questions.length} questions` : "The agent asks you a question";
   if (onAnswer && answer === undefined) {
     return (
-      <div role="listitem" className="feed-row">
-        <div className="session-card feed-card" data-card="question" data-open="true">
-          <span className="type-heading" style={{ color: "var(--foreground)" }}>
-            {`${heading} · waiting on you`}
-          </span>
-          <QuestionForm questions={questions} onSubmit={onAnswer} draftKey={draftKey} />
+      <div role="listitem" className="feed-row py-2">
+        {/* A band across the session card's full width, never a card inside it. */}
+        <div className="session-card -mx-5 border-y-2 border-attention" data-card="question" data-open="true">
+          <div className="flex items-center gap-2.5 bg-attention px-5 py-2.5 text-attention-foreground">
+            <MessageCircleQuestionMark aria-hidden="true" size={18} className="shrink-0" />
+            <span className="text-row font-bold">{heading}</span>
+            <span className="ml-auto text-small font-semibold">The session waits until you answer</span>
+          </div>
+          <div className="px-5 py-4">
+            <QuestionForm questions={questions} onSubmit={onAnswer} draftKey={draftKey} />
+          </div>
         </div>
       </div>
     );
   }
   return (
-    <div role="listitem" className="feed-row">
-      <div className="session-card feed-card" data-card="question">
-        <span className="type-label" style={{ color: "var(--muted-foreground)" }}>
-          {heading}
+    <div role="listitem" className="feed-row py-2">
+      <div className="session-card flex flex-col gap-2 border-l border-input py-1 pl-4" data-card="question">
+        <span className="inline-flex items-center gap-1.5 text-meta font-semibold text-muted-foreground">
+          <MessageCircleQuestionMark aria-hidden="true" size={14} />
+          {questions.length > 1 ? `${questions.length} questions from the agent` : "Question from the agent"}
         </span>
         {questions.map((q, i) => (
-          <div key={i} className="feed-question">
-            {q.header && (
-              <span className="type-label" style={{ color: "var(--muted-foreground)" }}>
-                {q.header}
-              </span>
-            )}
-            <p className="type-body feed-card-text">{q.question}</p>
+          <div key={i} className="flex flex-col gap-1">
+            {q.header && <span className="text-meta font-semibold text-muted-foreground">{q.header}</span>}
+            <p className="m-0 text-body break-words">{q.question}</p>
             {q.options.length > 0 && (
-              <ul className="feed-field-list">
+              <ul className="m-0 flex flex-col gap-0.5 pl-5 text-small">
                 {q.options.map((option, j) => (
                   <li key={j}>
-                    <span style={{ fontWeight: 600 }}>{option.label}</span>
+                    <span className="font-semibold">{option.label}</span>
                     {option.description && (
                       <>
-                        {" — "}
-                        <span style={{ color: "var(--muted-foreground)" }}>{option.description}</span>
+                        {": "}
+                        <span className="text-muted-foreground">{option.description}</span>
                       </>
                     )}
                   </li>
@@ -370,8 +446,9 @@ function QuestionCard({
           </div>
         ))}
         {answer !== undefined && (
-          <span className="type-label" style={{ color: "var(--muted-foreground)" }}>
-            {payloadText(answer)}
+          <span className="text-small text-muted-foreground">
+            <span className="font-semibold text-foreground">Answered: </span>
+            <span>{payloadText(answer)}</span>
           </span>
         )}
       </div>
@@ -383,9 +460,7 @@ function QuestionCard({
 function SystemLine({ text }: { text: string }) {
   return (
     <div role="listitem" className="feed-row">
-      <p className="type-label" style={{ margin: 0, color: "var(--muted-foreground)", overflowWrap: "anywhere" }}>
-        {text}
-      </p>
+      <p className="m-0 py-0.5 text-small break-words text-muted-foreground">{text}</p>
     </div>
   );
 }
@@ -396,29 +471,24 @@ function RawRow({ raw, expanded, onToggleExpand }: { raw: string; expanded: bool
   const expandable = raw.length > FEED_ROW_TRUNCATION_THRESHOLD;
   const showExpanded = expandable && expanded;
   return (
-    <div role="listitem" className="feed-row" style={{ display: "flex", alignItems: "flex-start", gap: "var(--space-xs)" }}>
+    <div role="listitem" className="feed-row flex items-start gap-1.5">
       {expandable && (
         <button
           type="button"
           onClick={onToggleExpand}
           aria-expanded={showExpanded}
           aria-label={showExpanded ? "Collapse full text" : "Expand full text"}
-          className="feed-disclosure"
-          style={{ flexShrink: 0, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--muted-foreground)" }}
+          className="feed-disclosure mt-1 shrink-0 rounded-sm hover:bg-accent"
         >
           <Chevron expanded={showExpanded} />
         </button>
       )}
       <span
-        className="type-body"
-        style={{
-          minWidth: 0,
-          color: "var(--muted-foreground)",
-          fontFamily: MONO_STACK,
-          ...(showExpanded
-            ? { maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT, overflowY: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }
-            : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }),
-        }}
+        className={cn(
+          "min-w-0 font-mono text-small text-muted-foreground",
+          showExpanded ? "overflow-y-auto break-words whitespace-pre-wrap" : "truncate",
+        )}
+        style={showExpanded ? { maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT } : undefined}
       >
         {showExpanded ? raw : raw.slice(0, FEED_ROW_TRUNCATION_THRESHOLD)}
       </span>
@@ -430,15 +500,17 @@ export function FeedRow({ row, expanded, onToggleExpand, live = false, now, onAn
   switch (row.kind) {
     case "assistant_text":
       return (
-        <div role="listitem" className="feed-row feed-turn" style={{ color: "var(--foreground)" }}>
-          <Markdown text={row.text} className="type-body" />
+        <div role="listitem" className="feed-row feed-turn flex gap-2.5 py-2 text-foreground">
+          <Bot aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
+          <Markdown text={row.text} className="min-w-0 flex-1 text-body" />
         </div>
       );
     // Plan 05-12: the developer's own words, in the accent text role — a different speaker class.
     case "developer_turn":
       return (
-        <div role="listitem" className="feed-row feed-turn" style={{ color: "var(--running)" }}>
-          <Markdown text={row.text} className="type-body" />
+        <div role="listitem" className="feed-row feed-turn flex gap-2.5 py-2 text-running">
+          <UserRound aria-hidden="true" size={16} className="mt-0.5 shrink-0" />
+          <Markdown text={row.text} className="min-w-0 flex-1 text-body" />
         </div>
       );
     case "system_notice":

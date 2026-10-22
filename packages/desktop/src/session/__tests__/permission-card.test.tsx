@@ -144,7 +144,7 @@ describe("PermissionRequestCard (standalone)", () => {
     expect(within(bashGroup).getByRole("button", { name: "Allow once" })).toBeEnabled();
   });
 
-  it("imports its glyph name from the marks registry and hard-codes no colour", () => {
+  it("draws its icons from Lucide by name and hard-codes no colour", () => {
     // Structural gates are enforced by the plan's own grep-based <verify> commands at the file
     // level (no onKeyDown/addEventListener/DismissableLayer, no hex literal) — this test only
     // documents the intent so a reader of the suite sees the contract stated here too.
@@ -203,7 +203,7 @@ describe("destructive", () => {
     expect(screen.queryByText("Gated action — needs your OK every time")).not.toBeInTheDocument();
   });
 
-  it("with a category renders the stop-sign glyph, the destructive heading and the consequence sentence above the payload", () => {
+  it("with a category renders the Gated-action shield, its heading and the consequence sentence above the payload", () => {
     const request = destructiveRequest("hard-reset", "git reset --hard");
     const { container } = render(
       <PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />,
@@ -215,8 +215,9 @@ describe("destructive", () => {
       screen.getByText("This would discard uncommitted changes in the worktree — permanently."),
     ).toBeInTheDocument();
     expect(screen.getByText("git reset --hard")).toBeInTheDocument();
-    expect(container.querySelector(".lucide-octagon-alert")).not.toBeNull();
-    expect(container.querySelector(".lucide-shield-alert")).toBeNull();
+    // direction.md § Icons: a Gated action is `shield-alert`; a permission request is `key-round`.
+    expect(container.querySelector(".lucide-shield-alert")).not.toBeNull();
+    expect(container.querySelector(".lucide-key-round")).toBeNull();
   });
 
   it("with a category, no button with the allow-always label is in the document", () => {
@@ -232,9 +233,9 @@ describe("destructive", () => {
 
     const deny = screen.getByRole("button", { name: "Deny" });
     const allow = screen.getByRole("button", { name: "Allow once" });
-    expect(deny.className).toContain("session-action-destructive");
-    expect(allow.className).not.toContain("session-action-destructive");
-    expect(allow.className).not.toContain("session-action-lead");
+    // Deny leads as the filled neutral (ink); Allow once is outline, never a filled action here.
+    expect(deny).toHaveAttribute("data-variant", "neutral");
+    expect(allow).toHaveAttribute("data-variant", "outline");
   });
 
   it("Allow's accessible name reads 'Allow once' on the Gated variant", () => {
@@ -252,15 +253,15 @@ describe("destructive", () => {
       <PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={vi.fn()} />,
     );
     const routineLead = screen.getByRole("button", { name: "Allow once" });
-    expect(routineLead.className).toContain("session-action-lead");
-    expect(screen.getByRole("button", { name: "Deny" }).className).not.toContain("session-action-lead");
+    expect(routineLead).toHaveAttribute("data-variant", "attention");
+    expect(screen.getByRole("button", { name: "Deny" })).toHaveAttribute("data-variant", "ghost");
     unmount();
 
     const request = destructiveRequest("hard-reset", "git reset --hard");
     render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
     const destructiveLead = screen.getByRole("button", { name: "Deny" });
-    expect(destructiveLead.className).toContain("session-action-lead");
-    expect(screen.getByRole("button", { name: "Allow once" }).className).not.toContain("session-action-lead");
+    expect(destructiveLead).toHaveAttribute("data-variant", "neutral");
+    expect(screen.getByRole("button", { name: "Allow once" })).toHaveAttribute("data-variant", "outline");
   });
 
   it("pressing d resolves through the shared binding table on the destructive variant; Shift+A is inert", () => {
@@ -409,7 +410,7 @@ describe("destructive", () => {
     expect(sentence.style.overflowWrap).toBe("anywhere");
   });
 
-  it("with an unrecognised category string renders the generic sentence and no shield glyph", () => {
+  it("with an unrecognised category string still renders as a Gated action, with the generic sentence", () => {
     const request = destructiveRequest("made-up-category", "some-unrecognised-command --flag");
     const { container } = render(
       <PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />,
@@ -418,8 +419,8 @@ describe("destructive", () => {
     expect(
       screen.getByText("This command can destroy work, and Flywheel doesn't recognise exactly what it would do."),
     ).toBeInTheDocument();
-    expect(container.querySelector(".lucide-shield-alert")).toBeNull();
-    expect(container.querySelector(".lucide-octagon-alert")).not.toBeNull();
+    expect(container.querySelector(".lucide-shield-alert")).not.toBeNull();
+    expect(container.querySelector(".lucide-key-round")).toBeNull();
     expect(screen.queryByRole("button", { name: /always allow/i })).not.toBeInTheDocument();
   });
 

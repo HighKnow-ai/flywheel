@@ -49,7 +49,7 @@ describe("the state vocabulary", () => {
 
   it("words a fleet state with the run-status vocabulary, and the core's `blocked` as Waiting on you", () => {
     expect(stateWordOf("blocked")).toBe("Waiting on you");
-    expect(stateWordOf("awaiting_review")).toBe("Awaiting review");
+    expect(stateWordOf("awaiting_review")).toBe("In review");
     expect(stateWordOf("in_review")).toBe("In review");
   });
 });

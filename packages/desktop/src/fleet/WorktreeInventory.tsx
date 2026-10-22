@@ -34,10 +34,12 @@ import {
   type ReclaimOutcomeDto,
   type WorktreeInventoryRowDto,
 } from "../adapters/tauri";
-import { MARKS_BY_ID } from "../legend/marks";
 import { formatAge } from "../legend/runStatus";
 import { useWorktreeInventory, worktreeInventoryQueryKey } from "./useFleet";
 import "../styles/admin-surfaces.css";
+import { Activity, Lock, Recycle, RefreshCw } from "lucide-react";
+import { PageHeader } from "../shell/PageHeader";
+import { Button } from "@/components/ui/button";
 import "../styles/states-and-confirms.css";
 
 /** Every reason the core's `ReclaimReason` can return, so a test can prove each one has a word. */
@@ -64,10 +66,11 @@ export const RECLAIM_REASON_WORDS: Record<InventoryReason, string> = {
   story_open: "Story still open",
 };
 
-const CHIP_MARK_IDS = {
-  reclaimable: "worktree-reclaimable",
-  in_use: "worktree-in-use",
-  keep: "worktree-keep",
+/** Each disposition's icon and word (never colour alone): reclaimable, in use, keep. */
+export const DISPOSITION_CHIPS = {
+  reclaimable: { icon: Recycle, label: "Reclaimable" },
+  in_use: { icon: Activity, label: "In use" },
+  keep: { icon: Lock, label: "Keep" },
 } as const;
 
 const UNITS = ["B", "KiB", "MiB", "GiB", "TiB"] as const;
@@ -245,12 +248,13 @@ function ReclaimResultList({ lines }: { lines: ResultLine[] }) {
 }
 
 function Chip({ row }: { row: WorktreeInventoryRowDto }) {
-  const mark = MARKS_BY_ID[CHIP_MARK_IDS[row.disposition]];
+  const chip = DISPOSITION_CHIPS[row.disposition];
+  const ChipIcon = chip.icon;
   return (
     <span data-field="disposition" data-disposition={row.disposition} style={{ display: "inline-flex", gap: "var(--space-xs)", alignItems: "center" }}>
       <span className="type-label" style={{ display: "inline-flex", gap: "var(--space-xs)", alignItems: "center" }}>
-        <Icon name={mark.glyph} />
-        {mark.label}
+        <ChipIcon size={16} strokeWidth={2} aria-hidden="true" />
+        {chip.label}
       </span>
       <span data-field="reason" className="type-label" style={{ color: "var(--muted-foreground)" }}>
         {RECLAIM_REASON_WORDS[row.reason]}
@@ -380,22 +384,21 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--foreground)" }}>
-      <header className="admin-header">
-        <button type="button" onClick={onClose} className="type-label admin-back">
-          ← Back
-        </button>
-        <span className="type-heading">WORKTREES</span>
-        <button type="button" className="type-label" disabled={measuring} onClick={() => void remeasure()}>
-          {measuring ? "Measuring…" : "Re-measure sizes"}
-        </button>
-        <span
-          className="type-label tabular-nums"
-          aria-live="polite"
-          style={{ marginLeft: "auto", color: "var(--muted-foreground)" }}
-        >
-          {`${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"}`}
-        </span>
-      </header>
+      <PageHeader
+        onBack={onClose}
+        crumbs={[{ label: "Worktrees" }]}
+        actions={
+          <>
+            <span aria-live="polite" className="text-small text-muted-foreground tabular-nums">
+              {`${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"}`}
+            </span>
+            <Button variant="outline" disabled={measuring} onClick={() => void remeasure()}>
+              <RefreshCw aria-hidden="true" />
+              {measuring ? "Measuring…" : "Re-measure sizes"}
+            </Button>
+          </>
+        }
+      />
       {notice !== null && (
         <p role="status" className="type-label" style={{ padding: "var(--space-xs) var(--space-md)", color: "var(--muted-foreground)" }}>
           {notice}
