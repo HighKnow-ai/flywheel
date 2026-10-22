@@ -35,6 +35,8 @@ export const STATE_VOCABULARY = {
   in_review: { tone: "neutral", icon: "GitPullRequest", label: "In review" },
   merged: { tone: "neutral", icon: "GitMerge", label: "Merged", quiet: true },
   dropped: { tone: "neutral", icon: "CircleSlash", label: "Dropped", quiet: true },
+  // Epic and Milestone states: In progress is derived (Shaping, Ready, Done and Dropped are shared above and below).
+  in_progress: { tone: "neutral", icon: "CircleDot", label: "In progress" },
   // Attention, worked out from the session and shown in place of the state word.
   waiting_on_you: { tone: "attention", icon: "Hand", label: "Waiting on you" },
   stopped: { tone: "destructive", icon: "CirclePause", label: "Stopped" },

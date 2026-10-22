@@ -169,6 +169,17 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await shot("15-nav-project-click-keeps-feed");
   });
 
+  it("17 project board at the window's minimum width (Milestone header, issue #106)", async () => {
+    await page.viewport(900, 900);
+    try {
+      await boardReady();
+      await screen.findByRole("list", { name: "Stories by state" });
+      await shot("17-board-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
   it("16 navigation: picking a project while the fleet is open", async () => {
     await boardReady();
     await click("Open fleet");

@@ -10,4 +10,5 @@ pub mod sessions;
 pub mod events;
 pub mod fleet;
 pub mod permissions;
+pub mod progress;
 pub mod recovery;

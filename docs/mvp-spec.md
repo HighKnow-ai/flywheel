@@ -263,7 +263,7 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
 The project screen, top to bottom:
 
 1. **Roadmap strip:** one slim row per Milestone with name, state and a one-line exit test. Drag to reorder, ghost rows for Proposals, and click to switch the roster. There is no separate Roadmap screen.
-2. **Milestone header:** the name, the next Milestone, the exit test as prose, and a stacked bar of Story states with "Epics done / Epics · Stories merged / Stories".
+2. **Milestone header:** the name, the next Milestone, the exit test as prose, and a stacked bar of Story states with "Epics done / Epics · Stories merged / Stories". **Shipped in Milestone 3** ([#106](https://github.com/HighKnow-ai/flywheel/issues/106)), ahead of the rest of this section, for the Current Milestone, with each of its Epics as a row carrying its own stacked bar and "n of m Stories merged". The core counts (one query for the header, one for the Epic rows); the renderer only draws. Waiting on you and Stopped are split out of Running, so every Story sits in exactly one segment. A Dropped Story is counted in its own box but is neither a segment nor part of "Stories": it is closed for its Epic (§2) but is not progress, so dropping one never moves the bar.
 3. **Needs you:** ranked as in [section 2](#needs-you). Each item shows its kind, the record, a one-line detail (the literal command for a Gated action) and its actions: Allow once / Deny, Resume, Open review, Triage, Continue shaping.
 4. **Since you last looked:** a timeline of events since Cyril's last visit, collapsed by default with the event count.
 5. **Roster:**
@@ -339,6 +339,8 @@ Each Milestone is a GitHub Milestone, and its exit test is the GitHub Milestone'
 | 3 | **Shaping** | Cyril takes a one-line idea to an Epic with Ready Stories, each with accepted criteria and Checks, entirely in Flywheel's dock and board. He can also shape a Milestone's exit test and have a roadmap Round propose a change. |
 | 4 | **Board and review** | A Story goes from Ready to Merged in Flywheel alone: Cyril sees it on the roster and in Needs you, triages its Proposals in the drawer, and reviews and merges it, handling an ADR it wrote in the Decisions section. |
 | 5 | **One-week exit test** | The MVP exit test in [section 1](#1-purpose-and-the-one-week-exit-test) passes. |
+
+The Milestone header of [section 7](#7-the-board-surface) shipped in Milestone 3 rather than 4 ([#106](https://github.com/HighKnow-ai/flywheel/issues/106), Cyril's decision of 2026-10-21), so progress is readable at a glance while Milestone 3 is shaped. The rest of the §7 surface (the Roadmap strip and the roster) stays in Milestone 4.
 
 The backlog for Milestones 1 and 2 is written down to Stories with Acceptance criteria and Checks. Milestones 3 to 5 have Epics with specs, and their Stories are sliced when each one becomes current.
 

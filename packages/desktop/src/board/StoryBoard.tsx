@@ -38,6 +38,7 @@ import {
 import { useBoardChangedSubscription } from "./useBoardQuery";
 import { DoingTask, TaskChecklist, useStoryTasks } from "./TaskChecklist";
 import { StateBadge } from "../components/StateBadge";
+import { MilestoneHeader } from "./MilestoneHeader";
 import { useUiStore } from "../state/uiStore";
 import "../session/session.css";
 
@@ -82,6 +83,7 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
           color: "var(--foreground)",
         }}
       >
+        <MilestoneHeader projectId={projectId} />
         <StoryList projectId={projectId} />
         <StoryForm projectId={projectId} />
       </div>
