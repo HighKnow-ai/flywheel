@@ -18,7 +18,8 @@ const BOX_ORDER: readonly BarSegment["key"][] = ["inReview", "running", "ready",
 
 /**
  * The Milestone header (docs/mvp-spec.md §7, issue #106), drawn as the Andon production board
- * (docs/design/direction.md, `directions/andon.html`): the Current Milestone's name and state, its Exit test
+ * (docs/design/direction.md, `directions/andon.html`): the Milestone picked on the Roadmap strip (#131), the
+ * Current one until another is picked. Its name and state, its Exit test
  * as prose, the next Milestone, a graphite lead box "Stories merged n/m", one count box per state, "Epics
  * done" and the stacked bar. Each Epic's own bar sits on its card in the roster below (`StoryBoard.tsx`), so
  * every Epic appears once on the board.
@@ -30,11 +31,8 @@ const BOX_ORDER: readonly BarSegment["key"][] = ["inReview", "running", "ready",
  * its top edge. Dropped and Epics done have no segment, so they carry none. Waiting on you lights its box
  * yellow while any Story waits, the one place on the header that asks something of the Developer.
  */
-export function MilestoneHeader({ projectId }: { projectId: string }) {
-  const progressQuery = useQuery({
-    queryKey: ["board", projectId, "milestone-progress"],
-    queryFn: () => milestoneProgress(projectId),
-  });
+export function MilestoneHeader({ projectId, milestoneId = null }: { projectId: string; milestoneId?: string | null }) {
+  const progressQuery = useMilestoneProgress(projectId, milestoneId);
 
   if (progressQuery.isPending) {
     return <Skeleton aria-label="Loading the Milestone" className="h-[188px] w-full rounded-lg" />;
@@ -60,6 +58,17 @@ export function MilestoneHeader({ projectId }: { projectId: string }) {
     );
   }
   return <MilestoneProgress progress={progress} />;
+}
+
+/**
+ * The header's one core read: `milestoneId` (picked on the Roadmap strip), or the Current Milestone when it
+ * is `null`. The roster reads the same key for each Epic's bar, so the two never disagree.
+ */
+export function useMilestoneProgress(projectId: string, milestoneId: string | null) {
+  return useQuery({
+    queryKey: ["board", projectId, "milestone-progress", milestoneId],
+    queryFn: () => milestoneProgress(projectId, milestoneId),
+  });
 }
 
 function HeaderCard({ children, labelledBy }: { children: ReactNode; labelledBy?: string }) {

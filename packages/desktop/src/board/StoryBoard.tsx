@@ -10,8 +10,9 @@
  * the Tasks and the sessions live in the Story view.
  *
  * Every read is keyed under the project so the one `board:changed` subscription keeps the board live;
- * the renderer never trusts its own write. The Milestone header (#106) sits above the roster, and each Epic of
- * the Current Milestone heads its card with its own bar and "n of m Stories merged", from the same core read.
+ * the renderer never trusts its own write. The Roadmap strip (#131) heads the board; the Milestone picked on it
+ * (the Current one until another is picked) is what the Milestone header (#106) and the roster below show, and
+ * each of its Epics heads its card with its own bar and "n of m Stories merged", from the header's core read.
  */
 import { useLayoutEffect, useState, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -20,7 +21,6 @@ import { ChevronRight, Flag, Layers } from "lucide-react";
 import {
   blockedSummary,
   epicList,
-  milestoneList,
   storyListForProject,
   type EpicDto,
   type MilestoneDto,
@@ -41,9 +41,10 @@ import {
   useStopped,
 } from "./StoryControls";
 import { WriteStoryDialog } from "./WriteStoryDialog";
-import { MilestoneHeader } from "./MilestoneHeader";
+import { MilestoneHeader, useMilestoneProgress } from "./MilestoneHeader";
 import { EpicProgress } from "./EpicProgress";
-import { milestoneProgress, type EpicProgressDto } from "../adapters/tauri";
+import { RoadmapStrip, useMilestoneSelection, useRoadmap } from "./RoadmapStrip";
+import type { EpicProgressDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
 import { useUiStore } from "../state/uiStore";
@@ -59,14 +60,17 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
   // The roster is virtualised against the surface's own scroll container (#116), held in state so the
   // virtualizer picks it up on the render after it mounts.
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
+  const selection = useMilestoneSelection(projectId);
   return (
     <div className="board-shell flex h-full min-h-0 flex-col">
       <PageHeader crumbs={[{ label: projectName }]} actions={<WriteStoryDialog projectId={projectId} />} />
       <SurfaceBody ref={setScrollElement} data-board-scroll="">
         <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4">
-          {/* The Current Milestone's progress (#106), above the roster of its Epics. */}
-          <MilestoneHeader projectId={projectId} />
-          <StoryRoster projectId={projectId} scrollElement={scrollElement} />
+          {/* The Roadmap (#131); the Milestone picked on it heads the board with its progress (#106), above
+              the roster of its Epics. */}
+          <RoadmapStrip projectId={projectId} />
+          <MilestoneHeader projectId={projectId} milestoneId={selection.requested} />
+          <StoryRoster projectId={projectId} selection={selection} scrollElement={scrollElement} />
         </div>
       </SurfaceBody>
     </div>
@@ -82,11 +86,7 @@ interface EpicGroup {
 
 /** Every Epic of the project, in Roadmap order, read per Milestone under the board's key. */
 function useProjectEpics(projectId: string) {
-  const milestonesQuery = useQuery({
-    queryKey: ["board", projectId, "milestones"],
-    queryFn: () => milestoneList(projectId),
-  });
-  const milestones = milestonesQuery.data ?? [];
+  const milestones = useRoadmap(projectId).data ?? [];
   const epicQueries = useQueries({
     queries: milestones.map((milestone) => ({
       queryKey: ["board", projectId, "epics", milestone.id],
@@ -116,7 +116,31 @@ export function groupByEpic(stories: StoryDto[], epics: { epic: EpicDto; milesto
   return shown;
 }
 
-function StoryRoster({ projectId, scrollElement }: { projectId: string; scrollElement: HTMLElement | null }) {
+/** The Stories of the shown Milestone (every Story when none is shown), grouped under its Epics. A Story
+ * whose Epic is not read yet stays visible in the loose group until it is placed. */
+export function storiesOfMilestone(
+  stories: StoryDto[],
+  epics: { epic: EpicDto; milestone: MilestoneDto }[],
+  shown: string | null,
+): { stories: StoryDto[]; epics: { epic: EpicDto; milestone: MilestoneDto }[] } {
+  if (shown === null) return { stories, epics };
+  const elsewhere = new Set(epics.filter((e) => e.milestone.id !== shown).map((e) => e.epic.id));
+  return {
+    stories: stories.filter((story) => !elsewhere.has(story.epicId)),
+    epics: epics.filter((e) => e.milestone.id === shown),
+  };
+}
+
+function StoryRoster({
+  projectId,
+  selection,
+  scrollElement,
+}: {
+  projectId: string;
+  /** The Milestone picked on the Roadmap strip, as the header asks for it and as the roster shows it. */
+  selection: { requested: string | null; shown: string | null };
+  scrollElement: HTMLElement | null;
+}) {
   const storiesQuery = useQuery({
     queryKey: ["board", projectId, "stories"],
     queryFn: () => storyListForProject(projectId),
@@ -129,12 +153,10 @@ function StoryRoster({ projectId, scrollElement }: { projectId: string; scrollEl
     queryFn: () => blockedSummary(projectId),
   });
   const waitingIds = new Set(waitingQuery.data?.blockedStoryIds ?? []);
-  const groups = groupByEpic(stories, useProjectEpics(projectId));
-  // Each Epic of the Current Milestone carries its own bar, from the header's one core read (#106).
-  const progressQuery = useQuery({
-    queryKey: ["board", projectId, "milestone-progress"],
-    queryFn: () => milestoneProgress(projectId),
-  });
+  const shown = storiesOfMilestone(stories, useProjectEpics(projectId), selection.shown);
+  const groups = groupByEpic(shown.stories, shown.epics);
+  // Each Epic of the shown Milestone carries its own bar, from the header's one core read (#106).
+  const progressQuery = useMilestoneProgress(projectId, selection.requested);
   const epicProgress = new Map((progressQuery.data?.epics ?? []).map((e) => [e.epicId, e]));
 
   if (storiesQuery.isError) {
@@ -146,6 +168,16 @@ function StoryRoster({ projectId, scrollElement }: { projectId: string; scrollEl
         <h2 className="m-0 text-section font-semibold">No Stories yet</h2>
         <p className="m-0 text-body text-muted-foreground">
           Write the first one with the Story control above. It goes into an Epic, inside a Milestone.
+        </p>
+      </section>
+    );
+  }
+  if (storiesQuery.isSuccess && groups.length === 0) {
+    return (
+      <section className="flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card px-5 py-6 shadow-card">
+        <h2 className="m-0 text-section font-semibold">No Stories in this Milestone yet</h2>
+        <p className="m-0 text-body text-muted-foreground">
+          Its Epics and their Stories show here once they are written. Pick another Milestone on the Roadmap above.
         </p>
       </section>
     );

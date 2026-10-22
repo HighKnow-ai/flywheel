@@ -7,6 +7,8 @@
 //! [`set_milestone_state`] is the one writer of `milestones.state`, and only the developer moves a
 //! Milestone: closing shaping, confirming the exit test, dropping it. Ready versus In progress is
 //! derived from its Epics ([`milestone_state`]), exactly as an Epic's is derived from its Stories.
+//! [`move_milestone`] is the one writer of an existing Milestone's `rank`, and it too is the
+//! developer's alone: reordering the Roadmap is how the Current Milestone changes.
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -14,7 +16,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use crate::domain::actor::assert_human_actor_in_tx;
 use crate::domain::{now, record_event, EventScope};
 use crate::ids::new_id;
-use crate::ranking::rank_after;
+use crate::ranking::{rank_after, rank_before, rank_between};
 
 /// Where a Milestone is in its life. `InProgress` is derived (shaping closed and some Epic past
 /// Ready); the other four are stored.
@@ -243,5 +245,75 @@ pub fn set_milestone_state(
         &now,
     )?;
     tx.commit().context("failed to commit set_milestone_state")?;
+    Ok(())
+}
+
+/// The developer moves a Milestone on the Roadmap: just before `before_id`, or to the end when that is
+/// `None`. One rank is rewritten; the Current Milestone, derived on every read, follows the new order.
+///
+/// Refused: any actor but a human (an agent changes the Roadmap through a Proposal); a Done or Dropped
+/// Milestone, which keeps the place it closed in; and an anchor that is the Milestone itself or is not
+/// on the same Roadmap. An open Milestone may be placed before a Done or Dropped one.
+pub fn move_milestone(
+    conn: &mut Connection,
+    actor_id: &str,
+    milestone_id: &str,
+    before_id: Option<&str>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(before_id != Some(milestone_id), "a Milestone cannot move before itself");
+    let now = now();
+    let tx = conn.transaction()?;
+    assert_human_actor_in_tx(&tx, actor_id)?;
+
+    let (project_id, title, state, before_rank): (String, String, String, String) = tx
+        .query_row(
+            "SELECT project_id, title, state, rank FROM milestones WHERE id = ?1",
+            params![milestone_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()
+        .context("failed to read the Milestone")?
+        .ok_or_else(|| anyhow::anyhow!("Milestone {milestone_id:?} not found"))?;
+    anyhow::ensure!(state != "done", "a Done Milestone is frozen and keeps its place on the Roadmap");
+    anyhow::ensure!(state != "dropped", "a Dropped Milestone keeps its place on the Roadmap");
+
+    // The Roadmap's other Milestones, in order: the moved one is placed among them.
+    let others: Vec<(String, String)> = {
+        let mut stmt =
+            tx.prepare("SELECT id, rank FROM milestones WHERE project_id = ?1 AND id != ?2 ORDER BY rank, id")?;
+        let rows = stmt.query_map(params![project_id, milestone_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    let rank = match before_id {
+        None => rank_after(others.last().map(|(_, r)| r.as_str()))?,
+        Some(anchor) => {
+            let at = others
+                .iter()
+                .position(|(id, _)| id == anchor)
+                .ok_or_else(|| anyhow::anyhow!("Milestone {anchor:?} is not on this Roadmap"))?;
+            match at.checked_sub(1) {
+                None => rank_before(Some(&others[at].1))?,
+                Some(prev) => rank_between(&others[prev].1, &others[at].1)?,
+            }
+        }
+    };
+
+    tx.execute("UPDATE milestones SET rank = ?1, updated_at = ?2 WHERE id = ?3", params![rank, now, milestone_id])
+        .context("failed to write the Milestone rank")?;
+    record_event(
+        &tx,
+        &project_id,
+        "milestone",
+        milestone_id,
+        EventScope::default(),
+        actor_id,
+        "milestone.moved",
+        &serde_json::json!({
+            "field": "rank", "before": before_rank, "after": rank,
+            "label": format!("Moved Milestone \"{title}\" on the Roadmap"),
+        }),
+        &now,
+    )?;
+    tx.commit().context("failed to commit move_milestone")?;
     Ok(())
 }

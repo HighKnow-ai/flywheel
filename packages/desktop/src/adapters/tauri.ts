@@ -106,6 +106,14 @@ export async function milestoneList(projectId: string): Promise<MilestoneDto[]> 
   return invokeCommand<MilestoneDto[]>("milestone_list", { projectId });
 }
 
+/**
+ * Move a Milestone on the Roadmap: just before `beforeId`, or to the end when it is `null`. The Current
+ * Milestone follows the new order; the core refuses a Done or Dropped Milestone, and anyone but the human.
+ */
+export async function milestoneMove(milestoneId: string, beforeId: string | null): Promise<void> {
+  await invokeCommand<void>("milestone_move", { milestoneId, beforeId });
+}
+
 /** Move a Milestone (`shaping`, `ready`, `done` or `dropped`); the domain refuses the rest. */
 export async function milestoneSetState(milestoneId: string, to: string): Promise<void> {
   await invokeCommand<void>("milestone_set_state", { milestoneId, to });
@@ -144,6 +152,8 @@ export interface MilestoneProgressDto {
   title: string;
   exitTest: string | null;
   state: string;
+  /** Whether this is the Current Milestone; the Roadmap strip can select any other one. */
+  current: boolean;
   nextMilestoneTitle: string | null;
   counts: StoryStateCountsDto;
   epicsDone: number;
@@ -151,9 +161,15 @@ export interface MilestoneProgressDto {
   epics: EpicProgressDto[];
 }
 
-/** The project's progress at a glance, or `null` without a Current Milestone. Counted by the core. */
-export async function milestoneProgress(projectId: string): Promise<MilestoneProgressDto | null> {
-  return invokeCommand<MilestoneProgressDto | null>("milestone_progress", { projectId });
+/**
+ * One Milestone's progress at a glance: `milestoneId` when given (picked on the Roadmap strip), else the
+ * Current Milestone's. `null` when there is no such Milestone. Counted by the core.
+ */
+export async function milestoneProgress(
+  projectId: string,
+  milestoneId: string | null = null,
+): Promise<MilestoneProgressDto | null> {
+  return invokeCommand<MilestoneProgressDto | null>("milestone_progress", { projectId, milestoneId });
 }
 
 /** An Epic in one Milestone — mirrors `commands/epic.rs`'s `EpicDto`. */

@@ -103,7 +103,8 @@ macro_rules! count_columns {
 
 pub const MILESTONE_PROGRESS_SQL: &str = concat!(
     "WITH cur AS (SELECT id, project_id, title, exit_test, state, rank FROM milestones \
-        WHERE project_id = ?1 AND state NOT IN ('done', 'dropped') ORDER BY rank, id LIMIT 1), \
+        WHERE project_id = ?1 AND CASE WHEN ?2 IS NULL THEN state NOT IN ('done', 'dropped') ELSE id = ?2 END \
+        ORDER BY rank, id LIMIT 1), \
      marks AS (",
     story_marks!("WHERE e.milestone_id = (SELECT id FROM cur)"),
     ") \
@@ -149,10 +150,15 @@ fn counts_at(row: &Row, first: usize) -> rusqlite::Result<StoryStateCounts> {
     })
 }
 
-/// The project's Current Milestone (the first on the Roadmap neither Done nor Dropped) with its
-/// header numbers, or `None` when the project has no Current Milestone. One statement.
-pub fn milestone_progress(conn: &Connection, project_id: &str) -> anyhow::Result<Option<MilestoneProgress>> {
-    conn.query_row(MILESTONE_PROGRESS_SQL, params![project_id], |row| {
+/// One Milestone of the project with its header numbers: `milestone_id` when given (the one picked on
+/// the Roadmap strip, whatever its state), else the Current Milestone (the first on the Roadmap neither
+/// Done nor Dropped). `None` when there is no such Milestone in this project. One statement.
+pub fn milestone_progress(
+    conn: &Connection,
+    project_id: &str,
+    milestone_id: Option<&str>,
+) -> anyhow::Result<Option<MilestoneProgress>> {
+    conn.query_row(MILESTONE_PROGRESS_SQL, params![project_id, milestone_id], |row| {
         Ok(MilestoneProgress {
             milestone_id: row.get(0)?,
             title: row.get(1)?,
@@ -165,7 +171,7 @@ pub fn milestone_progress(conn: &Connection, project_id: &str) -> anyhow::Result
         })
     })
     .optional()
-    .context("failed to read the Current Milestone's progress")
+    .context("failed to read the Milestone's progress")
 }
 
 /// Every Epic of `milestone_id` in Roadmap order, each with its Story counts. One statement.

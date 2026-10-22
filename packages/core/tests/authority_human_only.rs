@@ -6,7 +6,8 @@
 //! once: the writer reads `actors.type` inside its own write transaction and refuses anything but
 //! `'human'` (the behaviour half below), and no agent-reachable module may call the writer at all
 //! (the source half below). The developer-only Story, Epic and Milestone moves (starting a Story,
-//! requesting changes, merging, dropping, closing shaping, confirming an exit test) are pinned by
+//! requesting changes, merging, dropping, closing shaping, confirming an exit test, reordering the
+//! Roadmap) are pinned by
 //! the behaviour half too; their writers also serve the session's hand-off, so they are not in the
 //! source half's list.
 //!
@@ -24,7 +25,7 @@ use core::domain::actor::{assert_human_actor, assert_human_actor_in_tx, local_hu
 use core::domain::session::agent_actor_id;
 use core::domain::check::{remove_check, set_check};
 use core::domain::epic::{set_epic_state, EpicState};
-use core::domain::milestone::{set_milestone_state, MilestoneState};
+use core::domain::milestone::{move_milestone, set_milestone_state, MilestoneState};
 use core::domain::proposal::{accept_proposal, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb};
 use core::domain::story::{set_story_state, StoryState};
 use rusqlite::Connection;
@@ -67,7 +68,7 @@ struct Trial {
 /// Static SQL per table — no table name is ever interpolated.
 fn board_state(conn: &Connection) -> String {
     const QUERIES: [&str; 7] = [
-        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || updated_at AS r FROM milestones ORDER BY id)",
+        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || rank || updated_at AS r FROM milestones ORDER BY id)",
         "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || updated_at AS r FROM epics ORDER BY id)",
         "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || updated_at AS r FROM stories ORDER BY id)",
         "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || IFNULL(accepted_by, '') || updated_at AS r FROM acceptance_criteria ORDER BY id)",
@@ -206,6 +207,14 @@ fn run_confirm_milestone(who: Who) -> Trial {
     trial(&mut conn, who, |c, actor| set_milestone_state(c, actor, &m.id, MilestoneState::Done))
 }
 
+/// Reordering the Roadmap moves the Current Milestone, so it is the developer's (spec §2).
+fn run_move_milestone(who: Who) -> Trial {
+    let (mut conn, human, project) = common::seeded_project();
+    let first = core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "First", None).unwrap();
+    let second = core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Second", None).unwrap();
+    trial(&mut conn, who, |c, actor| move_milestone(c, actor, &second.id, Some(&first.id)))
+}
+
 /// The authority writers the source half guards, by function name. Adding one here without a case
 /// below (or the reverse) fails `every_authority_writer_has_a_refusal_and_a_not_blocked_case`.
 const AUTHORITY_WRITERS: [&str; 6] = [
@@ -258,11 +267,19 @@ authority_cases! {
     drop_story => run_drop_story,
     close_epic_shaping => run_close_epic_shaping,
     confirm_milestone => run_confirm_milestone,
+    move_milestone => run_move_milestone,
 }
 
-/// The table names every writer in AUTHORITY_WRITERS, plus the six developer-only state moves.
-const STATE_MOVES: [&str; 6] =
-    ["start_story", "request_changes", "merge_story", "drop_story", "close_epic_shaping", "confirm_milestone"];
+/// The table names every writer in AUTHORITY_WRITERS, plus the seven developer-only moves.
+const STATE_MOVES: [&str; 7] = [
+    "start_story",
+    "request_changes",
+    "merge_story",
+    "drop_story",
+    "close_epic_shaping",
+    "confirm_milestone",
+    "move_milestone",
+];
 
 #[test]
 fn every_authority_writer_has_a_refusal_and_a_not_blocked_case() {
@@ -271,7 +288,7 @@ fn every_authority_writer_has_a_refusal_and_a_not_blocked_case() {
     in_table.sort_unstable();
     declared.sort_unstable();
     assert_eq!(in_table, declared, "the case table must name every writer and every developer-only move");
-    assert_eq!(TRANSITIONS.len(), 12, "a transition was quietly dropped from coverage");
+    assert_eq!(TRANSITIONS.len(), 13,"a transition was quietly dropped from coverage");
 }
 
 /// The session's hand-off is the one Story move that is not the developer's: an agent may make it,

@@ -38,9 +38,11 @@ export const PROJECTS: Project[] = [
 
 const MILESTONES: Record<string, MilestoneDto[]> = {
   "p-fly": [
+    { id: "m-1", projectId: "p-fly", title: "Clean cut", exitTest: "CI is green on a single baseline migration whose tables and types use only glossary names.", state: "done", current: false, rank: "Z" },
     { id: "m-2", projectId: "p-fly", title: "Supervised execution", exitTest: "A Story written by hand runs from Start to In review with Cyril following it in Flywheel.", state: "done", current: false, rank: "a" },
     { id: "m-3", projectId: "p-fly", title: "Shaping", exitTest: "Cyril takes a one-line idea to an Epic with Ready Stories entirely in Flywheel's dock and board.", state: "in_progress", current: true, rank: "b" },
     { id: "m-4", projectId: "p-fly", title: "Board and review", exitTest: "A Story goes from Ready to Merged in Flywheel alone.", state: "shaping", current: false, rank: "c" },
+    { id: "m-5", projectId: "p-fly", title: "One-week exit test", exitTest: null, state: "shaping", current: false, rank: "d" },
   ],
   "p-hkw": [
     { id: "m-h1", projectId: "p-hkw", title: "Waitlist live", exitTest: "A visitor can join the waitlist and gets a confirmation email.", state: "in_progress", current: true, rank: "a" },
@@ -327,7 +329,7 @@ const counts = (c: Partial<StoryStateCountsDto>): StoryStateCountsDto => {
 /** What the core's `milestone_progress` answers for the seeded Stories above (the core counts; this mirrors it). */
 const PROGRESS: Record<string, MilestoneProgressDto> = {
   "p-fly": {
-    milestoneId: "m-3", title: "Shaping", state: "in_progress", nextMilestoneTitle: "Board and review",
+    milestoneId: "m-3", title: "Shaping", state: "in_progress", current: true, nextMilestoneTitle: "Board and review",
     exitTest: "Cyril takes a one-line idea to an Epic with Ready Stories, each with accepted criteria and Checks, entirely in Flywheel's dock and board.",
     counts: counts({ merged: 1, inReview: 1, running: 1, waitingOnYou: 2, stopped: 1, ready: 1, shaping: 1, dropped: 1 }),
     epicsDone: 0, epicsTotal: 2,
@@ -337,12 +339,28 @@ const PROGRESS: Record<string, MilestoneProgressDto> = {
     ],
   },
   "p-hkw": {
-    milestoneId: "m-h1", title: "Waitlist live", state: "in_progress", nextMilestoneTitle: null,
+    milestoneId: "m-h1", title: "Waitlist live", state: "in_progress", current: true, nextMilestoneTitle: null,
     exitTest: "A visitor can join the waitlist and gets a confirmation email.",
     counts: counts({ waitingOnYou: 1, ready: 1 }), epicsDone: 0, epicsTotal: 1,
     epics: [{ epicId: "e-h1", key: "HKW-1", title: "Waitlist", state: "in_progress", counts: counts({ waitingOnYou: 1, ready: 1 }) }],
   },
 };
+
+/** The header for a Milestone picked on the Roadmap strip: the seeded one when it is the Current one, else
+ * that Milestone with the Epics and counts the seed gives it (none). */
+function progressOf(projectId: string, milestoneId: string): MilestoneProgressDto | null {
+  const current = PROGRESS[projectId] ?? null;
+  if (milestoneId === "" || milestoneId === current?.milestoneId) return current;
+  const roadmap = MILESTONES[projectId] ?? [];
+  const at = roadmap.findIndex((m) => m.id === milestoneId);
+  if (at < 0) return null;
+  const m = roadmap[at];
+  const next = roadmap.slice(at + 1).find((n) => n.state !== "done" && n.state !== "dropped");
+  return {
+    milestoneId: m.id, title: m.title, exitTest: m.exitTest, state: m.state, current: m.current,
+    nextMilestoneTitle: next?.title ?? null, counts: counts({}), epicsDone: 0, epicsTotal: 0, epics: [],
+  };
+}
 
 type Args = Record<string, unknown> | undefined;
 const arg = (args: Args, name: string) => (args?.[name] as string | undefined) ?? "";
@@ -357,7 +375,7 @@ export function answer(cmd: string, args: Args): unknown {
     case "project_list": return PROJECTS;
     case "milestone_list": return MILESTONES[arg(args, "projectId")] ?? [];
     case "epic_list": return EPICS[arg(args, "milestoneId")] ?? [];
-    case "milestone_progress": return PROGRESS[arg(args, "projectId")] ?? null;
+    case "milestone_progress": return progressOf(arg(args, "projectId"), arg(args, "milestoneId"));
     case "story_list_for_project": return STORIES.filter((s) => s.projectId === arg(args, "projectId"));
     case "story_list": return STORIES.filter((s) => s.epicId === arg(args, "epicId"));
     case "story_get": return storyById(arg(args, "storyId")) ?? null;

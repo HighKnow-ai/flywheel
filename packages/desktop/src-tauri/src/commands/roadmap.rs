@@ -1,4 +1,5 @@
-//! `milestone_create` / `milestone_list` / `milestone_set_state` — the Roadmap's command surface. A
+//! `milestone_create` / `milestone_list` / `milestone_set_state` / `milestone_move` — the Roadmap's
+//! command surface. A
 //! project's Roadmap is its Milestones in rank order (`domain::milestone`). Every handler stamps the
 //! local human actor server-side (T-01-04) and emits `board:changed` after a successful mutation.
 
@@ -96,6 +97,26 @@ pub fn milestone_set_state(
     Ok(())
 }
 
+/// The developer moves a Milestone on the Roadmap (the Roadmap strip, #131): just before `before_id`,
+/// or to the end when it is `null`. The Current Milestone follows the new order; the domain refuses a
+/// Done or Dropped Milestone.
+#[tauri::command]
+pub fn milestone_move(
+    state: State<AppState>,
+    app: AppHandle,
+    milestone_id: String,
+    before_id: Option<String>,
+) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::milestone::move_milestone(&mut conn, &actor_id, &milestone_id, before_id.as_deref())
+        .map_err(|e| e.to_string())?;
+    let project_id = super::project_of(&conn, "milestones", &milestone_id);
+    drop(conn);
+    emit_board_changed(&app, project_id.as_deref(), "milestone", Some(&milestone_id));
+    Ok(())
+}
+
 /// A Milestone's or an Epic's Stories by state (`core::query::progress::StoryStateCounts`).
 /// Attention splits Running: `running` counts only Running Stories neither Waiting on you nor
 /// Stopped. `stories_total` leaves out Dropped Stories, which are counted on their own.
@@ -149,6 +170,8 @@ pub struct MilestoneProgressDto {
     pub title: String,
     pub exit_test: Option<String>,
     pub state: String,
+    /// Whether this is the Current Milestone; the strip can select any other one.
+    pub current: bool,
     pub next_milestone_title: Option<String>,
     pub counts: StoryStateCountsDto,
     pub epics_done: i64,
@@ -156,15 +179,25 @@ pub struct MilestoneProgressDto {
     pub epics: Vec<EpicProgressDto>,
 }
 
-/// The project's progress at a glance, or `null` when it has no Current Milestone. Read-only: the
-/// header is one core statement and the Epic rows another, so the renderer never counts.
+/// The progress of `milestone_id` (picked on the Roadmap strip), or of the Current Milestone when it
+/// is `null`; `null` when there is no such Milestone. Read-only: the header is one core statement and
+/// the Epic rows another, so the renderer never counts.
 #[tauri::command]
-pub fn milestone_progress(state: State<AppState>, project_id: String) -> Result<Option<MilestoneProgressDto>, String> {
+pub fn milestone_progress(
+    state: State<AppState>,
+    project_id: String,
+    milestone_id: Option<String>,
+) -> Result<Option<MilestoneProgressDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let Some(header) = flywheel_core::query::progress::milestone_progress(&conn, &project_id).map_err(|e| e.to_string())?
+    let Some(header) =
+        flywheel_core::query::progress::milestone_progress(&conn, &project_id, milestone_id.as_deref())
+            .map_err(|e| e.to_string())?
     else {
         return Ok(None);
     };
+    let current = flywheel_core::domain::milestone::current_milestone(&conn, &project_id)
+        .map_err(|e| e.to_string())?
+        .is_some_and(|c| c.id == header.milestone_id);
     let epics = flywheel_core::query::progress::epic_progress(&conn, &header.milestone_id)
         .map_err(|e| e.to_string())?
         .into_iter()
@@ -175,6 +208,7 @@ pub fn milestone_progress(state: State<AppState>, project_id: String) -> Result<
         title: header.title,
         exit_test: header.exit_test,
         state: header.state,
+        current,
         next_milestone_title: header.next_milestone_title,
         counts: header.counts.into(),
         epics_done: header.epics_done,

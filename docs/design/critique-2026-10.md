@@ -122,6 +122,9 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 17 | Board at the 900px minimum window width | ![](critique-2026-10/after/17-board-min-width-light.webp) | ![](critique-2026-10/after/17-board-min-width-dark.webp) |
 | 18 | Story Waiting on you: its agent station with Answer, Stop and the live tail (#118) | ![](critique-2026-10/after/18-story-station-waiting-light.webp) | ![](critique-2026-10/after/18-story-station-waiting-dark.webp) |
 | 19 | Stop confirmation from the agent station (#118) | ![](critique-2026-10/after/19-story-stop-confirm-light.webp) | ![](critique-2026-10/after/19-story-stop-confirm-dark.webp) |
+| 20 | Roadmap strip: another Milestone picked, the header and roster switch to it (#131) | ![](critique-2026-10/after/20-roadmap-other-milestone-light.webp) | ![](critique-2026-10/after/20-roadmap-other-milestone-dark.webp) |
+| 21 | Roadmap strip: + Milestone takes a one-line outcome (#131) | ![](critique-2026-10/after/21-roadmap-add-milestone-light.webp) | ![](critique-2026-10/after/21-roadmap-add-milestone-dark.webp) |
+| 22 | Roadmap strip: a Milestone dragged up, the line shows where it lands (#131) | ![](critique-2026-10/after/22-roadmap-dragging-light.webp) | ![](critique-2026-10/after/22-roadmap-dragging-dark.webp) |
 
 ## How the screens were rendered
 

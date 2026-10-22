@@ -74,6 +74,9 @@ interface UiState {
   questionDrafts: Record<string, QuestionDraft[]>;
   /** The version string of the update offer the user dismissed (D-187). */
   dismissedUpdateVersion: string | null;
+  /** The Milestone picked on each project's Roadmap strip (#131), keyed by project id. Absent means the
+   * Current Milestone, so the header and roster follow it until the developer picks another. */
+  selectedMilestoneByProject: Record<string, string>;
   setPaletteOpen: (open: boolean) => void;
   setCurrentProjectId: (id: string | null) => void;
   setDetailItemId: (id: string | null) => void;
@@ -100,6 +103,8 @@ interface UiState {
   /** Returns to the place before this one; with no history, to the current project's board. */
   goBack: () => void;
   setQuestionDraft: (requestId: string, draft: QuestionDraft[] | null) => void;
+  /** Picks the Milestone the header and roster show on a project's board; `null` follows the Current one. */
+  selectMilestone: (projectId: string, milestoneId: string | null) => void;
 }
 
 /** One question's half-typed answer: the picked option labels, and the typed "Other" answer. */
@@ -182,6 +187,7 @@ const INITIAL_STATE = {
   currentStoryId: null,
   navHistory: [] as NavPlace[],
   questionDrafts: {} as Record<string, QuestionDraft[]>,
+  selectedMilestoneByProject: {} as Record<string, string>,
 } satisfies Partial<UiState>;
 
 export const useUiStore = create<UiState>((set, get) => {
@@ -247,6 +253,12 @@ export const useUiStore = create<UiState>((set, get) => {
     if (draft === null) delete drafts[requestId];
     else drafts[requestId] = draft;
     set({ questionDrafts: drafts });
+  },
+  selectMilestone: (projectId, milestoneId) => {
+    const selected = { ...get().selectedMilestoneByProject };
+    if (milestoneId === null) delete selected[projectId];
+    else selected[projectId] = milestoneId;
+    set({ selectedMilestoneByProject: selected });
   },
   };
 });

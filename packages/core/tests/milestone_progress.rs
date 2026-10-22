@@ -83,7 +83,7 @@ fn the_header_and_each_epic_count_stories_in_every_state() {
         let other_epic = create_epic(&mut conn, &actor, &other.id, "Elsewhere").unwrap();
         create_story(&mut conn, &actor, &other_epic.id, "Not in M3").unwrap();
 
-        let header = milestone_progress(&conn, &project.id).unwrap().expect("a Current Milestone");
+        let header = milestone_progress(&conn, &project.id, None).unwrap().expect("a Current Milestone");
         assert_eq!(header.milestone_id, m3.id);
         assert_eq!(header.title, "Shaping");
         assert_eq!(header.exit_test.as_deref(), Some("A one-line idea becomes an Epic"));
@@ -137,18 +137,18 @@ fn the_header_and_each_epic_count_stories_in_every_state() {
 #[test]
 fn a_project_without_a_current_milestone_has_no_header() {
     let (mut conn, actor, project) = common::seeded_project();
-    assert_eq!(milestone_progress(&conn, &project.id).unwrap(), None, "an empty Roadmap");
+    assert_eq!(milestone_progress(&conn, &project.id, None).unwrap(), None, "an empty Roadmap");
 
     let only = create_milestone(&mut conn, &project.id, &actor, "Done already", None).unwrap();
     set_milestone_state(&mut conn, &actor, &only.id, MilestoneState::Done).unwrap();
-    assert_eq!(milestone_progress(&conn, &project.id).unwrap(), None, "every Milestone Done");
+    assert_eq!(milestone_progress(&conn, &project.id, None).unwrap(), None, "every Milestone Done");
 }
 
 #[test]
 fn an_empty_current_milestone_counts_zero() {
     let (mut conn, actor, project) = common::seeded_project();
     let m = create_milestone(&mut conn, &project.id, &actor, "Fresh", None).unwrap();
-    let header = milestone_progress(&conn, &project.id).unwrap().expect("a Current Milestone");
+    let header = milestone_progress(&conn, &project.id, None).unwrap().expect("a Current Milestone");
     assert_eq!(header.milestone_id, m.id);
     assert_eq!(header.state, "shaping");
     assert_eq!(header.next_milestone_title, None);
@@ -157,22 +157,66 @@ fn an_empty_current_milestone_counts_zero() {
     assert!(epic_progress(&conn, &m.id).unwrap().is_empty());
 }
 
+/// The Roadmap strip (#131) switches the header to any Milestone, not only the Current one.
+#[test]
+fn a_selected_milestone_reads_its_own_progress() {
+    let (mut conn, actor, project) = common::seeded_project();
+    let done = create_milestone(&mut conn, &project.id, &actor, "Shipped", Some("it shipped")).unwrap();
+    let current = create_milestone(&mut conn, &project.id, &actor, "Now", None).unwrap();
+    let later = create_milestone(&mut conn, &project.id, &actor, "Later", None).unwrap();
+    let epic = create_epic(&mut conn, &actor, &later.id, "Later work").unwrap();
+    create_story(&mut conn, &actor, &epic.id, "A later Story").unwrap();
+    set_milestone_state(&mut conn, &actor, &done.id, MilestoneState::Done).unwrap();
+
+    let header = milestone_progress(&conn, &project.id, None).unwrap().unwrap();
+    assert_eq!(header.milestone_id, current.id, "no selection reads the Current Milestone");
+
+    let header = milestone_progress(&conn, &project.id, Some(&later.id)).unwrap().unwrap();
+    assert_eq!((header.milestone_id.as_str(), header.title.as_str()), (later.id.as_str(), "Later"));
+    assert_eq!(header.counts.shaping, 1, "its own Stories are counted");
+    assert_eq!((header.epics_done, header.epics_total), (0, 1));
+    assert_eq!(header.next_milestone_title, None, "nothing open after the last one");
+
+    let header = milestone_progress(&conn, &project.id, Some(&done.id)).unwrap().expect("a Done Milestone reads too");
+    assert_eq!(header.state, "done");
+    assert_eq!(header.next_milestone_title.as_deref(), Some("Now"));
+
+    let other = core::domain::project::create_project(&mut conn, &actor, "Other", "/other", "OTH", "main").unwrap();
+    assert_eq!(
+        milestone_progress(&conn, &other.id, Some(&later.id)).unwrap(),
+        None,
+        "another project's Milestone is not read"
+    );
+    assert_eq!(milestone_progress(&conn, &project.id, Some("no-such-milestone")).unwrap(), None);
+}
+
 #[test]
 fn the_header_query_walks_indexes_only() {
     let (conn, _actor, project) = common::seeded_project();
-    for sql in [core::query::progress::MILESTONE_PROGRESS_SQL, core::query::progress::EPIC_PROGRESS_SQL] {
+    for (sql, selected) in [
+        (core::query::progress::MILESTONE_PROGRESS_SQL, Some("a-milestone")),
+        (core::query::progress::MILESTONE_PROGRESS_SQL, None),
+    ] {
         let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
         let plan: Vec<String> = stmt
-            .query_map(params![project.id], |row| row.get::<_, String>(3))
+            .query_map(params![project.id, selected], |row| row.get::<_, String>(3))
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        for step in &plan {
-            // `cur` (one row) and `m` (the Milestone's own Stories) are the statement's materialized
-            // CTEs; every base table must be reached through an index.
-            let cte = step.starts_with("SCAN cur") || step.starts_with("SCAN m ") || step == "SCAN m";
-            let full_scan = step.starts_with("SCAN ") && !step.contains("USING") && !cte;
-            assert!(!full_scan, "a full table scan in the progress query: {step}\nplan: {plan:#?}");
-        }
+        assert_index_only(&plan);
+    }
+    let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {}", core::query::progress::EPIC_PROGRESS_SQL)).unwrap();
+    let plan: Vec<String> =
+        stmt.query_map(params![project.id], |row| row.get::<_, String>(3)).unwrap().collect::<Result<_, _>>().unwrap();
+    assert_index_only(&plan);
+}
+
+fn assert_index_only(plan: &[String]) {
+    for step in plan {
+        // `cur` (one row) and `m` (the Milestone's own Stories) are the statement's materialized
+        // CTEs; every base table must be reached through an index.
+        let cte = step.starts_with("SCAN cur") || step.starts_with("SCAN m ") || step == "SCAN m";
+        let full_scan = step.starts_with("SCAN ") && !step.contains("USING") && !cte;
+        assert!(!full_scan, "a full table scan in the progress query: {step}\nplan: {plan:#?}");
     }
 }
