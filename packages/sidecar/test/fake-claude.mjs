@@ -132,8 +132,10 @@ async function callTaskToolOnce(toolCall) {
   const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
   const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
 
+  // The session's one server, whether or not it is also wired as the permission prompt: a shaping
+  // session (issue #122) gets `--mcp-config` alone.
   const mcpConfig = JSON.parse(readFlag("--mcp-config"));
-  const [, serverName] = readFlag("--permission-prompt-tool").match(/^mcp__(.+)__(.+)$/);
+  const [serverName] = Object.keys(mcpConfig.mcpServers);
   const serverConfig = mcpConfig.mcpServers[serverName];
 
   const transport = new StdioClientTransport({ command: serverConfig.command, args: serverConfig.args });
@@ -155,6 +157,12 @@ printLine({
   session_id: SESSION_ID,
   model: "fake-model",
 });
+
+// Argv-echo mode (`FLYWHEEL_FAKE_ECHO_ARGV=1`, issue #122): print the flags the adapter built, so a
+// test can assert what a session of each kind is wired to.
+if (process.env.FLYWHEEL_FAKE_ECHO_ARGV === "1") {
+  printLine({ type: "argv_seen", argv: process.argv.slice(2) });
+}
 
 printLine({
   type: "assistant",

@@ -216,11 +216,12 @@ function writeRunDescriptor(runtimeDir: string, runId: string, wrapperPid: numbe
  * access — so it is unit-testable without a child process. Never places a credential in the
  * array: credentials only ever reach the child through its `env` (T-02-01).
  *
- * `permissionPromptToolName`/`mcpConfig` are appended together, or not at all — AGNT-06's
- * blocking permission gate (`--permission-prompt-tool` + `--mcp-config` naming exactly one
- * server, supplied explicitly on the command line rather than discovered from the worktree's own
- * configuration, T-02-02). Both are optional purely so this function's own unit tests (and any
- * future adapter that does not yet wire the gate) can call it with the bare two fields.
+ * `mcpConfig` names exactly one server, supplied explicitly on the command line rather than
+ * discovered from the worktree's own configuration (T-02-02). `permissionPromptToolName` is
+ * AGNT-06's blocking permission gate and is appended only together with `mcpConfig`, never alone;
+ * `mcpConfig` alone wires the board tools to a session that raises no request (a shaping session,
+ * issue #122). Both are optional so this function's own unit tests can call it with the bare two
+ * fields.
  *
  * `settingsPath` (plan 03-07, D-55) is independently optional — it injects the hook
  * settings file `writeHookSettings` wrote, via the CLI's own `--settings <file>` flag (RESEARCH.md
@@ -228,10 +229,14 @@ function writeRunDescriptor(runtimeDir: string, runId: string, wrapperPid: numbe
  * anything else, so a caller that has a permission-prompt-tool pair but no settings file (or vice
  * versa) still gets a valid argv.
  */
-/** Push the paired `--permission-prompt-tool <toolName> --mcp-config <mcpConfig>` flags onto
- * `argv` — the ONE place this flag pair is constructed. */
-function pushPermissionPromptFlags(argv: string[], toolName: string, mcpConfig: string): void {
-  argv.push("--permission-prompt-tool", toolName, "--mcp-config", mcpConfig);
+/** Push the board's MCP server flags onto `argv` — the ONE place they are constructed. The
+ * `--mcp-config` naming the session's one server goes on whenever it is given, so every session
+ * reaches the board tools; `--permission-prompt-tool` goes on only alongside it, and only for a
+ * session that may raise a permission request (issue #122: a shaping session never does, but it
+ * still needs the board server for its Proposal and Round tools). */
+function pushBoardServerFlags(argv: string[], mcpConfig: string, toolName: string | undefined): void {
+  if (toolName) argv.push("--permission-prompt-tool", toolName);
+  argv.push("--mcp-config", mcpConfig);
 }
 
 export function buildClaudeArgv(options: {
@@ -270,8 +275,8 @@ export function buildClaudeArgv(options: {
   if (options.disallowedTools && options.disallowedTools.length > 0) {
     argv.push("--disallowedTools", options.disallowedTools.join(","));
   }
-  if (options.permissionPromptToolName && options.mcpConfig) {
-    pushPermissionPromptFlags(argv, options.permissionPromptToolName, options.mcpConfig);
+  if (options.mcpConfig) {
+    pushBoardServerFlags(argv, options.mcpConfig, options.permissionPromptToolName);
   }
   if (options.settingsPath) {
     argv.push("--settings", options.settingsPath);
@@ -1173,7 +1178,8 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       },
     });
     // A session that must never raise a request (a shaping session) is not wired to the
-    // permission-prompt tool at all: its mode refuses whatever it does not allow.
+    // permission-prompt tool at all: its mode refuses whatever it does not allow. It still gets
+    // the board's MCP server, where its Proposal and Round tools live (issue #122).
     const raisesRequests = options.permissionPrompt !== false;
     const argv = buildClaudeArgv({
       prompt: options.prompt,
@@ -1181,7 +1187,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       allowedTools: options.allowedTools,
       disallowedTools: options.disallowedTools,
       permissionPromptToolName: raisesRequests ? PERMISSION_TOOL_NAME : undefined,
-      mcpConfig: raisesRequests ? mcpConfig : undefined,
+      mcpConfig,
       settingsPath,
     });
 
