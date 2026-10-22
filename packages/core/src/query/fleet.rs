@@ -223,23 +223,27 @@ pub const WAITING_ROUNDS_MAX_LIMIT: usize = 200;
 /// One shaping Round Waiting on you (issue #124): open, with its call held by a LIVE shaping
 /// session, across every registered project. A shaping session has no Story, so it is not a
 /// [`FleetRow`]; the andon strip lights a lamp for each of these, and the sidebar's Waiting-on-you
-/// count adds them to the queue's requests.
+/// count adds them to the queue's requests. An Epic's Round or a roadmap Round (issue #133).
 #[derive(Debug, Clone, PartialEq)]
 pub struct WaitingRound {
     pub round_id: String,
     pub round_number: i64,
-    /// The Stage's kind: `challenge_spec`, `slice`, `criteria`.
-    pub stage_kind: String,
+    /// `epic` for an Epic's Round, `roadmap` for a roadmap Round.
+    pub subject: String,
+    /// The Stage's kind: `challenge_spec`, `slice`, `criteria`; `None` for a roadmap Round.
+    pub stage_kind: Option<String>,
     pub session_id: String,
     pub project_id: String,
     pub project_name: String,
     pub project_key_prefix: String,
-    pub epic_id: String,
-    pub epic_key: String,
-    pub epic_title: String,
+    /// The Epic an Epic's Round shapes; `None` for a roadmap Round.
+    pub epic_id: Option<String>,
+    pub epic_key: Option<String>,
+    pub epic_title: Option<String>,
     /// When the Round was posted: it has waited on the developer since.
     pub waiting_since: String,
-    /// How many of its questions are answered, and how many it asks.
+    /// An Epic's Round: how many of its questions are answered, and how many it asks. A roadmap Round:
+    /// how many of its Proposals are decided, and how many it filed.
     pub answered: i64,
     pub questions: i64,
 }
@@ -247,14 +251,19 @@ pub struct WaitingRound {
 /// Every waiting Round, longest waiting first, with the Round id as the final key so two reads of an
 /// unchanged database are byte-identical. A Milestone's Rounds join no Epic and are not read yet.
 pub const WAITING_ROUNDS_SQL: &str = concat!(
-    "SELECT r.id, r.number, st.kind, r.session_id, p.id, p.name, p.key_prefix, e.id, e.key, e.title, r.posted_at, \
-        (SELECT COUNT(*) FROM round_questions q WHERE q.round_id = r.id AND q.answer IS NOT NULL), \
-        (SELECT COUNT(*) FROM round_questions q WHERE q.round_id = r.id) \
+    "SELECT r.id, r.number, CASE WHEN r.stage_id IS NULL THEN 'roadmap' ELSE 'epic' END, st.kind, r.session_id, \
+        p.id, p.name, p.key_prefix, e.id, e.key, e.title, r.posted_at, \
+        CASE WHEN r.stage_id IS NULL \
+            THEN (SELECT COUNT(*) FROM proposals pr WHERE pr.round_id = r.id AND pr.state != 'pending') \
+            ELSE (SELECT COUNT(*) FROM round_questions q WHERE q.round_id = r.id AND q.answer IS NOT NULL) END, \
+        CASE WHEN r.stage_id IS NULL \
+            THEN (SELECT COUNT(*) FROM proposals pr WHERE pr.round_id = r.id) \
+            ELSE (SELECT COUNT(*) FROM round_questions q WHERE q.round_id = r.id) END \
     FROM rounds r \
-    JOIN stages st ON st.id = r.stage_id \
-    JOIN epics e ON e.id = st.epic_id \
-    JOIN projects p ON p.id = st.project_id AND p.hidden = 0 \
-    WHERE ",
+    LEFT JOIN stages st ON st.id = r.stage_id \
+    LEFT JOIN epics e ON e.id = st.epic_id \
+    JOIN projects p ON p.id = r.project_id AND p.hidden = 0 \
+    WHERE (r.stage_id IS NULL OR st.epic_id IS NOT NULL) AND ",
     crate::query::round_waiting_on_you!(),
     " ORDER BY r.posted_at ASC, r.id ASC LIMIT ?1"
 );
@@ -269,17 +278,18 @@ pub fn waiting_rounds(conn: &Connection, limit: usize) -> anyhow::Result<Vec<Wai
             Ok(WaitingRound {
                 round_id: row.get(0)?,
                 round_number: row.get(1)?,
-                stage_kind: row.get(2)?,
-                session_id: row.get(3)?,
-                project_id: row.get(4)?,
-                project_name: row.get(5)?,
-                project_key_prefix: row.get(6)?,
-                epic_id: row.get(7)?,
-                epic_key: row.get(8)?,
-                epic_title: row.get(9)?,
-                waiting_since: row.get(10)?,
-                answered: row.get(11)?,
-                questions: row.get(12)?,
+                subject: row.get(2)?,
+                stage_kind: row.get(3)?,
+                session_id: row.get(4)?,
+                project_id: row.get(5)?,
+                project_name: row.get(6)?,
+                project_key_prefix: row.get(7)?,
+                epic_id: row.get(8)?,
+                epic_key: row.get(9)?,
+                epic_title: row.get(10)?,
+                waiting_since: row.get(11)?,
+                answered: row.get(12)?,
+                questions: row.get(13)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()

@@ -376,6 +376,16 @@ pub fn propose_roadmap_change(conn: &mut Connection, session_id: &str, change: &
     let at = now();
     let tx = conn.transaction()?;
     let round = live_roadmap_round(&tx, session_id, "propose_roadmap_change")?;
+    let mut change = change.clone();
+    if let RoadmapChange::AddEpic { milestone_id, .. } = &mut change {
+        if milestone_id.is_empty() {
+            *milestone_id = milestone_after_current(&tx, &round.project_id)?.context(
+                "there is no open Milestone after the Current one for the new Epic: name its `milestone_id`, or \
+                 propose that Milestone first with create_milestone",
+            )?;
+        }
+    }
+    let change = &change;
     check_targets(&tx, &round.project_id, change)?;
     let (verb, target, target_id, payload) = change.to_proposal();
     let id = file_proposal_in_tx(

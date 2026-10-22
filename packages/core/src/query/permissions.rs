@@ -9,6 +9,8 @@
 //! v0.1 read and which a single answer could reset while other requests still waited (issue #57).
 //! An Epic is Waiting on you when a live shaping session is held on one of its open Rounds
 //! (issue #124, `crate::query::round_waiting_on_you`); a held Round never writes the session's status.
+//! A project's Roadmap is Waiting on you the same way, while a live roadmap session is held on its
+//! open roadmap Round (issue #133); it counts once.
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -31,6 +33,14 @@ const BLOCKED_COUNT_SQL: &str = concat!(
     AND EXISTS (SELECT 1 FROM permission_requests pr WHERE pr.session_id = ar.id AND pr.status = 'pending' AND pr.expired_at IS NULL)) \
     + (SELECT COUNT(DISTINCT st.epic_id) FROM rounds r JOIN stages st ON st.id = r.stage_id \
     WHERE st.project_id = ?1 AND st.epic_id IS NOT NULL AND ",
+    crate::query::round_waiting_on_you!(),
+    ") + (SELECT COUNT(*) FROM rounds r WHERE r.project_id = ?1 AND r.stage_id IS NULL AND ",
+    crate::query::round_waiting_on_you!(),
+    ")"
+);
+
+const ROADMAP_WAITING_SQL: &str = concat!(
+    "SELECT EXISTS (SELECT 1 FROM rounds r WHERE r.project_id = ?1 AND r.stage_id IS NULL AND ",
     crate::query::round_waiting_on_you!(),
     ")"
 );
@@ -55,9 +65,16 @@ pub fn waiting_epic_ids_for_project(conn: &Connection, project_id: &str) -> anyh
     rows.context("failed to list the Epics waiting on you for project")
 }
 
-/// The project's Needs-you count of what is Waiting on you: the distinct Stories and the distinct
-/// Epics (issue #124). Always equal to `blocked_story_ids_for_project(..).len()` plus
-/// `waiting_epic_ids_for_project(..).len()`.
+/// Whether the project's Roadmap is Waiting on you (issue #133): a live roadmap session is held on its
+/// open roadmap Round, until the developer decides each of the Round's Proposals.
+pub fn roadmap_waiting_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<bool> {
+    conn.query_row(ROADMAP_WAITING_SQL, params![project_id], |row| row.get(0))
+        .context("failed to read whether the Roadmap is waiting on you")
+}
+
+/// The project's Needs-you count of what is Waiting on you: the distinct Stories, the distinct Epics
+/// (issue #124) and the Roadmap (issue #133). Always equal to `blocked_story_ids_for_project(..).len()`
+/// plus `waiting_epic_ids_for_project(..).len()`, plus one while `roadmap_waiting_for_project`.
 pub fn blocked_count_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<i64> {
     let count: i64 = conn
         .query_row(BLOCKED_COUNT_SQL, params![project_id], |row| row.get(0))

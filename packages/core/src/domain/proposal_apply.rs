@@ -311,7 +311,15 @@ impl RoadmapChange {
             "retire_milestone" => {
                 (ProposalVerb::Retire, ProposalTarget::Milestone, Some(required_id(args, "milestone_id", "Milestone to retire")?))
             }
-            "add_epic" => (ProposalVerb::Create, ProposalTarget::Epic, None),
+            "add_epic" => {
+                // With no Milestone named, the new Epic goes after the Current Milestone: an empty id
+                // here, resolved against the board where it is filed (`roadmap_round`).
+                return Ok(RoadmapChange::AddEpic {
+                    milestone_id: args.get("milestone_id").and_then(Value::as_str).map(str::trim).unwrap_or("").to_string(),
+                    title: required_text(args, "title", MAX_ROADMAP_TITLE_LEN, "the new Epic's title")?,
+                    problem: optional_text(args, "problem", MAX_ROADMAP_TEXT_LEN, "the Epic's problem")?,
+                });
+            }
             "drop_epic" => (ProposalVerb::Retire, ProposalTarget::Epic, Some(required_id(args, "epic_id", "Epic to drop")?)),
             other => anyhow::bail!("`change` is {other:?}; use one of {}", Self::NAMES.join(", ")),
         };
