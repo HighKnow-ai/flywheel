@@ -28,6 +28,7 @@ use core::domain::epic::{set_epic_state, EpicState};
 use core::domain::milestone::{move_milestone, set_milestone_state, MilestoneState};
 use core::domain::proposal::{accept_proposal, accept_proposal_amended, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb};
 use core::domain::round::{accept_all_recommended, answer_round_question, post_round, NewQuestion, NewRound, RoundAnswer};
+use core::domain::stage::close_stage;
 use core::domain::story::{set_story_state, StoryState};
 use rusqlite::Connection;
 
@@ -68,7 +69,9 @@ struct Trial {
 /// A byte-comparable picture of every table an authority writer can touch, plus the event count.
 /// Static SQL per table — no table name is ever interpolated.
 fn board_state(conn: &Connection) -> String {
-    const QUERIES: [&str; 9] = [
+    const QUERIES: [&str; 11] = [
+        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || kind || state || IFNULL(closed_by, '') AS r FROM stages ORDER BY id)",
+        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || status AS r FROM sessions ORDER BY id)",
         "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || IFNULL(answer, '') || IFNULL(answered_by, '') AS r FROM round_questions ORDER BY id)",
         "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || IFNULL(held_request_id, '') AS r FROM rounds ORDER BY id)",
         "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || rank || updated_at AS r FROM milestones ORDER BY id)",
@@ -268,9 +271,21 @@ fn run_accept_all_recommended(who: Who) -> Trial {
     trial(&mut conn, who, |c, actor| accept_all_recommended(c, actor, &round_id).map(|_| ()))
 }
 
+/// Closing a Stage is the developer's (issue #126): an agent never advances its own shaping. The
+/// Stage has nothing open, so only the actor decides.
+fn run_close_stage(who: Who) -> Trial {
+    let (mut conn, human, project) = common::seeded_project();
+    let m = core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Shaping", None).unwrap();
+    let e = core::domain::epic::create_epic(&mut conn, &human, &m.id, "Epic shaping").unwrap();
+    let subject = core::domain::session::ShapingSubject::Epic(e.id);
+    core::domain::session::start_shaping_session(&mut conn, &subject, "dontAsk", &human).unwrap();
+    let stage = core::domain::stage::open_stage(&conn, &subject).unwrap().expect("the first Stage is open");
+    trial(&mut conn, who, |c, actor| close_stage(c, actor, &stage.id).map(|_| ()))
+}
+
 /// The authority writers the source half guards, by function name. Adding one here without a case
 /// below (or the reverse) fails `every_authority_writer_has_a_refusal_and_a_not_blocked_case`.
-const AUTHORITY_WRITERS: [&str; 9] = [
+const AUTHORITY_WRITERS: [&str; 10] = [
     "accept_criterion",
     "unaccept_criterion",
     "set_check",
@@ -280,6 +295,7 @@ const AUTHORITY_WRITERS: [&str; 9] = [
     "reject_proposal",
     "answer_round_question",
     "accept_all_recommended",
+    "close_stage",
 ];
 
 /// Declares the case table AND, per transition, the labelled refusal / not-blocked pair — so the two
@@ -320,6 +336,7 @@ authority_cases! {
     reject_proposal => run_reject_proposal,
     answer_round_question => run_answer_round_question,
     accept_all_recommended => run_accept_all_recommended,
+    close_stage => run_close_stage,
     start_story => run_start_story,
     request_changes => run_request_changes,
     merge_story => run_merge_story,
@@ -347,7 +364,7 @@ fn every_authority_writer_has_a_refusal_and_a_not_blocked_case() {
     in_table.sort_unstable();
     declared.sort_unstable();
     assert_eq!(in_table, declared, "the case table must name every writer and every developer-only move");
-    assert_eq!(TRANSITIONS.len(), 16, "a transition was quietly dropped from coverage");
+    assert_eq!(TRANSITIONS.len(), 17, "a transition was quietly dropped from coverage");
 }
 
 /// The session's hand-off is the one Story move that is not the developer's: an agent may make it,
@@ -501,10 +518,11 @@ struct AllowedCaller {
 /// The declaring domain modules and the Tauri command modules that put the act under the human's
 /// own control (each resolves the actor server-side with `local_human_actor_id`). Nothing under
 /// `packages/sidecar/src` — the process that drives an agent session — is, or may ever be, listed.
-const ALLOWED_CALLERS: [AllowedCaller; 8] = [
+const ALLOWED_CALLERS: [AllowedCaller; 9] = [
     AllowedCaller { suffix: "packages/core/src/domain/acceptance_criterion.rs", reason: "declares accept_criterion / unaccept_criterion", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/round.rs", reason: "declares answer_round_question / accept_all_recommended", test_only: false },
-    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/shaping.rs", reason: "the human's answers in the Round dock", test_only: false },
+    AllowedCaller { suffix: "packages/core/src/domain/stage.rs", reason: "declares close_stage", test_only: false },
+    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/shaping.rs", reason: "the human's answers in the Round dock and the Close Stage button", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/check.rs", reason: "declares set_check / remove_check", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/proposal.rs", reason: "declares accept_proposal / accept_proposal_amended / reject_proposal", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/criterion.rs", reason: "the human's acceptance and Check controls", test_only: false },
