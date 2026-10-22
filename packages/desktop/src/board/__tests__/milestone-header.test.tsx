@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MilestoneHeader } from "../MilestoneHeader";
+import { EpicProgress } from "../EpicProgress";
 import type { MilestoneProgressDto, StoryStateCountsDto } from "../../adapters/tauri";
 
 const milestoneProgress = vi.fn();
@@ -115,16 +116,12 @@ describe("MilestoneHeader", () => {
     expect((await screen.findByRole("listitem", { name: "0 Waiting on you" })).dataset.lit).toBeUndefined();
   });
 
-  it("gives each Epic its own bar and n of m Stories merged", async () => {
+  it("lists no Epic: each Epic's bar heads its own card in the roster", async () => {
     milestoneProgress.mockResolvedValue(progress());
     renderHeader();
-    const epics = await screen.findByRole("list", { name: "Epics of Shaping" });
-    const [first, second] = within(epics).getAllByRole("listitem");
-    expect(first.textContent).toContain("Design system");
-    expect(first.textContent).toContain("1 of 7 Stories merged");
-    expect(within(first).getByRole("img", { name: "7 Stories: 1 merged, 2 running" })).toBeTruthy();
-    expect(second.textContent).toContain("Roadmap shaping");
-    expect(second.textContent).toContain("No Stories yet");
+    await screen.findByRole("list", { name: "Stories by state" });
+    expect(screen.queryByRole("list", { name: "Epics of Shaping" })).toBeNull();
+    expect(screen.queryByText("Design system")).toBeNull();
   });
 
   it("says so when the project has no Current Milestone", async () => {
@@ -139,5 +136,23 @@ describe("MilestoneHeader", () => {
     });
     renderHeader();
     expect(await screen.findByText("The Milestone's progress could not be read: database is locked")).toBeTruthy();
+  });
+});
+
+describe("EpicProgress", () => {
+  it("gives each Epic its own bar and n of m Stories merged", () => {
+    const [first, second] = progress().epics;
+    const { container } = render(
+      <>
+        <EpicProgress epic={first} headingId="epic-e1" />
+        <EpicProgress epic={second} />
+      </>,
+    );
+    const [a, b] = Array.from(container.querySelectorAll<HTMLElement>("[data-epic-id]"));
+    expect(screen.getByRole("heading", { name: "Design system" })).toHaveAttribute("id", "epic-e1");
+    expect(a.textContent).toContain("1 of 7 Stories merged");
+    expect(within(a).getByRole("img", { name: "7 Stories: 1 merged, 2 running" })).toBeTruthy();
+    expect(b.textContent).toContain("Roadmap shaping");
+    expect(b.textContent).toContain("No Stories yet");
   });
 });

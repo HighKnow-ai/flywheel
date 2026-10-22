@@ -31,7 +31,17 @@ export function MergedFraction({ merged, total }: { merged: number; total: numbe
  * of its Stories and "n of m Stories merged". Every number is the core's (`milestone_progress`); this draws.
  * Inert: it does not navigate, so it carries no chevron (direction.md, the Clickable Looks Clickable Rule).
  */
-export function EpicProgress({ epic, className }: { epic: EpicProgressDto; className?: string }) {
+export function EpicProgress({
+  epic,
+  headingId,
+  className,
+}: {
+  epic: EpicProgressDto;
+  /** Set when the row heads the Epic's card on the board: its title becomes that card's heading. */
+  headingId?: string;
+  className?: string;
+}) {
+  const Title = headingId ? "h2" : "span";
   return (
     <div
       data-epic-id={epic.epicId}
@@ -41,9 +51,9 @@ export function EpicProgress({ epic, className }: { epic: EpicProgressDto; class
     >
       <div className="flex min-w-0 flex-[1_1_20rem] items-center gap-2">
         <Layers size={16} strokeWidth={2} aria-hidden="true" className="shrink-0 text-muted-foreground" />
-        <span className="truncate text-row font-semibold" title={epic.title}>
+        <Title id={headingId} className="m-0 truncate text-section font-semibold" title={epic.title}>
           {epic.title}
-        </span>
+        </Title>
         <StateBadge state={epic.state} label={EPIC_STATE_WORDS[epic.state]} className="shrink-0" />
       </div>
       <div className="flex min-w-0 flex-[0_1_448px] items-center gap-4">

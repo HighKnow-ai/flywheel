@@ -10,8 +10,8 @@
  * the Tasks and the sessions live in the Story view.
  *
  * Every read is keyed under the project so the one `board:changed` subscription keeps the board live;
- * the renderer never trusts its own write. The Milestone header and each Epic's progress bar (#106) mount
- * in the slots marked below.
+ * the renderer never trusts its own write. The Milestone header (#106) sits above the roster, and each Epic of
+ * the Current Milestone heads its card with its own bar and "n of m Stories merged", from the same core read.
  */
 import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -40,6 +40,9 @@ import {
   useStopped,
 } from "./StoryControls";
 import { WriteStoryDialog } from "./WriteStoryDialog";
+import { MilestoneHeader } from "./MilestoneHeader";
+import { EpicProgress } from "./EpicProgress";
+import { milestoneProgress, type EpicProgressDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
 import { useUiStore } from "../state/uiStore";
@@ -57,7 +60,8 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
       <PageHeader crumbs={[{ label: projectName }]} actions={<WriteStoryDialog projectId={projectId} />} />
       <SurfaceBody>
         <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4">
-          {/* #106: the Milestone header (MilestoneHeader) mounts here, above the roster. */}
+          {/* The Current Milestone's progress (#106), above the roster of its Epics. */}
+          <MilestoneHeader projectId={projectId} />
           <StoryRoster projectId={projectId} />
         </div>
       </SurfaceBody>
@@ -122,6 +126,12 @@ function StoryRoster({ projectId }: { projectId: string }) {
   });
   const waitingIds = new Set(waitingQuery.data?.blockedStoryIds ?? []);
   const groups = groupByEpic(stories, useProjectEpics(projectId));
+  // Each Epic of the Current Milestone carries its own bar, from the header's one core read (#106).
+  const progressQuery = useQuery({
+    queryKey: ["board", projectId, "milestone-progress"],
+    queryFn: () => milestoneProgress(projectId),
+  });
+  const epicProgress = new Map((progressQuery.data?.epics ?? []).map((e) => [e.epicId, e]));
 
   if (storiesQuery.isError) {
     return <p className="m-0 text-body text-destructive-text">{errorText(storiesQuery.error)}</p>;
@@ -139,13 +149,30 @@ function StoryRoster({ projectId }: { projectId: string }) {
   return (
     <>
       {groups.map((group) => (
-        <EpicCard key={group.epic?.id ?? "no-epic"} projectId={projectId} group={group} waitingIds={waitingIds} />
+        <EpicCard
+          key={group.epic?.id ?? "no-epic"}
+          projectId={projectId}
+          group={group}
+          progress={group.epic ? epicProgress.get(group.epic.id) : undefined}
+          waitingIds={waitingIds}
+        />
       ))}
     </>
   );
 }
 
-function EpicCard({ projectId, group, waitingIds }: { projectId: string; group: EpicGroup; waitingIds: Set<string> }) {
+function EpicCard({
+  projectId,
+  group,
+  progress,
+  waitingIds,
+}: {
+  projectId: string;
+  group: EpicGroup;
+  /** The Epic's counts when it is in the Current Milestone; its card then heads with its bar. */
+  progress?: EpicProgressDto;
+  waitingIds: Set<string>;
+}) {
   const { epic, milestone, stories } = group;
   const headingId = `epic-${epic?.id ?? "none"}`;
   return (
@@ -153,6 +180,11 @@ function EpicCard({ projectId, group, waitingIds }: { projectId: string; group: 
       aria-labelledby={headingId}
       className="overflow-hidden rounded-lg border border-border bg-card shadow-card"
     >
+      {progress ? (
+        <header className="border-b border-border px-4 py-1.5">
+          <EpicProgress epic={progress} headingId={headingId} />
+        </header>
+      ) : (
       <header className="flex min-h-14 items-center gap-3 border-b border-border px-4 py-2.5">
         <Layers aria-hidden="true" size={18} className="shrink-0 text-muted-foreground" />
         <h2 id={headingId} className="m-0 min-w-0 truncate text-section font-semibold">
@@ -168,11 +200,11 @@ function EpicCard({ projectId, group, waitingIds }: { projectId: string; group: 
             </span>
           </span>
         )}
-        {/* #106: the Epic's stacked bar and "n of m Stories merged" (EpicProgress) mount here. */}
         <span className="ml-auto shrink-0 text-small text-muted-foreground tabular-nums">
           {stories.length === 1 ? "1 Story" : `${stories.length} Stories`}
         </span>
       </header>
+      )}
       <ul aria-label={epic ? `${epic.title} Stories` : "Stories"} className="m-0 list-none p-0">
         {stories.map((story) => (
           <StoryRow key={story.id} projectId={projectId} story={story} waitingOnYou={waitingIds.has(story.id)} />
