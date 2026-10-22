@@ -114,7 +114,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
   it("08 session feed, a call expanded", async () => {
     await boardReady();
     await click(/Open FLY-4 Make clicking/);
-    await click(/Bash · npm --prefix packages\/desktop test -- keyboard/);
+    await click(/Ran · npm --prefix packages\/desktop test -- keyboard/);
     await shot("08-feed-call-expanded");
   });
 
@@ -181,6 +181,21 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     } finally {
       await page.viewport(1440, 900);
     }
+  });
+
+  it("18 Story waiting on you: the agent station with Answer, Stop and its live tail (issue #118)", async () => {
+    await boardReady();
+    await openStory("FLY-6", "Show project progress at a glance on the board");
+    await screen.findByRole("list", { name: "Last tool calls" });
+    await shot("18-story-station-waiting");
+  });
+
+  it("19 Stop confirmation from the agent station (issue #118)", async () => {
+    await boardReady();
+    await openStory("FLY-4", "Make clicking and navigation predictable");
+    await click("Stop FLY-4");
+    await screen.findByRole("alertdialog");
+    await shot("19-story-stop-confirm");
   });
 
   it("16 navigation: picking a project while the fleet is open", async () => {

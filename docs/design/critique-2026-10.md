@@ -120,6 +120,8 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 15 | A project chosen while a feed is open | ![](critique-2026-10/after/15-nav-project-click-keeps-feed-light.webp) | ![](critique-2026-10/after/15-nav-project-click-keeps-feed-dark.webp) |
 | 16 | A project chosen while All agents is open | ![](critique-2026-10/after/16-nav-project-click-keeps-fleet-light.webp) | ![](critique-2026-10/after/16-nav-project-click-keeps-fleet-dark.webp) |
 | 17 | Board at the 900px minimum window width | ![](critique-2026-10/after/17-board-min-width-light.webp) | ![](critique-2026-10/after/17-board-min-width-dark.webp) |
+| 18 | Story Waiting on you: its agent station with Answer, Stop and the live tail (#118) | ![](critique-2026-10/after/18-story-station-waiting-light.webp) | ![](critique-2026-10/after/18-story-station-waiting-dark.webp) |
+| 19 | Stop confirmation from the agent station (#118) | ![](critique-2026-10/after/19-story-stop-confirm-light.webp) | ![](critique-2026-10/after/19-story-stop-confirm-dark.webp) |
 
 ## How the screens were rendered
 
