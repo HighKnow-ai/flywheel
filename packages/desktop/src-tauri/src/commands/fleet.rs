@@ -217,14 +217,18 @@ const WAITING_ROUNDS_CAP: usize = 200;
 pub struct WaitingRoundDto {
     pub round_id: String,
     pub round_number: i64,
-    pub stage_kind: String,
+    /// `epic` for an Epic's Round, `roadmap` for a roadmap Round (issue #133).
+    pub subject: String,
+    /// `None` for a roadmap Round, which has no Stage.
+    pub stage_kind: Option<String>,
     pub session_id: String,
     pub project_id: String,
     pub project_name: String,
     pub project_key_prefix: String,
-    pub epic_id: String,
-    pub epic_key: String,
-    pub epic_title: String,
+    /// The Epic an Epic's Round shapes; `None` for a roadmap Round.
+    pub epic_id: Option<String>,
+    pub epic_key: Option<String>,
+    pub epic_title: Option<String>,
     pub waiting_since: String,
     pub answered: i64,
     pub questions: i64,
@@ -235,6 +239,7 @@ impl From<flywheel_core::query::fleet::WaitingRound> for WaitingRoundDto {
         Self {
             round_id: r.round_id,
             round_number: r.round_number,
+            subject: r.subject,
             stage_kind: r.stage_kind,
             session_id: r.session_id,
             project_id: r.project_id,

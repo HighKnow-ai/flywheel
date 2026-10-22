@@ -28,6 +28,7 @@ const EMITTING_FILES: &[&str] = &[
     "src/commands/handoff.rs",
     "src/commands/proposal.rs",
     "src/commands/roadmap.rs",
+    "src/commands/roadmap_round.rs",
     "src/commands/session.rs",
     "src/commands/shaping.rs",
     "src/commands/story.rs",

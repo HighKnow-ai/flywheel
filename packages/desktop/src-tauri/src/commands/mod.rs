@@ -21,6 +21,7 @@ pub mod menu;
 pub mod project;
 pub mod proposal;
 pub mod roadmap;
+pub mod roadmap_round;
 pub mod settings;
 pub mod shaping;
 pub mod story;

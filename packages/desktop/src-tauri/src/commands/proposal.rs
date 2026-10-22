@@ -67,11 +67,21 @@ pub fn proposal_list_pending(state: State<AppState>, project_id: String) -> Resu
 pub fn proposal_accept(state: State<AppState>, app: AppHandle, proposal_id: String) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::proposal::accept_proposal(&mut conn, &actor_id, &proposal_id).map_err(|e| format!("{e:#}"))?;
+    let decided = flywheel_core::domain::proposal::accept_proposal_released(&mut conn, &actor_id, &proposal_id, None)
+        .map_err(|e| format!("{e:#}"))?;
     let project_id = super::project_of(&conn, "proposals", &proposal_id);
     drop(conn);
+    settle(&app, &decided);
     emit_board_changed(&app, project_id.as_deref(), "proposal", Some(&proposal_id));
     Ok(())
+}
+
+/// Issue #133: a decision that closed a roadmap Round its session waits on answers that held call,
+/// once the lock is released, with every decision.
+fn settle(app: &AppHandle, decided: &flywheel_core::domain::proposal::Decided) {
+    if let Some(release) = &decided.release {
+        super::task::send_board_tool_answer(app, &release.session_id, &release.request_id, &super::shaping::release_answer(release));
+    }
 }
 
 /// Amend (issue #125): accept a pending Proposal with the developer's edited payload, applying the
@@ -86,10 +96,11 @@ pub fn proposal_amend(
     validate_text("payload", &payload.to_string(), MAX_PROSE_LEN + MAX_TITLE_LEN)?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::proposal::accept_proposal_amended(&mut conn, &actor_id, &proposal_id, &payload)
+    let decided = flywheel_core::domain::proposal::accept_proposal_released(&mut conn, &actor_id, &proposal_id, Some(&payload))
         .map_err(|e| format!("{e:#}"))?;
     let project_id = super::project_of(&conn, "proposals", &proposal_id);
     drop(conn);
+    settle(&app, &decided);
     emit_board_changed(&app, project_id.as_deref(), "proposal", Some(&proposal_id));
     Ok(())
 }
@@ -107,10 +118,11 @@ pub fn proposal_reject(
     }
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::proposal::reject_proposal(&mut conn, &actor_id, &proposal_id, reason.as_deref())
+    let decided = flywheel_core::domain::proposal::reject_proposal_released(&mut conn, &actor_id, &proposal_id, reason.as_deref())
         .map_err(|e| e.to_string())?;
     let project_id = super::project_of(&conn, "proposals", &proposal_id);
     drop(conn);
+    settle(&app, &decided);
     emit_board_changed(&app, project_id.as_deref(), "proposal", Some(&proposal_id));
     Ok(())
 }
