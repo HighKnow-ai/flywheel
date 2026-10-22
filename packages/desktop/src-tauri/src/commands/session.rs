@@ -1307,6 +1307,9 @@ pub fn story_latest_session(state: State<AppState>, story_id: String) -> Result<
 #[serde(rename_all = "camelCase")]
 pub struct BlockedSummaryDto {
     pub blocked_story_ids: Vec<String>,
+    /// Issue #124: the Epics a live shaping session waits on, held on an open Round.
+    pub waiting_epic_ids: Vec<String>,
+    /// The project's Needs-you count of what is Waiting on you: these Stories plus these Epics.
     pub blocked_count: i64,
 }
 
@@ -1317,9 +1320,11 @@ pub fn board_blocked_summary(state: State<AppState>, project_id: String) -> Resu
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let blocked_story_ids = flywheel_core::query::permissions::blocked_story_ids_for_project(&conn, &project_id)
         .map_err(|e| e.to_string())?;
+    let waiting_epic_ids = flywheel_core::query::permissions::waiting_epic_ids_for_project(&conn, &project_id)
+        .map_err(|e| e.to_string())?;
     let blocked_count = flywheel_core::query::permissions::blocked_count_for_project(&conn, &project_id)
         .map_err(|e| e.to_string())?;
-    Ok(BlockedSummaryDto { blocked_story_ids, blocked_count })
+    Ok(BlockedSummaryDto { blocked_story_ids, waiting_epic_ids, blocked_count })
 }
 
 /// D-46's board-visible "recovery needed" signal for one project (plan 03-11): a Story's worktree

@@ -159,6 +159,9 @@ pub struct EpicProgressDto {
     pub title: String,
     pub state: String,
     pub counts: StoryStateCountsDto,
+    /// Issue #124: `waiting_on_you` while a live shaping session is held on an open Round of the Epic,
+    /// `round_waiting` while a Round is open with no live shaping session, else `null`.
+    pub attention: Option<String>,
 }
 
 /// The Milestone header (docs/mvp-spec.md §7): the Current Milestone, its exit test, the next
@@ -201,7 +204,14 @@ pub fn milestone_progress(
     let epics = flywheel_core::query::progress::epic_progress(&conn, &header.milestone_id)
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|e| EpicProgressDto { epic_id: e.epic_id, key: e.key, title: e.title, state: e.state, counts: e.counts.into() })
+        .map(|e| EpicProgressDto {
+            epic_id: e.epic_id,
+            key: e.key,
+            title: e.title,
+            state: e.state,
+            counts: e.counts.into(),
+            attention: e.attention,
+        })
         .collect();
     Ok(Some(MilestoneProgressDto {
         milestone_id: header.milestone_id,

@@ -132,7 +132,7 @@ const ROUND = {
 };
 
 test("round_post is listed to a shaping session with what each question carries", () => {
-  assert.ok(SHAPING_TOOL_NAMES.includes("round_post"));
+  assert.deepEqual([...SHAPING_TOOL_NAMES], ["round_post", "round_wait", "propose_spec_change"]);
   const post = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "round_post");
   assert.deepEqual(post.inputSchema.required, ["note", "questions"]);
   assert.deepEqual(post.inputSchema.properties.questions.items.required, [
@@ -180,6 +180,41 @@ test("round_post is relayed as a held board_tool_request, answered only when the
   const result = unknownLines(events, "task_tool_result")[0];
   assert.equal(result.isError, false);
   assert.deepEqual(JSON.parse(result.text), answers);
+  await session;
+});
+
+test("round_wait takes no argument and is relayed as a held board_tool_request (issue #124)", async () => {
+  const wait = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "round_wait");
+  assert.deepEqual(wait.inputSchema, { type: "object", properties: {} });
+  assert.match(wait.description, /waits until every question in it is answered/);
+  const post = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "round_post");
+  assert.match(post.description, /round_wait/, "round_post's refusal is named in its description");
+
+  const adapter = new ClaudeCodeAdapter();
+  const events = [];
+  const runId = "shaping-run-wait";
+  const session = adapter.startSession({
+    runId,
+    worktreePath: process.cwd(),
+    prompt: "continue shaping the Epic",
+    permissionMode: "dontAsk",
+    allowedTools: ["Read", "Glob", "Grep", `mcp__${MCP_SERVER_NAME}__round_post`, `mcp__${MCP_SERVER_NAME}__round_wait`],
+    permissionPrompt: false,
+    sessionKind: "shaping",
+    env: { FLYWHEEL_FAKE_CALL_TASK_TOOL: JSON.stringify({ name: "round_wait", arguments: {} }) },
+    onEvent: (event) => events.push(event),
+  });
+
+  await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
+  const request = events.find((e) => e.type === "board_tool_request");
+  assert.equal(request.tool, "round_wait");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(unknownLines(events, "task_tool_result").length, 0, "held until the core answers");
+
+  const answers = { round: 2, answers: [{ number: 1, answer: "Desktop only", answered_with: "own" }] };
+  adapter.resolveBoardTool(runId, request.requestId, answers);
+  await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
+  assert.deepEqual(JSON.parse(unknownLines(events, "task_tool_result")[0].text), answers);
   await session;
 });
 

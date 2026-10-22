@@ -77,9 +77,10 @@ export const BOARD_TOOL_NAMES = [...TASK_TOOL_NAMES, ...HANDOFF_TOOL_NAMES] as c
 /** Issue #123 (docs/mvp-spec.md §3): the shaping session's board tools, hosted on the same server
  * and relayed the same way. Mirrors `SHAPING_TOOL_NAMES` in `packages/core/src/domain/shaping_tool.rs`,
  * which is what parses and runs each call. `round_post` is held until the developer has answered
- * every question in the Round, which can take days. `propose_spec_change` (issue #125) files a
- * Proposal on the Epic and is answered at once: a Proposal never holds the agent. */
-export const SHAPING_TOOL_NAMES = ["round_post", "propose_spec_change"] as const;
+ * every question in the Round, which can take days. `round_wait` (issue #124) is a later session's way
+ * back onto a Round its killed predecessor left open, held the same way. `propose_spec_change`
+ * (issue #125) files a Proposal on the Epic and is answered at once: a Proposal never holds the agent. */
+export const SHAPING_TOOL_NAMES = ["round_post", "round_wait", "propose_spec_change"] as const;
 
 export type ShapingToolName = (typeof SHAPING_TOOL_NAMES)[number];
 
@@ -163,7 +164,7 @@ export const SHAPING_TOOL_DEFINITIONS = [
   {
     name: "round_post",
     description:
-      "Post the next Round of the Stage you are shaping: a one-paragraph note on what the Round settles, then the numbered questions of the decision frontier. Each question has a short title (the line it folds to once answered), the question itself with its choices if it has any, a grounding line (what you read that raised it), your recommended answer worded so that accepting it answers the question, and a one-line reason for it. The developer answers each question on the board, accepting your recommendation or writing their own, and every answer is saved as it is given. This call waits until every question is answered, however long that takes, then answers with every answer, in order. Do not also ask the questions in your reply. Refused while a Round is still open in the Stage.",
+      "Post the next Round of the Stage you are shaping: a one-paragraph note on what the Round settles, then the numbered questions of the decision frontier. Each question has a short title (the line it folds to once answered), the question itself with its choices if it has any, a grounding line (what you read that raised it), your recommended answer worded so that accepting it answers the question, and a one-line reason for it. The developer answers each question on the board, accepting your recommendation or writing their own, and every answer is saved as it is given. This call waits until every question is answered, however long that takes, then answers with every answer, in order. Do not also ask the questions in your reply. Refused while a Round is still open in the Stage: wait on that one with round_wait instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -187,6 +188,12 @@ export const SHAPING_TOOL_DEFINITIONS = [
       },
       required: ["note", "questions"],
     },
+  },
+  {
+    name: "round_wait",
+    description:
+      "Wait on the Round still open in the Stage you are shaping, posted by an earlier session that has ended. Your packet shows the Round and the answers the developer has given so far. This call takes the Round over and waits until every question in it is answered, however long that takes (at once if it already is), then answers with every answer, in order, exactly as round_post would have. Takes no arguments. Refused when no Round has been posted in the Stage: post one with round_post.",
+    inputSchema: { type: "object", properties: {} },
   },
   {
     name: "propose_spec_change",
