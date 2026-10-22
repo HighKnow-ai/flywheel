@@ -51,7 +51,7 @@ const ANSWERED_ROUND: RoundDto = {
   number: 1,
   note: "This Round settles who the Epic is for.",
   state: "answered",
-  held: false,
+  waitingOnYou: false,
   postedAt: "2026-10-22T09:00:00Z",
   answeredAt: "2026-10-22T09:30:00Z",
   questions: [],

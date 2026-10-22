@@ -120,7 +120,9 @@ export function RoundDock({
           <p className="m-0 max-w-[60ch] text-body text-muted-foreground">
             {sessionLive
               ? "The agent is reading the Epic and the code it touches. Its first Round lands here."
-              : "Shape this Epic to start a shaping session. The agent's first Round lands here."}
+              : earlier.length > 0
+                ? "No session is working this Stage. Continue shaping starts one; its first Round lands here."
+                : "Shape this Epic to start a shaping session. The agent's first Round lands here."}
           </p>
         </section>
       )}
