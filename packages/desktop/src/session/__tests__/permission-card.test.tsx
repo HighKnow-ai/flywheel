@@ -144,7 +144,7 @@ describe("PermissionRequestCard (standalone)", () => {
     expect(within(bashGroup).getByRole("button", { name: "Allow once" })).toBeEnabled();
   });
 
-  it("imports its glyph name from the marks registry and hard-codes no colour", () => {
+  it("draws its icons from Lucide by name and hard-codes no colour", () => {
     // Structural gates are enforced by the plan's own grep-based <verify> commands at the file
     // level (no onKeyDown/addEventListener/DismissableLayer, no hex literal) — this test only
     // documents the intent so a reader of the suite sees the contract stated here too.

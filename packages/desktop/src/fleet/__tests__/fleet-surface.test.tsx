@@ -14,8 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { FleetListDto, FleetRowDto } from "../../adapters/tauri";
-import { MARKS_BY_ID } from "../../legend/marks";
-import { RUN_STATUS_LABELS, RUN_STATUS_MARK_IDS } from "../../legend/runStatus";
+import { RUN_STATUS_LABELS } from "../../legend/runStatus";
+import { STATE_VOCABULARY } from "../../components/StateBadge";
 import { activeSurface } from "../../state/keyboard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import { SessionSurface } from "../../session/SessionSurface";
@@ -273,10 +273,9 @@ describe("the activity column", () => {
 });
 
 describe("the vocabulary", () => {
-  it("maps awaiting review to its own agent-channel mark (D-19) and defines every mark id it names", () => {
-    expect(RUN_STATUS_MARK_IDS.awaiting_review).toBe("run-awaiting-review");
-    for (const id of Object.values(RUN_STATUS_MARK_IDS)) {
-      expect(MARKS_BY_ID[id], id).toBeDefined();
+  it("draws every fleet state, awaiting review included (D-19), from the one state vocabulary", () => {
+    for (const state of Object.keys(RUN_STATUS_LABELS)) {
+      expect(STATE_VOCABULARY[state as keyof typeof STATE_VOCABULARY], state).toBeDefined();
     }
   });
 });

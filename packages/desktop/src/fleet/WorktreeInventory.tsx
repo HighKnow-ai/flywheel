@@ -34,11 +34,10 @@ import {
   type ReclaimOutcomeDto,
   type WorktreeInventoryRowDto,
 } from "../adapters/tauri";
-import { MARKS_BY_ID } from "../legend/marks";
 import { formatAge } from "../legend/runStatus";
 import { useWorktreeInventory, worktreeInventoryQueryKey } from "./useFleet";
 import "../styles/admin-surfaces.css";
-import { RefreshCw } from "lucide-react";
+import { Activity, Lock, Recycle, RefreshCw } from "lucide-react";
 import { PageHeader } from "../shell/PageHeader";
 import { Button } from "@/components/ui/button";
 import "../styles/states-and-confirms.css";
@@ -67,10 +66,11 @@ export const RECLAIM_REASON_WORDS: Record<InventoryReason, string> = {
   story_open: "Story still open",
 };
 
-const CHIP_MARK_IDS = {
-  reclaimable: "worktree-reclaimable",
-  in_use: "worktree-in-use",
-  keep: "worktree-keep",
+/** Each disposition's icon and word (never colour alone): reclaimable, in use, keep. */
+export const DISPOSITION_CHIPS = {
+  reclaimable: { icon: Recycle, label: "Reclaimable" },
+  in_use: { icon: Activity, label: "In use" },
+  keep: { icon: Lock, label: "Keep" },
 } as const;
 
 const UNITS = ["B", "KiB", "MiB", "GiB", "TiB"] as const;
@@ -248,12 +248,13 @@ function ReclaimResultList({ lines }: { lines: ResultLine[] }) {
 }
 
 function Chip({ row }: { row: WorktreeInventoryRowDto }) {
-  const mark = MARKS_BY_ID[CHIP_MARK_IDS[row.disposition]];
+  const chip = DISPOSITION_CHIPS[row.disposition];
+  const ChipIcon = chip.icon;
   return (
     <span data-field="disposition" data-disposition={row.disposition} style={{ display: "inline-flex", gap: "var(--space-xs)", alignItems: "center" }}>
       <span className="type-label" style={{ display: "inline-flex", gap: "var(--space-xs)", alignItems: "center" }}>
-        <Icon name={mark.glyph} />
-        {mark.label}
+        <ChipIcon size={16} strokeWidth={2} aria-hidden="true" />
+        {chip.label}
       </span>
       <span data-field="reason" className="type-label" style={{ color: "var(--muted-foreground)" }}>
         {RECLAIM_REASON_WORDS[row.reason]}
