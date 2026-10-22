@@ -38,6 +38,8 @@ vi.mock("../../adapters/tauri", async () => {
     storyGet: () => storyGet(),
     criterionList: () => Promise.resolve([]),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
+    subscribeAgentEvent: () => Promise.resolve(() => {}),
+    sessionLogWindow: () => Promise.resolve({ entries: [], offset: 0, limit: 50, total: 0 }),
   };
 });
 

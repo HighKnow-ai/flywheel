@@ -8,10 +8,10 @@
  * session and what it is doing, with Open session (or Answer, while it waits on you). Opening a Story never
  * opens its session: the live agent opens only from that control; past sessions open from "Open feed".
  */
-import { useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CircleCheck, ListChecks, Terminal } from "lucide-react";
-import { blockedSummary, storyGet, type StoryDto } from "../adapters/tauri";
+import { Bot, CircleCheck, ListChecks, Terminal } from "lucide-react";
+import { blockedSummary, sessionsForStory, storyGet, type StoryDto } from "../adapters/tauri";
 import { CriteriaList, checkPasses, useCriteria } from "./CriteriaList";
 import {
   AnswerControl,
@@ -21,6 +21,7 @@ import {
   ResumeControl,
   SessionList,
   StartControl,
+  StopControl,
   StoryStateWord,
   endingWords,
   errorText,
@@ -29,10 +30,12 @@ import {
   useStopped,
 } from "./StoryControls";
 import { TaskChecklist, useStoryTasks } from "./TaskChecklist";
-import { useBoardChangedSubscription } from "./useBoardQuery";
+import { useBoardChangedSubscription, useSessionFeed } from "./useBoardQuery";
+import { WriteStoryDialog } from "./WriteStoryDialog";
 import { StateBadge } from "../components/StateBadge";
 import { formatAge } from "../legend/runStatus";
-import { prefersReducedMotion } from "../session/FeedRow";
+import { prefersReducedMotion, ToolCallLine } from "../session/FeedRow";
+import { buildFeedRows, findLiveCallKey, type FeedRowData } from "../session/feedRows";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
 import { useUiStore } from "../state/uiStore";
 import { cn } from "@/lib/utils";
@@ -67,6 +70,7 @@ export function StoryView({ projectId, projectName, storyId, onBack }: StoryView
           { label: projectName, onSelect: () => setCurrentProjectId(projectId), ariaLabel: `Open the ${projectName} board` },
           ...(story ? [{ label: story.key, mono: true }] : []),
         ]}
+        actions={<WriteStoryDialog projectId={projectId} />}
       />
       <SurfaceBody>
         <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4">
@@ -121,51 +125,167 @@ function Count({ done, total, label }: { done: number; total: number; label: str
   );
 }
 
-/** The live agent on this Story: what it is doing, since when, and the way into its session. */
+/** How many lines the station's live tail shows: enough to read the agent's pace at a glance. */
+export const STATION_TAIL_LENGTH = 4;
+
+type CallRow = Extract<FeedRowData, { kind: "tool_call" }>;
+type TurnRow = Extract<FeedRowData, { kind: "assistant_text" }>;
+
+/**
+ * The live tail's lines, oldest first: the agent's last tool calls and, when it came among them, its
+ * newest turn, as the mockup's station interleaves them. At most one turn, so the calls keep the room.
+ */
+export function stationTail(rows: FeedRowData[], length = STATION_TAIL_LENGTH): (CallRow | TurnRow)[] {
+  const tail: (CallRow | TurnRow)[] = [];
+  let sawTurn = false;
+  for (let i = rows.length - 1; i >= 0 && tail.length < length; i -= 1) {
+    const row = rows[i];
+    if (row.kind === "tool_call") tail.unshift(row);
+    else if (row.kind === "assistant_text" && !sawTurn && row.text.trim() !== "") {
+      sawTurn = true;
+      tail.unshift(row);
+    }
+  }
+  return tail;
+}
+
+/** A turn as one plain line: its first non-empty line, with markdown's emphasis and code marks removed. */
+function turnLine(text: string): string {
+  const line = text.split("\n").find((l) => l.trim() !== "") ?? "";
+  return line.replace(/[*_`]+/g, "").replace(/^\s*[-#>]+\s*/, "").trim();
+}
+
+/** Re-renders every second, for the station's "last activity" age. */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
+/** The live tail: the last few lines of the session, worded as the feed words them, the call in flight
+ * with its running clock. On graphite the list takes the `dark` scope, so running ink and a failed Check's
+ * red read in their dark-ground values (direction.md § Colour: the brand hue is lifted on dark grounds). */
+function LiveTail({ rows, waitingOnYou }: { rows: FeedRowData[]; waitingOnYou: boolean }) {
+  const tail = stationTail(rows);
+  // While the session waits on you, the unanswered call is held, not running: it never wears the clock.
+  const liveKey = waitingOnYou ? null : findLiveCallKey(rows);
+  if (tail.length === 0) return null;
+  return (
+    <ol
+      aria-label="Last tool calls"
+      className={cn(
+        "m-0 flex list-none flex-col border-t px-0 pt-1.5",
+        waitingOnYou ? "border-border" : "dark border-white/15 text-strip-foreground",
+      )}
+    >
+      {tail.map((row) =>
+        row.kind === "tool_call" ? (
+          <li key={row.key} className="flex min-w-0 items-center gap-2.5 py-1" data-live={row.key === liveKey ? "true" : undefined}>
+            <ToolCallLine row={row} live={row.key === liveKey} surface={waitingOnYou ? "card" : "strip"} />
+          </li>
+        ) : (
+          <li key={row.key} className="flex min-w-0 items-center gap-2.5 py-1" data-turn="true">
+            <Bot aria-hidden="true" size={16} className={cn("shrink-0", waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground")} />
+            <span className={cn("min-w-0 flex-1 truncate text-small", waitingOnYou ? "text-foreground" : "text-strip-foreground")}>
+              {turnLine(row.text)}
+            </span>
+          </li>
+        ),
+      )}
+    </ol>
+  );
+}
+
+/**
+ * The live agent on this Story, as the Andon mockup's station: what it is doing, its session and pace
+ * (session n · how long · last activity), the way into its session (Open session, or Answer while it waits
+ * on you), Stop, and the live tail. Graphite while the agent works; the yellow tint while it waits on you.
+ */
 function AgentStation({ projectId, story, waitingOnYou }: { projectId: string; story: StoryDto; waitingOnYou: boolean }) {
   const live = useLiveSession(projectId, story);
-  const tasks = useStoryTasks(projectId, story.id).data ?? [];
   if (!live) return null;
+  return <LiveStation projectId={projectId} story={story} sessionId={live.id} startedAt={live.startedAt} waitingOnYou={waitingOnYou} />;
+}
+
+function LiveStation({
+  projectId,
+  story,
+  sessionId,
+  startedAt,
+  waitingOnYou,
+}: {
+  projectId: string;
+  story: StoryDto;
+  sessionId: string;
+  startedAt: string;
+  waitingOnYou: boolean;
+}) {
+  const tasks = useStoryTasks(projectId, story.id).data ?? [];
+  // The same read as the session list, so the ordinal matches what it shows (newest first).
+  const sessions = useQuery({
+    queryKey: ["board", projectId, "sessions", story.id],
+    queryFn: () => sessionsForStory(story.id),
+  }).data ?? [];
+  const feedQuery = useSessionFeed(sessionId);
+  const entries = useMemo(() => feedQuery.data?.pages.flatMap((page) => page.entries) ?? [], [feedQuery.data]);
+  const rows = useMemo(() => buildFeedRows(entries), [entries]);
+  const now = useNow();
   const doing = tasks.find((task) => task.state === "doing");
   const pulse = !waitingOnYou && !prefersReducedMotion();
+  const index = sessions.findIndex((session) => session.id === sessionId);
+  const ordinal = index >= 0 ? sessions.length - index : null;
+  // The newest entry of any kind is the agent's last sign of life, rows or not (a heartbeat counts).
+  const lastActivityAt = [...entries].reverse().find((entry) => typeof entry.at === "string")?.at as string | undefined;
+  const pace = [
+    ordinal ? `Session ${ordinal}` : "Live session",
+    formatAge(startedAt, now),
+    lastActivityAt ? `last activity ${formatAge(lastActivityAt, now)} ago` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <section
       aria-label="Live agent"
       className={cn(
-        "flex items-start gap-4 rounded-lg border px-5 py-4",
+        "flex flex-col gap-3 rounded-lg border px-5 py-4",
         waitingOnYou
           ? "border-attention bg-attention-muted text-foreground"
           : "border-border bg-strip text-strip-foreground",
       )}
     >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full",
-          waitingOnYou ? "bg-attention text-attention-foreground" : "bg-primary text-primary-foreground",
-        )}
-      >
-        <Terminal size={18} />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="text-row font-semibold">{doing ? doing.title : "Reading the Story and the code it touches"}</span>
-        <span className={cn("flex flex-wrap items-center gap-2 text-small", waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground")}>
-          <StateBadge state={waitingOnYou ? "waiting_on_you" : "running"} pulse={pulse} className="h-5.5 text-meta" />
-          {`Live session since ${formatWhen(live.startedAt)}, ${formatAge(live.startedAt, Date.now())} ago`}
+      <div className="flex items-start gap-4">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full",
+            waitingOnYou ? "bg-attention text-attention-foreground" : "bg-primary text-primary-foreground",
+          )}
+        >
+          <Bot size={20} />
         </span>
-        {doing?.note && (
-          <span className={cn("line-clamp-2 text-small", waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground")}>
-            {doing.note}
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="text-row font-semibold">{doing ? doing.title : "Reading the Story and the code it touches"}</span>
+          <span
+            className={cn("flex flex-wrap items-center gap-2 text-small tabular-nums", waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground")}
+            title={`Started ${formatWhen(startedAt)}`}
+          >
+            <StateBadge state={waitingOnYou ? "waiting_on_you" : "running"} pulse={pulse} className="h-5.5 text-meta" />
+            {pace}
           </span>
-        )}
+        </div>
+        <span className="flex shrink-0 items-center gap-2">
+          {waitingOnYou ? (
+            <AnswerControl projectId={projectId} story={story} />
+          ) : (
+            <OpenSessionControl projectId={projectId} story={story} variant="default" />
+          )}
+          <StopControl story={story} sessionId={sessionId} onStrip={!waitingOnYou} />
+        </span>
       </div>
-      <span className="shrink-0">
-        {waitingOnYou ? (
-          <AnswerControl projectId={projectId} story={story} />
-        ) : (
-          <OpenSessionControl projectId={projectId} story={story} variant="default" />
-        )}
-      </span>
+      <LiveTail rows={rows} waitingOnYou={waitingOnYou} />
     </section>
   );
 }

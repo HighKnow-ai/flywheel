@@ -9,7 +9,7 @@
  */
 import { useState, type FormEvent, type MouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MessageCircleQuestionMark, Play, RotateCcw, Terminal, Trash2 } from "lucide-react";
+import { MessageCircleQuestionMark, Play, RotateCcw, Square, Terminal, Trash2 } from "lucide-react";
 import {
   sessionSummariesForStory,
   sessionsForStory,
@@ -18,6 +18,7 @@ import {
   storyResume,
   storyStart,
   storyStopped,
+  stopSession,
   type EndingReason,
   type StoppedDto,
   type StoryDto,
@@ -140,6 +141,103 @@ export function AnswerControl({ projectId, story }: { projectId: string; story: 
       <MessageCircleQuestionMark aria-hidden="true" />
       Answer
     </Button>
+  );
+}
+
+/**
+ * Stop a Story's live session (Story #118), from its agent station. Confirmed in an AlertDialog, as
+ * direction.md asks of Stop and Drop. Stop stays where it is: `board:changed` turns the Story Stopped
+ * and takes the station down, and Resume starts a fresh session from the Context packet. If the sidecar
+ * could not confirm the process ended, the dialog stays open and says so.
+ */
+export function StopControl({
+  story,
+  sessionId,
+  onStrip = false,
+}: {
+  story: StoryDto;
+  sessionId: string;
+  /** Drawn on the graphite station: a light edge and light ink, never a card-coloured ground. */
+  onStrip?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+
+  function handleStop() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    stopSession(sessionId)
+      .then((result) => {
+        if (result.sidecarWarning) setWarning(result.sidecarWarning);
+        else setOpen(false);
+      })
+      .catch((err: unknown) => setError(errorText(err)))
+      .finally(() => setBusy(false));
+  }
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        aria-label={`Stop ${story.key}`}
+        onClick={() => {
+          setError(null);
+          setWarning(null);
+          setOpen(true);
+        }}
+        className={cn(
+          onStrip &&
+            "border-white/35 bg-transparent text-strip-foreground hover:border-strip-foreground hover:bg-white/10 focus-visible:outline-strip-foreground",
+        )}
+      >
+        <Square aria-hidden="true" />
+        Stop
+      </Button>
+      <AlertDialog open={open} onOpenChange={(next) => !busy && setOpen(next)}>
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-section font-semibold">{`Stop ${story.key}'s agent?`}</AlertDialogTitle>
+            <AlertDialogDescription>
+              The session ends now. Its worktree stays exactly as the agent left it, and Resume starts a fresh
+              session from the Context packet.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {warning && (
+            <div role="alert" className="flex flex-col gap-1 rounded-md border border-border bg-muted px-3 py-2">
+              <p className="m-0 text-small">Flywheel could not confirm the agent process actually stopped.</p>
+              <p className="m-0 font-mono text-meta text-muted-foreground">{warning}</p>
+            </div>
+          )}
+          {error && (
+            <p role="alert" className="m-0 text-small text-destructive-text">
+              {error}
+            </p>
+          )}
+          <AlertDialogFooter>
+            {warning ? (
+              <AlertDialogCancel>Close</AlertDialogCancel>
+            ) : (
+              <>
+                <AlertDialogCancel disabled={busy}>Keep running</AlertDialogCancel>
+                <Button
+                  variant="destructive"
+                  aria-label={`Confirm stop of ${story.key}`}
+                  onClick={handleStop}
+                  disabled={busy}
+                >
+                  <Square aria-hidden="true" />
+                  {busy ? "Stopping…" : "Stop the session"}
+                </Button>
+              </>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

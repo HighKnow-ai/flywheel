@@ -149,6 +149,9 @@ const call = (secondsAgo: number, id: string, toolName: string, input: unknown) 
 const result = (secondsAgo: number, id: string, output: unknown, isError = false) => ev(secondsAgo, { type: "tool_result", output, toolUseId: id, ...(isError ? { isError: true } : {}) });
 const say = (secondsAgo: number, text: string) => ev(secondsAgo, { type: "assistant_text", text });
 const BOARD = "mcp__flywheel-board__";
+/** A Task tool's answer as the core words it (`tasks_as_tool_result`): the whole checklist, here its first `n` Tasks. */
+const checklist = (storyId: string, n: number) =>
+  JSON.stringify({ tasks: (TASKS[storyId] ?? []).slice(0, n).map((t) => ({ task_id: t.id, title: t.title, state: t.state })) });
 
 const QUESTIONS = [
   {
@@ -183,18 +186,16 @@ const LOGS: Record<string, Record<string, unknown>[]> = {
     call(1236, "t3", "Grep", { pattern: "setActiveSessionId\\(", path: "packages/desktop/src" }),
     result(1235, "t3", "App.tsx:195\nApp.tsx:219\nApp.tsx:248\nprojects/ProjectRail.tsx:170\nfleet/FleetSurface.tsx:486"),
     say(1200, "Found it. `activeSurface` ranks the session **above** the fleet and the board, and nothing clears `activeSessionId` when you pick a project in the rail. So:\n\n- clicking a project while a feed is open keeps the feed;\n- the rail's *Waiting on you* row opens the fleet *underneath* the open feed.\n\nWriting the plan now."),
-    call(1190, "t4", `${BOARD}task_add`, { title: "Clear the open session when the rail switches project" }),
-    result(1189, "t4", "Added Task t-4a"),
-    call(1188, "t5", `${BOARD}task_add`, { title: "Make Waiting on you and All agents replace an open feed" }),
-    result(1187, "t5", "Added Task t-4b"),
-    call(1186, "t6", `${BOARD}task_add`, { title: "Open a Story's live session from its row on the board" }),
-    result(1185, "t6", "Added Task t-4c"),
+    call(1190, "t4", `${BOARD}task_add`, { titles: ["Clear the open session when the rail switches project"] }),
+    result(1189, "t4", checklist("s-4", 1)),
+    call(1188, "t5", `${BOARD}task_add`, { titles: ["Make Waiting on you and All agents replace an open feed", "Open a Story's live session from its row on the board"] }),
+    result(1187, "t5", checklist("s-4", 3)),
     call(1180, "t7", "Edit", { file_path: "packages/desktop/src/state/uiStore.ts", old_string: "setCurrentProjectId: (id) => set({ currentProjectId: id }),", new_string: "setCurrentProjectId: (id) => set({ currentProjectId: id, activeSessionId: null }),", replace_all: false }),
     result(1179, "t7", "The file packages/desktop/src/state/uiStore.ts has been updated."),
     call(1100, "t8", "Bash", { command: "npm --prefix packages/desktop test -- uiStore", description: "Run the store tests" }),
     result(1060, "t8", " ✓ src/state/__tests__/uiStore.test.ts (14 tests) 41ms\n\n Test Files  1 passed (1)\n      Tests  14 passed (14)"),
     call(1050, "t9", `${BOARD}task_update`, { task_id: "t-4a", state: "done", note: "uiStore.setCurrentProjectId now also clears activeSessionId." }),
-    result(1049, "t9", "Updated Task t-4a"),
+    result(1049, "t9", checklist("s-4", 3)),
     say(400, "Store tests pass. Next: *Waiting on you* and *All agents* must replace an open feed, but **← Board** from a session opened in the fleet still has to land back on the fleet."),
     call(390, "t10", "Edit", { file_path: "packages/desktop/src/state/keyboard.ts", old_string: "if (state.sessionOpen) return \"session\";", new_string: "if (state.sessionOpen && !state.fleetRequested) return \"session\";" }),
     result(389, "t10", "The file packages/desktop/src/state/keyboard.ts has been updated."),
@@ -210,7 +211,7 @@ const LOGS: Record<string, Record<string, unknown>[]> = {
     call(2200, "u1", "Bash", { command: "npm --prefix packages/desktop test", description: "Run the desktop tests" }),
     result(2150, "u1", " Test Files  96 passed (96)\n      Tests  1204 passed (1204)"),
     call(2100, "u2", `${BOARD}task_update`, { task_id: "t-5c", state: "done" }),
-    result(2099, "u2", "Updated Task t-5c"),
+    result(2099, "u2", checklist("s-5", 4)),
     say(2050, "I'll push the branch so CI runs the WebKit browser arm, which I can't run headless here."),
     call(2040, "u3", "Bash", { command: "git push -u origin story/fly-5-tokens", description: "Push the Story branch" }),
   ],
@@ -228,9 +229,15 @@ const LOGS: Record<string, Record<string, unknown>[]> = {
     ev(7200, { type: "init", sessionId: "d00d" }),
     say(7100, "Rendering the three directions as code comps."),
     call(5000, "r1", `${BOARD}checks_run`, {}),
-    result(4900, "r1", "2 Checks passed, 0 failed"),
+    result(4900, "r1", JSON.stringify({ commit: "4f1c2ab", checks: [
+      { command: "npm --prefix packages/desktop test", result: "passed", exit_code: 0, output_tail: "" },
+      { command: "npm --prefix packages/desktop run build", result: "failed", exit_code: 1, output_tail: "error TS2322" },
+    ] })),
     call(3700, "r2", `${BOARD}handoff`, { next_session_must_know: "Three directions rendered under docs/design/directions/.", decisions: "Comps are code, not images." }),
-    result(3650, "r2", "Handed off. Checks ran: 2 passed."),
+    result(3650, "r2", JSON.stringify({ commit: "9a07d3e", checks: [
+      { command: "npm --prefix packages/desktop test", result: "passed", exit_code: 0, output_tail: "" },
+      { command: "npm --prefix packages/desktop run build", result: "passed", exit_code: 0, output_tail: "" },
+    ], recorded: true, story_state: "in_review", open_tasks: 0, next: "The Story is In review. End your turn now." })),
     ev(3600, { type: "result", inputTokens: 412000, outputTokens: 38100, totalCostUsd: 4.82 }),
     ev(3600, { type: "session_closed", reason: "completed" }),
   ],
