@@ -225,7 +225,7 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                   aria-current={selected ? "true" : undefined}
                   onClick={() => selectMilestone(projectId, milestone.id)}
                   onKeyDown={(event) => onRowKeyDown(event, index, false)}
-                  className="grid min-h-9 min-w-0 flex-1 grid-cols-[minmax(10rem,1fr)_7.5rem_minmax(0,2.2fr)_auto_16px] items-center gap-x-3 rounded-sm py-1 pr-3 text-left"
+                  className="grid min-h-9 min-w-0 flex-1 grid-cols-[minmax(10rem,1fr)_7.5rem_minmax(0,2.2fr)_4.5rem_16px] items-center gap-x-3 rounded-sm py-1 pr-3 text-left"
                 >
                   <span
                     title={milestone.title}
