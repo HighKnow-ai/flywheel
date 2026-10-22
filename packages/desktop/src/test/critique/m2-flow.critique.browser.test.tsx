@@ -621,32 +621,32 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
       await roadmapStrip();
       await shot("49-roadmap-ghost-rows-min-width");
 
-  it("43 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {
+  it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {
     slicingShaping();
     await boardReady();
     await click("Open FLY-8 Epic shaping and its Rounds");
     await storyColumnsInView();
-    await shot("43-epic-shaping-story-columns");
+    await shot("50-epic-shaping-story-columns");
   });
 
-  it("44 Epic shaping: amending a proposed Story in its ghost column (issue #127)", async () => {
+  it("51 Epic shaping: amending a proposed Story in its ghost column (issue #127)", async () => {
     slicingShaping();
     await boardReady();
     await click("Open FLY-8 Epic shaping and its Rounds");
     await click("Amend the proposed Story Slice an Epic into Stories as ghost columns");
     await screen.findByRole("textbox", { name: "Title" });
     await storyColumnsInView();
-    await shot("44-epic-shaping-amend-story");
+    await shot("51-epic-shaping-amend-story");
   });
 
-  it("45 Epic shaping at the window's minimum width: the Story columns scroll sideways (issue #127)", async () => {
+  it("52 Epic shaping at the window's minimum width: the Story columns scroll sideways (issue #127)", async () => {
     slicingShaping();
     await page.viewport(900, 900);
     try {
       await boardReady();
       await click("Open FLY-8 Epic shaping and its Rounds");
       await storyColumnsInView();
-      await shot("45-epic-shaping-story-columns-min-width");
+      await shot("52-epic-shaping-story-columns-min-width");
     } finally {
       await page.viewport(1440, 900);
     }
