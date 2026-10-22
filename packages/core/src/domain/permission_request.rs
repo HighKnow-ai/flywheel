@@ -174,13 +174,7 @@ pub fn create_pending_request(
 
     let tx = conn.transaction()?;
 
-    let (story_id, project_id): (String, String) = tx
-        .query_row(
-            "SELECT story_id, project_id FROM sessions WHERE id = ?1",
-            params![session_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .with_context(|| format!("session {session_id:?} not found"))?;
+    let (story_id, project_id, _) = crate::domain::session::story_session(&tx, session_id)?;
     let epic_id: Option<String> = tx
         .query_row("SELECT epic_id FROM stories WHERE id = ?1", params![story_id], |row| row.get(0))
         .optional()?;

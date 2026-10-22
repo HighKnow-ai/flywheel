@@ -44,6 +44,17 @@ fn a_shaping_session_is_read_only_plus_the_proposal_tools_and_never_raises_a_req
         assert!(!policy.allowed_tools.iter().any(|t| t == writes), "{writes} must not be allowed");
         assert!(policy.disallowed_tools.iter().any(|t| t == writes), "{writes} must be denied outright");
     }
+    // Issue #122: Rounds are the only way a shaping session asks.
+    assert!(policy.disallowed_tools.iter().any(|t| t == "AskUserQuestion"), "a shaping session asks only in Rounds");
+}
+
+#[test]
+fn a_session_kind_round_trips_through_its_column_value() {
+    for kind in SessionKind::ALL {
+        assert_eq!(SessionKind::parse(kind.as_str()), Some(kind));
+    }
+    assert_eq!(SessionKind::Shaping.as_str(), "shaping");
+    assert_eq!(SessionKind::parse("chat"), None);
 }
 
 #[test]

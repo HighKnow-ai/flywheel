@@ -59,7 +59,8 @@ pub const TABLE_CLASSES: &[(&str, TableClass)] = &[
     ("proposals", TableClass::Staging),
     // What a session left for the next one, so a fresh session can reconstitute.
     ("session_summaries", TableClass::Runtime),
-    // One row per Story session; the core writes it as it starts, ends and abandons sessions.
+    // One row per agent session, a Story session or a shaping one; the core writes it as it starts,
+    // ends and abandons sessions.
     ("sessions", TableClass::Runtime),
     // Application settings.
     ("settings", TableClass::Infrastructure),

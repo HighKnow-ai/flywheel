@@ -11,12 +11,12 @@ use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
 
 const BLOCKED_STORY_IDS_SQL: &str = "SELECT DISTINCT ar.story_id FROM sessions ar \
-    WHERE ar.project_id = ?1 AND ar.status IN ('running', 'blocked') \
+    WHERE ar.project_id = ?1 AND ar.kind = 'story' AND ar.status IN ('running', 'blocked') \
     AND EXISTS (SELECT 1 FROM permission_requests pr WHERE pr.session_id = ar.id AND pr.status = 'pending' AND pr.expired_at IS NULL) \
     ORDER BY ar.story_id ASC";
 
 const BLOCKED_COUNT_SQL: &str = "SELECT COUNT(DISTINCT ar.story_id) FROM sessions ar \
-    WHERE ar.project_id = ?1 AND ar.status IN ('running', 'blocked') \
+    WHERE ar.project_id = ?1 AND ar.kind = 'story' AND ar.status IN ('running', 'blocked') \
     AND EXISTS (SELECT 1 FROM permission_requests pr WHERE pr.session_id = ar.id AND pr.status = 'pending' AND pr.expired_at IS NULL)";
 
 /// Every distinct Story id in `project_id` that is Waiting on you: a live session of it holds a

@@ -157,6 +157,8 @@ fn main() {
             commands::epic::epic_list,
             commands::epic::epic_update,
             commands::epic::epic_set_state,
+            commands::shaping::epic_shape,
+            commands::shaping::epic_shaping_session,
             commands::story::story_create,
             commands::story::story_drop,
             commands::story::story_list,

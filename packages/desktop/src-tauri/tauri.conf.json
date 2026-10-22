@@ -42,7 +42,9 @@
       "binaries/flywheel-shim"
     ],
     "resources": {
-      "resources/sidecar": "sidecar"
+      "resources/sidecar": "sidecar",
+      "../../../NOTICE": "NOTICE",
+      "../../../LICENSES/mattpocock-skills.txt": "LICENSES/mattpocock-skills.txt"
     }
   }
 }

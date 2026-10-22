@@ -134,11 +134,7 @@ pub struct HandoffOutcome {
 
 /// The session's Story, project and status; refused unless the session is live.
 fn live_session(conn: &Connection, session_id: &str) -> anyhow::Result<(String, String)> {
-    let (story_id, project_id, status): (String, String, String) = conn
-        .query_row("SELECT story_id, project_id, status FROM sessions WHERE id = ?1", params![session_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        })
-        .with_context(|| format!("session {session_id:?} not found"))?;
+    let (story_id, project_id, status) = crate::domain::session::story_session(conn, session_id)?;
     anyhow::ensure!(status == "running" || status == "blocked", "this session has ended ({status}); it can no longer run Checks or hand off");
     Ok((story_id, project_id))
 }

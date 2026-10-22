@@ -116,7 +116,7 @@ fn story_state_words(state: &str) -> &str {
     }
 }
 
-fn non_blank(value: &Option<String>) -> Option<&str> {
+pub(crate) fn non_blank(value: &Option<String>) -> Option<&str> {
     value.as_deref().map(str::trim).filter(|v| !v.is_empty())
 }
 
@@ -311,7 +311,7 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
     Ok(out)
 }
 
-fn section(out: &mut String, heading: &str) {
+pub(crate) fn section(out: &mut String, heading: &str) {
     out.push_str("\n## ");
     out.push_str(heading);
     out.push_str("\n\n");
@@ -364,7 +364,7 @@ fn write_diff(out: &mut String, dir: &Path, base: &str) -> anyhow::Result<()> {
 }
 
 /// One rejected Proposal on the Epic, as a line: what it proposed and the developer's reason.
-fn rejected_proposals(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<String>> {
+pub(crate) fn rejected_proposals(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<String>> {
     let mut stmt = conn.prepare(
         "SELECT verb, target_type, payload, rationale, rejection_reason FROM proposals
          WHERE epic_id = ?1 AND state = 'rejected' ORDER BY created_at, id",
@@ -432,16 +432,16 @@ fn unmerged_epic_adrs(conn: &Connection, epic_id: &str, docs_root: &Path) -> any
 
 /// One live ADR in the index.
 #[derive(Debug, Clone, PartialEq)]
-struct AdrEntry {
+pub(crate) struct AdrEntry {
     /// Repo-relative, `docs/adr/<file>`.
-    path: String,
-    title: String,
+    pub(crate) path: String,
+    pub(crate) title: String,
 }
 
 /// Every ADR in `adr_dir` that nothing supersedes, in file-name order. An ADR is superseded when it
 /// carries a `Status: superseded by …` line, or when another ADR names its number on a
 /// `Supersedes ADR-NNNN` line. A missing directory is an empty index.
-fn live_adrs(adr_dir: &Path) -> Vec<AdrEntry> {
+pub(crate) fn live_adrs(adr_dir: &Path) -> Vec<AdrEntry> {
     let Ok(read) = std::fs::read_dir(adr_dir) else { return Vec::new() };
     let mut names: Vec<String> = read
         .filter_map(Result::ok)

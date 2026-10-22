@@ -1,7 +1,16 @@
-//! A Story's agent sessions — the `sessions` table (D-29, D-30, D-34, DATA-04): `start_session`,
-//! `close_session`, `apply_session_closed`, the Stop and abandon paths and the launch reconciler.
-//! Every session belongs to exactly one Story and runs in that Story's worktree; it is always a
-//! fresh session, never `claude --resume`.
+//! Agent sessions — the `sessions` table (D-29, D-30, D-34, DATA-04): `start_session`,
+//! `start_shaping_session`, `close_session`, `apply_session_closed`, the Stop and abandon paths and
+//! the launch reconciler. A session is always a fresh one, never `claude --resume`, of one of two
+//! kinds (`sessions.kind`, issue #122):
+//!
+//! - a **Story session** belongs to exactly one Story and runs in that Story's worktree;
+//! - a **shaping session** has no Story and no worktree. Its subject is an Epic, a Milestone or the
+//!   Roadmap, it runs read-only in the project's checkout, and it leaves no Session summary: what it
+//!   decided is on the board already, written as it was made (docs/mvp-spec.md §3 "Durability").
+//!
+//! Every path that ends a session (close, Stop, abandon, the reconciler) reads it through
+//! `session_subject`, which joins the Story and the Epic with LEFT JOINs, so a Story-less session
+//! ends exactly like a Story session, minus the summary.
 //!
 //! Nothing in this module writes a Story state, and no session can accept its own criteria:
 //! `story::set_story_state` and `acceptance_criterion::accept_criterion` are the only writers of
@@ -22,6 +31,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::domain::event::{append_event, next_sequence};
 use crate::domain::session_ending::{classify_session_closed, record_ending_in_tx, EndingReason};
+use crate::domain::session_kind::SessionKind;
 use crate::domain::worktree::ensure_worktree;
 use crate::ids::{is_ulid, new_id};
 use crate::runtime_protocol::{self, KillRecordRead};
@@ -42,15 +52,196 @@ pub struct Session {
     pub log_path: String,
 }
 
-/// The Story a session works and that Story's Epic — the scope every session event carries.
-fn session_scope(tx: &Connection, session_id: &str) -> anyhow::Result<Option<(String, String, String)>> {
-    tx.query_row(
-        "SELECT r.project_id, r.story_id, s.epic_id FROM sessions r JOIN stories s ON s.id = r.story_id WHERE r.id = ?1",
+/// What a session works on, read the same way by every path that ends one: its project, its kind,
+/// its Story (a Story session's), the Epic its events are scoped to (the Story's Epic, or a shaping
+/// session's subject Epic), the key that names it, and its status.
+#[derive(Debug, Clone)]
+struct SessionSubject {
+    project_id: String,
+    kind: SessionKind,
+    story_id: Option<String>,
+    epic_id: Option<String>,
+    /// The Story's key, the subject Epic's key, or `None` for a Milestone or the Roadmap.
+    key: Option<String>,
+    status: String,
+}
+
+/// `None` for an unknown session. Never an inner join on `stories`: a shaping session has no Story.
+fn session_subject(conn: &Connection, session_id: &str) -> anyhow::Result<Option<SessionSubject>> {
+    conn.query_row(
+        "SELECT r.project_id, r.kind, r.story_id, COALESCE(s.epic_id, r.epic_id), COALESCE(s.key, e.key), r.status
+         FROM sessions r
+         LEFT JOIN stories s ON s.id = r.story_id
+         LEFT JOIN epics e ON e.id = r.epic_id
+         WHERE r.id = ?1",
         params![session_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        |row| {
+            let kind: String = row.get(1)?;
+            Ok(SessionSubject {
+                project_id: row.get(0)?,
+                kind: SessionKind::parse(&kind).unwrap_or(SessionKind::Story),
+                story_id: row.get(2)?,
+                epic_id: row.get(3)?,
+                key: row.get(4)?,
+                status: row.get(5)?,
+            })
+        },
     )
     .optional()
-    .context("failed to read the session's Story")
+    .context("failed to read what the session works on")
+}
+
+/// The session's kind, or `None` for an unknown session.
+pub fn session_kind(conn: &Connection, session_id: &str) -> anyhow::Result<Option<SessionKind>> {
+    Ok(session_subject(conn, session_id)?.map(|s| s.kind))
+}
+
+/// A Story session's Story, project and status. Refused, by name, for a shaping session, which has
+/// no Story: the Story board tools (the Task checklist, the Check run, the hand-off) and permission
+/// requests belong to Story sessions alone.
+pub fn story_session(conn: &Connection, session_id: &str) -> anyhow::Result<(String, String, String)> {
+    let subject = session_subject(conn, session_id)?.with_context(|| format!("session {session_id:?} not found"))?;
+    match subject.story_id {
+        Some(story_id) => Ok((story_id, subject.project_id, subject.status)),
+        None => anyhow::bail!("session {session_id:?} is a shaping session, which has no Story to write to"),
+    }
+}
+
+/// The stub Session summary a Story session that ended without one gets (T-05-09-01), inside the
+/// caller's transaction. A shaping session gets none: it has no Story to leave a note on, and
+/// everything it decided is on the board already. The one place both rules live, for every path
+/// that ends a session.
+pub fn write_stub_if_missing(tx: &Transaction, session_id: &str, close_reason: &str) -> anyhow::Result<()> {
+    if session_kind(tx, session_id)? != Some(SessionKind::Story) {
+        return Ok(());
+    }
+    if crate::domain::session_summary::latest_summary_for_run(tx, session_id)?.is_none() {
+        crate::domain::session_summary::synthesize_fallback_summary(tx, session_id, close_reason)?;
+    }
+    Ok(())
+}
+
+/// What a shaping session shapes (docs/mvp-spec.md §3): an Epic, or a Milestone's exit test. The
+/// schema also admits the Roadmap (neither set) for the roadmap Round.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShapingSubject {
+    Epic(String),
+    Milestone(String),
+}
+
+/// One shaping `sessions` row, as read back after [`start_shaping_session`] commits.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapingSession {
+    pub id: String,
+    pub project_id: String,
+    pub subject: ShapingSubject,
+    pub status: SessionStatus,
+    pub permission_mode: String,
+    pub log_path: String,
+}
+
+/// The subject's live (`running` or `blocked`) shaping session, newest first, or `None`.
+pub fn live_shaping_session(conn: &Connection, subject: &ShapingSubject) -> anyhow::Result<Option<String>> {
+    let (sql, id) = match subject {
+        ShapingSubject::Epic(id) => (
+            "SELECT id FROM sessions WHERE kind = 'shaping' AND epic_id = ?1 AND status IN ('running', 'blocked')
+             ORDER BY started_at DESC, id DESC LIMIT 1",
+            id,
+        ),
+        ShapingSubject::Milestone(id) => (
+            "SELECT id FROM sessions WHERE kind = 'shaping' AND milestone_id = ?1 AND status IN ('running', 'blocked')
+             ORDER BY started_at DESC, id DESC LIMIT 1",
+            id,
+        ),
+    };
+    conn.query_row(sql, params![id], |row| row.get(0)).optional().context("failed to read the live shaping session")
+}
+
+/// Start a new shaping session on `subject` (docs/mvp-spec.md §3, issue #122): no worktree, no
+/// Story, run read-only in the project's checkout. In ONE transaction: refuse a subject that is not
+/// in Shaping or already has a live shaping session, insert the `sessions` row (`kind = 'shaping'`,
+/// `status = 'running'`) and append `session.started`, attributed to the agent actor.
+pub fn start_shaping_session(
+    conn: &mut Connection,
+    subject: &ShapingSubject,
+    permission_mode: &str,
+    human_actor_id: &str,
+) -> anyhow::Result<ShapingSession> {
+    let agent_id = agent_actor_id(conn)?;
+    let now = Utc::now().to_rfc3339();
+    let run_id = new_id();
+    let log_path = session_log_path(&run_id)?.to_string_lossy().into_owned();
+
+    let tx = conn.transaction()?;
+    tx.query_row("SELECT 1 FROM actors WHERE id = ?1", params![human_actor_id], |r| r.get::<_, i64>(0))
+        .with_context(|| format!("initiating actor {human_actor_id:?} not found"))?;
+
+    let (project_id, state, label, epic_id, milestone_id): (String, String, String, Option<&str>, Option<&str>) =
+        match subject {
+            ShapingSubject::Epic(id) => {
+                let (project_id, state, key): (String, String, String) = tx
+                    .query_row("SELECT project_id, state, key FROM epics WHERE id = ?1", params![id], |r| {
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                    })
+                    .with_context(|| format!("Epic {id:?} not found"))?;
+                (project_id, state, format!("Epic {key}"), Some(id.as_str()), None)
+            }
+            ShapingSubject::Milestone(id) => {
+                let (project_id, state, title): (String, String, String) = tx
+                    .query_row("SELECT project_id, state, title FROM milestones WHERE id = ?1", params![id], |r| {
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                    })
+                    .with_context(|| format!("Milestone {id:?} not found"))?;
+                (project_id, state, format!("Milestone \"{title}\""), None, Some(id.as_str()))
+            }
+        };
+    anyhow::ensure!(state == "shaping", "{label} is {state}; only a record in Shaping is shaped");
+    anyhow::ensure!(
+        live_shaping_session(&tx, subject)?.is_none(),
+        "{label} already has a live shaping session; open it rather than starting a second one"
+    );
+
+    tx.execute(
+        "INSERT INTO sessions (
+            id, kind, story_id, epic_id, milestone_id, worktree_id, project_id, adapter, actor_id, status,
+            permission_mode, log_path, started_at
+        ) VALUES (?1, 'shaping', NULL, ?2, ?3, NULL, ?4, 'claude_code', ?5, 'running', ?6, ?7, ?8)",
+        params![run_id, epic_id, milestone_id, project_id, agent_id, permission_mode, log_path, now],
+    )
+    .context("failed to insert the shaping sessions row")?;
+
+    let sequence = next_sequence(&tx, &project_id, "local")?;
+    let payload = serde_json::json!({
+        "field": "session",
+        "before": null,
+        "after": run_id,
+        "kind": "shaping",
+        "label": format!("Started shaping session on {label}"),
+    });
+    append_event(
+        &tx,
+        &project_id,
+        "local",
+        sequence,
+        "session",
+        &run_id,
+        None,
+        epic_id,
+        &agent_id,
+        "session.started",
+        &payload,
+        &now,
+    )?;
+    tx.commit().context("failed to commit start_shaping_session transaction")?;
+
+    Ok(ShapingSession {
+        id: run_id,
+        project_id,
+        subject: subject.clone(),
+        status: SessionStatus::Running,
+        permission_mode: permission_mode.to_string(),
+        log_path,
+    })
 }
 
 /// The six values `sessions.status`'s CHECK constraint accepts (the baseline migration, D-49).
@@ -191,7 +382,7 @@ fn close_session_in_tx(
 ) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
 
-    let Some((project_id, story_id, epic_id)) = session_scope(tx, run_id)? else {
+    let Some(SessionSubject { project_id, story_id, epic_id, .. }) = session_subject(tx, run_id)? else {
         return Ok(());
     };
 
@@ -219,8 +410,8 @@ fn close_session_in_tx(
         sequence,
         "session",
         run_id,
-        Some(&story_id),
-        Some(&epic_id),
+        story_id.as_deref(),
+        epic_id.as_deref(),
         &agent_id,
         "session.closed",
         &payload,
@@ -275,7 +466,7 @@ pub fn record_lock_exhaustion(
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
-    let Some((project_id, story_id, epic_id)) = session_scope(&tx, run_id)? else {
+    let Some(SessionSubject { project_id, story_id, epic_id, .. }) = session_subject(&tx, run_id)? else {
         tx.commit().context("failed to commit no-op record_lock_exhaustion transaction")?;
         return Ok(());
     };
@@ -289,8 +480,8 @@ pub fn record_lock_exhaustion(
         sequence,
         "session",
         run_id,
-        Some(&story_id),
-        Some(&epic_id),
+        story_id.as_deref(),
+        epic_id.as_deref(),
         actor_id,
         "git.lock_exhausted",
         &payload,
@@ -389,19 +580,20 @@ pub fn apply_session_closed(conn: &mut Connection, event: &serde_json::Value) ->
 
     // The hand-off moves the Story to In review while its session is still alive; a session that
     // exits after it handed off, not one that stopped.
-    let handed_off: bool = tx.query_row(
-        "SELECT s.state IN ('in_review', 'merged') FROM sessions r JOIN stories s ON s.id = r.story_id WHERE r.id = ?1",
-        params![run_id],
-        |row| row.get(0),
-    )?;
+    // A shaping session has no Story, so it never hands off.
+    let handed_off: bool = tx
+        .query_row(
+            "SELECT s.state IN ('in_review', 'merged') FROM sessions r JOIN stories s ON s.id = r.story_id WHERE r.id = ?1",
+            params![run_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or(false);
     let last_message = crate::session_log::last_assistant_message(run_id);
     let ending = classify_session_closed(event, last_message.as_ref(), handed_off);
 
     close_session_in_tx(&tx, run_id, status, ending, cost_usd, tokens_in, tokens_out)?;
-
-    if crate::domain::session_summary::latest_summary_for_run(&tx, run_id)?.is_none() {
-        crate::domain::session_summary::synthesize_fallback_summary(&tx, run_id, ending.words())?;
-    }
+    write_stub_if_missing(&tx, run_id, ending.words())?;
 
     tx.commit().context("failed to commit apply_session_closed transaction")?;
     Ok(SessionClosedOutcome::Closed(status))
@@ -461,17 +653,9 @@ pub fn clear_run_blocked(tx: &Transaction, session_id: &str) -> anyhow::Result<(
 pub fn interrupt_session_in_tx(tx: &Transaction, session_id: &str, actor_id: &str) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
 
-    let existing: Option<(String, String, String, String, String)> = tx
-        .query_row(
-            "SELECT r.project_id, r.story_id, s.epic_id, s.key, r.status
-             FROM sessions r JOIN stories s ON s.id = r.story_id WHERE r.id = ?1",
-            params![session_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
-        )
-        .optional()
-        .context("failed to read the sessions row before interrupt")?;
+    let existing = session_subject(tx, session_id).context("failed to read the sessions row before interrupt")?;
 
-    let Some((project_id, story_id, epic_id, story_key, current_status)) = existing else {
+    let Some(SessionSubject { project_id, kind, story_id, epic_id, key, status: current_status }) = existing else {
         return Ok(());
     };
 
@@ -492,7 +676,11 @@ pub fn interrupt_session_in_tx(tx: &Transaction, session_id: &str, actor_id: &st
         "field": "session",
         "before": current_status,
         "after": "interrupted",
-        "label": format!("Stopped agent run on {story_key}"),
+        "label": match (kind, key) {
+            (SessionKind::Story, Some(key)) => format!("Stopped agent run on {key}"),
+            (_, Some(key)) => format!("Stopped shaping session on {key}"),
+            (_, None) => "Stopped shaping session".to_string(),
+        },
     });
     append_event(
         tx,
@@ -501,8 +689,8 @@ pub fn interrupt_session_in_tx(tx: &Transaction, session_id: &str, actor_id: &st
         sequence,
         "session",
         session_id,
-        Some(&story_id),
-        Some(&epic_id),
+        story_id.as_deref(),
+        epic_id.as_deref(),
         actor_id,
         "session.interrupted",
         &payload,
@@ -533,17 +721,10 @@ pub fn mark_abandoned(conn: &mut Connection, run_id: &str, actor_id: &str, reaso
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction()?;
 
-    let existing: Option<(String, String, String, String)> = tx
-        .query_row(
-            "SELECT r.status, r.project_id, r.story_id, s.epic_id
-             FROM sessions r JOIN stories s ON s.id = r.story_id WHERE r.id = ?1",
-            params![run_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .optional()
-        .context("failed to read the sessions row before marking it abandoned")?;
+    let existing =
+        session_subject(&tx, run_id).context("failed to read the sessions row before marking it abandoned")?;
 
-    let Some((current_status, project_id, story_id, epic_id)) = existing else {
+    let Some(SessionSubject { status: current_status, project_id, story_id, epic_id, .. }) = existing else {
         tx.commit().context("failed to commit no-op mark_abandoned transaction (session not found)")?;
         return Ok(false);
     };
@@ -578,17 +759,15 @@ pub fn mark_abandoned(conn: &mut Connection, run_id: &str, actor_id: &str, reaso
         sequence,
         "session",
         run_id,
-        Some(&story_id),
-        Some(&epic_id),
+        story_id.as_deref(),
+        epic_id.as_deref(),
         actor_id,
         "session.abandoned",
         &payload,
         &now,
     )?;
 
-    if crate::domain::session_summary::latest_summary_for_run(&tx, run_id)?.is_none() {
-        crate::domain::session_summary::synthesize_fallback_summary(&tx, run_id, ending.words())?;
-    }
+    write_stub_if_missing(&tx, run_id, ending.words())?;
 
     tx.commit().context("failed to commit mark_abandoned transaction")?;
     Ok(true)
@@ -597,12 +776,16 @@ pub fn mark_abandoned(conn: &mut Connection, run_id: &str, actor_id: &str, reaso
 /// The abandonment reason [`kill_orphan`] records: the developer killed a live orphan at launch.
 pub const KILLED_BY_USER_AT_LAUNCH: &str = "killed-by-user-at-launch";
 
-/// Every session still `running` or `blocked` when [`reconcile_sessions`] runs, joined to its
-/// Story for the recovery modal's key and title — one query, a compile-time literal.
+/// Every session still `running` or `blocked` when [`reconcile_sessions`] runs, joined to what it
+/// works on for the recovery modal's key and title — one query, a compile-time literal. LEFT JOINs:
+/// a shaping session has no Story and is named by its Epic or Milestone, or as the Roadmap's.
 const IN_FLIGHT_SESSIONS_SELECT_SQL: &str = "
-    SELECT r.id, r.story_id, r.project_id, r.external_session_id, s.key, s.title
+    SELECT r.id, r.story_id, r.project_id, r.external_session_id,
+           COALESCE(s.key, e.key, ''), COALESCE(s.title, e.title, m.title, 'Roadmap')
     FROM sessions r
-    JOIN stories s ON s.id = r.story_id
+    LEFT JOIN stories s ON s.id = r.story_id
+    LEFT JOIN epics e ON e.id = r.epic_id
+    LEFT JOIN milestones m ON m.id = r.milestone_id
     WHERE r.status IN ('running', 'blocked')
 ";
 
@@ -612,7 +795,8 @@ const IN_FLIGHT_SESSIONS_SELECT_SQL: &str = "
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiveOrphan {
     pub run_id: String,
-    pub story_id: String,
+    /// `None` for a shaping session; its key and title below are then its subject's.
+    pub story_id: Option<String>,
     pub story_key: String,
     pub story_title: String,
     pub project_id: String,
@@ -629,7 +813,7 @@ pub struct LiveOrphan {
 /// through [`mark_abandoned`]'s own terminal guard.
 pub fn reconcile_sessions(conn: &mut Connection, actor_id: &str) -> anyhow::Result<Vec<LiveOrphan>> {
     #[allow(clippy::type_complexity)]
-    let in_flight: Vec<(String, String, String, Option<String>, String, String)> = {
+    let in_flight: Vec<(String, Option<String>, String, Option<String>, String, String)> = {
         let mut stmt = conn
             .prepare(IN_FLIGHT_SESSIONS_SELECT_SQL)
             .context("failed to prepare the in-flight sessions reconciliation query")?;

@@ -274,17 +274,30 @@ pub(crate) fn spawn_request(
     env: &std::collections::HashMap<String, String>,
     kind: SessionKind,
 ) -> serde_json::Value {
+    spawn_request_in(&outcome.run_id, &outcome.worktree_path, &outcome.prompt, env, kind)
+}
+
+/// [`spawn_request`] for a session that runs in `cwd`: a Story session's worktree, or the project's
+/// checkout for a shaping session, which has no worktree (issue #122). The sidecar's field keeps
+/// its `worktreePath` name; it is the session's working directory either way.
+pub(crate) fn spawn_request_in(
+    run_id: &str,
+    cwd: &str,
+    prompt: &str,
+    env: &std::collections::HashMap<String, String>,
+    kind: SessionKind,
+) -> serde_json::Value {
     let policy = kind.launch_policy();
     // The kind's own env wins over the resolved one: nothing upstream can lower a Story session's
     // MCP tool timeouts (issue #92).
     let mut env = env.clone();
     env.extend(policy.env.iter().map(|(name, value)| (name.to_string(), value.clone())));
     serde_json::json!({
-        "id": outcome.run_id,
+        "id": run_id,
         "op": "spawn",
-        "runId": outcome.run_id,
-        "worktreePath": outcome.worktree_path,
-        "prompt": outcome.prompt,
+        "runId": run_id,
+        "worktreePath": cwd,
+        "prompt": prompt,
         "permissionMode": policy.permission_mode,
         "allowedTools": policy.allowed_tools,
         "disallowedTools": policy.disallowed_tools,
@@ -546,15 +559,11 @@ pub(crate) fn stop_session_in_tx(
 
     // If the agent already recorded its own summary, leave it exactly as it is — never write a
     // second, synthesized row over an agent-authored one. Only an ABSENT summary triggers the
-    // fallback (D-64). The presence check and the insert both run on THIS `tx`, so the decision
-    // and the write cannot disagree with a concurrent insert on a different connection.
-    if flywheel_core::domain::session_summary::latest_summary_for_run(tx, session_id)
-        .map_err(|e| e.to_string())?
-        .is_none()
-    {
-        flywheel_core::domain::session_summary::synthesize_fallback_summary(tx, session_id, &reason_words)
-            .map_err(|e| e.to_string())?;
-    }
+    // fallback (D-64), and only for a Story session: a shaping session leaves none (issue #122).
+    // The presence check and the insert both run on THIS `tx`, so the decision and the write
+    // cannot disagree with a concurrent insert on a different connection.
+    flywheel_core::domain::session::write_stub_if_missing(tx, session_id, &reason_words)
+        .map_err(|e| e.to_string())?;
 
     Ok(status)
 }
@@ -861,10 +870,11 @@ pub fn process_inbound_permission_request(
 fn notify_context(conn: &Connection, run_id: &str) -> (String, String) {
     let row: Option<(String, Option<String>)> = conn
         .query_row(
-            "SELECT p.name, s.key
+            "SELECT p.name, COALESCE(s.key, e.key)
                FROM sessions ar
                JOIN projects p ON p.id = ar.project_id
                LEFT JOIN stories s ON s.id = ar.story_id
+               LEFT JOIN epics e ON e.id = ar.epic_id
               WHERE ar.id = ?1",
             rusqlite::params![run_id],
             |r| Ok((r.get(0)?, r.get(1)?)),
@@ -1478,7 +1488,7 @@ fn resolve_sessions_limit(limit: Option<i64>) -> i64 {
 #[serde(rename_all = "camelCase")]
 pub struct RunSummaryDto {
     pub id: String,
-    pub story_id: String,
+    pub story_id: Option<String>,
     pub status: String,
     pub started_at: String,
     pub ended_at: Option<String>,
@@ -1839,7 +1849,7 @@ pub fn worktree_forget_record(state: State<AppState>, app: AppHandle, story_id: 
 #[serde(rename_all = "camelCase")]
 pub struct PendingOrphanDto {
     pub run_id: String,
-    pub story_id: String,
+    pub story_id: Option<String>,
     pub story_key: String,
     pub story_title: String,
     pub project_id: String,
@@ -1961,7 +1971,7 @@ mod tests {
     fn sample_live_orphan(run_id: &str) -> flywheel_core::domain::session::LiveOrphan {
         flywheel_core::domain::session::LiveOrphan {
             run_id: run_id.to_string(),
-            story_id: "story-1".to_string(),
+            story_id: Some("story-1".to_string()),
             story_key: "FLY-1".to_string(),
             story_title: "Sample story".to_string(),
             project_id: "project-1".to_string(),

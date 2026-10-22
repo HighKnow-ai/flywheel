@@ -40,6 +40,11 @@ const READ_ONLY_TOOLS: [&str; 3] = ["Read", "Glob", "Grep"];
 /// own Claude Code settings cannot allow them back in.
 const WRITING_TOOLS: [&str; 4] = ["Bash", "Edit", "Write", "NotebookEdit"];
 
+/// Claude Code's own question tool. A shaping session asks only in Rounds, on the board, so it is
+/// denied this one too (issue #122): a question asked here would reach nobody, since a shaping
+/// session has no permission-prompt tool to carry it.
+const QUESTION_TOOL: &str = "AskUserQuestion";
+
 /// The kind of session an agent runs in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionKind {
@@ -84,6 +89,19 @@ impl SessionKind {
     /// Every session kind, in a fixed order.
     pub const ALL: [SessionKind; 2] = [SessionKind::Story, SessionKind::Shaping];
 
+    /// The `sessions.kind` value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SessionKind::Story => "story",
+            SessionKind::Shaping => "shaping",
+        }
+    }
+
+    /// The kind a `sessions.kind` value names, or `None` for a value the schema would refuse.
+    pub fn parse(value: &str) -> Option<SessionKind> {
+        SessionKind::ALL.into_iter().find(|kind| kind.as_str() == value)
+    }
+
     /// The launch flags this kind fixes.
     ///
     /// - A Story session runs in `acceptEdits` with every Bash command and its board tools
@@ -110,7 +128,7 @@ impl SessionKind {
             SessionKind::Shaping => LaunchPolicy {
                 permission_mode: "dontAsk",
                 allowed_tools: READ_ONLY_TOOLS.iter().map(|t| t.to_string()).chain(proposal_tools()).collect(),
-                disallowed_tools: WRITING_TOOLS.iter().map(|t| t.to_string()).collect(),
+                disallowed_tools: WRITING_TOOLS.iter().chain(std::iter::once(&QUESTION_TOOL)).map(|t| t.to_string()).collect(),
                 raises_requests: false,
                 env: Vec::new(),
             },

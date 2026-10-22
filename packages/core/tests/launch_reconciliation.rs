@@ -217,7 +217,7 @@ fn a_running_row_with_no_kill_record_and_a_live_process_stays_running_and_is_a_l
             .find(|o| o.run_id == run.id)
             .expect("the genuinely alive run must appear in the live-orphan list");
         assert_eq!(orphan.pid, pid as i32);
-        assert_eq!(orphan.story_id, story.id);
+        assert_eq!(orphan.story_id.as_deref(), Some(story.id.as_str()));
         assert_eq!(orphan.story_key, story.key);
         assert_eq!(orphan.story_title, story.title);
         assert_eq!(orphan.project_id, project.id);

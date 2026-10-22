@@ -299,7 +299,7 @@ The composition: a 72px andon strip across the content top on every screen, then
 - A Story row, a sidebar session, a Needs-you card's title or a lamp opens the Story view, never the session.
 - Open session / Open feed (labelled, terminal icon) opens that session's feed.
 - Answer / Allow once on a Waiting-on-you item opens the feed scrolled to the open request.
-- Start and Resume keep you where you are; the row turns Running.
+- Start and Resume keep you where you are; the row turns Running. Shape, in the heading of an Epic card while the Epic is in Shaping (outline, over the rows' actions), keeps you there too and turns into Open session while its shaping session is live.
 - Back, Cmd-[ or the Story panel's close returns to the previous place, not "to the board".
 
 **The Clickable Looks Clickable Rule.** Anything that navigates is a bounded object with a trailing chevron-right, an `accent` hover and the focus ring. Inert text never carries a chevron. Buttons carry an icon and a word; links are running ink.
