@@ -26,7 +26,7 @@ import { Activity, ChevronRight, CirclePause, Hand, LoaderCircle } from "lucide-
 import { storyStopped, type FleetRowDto, type WaitingRoundDto } from "../adapters/tauri";
 import { endingWords } from "../board/StoryControls";
 import { useFleet, useWaitingRounds } from "../fleet/useFleet";
-import { useOpenWaitingRound, waitingRoundWords } from "../fleet/waitingRound";
+import { useOpenWaitingRound, usePlaceBoardId, waitingRoundWords } from "../fleet/waitingRound";
 import { formatAge } from "../legend/runStatus";
 import { prefersReducedMotion } from "../session/FeedRow";
 import { useUiStore } from "../state/uiStore";
@@ -187,8 +187,8 @@ export function RoundLamp({ round, current, now }: { round: WaitingRoundDto; cur
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-baseline gap-1.5 text-small font-semibold">
-          <span className="shrink-0 font-mono text-meta font-normal">{words.key}</span>
-          <span className="truncate">{words.title}</span>
+          {words.key && <span className="shrink-0 font-mono text-meta font-normal">{words.key}</span>}
+          <span className="truncate">{words.lampTitle}</span>
         </span>
         <span className="truncate text-meta font-semibold text-attention-foreground">
           {`${words.shortRound} · Waiting on you`}
@@ -259,11 +259,7 @@ export function AndonStrip() {
   const placeStoryId = useUiStore((state) => (state.activeSessionId ? state.activeSessionStoryId : state.currentStoryId));
   const placeEpicId = useUiStore((state) => (state.activeSessionId ? null : state.currentEpicId));
   // A roadmap Round's lamp is current on its project's board, with nothing open over it.
-  const placeBoardId = useUiStore((state) =>
-    state.activeSessionId || state.currentStoryId || state.currentEpicId || state.fleetSurface || state.worktreeInventoryOpen || state.settingsOpen
-      ? null
-      : state.currentProjectId,
-  );
+  const placeBoardId = usePlaceBoardId();
   const [laneRef, laneWidth] = useWidth<HTMLDivElement>();
   const now = useMinuteTick();
   const capacity = laneWidth > 0 ? lampCapacity(laneWidth, lamps.length) : lamps.length;

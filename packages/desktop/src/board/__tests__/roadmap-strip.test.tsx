@@ -329,24 +329,25 @@ describe("RoadmapStrip: the roadmap Round (issue #133)", () => {
     });
     renderBoard();
     const list = await within(await strip()).findByRole("list", { name: "Milestones in Roadmap order" });
-    await waitFor(() => expect(list.querySelectorAll("[data-slot=roadmap-ghost-row]")).toHaveLength(4));
-    const order = within(list)
-      .getAllByRole("listitem")
-      .map((li) => li.getAttribute("data-milestone-title") ?? li.querySelector("[role=group]")?.getAttribute("aria-label") ?? li.getAttribute("aria-label"));
-    expect(order).toEqual([
-      "Clean cut",
-      "Supervised execution",
-      "Shaping",
-      'Proposed: New Epic "Ghost rows" in Milestone "Shaping"',
-      "Board and review",
-      'Proposed: Retire Milestone "Board and review"',
-      "One-week exit test",
-      'Proposed: New Milestone "Mobile"',
-      'Rejected: New Milestone "Teams"',
-    ]);
+    const stripEl = await strip();
+    await waitFor(() => expect(within(stripEl).getAllByRole("group", { name: /^Proposed: / })).toHaveLength(3));
+    // The Milestone list still counts Milestones only; each Milestone's changes are a list of their own.
+    expect(list.querySelectorAll(":scope > li")).toHaveLength(5);
+    const under = (title: string) =>
+      within(within(list).getByRole("list", { name: `Proposed changes to ${title}` }))
+        .getAllByRole("listitem")
+        .map((li) => li.querySelector("[role=group]")?.getAttribute("aria-label") ?? li.getAttribute("aria-label"));
+    expect(under("Shaping")).toEqual(['Proposed: New Epic "Ghost rows" in Milestone "Shaping"']);
+    expect(under("Board and review")).toEqual(['Proposed: Retire Milestone "Board and review"']);
+    const trailing = within(await strip()).getByRole("list", { name: "Proposed new Milestones" });
+    expect(
+      within(trailing)
+        .getAllByRole("listitem")
+        .map((li) => li.querySelector("[role=group]")?.getAttribute("aria-label") ?? li.getAttribute("aria-label")),
+    ).toEqual(['Proposed: New Milestone "Mobile"', 'Rejected: New Milestone "Teams"']);
     expect(within(await strip()).getByRole("status")).toHaveTextContent("Waiting on you · 1 of 4 decided");
     expect(await strip()).toHaveAttribute("data-round-waiting", "true");
-    const rejected = within(list).getByRole("listitem", { name: 'Rejected: New Milestone "Teams"' });
+    const rejected = within(trailing).getByRole("listitem", { name: 'Rejected: New Milestone "Teams"' });
     expect(within(rejected).getByText("Your reason: Not before the one-week test")).toBeInTheDocument();
   });
 
@@ -357,6 +358,12 @@ describe("RoadmapStrip: the roadmap Round (issue #133)", () => {
     expect(within(retire).queryByRole("button", { name: /^Amend/ })).toBeNull();
     fireEvent.click(within(retire).getByRole("button", { name: 'Accept: Retire Milestone "Board and review"' }));
     await waitFor(() => expect(proposalAccept).toHaveBeenCalledWith("p-retire"));
+    // The keyboard moves on to the next undecided change, never onto a Milestone's move handle.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(screen.getByRole("group", { name: 'Proposed: New Milestone "Mobile"' })).getByRole("button", { name: /^Accept/ }),
+      ),
+    );
 
     const created = screen.getByRole("group", { name: 'Proposed: New Milestone "Mobile"' });
     fireEvent.click(within(created).getByRole("button", { name: 'Amend: New Milestone "Mobile"' }));
@@ -378,9 +385,11 @@ describe("RoadmapStrip: the roadmap Round (issue #133)", () => {
   it("Dismiss closes the Round, asking first when it would reject undecided changes", async () => {
     roadmapRoundRead.mockResolvedValue({ open: round({ waitingOnYou: true }), proposals: [NEW_MILESTONE], last: null });
     renderBoard();
-    fireEvent.click(await within(await strip()).findByRole("button", { name: "Dismiss Roadmap Round 1, changing nothing" }));
+    fireEvent.click(await within(await strip()).findByRole("button", { name: "Dismiss Roadmap Round 1, rejecting 1 undecided change" }));
     expect(roadmapRoundDismiss).not.toHaveBeenCalled();
-    expect(within(await strip()).getByText("Dismissing rejects the undecided change.")).toBeInTheDocument();
+    expect(within(await strip()).getByRole("alert")).toHaveTextContent("Dismissing rejects the undecided change.");
+    const keep = within(await strip()).getByRole("button", { name: "Keep it" });
+    await waitFor(() => expect(document.activeElement).toBe(keep));
     fireEvent.click(within(await strip()).getByRole("button", { name: "Dismiss Round" }));
     await waitFor(() => expect(roadmapRoundDismiss).toHaveBeenCalledWith("rr1"));
   });

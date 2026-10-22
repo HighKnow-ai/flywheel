@@ -40,7 +40,7 @@ import { ASK_USER_QUESTION_TOOL } from "../session/feedRows";
 import { useUiStore } from "../state/uiStore";
 import { useOpenWaitingRound, waitingRoundWords } from "./waitingRound";
 import { blockedQueueQueryKey, fleetQueryKey } from "./useFleet";
-import { ChevronRight, MessageCircleQuestionMark, Terminal } from "lucide-react";
+import { ChevronRight, CircleDashed, MessageCircleQuestionMark, Terminal } from "lucide-react";
 import { StateBadge } from "../components/StateBadge";
 import { Button } from "@/components/ui/button";
 
@@ -212,7 +212,7 @@ function WaitingRoundItem({ round, now }: { round: WaitingRoundDto; now: number 
           onClick={() => open(round)}
           className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent"
         >
-          <span className="shrink-0 font-mono text-meta text-muted-foreground">{words.key}</span>{" "}
+          {words.key && <span className="shrink-0 font-mono text-meta text-muted-foreground">{words.key}</span>}{" "}
           <span className="truncate text-body font-semibold">{words.title}</span>
           <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-subtle-foreground" />
         </button>
@@ -228,7 +228,7 @@ function WaitingRoundItem({ round, now }: { round: WaitingRoundDto; now: number 
           same kind of thing as every other entry here. */}
       <div className="overflow-clip rounded-lg border-2 border-attention bg-card shadow-card">
         <div className="flex min-h-11 items-center gap-2.5 bg-attention px-4 py-2.5 text-attention-foreground [&_svg]:size-[18px]">
-          <MessageCircleQuestionMark aria-hidden="true" />
+          {round.subject === "roadmap" ? <CircleDashed aria-hidden="true" /> : <MessageCircleQuestionMark aria-hidden="true" />}
           <span className="text-row font-bold">{words.round}</span>
           <span className="ml-auto text-small font-semibold">{words.kind}</span>
         </div>
@@ -241,7 +241,7 @@ function WaitingRoundItem({ round, now }: { round: WaitingRoundDto; now: number 
             aria-label={`${words.action} ${words.round} of ${round.subject === "roadmap" ? words.record : words.key}`}
             onClick={() => open(round)}
           >
-            <MessageCircleQuestionMark aria-hidden="true" />
+            {round.subject === "roadmap" ? <ChevronRight aria-hidden="true" /> : <MessageCircleQuestionMark aria-hidden="true" />}
             {words.action}
           </Button>
         </div>

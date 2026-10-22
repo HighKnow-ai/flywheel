@@ -516,7 +516,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     setRoadmapRound("idle");
     await boardReady();
     await screen.findByText("No live session: your decisions are kept");
-    await click("Dismiss Roadmap Round 2, changing nothing");
+    await click("Dismiss Roadmap Round 2, rejecting 3 undecided changes");
     await screen.findByText(/Dismissing rejects the 3 undecided changes/);
     await roadmapStrip();
     await shot("47-roadmap-round-dismiss");

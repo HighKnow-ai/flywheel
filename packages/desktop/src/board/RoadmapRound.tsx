@@ -39,6 +39,31 @@ import { cn } from "@/lib/utils";
 /** The longest rejection reason `proposal_reject` accepts. */
 const MAX_REASON_LEN = 500;
 
+/**
+ * Where the keyboard goes once the strip has re-read after a decision, a start or a dismissal: the next
+ * undecided change after the one just decided (in the order before the decision, wrapping), else the band's
+ * first action, else Revisit roadmap, else the strip's heading. Never a Milestone row's move handle, where
+ * the arrow keys would reorder the Roadmap.
+ */
+function focusInStrip(strip: Element | null, order: string[] = [], decided: string | null = null) {
+  requestAnimationFrame(() => {
+    const root = strip ?? document.querySelector("[data-slot=roadmap-strip]");
+    if (!root) return;
+    const pending = [...root.querySelectorAll<HTMLElement>("[data-slot=roadmap-ghost-row][data-state=pending]")].filter(
+      (row) => row.dataset.proposalId !== decided,
+    );
+    const at = decided ? order.indexOf(decided) : -1;
+    const next =
+      pending.find((row) => order.indexOf(row.dataset.proposalId ?? "") > at) ?? pending[0] ?? null;
+    const target =
+      next?.querySelector<HTMLElement>("button") ??
+      root.querySelector<HTMLElement>("[data-slot=roadmap-round-band] button") ??
+      root.querySelector<HTMLElement>("[data-slot=roadmap-revisit]") ??
+      root.querySelector<HTMLElement>("h2");
+    target?.focus();
+  });
+}
+
 /** The open roadmap Round and its Proposals, under the board's key so `board:changed` keeps it live. */
 export function useRoadmapRound(projectId: string) {
   return useQuery({ queryKey: ["board", projectId, "roadmap-round"], queryFn: () => roadmapRoundRead(projectId) });
@@ -95,7 +120,7 @@ export function RevisitRoadmapButton({ projectId }: { projectId: string }) {
   const { start, starting, error } = useRevisit(projectId);
   return (
     <>
-      <Button variant="outline" size="sm" disabled={starting} onClick={() => void start()}>
+      <Button variant="outline" size="sm" data-slot="roadmap-revisit" disabled={starting} onClick={() => void start()}>
         <Compass aria-hidden="true" />
         {starting ? "Starting…" : "Revisit roadmap"}
       </Button>
@@ -119,6 +144,8 @@ function useRevisit(projectId: string) {
     try {
       await roadmapRevisit(projectId);
       await queryClient.invalidateQueries({ queryKey: ["board", projectId, "roadmap-round"] });
+      // Revisit roadmap gives way to the band: the keyboard follows it, onto Open session.
+      focusInStrip(null);
     } catch (err) {
       setError(`Could not start the roadmap Round: ${errorText(err)}`);
     } finally {
@@ -162,6 +189,9 @@ export function RoundBand({
   const [dismissing, setDismissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dismissRef = useRef<HTMLButtonElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const bandRef = useRef<HTMLDivElement>(null);
+  const warningId = useId();
   const waiting = round.waitingOnYou;
   const live = round.sessionLive;
   const pending = proposals.filter((p) => p.state === "pending").length;
@@ -173,8 +203,11 @@ export function RoundBand({
     setDismissing(true);
     setError(null);
     try {
+      const strip = bandRef.current?.closest("[data-slot=roadmap-strip]") ?? null;
       await roadmapRoundDismiss(round.id);
       await queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      // The band is gone: back to Revisit roadmap.
+      focusInStrip(strip);
     } catch (err) {
       setError(`Could not dismiss the Round: ${errorText(err)}`);
       setDismissing(false);
@@ -191,6 +224,7 @@ export function RoundBand({
 
   return (
     <div
+      ref={bandRef}
       data-slot="roadmap-round-band"
       data-round-state={waiting ? "waiting" : live ? "running" : "idle"}
       className={cn(
@@ -223,14 +257,15 @@ export function RoundBand({
       <span className="ml-auto flex flex-wrap items-center gap-1.5">
         {confirming ? (
           <>
-            <span className="text-small font-semibold">
+            <span id={warningId} role="alert" className="text-small font-semibold">
               {pending === 1 ? "Dismissing rejects the undecided change." : `Dismissing rejects the ${pending} undecided changes.`}
             </span>
-            <Button size="sm" variant="outline" disabled={dismissing} onClick={() => void dismiss()}>
+            <Button size="sm" variant="outline" aria-describedby={warningId} disabled={dismissing} onClick={() => void dismiss()}>
               <CircleMinus aria-hidden="true" />
               {dismissing ? "Dismissing…" : "Dismiss Round"}
             </Button>
             <Button
+              ref={keepRef}
               size="sm"
               variant="ghost"
               className={waiting ? "text-attention-foreground hover:bg-attention-foreground/10" : undefined}
@@ -263,8 +298,20 @@ export function RoundBand({
               variant="ghost"
               className={waiting ? "text-attention-foreground hover:bg-attention-foreground/10" : undefined}
               disabled={dismissing}
-              aria-label={`Dismiss Roadmap Round ${round.number}, changing nothing`}
-              onClick={() => (pending > 0 ? setConfirming(true) : void dismiss())}
+              aria-label={
+                pending > 0
+                  ? `Dismiss Roadmap Round ${round.number}, rejecting ${pending} undecided change${pending === 1 ? "" : "s"}`
+                  : `Dismiss Roadmap Round ${round.number}`
+              }
+              onClick={() => {
+                if (pending === 0) {
+                  void dismiss();
+                  return;
+                }
+                setConfirming(true);
+                // The safe answer takes the focus, and the warning is read with it.
+                requestAnimationFrame(() => keepRef.current?.focus());
+              }}
             >
               <CircleMinus aria-hidden="true" />
               Dismiss
@@ -335,13 +382,16 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
     if (busy) return;
     setBusy(true);
     setError(null);
-    // Once decided the row changes under the focus: keep the keyboard on the strip, at its next row.
-    const next = rowRef.current?.nextElementSibling?.querySelector<HTMLElement>("button") ?? null;
+    // Once decided the row changes under the focus: keep the keyboard on the strip, at the next undecided change.
+    const strip = rowRef.current?.closest("[data-slot=roadmap-strip]") ?? null;
+    const order = strip
+      ? [...strip.querySelectorAll<HTMLElement>("[data-slot=roadmap-ghost-row][data-state=pending]")].map((r) => r.dataset.proposalId ?? "")
+      : [];
     try {
       await write();
       await queryClient.invalidateQueries({ queryKey: ["board", projectId] });
       setMode("idle");
-      next?.focus();
+      focusInStrip(strip, order, proposal.id);
     } catch (err) {
       setError(`Could not decide "${proposal.summary}": ${errorText(err)}`);
     } finally {
@@ -378,61 +428,69 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
   const canSubmitAmend = !!fields && fields.every((f) => !f.required || !!draft[f.key]?.trim());
 
   return (
-    <li ref={rowRef} data-slot="roadmap-ghost-row" data-state="pending" data-kind={kind ?? undefined} className="border-t border-border px-2 py-1.5">
+    <li
+      ref={rowRef}
+      data-slot="roadmap-ghost-row"
+      data-state="pending"
+      data-proposal-id={proposal.id}
+      data-kind={kind ?? undefined}
+      className="@container border-t border-border px-2 py-1.5"
+    >
       <div
         role="group"
         aria-label={`Proposed: ${proposal.summary}`}
-        className="flex min-w-0 flex-col gap-1.5 rounded-md border border-dashed border-primary bg-running-muted py-2 pr-2 pl-3"
+        className="grid min-w-0 grid-cols-1 gap-x-3 gap-y-1.5 rounded-md border border-dashed border-primary bg-running-muted py-2 pr-2 pl-3 @[40rem]:grid-cols-[minmax(0,1fr)_auto]"
       >
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-          <span className="flex shrink-0 items-center gap-1.5 text-meta font-semibold text-running">
+        {/* Reading order: the change, then why, then the decisions, as on the Epic card's ghost field. */}
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 @[40rem]:col-start-1">
+          <span className="flex shrink-0 items-center gap-1.5 self-center text-meta font-semibold text-running">
             <CircleDashed aria-hidden="true" className="size-3.5" />
             Proposed
           </span>
           <span className="min-w-0 flex-1 basis-60 text-row font-semibold break-words text-foreground">{proposal.summary}</span>
-          {mode === "idle" && (
-            <span className="flex shrink-0 flex-wrap items-center gap-1.5">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                aria-label={`Accept: ${proposal.summary}`}
-                onClick={() => void decide(() => proposalAccept(proposal.id))}
-              >
-                <Check aria-hidden="true" />
-                {busy ? "Saving…" : "Accept"}
-              </Button>
-              {amendable && (
-                <Button ref={amendRef} variant="ghost" size="sm" disabled={busy} aria-label={`Amend: ${proposal.summary}`} onClick={openAmend}>
-                  <PenLine aria-hidden="true" />
-                  Amend
-                </Button>
-              )}
-              <Button
-                ref={rejectRef}
-                variant="ghost"
-                size="sm"
-                disabled={busy}
-                aria-label={`Reject: ${proposal.summary}`}
-                onClick={() => {
-                  setWhy("");
-                  setError(null);
-                  setMode("rejecting");
-                }}
-              >
-                <Ban aria-hidden="true" />
-                Reject
-              </Button>
-            </span>
-          )}
         </div>
         {proposal.rationale && (
-          <p className="m-0 max-w-[68ch] text-small break-words text-muted-foreground">Why: {proposal.rationale}</p>
+          <p className="m-0 max-w-[68ch] text-small break-words text-muted-foreground @[40rem]:col-start-1">Why: {proposal.rationale}</p>
+        )}
+        {mode === "idle" && (
+          <span className="flex shrink-0 flex-wrap items-center gap-1.5 self-start @[40rem]:col-start-2 @[40rem]:row-span-2 @[40rem]:row-start-1">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              aria-label={`Accept: ${proposal.summary}`}
+              onClick={() => void decide(() => proposalAccept(proposal.id))}
+            >
+              <Check aria-hidden="true" />
+              {busy ? "Saving…" : "Accept"}
+            </Button>
+            {amendable && (
+              <Button ref={amendRef} variant="ghost" size="sm" disabled={busy} aria-label={`Amend: ${proposal.summary}`} onClick={openAmend}>
+                <PenLine aria-hidden="true" />
+                Amend
+              </Button>
+            )}
+            <Button
+              ref={rejectRef}
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              aria-label={`Reject: ${proposal.summary}`}
+              onClick={() => {
+                setWhy("");
+                setError(null);
+                setMode("rejecting");
+              }}
+            >
+              <Ban aria-hidden="true" />
+              Reject
+            </Button>
+          </span>
         )}
 
         {mode === "amending" && fields && (
           <form
-            className="flex max-w-[68ch] min-w-0 flex-col gap-2 pt-1"
+            className="flex max-w-[68ch] min-w-0 flex-col gap-2 pt-1 @[40rem]:col-span-2"
             onSubmit={submitAmend}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
@@ -471,7 +529,7 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
 
         {mode === "rejecting" && (
           <form
-            className="flex min-w-0 flex-wrap items-center gap-2 pt-1"
+            className="flex min-w-0 flex-wrap items-center gap-2 pt-1 @[40rem]:col-span-2"
             onSubmit={(event) => {
               event.preventDefault();
               const given = why.trim();
@@ -509,7 +567,7 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
         )}
 
         {error && (
-          <p role="alert" className="m-0 text-small break-words text-destructive-text">
+          <p role="alert" className="m-0 text-small break-words text-destructive-text @[40rem]:col-span-2">
             {error}
           </p>
         )}

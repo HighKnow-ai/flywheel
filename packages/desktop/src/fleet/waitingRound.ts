@@ -8,10 +8,12 @@ import type { WaitingRoundDto } from "../adapters/tauri";
 import { useUiStore } from "../state/uiStore";
 
 export interface WaitingRoundWords {
-  /** The short code-face key: the Epic's key, or "Roadmap". */
+  /** The short code-face key: the Epic's key, or empty for the Roadmap, which has none. */
   key: string;
-  /** The record's title: the Epic's, or the project's name. */
+  /** The record's title: the Epic's, or "Roadmap" where the project is already named around it. */
   title: string;
+  /** The title where nothing around it names the project (the fleet-wide andon lamp): "flywheel Roadmap". */
+  lampTitle: string;
   /** The record as a sentence names it: "Epic FLY-1 Waitlist", "the Threadfin Roadmap". */
   record: string;
   /** "Round 2", "Roadmap Round 1". */
@@ -31,8 +33,9 @@ export interface WaitingRoundWords {
 export function waitingRoundWords(round: WaitingRoundDto): WaitingRoundWords {
   if (round.subject === "roadmap") {
     return {
-      key: "Roadmap",
-      title: round.projectName,
+      key: "",
+      title: "Roadmap",
+      lampTitle: `${round.projectName} Roadmap`,
       record: `the ${round.projectName} Roadmap`,
       round: `Roadmap Round ${round.roundNumber}`,
       shortRound: `Round ${round.roundNumber}`,
@@ -47,6 +50,7 @@ export function waitingRoundWords(round: WaitingRoundDto): WaitingRoundWords {
   return {
     key,
     title,
+    lampTitle: title,
     record: `Epic ${`${key} ${title}`.trim()}`,
     round: `Round ${round.roundNumber}`,
     shortRound: `Round ${round.roundNumber}`,
@@ -55,6 +59,16 @@ export function waitingRoundWords(round: WaitingRoundDto): WaitingRoundWords {
     kind: "Shaping question",
     action: "Answer",
   };
+}
+
+/** The project whose board is the current place, with nothing open over it, or `null`: where a roadmap
+ * Round's lamp and sidebar row are marked current. */
+export function usePlaceBoardId(): string | null {
+  return useUiStore((state) =>
+    state.activeSessionId || state.currentStoryId || state.currentEpicId || state.fleetSurface || state.worktreeInventoryOpen || state.settingsOpen
+      ? null
+      : state.currentProjectId,
+  );
 }
 
 /** Opens what a waiting Round is about: its Epic's shaping view, or its project's board. */
