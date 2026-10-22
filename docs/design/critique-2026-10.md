@@ -140,6 +140,11 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 35 | Epic shaping at the window's minimum width: an ADR question (#129) | ![](critique-2026-10/after/35-epic-shaping-adr-min-width-light.webp) | ![](critique-2026-10/after/35-epic-shaping-adr-min-width-dark.webp) |
 | 36 | Epic shaping: an ADR answered Yes folds to a settled line with its file name (#129) | ![](critique-2026-10/after/36-epic-shaping-adr-answered-light.webp) | ![](critique-2026-10/after/36-epic-shaping-adr-answered-dark.webp) |
 | 37 | Epic shaping: only the ADR is left open, so Accept all is off and the hint says what is left; the answered questions above still offer Change (#129) | ![](critique-2026-10/after/37-epic-shaping-adr-only-left-light.webp) | ![](critique-2026-10/after/37-epic-shaping-adr-only-left-dark.webp) |
+| 38 | Epic shaping: the Stage bar lists what keeps the Stage open, Close Stage disabled (#126) | ![](critique-2026-10/after/38-epic-shaping-stage-bar-open-light.webp) | ![](critique-2026-10/after/38-epic-shaping-stage-bar-open-dark.webp) |
+| 39 | Epic shaping: nothing open, Close Stage is the next action (#126) | ![](critique-2026-10/after/39-epic-shaping-stage-closable-light.webp) | ![](critique-2026-10/after/39-epic-shaping-stage-closable-dark.webp) |
+| 40 | Epic shaping: confirming Close Stage (#126) | ![](critique-2026-10/after/40-epic-shaping-close-stage-confirm-light.webp) | ![](critique-2026-10/after/40-epic-shaping-close-stage-confirm-dark.webp) |
+| 41 | Epic shaping at the window's minimum width: the Stages whole, Close Stage on its own line (#126) | ![](critique-2026-10/after/41-epic-shaping-stage-bar-min-width-light.webp) | ![](critique-2026-10/after/41-epic-shaping-stage-bar-min-width-dark.webp) |
+| 42 | Epic shaping: the Slice Stage just opened, the Challenge Rounds below it named with their Stage (#126) | ![](critique-2026-10/after/42-epic-shaping-slice-opened-light.webp) | ![](critique-2026-10/after/42-epic-shaping-slice-opened-dark.webp) |
 
 ## How the screens were rendered
 

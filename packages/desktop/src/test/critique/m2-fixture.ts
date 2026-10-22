@@ -462,15 +462,7 @@ export function shapingOf(epicId: string): EpicShapingDto | null {
     payload: { field, text }, rationale, state: rejectionReason ? "rejected" : "pending", createdAt: ago(minutes * 60),
     rejectionReason, stageId: "st-1", roundId: "r-1",
   });
-  // Issue #126: what keeps the Stage open, as the core lists it: Round 2's three unanswered questions, then
-  // the two pending spec changes.
-  const unanswered = (id: string, number: number, title: string) => ({
-    kind: "question", id, label: `Question ${number} of Round 2 is unanswered: ${title}`, round: 2, number, title,
-  });
-  const undecided = (id: string, field: string) => ({
-    kind: "proposal", id, label: `A Proposal to change the ${field} is undecided`, round: null, number: null, title: `change the ${field}`,
-  });
-  return {
+  return withOpenStageStatus({
     epic,
     adrLinks: withAdrs ? ["docs/adr/0002-repo-holds-code-knowledge-board-holds-work.md"] : [],
     acceptedKnowledge: withAdrs
@@ -480,19 +472,7 @@ export function shapingOf(epicId: string): EpicShapingDto | null {
         ]
       : [],
     stages: [{ id: "st-1", kind: "challenge_spec", state: "open", rank: 1 }],
-    openStageStatus: {
-      stageId: "st-1",
-      openItems: [
-        unanswered("q-4", 2, "What Accept all covers"),
-        unanswered("q-5", 3, "Closing the Stage"),
-        unanswered("q-6", 4, "Exit test"),
-        undecided("pr-1", "Scope"),
-        undecided("pr-2", "Exit test"),
-      ],
-      warnings: ["The Exit test is not written yet"],
-      next: "slice",
-      closable: false,
-    },
+    openStageStatus: null,
     proposals: [
       proposal("pr-1", "scope", "The board as the shaping surface: the Epic card with its fields, ghost-card Proposals decided where they land, and the Round dock with pre-filled recommended answers and Accept all recommended. Every answer is written to the board as it is made.", "Round 1 settled the board as the surface and that answers are written as they are given; the Scope should say both.", 40),
       proposal("pr-2", "exit_test", "A one-line idea becomes an Epic with Ready Stories, each with accepted criteria and Checks, entirely in Flywheel; a killed shaping session resumes at the open Round.", "Question 2 of Round 1 made durability part of the Epic's promise.", 35),
@@ -527,6 +507,39 @@ export function shapingOf(epicId: string): EpicShapingDto | null {
         ),
       },
     ],
+  });
+}
+
+/**
+ * Issue #126: what keeps the open Stage open, worked out as the core works it from the same data, so the
+ * Stage bar always agrees with the dock: the open Round's unanswered questions (an ADR question included),
+ * then the pending spec changes.
+ */
+function withOpenStageStatus(shaping: EpicShapingDto): EpicShapingDto {
+  const open = shaping.stages.find((s) => s.state === "open");
+  if (!open) return shaping;
+  const questions = shaping.rounds
+    .filter((r) => r.stageId === open.id)
+    .flatMap((r) =>
+      r.questions
+        .filter((q) => q.answer === null)
+        .map((q) => ({
+          kind: "question", id: q.id, label: `Question ${q.number} of Round ${r.number} is unanswered: ${q.title}`,
+          round: r.number, number: q.number, title: q.title,
+        })),
+    );
+  const proposals = shaping.proposals
+    .filter((p) => p.state === "pending" && p.stageId === open.id)
+    .map((p) => {
+      const field = String((p.payload as Record<string, unknown>).field ?? "");
+      const labels: Record<string, string> = { problem: "Problem", scope: "Scope", out_of_scope: "Out of scope", exit_test: "Exit test" };
+      const label = labels[field] ?? field;
+      return { kind: "proposal", id: p.id, label: `A Proposal to change the ${label} is undecided`, round: null, number: null, title: `change the ${label}` };
+    });
+  const openItems = [...questions, ...proposals];
+  return {
+    ...shaping,
+    openStageStatus: { stageId: open.id, openItems, warnings: ["The Exit test is not written yet"], next: "slice", closable: openItems.length === 0 },
   };
 }
 
