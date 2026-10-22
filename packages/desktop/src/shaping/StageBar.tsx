@@ -12,7 +12,7 @@
  * the session that worked the closed one, and starts the next Stage's shaping session from a fresh packet
  * that names it. The Epic's last Stage closes with the Stories made Ready, which is not built yet.
  */
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Circle, CircleCheck, CircleDashed, CircleDot, Info, MessageCircleQuestionMark, StepForward } from "lucide-react";
 import { stageClose, type StageDto, type StageStatusDto } from "../adapters/tauri";
@@ -40,6 +40,8 @@ export interface StageBarProps {
   status: StageStatusDto | null;
   /** The project the Epic belongs to: every board read under it is refreshed after a close. */
   projectId: string;
+  /** Whether a shaping session is live on the Epic: a notice that the session did not start clears once one is. */
+  sessionLive: boolean;
   className?: string;
 }
 
@@ -52,7 +54,7 @@ function plural(n: number, one: string, many: string) {
 }
 
 
-export function StageBar({ stages, status, projectId, className }: StageBarProps) {
+export function StageBar({ stages, status, projectId, sessionLive, className }: StageBarProps) {
   const queryClient = useQueryClient();
   const headingId = useId();
   const openListId = useId();
@@ -60,6 +62,10 @@ export function StageBar({ stages, status, projectId, className }: StageBarProps
   const [closing, setClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string[]>([]);
+  // A "did not start" notice is stale once a session is live on the Epic (Shape started it).
+  useEffect(() => {
+    if (sessionLive) setNotice([]);
+  }, [sessionLive]);
 
   const open = stages.find((s) => s.state === "open") ?? null;
   const closedKinds = new Set(stages.filter((s) => s.state === "closed").map((s) => s.kind));
@@ -100,9 +106,10 @@ export function StageBar({ stages, status, projectId, className }: StageBarProps
         <h2 id={headingId} className="sr-only">
           Stages
         </h2>
-        {/* One line at every width: a Stage's name truncates before the steps wrap. The open Stage is drawn
-            as a neutral chip (inset ground, 1px edge), never as a button: nothing here but Close Stage acts. */}
-        <ol className="m-0 flex min-w-0 flex-1 items-center gap-2 p-0">
+        {/* The steps never truncate: at narrow widths Close Stage drops to its own line instead. The open Stage
+            is drawn as a neutral chip (inset ground, 1px edge), never as a button: nothing here but Close Stage
+            acts. */}
+        <ol className="m-0 flex flex-none items-center gap-2 p-0">
           {EPIC_STAGES.map((kind, i) => {
             const isOpen = open?.kind === kind;
             const isClosed = closedKinds.has(kind);
@@ -111,19 +118,19 @@ export function StageBar({ stages, status, projectId, className }: StageBarProps
               <li
                 key={kind}
                 aria-current={isOpen ? "step" : undefined}
-                className={cn("flex min-w-0 list-none items-center gap-2", isOpen && "shrink-0")}
+                className="flex list-none items-center gap-2"
               >
                 {i > 0 && <span aria-hidden="true" className="h-px w-4 shrink-0 bg-input" />}
                 <span
                   className={cn(
-                    "flex h-7 min-w-0 items-center gap-1.5 rounded-full text-small [&_svg]:size-4 [&_svg]:shrink-0",
+                    "flex h-7 items-center gap-1.5 rounded-full text-small whitespace-nowrap [&_svg]:size-4 [&_svg]:shrink-0",
                     isOpen && "border border-border bg-secondary px-2.5 font-semibold text-foreground",
                     isClosed && "text-muted-foreground",
                     !isOpen && !isClosed && "text-subtle-foreground",
                   )}
                 >
                   <Icon aria-hidden="true" />
-                  <span className="truncate">{stageLabel(kind)}</span>
+                  <span>{stageLabel(kind)}</span>
                   <span className="sr-only">
                     {isClosed ? ", closed" : isOpen ? `, open, Stage ${i + 1} of 3` : ", not started"}
                   </span>
@@ -133,12 +140,16 @@ export function StageBar({ stages, status, projectId, className }: StageBarProps
           })}
         </ol>
         {status && open && (
+          // `aria-disabled`, not `disabled`: the button stays in the tab order, so a keyboard user reaches it and
+          // hears the list of what keeps the Stage open as its description.
           <Button
-            className="ml-auto"
+            className="ml-auto aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             variant={closable ? "default" : "outline"}
-            disabled={!closable}
+            aria-disabled={!closable}
             aria-describedby={openListId}
-            onClick={() => setConfirming(true)}
+            onClick={() => {
+              if (closable) setConfirming(true);
+            }}
           >
             <StepForward aria-hidden="true" />
             Close Stage
@@ -152,7 +163,14 @@ export function StageBar({ stages, status, projectId, className }: StageBarProps
             {items.length > 0 ? (
               <>
                 <p className="m-0 text-small font-semibold">
-                  {current} stays open while {plural(items.length, "thing is", "things are")} still open:
+                  {current} stays open while{" "}
+                  {[
+                    questions.length > 0 && plural(questions.length, "question", "questions"),
+                    proposals.length > 0 && plural(proposals.length, "Proposal", "Proposals"),
+                  ]
+                    .filter(Boolean)
+                    .join(" and ")}{" "}
+                  {items.length === 1 ? "is" : "are"} still open:
                 </p>
                 <ul aria-label="Still open" className="m-0 flex min-w-0 flex-col gap-1.5 p-0">
                   {questions.length > 0 && (
@@ -194,18 +212,21 @@ export function StageBar({ stages, status, projectId, className }: StageBarProps
             )}
           </div>
           {status.warnings.length > 0 && (
-            <p className="m-0 flex min-w-0 items-start gap-2 text-meta text-muted-foreground [&_svg]:mt-px [&_svg]:size-3.5 [&_svg]:shrink-0">
+            <p className="m-0 flex min-w-0 items-start gap-2 text-meta text-subtle-foreground [&_svg]:mt-px [&_svg]:size-3.5 [&_svg]:shrink-0">
               <Info aria-hidden="true" />
               <span className="min-w-0 break-words">Not blocking: {status.warnings.join(". ")}.</span>
             </p>
           )}
-          {notice.map((n) => (
-            <p key={n} role="status" className="m-0 text-small break-words">
-              {n}
-            </p>
-          ))}
         </div>
       )}
+      {/* Always mounted, so a notice that lands in it is announced. */}
+      <div role="status" className="flex min-w-0 flex-col gap-1 empty:hidden px-4 pb-3">
+        {notice.map((n) => (
+          <p key={n} className="m-0 text-small break-words">
+            {n}
+          </p>
+        ))}
+      </div>
 
       <AlertDialog open={confirming} onOpenChange={(nextOpen) => !closing && setConfirming(nextOpen)}>
         <AlertDialogContent className="data-[size=default]:sm:max-w-md">

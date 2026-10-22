@@ -97,6 +97,7 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
                 stages={data.stages}
                 status={data.openStageStatus ?? null}
                 projectId={projectId}
+                sessionLive={Boolean(sessionQuery.data)}
                 className="xl:col-span-2 xl:row-start-1"
               />
             )}

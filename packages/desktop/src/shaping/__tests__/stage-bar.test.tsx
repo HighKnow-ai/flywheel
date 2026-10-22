@@ -121,8 +121,8 @@ describe("the Stage bar (issue #126)", () => {
     renderView();
     const region = await bar();
     const close = within(region).getByRole("button", { name: "Close Stage" }) as HTMLButtonElement;
-    expect(close.disabled).toBe(true);
-    expect(within(region).getByText("Challenge the spec stays open while 3 things are still open:")).toBeTruthy();
+    expect(close.getAttribute("aria-disabled")).toBe("true");
+    expect(within(region).getByText("Challenge the spec stays open while 2 questions and 1 Proposal are still open:")).toBeTruthy();
     const open = within(region).getByRole("list", { name: "Still open" });
     const lines = within(open).getAllByRole("listitem").map((li) => li.textContent);
     expect(lines).toEqual([
@@ -141,7 +141,7 @@ describe("the Stage bar (issue #126)", () => {
     renderView();
     const region = await bar();
     expect(within(region).getByText(/Not blocking: The Scope is not written yet\. The Exit test is not written yet\./)).toBeTruthy();
-    expect((within(region).getByRole("button", { name: "Close Stage" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(within(region).getByRole("button", { name: "Close Stage" }).getAttribute("aria-disabled")).toBe("false");
   });
 
   it("closing, once confirmed, goes through stage_close and the view moves to the next Stage's first Round", async () => {
@@ -219,7 +219,7 @@ describe("the Stage bar (issue #126)", () => {
     );
     renderView();
     const region = await bar();
-    expect((within(region).getByRole("button", { name: "Close Stage" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(region).getByRole("button", { name: "Close Stage" }).getAttribute("aria-disabled")).toBe("true");
     expect(within(region).getByText(/Write the Acceptance criteria is the last Stage/)).toBeTruthy();
     expect(within(region).getAllByRole("listitem")[0].textContent).toBe("Challenge the spec, closed");
   });
