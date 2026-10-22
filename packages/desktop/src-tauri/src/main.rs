@@ -151,6 +151,7 @@ fn main() {
             commands::roadmap::milestone_create,
             commands::roadmap::milestone_list,
             commands::roadmap::milestone_set_state,
+            commands::roadmap::milestone_progress,
             commands::epic::epic_create,
             commands::epic::epic_list,
             commands::epic::epic_update,

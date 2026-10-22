@@ -95,3 +95,90 @@ pub fn milestone_set_state(
     emit_board_changed(&app, project_id.as_deref(), "milestone", Some(&milestone_id));
     Ok(())
 }
+
+/// A Milestone's or an Epic's Stories by state (`core::query::progress::StoryStateCounts`).
+/// Attention splits Running: `running` counts only Running Stories neither Waiting on you nor
+/// Stopped. `stories_total` leaves out Dropped Stories, which are counted on their own.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryStateCountsDto {
+    pub shaping: i64,
+    pub ready: i64,
+    pub running: i64,
+    pub waiting_on_you: i64,
+    pub stopped: i64,
+    pub in_review: i64,
+    pub merged: i64,
+    pub dropped: i64,
+    pub stories_total: i64,
+}
+
+impl From<flywheel_core::query::progress::StoryStateCounts> for StoryStateCountsDto {
+    fn from(c: flywheel_core::query::progress::StoryStateCounts) -> Self {
+        StoryStateCountsDto {
+            shaping: c.shaping,
+            ready: c.ready,
+            running: c.running,
+            waiting_on_you: c.waiting_on_you,
+            stopped: c.stopped,
+            in_review: c.in_review,
+            merged: c.merged,
+            dropped: c.dropped,
+            stories_total: c.stories_total,
+        }
+    }
+}
+
+/// One Epic's progress row: its derived state and its Stories by state.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpicProgressDto {
+    pub epic_id: String,
+    pub key: String,
+    pub title: String,
+    pub state: String,
+    pub counts: StoryStateCountsDto,
+}
+
+/// The Milestone header (docs/mvp-spec.md §7): the Current Milestone, its exit test, the next
+/// Milestone, its Stories by state, its Epics done, and each Epic's own counts.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MilestoneProgressDto {
+    pub milestone_id: String,
+    pub title: String,
+    pub exit_test: Option<String>,
+    pub state: String,
+    pub next_milestone_title: Option<String>,
+    pub counts: StoryStateCountsDto,
+    pub epics_done: i64,
+    pub epics_total: i64,
+    pub epics: Vec<EpicProgressDto>,
+}
+
+/// The project's progress at a glance, or `null` when it has no Current Milestone. Read-only: the
+/// header is one core statement and the Epic rows another, so the renderer never counts.
+#[tauri::command]
+pub fn milestone_progress(state: State<AppState>, project_id: String) -> Result<Option<MilestoneProgressDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let Some(header) = flywheel_core::query::progress::milestone_progress(&conn, &project_id).map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+    let epics = flywheel_core::query::progress::epic_progress(&conn, &header.milestone_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|e| EpicProgressDto { epic_id: e.epic_id, key: e.key, title: e.title, state: e.state, counts: e.counts.into() })
+        .collect();
+    Ok(Some(MilestoneProgressDto {
+        milestone_id: header.milestone_id,
+        title: header.title,
+        exit_test: header.exit_test,
+        state: header.state,
+        next_milestone_title: header.next_milestone_title,
+        counts: header.counts.into(),
+        epics_done: header.epics_done,
+        epics_total: header.epics_total,
+        epics,
+    }))
+}
