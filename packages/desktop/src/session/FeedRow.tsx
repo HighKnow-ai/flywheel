@@ -360,7 +360,7 @@ function ProposalCard({ row }: { row: Extract<FeedRowData, { kind: "proposal" }>
   const kind = proposalKind(row.toolName);
   return (
     <div role="listitem" className="feed-row">
-      <div className="session-card my-2 flex flex-col gap-1.5 rounded-lg border border-border bg-card px-4 py-3 shadow-card" data-card="proposal">
+      <div className="session-card my-2 flex flex-col gap-1.5 border-l border-input py-1 pl-4" data-card="proposal">
         <span className="inline-flex items-center gap-1.5 text-meta font-semibold text-muted-foreground">
           <Kanban aria-hidden="true" size={14} />
           {kind ? `Proposal · ${kind}` : "Proposal"}
@@ -393,17 +393,14 @@ function QuestionCard({
   if (onAnswer && answer === undefined) {
     return (
       <div role="listitem" className="feed-row py-2">
-        <div
-          className="session-card overflow-hidden rounded-lg border-2 border-attention bg-card shadow-card"
-          data-card="question"
-          data-open="true"
-        >
-          <div className="flex items-center gap-2.5 bg-attention px-4 py-2.5 text-attention-foreground">
+        {/* A band across the session card's full width, never a card inside it. */}
+        <div className="session-card -mx-5 border-y-2 border-attention" data-card="question" data-open="true">
+          <div className="flex items-center gap-2.5 bg-attention px-5 py-2.5 text-attention-foreground">
             <MessageCircleQuestionMark aria-hidden="true" size={18} className="shrink-0" />
             <span className="text-row font-bold">{heading}</span>
             <span className="ml-auto text-small font-semibold">The session waits until you answer</span>
           </div>
-          <div className="px-4 py-4">
+          <div className="px-5 py-4">
             <QuestionForm questions={questions} onSubmit={onAnswer} draftKey={draftKey} />
           </div>
         </div>
@@ -412,7 +409,7 @@ function QuestionCard({
   }
   return (
     <div role="listitem" className="feed-row py-2">
-      <div className="session-card flex flex-col gap-2 rounded-lg border border-border bg-muted px-4 py-3" data-card="question">
+      <div className="session-card flex flex-col gap-2 border-l border-input py-1 pl-4" data-card="question">
         <span className="inline-flex items-center gap-1.5 text-meta font-semibold text-muted-foreground">
           <MessageCircleQuestionMark aria-hidden="true" size={14} />
           {questions.length > 1 ? `${questions.length} questions from the agent` : "Question from the agent"}

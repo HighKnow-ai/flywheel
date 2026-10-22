@@ -35,7 +35,7 @@
  * shortcuts (`a`/`d`/Shift+A) resolve through `state/keyboard.ts`'s shared `useRegionBindings`
  * hook, which ignores keys typed into the pattern field.
  */
-import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { createContext, useContext, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Check, KeyRound, MessageCircleQuestionMark, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { useRegionBindings } from "../state/keyboard";
 import { Button } from "@/components/ui/button";
@@ -399,6 +399,11 @@ function PermissionRequestRow({
   );
 }
 
+/** Whether a request sits inside the session's own card. There it is a band across the card's full width
+ * (a yellow header and two yellow rules), never a card inside a card; on the floor (Waiting on you) it is
+ * its own card. */
+export const RequestInCard = createContext(false);
+
 /** The frame every request shares: Waiting on you's yellow header (its icon, its title, a note on the
  * right), then the body. */
 function RequestFrame({
@@ -418,21 +423,30 @@ function RequestFrame({
   aside?: string;
   children: ReactNode;
 }) {
+  const inCard = useContext(RequestInCard);
   return (
     <div
       role={role}
       aria-label={ariaLabel}
       data-card={card}
-      className="session-card min-w-0 overflow-hidden rounded-lg border-2 border-attention bg-card shadow-card"
+      className={cn(
+        "session-card min-w-0 overflow-hidden border-attention bg-card",
+        inCard ? "-mx-5 border-y-2" : "rounded-lg border-2 shadow-card",
+      )}
     >
-      <div className="flex items-center gap-2.5 bg-attention px-4 py-2.5 text-attention-foreground [&_svg]:size-[18px] [&_svg]:shrink-0">
+      <div
+        className={cn(
+          "flex items-center gap-2.5 bg-attention py-2.5 text-attention-foreground [&_svg]:size-[18px] [&_svg]:shrink-0",
+          inCard ? "px-5" : "px-4",
+        )}
+      >
         <span aria-hidden="true" className="flex">
           {icon}
         </span>
         <span className="text-row font-bold">{title}</span>
         {aside && <span className="ml-auto text-small font-semibold">{aside}</span>}
       </div>
-      <div className={cn("flex min-w-0 flex-col gap-3 px-4 py-4")}>{children}</div>
+      <div className={cn("flex min-w-0 flex-col gap-3 py-4", inCard ? "px-5" : "px-4")}>{children}</div>
     </div>
   );
 }

@@ -136,7 +136,7 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
               <span
                 data-field="age"
                 aria-label={`Waiting ${formatAge(entry.blockedSince, now)}`}
-                className="ml-auto text-small text-subtle-foreground tabular-nums"
+                className="ml-auto text-small text-muted-foreground tabular-nums"
               >
                 {formatAge(entry.blockedSince, now)}
               </span>

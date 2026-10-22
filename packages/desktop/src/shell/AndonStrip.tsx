@@ -135,7 +135,7 @@ export function Lamp({ lamp, current, now }: { lamp: LampData; current: boolean;
       className={cn(
         "group/lamp flex h-13 shrink-0 items-center gap-2.5 rounded-lg border px-2.5 text-left transition-colors duration-(--duration-lamp) ease-(--ease) focus-visible:outline-strip-foreground",
         tone === "waiting"
-          ? "border-attention bg-attention text-attention-foreground shadow-[0_0_18px_rgb(255_212_0/0.35)] hover:bg-attention/90"
+          ? "border-attention bg-attention text-attention-foreground hover:bg-attention/90"
           : "border-white/10 bg-lamp text-strip-foreground hover:bg-white/10",
         current && "outline-2 outline-offset-2 outline-strip-foreground",
       )}

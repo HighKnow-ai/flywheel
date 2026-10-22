@@ -51,7 +51,7 @@ import {
 import type { RunStatus } from "../legend/runStatus";
 import { useRegionBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
-import { PermissionRequestCard, type PermissionDecision } from "./PermissionRequestCard";
+import { PermissionRequestCard, RequestInCard, type PermissionDecision } from "./PermissionRequestCard";
 import { FeedRow, feedRowEstimateSize, prefersReducedMotion, useExpandedRows } from "./FeedRow";
 import {
   ASK_USER_QUESTION_TOOL,
@@ -701,12 +701,13 @@ export function SessionSurface({
           ref={parentRef}
           onScroll={handleScroll}
           data-testid="session-feed-scroll"
-          // A transcript sits on the floor like a terminal's: the newest row at the bottom edge, growing upward.
-          // `margin-top: auto` on the one child (not `justify-content: flex-end`) so a transcript taller than
-          // the pane still scrolls from its top. The first 30 seconds of a run are a few rows, not a blank page.
+          // A transcript reads from the top of its card, like the Story it serves; follow-the-tail keeps the
+          // newest row in view once it outgrows the pane. A short run is a few rows under the header, never
+          // a few rows under a blank page (critique 2026-10, minor observation).
           className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-4"
         >
-          <div className="mt-auto shrink-0">
+          <RequestInCard.Provider value={true}>
+          <div className="shrink-0">
           {persistenceFailed && (
             <PersistenceFailureBanner
               text={persistenceFailureText ?? "Flywheel could not write this session's log — the transcript below may be incomplete."}
@@ -762,6 +763,7 @@ export function SessionSurface({
 
           <div ref={tailRef} />
           </div>
+          </RequestInCard.Provider>
         </div>
       )}
       <SessionFloor
