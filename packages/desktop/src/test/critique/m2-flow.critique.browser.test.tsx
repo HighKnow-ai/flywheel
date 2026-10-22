@@ -111,6 +111,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     resetUiState();
     queryClient.clear();
     setShapingSessionLive(true);
+    offerAdrsInShaping(false);
     installFixtureBackend();
   });
   afterEach(() => {
@@ -424,6 +425,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
   });
 
   it("38 Epic shaping: the Stage bar lists what keeps the Stage open (issue #126)", async () => {
+    offerAdrsInShaping(true);
     await boardReady();
     await click("Answer the Round on FLY-8");
     await screen.findByRole("list", { name: "Still open" });
@@ -431,6 +433,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
   });
 
   it("39 Epic shaping: nothing open, Close Stage is the next action (issue #126)", async () => {
+    offerAdrsInShaping(true);
     closableShaping();
     await boardReady();
     await click("Open FLY-8 Epic shaping and its Rounds");
@@ -439,6 +442,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
   });
 
   it("40 Epic shaping: confirming Close Stage (issue #126)", async () => {
+    offerAdrsInShaping(true);
     closableShaping();
     await boardReady();
     await click("Open FLY-8 Epic shaping and its Rounds");
@@ -448,6 +452,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
   });
 
   it("42 Epic shaping: the Slice Stage just opened, the Challenge Rounds below it (issue #126)", async () => {
+    offerAdrsInShaping(true);
     closableShaping({ closed: true });
     await boardReady();
     await click("Open FLY-8 Epic shaping and its Rounds");
@@ -456,6 +461,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
   });
 
   it("41 Epic shaping at the window's minimum width: the Stage bar with open items (issue #126)", async () => {
+    offerAdrsInShaping(true);
     await page.viewport(900, 900);
     try {
       await boardReady();
