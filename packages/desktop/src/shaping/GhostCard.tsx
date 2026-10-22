@@ -13,7 +13,7 @@
  * Rejected, it shrinks to one struck-through line in secondary ink with the reason after it, so the Epic
  * card keeps what was turned down and why, without competing with the live field.
  */
-import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, CircleDashed, PenLine, X } from "lucide-react";
 import { proposalAccept, proposalAmend, proposalReject, type ProposalDto } from "../adapters/tauri";
@@ -65,7 +65,7 @@ function RejectedLine({ text, label, reason }: { text: string; label: string; re
       role="group"
       aria-label={`Rejected ${label}`}
       data-state="rejected"
-      className="mt-2 flex min-w-0 flex-col gap-0.5 rounded-sm border border-dashed border-border px-2 py-1"
+      className="mt-2 flex min-w-0 flex-col gap-0.5"
     >
       <span className="flex min-w-0 items-center gap-1.5 text-small text-muted-foreground">
         <Ban aria-hidden="true" className="size-3.5 shrink-0 text-subtle-foreground" />
@@ -104,14 +104,20 @@ function PendingGhost({
   const [why, setWhy] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const amendRef = useRef<HTMLButtonElement>(null);
+  const rejectRef = useRef<HTMLButtonElement>(null);
 
   async function decide(write: () => Promise<void>) {
     if (busy) return;
     setBusy(true);
     setError(null);
+    // Once decided the ghost unmounts; the keyboard stays on the field, at its Edit button.
+    const fieldEdit = rootRef.current?.closest("dd")?.previousElementSibling?.querySelector("button") ?? null;
     try {
       await write();
       await queryClient.invalidateQueries({ queryKey });
+      fieldEdit?.focus();
     } catch (err) {
       setError(`Could not decide the proposed ${label}: ${reason(err)}`);
       setBusy(false);
@@ -132,12 +138,16 @@ function PendingGhost({
   }
 
   function cancel() {
+    const opener = mode === "amending" ? amendRef : rejectRef;
     setMode("idle");
     setError(null);
+    // Back to the control that opened the mode, once it is mounted again.
+    requestAnimationFrame(() => opener.current?.focus());
   }
 
   return (
     <div
+      ref={rootRef}
       role="group"
       aria-label={`Proposed ${label}`}
       data-state="pending"
@@ -150,6 +160,10 @@ function PendingGhost({
 
       {mode === "amending" ? (
         <form className="flex min-w-0 flex-col gap-2" onSubmit={submitAmend}>
+          {/* The agent's why stays in sight while the developer edits its text. */}
+          {proposal.rationale && (
+            <p className="m-0 max-w-[68ch] text-small break-words text-muted-foreground">Why: {proposal.rationale}</p>
+          )}
           <label htmlFor={draftId} className="sr-only">
             Your {label}
           </label>
@@ -170,7 +184,7 @@ function PendingGhost({
             }}
           />
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" variant="outline" size="sm" disabled={busy || !draft.trim()} aria-label="Accept your edit">
+            <Button type="submit" variant="outline" size="sm" disabled={busy || !draft.trim()} aria-label={`Accept edit to the proposed ${label}`}>
               <Check aria-hidden="true" />
               {busy ? "Saving…" : "Accept edit"}
             </Button>
@@ -235,6 +249,7 @@ function PendingGhost({
             {busy ? "Saving…" : "Accept"}
           </Button>
           <Button
+            ref={amendRef}
             variant="ghost"
             size="sm"
             disabled={busy}
@@ -249,6 +264,7 @@ function PendingGhost({
             Amend
           </Button>
           <Button
+            ref={rejectRef}
             variant="ghost"
             size="sm"
             disabled={busy}
@@ -259,7 +275,7 @@ function PendingGhost({
             }}
             aria-label={`Reject the proposed ${label}`}
           >
-            <X aria-hidden="true" />
+            <Ban aria-hidden="true" />
             Reject
           </Button>
         </div>

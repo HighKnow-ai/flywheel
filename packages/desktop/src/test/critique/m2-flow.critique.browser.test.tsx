@@ -286,6 +286,21 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await shot("29-epic-shaping-reject-reason");
   });
 
+  it("30 Epic shaping at the window's minimum width: rejecting a ghost field (issue #125)", async () => {
+    await page.viewport(900, 900);
+    try {
+      await boardReady();
+      await click("Answer the Round on FLY-8");
+      await click("Reject the proposed Scope");
+      const reason = await screen.findByRole("textbox", { name: "Why not? (optional)" });
+      await userEvent.type(reason, "Accept all is out of this Epic");
+      reason.closest("[role=group]")?.scrollIntoView({ block: "center" });
+      await shot("30-epic-shaping-ghost-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
   it("16 navigation: picking a project while the fleet is open", async () => {
     await boardReady();
     await click("Open fleet");

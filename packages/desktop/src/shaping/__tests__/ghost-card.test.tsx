@@ -130,7 +130,7 @@ describe("ghost fields for spec-change Proposals (issue #125)", () => {
     const field = within(card).getByRole("textbox", { name: "Your Scope" }) as HTMLTextAreaElement;
     expect(field.value).toBe("The board, and nothing else.");
     fireEvent.change(field, { target: { value: "The board and the dock, nothing else." } });
-    fireEvent.click(within(card).getByRole("button", { name: "Accept your edit" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Accept edit to the proposed Scope" }));
     await waitFor(() =>
       expect(proposalAmend).toHaveBeenCalledWith("p-scope", { field: "scope", text: "The board and the dock, nothing else." }),
     );
@@ -146,6 +146,16 @@ describe("ghost fields for spec-change Proposals (issue #125)", () => {
     });
     fireEvent.click(within(card).getByRole("button", { name: "Reject" }));
     await waitFor(() => expect(proposalReject).toHaveBeenCalledWith("p-scope", "Too narrow"));
+  });
+
+  it("Amend keeps the agent's why in sight, and Cancel returns the focus to Amend", async () => {
+    renderView();
+    const card = await ghost("Scope");
+    const amend = within(card).getByRole("button", { name: "Amend the proposed Scope" });
+    fireEvent.click(amend);
+    expect(within(card).getByText(/round 1 narrowed it to the board/i)).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(document.activeElement).toBe(within(card).getByRole("button", { name: "Amend the proposed Scope" })));
   });
 
   it("Reject with no reason sends none", async () => {

@@ -132,6 +132,7 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 27 | Epic shaping: spec changes as ghost fields under the field each would rewrite, a rejected one struck through (#125) | ![](critique-2026-10/after/27-epic-shaping-ghost-fields-light.webp) | ![](critique-2026-10/after/27-epic-shaping-ghost-fields-dark.webp) |
 | 28 | Epic shaping: Amend opens the proposed text, accepted as edited in one act (#125) | ![](critique-2026-10/after/28-epic-shaping-amend-light.webp) | ![](critique-2026-10/after/28-epic-shaping-amend-dark.webp) |
 | 29 | Epic shaping: Reject asks for an optional reason (#125) | ![](critique-2026-10/after/29-epic-shaping-reject-reason-light.webp) | ![](critique-2026-10/after/29-epic-shaping-reject-reason-dark.webp) |
+| 30 | Epic shaping at the window's minimum width: rejecting a ghost field (#125) | ![](critique-2026-10/after/30-epic-shaping-ghost-min-width-light.webp) | ![](critique-2026-10/after/30-epic-shaping-ghost-min-width-dark.webp) |
 
 ## How the screens were rendered
 
