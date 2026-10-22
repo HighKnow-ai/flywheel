@@ -155,6 +155,18 @@ describe("AndonStrip", () => {
     expect(useUiStore.getState().activeSessionId).toBeNull();
   });
 
+  it("folds a waiting lamp into +n more, which then opens Waiting on you (issue #124)", async () => {
+    fleetWaitingRounds.mockResolvedValue([ROUND]);
+    const many = Array.from({ length: 6 }, (_, i) =>
+      row({ sessionId: `r-${i}`, storyId: `s-${i}`, storyKey: `FLY-${20 + i}`, storyTitle: `Running ${i}` }),
+    );
+    fleetList.mockResolvedValue({ rows: many, totalRows: many.length, visibleCostUsd: null });
+    renderStrip();
+    // jsdom has no layout: every lamp is shown, so check the rule on the pure order instead.
+    await screen.findByRole("button", { name: /Open Epic FLY-8/ });
+    expect(stripLamps(many, [ROUND])[0].kind).toBe("round");
+  });
+
   it("keeps its height and says so when no agent is running", async () => {
     fleetList.mockResolvedValue({ rows: [DONE], totalRows: 1, visibleCostUsd: null });
     renderStrip();

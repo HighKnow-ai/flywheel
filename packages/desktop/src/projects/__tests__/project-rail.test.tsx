@@ -186,7 +186,9 @@ describe("ProjectRail's Waiting on you row (#57, docs/mvp-spec.md §4.1)", () =>
 
   it("counts a shaping Round a live session waits on beside the requests, in its project too (issue #124)", async () => {
     fleetBlockedQueueMock.mockResolvedValue([{ requestId: "r1", projectId: "proj-1" }]);
-    fleetWaitingRoundsMock.mockResolvedValue([{ roundId: "round-1", projectId: "proj-2" }]);
+    fleetWaitingRoundsMock.mockResolvedValue([
+      { roundId: "round-1", roundNumber: 2, projectId: "proj-2", epicId: "e-8", epicKey: "OTH-8", epicTitle: "Epic shaping" },
+    ]);
     renderWithClient(
       <ProjectRail
         projects={[project({}), project({ id: "proj-2", name: "Other", keyPrefix: "OTH" })]}
@@ -197,6 +199,9 @@ describe("ProjectRail's Waiting on you row (#57, docs/mvp-spec.md §4.1)", () =>
     const row = await screen.findByRole("button", { name: "Open Waiting on you, 2 waiting" });
     expect(row.querySelector('[data-count="waiting"]')).toHaveTextContent("2");
     expect(await screen.findByTitle("1 waiting on you in Other")).toHaveTextContent("1");
+    // The badge and the rows under the project agree: the Round has its row, which opens its Epic.
+    fireEvent.click(await screen.findByRole("button", { name: "Open Epic OTH-8 Epic shaping, Round 2 Waiting on you" }));
+    expect(useUiStore.getState().currentEpicId).toBe("e-8");
   });
 
   it("shows no figure at all when nothing is waiting", async () => {

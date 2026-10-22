@@ -30,7 +30,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, BellRing, Folder, FolderMinus, Plus, Settings, SquareStack, Terminal, TriangleAlert } from "lucide-react";
-import { projectHide, storyGet, type FleetRowDto, type StoryDto } from "../adapters/tauri";
+import { projectHide, storyGet, type FleetRowDto, type StoryDto, type WaitingRoundDto } from "../adapters/tauri";
 import glyphUrl from "../assets/logo-glyph.svg";
 import type { Project } from "../board/useBoardQuery";
 import { useRecoverySummary } from "../board/useBoardQuery";
@@ -148,6 +148,7 @@ function RunningSessions({
   projectName,
   sessions,
   stopped,
+  rounds,
   currentStory,
 }: {
   projectId: string;
@@ -155,10 +156,14 @@ function RunningSessions({
   sessions: FleetRowDto[];
   /** This project's Stopped Stories (a Running Story with no live session), each by its newest session. */
   stopped: FleetRowDto[];
+  /** Issue #124: this project's shaping Rounds a live session is held on, so the badge and the rows agree. */
+  rounds: WaitingRoundDto[];
   currentStory: StoryDto | null;
 }) {
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
   const openStory = useUiStore((state) => state.openStory);
+  const openEpic = useUiStore((state) => state.openEpic);
+  const placeEpicId = useUiStore((state) => (state.activeSessionId ? null : state.currentEpicId));
   const activeSessionId = useUiStore((state) => state.activeSessionId);
   const placeStoryId = usePlaceStoryId();
   const extraStory =
@@ -168,9 +173,26 @@ function RunningSessions({
     !stopped.some((s) => s.storyId === currentStory.id)
       ? currentStory
       : null;
-  if (sessions.length === 0 && stopped.length === 0 && !extraStory) return null;
+  if (sessions.length === 0 && stopped.length === 0 && rounds.length === 0 && !extraStory) return null;
   return (
     <SidebarMenuSub role="list" aria-label={`${projectName} running sessions`} className="mx-0 ml-4 mr-0 gap-0.5 px-1.5 py-1">
+      {/* A shaping Round a live session is held on: Waiting on you, so it leads, and it opens its Epic. */}
+      {rounds.map((round) => {
+        const subject = `${round.epicKey} ${round.epicTitle}`.trim();
+        return (
+          <SidebarMenuSubItem key={round.roundId} className="flex">
+            <StoryRowButton
+              story={{ id: round.epicId, key: round.epicKey, title: round.epicTitle }}
+              detail={`Round ${round.roundNumber} · Waiting on you`}
+              tile={<StateBadge state="waiting_on_you" hideLabel className="size-5 justify-center p-0 [&>svg]:size-3.5" />}
+              here={round.epicId === placeEpicId}
+              ariaLabel={`Open Epic ${subject}, Round ${round.roundNumber} Waiting on you`}
+              title={`${subject}: Round ${round.roundNumber} waiting on you`}
+              onClick={() => openEpic(round.projectId, round.epicId)}
+            />
+          </SidebarMenuSubItem>
+        );
+      })}
       {extraStory && (
         <SidebarMenuSubItem className="flex">
           <StoryRowButton
@@ -510,6 +532,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                       projectName={project.name}
                       sessions={liveSessions.filter((session) => session.projectId === project.id)}
                       stopped={stoppedRows.filter((row) => row.projectId === project.id)}
+                      rounds={waitingRounds.filter((round) => round.projectId === project.id)}
                       currentStory={currentStory}
                     />
                   </SidebarMenuItem>

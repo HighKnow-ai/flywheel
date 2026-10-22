@@ -238,6 +238,8 @@ describe("a Round whose session died (issue #124)", () => {
     expect(within(dock).queryByText("Waiting on you")).toBeNull();
     expect(within(dock).getByText("1 of 3 answered")).toBeTruthy();
     expect(within(await card(1)).getByText("Only the developer")).toBeTruthy();
+    // The Epic card names the same state as the board's (issue #124).
+    expect(await screen.findByText("Shaping Round waiting")).toBeTruthy();
 
     fireEvent.click(within(await card(2)).getByRole("button", { name: "Accept the recommended answer to question 2" }));
     await waitFor(() => expect(roundAccept).toHaveBeenCalledWith("q2"));

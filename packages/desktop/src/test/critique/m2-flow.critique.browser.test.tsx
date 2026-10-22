@@ -153,7 +153,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
 
   it("13 Waiting on you queue", async () => {
     await boardReady();
-    await click(/Open Waiting on you/);
+    await click(/^Open Waiting on you/);
     await settle(900);
     await shot("13-waiting-on-you-queue");
   });

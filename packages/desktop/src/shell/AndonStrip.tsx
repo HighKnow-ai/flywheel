@@ -295,8 +295,12 @@ export function AndonStrip() {
               <div role="listitem" className="shrink-0">
                 <button
                   type="button"
-                  aria-label={`${hidden} more: ${hiddenTones.map((tone) => TONE_WORD[tone]).join(", ")}. Open All agents`}
-                  onClick={() => setFleetSurface({ view: "fleet" })}
+                  // A folded yellow lamp (a Story session's or a shaping Round's) is found in Waiting on you, which
+                  // lists both; All agents lists no shaping Round.
+                  aria-label={`${hidden} more: ${hiddenTones.map((tone) => TONE_WORD[tone]).join(", ")}. Open ${
+                    hiddenTones.includes("waiting") ? "Waiting on you" : "All agents"
+                  }`}
+                  onClick={() => setFleetSurface({ view: hiddenTones.includes("waiting") ? "queue" : "fleet" })}
                   style={{ width: MORE_WIDTH }}
                   className="flex h-13 items-center justify-center gap-1.5 rounded-lg border border-dashed whitespace-nowrap border-white/25 text-small font-semibold text-strip-foreground transition-colors duration-(--duration-state) ease-(--ease) hover:bg-white/10 focus-visible:outline-strip-foreground"
                 >

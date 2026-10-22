@@ -59,6 +59,14 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
   const data = shapingQuery.data;
   const epic = data?.epic;
   const openStage = data?.stages.find((s) => s.state === "open") ?? data?.stages[data.stages.length - 1];
+  // Attention in place of the state word, as the board's Epic card shows it (issue #124): the core's
+  // `waitingOnYou`, or an open Round with no live shaping session.
+  const rounds = data?.rounds ?? [];
+  const attention = rounds.some((r) => r.waitingOnYou)
+    ? "waiting_on_you"
+    : rounds.some((r) => r.state === "open") && sessionQuery.isSuccess && !sessionQuery.data
+      ? "round_waiting"
+      : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -89,7 +97,13 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
               className="xl:col-start-2 xl:row-start-1"
             />
             <div className="min-w-0 self-stretch xl:col-start-1 xl:row-span-2 xl:row-start-1">
-              <EpicCard epic={epic} proposals={data.proposals ?? []} stage={openStage ? { kind: openStage.kind, rank: openStage.rank } : null} queryKey={queryKey} />
+              <EpicCard
+                epic={epic}
+                attention={attention}
+                proposals={data.proposals ?? []}
+                stage={openStage ? { kind: openStage.kind, rank: openStage.rank } : null}
+                queryKey={queryKey}
+              />
             </div>
             <RoundDock
               rounds={data.rounds}
@@ -114,11 +128,13 @@ function stageCount(kind: string) {
 
 function EpicCard({
   epic,
+  attention,
   proposals,
   stage,
   queryKey,
 }: {
   epic: EpicDto;
+  attention: string | null;
   /** The Epic's pending and rejected Proposals (issue #125), drawn on the field each would rewrite. */
   proposals: ProposalDto[];
   stage: { kind: string; rank: number } | null;
@@ -141,7 +157,7 @@ function EpicCard({
         <div className="flex min-w-0 items-center gap-2">
           <Layers aria-hidden="true" size={18} className="shrink-0 text-muted-foreground" />
           <span className="font-mono text-small text-muted-foreground">{epic.key}</span>
-          <StateBadge state={epic.state} className="h-5.5 text-meta" />
+          <StateBadge state={attention ?? epic.state} className="h-5.5 text-meta" />
         </div>
         <h1 id={headingId} className="m-0 text-title font-semibold break-words">
           {epic.title}
