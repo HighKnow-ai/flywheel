@@ -384,6 +384,11 @@ pub(crate) fn rejected_proposals(conn: &Connection, epic_id: &str) -> anyhow::Re
         .into_iter()
         .map(|(verb, target, payload, rationale, reason)| {
             let payload: serde_json::Value = serde_json::from_str(&payload).unwrap_or(serde_json::Value::Null);
+            let reason = reason.unwrap_or_else(|| "no reason given".to_string());
+            // A spec change (issue #125) names the field it would have rewritten and the text.
+            if let Ok(change) = crate::domain::proposal_apply::SpecChange::from_payload(&payload) {
+                return format!("{verb} {target} {}: \"{}\"; rejected: {reason}", change.field.label(), change.text);
+            }
             let what = payload
                 .get("title")
                 .and_then(|v| v.as_str())
@@ -391,7 +396,6 @@ pub(crate) fn rejected_proposals(conn: &Connection, epic_id: &str) -> anyhow::Re
                 .or(rationale)
                 .unwrap_or_default();
             let target = target.replace('_', " ");
-            let reason = reason.unwrap_or_else(|| "no reason given".to_string());
             if what.trim().is_empty() {
                 format!("{verb} {target}; rejected: {reason}")
             } else {
