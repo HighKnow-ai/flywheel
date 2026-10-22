@@ -18,13 +18,21 @@
 //! state writers' own refusals: a Milestone holding an open Epic is not dropped, nor an Epic holding
 //! an open Story.
 //!
+//! Slicing (issue #127) adds the Story kinds. A New Story (`create` on `story`, [`NewStory`]) is
+//! created in Shaping inside the Proposal's own Epic at the rank it proposed, with its runs-after
+//! marker and the one-line constraint behind it; the Proposal then names the Story it created
+//! (`target_id`), so a New Story that runs after another New Story Proposal gets its marker once
+//! both are accepted, in either order. A reorder (`reorder` on `story`) moves the Story to its
+//! proposed rank; a retirement (`retire` on `story`) drops a Story still in Shaping. The marker is
+//! informational and never blocks anything.
+//!
 //! An ADR draft (`create` on `adr`, issue #129) is checked here ([`AdrDraft`]) and has no effect on
 //! the board beyond its acceptance: accepted, it is attached to its Epic, and the Epic's Story
 //! packet carries it as full text until the repo holds the file (ADR 0002: Flywheel never writes
 //! the repo outside a worktree).
 
 use anyhow::Context;
-use rusqlite::Transaction;
+use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 
 use crate::domain::epic::{create_epic_in_tx, get_epic, set_epic_state_in_tx, update_epic_in_tx, EpicSpec, EpicState};
@@ -33,6 +41,7 @@ use crate::domain::milestone::{
     MilestoneState,
 };
 use crate::domain::proposal::{ProposalTarget, ProposalVerb};
+use crate::domain::story::{create_story_in_tx, set_runs_after_in_tx, set_story_rank_in_tx, set_story_state_in_tx, StoryState};
 
 /// The longest an Epic spec field may be: what the desktop's `epic_update` accepts too.
 pub const MAX_SPEC_FIELD_LEN: usize = 20_000;
@@ -437,6 +446,110 @@ impl RoadmapChange {
     }
 }
 
+/// The longest a Story title may be: what the desktop's `story_create` accepts too.
+pub const MAX_STORY_TITLE_LEN: usize = 500;
+
+/// The longest a Story description may be.
+pub const MAX_STORY_DESCRIPTION_LEN: usize = 20_000;
+
+/// The longest a runs-after reason may be: one line.
+pub const MAX_RUNS_AFTER_REASON_LEN: usize = 500;
+
+/// What a New Story runs after (issue #127): a Story of the Epic, or another New Story Proposal on it
+/// that may not be accepted yet. A Proposal is resolved to the Story it created once both are
+/// accepted, whichever is accepted first.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RunsAfter {
+    Story(String),
+    Proposal(String),
+}
+
+/// A New Story Proposal's payload (`create` on `story`, issue #127): the Story's title and
+/// description, its rank in the Epic's execution order and what it runs after, with the one-line
+/// constraint behind it ("shares `FeedRow.tsx`"). The Epic is the Proposal's own, never the
+/// payload's: no Story is created outside the Epic it was proposed in.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewStory {
+    pub title: String,
+    pub description: Option<String>,
+    /// Where it lands in the Epic's execution order; `None` puts it at the end. A Story session's
+    /// follow-up Story (docs/mvp-spec.md §5) carries none.
+    pub rank: Option<String>,
+    /// What it runs after and why, or `None`.
+    pub runs_after: Option<(RunsAfter, String)>,
+}
+
+impl NewStory {
+    /// Read and check a payload `{ "title", "description"?, "rank"?, "runs_after_story_id"?,
+    /// "runs_after_proposal_id"?, "runs_after_reason"? }`: a title, a parseable rank, at most one
+    /// thing it runs after, and a reason exactly when it runs after something.
+    pub fn from_payload(payload: &Value) -> anyhow::Result<Self> {
+        let text = |key: &str| payload.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+        let title = text("title").context("a New Story needs a `title`")?;
+        anyhow::ensure!(title.chars().count() <= MAX_STORY_TITLE_LEN, "a Story title is at most {MAX_STORY_TITLE_LEN} characters");
+        let description = text("description");
+        if let Some(d) = description {
+            anyhow::ensure!(
+                d.chars().count() <= MAX_STORY_DESCRIPTION_LEN,
+                "a Story description is at most {MAX_STORY_DESCRIPTION_LEN} characters"
+            );
+        }
+        let rank = text("rank");
+        if let Some(rank) = rank {
+            crate::ranking::check_rank(rank)?;
+        }
+        let after = match (text("runs_after_story_id"), text("runs_after_proposal_id")) {
+            (Some(_), Some(_)) => anyhow::bail!("a New Story runs after one thing: a Story or a New Story Proposal, not both"),
+            (Some(id), None) => Some(RunsAfter::Story(id.to_string())),
+            (None, Some(id)) => Some(RunsAfter::Proposal(id.to_string())),
+            (None, None) => None,
+        };
+        let reason = text("runs_after_reason");
+        let runs_after = match (after, reason) {
+            (Some(after), Some(reason)) => {
+                anyhow::ensure!(!reason.contains('\n'), "the runs-after reason is one line");
+                anyhow::ensure!(
+                    reason.chars().count() <= MAX_RUNS_AFTER_REASON_LEN,
+                    "the runs-after reason is at most {MAX_RUNS_AFTER_REASON_LEN} characters"
+                );
+                Some((after, reason.to_string()))
+            }
+            (Some(_), None) => anyhow::bail!("a New Story that runs after another needs its one-line reason"),
+            (None, Some(_)) => anyhow::bail!("a runs-after reason needs the Story it runs after"),
+            (None, None) => None,
+        };
+        Ok(NewStory { title: title.to_string(), description: description.map(str::to_string), rank: rank.map(str::to_string), runs_after })
+    }
+
+    pub fn to_payload(&self) -> Value {
+        let (story, proposal, reason) = match &self.runs_after {
+            Some((RunsAfter::Story(id), reason)) => (Some(id), None, Some(reason)),
+            Some((RunsAfter::Proposal(id), reason)) => (None, Some(id), Some(reason)),
+            None => (None, None, None),
+        };
+        json!({
+            "title": self.title,
+            "description": self.description,
+            "rank": self.rank,
+            "runs_after_story_id": story,
+            "runs_after_proposal_id": proposal,
+            "runs_after_reason": reason,
+        })
+    }
+}
+
+/// Whether a Proposal of `verb` on `target` creates a Story.
+pub fn is_new_story(verb: ProposalVerb, target: ProposalTarget) -> bool {
+    verb == ProposalVerb::Create && target == ProposalTarget::Story
+}
+
+/// A reorder Proposal's payload (`reorder` on `story`, issue #127): the Story's new rank.
+pub fn reorder_rank(payload: &Value) -> anyhow::Result<String> {
+    let rank = payload.get("rank").and_then(Value::as_str).context("a reorder names the Story's new `rank`")?;
+    crate::ranking::check_rank(rank)?;
+    Ok(rank.to_string())
+}
+
 /// Check a payload for its kind, before it is filed or applied. Kinds this module does not check yet
 /// pass unchecked. A Roadmap change's target is checked where it is filed (`roadmap_round`), since
 /// the payload alone does not carry it.
@@ -451,6 +564,12 @@ pub fn validate_payload(verb: ProposalVerb, target: ProposalTarget, payload: &Va
     if is_adr_draft(verb, target) {
         AdrDraft::from_payload(payload)?;
     }
+    if is_new_story(verb, target) {
+        NewStory::from_payload(payload)?;
+    }
+    if verb == ProposalVerb::Reorder && target == ProposalTarget::Story {
+        reorder_rank(payload)?;
+    }
     Ok(())
 }
 
@@ -462,6 +581,12 @@ pub enum Applied {
     /// A Roadmap change (issue #133) landed on this Milestone or Epic: the one it created, amended,
     /// moved or dropped.
     Roadmap { record_id: String },
+    /// A Story was created in Shaping inside the Proposal's Epic (issue #127).
+    StoryCreated { story_id: String },
+    /// A Story moved in its Epic's execution order (issue #127).
+    StoryMoved { story_id: String },
+    /// A Story was retired: Dropped (issue #127).
+    StoryRetired { story_id: String },
     /// No effect for this kind yet: the decision alone was recorded.
     RecordedOnly,
 }
@@ -473,6 +598,8 @@ pub(crate) struct Accepted<'a> {
     pub verb: ProposalVerb,
     pub target: ProposalTarget,
     pub target_id: Option<&'a str>,
+    /// The Epic the Proposal was filed on (issue #127): where a New Story is created.
+    pub epic_id: Option<&'a str>,
 }
 
 /// Apply `payload` (the Proposal's own, or the developer's amended one) inside the deciding
@@ -482,6 +609,25 @@ pub(crate) fn apply_in_tx(tx: &Transaction, actor_id: &str, accepted: &Accepted,
     if RoadmapChange::is_kind(accepted.verb, accepted.target) {
         let change = RoadmapChange::from_proposal(accepted.verb, accepted.target, accepted.target_id, payload)?;
         return apply_roadmap_change(tx, actor_id, accepted, &change);
+    }
+    match (accepted.verb, accepted.target) {
+        (ProposalVerb::Create, ProposalTarget::Story) => return apply_new_story(tx, actor_id, accepted, payload),
+        (ProposalVerb::Reorder, ProposalTarget::Story) => {
+            let story_id = accepted.target_id.context("a reorder names the Story it moves")?;
+            story_in_epic(tx, story_id, accepted.epic_id)?;
+            set_story_rank_in_tx(tx, actor_id, story_id, &reorder_rank(payload)?, Some(accepted.id))?;
+            return Ok(Applied::StoryMoved { story_id: story_id.to_string() });
+        }
+        (ProposalVerb::Retire, ProposalTarget::Story) => {
+            let story_id = accepted.target_id.context("a retirement names the Story it retires")?;
+            let (key, state) = story_in_epic(tx, story_id, accepted.epic_id)?;
+            // Retiring is for a Story still being shaped: it has no worktree to wipe. A Story already
+            // started is dropped by the developer, through Drop.
+            anyhow::ensure!(state == "shaping", "{key} is {state}; only a Story still in Shaping is retired by a Proposal: drop it instead");
+            set_story_state_in_tx(tx, actor_id, story_id, StoryState::Dropped)?;
+            return Ok(Applied::StoryRetired { story_id: story_id.to_string() });
+        }
+        _ => {}
     }
     if !is_spec_change(accepted.verb, accepted.target) {
         return Ok(Applied::RecordedOnly);
@@ -561,4 +707,70 @@ fn apply_roadmap_change(tx: &Transaction, actor_id: &str, accepted: &Accepted, c
         }
     };
     Ok(Applied::Roadmap { record_id })
+}
+
+/// `(key, state)` of Story `story_id`, refused unless it sits in the Proposal's Epic.
+fn story_in_epic(tx: &Transaction, story_id: &str, epic_id: Option<&str>) -> anyhow::Result<(String, String)> {
+    let epic_id = epic_id.context("a Story Proposal is filed on the Epic the Story sits in")?;
+    let (key, state, in_epic): (String, String, String) = tx
+        .query_row("SELECT key, state, epic_id FROM stories WHERE id = ?1", params![story_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .optional()?
+        .with_context(|| format!("Story {story_id:?} not found"))?;
+    anyhow::ensure!(in_epic == epic_id, "{key} is not in the Epic this Proposal was filed on");
+    Ok((key, state))
+}
+
+/// The Story an accepted New Story Proposal created, or `None` while it is undecided or rejected.
+fn story_created_by(tx: &Transaction, proposal_id: &str) -> anyhow::Result<Option<String>> {
+    let row: Option<(String, Option<String>)> = tx
+        .query_row(
+            "SELECT state, target_id FROM proposals WHERE id = ?1 AND verb = 'create' AND target_type = 'story'",
+            params![proposal_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    Ok(row.and_then(|(state, story)| (state == "accepted").then_some(story).flatten()))
+}
+
+/// Create the New Story in Shaping inside the Proposal's own Epic, at the rank it proposed, with its
+/// runs-after marker and reason (issue #127). The Proposal then names the Story it created. A New
+/// Story that runs after a Proposal not accepted yet gets its marker once that one is: any accepted
+/// Story waiting on this Proposal gets its marker here.
+fn apply_new_story(tx: &Transaction, actor_id: &str, accepted: &Accepted, payload: &Value) -> anyhow::Result<Applied> {
+    let story = NewStory::from_payload(payload)?;
+    let epic_id = accepted.epic_id.context("a New Story Proposal is filed on the Epic the Story goes into")?;
+    let created = create_story_in_tx(tx, actor_id, epic_id, &story.title, story.description.as_deref(), story.rank.as_deref())?;
+    tx.execute("UPDATE proposals SET target_id = ?1 WHERE id = ?2", params![created.id, accepted.id])
+        .context("failed to record the Story the Proposal created")?;
+
+    if let Some((after, reason)) = &story.runs_after {
+        let after_story = match after {
+            RunsAfter::Story(id) => Some(id.clone()),
+            RunsAfter::Proposal(id) => story_created_by(tx, id)?,
+        };
+        if let Some(after_story) = after_story {
+            set_runs_after_in_tx(tx, actor_id, &created.id, Some((&after_story, reason)), Some(accepted.id))?;
+        }
+    }
+
+    // Stories accepted earlier that run after this Proposal: their marker can be set now.
+    let mut stmt = tx.prepare(
+        "SELECT p.id, p.payload, s.id FROM proposals p JOIN stories s ON s.id = p.target_id
+         WHERE p.epic_id = ?1 AND p.verb = 'create' AND p.target_type = 'story' AND p.state = 'accepted'
+           AND p.id != ?2 AND s.runs_after_story_id IS NULL ORDER BY p.created_at, p.id",
+    )?;
+    let waiting = stmt
+        .query_map(params![epic_id, accepted.id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (proposal_id, waiting_payload, story_id) in waiting {
+        let Ok(waiting_story) = NewStory::from_payload(&serde_json::from_str(&waiting_payload).unwrap_or(Value::Null)) else { continue };
+        if let Some((RunsAfter::Proposal(after), reason)) = &waiting_story.runs_after {
+            if after == accepted.id {
+                set_runs_after_in_tx(tx, actor_id, &story_id, Some((&created.id, reason)), Some(&proposal_id))?;
+            }
+        }
+    }
+    Ok(Applied::StoryCreated { story_id: created.id })
 }

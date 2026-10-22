@@ -25,7 +25,7 @@ use crate::domain::actor::assert_human_actor_in_tx;
 use crate::domain::check::set_check_in_tx;
 use crate::domain::{allocate_key, now, record_event, EventScope};
 use crate::ids::new_id;
-use crate::ranking::rank_after;
+use crate::ranking::{check_rank, rank_after};
 
 /// Where a Story is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +98,9 @@ pub struct Story {
     pub description: Option<String>,
     pub state: String,
     pub runs_after_story_id: Option<String>,
+    /// The constraint behind the runs-after marker, in one line ("shares `FeedRow.tsx`"), issue #127.
+    /// Informational, like the marker: it never blocks a start.
+    pub runs_after_reason: Option<String>,
     pub rank: String,
 }
 
@@ -105,7 +108,7 @@ pub struct Story {
 macro_rules! select_stories {
     ($tail:literal) => {
         concat!(
-            "SELECT id, project_id, epic_id, key, title, description, state, runs_after_story_id, rank FROM stories ",
+            "SELECT id, project_id, epic_id, key, title, description, state, runs_after_story_id, rank, runs_after_reason FROM stories ",
             $tail
         )
     };
@@ -122,6 +125,7 @@ fn row_to_story(row: &Row) -> rusqlite::Result<Story> {
         state: row.get(6)?,
         runs_after_story_id: row.get(7)?,
         rank: row.get(8)?,
+        runs_after_reason: row.get(9)?,
     })
 }
 
@@ -129,18 +133,21 @@ fn row_to_story(row: &Row) -> rusqlite::Result<Story> {
 /// Epic's. Refused when the Epic is Done.
 pub fn create_story(conn: &mut Connection, actor_id: &str, epic_id: &str, title: &str) -> anyhow::Result<Story> {
     let tx = conn.transaction()?;
-    let story = create_story_in_tx(&tx, actor_id, epic_id, title, None)?;
+    let story = create_story_in_tx(&tx, actor_id, epic_id, title, None, None)?;
     tx.commit().context("failed to commit create_story")?;
     Ok(story)
 }
 
-/// [`create_story`] inside the caller's transaction, with an optional description.
-fn create_story_in_tx(
+/// [`create_story`] inside the caller's transaction, with an optional description, at `rank` in the
+/// Epic's execution order or, without one, at its end. An accepted New Story Proposal creates its
+/// Story here, at the rank it proposed (issue #127).
+pub(crate) fn create_story_in_tx(
     tx: &Transaction,
     actor_id: &str,
     epic_id: &str,
     title: &str,
     description: Option<&str>,
+    rank: Option<&str>,
 ) -> anyhow::Result<Story> {
     let title = title.trim();
     anyhow::ensure!(!title.is_empty(), "a Story needs a title");
@@ -155,12 +162,20 @@ fn create_story_in_tx(
         .with_context(|| format!("Epic {epic_id:?} not found; a Story always sits inside an Epic"))?;
     anyhow::ensure!(epic_state != "done", "Epic {epic_id:?} is done; a new Story goes into an open Epic");
 
-    let last_rank: Option<String> = tx
-        .query_row("SELECT rank FROM stories WHERE epic_id = ?1 ORDER BY rank DESC LIMIT 1", params![epic_id], |r| {
-            r.get(0)
-        })
-        .optional()?;
-    let rank = rank_after(last_rank.as_deref())?;
+    let rank = match rank {
+        Some(rank) => {
+            check_rank(rank)?;
+            rank.to_string()
+        }
+        None => {
+            let last_rank: Option<String> = tx
+                .query_row("SELECT rank FROM stories WHERE epic_id = ?1 ORDER BY rank DESC LIMIT 1", params![epic_id], |r| {
+                    r.get(0)
+                })
+                .optional()?;
+            rank_after(last_rank.as_deref())?
+        }
+    };
     let key = allocate_key(tx, &project_id)?;
 
     tx.execute(
@@ -190,6 +205,7 @@ fn create_story_in_tx(
         description: description.map(str::to_string),
         state: "shaping".to_string(),
         runs_after_story_id: None,
+        runs_after_reason: None,
         rank,
     })
 }
@@ -292,6 +308,98 @@ pub(crate) fn set_story_state_in_tx(tx: &Transaction, actor_id: &str, story_id: 
     Ok(())
 }
 
+/// Set or clear Story `story_id`'s runs-after marker and the one-line constraint behind it (issue
+/// #127), inside the caller's transaction. The Story it runs after must be another Story of the same
+/// Epic; the marker is informational and never blocks a start. `proposal_id` names the accepted
+/// Proposal that set it, for the event.
+pub(crate) fn set_runs_after_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    story_id: &str,
+    runs_after: Option<(&str, &str)>,
+    proposal_id: Option<&str>,
+) -> anyhow::Result<()> {
+    let now = now();
+    let (project_id, epic_id, key): (String, String, String) = tx
+        .query_row("SELECT project_id, epic_id, key FROM stories WHERE id = ?1", params![story_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .with_context(|| format!("Story {story_id:?} not found"))?;
+    let (after_id, reason, after_key) = match runs_after {
+        None => (None, None, None),
+        Some((after_id, reason)) => {
+            anyhow::ensure!(after_id != story_id, "a Story cannot run after itself");
+            let (after_epic, after_key): (String, String) = tx
+                .query_row("SELECT epic_id, key FROM stories WHERE id = ?1", params![after_id], |r| Ok((r.get(0)?, r.get(1)?)))
+                .with_context(|| format!("Story {after_id:?} not found"))?;
+            anyhow::ensure!(after_epic == epic_id, "{key} can only run after a Story of its own Epic; {after_key} is in another");
+            let reason = reason.trim();
+            anyhow::ensure!(!reason.is_empty(), "a runs-after marker needs its one-line reason");
+            (Some(after_id), Some(reason), Some(after_key))
+        }
+    };
+    tx.execute(
+        "UPDATE stories SET runs_after_story_id = ?1, runs_after_reason = ?2, updated_at = ?3 WHERE id = ?4",
+        params![after_id, reason, now, story_id],
+    )
+    .context("failed to write the runs-after marker")?;
+    let label = match &after_key {
+        Some(after_key) => format!("Marked {key} to run after {after_key}"),
+        None => format!("Cleared {key}'s runs-after marker"),
+    };
+    record_event(
+        tx,
+        &project_id,
+        "story",
+        story_id,
+        EventScope { story_id: Some(story_id), epic_id: Some(&epic_id) },
+        actor_id,
+        "story.runs_after_set",
+        &serde_json::json!({
+            "field": "runs_after_story_id", "after": after_id, "reason": reason,
+            "proposal_id": proposal_id, "label": label,
+        }),
+        &now,
+    )?;
+    Ok(())
+}
+
+/// Move Story `story_id` to `rank` in its Epic's execution order (issue #127: an accepted reorder
+/// Proposal), inside the caller's transaction. A closed Story keeps its place.
+pub(crate) fn set_story_rank_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    story_id: &str,
+    rank: &str,
+    proposal_id: Option<&str>,
+) -> anyhow::Result<()> {
+    check_rank(rank)?;
+    let now = now();
+    let (project_id, epic_id, key, state, before): (String, String, String, String, String) = tx
+        .query_row("SELECT project_id, epic_id, key, state, rank FROM stories WHERE id = ?1", params![story_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })
+        .with_context(|| format!("Story {story_id:?} not found"))?;
+    anyhow::ensure!(!StoryState::parse(&state)?.is_closed(), "{key} is {state}; a closed Story keeps its place in the order");
+    tx.execute("UPDATE stories SET rank = ?1, updated_at = ?2 WHERE id = ?3", params![rank, now, story_id])
+        .context("failed to move the Story")?;
+    record_event(
+        tx,
+        &project_id,
+        "story",
+        story_id,
+        EventScope { story_id: Some(story_id), epic_id: Some(&epic_id) },
+        actor_id,
+        "story.reordered",
+        &serde_json::json!({
+            "field": "rank", "before": before, "after": rank, "proposal_id": proposal_id,
+            "label": format!("Moved {key} in the Epic's order"),
+        }),
+        &now,
+    )?;
+    Ok(())
+}
+
 /// One Acceptance criterion of a Story written by hand, with its optional Check command. A blank
 /// command means the criterion is judged at review.
 #[derive(Debug, Clone, Copy)]
@@ -317,7 +425,7 @@ pub fn write_story_by_hand(
     anyhow::ensure!(!criteria.is_empty(), "a Story needs at least one Acceptance criterion before it is Ready");
     let tx = conn.transaction()?;
     assert_human_actor_in_tx(&tx, actor_id)?;
-    let mut story = create_story_in_tx(&tx, actor_id, epic_id, title, description)?;
+    let mut story = create_story_in_tx(&tx, actor_id, epic_id, title, description, None)?;
     for criterion in criteria {
         let created = create_criterion_in_tx(&tx, actor_id, &story.id, criterion.statement)?;
         if let Some(command) = criterion.check_command.map(str::trim).filter(|c| !c.is_empty()) {
@@ -333,7 +441,8 @@ pub fn write_story_by_hand(
 /// Every Story of a project, in Roadmap order: Milestone rank, then Epic rank, then Story rank.
 pub fn stories_in_project(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<Story>> {
     let mut stmt = conn.prepare(
-        "SELECT s.id, s.project_id, s.epic_id, s.key, s.title, s.description, s.state, s.runs_after_story_id, s.rank
+        "SELECT s.id, s.project_id, s.epic_id, s.key, s.title, s.description, s.state, s.runs_after_story_id, s.rank,
+                s.runs_after_reason
          FROM stories s
          JOIN epics e ON e.id = s.epic_id
          JOIN milestones m ON m.id = e.milestone_id
