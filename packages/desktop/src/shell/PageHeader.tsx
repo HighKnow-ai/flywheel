@@ -5,7 +5,7 @@
  *
  * Every crumb but the last is a control that goes to that place; the last is the page itself and inert.
  */
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { ArrowLeft, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -93,7 +93,8 @@ export function PageHeader({ crumbs, onBack, actions, className }: PageHeaderPro
   );
 }
 
-/** The ground every surface's content sits in: the floor, padded to the header's gutter. */
-export function SurfaceBody({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("min-h-0 flex-1 overflow-y-auto px-5 pb-5", className)}>{children}</div>;
+/** The ground every surface's content sits in: the floor, padded to the header's gutter. It is the surface's
+ * scroll container, so a virtualised list inside it (the board, #116) takes it by `ref`. */
+export function SurfaceBody({ className, ...props }: ComponentProps<"div">) {
+  return <div className={cn("min-h-0 flex-1 overflow-y-auto px-5 pb-5", className)} {...props} />;
 }

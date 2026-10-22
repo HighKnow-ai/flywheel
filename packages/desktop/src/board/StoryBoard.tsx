@@ -13,8 +13,9 @@
  * the renderer never trusts its own write. The Milestone header (#106) sits above the roster, and each Epic of
  * the Current Milestone heads its card with its own bar and "n of m Stories merged", from the same core read.
  */
-import { useState } from "react";
+import { useLayoutEffect, useState, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { defaultRangeExtractor, useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import { ChevronRight, Flag, Layers } from "lucide-react";
 import {
   blockedSummary,
@@ -55,14 +56,17 @@ export interface StoryBoardProps {
 
 export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
   useBoardChangedSubscription(projectId);
+  // The roster is virtualised against the surface's own scroll container (#116), held in state so the
+  // virtualizer picks it up on the render after it mounts.
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   return (
     <div className="board-shell flex h-full min-h-0 flex-col">
       <PageHeader crumbs={[{ label: projectName }]} actions={<WriteStoryDialog projectId={projectId} />} />
-      <SurfaceBody>
+      <SurfaceBody ref={setScrollElement} data-board-scroll="">
         <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4">
           {/* The Current Milestone's progress (#106), above the roster of its Epics. */}
           <MilestoneHeader projectId={projectId} />
-          <StoryRoster projectId={projectId} />
+          <StoryRoster projectId={projectId} scrollElement={scrollElement} />
         </div>
       </SurfaceBody>
     </div>
@@ -112,7 +116,7 @@ export function groupByEpic(stories: StoryDto[], epics: { epic: EpicDto; milesto
   return shown;
 }
 
-function StoryRoster({ projectId }: { projectId: string }) {
+function StoryRoster({ projectId, scrollElement }: { projectId: string; scrollElement: HTMLElement | null }) {
   const storiesQuery = useQuery({
     queryKey: ["board", projectId, "stories"],
     queryFn: () => storyListForProject(projectId),
@@ -147,45 +151,230 @@ function StoryRoster({ projectId }: { projectId: string }) {
     );
   }
   return (
-    <>
-      {groups.map((group) => (
-        <EpicCard
-          key={group.epic?.id ?? "no-epic"}
-          projectId={projectId}
-          group={group}
-          progress={group.epic ? epicProgress.get(group.epic.id) : undefined}
-          waitingIds={waitingIds}
-        />
-      ))}
-    </>
+    <VirtualRoster
+      projectId={projectId}
+      groups={groups}
+      epicProgress={epicProgress}
+      waitingIds={waitingIds}
+      scrollElement={scrollElement}
+    />
+  );
+}
+
+/*
+ * The virtualised roster (#116, PRODUCT.md: instant on a project of 1,000 Stories). One virtual item per
+ * Epic heading and one per Story, in Roadmap order, so only the items near the viewport are mounted. Each
+ * Epic with a mounted item draws its whole card frame at its full height, absolutely placed, and mounts only
+ * those of its rows that are near the viewport inside it: the cards look as they did unvirtualised.
+ *
+ * An item's size is its element's measured height plus the frame around it that the element does not
+ * contain: the gap above every card but the first and the card's top border ride on its heading, the card's
+ * bottom border on its last row. The estimates are the rows' minimum heights; jsdom, which has no layout,
+ * measures zero and falls back to them.
+ */
+const EPIC_GAP = 16; // gap-4, the roster's gap between cards
+const CARD_BORDER = 1;
+const HEADING_ESTIMATE = 57; // min-h-14 and its bottom border
+const ROW_ESTIMATE = 53; // min-h-13 and the top border between rows
+const OVERSCAN = 8;
+
+type RosterItem =
+  | { kind: "epic"; group: number; key: string }
+  | { kind: "story"; group: number; key: string; story: StoryDto; position: number; first: boolean; last: boolean };
+
+/** The roster's virtual items, and where each Epic's run of them starts. The key carries whatever changes
+ * an item's frame, so a Story that becomes an Epic's last row is measured afresh, not read from the cache. */
+function rosterItems(groups: EpicGroup[]): { items: RosterItem[]; starts: number[] } {
+  const items: RosterItem[] = [];
+  const starts: number[] = [];
+  groups.forEach((group, index) => {
+    starts.push(items.length);
+    items.push({ kind: "epic", group: index, key: `epic:${group.epic?.id ?? "none"}:${index === 0 ? "first" : ""}` });
+    group.stories.forEach((story, position) => {
+      const first = position === 0;
+      const last = position === group.stories.length - 1;
+      items.push({
+        kind: "story",
+        group: index,
+        key: `${story.id}:${first ? "first" : ""}:${last ? "last" : ""}`,
+        story,
+        position,
+        first,
+        last,
+      });
+    });
+  });
+  return { items, starts };
+}
+
+function itemEstimate(item: RosterItem): number {
+  if (item.kind === "epic") return HEADING_ESTIMATE;
+  return item.first ? ROW_ESTIMATE - CARD_BORDER : ROW_ESTIMATE;
+}
+
+/** The part of an item's size its element does not contain: the gap and card borders around it. */
+function itemFrame(item: RosterItem): number {
+  if (item.kind === "epic") return CARD_BORDER + (item.group > 0 ? EPIC_GAP : 0);
+  return item.last ? CARD_BORDER : 0;
+}
+
+/** How far down the scroll container's content the roster starts: below the Milestone header, which can
+ * change height as it loads, so it is re-read whenever the column holding both resizes. */
+function useScrollMargin(roster: HTMLElement | null, scrollElement: HTMLElement | null): number {
+  const [margin, setMargin] = useState(0);
+  useLayoutEffect(() => {
+    if (!roster || !scrollElement) return;
+    const update = () =>
+      setMargin(roster.getBoundingClientRect().top - scrollElement.getBoundingClientRect().top + scrollElement.scrollTop);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(roster.parentElement ?? roster);
+    return () => observer.disconnect();
+  }, [roster, scrollElement]);
+  return margin;
+}
+
+function VirtualRoster({
+  projectId,
+  groups,
+  epicProgress,
+  waitingIds,
+  scrollElement,
+}: {
+  projectId: string;
+  groups: EpicGroup[];
+  epicProgress: Map<string, EpicProgressDto>;
+  waitingIds: Set<string>;
+  scrollElement: HTMLElement | null;
+}) {
+  const { items, starts } = rosterItems(groups);
+  const [roster, setRoster] = useState<HTMLDivElement | null>(null);
+  const scrollMargin = useScrollMargin(roster, scrollElement);
+  // The row holding keyboard focus stays mounted when it scrolls out of view, so focus is never dropped
+  // onto the page and Tab carries on from where it was.
+  const [focusedStoryId, setFocusedStoryId] = useState<string | null>(null);
+  const focusedIndex =
+    focusedStoryId === null ? -1 : items.findIndex((item) => item.kind === "story" && item.story.id === focusedStoryId);
+
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => scrollElement,
+    estimateSize: (index) => itemEstimate(items[index]) + itemFrame(items[index]),
+    getItemKey: (index) => items[index].key,
+    measureElement: (element) => {
+      const item = items[Number((element as HTMLElement).dataset.index)];
+      if (!item) return 0;
+      const measured = element.getBoundingClientRect().height;
+      return (measured > 0 ? measured : itemEstimate(item)) + itemFrame(item);
+    },
+    rangeExtractor: (range) => {
+      const indexes = defaultRangeExtractor(range);
+      if (focusedIndex < 0 || indexes.includes(focusedIndex)) return indexes;
+      return [...indexes, focusedIndex].sort((a, b) => a - b);
+    },
+    scrollMargin,
+    overscan: OVERSCAN,
+  });
+
+  // The mounted items, gathered by Epic in Roadmap order, so the DOM reads (and Tab walks) in board order.
+  const cards: { group: number; rows: VirtualItem[] }[] = [];
+  for (const virtualItem of virtualizer.getVirtualItems()) {
+    const item = items[virtualItem.index];
+    const card = cards[cards.length - 1];
+    const row = item.kind === "story" ? [virtualItem] : [];
+    if (card?.group === item.group) card.rows.push(...row);
+    else cards.push({ group: item.group, rows: row });
+  }
+  const measurements = virtualizer.measurementsCache;
+
+  return (
+    <div
+      ref={setRoster}
+      className="relative"
+      style={{ height: virtualizer.getTotalSize() }}
+      onFocus={(event) => {
+        const row = (event.target as HTMLElement).closest("[data-story-id]");
+        setFocusedStoryId(row?.getAttribute("data-story-id") ?? null);
+      }}
+    >
+      {cards.map(({ group: index, rows }) => {
+        const group = groups[index];
+        const heading = measurements[starts[index]];
+        const end = measurements[(starts[index + 1] ?? items.length) - 1];
+        const top = heading.start - scrollMargin + (index > 0 ? EPIC_GAP : 0);
+        return (
+          <EpicCard
+            key={group.epic?.id ?? "no-epic"}
+            group={group}
+            progress={group.epic ? epicProgress.get(group.epic.id) : undefined}
+            top={top}
+            height={end.end - scrollMargin - top}
+            headingIndex={starts[index]}
+            measure={virtualizer.measureElement}
+          >
+            {rows.map((virtualItem) => {
+              const item = items[virtualItem.index] as Extract<RosterItem, { kind: "story" }>;
+              return (
+                <StoryRow
+                  key={item.story.id}
+                  projectId={projectId}
+                  story={item.story}
+                  waitingOnYou={waitingIds.has(item.story.id)}
+                  index={virtualItem.index}
+                  // Placed inside the card's padding box, which starts below its top border.
+                  top={virtualItem.start - scrollMargin - top - CARD_BORDER}
+                  first={item.first}
+                  position={item.position + 1}
+                  setSize={group.stories.length}
+                  measure={virtualizer.measureElement}
+                />
+              );
+            })}
+          </EpicCard>
+        );
+      })}
+    </div>
   );
 }
 
 function EpicCard({
-  projectId,
   group,
   progress,
-  waitingIds,
+  top,
+  height,
+  headingIndex,
+  measure,
+  children,
 }: {
-  projectId: string;
   group: EpicGroup;
   /** The Epic's counts when it is in the Current Milestone; its card then heads with its bar. */
   progress?: EpicProgressDto;
-  waitingIds: Set<string>;
+  /** Where the card sits in the roster and how tall it is, every row counted, mounted or not. */
+  top: number;
+  height: number;
+  /** The heading's virtual item, measured from its element. */
+  headingIndex: number;
+  measure: (element: Element | null) => void;
+  children: ReactNode;
 }) {
   const { epic, milestone, stories } = group;
   const headingId = `epic-${epic?.id ?? "none"}`;
   return (
     <section
       aria-labelledby={headingId}
-      className="overflow-hidden rounded-lg border border-border bg-card shadow-card"
+      style={{ top, height }}
+      className="absolute inset-x-0 overflow-hidden rounded-lg border border-border bg-card shadow-card"
     >
       {progress ? (
-        <header className="border-b border-border px-4 py-1.5">
+        <header ref={measure} data-index={headingIndex} className="border-b border-border px-4 py-1.5">
           <EpicProgress epic={progress} headingId={headingId} />
         </header>
       ) : (
-      <header className="flex min-h-14 items-center gap-3 border-b border-border px-4 py-2.5">
+      <header
+        ref={measure}
+        data-index={headingIndex}
+        className="flex min-h-14 items-center gap-3 border-b border-border px-4 py-2.5"
+      >
         <Layers aria-hidden="true" size={18} className="shrink-0 text-muted-foreground" />
         <h2 id={headingId} className="m-0 min-w-0 truncate text-section font-semibold">
           {epic ? epic.title : "Stories"}
@@ -205,10 +394,9 @@ function EpicCard({
         </span>
       </header>
       )}
+      {/* Only the rows near the viewport are mounted; each is placed against the card, not the list. */}
       <ul aria-label={epic ? `${epic.title} Stories` : "Stories"} className="m-0 list-none p-0">
-        {stories.map((story) => (
-          <StoryRow key={story.id} projectId={projectId} story={story} waitingOnYou={waitingIds.has(story.id)} />
-        ))}
+        {children}
       </ul>
     </section>
   );
@@ -246,11 +434,26 @@ function StoryRow({
   projectId,
   story,
   waitingOnYou,
+  index,
+  top,
+  first,
+  position,
+  setSize,
+  measure,
 }: {
   projectId: string;
   story: StoryDto;
   /** A live session of this Story holds a Gated action, permission request or question. */
   waitingOnYou: boolean;
+  /** The row's virtual item, measured from its element, and where it sits in its Epic's card. */
+  index: number;
+  top: number;
+  /** The Epic's first row draws no rule above it: the card's heading already does. */
+  first: boolean;
+  /** Its place among the Epic's Stories, for assistive tech, which sees only the mounted rows. */
+  position: number;
+  setSize: number;
+  measure: (element: Element | null) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const stopped = useStopped(projectId, story);
@@ -267,16 +470,22 @@ function StoryRow({
 
   return (
     <li
+      ref={measure}
+      data-index={index}
       data-story-id={story.id}
       data-attention={waiting ? "waiting" : stopped ? "stopped" : undefined}
       aria-current={here ? "true" : undefined}
+      aria-posinset={position}
+      aria-setsize={setSize}
+      style={{ top }}
       // Anywhere on the row that is not a control of its own opens the Story: the doing Task and the
       // state word go there too. The key-and-title button is the same target for the keyboard.
       onClick={(event) => {
         if (!isOwnControl(event)) openStory(projectId, story.id);
       }}
       className={cn(
-        "group/row relative cursor-pointer border-t border-border first:border-t-0 transition-[background-color,box-shadow] duration-(--duration-state) ease-(--ease)",
+        "group/row absolute inset-x-0 cursor-pointer border-border transition-[background-color,box-shadow] duration-(--duration-state) ease-(--ease)",
+        !first && "border-t",
         "hover:bg-accent hover:shadow-[inset_0_0_0_1px_var(--input)]",
         waiting && "bg-attention-muted hover:bg-attention-muted",
         here && !waiting && "bg-running-muted hover:bg-running-muted",
