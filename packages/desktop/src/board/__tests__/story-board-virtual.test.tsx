@@ -146,7 +146,9 @@ describe("StoryBoard: 1,000 Stories across 20 Epics (issue #116)", () => {
 
   it("keeps a focused row mounted while it scrolls out of view, so the keyboard never loses its place", async () => {
     renderBoard();
-    const first = await screen.findByRole("button", { name: "Open Story FLY-2 Story 2" });
+    // The row once its Epic is read: until then the Stories sit in a card of their own.
+    await screen.findByRole("heading", { name: "Epic 1" });
+    const first = screen.getByRole("button", { name: "Open Story FLY-2 Story 2" });
     act(() => first.focus());
 
     scrollBoardTo(1_000_000);
