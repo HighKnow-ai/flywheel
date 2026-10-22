@@ -79,16 +79,19 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/Library/Caches/ms-playwright
-          key: playwright-webkit-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+          key: playwright-webkit-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
 
-      - run: packages/desktop/node_modules/.bin/playwright install webkit
+      # Chromium (headless shell only) for the forced-colors arm: forced colors is a Windows mechanism, the Windows
+      # shell is WebView2, and WebKit reports the media query but substitutes nothing (see that config's header).
+      - run: packages/desktop/node_modules/.bin/playwright install webkit chromium --only-shell
 
-      # Light, dark and reduced motion: each a separate Playwright context (see each config's header).
-      - name: Desktop browser tests (WebKit)
+      # Light, dark, reduced motion and forced colors: each a separate Playwright context (see each config's header).
+      - name: Desktop browser tests (WebKit; forced colors in Chromium)
         run: |
           npm --prefix packages/desktop run test:browser
           npm --prefix packages/desktop run test:browser:dark
           npm --prefix packages/desktop run test:browser:motion
+          npm --prefix packages/desktop run test:browser:forced-colors
 
       - run: npm --prefix packages/desktop run build
 
