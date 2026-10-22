@@ -7,11 +7,21 @@
  *
  * Each Task carries a note (issue #96): what the agent has learned on it, so a stopped session
  * leaves that behind. The note is collapsed by default and the developer can edit it like the title.
+ *
+ * A row is its state icon (the word is its accessible name and tooltip), its title, and its note. The
+ * edit controls are quiet icon buttons, each with a tooltip and an accessible name; a Task with a note
+ * says so in words.
  */
 import { StateBadge } from "../components/StateBadge";
 import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ArrowDown, ArrowUp, ChevronRight, CircleSlash, NotebookText, Pencil, Plus } from "lucide-react";
 import { taskAdd, taskList, taskMove, taskRename, taskSetNote, taskSetState, type TaskDto } from "../adapters/tauri";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 /** The words for each Task state (GLOSSARY.md "Task"). */
 const TASK_STATE_WORDS: Record<string, string> = {
@@ -34,13 +44,48 @@ export function useStoryTasks(projectId: string, storyId: string) {
 }
 
 /** The Story row's one-line "what its agent is doing now": the *doing* Task, when there is one. */
-export function DoingTask({ tasks, storyKey }: { tasks: TaskDto[]; storyKey: string }) {
+export function DoingTask({ tasks, storyKey, className }: { tasks: TaskDto[]; storyKey: string; className?: string }) {
   const doing = tasks.find((t) => t.state === "doing");
   if (!doing) return null;
   return (
-    <span aria-label={`${storyKey} is doing`} className="type-body" style={{ color: "var(--muted-foreground)" }}>
+    <span aria-label={`${storyKey} is doing`} className={className}>
       Doing: {doing.title}
     </span>
+  );
+}
+
+/** A quiet icon control: an icon, its tooltip, and its accessible name. */
+function IconControl({
+  label,
+  tooltip,
+  onClick,
+  disabled,
+  children,
+  ...rest
+}: {
+  label: string;
+  tooltip: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+} & Omit<React.ComponentProps<typeof Button>, "children" | "onClick">) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={label}
+          onClick={onClick}
+          disabled={disabled}
+          className="text-subtle-foreground hover:text-foreground"
+          {...rest}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -53,13 +98,13 @@ export function TaskChecklist({ storyKey, storyId, tasks }: { storyKey: string; 
   }
 
   return (
-    <div style={{ flexBasis: "100%", display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
+    <div className="flex flex-col gap-2">
       {tasks.length === 0 && (
-        <p className="type-body" style={{ margin: 0, color: "var(--muted-foreground)" }}>
+        <p className="m-0 text-body text-muted-foreground">
           No Tasks yet. The Story&apos;s agent writes its plan here once it has read the code and docs the Story touches.
         </p>
       )}
-      <ol aria-label={`${storyKey} Tasks`} style={{ margin: 0, paddingLeft: "1.5em" }}>
+      <ol aria-label={`${storyKey} Tasks`} className="m-0 list-none p-0">
         {tasks.map((task, index) => (
           <TaskRow
             key={task.id}
@@ -77,7 +122,7 @@ export function TaskChecklist({ storyKey, storyId, tasks }: { storyKey: string; 
       </ol>
       <AddTask storyKey={storyKey} onAdd={(title) => run(taskAdd(storyId, title))} />
       {error && (
-        <p role="alert" className="type-body" style={{ margin: 0, color: "var(--destructive-text)" }}>
+        <p role="alert" className="m-0 text-small text-destructive-text">
           {error}
         </p>
       )}
@@ -130,171 +175,162 @@ function TaskRow({
   }
 
   const dropped = task.state === "dropped";
+  const doing = task.state === "doing";
   return (
-    <li style={{ padding: "var(--space-xs) 0" }}>
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-sm)" }}>
-        <span style={{ minWidth: "5.5em", display: "inline-flex" }}>
-          <StateBadge state={task.state} variant="inline" label={TASK_STATE_WORDS[task.state]} />
-        </span>
+    <li className="group/task flex flex-col gap-1.5 border-t border-border py-2 first:border-t-0 first:pt-0">
+      <div className="flex items-start gap-2.5">
+        <StateBadge
+          state={task.state}
+          variant="inline"
+          hideLabel
+          label={TASK_STATE_WORDS[task.state]}
+          className="mt-0.5 shrink-0"
+        />
         {editing ? (
-          <form onSubmit={saveTitle} style={{ display: "flex", gap: "var(--space-xs)", flex: 1, minWidth: "12em" }}>
-            <input
+          <form onSubmit={saveTitle} className="flex min-w-0 flex-1 gap-1.5">
+            <Input
               aria-label={`Title of ${task.title}`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="control-edge session-field type-body"
-              style={{ flex: 1 }}
+              className="h-7.5"
+              autoFocus
             />
-            <button type="submit" disabled={title.trim() === ""} className="control-edge session-action type-body">
+            <Button type="submit" size="sm" disabled={title.trim() === ""}>
               Save
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              size="sm"
+              variant="ghost"
               onClick={() => {
                 setTitle(task.title);
                 setEditing(false);
               }}
-              className="control-edge session-action type-body"
             >
               Cancel
-            </button>
+            </Button>
           </form>
         ) : (
           <span
-            className="type-body"
-            style={{ flex: 1, minWidth: 0, textDecoration: dropped ? "line-through" : undefined }}
+            className={cn(
+              "min-w-0 flex-1 text-body",
+              doing && "font-semibold",
+              (dropped || task.state === "done") && "text-muted-foreground",
+              dropped && "line-through",
+            )}
           >
             {task.title}
           </span>
         )}
         {!editing && (
-          <>
-            <button
-              type="button"
-              aria-label={`Edit ${task.title}`}
-              onClick={() => {
-                setTitle(task.title);
-                setEditing(true);
-              }}
-              className="control-edge session-action type-body"
-            >
-              Edit
-            </button>
-            <button
-              type="button"
+          <span className="flex shrink-0 items-center">
+            <Button
+              variant="ghost"
+              size="xs"
               aria-label={`${noteOpen ? "Hide" : "Show"} note of ${task.title}`}
               aria-expanded={noteOpen}
               onClick={() => setNoteOpen((open) => !open)}
-              className="control-edge session-action type-body"
+              className={cn(
+                task.note ? "text-muted-foreground" : "text-subtle-foreground opacity-0 group-hover/task:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100",
+              )}
             >
-              {task.note ? "Note" : "No note"}
-            </button>
-            <button
-              type="button"
-              aria-label={`Move ${task.title} up`}
-              onClick={onMoveUp}
-              disabled={!onMoveUp}
-              className="control-edge session-action type-body"
-            >
-              Up
-            </button>
-            <button
-              type="button"
-              aria-label={`Move ${task.title} down`}
-              onClick={onMoveDown}
-              disabled={!onMoveDown}
-              className="control-edge session-action type-body"
-            >
-              Down
-            </button>
-            {!dropped && (
-              <button
-                type="button"
-                aria-label={`Drop ${task.title}`}
-                onClick={() => setDropping((d) => !d)}
-                className="control-edge session-action type-body"
+              <NotebookText aria-hidden="true" />
+              {task.note ? "Note" : <span className="sr-only">No note</span>}
+              <ChevronRight aria-hidden="true" className={cn("transition-transform duration-(--duration-state)", noteOpen && "rotate-90")} />
+            </Button>
+            <span className="flex opacity-0 transition-opacity duration-(--duration-state) group-hover/task:opacity-100 group-focus-within/task:opacity-100">
+              <IconControl
+                label={`Edit ${task.title}`}
+                tooltip="Rename"
+                onClick={() => {
+                  setTitle(task.title);
+                  setEditing(true);
+                }}
               >
-                Drop
-              </button>
-            )}
-          </>
+                <Pencil aria-hidden="true" />
+              </IconControl>
+              <IconControl label={`Move ${task.title} up`} tooltip="Move up" onClick={onMoveUp} disabled={!onMoveUp}>
+                <ArrowUp aria-hidden="true" />
+              </IconControl>
+              <IconControl label={`Move ${task.title} down`} tooltip="Move down" onClick={onMoveDown} disabled={!onMoveDown}>
+                <ArrowDown aria-hidden="true" />
+              </IconControl>
+              {!dropped && (
+                <IconControl label={`Drop ${task.title}`} tooltip="Drop, with a reason" onClick={() => setDropping((d) => !d)}>
+                  <CircleSlash aria-hidden="true" />
+                </IconControl>
+              )}
+            </span>
+          </span>
         )}
       </div>
       {dropped && task.droppedReason && (
-        <p className="type-body" style={{ margin: 0, color: "var(--muted-foreground)" }}>
-          Dropped: {task.droppedReason}
-        </p>
+        <p className="m-0 pl-7 text-small text-muted-foreground">Dropped: {task.droppedReason}</p>
       )}
       {noteOpen && (
-        <div aria-label={`Note of ${task.title}`} role="region" style={{ paddingLeft: "4.5em" }}>
+        <div aria-label={`Note of ${task.title}`} role="region" className="ml-7 rounded-md border border-border bg-muted px-3 py-2">
           {editingNote ? (
-            <form onSubmit={saveNote} style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
-              <textarea
+            <form onSubmit={saveNote} className="flex flex-col gap-2">
+              <Textarea
                 aria-label={`Note text of ${task.title}`}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={4}
                 maxLength={4000}
-                className="control-edge session-field type-body"
+                autoFocus
               />
-              <div style={{ display: "flex", gap: "var(--space-xs)" }}>
-                <button type="submit" className="control-edge session-action type-body">
+              <div className="flex gap-1.5">
+                <Button type="submit" size="sm">
                   Save note
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  size="sm"
+                  variant="ghost"
                   onClick={() => {
                     setNote(task.note ?? "");
                     setEditingNote(false);
                   }}
-                  className="control-edge session-action type-body"
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             </form>
           ) : (
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: "var(--space-sm)" }}>
-              <p
-                className="type-body"
-                style={{
-                  margin: 0,
-                  flex: 1,
-                  minWidth: "12em",
-                  whiteSpace: "pre-wrap",
-                  color: task.note ? undefined : "var(--muted-foreground)",
-                }}
-              >
+            <div className="flex items-start gap-2">
+              <p className={cn("m-0 min-w-0 flex-1 text-small whitespace-pre-wrap", !task.note && "text-muted-foreground")}>
                 {task.note ?? "No note yet. The agent writes here what it learns on this Task."}
               </p>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="xs"
                 aria-label={`Edit note of ${task.title}`}
                 onClick={() => {
                   setNote(task.note ?? "");
                   setEditingNote(true);
                 }}
-                className="control-edge session-action type-body"
+                className="text-muted-foreground"
               >
-                Edit note
-              </button>
+                <Pencil aria-hidden="true" />
+                Edit
+              </Button>
             </div>
           )}
         </div>
       )}
       {dropping && (
-        <form onSubmit={confirmDrop} style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
-          <input
+        <form onSubmit={confirmDrop} className="ml-7 flex flex-wrap gap-1.5">
+          <Input
             aria-label={`Reason for dropping ${task.title}`}
             placeholder="One line: why it is dropped"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            className="control-edge session-field type-body"
-            style={{ flex: 1, minWidth: "12em" }}
+            className="h-7.5 min-w-48 flex-1"
+            autoFocus
           />
-          <button type="submit" disabled={reason.trim() === ""} className="control-edge session-action type-body">
+          <Button type="submit" size="sm" variant="outline" disabled={reason.trim() === ""}>
             Confirm drop
-          </button>
+          </Button>
         </form>
       )}
     </li>
@@ -312,18 +348,18 @@ function AddTask({ storyKey, onAdd }: { storyKey: string; onAdd: (title: string)
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-xs)" }}>
-      <input
+    <form onSubmit={handleSubmit} className="flex gap-1.5 pt-1">
+      <Input
         aria-label={`New Task for ${storyKey}`}
         placeholder="Add a Task"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        className="control-edge session-field type-body"
-        style={{ flex: 1, minWidth: "12em" }}
+        className="h-7.5"
       />
-      <button type="submit" disabled={title.trim() === ""} className="control-edge session-action type-body">
-        Add Task
-      </button>
+      <Button type="submit" size="sm" variant="outline" disabled={title.trim() === ""} aria-label="Add Task">
+        <Plus aria-hidden="true" />
+        Add
+      </Button>
     </form>
   );
 }

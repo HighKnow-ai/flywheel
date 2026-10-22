@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryBoard } from "../StoryBoard";
+import { StoryView } from "../StoryView";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { RunSummaryDto, SessionSummaryDto, StoryDto } from "../../adapters/tauri";
 
@@ -17,6 +18,7 @@ const storyResume = vi.fn();
 const storyDrop = vi.fn();
 const sessionsForStory = vi.fn();
 const sessionSummariesForStory = vi.fn();
+const storyGet = vi.fn();
 const blockedSummary = vi.fn(() => Promise.resolve({ blockedStoryIds: [] as string[], blockedCount: 0 }));
 
 vi.mock("../../adapters/tauri", async () => {
@@ -33,6 +35,8 @@ vi.mock("../../adapters/tauri", async () => {
     blockedSummary: () => blockedSummary(),
     taskList: () => Promise.resolve([]),
     storyContextPacketSize: () => Promise.resolve({ bytes: 400, approxTokens: 100, overSoftLimit: false }),
+    storyGet: () => storyGet(),
+    criterionList: () => Promise.resolve([]),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
   };
 });
@@ -67,6 +71,16 @@ function renderBoard() {
   );
 }
 
+/** Drop and the session list live in the Story view. */
+function renderStory() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <StoryView projectId="p1" projectName="Threadfin" storyId="s1" onBack={() => {}} />
+    </QueryClientProvider>,
+  );
+}
+
 async function storyRow() {
   return within(await screen.findByRole("list", { name: "Stories" })).findByRole("listitem");
 }
@@ -75,6 +89,7 @@ beforeEach(() => {
   resetUiState();
   useUiStore.setState({ currentProjectId: "p1" });
   storyListForProject.mockReset().mockResolvedValue([story("running")]);
+  storyGet.mockReset().mockImplementation(async () => (await storyListForProject())[0]);
   blockedSummary.mockReset().mockResolvedValue({ blockedStoryIds: [], blockedCount: 0 });
   storyStopped.mockReset().mockResolvedValue({ sessionId: "01JSESSIONDEAD", endingReason: "crash", endedAt: "2026-10-19T10:00:00Z" });
   storyResume.mockReset().mockResolvedValue({ id: "01JSESSIONNEXT", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
@@ -119,11 +134,11 @@ describe("StoryBoard: a Stopped Story (issue #54)", () => {
     renderBoard();
     const row = await storyRow();
     fireEvent.click(await within(row).findByRole("button", { name: "Resume FLY-2" }));
-    fireEvent.change(within(row).getByLabelText("Resume note for FLY-2"), { target: { value: "Pick the parser back up" } });
-    fireEvent.click(within(row).getByRole("button", { name: "Start the new session for FLY-2" }));
+    fireEvent.change(await screen.findByLabelText("Resume note for FLY-2"), { target: { value: "Pick the parser back up" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start the new session for FLY-2" }));
 
     await waitFor(() => expect(storyResume).toHaveBeenCalledWith("s1", "Pick the parser back up"));
-    await waitFor(() => expect(within(row).queryByLabelText("Resume note for FLY-2")).toBeNull());
+    await waitFor(() => expect(screen.queryByLabelText("Resume note for FLY-2")).toBeNull());
     expect(useUiStore.getState().activeSessionId).toBeNull();
   });
 
@@ -131,7 +146,7 @@ describe("StoryBoard: a Stopped Story (issue #54)", () => {
     renderBoard();
     const row = await storyRow();
     fireEvent.click(await within(row).findByRole("button", { name: "Resume FLY-2" }));
-    fireEvent.click(within(row).getByRole("button", { name: "Start the new session for FLY-2" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start the new session for FLY-2" }));
     await waitFor(() => expect(storyResume).toHaveBeenCalledWith("s1", undefined));
   });
 
@@ -140,51 +155,48 @@ describe("StoryBoard: a Stopped Story (issue #54)", () => {
     renderBoard();
     const row = await storyRow();
     fireEvent.click(await within(row).findByRole("button", { name: "Resume FLY-2" }));
-    fireEvent.click(within(row).getByRole("button", { name: "Start the new session for FLY-2" }));
-    expect(await within(row).findByText("Resume needs a Stopped Story")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Start the new session for FLY-2" }));
+    expect(await screen.findByText("Resume needs a Stopped Story")).toBeInTheDocument();
   });
 });
 
-describe("StoryBoard: Drop (issue #54)", () => {
+describe("The Story view: Drop (issue #54)", () => {
   it("drops a Stopped Story only after the developer confirms", async () => {
-    renderBoard();
-    const row = await storyRow();
-    fireEvent.click(await within(row).findByRole("button", { name: "Drop FLY-2" }));
+    renderStory();
+    fireEvent.click(await screen.findByRole("button", { name: "Drop FLY-2" }));
     expect(storyDrop).not.toHaveBeenCalled();
-    expect(within(row).getByText(/removes its worktree and branch, uncommitted work included/)).toBeInTheDocument();
-    fireEvent.click(within(row).getByRole("button", { name: "Confirm drop of FLY-2" }));
+    expect(screen.getByText(/removes its worktree and branch, uncommitted work included/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm drop of FLY-2" }));
     await waitFor(() => expect(storyDrop).toHaveBeenCalledWith("s1"));
   });
 
   it("cancelling the confirmation drops nothing", async () => {
-    renderBoard();
-    const row = await storyRow();
-    fireEvent.click(await within(row).findByRole("button", { name: "Drop FLY-2" }));
-    fireEvent.click(within(row).getByRole("button", { name: "Keep FLY-2" }));
+    renderStory();
+    fireEvent.click(await screen.findByRole("button", { name: "Drop FLY-2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep FLY-2" }));
     expect(storyDrop).not.toHaveBeenCalled();
-    expect(within(row).queryByRole("button", { name: "Confirm drop of FLY-2" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Confirm drop of FLY-2" })).toBeNull();
   });
 
   it("shows the core's refusal while a session is live", async () => {
     storyStopped.mockResolvedValue(null);
     storyDrop.mockRejectedValue(new Error("FLY-2 has a live session. Stop the session first, then drop it."));
-    renderBoard();
-    const row = await storyRow();
-    fireEvent.click(await within(row).findByRole("button", { name: "Drop FLY-2" }));
-    fireEvent.click(within(row).getByRole("button", { name: "Confirm drop of FLY-2" }));
-    expect(await within(row).findByText(/Stop the session first/)).toBeInTheDocument();
+    renderStory();
+    fireEvent.click(await screen.findByRole("button", { name: "Drop FLY-2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm drop of FLY-2" }));
+    expect(await screen.findByText(/Stop the session first/)).toBeInTheDocument();
   });
 
   it("offers no Drop on a Merged or Dropped Story", async () => {
     storyListForProject.mockResolvedValue([story("merged")]);
-    renderBoard();
-    const row = await storyRow();
-    await within(row).findByText("Merged");
-    expect(within(row).queryByRole("button", { name: "Drop FLY-2" })).toBeNull();
+    renderStory();
+    await screen.findByRole("heading", { name: /Parser/ });
+    await screen.findAllByText("Merged");
+    expect(screen.queryByRole("button", { name: "Drop FLY-2" })).toBeNull();
   });
 });
 
-describe("StoryBoard: the Story's session list (issue #54)", () => {
+describe("The Story view: the Story's session list (issue #54)", () => {
   it("lists each session with its ID, start and end, ending reason and summary, and opens its feed", async () => {
     sessionsForStory.mockResolvedValue([
       run("01JSESSIONNEXT0000000000000", null, null),
@@ -198,11 +210,8 @@ describe("StoryBoard: the Story's session list (issue #54)", () => {
       decisions: "",
     };
     sessionSummariesForStory.mockResolvedValue([summary]);
-    renderBoard();
-    const row = await storyRow();
-    fireEvent.click(await within(row).findByRole("button", { name: "Sessions of FLY-2" }));
-
-    const list = await within(row).findByRole("list", { name: "Sessions of FLY-2" });
+    renderStory();
+    const list = await screen.findByRole("list", { name: "Sessions of FLY-2" });
     const items = await within(list).findAllByRole("listitem");
     expect(items).toHaveLength(2);
     expect(within(items[0]).getByText(/01JSESSIONNEXT/)).toBeInTheDocument();

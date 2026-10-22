@@ -12,7 +12,9 @@
  */
 import { mockIPC } from "@tauri-apps/api/mocks";
 import type {
+  AcceptanceCriterionDto,
   BlockedQueueEntryDto,
+  CheckDto,
   EpicDto,
   FleetRowDto,
   MilestoneDto,
@@ -287,6 +289,27 @@ function queueEntry(sessionId: string, storyId: string): BlockedQueueEntryDto {
 
 const QUEUE: BlockedQueueEntryDto[] = [queueEntry("ses-5a", "s-5"), queueEntry("ses-6a", "s-6"), queueEntry("ses-h2a", "s-h2")];
 
+const check = (id: string, command: string, result: string, stale = false): CheckDto => ({
+  id, command, timeoutSecs: 600, result, commitSha: result === "not_run" ? null : "4219b28", stale, outputTail: null,
+});
+const criterion = (id: string, storyId: string, statement: string, c: CheckDto | null, rank: string): AcceptanceCriterionDto => ({
+  id, storyId, statement, accepted: false, acceptedAt: null, rank, check: c,
+});
+
+const CRITERIA: Record<string, AcceptanceCriterionDto[]> = {
+  "s-4": [
+    criterion("c-4a", "s-4", "A Story row on the board, in the sidebar and in Needs you opens the Story view", check("k-4a", "npm test -- navigation", "passed", true), "a"),
+    criterion("c-4b", "s-4", "Start and Resume leave the developer where they were", check("k-4b", "npm test -- story-board", "failed"), "b"),
+    criterion("c-4c", "s-4", "Choosing a project in the sidebar replaces an open session or the fleet", check("k-4c", "npm test -- project-rail", "not_run"), "c"),
+    criterion("c-4d", "s-4", "Back and ⌘[ return to the previous place", check("k-4d", "npm test -- uiStore", "passed"), "d"),
+    criterion("c-4e", "s-4", "The breadcrumb names the project, the Story and the session", null, "e"),
+  ],
+  "s-7": [
+    criterion("c-7a", "s-7", "Every screen of the M2 flow uses the new components and tokens", null, "a"),
+    criterion("c-7b", "s-7", "impeccable detect reports no findings on the changed UI", check("k-7b", "npx impeccable detect src", "timed_out"), "b"),
+  ],
+};
+
 const PACKET: Record<string, number> = { "s-3": 11800, "s-4": 9400, "s-5": 12100, "s-6": 8700, "s-7": 23400, "s-9": 6100, "s-10": 5200, "s-h2": 4100, "s-h3": 3900 };
 
 const counts = (c: Partial<StoryStateCountsDto>): StoryStateCountsDto => {
@@ -360,7 +383,7 @@ export function answer(cmd: string, args: Args): unknown {
     case "worktree_inventory": return [];
     case "git_facts": return null;
     case "proposal_list_pending": return [];
-    case "criterion_list": return [];
+    case "criterion_list": return CRITERIA[arg(args, "storyId")] ?? [];
     default: return null;
   }
 }

@@ -15,6 +15,8 @@ import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./projects/R
 import { OrphanRecoveryModal } from "./recovery/OrphanRecoveryModal";
 import { SessionSurface } from "./session/SessionSurface";
 import { SettingsSurface } from "./settings/SettingsSurface";
+import { AndonStrip } from "./shell/AndonStrip";
+import { CommandPalette } from "./shell/CommandPalette";
 import { activeSurface, dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { useMenuLayerSync } from "./state/menuSync";
 import { useUiStore } from "./state/uiStore";
@@ -67,26 +69,11 @@ function AppShell() {
   const { registerProjectFlow, isError: registerIsError, error: registerError } = useRegisterProjectFlow();
   const registerNotice = useRegistrationErrorNotice(registerIsError, registerError);
   // A fixed-position toast so a `⌘⇧O` failure is visible regardless of which of the three
-  // return branches below is currently active (boot, zero-project FirstRun, or the rail+board) —
-  // reuses FirstRun.tsx's own `type-label`/`var(--destructive-text)` error styling rather than
-  // inventing a second idiom (CR-02).
+  // return branches below is currently active (boot, zero-project FirstRun, or the sidebar+board) (CR-02).
   const registerNoticeNode = registerNotice ? (
     <div
       role="status"
-      className="type-label"
-      style={{
-        position: "fixed",
-        bottom: "var(--space-lg)",
-        left: "50%",
-        transform: "translateX(-50%)",
-        zIndex: 1400,
-        color: "var(--destructive-text)",
-        background: "var(--muted)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-control)",
-        padding: "var(--space-sm) var(--space-md)",
-        maxWidth: "80vw",
-      }}
+      className="fixed bottom-6 left-1/2 z-[1400] max-w-[80vw] -translate-x-1/2 rounded-md border border-border bg-card px-4 py-2 text-small text-destructive-text shadow-overlay"
     >
       {registerNotice}
     </div>
@@ -150,7 +137,7 @@ function AppShell() {
   if (!projectsQuery.data) {
     return (
       <>
-        <div id="app-root" className="rack-ground" />
+        <div id="app-root" className="h-full bg-background" />
         <OrphanRecoveryModal />
         {registerNoticeNode}
         <LaunchEnvironmentNotice />
@@ -161,7 +148,7 @@ function AppShell() {
   if (projectsQuery.data.length === 0) {
     return (
       <>
-        <div id="app-root" className="rack-ground">
+        <div id="app-root" className="h-full bg-background text-foreground">
           <FirstRun />
         </div>
         <OrphanRecoveryModal />
@@ -236,16 +223,19 @@ function AppShell() {
   }
   return (
     <>
-      <div id="app-root" className="rack-ground" style={{ display: "flex", height: "100%" }}>
+      <div id="app-root" className="flex h-full bg-background text-foreground">
         <ProjectRail
           projects={projectsQuery.data}
           currentProjectId={project.id}
           onSelect={(selected) => setCurrentProjectId(selected.id)}
         />
-        <div style={{ flex: 1, minHeight: 0 }}>
-          {renderSurface()}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* The andon strip: one lamp per live session, on every screen (direction.md). */}
+          <AndonStrip />
+          <main className="flex min-h-0 flex-1 flex-col">{renderSurface()}</main>
         </div>
       </div>
+      <CommandPalette projects={projectsQuery.data} currentProjectId={project.id} />
       <OrphanRecoveryModal />
       <LaunchSheet
         storyId={launchSheetStoryId}

@@ -40,7 +40,7 @@ async function boardReady() {
   // The shipped page mounts into `#root`, which App.css sizes to the window; render into the same node.
   const root = document.getElementById("root") ?? document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
   render(<App />, { container: root });
-  await screen.findByText("Make clicking and navigation predictable");
+  await screen.findAllByText("Make clicking and navigation predictable");
   await settle();
 }
 
@@ -48,9 +48,8 @@ async function click(label: string | RegExp) {
   await userEvent.click(await screen.findByRole("button", { name: label }));
 }
 
-function scrollBoard(to: "top" | "bottom") {
-  const scroller = document.querySelector(".board-shell > div") as HTMLElement | null;
-  if (scroller) scroller.scrollTop = to === "top" ? 0 : scroller.scrollHeight;
+async function openStory(key: string, title: string | RegExp) {
+  await userEvent.click(await screen.findByRole("button", { name: new RegExp(`^Open Story ${key} ${typeof title === "string" ? title : title.source}$`) }));
 }
 
 describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
@@ -71,33 +70,37 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
 
   it("02 write a Story form", async () => {
     await boardReady();
-    scrollBoard("bottom");
+    await click("Write a Story");
+    await screen.findByRole("dialog");
     await shot("02-board-write-story");
   });
 
   it("03 Story Tasks with a note open", async () => {
     await boardReady();
-    await click("Tasks of FLY-4");
+    await openStory("FLY-4", "Make clicking and navigation predictable");
     await click(/Show note of Make Waiting on you/);
     await shot("03-story-tasks");
   });
 
   it("04 Story sessions of a Stopped Story", async () => {
     await boardReady();
-    await click("Sessions of FLY-7");
-    await click("Tasks of FLY-7");
+    await openStory("FLY-7", "Restyle every screen of the M2 flow in the new world");
+    await screen.findByRole("list", { name: "Sessions of FLY-7" });
     await shot("04-story-stopped-sessions");
   });
 
   it("05 Resume a Stopped Story", async () => {
     await boardReady();
     await click("Resume FLY-7");
+    await screen.findByRole("dialog");
     await shot("05-story-resume");
   });
 
   it("06 Drop confirmation", async () => {
     await boardReady();
+    await openStory("FLY-9", "Answer a shaping Round in the dock");
     await click("Drop FLY-9");
+    await screen.findByRole("alertdialog");
     await shot("06-story-drop-confirm");
   });
 
@@ -138,7 +141,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
 
   it("12 session feed, handed off (In review)", async () => {
     await boardReady();
-    await click("Sessions of FLY-3");
+    await openStory("FLY-3", "Pick Flywheel's new visual world from three rendered directions");
     await click("Open feed of session ses-3a");
     await screen.findByText(/Rendering the three directions/);
     // Issue #110: a finished session says how it ended and offers no Stop.

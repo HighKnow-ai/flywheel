@@ -229,7 +229,7 @@ describe("Back and ⌘[", () => {
     expect(useUiStore.getState().activeSessionId).toBeNull();
     expect(useUiStore.getState().currentStoryId).toBe("s-run");
 
-    fireEvent.click(screen.getByRole("button", { name: "← Back" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(await screen.findByRole("list", { name: "Stories" })).toBeInTheDocument();
     expect(useUiStore.getState().currentStoryId).toBeNull();
   });
@@ -238,7 +238,7 @@ describe("Back and ⌘[", () => {
     useUiStore.getState().openStory("p1", "s-run");
     render(<App />);
     const here = await screen.findByRole("navigation", { name: "You are here" });
-    await waitFor(() => expect(here).toHaveTextContent("Flywheel › FLY-2"));
+    await waitFor(() => expect(here).toHaveTextContent(/Flywheel\s*\/\s*FLY-2/));
   });
 
   it("with nothing to go back to, Back lands on the project's board", () => {
@@ -294,7 +294,7 @@ describe("adding a Check to a criterion is a visible control on the Story", () =
     ]);
     renderStory();
     expect(await screen.findByText("cargo test")).toBeInTheDocument();
-    expect(screen.getByText(/failed/)).toBeInTheDocument();
+    expect(screen.getByText("Failed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Change the Check of criterion 1" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove the Check of criterion 1" })).toBeInTheDocument();
   });

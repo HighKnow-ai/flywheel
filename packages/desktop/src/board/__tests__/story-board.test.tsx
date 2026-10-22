@@ -75,6 +75,12 @@ function renderBoard() {
   );
 }
 
+/** Open the Write a Story dialog from the board's Story control. */
+async function openForm() {
+  fireEvent.click(await screen.findByRole("button", { name: "Write a Story" }));
+  await screen.findByRole("dialog");
+}
+
 /** Choose Milestone m1, wait for its Epics to load, then choose Epic e1. */
 async function chooseEpic() {
   await screen.findByRole("option", { name: "M1" });
@@ -231,6 +237,7 @@ describe("StoryBoard: the Story list", () => {
 describe("StoryBoard: the hand-written Story form", () => {
   it("creates a Milestone from its visible controls", async () => {
     renderBoard();
+    await openForm();
     fireEvent.change(await screen.findByLabelText("Milestone title"), { target: { value: "  M1  " } });
     fireEvent.change(screen.getByLabelText("Exit test"), { target: { value: "It ships" } });
     fireEvent.click(screen.getByRole("button", { name: "Add Milestone" }));
@@ -241,6 +248,7 @@ describe("StoryBoard: the hand-written Story form", () => {
   it("creates an Epic only inside a chosen Milestone", async () => {
     milestoneList.mockResolvedValue([milestone("m1", "M1")]);
     renderBoard();
+    await openForm();
 
     const addEpic = await screen.findByRole("button", { name: "Add Epic" });
     fireEvent.change(screen.getByLabelText("Epic title"), { target: { value: "E1" } });
@@ -257,6 +265,7 @@ describe("StoryBoard: the hand-written Story form", () => {
     milestoneList.mockResolvedValue([milestone("m1", "M1")]);
     epicList.mockResolvedValue([epic("e1", "E1")]);
     renderBoard();
+    await openForm();
 
     const create = await screen.findByRole("button", { name: "Create Story" });
     fireEvent.change(screen.getByLabelText("Story title"), { target: { value: "Start a Story" } });
@@ -286,6 +295,7 @@ describe("StoryBoard: the hand-written Story form", () => {
     milestoneList.mockResolvedValue([milestone("m1", "M1")]);
     epicList.mockResolvedValue([epic("e1", "E1")]);
     renderBoard();
+    await openForm();
     await chooseEpic();
     fireEvent.change(screen.getByLabelText("Story title"), { target: { value: "No criteria" } });
 
@@ -297,6 +307,7 @@ describe("StoryBoard: the hand-written Story form", () => {
     epicList.mockResolvedValue([epic("e1", "E1")]);
     storyWriteByHand.mockRejectedValue(new Error("Epic is done; a new Story goes into an open Epic"));
     renderBoard();
+    await openForm();
     await chooseEpic();
     fireEvent.change(screen.getByLabelText("Story title"), { target: { value: "Kept" } });
     fireEvent.change(screen.getByLabelText("Criterion 1"), { target: { value: "x" } });

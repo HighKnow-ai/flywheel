@@ -37,7 +37,7 @@ import {
 } from "../adapters/tauri";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
-import { endingWords, formatWhen } from "../board/StoryBoard";
+import { endingWords, formatWhen } from "../board/StoryControls";
 import { MARKS_BY_ID } from "../legend/marks";
 import { StateBadge } from "../components/StateBadge";
 import {

@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryBoard } from "../StoryBoard";
+import { StoryView } from "../StoryView";
 import { useUiStore } from "../../state/uiStore";
 import type { StoryDto, TaskDto } from "../../adapters/tauri";
 
@@ -33,6 +34,7 @@ vi.mock("../../adapters/tauri", async () => {
     taskMove: (...args: unknown[]) => taskMove(...args),
     taskSetState: (...args: unknown[]) => taskSetState(...args),
     taskSetNote: (...args: unknown[]) => taskSetNote(...args),
+    storyGet: () => Promise.resolve(story("s1", "FLY-2", "running")),
     subscribeBoardChanged: (handler: (payload: { projectId: string }) => void) => {
       boardChanged = handler;
       return Promise.resolve(() => {});
@@ -48,23 +50,34 @@ function task(id: string, title: string, state = "open", droppedReason: string |
   return { id, storyId: "s1", title, state, droppedReason, rank: id, note };
 }
 
+/** The board, or the Story view once a row opens a Story: the two places a Story's Tasks show. */
+function Place() {
+  const storyId = useUiStore((state) => state.currentStoryId);
+  return storyId ? (
+    <StoryView projectId="p1" projectName="Threadfin" storyId={storyId} onBack={() => {}} />
+  ) : (
+    <StoryBoard projectId="p1" projectName="Threadfin" />
+  );
+}
+
 function renderBoard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <StoryBoard projectId="p1" projectName="Threadfin" />
+      <Place />
     </QueryClientProvider>,
   );
 }
 
+/** The checklist lives in the Story view: open the Story from its row. */
 async function openChecklist() {
-  fireEvent.click(await screen.findByRole("button", { name: "Tasks of FLY-2" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Open Story FLY-2 Story FLY-2" }));
   return screen.findByRole("list", { name: "FLY-2 Tasks" });
 }
 
 beforeEach(() => {
   boardChanged = null;
-  useUiStore.setState({ currentProjectId: "p1" });
+  useUiStore.setState({ currentProjectId: "p1", currentStoryId: null });
   storyListForProject.mockReset().mockResolvedValue([story("s1", "FLY-2", "running")]);
   taskList.mockReset().mockResolvedValue([task("t1", "Write the failing test", "done"), task("t2", "Make it pass", "doing"), task("t3", "Refactor")]);
   taskAdd.mockReset().mockResolvedValue(task("t4", "New"));
@@ -87,9 +100,10 @@ describe("A Story's Task checklist", () => {
       expect.stringContaining("Make it pass"),
       expect.stringContaining("Refactor"),
     ]);
-    expect(within(rows[0]).getByText("Done")).toBeInTheDocument();
-    expect(within(rows[1]).getByText("Doing")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Tasks of FLY-2" })).toHaveTextContent("Tasks (1/3)");
+    // A Task's state is its icon, with the word as its accessible name and tooltip.
+    expect(within(rows[0]).getByRole("img", { name: "Done" })).toBeInTheDocument();
+    expect(within(rows[1]).getByRole("img", { name: "Doing" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("1 of 3 Tasks done")).toHaveTextContent("1/3");
   });
 
   it("follows the agent's writes live when the core says the board changed", async () => {

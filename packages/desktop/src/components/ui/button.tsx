@@ -7,6 +7,7 @@ import { Slot } from "radix-ui"
  * Every action (direction.md § Components, rule 2). One filled primary per region, brand blue. The only
  * other filled colour is `attention`, and only on an item that is Waiting on you (Answer, Allow once).
  * `destructive` is a text button (Drop), set apart from the primary, and always confirms in an AlertDialog.
+ * On a Gated action Deny leads as the filled `neutral` (ink fill) and Allow once is outline.
  * Buttons carry an icon and a word; the focus ring is the 2px --ring at a 2px offset (styles/globals.css).
  */
 const buttonVariants = cva(
@@ -16,6 +17,9 @@ const buttonVariants = cva(
       variant: {
         default: "bg-primary text-primary-foreground shadow-[0_1px_0_rgb(0_0_0/0.15)] hover:bg-primary/90",
         attention: "bg-attention text-attention-foreground shadow-[0_1px_0_rgb(0_0_0/0.15)] hover:bg-attention/90",
+        // The filled neutral (ink fill): Deny leading on a Gated action, where approve-by-muscle-memory must
+        // land on the safe answer without spending the brand or the attention colour on a refusal.
+        neutral: "bg-foreground text-card shadow-[0_1px_0_rgb(0_0_0/0.15)] hover:bg-foreground/85",
         secondary: "bg-secondary text-secondary-foreground hover:bg-accent",
         outline:
           "border-input bg-card text-foreground hover:border-foreground aria-expanded:border-foreground",
