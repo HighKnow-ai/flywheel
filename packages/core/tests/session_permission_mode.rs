@@ -143,7 +143,7 @@ fn every_allowed_board_tool_is_one_the_board_server_registers() {
     }
     // Issue #123: each kind is listed only its own tools.
     let (_, shaping) = board_server_registration(SessionKind::Shaping);
-    assert_eq!(shaping, ["round_post"], "a shaping session sees round_post and nothing else");
+    assert_eq!(shaping, ["round_post", "propose_spec_change"], "a shaping session sees its Round and Proposal tools and nothing else");
     let (_, story) = board_server_registration(SessionKind::Story);
     assert!(!story.iter().any(|t| t == "round_post"), "a Story session never sees round_post: {story:?}");
 }

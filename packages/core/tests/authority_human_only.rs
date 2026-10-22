@@ -26,7 +26,7 @@ use core::domain::session::agent_actor_id;
 use core::domain::check::{remove_check, set_check};
 use core::domain::epic::{set_epic_state, EpicState};
 use core::domain::milestone::{move_milestone, set_milestone_state, MilestoneState};
-use core::domain::proposal::{accept_proposal, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb};
+use core::domain::proposal::{accept_proposal, accept_proposal_amended, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb};
 use core::domain::round::{accept_all_recommended, answer_round_question, post_round, NewQuestion, NewRound, RoundAnswer};
 use core::domain::story::{set_story_state, StoryState};
 use rusqlite::Connection;
@@ -151,7 +151,14 @@ fn filed_proposal() -> (Connection, String) {
 
 fn run_accept_proposal(who: Who) -> Trial {
     let (mut conn, proposal_id) = filed_proposal();
-    trial(&mut conn, who, |c, actor| accept_proposal(c, actor, &proposal_id))
+    trial(&mut conn, who, |c, actor| accept_proposal(c, actor, &proposal_id).map(|_| ()))
+}
+
+/// Amend (issue #125): the developer's edit and acceptance in one act.
+fn run_accept_proposal_amended(who: Who) -> Trial {
+    let (mut conn, proposal_id) = filed_proposal();
+    let edited = serde_json::json!({ "title": "Ship the board, then the fleet" });
+    trial(&mut conn, who, |c, actor| accept_proposal_amended(c, actor, &proposal_id, &edited).map(|_| ()))
 }
 
 fn run_reject_proposal(who: Who) -> Trial {
@@ -262,12 +269,13 @@ fn run_accept_all_recommended(who: Who) -> Trial {
 
 /// The authority writers the source half guards, by function name. Adding one here without a case
 /// below (or the reverse) fails `every_authority_writer_has_a_refusal_and_a_not_blocked_case`.
-const AUTHORITY_WRITERS: [&str; 8] = [
+const AUTHORITY_WRITERS: [&str; 9] = [
     "accept_criterion",
     "unaccept_criterion",
     "set_check",
     "remove_check",
     "accept_proposal",
+    "accept_proposal_amended",
     "reject_proposal",
     "answer_round_question",
     "accept_all_recommended",
@@ -307,6 +315,7 @@ authority_cases! {
     set_check => run_set_check,
     remove_check => run_remove_check,
     accept_proposal => run_accept_proposal,
+    accept_proposal_amended => run_accept_proposal_amended,
     reject_proposal => run_reject_proposal,
     answer_round_question => run_answer_round_question,
     accept_all_recommended => run_accept_all_recommended,
@@ -337,7 +346,7 @@ fn every_authority_writer_has_a_refusal_and_a_not_blocked_case() {
     in_table.sort_unstable();
     declared.sort_unstable();
     assert_eq!(in_table, declared, "the case table must name every writer and every developer-only move");
-    assert_eq!(TRANSITIONS.len(), 15, "a transition was quietly dropped from coverage");
+    assert_eq!(TRANSITIONS.len(), 16, "a transition was quietly dropped from coverage");
 }
 
 /// The session's hand-off is the one Story move that is not the developer's: an agent may make it,
@@ -496,7 +505,7 @@ const ALLOWED_CALLERS: [AllowedCaller; 8] = [
     AllowedCaller { suffix: "packages/core/src/domain/round.rs", reason: "declares answer_round_question / accept_all_recommended", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/shaping.rs", reason: "the human's answers in the Round dock", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/check.rs", reason: "declares set_check / remove_check", test_only: false },
-    AllowedCaller { suffix: "packages/core/src/domain/proposal.rs", reason: "declares accept_proposal / reject_proposal", test_only: false },
+    AllowedCaller { suffix: "packages/core/src/domain/proposal.rs", reason: "declares accept_proposal / accept_proposal_amended / reject_proposal", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/criterion.rs", reason: "the human's acceptance and Check controls", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/proposal.rs", reason: "the human's Proposal decisions", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/session.rs", reason: "calls only from a #[cfg(test)] fixture", test_only: true },

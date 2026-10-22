@@ -169,31 +169,47 @@ pub fn epics_in_milestone(conn: &Connection, milestone_id: &str) -> anyhow::Resu
 }
 
 /// Rewrite the Epic's title, spec and exit test. A changed spec reaches every Story packet from the
-/// next session. The developer's direct edit; an agent changes a spec only through a Proposal.
+/// next session. The developer's direct edit; an agent changes a spec only through a Proposal, which
+/// `proposal_apply` writes through [`update_epic_in_tx`] once the developer accepts it.
 pub fn update_epic(conn: &mut Connection, actor_id: &str, epic_id: &str, title: &str, spec: &EpicSpec) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    update_epic_in_tx(&tx, actor_id, epic_id, title, spec, serde_json::json!({ "label": "Edited the Epic spec" }))?;
+    tx.commit().context("failed to commit update_epic")?;
+    Ok(())
+}
+
+/// [`update_epic`] inside the caller's transaction. `detail` is the `epic.updated` payload: its
+/// `label` and whatever else the caller records (the Proposal it applies, say); the title is added.
+pub(crate) fn update_epic_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    epic_id: &str,
+    title: &str,
+    spec: &EpicSpec,
+    mut detail: serde_json::Value,
+) -> anyhow::Result<()> {
     let title = title.trim();
     anyhow::ensure!(!title.is_empty(), "an Epic needs a title");
     let now = now();
-    let tx = conn.transaction()?;
-    let project_id = project_of_epic(&tx, epic_id)?;
+    let project_id = project_of_epic(tx, epic_id)?;
     tx.execute(
         "UPDATE epics SET title = ?1, problem = ?2, scope = ?3, out_of_scope = ?4, exit_test = ?5, updated_at = ?6
          WHERE id = ?7",
         params![title, spec.problem, spec.scope, spec.out_of_scope, spec.exit_test, now, epic_id],
     )
     .context("failed to update the Epic")?;
+    detail["title"] = serde_json::json!(title);
     record_event(
-        &tx,
+        tx,
         &project_id,
         "epic",
         epic_id,
         EventScope { story_id: None, epic_id: Some(epic_id) },
         actor_id,
         "epic.updated",
-        &serde_json::json!({ "title": title, "label": "Edited the Epic spec" }),
+        &detail,
         &now,
     )?;
-    tx.commit().context("failed to commit update_epic")?;
     Ok(())
 }
 

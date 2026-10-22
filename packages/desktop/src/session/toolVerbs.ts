@@ -140,6 +140,14 @@ const TASK_MOVES: Record<string, [string, string]> = {
   open: ["Reopened Task", "Reopening Task"],
 };
 
+/** An Epic spec field as the Epic card names it, by the name `propose_spec_change` gives it. */
+const SPEC_FIELD_LABELS: Record<string, string> = {
+  problem: "Problem",
+  scope: "Scope",
+  out_of_scope: "Out of scope",
+  exit_test: "Exit test",
+};
+
 function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescription {
   const input = record(call.input);
   const answer = outputJson(call.output);
@@ -202,6 +210,12 @@ function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescripti
             ? base.metrics
             : [{ text: `${answers.length} answered · ${recommended} recommended`, tone: "neutral" as const }],
       };
+    }
+    case "propose_spec_change": {
+      // Issue #125: answered at once; the Proposal waits on the Epic card, never the agent.
+      const field = SPEC_FIELD_LABELS[str(input.field)] ?? words(str(input.field));
+      const text = str(input.text);
+      return { ...base, verb: "Proposed", liveVerb: "Proposing", target: [field, text].filter(Boolean).join(": ") };
     }
     default:
       return {

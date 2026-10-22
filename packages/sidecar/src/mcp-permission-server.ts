@@ -77,8 +77,9 @@ export const BOARD_TOOL_NAMES = [...TASK_TOOL_NAMES, ...HANDOFF_TOOL_NAMES] as c
 /** Issue #123 (docs/mvp-spec.md §3): the shaping session's board tools, hosted on the same server
  * and relayed the same way. Mirrors `SHAPING_TOOL_NAMES` in `packages/core/src/domain/shaping_tool.rs`,
  * which is what parses and runs each call. `round_post` is held until the developer has answered
- * every question in the Round, which can take days. */
-export const SHAPING_TOOL_NAMES = ["round_post"] as const;
+ * every question in the Round, which can take days. `propose_spec_change` (issue #125) files a
+ * Proposal on the Epic and is answered at once: a Proposal never holds the agent. */
+export const SHAPING_TOOL_NAMES = ["round_post", "propose_spec_change"] as const;
 
 export type ShapingToolName = (typeof SHAPING_TOOL_NAMES)[number];
 
@@ -185,6 +186,20 @@ export const SHAPING_TOOL_DEFINITIONS = [
         },
       },
       required: ["note", "questions"],
+    },
+  },
+  {
+    name: "propose_spec_change",
+    description:
+      "Propose new text for one field of the Epic you are shaping: its problem, scope, out_of_scope or exit_test. Give the field's whole new text, not a diff, and one line on why. The change is filed as a Proposal on the Epic card, where the developer accepts it, amends it or rejects it with a reason; nothing on the Epic changes until they do. This call is answered at once with the Proposal's id: keep shaping, do not wait for the decision. A rejected Proposal and its reason reach your next session's packet; do not propose it again without new evidence.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        field: { type: "string", enum: ["problem", "scope", "out_of_scope", "exit_test"] },
+        text: { type: "string", minLength: 1, maxLength: 20000, description: "The field's whole new text." },
+        why: { type: "string", minLength: 1, description: "One line: what in the Rounds or the code makes this the better text." },
+      },
+      required: ["field", "text", "why"],
     },
   },
 ] as const;

@@ -188,6 +188,7 @@ fn main() {
             commands::task::task_set_state,
             commands::proposal::proposal_list_pending,
             commands::proposal::proposal_accept,
+            commands::proposal::proposal_amend,
             commands::proposal::proposal_reject,
             commands::actor::actor_list,
             commands::events::events_activity_trail,

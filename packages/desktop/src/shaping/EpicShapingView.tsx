@@ -4,7 +4,8 @@
  *
  * The Epic card carries the record being shaped: its key, title and state, the Stage it is in, and its
  * spec (Problem, Scope, Out of scope, Exit test), each field still the developer's to edit in place through
- * `epic_update`. The dock beside it holds the agent's Rounds ([`RoundDock`]). From 1280px the two sit side
+ * `epic_update`, with an agent's pending spec change drawn under it as a ghost to decide in place (`GhostCard`,
+ * issue #125). The dock beside it holds the agent's Rounds ([`RoundDock`]). From 1280px the two sit side
  * by side, the card at a reading measure and the dock taking the rest; below that they stack, the dock
  * first, so a Round waiting on you is the first thing on screen.
  *
@@ -14,13 +15,21 @@
 import { useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Layers, PenLine, X } from "lucide-react";
-import { epicShapingRounds, epicShapingSession, epicUpdate, type EpicDto, type EpicSpecInput } from "../adapters/tauri";
+import {
+  epicShapingRounds,
+  epicShapingSession,
+  epicUpdate,
+  type EpicDto,
+  type EpicSpecInput,
+  type ProposalDto,
+} from "../adapters/tauri";
 import { useBoardChangedSubscription } from "../board/useBoardQuery";
 import { EpicShapingControl } from "../board/EpicShapingControl";
 import { errorText } from "../board/StoryControls";
 import { StateBadge } from "../components/StateBadge";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
 import { useUiStore } from "../state/uiStore";
+import { GhostCard, specChangeOf } from "./GhostCard";
 import { RoundDock, STAGE_LABELS } from "./RoundDock";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -78,7 +87,7 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
               className="xl:col-start-2 xl:row-start-1"
             />
             <div className="min-w-0 self-stretch xl:col-start-1 xl:row-span-2 xl:row-start-1">
-              <EpicCard epic={epic} stage={openStage ? { kind: openStage.kind, rank: openStage.rank } : null} queryKey={queryKey} />
+              <EpicCard epic={epic} proposals={data.proposals ?? []} stage={openStage ? { kind: openStage.kind, rank: openStage.rank } : null} queryKey={queryKey} />
             </div>
             <RoundDock
               rounds={data.rounds}
@@ -101,19 +110,23 @@ function stageCount(kind: string) {
 
 function EpicCard({
   epic,
+  proposals,
   stage,
   queryKey,
 }: {
   epic: EpicDto;
+  /** The Epic's pending and rejected Proposals (issue #125), drawn on the field each would rewrite. */
+  proposals: ProposalDto[];
   stage: { kind: string; rank: number } | null;
   queryKey: readonly unknown[];
 }) {
   const headingId = useId();
-  const fields: { key: keyof EpicSpecInput; label: string }[] = [
-    { key: "problem", label: "Problem" },
-    { key: "scope", label: "Scope" },
-    { key: "outOfScope", label: "Out of scope" },
-    { key: "exitTest", label: "Exit test" },
+  // `column` is the field as a spec-change Proposal names it (issue #125).
+  const fields: { key: keyof EpicSpecInput; column: string; label: string }[] = [
+    { key: "problem", column: "problem", label: "Problem" },
+    { key: "scope", column: "scope", label: "Scope" },
+    { key: "outOfScope", column: "out_of_scope", label: "Out of scope" },
+    { key: "exitTest", column: "exit_test", label: "Exit test" },
   ];
   return (
     <section
@@ -141,7 +154,16 @@ function EpicCard({
       </header>
       <dl className="m-0 flex min-w-0 flex-col">
         {fields.map((field) => (
-          <SpecField key={field.key} epic={epic} field={field.key} label={field.label} queryKey={queryKey} />
+          <SpecField
+            key={field.key}
+            epic={epic}
+            field={field.key}
+            label={field.label}
+            queryKey={queryKey}
+            proposals={proposals
+              .filter((p) => specChangeOf(p)?.field === field.column)
+              .sort((a, b) => Number(a.state === "rejected") - Number(b.state === "rejected"))}
+          />
         ))}
       </dl>
     </section>
@@ -154,11 +176,13 @@ function SpecField({
   field,
   label,
   queryKey,
+  proposals,
 }: {
   epic: EpicDto;
   field: keyof EpicSpecInput;
   label: string;
   queryKey: readonly unknown[];
+  proposals: ProposalDto[];
 }) {
   const queryClient = useQueryClient();
   const fieldId = useId();
@@ -251,6 +275,9 @@ function SpecField({
         ) : (
           <p className="m-0 text-body text-subtle-foreground">Not written yet</p>
         )}
+        {proposals.map((p) => (
+          <GhostCard key={p.id} proposal={p} label={label} queryKey={queryKey} />
+        ))}
         {error && (
           <p role="alert" className="m-0 mt-1.5 text-small break-words text-destructive-text">
             {error}

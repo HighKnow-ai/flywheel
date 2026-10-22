@@ -287,6 +287,9 @@ export interface EpicShapingDto {
   epic: EpicDto;
   stages: StageDto[];
   rounds: RoundDto[];
+  /** The Epic's undecided and rejected Proposals, oldest first (issue #125): ghost fields and struck-through
+   * lines. An accepted one is already in the field it rewrote. */
+  proposals: ProposalDto[];
 }
 
 /** The Epic's Stages and Rounds (issue #123): what the Round dock shows. Read-only. */
@@ -516,6 +519,11 @@ export interface ProposalDto {
   rationale: string | null;
   state: string;
   createdAt: string;
+  /** The developer's reason, once rejected. */
+  rejectionReason: string | null;
+  /** The shaping Stage and Round it was filed in (issue #125); null for a Story session's. */
+  stageId: string | null;
+  roundId: string | null;
 }
 
 /** A project's pending Proposals, oldest first. Read-only. */
@@ -523,9 +531,15 @@ export async function proposalListPending(projectId: string): Promise<ProposalDt
   return invokeCommand<ProposalDto[]>("proposal_list_pending", { projectId });
 }
 
-/** Accept a pending Proposal. Human-only. */
+/** Accept a pending Proposal, applying it in the same transaction. Human-only. */
 export async function proposalAccept(proposalId: string): Promise<void> {
   await invokeCommand<void>("proposal_accept", { proposalId });
+}
+
+/** Amend (issue #125): accept a pending Proposal with the developer's edited payload, applied in the same
+ * transaction. Human-only; the event keeps the agent's original. */
+export async function proposalAmend(proposalId: string, payload: unknown): Promise<void> {
+  await invokeCommand<void>("proposal_amend", { proposalId, payload });
 }
 
 /** Reject a pending Proposal, keeping the reason for the Epic's packet. Human-only. */

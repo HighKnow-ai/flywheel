@@ -132,7 +132,7 @@ const ROUND = {
 };
 
 test("round_post is listed to a shaping session with what each question carries", () => {
-  assert.deepEqual([...SHAPING_TOOL_NAMES], ["round_post"]);
+  assert.ok(SHAPING_TOOL_NAMES.includes("round_post"));
   const post = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "round_post");
   assert.deepEqual(post.inputSchema.required, ["note", "questions"]);
   assert.deepEqual(post.inputSchema.properties.questions.items.required, [
@@ -197,8 +197,46 @@ test("a Story session's board server does not list round_post, and refuses it un
   });
   await waitForCondition(() => unknownLines(events, "task_tools_listed").length === 1);
   assert.ok(!unknownLines(events, "task_tools_listed")[0].names.includes("round_post"));
+  assert.ok(!unknownLines(events, "task_tools_listed")[0].names.includes("propose_spec_change"));
   await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
   assert.equal(unknownLines(events, "task_tool_result")[0].isError, true);
   assert.ok(!events.some((e) => e.type === "board_tool_request"), "nothing was relayed");
+  await session;
+});
+
+// Issue #125: a shaping session proposes spec changes. The core answers the call at once (a Proposal
+// never holds the agent); this server relays it like every other board tool.
+test("propose_spec_change is listed to a shaping session with the field, its new text and why", () => {
+  assert.ok(SHAPING_TOOL_NAMES.includes("propose_spec_change"));
+  const propose = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "propose_spec_change");
+  assert.deepEqual(propose.inputSchema.required, ["field", "text", "why"]);
+  assert.deepEqual(propose.inputSchema.properties.field.enum, ["problem", "scope", "out_of_scope", "exit_test"]);
+  assert.match(propose.description, /answered at once/);
+});
+
+test("propose_spec_change is relayed to the core and its answer reaches the agent", async () => {
+  const adapter = new ClaudeCodeAdapter();
+  const events = [];
+  const runId = "shaping-run-propose";
+  const args = { field: "scope", text: "The board, and nothing else.", why: "Round 1 narrowed it" };
+  const session = adapter.startSession({
+    runId,
+    worktreePath: process.cwd(),
+    prompt: "shape the Epic",
+    permissionMode: "dontAsk",
+    allowedTools: ["Read", "Glob", "Grep", `mcp__${MCP_SERVER_NAME}__propose_spec_change`],
+    permissionPrompt: false,
+    sessionKind: "shaping",
+    env: { FLYWHEEL_FAKE_CALL_TASK_TOOL: JSON.stringify({ name: "propose_spec_change", arguments: args }) },
+    onEvent: (event) => events.push(event),
+  });
+  await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
+  const request = events.find((e) => e.type === "board_tool_request");
+  assert.equal(request.tool, "propose_spec_change");
+  assert.deepEqual(request.args, args);
+  const answer = { proposal_id: "01PROPOSAL", state: "pending" };
+  adapter.resolveBoardTool(runId, request.requestId, answer);
+  await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
+  assert.deepEqual(JSON.parse(unknownLines(events, "task_tool_result")[0].text), answer);
   await session;
 });

@@ -113,6 +113,9 @@ pub struct EpicShapingDto {
     pub epic: super::epic::EpicDto,
     pub stages: Vec<StageDto>,
     pub rounds: Vec<RoundDto>,
+    /// The Epic's undecided and rejected Proposals, oldest first (issue #125): ghost fields and
+    /// struck-through lines. An accepted one is in the field it rewrote.
+    pub proposals: Vec<super::proposal::ProposalDto>,
 }
 
 impl From<flywheel_core::domain::round::Round> for RoundDto {
@@ -161,7 +164,9 @@ pub(crate) fn read_epic_shaping(conn: &Connection, epic_id: &str) -> Result<Epic
     let epic = super::epic::to_dto(conn, epic)?;
     let stages = flywheel_core::domain::stage::stages_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
     let rounds = flywheel_core::domain::round::rounds_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
+    let proposals = flywheel_core::domain::proposal::proposals_on_epic(conn, epic_id).map_err(|e| e.to_string())?;
     Ok(EpicShapingDto {
+        proposals: proposals.into_iter().filter(|p| p.state != "accepted").map(Into::into).collect(),
         epic,
         stages: stages
             .into_iter()
@@ -228,8 +233,9 @@ pub(crate) fn release_answer(release: &RoundRelease) -> serde_json::Value {
 }
 
 /// The core's handling of one shaping tool call (issue #123), as `handle_inbound_board_tool_request`
-/// routes it: `(Some(answer), _)` to answer at once (a refusal, with its reason), or `(None, project)`
-/// when the call is held until the developer answers the Round it posted.
+/// routes it: `(Some(answer), _)` to answer at once (a refusal with its reason, or a filed Proposal),
+/// or `(None, project)` when the call is held until the developer answers the Round it posted. The
+/// project is `Some` whenever the board changed.
 pub(crate) fn answer_shaping_tool_call(
     conn: &mut Connection,
     run_id: &str,
@@ -240,6 +246,8 @@ pub(crate) fn answer_shaping_tool_call(
     use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
     match ShapingToolCall::parse(tool, args).and_then(|call| apply_shaping_tool_call(conn, run_id, request_id, &call)) {
         Ok(ShapingToolOutcome::Held { project_id, .. }) => (None, Some(project_id)),
+        // Issue #125: a Proposal never holds the agent.
+        Ok(ShapingToolOutcome::Answered { result, project_id }) => (Some(serde_json::json!({ "result": result })), Some(project_id)),
         // The reason goes to the agent so it can correct its call.
         Err(e) => (Some(serde_json::json!({ "error": format!("{e:#}") })), None),
     }
@@ -259,7 +267,7 @@ pub(crate) fn handle_shaping_tool_request(app: &AppHandle, run_id: &str, request
         send_board_tool_answer(app, run_id, request_id, &answer);
     }
     if let Some(project_id) = changed {
-        emit_board_changed(app, Some(&project_id), "round", None);
+        emit_board_changed(app, Some(&project_id), if tool == "round_post" { "round" } else { "proposal" }, None);
     }
 }
 
@@ -526,6 +534,33 @@ mod tests {
             );
             assert!(answer.unwrap()["error"].as_str().unwrap().contains("at least one question"));
             assert_eq!(changed, None);
+        });
+    }
+
+    #[test]
+    fn a_spec_change_is_answered_at_once_and_reads_as_a_ghost_until_decided() {
+        with_scratch(|| {
+            let (db, epic_id, _checkout) = shaping_epic();
+            let run_id = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
+            let args = serde_json::json!({ "field": "scope", "text": "The board only.", "why": "Round 1 narrowed it" });
+            let (answer, changed) =
+                answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-2", "propose_spec_change", &args);
+            let answer = answer.expect("a Proposal never holds the agent");
+            assert_eq!(answer["result"]["state"], "pending");
+            assert!(changed.is_some(), "the board changed: a Proposal landed");
+
+            let view = read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap();
+            assert_eq!(view.proposals.len(), 1);
+            let ghost = &view.proposals[0];
+            assert_eq!((ghost.state.as_str(), ghost.payload["field"].as_str()), ("pending", Some("scope")));
+            assert_eq!(ghost.stage_id.as_deref(), Some(view.stages[0].id.as_str()));
+
+            let mut conn = db.lock().unwrap();
+            let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+            flywheel_core::domain::proposal::accept_proposal(&mut conn, &human, &ghost.id).unwrap();
+            let view = read_epic_shaping(&conn, &epic_id).unwrap();
+            assert!(view.proposals.is_empty(), "an accepted Proposal is in the field it rewrote");
+            assert_eq!(view.epic.scope.as_deref(), Some("The board only."));
         });
     }
 

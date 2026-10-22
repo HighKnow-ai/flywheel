@@ -64,6 +64,11 @@ Finding facts is your job, never the developer's. When a question needs a fact f
 ADRs in `docs/adr/` or the glossary, read it yourself; never ask the developer for anything you could \
 look up. The decisions are the developer's: put each to them and wait.
 
+Once answers settle how the Epic's Problem, Scope, Out of scope or Exit test should read, propose the \
+new text with `propose_spec_change`: the field, its whole new text and one line on why. It is answered \
+at once and shows on the Epic card as a Proposal the developer accepts, amends or rejects; nothing \
+changes until they decide, so keep shaping without waiting for it.
+
 An Epic is shaped in three Stages, one after another: challenge the spec, slice it into Stories, \
 write the Acceptance criteria. The developer closes each Stage; nothing advances on its own. This \
 session works the first Stage, Challenge the spec: probe the problem, the scope, what is out of scope \

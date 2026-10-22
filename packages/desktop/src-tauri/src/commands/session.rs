@@ -2144,7 +2144,7 @@ mod tests {
         assert_eq!(request["sessionKind"], "shaping", "the board server lists it the shaping tools");
         assert_eq!(
             request["allowedTools"],
-            serde_json::json!(["Read", "Glob", "Grep", "mcp__flywheel-board__round_post"])
+            serde_json::json!(["Read", "Glob", "Grep", "mcp__flywheel-board__round_post", "mcp__flywheel-board__propose_spec_change"])
         );
         let denied: Vec<String> = serde_json::from_value(request["disallowedTools"].clone()).unwrap();
         assert!(denied.iter().any(|t| t == "Bash"), "{denied:?}");

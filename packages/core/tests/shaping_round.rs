@@ -99,7 +99,7 @@ fn round_post_creates_a_round_in_the_open_stage_and_holds_the_call() {
     let mut f = shaping();
     let call = ShapingToolCall::parse("round_post", &round_post_args(3)).unwrap();
     let outcome = apply_shaping_tool_call(&mut f.conn, &f.session_id, "req-1", &call).unwrap();
-    let ShapingToolOutcome::Held { round_id, project_id } = outcome;
+    let ShapingToolOutcome::Held { round_id, project_id } = outcome else { panic!("round_post is held: {outcome:?}") };
     assert_eq!(project_id, f.project_id);
 
     let stage = open_stage(&f.conn, &ShapingSubject::Epic(f.epic_id.clone())).unwrap().unwrap();
@@ -117,7 +117,7 @@ fn round_post_creates_a_round_in_the_open_stage_and_holds_the_call() {
     assert_eq!(round.questions[1].because, "Thing 2 is in scope");
     assert_eq!(round.questions[1].grounding, "Read docs/spec.md §2");
     assert!(round.questions.iter().all(|q| q.answer.is_none()));
-    assert_eq!(SHAPING_TOOL_NAMES, ["round_post"]);
+    assert!(SHAPING_TOOL_NAMES.contains(&"round_post"));
 }
 
 #[test]

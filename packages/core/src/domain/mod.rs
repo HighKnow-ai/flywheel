@@ -29,6 +29,7 @@ pub mod permission_request;
 pub mod permission_rule;
 pub mod project;
 pub mod proposal;
+pub mod proposal_apply;
 pub mod question;
 pub mod round;
 pub mod session_ending;

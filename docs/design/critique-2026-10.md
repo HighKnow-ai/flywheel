@@ -129,6 +129,10 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 24 | Epic shaping: Answer differently opens on the recommendation (#123) | ![](critique-2026-10/after/24-epic-shaping-answer-differently-light.webp) | ![](critique-2026-10/after/24-epic-shaping-answer-differently-dark.webp) |
 | 25 | Epic shaping at the window's minimum width: the dock first (#123) | ![](critique-2026-10/after/25-epic-shaping-min-width-light.webp) | ![](critique-2026-10/after/25-epic-shaping-min-width-dark.webp) |
 | 26 | Board: an Epic whose shaping session waits on a Round offers Answer (#123) | ![](critique-2026-10/after/26-board-epic-answer-light.webp) | ![](critique-2026-10/after/26-board-epic-answer-dark.webp) |
+| 27 | Epic shaping: spec changes as ghost fields under the field each would rewrite, a rejected one struck through (#125) | ![](critique-2026-10/after/27-epic-shaping-ghost-fields-light.webp) | ![](critique-2026-10/after/27-epic-shaping-ghost-fields-dark.webp) |
+| 28 | Epic shaping: Amend opens the proposed text, accepted as edited in one act (#125) | ![](critique-2026-10/after/28-epic-shaping-amend-light.webp) | ![](critique-2026-10/after/28-epic-shaping-amend-dark.webp) |
+| 29 | Epic shaping: Reject asks for an optional reason (#125) | ![](critique-2026-10/after/29-epic-shaping-reject-reason-light.webp) | ![](critique-2026-10/after/29-epic-shaping-reject-reason-dark.webp) |
+| 30 | Epic shaping at the window's minimum width: rejecting a ghost field (#125) | ![](critique-2026-10/after/30-epic-shaping-ghost-min-width-light.webp) | ![](critique-2026-10/after/30-epic-shaping-ghost-min-width-dark.webp) |
 
 ## How the screens were rendered
 
