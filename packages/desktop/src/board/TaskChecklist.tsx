@@ -8,6 +8,7 @@
  * Each Task carries a note (issue #96): what the agent has learned on it, so a stopped session
  * leaves that behind. The note is collapsed by default and the developer can edit it like the title.
  */
+import { StateBadge } from "../components/StateBadge";
 import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { taskAdd, taskList, taskMove, taskRename, taskSetNote, taskSetState, type TaskDto } from "../adapters/tauri";
@@ -132,8 +133,8 @@ function TaskRow({
   return (
     <li style={{ padding: "var(--space-xs) 0" }}>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-sm)" }}>
-        <span className="type-label" style={{ minWidth: "4.5em" }}>
-          {TASK_STATE_WORDS[task.state] ?? task.state}
+        <span style={{ minWidth: "5.5em", display: "inline-flex" }}>
+          <StateBadge state={task.state} variant="inline" label={TASK_STATE_WORDS[task.state]} />
         </span>
         {editing ? (
           <form onSubmit={saveTitle} style={{ display: "flex", gap: "var(--space-xs)", flex: 1, minWidth: "12em" }}>
