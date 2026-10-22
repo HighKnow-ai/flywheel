@@ -18,7 +18,8 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::domain::actor::assert_human_actor_in_tx;
 use crate::domain::proposal::count_undecided_proposals_in_stage;
-use crate::domain::proposal_apply::SpecChange;
+use crate::domain::proposal_apply::{NewStory, SpecChange};
+use crate::domain::story::get_story;
 use crate::domain::session::{interrupt_session_in_tx, live_shaping_session, ShapingSubject};
 use crate::domain::{now, record_event, EventScope};
 use crate::ids::new_id;
@@ -98,8 +99,14 @@ impl StageKind {
             StageKind::Slice => {
                 "the spec has been challenged, and the answers to the Challenge the spec Rounds settle it. Slice the \
                  Epic into Stories: each one a thin vertical slice that ships and can be tested on its own, in the \
-                 order they should run, with what each one runs after and why. Do not write Acceptance criteria yet. \
-                 Reopen the spec only when a slice shows it is wrong, and then as a Proposal."
+                 order they should run, with what each one runs after and why. Propose each Story with \
+                 `propose_story`: its title, a description of what it ships and how it is tested, its place in the \
+                 order (`after` or `before` a Story's key or a New Story's proposal_id; the end without either) and, \
+                 when it must follow another, `runs_after` with a one-line `runs_after_reason` naming the constraint \
+                 (\"shares `FeedRow.tsx`\"). The constraint is informational and never blocks. Move or retire a \
+                 Story already on the Epic with `propose_story_order`. Both are answered at once; keep slicing \
+                 without waiting for the developer's decision. Do not write Acceptance criteria yet. Reopen the \
+                 spec only when a slice shows it is wrong, and then as a Proposal."
             }
             StageKind::Criteria => {
                 "the Stories are sliced. For each Story, write its Acceptance criteria: observable statements of \
@@ -219,12 +226,29 @@ impl StageStatus {
     }
 }
 
-/// What a Proposal in a Stage would do, in words: "change the Problem", or its verb and target.
-fn proposal_summary(verb: &str, target_type: &str, payload: &str) -> String {
+/// What a Proposal in a Stage would do, in words: "change the Problem", "add the Story “Feed
+/// row”", "move FLY-3 “Feed row” in the order", "retire FLY-3 “Feed row”", or its verb and target.
+fn proposal_summary(conn: &Connection, verb: &str, target_type: &str, target_id: Option<&str>, payload: &str) -> String {
     let payload: serde_json::Value = serde_json::from_str(payload).unwrap_or(serde_json::Value::Null);
     if target_type == "epic" {
         if let Ok(change) = SpecChange::from_payload(&payload) {
             return format!("change the {}", change.field.label());
+        }
+    }
+    if target_type == "story" {
+        // Issue #127: a New Story names its title; a move or a retirement names the Story it moves.
+        if verb == "create" {
+            if let Ok(story) = NewStory::from_payload(&payload) {
+                return format!("add the Story “{}”", story.title);
+            }
+        }
+        let story = target_id.and_then(|id| get_story(conn, id).ok().flatten());
+        if let Some(story) = story {
+            match verb {
+                "reorder" => return format!("move {} “{}” in the order", story.key, story.title),
+                "retire" => return format!("retire {} “{}”", story.key, story.title),
+                _ => {}
+            }
         }
     }
     format!("{verb} a {}", target_type.replace('_', " "))
@@ -255,15 +279,18 @@ pub fn stage_status(conn: &Connection, stage_id: &str) -> anyhow::Result<StageSt
 
     let undecided_proposals = count_undecided_proposals_in_stage(conn, stage_id)?;
     let mut stmt = conn.prepare(
-        "SELECT id, verb, target_type, payload FROM proposals WHERE stage_id = ?1 AND state = 'pending'
+        "SELECT id, verb, target_type, target_id, payload FROM proposals WHERE stage_id = ?1 AND state = 'pending'
          ORDER BY created_at, id",
     )?;
-    let proposals = stmt.query_map(params![stage_id], |r| {
-        let (verb, target, payload): (String, String, String) = (r.get(1)?, r.get(2)?, r.get(3)?);
-        Ok(OpenItem::Proposal { proposal_id: r.get(0)?, summary: proposal_summary(&verb, &target, &payload) })
-    })?;
-    for p in proposals {
-        open_items.push(p.context("failed to read the Stage's undecided Proposals")?);
+    let proposals = stmt
+        .query_map(params![stage_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, Option<String>>(3)?, r.get::<_, String>(4)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the Stage's undecided Proposals")?;
+    for (proposal_id, verb, target, target_id, payload) in proposals {
+        let summary = proposal_summary(conn, &verb, &target, target_id.as_deref(), &payload);
+        open_items.push(OpenItem::Proposal { proposal_id, summary });
     }
 
     let mut warnings = Vec::new();

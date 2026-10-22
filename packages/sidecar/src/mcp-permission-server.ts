@@ -81,13 +81,16 @@ export const BOARD_TOOL_NAMES = [...TASK_TOOL_NAMES, ...HANDOFF_TOOL_NAMES] as c
  * back onto a Round its killed predecessor left open, held the same way. `propose_spec_change`
  * (issue #125) files a Proposal on the Epic and is answered at once: a Proposal never holds the agent.
  * `propose_roadmap_change` and `roadmap_holds` (issue #133) are a roadmap Round's: the first files one
- * Roadmap change and is answered at once, the second closes the Round with "Roadmap still holds". */
+ * Roadmap change and is answered at once, the second closes the Round with "Roadmap still holds".
+ * `propose_story` and `propose_story_order` (issue #127) slice the Epic into Stories, answered at once too. */
 export const SHAPING_TOOL_NAMES = [
   "round_post",
   "round_wait",
   "propose_spec_change",
   "propose_roadmap_change",
   "roadmap_holds",
+  "propose_story",
+  "propose_story_order",
 ] as const;
 
 export type ShapingToolName = (typeof SHAPING_TOOL_NAMES)[number];
@@ -270,6 +273,39 @@ export const SHAPING_TOOL_DEFINITIONS = [
         why: { type: "string", minLength: 1, description: "One line: why the Roadmap still holds after the trigger." },
       },
       required: ["why"],
+    },
+  },
+  {
+    name: "propose_story",
+    description:
+      "Propose one Story for the Epic you are slicing: a thin vertical slice that ships and can be tested on its own. Give its title, a description of what it ships and how it is tested, and its place in the Epic's execution order: `after` or `before` a Story (its key, such as FLY-12) or a New Story you proposed (its proposal_id); without either it goes at the end. When it must run after another Story, give `runs_after` (a key or a proposal_id) and a one-line `runs_after_reason` naming the constraint, such as \"shares `FeedRow.tsx`\"; the constraint is shown on the board and never blocks. The Story shows as a ghost column where it would land, for the developer to accept, amend or reject; nothing is created until they do. This call is answered at once with the Proposal's id: keep slicing, do not wait for the decision. A rejected Story and its reason reach your next session's packet; do not propose it again without new evidence.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", minLength: 1, maxLength: 500, description: "A few words naming the slice." },
+        description: { type: "string", minLength: 1, maxLength: 20000, description: "What the slice ships and how it is tested." },
+        after: { type: "string", description: "A Story key or a New Story's proposal_id: it comes right after that one." },
+        before: { type: "string", description: "A Story key or a New Story's proposal_id: it comes right before that one." },
+        runs_after: { type: "string", description: "A Story key or a New Story's proposal_id it must run after." },
+        runs_after_reason: { type: "string", maxLength: 500, description: "One line: the constraint, such as \"shares `FeedRow.tsx`\"." },
+      },
+      required: ["title", "description"],
+    },
+  },
+  {
+    name: "propose_story_order",
+    description:
+      "Propose moving a Story of the Epic you are slicing to another place in its execution order (action \"move\", with `after` or `before` a Story key or a New Story's proposal_id; without either it moves to the end), or retiring a Story still in Shaping (action \"retire\": it is dropped). Give one line on why. The Proposal shows on the Story's column for the developer to accept or reject; nothing changes until they do. This call is answered at once: keep slicing, do not wait for the decision.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        story: { type: "string", minLength: 1, description: "The Story's key, such as FLY-12." },
+        action: { type: "string", enum: ["move", "retire"] },
+        after: { type: "string", description: "For a move: the Story key or New Story proposal_id it comes right after." },
+        before: { type: "string", description: "For a move: the Story key or New Story proposal_id it comes right before." },
+        why: { type: "string", minLength: 1, description: "One line: why it moves or goes." },
+      },
+      required: ["story", "action", "why"],
     },
   },
 ] as const;

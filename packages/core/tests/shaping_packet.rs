@@ -13,11 +13,12 @@ use core::domain::project::create_project;
 use core::shaping_packet::build_epic_shaping_packet;
 use rusqlite::Connection;
 
-const SECTION_HEADINGS: [&str; 6] = [
+const SECTION_HEADINGS: [&str; 7] = [
     "## Standing instructions",
     "## Milestone and Epic",
     "## ADRs",
     "## Sibling Epics",
+    "## Stories",
     "## Rounds",
     "## Closing instruction",
 ];
