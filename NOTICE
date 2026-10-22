@@ -5,3 +5,7 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
 This product includes a Node.js runtime (https://nodejs.org), redistributed unmodified under the
 Node.js licence (https://github.com/nodejs/node/blob/main/LICENSE).
+
+This product includes shaping prompts adapted from mattpocock/skills
+(https://github.com/mattpocock/skills), Copyright (c) 2026 Matt Pocock, used under the MIT License
+(see LICENSES/mattpocock-skills.txt). The adapted prompt is in packages/core/src/shaping_packet.rs.
