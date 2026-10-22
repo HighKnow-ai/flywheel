@@ -273,8 +273,9 @@ mod shaping {
         let lamp = &waiting_rounds(&s.conn, 50).unwrap()[0];
         assert_eq!(lamp.round_id, posted.id);
         assert_eq!(lamp.session_id, s.session_id);
-        assert_eq!(lamp.epic_id, s.epic_id);
-        assert_eq!(lamp.epic_title, "Epic shaping");
+        assert_eq!(lamp.epic_id.as_deref(), Some(s.epic_id.as_str()));
+        assert_eq!(lamp.epic_title.as_deref(), Some("Epic shaping"));
+        assert_eq!((lamp.subject.as_str(), lamp.stage_kind.as_deref()), ("epic", Some("challenge_spec")));
         assert_eq!((lamp.round_number, lamp.answered, lamp.questions), (1, 0, 2));
         assert_eq!(lamp.waiting_since, posted.posted_at);
 

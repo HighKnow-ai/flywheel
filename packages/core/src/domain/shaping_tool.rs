@@ -17,6 +17,12 @@
 //! and is answered AT ONCE: a Proposal never holds the agent. The developer decides it on the Epic
 //! card, where it shows as a ghost field (`proposal::accept_proposal` applies it).
 //!
+//! `propose_roadmap_change` and `roadmap_holds` (issue #133) are a roadmap session's: the first files
+//! one Roadmap change on the project's open roadmap Round and is answered at once; the second closes
+//! the Round with "Roadmap still holds". In a roadmap session `round_wait` is held until every
+//! Proposal of the Round is decided (`roadmap_round::wait_roadmap_round`), and `round_post` is refused:
+//! a roadmap Round asks no numbered questions.
+//!
 //! Identity comes from the session the call arrived on, never from an argument: a call reaches only
 //! that session's own subject, and only while the session is live.
 
@@ -27,13 +33,15 @@ use serde_json::Value;
 use rusqlite::OptionalExtension;
 
 use crate::domain::proposal::{file_proposal, NewProposal, ProposalTarget, ProposalVerb};
-use crate::domain::proposal_apply::SpecChange;
+use crate::domain::proposal_apply::{RoadmapChange, SpecChange};
+use crate::domain::roadmap_round::{propose_roadmap_change, roadmap_holds, wait_roadmap_round, RoadmapWait};
 use crate::domain::session::agent_actor_id;
 use crate::domain::round::{post_round, round_result, wait_round, AdrDraft, NewQuestion, NewRound, RoundWait};
 
 /// The tool names the sidecar's MCP server registers for a shaping session, in the order it lists
 /// them. Mirrored by `SHAPING_TOOL_NAMES` in `packages/sidecar/src/mcp-permission-server.ts`.
-pub const SHAPING_TOOL_NAMES: [&str; 3] = ["round_post", "round_wait", "propose_spec_change"];
+pub const SHAPING_TOOL_NAMES: [&str; 5] =
+    ["round_post", "round_wait", "propose_spec_change", "propose_roadmap_change", "roadmap_holds"];
 
 /// One parsed call of a shaping tool.
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +51,22 @@ pub enum ShapingToolCall {
     RoundWait,
     /// A spec change and the agent's one-line reason for it.
     ProposeSpecChange { change: SpecChange, why: String },
+    /// Issue #133: one Roadmap change and the agent's one-line reason for it.
+    ProposeRoadmapChange { change: RoadmapChange, why: String },
+    /// Issue #133: the Roadmap still holds, and why.
+    RoadmapHolds { why: String },
+}
+
+/// A tool's one-line `why`, trimmed: present, not blank, at most a Round text long.
+fn why_field(args: &Value, tool: &str) -> anyhow::Result<String> {
+    let why = string_field(args, "why", &format!("{tool}: "))?;
+    anyhow::ensure!(!why.trim().is_empty(), "{tool}: `why` is empty");
+    anyhow::ensure!(
+        why.chars().count() <= crate::domain::round::MAX_ROUND_TEXT_LEN,
+        "{tool}: `why` is at most {} characters",
+        crate::domain::round::MAX_ROUND_TEXT_LEN
+    );
+    Ok(why.trim().to_string())
 }
 
 fn string_field(value: &Value, name: &str, at: &str) -> anyhow::Result<String> {
@@ -105,6 +129,11 @@ impl ShapingToolCall {
                 );
                 Ok(ShapingToolCall::ProposeSpecChange { change, why: why.trim().to_string() })
             }
+            "propose_roadmap_change" => {
+                let change = RoadmapChange::from_args(args).context("propose_roadmap_change")?;
+                Ok(ShapingToolCall::ProposeRoadmapChange { change, why: why_field(args, tool)? })
+            }
+            "roadmap_holds" => Ok(ShapingToolCall::RoadmapHolds { why: why_field(args, tool)? }),
             other => anyhow::bail!("{other:?} is not a shaping tool"),
         }
     }
@@ -174,6 +203,9 @@ pub fn apply_shaping_tool_call(
     request_id: &str,
     call: &ShapingToolCall,
 ) -> anyhow::Result<ShapingToolOutcome> {
+    if is_roadmap_session(conn, session_id)? {
+        return apply_roadmap_call(conn, session_id, request_id, call);
+    }
     match call {
         ShapingToolCall::RoundPost(round) => {
             let posted = post_round(conn, session_id, Some(request_id), round)?;
@@ -201,5 +233,69 @@ pub fn apply_shaping_tool_call(
             })
         }
         ShapingToolCall::ProposeSpecChange { change, why } => propose_spec_change(conn, session_id, change, why),
+        ShapingToolCall::ProposeRoadmapChange { .. } | ShapingToolCall::RoadmapHolds { .. } => anyhow::bail!(
+            "propose_roadmap_change and roadmap_holds belong to a roadmap Round; this session shapes an Epic or a Milestone"
+        ),
+    }
+}
+
+/// Whether `session_id` is a shaping session on the Roadmap (no Epic, no Milestone). An unknown or
+/// Story session is not, and is refused by the call itself.
+fn is_roadmap_session(conn: &Connection, session_id: &str) -> anyhow::Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT kind = 'shaping' AND epic_id IS NULL AND milestone_id IS NULL FROM sessions WHERE id = ?1",
+            rusqlite::params![session_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or(false))
+}
+
+/// One call in a roadmap session (issue #133).
+fn apply_roadmap_call(conn: &mut Connection, session_id: &str, request_id: &str, call: &ShapingToolCall) -> anyhow::Result<ShapingToolOutcome> {
+    match call {
+        ShapingToolCall::ProposeRoadmapChange { change, why } => {
+            let filed = propose_roadmap_change(conn, session_id, change, why)?;
+            Ok(ShapingToolOutcome::Answered {
+                result: serde_json::json!({
+                    "proposal_id": filed.id,
+                    "state": "pending",
+                    "next": "Your change is on the Roadmap strip as a ghost row, for the developer to accept, amend or \
+                             reject; nothing changes until they do. Propose any other change the same way, then call \
+                             round_wait for the developer's decisions.",
+                }),
+                project_id: filed.project_id,
+            })
+        }
+        ShapingToolCall::RoadmapHolds { why } => {
+            let closed = roadmap_holds(conn, session_id, why)?;
+            Ok(ShapingToolOutcome::Answered {
+                result: serde_json::json!({
+                    "round": closed.number,
+                    "outcome": "holds",
+                    "next": "The roadmap Round is closed: \"Roadmap still holds\" is on the timeline. End your session now.",
+                }),
+                project_id: closed.project_id,
+            })
+        }
+        ShapingToolCall::RoundWait => match wait_roadmap_round(conn, session_id, request_id)? {
+            RoadmapWait::Held(round) => Ok(ShapingToolOutcome::Held { round_id: round.id, project_id: round.project_id }),
+            RoadmapWait::Answered(result) => {
+                let project_id: String = conn.query_row(
+                    "SELECT project_id FROM sessions WHERE id = ?1",
+                    rusqlite::params![session_id],
+                    |r| r.get(0),
+                )?;
+                Ok(ShapingToolOutcome::Answered { result, project_id })
+            }
+        },
+        ShapingToolCall::RoundPost(_) => anyhow::bail!(
+            "a roadmap Round asks no numbered questions: propose each change with propose_roadmap_change and then \
+             call round_wait, or say the Roadmap still holds with roadmap_holds"
+        ),
+        ShapingToolCall::ProposeSpecChange { .. } => anyhow::bail!(
+            "propose_spec_change rewrites an Epic being shaped; in a roadmap Round, propose Roadmap changes with propose_roadmap_change"
+        ),
     }
 }

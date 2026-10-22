@@ -132,7 +132,13 @@ const ROUND = {
 };
 
 test("round_post is listed to a shaping session with what each question carries", () => {
-  assert.deepEqual([...SHAPING_TOOL_NAMES], ["round_post", "round_wait", "propose_spec_change"]);
+  assert.deepEqual([...SHAPING_TOOL_NAMES], [
+    "round_post",
+    "round_wait",
+    "propose_spec_change",
+    "propose_roadmap_change",
+    "roadmap_holds",
+  ]);
   const post = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "round_post");
   assert.deepEqual(post.inputSchema.required, ["note", "questions"]);
   assert.deepEqual(post.inputSchema.properties.questions.items.required, [
@@ -279,6 +285,52 @@ test("propose_spec_change is relayed to the core and its answer reaches the agen
   await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
   const request = events.find((e) => e.type === "board_tool_request");
   assert.equal(request.tool, "propose_spec_change");
+  assert.deepEqual(request.args, args);
+  const answer = { proposal_id: "01PROPOSAL", state: "pending" };
+  adapter.resolveBoardTool(runId, request.requestId, answer);
+  await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
+  assert.deepEqual(JSON.parse(unknownLines(events, "task_tool_result")[0].text), answer);
+  await session;
+});
+
+// Issue #133: a roadmap Round proposes Roadmap changes or says the Roadmap holds. Both are relayed
+// like every other board tool and answered at once by the core.
+test("propose_roadmap_change and roadmap_holds are listed with each change kind and a why", () => {
+  const propose = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "propose_roadmap_change");
+  assert.deepEqual(propose.inputSchema.required, ["change", "why"]);
+  assert.deepEqual(propose.inputSchema.properties.change.enum, [
+    "create_milestone",
+    "amend_milestone",
+    "reorder_milestone",
+    "retire_milestone",
+    "add_epic",
+    "drop_epic",
+  ]);
+  assert.match(propose.description, /round_wait/);
+  const holds = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "roadmap_holds");
+  assert.deepEqual(holds.inputSchema.required, ["why"]);
+  assert.match(holds.description, /Roadmap still holds/);
+});
+
+test("propose_roadmap_change is relayed to the core and its answer reaches the agent", async () => {
+  const adapter = new ClaudeCodeAdapter();
+  const events = [];
+  const runId = "roadmap-run-propose";
+  const args = { change: "create_milestone", title: "Mobile", exit_test: "A phone answers a Round", why: "Asked twice" };
+  const session = adapter.startSession({
+    runId,
+    worktreePath: process.cwd(),
+    prompt: "revisit the Roadmap",
+    permissionMode: "dontAsk",
+    allowedTools: ["Read", "Glob", "Grep", `mcp__${MCP_SERVER_NAME}__propose_roadmap_change`],
+    permissionPrompt: false,
+    sessionKind: "shaping",
+    env: { FLYWHEEL_FAKE_CALL_TASK_TOOL: JSON.stringify({ name: "propose_roadmap_change", arguments: args }) },
+    onEvent: (event) => events.push(event),
+  });
+  await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
+  const request = events.find((e) => e.type === "board_tool_request");
+  assert.equal(request.tool, "propose_roadmap_change");
   assert.deepEqual(request.args, args);
   const answer = { proposal_id: "01PROPOSAL", state: "pending" };
   adapter.resolveBoardTool(runId, request.requestId, answer);

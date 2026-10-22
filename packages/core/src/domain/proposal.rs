@@ -164,21 +164,24 @@ pub struct NewProposal<'a> {
 }
 
 /// Where a session files: `(stage_id, round_id)` for a shaping session (its subject's open Stage and
-/// that Stage's latest Round), `None` for a Story session, which is capped instead.
+/// that Stage's latest Round, or, for the Roadmap, no Stage and the project's open roadmap Round,
+/// issue #133), `None` for a Story session, which is capped instead.
 fn shaping_place(tx: &Transaction, session_id: &str) -> anyhow::Result<Option<(Option<String>, Option<String>)>> {
-    let row: Option<(String, Option<String>, Option<String>)> = tx
-        .query_row("SELECT kind, epic_id, milestone_id FROM sessions WHERE id = ?1", params![session_id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+    let row: Option<(String, String, Option<String>, Option<String>)> = tx
+        .query_row("SELECT kind, project_id, epic_id, milestone_id FROM sessions WHERE id = ?1", params![session_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
         })
         .optional()?;
-    let Some((kind, epic_id, milestone_id)) = row else { anyhow::bail!("session {session_id:?} not found") };
+    let Some((kind, project_id, epic_id, milestone_id)) = row else { anyhow::bail!("session {session_id:?} not found") };
     if kind != "shaping" {
         return Ok(None);
     }
-    let subject = match (epic_id, milestone_id) {
-        (Some(id), _) => ShapingSubject::Epic(id),
-        (None, Some(id)) => ShapingSubject::Milestone(id),
-        (None, None) => return Ok(Some((None, None))),
+    let subject = match ShapingSubject::of_row(&project_id, epic_id, milestone_id) {
+        ShapingSubject::Roadmap(project_id) => {
+            let round = crate::domain::roadmap_round::open_roadmap_round(tx, &project_id)?.map(|r| r.id);
+            return Ok(Some((None, round)));
+        }
+        subject => subject,
     };
     let Some(stage) = open_stage(tx, &subject)? else { return Ok(Some((None, None))) };
     let round: Option<String> = tx
@@ -287,9 +290,46 @@ pub fn count_undecided_proposals_in_stage(conn: &Connection, stage_id: &str) -> 
         .context("failed to count the Stage's undecided Proposals")
 }
 
+/// Every Proposal filed in Round `round_id`, oldest first, whatever its state: a roadmap Round's ghost
+/// rows (pending) and struck-through lines (rejected), issue #133.
+pub fn proposals_in_round(conn: &Connection, round_id: &str) -> anyhow::Result<Vec<Proposal>> {
+    let mut stmt = conn.prepare(select_proposals!("WHERE round_id = ?1 ORDER BY created_at, id"))?;
+    let rows = stmt.query_map(params![round_id], row_to_proposal)?.collect::<Result<Vec<_>, _>>();
+    rows.context("failed to read the Round's Proposals")
+}
+
+/// What deciding a Proposal did: its effect, and the held `round_wait` call to answer when the
+/// decision closed a roadmap Round its live session waits on (issue #133).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Decided {
+    pub applied: Applied,
+    pub release: Option<crate::domain::round::RoundRelease>,
+}
+
 /// Accept a pending Proposal and apply it, in one transaction. Human-only.
 pub fn accept_proposal(conn: &mut Connection, actor_id: &str, proposal_id: &str) -> anyhow::Result<Applied> {
-    decide(conn, actor_id, proposal_id, Decision::Accept { amended: None })
+    Ok(decide(conn, actor_id, proposal_id, Decision::Accept { amended: None })?.applied)
+}
+
+/// [`accept_proposal`], handing back the held call its decision released, for the caller to answer
+/// once the transaction has committed.
+pub fn accept_proposal_released(
+    conn: &mut Connection,
+    actor_id: &str,
+    proposal_id: &str,
+    amended: Option<&serde_json::Value>,
+) -> anyhow::Result<Decided> {
+    decide(conn, actor_id, proposal_id, Decision::Accept { amended })
+}
+
+/// [`reject_proposal`], handing back the held call its decision released.
+pub fn reject_proposal_released(
+    conn: &mut Connection,
+    actor_id: &str,
+    proposal_id: &str,
+    reason: Option<&str>,
+) -> anyhow::Result<Decided> {
+    decide(conn, actor_id, proposal_id, Decision::Reject { reason: reason.map(str::trim).filter(|r| !r.is_empty()) })
 }
 
 /// Amend: accept a pending Proposal with the developer's edited `payload` and apply that instead, in
@@ -301,7 +341,7 @@ pub fn accept_proposal_amended(
     proposal_id: &str,
     payload: &serde_json::Value,
 ) -> anyhow::Result<Applied> {
-    decide(conn, actor_id, proposal_id, Decision::Accept { amended: Some(payload) })
+    Ok(decide(conn, actor_id, proposal_id, Decision::Accept { amended: Some(payload) })?.applied)
 }
 
 /// Reject a pending Proposal, keeping the developer's reason. Human-only.
@@ -310,16 +350,26 @@ pub fn reject_proposal(conn: &mut Connection, actor_id: &str, proposal_id: &str,
     Ok(())
 }
 
-enum Decision<'a> {
+pub(crate) enum Decision<'a> {
     Accept { amended: Option<&'a serde_json::Value> },
     Reject { reason: Option<&'a str> },
 }
 
-fn decide(conn: &mut Connection, actor_id: &str, proposal_id: &str, decision: Decision) -> anyhow::Result<Applied> {
+/// Decide in one transaction. A decision on a roadmap Round's Proposal may close the Round (issue
+/// #133: its last undecided Proposal, decided while its session waits on it or after that session
+/// died), in the same transaction.
+fn decide(conn: &mut Connection, actor_id: &str, proposal_id: &str, decision: Decision) -> anyhow::Result<Decided> {
+    let at = now();
     let tx = conn.transaction()?;
-    let applied = decide_in_tx(&tx, actor_id, proposal_id, decision, &now())?;
+    let applied = decide_in_tx(&tx, actor_id, proposal_id, decision, &at)?;
+    let round_id: Option<String> =
+        tx.query_row("SELECT round_id FROM proposals WHERE id = ?1", params![proposal_id], |r| r.get(0))?;
+    let release = match round_id {
+        Some(round_id) => crate::domain::roadmap_round::settle_in_tx(&tx, &round_id, actor_id, &at)?,
+        None => None,
+    };
     tx.commit()?;
-    Ok(applied)
+    Ok(Decided { applied, release })
 }
 
 /// Accept a pending Proposal as it is inside the caller's transaction: [`accept_proposal`]'s body.
@@ -329,7 +379,7 @@ pub(crate) fn accept_proposal_in_tx(tx: &Transaction, actor_id: &str, proposal_i
     decide_in_tx(tx, actor_id, proposal_id, Decision::Accept { amended: None }, now)
 }
 
-fn decide_in_tx(tx: &Transaction, actor_id: &str, proposal_id: &str, decision: Decision, now: &str) -> anyhow::Result<Applied> {
+pub(crate) fn decide_in_tx(tx: &Transaction, actor_id: &str, proposal_id: &str, decision: Decision, now: &str) -> anyhow::Result<Applied> {
     assert_human_actor_in_tx(tx, actor_id)?;
     let p = get_proposal(tx, proposal_id)?.with_context(|| format!("Proposal {proposal_id:?} not found"))?;
     anyhow::ensure!(p.state == "pending", "Proposal {proposal_id:?} was already {}", p.state);
@@ -369,7 +419,7 @@ fn decide_in_tx(tx: &Transaction, actor_id: &str, proposal_id: &str, decision: D
                 "UPDATE proposals SET state = 'accepted', payload = ?1, decided_by = ?2, decided_at = ?3 WHERE id = ?4",
                 params![payload.to_string(), actor_id, now, proposal_id],
             )?;
-            let accepted = Accepted { id: proposal_id, verb, target, target_id: p.target_id.as_deref() };
+            let accepted = Accepted { id: proposal_id, project_id: &p.project_id, verb, target, target_id: p.target_id.as_deref() };
             let applied = apply_in_tx(tx, actor_id, &accepted, payload)?;
             record_event(
                 tx,
@@ -394,8 +444,17 @@ fn decide_in_tx(tx: &Transaction, actor_id: &str, proposal_id: &str, decision: D
     Ok(applied)
 }
 
-/// An amendment edits what a Proposal says, never what it lands on: a spec change keeps its field.
+/// An amendment edits what a Proposal says, never what it lands on: a spec change keeps its field, and
+/// a new Epic its Milestone and a move its anchor (issue #133).
 fn same_kind_of_change(original: &serde_json::Value, amended: &serde_json::Value) -> anyhow::Result<()> {
+    for key in ["milestone_id", "before_milestone_id"] {
+        if let Some(kept) = original.get(key) {
+            anyhow::ensure!(
+                amended.get(key).unwrap_or(&serde_json::Value::Null) == kept,
+                "an amendment keeps where the Proposal lands (`{key}`)"
+            );
+        }
+    }
     if let Some(field) = original.get("field").and_then(|f| f.as_str()) {
         let label = crate::domain::proposal_apply::SpecField::parse(field).map(|f| f.label()).unwrap_or(field);
         anyhow::ensure!(

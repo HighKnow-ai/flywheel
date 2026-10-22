@@ -65,6 +65,7 @@ import { cn } from "@/lib/utils";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
 import { lampsFromFleet } from "../shell/AndonStrip";
 import { useUiStore } from "../state/uiStore";
+import { useOpenWaitingRound, usePlaceBoardId, waitingRoundWords } from "../fleet/waitingRound";
 
 const SIDEBAR_WIDTH = "248px";
 const NOTICE_VISIBLE_MS = 4000;
@@ -133,7 +134,8 @@ function StoryRowButton({
       <span className="mt-px shrink-0">{tile}</span>
       <span className="flex min-w-0 flex-col">
         <span className="line-clamp-2 text-small font-semibold">
-          <span className="font-mono text-meta font-normal text-muted-foreground">{story.key}</span> {story.title}
+          {story.key && <span className="font-mono text-meta font-normal text-muted-foreground">{story.key} </span>}
+          {story.title}
         </span>
         {detail && <span className="truncate text-meta text-subtle-foreground">{detail}</span>}
       </span>
@@ -162,7 +164,8 @@ function RunningSessions({
 }) {
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
   const openStory = useUiStore((state) => state.openStory);
-  const openEpic = useUiStore((state) => state.openEpic);
+  const openRound = useOpenWaitingRound();
+  const placeBoardId = usePlaceBoardId();
   const placeEpicId = useUiStore((state) => (state.activeSessionId ? null : state.currentEpicId));
   const activeSessionId = useUiStore((state) => state.activeSessionId);
   const placeStoryId = usePlaceStoryId();
@@ -178,17 +181,17 @@ function RunningSessions({
     <SidebarMenuSub role="list" aria-label={`${projectName} running sessions`} className="mx-0 ml-4 mr-0 gap-0.5 px-1.5 py-1">
       {/* A shaping Round a live session is held on: Waiting on you, so it leads, and it opens its Epic. */}
       {rounds.map((round) => {
-        const subject = `${round.epicKey} ${round.epicTitle}`.trim();
+        const words = waitingRoundWords(round);
         return (
           <SidebarMenuSubItem key={round.roundId} className="flex">
             <StoryRowButton
-              story={{ id: round.epicId, key: round.epicKey, title: round.epicTitle }}
-              detail={`Round ${round.roundNumber} · Waiting on you`}
+              story={{ id: round.epicId ?? round.roundId, key: words.key, title: words.title }}
+              detail={`${words.shortRound} · Waiting on you`}
               tile={<StateBadge state="waiting_on_you" hideLabel className="size-5 justify-center p-0 [&>svg]:size-3.5" />}
-              here={round.epicId === placeEpicId}
-              ariaLabel={`Open Epic ${subject}, Round ${round.roundNumber} Waiting on you`}
-              title={`${subject}: Round ${round.roundNumber} waiting on you`}
-              onClick={() => openEpic(round.projectId, round.epicId)}
+              here={round.subject === "roadmap" ? round.projectId === placeBoardId : round.epicId === placeEpicId}
+              ariaLabel={`Open ${words.record}, ${words.round} Waiting on you`}
+              title={`${words.record}: ${words.round} waiting on you`}
+              onClick={() => openRound(round)}
             />
           </SidebarMenuSubItem>
         );

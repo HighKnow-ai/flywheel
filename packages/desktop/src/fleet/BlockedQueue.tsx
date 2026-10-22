@@ -38,8 +38,9 @@ import { formatAge } from "../legend/runStatus";
 import { PermissionRequestCard, type PermissionDecision } from "../session/PermissionRequestCard";
 import { ASK_USER_QUESTION_TOOL } from "../session/feedRows";
 import { useUiStore } from "../state/uiStore";
+import { useOpenWaitingRound, waitingRoundWords } from "./waitingRound";
 import { blockedQueueQueryKey, fleetQueryKey } from "./useFleet";
-import { ChevronRight, MessageCircleQuestionMark, Terminal } from "lucide-react";
+import { ChevronRight, CircleDashed, MessageCircleQuestionMark, Terminal } from "lucide-react";
 import { StateBadge } from "../components/StateBadge";
 import { Button } from "@/components/ui/button";
 
@@ -185,14 +186,16 @@ export function BlockedQueue({ entries, rounds = [], now }: BlockedQueueProps) {
   );
 }
 
-/** One shaping Round a live session is held on: the Epic it shapes, how far it is answered, Answer. */
+/** One shaping Round a live session is held on: the Epic it shapes, how far it is answered, Answer. A
+ * roadmap Round (issue #133): the project's Roadmap, how many proposed changes are decided, Decide. */
 function WaitingRoundItem({ round, now }: { round: WaitingRoundDto; now: number }) {
-  const openEpic = useUiStore((state) => state.openEpic);
+  const open = useOpenWaitingRound();
+  const words = waitingRoundWords(round);
   const age = formatAge(round.waitingSince, now);
   return (
     <div
       role="listitem"
-      aria-label={`Round ${round.roundNumber} of ${round.epicKey} ${round.epicTitle}`}
+      aria-label={round.subject === "roadmap" ? `${words.round} of ${words.record}` : `${words.round} of ${words.key} ${words.title}`}
       data-round-id={round.roundId}
       className="flex flex-col gap-2"
     >
@@ -204,13 +207,13 @@ function WaitingRoundItem({ round, now }: { round: WaitingRoundDto; now: number 
         <button
           type="button"
           data-field="subject"
-          aria-label={`Open Epic ${round.epicKey}`}
-          title={`Open Epic ${round.epicKey} and its Rounds`}
-          onClick={() => openEpic(round.projectId, round.epicId)}
+          aria-label={round.subject === "roadmap" ? `Open ${words.record}` : `Open Epic ${words.key}`}
+          title={round.subject === "roadmap" ? `Open ${words.record} on the board` : `Open Epic ${words.key} and its Rounds`}
+          onClick={() => open(round)}
           className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent"
         >
-          <span className="shrink-0 font-mono text-meta text-muted-foreground">{round.epicKey}</span>{" "}
-          <span className="truncate text-body font-semibold">{round.epicTitle}</span>
+          {words.key && <span className="shrink-0 font-mono text-meta text-muted-foreground">{words.key}</span>}{" "}
+          <span className="truncate text-body font-semibold">{words.title}</span>
           <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-subtle-foreground" />
         </button>
         <span
@@ -225,25 +228,21 @@ function WaitingRoundItem({ round, now }: { round: WaitingRoundDto; now: number 
           same kind of thing as every other entry here. */}
       <div className="overflow-clip rounded-lg border-2 border-attention bg-card shadow-card">
         <div className="flex min-h-11 items-center gap-2.5 bg-attention px-4 py-2.5 text-attention-foreground [&_svg]:size-[18px]">
-          <MessageCircleQuestionMark aria-hidden="true" />
-          <span className="text-row font-bold">Round {round.roundNumber}</span>
-          <span className="ml-auto text-small font-semibold">Shaping question</span>
+          {round.subject === "roadmap" ? <CircleDashed aria-hidden="true" /> : <MessageCircleQuestionMark aria-hidden="true" />}
+          <span className="text-row font-bold">{words.round}</span>
+          <span className="ml-auto text-small font-semibold">{words.kind}</span>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-          <span className="text-small font-semibold tabular-nums">
-            {round.answered} of {round.questions} answered
-          </span>
-          <span className="min-w-0 flex-1 text-small text-muted-foreground">
-            The agent goes on once every question is answered.
-          </span>
+          <span className="text-small font-semibold tabular-nums">{words.progress}</span>
+          <span className="min-w-0 flex-1 text-small text-muted-foreground">{words.hint}</span>
           <Button
             variant="attention"
             size="sm"
-            aria-label={`Answer Round ${round.roundNumber} of ${round.epicKey}`}
-            onClick={() => openEpic(round.projectId, round.epicId)}
+            aria-label={`${words.action} ${words.round} of ${round.subject === "roadmap" ? words.record : words.key}`}
+            onClick={() => open(round)}
           >
-            <MessageCircleQuestionMark aria-hidden="true" />
-            Answer
+            {round.subject === "roadmap" ? <ChevronRight aria-hidden="true" /> : <MessageCircleQuestionMark aria-hidden="true" />}
+            {words.action}
           </Button>
         </div>
       </div>

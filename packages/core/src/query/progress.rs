@@ -55,6 +55,7 @@ pub struct MilestoneProgress {
     pub next_milestone_title: Option<String>,
     pub counts: StoryStateCounts,
     pub epics_done: i64,
+    /// Its Epics, a Dropped one (issue #133) left out: dropped is closed, not progress.
     pub epics_total: i64,
 }
 
@@ -126,7 +127,7 @@ pub const MILESTONE_PROGRESS_SQL: &str = concat!(
             ORDER BY n.rank, n.id LIMIT 1), ",
     count_columns!(),
     ", (SELECT COUNT(*) FROM epics WHERE milestone_id = cur.id AND state = 'done'), \
-       (SELECT COUNT(*) FROM epics WHERE milestone_id = cur.id) \
+       (SELECT COUNT(*) FROM epics WHERE milestone_id = cur.id AND state != 'dropped') \
      FROM cur LEFT JOIN marks m ON 1 = 1 GROUP BY cur.id"
 );
 

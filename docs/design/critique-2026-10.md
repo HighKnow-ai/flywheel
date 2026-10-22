@@ -145,6 +145,13 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 40 | Epic shaping: confirming Close Stage (#126) | ![](critique-2026-10/after/40-epic-shaping-close-stage-confirm-light.webp) | ![](critique-2026-10/after/40-epic-shaping-close-stage-confirm-dark.webp) |
 | 41 | Epic shaping at the window's minimum width: the Stages whole, Close Stage on its own line (#126) | ![](critique-2026-10/after/41-epic-shaping-stage-bar-min-width-light.webp) | ![](critique-2026-10/after/41-epic-shaping-stage-bar-min-width-dark.webp) |
 | 42 | Epic shaping: the Slice Stage just opened, the Challenge Rounds below it named with their Stage (#126) | ![](critique-2026-10/after/42-epic-shaping-slice-opened-light.webp) | ![](critique-2026-10/after/42-epic-shaping-slice-opened-dark.webp) |
+| 43 | Roadmap strip: Revisit roadmap in the header, and the last roadmap Round said the Roadmap still holds (#133) | ![](critique-2026-10/after/43-roadmap-revisit-holds-light.webp) | ![](critique-2026-10/after/43-roadmap-revisit-holds-dark.webp) |
+| 44 | Roadmap strip: a roadmap Round reading the Roadmap, the running band with Open session and Dismiss (#133) | ![](critique-2026-10/after/44-roadmap-round-reading-light.webp) | ![](critique-2026-10/after/44-roadmap-round-reading-dark.webp) |
+| 45 | Roadmap strip: Waiting on you, the yellow band and edge, three ghost rows under the Milestones they land on, a rejected change struck through (#133) | ![](critique-2026-10/after/45-roadmap-ghost-rows-light.webp) | ![](critique-2026-10/after/45-roadmap-ghost-rows-dark.webp) |
+| 46 | Roadmap strip: Amend a proposed Milestone in place, Accept edit (#133) | ![](critique-2026-10/after/46-roadmap-ghost-amend-light.webp) | ![](critique-2026-10/after/46-roadmap-ghost-amend-dark.webp) |
+| 47 | Roadmap strip: an open roadmap Round with no live session; Dismiss asks first because it would reject the undecided changes (#133) | ![](critique-2026-10/after/47-roadmap-round-dismiss-light.webp) | ![](critique-2026-10/after/47-roadmap-round-dismiss-dark.webp) |
+| 48 | Waiting on you queue: a roadmap Round, "1 of 4 decided" and Decide, beside an Epic's Round (#133) | ![](critique-2026-10/after/48-queue-roadmap-round-light.webp) | ![](critique-2026-10/after/48-queue-roadmap-round-dark.webp) |
+| 49 | Roadmap strip at the window's minimum width: the band and ghost rows wrap (#133) | ![](critique-2026-10/after/49-roadmap-ghost-rows-min-width-light.webp) | ![](critique-2026-10/after/49-roadmap-ghost-rows-min-width-dark.webp) |
 
 ## How the screens were rendered
 

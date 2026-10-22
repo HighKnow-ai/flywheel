@@ -250,6 +250,65 @@ export async function shapingContinue(epicId: string): Promise<ShapingSessionDto
   return invokeCommand<ShapingSessionDto>("shaping_continue", { epicId });
 }
 
+/** Revisit roadmap (issue #133): the session a roadmap Round runs in. */
+export interface RoadmapSessionDto {
+  id: string;
+  projectId: string;
+  status: string;
+  permissionMode: string;
+}
+
+/** A roadmap Round (issue #133) — mirrors `commands/roadmap_round.rs`'s `RoadmapRoundDto`. */
+export interface RoadmapRoundDto {
+  id: string;
+  number: number;
+  /** `open`, `closed` or `dismissed`. */
+  state: string;
+  /** `revisit`, `epic_done` or `milestone_done`. */
+  triggerType: string;
+  /** "Revisit roadmap", "Epic FLY-3 done". */
+  triggerLabel: string;
+  /** Open with a live session held on it until every Proposal is decided. */
+  waitingOnYou: boolean;
+  /** The session that owns it is live. */
+  sessionLive: boolean;
+  sessionId: string | null;
+  postedAt: string;
+  closedAt: string | null;
+  /** A closed Round that filed none said the Roadmap still holds. */
+  proposalsFiled: number;
+}
+
+/** A Roadmap Proposal of the open Round, with the change in one line. */
+export interface RoadmapProposalDto extends ProposalDto {
+  summary: string;
+  /** The Milestone its ghost row sits under; `null` for a new Milestone, which sits at the end. */
+  anchorMilestoneId: string | null;
+}
+
+/** What the Roadmap strip reads about roadmap Rounds. */
+export interface RoadmapRoundViewDto {
+  open: RoadmapRoundDto | null;
+  proposals: RoadmapProposalDto[];
+  /** The latest Round once none is open. */
+  last: RoadmapRoundDto | null;
+}
+
+/** Revisit roadmap: start the roadmap Round's session (or the one that takes an open Round over). */
+export async function roadmapRevisit(projectId: string): Promise<RoadmapSessionDto> {
+  return invokeCommand<RoadmapSessionDto>("roadmap_revisit", { projectId });
+}
+
+/** The open roadmap Round with its Proposals, or the latest one once none is open. */
+export async function roadmapRoundRead(projectId: string): Promise<RoadmapRoundViewDto> {
+  return invokeCommand<RoadmapRoundViewDto>("roadmap_round_read", { projectId });
+}
+
+/** Dismiss the open roadmap Round: it closes with no change. Human-only. */
+export async function roadmapRoundDismiss(roundId: string): Promise<void> {
+  await invokeCommand<void>("roadmap_round_dismiss", { roundId });
+}
+
 /** The Epic's live shaping session id, or `null` when none is live. */
 export async function epicShapingSession(epicId: string): Promise<string | null> {
   return invokeCommand<string | null>("epic_shaping_session", { epicId });
@@ -1109,7 +1168,9 @@ export interface BlockedSummaryDto {
   blockedStoryIds: string[];
   /** Issue #124: the Epics a live shaping session waits on, held on an open Round. */
   waitingEpicIds: string[];
-  /** The project's count of what is Waiting on you: these Stories plus these Epics. */
+  /** Issue #133: a live roadmap session is held on the project's open roadmap Round. */
+  roadmapWaiting?: boolean;
+  /** The project's count of what is Waiting on you: these Stories, these Epics and the Roadmap. */
   blockedCount: number;
 }
 
@@ -1313,16 +1374,21 @@ export async function fleetBlockedQueue(): Promise<BlockedQueueEntryDto[]> {
 export interface WaitingRoundDto {
   roundId: string;
   roundNumber: number;
-  stageKind: string;
+  /** Issue #133: `epic` for an Epic's Round, `roadmap` for a roadmap Round. */
+  subject: "epic" | "roadmap";
+  /** The Stage's kind; `null` for a roadmap Round, which has no Stage. */
+  stageKind: string | null;
   sessionId: string;
   projectId: string;
   projectName: string;
   projectKeyPrefix: string;
-  epicId: string;
-  epicKey: string;
-  epicTitle: string;
+  /** The Epic an Epic's Round shapes; `null` for a roadmap Round. */
+  epicId: string | null;
+  epicKey: string | null;
+  epicTitle: string | null;
   /** When the Round was posted: it has waited on the developer since. */
   waitingSince: string;
+  /** An Epic's Round: questions answered of those asked. A roadmap Round: Proposals decided of those filed. */
   answered: number;
   questions: number;
 }

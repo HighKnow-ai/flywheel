@@ -26,6 +26,7 @@ import { Activity, ChevronRight, CirclePause, Hand, LoaderCircle } from "lucide-
 import { storyStopped, type FleetRowDto, type WaitingRoundDto } from "../adapters/tauri";
 import { endingWords } from "../board/StoryControls";
 import { useFleet, useWaitingRounds } from "../fleet/useFleet";
+import { useOpenWaitingRound, usePlaceBoardId, waitingRoundWords } from "../fleet/waitingRound";
 import { formatAge } from "../legend/runStatus";
 import { prefersReducedMotion } from "../session/FeedRow";
 import { useUiStore } from "../state/uiStore";
@@ -90,7 +91,7 @@ export function stripLamps(rows: FleetRowDto[], rounds: WaitingRoundDto[]): Stri
         kind: "round",
         id: round.roundId,
         tone: "waiting",
-        key: round.epicKey,
+        key: waitingRoundWords(round).key,
         since: round.waitingSince,
         round,
       }),
@@ -160,19 +161,21 @@ function lampClass(tone: LampTone, current: boolean) {
   );
 }
 
-/** A shaping Round's lamp (issue #124): lit yellow, it names the Epic and the Round, and opens the Epic. */
+/** A shaping Round's lamp (issue #124): lit yellow, it names the Epic and the Round, and opens the Epic.
+ * A roadmap Round's (issue #133) names the project's Roadmap and opens its board. */
 export function RoundLamp({ round, current, now }: { round: WaitingRoundDto; current: boolean; now: number }) {
-  const openEpic = useUiStore((state) => state.openEpic);
-  const subject = `${round.epicKey} ${round.epicTitle}`.trim();
+  const open = useOpenWaitingRound();
+  const words = waitingRoundWords(round);
   return (
     <button
       type="button"
       data-lamp="waiting"
-      data-epic-id={round.epicId}
+      data-epic-id={round.epicId ?? undefined}
+      data-roadmap-round={round.subject === "roadmap" ? round.projectId : undefined}
       aria-current={current ? "location" : undefined}
-      aria-label={`Open Epic ${subject}, Round ${round.roundNumber} Waiting on you`}
-      title={`${subject}: Round ${round.roundNumber}, ${round.answered} of ${round.questions} answered, waiting ${formatAge(round.waitingSince, now)}`}
-      onClick={() => openEpic(round.projectId, round.epicId)}
+      aria-label={`Open ${words.record}, ${words.round} Waiting on you`}
+      title={`${words.record}: ${words.round}, ${words.progress}, waiting ${formatAge(round.waitingSince, now)}`}
+      onClick={() => open(round)}
       style={{ width: LAMP_WIDTH }}
       className={lampClass("waiting", current)}
     >
@@ -184,11 +187,11 @@ export function RoundLamp({ round, current, now }: { round: WaitingRoundDto; cur
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-baseline gap-1.5 text-small font-semibold">
-          <span className="shrink-0 font-mono text-meta font-normal">{round.epicKey}</span>
-          <span className="truncate">{round.epicTitle}</span>
+          {words.key && <span className="shrink-0 font-mono text-meta font-normal">{words.key}</span>}
+          <span className="truncate">{words.lampTitle}</span>
         </span>
         <span className="truncate text-meta font-semibold text-attention-foreground">
-          {`Round ${round.roundNumber} · Waiting on you`}
+          {`${words.shortRound} · Waiting on you`}
         </span>
       </span>
       <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-attention-foreground" />
@@ -255,6 +258,8 @@ export function AndonStrip() {
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
   const placeStoryId = useUiStore((state) => (state.activeSessionId ? state.activeSessionStoryId : state.currentStoryId));
   const placeEpicId = useUiStore((state) => (state.activeSessionId ? null : state.currentEpicId));
+  // A roadmap Round's lamp is current on its project's board, with nothing open over it.
+  const placeBoardId = usePlaceBoardId();
   const [laneRef, laneWidth] = useWidth<HTMLDivElement>();
   const now = useMinuteTick();
   const capacity = laneWidth > 0 ? lampCapacity(laneWidth, lamps.length) : lamps.length;
@@ -285,7 +290,11 @@ export function AndonStrip() {
             {shown.map((lamp) => (
               <div role="listitem" key={lamp.id} className="shrink-0">
                 {lamp.kind === "round" ? (
-                  <RoundLamp round={lamp.round} current={lamp.round.epicId === placeEpicId} now={now} />
+                  <RoundLamp round={lamp.round} current={
+                    lamp.round.subject === "roadmap"
+                      ? lamp.round.projectId === placeBoardId
+                      : lamp.round.epicId === placeEpicId
+                  } now={now} />
                 ) : (
                   <Lamp lamp={lamp.lamp} current={lamp.lamp.row.storyId === placeStoryId} now={now} />
                 )}

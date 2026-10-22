@@ -79,8 +79,16 @@ export const BOARD_TOOL_NAMES = [...TASK_TOOL_NAMES, ...HANDOFF_TOOL_NAMES] as c
  * which is what parses and runs each call. `round_post` is held until the developer has answered
  * every question in the Round, which can take days. `round_wait` (issue #124) is a later session's way
  * back onto a Round its killed predecessor left open, held the same way. `propose_spec_change`
- * (issue #125) files a Proposal on the Epic and is answered at once: a Proposal never holds the agent. */
-export const SHAPING_TOOL_NAMES = ["round_post", "round_wait", "propose_spec_change"] as const;
+ * (issue #125) files a Proposal on the Epic and is answered at once: a Proposal never holds the agent.
+ * `propose_roadmap_change` and `roadmap_holds` (issue #133) are a roadmap Round's: the first files one
+ * Roadmap change and is answered at once, the second closes the Round with "Roadmap still holds". */
+export const SHAPING_TOOL_NAMES = [
+  "round_post",
+  "round_wait",
+  "propose_spec_change",
+  "propose_roadmap_change",
+  "roadmap_holds",
+] as const;
 
 export type ShapingToolName = (typeof SHAPING_TOOL_NAMES)[number];
 
@@ -210,7 +218,7 @@ export const SHAPING_TOOL_DEFINITIONS = [
   {
     name: "round_wait",
     description:
-      "Wait on the Round still open in the Stage you are shaping, posted by an earlier session that has ended. Your packet shows the Round and the answers the developer has given so far. This call takes the Round over and waits until every question in it is answered, however long that takes (at once if it already is), then answers with every answer, in order, exactly as round_post would have. Takes no arguments. Refused when no Round has been posted in the Stage: post one with round_post.",
+      "In a roadmap Round, wait until the developer has decided every change you proposed, then get each decision. Otherwise: wait on the Round still open in the Stage you are shaping, posted by an earlier session that has ended. Your packet shows the Round and the answers the developer has given so far. This call takes the Round over and waits until every question in it is answered, however long that takes (at once if it already is), then answers with every answer, in order, exactly as round_post would have. Takes no arguments. Refused when no Round has been posted in the Stage: post one with round_post.",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -225,6 +233,43 @@ export const SHAPING_TOOL_DEFINITIONS = [
         why: { type: "string", minLength: 1, description: "One line: what in the Rounds or the code makes this the better text." },
       },
       required: ["field", "text", "why"],
+    },
+  },
+  {
+    name: "propose_roadmap_change",
+    description:
+      "In a roadmap Round, propose one change to the Roadmap, with one line on why. `change` is one of: create_milestone (title: the outcome in one line, no date; exit_test), amend_milestone (milestone_id; a new title and/or exit_test), reorder_milestone (milestone_id; before_milestone_id, or null for the end of the Roadmap), retire_milestone (milestone_id), add_epic (title; problem; milestone_id, which defaults to the Milestone after the Current one) or drop_epic (epic_id). Use the ids your packet shows. The change shows on the Roadmap strip as a ghost row the developer accepts, amends or rejects; nothing changes until they do. A Done Milestone is frozen, a Milestone holding an open Epic cannot be retired and an Epic holding an open Story cannot be dropped. This call is answered at once; once every change is proposed, call round_wait for the developer's decisions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        change: {
+          type: "string",
+          enum: ["create_milestone", "amend_milestone", "reorder_milestone", "retire_milestone", "add_epic", "drop_epic"],
+        },
+        milestone_id: { type: "string", description: "The Milestone the change lands on, or the new Epic's Milestone." },
+        epic_id: { type: "string", description: "drop_epic: the Epic to drop." },
+        before_milestone_id: {
+          type: ["string", "null"],
+          description: "reorder_milestone: the Milestone to move before, or null for the end of the Roadmap.",
+        },
+        title: { type: "string", maxLength: 200, description: "A new Milestone's outcome, a new title, or a new Epic's title." },
+        exit_test: { type: "string", maxLength: 4000, description: "The Milestone's exit test: observable, with no date." },
+        problem: { type: "string", maxLength: 4000, description: "add_epic: the problem the new Epic solves." },
+        why: { type: "string", minLength: 1, description: "One line: what in the trigger or the board makes this change right." },
+      },
+      required: ["change", "why"],
+    },
+  },
+  {
+    name: "roadmap_holds",
+    description:
+      "In a roadmap Round, say the Roadmap still holds as it is, with one line on why. This closes the Round with a \"Roadmap still holds\" line on the timeline; then end your session. Refused once you have proposed a change in this Round: call round_wait instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        why: { type: "string", minLength: 1, description: "One line: why the Roadmap still holds after the trigger." },
+      },
+      required: ["why"],
     },
   },
 ] as const;

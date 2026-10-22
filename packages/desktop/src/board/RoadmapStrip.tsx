@@ -12,6 +12,8 @@
  *   keeps its place: it has no handle, does not drag, and reads quieter.
  * - **+ Milestone** takes a one-line outcome and adds it at the end of the Roadmap, in Shaping, through
  *   the existing `milestone_create`, then picks it.
+ * - **Revisit roadmap** starts a roadmap Round (issue #133, `RoadmapRound.tsx`): its band sits under the
+ *   header, and each change it proposes is a ghost row under the Milestone it lands on, decided in place.
  *
  * Server data stays in React Query under the board's key (`board:changed` keeps it live), and the strip
  * never reorders its own copy: the new order is what the core says after the move.
@@ -26,6 +28,7 @@ import { Input } from "../components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
 import { useUiStore } from "../state/uiStore";
 import { EPIC_STATE_WORDS } from "./EpicProgress";
+import { GhostRow, LastRoundNote, RevisitRoadmapButton, RoundBand, useRoadmapRound } from "./RoadmapRound";
 import { errorText } from "./StoryControls";
 import { cn } from "@/lib/utils";
 
@@ -62,6 +65,13 @@ function beforeIdFor(milestones: MilestoneDto[], from: number, to: number): stri
 export function RoadmapStrip({ projectId }: { projectId: string }) {
   const roadmap = useRoadmap(projectId);
   const milestones = roadmap.data ?? [];
+  const roundView = useRoadmapRound(projectId).data;
+  const openRound = roundView?.open ?? null;
+  const proposals = openRound ? (roundView?.proposals ?? []) : [];
+  const ghostsUnder = (milestoneId: string) => proposals.filter((p) => p.anchorMilestoneId === milestoneId);
+  const trailingGhosts = proposals.filter(
+    (p) => p.anchorMilestoneId === null || !milestones.some((m) => m.id === p.anchorMilestoneId),
+  );
   const { shown } = useMilestoneSelection(projectId);
   const selectMilestone = useUiStore((state) => state.selectMilestone);
   const [error, setError] = useState<string | null>(null);
@@ -130,7 +140,12 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
     <section
       aria-labelledby={headingId}
       data-slot="roadmap-strip"
-      className="flex flex-col rounded-lg border border-border bg-card text-card-foreground shadow-card"
+      data-round-waiting={openRound?.waitingOnYou || undefined}
+      className={cn(
+        "flex flex-col overflow-clip rounded-lg bg-card text-card-foreground shadow-card",
+        // A roadmap Round its session waits on wears the request card's 2px attention edge.
+        openRound?.waitingOnYou ? "border-2 border-attention" : "border border-border",
+      )}
     >
       <header className="flex min-h-11 items-center gap-3 border-b border-border py-1.5 pr-2 pl-4">
         <h2 id={headingId} className="m-0 text-section font-semibold">
@@ -141,20 +156,24 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
             {milestones.length === 1 ? "1 Milestone" : `${milestones.length} Milestones`}
           </span>
         )}
-        <Button
-          variant="outline"
-          size="sm"
-          className="ml-auto"
-          ref={addRef}
-          aria-label="Add a Milestone"
-          aria-expanded={adding}
-          aria-controls={adding ? formId : undefined}
-          onClick={() => setAdding(true)}
-        >
-          <Plus aria-hidden="true" />
-          Milestone
-        </Button>
+        {!openRound && roundView?.last && <LastRoundNote round={roundView.last} now={Date.now()} />}
+        <span className="ml-auto flex items-center gap-1.5">
+          {!openRound && roadmap.isSuccess && milestones.length > 0 && <RevisitRoadmapButton projectId={projectId} />}
+          <Button
+            variant="outline"
+            size="sm"
+            ref={addRef}
+            aria-label="Add a Milestone"
+            aria-expanded={adding}
+            aria-controls={adding ? formId : undefined}
+            onClick={() => setAdding(true)}
+          >
+            <Plus aria-hidden="true" />
+            Milestone
+          </Button>
+        </span>
       </header>
+      {openRound && <RoundBand projectId={projectId} round={openRound} proposals={proposals} />}
 
       <p id={handleHintId} className="sr-only">
         Press the Up or Down arrow to move it on the Roadmap, or drag the row.
@@ -178,6 +197,7 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
             const dropping = dropTarget === milestone.id && dragging !== null && dragging !== milestone.id;
             const stateWord = EPIC_STATE_WORDS[milestone.state] ?? milestone.state;
             const exitTestId = `${headingId}-exit-${milestone.id}`;
+            const ghosts = ghostsUnder(milestone.id);
             return (
               <li
                 key={milestone.id}
@@ -204,96 +224,116 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                 }}
                 onDrop={(event) => onDrop(event, index)}
                 className={cn(
-                  "group/milestone relative flex min-h-9 items-center border-border",
-                  "transition-[background-color] duration-(--duration-state) ease-(--ease)",
+                  "group/milestone relative border-border",
                   index > 0 && "border-t",
-                  // The picked Milestone takes the selected-row tint across the whole row, its handle too.
-                  selected ? "bg-running-muted" : "hover:bg-accent",
                   dragging === milestone.id && "opacity-50",
                   // The drop line: where the dragged Milestone will land, above or below this row.
                   "data-[drop]:after:absolute data-[drop]:after:inset-x-2 data-[drop]:after:h-0.5 data-[drop]:after:rounded-full data-[drop]:after:bg-ring",
                   "data-[drop=before]:after:-top-px data-[drop=after]:after:-bottom-px",
                 )}
               >
-                <span className="flex w-8 shrink-0 justify-center self-stretch pl-1">
-                  {!closed && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          data-slot="roadmap-move-handle"
-                          data-move-handle={milestone.id}
-                          aria-label={`Move ${milestone.title}`}
-                          aria-describedby={handleHintId}
-                          onKeyDown={(event) => onRowKeyDown(event, index, true)}
-                          onBlur={() => {
-                            if (refocus.current === milestone.id) refocus.current = null;
-                          }}
-                          className="my-auto flex h-7 w-6 cursor-grab items-center justify-center rounded-sm text-subtle-foreground transition-colors duration-(--duration-state) ease-(--ease) hover:bg-secondary hover:text-foreground active:cursor-grabbing"
-                        >
-                          <GripVertical aria-hidden="true" size={16} />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>Drag to reorder, or use the arrow keys</TooltipContent>
-                    </Tooltip>
+                <div
+                  className={cn(
+                    "flex min-h-9 items-center transition-[background-color] duration-(--duration-state) ease-(--ease)",
+                    // The picked Milestone takes the selected-row tint across the whole row, its handle too.
+                    selected ? "bg-running-muted" : "hover:bg-accent",
                   )}
-                </span>
-                <button
-                  type="button"
-                  aria-label={`${milestone.title}, ${stateWord}${milestone.current ? ", Current Milestone" : ""}`}
-                  // A slot of its own, so the legacy bare-button hover (App.css) never greys the picked row.
-                  data-slot="roadmap-row"
-                  data-row-id={milestone.id}
-                  aria-describedby={closed ? exitTestId : `${exitTestId} ${rowHintId}`}
-                  aria-current={selected ? "true" : undefined}
-                  onClick={() => selectMilestone(projectId, milestone.id)}
-                  onKeyDown={(event) => onRowKeyDown(event, index, false)}
-                  className="grid min-h-9 min-w-0 flex-1 grid-cols-[minmax(8rem,14rem)_7.5rem_minmax(0,1fr)_4.5rem_16px] items-center gap-x-3 rounded-sm py-1 pr-3 text-left"
                 >
-                  <span
-                    title={milestone.title}
-                    className={cn(
-                      "truncate text-row",
-                      closed ? "font-normal text-muted-foreground" : "font-semibold",
+                  <span className="flex w-8 shrink-0 justify-center self-stretch pl-1">
+                    {!closed && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            data-slot="roadmap-move-handle"
+                            data-move-handle={milestone.id}
+                            aria-label={`Move ${milestone.title}`}
+                            aria-describedby={handleHintId}
+                            onKeyDown={(event) => onRowKeyDown(event, index, true)}
+                            onBlur={() => {
+                              if (refocus.current === milestone.id) refocus.current = null;
+                            }}
+                            className="my-auto flex h-7 w-6 cursor-grab items-center justify-center rounded-sm text-subtle-foreground transition-colors duration-(--duration-state) ease-(--ease) hover:bg-secondary hover:text-foreground active:cursor-grabbing"
+                          >
+                            <GripVertical aria-hidden="true" size={16} />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Drag to reorder, or use the arrow keys</TooltipContent>
+                      </Tooltip>
                     )}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`${milestone.title}, ${stateWord}${milestone.current ? ", Current Milestone" : ""}`}
+                    // A slot of its own, so the legacy bare-button hover (App.css) never greys the picked row.
+                    data-slot="roadmap-row"
+                    data-row-id={milestone.id}
+                    aria-describedby={closed ? exitTestId : `${exitTestId} ${rowHintId}`}
+                    aria-current={selected ? "true" : undefined}
+                    onClick={() => selectMilestone(projectId, milestone.id)}
+                    onKeyDown={(event) => onRowKeyDown(event, index, false)}
+                    className="grid min-h-9 min-w-0 flex-1 grid-cols-[minmax(8rem,14rem)_7.5rem_minmax(0,1fr)_4.5rem_16px] items-center gap-x-3 rounded-sm py-1 pr-3 text-left"
                   >
-                    {milestone.title}
-                  </span>
-                  <span className="flex">
-                    <StateBadge state={milestone.state} label={stateWord} className="h-5.5 text-meta" />
-                  </span>
-                  <span
-                    id={exitTestId}
-                    title={milestone.exitTest ?? undefined}
-                    className={cn(
-                      "truncate text-small",
-                      closed ? "text-subtle-foreground" : "text-muted-foreground",
-                      milestone.exitTest === null && "text-subtle-foreground",
-                    )}
-                  >
-                    {milestone.exitTest ?? "Exit test not written yet"}
-                  </span>
-                  <span className="flex justify-end">
-                    {milestone.current && (
-                      <span className="inline-flex items-center gap-1 text-meta font-semibold text-foreground">
-                        <Flag aria-hidden="true" size={13} strokeWidth={2.25} />
-                        Current
-                      </span>
-                    )}
-                  </span>
-                  <ChevronRight
-                    aria-hidden="true"
-                    size={16}
-                    className={cn(
-                      "transition-colors",
-                      selected ? "text-running" : "text-subtle-foreground group-hover/milestone:text-foreground",
-                    )}
-                  />
-                </button>
+                    <span
+                      title={milestone.title}
+                      className={cn(
+                        "truncate text-row",
+                        closed ? "font-normal text-muted-foreground" : "font-semibold",
+                      )}
+                    >
+                      {milestone.title}
+                    </span>
+                    <span className="flex">
+                      <StateBadge state={milestone.state} label={stateWord} className="h-5.5 text-meta" />
+                    </span>
+                    <span
+                      id={exitTestId}
+                      title={milestone.exitTest ?? undefined}
+                      className={cn(
+                        "truncate text-small",
+                        closed ? "text-subtle-foreground" : "text-muted-foreground",
+                        milestone.exitTest === null && "text-subtle-foreground",
+                      )}
+                    >
+                      {milestone.exitTest ?? "Exit test not written yet"}
+                    </span>
+                    <span className="flex justify-end">
+                      {milestone.current && (
+                        <span className="inline-flex items-center gap-1 text-meta font-semibold text-foreground">
+                          <Flag aria-hidden="true" size={13} strokeWidth={2.25} />
+                          Current
+                        </span>
+                      )}
+                    </span>
+                    <ChevronRight
+                      aria-hidden="true"
+                      size={16}
+                      className={cn(
+                        "transition-colors",
+                        selected ? "text-running" : "text-subtle-foreground group-hover/milestone:text-foreground",
+                      )}
+                    />
+                  </button>
+                </div>
+                {/* Issue #133: the roadmap Round's proposed changes to this Milestone, a list of their own. */}
+                {ghosts.length > 0 && (
+                  <ul aria-label={`Proposed changes to ${milestone.title}`} className="m-0 list-none p-0">
+                    {ghosts.map((p) => (
+                      <GhostRow key={p.id} projectId={projectId} proposal={p} />
+                    ))}
+                  </ul>
+                )}
               </li>
             );
           })}
         </ol>
+      )}
+      {trailingGhosts.length > 0 && (
+        <ul aria-label="Proposed new Milestones" className="m-0 list-none border-border p-0 [&>li:first-child]:border-t">
+          {trailingGhosts.map((p) => (
+            <GhostRow key={p.id} projectId={projectId} proposal={p} />
+          ))}
+        </ul>
       )}
 
       {adding && (

@@ -148,6 +148,16 @@ const SPEC_FIELD_LABELS: Record<string, string> = {
   exit_test: "Exit test",
 };
 
+/** A Roadmap change as the strip names it, by the `change` `propose_roadmap_change` gives it (issue #133). */
+const ROADMAP_CHANGE_WORDS: Record<string, string> = {
+  create_milestone: "New Milestone",
+  amend_milestone: "Amend Milestone",
+  reorder_milestone: "Move Milestone",
+  retire_milestone: "Retire Milestone",
+  add_epic: "New Epic",
+  drop_epic: "Drop Epic",
+};
+
 function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescription {
   const input = record(call.input);
   const answer = outputJson(call.output);
@@ -202,6 +212,22 @@ function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescripti
       const recommended = answers ? answers.filter((a) => a.answered_with === "recommended").length : 0;
       const number = typeof answer.round === "number" ? ` ${answer.round}` : "";
       const posted = tool === "round_post";
+      // Issue #133: in a roadmap Round, round_wait comes back with the developer's decisions.
+      const decisions = Array.isArray(answer.decisions) ? answer.decisions.map(record) : null;
+      if (decisions) {
+        const accepted = decisions.filter((d) => d.state === "accepted").length;
+        return {
+          ...base,
+          kind: "question",
+          verb: `Roadmap Round${number} decided`,
+          liveVerb: "Waiting on your decisions",
+          target: "",
+          metrics:
+            base.metrics.length > 0
+              ? base.metrics
+              : [{ text: `${accepted} accepted · ${decisions.length - accepted} rejected`, tone: "neutral" as const }],
+        };
+      }
       return {
         ...base,
         kind: "question",
@@ -224,6 +250,14 @@ function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescripti
       const text = str(input.text);
       return { ...base, verb: "Proposed", liveVerb: "Proposing", target: [field, text].filter(Boolean).join(": ") };
     }
+    case "propose_roadmap_change": {
+      // Issue #133: answered at once; the change waits on the Roadmap strip as a ghost row.
+      const what = ROADMAP_CHANGE_WORDS[str(input.change)] ?? words(str(input.change));
+      const title = str(input.title);
+      return { ...base, verb: "Proposed", liveVerb: "Proposing", target: [what, title].filter(Boolean).join(": ") };
+    }
+    case "roadmap_holds":
+      return { ...base, verb: "Said the Roadmap still holds", liveVerb: "Closing the roadmap Round", target: str(input.why) };
     default:
       return {
         ...base,

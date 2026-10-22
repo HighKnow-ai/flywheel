@@ -3,13 +3,25 @@
  * header lists every Milestone in Roadmap order (name, state, one-line Exit test). Dragging a row or the
  * keyboard move calls `milestone_move`; a Done or Dropped Milestone does not move. Clicking a row switches
  * the header and the roster to that Milestone. "+ Milestone" adds one from a one-line outcome.
+ *
+ * Issue #133: Revisit roadmap starts a roadmap Round; the Round's band says where it is, Dismiss closes it
+ * with no change, and each Roadmap Proposal is a ghost row under the Milestone it lands on, with Accept,
+ * Amend and Reject; a rejected one is struck through with its reason.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryBoard } from "../StoryBoard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import type { EpicDto, MilestoneDto, MilestoneProgressDto, StoryDto } from "../../adapters/tauri";
+import type {
+  EpicDto,
+  MilestoneDto,
+  MilestoneProgressDto,
+  RoadmapProposalDto,
+  RoadmapRoundDto,
+  RoadmapRoundViewDto,
+  StoryDto,
+} from "../../adapters/tauri";
 
 const milestoneList = vi.fn();
 const milestoneMove = vi.fn();
@@ -17,6 +29,12 @@ const milestoneCreate = vi.fn();
 const milestoneProgress = vi.fn();
 const epicList = vi.fn();
 const storyListForProject = vi.fn();
+const roadmapRoundRead = vi.fn();
+const roadmapRevisit = vi.fn();
+const roadmapRoundDismiss = vi.fn();
+const proposalAccept = vi.fn();
+const proposalAmend = vi.fn();
+const proposalReject = vi.fn();
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -28,6 +46,12 @@ vi.mock("../../adapters/tauri", async () => {
     milestoneProgress: (...args: unknown[]) => milestoneProgress(...args),
     epicList: (...args: unknown[]) => epicList(...args),
     storyListForProject: (...args: unknown[]) => storyListForProject(...args),
+    roadmapRoundRead: (...args: unknown[]) => roadmapRoundRead(...args),
+    roadmapRevisit: (...args: unknown[]) => roadmapRevisit(...args),
+    roadmapRoundDismiss: (...args: unknown[]) => roadmapRoundDismiss(...args),
+    proposalAccept: (...args: unknown[]) => proposalAccept(...args),
+    proposalAmend: (...args: unknown[]) => proposalAmend(...args),
+    proposalReject: (...args: unknown[]) => proposalReject(...args),
     taskList: () => Promise.resolve([]),
     storyContextPacketSize: () => Promise.resolve({ bytes: 4000, approxTokens: 1000, overSoftLimit: false }),
     blockedSummary: () => Promise.resolve({ blockedStoryIds: [], blockedCount: 0 }),
@@ -101,6 +125,42 @@ beforeEach(() => {
     ),
   );
   storyListForProject.mockReset().mockResolvedValue([story("s3", "Ghost rows", "e3"), story("s4", "Diff view", "e4")]);
+  roadmapRoundRead.mockReset().mockResolvedValue(NO_ROUND);
+  roadmapRevisit.mockReset().mockResolvedValue({ id: "ses-r", projectId: "p1", status: "running", permissionMode: "dontAsk" });
+  roadmapRoundDismiss.mockReset().mockResolvedValue(undefined);
+  proposalAccept.mockReset().mockResolvedValue(undefined);
+  proposalAmend.mockReset().mockResolvedValue(undefined);
+  proposalReject.mockReset().mockResolvedValue(undefined);
+});
+
+const NO_ROUND: RoadmapRoundViewDto = { open: null, proposals: [], last: null };
+
+function round(overrides: Partial<RoadmapRoundDto> = {}): RoadmapRoundDto {
+  return {
+    id: "rr1", number: 1, state: "open", triggerType: "revisit", triggerLabel: "Revisit roadmap", waitingOnYou: false,
+    sessionLive: true, sessionId: "ses-r", postedAt: "2026-10-22T09:00:00Z", closedAt: null, proposalsFiled: 0, ...overrides,
+  };
+}
+
+function proposal(id: string, verb: string, targetType: string, summary: string, overrides: Partial<RoadmapProposalDto> = {}): RoadmapProposalDto {
+  return {
+    id, projectId: "p1", sessionId: "ses-r", epicId: null, verb, targetType, targetId: null, payload: {}, rationale: "Asked twice",
+    state: "pending", createdAt: "2026-10-22T09:01:00Z", rejectionReason: null, stageId: null, roundId: "rr1", summary,
+    anchorMilestoneId: null, ...overrides,
+  };
+}
+
+const NEW_MILESTONE = proposal("p-new", "create", "milestone", "New Milestone \"Mobile\"", {
+  payload: { title: "Mobile", exit_test: null },
+});
+const RETIRE_BOARD = proposal("p-retire", "retire", "milestone", "Retire Milestone \"Board and review\"", {
+  targetId: "m4", anchorMilestoneId: "m4",
+});
+const NEW_EPIC = proposal("p-epic", "create", "epic", "New Epic \"Ghost rows\" in Milestone \"Shaping\"", {
+  payload: { milestone_id: "m3", title: "Ghost rows", problem: null }, anchorMilestoneId: "m3",
+});
+const REJECTED = proposal("p-no", "create", "milestone", "New Milestone \"Teams\"", {
+  state: "rejected", rejectionReason: "Not before the one-week test",
 });
 
 describe("RoadmapStrip: one row per Milestone", () => {
@@ -245,3 +305,110 @@ describe("RoadmapStrip: + Milestone", () => {
     expect(within(await strip()).getByRole("button", { name: "Add a Milestone" })).toBeInTheDocument();
   });
 });
+
+describe("RoadmapStrip: the roadmap Round (issue #133)", () => {
+  it("Revisit roadmap starts the Round, and its band says the agent is reading without opening the session", async () => {
+    renderBoard();
+    const revisit = await within(await strip()).findByRole("button", { name: "Revisit roadmap" });
+    roadmapRoundRead.mockResolvedValue({ open: round(), proposals: [], last: null });
+    fireEvent.click(revisit);
+    await waitFor(() => expect(roadmapRevisit).toHaveBeenCalledWith("p1"));
+    expect(await within(await strip()).findByRole("heading", { name: "Roadmap Round 1" })).toBeInTheDocument();
+    expect(within(await strip()).getByRole("status")).toHaveTextContent("The agent is reading the Roadmap");
+    expect(within(await strip()).queryByRole("button", { name: "Revisit roadmap" })).toBeNull();
+    expect(useUiStore.getState().activeSessionId).toBeNull();
+    fireEvent.click(within(await strip()).getByRole("button", { name: "Open session" }));
+    expect(useUiStore.getState().activeSessionId).toBe("ses-r");
+  });
+
+  it("shows each proposed change as a ghost row under the Milestone it lands on, a new Milestone at the end", async () => {
+    roadmapRoundRead.mockResolvedValue({
+      open: round({ waitingOnYou: true, proposalsFiled: 4 }),
+      proposals: [NEW_MILESTONE, RETIRE_BOARD, NEW_EPIC, REJECTED],
+      last: null,
+    });
+    renderBoard();
+    const list = await within(await strip()).findByRole("list", { name: "Milestones in Roadmap order" });
+    const stripEl = await strip();
+    await waitFor(() => expect(within(stripEl).getAllByRole("group", { name: /^Proposed: / })).toHaveLength(3));
+    // The Milestone list still counts Milestones only; each Milestone's changes are a list of their own.
+    expect(list.querySelectorAll(":scope > li")).toHaveLength(5);
+    const under = (title: string) =>
+      within(within(list).getByRole("list", { name: `Proposed changes to ${title}` }))
+        .getAllByRole("listitem")
+        .map((li) => li.querySelector("[role=group]")?.getAttribute("aria-label") ?? li.getAttribute("aria-label"));
+    expect(under("Shaping")).toEqual(['Proposed: New Epic "Ghost rows" in Milestone "Shaping"']);
+    expect(under("Board and review")).toEqual(['Proposed: Retire Milestone "Board and review"']);
+    const trailing = within(await strip()).getByRole("list", { name: "Proposed new Milestones" });
+    expect(
+      within(trailing)
+        .getAllByRole("listitem")
+        .map((li) => li.querySelector("[role=group]")?.getAttribute("aria-label") ?? li.getAttribute("aria-label")),
+    ).toEqual(['Proposed: New Milestone "Mobile"', 'Rejected: New Milestone "Teams"']);
+    expect(within(await strip()).getByRole("status")).toHaveTextContent("Waiting on you · 1 of 4 decided");
+    expect(await strip()).toHaveAttribute("data-round-waiting", "true");
+    const rejected = within(trailing).getByRole("listitem", { name: 'Rejected: New Milestone "Teams"' });
+    expect(within(rejected).getByText("Your reason: Not before the one-week test")).toBeInTheDocument();
+  });
+
+  it("Accept, Amend and Reject decide a ghost row in place", async () => {
+    roadmapRoundRead.mockResolvedValue({ open: round({ waitingOnYou: true }), proposals: [NEW_MILESTONE, RETIRE_BOARD], last: null });
+    renderBoard();
+    const retire = await screen.findByRole("group", { name: 'Proposed: Retire Milestone "Board and review"' });
+    expect(within(retire).queryByRole("button", { name: /^Amend/ })).toBeNull();
+    fireEvent.click(within(retire).getByRole("button", { name: 'Accept: Retire Milestone "Board and review"' }));
+    await waitFor(() => expect(proposalAccept).toHaveBeenCalledWith("p-retire"));
+    // The keyboard moves on to the next undecided change, never onto a Milestone's move handle.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(screen.getByRole("group", { name: 'Proposed: New Milestone "Mobile"' })).getByRole("button", { name: /^Accept/ }),
+      ),
+    );
+
+    const created = screen.getByRole("group", { name: 'Proposed: New Milestone "Mobile"' });
+    fireEvent.click(within(created).getByRole("button", { name: 'Amend: New Milestone "Mobile"' }));
+    const outcome = within(created).getByRole("textbox", { name: "Outcome" });
+    expect(outcome).toHaveValue("Mobile");
+    fireEvent.change(outcome, { target: { value: "Mobile, read-only" } });
+    fireEvent.change(within(created).getByRole("textbox", { name: "Exit test (optional)" }), { target: { value: "A phone reads the board" } });
+    fireEvent.click(within(created).getByRole("button", { name: "Accept edit" }));
+    await waitFor(() =>
+      expect(proposalAmend).toHaveBeenCalledWith("p-new", { title: "Mobile, read-only", exit_test: "A phone reads the board" }),
+    );
+
+    fireEvent.click(within(retire).getByRole("button", { name: 'Reject: Retire Milestone "Board and review"' }));
+    fireEvent.change(within(retire).getByRole("textbox", { name: "Why not? (optional)" }), { target: { value: "Still needed" } });
+    fireEvent.click(within(retire).getByRole("button", { name: "Reject" }));
+    await waitFor(() => expect(proposalReject).toHaveBeenCalledWith("p-retire", "Still needed"));
+  });
+
+  it("Dismiss closes the Round, asking first when it would reject undecided changes", async () => {
+    roadmapRoundRead.mockResolvedValue({ open: round({ waitingOnYou: true }), proposals: [NEW_MILESTONE], last: null });
+    renderBoard();
+    fireEvent.click(await within(await strip()).findByRole("button", { name: "Dismiss Roadmap Round 1, rejecting 1 undecided change" }));
+    expect(roadmapRoundDismiss).not.toHaveBeenCalled();
+    expect(within(await strip()).getByRole("alert")).toHaveTextContent("Dismissing rejects the undecided change.");
+    const keep = within(await strip()).getByRole("button", { name: "Keep it" });
+    await waitFor(() => expect(document.activeElement).toBe(keep));
+    fireEvent.click(within(await strip()).getByRole("button", { name: "Dismiss Round" }));
+    await waitFor(() => expect(roadmapRoundDismiss).toHaveBeenCalledWith("rr1"));
+  });
+
+  it("offers Continue on a Round with no live session, and says when the Roadmap still holds", async () => {
+    roadmapRoundRead.mockResolvedValue({ open: round({ sessionLive: false }), proposals: [], last: null });
+    renderBoard();
+    expect(await within(await strip()).findByRole("status")).toHaveTextContent("No live session: your decisions are kept");
+    fireEvent.click(within(await strip()).getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(roadmapRevisit).toHaveBeenCalledWith("p1"));
+
+    roadmapRoundRead.mockResolvedValue({ open: null, proposals: [], last: round({ state: "closed", closedAt: new Date().toISOString() }) });
+    cleanupAndRender();
+    expect(await within(await strip()).findByText("Roadmap still holds")).toBeInTheDocument();
+    expect(within(await strip()).getByRole("button", { name: "Revisit roadmap" })).toBeInTheDocument();
+  });
+});
+
+function cleanupAndRender() {
+  document.body.innerHTML = "";
+  renderBoard();
+}
