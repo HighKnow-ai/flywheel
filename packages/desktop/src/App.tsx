@@ -6,6 +6,7 @@ import { FirstRun } from "./board/FirstRun";
 import { LaunchEnvironmentNotice } from "./board/LaunchEnvironmentNotice";
 import { StoryBoard } from "./board/StoryBoard";
 import { StoryView } from "./board/StoryView";
+import { EpicShapingView } from "./shaping/EpicShapingView";
 import { useProjects } from "./board/useBoardQuery";
 import { useWatchedRun } from "./fleet/useWatchedRun";
 import { LaunchSheet } from "./launch-sheet/LaunchSheet";
@@ -45,6 +46,7 @@ function AppShell() {
   const activeSessionInitialStatus = useUiStore((state) => state.activeSessionInitialStatus);
   // Issue #104: the Story open in the Story view, and the one Back every surface uses.
   const currentStoryId = useUiStore((state) => state.currentStoryId);
+  const currentEpicId = useUiStore((state) => state.currentEpicId);
   const openStory = useUiStore((state) => state.openStory);
   const goBack = useUiStore((state) => state.goBack);
   // Phase 10 plan 10-01 (D-163): the fleet surface — opened from the project rail's Fleet row, the
@@ -171,6 +173,7 @@ function AppShell() {
     worktreeInventoryOpen,
     projectUnreachable: project.status === "unreachable",
     storyOpen: currentStoryId !== null,
+    epicOpen: currentEpicId !== null,
   });
   function renderSurface(): React.ReactNode {
     switch (surface) {
@@ -208,6 +211,12 @@ function AppShell() {
         if (!currentStoryId) return null;
         return (
           <StoryView projectId={project.id} projectName={project.name} storyId={currentStoryId} onBack={goBack} />
+        );
+      case "epic":
+        if (!currentEpicId) return null;
+        // Issue #123: the Epic card beside its Round dock.
+        return (
+          <EpicShapingView projectId={project.id} projectName={project.name} epicId={currentEpicId} onBack={goBack} />
         );
       case "board":
         // The bare board (issue #50): the Story list with Start, and the hand-written Story form.

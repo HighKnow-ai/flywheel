@@ -241,6 +241,74 @@ export async function epicShapingSession(epicId: string): Promise<string | null>
   return invokeCommand<string | null>("epic_shaping_session", { epicId });
 }
 
+/** A Stage of shaping (issue #123) — mirrors `commands/shaping.rs`'s `StageDto`. */
+export interface StageDto {
+  id: string;
+  /** `challenge_spec`, `slice`, `criteria` or `exit_test`. */
+  kind: string;
+  /** `open` or `closed`. */
+  state: string;
+  rank: number;
+}
+
+/** One numbered question of a Round, with its answer once given — mirrors `RoundQuestionDto`. */
+export interface RoundQuestionDto {
+  id: string;
+  number: number;
+  title: string;
+  question: string;
+  grounding: string;
+  recommendedAnswer: string;
+  because: string;
+  answer: string | null;
+  /** `recommended` or `own`, once answered. */
+  answeredWith: string | null;
+  answeredAt: string | null;
+}
+
+/** A Round of questions an agent posted into a Stage — mirrors `commands/shaping.rs`'s `RoundDto`. */
+export interface RoundDto {
+  id: string;
+  stageId: string;
+  stageKind: string;
+  number: number;
+  note: string;
+  /** `open` or `answered`. */
+  state: string;
+  /** Whether the session that posted it still waits on its answers. */
+  held: boolean;
+  postedAt: string;
+  answeredAt: string | null;
+  questions: RoundQuestionDto[];
+}
+
+/** An Epic with its Stages and Rounds, oldest first. */
+export interface EpicShapingDto {
+  epic: EpicDto;
+  stages: StageDto[];
+  rounds: RoundDto[];
+}
+
+/** The Epic's Stages and Rounds (issue #123): what the Round dock shows. Read-only. */
+export async function epicShapingRounds(epicId: string): Promise<EpicShapingDto> {
+  return invokeCommand<EpicShapingDto>("epic_shaping_rounds", { epicId });
+}
+
+/** Accept a question's recommended answer as it is. Human-only; the last answer releases the agent. */
+export async function roundAccept(questionId: string): Promise<void> {
+  await invokeCommand<void>("round_accept", { questionId });
+}
+
+/** Answer a question in your own words. Human-only. */
+export async function roundAnswer(questionId: string, answer: string): Promise<void> {
+  await invokeCommand<void>("round_answer", { questionId, answer });
+}
+
+/** Accept the recommended answer of every question still open in a Round. Questions only. */
+export async function roundAcceptAll(roundId: string): Promise<void> {
+  await invokeCommand<void>("round_accept_all", { roundId });
+}
+
 /** A Story in one Epic — mirrors `commands/story.rs`'s `StoryDto`. */
 export interface StoryDto {
   id: string;

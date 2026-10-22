@@ -225,6 +225,40 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     row("One-week exit test").dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
   });
 
+  it("23 Epic shaping: the Round dock waiting on you beside the Epic card (issue #123)", async () => {
+    await boardReady();
+    await click("Answer the Round on FLY-8");
+    await screen.findByRole("region", { name: /Round 2/ });
+    await shot("23-epic-shaping-round-dock");
+  });
+
+  it("24 Epic shaping: answering a question differently (issue #123)", async () => {
+    await boardReady();
+    await click("Answer the Round on FLY-8");
+    await click("Answer question 3 differently");
+    await screen.findByRole("textbox", { name: "Your answer to question 3" });
+    await shot("24-epic-shaping-answer-differently");
+  });
+
+  it("26 board: an Epic whose shaping session waits on a Round offers Answer (issue #123)", async () => {
+    await boardReady();
+    const answer = await screen.findByRole("button", { name: "Answer the Round on FLY-8" });
+    answer.scrollIntoView({ block: "center" });
+    await shot("26-board-epic-answer");
+  });
+
+  it("25 Epic shaping at the window's minimum width: the dock first (issue #123)", async () => {
+    await page.viewport(900, 900);
+    try {
+      await boardReady();
+      await click("Answer the Round on FLY-8");
+      await screen.findByRole("region", { name: /Round 2/ });
+      await shot("25-epic-shaping-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
   it("16 navigation: picking a project while the fleet is open", async () => {
     await boardReady();
     await click("Open fleet");

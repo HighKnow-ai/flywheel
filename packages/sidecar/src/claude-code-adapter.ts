@@ -1173,7 +1173,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       mcpServers: {
         [MCP_SERVER_NAME]: {
           command: process.execPath,
-          args: [permissionServerScriptPath(), permissionServer.socketPath],
+          args: [permissionServerScriptPath(), permissionServer.socketPath, options.sessionKind ?? "story"],
         },
       },
     });

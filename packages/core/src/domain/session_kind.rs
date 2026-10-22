@@ -7,11 +7,11 @@
 /// `packages/sidecar/src/mcp-permission-server.ts`.
 pub const BOARD_SERVER: &str = "flywheel-board";
 
-/// The Proposal tools a shaping session may call, by the name `flywheel-board` registers them
-/// under. None is registered yet: the shaping milestone adds them, one name each. Never a bare
-/// `mcp__flywheel-board` entry, which would allow every board tool, the Task tools and the
-/// hand-off included.
-pub const PROPOSAL_TOOL_NAMES: [&str; 0] = [];
+/// The board tools a shaping session may call, by the name `flywheel-board` registers them under:
+/// `round_post` (issue #123), then the Proposal tools as the shaping milestone adds them, one name
+/// each. Never a bare `mcp__flywheel-board` entry, which would allow every board tool, the Task
+/// tools and the hand-off included.
+pub const PROPOSAL_TOOL_NAMES: [&str; 1] = crate::domain::shaping_tool::SHAPING_TOOL_NAMES;
 
 /// One board tool's name in `--allowedTools` syntax: `mcp__flywheel-board__<tool>`.
 fn board_tool(name: &str) -> String {
@@ -78,8 +78,8 @@ pub struct LaunchPolicy {
 /// JavaScript timer fires at once instead of never.
 pub const MCP_TOOL_TIMEOUT_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
-/// The env that keeps a permission request waiting past Claude Code's MCP tool timeouts. The idle
-/// timeout is capped at `MCP_TOOL_TIMEOUT`, so both are raised.
+/// The env that keeps a held tool call (a permission request, a Round) waiting past Claude Code's
+/// MCP tool timeouts. The idle timeout is capped at `MCP_TOOL_TIMEOUT`, so both are raised.
 fn waiting_request_env() -> Vec<(&'static str, String)> {
     let ms = MCP_TOOL_TIMEOUT_MS.to_string();
     vec![("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", ms.clone()), ("MCP_TOOL_TIMEOUT", ms)]
@@ -113,9 +113,9 @@ impl SessionKind {
     /// - A shaping session runs in `dontAsk`, which refuses whatever is not pre-approved instead of
     ///   prompting: it may read and call the Proposal tools, and nothing else — never Bash, and
     ///   never the Task tools or the hand-off.
-    /// - A Story session's MCP tool timeouts are raised to 7 days, so a request it raises waits
-    ///   for the developer instead of failing on Claude Code's side. A shaping session raises no
-    ///   request and keeps Claude Code's defaults.
+    /// - Both kinds' MCP tool timeouts are raised to 7 days. A Story session's permission request
+    ///   and a shaping session's `round_post` (issue #123) are each a tool call held until the
+    ///   developer answers, so each waits for the developer instead of failing on Claude Code's side.
     pub fn launch_policy(self) -> LaunchPolicy {
         match self {
             SessionKind::Story => LaunchPolicy {
@@ -130,8 +130,41 @@ impl SessionKind {
                 allowed_tools: READ_ONLY_TOOLS.iter().map(|t| t.to_string()).chain(proposal_tools()).collect(),
                 disallowed_tools: WRITING_TOOLS.iter().chain(std::iter::once(&QUESTION_TOOL)).map(|t| t.to_string()).collect(),
                 raises_requests: false,
-                env: Vec::new(),
+                env: waiting_request_env(),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SEVEN_DAYS_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+    const NODE_TIMER_CEILING_MS: u64 = (1 << 31) - 1;
+
+    /// Issue #123: a shaping session is held on `round_post` until the developer has answered the
+    /// last question of the Round, so its spawn carries the same 7-day MCP timeouts a Story
+    /// session's does, or Claude Code would abort the Round after 30 idle minutes.
+    #[test]
+    fn every_session_kind_spawns_with_the_seven_day_mcp_timeouts() {
+        for kind in SessionKind::ALL {
+            let vars = kind.launch_policy().env;
+            let names: Vec<&str> = vars.iter().map(|(name, _)| *name).collect();
+            assert_eq!(names, ["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT", "MCP_TOOL_TIMEOUT"], "{kind:?}");
+            for (name, value) in &vars {
+                let ms: u64 = value.parse().expect("milliseconds");
+                assert!(ms >= SEVEN_DAYS_MS, "{kind:?}: {name}={ms} is under 7 days");
+                assert!(ms <= NODE_TIMER_CEILING_MS, "{kind:?}: {name}={ms} would overflow a Node timer");
+            }
+        }
+    }
+
+    #[test]
+    fn a_shaping_session_pre_approves_round_post_and_a_story_session_does_not() {
+        let allowed = SessionKind::Shaping.launch_policy().allowed_tools;
+        assert!(allowed.contains(&"mcp__flywheel-board__round_post".to_string()), "{allowed:?}");
+        let story = SessionKind::Story.launch_policy().allowed_tools;
+        assert!(!story.iter().any(|t| t.ends_with("__round_post")), "a Story session never posts a Round: {story:?}");
     }
 }

@@ -148,7 +148,7 @@ Generated into `packages/desktop/src/components/ui/` by the shadcn CLI. The code
 | `Popover` | pickers (Epic, Milestone), the Always-allow pattern editor |
 | `Tooltip` | every icon-only control, truncated titles, lamp details |
 | `DropdownMenu` | row overflow (Move to Epic, Copy branch), project menu |
-| `Sheet` | Needs you and the shaping dock when the window is under 1280px |
+| `Sheet` | Needs you when the window is under 1280px (the shaping dock stacks instead: DESIGN.md, Round Dock) |
 | `Collapsible` | a Task's note, a failed tool call, older sessions |
 | `Checkbox` / `RadioGroup` / `Label` | the question card's choices, criteria acceptance at review |
 | `Input` / `Textarea` | Other answers, Check commands, notes |

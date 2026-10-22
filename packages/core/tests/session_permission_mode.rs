@@ -75,7 +75,7 @@ fn the_card_pre_fills_the_exact_bash_command_or_the_whole_tool() {
 /// Ask the compiled board MCP server, over its own stdio protocol, for the name it registers under
 /// and the tools it lists. This is the server Claude Code spawns from `--mcp-config`, so what it
 /// answers here is what an `--allowedTools` entry has to match at runtime.
-fn board_server_registration() -> (String, Vec<String>) {
+fn board_server_registration(kind: SessionKind) -> (String, Vec<String>) {
     use std::io::{BufRead, BufReader, Write};
     use std::process::{Command, Stdio};
 
@@ -85,6 +85,7 @@ fn board_server_registration() -> (String, Vec<String>) {
     let mut child = Command::new("node")
         .arg(&script)
         .arg("/nonexistent/flywheel-board-test.sock")
+        .arg(kind.as_str())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -123,21 +124,28 @@ fn board_server_registration() -> (String, Vec<String>) {
 /// silently pointing at nothing, and every call would wait on a permission card instead.
 #[test]
 fn every_allowed_board_tool_is_one_the_board_server_registers() {
-    let (server, tools) = board_server_registration();
-    assert_eq!(server, BOARD_SERVER, "the Rust launch policy and the server agree on the server's name");
-    let prefix = format!("mcp__{server}__");
     for kind in SessionKind::ALL {
-        for allowed in kind.launch_policy().allowed_tools.iter().filter(|t| t.starts_with("mcp__")) {
+        let (server, tools) = board_server_registration(kind);
+        assert_eq!(server, BOARD_SERVER, "the Rust launch policy and the server agree on the server's name");
+        let prefix = format!("mcp__{server}__");
+        let allowed = kind.launch_policy().allowed_tools;
+        for allowed in allowed.iter().filter(|t| t.starts_with("mcp__")) {
             let tool = allowed
                 .strip_prefix(&prefix)
                 .unwrap_or_else(|| panic!("{kind:?} allows {allowed:?}, which is not a tool of the {server} server"));
             assert!(tools.iter().any(|t| t == tool), "{kind:?} allows {allowed:?}, but {server} registers only {tools:?}");
         }
+        // Every board tool the server lists to this kind is pre-approved for it, so none waits on a
+        // permission card (a shaping session has no card to wait on at all).
+        for tool in tools.iter().filter(|t| *t != "approve_action") {
+            assert!(allowed.contains(&format!("{prefix}{tool}")), "a {kind:?} session must pre-approve {tool}");
+        }
     }
-    let story = SessionKind::Story.launch_policy().allowed_tools;
-    for tool in tools.iter().filter(|t| *t != "approve_action") {
-        assert!(story.contains(&format!("{prefix}{tool}")), "the Story session must pre-approve {tool}");
-    }
+    // Issue #123: each kind is listed only its own tools.
+    let (_, shaping) = board_server_registration(SessionKind::Shaping);
+    assert_eq!(shaping, ["round_post"], "a shaping session sees round_post and nothing else");
+    let (_, story) = board_server_registration(SessionKind::Story);
+    assert!(!story.iter().any(|t| t == "round_post"), "a Story session never sees round_post: {story:?}");
 }
 
 /// Issue #92: a permission request is an MCP tool call that blocks until the developer answers, and

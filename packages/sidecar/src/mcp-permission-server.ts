@@ -74,7 +74,20 @@ export const HANDOFF_TOOL_NAMES = ["checks_run", "handoff"] as const;
 /** Every board tool the Story agent has: held calls the Rust core answers. */
 export const BOARD_TOOL_NAMES = [...TASK_TOOL_NAMES, ...HANDOFF_TOOL_NAMES] as const;
 
-export type BoardToolName = (typeof BOARD_TOOL_NAMES)[number];
+/** Issue #123 (docs/mvp-spec.md §3): the shaping session's board tools, hosted on the same server
+ * and relayed the same way. Mirrors `SHAPING_TOOL_NAMES` in `packages/core/src/domain/shaping_tool.rs`,
+ * which is what parses and runs each call. `round_post` is held until the developer has answered
+ * every question in the Round, which can take days. */
+export const SHAPING_TOOL_NAMES = ["round_post"] as const;
+
+export type ShapingToolName = (typeof SHAPING_TOOL_NAMES)[number];
+
+export type BoardToolName = (typeof BOARD_TOOL_NAMES)[number] | ShapingToolName;
+
+/** The kind of session the server serves, passed as its second argument. Each kind is listed only
+ * its own tools: a Story session never sees `round_post`, a shaping session never sees the Task
+ * tools, the hand-off or the permission prompt. */
+export type SessionKind = "story" | "shaping";
 
 const qualified = (name: string) => `mcp__${MCP_SERVER_NAME}__${name}`;
 
@@ -143,6 +156,57 @@ export const BOARD_TOOL_DEFINITIONS = [
     },
   },
 ] as const;
+
+/** What each shaping tool tells the agent, and the arguments it takes. */
+export const SHAPING_TOOL_DEFINITIONS = [
+  {
+    name: "round_post",
+    description:
+      "Post the next Round of the Stage you are shaping: a one-paragraph note on what the Round settles, then the numbered questions of the decision frontier. Each question has a short title (the line it folds to once answered), the question itself with its choices if it has any, a grounding line (what you read that raised it), your recommended answer worded so that accepting it answers the question, and a one-line reason for it. The developer answers each question on the board, accepting your recommendation or writing their own, and every answer is saved as it is given. This call waits until every question is answered, however long that takes, then answers with every answer, in order. Do not also ask the questions in your reply. Refused while a Round is still open in the Stage.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        note: { type: "string", minLength: 1, description: "One paragraph: what this Round settles." },
+        questions: {
+          type: "array",
+          minItems: 1,
+          maxItems: 12,
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string", minLength: 1, maxLength: 120, description: "A few words naming the decision." },
+              question: { type: "string", minLength: 1 },
+              grounding: { type: "string", minLength: 1, description: "What you read that raised the question." },
+              recommended_answer: { type: "string", minLength: 1, description: "Your answer, as the developer would give it." },
+              because: { type: "string", minLength: 1, description: "One line: why you recommend it." },
+            },
+            required: ["title", "question", "grounding", "recommended_answer", "because"],
+          },
+        },
+      },
+      required: ["note", "questions"],
+    },
+  },
+] as const;
+
+/** The permission-prompt tool's own definition. */
+const APPROVE_TOOL_DEFINITION = {
+  name: APPROVE_TOOL_NAME,
+  description: "Ask a human on the Flywheel board to allow or deny a gated tool call.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      tool_name: { type: "string" },
+      input: {},
+    },
+    required: ["tool_name"],
+  },
+} as const;
+
+/** The tools the server lists to a session of `kind`, in order. */
+export function toolsFor(kind: SessionKind) {
+  return kind === "shaping" ? [...SHAPING_TOOL_DEFINITIONS] : [APPROVE_TOOL_DEFINITION, ...BOARD_TOOL_DEFINITIONS];
+}
 
 /** Issue #52: the wire shape a Task tool call sends over the per-run socket. A HELD call, like the
  * permission request: the agent waits for the Rust core's answer (the checklist, or the reason it
@@ -481,29 +545,15 @@ function relayBoardToolCall(
  * shape (`{behavior: "allow"|"deny", ...}`) matches Claude Code's own documented
  * `--permission-prompt-tool` contract. It hosts `approve_action` and the board tools ({@link BOARD_TOOL_NAMES}).
  */
-async function runStandaloneServer(socketPath: string): Promise<void> {
+async function runStandaloneServer(socketPath: string, kind: SessionKind): Promise<void> {
   const server = new Server({ name: MCP_SERVER_NAME, version: "0.1.0" }, { capabilities: { tools: {} } });
+  const listed = toolsFor(kind);
+  const relayed = new Set<string>(listed.map((tool) => tool.name).filter((name) => name !== APPROVE_TOOL_NAME));
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
-      {
-        name: APPROVE_TOOL_NAME,
-        description: "Ask a human on the Flywheel board to allow or deny a gated tool call.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            tool_name: { type: "string" },
-            input: {},
-          },
-          required: ["tool_name"],
-        },
-      },
-      ...BOARD_TOOL_DEFINITIONS,
-    ],
-  }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: listed }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    if (request.params.name === APPROVE_TOOL_NAME) {
+    if (request.params.name === APPROVE_TOOL_NAME && kind === "story") {
       const args = (request.params.arguments ?? {}) as { tool_name?: string; input?: unknown };
       const requestId = randomUUID();
 
@@ -534,11 +584,15 @@ async function runStandaloneServer(socketPath: string): Promise<void> {
       });
     }
 
-    if ((BOARD_TOOL_NAMES as readonly string[]).includes(request.params.name)) {
+    if (relayed.has(request.params.name)) {
       return relayBoardToolCall(socketPath, request.params.name as BoardToolName, request.params.arguments ?? {});
     }
 
-    throw new Error(`unknown tool: ${request.params.name}`);
+    // A tool this session's kind does not have: a tool error the agent can read, never relayed.
+    return {
+      content: [{ type: "text", text: `${request.params.name} is not a tool of this ${kind} session` }],
+      isError: true,
+    };
   });
 
   const transport = new StdioServerTransport();
@@ -550,10 +604,11 @@ const isMainModule = process.argv[1] !== undefined && import.meta.url === pathTo
 if (isMainModule) {
   const socketPath = process.argv[2];
   if (!socketPath) {
-    console.error("usage: mcp-permission-server.js <socketPath>");
+    console.error("usage: mcp-permission-server.js <socketPath> [story|shaping]");
     process.exit(1);
   }
-  runStandaloneServer(socketPath).catch((err: unknown) => {
+  const kind: SessionKind = process.argv[3] === "shaping" ? "shaping" : "story";
+  runStandaloneServer(socketPath, kind).catch((err: unknown) => {
     console.error(err);
     process.exit(1);
   });

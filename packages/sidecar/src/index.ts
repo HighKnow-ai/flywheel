@@ -22,6 +22,7 @@ interface SpawnRequest {
   allowedTools?: string[];
   disallowedTools?: string[];
   permissionPrompt?: boolean;
+  sessionKind?: "story" | "shaping";
   env?: Record<string, string>;
 }
 
@@ -168,6 +169,7 @@ async function handleRequest(request: SidecarRequest): Promise<void> {
           allowedTools: request.allowedTools,
           disallowedTools: request.disallowedTools,
           permissionPrompt: request.permissionPrompt,
+          sessionKind: request.sessionKind,
           env: request.env,
           onEvent: emitEvent,
         })

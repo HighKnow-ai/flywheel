@@ -125,6 +125,10 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 20 | Roadmap strip: another Milestone picked, the header and roster switch to it (#131) | ![](critique-2026-10/after/20-roadmap-other-milestone-light.webp) | ![](critique-2026-10/after/20-roadmap-other-milestone-dark.webp) |
 | 21 | Roadmap strip: + Milestone takes a one-line outcome (#131) | ![](critique-2026-10/after/21-roadmap-add-milestone-light.webp) | ![](critique-2026-10/after/21-roadmap-add-milestone-dark.webp) |
 | 22 | Roadmap strip: a Milestone dragged up, the line shows where it lands (#131) | ![](critique-2026-10/after/22-roadmap-dragging-light.webp) | ![](critique-2026-10/after/22-roadmap-dragging-dark.webp) |
+| 23 | Epic shaping: the Round dock waiting on you beside the Epic card, recommended answers pre-filled (#123) | ![](critique-2026-10/after/23-epic-shaping-round-dock-light.webp) | ![](critique-2026-10/after/23-epic-shaping-round-dock-dark.webp) |
+| 24 | Epic shaping: Answer differently opens on the recommendation (#123) | ![](critique-2026-10/after/24-epic-shaping-answer-differently-light.webp) | ![](critique-2026-10/after/24-epic-shaping-answer-differently-dark.webp) |
+| 25 | Epic shaping at the window's minimum width: the dock first (#123) | ![](critique-2026-10/after/25-epic-shaping-min-width-light.webp) | ![](critique-2026-10/after/25-epic-shaping-min-width-dark.webp) |
+| 26 | Board: an Epic whose shaping session waits on a Round offers Answer (#123) | ![](critique-2026-10/after/26-board-epic-answer-light.webp) | ![](critique-2026-10/after/26-board-epic-answer-dark.webp) |
 
 ## How the screens were rendered
 

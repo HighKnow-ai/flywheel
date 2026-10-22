@@ -16,6 +16,7 @@ import type {
   BlockedQueueEntryDto,
   CheckDto,
   EpicDto,
+  EpicShapingDto,
   FleetRowDto,
   MilestoneDto,
   MilestoneProgressDto,
@@ -52,7 +53,14 @@ const MILESTONES: Record<string, MilestoneDto[]> = {
 const EPICS: Record<string, EpicDto[]> = {
   "m-3": [
     { id: "e-97", projectId: "p-fly", milestoneId: "m-3", key: "FLY-1", title: "Design system and a legible app", problem: null, scope: null, outOfScope: null, exitTest: null, state: "in_progress", rank: "a" },
-    { id: "e-59", projectId: "p-fly", milestoneId: "m-3", key: "FLY-8", title: "Epic shaping", problem: null, scope: null, outOfScope: null, exitTest: null, state: "shaping", rank: "b" },
+    {
+      id: "e-59", projectId: "p-fly", milestoneId: "m-3", key: "FLY-8", title: "Epic shaping",
+      problem: "In v0.1 shaping in the app was worse than in a terminal, Stories came out orphaned from their Epic, and a refusal lost the whole challenge.",
+      scope: "The board as the shaping surface, ghost-card Proposals, the Round dock with pre-filled recommended answers and Accept all recommended, and every answer written to the board as it is made.",
+      outOfScope: "Milestone and Roadmap shaping. Execution Proposals.",
+      exitTest: null,
+      state: "shaping", rank: "b",
+    },
   ],
   "m-h1": [
     { id: "e-h1", projectId: "p-hkw", milestoneId: "m-h1", key: "HKW-1", title: "Waitlist", problem: null, scope: null, outOfScope: null, exitTest: null, state: "in_progress", rank: "a" },
@@ -362,6 +370,51 @@ function progressOf(projectId: string, milestoneId: string): MilestoneProgressDt
   };
 }
 
+/** Epic #59 in its Challenge Stage (issue #123): Round 1 answered, Round 2 waiting on the developer with
+ * one of its four questions answered. */
+function shapingOf(epicId: string): EpicShapingDto | null {
+  const epic = Object.values(EPICS).flat().find((e) => e.id === epicId);
+  if (!epic) return null;
+  if (epicId !== "e-59") return { epic, stages: [], rounds: [] };
+  const q = (
+    id: string,
+    number: number,
+    title: string,
+    question: string,
+    grounding: string,
+    recommendedAnswer: string,
+    because: string,
+    answer: string | null = null,
+    answeredWith: string | null = null,
+  ) => ({ id, number, title, question, grounding, recommendedAnswer, because, answer, answeredWith, answeredAt: answer ? ago(2400) : null });
+  return {
+    epic,
+    stages: [{ id: "st-1", kind: "challenge_spec", state: "open", rank: 1 }],
+    rounds: [
+      {
+        id: "r-1", stageId: "st-1", stageKind: "challenge_spec", number: 1, state: "answered", held: false,
+        note: "This Round settles who shapes and where: the surface the developer answers on, and what a refusal may cost.",
+        postedAt: ago(3600), answeredAt: ago(3000),
+        questions: [
+          q("q-1", 1, "Shaping surface", "Is the board the shaping surface, with the agent's questions in a dock beside the Epic card?", "Read docs/mvp-spec.md §3, Screen", "Yes: the Epic card on the board, the Rounds in a dock beside it", "The spec rules out a chat transcript as the record", "Yes: the Epic card on the board, the Rounds in a dock beside it", "recommended"),
+          q("q-2", 2, "What a refusal costs", "When a shaping session dies mid-Round, may it lose the answers already given?", "Read the Epic's Problem, and Story #124", "No: every answer is written to the board as it is made", "A refusal lost the whole challenge in v0.1", "No. Every answer is on the board the moment it is given, and the next session starts from them", "own"),
+        ],
+      },
+      {
+        id: "r-2", stageId: "st-1", stageKind: "challenge_spec", number: 2, state: "open", held: true,
+        note: "With the surface settled, this Round tightens the scope: how answers are given, what Accept all may touch, and how the Stage ends.",
+        postedAt: ago(1800), answeredAt: null,
+        questions: [
+          q("q-3", 1, "Pre-filled answers", "Should each question arrive with the agent's recommended answer already filled in, so accepting it is one click?", "Read docs/mvp-spec.md §3, The dock", "Yes, pre-filled, with a one-line reason under it", "Most answers in a Round are the recommendation", "Yes, pre-filled, with a one-line reason under it", "recommended"),
+          q("q-4", 2, "What Accept all covers", "May Accept all recommended also accept the Round's pending Proposals?", "Read Epic #59, Decided in slicing", "No: questions only; each Proposal is decided on its own ghost card", "A Proposal changes the board and deserves its own look"),
+          q("q-5", 3, "Closing the Stage", "Does the Challenge Stage close on its own once its frontier is empty?", "Read GLOSSARY.md, Stage", "No: the developer closes every Stage, and the button lists what is still open", "Nothing in shaping advances on its own"),
+          q("q-6", 4, "Exit test", "Is \"a one-line idea becomes an Epic with Ready Stories, entirely in Flywheel\" the Epic's exit test?", "Read Epic #59, Exit test", "Yes, plus: a killed shaping session resumes at the open Round", "Durability is half of what v0.1 got wrong"),
+        ],
+      },
+    ],
+  };
+}
+
 type Args = Record<string, unknown> | undefined;
 const arg = (args: Args, name: string) => (args?.[name] as string | undefined) ?? "";
 
@@ -409,6 +462,8 @@ export function answer(cmd: string, args: Args): unknown {
     case "git_facts": return null;
     case "proposal_list_pending": return [];
     case "criterion_list": return CRITERIA[arg(args, "storyId")] ?? [];
+    case "epic_shaping_session": return arg(args, "epicId") === "e-59" ? "ses-shape-8" : null;
+    case "epic_shaping_rounds": return shapingOf(arg(args, "epicId"));
     default: return null;
   }
 }

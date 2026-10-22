@@ -412,6 +412,10 @@ export interface StartSessionOptions {
    * permission-prompt tool is not wired, so whatever the mode does not allow is refused. Omitted
    * means `true`. */
   permissionPrompt?: boolean;
+  /** The session kind the Rust core launched (issue #123): the board's MCP server lists each kind
+   * only its own tools (`round_post` to a shaping session, the Task tools and the hand-off to a
+   * Story session). Omitted means `story`. */
+  sessionKind?: "story" | "shaping";
   /** Additional environment variables to merge over `process.env` for the spawned child —
    * resolved credentials arrive here from the Rust core and are never read from disk by the
    * sidecar itself. */

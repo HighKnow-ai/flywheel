@@ -6,16 +6,24 @@
 //!
 //! Every handler resolves the human actor server-side (T-01-04) and emits `board:changed` after a
 //! successful start, so the Epic card's Shape control turns into Open session.
+//!
+//! Rounds (issue #123): a shaping session's `round_post` reaches [`handle_shaping_tool_request`]
+//! through the board tool router and is held. The dock answers its questions through
+//! [`round_accept`], [`round_answer`] and [`round_accept_all`], each one transaction; the answer that
+//! completes the Round answers the held call through `send_board_tool_answer`, once the lock is
+//! released.
 
 use rusqlite::Connection;
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
+use flywheel_core::domain::round::{AnswerOutcome, RoundAnswer, RoundRelease};
 use flywheel_core::domain::session::ShapingSubject;
 use flywheel_core::domain::session_kind::SessionKind;
 
 use super::session::{fail_launch, send_gated_spawn, spawn_request_in};
-use super::{emit_board_changed, project_of_locked};
+use super::task::send_board_tool_answer;
+use super::{emit_board_changed, project_of_locked, validate_text};
 use crate::state::AppState;
 
 /// A shaping session as Shape returns it.
@@ -49,6 +57,210 @@ pub fn epic_shape(state: State<AppState>, app: AppHandle, epic_id: String) -> Re
 pub fn epic_shaping_session(state: State<AppState>, epic_id: String) -> Result<Option<String>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     flywheel_core::domain::session::live_shaping_session(&conn, &ShapingSubject::Epic(epic_id)).map_err(|e| e.to_string())
+}
+
+/// A Stage as the Epic's shaping view reads it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StageDto {
+    pub id: String,
+    /// `challenge_spec`, `slice`, `criteria` or `exit_test`.
+    pub kind: String,
+    /// `open` or `closed`.
+    pub state: String,
+    pub rank: i64,
+}
+
+/// One question of a Round, with its answer once given.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoundQuestionDto {
+    pub id: String,
+    pub number: i64,
+    pub title: String,
+    pub question: String,
+    pub grounding: String,
+    pub recommended_answer: String,
+    pub because: String,
+    pub answer: Option<String>,
+    /// `recommended` or `own`, once answered.
+    pub answered_with: Option<String>,
+    pub answered_at: Option<String>,
+}
+
+/// A Round with its questions, in order.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoundDto {
+    pub id: String,
+    pub stage_id: String,
+    pub stage_kind: String,
+    pub number: i64,
+    pub note: String,
+    /// `open` or `answered`.
+    pub state: String,
+    /// Whether the session that posted it still waits on its answers.
+    pub held: bool,
+    pub posted_at: String,
+    pub answered_at: Option<String>,
+    pub questions: Vec<RoundQuestionDto>,
+}
+
+/// What the Epic's shaping view reads: the Epic, its Stages in order and every Round, oldest first.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpicShapingDto {
+    pub epic: super::epic::EpicDto,
+    pub stages: Vec<StageDto>,
+    pub rounds: Vec<RoundDto>,
+}
+
+impl From<flywheel_core::domain::round::Round> for RoundDto {
+    fn from(r: flywheel_core::domain::round::Round) -> Self {
+        Self {
+            id: r.id,
+            stage_id: r.stage_id,
+            stage_kind: r.stage_kind.as_str().to_string(),
+            number: r.number,
+            note: r.note,
+            state: r.state,
+            held: r.held_request_id.is_some(),
+            posted_at: r.posted_at,
+            answered_at: r.answered_at,
+            questions: r
+                .questions
+                .into_iter()
+                .map(|q| RoundQuestionDto {
+                    id: q.id,
+                    number: q.number,
+                    title: q.title,
+                    question: q.question,
+                    grounding: q.grounding,
+                    recommended_answer: q.recommended_answer,
+                    because: q.because,
+                    answer: q.answer,
+                    answered_with: q.answered_with,
+                    answered_at: q.answered_at,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// The Epic's Stages and Rounds (issue #123): what the dock shows.
+#[tauri::command]
+pub fn epic_shaping_rounds(state: State<AppState>, epic_id: String) -> Result<EpicShapingDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    read_epic_shaping(&conn, &epic_id)
+}
+
+pub(crate) fn read_epic_shaping(conn: &Connection, epic_id: &str) -> Result<EpicShapingDto, String> {
+    let epic = flywheel_core::domain::epic::get_epic(conn, epic_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Epic {epic_id:?} not found"))?;
+    let epic = super::epic::to_dto(conn, epic)?;
+    let stages = flywheel_core::domain::stage::stages_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
+    let rounds = flywheel_core::domain::round::rounds_for_epic(conn, epic_id).map_err(|e| e.to_string())?;
+    Ok(EpicShapingDto {
+        epic,
+        stages: stages
+            .into_iter()
+            .map(|s| StageDto { id: s.id, kind: s.kind.as_str().to_string(), state: s.state, rank: s.rank })
+            .collect(),
+        rounds: rounds.into_iter().map(RoundDto::from).collect(),
+    })
+}
+
+/// Accept a question's recommended answer as it is (issue #123). Human-only.
+#[tauri::command]
+pub fn round_accept(state: State<AppState>, app: AppHandle, question_id: String) -> Result<(), String> {
+    let outcome = answer_and_release(&state.db, |conn, human| {
+        flywheel_core::domain::round::answer_round_question(conn, human, &question_id, &RoundAnswer::Recommended)
+    })?;
+    settle(&app, outcome);
+    Ok(())
+}
+
+/// Answer a question in the developer's own words (issue #123). Human-only.
+#[tauri::command]
+pub fn round_answer(state: State<AppState>, app: AppHandle, question_id: String, answer: String) -> Result<(), String> {
+    validate_text("answer", &answer, flywheel_core::domain::round::MAX_ROUND_TEXT_LEN)?;
+    let outcome = answer_and_release(&state.db, |conn, human| {
+        flywheel_core::domain::round::answer_round_question(conn, human, &question_id, &RoundAnswer::Own(answer.clone()))
+    })?;
+    settle(&app, outcome);
+    Ok(())
+}
+
+/// Accept the recommended answer of every question still open in a Round (issue #123). Questions
+/// only: no Proposal is decided here. Human-only.
+#[tauri::command]
+pub fn round_accept_all(state: State<AppState>, app: AppHandle, round_id: String) -> Result<(), String> {
+    let outcome = answer_and_release(&state.db, |conn, human| {
+        flywheel_core::domain::round::accept_all_recommended(conn, human, &round_id)
+    })?;
+    settle(&app, outcome);
+    Ok(())
+}
+
+/// Run one answer as the local human, with the lock released before anything is relayed.
+pub(crate) fn answer_and_release(
+    db: &std::sync::Mutex<Connection>,
+    answer: impl FnOnce(&mut Connection, &str) -> anyhow::Result<AnswerOutcome>,
+) -> Result<AnswerOutcome, String> {
+    let mut conn = db.lock().map_err(|e| e.to_string())?;
+    let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    answer(&mut conn, &human).map_err(|e| format!("{e:#}"))
+}
+
+/// After an answer committed: answer the held `round_post` call when the Round is complete, then
+/// tell the renderer the board changed.
+fn settle(app: &AppHandle, outcome: AnswerOutcome) {
+    if let Some(release) = &outcome.release {
+        send_board_tool_answer(app, &release.session_id, &release.request_id, &release_answer(release));
+    }
+    emit_board_changed(app, Some(&outcome.project_id), "round", Some(&outcome.round_id));
+}
+
+/// The `board_tool_answer` body that settles a held `round_post`: `{result}` with every answer.
+pub(crate) fn release_answer(release: &RoundRelease) -> serde_json::Value {
+    serde_json::json!({ "result": release.result })
+}
+
+/// The core's handling of one shaping tool call (issue #123), as `handle_inbound_board_tool_request`
+/// routes it: `(Some(answer), _)` to answer at once (a refusal, with its reason), or `(None, project)`
+/// when the call is held until the developer answers the Round it posted.
+pub(crate) fn answer_shaping_tool_call(
+    conn: &mut Connection,
+    run_id: &str,
+    request_id: &str,
+    tool: &str,
+    args: &serde_json::Value,
+) -> (Option<serde_json::Value>, Option<String>) {
+    use flywheel_core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
+    match ShapingToolCall::parse(tool, args).and_then(|call| apply_shaping_tool_call(conn, run_id, request_id, &call)) {
+        Ok(ShapingToolOutcome::Held { project_id, .. }) => (None, Some(project_id)),
+        // The reason goes to the agent so it can correct its call.
+        Err(e) => (Some(serde_json::json!({ "error": format!("{e:#}") })), None),
+    }
+}
+
+/// The Tauri-facing half of the shaping tools, called from `task.rs`'s board tool router: run the
+/// call, answer it at once only when it was refused, and emit `board:changed` when a Round landed.
+/// A held call is answered later, by [`settle`], once its Round's last question is answered. Must
+/// never panic: a poisoned lock is a silent no-op, and the agent's call then ends with its session.
+pub(crate) fn handle_shaping_tool_request(app: &AppHandle, run_id: &str, request_id: &str, tool: &str, args: &serde_json::Value) {
+    let Some(state) = tauri::Manager::try_state::<AppState>(app) else { return };
+    let (answer, changed) = {
+        let Ok(mut conn) = state.db.lock() else { return };
+        answer_shaping_tool_call(&mut conn, run_id, request_id, tool, args)
+    };
+    if let Some(answer) = answer {
+        send_board_tool_answer(app, run_id, request_id, &answer);
+    }
+    if let Some(project_id) = changed {
+        emit_board_changed(app, Some(&project_id), "round", None);
+    }
 }
 
 /// [`epic_shape`]'s body, driven without a Tauri app handle. `find_claude` runs before anything is
@@ -249,6 +461,71 @@ mod tests {
                 db.lock().unwrap().query_row("SELECT COUNT(*) FROM session_summaries", [], |r| r.get(0)).unwrap();
             assert_eq!(summaries, 0, "a shaping session leaves no Session summary");
             assert_eq!(live(&db), None, "and the card offers Shape again");
+        });
+    }
+
+    fn round_args() -> serde_json::Value {
+        serde_json::json!({
+            "note": "Settles the audience.",
+            "questions": [
+                { "title": "Audience", "question": "Is it for one developer?", "grounding": "GLOSSARY.md",
+                  "recommended_answer": "Yes", "because": "One user in the MVP" },
+                { "title": "Surface", "question": "Desktop only?", "grounding": "CLAUDE.md",
+                  "recommended_answer": "Desktop only", "because": "v1 is desktop" },
+            ],
+        })
+    }
+
+    #[test]
+    fn a_round_post_is_held_and_only_the_last_answer_releases_it_with_every_answer() {
+        with_scratch(|| {
+            let (db, epic_id, _checkout) = shaping_epic();
+            let run_id = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
+
+            let (answer, changed) =
+                answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-7", "round_post", &round_args());
+            assert_eq!(answer, None, "the call is held, not answered");
+            assert!(changed.is_some(), "the board changed: a Round landed");
+
+            let view = read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap();
+            assert_eq!(view.stages.len(), 1);
+            assert_eq!(view.stages[0].kind, "challenge_spec");
+            let round = &view.rounds[0];
+            assert!(round.held);
+            assert_eq!(round.questions[0].recommended_answer, "Yes");
+
+            let first = answer_and_release(&db, |conn, human| {
+                flywheel_core::domain::round::answer_round_question(conn, human, &round.questions[1].id, &RoundAnswer::Own("Desktop and web".into()))
+            })
+            .unwrap();
+            assert_eq!(first.release, None);
+            let last = answer_and_release(&db, |conn, human| {
+                flywheel_core::domain::round::accept_all_recommended(conn, human, &round.id)
+            })
+            .unwrap();
+            let release = last.release.expect("the last answer releases the held call");
+            assert_eq!((release.session_id.as_str(), release.request_id.as_str()), (run_id.as_str(), "req-7"));
+            let body = release_answer(&release);
+            assert_eq!(body["result"]["answers"][0]["answer"], "Yes");
+            assert_eq!(body["result"]["answers"][1]["answer"], "Desktop and web");
+            assert!(!read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap().rounds[0].held);
+        });
+    }
+
+    #[test]
+    fn a_refused_round_post_is_answered_at_once_with_the_reason() {
+        with_scratch(|| {
+            let (db, epic_id, _checkout) = shaping_epic();
+            let run_id = shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
+            let (answer, changed) = answer_shaping_tool_call(
+                &mut db.lock().unwrap(),
+                &run_id,
+                "req-1",
+                "round_post",
+                &serde_json::json!({ "note": "n", "questions": [] }),
+            );
+            assert!(answer.unwrap()["error"].as_str().unwrap().contains("at least one question"));
+            assert_eq!(changed, None);
         });
     }
 

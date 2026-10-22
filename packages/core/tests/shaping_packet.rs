@@ -101,6 +101,23 @@ fn the_packet_carries_the_shaping_instructions() {
     }
 }
 
+/// Issue #123: a Round is posted on the board with `round_post`, never asked in the agent's reply,
+/// and the agent knows the call waits for every answer.
+#[test]
+fn the_packet_tells_the_agent_to_post_each_round_with_round_post() {
+    let f = fixture();
+    let packet = build_epic_shaping_packet(&f.conn, &f.epic_id).unwrap();
+    for line in [
+        "Post each Round with the `round_post` tool",
+        "The call waits until the developer has answered every question",
+        "Never ask a Round's questions in your reply",
+    ] {
+        assert!(packet.contains(line), "the standing instructions miss {line:?}:\n{packet}");
+    }
+    assert!(!packet.contains("Post a Round as your reply"), "the reply format is gone:\n{packet}");
+    assert!(packet.contains("post the first Round of the Challenge the spec Stage with `round_post`"), "{packet}");
+}
+
 #[test]
 fn the_packet_carries_the_milestone_line_and_the_epic_spec_in_full() {
     let f = fixture();

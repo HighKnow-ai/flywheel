@@ -167,6 +167,30 @@ describe("describeToolCall: board tools by their meaning", () => {
     });
   });
 
+  // Issue #123: a shaping session's Round reads by its meaning, its questions counted, and once answered
+  // how many of them took the recommendation.
+  it("reads round_post as Posted Round with its question count, then the answers it came back with", () => {
+    const input = { note: "Settles the audience.", questions: [{ title: "Audience" }, { title: "Surface" }] };
+    expect(describeToolCall({ toolName: `${BOARD}round_post`, input })).toMatchObject({
+      kind: "question",
+      verb: "Posted Round",
+      liveVerb: "Waiting on your answers",
+      target: "2 questions: Audience; Surface",
+      metrics: [],
+    });
+    const output = JSON.stringify({
+      round: 1,
+      answers: [
+        { number: 1, answer: "Yes", answered_with: "recommended" },
+        { number: 2, answer: "Desktop and web", answered_with: "own" },
+      ],
+    });
+    expect(describeToolCall({ toolName: `${BOARD}round_post`, input, output })).toMatchObject({
+      verb: "Posted Round 1",
+      metrics: [{ text: "2 answered · 1 recommended", tone: "neutral" }],
+    });
+  });
+
   it("never prints a raw mcp__ name, for any server", () => {
     for (const toolName of [`${BOARD}story_get`, "mcp__github__create_issue", "mcp__x"]) {
       const d = describeToolCall({ toolName, input: {} });
