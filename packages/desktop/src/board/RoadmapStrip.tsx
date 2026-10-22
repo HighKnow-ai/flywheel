@@ -18,7 +18,7 @@
  */
 import { useEffect, useId, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, GripVertical, Plus } from "lucide-react";
+import { ChevronRight, Flag, GripVertical, Plus } from "lucide-react";
 import { milestoneCreate, milestoneList, milestoneMove, type MilestoneDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
 import { Button } from "../components/ui/button";
@@ -163,6 +163,7 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
               <li
                 key={milestone.id}
                 data-milestone-title={milestone.title}
+                data-selected={selected || undefined}
                 data-drop={dropping ? (draggedIndex > index ? "before" : "after") : undefined}
                 draggable={!closed}
                 onDragStart={(event) => {
@@ -184,15 +185,18 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                 }}
                 onDrop={(event) => onDrop(event, index)}
                 className={cn(
-                  "group/milestone relative flex min-h-10 items-center border-border",
+                  "group/milestone relative flex min-h-9 items-center border-border",
+                  "transition-[background-color] duration-(--duration-state) ease-(--ease)",
                   index > 0 && "border-t",
+                  // The picked Milestone takes the selected-row tint across the whole row, its handle too.
+                  selected ? "bg-running-muted" : "hover:bg-accent",
                   dragging === milestone.id && "opacity-50",
                   // The drop line: where the dragged Milestone will land, above or below this row.
                   "data-[drop]:after:absolute data-[drop]:after:inset-x-2 data-[drop]:after:h-0.5 data-[drop]:after:rounded-full data-[drop]:after:bg-ring",
                   "data-[drop=before]:after:-top-px data-[drop=after]:after:-bottom-px",
                 )}
               >
-                <span className="flex w-9 shrink-0 justify-center self-stretch">
+                <span className="flex w-8 shrink-0 justify-center self-stretch pl-1">
                   {!closed && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -205,7 +209,7 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                           onBlur={() => {
                             if (refocus.current === milestone.id) refocus.current = null;
                           }}
-                          className="my-auto flex h-7 w-6 cursor-grab items-center justify-center rounded-sm text-subtle-foreground transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent hover:text-foreground active:cursor-grabbing"
+                          className="my-auto flex h-7 w-6 cursor-grab items-center justify-center rounded-sm text-subtle-foreground transition-colors duration-(--duration-state) ease-(--ease) hover:bg-secondary hover:text-foreground active:cursor-grabbing"
                         >
                           <GripVertical aria-hidden="true" size={16} />
                         </button>
@@ -221,13 +225,10 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                   aria-current={selected ? "true" : undefined}
                   onClick={() => selectMilestone(projectId, milestone.id)}
                   onKeyDown={(event) => onRowKeyDown(event, index, false)}
-                  className={cn(
-                    "grid min-h-10 min-w-0 flex-1 grid-cols-[minmax(0,15rem)_7.5rem_minmax(0,1fr)_auto_16px] items-center gap-x-3 rounded-sm py-1 pr-3 text-left",
-                    "transition-[background-color] duration-(--duration-state) ease-(--ease)",
-                    selected ? "bg-running-muted" : "hover:bg-accent",
-                  )}
+                  className="grid min-h-9 min-w-0 flex-1 grid-cols-[minmax(10rem,1fr)_7.5rem_minmax(0,2.2fr)_auto_16px] items-center gap-x-3 rounded-sm py-1 pr-3 text-left"
                 >
                   <span
+                    title={milestone.title}
                     className={cn(
                       "truncate text-row",
                       closed ? "font-normal text-muted-foreground" : "font-semibold",
@@ -240,6 +241,7 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                   </span>
                   <span
                     id={exitTestId}
+                    title={milestone.exitTest ?? undefined}
                     className={cn(
                       "truncate text-small",
                       closed ? "text-subtle-foreground" : "text-muted-foreground",
@@ -250,7 +252,8 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                   </span>
                   <span className="flex justify-end">
                     {milestone.current && (
-                      <span className="type-condensed rounded-sm border border-border px-1.5 text-meta leading-5 text-foreground">
+                      <span className="inline-flex items-center gap-1 text-meta font-semibold text-foreground">
+                        <Flag aria-hidden="true" size={13} strokeWidth={2.25} />
                         Current
                       </span>
                     )}

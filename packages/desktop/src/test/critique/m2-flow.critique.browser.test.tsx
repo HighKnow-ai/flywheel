@@ -198,6 +198,33 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await shot("19-story-stop-confirm");
   });
 
+  it("20 Roadmap strip: another Milestone picked switches the header and roster (issue #131)", async () => {
+    await boardReady();
+    await click(/^Board and review, Shaping/);
+    await screen.findByRole("region", { name: "Board and review" });
+    await shot("20-roadmap-other-milestone");
+  });
+
+  it("21 Roadmap strip: + Milestone takes a one-line outcome (issue #131)", async () => {
+    await boardReady();
+    await click("Add a Milestone");
+    await userEvent.type(await screen.findByRole("textbox", { name: "New Milestone's outcome" }), "Relay: the board on a phone");
+    await shot("21-roadmap-add-milestone");
+  });
+
+  it("22 Roadmap strip: dragging a Milestone shows where it lands (issue #131)", async () => {
+    await boardReady();
+    const row = (title: string) =>
+      document.querySelector<HTMLElement>(`[data-milestone-title="${title}"]`) as HTMLElement;
+    const transfer = new DataTransfer();
+    row("One-week exit test").dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+    await settle(100);
+    row("Board and review").dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    await screen.findByText("One-week exit test");
+    await shot("22-roadmap-dragging");
+    row("One-week exit test").dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
+  });
+
   it("16 navigation: picking a project while the fleet is open", async () => {
     await boardReady();
     await click("Open fleet");
