@@ -394,12 +394,57 @@ function waitingRounds(): WaitingRoundDto[] {
   }];
 }
 
+/** Issue #129: whether Epic #59's Rounds offer ADRs (one accepted in Round 1, one open in Round 2) and its
+ * card wears ADR and glossary chips. Off by default so the earlier shaping screens keep their shots. */
+let withAdrs = false;
+/** With ADRs on: Round 2's ordinary questions are all answered, so only its ADR is left open. */
+let adrsOnlyLeft = false;
+export function offerAdrsInShaping(on: boolean, onlyAdrsLeft = false): void {
+  withAdrs = on;
+  adrsOnlyLeft = on && onlyAdrsLeft;
+}
+
+const ADR_STORE = {
+  path: "docs/adr/0005-the-board-is-the-shaping-record.md",
+  text: "# The board is the shaping record\n\nEvery answer to a shaping Round, and every Proposal decided in shaping, is written to the board as it is made. A shaping session keeps no transcript of its own: a later session is rebuilt from the Epic, its Stages and its Rounds.\n\n## Consequences\n\n- A killed shaping session loses nothing: Continue shaping starts a fresh session at the open Round.\n- The agent never asks in its reply what it could post as a Round.\n- A Round outlives the session that posted it.\n",
+  hardToReverse: "Every shaping session and every Story packet is rebuilt from these rows; moving them out later rewrites both builders.",
+  surprising: "A reader expects an agent's questions to live in its chat transcript, as in every other agent tool.",
+  losingAlternative: "Keeping the session transcript as the record and summarising it into the Epic at the end.",
+  relatesTo: "ADR-0002 (the board holds work)",
+};
+
 /** Epic #59 in its Challenge Stage (issue #123): Round 1 answered, Round 2 waiting on the developer with
  * one of its four questions answered. */
 function shapingOf(epicId: string): EpicShapingDto | null {
   const epic = Object.values(EPICS).flat().find((e) => e.id === epicId);
   if (!epic) return null;
   if (epicId !== "e-59") return { epic, stages: [], rounds: [], proposals: [] };
+  const adrQ = (id: string, number: number, recommendedAnswer: string, answer: string | null) => ({
+    id, number, title: "Record the shaping record", question: "Record \"the board is the shaping record\" as ADR 0005?",
+    grounding: "Read docs/adr/0002 and the answers to Round 1", recommendedAnswer, because: "It is the decision every later shaping session is rebuilt from",
+    answer, answeredWith: answer ? "recommended" : null, answeredAt: answer ? ago(2400) : null,
+    kind: "adr" as const, adr: ADR_STORE, adrProposalId: answer === "Yes" ? "pr-adr-5" : null,
+  });
+  const adrNext = {
+    ...adrQ("q-7", 5, "Yes", null),
+    title: "Record the Stage close",
+    question: "Record \"only the developer closes a Stage\" as ADR 0006?",
+    grounding: "Read GLOSSARY.md, Stage, and question 3 of this Round",
+    because: "Nothing in shaping advances on its own, and an agent-closed Stage would be hard to take back",
+    adr: {
+      path: "docs/adr/0006-only-the-developer-closes-a-stage.md",
+      text: "# Only the developer closes a Stage\n\nA Stage is closable once nothing in it is open: no unanswered question and no undecided Proposal. Even then the developer closes it. The close button lists whatever is still open, and nothing advances on its own.\n\n## Consequences\n\n- Closing a Stage starts the next Stage's session.\n- An agent that finds its frontier empty says so and waits.\n",
+      hardToReverse: "Closing a Stage starts the next Stage's session; an agent able to close one could run the whole shaping unattended.",
+      surprising: "The agent knows first when the frontier is empty, yet it may not act on it.",
+      losingAlternative: "Closing the Stage on its own once its frontier is empty and every Proposal is decided.",
+      relatesTo: null,
+    },
+  };
+  const accepted = (id: string, targetType: string, payload: Record<string, unknown>) => ({
+    id, projectId: "p-fly", sessionId: "ses-shape-8", epicId: "e-59", verb: "create", targetType, targetId: null, payload,
+    rationale: "Offered as question 3 of Round 1 and accepted there", state: "accepted", createdAt: ago(2400),
+    rejectionReason: null, stageId: "st-1", roundId: "r-1",
+  });
   const q = (
     id: string,
     number: number,
@@ -419,6 +464,13 @@ function shapingOf(epicId: string): EpicShapingDto | null {
   });
   return {
     epic,
+    adrLinks: withAdrs ? ["docs/adr/0002-repo-holds-code-knowledge-board-holds-work.md"] : [],
+    acceptedKnowledge: withAdrs
+      ? [
+          accepted("pr-adr-5", "adr", { path: ADR_STORE.path, text: ADR_STORE.text }),
+          accepted("pr-term-round", "glossary_term", { term: "Round", definition: "A batch of numbered questions an agent asks during a Stage" }),
+        ]
+      : [],
     stages: [{ id: "st-1", kind: "challenge_spec", state: "open", rank: 1 }],
     proposals: [
       proposal("pr-1", "scope", "The board as the shaping surface: the Epic card with its fields, ghost-card Proposals decided where they land, and the Round dock with pre-filled recommended answers and Accept all recommended. Every answer is written to the board as it is made.", "Round 1 settled the board as the surface and that answers are written as they are given; the Scope should say both.", 40),
@@ -433,6 +485,7 @@ function shapingOf(epicId: string): EpicShapingDto | null {
         questions: [
           q("q-1", 1, "Shaping surface", "Is the board the shaping surface, with the agent's questions in a dock beside the Epic card?", "Read docs/mvp-spec.md §3, Screen", "Yes: the Epic card on the board, the Rounds in a dock beside it", "The spec rules out a chat transcript as the record", "Yes: the Epic card on the board, the Rounds in a dock beside it", "recommended"),
           q("q-2", 2, "What a refusal costs", "When a shaping session dies mid-Round, may it lose the answers already given?", "Read the Epic's Problem, and Story #124", "No: every answer is written to the board as it is made", "A refusal lost the whole challenge in v0.1", "No. Every answer is on the board the moment it is given, and the next session starts from them", "own"),
+          ...(withAdrs ? [adrQ("q-2b", 3, "Yes", "Yes")] : []),
         ],
       },
       {
@@ -444,7 +497,13 @@ function shapingOf(epicId: string): EpicShapingDto | null {
           q("q-4", 2, "What Accept all covers", "May Accept all recommended also accept the Round's pending Proposals?", "Read Epic #59, Decided in slicing", "No: questions only; each Proposal is decided on its own ghost card", "A Proposal changes the board and deserves its own look"),
           q("q-5", 3, "Closing the Stage", "Does the Challenge Stage close on its own once its frontier is empty?", "Read GLOSSARY.md, Stage", "No: the developer closes every Stage, and the button lists what is still open", "Nothing in shaping advances on its own"),
           q("q-6", 4, "Exit test", "Is \"a one-line idea becomes an Epic with Ready Stories, entirely in Flywheel\" the Epic's exit test?", "Read Epic #59, Exit test", "Yes, plus: a killed shaping session resumes at the open Round", "Durability is half of what v0.1 got wrong"),
-        ],
+          ...(withAdrs ? [adrNext] : []),
+        ].map((question) =>
+          // "only ADRs left": every ordinary question of Round 2 answered with its recommendation.
+          adrsOnlyLeft && question.answer === null && !("kind" in question)
+            ? { ...question, answer: question.recommendedAnswer, answeredWith: "recommended", answeredAt: ago(600) }
+            : question,
+        ),
       },
     ],
   };
@@ -514,5 +573,7 @@ export function answer(cmd: string, args: Args): unknown {
 
 /** Route every `invoke`/`listen` in the app to the seeded data. Call before the first render. */
 export function installFixtureBackend(): void {
+  withAdrs = false;
+  adrsOnlyLeft = false;
   mockIPC((cmd, payload) => answer(cmd, payload as Args), { shouldMockEvents: true });
 }

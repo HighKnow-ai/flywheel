@@ -135,6 +135,11 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 30 | Epic shaping at the window's minimum width: rejecting a ghost field (#125) | ![](critique-2026-10/after/30-epic-shaping-ghost-min-width-light.webp) | ![](critique-2026-10/after/30-epic-shaping-ghost-min-width-dark.webp) |
 | 31 | Board: a killed shaping session leaves Shaping Round waiting and Continue shaping (#124) | ![](critique-2026-10/after/31-board-epic-continue-shaping-light.webp) | ![](critique-2026-10/after/31-board-epic-continue-shaping-dark.webp) |
 | 32 | Epic shaping: the open Round with no live session keeps its answers, Continue shaping on its band (#124) | ![](critique-2026-10/after/32-epic-shaping-continue-light.webp) | ![](critique-2026-10/after/32-epic-shaping-continue-dark.webp) |
+| 33 | Epic shaping: an ADR offered as a question, the draft beside its four bar lines, answered Yes or No (#129) | ![](critique-2026-10/after/33-epic-shaping-adr-question-light.webp) | ![](critique-2026-10/after/33-epic-shaping-adr-question-dark.webp) |
+| 34 | Epic shaping: the Epic card's ADR and glossary chips, the accepted ones not yet written dashed (#129) | ![](critique-2026-10/after/34-epic-shaping-adr-chips-light.webp) | ![](critique-2026-10/after/34-epic-shaping-adr-chips-dark.webp) |
+| 35 | Epic shaping at the window's minimum width: an ADR question (#129) | ![](critique-2026-10/after/35-epic-shaping-adr-min-width-light.webp) | ![](critique-2026-10/after/35-epic-shaping-adr-min-width-dark.webp) |
+| 36 | Epic shaping: an ADR answered Yes folds to a settled line with its file name (#129) | ![](critique-2026-10/after/36-epic-shaping-adr-answered-light.webp) | ![](critique-2026-10/after/36-epic-shaping-adr-answered-dark.webp) |
+| 37 | Epic shaping: only the ADR is left open, so Accept all is off and the hint says what is left; the answered questions above still offer Change (#129) | ![](critique-2026-10/after/37-epic-shaping-adr-only-left-light.webp) | ![](critique-2026-10/after/37-epic-shaping-adr-only-left-dark.webp) |
 
 ## How the screens were rendered
 
