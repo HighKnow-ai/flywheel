@@ -23,6 +23,7 @@ import { resetUiState, useUiStore } from "../../state/uiStore";
 
 const invokeCommandMock = vi.fn();
 const fleetBlockedQueueMock = vi.fn(() => Promise.resolve<unknown[]>([]));
+const fleetWaitingRoundsMock = vi.fn(() => Promise.resolve<unknown[]>([]));
 const fleetListMock = vi.fn(() => Promise.resolve<FleetListDto>({ rows: [], totalRows: 0, visibleCostUsd: null }));
 const storyGetMock = vi.fn((_storyId: string) => Promise.resolve<unknown>(null));
 
@@ -32,6 +33,7 @@ vi.mock("../../adapters/tauri", () => ({
   subscribeAgentEvent: () => Promise.resolve(() => {}),
   fleetBlockedQueue: () => fleetBlockedQueueMock(),
   fleetList: () => fleetListMock(),
+  fleetWaitingRounds: () => fleetWaitingRoundsMock(),
   fleetWatchRun: () => Promise.resolve(),
   boardRecoverySummary: (projectId: string) => invokeCommandMock("board_recovery_summary", { projectId }),
   subscribeMenuAction: () => Promise.resolve(() => {}),
@@ -64,6 +66,8 @@ beforeEach(() => {
   fleetBlockedQueueMock.mockResolvedValue([]);
   fleetListMock.mockReset();
   fleetListMock.mockResolvedValue({ rows: [], totalRows: 0, visibleCostUsd: null });
+  fleetWaitingRoundsMock.mockReset();
+  fleetWaitingRoundsMock.mockResolvedValue([]);
   storyGetMock.mockReset();
   storyGetMock.mockResolvedValue(null);
 });
@@ -178,6 +182,21 @@ describe("ProjectRail's Waiting on you row (#57, docs/mvp-spec.md §4.1)", () =>
     );
     const row = await screen.findByRole("button", { name: "Open Waiting on you, 3 waiting" });
     expect(row.querySelector('[data-count="waiting"]')).toHaveTextContent("3");
+  });
+
+  it("counts a shaping Round a live session waits on beside the requests, in its project too (issue #124)", async () => {
+    fleetBlockedQueueMock.mockResolvedValue([{ requestId: "r1", projectId: "proj-1" }]);
+    fleetWaitingRoundsMock.mockResolvedValue([{ roundId: "round-1", projectId: "proj-2" }]);
+    renderWithClient(
+      <ProjectRail
+        projects={[project({}), project({ id: "proj-2", name: "Other", keyPrefix: "OTH" })]}
+        currentProjectId="proj-1"
+        onSelect={() => {}}
+      />,
+    );
+    const row = await screen.findByRole("button", { name: "Open Waiting on you, 2 waiting" });
+    expect(row.querySelector('[data-count="waiting"]')).toHaveTextContent("2");
+    expect(await screen.findByTitle("1 waiting on you in Other")).toHaveTextContent("1");
   });
 
   it("shows no figure at all when nothing is waiting", async () => {

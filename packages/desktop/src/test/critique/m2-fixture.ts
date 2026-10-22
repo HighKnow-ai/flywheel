@@ -342,15 +342,15 @@ const PROGRESS: Record<string, MilestoneProgressDto> = {
     counts: counts({ merged: 1, inReview: 1, running: 1, waitingOnYou: 2, stopped: 1, ready: 1, shaping: 1, dropped: 1 }),
     epicsDone: 0, epicsTotal: 2,
     epics: [
-      { epicId: "e-97", key: "FLY-1", title: "Design system and a legible app", state: "in_progress", counts: counts({ merged: 1, inReview: 1, running: 1, waitingOnYou: 2, stopped: 1 }) },
-      { epicId: "e-59", key: "FLY-8", title: "Epic shaping", state: "shaping", counts: counts({ ready: 1, shaping: 1, dropped: 1 }) },
+      { epicId: "e-97", key: "FLY-1", title: "Design system and a legible app", state: "in_progress", attention: null, counts: counts({ merged: 1, inReview: 1, running: 1, waitingOnYou: 2, stopped: 1 }) },
+      { epicId: "e-59", key: "FLY-8", title: "Epic shaping", state: "shaping", attention: "waiting_on_you", counts: counts({ ready: 1, shaping: 1, dropped: 1 }) },
     ],
   },
   "p-hkw": {
     milestoneId: "m-h1", title: "Waitlist live", state: "in_progress", current: true, nextMilestoneTitle: null,
     exitTest: "A visitor can join the waitlist and gets a confirmation email.",
     counts: counts({ waitingOnYou: 1, ready: 1 }), epicsDone: 0, epicsTotal: 1,
-    epics: [{ epicId: "e-h1", key: "HKW-1", title: "Waitlist", state: "in_progress", counts: counts({ waitingOnYou: 1, ready: 1 }) }],
+    epics: [{ epicId: "e-h1", key: "HKW-1", title: "Waitlist", state: "in_progress", attention: null, counts: counts({ waitingOnYou: 1, ready: 1 }) }],
   },
 };
 
@@ -403,7 +403,7 @@ function shapingOf(epicId: string): EpicShapingDto | null {
     ],
     rounds: [
       {
-        id: "r-1", stageId: "st-1", stageKind: "challenge_spec", number: 1, state: "answered", held: false,
+        id: "r-1", stageId: "st-1", stageKind: "challenge_spec", number: 1, state: "answered", waitingOnYou: false,
         note: "This Round settles who shapes and where: the surface the developer answers on, and what a refusal may cost.",
         postedAt: ago(3600), answeredAt: ago(3000),
         questions: [
@@ -412,7 +412,7 @@ function shapingOf(epicId: string): EpicShapingDto | null {
         ],
       },
       {
-        id: "r-2", stageId: "st-1", stageKind: "challenge_spec", number: 2, state: "open", held: true,
+        id: "r-2", stageId: "st-1", stageKind: "challenge_spec", number: 2, state: "open", waitingOnYou: true,
         note: "With the surface settled, this Round tightens the scope: how answers are given, what Accept all may touch, and how the Stage ends.",
         postedAt: ago(1800), answeredAt: null,
         questions: [

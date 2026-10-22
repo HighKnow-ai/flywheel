@@ -3,6 +3,7 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import {
   fleetBlockedQueue,
   fleetList,
+  fleetWaitingRounds,
   subscribeAgentEvent,
   subscribeBoardChanged,
   worktreeInventory,
@@ -21,6 +22,11 @@ export function fleetQueryKey() {
 /** The blocked queue's query key (plan 10-05). Also app-wide: no project id. */
 export function blockedQueueQueryKey() {
   return ["fleet-blocked-queue"] as const;
+}
+
+/** The waiting shaping Rounds' query key (issue #124). Also app-wide: no project id. */
+export function waitingRoundsQueryKey() {
+  return ["fleet-waiting-rounds"] as const;
 }
 
 /** The worktree inventory's query key (plan 10-08). Also app-wide: no project id. */
@@ -63,6 +69,19 @@ export function useBlockedQueue() {
 }
 
 /**
+ * Every shaping Round a live session is held on, across every registered project (issue #124): a shaping
+ * session has no Story, so it is not a fleet row, but it waits on the developer all the same. It lights a
+ * lamp and joins the Waiting-on-you count. Same triggers as the queue, through the same subscription.
+ */
+export function useWaitingRounds() {
+  useFleetInvalidation();
+  return useQuery({
+    queryKey: waitingRoundsQueryKey(),
+    queryFn: () => fleetWaitingRounds(),
+  });
+}
+
+/**
  * Every Story worktree across every registered project with its cached size and a named disposition
  * (WORK-07, plan 10-08). Rides the shared subscription like the other two reads, but only
  * `board:changed` invalidates it: a run starting or a Story being merged changes a row's
@@ -93,6 +112,8 @@ function startInvalidation(queryClient: QueryClient): () => void {
   };
   const invalidateOnBoardChange = () => {
     invalidate();
+    // A Round is posted, taken over and answered by board writes, each emitting board:changed.
+    void queryClient.invalidateQueries({ queryKey: waitingRoundsQueryKey() });
     void queryClient.invalidateQueries({ queryKey: worktreeInventoryQueryKey() });
   };
   let cancelled = false;

@@ -12,7 +12,8 @@
  * shows no list.
  *
  * Counts are numerals or nothing, never a raw dot and never a visible zero. The Waiting-on-you count is
- * the queue's own read (one entry per waiting request), so the figure and the list cannot disagree; the
+ * the queue's own read (one entry per waiting request, plus one per shaping Round a live session is held
+ * on, issue #124), so the figure and the list cannot disagree; the
  * live sessions are the fleet's own read, so the sidebar, the andon strip and All agents cannot either.
  * Needs decision (D-46: a past session left something to decide) is a separate figure, never summed in.
  *
@@ -38,6 +39,7 @@ import {
   fleetQueryKey,
   useBlockedQueue,
   useFleet,
+  useWaitingRounds,
   worktreeInventoryQueryKey,
 } from "../fleet/useFleet";
 import { isRunStatus } from "../legend/runStatus";
@@ -324,7 +326,8 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   const registrationErrorNotice = useRegistrationErrorNotice(registerIsError, registerError);
   // Every hook is called above the early return below, so their order never changes (Rules of Hooks).
   const queue = useBlockedQueue().data ?? [];
-  const waitingCount = queue.length;
+  const waitingRounds = useWaitingRounds().data ?? [];
+  const waitingCount = queue.length + waitingRounds.length;
   const recoveryCount = useRecoverySummary(currentProjectId).data?.recoveryCount ?? 0;
   const fleetRows = useFleet().data?.rows ?? [];
   const liveSessions = fleetRows.filter(isLiveSession);
@@ -390,7 +393,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
               <SidebarMenuItem>
                 <SidebarMenuButton
                   aria-label={waitingCount > 0 ? `Open Waiting on you, ${waitingCount} waiting` : "Open Waiting on you"}
-                  title="Every Gated action, permission request and question waiting on you, across every project"
+                  title="Every Gated action, permission request, question and shaping Round waiting on you, across every project"
                   aria-current={fleetSurface?.view === "queue" ? "page" : undefined}
                   onClick={() => setFleetSurface({ view: "queue" })}
                   className={cn(rowClass, fleetSurface?.view === "queue" && currentClass)}
@@ -401,7 +404,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                     <Badge
                       variant="attention"
                       data-count="waiting"
-                      title={waitingCount === 1 ? "1 request waiting on you" : `${waitingCount} requests waiting on you`}
+                      title={waitingCount === 1 ? "1 waiting on you" : `${waitingCount} waiting on you`}
                       className="h-5 min-w-5 rounded-md px-1.5 text-meta tabular-nums"
                     >
                       {waitingCount}
@@ -465,7 +468,9 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
               {projects.map((project) => {
                 const isCurrent = project.id === currentProjectId;
                 const isUnreachable = project.status === "unreachable";
-                const projectWaiting = queue.filter((entry) => entry.projectId === project.id).length;
+                const projectWaiting =
+                  queue.filter((entry) => entry.projectId === project.id).length +
+                  waitingRounds.filter((round) => round.projectId === project.id).length;
                 return (
                   <SidebarMenuItem key={project.id}>
                     <SidebarMenuButton

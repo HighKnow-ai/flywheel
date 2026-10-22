@@ -40,6 +40,9 @@ export const STATE_VOCABULARY = {
   // Attention, worked out from the session and shown in place of the state word.
   waiting_on_you: { tone: "attention", icon: "Hand", label: "Waiting on you" },
   stopped: { tone: "destructive", icon: "CirclePause", label: "Stopped" },
+  // An Epic's open Round with no live shaping session (issue #124): it waits on a decision about future
+  // work, not on an answer a live agent is held on, so it is neutral, never yellow.
+  round_waiting: { tone: "neutral", icon: "CircleDashed", label: "Shaping Round waiting" },
   // Run statuses. `blocked` is the core's word for a session Waiting on you (GLOSSARY.md).
   blocked: { tone: "attention", icon: "Hand", label: "Waiting on you" },
   awaiting_review: { tone: "neutral", icon: "GitPullRequest", label: "In review" },

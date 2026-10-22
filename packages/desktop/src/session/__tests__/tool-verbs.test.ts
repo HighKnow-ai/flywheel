@@ -202,6 +202,28 @@ describe("describeToolCall: board tools by their meaning", () => {
     });
   });
 
+  // Issue #124: a later session picks the open Round up and waits on it like round_post did.
+  it("reads round_wait as Picked up the open Round, waiting on your answers, then the Round it came back with", () => {
+    expect(describeToolCall({ toolName: `${BOARD}round_wait`, input: {} })).toMatchObject({
+      kind: "question",
+      verb: "Picked up the open Round",
+      liveVerb: "Waiting on your answers",
+      target: "",
+      metrics: [],
+    });
+    const output = JSON.stringify({
+      round: 2,
+      answers: [
+        { number: 1, answer: "Yes", answered_with: "recommended" },
+        { number: 2, answer: "Yes", answered_with: "recommended" },
+      ],
+    });
+    expect(describeToolCall({ toolName: `${BOARD}round_wait`, input: {}, output })).toMatchObject({
+      verb: "Picked up Round 2",
+      metrics: [{ text: "2 answered · 2 recommended", tone: "neutral" }],
+    });
+  });
+
   it("never prints a raw mcp__ name, for any server", () => {
     for (const toolName of [`${BOARD}story_get`, "mcp__github__create_issue", "mcp__x"]) {
       const d = describeToolCall({ toolName, input: {} });

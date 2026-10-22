@@ -35,8 +35,8 @@ function progress(overrides: Partial<MilestoneProgressDto> = {}): MilestoneProgr
     epicsDone: 1,
     epicsTotal: 3,
     epics: [
-      { epicId: "e1", key: "FLY-1", title: "Design system", state: "in_progress", counts: { ...ZERO, merged: 1, running: 2, storiesTotal: 7 } },
-      { epicId: "e2", key: "FLY-2", title: "Roadmap shaping", state: "shaping", counts: ZERO },
+      { epicId: "e1", key: "FLY-1", title: "Design system", state: "in_progress", attention: null, counts: { ...ZERO, merged: 1, running: 2, storiesTotal: 7 } },
+      { epicId: "e2", key: "FLY-2", title: "Roadmap shaping", state: "shaping", attention: null, counts: ZERO },
     ],
     ...overrides,
   };

@@ -45,7 +45,7 @@ import { buildFeedRows } from "../session/SessionSurface";
 import { nextSelectionId, useRegionBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
 import { BlockedQueue } from "./BlockedQueue";
-import { useBlockedQueue, useFleet } from "./useFleet";
+import { useBlockedQueue, useFleet, useWaitingRounds } from "./useFleet";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
 import { lampsFromFleet } from "../shell/AndonStrip";
 import { Button } from "@/components/ui/button";
@@ -434,7 +434,10 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
   const rows = fleet.data?.rows ?? [];
   const total = fleet.data?.totalRows ?? 0;
   const queue = blocked.data ?? [];
-  const now = useNowTick(rows.length > 0 || queue.length > 0);
+  // Issue #124: a shaping Round a live session is held on waits on you too, beside the requests.
+  const waitingRounds = useWaitingRounds().data ?? [];
+  const waitingTotal = queue.length + waitingRounds.length;
+  const now = useNowTick(rows.length > 0 || waitingTotal > 0);
   // The strip's own rule for Stopped, so the fleet, the strip and the sidebar agree on which Story it is.
   const stoppedRunIds = new Set(
     lampsFromFleet(rows)
@@ -497,7 +500,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
         actions={
           <>
             <span aria-live="polite" className="text-small text-muted-foreground tabular-nums">
-              {view === "queue" ? `${queue.length} waiting` : countText}
+              {view === "queue" ? `${waitingTotal} waiting` : countText}
             </span>
             <div role="group" aria-label="Fleet views" className="flex rounded-md bg-secondary p-0.5">
               <Button
@@ -516,7 +519,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
                 onClick={() => setFleetSurface({ view: "queue" })}
                 className="h-7.5 tabular-nums aria-pressed:bg-card aria-pressed:shadow-card"
               >
-                {`Waiting on you ${queue.length}`}
+                {`Waiting on you ${waitingTotal}`}
               </Button>
             </div>
           </>
@@ -530,7 +533,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
                 Could not load what is waiting on you. It will retry on the next change.
               </p>
             ) : (
-              blocked.isSuccess && <BlockedQueue entries={queue} now={now} />
+              blocked.isSuccess && <BlockedQueue entries={queue} rounds={waitingRounds} now={now} />
             )
           ) : fleet.isError ? (
             <p role="alert" className="m-0 text-body text-destructive-text">

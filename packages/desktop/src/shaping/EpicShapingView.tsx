@@ -82,6 +82,8 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
             <RoundDock
               rounds={data.rounds}
               sessionLive={Boolean(sessionQuery.data)}
+              projectId={projectId}
+              epic={epic}
               queryKey={queryKey}
               show="current"
               className="xl:col-start-2 xl:row-start-1"
@@ -92,6 +94,8 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
             <RoundDock
               rounds={data.rounds}
               sessionLive={Boolean(sessionQuery.data)}
+              projectId={projectId}
+              epic={epic}
               queryKey={queryKey}
               show="earlier"
               className="xl:col-start-2 xl:row-start-2"
