@@ -1,0 +1,17 @@
+# CI runs the Rust tests through cargo-nextest, which runs every test in its own process, so the
+# workspace's ~90 test binaries run side by side instead of one after another (`cargo test` runs
+# them serially). A `static` Mutex that serialises a binary's tests only works inside one process.
+# Where it guards process state (the env-var locks) a process per test needs no lock at all; where
+# it guards something outside the process, that binary's tests are held to one at a time here.
+
+[test-groups]
+# credentials.rs: every test reads and writes the SAME real macOS Keychain item, and concurrent
+# access to it hung (see KEYCHAIN_TEST_LOCK in that file).
+keychain = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = "binary(credentials)"
+test-group = "keychain"
+
+[profile.ci]
+fail-fast = false

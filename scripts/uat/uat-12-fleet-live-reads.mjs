@@ -29,7 +29,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { resolveHarnessBinary } from "./lib/sidecar-harness.mjs";
+import { removeScratchDir, resolveHarnessBinary } from "./lib/sidecar-harness.mjs";
 
 /** The bound on a `fleet_list` issued during a reclaim, end to end including process start (T-11-44). */
 const LIST_DURING_RECLAIM_BOUND_MS = 2000;
@@ -294,7 +294,7 @@ async function main() {
       ];
     });
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    removeScratchDir(root);
   }
 
   const failed = verdicts.filter((v) => !v.ok);
