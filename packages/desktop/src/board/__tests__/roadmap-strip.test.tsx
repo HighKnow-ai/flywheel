@@ -226,6 +226,17 @@ describe("RoadmapStrip: + Milestone", () => {
     expect(screen.queryByRole("textbox", { name: "New Milestone's outcome" })).toBeNull();
   });
 
+  it("Escape closes the field and gives the focus back to + Milestone", async () => {
+    renderBoard();
+    const add = within(await strip()).getByRole("button", { name: "Add a Milestone" });
+    fireEvent.click(add);
+    expect(add).toHaveAttribute("aria-expanded", "true");
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "New Milestone's outcome" }), { key: "Escape" });
+    expect(screen.queryByRole("textbox", { name: "New Milestone's outcome" })).toBeNull();
+    expect(document.activeElement).toBe(add);
+    expect(milestoneCreate).not.toHaveBeenCalled();
+  });
+
   it("offers the first Milestone on an empty Roadmap", async () => {
     milestoneList.mockResolvedValue([]);
     storyListForProject.mockResolvedValue([]);

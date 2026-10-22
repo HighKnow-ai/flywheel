@@ -71,15 +71,29 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   // After a keyboard move the row is re-rendered at its new place; its handle keeps the focus.
   const refocus = useRef<string | null>(null);
+  // After "+ Milestone" adds one, its row takes the focus once the Roadmap has re-read it.
+  const focusRow = useRef<string | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
+  const addRef = useRef<HTMLButtonElement>(null);
   const headingId = useId();
-  const hintId = useId();
+  const handleHintId = useId();
+  const rowHintId = useId();
+  const formId = useId();
 
   useEffect(() => {
     const id = refocus.current;
     if (!id || !listRef.current) return;
     const handle = listRef.current.querySelector<HTMLElement>(`[data-move-handle="${id}"]`);
     if (handle && document.activeElement !== handle) handle.focus();
+  });
+  useEffect(() => {
+    const id = focusRow.current;
+    if (!id || !listRef.current) return;
+    const row = listRef.current.querySelector<HTMLElement>(`[data-row-id="${id}"]`);
+    if (row) {
+      focusRow.current = null;
+      row.focus();
+    }
   });
 
   async function move(from: number, to: number, viaKeyboard: boolean) {
@@ -131,8 +145,10 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
           variant="outline"
           size="sm"
           className="ml-auto"
+          ref={addRef}
           aria-label="Add a Milestone"
           aria-expanded={adding}
+          aria-controls={adding ? formId : undefined}
           onClick={() => setAdding(true)}
         >
           <Plus aria-hidden="true" />
@@ -140,8 +156,11 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
         </Button>
       </header>
 
-      <p id={hintId} className="sr-only">
-        Drag the row, or press Alt with the Up or Down arrow, to move it on the Roadmap.
+      <p id={handleHintId} className="sr-only">
+        Press the Up or Down arrow to move it on the Roadmap, or drag the row.
+      </p>
+      <p id={rowHintId} className="sr-only">
+        Alt with the Up or Down arrow moves it on the Roadmap.
       </p>
 
       {roadmap.isError && <p className="m-0 px-4 py-3 text-body text-destructive-text">{errorText(roadmap.error)}</p>}
@@ -202,9 +221,10 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                       <TooltipTrigger asChild>
                         <button
                           type="button"
+                          data-slot="roadmap-move-handle"
                           data-move-handle={milestone.id}
                           aria-label={`Move ${milestone.title}`}
-                          aria-describedby={hintId}
+                          aria-describedby={handleHintId}
                           onKeyDown={(event) => onRowKeyDown(event, index, true)}
                           onBlur={() => {
                             if (refocus.current === milestone.id) refocus.current = null;
@@ -221,11 +241,14 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                 <button
                   type="button"
                   aria-label={`${milestone.title}, ${stateWord}${milestone.current ? ", Current Milestone" : ""}`}
-                  aria-describedby={exitTestId}
+                  // A slot of its own, so the legacy bare-button hover (App.css) never greys the picked row.
+                  data-slot="roadmap-row"
+                  data-row-id={milestone.id}
+                  aria-describedby={closed ? exitTestId : `${exitTestId} ${rowHintId}`}
                   aria-current={selected ? "true" : undefined}
                   onClick={() => selectMilestone(projectId, milestone.id)}
                   onKeyDown={(event) => onRowKeyDown(event, index, false)}
-                  className="grid min-h-9 min-w-0 flex-1 grid-cols-[minmax(10rem,1fr)_7.5rem_minmax(0,2.2fr)_4.5rem_16px] items-center gap-x-3 rounded-sm py-1 pr-3 text-left"
+                  className="grid min-h-9 min-w-0 flex-1 grid-cols-[minmax(8rem,14rem)_7.5rem_minmax(0,1fr)_4.5rem_16px] items-center gap-x-3 rounded-sm py-1 pr-3 text-left"
                 >
                   <span
                     title={milestone.title}
@@ -275,10 +298,16 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
 
       {adding && (
         <NewMilestone
+          id={formId}
           projectId={projectId}
           onDone={(created) => {
             setAdding(false);
-            if (created) selectMilestone(projectId, created.id);
+            // Focus never falls to the page: back to "+ Milestone", then onto the new row once it is read.
+            addRef.current?.focus();
+            if (created) {
+              focusRow.current = created.id;
+              selectMilestone(projectId, created.id);
+            }
           }}
         />
       )}
@@ -292,7 +321,15 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
 }
 
 /** "+ Milestone": a one-line outcome, added at the end of the Roadmap in Shaping. Escape or Cancel closes. */
-function NewMilestone({ projectId, onDone }: { projectId: string; onDone: (created: MilestoneDto | null) => void }) {
+function NewMilestone({
+  id,
+  projectId,
+  onDone,
+}: {
+  id: string;
+  projectId: string;
+  onDone: (created: MilestoneDto | null) => void;
+}) {
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -313,11 +350,12 @@ function NewMilestone({ projectId, onDone }: { projectId: string; onDone: (creat
 
   return (
     <form
+      id={id}
       onSubmit={submit}
       onKeyDown={(event) => {
         if (event.key === "Escape") onDone(null);
       }}
-      className="flex flex-wrap items-center gap-1.5 border-t border-border py-2 pr-2 pl-12"
+      className="flex flex-wrap items-center gap-1.5 border-t border-border py-2 pr-2 pl-8"
     >
       <Input
         aria-label="New Milestone's outcome"
