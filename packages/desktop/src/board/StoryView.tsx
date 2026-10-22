@@ -49,7 +49,7 @@ export function StoryView({ projectId, projectName, storyId, onBack }: StoryView
   const story = storyQuery.data ?? null;
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--text-primary-rack)" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--foreground)" }}>
       <header
         className="session-header"
         style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", padding: "var(--space-md)" }}
@@ -57,7 +57,7 @@ export function StoryView({ projectId, projectName, storyId, onBack }: StoryView
         <button type="button" onClick={onBack} className="session-back type-label">
           ← Back
         </button>
-        <nav aria-label="You are here" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        <nav aria-label="You are here" className="type-label" style={{ color: "var(--muted-foreground)" }}>
           {projectName}
           {story ? ` › ${story.key}` : ""}
         </nav>
@@ -74,12 +74,12 @@ export function StoryView({ projectId, projectName, storyId, onBack }: StoryView
         }}
       >
         {storyQuery.isError && (
-          <p className="type-body" style={{ color: "var(--destructive-text-rack)" }}>
+          <p className="type-body" style={{ color: "var(--destructive-text)" }}>
             {errorText(storyQuery.error)}
           </p>
         )}
         {storyQuery.isSuccess && !story && (
-          <p className="type-body" style={{ color: "var(--text-muted-rack)" }}>
+          <p className="type-body" style={{ color: "var(--muted-foreground)" }}>
             This Story no longer exists.
           </p>
         )}
@@ -105,7 +105,7 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
     <>
       <section aria-labelledby="story-heading" style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
         <h1 id="story-heading" className="type-heading" style={{ margin: 0 }}>
-          <span className="type-label" style={{ color: "var(--text-muted-rack)", marginRight: "var(--space-sm)" }}>
+          <span className="type-label" style={{ color: "var(--muted-foreground)", marginRight: "var(--space-sm)" }}>
             {story.key}
           </span>
           {story.title}
@@ -122,7 +122,7 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
           {open && <DropControl story={story} />}
         </div>
         {error && (
-          <p className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+          <p className="type-body" style={{ margin: 0, color: "var(--destructive-text)" }}>
             {error}
           </p>
         )}
@@ -134,14 +134,14 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
       </section>
 
       <section aria-labelledby="story-criteria-heading">
-        <h2 id="story-criteria-heading" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        <h2 id="story-criteria-heading" className="type-label" style={{ color: "var(--muted-foreground)" }}>
           Acceptance criteria
         </h2>
         <CriteriaList projectId={projectId} storyId={story.id} storyKey={story.key} />
       </section>
 
       <section aria-labelledby="story-tasks-heading">
-        <h2 id="story-tasks-heading" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        <h2 id="story-tasks-heading" className="type-label" style={{ color: "var(--muted-foreground)" }}>
           Tasks
         </h2>
         <TaskChecklist storyKey={story.key} storyId={story.id} tasks={tasks} />
@@ -149,7 +149,7 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
 
       {story.state !== "shaping" && story.state !== "ready" && (
         <section aria-labelledby="story-sessions-heading">
-          <h2 id="story-sessions-heading" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          <h2 id="story-sessions-heading" className="type-label" style={{ color: "var(--muted-foreground)" }}>
             Sessions
           </h2>
           <SessionList projectId={projectId} story={story} />

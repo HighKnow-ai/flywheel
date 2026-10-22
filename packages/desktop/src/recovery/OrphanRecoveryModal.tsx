@@ -38,7 +38,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { OctagonX } from "lucide-react";
 import { orphanKill, type PendingOrphanDto } from "../adapters/tauri";
 import { pendingOrphansQueryKey, usePendingOrphans } from "../board/useBoardQuery";
-import { StateBadge } from "../legend/StateBadge";
+import { StateBadge } from "../components/StateBadge";
 import "../styles/states-and-confirms.css";
 
 function isNonEmptyString(value: unknown): value is string {
@@ -230,16 +230,16 @@ export function OrphanRecoveryModal() {
                     gap: "var(--space-xs)",
                     minWidth: 0,
                     // A hairline between runs, so each reads as its own: the list is the whole point of the dialog.
-                    borderBottom: index < rows.length - 1 ? "1px solid var(--divider)" : undefined,
+                    borderBottom: index < rows.length - 1 ? "1px solid var(--border)" : undefined,
                     paddingBottom: index < rows.length - 1 ? "var(--space-md)" : undefined,
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
                     {/* The glyph is the running class's mark, named "Running" for a screen reader; the sentence beside it is the visible word. */}
                     <span style={{ flexShrink: 0, display: "inline-flex" }}>
-                      <StateBadge state="running" variant="mark" hideLabel pulse={pulsing} />
+                      <StateBadge state="running" variant="inline" hideLabel pulse={pulsing} />
                     </span>
-                    <span className="type-label" style={{ color: "var(--text-primary-rack)" }}>
+                    <span className="type-label" style={{ color: "var(--foreground)" }}>
                       Running (from a previous session)
                     </span>
                   </div>
@@ -249,7 +249,7 @@ export function OrphanRecoveryModal() {
                       <>
                         <span
                           className="type-body"
-                          style={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace', flexShrink: 0 }}
+                          style={{ fontFamily: 'var(--font-code)', flexShrink: 0 }}
                         >
                           {orphan.storyKey}
                         </span>
@@ -258,7 +258,7 @@ export function OrphanRecoveryModal() {
                         </span>
                       </>
                     ) : (
-                      <span className="type-body" style={{ color: "var(--text-muted-rack)" }}>
+                      <span className="type-body" style={{ color: "var(--muted-foreground)" }}>
                         an unresolvable Story
                       </span>
                     )}
@@ -269,7 +269,7 @@ export function OrphanRecoveryModal() {
                       {identityLine && (
                         <span
                           className="type-label"
-                          style={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace', color: "var(--text-muted-rack)" }}
+                          style={{ fontFamily: 'var(--font-code)', color: "var(--muted-foreground)" }}
                         >
                           {identityLine}
                         </span>
@@ -278,19 +278,19 @@ export function OrphanRecoveryModal() {
                         className="type-label"
                         dateTime={orphan.startedAt}
                         title={absolute}
-                        style={{ color: "var(--text-muted-rack)" }}
+                        style={{ color: "var(--muted-foreground)" }}
                       >
                         Started {relativeTime(orphan.startedAt)}
                       </time>
                     </div>
 
                     {row.failed ? (
-                      <span role="alert" className="type-label" style={{ color: "var(--destructive-text-rack)" }}>
+                      <span role="alert" className="type-label" style={{ color: "var(--destructive-text)" }}>
                         Couldn&apos;t kill this process (PID {orphan.pid}). It&apos;s still running. Kill it from
                         a terminal, then reopen Flywheel.
                       </span>
                     ) : row.killing ? (
-                      <span className="type-body" style={{ color: "var(--text-muted-rack)" }}>
+                      <span className="type-body" style={{ color: "var(--muted-foreground)" }}>
                         Killing…
                       </span>
                     ) : (
@@ -310,7 +310,7 @@ export function OrphanRecoveryModal() {
 
           {/* The reason is read before the choice it bears on (11-17 finish review, group six): it sits above the
               answers, not under them. */}
-          <p className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          <p className="type-label" style={{ color: "var(--muted-foreground)" }}>
             Every process above is spending tokens right now — Flywheel didn&apos;t start any of
             them this time.
           </p>

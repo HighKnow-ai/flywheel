@@ -15,26 +15,32 @@ import {
 import { MODES, PALETTES, type Palette } from "../tokens";
 
 /**
- * VIS-03 (Phase 14 plan 08): every PAIR of state colours stays distinguishable to a person with
- * protanopia, deuteranopia or tritanopia. The method, the metric and the floors are stated in
- * theme/cvd.ts and in 14-DIRECTION.md "CVD thresholds"; this file opens with the primitives (a pair
- * test on a broken transform is worse than none) and then loops over every unordered pair.
+ * The three signal colours stay distinguishable to a person with protanopia, deuteranopia or tritanopia
+ * (docs/design/direction.md § Colour: one meaning per colour). The method, the metric and the floors are
+ * stated in theme/cvd.ts; this file opens with the primitives (a pair test on a broken transform is worse
+ * than none) and then loops over every unordered pair of tones.
+ *
+ * Meaning never rests on colour: every state also carries its icon and word (components/StateBadge.tsx).
+ * This proves the colour channel, the fastest one, does not collapse two tones for anyone.
  */
 
-const CLASSES = ["NeedsYou", "Running", "Failed", "Merged", "Quiet"] as const;
-type Cls = (typeof CLASSES)[number];
-type Part = "Text" | "Wash";
-const FLOORS: Record<Part, number> = { Text: TEXT_FLOOR, Wash: WASH_FLOOR };
-
-const key = (cls: Cls, part: Part): keyof Palette => `state${cls}${part}` as keyof Palette;
+const TONES = ["attention", "running", "destructive", "neutral"] as const;
+type Tone = (typeof TONES)[number];
+type Part = "Fill" | "Ink";
+const FLOORS: Record<Part, number> = { Fill: WASH_FLOOR, Ink: TEXT_FLOOR };
 
 /**
- * The colour a class draws in `part`. The quiet wash is the transparent rest value (`rgba(0, 0, 0, 0)`),
- * which is not a hex: it shows the ground, so the ground stands in for it.
+ * What a tone paints. `Fill` is the pill ground (yellow, the Running pill's blue tint, red, the neutral grey);
+ * `Ink` is the strongest mark it draws on a card (the yellow fill, the Running text, the red fill, body ink).
  */
-function colourOf(p: Palette, cls: Cls, part: Part): string {
-  const value = p[key(cls, part)];
-  return /^#[0-9a-f]{6}$/.test(value) ? value : p.surfaceDominant;
+function colourOf(p: Palette, tone: Tone, part: Part): string {
+  const table: Record<Tone, Record<Part, keyof Palette>> = {
+    attention: { Fill: "attention", Ink: "attention" },
+    running: { Fill: "runningMuted", Ink: "running" },
+    destructive: { Fill: "destructive", Ink: "destructive" },
+    neutral: { Fill: "secondary", Ink: "foreground" },
+  };
+  return p[table[tone][part]];
 }
 
 /** Every unordered pair, each once, in declaration order. */
@@ -131,36 +137,25 @@ describe("distinguishability", () => {
   });
 });
 
-describe("every pair of state colours is distinguishable under every deficiency", () => {
-  it("the class list is the palette's, and has not lost or gained an entry", () => {
-    const found = Object.keys(PALETTES.light)
-      .map((k) => /^state(\w+)Text$/.exec(k)?.[1])
-      .filter((c): c is string => c !== undefined);
-    expect(found).toEqual([...CLASSES]);
-    const expected = (CLASSES.length * (CLASSES.length - 1)) / 2;
-    expect(unorderedPairs(CLASSES)).toHaveLength(expected);
-    expect(expected).toBe(10);
+describe("every pair of tones is distinguishable under every deficiency", () => {
+  it("covers the four tones, six pairs", () => {
+    expect(unorderedPairs(TONES)).toHaveLength(6);
   });
 
   for (const mode of MODES) {
-    for (const part of ["Text", "Wash"] as const) {
+    for (const part of ["Fill", "Ink"] as const) {
       for (const deficiency of DEFICIENCIES as readonly Deficiency[]) {
         it(`${mode}: ${part.toLowerCase()} values, ${deficiency}`, () => {
           const p = PALETTES[mode];
           const floor = FLOORS[part];
-          const pairs = unorderedPairs(CLASSES);
           const collisions: string[] = [];
-          for (const [a, b] of pairs) {
+          for (const [a, b] of unorderedPairs(TONES)) {
             const ca = colourOf(p, a, part);
             const cb = colourOf(p, b, part);
             if (!distinguishable(ca, cb, deficiency, floor)) {
-              collisions.push(
-                `${mode}: ${String(key(a, part))} ${ca} vs ${String(key(b, part))} ${cb} collide under ${deficiency}: ` +
-                  `separation ${separation(ca, cb, deficiency)} < ${floor}`,
-              );
+              collisions.push(`${mode}: ${a} ${ca} vs ${b} ${cb} collide under ${deficiency}: separation ${separation(ca, cb, deficiency)} < ${floor}`);
             }
           }
-          expect(pairs, "the pair set must not be empty or truncated").toHaveLength(10);
           expect(collisions, collisions.join("\n")).toEqual([]);
         });
       }

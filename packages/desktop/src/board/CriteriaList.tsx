@@ -43,12 +43,12 @@ export function CriteriaList({ projectId, storyId, storyKey }: { projectId: stri
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
       {criteriaQuery.isError && (
-        <p className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+        <p className="type-body" style={{ margin: 0, color: "var(--destructive-text)" }}>
           {errorText(criteriaQuery.error)}
         </p>
       )}
       {criteriaQuery.isSuccess && criteria.length === 0 && (
-        <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+        <p className="type-body" style={{ margin: 0, color: "var(--muted-foreground)" }}>
           No Acceptance criteria.
         </p>
       )}
@@ -136,7 +136,7 @@ function CriterionRow({
               {` · ${resultWords(check)}`}
             </span>
           ) : (
-            <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+            <span className="type-label" style={{ color: "var(--muted-foreground)" }}>
               No Check: judged at review
             </span>
           )}
@@ -166,7 +166,7 @@ function CriterionRow({
         </div>
       )}
       {error && (
-        <p role="alert" className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+        <p role="alert" className="type-body" style={{ margin: 0, color: "var(--destructive-text)" }}>
           {error}
         </p>
       )}

@@ -86,8 +86,8 @@ const railStyle: CSSProperties = {
   flexDirection: "column",
   gap: "var(--space-lg)",
   padding: "var(--space-md) var(--space-sm)",
-  background: "var(--surface-secondary)",
-  borderRight: "1px solid var(--divider)",
+  background: "var(--muted)",
+  borderRight: "1px solid var(--border)",
   height: "100%",
   overflowY: "auto",
 };
@@ -101,7 +101,7 @@ const sectionLabelStyle: CSSProperties = {
   fontStretch: "75%",
   letterSpacing: "0.04em",
   textTransform: "uppercase",
-  color: "var(--text-muted-rack)",
+  color: "var(--muted-foreground)",
 };
 
 // One row grammar for every entry in every section: 32px, the chrome radius, label left, a trailing
@@ -113,10 +113,10 @@ const rowStyle: CSSProperties = {
   gap: "var(--space-sm)",
   minHeight: 32,
   padding: "var(--space-xs) var(--space-sm)",
-  borderRadius: "var(--radius-chrome)",
+  borderRadius: "var(--radius-control)",
   border: "none",
   background: "transparent",
-  color: "var(--text-primary-rack)",
+  color: "var(--foreground)",
   textAlign: "left",
   position: "relative",
 };
@@ -129,8 +129,8 @@ const entryStyle: CSSProperties = { ...rowStyle, width: "100%", cursor: "pointer
 // hairline edge, and takes semibold. Not colour alone.
 const currentEntryStyle: CSSProperties = {
   ...entryStyle,
-  background: "var(--surface-dominant)",
-  boxShadow: "inset 0 0 0 1px var(--divider)",
+  background: "var(--card)",
+  boxShadow: "inset 0 0 0 1px var(--border)",
   fontWeight: 600,
 };
 
@@ -139,7 +139,7 @@ const sessionRowStyle: CSSProperties = {
   minHeight: 24,
   padding: "2px var(--space-sm) 2px var(--space-md)",
   justifyContent: "flex-start",
-  color: "var(--text-muted-rack)",
+  color: "var(--muted-foreground)",
 };
 
 // The current Story takes the current project's neutral mark (issue #104), never a new style.
@@ -177,7 +177,7 @@ const sessionControlStyle: CSSProperties = {
   padding: "2px var(--space-xs)",
   flexShrink: 0,
   cursor: "pointer",
-  color: "var(--text-muted-rack)",
+  color: "var(--muted-foreground)",
 };
 
 /** One project's running sessions, under its entry, plus the current Story when it is not running.
@@ -219,7 +219,7 @@ function RunningSessions({
             onClick={() => openStory(projectId, extraStory.id)}
             style={{ ...sessionRowStyle, ...currentSessionRowStyle }}
           >
-            <span className="tabular-nums" style={{ flexShrink: 0, color: "var(--text-primary-rack)" }}>
+            <span className="tabular-nums" style={{ flexShrink: 0, color: "var(--foreground)" }}>
               {extraStory.key}
             </span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
@@ -247,7 +247,7 @@ function RunningSessions({
               onClick={() => openStory(session.projectId, session.storyId)}
               style={here ? { ...sessionRowStyle, ...currentSessionRowStyle } : sessionRowStyle}
             >
-              <span className="tabular-nums" style={{ flexShrink: 0, color: "var(--text-primary-rack)" }}>
+              <span className="tabular-nums" style={{ flexShrink: 0, color: "var(--foreground)" }}>
                 {session.storyKey}
               </span>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
@@ -255,7 +255,7 @@ function RunningSessions({
               </span>
               {waiting && (
                 // The word, never colour alone.
-                <span style={{ flexShrink: 0, color: "var(--blocked-text-rack)", fontWeight: 600 }}>
+                <span style={{ flexShrink: 0, color: "var(--foreground)", fontWeight: 600 }}>
                   {RUN_STATUS_LABELS.blocked}
                 </span>
               )}
@@ -402,7 +402,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
           aria-label={waitingCount > 0 ? `Open Waiting on you, ${waitingCount} waiting` : "Open Waiting on you"}
           title="Every Gated action and permission request waiting on you, across every project"
           onClick={() => setFleetSurface({ view: "queue" })}
-          style={{ ...entryStyle, color: waitingCount > 0 ? "var(--text-primary-rack)" : "var(--text-muted-rack)" }}
+          style={{ ...entryStyle, color: waitingCount > 0 ? "var(--foreground)" : "var(--muted-foreground)" }}
         >
           <span>{waitingCount > 0 ? "Requests" : "Nothing waiting"}</span>
           {waitingCount > 0 && (
@@ -412,7 +412,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
               data-count="waiting"
               title={waitingCount === 1 ? "1 request waiting on you" : `${waitingCount} requests waiting on you`}
               className="type-label tabular-nums"
-              style={{ color: "var(--blocked-text-rack)", fontWeight: 600 }}
+              style={{ color: "var(--foreground)", fontWeight: 600 }}
             >
               {waitingCount}
             </span>
@@ -435,13 +435,13 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                 onClick={() => onSelect(project)}
                 style={{
                   ...(isCurrent ? currentEntryStyle : entryStyle),
-                  color: isUnreachable ? "var(--text-muted-rack)" : "var(--text-primary-rack)",
+                  color: isUnreachable ? "var(--muted-foreground)" : "var(--foreground)",
                 }}
               >
                 <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", minWidth: 0, flex: 1 }}>
                   <span style={{ display: "flex", alignItems: "baseline", gap: "var(--space-xs)", minWidth: 0, maxWidth: "100%" }}>
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.name}</span>
-                    <span className="type-label tabular-nums" style={{ flexShrink: 0, color: "var(--text-muted-rack)" }}>
+                    <span className="type-label tabular-nums" style={{ flexShrink: 0, color: "var(--muted-foreground)" }}>
                       {project.keyPrefix}
                     </span>
                   </span>
@@ -450,7 +450,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                     // Its own line, so the name is never truncated to make room for it.
                     <span
                       className="type-label"
-                      style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "var(--destructive-text-rack)" }}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "var(--destructive-text)" }}
                     >
                       <TriangleAlert size={12} strokeWidth={2} aria-hidden="true" />
                       Unreachable
@@ -473,7 +473,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
           aria-label="Register Project…"
           title="Register Project…"
           onClick={() => void registerProjectFlow()}
-          style={{ ...entryStyle, justifyContent: "flex-start", color: "var(--text-muted-rack)" }}
+          style={{ ...entryStyle, justifyContent: "flex-start", color: "var(--muted-foreground)" }}
         >
           <Plus size={14} strokeWidth={2} aria-hidden="true" />
           <span style={{ flex: 1 }}>Register Project…</span>
@@ -485,7 +485,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
               aria-label={`Remove ${currentProject.name} from Flywheel`}
               style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", padding: "0 var(--space-sm)" }}
             >
-              <p className="type-label" style={{ margin: 0, color: "var(--text-primary-rack)" }}>
+              <p className="type-label" style={{ margin: 0, color: "var(--foreground)" }}>
                 Remove {currentProject.name} from Flywheel? Its board, worktrees, runs and activity trail are all
                 kept, and nothing is deleted. Register the repository again to bring it back.
               </p>
@@ -504,12 +504,12 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                   setConfirmingRemoveId(null);
                   setRemoveError(null);
                 }}
-                style={{ ...entryStyle, justifyContent: "flex-start", color: "var(--text-muted-rack)" }}
+                style={{ ...entryStyle, justifyContent: "flex-start", color: "var(--muted-foreground)" }}
               >
                 Keep it
               </button>
               {removeError && (
-                <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+                <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text)" }}>
                   Couldn&rsquo;t remove it — {removeError}
                 </p>
               )}
@@ -521,7 +521,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
               aria-label="Remove from Flywheel…"
               title="Hide this project. Nothing is deleted."
               onClick={() => setConfirmingRemoveId(currentProject.id)}
-              style={{ ...entryStyle, justifyContent: "flex-start", color: "var(--text-muted-rack)" }}
+              style={{ ...entryStyle, justifyContent: "flex-start", color: "var(--muted-foreground)" }}
             >
               <span style={{ flex: 1 }}>Remove from Flywheel…</span>
             </button>
@@ -570,7 +570,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                 recoveryCount === 1 ? "1 task needs a decision." : `${recoveryCount} tasks need a decision.`
               }
               className="type-label tabular-nums"
-              style={{ color: "var(--destructive-text-rack)", fontWeight: 600 }}
+              style={{ color: "var(--destructive-text)", fontWeight: 600 }}
             >
               {recoveryCount}
             </span>
@@ -582,7 +582,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
         <div
           role="status"
           className="type-label"
-          style={{ color: "var(--text-muted-rack)", padding: "0 var(--space-sm)" }}
+          style={{ color: "var(--muted-foreground)", padding: "0 var(--space-sm)" }}
         >
           {notice}
         </div>
@@ -591,7 +591,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
         <div
           role="status"
           className="type-label"
-          style={{ color: "var(--destructive-text-rack)", padding: "0 var(--space-sm)" }}
+          style={{ color: "var(--destructive-text)", padding: "0 var(--space-sm)" }}
         >
           {registrationErrorNotice}
         </div>

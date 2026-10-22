@@ -28,7 +28,7 @@ import "./session.css";
 
 export { feedRowText, toolCallLabel, toolCallTarget, type FeedRowData } from "./feedRows";
 
-const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+const MONO_STACK = "var(--font-code)";
 
 /** An expanded payload block's fixed max height (px): its own scroll absorbs a long payload. */
 const EXPANDED_SUBBLOCK_MAX_HEIGHT = 240;
@@ -139,7 +139,7 @@ function RunningFor({ startedAt, heartbeatSeconds, now }: { startedAt?: string; 
  * JSON. */
 export function Fields({ value, depth = 0 }: { value: unknown; depth?: number }): ReactNode {
   if (value === undefined || value === null || value === "") {
-    return <span style={{ color: "var(--text-muted-rack)" }}>none</span>;
+    return <span style={{ color: "var(--muted-foreground)" }}>none</span>;
   }
   if (typeof value === "string") {
     return value.includes("\n") ? <pre className="feed-field-text">{value}</pre> : <span>{value}</span>;
@@ -147,7 +147,7 @@ export function Fields({ value, depth = 0 }: { value: unknown; depth?: number })
   if (typeof value === "number" || typeof value === "boolean") return <span>{String(value)}</span>;
   if (depth >= FIELDS_MAX_DEPTH) return <span>{payloadText(value)}</span>;
   if (Array.isArray(value)) {
-    if (value.length === 0) return <span style={{ color: "var(--text-muted-rack)" }}>none</span>;
+    if (value.length === 0) return <span style={{ color: "var(--muted-foreground)" }}>none</span>;
     return (
       <ul className="feed-field-list">
         {value.map((item, i) => (
@@ -160,7 +160,7 @@ export function Fields({ value, depth = 0 }: { value: unknown; depth?: number })
   }
   if (typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>);
-    if (entries.length === 0) return <span style={{ color: "var(--text-muted-rack)" }}>none</span>;
+    if (entries.length === 0) return <span style={{ color: "var(--muted-foreground)" }}>none</span>;
     return (
       <dl className="feed-fields">
         {entries.map(([k, v]) => (
@@ -278,7 +278,7 @@ function ToolResultRow({
           <span className="feed-call-label">{summary}</span>
         </button>
       ) : (
-        <span className="type-body feed-call-label" style={{ fontFamily: MONO_STACK, color: "var(--text-muted-rack)" }}>
+        <span className="type-body feed-call-label" style={{ fontFamily: MONO_STACK, color: "var(--muted-foreground)" }}>
           {summary}
         </span>
       )}
@@ -298,14 +298,14 @@ function ProposalCard({ row }: { row: Extract<FeedRowData, { kind: "proposal" }>
   return (
     <div role="listitem" className="feed-row">
       <div className="session-card feed-card" data-card="proposal">
-        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        <span className="type-label" style={{ color: "var(--muted-foreground)" }}>
           {kind ? `Proposal · ${kind}` : "Proposal"}
         </span>
         {typeof title === "string" && title && <span className="type-heading">{title}</span>}
         {typeof why === "string" && why && <p className="type-body feed-card-text">{why}</p>}
         {Object.keys(rest).length > 0 && <Fields value={rest} />}
         {row.output !== undefined && (
-          <span className="type-label" style={{ color: row.isError ? "var(--destructive-text-rack)" : "var(--text-muted-rack)" }}>
+          <span className="type-label" style={{ color: row.isError ? "var(--destructive-text)" : "var(--muted-foreground)" }}>
             {payloadText(row.output)}
           </span>
         )}
@@ -330,7 +330,7 @@ function QuestionCard({
     return (
       <div role="listitem" className="feed-row">
         <div className="session-card feed-card" data-card="question" data-open="true">
-          <span className="type-heading" style={{ color: "var(--blocked-text-rack)" }}>
+          <span className="type-heading" style={{ color: "var(--foreground)" }}>
             {`${heading} · waiting on you`}
           </span>
           <QuestionForm questions={questions} onSubmit={onAnswer} draftKey={draftKey} />
@@ -341,13 +341,13 @@ function QuestionCard({
   return (
     <div role="listitem" className="feed-row">
       <div className="session-card feed-card" data-card="question">
-        <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        <span className="type-label" style={{ color: "var(--muted-foreground)" }}>
           {heading}
         </span>
         {questions.map((q, i) => (
           <div key={i} className="feed-question">
             {q.header && (
-              <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+              <span className="type-label" style={{ color: "var(--muted-foreground)" }}>
                 {q.header}
               </span>
             )}
@@ -360,7 +360,7 @@ function QuestionCard({
                     {option.description && (
                       <>
                         {" — "}
-                        <span style={{ color: "var(--text-muted-rack)" }}>{option.description}</span>
+                        <span style={{ color: "var(--muted-foreground)" }}>{option.description}</span>
                       </>
                     )}
                   </li>
@@ -370,7 +370,7 @@ function QuestionCard({
           </div>
         ))}
         {answer !== undefined && (
-          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          <span className="type-label" style={{ color: "var(--muted-foreground)" }}>
             {payloadText(answer)}
           </span>
         )}
@@ -383,7 +383,7 @@ function QuestionCard({
 function SystemLine({ text }: { text: string }) {
   return (
     <div role="listitem" className="feed-row">
-      <p className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)", overflowWrap: "anywhere" }}>
+      <p className="type-label" style={{ margin: 0, color: "var(--muted-foreground)", overflowWrap: "anywhere" }}>
         {text}
       </p>
     </div>
@@ -404,7 +404,7 @@ function RawRow({ raw, expanded, onToggleExpand }: { raw: string; expanded: bool
           aria-expanded={showExpanded}
           aria-label={showExpanded ? "Collapse full text" : "Expand full text"}
           className="feed-disclosure"
-          style={{ flexShrink: 0, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text-muted-rack)" }}
+          style={{ flexShrink: 0, background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--muted-foreground)" }}
         >
           <Chevron expanded={showExpanded} />
         </button>
@@ -413,7 +413,7 @@ function RawRow({ raw, expanded, onToggleExpand }: { raw: string; expanded: bool
         className="type-body"
         style={{
           minWidth: 0,
-          color: "var(--text-muted-rack)",
+          color: "var(--muted-foreground)",
           fontFamily: MONO_STACK,
           ...(showExpanded
             ? { maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT, overflowY: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }
@@ -430,14 +430,14 @@ export function FeedRow({ row, expanded, onToggleExpand, live = false, now, onAn
   switch (row.kind) {
     case "assistant_text":
       return (
-        <div role="listitem" className="feed-row feed-turn" style={{ color: "var(--text-primary-rack)" }}>
+        <div role="listitem" className="feed-row feed-turn" style={{ color: "var(--foreground)" }}>
           <Markdown text={row.text} className="type-body" />
         </div>
       );
     // Plan 05-12: the developer's own words, in the accent text role — a different speaker class.
     case "developer_turn":
       return (
-        <div role="listitem" className="feed-row feed-turn" style={{ color: "var(--accent-text-rack)" }}>
+        <div role="listitem" className="feed-row feed-turn" style={{ color: "var(--running)" }}>
           <Markdown text={row.text} className="type-body" />
         </div>
       );

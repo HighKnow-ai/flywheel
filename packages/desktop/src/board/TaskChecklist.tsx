@@ -37,7 +37,7 @@ export function DoingTask({ tasks, storyKey }: { tasks: TaskDto[]; storyKey: str
   const doing = tasks.find((t) => t.state === "doing");
   if (!doing) return null;
   return (
-    <span aria-label={`${storyKey} is doing`} className="type-body" style={{ color: "var(--text-muted-rack)" }}>
+    <span aria-label={`${storyKey} is doing`} className="type-body" style={{ color: "var(--muted-foreground)" }}>
       Doing: {doing.title}
     </span>
   );
@@ -54,7 +54,7 @@ export function TaskChecklist({ storyKey, storyId, tasks }: { storyKey: string; 
   return (
     <div style={{ flexBasis: "100%", display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
       {tasks.length === 0 && (
-        <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+        <p className="type-body" style={{ margin: 0, color: "var(--muted-foreground)" }}>
           No Tasks yet. The Story&apos;s agent writes its plan here once it has read the code and docs the Story touches.
         </p>
       )}
@@ -76,7 +76,7 @@ export function TaskChecklist({ storyKey, storyId, tasks }: { storyKey: string; 
       </ol>
       <AddTask storyKey={storyKey} onAdd={(title) => run(taskAdd(storyId, title))} />
       {error && (
-        <p role="alert" className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+        <p role="alert" className="type-body" style={{ margin: 0, color: "var(--destructive-text)" }}>
           {error}
         </p>
       )}
@@ -220,7 +220,7 @@ function TaskRow({
         )}
       </div>
       {dropped && task.droppedReason && (
-        <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+        <p className="type-body" style={{ margin: 0, color: "var(--muted-foreground)" }}>
           Dropped: {task.droppedReason}
         </p>
       )}
@@ -261,7 +261,7 @@ function TaskRow({
                   flex: 1,
                   minWidth: "12em",
                   whiteSpace: "pre-wrap",
-                  color: task.note ? undefined : "var(--text-muted-rack)",
+                  color: task.note ? undefined : "var(--muted-foreground)",
                 }}
               >
                 {task.note ?? "No note yet. The agent writes here what it learns on this Task."}

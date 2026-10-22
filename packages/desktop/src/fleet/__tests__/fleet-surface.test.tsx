@@ -146,18 +146,15 @@ describe("FleetSurface bands", () => {
     expect(abandoned.closest("[data-band]")?.getAttribute("data-band")).toBe("needs-you");
     const doneBandHeader = interrupted.closest("section")?.querySelector("h2")?.textContent;
     expect(doneBandHeader).toBe("DONE / FAILED");
-    // Every state is drawn by the one component (D-17): the class is on the badge, and `interrupted` is
-    // quiet, never an error role (D-169).
+    // Every state is drawn by the one component (components/StateBadge.tsx): `interrupted` is a normal
+    // outcome and neutral, never red (D-169); an abandoned run lost its supervisor and is red.
     const interruptedBadge = within(interrupted).getByText("Interrupted") as HTMLElement;
-    expect(interruptedBadge.getAttribute("data-state-class")).toBe("quiet");
-    expect(interruptedBadge.getAttribute("style") ?? "").not.toContain("destructive");
-    expect((within(abandoned).getByText("Abandoned") as HTMLElement).getAttribute("data-state-class")).toBe("needs-you");
+    expect(interruptedBadge.getAttribute("data-tone")).toBe("neutral");
+    expect((within(abandoned).getByText("Abandoned") as HTMLElement).getAttribute("data-tone")).toBe("destructive");
   });
 
-  it("washes the two classes that ask something of the developer, and only those (Phase 14 plan 09)", async () => {
-    // Observed on the demonstration board: a wash behind every state made five of six rows a pastel plate, so the
-    // plate stopped telling the needs-you band from the running one. Needs-you and failed carry it; running, merged
-    // and the quiet states are ink, glyph and word.
+  it("spends yellow on Waiting on you, blue on Running and red on failure, and nothing else (direction.md)", async () => {
+    // One meaning per colour: every other state is a neutral pill told apart by its icon and word.
     const states = ["blocked", "abandoned", "failed", "running", "completed", "interrupted"] as const;
     fleetListMock.mockResolvedValue(
       list(
@@ -168,12 +165,12 @@ describe("FleetSurface bands", () => {
     );
     renderFleet();
     await screen.findByText("NEEDS YOU");
-    const washed = states.filter((state) => {
+    const tones = states.map((state) => {
       const item = document.querySelector(`[data-fleet-state="${state}"]`) as HTMLElement;
       const badge = within(item).getByText(RUN_STATUS_LABELS[state]) as HTMLElement;
-      return (badge.getAttribute("style") ?? "").includes("-wash");
+      return badge.getAttribute("data-tone");
     });
-    expect(washed).toEqual(["blocked", "abandoned", "failed"]);
+    expect(tones).toEqual(["attention", "destructive", "destructive", "running", "neutral", "neutral"]);
   });
 
   it("shows the project as a column on every row and never groups by it", async () => {

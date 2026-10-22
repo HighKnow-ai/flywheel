@@ -86,7 +86,7 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
     return (
       <div style={{ padding: "var(--space-lg)", display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
         <span className="type-heading">Nothing is waiting on you</span>
-        <span className="type-body" style={{ color: "var(--text-muted-rack)" }}>
+        <span className="type-body" style={{ color: "var(--muted-foreground)" }}>
           When an agent in any project stops to ask for your answer, its request appears here.
         </span>
       </div>
@@ -112,12 +112,12 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
               flexDirection: "column",
               gap: "var(--space-xs)",
               padding: "var(--space-sm) var(--space-md)",
-              borderBottom: "1px solid var(--divider)",
-              borderLeft: owner ? "4px solid var(--selection-rule)" : "4px solid transparent",
+              borderBottom: "1px solid var(--border)",
+              borderLeft: owner ? "4px solid var(--primary)" : "4px solid transparent",
             }}
           >
             <div className="type-label" style={{ display: "flex", gap: "var(--space-sm)", alignItems: "baseline", minWidth: 0 }}>
-              <span style={{ color: "var(--blocked-text-rack)", fontWeight: 600 }}>Waiting on you</span>
+              <span style={{ color: "var(--foreground)", fontWeight: 600 }}>Waiting on you</span>
               <span data-field="project">{entry.projectName}</span>
               <button
                 type="button"
@@ -129,7 +129,7 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
                 style={textControlStyle}
               >
                 {subject.key}
-                {subject.detail ? <span style={{ color: "var(--text-muted-rack)" }}>{` ${subject.detail}`}</span> : null}
+                {subject.detail ? <span style={{ color: "var(--muted-foreground)" }}>{` ${subject.detail}`}</span> : null}
               </button>
               <button
                 type="button"
@@ -140,7 +140,7 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
                 Open session
               </button>
               {owner && (
-                <span data-field="owner" style={{ color: "var(--text-muted-rack)" }}>
+                <span data-field="owner" style={{ color: "var(--muted-foreground)" }}>
                   Keys A and D answer this one
                 </span>
               )}
@@ -148,7 +148,7 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
                 className="tabular-nums"
                 data-field="age"
                 aria-label={`Waiting ${formatAge(entry.blockedSince, now)}`}
-                style={{ marginLeft: "auto", color: "var(--text-muted-rack)" }}
+                style={{ marginLeft: "auto", color: "var(--muted-foreground)" }}
               >
                 {formatAge(entry.blockedSince, now)}
               </span>

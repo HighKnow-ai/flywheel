@@ -104,8 +104,8 @@ const BACKEND_UNAVAILABLE_NOTICE =
 function SectionSkeleton() {
   const barStyle = {
     height: 12,
-    borderRadius: "var(--radius-chrome)",
-    background: "var(--divider)",
+    borderRadius: "var(--radius-control)",
+    background: "var(--border)",
   };
   return (
     <div
@@ -232,7 +232,7 @@ function ApiKeyField({ settings }: { settings: SettingsDto }) {
         className="type-body control-edge admin-field"
       />
       {saveMutation.isError && (
-        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text)" }}>
           {saveMutation.error instanceof Error ? saveMutation.error.message : "Could not save the API key."}
         </p>
       )}
@@ -290,7 +290,7 @@ function OpenCommandTemplateField({ surface, label }: { surface: WorktreeOpenSur
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", maxWidth: 420 }}>
-      <label className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+      <label className="type-label" style={{ color: "var(--muted-foreground)" }}>
         {label}
       </label>
       <input
@@ -302,13 +302,13 @@ function OpenCommandTemplateField({ surface, label }: { surface: WorktreeOpenSur
         onBlur={commit}
         onKeyDown={handleKeyDown}
         className="type-body control-edge admin-field"
-        style={{ fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace' }}
+        style={{ fontFamily: 'var(--font-code)' }}
       />
-      <p className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+      <p className="type-label" style={{ margin: 0, color: "var(--muted-foreground)" }}>
         {OPEN_COMMAND_HELP_TEXT}
       </p>
       {saveMutation.isError && (
-        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text)" }}>
           {saveMutation.error instanceof Error ? saveMutation.error.message : "Could not save this template."}
         </p>
       )}
@@ -341,7 +341,7 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
   const backendUnavailable = backendQuery.data ? !backendQuery.data.available : false;
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--text-primary-rack)" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--foreground)" }}>
       <header className="admin-header">
         <button type="button" onClick={onBack} className="type-label admin-back">
           ← Back
@@ -365,7 +365,7 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
                 onSelect={(mode) => setModeMutation.mutate({ scope: "global", mode })}
               />
               {backendUnavailable && (
-                <p role="status" className="type-label" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+                <p role="status" className="type-label" style={{ margin: 0, color: "var(--muted-foreground)" }}>
                   {BACKEND_UNAVAILABLE_NOTICE}
                 </p>
               )}
@@ -374,7 +374,7 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
                   role="status"
                   data-testid="api-key-precedence-notice"
                   className="type-label"
-                  style={{ margin: 0, color: "var(--text-muted-rack)" }}
+                  style={{ margin: 0, color: "var(--muted-foreground)" }}
                 >
                   {API_KEY_PRECEDENCE_NOTICE}
                 </p>

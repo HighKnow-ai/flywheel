@@ -26,9 +26,9 @@ const FleetSurface = React.lazy(() =>
 const WorktreeInventory = React.lazy(() =>
   import("./fleet/WorktreeInventory").then((m) => ({ default: m.WorktreeInventory })),
 );
-import "./styles/tokens.css";
-import "./styles/type.css";
-import "./styles/motion.css";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { useColorScheme } from "./theme/colorScheme";
+import "./styles/globals.css";
 import "./App.css";
 
 function AppShell() {
@@ -68,7 +68,7 @@ function AppShell() {
   const registerNotice = useRegistrationErrorNotice(registerIsError, registerError);
   // A fixed-position toast so a `⌘⇧O` failure is visible regardless of which of the three
   // return branches below is currently active (boot, zero-project FirstRun, or the rail+board) —
-  // reuses FirstRun.tsx's own `type-label`/`var(--destructive-strip)` error styling rather than
+  // reuses FirstRun.tsx's own `type-label`/`var(--destructive-text)` error styling rather than
   // inventing a second idiom (CR-02).
   const registerNoticeNode = registerNotice ? (
     <div
@@ -80,10 +80,10 @@ function AppShell() {
         left: "50%",
         transform: "translateX(-50%)",
         zIndex: 1400,
-        color: "var(--destructive-strip)",
-        background: "var(--surface-secondary)",
-        border: "1px solid var(--divider)",
-        borderRadius: "var(--radius-chrome)",
+        color: "var(--destructive-text)",
+        background: "var(--muted)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-control)",
         padding: "var(--space-sm) var(--space-md)",
         maxWidth: "80vw",
       }}
@@ -266,9 +266,12 @@ function AppShell() {
 }
 
 function App() {
+  useColorScheme();
   return (
     <QueryClientProvider client={queryClient}>
-      <AppShell />
+      <TooltipProvider delayDuration={400}>
+        <AppShell />
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }

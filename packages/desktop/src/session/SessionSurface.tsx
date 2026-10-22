@@ -21,12 +21,11 @@ import {
   useMemo,
   useRef,
   useState,
-  type ComponentType,
   type UIEvent,
 } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import * as icons from "lucide-react";
+import { Icon } from "../components/Icon";
 import {
   answerPermissionRequest,
   answerQuestion,
@@ -40,7 +39,7 @@ import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQ
 import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
 import { endingWords, formatWhen } from "../board/StoryBoard";
 import { MARKS_BY_ID } from "../legend/marks";
-import { StateBadge } from "../legend/StateBadge";
+import { StateBadge } from "../components/StateBadge";
 import {
   RUN_STATUS_LABELS,
   TERMINAL_STATUSES,
@@ -69,7 +68,7 @@ import type { QuestionPicks } from "./QuestionForm";
 import { RawLogView } from "./RawLogView";
 import "./session.css";
 
-const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+const MONO_STACK = "var(--font-code)";
 
 /**
  * Issue #100: which open question each unanswered question card in the feed answers, by row key. A
@@ -91,16 +90,6 @@ export function openQuestionRows(rows: FeedRowData[], pending: PendingPermission
     }
   }
   return byRow;
-}
-
-type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
-
-/** Resolve a Lucide icon by name — the same by-name pattern `ActivityTrail.tsx`/
- * `PermissionRequestCard.tsx` already use, so no icon component is ever named directly. */
-function Icon({ name, size = 14 }: { name: string; size?: number }) {
-  const Component = (icons as unknown as Record<string, IconComponent>)[name];
-  if (!Component) return null;
-  return <Component size={size} strokeWidth={2} />;
 }
 
 /** The glyph-and-word run-status badge (02-UI-SPEC.md "Run Status", plan 02-07 Task 3) — never
@@ -171,7 +160,7 @@ function StatusStrip({
         display: "flex",
         alignItems: "center",
         gap: "var(--space-md)",
-        color: "var(--text-muted-rack)",
+        color: "var(--muted-foreground)",
       }}
     >
       <span className="type-label tabular-nums" aria-label="Elapsed time">
@@ -267,13 +256,13 @@ function TerminalRow({ info }: { info: TerminalInfo }) {
         className="session-notice"
         style={{ marginTop: "var(--space-sm)" }}
       >
-        <p className="type-body" style={{ margin: 0, color: "var(--text-primary-rack)" }}>
+        <p className="type-body" style={{ margin: 0, color: "var(--foreground)" }}>
           {FAILED_RUN_GLOSS}
         </p>
         {info.subtype && (
           <p
             className="type-label"
-            style={{ margin: "var(--space-xs) 0 0 0", fontFamily: MONO_STACK, color: "var(--destructive-text-rack)" }}
+            style={{ margin: "var(--space-xs) 0 0 0", fontFamily: MONO_STACK, color: "var(--destructive-text)" }}
           >
             {info.subtype}
           </p>
@@ -289,7 +278,7 @@ function TerminalRow({ info }: { info: TerminalInfo }) {
               fontFamily: MONO_STACK,
               whiteSpace: "pre-wrap",
               overflowWrap: "anywhere",
-              color: "var(--text-muted-rack)",
+              color: "var(--muted-foreground)",
             }}
           >
             {info.detail}
@@ -303,7 +292,7 @@ function TerminalRow({ info }: { info: TerminalInfo }) {
     <div
       role="listitem"
       className="type-label"
-      style={{ marginTop: "var(--space-sm)", padding: "var(--space-sm) var(--space-md)", color: "var(--text-muted-rack)" }}
+      style={{ marginTop: "var(--space-sm)", padding: "var(--space-sm) var(--space-md)", color: "var(--muted-foreground)" }}
     >
       {RUN_STATUS_LABELS[info.reason]}
       {info.reason === "interrupted" && (
@@ -337,17 +326,17 @@ function StopWarningNotice({ warning }: { warning: string }) {
           display: "flex",
           alignItems: "center",
           gap: "var(--space-xs)",
-          color: "var(--text-primary-rack)",
+          color: "var(--foreground)",
         }}
       >
-        <span aria-hidden="true" style={{ display: "inline-flex", color: "var(--text-muted-rack)" }}>
+        <span aria-hidden="true" style={{ display: "inline-flex", color: "var(--muted-foreground)" }}>
           <Icon name={mark?.glyph ?? "CircleSlash"} />
         </span>
         {STOP_WARNING_GLOSS}
       </p>
       <p
         className="type-label"
-        style={{ margin: "var(--space-xs) 0 0 0", fontFamily: MONO_STACK, color: "var(--text-muted-rack)" }}
+        style={{ margin: "var(--space-xs) 0 0 0", fontFamily: MONO_STACK, color: "var(--muted-foreground)" }}
       >
         {warning}
       </p>
@@ -375,10 +364,10 @@ function PersistenceFailureBanner({ text }: { text: string }) {
           display: "flex",
           alignItems: "center",
           gap: "var(--space-xs)",
-          color: "var(--text-primary-rack)",
+          color: "var(--foreground)",
         }}
       >
-        <span aria-hidden="true" style={{ display: "inline-flex", color: "var(--text-muted-rack)" }}>
+        <span aria-hidden="true" style={{ display: "inline-flex", color: "var(--muted-foreground)" }}>
           <Icon name="TriangleAlert" />
         </span>
         {text}
@@ -393,7 +382,7 @@ function PersistenceFailureBanner({ text }: { text: string }) {
  * empty). */
 function StartingSessionRow() {
   return (
-    <div role="listitem" className="type-body" style={{ padding: "var(--space-xs) 0", color: "var(--text-muted-rack)" }}>
+    <div role="listitem" className="type-body" style={{ padding: "var(--space-xs) 0", color: "var(--muted-foreground)" }}>
       Starting session…
     </div>
   );
@@ -694,7 +683,7 @@ export function SessionSurface({
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        color: "var(--text-primary-rack)",
+        color: "var(--foreground)",
       }}
     >
       <header className="session-header">
@@ -723,7 +712,7 @@ export function SessionSurface({
         {storedEnded && stored && (
           // How and when an ended session ended (docs/mvp-spec.md §4.5), the same words the Story's
           // session list uses.
-          <span className="type-label" data-testid="session-ending" style={{ color: "var(--text-muted-rack)" }}>
+          <span className="type-label" data-testid="session-ending" style={{ color: "var(--muted-foreground)" }}>
             {`Ended: ${endingWords(stored.endingReason)} · ${formatWhen(stored.startedAt)}${
               stored.endedAt ? ` to ${formatWhen(stored.endedAt)}` : ""
             }`}
