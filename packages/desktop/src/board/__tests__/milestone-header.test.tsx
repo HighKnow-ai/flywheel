@@ -28,6 +28,7 @@ function progress(overrides: Partial<MilestoneProgressDto> = {}): MilestoneProgr
     title: "Shaping",
     exitTest: "A one-line idea becomes an Epic with Ready Stories.",
     state: "in_progress",
+    current: true,
     nextMilestoneTitle: "Board and review",
     // Deliberately not a sum of the parts: the header must print the core's total, never add its own.
     counts: { shaping: 1, ready: 2, running: 3, waitingOnYou: 1, stopped: 1, inReview: 1, merged: 2, dropped: 1, storiesTotal: 11 },
@@ -59,7 +60,7 @@ describe("MilestoneHeader", () => {
     milestoneProgress.mockResolvedValue(progress());
     renderHeader();
     const header = await screen.findByRole("region", { name: "Shaping" });
-    expect(milestoneProgress).toHaveBeenCalledWith("p1");
+    expect(milestoneProgress).toHaveBeenCalledWith("p1", null);
     const heading = within(header).getByRole("heading", { name: "Shaping" });
     expect(heading.parentElement?.textContent).toContain("In progress");
     expect(within(header).getByText("A one-line idea becomes an Epic with Ready Stories.")).toBeTruthy();
