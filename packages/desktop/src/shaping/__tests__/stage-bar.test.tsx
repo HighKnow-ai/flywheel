@@ -126,12 +126,12 @@ describe("the Stage bar (issue #126)", () => {
     const open = within(region).getByRole("list", { name: "Still open" });
     const lines = within(open).getAllByRole("listitem").map((li) => li.textContent);
     expect(lines).toEqual([
-      "Round 2: 2 questions unanswered · Audience and Surface",
+      "Round 2: 2 questions unanswered · Audience, Surface",
       "Proposal undecided · Change the Problem",
     ]);
     // The list is what describes the disabled button.
     expect(close.getAttribute("aria-describedby")).toBeTruthy();
-    expect(document.getElementById(close.getAttribute("aria-describedby")!)?.textContent).toContain("Audience and Surface");
+    expect(document.getElementById(close.getAttribute("aria-describedby")!)?.textContent).toContain("Audience, Surface");
     fireEvent.click(close);
     expect(stageClose).not.toHaveBeenCalled();
   });

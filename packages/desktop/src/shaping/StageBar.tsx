@@ -51,11 +51,6 @@ function plural(n: number, one: string, many: string) {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-/** "Audience", "Audience and Surface", "Audience, Surface and Scope". */
-function joined(words: string[]) {
-  if (words.length <= 1) return words.join("");
-  return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
-}
 
 export function StageBar({ stages, status, projectId, className }: StageBarProps) {
   const queryClient = useQueryClient();
@@ -105,7 +100,9 @@ export function StageBar({ stages, status, projectId, className }: StageBarProps
         <h2 id={headingId} className="sr-only">
           Stages
         </h2>
-        <ol className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-2 p-0">
+        {/* One line at every width: a Stage's name truncates before the steps wrap. The open Stage is drawn
+            as a neutral chip (inset ground, 1px edge), never as a button: nothing here but Close Stage acts. */}
+        <ol className="m-0 flex min-w-0 flex-1 items-center gap-2 p-0">
           {EPIC_STAGES.map((kind, i) => {
             const isOpen = open?.kind === kind;
             const isClosed = closedKinds.has(kind);
@@ -114,13 +111,13 @@ export function StageBar({ stages, status, projectId, className }: StageBarProps
               <li
                 key={kind}
                 aria-current={isOpen ? "step" : undefined}
-                className="flex min-w-0 list-none items-center gap-2"
+                className={cn("flex min-w-0 list-none items-center gap-2", isOpen && "shrink-0")}
               >
-                {i > 0 && <span aria-hidden="true" className="h-px w-5 shrink-0 bg-input" />}
+                {i > 0 && <span aria-hidden="true" className="h-px w-4 shrink-0 bg-input" />}
                 <span
                   className={cn(
-                    "flex h-8 min-w-0 items-center gap-1.5 rounded-full px-3 text-small [&_svg]:size-4 [&_svg]:shrink-0",
-                    isOpen && "border border-foreground font-semibold text-foreground",
+                    "flex h-7 min-w-0 items-center gap-1.5 rounded-full text-small [&_svg]:size-4 [&_svg]:shrink-0",
+                    isOpen && "border border-border bg-secondary px-2.5 font-semibold text-foreground",
                     isClosed && "text-muted-foreground",
                     !isOpen && !isClosed && "text-subtle-foreground",
                   )}
@@ -165,7 +162,7 @@ export function StageBar({ stages, status, projectId, className }: StageBarProps
                         <span className="font-semibold tabular-nums">
                           Round {questions[0].round}: {plural(questions.length, "question", "questions")} unanswered
                         </span>
-                        <span className="text-muted-foreground"> · {joined(questions.map((q) => q.title))}</span>
+                        <span className="text-muted-foreground"> · {questions.map((q) => q.title).join(", ")}</span>
                       </span>
                     </li>
                   )}
@@ -211,7 +208,7 @@ export function StageBar({ stages, status, projectId, className }: StageBarProps
       )}
 
       <AlertDialog open={confirming} onOpenChange={(nextOpen) => !closing && setConfirming(nextOpen)}>
-        <AlertDialogContent className="sm:max-w-md">
+        <AlertDialogContent className="data-[size=default]:sm:max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-section font-semibold">{`Close ${current}?`}</AlertDialogTitle>
             <AlertDialogDescription>

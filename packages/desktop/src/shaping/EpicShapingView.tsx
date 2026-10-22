@@ -2,7 +2,7 @@
  * An Epic in its shaping view (docs/mvp-spec.md §3 "Shaping an Epic", issue #123): the Epic card beside
  * the Round dock.
  *
- * The Epic card carries the record being shaped: its key, title and state, the Stage it is in, and its
+ * The Stage bar heads the view (`StageBar`, issue #126). The Epic card carries the record being shaped: its key, title and state, and its
  * spec (Problem, Scope, Out of scope, Exit test), each field still the developer's to edit in place through
  * `epic_update`, with an agent's pending spec change drawn under it as a ghost to decide in place (`GhostCard`,
  * issue #125), and its ADR and glossary chips (issue #129): the ADRs linked to it and the ADRs and terms
