@@ -170,6 +170,11 @@ pub fn handle_inbound_board_tool_request(app: &AppHandle, event: &serde_json::Va
         super::handoff::spawn_handoff_tool_call(app.clone(), run_id.to_string(), request_id.to_string(), tool.to_string(), args);
         return;
     }
+    // Issue #123: a shaping session's `round_post` is held until its Round is answered.
+    if flywheel_core::domain::shaping_tool::SHAPING_TOOL_NAMES.contains(&tool) {
+        super::shaping::handle_shaping_tool_request(app, run_id, request_id, tool, &args);
+        return;
+    }
     let Some(state) = tauri::Manager::try_state::<AppState>(app) else { return };
     let (answer, changed) = {
         let Ok(mut conn) = state.db.lock() else { return };

@@ -27,6 +27,7 @@ use core::domain::check::{remove_check, set_check};
 use core::domain::epic::{set_epic_state, EpicState};
 use core::domain::milestone::{move_milestone, set_milestone_state, MilestoneState};
 use core::domain::proposal::{accept_proposal, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb};
+use core::domain::round::{accept_all_recommended, answer_round_question, post_round, NewQuestion, NewRound, RoundAnswer};
 use core::domain::story::{set_story_state, StoryState};
 use rusqlite::Connection;
 
@@ -67,7 +68,9 @@ struct Trial {
 /// A byte-comparable picture of every table an authority writer can touch, plus the event count.
 /// Static SQL per table — no table name is ever interpolated.
 fn board_state(conn: &Connection) -> String {
-    const QUERIES: [&str; 7] = [
+    const QUERIES: [&str; 9] = [
+        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || IFNULL(answer, '') || IFNULL(answered_by, '') AS r FROM round_questions ORDER BY id)",
+        "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || IFNULL(held_request_id, '') AS r FROM rounds ORDER BY id)",
         "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || rank || updated_at AS r FROM milestones ORDER BY id)",
         "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || updated_at AS r FROM epics ORDER BY id)",
         "SELECT COUNT(*) || ':' || IFNULL(group_concat(r, ','), '') FROM (SELECT id || state || updated_at AS r FROM stories ORDER BY id)",
@@ -215,15 +218,59 @@ fn run_move_milestone(who: Who) -> Trial {
     trial(&mut conn, who, |c, actor| move_milestone(c, actor, &second.id, Some(&first.id)))
 }
 
+/// A live shaping session on an Epic with a two-question Round posted by its agent. Returns
+/// `(conn, round_id, first question id)`.
+fn posted_round() -> (Connection, String, String) {
+    let (mut conn, human, project) = common::seeded_project();
+    let m = core::domain::milestone::create_milestone(&mut conn, &project.id, &human, "Shaping", None).unwrap();
+    let e = core::domain::epic::create_epic(&mut conn, &human, &m.id, "Epic shaping").unwrap();
+    let session = core::domain::session::start_shaping_session(
+        &mut conn,
+        &core::domain::session::ShapingSubject::Epic(e.id),
+        "dontAsk",
+        &human,
+    )
+    .unwrap();
+    let question = |n: u8| NewQuestion {
+        title: format!("Q{n}"),
+        question: format!("Question {n}?"),
+        grounding: "Read the spec".into(),
+        recommended_answer: "Yes".into(),
+        because: "It is in scope".into(),
+    };
+    let round = post_round(
+        &mut conn,
+        &session.id,
+        Some("req-1"),
+        &NewRound { note: "Settles the scope.".into(), questions: vec![question(1), question(2)] },
+    )
+    .expect("the agent posts a Round");
+    let first = round.questions[0].id.clone();
+    (conn, round.id, first)
+}
+
+/// Answering a Round's question is the developer's (issue #123): an agent never answers its own.
+fn run_answer_round_question(who: Who) -> Trial {
+    let (mut conn, _, question_id) = posted_round();
+    trial(&mut conn, who, |c, actor| answer_round_question(c, actor, &question_id, &RoundAnswer::Recommended).map(|_| ()))
+}
+
+fn run_accept_all_recommended(who: Who) -> Trial {
+    let (mut conn, round_id, _) = posted_round();
+    trial(&mut conn, who, |c, actor| accept_all_recommended(c, actor, &round_id).map(|_| ()))
+}
+
 /// The authority writers the source half guards, by function name. Adding one here without a case
 /// below (or the reverse) fails `every_authority_writer_has_a_refusal_and_a_not_blocked_case`.
-const AUTHORITY_WRITERS: [&str; 6] = [
+const AUTHORITY_WRITERS: [&str; 8] = [
     "accept_criterion",
     "unaccept_criterion",
     "set_check",
     "remove_check",
     "accept_proposal",
     "reject_proposal",
+    "answer_round_question",
+    "accept_all_recommended",
 ];
 
 /// Declares the case table AND, per transition, the labelled refusal / not-blocked pair — so the two
@@ -261,6 +308,8 @@ authority_cases! {
     remove_check => run_remove_check,
     accept_proposal => run_accept_proposal,
     reject_proposal => run_reject_proposal,
+    answer_round_question => run_answer_round_question,
+    accept_all_recommended => run_accept_all_recommended,
     start_story => run_start_story,
     request_changes => run_request_changes,
     merge_story => run_merge_story,
@@ -288,7 +337,7 @@ fn every_authority_writer_has_a_refusal_and_a_not_blocked_case() {
     in_table.sort_unstable();
     declared.sort_unstable();
     assert_eq!(in_table, declared, "the case table must name every writer and every developer-only move");
-    assert_eq!(TRANSITIONS.len(), 13,"a transition was quietly dropped from coverage");
+    assert_eq!(TRANSITIONS.len(), 15, "a transition was quietly dropped from coverage");
 }
 
 /// The session's hand-off is the one Story move that is not the developer's: an agent may make it,
@@ -442,8 +491,10 @@ struct AllowedCaller {
 /// The declaring domain modules and the Tauri command modules that put the act under the human's
 /// own control (each resolves the actor server-side with `local_human_actor_id`). Nothing under
 /// `packages/sidecar/src` — the process that drives an agent session — is, or may ever be, listed.
-const ALLOWED_CALLERS: [AllowedCaller; 6] = [
+const ALLOWED_CALLERS: [AllowedCaller; 8] = [
     AllowedCaller { suffix: "packages/core/src/domain/acceptance_criterion.rs", reason: "declares accept_criterion / unaccept_criterion", test_only: false },
+    AllowedCaller { suffix: "packages/core/src/domain/round.rs", reason: "declares answer_round_question / accept_all_recommended", test_only: false },
+    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/shaping.rs", reason: "the human's answers in the Round dock", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/check.rs", reason: "declares set_check / remove_check", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/proposal.rs", reason: "declares accept_proposal / reject_proposal", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/criterion.rs", reason: "the human's acceptance and Check controls", test_only: false },
