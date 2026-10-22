@@ -28,7 +28,7 @@
  */
 import { useEffect, useState, type MouseEvent } from "react";
 import { acknowledgeSession, sessionAcknowledgeMany, type FleetActivityDto, type FleetRowDto } from "../adapters/tauri";
-import { StateBadge, rowVariant } from "../legend/StateBadge";
+import { StateBadge } from "../components/StateBadge";
 import {
   FLEET_BANDS,
   bandForState,
@@ -120,7 +120,7 @@ function ActivityCell({ row }: { row: FleetRowDto }) {
       data-field="activity"
       data-absent="true"
       title="No activity could be read"
-      style={{ color: "var(--text-muted-rack)" }}
+      style={{ color: "var(--muted-foreground)" }}
     >
       {ABSENT}
     </span>
@@ -128,7 +128,7 @@ function ActivityCell({ row }: { row: FleetRowDto }) {
     <span
       data-field="activity"
       title={line}
-      style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-muted-rack)" }}
+      style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--muted-foreground)" }}
     >
       {line}
     </span>
@@ -183,7 +183,7 @@ export function SpendCell({ row }: { row: FleetRowDto }) {
         <span
           className="type-label"
           title="Input tokens include cache reads, so this is larger than the prompt size"
-          style={{ color: "var(--text-muted-rack)" }}
+          style={{ color: "var(--muted-foreground)" }}
         >
           {tokens}
         </span>
@@ -202,8 +202,8 @@ export function FleetFooter({ visibleCostUsd }: { visibleCostUsd: number | null 
       className="type-label tabular-nums"
       style={{
         padding: "var(--space-xs) var(--space-md)",
-        borderTop: "1px solid var(--divider)",
-        color: "var(--text-muted-rack)",
+        borderTop: "1px solid var(--border)",
+        color: "var(--muted-foreground)",
         textAlign: "right",
       }}
     >
@@ -310,18 +310,18 @@ export function FleetRowView({
       style={{
         cursor: onOpenSession ? "pointer" : undefined,
         // The codebase's "selected" grammar: a left rule in --selection-rule, never colour on the text.
-        boxShadow: selected ? "inset 4px 0 0 var(--selection-rule)" : undefined,
+        boxShadow: selected ? "inset 4px 0 0 var(--primary)" : undefined,
         display: "grid",
         gridTemplateColumns: ROW_COLUMNS,
         alignItems: "center",
         gap: "var(--space-md)",
         minHeight: 32,
         padding: "var(--space-xs) var(--space-md)",
-        borderBottom: "1px solid var(--divider)",
+        borderBottom: "1px solid var(--border)",
       }}
     >
       <span data-field="state" style={{ display: "inline-flex" }}>
-        <StateBadge state={state} variant={rowVariant(state)} pulse={pulsing} />
+        <StateBadge state={state} pulse={pulsing} />
       </span>
       <span data-field="project" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {row.projectName}
@@ -337,7 +337,7 @@ export function FleetRowView({
           subject.key && <span className="type-label tabular-nums">{subject.key}</span>
         )}
         {subject.key && subject.detail ? " " : ""}
-        {subject.detail && <span style={{ color: "var(--text-muted-rack)" }}>{subject.detail}</span>}
+        {subject.detail && <span style={{ color: "var(--muted-foreground)" }}>{subject.detail}</span>}
       </span>
       <DoingTaskCell row={row} />
       <ActivityCell row={row} />
@@ -346,13 +346,13 @@ export function FleetRowView({
         className="type-label tabular-nums"
         data-field="age"
         aria-label={`In this state for ${age}`}
-        style={{ color: "var(--text-muted-rack)", textAlign: "right" }}
+        style={{ color: "var(--muted-foreground)", textAlign: "right" }}
       >
         {age}
       </span>
       <span data-field="dismiss" style={{ textAlign: "right" }}>
         {dismissFailed && (
-          <span role="status" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          <span role="status" className="type-label" style={{ color: "var(--muted-foreground)" }}>
             Could not dismiss.{" "}
           </span>
         )}
@@ -401,8 +401,8 @@ export function FleetBand({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          color: "var(--text-muted-rack)",
-          borderBottom: "1px solid var(--divider)",
+          color: "var(--muted-foreground)",
+          borderBottom: "1px solid var(--border)",
         }}
       >
         <h2 className="type-label" style={{ margin: 0 }}>
@@ -516,7 +516,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
     `${total} ${total === 1 ? "agent" : "agents"}` + (needYou > 0 ? ` · ${needYou} need you` : "");
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--text-primary-rack)" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--foreground)" }}>
       <header className="admin-header">
         <button type="button" onClick={onClose} className="type-label admin-back">
           ← Back
@@ -543,7 +543,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
         <span
           className="type-label tabular-nums"
           aria-live="polite"
-          style={{ marginLeft: "auto", color: "var(--text-muted-rack)" }}
+          style={{ marginLeft: "auto", color: "var(--muted-foreground)" }}
         >
           {view === "queue" ? `${queue.length} waiting` : countText}
         </span>
@@ -551,20 +551,20 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {view === "queue" ? (
           blocked.isError ? (
-            <p role="alert" className="type-body" style={{ padding: "var(--space-lg)", color: "var(--destructive-text-rack)" }}>
+            <p role="alert" className="type-body" style={{ padding: "var(--space-lg)", color: "var(--destructive-text)" }}>
               Could not load what is waiting on you. It will retry on the next change.
             </p>
           ) : (
             blocked.isSuccess && <BlockedQueue entries={queue} now={now} />
           )
         ) : fleet.isError ? (
-          <p role="alert" className="type-body" style={{ padding: "var(--space-lg)", color: "var(--destructive-text-rack)" }}>
+          <p role="alert" className="type-body" style={{ padding: "var(--space-lg)", color: "var(--destructive-text)" }}>
             Could not load the fleet. It will retry on the next change.
           </p>
         ) : fleet.isSuccess && rows.length === 0 ? (
           <div style={{ padding: "var(--space-lg)", display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
             <span className="type-heading">No agents running</span>
-            <span className="type-body" style={{ color: "var(--text-muted-rack)" }}>
+            <span className="type-body" style={{ color: "var(--muted-foreground)" }}>
               When an agent starts in any project, it appears here.
             </span>
           </div>

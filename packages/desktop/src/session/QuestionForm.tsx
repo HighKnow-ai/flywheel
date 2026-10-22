@@ -121,7 +121,7 @@ export function QuestionForm({ questions, onSubmit, draftKey }: QuestionFormProp
           <fieldset key={i} className="question-fieldset" disabled={sending}>
             <legend className="question-legend">
               {q.header && (
-                <span className="type-label" style={{ color: "var(--text-muted-rack)", display: "block" }}>
+                <span className="type-label" style={{ color: "var(--muted-foreground)", display: "block" }}>
                   {q.header}
                   {multi ? " · pick any" : ""}
                 </span>
@@ -139,7 +139,7 @@ export function QuestionForm({ questions, onSubmit, draftKey }: QuestionFormProp
                 <span>
                   <span style={{ fontWeight: 600 }}>{option.label}</span>
                   {option.description && (
-                    <span style={{ color: "var(--text-muted-rack)" }}>{` — ${option.description}`}</span>
+                    <span style={{ color: "var(--muted-foreground)" }}>{` — ${option.description}`}</span>
                   )}
                 </span>
               </label>
@@ -173,13 +173,13 @@ export function QuestionForm({ questions, onSubmit, draftKey }: QuestionFormProp
           {sending ? "Sending…" : "Send answer"}
         </button>
         {!complete && !sending && (
-          <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+          <span className="type-label" style={{ color: "var(--muted-foreground)" }}>
             {questions.length > 1 ? "Answer every question to send." : "Pick an answer or type your own."}
           </span>
         )}
       </div>
       {error && (
-        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)", overflowWrap: "anywhere" }}>
+        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text)", overflowWrap: "anywhere" }}>
           {error}
         </p>
       )}

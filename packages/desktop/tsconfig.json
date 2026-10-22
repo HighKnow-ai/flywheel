@@ -18,7 +18,10 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* shadcn/ui imports (ADR 0004) */
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src"],
   /* The real-browser arm is a separate program — see tsconfig.browser-tests.json for why. */

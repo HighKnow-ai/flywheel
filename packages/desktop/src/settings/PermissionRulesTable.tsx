@@ -41,7 +41,7 @@ function rulesQueryKey(projectIds: string[]) {
  * about their own security posture (E7 loading). Same minimal pattern
  * `settings/SettingsSurface.tsx`'s own `SectionSkeleton` uses. */
 function RowsSkeleton() {
-  const barStyle = { height: 12, borderRadius: "var(--radius-chrome)", background: "var(--divider)" };
+  const barStyle = { height: 12, borderRadius: "var(--radius-control)", background: "var(--border)" };
   return (
     <div
       aria-hidden="true"
@@ -116,7 +116,7 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
       {loading ? (
         <RowsSkeleton />
       ) : rules.length === 0 ? (
-        <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+        <p className="type-body" style={{ margin: 0, color: "var(--muted-foreground)" }}>
           {EMPTY_STATE_COPY}
         </p>
       ) : (
@@ -148,10 +148,10 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
               >
                 {rule.tool}
               </span>
-              <span role="cell" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+              <span role="cell" className="type-label" style={{ color: "var(--muted-foreground)" }}>
                 {rule.pattern === "*" ? "every input" : rule.pattern}
               </span>
-              <span role="cell" className="type-label tabular-nums" style={{ color: "var(--text-muted-rack)" }}>
+              <span role="cell" className="type-label tabular-nums" style={{ color: "var(--muted-foreground)" }}>
                 {formatDate(rule.createdAt)}
               </span>
               <button
@@ -168,7 +168,7 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
           ))}
           {revokeMutation.isError && (
             // The row is kept (it is still granted authority) and the failure is named in place.
-            <p role="alert" className="type-label" style={{ margin: "var(--space-sm) 0 0", color: "var(--destructive-text-rack)" }}>
+            <p role="alert" className="type-label" style={{ margin: "var(--space-sm) 0 0", color: "var(--destructive-text)" }}>
               Couldn&rsquo;t revoke this rule — {(revokeMutation.error as Error).message}
             </p>
           )}

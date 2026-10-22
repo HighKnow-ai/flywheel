@@ -8,6 +8,7 @@
  * Each Task carries a note (issue #96): what the agent has learned on it, so a stopped session
  * leaves that behind. The note is collapsed by default and the developer can edit it like the title.
  */
+import { StateBadge } from "../components/StateBadge";
 import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { taskAdd, taskList, taskMove, taskRename, taskSetNote, taskSetState, type TaskDto } from "../adapters/tauri";
@@ -37,7 +38,7 @@ export function DoingTask({ tasks, storyKey }: { tasks: TaskDto[]; storyKey: str
   const doing = tasks.find((t) => t.state === "doing");
   if (!doing) return null;
   return (
-    <span aria-label={`${storyKey} is doing`} className="type-body" style={{ color: "var(--text-muted-rack)" }}>
+    <span aria-label={`${storyKey} is doing`} className="type-body" style={{ color: "var(--muted-foreground)" }}>
       Doing: {doing.title}
     </span>
   );
@@ -54,7 +55,7 @@ export function TaskChecklist({ storyKey, storyId, tasks }: { storyKey: string; 
   return (
     <div style={{ flexBasis: "100%", display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
       {tasks.length === 0 && (
-        <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+        <p className="type-body" style={{ margin: 0, color: "var(--muted-foreground)" }}>
           No Tasks yet. The Story&apos;s agent writes its plan here once it has read the code and docs the Story touches.
         </p>
       )}
@@ -76,7 +77,7 @@ export function TaskChecklist({ storyKey, storyId, tasks }: { storyKey: string; 
       </ol>
       <AddTask storyKey={storyKey} onAdd={(title) => run(taskAdd(storyId, title))} />
       {error && (
-        <p role="alert" className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+        <p role="alert" className="type-body" style={{ margin: 0, color: "var(--destructive-text)" }}>
           {error}
         </p>
       )}
@@ -132,8 +133,8 @@ function TaskRow({
   return (
     <li style={{ padding: "var(--space-xs) 0" }}>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-sm)" }}>
-        <span className="type-label" style={{ minWidth: "4.5em" }}>
-          {TASK_STATE_WORDS[task.state] ?? task.state}
+        <span style={{ minWidth: "5.5em", display: "inline-flex" }}>
+          <StateBadge state={task.state} variant="inline" label={TASK_STATE_WORDS[task.state]} />
         </span>
         {editing ? (
           <form onSubmit={saveTitle} style={{ display: "flex", gap: "var(--space-xs)", flex: 1, minWidth: "12em" }}>
@@ -220,7 +221,7 @@ function TaskRow({
         )}
       </div>
       {dropped && task.droppedReason && (
-        <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+        <p className="type-body" style={{ margin: 0, color: "var(--muted-foreground)" }}>
           Dropped: {task.droppedReason}
         </p>
       )}
@@ -261,7 +262,7 @@ function TaskRow({
                   flex: 1,
                   minWidth: "12em",
                   whiteSpace: "pre-wrap",
-                  color: task.note ? undefined : "var(--text-muted-rack)",
+                  color: task.note ? undefined : "var(--muted-foreground)",
                 }}
               >
                 {task.note ?? "No note yet. The agent writes here what it learns on this Task."}

@@ -134,7 +134,7 @@ export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
             <header
               style={{
                 padding: "var(--space-md)",
-                borderBottom: "1px solid var(--divider)",
+                borderBottom: "1px solid var(--border)",
                 flexShrink: 0,
               }}
             >
@@ -144,14 +144,14 @@ export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
             <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "var(--space-md)" }}>
               {story && (
                 <section>
-                  <div className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+                  <div className="type-label" style={{ color: "var(--muted-foreground)" }}>
                     Story
                   </div>
                   <div className="type-body">{story.title}</div>
                 </section>
               )}
               {error && (
-                <p className="type-body" style={{ color: "var(--destructive-text-rack)" }}>
+                <p className="type-body" style={{ color: "var(--destructive-text)" }}>
                   {error}
                 </p>
               )}
@@ -160,7 +160,7 @@ export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
             <div
               style={{
                 flexShrink: 0,
-                borderTop: "1px solid var(--divider)",
+                borderTop: "1px solid var(--border)",
                 padding: "var(--space-md)",
                 display: "flex",
                 flexDirection: "column",

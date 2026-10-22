@@ -1,19 +1,10 @@
 /*
- * Surface group six (08.1 plan 19): the states the product shows when there is nothing yet or something is
- * wrong (the first-run state, the unreachable project), and the three places it asks before doing something
- * it cannot undo (delete and orphan recovery; the done-with-unchecked-criteria prompt was put on its popover tier by plan 18 and stays inline). Group-scoped rules live here,
- * beside the group, the way `review/review.css`, `session/session.css` and `styles/admin-surfaces.css` do for
- * theirs; nothing for this group is added to `App.css`.
+ * The first-run state, the unreachable project, and the orphan-recovery confirmation.
  *
- * No comp was rendered for this group. It is finished against 08.1-UI-SPEC.md directly: the token roles, the
- * radius language, the type scale, the overlay rule and the motion contract. No literal colour, scrim or
- * shadow appears below or in the group's components: `styles/tokens.css` is the one source.
- *
- * The brand carries progress and is never an action (owner decision 2026-10-08), and a destructive FILL fails
- * AA (2.95:1 light, 2.86:1 dark). So an action here is DRAWN: the 3:1 control edge (`control-edge`, App.css) on
- * its own surface, never filled. A destructive action is the destructive TEXT role (asserted 4.5:1 on every
- * surface in both modes) on that edge, paired with an icon so it is told from an ordinary action by more than
- * hue. Nothing here animates: a state and a confirmation are present on their first frame.
+ * Carried over from the retired M2 visual world and kept only because screens still name these
+ * classes. Colours are the Andon tokens (styles/globals.css, docs/design/direction.md); the look is
+ * restyled screen by screen on components/ui/ in #107, which deletes each rule as its screen moves.
+ * New work does not add rules here.
  */
 
 /* --- A full-window state -------------------------------------------------------------------------- */
@@ -25,8 +16,8 @@
  */
 .state-surface {
   align-items: center;
-  background: var(--surface-dominant);
-  color: var(--text-primary-rack);
+  background: var(--card);
+  color: var(--foreground);
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
@@ -43,7 +34,7 @@
 
 /* The first-run mark, in ink: the glyph is a mask and the colour is the text role, so it follows both schemes. */
 .first-run-mark {
-  background-color: var(--text-primary-rack);
+  background-color: var(--foreground);
   display: block;
   flex-shrink: 0;
   height: 64px;
@@ -57,7 +48,7 @@
 }
 
 .state-heading {
-  font-family: var(--font-family);
+  font-family: var(--font-ui);
   font-size: 20px;
   font-weight: 600;
   line-height: 1.2;
@@ -70,15 +61,15 @@
 
 /* The folder just picked: a path is read letter by letter, so it is mono, muted, and breaks anywhere. */
 .state-path {
-  color: var(--text-muted-rack);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--muted-foreground);
+  font-family: var(--font-code);
   max-width: 60ch;
   overflow-wrap: anywhere;
 }
 
 /* A failure the user caused or can retry. It names what failed in words; the colour is the data channel only. */
 .state-error {
-  color: var(--destructive-text-rack);
+  color: var(--destructive-text);
   margin: 0;
 }
 
@@ -88,7 +79,7 @@
 .state-action {
   align-items: center;
   background: transparent;
-  color: var(--text-primary-rack);
+  color: var(--foreground);
   cursor: pointer;
   display: inline-flex;
   gap: var(--space-sm);
@@ -106,7 +97,7 @@
  */
 .state-action:hover:not(:disabled) {
   background: transparent;
-  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+  box-shadow: inset 0 0 0 1000px var(--accent);
 }
 
 /*
@@ -114,7 +105,7 @@
  * gives the extra pixel back, so a lead and its neighbours are the same size. Ink, not brand.
  */
 .state-action.state-action-lead {
-  border: 2px solid var(--selection-rule);
+  border: 2px solid var(--primary);
   font-weight: 600;
   padding: calc(var(--space-sm) - 1px) calc(var(--space-lg) - 1px);
 }
@@ -139,7 +130,7 @@
 }
 
 .state-field-group > label {
-  color: var(--text-muted-rack);
+  color: var(--muted-foreground);
 }
 
 /*
@@ -149,13 +140,13 @@
  */
 .state-field {
   background: transparent;
-  color: var(--text-primary-rack);
+  color: var(--foreground);
   padding: var(--space-sm);
   text-align: left;
 }
 
 .state-field:focus-visible {
-  outline: 2px solid var(--selection-rule);
+  outline: 2px solid var(--primary);
   outline-offset: 1px;
 }
 
@@ -178,11 +169,11 @@
 }
 
 .confirm-dialog {
-  background: var(--surface-secondary);
-  border: 1px solid var(--border-dialog);
-  border-radius: var(--radius-chrome);
-  box-shadow: var(--shadow-dialog);
-  color: var(--text-primary-rack);
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-overlay);
+  color: var(--foreground);
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
@@ -219,7 +210,7 @@
 .confirm-action {
   align-items: center;
   background: transparent;
-  color: var(--text-primary-rack);
+  color: var(--foreground);
   cursor: pointer;
   display: inline-flex;
   gap: var(--space-xs);
@@ -232,7 +223,7 @@
 
 .confirm-action:hover:not(:disabled) {
   background: transparent;
-  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+  box-shadow: inset 0 0 0 1000px var(--accent);
 }
 
 /*
@@ -242,42 +233,13 @@
  * section's one lead: a 2px edge over the 1px control edge, the pixel given back by padding.
  */
 .confirm-action.confirm-action-destructive {
-  border: 2px solid var(--destructive-text-rack);
-  color: var(--destructive-text-rack);
+  border: 2px solid var(--destructive-text);
+  color: var(--destructive-text);
   font-weight: 600;
   padding: calc(var(--space-xs) - 1px) calc(var(--space-md) - 1px);
 }
 
 /* App.css sends a hovered control's edge to ink; a destructive action keeps its own at the moment of click. */
 .confirm-action.confirm-action-destructive:hover:not(:disabled) {
-  border-color: var(--destructive-text-rack);
-}
-
-/* --- Closing a Cycle: one decision per unfinished epic ------------------------------------------ */
-
-/* A list of independent decisions, never a table with a header control: nothing here sets a whole column. */
-.cycle-close-rows {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  list-style: none;
-  margin: 0;
-  max-height: 50vh;
-  overflow-y: auto;
-  padding: 0;
-}
-
-.cycle-close-row {
-  border: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  margin: 0;
-  padding: 0;
-}
-
-.cycle-close-choices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs) var(--space-md);
+  border-color: var(--destructive-text);
 }

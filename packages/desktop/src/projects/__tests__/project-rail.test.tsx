@@ -392,9 +392,9 @@ describe("ProjectRail's running sessions per project (#58)", () => {
       "Open THF-2 Second session",
     ]);
     expect(screen.queryByText("FLY-3")).not.toBeInTheDocument();
-    // The session waiting on you is flagged with the word, never "Blocked"; the busy one is not.
-    expect(within(threadfin).getByText("Waiting on you")).toBeInTheDocument();
-    expect(within(flywheel).queryByText("Waiting on you")).toBeNull();
+    // The session waiting on you is flagged by the hand named Waiting on you, never "Blocked"; the busy one is not.
+    expect(within(threadfin).getByRole("img", { name: "Waiting on you" })).toBeInTheDocument();
+    expect(within(flywheel).queryByRole("img", { name: "Waiting on you" })).toBeNull();
   });
 
   it("flags a session from the derived fleet state, not its stored status", async () => {

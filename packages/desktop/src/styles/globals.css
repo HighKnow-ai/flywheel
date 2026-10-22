@@ -1,0 +1,366 @@
+/*
+ * Flywheel's one stylesheet of record: the Andon world (docs/design/direction.md, ADR 0004).
+ *
+ * Every colour is a token here, under the variable name shadcn/ui uses, so its generated components in
+ * components/ui/ theme without edits. Flywheel adds its own roles beside them: `attention` (Waiting on you),
+ * `running` (an agent at work, or your next action), `strip` and `lamp` (the andon strip's hardware),
+ * `subtle-foreground` (meta) and `destructive-text`. `:root` holds light, `.dark` holds dark (set on <html>
+ * by theme/colorScheme.ts from `prefers-color-scheme`), and `@theme inline` maps each to a Tailwind colour
+ * (`--color-attention: var(--attention)`, so `bg-attention` works).
+ *
+ * One meaning per colour. Yellow is Waiting on you and nothing else; brand blue is an agent at work or your
+ * next action; red is Stopped or failed; graphite is the strip. Every other state is a neutral grey told apart
+ * by its icon and word (components/StateBadge.tsx). theme/tokens.ts mirrors these values and
+ * theme/__tests__/contrast.test.ts owns every ratio: it parses this file block by block.
+ */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* Self-hosted type (SIL OFL 1.1, through @fontsource): a render on one machine matches another. */
+@import "@fontsource/barlow/latin-400.css";
+@import "@fontsource/barlow/latin-400-italic.css";
+@import "@fontsource/barlow/latin-500.css";
+@import "@fontsource/barlow/latin-600.css";
+@import "@fontsource/barlow/latin-700.css";
+@import "@fontsource/barlow-semi-condensed/latin-600.css";
+@import "@fontsource/jetbrains-mono/latin-400.css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  color-scheme: light;
+
+  --font-ui: "Barlow", system-ui, sans-serif;
+  --font-ui-condensed: "Barlow Semi Condensed", "Barlow", sans-serif;
+  --font-code: "JetBrains Mono", ui-monospace, monospace;
+
+  --background: #e6e8ec;
+  --foreground: #111318;
+  --card: #ffffff;
+  --card-foreground: #111318;
+  --popover: #ffffff;
+  --popover-foreground: #111318;
+  --primary: #3c64dd;
+  --primary-foreground: #ffffff;
+  --running: #2a50c6;
+  --running-muted: #e8edfc;
+  --attention: #ffd400;
+  --attention-foreground: #14120a;
+  --attention-muted: #fff7cc;
+  --destructive: #d42c1f;
+  --destructive-foreground: #ffffff;
+  --destructive-text: #b42318;
+  --secondary: #f4f5f7;
+  --secondary-foreground: #111318;
+  --muted: #f4f5f7;
+  --muted-foreground: #525866;
+  --subtle-foreground: #676d79;
+  --accent: #eef0f3;
+  --accent-foreground: #111318;
+  --border: #d9dce1;
+  --input: #858b96;
+  --ring: #3c64dd;
+  --sidebar: #f8f9fa;
+  --sidebar-foreground: #111318;
+  --sidebar-primary: #ffffff;
+  --sidebar-primary-foreground: #111318;
+  --sidebar-accent: #e9ebef;
+  --sidebar-accent-foreground: #111318;
+  --sidebar-border: #d9dce1;
+  --sidebar-ring: #3c64dd;
+  --strip: #17191e;
+  --strip-foreground: #f2f3f5;
+  --strip-muted-foreground: #a4a9b3;
+  --lamp: #25282f;
+  --chart-1: #111318;
+  --chart-2: #7d838f;
+  --chart-3: #3c64dd;
+  --chart-4: #c3c7ce;
+
+  /* Depth (direction rule 5): cards draw --border plus this; popovers and dialogs the overlay shadow. */
+  --shadow-card: 0 1px 2px rgb(15 20 30 / 0.08);
+  --shadow-overlay: 0 8px 24px rgb(15 20 30 / 0.16);
+  --scrim: rgb(15 20 30 / 0.4);
+
+  --radius: 0.625rem;
+  --radius-control: calc(var(--radius) * 0.8);
+  --radius-chip: calc(var(--radius) * 0.6);
+
+  /* Spacing on a 4px base (direction rule 6), for the inline styles screens still carry until #107. */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* Motion (direction rule 7): one curve, 160ms for a state change, 240ms for a lamp lighting. */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-state: 160ms;
+  --duration-lamp: 240ms;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --background: #0b0c0e;
+  --foreground: #eceef1;
+  --card: #1a1c20;
+  --card-foreground: #eceef1;
+  --popover: #1a1c20;
+  --popover-foreground: #eceef1;
+  --primary: #3c64dd;
+  --primary-foreground: #ffffff;
+  --running: #8ea8ff;
+  --running-muted: #19213a;
+  --attention: #ffd400;
+  --attention-foreground: #14120a;
+  --attention-muted: #352d00;
+  --destructive: #d42c1f;
+  --destructive-foreground: #ffffff;
+  --destructive-text: #ff8a7f;
+  --secondary: #23262b;
+  --secondary-foreground: #eceef1;
+  --muted: #23262b;
+  --muted-foreground: #a0a6b1;
+  --subtle-foreground: #80868f;
+  --accent: #23262b;
+  --accent-foreground: #eceef1;
+  --border: #2c2f36;
+  --input: #6e7480;
+  --ring: #8ea8ff;
+  --sidebar: #121316;
+  --sidebar-foreground: #eceef1;
+  --sidebar-primary: #1a1c20;
+  --sidebar-primary-foreground: #eceef1;
+  --sidebar-accent: #1e2025;
+  --sidebar-accent-foreground: #eceef1;
+  --sidebar-border: #2c2f36;
+  --sidebar-ring: #8ea8ff;
+  --strip: #000000;
+  --strip-foreground: #f2f3f5;
+  --strip-muted-foreground: #9aa0aa;
+  --lamp: #1a1c20;
+  --chart-1: #eceef1;
+  --chart-2: #7d838f;
+  --chart-3: #3c64dd;
+  --chart-4: #4a4f58;
+
+  /* A shadow cannot be seen on a near-black floor, so in dark the 1px --border edge carries every region. */
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.5);
+  --shadow-overlay: 0 8px 24px rgb(0 0 0 / 0.6);
+  --scrim: rgb(0 0 0 / 0.5);
+}
+
+@theme inline {
+  --font-sans: var(--font-ui);
+  --font-heading: var(--font-ui);
+  --font-condensed: var(--font-ui-condensed);
+  --font-mono: var(--font-code);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-running: var(--running);
+  --color-running-muted: var(--running-muted);
+  --color-attention: var(--attention);
+  --color-attention-foreground: var(--attention-foreground);
+  --color-attention-muted: var(--attention-muted);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-text: var(--destructive-text);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-strip: var(--strip);
+  --color-strip-foreground: var(--strip-foreground);
+  --color-strip-muted-foreground: var(--strip-muted-foreground);
+  --color-lamp: var(--lamp);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-overlay: var(--shadow-overlay);
+
+  /* Cards 10px, buttons and inputs 8px, pills fully round. */
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+
+  /* The type scale (direction § Type): 12 · 13 · 14 · 15 · 17 · 24 · 26 · 34 · 52. */
+  --text-meta: 12px;
+  --text-meta--line-height: 1.35;
+  --text-small: 13px;
+  --text-small--line-height: 1.4;
+  --text-body: 14px;
+  --text-body--line-height: 1.45;
+  --text-row: 15px;
+  --text-row--line-height: 1.35;
+  --text-section: 17px;
+  --text-section--line-height: 1.3;
+  --text-title: 24px;
+  --text-title--line-height: 1.2;
+  --text-milestone: 26px;
+  --text-milestone--line-height: 1.15;
+  --text-count: 34px;
+  --text-count--line-height: 1;
+  --text-lead: 52px;
+  --text-lead--line-height: 1;
+
+  --ease-flywheel: var(--ease);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    @apply bg-background font-sans text-body text-foreground antialiased;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* Browser surfaces (direction rule 8): selection, caret, focus ring and scrollbars carry the palette. */
+  ::selection {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  input,
+  textarea,
+  [contenteditable] {
+    caret-color: var(--running);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-code);
+  }
+}
+
+/*
+ * Type roles the screens still name as classes until #107 moves them to utilities. Body is Barlow at 14,
+ * labels 12, headings 17; numerals are tabular wherever they count.
+ */
+@layer components {
+  .type-label {
+    font-size: 12px;
+    line-height: 1.35;
+    font-weight: 500;
+  }
+
+  .type-body {
+    font-size: 14px;
+    line-height: 1.45;
+    font-weight: 400;
+  }
+
+  .type-heading {
+    font-size: 17px;
+    line-height: 1.3;
+    font-weight: 600;
+  }
+
+  /* Barlow Semi Condensed, uppercase and tracked: count labels, strip labels, sidebar group names only. */
+  .type-condensed {
+    font-family: var(--font-ui-condensed);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+}
+
+/* A process alive right now: the one continuous motion. Components omit the class under reduced motion. */
+@keyframes agent-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.agent-pulse {
+  animation: agent-pulse 1.6s var(--ease) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-state: 0s;
+    --duration-lamp: 0s;
+  }
+
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+  }
+}

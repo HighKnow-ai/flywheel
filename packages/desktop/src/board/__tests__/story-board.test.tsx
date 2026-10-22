@@ -173,7 +173,7 @@ describe("StoryBoard: the Story list", () => {
     expect(within(list).queryByText("Ready")).toBeNull();
   });
 
-  it("shows Waiting on you, tinted, in place of the state word of a Story whose session waits on you (#57)", async () => {
+  it("shows Waiting on you, in yellow, in place of the state word of a Story whose session waits on you (#57)", async () => {
     storyListForProject.mockResolvedValue([
       story("s1", "FLY-2", "Waiting one", "running"),
       story("s2", "FLY-3", "Busy one", "running"),
@@ -185,7 +185,7 @@ describe("StoryBoard: the Story list", () => {
     await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(2));
     const [waiting, busy] = within(list).getAllByRole("listitem");
     const flag = await within(waiting).findByText("Waiting on you");
-    expect(flag.closest("[data-state-class]")).toHaveAttribute("data-state-class", "needs-you");
+    expect(flag.closest("[data-tone]")).toHaveAttribute("data-tone", "attention");
     expect(within(waiting).queryByText("Running")).toBeNull();
     expect(within(busy).getByText("Running")).toBeInTheDocument();
     expect(blockedSummary).toHaveBeenCalledWith("p1");

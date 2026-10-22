@@ -21,9 +21,9 @@
  *
  * The inventory lists Story worktrees only: every `worktrees` row is owned by exactly one Story.
  */
-import { useRef, useState, type ComponentType } from "react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import * as icons from "lucide-react";
+import { Icon } from "../components/Icon";
 import { FocusScope } from "@radix-ui/react-focus-scope";
 import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { useQueryClient } from "@tanstack/react-query";
@@ -39,14 +39,6 @@ import { formatAge } from "../legend/runStatus";
 import { useWorktreeInventory, worktreeInventoryQueryKey } from "./useFleet";
 import "../styles/admin-surfaces.css";
 import "../styles/states-and-confirms.css";
-
-type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
-
-function Icon({ name, size = 14 }: { name: string; size?: number }) {
-  const Component = (icons as unknown as Record<string, IconComponent>)[name];
-  if (!Component) return null;
-  return <Component size={size} strokeWidth={2} />;
-}
 
 /** Every reason the core's `ReclaimReason` can return, so a test can prove each one has a word. */
 export const RECLAIM_REASONS: readonly InventoryReason[] = [
@@ -208,13 +200,13 @@ function ReclaimBar({
     <div
       data-reclaim-bar
       className="type-body"
-      style={{ display: "flex", gap: "var(--space-md)", alignItems: "center", padding: "var(--space-xs) var(--space-md)", borderBottom: "1px solid var(--divider)" }}
+      style={{ display: "flex", gap: "var(--space-md)", alignItems: "center", padding: "var(--space-xs) var(--space-md)", borderBottom: "1px solid var(--border)" }}
     >
       <span data-field="selection" className="tabular-nums">
         {`Reclaim ${worktreesWord(rows.length)} · ${totalWords(selectionTotal(rows), rows.length)}`}
       </span>
       {over && (
-        <span role="status" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        <span role="status" className="type-label" style={{ color: "var(--muted-foreground)" }}>
           {`At most ${RECLAIM_BATCH_CAP} at a time.`}
         </span>
       )}
@@ -228,8 +220,8 @@ function ReclaimBar({
 function ReclaimResultList({ lines }: { lines: ResultLine[] }) {
   const removed = lines.filter((l) => l.outcome.removed).length;
   return (
-    <section data-reclaim-result style={{ padding: "var(--space-xs) var(--space-md)", borderBottom: "1px solid var(--divider)" }}>
-      <h3 className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+    <section data-reclaim-result style={{ padding: "var(--space-xs) var(--space-md)", borderBottom: "1px solid var(--border)" }}>
+      <h3 className="type-label" style={{ color: "var(--muted-foreground)" }}>
         {`Result · ${removed} of ${lines.length} removed`}
       </h3>
       <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
@@ -260,7 +252,7 @@ function Chip({ row }: { row: WorktreeInventoryRowDto }) {
         <Icon name={mark.glyph} />
         {mark.label}
       </span>
-      <span data-field="reason" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+      <span data-field="reason" className="type-label" style={{ color: "var(--muted-foreground)" }}>
         {RECLAIM_REASON_WORDS[row.reason]}
       </span>
     </span>
@@ -287,7 +279,7 @@ function Row({
         gap: "var(--space-md)",
         alignItems: "center",
         padding: "var(--space-xs) var(--space-md)",
-        borderBottom: "1px solid var(--divider)",
+        borderBottom: "1px solid var(--border)",
       }}
     >
       {/* Only a reclaimable row can be selected. An in-use or keep row renders no checkbox at all: an
@@ -311,7 +303,7 @@ function Row({
       <span data-field="size" className="type-body tabular-nums">
         {row.sizeBytes == null ? "" : formatBytes(row.sizeBytes)}
         {row.sizeBytes != null && row.sizeMeasuredAt != null && (
-          <span data-field="measured" className="type-label" style={{ marginLeft: "var(--space-xs)", color: "var(--text-muted-rack)" }}>
+          <span data-field="measured" className="type-label" style={{ marginLeft: "var(--space-xs)", color: "var(--muted-foreground)" }}>
             {formatMeasuredAge(row.sizeMeasuredAt, now)}
           </span>
         )}
@@ -387,7 +379,7 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--text-primary-rack)" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--foreground)" }}>
       <header className="admin-header">
         <button type="button" onClick={onClose} className="type-label admin-back">
           ← Back
@@ -399,13 +391,13 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
         <span
           className="type-label tabular-nums"
           aria-live="polite"
-          style={{ marginLeft: "auto", color: "var(--text-muted-rack)" }}
+          style={{ marginLeft: "auto", color: "var(--muted-foreground)" }}
         >
           {`${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"}`}
         </span>
       </header>
       {notice !== null && (
-        <p role="status" className="type-label" style={{ padding: "var(--space-xs) var(--space-md)", color: "var(--text-muted-rack)" }}>
+        <p role="status" className="type-label" style={{ padding: "var(--space-xs) var(--space-md)", color: "var(--muted-foreground)" }}>
           {notice}
         </p>
       )}
@@ -423,13 +415,13 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
       )}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {inventory.isError ? (
-          <p role="alert" className="type-body" style={{ padding: "var(--space-lg)", color: "var(--destructive-text-rack)" }}>
+          <p role="alert" className="type-body" style={{ padding: "var(--space-lg)", color: "var(--destructive-text)" }}>
             Could not load the worktrees. It will retry on the next change.
           </p>
         ) : inventory.isSuccess && rows.length === 0 ? (
           <div style={{ padding: "var(--space-lg)", display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
             <span className="type-heading">No worktrees</span>
-            <span className="type-body" style={{ color: "var(--text-muted-rack)" }}>
+            <span className="type-body" style={{ color: "var(--muted-foreground)" }}>
               A Story gets a worktree when work starts on it, and it appears here.
             </span>
           </div>

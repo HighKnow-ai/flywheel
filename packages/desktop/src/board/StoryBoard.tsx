@@ -37,7 +37,7 @@ import {
 } from "../adapters/tauri";
 import { useBoardChangedSubscription } from "./useBoardQuery";
 import { DoingTask, TaskChecklist, useStoryTasks } from "./TaskChecklist";
-import { StateBadge } from "../legend/StateBadge";
+import { StateBadge } from "../components/StateBadge";
 import { useUiStore } from "../state/uiStore";
 import "../session/session.css";
 
@@ -66,7 +66,7 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
     <div className="board-shell" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <header
         className="board-header type-heading"
-        style={{ padding: "var(--space-md)", color: "var(--text-primary-rack)" }}
+        style={{ padding: "var(--space-md)", color: "var(--foreground)" }}
       >
         {projectName}
       </header>
@@ -79,7 +79,7 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
           display: "flex",
           flexDirection: "column",
           gap: "var(--space-lg)",
-          color: "var(--text-primary-rack)",
+          color: "var(--foreground)",
         }}
       >
         <StoryList projectId={projectId} />
@@ -104,16 +104,16 @@ function StoryList({ projectId }: { projectId: string }) {
   const waitingIds = new Set(waitingQuery.data?.blockedStoryIds ?? []);
   return (
     <section aria-labelledby="story-list-heading">
-      <h2 id="story-list-heading" className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+      <h2 id="story-list-heading" className="type-label" style={{ color: "var(--muted-foreground)" }}>
         Stories
       </h2>
       {storiesQuery.isError && (
-        <p className="type-body" style={{ color: "var(--destructive-text-rack)" }}>
+        <p className="type-body" style={{ color: "var(--destructive-text)" }}>
           {errorText(storiesQuery.error)}
         </p>
       )}
       {storiesQuery.isSuccess && stories.length === 0 && (
-        <p className="type-body" style={{ color: "var(--text-muted-rack)" }}>
+        <p className="type-body" style={{ color: "var(--muted-foreground)" }}>
           No Stories yet. Write one below.
         </p>
       )}
@@ -214,17 +214,11 @@ export function StoryStateWord({
   stopped: StoppedDto | null;
   waitingOnYou: boolean;
 }) {
-  if (stopped) {
-    // A Stopped Story has no live session, so it is never Waiting on you (the core agrees).
-    return (
-      <span className="type-label" style={{ color: "var(--state-needs-you-text)" }}>
-        {`Stopped: ${endingWords(stopped.endingReason)}`}
-      </span>
-    );
-  }
-  // The attention flag replaces the state word, tinted, and outranks every other status.
-  if (waitingOnYou) return <StateBadge state="blocked" variant="wash" />;
-  return <span className="type-label">{STORY_STATE_WORDS[story.state] ?? story.state}</span>;
+  // A Stopped Story has no live session, so it is never Waiting on you (the core agrees).
+  if (stopped) return <StateBadge state="stopped" label={`Stopped: ${endingWords(stopped.endingReason)}`} />;
+  // The attention flag replaces the state word and outranks every other status.
+  if (waitingOnYou) return <StateBadge state="waiting_on_you" />;
+  return <StateBadge state={story.state} label={STORY_STATE_WORDS[story.state]} />;
 }
 
 /** The control that opens a Story: its key and title, looking exactly as the text they were. */
@@ -275,7 +269,7 @@ function StoryRow({
         alignItems: "center",
         gap: "var(--space-sm)",
         padding: "var(--space-xs) 0",
-        borderBottom: "1px solid var(--divider)",
+        borderBottom: "1px solid var(--border)",
       }}
     >
       <button
@@ -284,7 +278,7 @@ function StoryRow({
         onClick={() => openStory(projectId, story.id)}
         style={storyOpenStyle}
       >
-        <span className="type-label" style={{ color: "var(--text-muted-rack)", minWidth: "5em" }}>
+        <span className="type-label" style={{ color: "var(--muted-foreground)", minWidth: "5em" }}>
           {story.key}
         </span>
         <span className="type-body" style={{ flex: 1, minWidth: 0 }}>
@@ -319,7 +313,7 @@ function StoryRow({
       {story.state !== "merged" && story.state !== "dropped" && <DropControl story={story} />}
       {story.state === "ready" && <StartControl story={story} onError={setError} />}
       {error && (
-        <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text-rack)" }}>
+        <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text)" }}>
           {error}
         </p>
       )}
@@ -417,7 +411,7 @@ export function ResumeControl({ story }: { story: StoryDto }) {
         Cancel
       </button>
       {error && (
-        <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text-rack)" }}>
+        <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text)" }}>
           {error}
         </p>
       )}
@@ -460,7 +454,7 @@ export function DropControl({ story }: { story: StoryDto }) {
           Drop
         </button>
         {error && (
-          <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text-rack)" }}>
+          <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text)" }}>
             {error}
           </p>
         )}
@@ -482,7 +476,7 @@ export function DropControl({ story }: { story: StoryDto }) {
         onClick={handleDrop}
         disabled={busy}
         className="control-edge session-action type-body"
-        style={{ color: "var(--destructive-text-rack)" }}
+        style={{ color: "var(--destructive-text)" }}
       >
         {busy ? "Dropping…" : "Drop"}
       </button>
@@ -496,7 +490,7 @@ export function DropControl({ story }: { story: StoryDto }) {
         Keep
       </button>
       {error && (
-        <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text-rack)" }}>
+        <p className="type-body" style={{ flexBasis: "100%", margin: 0, color: "var(--destructive-text)" }}>
           {error}
         </p>
       )}
@@ -524,12 +518,12 @@ export function SessionList({ projectId, story }: { projectId: string; story: St
   return (
     <div style={{ flexBasis: "100%" }}>
       {sessionsQuery.isError && (
-        <p className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+        <p className="type-body" style={{ margin: 0, color: "var(--destructive-text)" }}>
           {errorText(sessionsQuery.error)}
         </p>
       )}
       {sessionsQuery.isSuccess && sessions.length === 0 && (
-        <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+        <p className="type-body" style={{ margin: 0, color: "var(--muted-foreground)" }}>
           No sessions yet.
         </p>
       )}
@@ -545,14 +539,14 @@ export function SessionList({ projectId, story }: { projectId: string; story: St
                 flexDirection: "column",
                 gap: "var(--space-xs)",
                 padding: "var(--space-xs) 0",
-                borderTop: "1px solid var(--divider)",
+                borderTop: "1px solid var(--border)",
               }}
             >
               <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-sm)", alignItems: "center" }}>
-                <span className="type-label" style={{ fontFamily: "ui-monospace, monospace" }}>
+                <span className="type-label" style={{ fontFamily: "var(--font-code)" }}>
                   {session.id}
                 </span>
-                <span className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+                <span className="type-label" style={{ color: "var(--muted-foreground)" }}>
                   {session.endedAt
                     ? `${formatWhen(session.startedAt)} to ${formatWhen(session.endedAt)}`
                     : `since ${formatWhen(session.startedAt)}`}
@@ -568,7 +562,7 @@ export function SessionList({ projectId, story }: { projectId: string; story: St
                 </button>
               </div>
               {summary && (
-                <div className="type-body" style={{ whiteSpace: "pre-wrap", color: "var(--text-muted-rack)" }}>
+                <div className="type-body" style={{ whiteSpace: "pre-wrap", color: "var(--muted-foreground)" }}>
                   <span className="type-label">{summary.isStub ? "Stub summary" : "Summary"}</span>
                   {`\n${summary.nextSessionMustKnow}`}
                   {summary.decisions.trim() !== "" && `\nDecisions: ${summary.decisions}`}
@@ -603,7 +597,7 @@ export function PacketSize({ story }: { story: StoryDto }) {
     <span
       className="type-label"
       title={overSoftLimit ? "Above the soft limit of about 20K tokens: trim the Epic spec or the summaries" : undefined}
-      style={{ color: overSoftLimit ? "var(--blocked-text-rack)" : "var(--text-muted-rack)" }}
+      style={{ color: overSoftLimit ? "var(--foreground)" : "var(--muted-foreground)" }}
     >
       {overSoftLimit ? `${text}, above the ~20K soft limit` : text}
     </span>
@@ -619,8 +613,8 @@ const EMPTY_CRITERION: CriterionDraft = { statement: "", checkCommand: "" };
 
 const fieldStyle = { display: "flex", flexDirection: "column" as const, gap: "var(--space-xs)" };
 const groupStyle = {
-  border: "1px solid var(--divider)",
-  borderRadius: "var(--radius-chrome)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-control)",
   padding: "var(--space-md)",
   display: "flex",
   flexDirection: "column" as const,
@@ -645,11 +639,11 @@ function StoryForm({ projectId }: { projectId: string }) {
 
   return (
     <section aria-labelledby="story-form-heading" style={{ display: "flex", flexDirection: "column", gap: "var(--space-md)" }}>
-      <h2 id="story-form-heading" className="type-label" style={{ color: "var(--text-muted-rack)", margin: 0 }}>
+      <h2 id="story-form-heading" className="type-label" style={{ color: "var(--muted-foreground)", margin: 0 }}>
         Write a Story
       </h2>
       {error && (
-        <p role="alert" className="type-body" style={{ margin: 0, color: "var(--destructive-text-rack)" }}>
+        <p role="alert" className="type-body" style={{ margin: 0, color: "var(--destructive-text)" }}>
           {error}
         </p>
       )}
@@ -849,7 +843,7 @@ function NewStory({ epicId, onError }: { epicId: string; onError: (message: stri
             className="control-edge session-field type-body"
           />
         </label>
-        <div className="type-label" style={{ color: "var(--text-muted-rack)" }}>
+        <div className="type-label" style={{ color: "var(--muted-foreground)" }}>
           Acceptance criteria
         </div>
         <ol style={{ margin: 0, paddingLeft: "1.5em", display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}>
@@ -899,7 +893,7 @@ function NewStory({ epicId, onError }: { epicId: string; onError: (message: stri
           </button>
         </div>
         {epicId === "" && (
-          <p className="type-body" style={{ margin: 0, color: "var(--text-muted-rack)" }}>
+          <p className="type-body" style={{ margin: 0, color: "var(--muted-foreground)" }}>
             A Story is written inside an Epic: choose one above.
           </p>
         )}

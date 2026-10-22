@@ -30,8 +30,8 @@
  * shortcuts (`a`/`d`/Shift+A) resolve through `state/keyboard.ts`'s shared `useRegionBindings`
  * hook, which ignores keys typed into the pattern field.
  */
-import { useId, useRef, useState, type ComponentType, type FormEvent } from "react";
-import * as icons from "lucide-react";
+import { useId, useRef, useState, type FormEvent } from "react";
+import { Icon } from "../components/Icon";
 import { MARKS_BY_ID } from "../legend/marks";
 import { useRegionBindings } from "../state/keyboard";
 import { ASK_USER_QUESTION_TOOL, questionsFromPayload } from "./feedRows";
@@ -204,14 +204,6 @@ export interface PermissionRequestCardProps {
   onAnswerQuestion?: (requestId: string, picks: QuestionPicks) => Promise<void>;
 }
 
-type IconComponent = ComponentType<{ size?: number; strokeWidth?: number }>;
-
-function Icon({ name, size = 16 }: { name: string; size?: number }) {
-  const Component = (icons as unknown as Record<string, IconComponent>)[name];
-  if (!Component) return null;
-  return <Component size={size} strokeWidth={2} />;
-}
-
 /** The reason a rejected answer carries: Tauri rejects with the command's error string. */
 function rejectionReason(err: unknown): string {
   if (typeof err === "string") return err;
@@ -302,7 +294,7 @@ function PermissionRequestRow({
   );
 
   const payloadMaxHeight = variant === "compact" ? 160 : 240;
-  const mono = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+  const mono = "var(--font-code)";
 
   return (
     <div
@@ -311,7 +303,7 @@ function PermissionRequestRow({
       className={`session-card${isGated ? " session-card-destructive" : ""}`}
     >
       {isGated && (
-        <span className="type-heading" style={{ color: "var(--destructive-text-rack)" }}>
+        <span className="type-heading" style={{ color: "var(--destructive-text)" }}>
           Gated action — needs your OK every time
         </span>
       )}
@@ -320,7 +312,7 @@ function PermissionRequestRow({
         <span
           aria-hidden="true"
           style={{
-            color: isGated ? "var(--destructive-text-rack)" : "var(--blocked-text-rack)",
+            color: isGated ? "var(--destructive-text)" : "var(--foreground)",
             flexShrink: 0,
             display: "inline-flex",
           }}
@@ -352,7 +344,7 @@ function PermissionRequestRow({
           overflowWrap: "anywhere",
           maxHeight: payloadMaxHeight,
           overflowY: "auto",
-          color: "var(--text-primary-rack)",
+          color: "var(--foreground)",
         }}
       >
         {literal}
@@ -432,7 +424,7 @@ function PermissionRequestRow({
       </div>
 
       {state.error && (
-        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text-rack)", overflowWrap: "anywhere" }}>
+        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text)", overflowWrap: "anywhere" }}>
           {state.error}
         </p>
       )}
@@ -453,7 +445,7 @@ function QuestionRequestRow({
   return (
     <div role="group" aria-label="The agent has a question" className="session-card" data-card="question">
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
-        <span aria-hidden="true" style={{ color: "var(--blocked-text-rack)", flexShrink: 0, display: "inline-flex" }}>
+        <span aria-hidden="true" style={{ color: "var(--foreground)", flexShrink: 0, display: "inline-flex" }}>
           <Icon name={glyph?.glyph ?? "ShieldAlert"} />
         </span>
         <span className="type-heading">

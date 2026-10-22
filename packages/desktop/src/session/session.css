@@ -1,23 +1,17 @@
 /*
- * Surface group four (08.1 plan 17): the live session surface, its feed, its permission card and its
- * raw log, and the launch sheet that starts one. Group-scoped rules live here, beside the group, the way
- * `review/review.css` does for group three; nothing for this group is added to `App.css`.
+ * The live session surface, its feed, its permission card and raw log, and the launch sheet.
  *
- * No comp was rendered for this group (plan 04 comped Mission Control, the item detail and the review
- * surface). It is finished against 08.1-UI-SPEC.md directly: the token roles, the radius language, the
- * type scale, the selection rule, the overlay rule and the motion contract. No literal colour, scrim or
- * shadow appears below or in the group's components: `styles/tokens.css` is the one source.
- *
- * The brand carries progress and is never an action (owner decision 2026-10-08), so an action here is
- * DRAWN: the 3:1 control edge (`control-edge`, App.css) on its own surface, never filled. The one leading
- * action of a section wears a 2px ink edge, the device the item-detail panel and the review surface use.
+ * Carried over from the retired M2 visual world and kept only because screens still name these
+ * classes. Colours are the Andon tokens (styles/globals.css, docs/design/direction.md); the look is
+ * restyled screen by screen on components/ui/ in #107, which deletes each rule as its screen moves.
+ * New work does not add rules here.
  */
 
 /* --- The session header --------------------------------------------------------------------------- */
 
 .session-header {
   align-items: center;
-  border-bottom: 1px solid var(--divider);
+  border-bottom: 1px solid var(--border);
   display: flex;
   gap: var(--space-md);
   padding: var(--space-md);
@@ -42,13 +36,13 @@
 
 .session-back:hover:not(:disabled) {
   background: transparent;
-  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+  box-shadow: inset 0 0 0 1000px var(--accent);
 }
 
 /* An action is drawn, not filled. */
 .session-action {
   background: transparent;
-  color: var(--text-primary-rack);
+  color: var(--foreground);
   cursor: pointer;
   padding: var(--space-xs) var(--space-md);
 }
@@ -65,7 +59,7 @@
  */
 .session-action:hover:not(:disabled) {
   background: transparent;
-  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+  box-shadow: inset 0 0 0 1000px var(--accent);
 }
 
 /*
@@ -73,7 +67,7 @@
  * Padding gives the extra pixel back, so a lead and its neighbours are the same size. Ink, not brand.
  */
 .session-action.session-action-lead {
-  border: 2px solid var(--selection-rule);
+  border: 2px solid var(--primary);
   font-weight: 600;
   padding: calc(var(--space-xs) - 1px) calc(var(--space-md) - 1px);
 }
@@ -83,13 +77,13 @@
  * asserted 4.5:1 on every surface in both modes (contrast.test.ts), where the old fill was 2.95 / 2.86.
  */
 .session-action.session-action-lead.session-action-destructive {
-  border-color: var(--destructive-text-rack);
-  color: var(--destructive-text-rack);
+  border-color: var(--destructive-text);
+  color: var(--destructive-text);
 }
 
 /* App.css sends a hovered control's edge to ink; the destructive gate keeps its own at the moment of click. */
 .session-action.session-action-destructive:hover:not(:disabled) {
-  border-color: var(--destructive-text-rack);
+  border-color: var(--destructive-text);
 }
 
 /* --- The feed ------------------------------------------------------------------------------------- */
@@ -100,7 +94,7 @@
  */
 .feed-disclosure:hover:not(:disabled) {
   background: transparent;
-  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+  box-shadow: inset 0 0 0 1000px var(--accent);
 }
 
 /*
@@ -121,7 +115,7 @@
   align-items: baseline;
   background: transparent;
   border: none;
-  color: var(--text-muted-rack);
+  color: var(--muted-foreground);
   cursor: pointer;
   display: flex;
   gap: var(--space-xs);
@@ -139,7 +133,7 @@
 }
 
 .feed-call-output {
-  color: var(--text-muted-rack);
+  color: var(--muted-foreground);
   flex: 0 1 40%;
   min-width: 0;
   overflow: hidden;
@@ -153,24 +147,24 @@
 }
 
 .feed-call-state {
-  color: var(--text-primary-rack);
+  color: var(--foreground);
   flex-shrink: 0;
   white-space: nowrap;
 }
 
 .feed-call-state[data-state="failed"] {
-  color: var(--destructive-text-rack);
+  color: var(--destructive-text);
 }
 
 .feed-call-detail {
-  color: var(--text-primary-rack);
+  color: var(--foreground);
   margin: var(--space-xs) 0 0 var(--space-md);
   overflow-wrap: anywhere;
   overflow-y: auto;
 }
 
 .feed-detail-heading {
-  color: var(--text-muted-rack);
+  color: var(--muted-foreground);
   margin-top: var(--space-xs);
 }
 
@@ -183,7 +177,7 @@
 }
 
 .feed-field dt {
-  color: var(--text-muted-rack);
+  color: var(--muted-foreground);
 }
 
 .feed-field dd {
@@ -197,7 +191,7 @@
 }
 
 .feed-field-text {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-code);
   margin: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -257,18 +251,18 @@
 
 .feed-md-code,
 .feed-md-pre {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-code);
 }
 
 .feed-md-code {
-  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
-  border-radius: var(--radius-chrome);
+  box-shadow: inset 0 0 0 1000px var(--accent);
+  border-radius: var(--radius-control);
   padding: 0 0.25em;
 }
 
 .feed-md-pre {
-  border: 1px solid var(--divider);
-  border-radius: var(--radius-chrome);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
   max-height: 480px;
   overflow: auto;
   padding: var(--space-sm);
@@ -276,14 +270,14 @@
 }
 
 .feed-md-quote {
-  border-left: 2px solid var(--divider);
-  color: var(--text-muted-rack);
+  border-left: 2px solid var(--border);
+  color: var(--muted-foreground);
   padding-left: var(--space-sm);
 }
 
 .feed-md-rule {
   border: none;
-  border-top: 1px solid var(--divider);
+  border-top: 1px solid var(--border);
   margin: var(--space-sm) 0;
 }
 
@@ -292,7 +286,7 @@
 }
 
 .feed-md-link-target {
-  color: var(--text-muted-rack);
+  color: var(--muted-foreground);
   text-decoration: none;
 }
 
@@ -306,7 +300,7 @@
 
 .feed-md-table th,
 .feed-md-table td {
-  border: 1px solid var(--divider);
+  border: 1px solid var(--border);
   padding: var(--space-xs) var(--space-sm);
   text-align: left;
 }
@@ -317,14 +311,14 @@
 
 /* The live mark on the running tool row: a block caret in the muted ink, never the brand. */
 .feed-caret {
-  color: var(--text-primary-rack);
+  color: var(--foreground);
   flex-shrink: 0;
 }
 
 /* The floor: a persistent hairline bar under the transcript, one line, so the page always ends on something. */
 .session-floor {
-  border-top: 1px solid var(--divider);
-  color: var(--text-muted-rack);
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
   flex-shrink: 0;
   margin: 0;
   padding: var(--space-sm) var(--space-md);
@@ -334,8 +328,8 @@
  * defines it; it has no fill, because the surface family is one and colour is a data channel only. */
 .session-notice {
   background: transparent;
-  border: 1px solid var(--divider);
-  border-radius: var(--radius-chrome);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
   padding: var(--space-sm) var(--space-md);
 }
 
@@ -357,11 +351,11 @@
 
 /* The engine's own placeholder is an unowned grey (2.3:1 light, about 8.5:1 dark). It is a role now. */
 .session-field::placeholder {
-  color: var(--text-placeholder);
+  color: var(--subtle-foreground);
 }
 
 .session-field:focus-visible {
-  outline: 2px solid var(--selection-rule);
+  outline: 2px solid var(--primary);
   outline-offset: 1px;
 }
 
@@ -373,9 +367,9 @@
  * its heading and its octagon glyph, so it never rests on hue.
  */
 .session-card {
-  border: 1px solid var(--border-control);
-  border-radius: var(--radius-chrome);
-  color: var(--text-primary-rack);
+  border: 1px solid var(--input);
+  border-radius: var(--radius-control);
+  color: var(--foreground);
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
@@ -392,7 +386,7 @@
   align-items: baseline;
   background: transparent;
   border: none;
-  color: var(--text-primary-rack);
+  color: var(--foreground);
   cursor: pointer;
   display: inline-flex;
   gap: var(--space-xs);
@@ -401,11 +395,11 @@
 
 .session-text-action:hover:not(:disabled) {
   background: transparent;
-  box-shadow: inset 0 0 0 1000px var(--row-surface-hover);
+  box-shadow: inset 0 0 0 1000px var(--accent);
 }
 
 .session-text-action:disabled {
-  color: var(--text-muted-rack);
+  color: var(--muted-foreground);
   cursor: default;
 }
 
@@ -416,7 +410,7 @@
 /* A gutter before the permanent grant: a hairline and a full step of space, so it is never one slip away
  * from Allow or Deny. */
 .session-grant {
-  border-top: 1px solid var(--divider);
+  border-top: 1px solid var(--border);
   margin-top: var(--space-sm);
   padding-top: var(--space-sm);
 }
@@ -430,7 +424,7 @@
 }
 
 .session-grant-label {
-  color: var(--text-muted-rack);
+  color: var(--muted-foreground);
 }
 
 .session-grant-pattern {
@@ -440,7 +434,7 @@
 }
 
 .session-card.session-card-destructive {
-  border-color: var(--destructive-text-rack);
+  border-color: var(--destructive-text);
 }
 
 /* --- The launch sheet ----------------------------------------------------------------------------- */
@@ -458,18 +452,18 @@
 }
 
 .launch-sheet {
-  background: var(--surface-secondary);
-  border: 1px solid var(--border-sheet);
-  border-radius: var(--radius-chrome);
-  box-shadow: var(--shadow-sheet);
-  color: var(--text-primary-rack);
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-overlay);
+  color: var(--foreground);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
 .launch-field {
-  background: var(--surface-dominant);
+  background: var(--card);
 }
 
 /* --- An agent's question (issue #100) -------------------------------------------------------------- */

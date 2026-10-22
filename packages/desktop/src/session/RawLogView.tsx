@@ -15,7 +15,7 @@ import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { sessionRawWindow, subscribeAgentEvent, type RawLogWindowDto } from "../adapters/tauri";
 
 const PAGE_SIZE = 50;
-const MONO_STACK = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+const MONO_STACK = "var(--font-code)";
 const SCROLL_TOP_FETCH_THRESHOLD_PX = 40;
 
 export interface RawLogViewProps {
@@ -99,11 +99,11 @@ export function RawLogView({ sessionId }: RawLogViewProps) {
         <div
           key={line.line}
           className="type-label"
-          style={{ display: "flex", gap: "var(--space-sm)", color: "var(--text-primary-rack)" }}
+          style={{ display: "flex", gap: "var(--space-sm)", color: "var(--foreground)" }}
         >
           <span
             className="tabular-nums"
-            style={{ color: "var(--text-muted-rack)", flexShrink: 0, minWidth: "3.5em", textAlign: "right" }}
+            style={{ color: "var(--muted-foreground)", flexShrink: 0, minWidth: "3.5em", textAlign: "right" }}
           >
             {line.line}
           </span>

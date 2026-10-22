@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
 import { resolve } from "node:path";
 
@@ -28,7 +29,8 @@ import { resolve } from "node:path";
 const REPO_ROOT = resolve(import.meta.dirname, "../..");
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: { alias: { "@": resolve(import.meta.dirname, "src") } },
   // The two UAT screenshots are written into the phase folder at the repo root, which is outside
   // this package's Vite root; without this the write is refused by `server.fs.strict`.
   server: { fs: { allow: [REPO_ROOT] } },
