@@ -213,7 +213,7 @@ Kanban came from Toyota's line, and so does the andon: a lamp a station lights w
 
 The system is dense and calm. Most of any screen is neutral grey ink on white or near-black cards, and states that need nothing from you stay neutral, told apart by a Lucide icon and a word. Colour is spent only where it changes what you do next: yellow for Waiting on you, brand blue for an agent at work or your next action, red for Stopped or failed. It refuses the category default of a grey list of same-weight rows with one accent colour sprinkled everywhere.
 
-The system is built on shadcn/ui and Tailwind v4: every colour is a CSS custom property under shadcn's variable name in one stylesheet of record, with a light scheme on the root and a dark scheme on `.dark` (set from `prefers-color-scheme`). The tokens, type, icons, primitives and the state badge are built. The screens are not restyled yet: they still draw their layout from legacy class stylesheets and inline styles that already read every colour, radius, space and shadow from these tokens. The andon strip, its lamps and the Milestone header are specified by the direction contract and have tokens (`strip`, `lamp`, `chart-*`, the `lead`/`count`/`milestone` type steps) but no component yet; they arrive with the screen restyle.
+The system is built on shadcn/ui and Tailwind v4: every colour is a CSS custom property under shadcn's variable name in one stylesheet of record, with a light scheme on the root and a dark scheme on `.dark` (set from `prefers-color-scheme`). The tokens, type, icons, primitives and the state badge are built, and every screen of the M2 flow draws on them (#107): the sidebar, the andon strip, the board, the Story view, the session feed and its request cards, Waiting on you, All agents and the dialogs. Settings, Worktrees, first run and the recovery dialog keep their layout in two small legacy stylesheets (`styles/admin-surfaces.css`, `styles/states-and-confirms.css`) that read every value from these tokens; the agent turn's markdown has its own (`session/markdown.css`). The Milestone header and its count boxes have tokens (`chart-*`, the `lead`/`count`/`milestone` type steps) and arrive with #106.
 
 **Key Characteristics:**
 - Four tones, one meaning each: attention, running, destructive, neutral.
@@ -251,7 +251,7 @@ A neutral grey ramp with three signal hues and one hardware graphite; every toke
 - **Edge** (`border` / `dark-border`): card edges, row rules, region edges, scrollbar thumbs.
 - **Control Edge** (`input` / `dark-input`): the boundary of inputs, outline buttons, checkboxes and radios, held at 3:1 against the card.
 - **Sidebar** (`sidebar`, `sidebar-primary` for the current item as a raised card, `sidebar-accent` for hover; dark siblings).
-- **Strip Graphite** (`strip` / `dark-strip`), **Strip Ink** (`strip-foreground`), **Strip Meta** (`strip-muted-foreground`), **Unlit Lamp** (`lamp` / `dark-lamp`): the andon strip's hardware. Tokens are built; the strip is not.
+- **Strip Graphite** (`strip` / `dark-strip`), **Strip Ink** (`strip-foreground`), **Strip Meta** (`strip-muted-foreground`), **Unlit Lamp** (`lamp` / `dark-lamp`): the andon strip's hardware (`shell/AndonStrip.tsx`).
 - **Bar Greys** (`chart-1` to `chart-4`): the stacked bar's segments for Merged, In review, Running (the brand fill) and Ready. Reserved for the Milestone header.
 
 ### Named Rules
@@ -292,7 +292,7 @@ A neutral grey ramp with three signal hues and one hardware graphite; every toke
 
 A desktop window, 900px minimum width. A light sidebar on the left; content to the right on the grey floor. Spacing is a 4px base: 8 inside a group, 12 to 16 between groups, 20 between regions; the space tokens (`xs` to `2xl`) carry it for screens still on inline styles. Rows are 44px, sidebar rows 36px.
 
-The planned composition (not built yet): a 72px andon strip across the content top on every screen, then the breadcrumb and add controls, then the Milestone header, then Needs you (400px) beside the roster. At content widths of 1280px and up the Story view sits beside a 470px roster; from 900px to 1279px it takes the whole content area, and Needs you and the shaping dock become sheets.
+The composition: a 72px andon strip across the content top on every screen, then a 56px top bar (Back, the breadcrumb, the ⌘K search and the surface's add or run controls), then the surface on the floor, 20px in from the edges, its content in cards up to 1240px wide. The board is the roster: one card per Epic, its Stories as rows (the Milestone header mounts above it with #106). The Story view is a title card, the live agent's station, then Acceptance criteria beside Tasks, then Sessions. Not built yet: Needs you as a 400px column beside the roster, and the Story view beside a 470px roster at content widths of 1280px and up; today the Story view takes the whole content area at every width.
 
 **The click model.** What you click decides where you land, and every place is shown in the breadcrumb:
 - A project in the sidebar opens that project's board, replacing whatever was on top.
@@ -322,7 +322,7 @@ Gently rounded and consistent: cards, popovers and dialogs 10px (`lg`), buttons 
 
 ## Components
 
-Primitives are shadcn/ui source, copied into the app and rethemed on these tokens, on Radix: Button, Badge, Card, Sidebar, Breadcrumb, Command, Dialog, AlertDialog, Popover, Tooltip, DropdownMenu, Sheet, Collapsible, Checkbox, RadioGroup, Label, Input, InputGroup, Textarea, ScrollArea, Separator, Skeleton and Kbd. Today the screens draw StateBadge and Tooltip; the rest wait for the screen restyle.
+Primitives are shadcn/ui source, copied into the app and rethemed on these tokens, on Radix: Button, Badge, Card, Sidebar, Breadcrumb, Command, Dialog, AlertDialog, Popover, Tooltip, DropdownMenu, Sheet, Collapsible, Checkbox, RadioGroup, Label, Input, InputGroup, Textarea, ScrollArea, Separator, Skeleton and Kbd. The screens draw Button, Badge (through StateBadge), Sidebar, Breadcrumb, Command, Dialog, AlertDialog, Tooltip, Input, Textarea, Label and Kbd; Card's look (the 10px corner, the edge and the card shadow) is drawn directly on sections, which carry their own headings.
 
 ### Buttons
 - **Shape:** 8px corners (6px at the extra-small size), 1px transparent border, semibold, icon (16px) and word with a 6px gap.
@@ -359,7 +359,8 @@ The one place a state picks a colour. It takes a state (Story state, attention s
 
 ### Navigation
 - **Sidebar:** the `sidebar` ground behind a right edge; the current project or Story is a raised `sidebar-primary` card, hover is `sidebar-accent`; group names in the condensed label; session sub-items indent behind a 1px rule.
-- **Breadcrumb:** names the project, the Milestone or the Story, and the session.
+- **Breadcrumb:** names the project, then the Story, then the session; every crumb but the last goes to its place.
+- **Andon strip:** one lamp per live Story session across the top of every screen, in every project: lit yellow (lamp-black ink, the hand) while it is Waiting on you, graphite with a blue bulb while its agent works, graphite with a red bulb while its Story is Stopped. Each lamp names the Story key and title and, below, what it waits on, what it is doing or why it stopped. Order: Waiting on you (longest first), Running, Stopped. Lamps that do not fit fold into a dashed "+n more" lamp that opens All agents; with none, the strip says "No agent running" and keeps its height. Clicking a lamp opens its Story, never its session; the current Story's lamp carries the strip-ink outline.
 
 ### Icons
 Lucide (`lucide-react`, ISC), drawn at a 2px stroke: 16px by default, 15px inside pills, 18px in navigation. Every icon sits next to its word and is decorative; an icon alone needs a tooltip and an accessible label. Glyphs are imported by name, never the whole set.
