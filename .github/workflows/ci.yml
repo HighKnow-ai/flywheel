@@ -33,6 +33,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/sidecar/package-lock.json
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -52,6 +58,11 @@ jobs:
           for bin in flywheel-sidecar flywheel-node flywheel-shim; do
             touch "packages/desktop/src-tauri/binaries/$bin-$triple"
           done
+
+      # packages/sidecar/dist: the session tests spawn the real sidecar under node.
+      - run: npm --prefix packages/sidecar ci
+
+      - run: npm --prefix packages/sidecar run build
 
       # nextest, not `cargo test`: one process per test, so the ~90 test binaries run side by side
       # rather than one after another. .config/nextest.toml holds the one binary whose tests share
