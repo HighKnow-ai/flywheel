@@ -114,7 +114,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
   it("08 session feed, a call expanded", async () => {
     await boardReady();
     await click(/Open FLY-4 Make clicking/);
-    await userEvent.click(await screen.findByText(/Bash · npm --prefix packages\/desktop test -- keyboard/));
+    await click(/Bash · npm --prefix packages\/desktop test -- keyboard/);
     await shot("08-feed-call-expanded");
   });
 

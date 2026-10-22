@@ -2,113 +2,112 @@
  * An agent's turn, rendered from markdown (session/Markdown.tsx). The one place the app styles elements it
  * did not author as components: a turn is prose, so its blocks get room between them, its code the code face
  * on the inset ground, and its lists their markers back (Tailwind's preflight removes them). Every colour is
- * an Andon token (styles/globals.css).
+ * an Andon token (styles/globals.css). Unlayered on purpose: this file can load before globals.css declares
+ * the cascade layers, and a layer it declared first would rank below Tailwind's preflight.
  */
-@layer components {
-  .feed-md {
-    overflow-wrap: anywhere;
-  }
+.feed-md {
+  overflow-wrap: anywhere;
+}
 
-  .feed-md > :first-child {
-    margin-top: 0;
-  }
+.feed-md > :first-child {
+  margin-top: 0;
+}
 
-  .feed-md > :last-child {
-    margin-bottom: 0;
-  }
+.feed-md > :last-child {
+  margin-bottom: 0;
+}
 
-  .feed-md p,
-  .feed-md-list,
-  .feed-md-pre,
-  .feed-md-quote,
-  .feed-md-table-wrap {
-    margin: 0 0 var(--space-sm) 0;
-  }
+.feed-md p,
+.feed-md-list,
+.feed-md-pre,
+.feed-md-quote,
+.feed-md-table-wrap {
+  margin: 0 0 var(--space-sm) 0;
+}
 
-  /* Headings stay in the body scale: a turn is a message, not a document; weight carries the rank. */
-  .feed-md-heading {
-    font-size: inherit;
-    font-weight: 600;
-    margin: var(--space-sm) 0 var(--space-xs) 0;
-  }
+/* Headings stay in the body scale: a turn is a message, not a document; weight carries the rank. */
+.feed-md-heading {
+  font-size: inherit;
+  font-weight: 600;
+  margin: var(--space-sm) 0 var(--space-xs) 0;
+}
 
-  .feed-md-list {
-    padding-left: var(--space-lg);
-  }
+.feed-md-list {
+  padding-left: var(--space-lg);
+}
 
-  ul.feed-md-list {
-    list-style: disc;
-  }
+ul.feed-md-list {
+  list-style: disc;
+}
 
-  ol.feed-md-list {
-    list-style: decimal;
-  }
+ol.feed-md-list {
+  list-style: decimal;
+}
 
-  .feed-md-list .feed-md-list {
-    margin-bottom: 0;
-  }
+.feed-md-list .feed-md-list {
+  margin-bottom: 0;
+}
 
-  .feed-md-code,
-  .feed-md-pre {
-    font-family: var(--font-code);
-    font-size: 0.93em;
-  }
+.feed-md-code,
+.feed-md-pre {
+  font-family: var(--font-code);
+  font-size: 0.93em;
+}
 
-  .feed-md-code {
-    background: var(--muted);
-    border-radius: var(--radius-sm);
-    padding: 0.05em 0.3em;
-  }
+.feed-md-code {
+  background: var(--muted);
+  border-radius: var(--radius-sm);
+  padding: 0.05em 0.3em;
+}
 
-  .feed-md-pre {
-    background: var(--muted);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    max-height: 480px;
-    overflow: auto;
-    padding: var(--space-sm) 12px;
-    white-space: pre;
-  }
+.feed-md-pre {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  max-height: 480px;
+  overflow: auto;
+  padding: var(--space-sm) 12px;
+  white-space: pre;
+}
 
-  .feed-md-quote {
-    border-left: 1px solid var(--input);
-    color: var(--muted-foreground);
-    padding-left: 12px;
-  }
+.feed-md-quote {
+  border-left: 1px solid var(--input);
+  color: var(--muted-foreground);
+  padding-left: 12px;
+}
 
-  .feed-md-rule {
-    border: none;
-    border-top: 1px solid var(--border);
-    margin: var(--space-sm) 0;
-  }
+.feed-md-rule {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: var(--space-sm) 0;
+}
 
-  .feed-md-link {
-    color: var(--running);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
+.feed-md-link {
+  color: var(--running);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 
-  .feed-md-link-target {
-    color: var(--muted-foreground);
-    text-decoration: none;
-  }
+.feed-md-link-target {
+  color: var(--muted-foreground);
+  text-decoration: none;
+}
 
-  .feed-md-table-wrap {
-    overflow-x: auto;
-  }
+.feed-md-table-wrap {
+  overflow-x: auto;
+}
 
-  .feed-md-table {
-    border-collapse: collapse;
-  }
+.feed-md-table {
+  border-collapse: collapse;
+}
 
-  .feed-md-table th,
-  .feed-md-table td {
-    border: 1px solid var(--border);
-    padding: var(--space-xs) var(--space-sm);
-    text-align: left;
-  }
+.feed-md-table th,
+.feed-md-table td {
+  border: 1px solid var(--border);
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+}
 
-  .feed-md-table th {
-    font-weight: 600;
-  }
+.feed-md-table th {
+  font-weight: 600;
 }
