@@ -70,7 +70,9 @@ import {
   useFleet,
   worktreeInventoryQueryKey,
 } from "../fleet/useFleet";
-import { isRunStatus, RUN_STATUS_LABELS } from "../legend/runStatus";
+import { isRunStatus } from "../legend/runStatus";
+import { StateBadge } from "../components/StateBadge";
+import { Badge } from "@/components/ui/badge";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
 import { useUiStore } from "../state/uiStore";
 
@@ -86,7 +88,7 @@ const railStyle: CSSProperties = {
   flexDirection: "column",
   gap: "var(--space-lg)",
   padding: "var(--space-md) var(--space-sm)",
-  background: "var(--muted)",
+  background: "var(--sidebar)",
   borderRight: "1px solid var(--border)",
   height: "100%",
   overflowY: "auto",
@@ -136,6 +138,9 @@ const currentEntryStyle: CSSProperties = {
 
 const sessionRowStyle: CSSProperties = {
   ...entryStyle,
+  width: "auto",
+  flex: 1,
+  minWidth: 0,
   minHeight: 24,
   padding: "2px var(--space-sm) 2px var(--space-md)",
   justifyContent: "flex-start",
@@ -254,10 +259,9 @@ function RunningSessions({
                 {doing ?? session.storyTitle}
               </span>
               {waiting && (
-                // The word, never colour alone.
-                <span style={{ flexShrink: 0, color: "var(--foreground)", fontWeight: 600 }}>
-                  {RUN_STATUS_LABELS.blocked}
-                </span>
+                // The hand in yellow, its word as the accessible name and tooltip: the rail is too narrow
+                // for the word beside the key, the doing Task and Session.
+                <StateBadge state="waiting_on_you" hideLabel className="h-5 shrink-0" />
               )}
             </button>
             {/* The one explicit way to the live agent from the sidebar (issue #104). */}
@@ -406,16 +410,16 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
         >
           <span>{waitingCount > 0 ? "Requests" : "Nothing waiting"}</span>
           {waitingCount > 0 && (
-            // A numeral, never a raw dot (D-37) — absent entirely at zero, never a visible "0". The
-            // needs-you role is a data channel (D-11), so the figure takes the colour, not a fill.
-            <span
+            // A numeral, never a raw dot (D-37), absent entirely at zero. The Needs-you count is one of the
+            // few things safety yellow means (direction.md § Colour).
+            <Badge
+              variant="attention"
               data-count="waiting"
               title={waitingCount === 1 ? "1 request waiting on you" : `${waitingCount} requests waiting on you`}
-              className="type-label tabular-nums"
-              style={{ color: "var(--foreground)", fontWeight: 600 }}
+              className="h-5 min-w-5 px-1.5 tabular-nums"
             >
               {waitingCount}
-            </span>
+            </Badge>
           )}
         </button>
       </Section>

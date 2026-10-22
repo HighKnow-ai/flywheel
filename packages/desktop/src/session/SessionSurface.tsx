@@ -95,7 +95,7 @@ export function openQuestionRows(rows: FeedRowData[], pending: PendingPermission
 /** The glyph-and-word run-status badge (02-UI-SPEC.md "Run Status", plan 02-07 Task 3) — never
  * colour alone. `run-running`'s `Loader` glyph carries the one continuous-motion exception this
  * product allows (Motion Additions: "signalling a process is alive right now, not decorating a
- * state change"); `.agent-pulse` (styles/motion.css) is omitted entirely under a reduced-motion
+ * state change"); `.agent-pulse` (styles/globals.css) is omitted entirely under a reduced-motion
  * preference rather than merely zeroed, so the glyph stays static rather than freezing mid-pulse —
  * but it is never removed, the running state must stay legible either way. */
 function RunStatusBadge({ status }: { status: RunStatus }) {
