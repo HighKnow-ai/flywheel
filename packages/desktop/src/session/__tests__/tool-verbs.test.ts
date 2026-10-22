@@ -191,6 +191,17 @@ describe("describeToolCall: board tools by their meaning", () => {
     });
   });
 
+  // Issue #125: a spec change reads as the Proposal it files, named by the field it would rewrite.
+  it("reads propose_spec_change as Proposed with the field and its new text", () => {
+    const input = { field: "out_of_scope", text: "Milestone shaping.", why: "Round 1" };
+    expect(describeToolCall({ toolName: `${BOARD}propose_spec_change`, input })).toMatchObject({
+      kind: "board",
+      verb: "Proposed",
+      liveVerb: "Proposing",
+      target: "Out of scope: Milestone shaping.",
+    });
+  });
+
   it("never prints a raw mcp__ name, for any server", () => {
     for (const toolName of [`${BOARD}story_get`, "mcp__github__create_issue", "mcp__x"]) {
       const d = describeToolCall({ toolName, input: {} });

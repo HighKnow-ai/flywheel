@@ -1,12 +1,13 @@
-//! `proposal_list_pending` / `proposal_accept` / `proposal_reject` — the developer's side of
-//! Proposals (docs/mvp-spec.md §5). Agents file Proposals through their board tool, never through
-//! IPC; deciding one is human-only, enforced by the domain writer, with the local human actor
-//! resolved here (T-01-04).
+//! `proposal_list_pending` / `proposal_accept` / `proposal_amend` / `proposal_reject` — the
+//! developer's side of Proposals (docs/mvp-spec.md §3, §5). Agents file Proposals through their
+//! board tool, never through IPC; deciding one is human-only, enforced by the domain writer, with
+//! the local human actor resolved here (T-01-04). Accepting or amending applies the Proposal in the
+//! same transaction as the decision (`flywheel_core::domain::proposal_apply`, issue #125).
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use super::{emit_board_changed, validate_text, MAX_TITLE_LEN};
+use super::{emit_board_changed, validate_text, MAX_PROSE_LEN, MAX_TITLE_LEN};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize)]
@@ -25,6 +26,11 @@ pub struct ProposalDto {
     pub rationale: Option<String>,
     pub state: String,
     pub created_at: String,
+    /// The developer's reason, once rejected.
+    pub rejection_reason: Option<String>,
+    /// The shaping Stage and Round it was filed in (issue #125); `None` for a Story session's.
+    pub stage_id: Option<String>,
+    pub round_id: Option<String>,
 }
 
 impl From<flywheel_core::domain::proposal::Proposal> for ProposalDto {
@@ -41,6 +47,9 @@ impl From<flywheel_core::domain::proposal::Proposal> for ProposalDto {
             rationale: p.rationale,
             state: p.state,
             created_at: p.created_at,
+            rejection_reason: p.rejection_reason,
+            stage_id: p.stage_id,
+            round_id: p.round_id,
         }
     }
 }
@@ -53,12 +62,32 @@ pub fn proposal_list_pending(state: State<AppState>, project_id: String) -> Resu
     Ok(rows.into_iter().map(ProposalDto::from).collect())
 }
 
-/// Accept a pending Proposal.
+/// Accept a pending Proposal, applying it in the same transaction (issue #125).
 #[tauri::command]
 pub fn proposal_accept(state: State<AppState>, app: AppHandle, proposal_id: String) -> Result<(), String> {
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::proposal::accept_proposal(&mut conn, &actor_id, &proposal_id).map_err(|e| e.to_string())?;
+    flywheel_core::domain::proposal::accept_proposal(&mut conn, &actor_id, &proposal_id).map_err(|e| format!("{e:#}"))?;
+    let project_id = super::project_of(&conn, "proposals", &proposal_id);
+    drop(conn);
+    emit_board_changed(&app, project_id.as_deref(), "proposal", Some(&proposal_id));
+    Ok(())
+}
+
+/// Amend (issue #125): accept a pending Proposal with the developer's edited payload, applying the
+/// edit in the same transaction. The event keeps the agent's original.
+#[tauri::command]
+pub fn proposal_amend(
+    state: State<AppState>,
+    app: AppHandle,
+    proposal_id: String,
+    payload: serde_json::Value,
+) -> Result<(), String> {
+    validate_text("payload", &payload.to_string(), MAX_PROSE_LEN + MAX_TITLE_LEN)?;
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::proposal::accept_proposal_amended(&mut conn, &actor_id, &proposal_id, &payload)
+        .map_err(|e| format!("{e:#}"))?;
     let project_id = super::project_of(&conn, "proposals", &proposal_id);
     drop(conn);
     emit_board_changed(&app, project_id.as_deref(), "proposal", Some(&proposal_id));

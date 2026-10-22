@@ -80,7 +80,7 @@ function round(questions: RoundQuestionDto[], held = true): RoundDto {
 }
 
 function shaping(rounds: RoundDto[]): EpicShapingDto {
-  return { epic: EPIC, stages: [{ id: "s1", kind: "challenge_spec", state: "open", rank: 1 }], rounds };
+  return { epic: EPIC, stages: [{ id: "s1", kind: "challenge_spec", state: "open", rank: 1 }], rounds, proposals: [] };
 }
 
 function renderView() {

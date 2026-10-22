@@ -375,7 +375,7 @@ function progressOf(projectId: string, milestoneId: string): MilestoneProgressDt
 function shapingOf(epicId: string): EpicShapingDto | null {
   const epic = Object.values(EPICS).flat().find((e) => e.id === epicId);
   if (!epic) return null;
-  if (epicId !== "e-59") return { epic, stages: [], rounds: [] };
+  if (epicId !== "e-59") return { epic, stages: [], rounds: [], proposals: [] };
   const q = (
     id: string,
     number: number,
@@ -387,9 +387,20 @@ function shapingOf(epicId: string): EpicShapingDto | null {
     answer: string | null = null,
     answeredWith: string | null = null,
   ) => ({ id, number, title, question, grounding, recommendedAnswer, because, answer, answeredWith, answeredAt: answer ? ago(2400) : null });
+  // Issue #125: two spec changes waiting on the Epic card, and one the developer turned down.
+  const proposal = (id: string, field: string, text: string, rationale: string, minutes: number, rejectionReason: string | null = null) => ({
+    id, projectId: "p-fly", sessionId: "ses-shape-8", epicId: "e-59", verb: "amend", targetType: "epic", targetId: "e-59",
+    payload: { field, text }, rationale, state: rejectionReason ? "rejected" : "pending", createdAt: ago(minutes * 60),
+    rejectionReason, stageId: "st-1", roundId: "r-1",
+  });
   return {
     epic,
     stages: [{ id: "st-1", kind: "challenge_spec", state: "open", rank: 1 }],
+    proposals: [
+      proposal("pr-1", "scope", "The board as the shaping surface: the Epic card with its fields, ghost-card Proposals decided where they land, and the Round dock with pre-filled recommended answers and Accept all recommended. Every answer is written to the board as it is made.", "Round 1 settled the board as the surface and that answers are written as they are given; the Scope should say both.", 40),
+      proposal("pr-2", "exit_test", "A one-line idea becomes an Epic with Ready Stories, each with accepted criteria and Checks, entirely in Flywheel; a killed shaping session resumes at the open Round.", "Question 2 of Round 1 made durability part of the Epic's promise.", 35),
+      proposal("pr-3", "out_of_scope", "Milestone and Roadmap shaping, execution Proposals, and any chat transcript of the session.", "Round 1 ruled out a transcript as the record.", 50, "A transcript is already ruled out by the Problem"),
+    ],
     rounds: [
       {
         id: "r-1", stageId: "st-1", stageKind: "challenge_spec", number: 1, state: "answered", held: false,
