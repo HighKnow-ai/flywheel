@@ -140,6 +140,17 @@ describe("the Round dock (issue #123)", () => {
     await waitFor(() => expect(roundAnswer).toHaveBeenCalledWith("q2", "No: thing 2 waits for the next Milestone"));
   });
 
+  it("Answer differently keeps the recommendation in sight and sends on ⌘↩", async () => {
+    renderView();
+    const second = await card(2);
+    fireEvent.click(within(second).getByRole("button", { name: "Answer question 2 differently" }));
+    expect(within(second).getByText("Recommended:")).toBeTruthy();
+    const field = within(second).getByRole("textbox", { name: "Your answer to question 2" });
+    fireEvent.change(field, { target: { value: "Only partly" } });
+    fireEvent.keyDown(field, { key: "Enter", metaKey: true });
+    await waitFor(() => expect(roundAnswer).toHaveBeenCalledWith("q2", "Only partly"));
+  });
+
   it("Answer differently refuses a blank answer and Cancel returns to the recommendation", async () => {
     renderView();
     const third = await card(3);

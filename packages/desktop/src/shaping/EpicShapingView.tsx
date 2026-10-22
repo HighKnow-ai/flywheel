@@ -13,7 +13,7 @@
  */
 import { useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Layers, PenLine } from "lucide-react";
+import { Check, Layers, PenLine, X } from "lucide-react";
 import { epicShapingRounds, epicShapingSession, epicUpdate, type EpicDto, type EpicSpecInput } from "../adapters/tauri";
 import { useBoardChangedSubscription } from "../board/useBoardQuery";
 import { EpicShapingControl } from "../board/EpicShapingControl";
@@ -67,11 +67,26 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
             Could not read this Epic: {errorText(shapingQuery.error)}
           </p>
         ) : !data || !epic ? null : (
-          <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-            <EpicCard epic={epic} stage={openStage ? { kind: openStage.kind, rank: openStage.rank } : null} queryKey={queryKey} />
-            <div className="order-first flex min-w-0 flex-col gap-3 xl:order-none">
-              <RoundDock rounds={data.rounds} sessionLive={Boolean(sessionQuery.data)} queryKey={queryKey} />
+          // Stacked (under 1280px) in reading order: the current Round, the Epic it shapes, then the earlier
+          // Rounds. From 1280px the Epic card holds the left column and both Round parts the right one.
+          <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 content-start items-start gap-5 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] xl:grid-rows-[auto_1fr]">
+            <RoundDock
+              rounds={data.rounds}
+              sessionLive={Boolean(sessionQuery.data)}
+              queryKey={queryKey}
+              show="current"
+              className="xl:col-start-2 xl:row-start-1"
+            />
+            <div className="min-w-0 self-stretch xl:col-start-1 xl:row-span-2 xl:row-start-1">
+              <EpicCard epic={epic} stage={openStage ? { kind: openStage.kind, rank: openStage.rank } : null} queryKey={queryKey} />
             </div>
+            <RoundDock
+              rounds={data.rounds}
+              sessionLive={Boolean(sessionQuery.data)}
+              queryKey={queryKey}
+              show="earlier"
+              className="xl:col-start-2 xl:row-start-2"
+            />
           </div>
         )}
       </SurfaceBody>
@@ -222,9 +237,11 @@ function SpecField({
             />
             <div className="flex items-center gap-2">
               <Button type="submit" variant="outline" size="sm" disabled={saving} aria-label={`Save ${label}`}>
+                <Check aria-hidden="true" />
                 {saving ? "Saving…" : "Save"}
               </Button>
               <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={() => setEditing(false)}>
+                <X aria-hidden="true" />
                 Cancel
               </Button>
             </div>

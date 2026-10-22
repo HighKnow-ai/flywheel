@@ -12,11 +12,12 @@
  * ("Recommended" or "Your answer"). While the Round is still open the line offers Change, which reopens
  * the field on the answer given.
  */
-import { useId, useState, type FormEvent } from "react";
-import { Check, CircleCheck, FileText, PenLine, Send } from "lucide-react";
+import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
+import { Check, CircleCheck, FileText, PenLine, Send, X } from "lucide-react";
 import type { RoundQuestionDto } from "../adapters/tauri";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 
 /** The longest answer the core accepts (`round::MAX_ROUND_TEXT_LEN`). */
@@ -80,7 +81,7 @@ export function QuestionCard({ question: q, open, onAccept, onAnswer }: Question
     setEditing(true);
   }
 
-  function submit(event: FormEvent) {
+  function submit(event: FormEvent | KeyboardEvent) {
     event.preventDefault();
     const text = draft.trim();
     if (!text) return;
@@ -125,12 +126,13 @@ export function QuestionCard({ question: q, open, onAccept, onAnswer }: Question
       className="flex min-w-0 flex-col gap-3 border-b border-border px-4 py-4 last:border-b-0"
     >
       <div className="flex min-w-0 flex-col gap-1">
-        <span className="flex items-center gap-2 text-meta font-semibold text-muted-foreground">
-          <NumberChip number={q.number} answered={false} />
-          {q.title}
-        </span>
-        <p className="m-0 text-row font-semibold break-words">{q.question}</p>
-        <p className="m-0 flex items-start gap-1.5 text-small text-subtle-foreground">
+        <p className="m-0 flex min-w-0 items-start gap-2 text-row font-semibold">
+          <span className="mt-px flex">
+            <NumberChip number={q.number} answered={false} />
+          </span>
+          <span className="min-w-0 break-words">{q.question}</span>
+        </p>
+        <p className="m-0 flex items-start gap-1.5 pl-7 text-small text-subtle-foreground">
           <FileText aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
           <span className="sr-only">Grounding: </span>
           <span className="min-w-0 break-words">{q.grounding}</span>
@@ -139,6 +141,15 @@ export function QuestionCard({ question: q, open, onAccept, onAnswer }: Question
 
       {editing ? (
         <form className="flex min-w-0 flex-col gap-2" onSubmit={submit}>
+          {/* The recommendation stays in sight while the developer writes their own. */}
+          <p className="m-0 flex min-w-0 items-start gap-1.5 text-small">
+            <Check aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-running" />
+            <span className="min-w-0 break-words">
+              <span className="font-semibold text-running">Recommended: </span>
+              {q.recommendedAnswer}
+              <span className="text-muted-foreground"> · Because {lowerFirst(q.because)}</span>
+            </span>
+          </p>
           <label htmlFor={fieldId} className="sr-only">
             Your answer to question {q.number}
           </label>
@@ -152,6 +163,9 @@ export function QuestionCard({ question: q, open, onAccept, onAnswer }: Question
               if (e.key === "Escape") {
                 e.stopPropagation();
                 setEditing(false);
+              } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                submit(e);
               }
             }}
             disabled={busy}
@@ -162,11 +176,13 @@ export function QuestionCard({ question: q, open, onAccept, onAnswer }: Question
               {busy ? "Saving…" : "Send answer"}
             </Button>
             <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)} disabled={busy}>
+              <X aria-hidden="true" />
               Cancel
             </Button>
             <span className="text-small text-muted-foreground">
               {draft.trim() ? "Saved on the board as soon as you send it." : "Write your answer to send it."}
             </span>
+            <Kbd className="ml-auto">⌘↩</Kbd>
           </div>
         </form>
       ) : (

@@ -36,6 +36,9 @@ export interface RoundDockProps {
   sessionLive: boolean;
   /** The query to refetch once an answer is stored. */
   queryKey: readonly unknown[];
+  /** Which Rounds to draw: the current one, the earlier ones, or all of them (default). */
+  show?: "current" | "earlier" | "all";
+  className?: string;
 }
 
 function reason(err: unknown): string {
@@ -44,15 +47,16 @@ function reason(err: unknown): string {
   return String(err);
 }
 
-export function RoundDock({ rounds, sessionLive, queryKey }: RoundDockProps) {
+export function RoundDock({ rounds, sessionLive, queryKey, show = "all", className }: RoundDockProps) {
   const queryClient = useQueryClient();
   const refresh = () => queryClient.invalidateQueries({ queryKey });
 
   if (rounds.length === 0) {
+    if (show === "earlier") return null;
     return (
       <section
         aria-label="Rounds"
-        className="flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card px-5 py-6 shadow-card"
+        className={cn("flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card px-5 py-6 shadow-card", className)}
       >
         <h2 className="m-0 text-section font-semibold">No Round yet</h2>
         <p className="m-0 max-w-[60ch] text-body text-muted-foreground">
@@ -75,12 +79,23 @@ export function RoundDock({ rounds, sessionLive, queryKey }: RoundDockProps) {
     await refresh();
   };
 
+  if (show === "earlier") {
+    if (earlier.length === 0) return null;
+    return (
+      <div className={cn("flex min-w-0 flex-col gap-4", className)}>
+        {earlier.map((round) => (
+          <RoundCard key={round.id} round={round} onAccept={accept} onAnswer={answer} onAcceptAll={refresh} />
+        ))}
+      </div>
+    );
+  }
   return (
-    <div className="flex min-w-0 flex-col gap-4">
+    <div className={cn("flex min-w-0 flex-col gap-4", className)}>
       <RoundCard round={current} onAccept={accept} onAnswer={answer} onAcceptAll={refresh} />
-      {earlier.map((round) => (
-        <RoundCard key={round.id} round={round} onAccept={accept} onAnswer={answer} onAcceptAll={refresh} />
-      ))}
+      {show === "all" &&
+        earlier.map((round) => (
+          <RoundCard key={round.id} round={round} onAccept={accept} onAnswer={answer} onAcceptAll={refresh} />
+        ))}
     </div>
   );
 }

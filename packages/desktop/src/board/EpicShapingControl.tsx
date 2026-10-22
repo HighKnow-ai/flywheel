@@ -19,7 +19,7 @@
  */
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Hand, MessagesSquare, Terminal } from "lucide-react";
+import { ChevronRight, MessageCircleQuestionMark, MessagesSquare, Terminal } from "lucide-react";
 import { epicShape, epicShapingRounds, epicShapingSession, type EpicDto } from "../adapters/tauri";
 import { useUiStore } from "../state/uiStore";
 import { Button } from "@/components/ui/button";
@@ -76,7 +76,7 @@ export function EpicShapingControl({ projectId, epic, place = "board" }: EpicSha
         onClick={() => openEpic(projectId, epic.id)}
         className="shrink-0"
       >
-        <Hand aria-hidden="true" />
+        <MessageCircleQuestionMark aria-hidden="true" />
         Answer
       </Button>
     );
