@@ -36,6 +36,7 @@ import {
   subscribeAgentEvent,
 } from "../adapters/tauri";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
+import { WriteStoryDialog } from "../board/WriteStoryDialog";
 import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
 import { endingWords, formatWhen } from "../board/StoryControls";
 import { StateBadge } from "../components/StateBadge";
@@ -644,6 +645,7 @@ export function SessionSurface({
             : []),
           { label: sessionId, mono: true },
         ]}
+        actions={itemHeader ? <WriteStoryDialog projectId={itemHeader.projectId} /> : undefined}
       />
       <div className="flex min-h-0 flex-1 flex-col px-5 pb-5">
       <section

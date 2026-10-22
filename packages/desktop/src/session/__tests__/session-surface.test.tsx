@@ -1061,6 +1061,15 @@ describe("the header names the Story the session serves (11-22, finish-review fo
     expect(screen.queryByText("Session")).not.toBeInTheDocument();
   });
 
+  it("offers + Epic beside + Story in the top bar, as every surface of the project does (#118)", async () => {
+    renderHeader(
+      { storyId: "story-1" },
+      { story_get: () => Promise.resolve({ key: "FLY-9", title: "Add push retry", projectId: "p1" }) },
+    );
+    expect(await screen.findByRole("button", { name: "Add an Epic" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Write a Story" })).toBeInTheDocument();
+  });
+
   it("says Session while the read is in flight, and keeps saying it when the Story is gone (read returns null)", async () => {
     renderHeader({ storyId: "story-deleted" }, { story_get: () => Promise.resolve(null) });
     expect(screen.getByText("Session")).toBeInTheDocument();
