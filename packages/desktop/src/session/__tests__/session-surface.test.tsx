@@ -996,7 +996,10 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
   it("every state has a floor: waiting on the agent, waiting on the developer, the run's end", async () => {
     mockCombinedReads({ events: [makeToolCall(0, "Bash", { command: "npm test" })] });
     const a = renderSurface();
-    expect(await screen.findByText(/^The agent is working: Bash · npm test\. Last activity .+ ago\.$/)).toBeInTheDocument();
+    // The command sits in the code face inside the sentence, so the sentence is read as the status's text.
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(/^The agent is working: Bash · npm test\. Last activity .+ ago\.$/),
+    );
     a.unmount();
 
     mockCombinedReads({});

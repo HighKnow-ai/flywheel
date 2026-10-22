@@ -58,23 +58,29 @@ function Step({ title, hint, children }: { title: string; hint?: string; childre
 }
 
 export function WriteStoryDialog({ projectId }: { projectId: string }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState<"story" | "epic" | null>(null);
   return (
     <>
-      <Button onClick={() => setOpen(true)} aria-label="Write a Story">
+      <Button variant="outline" onClick={() => setOpen("epic")} aria-label="Add an Epic">
+        <Plus aria-hidden="true" />
+        Epic
+      </Button>
+      <Button onClick={() => setOpen("story")} aria-label="Write a Story">
         <Plus aria-hidden="true" />
         Story
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open !== null} onOpenChange={(next) => !next && setOpen(null)}>
         <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] gap-0 p-0 sm:max-w-2xl">
           <DialogHeader className="border-b border-border px-5 py-4">
-            <DialogTitle className="text-section font-semibold">Write a Story</DialogTitle>
+            <DialogTitle className="text-section font-semibold">{open === "epic" ? "Add an Epic" : "Write a Story"}</DialogTitle>
             <DialogDescription>
-              A Story lives in an Epic, and an Epic in a Milestone. Choose them, or add one, then write the Story.
+              {open === "epic"
+                ? "An Epic lives in a Milestone. Choose one, or add one, then name the Epic."
+                : "A Story lives in an Epic, and an Epic in a Milestone. Choose them, or add one, then write the Story."}
             </DialogDescription>
           </DialogHeader>
           <div className="overflow-y-auto px-5 py-4">
-            <StoryForm projectId={projectId} />
+            <StoryForm projectId={projectId} withStory={open !== "epic"} />
           </div>
         </DialogContent>
       </Dialog>
@@ -82,7 +88,7 @@ export function WriteStoryDialog({ projectId }: { projectId: string }) {
   );
 }
 
-export function StoryForm({ projectId }: { projectId: string }) {
+export function StoryForm({ projectId, withStory = true }: { projectId: string; withStory?: boolean }) {
   const [milestoneId, setMilestoneId] = useState("");
   const [epicId, setEpicId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -106,7 +112,7 @@ export function StoryForm({ projectId }: { projectId: string }) {
         </p>
       )}
 
-      <Step title="Milestone" hint="Where on the Roadmap">
+      <Step title="Where on the Roadmap">
         <Field label="Milestone">
           <select
             value={milestoneId}
@@ -134,7 +140,7 @@ export function StoryForm({ projectId }: { projectId: string }) {
         />
       </Step>
 
-      <Step title="Epic" hint="The problem it belongs to">
+      <Step title="Which problem it belongs to">
         <Field label="Epic">
           <select
             value={epicId}
@@ -153,6 +159,7 @@ export function StoryForm({ projectId }: { projectId: string }) {
         <NewEpic milestoneId={milestoneId} onCreated={setEpicId} onError={setError} />
       </Step>
 
+      {withStory && (
       <NewStory
         epicId={epicId}
         onError={setError}
@@ -161,6 +168,7 @@ export function StoryForm({ projectId }: { projectId: string }) {
           setError(null);
         }}
       />
+      )}
       {written && (
         <p role="status" className="m-0 text-small text-muted-foreground">
           {`${written} is written. It is on the board, in Shaping or Ready.`}
@@ -302,7 +310,7 @@ function NewStory({
 
   return (
     <form onSubmit={handleSubmit}>
-      <Step title="Story" hint={epicId === "" ? "A Story is written inside an Epic: choose one above." : undefined}>
+      <Step title="The Story" hint={epicId === "" ? "A Story is written inside an Epic: choose one above." : undefined}>
         <Field label="Story title">
           <Input value={title} onChange={(e) => setTitle(e.target.value)} className="font-normal" />
         </Field>

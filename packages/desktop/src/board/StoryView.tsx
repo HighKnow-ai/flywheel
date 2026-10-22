@@ -30,6 +30,7 @@ import {
 } from "./StoryControls";
 import { TaskChecklist, useStoryTasks } from "./TaskChecklist";
 import { useBoardChangedSubscription } from "./useBoardQuery";
+import { StateBadge } from "../components/StateBadge";
 import { formatAge } from "../legend/runStatus";
 import { prefersReducedMotion } from "../session/FeedRow";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
@@ -144,19 +145,14 @@ function AgentStation({ projectId, story, waitingOnYou }: { projectId: string; s
           waitingOnYou ? "bg-attention text-attention-foreground" : "bg-primary text-primary-foreground",
         )}
       >
-        <Terminal size={18} className={pulse ? "agent-pulse" : undefined} />
+        <Terminal size={18} />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span
-          className={cn(
-            "font-condensed text-meta tracking-[0.06em] uppercase",
-            waitingOnYou ? "font-semibold text-foreground" : "text-strip-muted-foreground",
-          )}
-        >
-          {waitingOnYou ? "Agent waiting on you" : "Agent running"}
-          {` · since ${formatWhen(live.startedAt)} · ${formatAge(live.startedAt, Date.now())}`}
-        </span>
         <span className="text-row font-semibold">{doing ? doing.title : "Reading the Story and the code it touches"}</span>
+        <span className={cn("flex flex-wrap items-center gap-2 text-small", waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground")}>
+          <StateBadge state={waitingOnYou ? "waiting_on_you" : "running"} pulse={pulse} className="h-5.5 text-meta" />
+          {`Live session since ${formatWhen(live.startedAt)}, ${formatAge(live.startedAt, Date.now())} ago`}
+        </span>
         {doing?.note && (
           <span className={cn("line-clamp-2 text-small", waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground")}>
             {doing.note}

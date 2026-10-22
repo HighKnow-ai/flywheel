@@ -61,6 +61,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
+import { lampsFromFleet } from "../shell/AndonStrip";
 import { useUiStore } from "../state/uiStore";
 
 const SIDEBAR_WIDTH = "248px";
@@ -144,11 +145,14 @@ function RunningSessions({
   projectId,
   projectName,
   sessions,
+  stopped,
   currentStory,
 }: {
   projectId: string;
   projectName: string;
   sessions: FleetRowDto[];
+  /** This project's Stopped Stories (a Running Story with no live session), each by its newest session. */
+  stopped: FleetRowDto[];
   currentStory: StoryDto | null;
 }) {
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
@@ -156,10 +160,13 @@ function RunningSessions({
   const activeSessionId = useUiStore((state) => state.activeSessionId);
   const placeStoryId = usePlaceStoryId();
   const extraStory =
-    currentStory && currentStory.projectId === projectId && !sessions.some((s) => s.storyId === currentStory.id)
+    currentStory &&
+    currentStory.projectId === projectId &&
+    !sessions.some((s) => s.storyId === currentStory.id) &&
+    !stopped.some((s) => s.storyId === currentStory.id)
       ? currentStory
       : null;
-  if (sessions.length === 0 && !extraStory) return null;
+  if (sessions.length === 0 && stopped.length === 0 && !extraStory) return null;
   return (
     <SidebarMenuSub role="list" aria-label={`${projectName} running sessions`} className="mx-0 ml-4 mr-0 gap-0.5 px-1.5 py-1">
       {extraStory && (
@@ -235,6 +242,24 @@ function RunningSessions({
           </SidebarMenuSubItem>
         );
       })}
+      {/* Stopped Stories stay under their project, after the live ones, in a stable order: they need
+          Resume, which their Story offers. No session control: nothing is live to open. */}
+      {stopped.map((row) => {
+        const subject = `${row.storyKey} ${row.storyTitle}`.trim();
+        return (
+          <SidebarMenuSubItem key={row.sessionId} className="flex">
+            <StoryRowButton
+              story={{ id: row.storyId, key: row.storyKey, title: row.storyTitle }}
+              detail="Stopped"
+              tile={<StateBadge state="stopped" hideLabel className="size-5 justify-center p-0 [&>svg]:size-3.5" />}
+              here={row.storyId === placeStoryId}
+              ariaLabel={`Open Story ${subject}, Stopped`}
+              title={`${subject}: Stopped`}
+              onClick={() => openStory(row.projectId, row.storyId)}
+            />
+          </SidebarMenuSubItem>
+        );
+      })}
     </SidebarMenuSub>
   );
 }
@@ -301,7 +326,12 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   const queue = useBlockedQueue().data ?? [];
   const waitingCount = queue.length;
   const recoveryCount = useRecoverySummary(currentProjectId).data?.recoveryCount ?? 0;
-  const liveSessions = (useFleet().data?.rows ?? []).filter(isLiveSession);
+  const fleetRows = useFleet().data?.rows ?? [];
+  const liveSessions = fleetRows.filter(isLiveSession);
+  // The strip's own rule for Stopped, so the sidebar and the lamps agree.
+  const stoppedRows = lampsFromFleet(fleetRows)
+    .filter((lamp) => lamp.tone === "stopped")
+    .map((lamp) => lamp.row);
   const currentStory = useCurrentStory(currentProjectId);
 
   const currentProject = projects.find((project) => project.id === currentProjectId);
@@ -474,6 +504,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                       projectId={project.id}
                       projectName={project.name}
                       sessions={liveSessions.filter((session) => session.projectId === project.id)}
+                      stopped={stoppedRows.filter((row) => row.projectId === project.id)}
                       currentStory={currentStory}
                     />
                   </SidebarMenuItem>

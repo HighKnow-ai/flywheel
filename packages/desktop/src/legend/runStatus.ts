@@ -27,7 +27,8 @@ export const RUN_STATUS_LABELS: Record<FleetState, string> = {
   failed: "Failed",
   interrupted: "Interrupted",
   abandoned: "Abandoned",
-  awaiting_review: "Awaiting review",
+  // The Story is In review: the same words the board uses for it.
+  awaiting_review: "In review",
 };
 
 export const TERMINAL_STATUSES: readonly RunStatus[] = ["completed", "failed", "interrupted", "abandoned"];

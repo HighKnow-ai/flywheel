@@ -47,6 +47,7 @@ import { useUiStore } from "../state/uiStore";
 import { BlockedQueue } from "./BlockedQueue";
 import { useBlockedQueue, useFleet } from "./useFleet";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
+import { lampsFromFleet } from "../shell/AndonStrip";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -255,12 +256,16 @@ export function FleetRowView({
   row,
   now,
   selected = false,
+  stopped = false,
   onOpenSession,
   onOpenSubject,
 }: {
   row: FleetRowDto;
   now: number;
   selected?: boolean;
+  /** This run is the newest of a Running Story with no live session: its Story is Stopped, so the row
+   * says so in red, as the board, the sidebar and the strip do. */
+  stopped?: boolean;
   onOpenSession?: (row: FleetRowDto) => void;
   onOpenSubject?: (row: FleetRowDto) => void;
 }) {
@@ -288,7 +293,7 @@ export function FleetRowView({
       style={{ gridTemplateColumns: ROW_COLUMNS }}
     >
       <span data-field="state" style={{ display: "inline-flex" }}>
-        <StateBadge state={state} pulse={pulsing} />
+        {stopped ? <StateBadge state="stopped" /> : <StateBadge state={state} pulse={pulsing} />}
       </span>
       <span data-field="project" className="truncate text-small text-muted-foreground">
         {row.projectName}
@@ -344,6 +349,7 @@ export function FleetBand({
   rows,
   now,
   selectedRunId = null,
+  stoppedRunIds,
   onOpenSession,
   onOpenSubject,
 }: {
@@ -351,6 +357,7 @@ export function FleetBand({
   rows: FleetRowDto[];
   now: number;
   selectedRunId?: string | null;
+  stoppedRunIds?: Set<string>;
   onOpenSession?: (row: FleetRowDto) => void;
   onOpenSubject?: (row: FleetRowDto) => void;
 }) {
@@ -394,6 +401,7 @@ export function FleetBand({
             row={row}
             now={now}
             selected={row.sessionId === selectedRunId}
+            stopped={stoppedRunIds?.has(row.sessionId) ?? false}
             onOpenSession={onOpenSession}
             onOpenSubject={onOpenSubject}
           />
@@ -421,6 +429,13 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
   const total = fleet.data?.totalRows ?? 0;
   const queue = blocked.data ?? [];
   const now = useNowTick(rows.length > 0 || queue.length > 0);
+  // The strip's own rule for Stopped, so the fleet, the strip and the sidebar agree on which Story it is.
+  const stoppedRunIds = new Set(
+    lampsFromFleet(rows)
+      // An abandoned run keeps its own word: it lost its supervisor, and it already reads red (D-169).
+      .filter((lamp) => lamp.tone === "stopped" && lamp.row.fleetState !== "abandoned")
+      .map((lamp) => lamp.row.sessionId),
+  );
 
   // The core orders rows by band, so grouping is a single pass over consecutive rows.
   const byBand = new Map<FleetBandId, FleetRowDto[]>();
@@ -528,6 +543,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
                 rows={byBand.get(band.id) ?? []}
                 now={now}
                 selectedRunId={selectedRunId}
+                stoppedRunIds={stoppedRunIds}
                 onOpenSession={openSession}
                 onOpenSubject={openSubject}
               />

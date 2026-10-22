@@ -39,6 +39,7 @@ import {
   payloadText,
   proposalKind,
   toolCallLabel,
+  toolCallTarget,
   type FeedRowData,
   type QuestionPrompt,
 } from "./feedRows";
@@ -188,7 +189,7 @@ export function Fields({ value, depth = 0 }: { value: unknown; depth?: number })
     return <span className="text-muted-foreground">none</span>;
   }
   if (typeof value === "string") {
-    return value.includes("\n") ? <pre className="m-0 font-mono text-small break-words whitespace-pre-wrap">{value}</pre> : <span>{value}</span>;
+    return value.includes("\n") ? <pre className="m-0 font-mono text-small break-words whitespace-pre-wrap">{value}</pre> : <span className="font-mono text-small break-words">{value}</span>;
   }
   if (typeof value === "number" || typeof value === "boolean") return <span>{String(value)}</span>;
   if (depth >= FIELDS_MAX_DEPTH) return <span>{payloadText(value)}</span>;
@@ -266,11 +267,20 @@ function ToolCallRow({
         aria-expanded={expanded}
         className={disclosureClass}
         data-live={live ? "true" : undefined}
+        // The visible words exactly, so the two faces inside the label never split the accessible name.
+        aria-label={[toolCallLabel(row.toolName, row.input), live ? "running" : row.isError ? "failed" : null].filter(Boolean).join(", ")}
       >
         <Chevron expanded={expanded} />
         <KindIcon aria-hidden="true" size={16} className="shrink-0 text-muted-foreground" />
-        <span className="feed-call-label min-w-0 truncate font-mono text-small text-foreground">
-          {toolCallLabel(row.toolName, row.input)}
+        {/* The same words as toolCallLabel: the tool in the reading face, what it acts on in the code face. */}
+        <span className="feed-call-label min-w-0 truncate text-small text-foreground" title={toolCallLabel(row.toolName, row.input)}>
+          <span className="font-medium">{row.toolName}</span>
+          {toolCallTarget(row.input) && (
+            <>
+              <span className="text-subtle-foreground">{" · "}</span>
+              <span className="font-mono">{toolCallTarget(row.input)}</span>
+            </>
+          )}
         </span>
         {live ? (
           <>

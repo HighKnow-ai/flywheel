@@ -134,7 +134,8 @@ describe("FleetSurface bands", () => {
   it("puts interrupted under DONE / FAILED in the quiet class, and abandoned under NEEDS YOU in needs-you", async () => {
     fleetListMock.mockResolvedValue(
       list([
-        row({ sessionId: "r-int", fleetState: "interrupted", runStatus: "interrupted", endedAt: new Date().toISOString() }),
+        // The Story moved on (In review), so this interrupted run is history, not a Stopped Story.
+        row({ sessionId: "r-int", storyState: "in_review", fleetState: "interrupted", runStatus: "interrupted", endedAt: new Date().toISOString() }),
         row({ sessionId: "r-ab", fleetState: "abandoned", runStatus: "abandoned" }),
       ]),
     );
@@ -277,6 +278,21 @@ describe("the vocabulary", () => {
     for (const state of Object.keys(RUN_STATUS_LABELS)) {
       expect(STATE_VOCABULARY[state as keyof typeof STATE_VOCABULARY], state).toBeDefined();
     }
+  });
+});
+
+describe("a Stopped Story on the fleet", () => {
+  it("reads Stopped, in red, on the newest ended run of a Running Story with no live session", async () => {
+    fleetListMock.mockResolvedValue(
+      list([row({ sessionId: "r-dead", storyState: "running", fleetState: "interrupted", runStatus: "interrupted", endedAt: new Date().toISOString() })]),
+    );
+    renderFleet();
+    const dead = await waitFor(() => {
+      const el = document.querySelector('[data-fleet-state="interrupted"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(within(dead).getByText("Stopped").getAttribute("data-tone")).toBe("destructive");
   });
 });
 

@@ -42,7 +42,7 @@ export const STATE_VOCABULARY = {
   stopped: { tone: "destructive", icon: "CirclePause", label: "Stopped" },
   // Run statuses. `blocked` is the core's word for a session Waiting on you (GLOSSARY.md).
   blocked: { tone: "attention", icon: "Hand", label: "Waiting on you" },
-  awaiting_review: { tone: "neutral", icon: "GitPullRequest", label: "Awaiting review" },
+  awaiting_review: { tone: "neutral", icon: "GitPullRequest", label: "In review" },
   completed: { tone: "neutral", icon: "CircleCheck", label: "Completed" },
   interrupted: { tone: "neutral", icon: "CirclePause", label: "Interrupted", quiet: true },
   abandoned: { tone: "destructive", icon: "CirclePause", label: "Abandoned" },

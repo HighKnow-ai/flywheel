@@ -184,7 +184,9 @@ export function AndonStrip() {
   const capacity = laneWidth > 0 ? lampCapacity(laneWidth, lamps.length) : lamps.length;
   const shown = lamps.slice(0, capacity);
   const hidden = lamps.length - shown.length;
-  const liveCount = lamps.filter((lamp) => lamp.tone !== "stopped").length;
+  const hiddenTones = (["waiting", "running", "stopped"] as const).filter((tone) =>
+    lamps.slice(shown.length).some((lamp) => lamp.tone === tone),
+  );
 
   return (
     <section
@@ -193,8 +195,8 @@ export function AndonStrip() {
     >
       <div className="flex w-14 shrink-0 flex-col gap-0.5">
         <span className="font-condensed text-meta tracking-[0.06em] text-strip-muted-foreground uppercase">Agents</span>
-        <span className="text-section leading-none font-semibold tabular-nums" aria-label={`${liveCount} live`}>
-          {liveCount}
+        <span className="text-section leading-none font-semibold tabular-nums" aria-label={`${lamps.length} lamps`}>
+          {lamps.length}
         </span>
       </div>
       <div ref={laneRef} role="list" aria-label="Live sessions" className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
@@ -213,10 +215,30 @@ export function AndonStrip() {
               <div role="listitem" className="shrink-0">
                 <button
                   type="button"
+                  aria-label={`${hidden} more: ${hiddenTones.map((tone) => TONE_WORD[tone]).join(", ")}. Open All agents`}
                   onClick={() => setFleetSurface({ view: "fleet" })}
                   style={{ width: MORE_WIDTH }}
                   className="flex h-13 items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/25 text-small font-semibold text-strip-foreground transition-colors duration-(--duration-state) ease-(--ease) hover:bg-white/10 focus-visible:outline-strip-foreground"
                 >
+                  {/* What the folded lamps are, by their bulbs: never a stateless count. */}
+                  <span aria-hidden="true" className="flex -space-x-1">
+                    {hiddenTones.map((tone) => {
+                      const Bulb = BULB_ICON[tone];
+                      return (
+                        <span
+                          key={tone}
+                          className={cn(
+                            "flex size-5 items-center justify-center rounded-full ring-2 ring-strip",
+                            tone === "waiting" && "bg-attention text-attention-foreground",
+                            tone === "running" && "bg-primary text-primary-foreground",
+                            tone === "stopped" && "bg-destructive text-destructive-foreground",
+                          )}
+                        >
+                          <Bulb size={12} strokeWidth={2.25} />
+                        </span>
+                      );
+                    })}
+                  </span>
                   {`+${hidden} more`}
                   <ChevronRight aria-hidden="true" size={16} className="text-strip-muted-foreground" />
                 </button>

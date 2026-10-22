@@ -329,6 +329,7 @@ Primitives are shadcn/ui source, copied into the app and rethemed on these token
 - **Sizes:** default 34px tall with 14px sides; small 30px; extra-small 24px at meta size; large 40px at row size; square icon sizes to match.
 - **Default (primary):** brand blue fill, white word, the filled-button lip. Hover drops to 90% fill.
 - **Attention:** safety yellow fill, lamp-black word, the lip. Only on an item that is Waiting on you (Answer, Allow once).
+- **Neutral:** ink fill (`foreground`), card-coloured word, the lip. Only Deny leading a Gated action (direction.md rule 2), so approve-by-muscle-memory lands on the safe answer without spending blue or yellow on a refusal.
 - **Secondary:** the inset ground, hover to `accent`.
 - **Outline:** card ground with the control edge; hover and open darken the edge to ink.
 - **Ghost:** no ground; `accent` on hover and while open.

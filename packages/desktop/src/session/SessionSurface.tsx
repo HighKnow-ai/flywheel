@@ -341,11 +341,23 @@ function SessionFloor({
   const working = running && !waitingOnYou && !ended;
   const now = useNowTick(working);
   let text: string;
+  // The call the agent is in, set in the code face: a command never renders in the reading face.
+  let doingNode: React.ReactNode = null;
   if (ended) text = "This run has ended. Nothing more will be added to this transcript.";
   else if (waitingOnYou) text = "Waiting on you: answer the request above.";
   else if (working) {
     const what = doing ? `The agent is working: ${doing}.` : "The agent is working.";
-    text = lastActivityAt ? `${what} Last activity ${formatAge(lastActivityAt, now)} ago.` : what;
+    const since = lastActivityAt ? ` Last activity ${formatAge(lastActivityAt, now)} ago.` : "";
+    text = `${what}${since}`;
+    if (doing) {
+      doingNode = (
+        <>
+          {"The agent is working: "}
+          <span className="font-mono">{doing}</span>
+          {`.${since}`}
+        </>
+      );
+    }
   } else text = "Waiting on the agent.";
   return (
     <p
@@ -356,7 +368,7 @@ function SessionFloor({
         waitingOnYou && !ended ? "bg-attention-muted font-semibold text-foreground" : "text-muted-foreground",
       )}
     >
-      {text}
+      {doingNode ?? text}
     </p>
   );
 }
