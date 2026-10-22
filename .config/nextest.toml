@@ -15,3 +15,6 @@ test-group = "keychain"
 
 [profile.ci]
 fail-fast = false
+# Most tests wait on git and node child processes rather than burn CPU, so the 3-core macOS runner
+# finishes sooner running two tests per core.
+test-threads = 6
