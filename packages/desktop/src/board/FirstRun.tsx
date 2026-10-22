@@ -107,7 +107,7 @@ export function FirstRun() {
   return (
     <div className="first-run state-surface">
       {/* A-08(c): the mark is drawn in ink, not the 64px brand-filled tile. A CSS mask over a glyph-only asset, so
-          `--text-primary-rack` colours it in both schemes (an <img> cannot read the page's tokens). Still a
+          `--foreground` colours it in both schemes (an image element cannot read the page's tokens). Still a
           reference to a static file, never inline markup (T-08.1-05). */}
       <span
         role="img"

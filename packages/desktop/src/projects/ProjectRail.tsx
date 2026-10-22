@@ -384,7 +384,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
     <nav aria-label="Projects" className="project-rail" style={railStyle}>
       {/* A-08(c): ink, not the brand-filled tile. The owner declined a fifth permitted brand use for an
           identity mark, so the rail follows FirstRun rather than keeping the fill it dropped. A CSS mask
-          over the glyph-only asset lets `--text-primary-rack` colour it in both schemes; an <img> cannot
+          over the glyph-only asset lets `--foreground` colour it in both schemes; an image element cannot
           read the page's tokens. Still a static file reference, never inline markup (T-08.1-05). */}
       <span
         role="img"
