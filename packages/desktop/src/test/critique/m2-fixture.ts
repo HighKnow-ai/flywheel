@@ -21,6 +21,9 @@ import type {
   MilestoneDto,
   MilestoneProgressDto,
   PendingPermissionRequestDto,
+  RoadmapProposalDto,
+  RoadmapRoundDto,
+  RoadmapRoundViewDto,
   RunSummaryDto,
   SessionSummaryDto,
   StoryDto,
@@ -383,16 +386,81 @@ export function setShapingSessionLive(live: boolean): void {
   shapingSessionLive = live;
 }
 
-/** Round 2 of Epic #59 while its session is held on it: the lamp and the queue entry (issue #124). */
+/**
+ * The roadmap Round of flywheel's Roadmap (issue #133), off by default so every earlier screen keeps its shot:
+ * `working` while the agent reads the Roadmap, `waiting` while it waits on three proposed changes (one already
+ * rejected), `idle` once its session is gone, `holds` after a Round that said the Roadmap still holds.
+ */
+export type RoadmapRoundMode = "none" | "working" | "waiting" | "idle" | "holds";
+let roadmapMode: RoadmapRoundMode = "none";
+export function setRoadmapRound(mode: RoadmapRoundMode): void {
+  roadmapMode = mode;
+}
+
+function roadmapRound(overrides: Partial<RoadmapRoundDto> = {}): RoadmapRoundDto {
+  return {
+    id: "rr-2", number: 2, state: "open", triggerType: "revisit", triggerLabel: "Revisit roadmap",
+    waitingOnYou: roadmapMode === "waiting", sessionLive: roadmapMode !== "idle", sessionId: "ses-roadmap-2",
+    postedAt: ago(1500), closedAt: null, proposalsFiled: roadmapMode === "working" ? 0 : 4, ...overrides,
+  };
+}
+
+function roadmapProposal(id: string, verb: string, targetType: string, summary: string, rest: Partial<RoadmapProposalDto>): RoadmapProposalDto {
+  return {
+    id, projectId: "p-fly", sessionId: "ses-roadmap-2", epicId: null, verb, targetType, targetId: null, payload: {},
+    rationale: null, state: "pending", createdAt: ago(1400), rejectionReason: null, stageId: null, roundId: "rr-2",
+    summary, anchorMilestoneId: null, ...rest,
+  };
+}
+
+const ROADMAP_PROPOSALS: RoadmapProposalDto[] = [
+  roadmapProposal("rp-1", "create", "epic", "New Epic \"Roadmap Rounds\" in Milestone \"Shaping\"", {
+    payload: { milestone_id: "m-3", title: "Roadmap Rounds", problem: "The Roadmap is only ever revisited by hand." },
+    anchorMilestoneId: "m-3",
+    rationale: "The Shaping exit test names the Roadmap, and no Epic in the Milestone covers it.",
+  }),
+  roadmapProposal("rp-2", "amend", "milestone", "Amend Milestone \"One-week exit test\": exit test \"Cyril runs one week of real work from Flywheel without a bare terminal.\"", {
+    targetId: "m-5", anchorMilestoneId: "m-5",
+    payload: { title: null, exit_test: "Cyril runs one week of real work from Flywheel without a bare terminal." },
+    rationale: "It has no exit test, so nothing tells it apart from Board and review.",
+  }),
+  roadmapProposal("rp-3", "create", "milestone", "New Milestone \"Relay and mobile\" (exit test: A Round is answered from a phone.)", {
+    payload: { title: "Relay and mobile", exit_test: "A Round is answered from a phone." },
+    rationale: "Asked for twice in the Epic #59 Rounds.",
+  }),
+  roadmapProposal("rp-4", "retire", "milestone", "Retire Milestone \"Board and review\"", {
+    targetId: "m-4", anchorMilestoneId: "m-4", state: "rejected",
+    rejectionReason: "Review is the next thing after shaping",
+  }),
+];
+
+function roadmapView(): RoadmapRoundViewDto {
+  if (roadmapMode === "none") return { open: null, proposals: [], last: null };
+  if (roadmapMode === "holds") {
+    return { open: null, proposals: [], last: roadmapRound({ number: 1, state: "closed", closedAt: ago(7200), proposalsFiled: 0, sessionLive: false, waitingOnYou: false }) };
+  }
+  return { open: roadmapRound(), proposals: roadmapMode === "working" ? [] : ROADMAP_PROPOSALS, last: null };
+}
+
+/** Round 2 of Epic #59 while its session is held on it: the lamp and the queue entry (issue #124). With
+ * the roadmap Round waiting, its lamp and queue entry too (issue #133). */
 function waitingRounds(): WaitingRoundDto[] {
-  if (!shapingSessionLive) return [];
-  return [{
+  const roadmap: WaitingRoundDto[] = roadmapMode === "waiting"
+    ? [{
+        roundId: "rr-2", roundNumber: 2, subject: "roadmap", stageKind: null, sessionId: "ses-roadmap-2",
+        projectId: "p-fly", projectName: "flywheel", projectKeyPrefix: "FLY", epicId: null, epicKey: null, epicTitle: null,
+        waitingSince: ago(1500), answered: 1, questions: 4,
+      }]
+    : [];
+  if (!shapingSessionLive) return roadmap;
+  return [...roadmap, {
     roundId: "r-2", roundNumber: 2, subject: "epic", stageKind: "challenge_spec", sessionId: "ses-shape-8",
     projectId: "p-fly", projectName: "flywheel", projectKeyPrefix: "FLY",
     epicId: "e-59", epicKey: "FLY-8", epicTitle: "Epic shaping",
     waitingSince: ago(1800), answered: 1, questions: 4,
   }];
 }
+
 
 /** Issue #129: whether Epic #59's Rounds offer ADRs (one accepted in Round 1, one open in Round 2) and its
  * card wears ADR and glossary chips. Off by default so the earlier shaping screens keep their shots. */
@@ -581,7 +649,8 @@ export function answer(cmd: string, args: Args): unknown {
       const fly = arg(args, "projectId") === "p-fly";
       const ids = fly ? ["s-5", "s-6"] : ["s-h2"];
       const epics = fly && shapingSessionLive ? ["e-59"] : [];
-      return { blockedStoryIds: ids, waitingEpicIds: epics, blockedCount: ids.length + epics.length };
+      const roadmapWaiting = fly && roadmapMode === "waiting";
+      return { blockedStoryIds: ids, waitingEpicIds: epics, roadmapWaiting, blockedCount: ids.length + epics.length + (roadmapWaiting ? 1 : 0) };
     }
     case "board_recovery_summary": return { recoveryStoryIds: [], recoveryCount: 0 };
     case "fleet_list": return { rows: FLEET_ROWS, totalRows: FLEET_ROWS.length, visibleCostUsd: 9.3 };
@@ -601,6 +670,7 @@ export function answer(cmd: string, args: Args): unknown {
     case "criterion_list": return CRITERIA[arg(args, "storyId")] ?? [];
     case "epic_shaping_session": return arg(args, "epicId") === "e-59" && shapingSessionLive ? "ses-shape-8" : null;
     case "epic_shaping_rounds": return shapingOf(arg(args, "epicId"));
+    case "roadmap_round_read": return arg(args, "projectId") === "p-fly" ? roadmapView() : { open: null, proposals: [], last: null };
     default: return null;
   }
 }
@@ -608,6 +678,7 @@ export function answer(cmd: string, args: Args): unknown {
 /** Route every `invoke`/`listen` in the app to the seeded data. Call before the first render. */
 export function installFixtureBackend(): void {
   withAdrs = false;
+  roadmapMode = "none";
   adrsOnlyLeft = false;
   mockIPC((cmd, payload) => answer(cmd, payload as Args), { shouldMockEvents: true });
 }

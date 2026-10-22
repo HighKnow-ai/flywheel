@@ -184,7 +184,7 @@ function RunningSessions({
           <SidebarMenuSubItem key={round.roundId} className="flex">
             <StoryRowButton
               story={{ id: round.epicId ?? round.roundId, key: words.key, title: words.title }}
-              detail={`${words.round} · Waiting on you`}
+              detail={`${words.shortRound} · Waiting on you`}
               tile={<StateBadge state="waiting_on_you" hideLabel className="size-5 justify-center p-0 [&>svg]:size-3.5" />}
               here={round.epicId !== null && round.epicId === placeEpicId}
               ariaLabel={`Open ${words.record}, ${words.round} Waiting on you`}

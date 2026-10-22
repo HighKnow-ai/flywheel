@@ -191,7 +191,7 @@ export function RoundLamp({ round, current, now }: { round: WaitingRoundDto; cur
           <span className="truncate">{words.title}</span>
         </span>
         <span className="truncate text-meta font-semibold text-attention-foreground">
-          {`${words.round} · Waiting on you`}
+          {`${words.shortRound} · Waiting on you`}
         </span>
       </span>
       <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-attention-foreground" />

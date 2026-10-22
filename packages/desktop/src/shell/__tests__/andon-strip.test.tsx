@@ -120,7 +120,7 @@ describe("a shaping Round waiting on you (issue #124)", () => {
       </QueryClientProvider>,
     );
     const lamp = await screen.findByRole("button", { name: "Open the Flywheel Roadmap, Roadmap Round 1 Waiting on you" });
-    expect(lamp).toHaveTextContent("Roadmap Round 1 · Waiting on you");
+    expect(lamp).toHaveTextContent("Round 1 · Waiting on you");
     expect(lamp).toHaveAttribute("title", expect.stringContaining("1 of 3 decided"));
     fireEvent.click(lamp);
     expect(useUiStore.getState().currentProjectId).toBe("p1");

@@ -16,6 +16,8 @@ export interface WaitingRoundWords {
   record: string;
   /** "Round 2", "Roadmap Round 1". */
   round: string;
+  /** "Round 2" for both: where the key already names the record (a lamp, a sidebar row). */
+  shortRound: string;
   /** "1 of 3 answered", "1 of 2 decided". */
   progress: string;
   /** What the queue says the agent waits for. */
@@ -33,6 +35,7 @@ export function waitingRoundWords(round: WaitingRoundDto): WaitingRoundWords {
       title: round.projectName,
       record: `the ${round.projectName} Roadmap`,
       round: `Roadmap Round ${round.roundNumber}`,
+      shortRound: `Round ${round.roundNumber}`,
       progress: `${round.answered} of ${round.questions} decided`,
       hint: "The agent goes on once every proposed change is decided.",
       kind: "Roadmap change",
@@ -46,6 +49,7 @@ export function waitingRoundWords(round: WaitingRoundDto): WaitingRoundWords {
     title,
     record: `Epic ${`${key} ${title}`.trim()}`,
     round: `Round ${round.roundNumber}`,
+    shortRound: `Round ${round.roundNumber}`,
     progress: `${round.answered} of ${round.questions} answered`,
     hint: "The agent goes on once every question is answered.",
     kind: "Shaping question",

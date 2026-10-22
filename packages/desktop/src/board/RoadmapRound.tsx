@@ -432,7 +432,7 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
 
         {mode === "amending" && fields && (
           <form
-            className="flex min-w-0 flex-col gap-2 pt-1"
+            className="flex max-w-[68ch] min-w-0 flex-col gap-2 pt-1"
             onSubmit={submitAmend}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
