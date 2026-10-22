@@ -111,6 +111,51 @@ export async function milestoneSetState(milestoneId: string, to: string): Promis
   await invokeCommand<void>("milestone_set_state", { milestoneId, to });
 }
 
+/**
+ * A Milestone's or an Epic's Stories by state — mirrors `commands/roadmap.rs`'s `StoryStateCountsDto`.
+ * Attention splits Running: `running` counts only Running Stories neither Waiting on you nor Stopped, so
+ * the counts add up. `storiesTotal` leaves out Dropped Stories, which are counted on their own.
+ */
+export interface StoryStateCountsDto {
+  shaping: number;
+  ready: number;
+  running: number;
+  waitingOnYou: number;
+  stopped: number;
+  inReview: number;
+  merged: number;
+  dropped: number;
+  storiesTotal: number;
+}
+
+/** One Epic's progress row — mirrors `commands/roadmap.rs`'s `EpicProgressDto`. */
+export interface EpicProgressDto {
+  epicId: string;
+  key: string;
+  title: string;
+  /** The state with In progress derived: `shaping`, `ready`, `in_progress` or `done`. */
+  state: string;
+  counts: StoryStateCountsDto;
+}
+
+/** The Milestone header's numbers — mirrors `commands/roadmap.rs`'s `MilestoneProgressDto`. */
+export interface MilestoneProgressDto {
+  milestoneId: string;
+  title: string;
+  exitTest: string | null;
+  state: string;
+  nextMilestoneTitle: string | null;
+  counts: StoryStateCountsDto;
+  epicsDone: number;
+  epicsTotal: number;
+  epics: EpicProgressDto[];
+}
+
+/** The project's progress at a glance, or `null` without a Current Milestone. Counted by the core. */
+export async function milestoneProgress(projectId: string): Promise<MilestoneProgressDto | null> {
+  return invokeCommand<MilestoneProgressDto | null>("milestone_progress", { projectId });
+}
+
 /** An Epic in one Milestone — mirrors `commands/epic.rs`'s `EpicDto`. */
 export interface EpicDto {
   id: string;

@@ -16,10 +16,12 @@ import type {
   EpicDto,
   FleetRowDto,
   MilestoneDto,
+  MilestoneProgressDto,
   PendingPermissionRequestDto,
   RunSummaryDto,
   SessionSummaryDto,
   StoryDto,
+  StoryStateCountsDto,
   TaskDto,
 } from "../../adapters/tauri";
 import type { Project } from "../../board/useBoardQuery";
@@ -287,6 +289,31 @@ const QUEUE: BlockedQueueEntryDto[] = [queueEntry("ses-5a", "s-5"), queueEntry("
 
 const PACKET: Record<string, number> = { "s-3": 11800, "s-4": 9400, "s-5": 12100, "s-6": 8700, "s-7": 23400, "s-9": 6100, "s-10": 5200, "s-h2": 4100, "s-h3": 3900 };
 
+const counts = (c: Partial<StoryStateCountsDto>): StoryStateCountsDto => {
+  const full = { shaping: 0, ready: 0, running: 0, waitingOnYou: 0, stopped: 0, inReview: 0, merged: 0, dropped: 0, ...c };
+  return { ...full, storiesTotal: full.shaping + full.ready + full.running + full.waitingOnYou + full.stopped + full.inReview + full.merged };
+};
+
+/** What the core's `milestone_progress` answers for the seeded Stories above (the core counts; this mirrors it). */
+const PROGRESS: Record<string, MilestoneProgressDto> = {
+  "p-fly": {
+    milestoneId: "m-3", title: "Shaping", state: "in_progress", nextMilestoneTitle: "Board and review",
+    exitTest: "Cyril takes a one-line idea to an Epic with Ready Stories, each with accepted criteria and Checks, entirely in Flywheel's dock and board.",
+    counts: counts({ merged: 1, inReview: 1, running: 1, waitingOnYou: 2, stopped: 1, ready: 1, shaping: 1, dropped: 1 }),
+    epicsDone: 0, epicsTotal: 2,
+    epics: [
+      { epicId: "e-97", key: "FLY-1", title: "Design system and a legible app", state: "in_progress", counts: counts({ merged: 1, inReview: 1, running: 1, waitingOnYou: 2, stopped: 1 }) },
+      { epicId: "e-59", key: "FLY-8", title: "Epic shaping", state: "shaping", counts: counts({ ready: 1, shaping: 1, dropped: 1 }) },
+    ],
+  },
+  "p-hkw": {
+    milestoneId: "m-h1", title: "Waitlist live", state: "in_progress", nextMilestoneTitle: null,
+    exitTest: "A visitor can join the waitlist and gets a confirmation email.",
+    counts: counts({ waitingOnYou: 1, ready: 1 }), epicsDone: 0, epicsTotal: 1,
+    epics: [{ epicId: "e-h1", key: "HKW-1", title: "Waitlist", state: "in_progress", counts: counts({ waitingOnYou: 1, ready: 1 }) }],
+  },
+};
+
 type Args = Record<string, unknown> | undefined;
 const arg = (args: Args, name: string) => (args?.[name] as string | undefined) ?? "";
 
@@ -300,6 +327,7 @@ export function answer(cmd: string, args: Args): unknown {
     case "project_list": return PROJECTS;
     case "milestone_list": return MILESTONES[arg(args, "projectId")] ?? [];
     case "epic_list": return EPICS[arg(args, "milestoneId")] ?? [];
+    case "milestone_progress": return PROGRESS[arg(args, "projectId")] ?? null;
     case "story_list_for_project": return STORIES.filter((s) => s.projectId === arg(args, "projectId"));
     case "story_list": return STORIES.filter((s) => s.epicId === arg(args, "epicId"));
     case "story_get": return storyById(arg(args, "storyId")) ?? null;
