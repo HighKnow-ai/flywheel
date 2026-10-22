@@ -1,0 +1,14 @@
+# Tailwind CSS and shadcn/ui for the desktop UI
+
+Decided in [Pick Flywheel's new visual world from three rendered directions](https://github.com/HighKnow-ai/flywheel/issues/103), when Cyril picked the Andon direction and asked for it to land as one cohesive system ([`docs/design/direction.md`](../design/direction.md)). The desktop renderer is styled with **Tailwind CSS v4** (through `@tailwindcss/vite`), and its shared controls come from **shadcn/ui**: component source that the shadcn CLI copies into `packages/desktop/src/components/ui/` and that we then own, built on Radix primitives with `class-variance-authority`, `clsx` and `tailwind-merge`. Colour, radius and type are shadcn's CSS variables in one `globals.css`, with Flywheel's own roles (`attention`, `running`, `strip`, `lamp`) added beside them and mapped to Tailwind with `@theme inline`. The ⌘K palette uses shadcn's `Command`, which wraps `cmdk`. Icons stay on `lucide-react`, shadcn's default set, which is already installed.
+
+We rejected keeping hand-written CSS with custom properties (`styles/tokens.css` and per-feature stylesheets), the M1 and M2 approach. It produced the critique's main failure: every screen restyled its own buttons and rows, so nothing shared a hierarchy and "what is clickable" differed from screen to screen. We also rejected a packaged component library with its own theme engine (Mantine, Chakra, MUI). Its look and its runtime styling would sit between the direction contract and the screen, and we would theme around it instead of owning the components. shadcn/ui gives Radix's accessible behaviour (focus, dismissal, keyboard) with source we can edit, and Radix is already in the tree (`@radix-ui/react-dismissable-layer`, `@radix-ui/react-focus-scope`).
+
+## Consequences
+
+- This is hard to reverse. Every component's styling moves into Tailwind class strings, and backing out means rewriting the styling of every screen.
+- It is surprising in a repo that had no utility CSS. A reader expects `styles/*.css` to be the source of truth; after #105 it is `globals.css` plus the components in `components/ui/`.
+- `styles/tokens.css` is replaced by `globals.css`. The house method stays: `theme/__tests__/contrast.test.ts` keeps asserting every pair that `direction.md` measures, now read from the new variables.
+- This Story installs nothing. Story #105 adds the packages with exact pinned versions (as the repo pins `lucide-react` 1.43.0), runs `shadcn init` for Tailwind v4, and generates only the components `direction.md` lists. Fonts are self-hosted through `@fontsource` (Barlow, Barlow Semi Condensed, JetBrains Mono).
+- shadcn components are copied once, not tracked upstream. An upstream fix reaches us only if we re-run the CLI for that component and merge it by hand.
+- The single adapter module for Tauri calls (`adapters/tauri.ts`) is unaffected. This decision is about styling and controls only, so the relay target the stack table protects stays open.
