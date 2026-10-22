@@ -26,7 +26,11 @@ use core::domain::session::agent_actor_id;
 use core::domain::check::{remove_check, set_check};
 use core::domain::epic::{set_epic_state, EpicState};
 use core::domain::milestone::{move_milestone, set_milestone_state, MilestoneState};
-use core::domain::proposal::{accept_proposal, accept_proposal_amended, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb};
+use core::domain::proposal::{
+    accept_proposal, accept_proposal_amended, accept_proposal_released, file_proposal, reject_proposal, reject_proposal_released,
+    NewProposal, ProposalTarget, ProposalVerb,
+};
+use core::domain::roadmap_round::{dismiss_roadmap_round, open_roadmap_round};
 use core::domain::round::{accept_all_recommended, answer_round_question, post_round, NewQuestion, NewRound, RoundAnswer};
 use core::domain::stage::close_stage;
 use core::domain::story::{set_story_state, StoryState};
@@ -169,6 +173,31 @@ fn run_reject_proposal(who: Who) -> Trial {
     trial(&mut conn, who, |c, actor| reject_proposal(c, actor, &proposal_id, Some("not now")))
 }
 
+/// Issue #133: the deciding writers that also hand back a roadmap Round's held call.
+fn run_accept_proposal_released(who: Who) -> Trial {
+    let (mut conn, proposal_id) = filed_proposal();
+    trial(&mut conn, who, |c, actor| accept_proposal_released(c, actor, &proposal_id, None).map(|_| ()))
+}
+
+fn run_reject_proposal_released(who: Who) -> Trial {
+    let (mut conn, proposal_id) = filed_proposal();
+    trial(&mut conn, who, |c, actor| reject_proposal_released(c, actor, &proposal_id, Some("not now")).map(|_| ()))
+}
+
+/// Issue #133: dismissing a roadmap Round closes it with no change, and is the developer's.
+fn run_dismiss_roadmap_round(who: Who) -> Trial {
+    let (mut conn, human, project) = common::seeded_project();
+    core::domain::session::start_shaping_session(
+        &mut conn,
+        &core::domain::session::ShapingSubject::Roadmap(project.id.clone()),
+        "dontAsk",
+        &human,
+    )
+    .unwrap();
+    let round_id = open_roadmap_round(&conn, &project.id).unwrap().unwrap().id;
+    trial(&mut conn, who, |c, actor| dismiss_roadmap_round(c, actor, &round_id).map(|_| ()))
+}
+
 /// A Story moved, by the human, to `at`. Returns `(conn, story_id)`.
 fn story_at(at: StoryState) -> (Connection, String) {
     let (mut conn, human, project) = common::seeded_project();
@@ -285,7 +314,7 @@ fn run_close_stage(who: Who) -> Trial {
 
 /// The authority writers the source half guards, by function name. Adding one here without a case
 /// below (or the reverse) fails `every_authority_writer_has_a_refusal_and_a_not_blocked_case`.
-const AUTHORITY_WRITERS: [&str; 10] = [
+const AUTHORITY_WRITERS: [&str; 13] = [
     "accept_criterion",
     "unaccept_criterion",
     "set_check",
@@ -293,6 +322,9 @@ const AUTHORITY_WRITERS: [&str; 10] = [
     "accept_proposal",
     "accept_proposal_amended",
     "reject_proposal",
+    "accept_proposal_released",
+    "reject_proposal_released",
+    "dismiss_roadmap_round",
     "answer_round_question",
     "accept_all_recommended",
     "close_stage",
@@ -334,6 +366,9 @@ authority_cases! {
     accept_proposal => run_accept_proposal,
     accept_proposal_amended => run_accept_proposal_amended,
     reject_proposal => run_reject_proposal,
+    accept_proposal_released => run_accept_proposal_released,
+    reject_proposal_released => run_reject_proposal_released,
+    dismiss_roadmap_round => run_dismiss_roadmap_round,
     answer_round_question => run_answer_round_question,
     accept_all_recommended => run_accept_all_recommended,
     close_stage => run_close_stage,
@@ -364,7 +399,7 @@ fn every_authority_writer_has_a_refusal_and_a_not_blocked_case() {
     in_table.sort_unstable();
     declared.sort_unstable();
     assert_eq!(in_table, declared, "the case table must name every writer and every developer-only move");
-    assert_eq!(TRANSITIONS.len(), 17, "a transition was quietly dropped from coverage");
+    assert_eq!(TRANSITIONS.len(), 20, "a transition was quietly dropped from coverage");
 }
 
 /// The session's hand-off is the one Story move that is not the developer's: an agent may make it,
@@ -518,7 +553,9 @@ struct AllowedCaller {
 /// The declaring domain modules and the Tauri command modules that put the act under the human's
 /// own control (each resolves the actor server-side with `local_human_actor_id`). Nothing under
 /// `packages/sidecar/src` — the process that drives an agent session — is, or may ever be, listed.
-const ALLOWED_CALLERS: [AllowedCaller; 9] = [
+const ALLOWED_CALLERS: [AllowedCaller; 10] = [
+    AllowedCaller { suffix: "packages/core/src/domain/roadmap_round.rs", reason: "declares dismiss_roadmap_round", test_only: false },
+    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/roadmap_round.rs", reason: "the human's Dismiss on the Roadmap strip", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/acceptance_criterion.rs", reason: "declares accept_criterion / unaccept_criterion", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/round.rs", reason: "declares answer_round_question / accept_all_recommended", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/stage.rs", reason: "declares close_stage", test_only: false },
