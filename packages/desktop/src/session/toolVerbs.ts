@@ -205,7 +205,7 @@ function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescripti
       return {
         ...base,
         kind: "question",
-        verb: posted ? `Posted Round${number}` : number ? `Picked up Round${number}` : "Picked up the open Round",
+        verb: posted ? `Posted Round${number}` : `Resumed Round${number}`,
         liveVerb: "Waiting on your answers",
         target: !posted
           ? ""

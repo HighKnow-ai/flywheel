@@ -41,7 +41,7 @@ export interface LampData {
 const LAMP_WIDTH = 248;
 const LAMP_GAP = 8;
 /** The "+n more" lamp is narrower: it carries a count and a word. */
-const MORE_WIDTH = 120;
+const MORE_WIDTH = 136;
 
 function isLive(row: FleetRowDto): boolean {
   return row.runStatus === "running" || row.runStatus === "blocked";
@@ -298,7 +298,7 @@ export function AndonStrip() {
                   aria-label={`${hidden} more: ${hiddenTones.map((tone) => TONE_WORD[tone]).join(", ")}. Open All agents`}
                   onClick={() => setFleetSurface({ view: "fleet" })}
                   style={{ width: MORE_WIDTH }}
-                  className="flex h-13 items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/25 text-small font-semibold text-strip-foreground transition-colors duration-(--duration-state) ease-(--ease) hover:bg-white/10 focus-visible:outline-strip-foreground"
+                  className="flex h-13 items-center justify-center gap-1.5 rounded-lg border border-dashed whitespace-nowrap border-white/25 text-small font-semibold text-strip-foreground transition-colors duration-(--duration-state) ease-(--ease) hover:bg-white/10 focus-visible:outline-strip-foreground"
                 >
                   {/* What the folded lamps are, by their bulbs: never a stateless count. */}
                   <span aria-hidden="true" className="flex -space-x-1">

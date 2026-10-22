@@ -21,7 +21,7 @@ import { clearMocks } from "@tauri-apps/api/mocks";
 import { queryClient } from "../../adapters/queryClient";
 import { resetUiState } from "../../state/uiStore";
 import App from "../../App";
-import { installFixtureBackend } from "./m2-fixture";
+import { installFixtureBackend, setShapingSessionLive } from "./m2-fixture";
 
 const SCHEME = import.meta.env.VITE_CRITIQUE_SCHEME as string | undefined;
 const OUT = "../../../../../target/critique-2026-10";
@@ -56,6 +56,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
   beforeEach(() => {
     resetUiState();
     queryClient.clear();
+    setShapingSessionLive(true);
     installFixtureBackend();
   });
   afterEach(() => {
@@ -299,6 +300,22 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     } finally {
       await page.viewport(1440, 900);
     }
+  });
+
+  it("31 board: a killed shaping session leaves Shaping Round waiting and Continue shaping (issue #124)", async () => {
+    setShapingSessionLive(false);
+    await boardReady();
+    const resume = await screen.findByRole("button", { name: "Continue shaping FLY-8 Epic shaping" });
+    resume.scrollIntoView({ block: "center" });
+    await shot("31-board-epic-continue-shaping");
+  });
+
+  it("32 Epic shaping: the open Round with no live session keeps its answers, Continue shaping on its band (issue #124)", async () => {
+    setShapingSessionLive(false);
+    await boardReady();
+    await click("Open FLY-8 Epic shaping and its Rounds");
+    await screen.findByRole("region", { name: /Round 2/ });
+    await shot("32-epic-shaping-continue");
   });
 
   it("16 navigation: picking a project while the fleet is open", async () => {

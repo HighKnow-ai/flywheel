@@ -203,10 +203,10 @@ describe("describeToolCall: board tools by their meaning", () => {
   });
 
   // Issue #124: a later session picks the open Round up and waits on it like round_post did.
-  it("reads round_wait as Picked up the open Round, waiting on your answers, then the Round it came back with", () => {
+  it("reads round_wait as Resumed Round, waiting on your answers, then the Round it came back with", () => {
     expect(describeToolCall({ toolName: `${BOARD}round_wait`, input: {} })).toMatchObject({
       kind: "question",
-      verb: "Picked up the open Round",
+      verb: "Resumed Round",
       liveVerb: "Waiting on your answers",
       target: "",
       metrics: [],
@@ -219,7 +219,7 @@ describe("describeToolCall: board tools by their meaning", () => {
       ],
     });
     expect(describeToolCall({ toolName: `${BOARD}round_wait`, input: {}, output })).toMatchObject({
-      verb: "Picked up Round 2",
+      verb: "Resumed Round 2",
       metrics: [{ text: "2 answered · 2 recommended", tone: "neutral" }],
     });
   });
