@@ -17,9 +17,9 @@
  * rejected spec change. A Dropped Story leaves the order. The columns sit on the floor rather than inside a card,
  * since each is a card of its own.
  */
-import { useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowRightLeft, Ban, Check, CircleDashed, CircleSlash, Columns3, PenLine, X } from "lucide-react";
+import { ArrowDown, ArrowRightLeft, Ban, Check, ChevronLeft, ChevronRight, CircleDashed, CircleSlash, Columns3, PenLine, X } from "lucide-react";
 import { proposalAccept, proposalAmend, proposalReject, type ProposalDto, type StoryDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
 import { Button } from "@/components/ui/button";
@@ -184,6 +184,7 @@ export function StoryColumns({ stories, proposals, queryKey, className }: StoryC
                 .filter(Boolean)
                 .join(" · ")}
         </span>
+        {columns.length > 0 && <OverflowChips regionRef={regionRef} watch={columns.map((c) => c.id).join()} />}
       </header>
 
       {columns.length === 0 ? (
@@ -192,46 +193,52 @@ export function StoryColumns({ stories, proposals, queryKey, className }: StoryC
           accept, amend or reject.
         </p>
       ) : (
-        <div
-          ref={regionRef}
-          role="region"
-          aria-labelledby={headingId}
-          tabIndex={-1}
-          className="-mx-1 min-w-0 overflow-x-auto px-1 pt-1 pb-3 outline-none"
-        >
-          <div className="flex w-max flex-col gap-1.5">
-            {constraints.length > 0 && (
-              <ul aria-label="Runs-after constraints" className="m-0 grid list-none gap-x-3 gap-y-1 p-0" style={grid}>
-                {constraints.map((c) => (
-                  <Bracket key={c.key} constraint={c} />
-                ))}
-              </ul>
-            )}
-            <ol aria-label="Stories in execution order" className="m-0 grid list-none items-start gap-x-3 p-0" style={grid}>
-              {columns.map((column, index) =>
-                column.kind === "story" ? (
-                  <StoryColumn
-                    key={column.id}
-                    number={index + 1}
-                    story={column.story}
-                    columns={columns}
-                    proposals={pending.filter((p) => p.targetId === column.id && (p.verb === "reorder" || p.verb === "retire"))}
-                    queryKey={queryKey}
-                    onSettled={settle}
-                  />
-                ) : (
-                  <GhostColumn
-                    key={column.id}
-                    number={index + 1}
-                    proposal={column.proposal}
-                    draft={column.draft}
-                    runsAfter={constraints.find((c) => c.key === column.id)?.fromName ?? null}
-                    queryKey={queryKey}
-                    onSettled={settle}
-                  />
-                ),
+        <div className="relative min-w-0">
+          <div
+            ref={regionRef}
+            role="region"
+            aria-labelledby={headingId}
+            tabIndex={-1}
+            className="-mx-1 min-w-0 overflow-x-auto px-1 pt-1 pb-3 outline-none"
+          >
+            <div className="flex w-max flex-col">
+              {constraints.length > 0 && (
+                <ul
+                  aria-label="Runs-after constraints"
+                  className="relative m-0 list-none p-0"
+                  style={{ height: constraints.length * BRACKET_ROW + BRACKET_FOOT }}
+                >
+                  {constraints.map((c, row) => (
+                    <Bracket key={c.key} constraint={c} row={row} />
+                  ))}
+                </ul>
               )}
-            </ol>
+              <ol aria-label="Stories in execution order" className="m-0 grid list-none items-start gap-x-3 p-0" style={grid}>
+                {columns.map((column, index) =>
+                  column.kind === "story" ? (
+                    <StoryColumn
+                      key={column.id}
+                      number={index + 1}
+                      story={column.story}
+                      columns={columns}
+                      proposals={pending.filter((p) => p.targetId === column.id && (p.verb === "reorder" || p.verb === "retire"))}
+                      queryKey={queryKey}
+                      onSettled={settle}
+                    />
+                  ) : (
+                    <GhostColumn
+                      key={column.id}
+                      number={index + 1}
+                      proposal={column.proposal}
+                      draft={column.draft}
+                      runsAfter={constraints.find((c) => c.key === column.id)?.fromName ?? null}
+                      queryKey={queryKey}
+                      onSettled={settle}
+                    />
+                  ),
+                )}
+              </ol>
+            </div>
           </div>
         </div>
       )}
@@ -247,26 +254,56 @@ export function StoryColumns({ stories, proposals, queryKey, className }: StoryC
   );
 }
 
-/** A runs-after bracket: from the centre of the column it runs after to the centre of the one that waits. */
-function Bracket({ constraint }: { constraint: Constraint }) {
+/** One bracket's row above the columns: its label, then its line. */
+const BRACKET_ROW = 30;
+/** How far the lowest bracket's feet reach down to the columns. */
+const BRACKET_FOOT = 8;
+/** Where a column's centre sits, from the left edge of the first column. */
+const footX = (column: number) => `calc(${column - 1} * (${COLUMN_WIDTH} + 0.75rem) + ${COLUMN_WIDTH} / 2)`;
+
+/**
+ * A runs-after bracket: a line from the centre of the column it runs after to the centre of the one that waits,
+ * its feet running down to the tops of both columns and an arrow on the one that waits. The label sits over the
+ * arrow's end, so it reads as a sentence about the Story under it; it knocks out the feet of the brackets above.
+ */
+function Bracket({ constraint, row }: { constraint: Constraint; row: number }) {
   const { from, to, provisional } = constraint;
   const [left, right] = from < to ? [from, to] : [to, from];
   const arrowOnRight = to > from;
-  const half = `calc(${COLUMN_WIDTH} / 2)`;
   return (
     <li
       data-from={from}
       data-to={to}
       data-provisional={String(provisional)}
-      className="relative flex h-10 min-w-0 flex-col"
-      style={{ gridColumn: `${left} / ${right + 1}` }}
+      className="absolute bottom-0 min-w-0"
+      style={{ top: row * BRACKET_ROW, left: footX(left), width: `calc(${right - left} * (${COLUMN_WIDTH} + 0.75rem))` }}
       title={constraint.reason ? `${constraint.sentence}: ${constraint.reason}` : constraint.sentence}
     >
       <span className="sr-only">
         {constraint.sentence}
         {constraint.reason ? `: ${constraint.reason}` : ""}
       </span>
-      <span aria-hidden="true" className="flex min-w-0 flex-1 items-center justify-center gap-1.5 px-2 text-meta">
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute bottom-0 rounded-t-sm border border-b-0",
+          provisional ? "border-dashed border-primary" : "border-input",
+        )}
+        style={{ top: 21, left: 0, right: 0 }}
+      >
+        <ArrowDown
+          size={12}
+          strokeWidth={2.5}
+          className={cn("absolute -bottom-0.5", provisional ? "text-running" : "text-muted-foreground", arrowOnRight ? "-right-[6.5px]" : "-left-[6.5px]")}
+        />
+      </span>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute top-0 z-10 flex h-5 max-w-[calc(100%+8rem)] min-w-0 items-center gap-1.5 bg-background px-1 text-meta",
+          arrowOnRight ? "right-0 translate-x-2" : "left-0 -translate-x-2",
+        )}
+      >
         <span className={cn("flex shrink-0 items-center gap-1.5", provisional ? "text-running" : "text-foreground")}>
           <End end={constraint.ends[0]} />
           <span className="font-semibold">runs after</span>
@@ -275,28 +312,88 @@ function Bracket({ constraint }: { constraint: Constraint }) {
         </span>
         {constraint.reason && (
           <>
-            <span aria-hidden="true" className="shrink-0 text-subtle-foreground">
-              ·
-            </span>
+            <span className="shrink-0 text-subtle-foreground">·</span>
             <span className="min-w-0 truncate text-muted-foreground">{constraint.reason}</span>
           </>
         )}
       </span>
-      <span
-        aria-hidden="true"
-        className={cn(
-          "relative h-2.5 shrink-0 rounded-t-sm border border-b-0",
-          provisional ? "border-dashed border-primary" : "border-input",
-        )}
-        style={{ marginInline: half }}
-      >
-        <ArrowDown
-          size={12}
-          strokeWidth={2.5}
-          className={cn("absolute -bottom-2 bg-background", provisional ? "text-running" : "text-muted-foreground", arrowOnRight ? "-right-[6.5px]" : "-left-[6.5px]")}
-        />
-      </span>
     </li>
+  );
+}
+
+/**
+ * The columns past either edge of the strip, named with what in them waits on a decision, as two buttons in the
+ * heading that scroll the strip that way. Once the strip mounts, a pending Proposal past the right edge is scrolled into view.
+ */
+function OverflowChips({ regionRef, watch }: { regionRef: RefObject<HTMLDivElement | null>; watch: string }) {
+  const [edges, setEdges] = useState({ before: 0, after: 0, pendingBefore: 0, pendingAfter: 0 });
+  const scrolledOnce = useRef(false);
+
+  useEffect(() => {
+    const region = regionRef.current;
+    if (!region) return;
+    const measure = () => {
+      const box = region.getBoundingClientRect();
+      const next = { before: 0, after: 0, pendingBefore: 0, pendingAfter: 0 };
+      for (const li of Array.from(region.querySelectorAll<HTMLElement>("ol > li"))) {
+        const r = li.getBoundingClientRect();
+        const pending = li.dataset.state === "pending" || li.querySelector('[data-state="pending"]') !== null;
+        if (r.right > box.right + 1) {
+          next.after += 1;
+          if (pending) next.pendingAfter += 1;
+        } else if (r.left < box.left - 1) {
+          next.before += 1;
+          if (pending) next.pendingBefore += 1;
+        }
+      }
+      setEdges((prev) =>
+        prev.before === next.before && prev.after === next.after && prev.pendingBefore === next.pendingBefore && prev.pendingAfter === next.pendingAfter
+          ? prev
+          : next,
+      );
+    };
+    if (!scrolledOnce.current) {
+      scrolledOnce.current = true;
+      const first = region.querySelector<HTMLElement>('ol > li[data-state="pending"], ol > li [data-state="pending"]');
+      if (first) {
+        const overshoot = first.getBoundingClientRect().right - region.getBoundingClientRect().right;
+        if (overshoot > 0) region.scrollLeft += overshoot + 24;
+      }
+    }
+    measure();
+    region.addEventListener("scroll", measure, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(region);
+    return () => {
+      region.removeEventListener("scroll", measure);
+      observer?.disconnect();
+    };
+  }, [regionRef, watch]);
+
+  const scroll = (direction: 1 | -1) => {
+    const region = regionRef.current;
+    if (!region) return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    region.scrollBy({ left: direction * region.clientWidth * 0.8, behavior: reduce ? "auto" : "smooth" });
+  };
+  const words = (count: number, pendingCount: number, side: string) =>
+    [`${count} ${side}`, pendingCount > 0 ? `${pendingCount} to decide` : null].filter(Boolean).join(" · ");
+
+  return (
+    <>
+      {(edges.before > 0 || edges.after > 0) && (
+        <span className="ml-auto flex items-center gap-2 self-center">
+          <Button variant="outline" size="sm" disabled={edges.before === 0} onClick={() => scroll(-1)} aria-label={`Scroll to the earlier Stories: ${words(edges.before, edges.pendingBefore, "earlier")}`}>
+            <ChevronLeft aria-hidden="true" />
+            <span className="tabular-nums">{words(edges.before, edges.pendingBefore, "earlier")}</span>
+          </Button>
+          <Button variant="outline" size="sm" disabled={edges.after === 0} onClick={() => scroll(1)} aria-label={`Scroll to the later Stories: ${words(edges.after, edges.pendingAfter, "more")}`}>
+            <span className="tabular-nums">{words(edges.after, edges.pendingAfter, "more")}</span>
+            <ChevronRight aria-hidden="true" />
+          </Button>
+        </span>
+      )}
+    </>
   );
 }
 
@@ -438,13 +535,28 @@ function StoryColumn({
 }
 
 /** Where a move would land the Story, among the other columns as they stand. */
-function landing(proposal: ProposalDto, story: StoryDto, columns: Column[]) {
+function Landing({ proposal, story, columns }: { proposal: ProposalDto; story: StoryDto; columns: Column[] }) {
   const rank = text((proposal.payload as Record<string, unknown> | null)?.rank);
-  if (!rank) return "Moves elsewhere in the order";
+  if (!rank) return <>Moves elsewhere in the order</>;
   const before = columns.filter((c) => c.id !== story.id && byRank(c, { rank, id: story.id }) < 0);
   const prev = before[before.length - 1];
-  if (!prev) return "Moves to the front of the order";
-  return prev.kind === "story" ? `Moves after ${prev.story.key} ${prev.story.title}` : `Moves after the proposed “${prev.draft.title}”`;
+  if (!prev) return <>Moves to the front of the order</>;
+  // Named as the columns name it: a Story by its key, a pending one by its dashed order chip.
+  const number = columns.indexOf(prev) + 1;
+  const title = prev.kind === "story" ? prev.story.title : prev.draft.title;
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <span className="shrink-0">Moves after</span>
+      {prev.kind === "story" ? (
+        <span className="shrink-0 font-mono text-small">{prev.story.key}</span>
+      ) : (
+        <NumberChip number={number} ghost />
+      )}
+      <span className="min-w-0 truncate" title={title}>
+        {title}
+      </span>
+    </span>
+  );
 }
 
 /** A pending move or retirement at the foot of its Story's column. Accept or Reject; nothing to amend. */
@@ -478,9 +590,9 @@ function OrderPlate({
         <Icon aria-hidden="true" className="size-3.5 shrink-0" />
         Proposed {noun}
       </span>
-      <p className="m-0 text-small break-words text-foreground">
-        {move ? landing(proposal, story, columns) : "Drops it from the Epic"}
-      </p>
+      <div className="m-0 min-w-0 text-small break-words text-foreground">
+        {move ? <Landing proposal={proposal} story={story} columns={columns} /> : "Drops it from the Epic"}
+      </div>
       {proposal.rationale && <p className="m-0 text-small break-words text-muted-foreground">Why: {proposal.rationale}</p>}
       {rejecting ? (
         <RejectForm
@@ -604,7 +716,21 @@ function GhostColumn({
           <label htmlFor={titleId} className="text-meta font-semibold text-muted-foreground">
             Title
           </label>
-          <Input id={titleId} value={title} maxLength={MAX_TITLE_LEN} autoFocus disabled={busy} onChange={(e) => setTitle(e.target.value)} onKeyDown={onEditKey} />
+          {/* The whole title in sight while it is edited: it grows with its words, and Enter never breaks it. */}
+          <Textarea
+            id={titleId}
+            rows={1}
+            value={title}
+            maxLength={MAX_TITLE_LEN}
+            autoFocus
+            disabled={busy}
+            className="min-h-0 font-semibold"
+            onChange={(e) => setTitle(e.target.value.replace(/\n/g, " "))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !(e.metaKey || e.ctrlKey)) e.preventDefault();
+              onEditKey(e);
+            }}
+          />
           <label htmlFor={descriptionId} className="text-meta font-semibold text-muted-foreground">
             Description
           </label>

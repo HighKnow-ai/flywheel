@@ -185,7 +185,7 @@ describe("StoryColumns", () => {
     );
     const parser = screen.getByRole("listitem", { name: "1. FLY-11 Parser" });
     const move = within(parser).getByRole("group", { name: "Proposed move of FLY-11" });
-    expect(move).toHaveTextContent("Moves after FLY-12 Feed row");
+    expect(move).toHaveTextContent(/Moves after\s*FLY-12\s*Feed row/);
     expect(move).toHaveTextContent("Needs the row first");
     const feed = screen.getByRole("listitem", { name: "2. FLY-12 Feed row" });
     const retire = within(feed).getByRole("group", { name: "Proposed retirement of FLY-12" });
