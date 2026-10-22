@@ -1,8 +1,8 @@
 //! The roadmap Round (docs/mvp-spec.md §3 "Shaping a Milestone and the Roadmap", issue #133): the only
 //! time an agent speaks up unprompted about the Roadmap. It is a Round with no Stage, owned by the
 //! project's Roadmap, started by a trigger ([`RoadmapTrigger`]): the Revisit roadmap button, an Epic
-//! confirmed Done or a Milestone confirmed Done (#134 wires the last two). A project has at most one
-//! open roadmap Round.
+//! confirmed Done or a Milestone confirmed Done (#134, `confirm_done`). A project has at most one
+//! open roadmap Round: a Done trigger that comes while one is open is noted on it ([`noted_triggers`]).
 //!
 //! Its shaping session is project-level (`ShapingSubject::Roadmap`). It reads the roadmap packet
 //! (`shaping_packet::build_roadmap_packet`) and answers in one of two ways:
@@ -277,6 +277,49 @@ pub(crate) fn ensure_open_roadmap_round_in_tx(
         &at,
     )?;
     Ok(id)
+}
+
+/// A Done trigger that came while `round` was already open (issue #134): no second Round opens. The
+/// trigger is noted on the open one as `round.trigger_noted`, inside the confirmation's transaction, so
+/// that Round's next packet names it ([`noted_triggers`]) and the strip's band says so.
+pub(crate) fn note_trigger_in_tx(
+    tx: &Transaction,
+    round: &RoadmapRound,
+    trigger: &RoadmapTrigger,
+    actor_id: &str,
+    at: &str,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(round.state == "open", "roadmap Round {} is {}; a trigger is noted only on an open Round", round.number, round.state);
+    record_event(
+        tx,
+        &round.project_id,
+        "round",
+        &round.id,
+        EventScope::default(),
+        actor_id,
+        "round.trigger_noted",
+        &json!({
+            "trigger": trigger.as_str(),
+            "trigger_id": trigger.record_id(),
+            "label": format!("Noted {} on roadmap Round {}", trigger.label(tx), round.number),
+        }),
+        at,
+    )?;
+    Ok(())
+}
+
+/// The triggers noted on roadmap Round `round_id` after it opened (issue #134), oldest first.
+pub fn noted_triggers(conn: &Connection, round_id: &str) -> anyhow::Result<Vec<RoadmapTrigger>> {
+    let mut stmt = conn.prepare(
+        "SELECT json_extract(payload, '$.trigger'), json_extract(payload, '$.trigger_id') FROM events
+         WHERE stream_type = 'round' AND stream_id = ?1 AND event_type = 'round.trigger_noted'
+         ORDER BY sequence",
+    )?;
+    let rows = stmt
+        .query_map(params![round_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the triggers noted on the roadmap Round")?;
+    rows.into_iter().map(|(kind, id)| RoadmapTrigger::parse(&kind, id)).collect()
 }
 
 /// The live roadmap session `session_id`'s open Round, inside the caller's transaction. Refused for an

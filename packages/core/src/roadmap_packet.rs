@@ -1,7 +1,8 @@
 //! The roadmap packet (docs/mvp-spec.md §3 "The Round's packet", issue #133): everything a roadmap
 //! Round's session starts from, read off the board and the project's checkout.
 //!
-//! Stable parts first, so prompt caching works: the standing instructions; every Milestone in Roadmap
+//! Stable parts first, so prompt caching works: the standing instructions, ending on the one line its
+//! trigger asks for (issue #134: an Epic confirmed Done keeps it short and on its Milestone); every Milestone in Roadmap
 //! order with its state and exit test, and the Epics under each with their state and exit test; the
 //! ADR index; the triggering event; the Roadmap Proposals the developer rejected, with their reasons.
 //! Then the closing instruction, which says what this session does next: propose or say the Roadmap
@@ -22,7 +23,9 @@ use rusqlite::{params, Connection};
 use crate::context_packet::{live_adrs, non_blank, section};
 use crate::domain::milestone::{milestone_state, roadmap};
 use crate::domain::proposal::proposals_in_round;
-use crate::domain::roadmap_round::{describe_proposal, open_roadmap_round, rejected_roadmap_proposals};
+use crate::domain::roadmap_round::{
+    describe_proposal, noted_triggers, open_roadmap_round, rejected_roadmap_proposals, RoadmapTrigger,
+};
 
 /// The standing instructions for a roadmap Round.
 const STANDING_INSTRUCTIONS: &str = "\
@@ -33,8 +36,7 @@ start from: it is rebuilt from the board for every session.
 
 This is a roadmap Round, the only time an agent speaks up about the Roadmap unprompted. Something \
 triggered it; the trigger is below. Your job is to judge whether the Roadmap still holds in the light of \
-it: is the next Milestone still right, is each exit test still reachable and observable, is an Epic \
-missing or one to drop, should Milestones be reordered, amended, retired or added?
+it. What to ask depends on the trigger; this Round's scope follows these instructions.
 
 You are read-only. You may read the repository (Read, Glob, Grep) and you change nothing in it. You \
 change the Roadmap only through Proposals, which do nothing until the developer accepts them.
@@ -57,6 +59,45 @@ A Done Milestone is frozen: put later changes in a new Milestone. A Milestone ho
 be retired, and an Epic holding an open Story cannot be dropped. Do not propose again a change the \
 developer rejected, listed below, without new evidence.
 ";
+
+/// The Round's scope, from its trigger and any noted since (issue #134, docs/mvp-spec.md §3 "its three
+/// triggers"): a Milestone confirmed Done makes it a Roadmap Round; Epics confirmed Done alone keep it
+/// short, on their Milestones; Revisit roadmap weighs the whole Roadmap.
+fn scope_line(conn: &Connection, trigger: &RoadmapTrigger, noted: &[RoadmapTrigger]) -> anyhow::Result<String> {
+    let all: Vec<&RoadmapTrigger> = std::iter::once(trigger).chain(noted).collect();
+    if all.iter().any(|t| matches!(t, RoadmapTrigger::MilestoneDone(_))) {
+        return Ok("This is a Roadmap Round: a Milestone is Done. Weigh the whole Roadmap: is the next Milestone \
+                   still right? Should Milestones be reordered, amended, retired or added, and is each exit test \
+                   still reachable and observable?\n"
+            .to_string());
+    }
+    if matches!(trigger, RoadmapTrigger::Revisit) {
+        return Ok("The developer asked for this Round. Weigh the whole Roadmap: is the next Milestone still right? \
+                   Should Milestones be reordered, amended, retired or added, is each exit test still reachable and \
+                   observable, is an Epic missing or one to drop?\n"
+            .to_string());
+    }
+    let mut milestones: Vec<String> = Vec::new();
+    for t in &all {
+        if let RoadmapTrigger::EpicDone(id) = t {
+            let title: String = conn
+                .query_row("SELECT m.title FROM epics e JOIN milestones m ON m.id = e.milestone_id WHERE e.id = ?1", params![id], |r| r.get(0))
+                .with_context(|| format!("Epic {id:?} not found"))?;
+            let title = format!("\"{title}\"");
+            if !milestones.contains(&title) {
+                milestones.push(title);
+            }
+        }
+    }
+    let on = match milestones.as_slice() {
+        [one] => format!("on one Milestone: {one}, which holds the Epic confirmed Done"),
+        many => format!("on the Milestones {}, which hold the Epics confirmed Done", many.join(" and ")),
+    };
+    Ok(format!(
+        "This Round is short, and {on}. Ask only: is its exit test still reachable, is an Epic missing, or one to \
+         drop? Leave the rest of the Roadmap alone unless that Epic's outcome plainly changes it.\n"
+    ))
+}
 
 /// The words for a Milestone or Epic state (GLOSSARY.md).
 fn state_words(state: &str) -> &str {
@@ -100,9 +141,13 @@ pub fn build_roadmap_packet(conn: &Connection, project_id: &str) -> anyhow::Resu
     let mut out = String::new();
     writeln!(out, "# Roadmap packet: {name}")?;
 
-    // 1. Standing instructions
+    // 1. Standing instructions, then the line this Round's trigger asks for (issue #134)
     section(&mut out, "Standing instructions");
     out.push_str(STANDING_INSTRUCTIONS);
+    let noted = noted_triggers(conn, &round.id)?;
+    out.push('\n');
+    out.push_str(&scope_line(conn, &round.trigger, &noted)?);
+    out.push('\n');
 
     // 2. Every Milestone in order, with the Epics under each
     section(&mut out, "Roadmap");
@@ -147,6 +192,13 @@ pub fn build_roadmap_packet(conn: &Connection, project_id: &str) -> anyhow::Resu
     // 4. The triggering event
     section(&mut out, "Trigger");
     writeln!(out, "Roadmap Round {}. {}", round.number, round.note)?;
+    if !noted.is_empty() {
+        out.push_str("\nSince it opened:\n");
+        for trigger in &noted {
+            writeln!(out, "- {}", trigger.describe(conn)?)?;
+        }
+        out.push_str("Weigh these too: each came while this Round was open, so no Round of its own opened.\n");
+    }
 
     // 5. Rejected Roadmap Proposals, with their reasons
     section(&mut out, "Rejected Roadmap Proposals");
