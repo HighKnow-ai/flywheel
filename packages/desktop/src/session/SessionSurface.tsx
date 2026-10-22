@@ -782,7 +782,7 @@ export function SessionSurface({
         ended={!showStop}
         waitingOnYou={pendingRequests.length > 0}
         running={status === "running"}
-        doing={liveRow && liveRow.kind === "tool_call" ? toolCallLabel(liveRow.toolName, liveRow.input) : null}
+        doing={liveRow && liveRow.kind === "tool_call" ? toolCallLabel(liveRow.toolName, liveRow.input, { live: true }) : null}
         lastActivityAt={lastActivityAt}
       />
       </div>

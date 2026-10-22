@@ -69,6 +69,14 @@ describe("noise stays out of the feed", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ kind: "tool_call", toolName: "Bash", output: "[main abc] feat: x" });
   });
+
+  it("carries when a call's result came, so the row can say how long it took (#118)", () => {
+    const rows = buildFeedRows([
+      { ...bash("npm test", "toolu_t"), at: "2026-10-19T10:00:00.000Z" },
+      { ...ev({ type: "tool_result", toolUseId: "toolu_t", output: "ok" }), at: "2026-10-19T10:00:41.000Z" },
+    ]);
+    expect(rows[0]).toMatchObject({ startedAt: "2026-10-19T10:00:00.000Z", endedAt: "2026-10-19T10:00:41.000Z" });
+  });
 });
 
 describe("isReadOnlyGitCommand", () => {

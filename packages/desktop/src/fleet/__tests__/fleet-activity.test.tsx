@@ -101,13 +101,13 @@ afterEach(() => {
 });
 
 describe("the activity cell", () => {
-  it("shows a tool call as the tool plus its target, as the session feed words it", async () => {
+  it("shows a tool call as its verb plus its target, as the session feed words it", async () => {
     const input = { file_path: "packages/core/src/git.rs" };
     fleetListMock.mockResolvedValue(list([row("1", { activity: activity(toolCall("Edit", input)) })]));
     renderFleet();
     await waitFor(() => expect(document.querySelector('[data-run-id="1"]')).not.toBeNull());
-    expect(cellFor("1").textContent).toBe(toolCallLabel("Edit", input));
-    expect(cellFor("1").textContent).toBe("Edit · packages/core/src/git.rs");
+    expect(cellFor("1").textContent).toBe(toolCallLabel("Edit", input, { live: true }));
+    expect(cellFor("1").textContent).toBe("Editing · packages/core/src/git.rs");
   });
 
   it("shows narration as its first clause", async () => {
@@ -172,7 +172,7 @@ describe("the activity cell", () => {
       .mockResolvedValueOnce(list([row("1", { activity: activity(toolCall("Bash", { command: "npm test" })) })]))
       .mockResolvedValue(list([row("1")]));
     renderFleet();
-    await waitFor(() => expect(cellFor("1").textContent).toBe("Bash · npm test"));
+    await waitFor(() => expect(cellFor("1").textContent).toBe("Running · npm test"));
 
     await act(async () => boardChanged());
 

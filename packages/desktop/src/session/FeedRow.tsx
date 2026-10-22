@@ -30,7 +30,6 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { formatAge } from "../legend/runStatus";
 import { cn } from "@/lib/utils";
 import { Markdown } from "./Markdown";
 import { QuestionForm, type QuestionPicks } from "./QuestionForm";
@@ -39,10 +38,10 @@ import {
   payloadText,
   proposalKind,
   toolCallLabel,
-  toolCallTarget,
   type FeedRowData,
   type QuestionPrompt,
 } from "./feedRows";
+import { describeToolCall, formatDuration, toolCallSeconds, type ToolKind, type ToolMetric } from "./toolVerbs";
 
 export { feedRowText, toolCallLabel, toolCallTarget, type FeedRowData } from "./feedRows";
 
@@ -121,33 +120,21 @@ export function feedRowEstimateSize(row: FeedRowData, expanded: boolean): number
 
 /** The icon for a tool's kind (direction.md § Icons: Read, Edit, Run, Search, board tool), so a Bash call, a
  * Read and a board write are told apart at a glance, each still beside its word. */
+const KIND_ICONS: Record<ToolKind, LucideIcon> = {
+  read: FileText,
+  edit: Pencil,
+  write: FilePlus,
+  run: Terminal,
+  search: Search,
+  web: Globe,
+  board: Kanban,
+  agent: Bot,
+  question: MessageCircleQuestionMark,
+  other: Wrench,
+};
+
 export function toolIcon(toolName: string): LucideIcon {
-  if (toolName.startsWith("mcp__flywheel")) return Kanban;
-  switch (toolName) {
-    case "Read":
-      return FileText;
-    case "Edit":
-    case "MultiEdit":
-    case "NotebookEdit":
-      return Pencil;
-    case "Write":
-      return FilePlus;
-    case "Bash":
-      return Terminal;
-    case "Grep":
-    case "Glob":
-      return Search;
-    case "WebFetch":
-    case "WebSearch":
-      return Globe;
-    case "Task":
-    case "Agent":
-      return Bot;
-    case "AskUserQuestion":
-      return MessageCircleQuestionMark;
-    default:
-      return Wrench;
-  }
+  return KIND_ICONS[describeToolCall({ toolName, input: {} }).kind];
 }
 
 /** Re-renders once a second while `enabled`; the live row's own boundary, so the tick never
@@ -170,13 +157,23 @@ export function runningSeconds(startedAt: string | undefined, heartbeatSeconds: 
   return Math.floor(Math.max(byClock, heartbeatSeconds ?? 0));
 }
 
-function RunningFor({ startedAt, heartbeatSeconds, now }: { startedAt?: string; heartbeatSeconds?: number; now?: number }) {
+function RunningFor({
+  startedAt,
+  heartbeatSeconds,
+  now,
+  className = "text-running",
+}: {
+  startedAt?: string;
+  heartbeatSeconds?: number;
+  now?: number;
+  className?: string;
+}) {
   const ticked = useSecondTick(now === undefined);
   const nowMs = now ?? ticked;
   const seconds = runningSeconds(startedAt, heartbeatSeconds, nowMs);
   return (
-    <span className="feed-call-state shrink-0 font-sans text-small text-running tabular-nums" data-state="running">
-      {`running · ${formatAge(new Date(nowMs - seconds * 1000).toISOString(), nowMs)}`}
+    <span className={cn("feed-call-state ml-auto shrink-0 font-sans text-meta font-semibold tabular-nums", className)} data-state="running">
+      {`running · ${formatDuration(seconds)}`}
     </span>
   );
 }
@@ -244,6 +241,112 @@ function Chevron({ expanded }: { expanded: boolean }) {
 const disclosureClass =
   "feed-disclosure feed-call -mx-2 flex w-[calc(100%+1rem)] min-w-0 items-center gap-2.5 rounded-md px-2 py-1 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent";
 
+/** Where a tool-call line sits: on a card (the feed), or on the graphite strip (the agent station). */
+type LineSurface = "card" | "strip";
+
+/** The right-hand metrics column: what the call returned (lines, exit status, Check results) and how
+ * long it took. A failed call is neutral ink beside its icon; only a failed Check is red (direction.md
+ * § Colour). */
+function CallMetrics({ metrics, seconds, surface }: { metrics: ToolMetric[]; seconds?: number; surface: LineSurface }) {
+  const onStrip = surface === "strip";
+  if (metrics.length === 0 && seconds === undefined) return null;
+  return (
+    <span
+      className={cn(
+        "feed-call-metrics ml-auto inline-flex shrink-0 items-center gap-2.5 text-meta tabular-nums",
+        onStrip ? "text-strip-muted-foreground" : "text-subtle-foreground",
+      )}
+    >
+      {metrics.map((metric) => (
+        <span
+          key={metric.text}
+          data-tone={metric.tone}
+          className={cn(
+            "inline-flex items-center gap-1",
+            metric.tone !== "neutral" && "font-semibold",
+            metric.tone === "failed" && (onStrip ? "text-strip-foreground" : "text-foreground"),
+            metric.tone === "failed-check" && (onStrip ? "text-strip-foreground" : "text-destructive-text"),
+          )}
+        >
+          {metric.tone !== "neutral" && (
+            <CircleX aria-hidden="true" size={14} className={cn(metric.tone === "failed-check" && "text-destructive")} />
+          )}
+          {metric.text}
+        </span>
+      ))}
+      {seconds !== undefined && <span>{formatDuration(seconds)}</span>}
+    </span>
+  );
+}
+
+/**
+ * One tool call as a line: its kind's icon, the verb, what it acted on, then the metrics column, or the
+ * running clock while it is live. The feed's rows and the agent station's live tail both draw it.
+ */
+export function ToolCallLine({
+  row,
+  live,
+  now,
+  surface = "card",
+}: {
+  row: Extract<FeedRowData, { kind: "tool_call" }>;
+  live: boolean;
+  now?: number;
+  surface?: LineSurface;
+}) {
+  const described = describeToolCall(row);
+  const KindIcon = KIND_ICONS[described.kind];
+  const onStrip = surface === "strip";
+  const verb = live ? described.liveVerb : described.verb;
+  return (
+    <>
+      <KindIcon aria-hidden="true" size={16} className={cn("shrink-0", onStrip ? "text-strip-muted-foreground" : "text-muted-foreground")} />
+      <span
+        className={cn("feed-call-verb w-27 shrink-0 truncate text-small font-semibold", onStrip ? "text-strip-foreground" : "text-foreground")}
+        title={verb}
+      >
+        {verb}
+      </span>
+      <span
+        className={cn(
+          "feed-call-target min-w-0 flex-1 truncate",
+          described.targetIsCode ? "font-mono text-meta" : "text-small",
+          onStrip ? "text-strip-muted-foreground" : "text-muted-foreground",
+        )}
+        title={described.target || undefined}
+      >
+        {described.target}
+      </span>
+      {live ? (
+        <>
+          <RunningFor
+            startedAt={row.startedAt}
+            heartbeatSeconds={row.elapsedSeconds}
+            now={now}
+            className={onStrip ? "text-strip-foreground" : "text-running"}
+          />
+          {/* The live mark: the running icon after the call. Under reduced motion the pulse class is
+              omitted, so it is a plain, fully legible mark and never frozen mid-cycle. */}
+          <LoaderCircle
+            aria-hidden="true"
+            size={15}
+            className={cn("feed-caret shrink-0", onStrip ? "text-primary" : "text-running", !prefersReducedMotion() && "agent-pulse")}
+          />
+        </>
+      ) : (
+        <CallMetrics metrics={described.metrics} seconds={toolCallSeconds(row.startedAt, row.endedAt)} surface={surface} />
+      )}
+    </>
+  );
+}
+
+/** A tool call's accessible name: the visible words in reading order, so the faces inside never split it. */
+export function toolCallAccessibleName(row: Extract<FeedRowData, { kind: "tool_call" }>, live: boolean): string {
+  const label = toolCallLabel(row.toolName, row.input, { live, output: row.output });
+  const state = live ? "running" : describeToolCall(row).metrics.map((m) => m.text).join(", ");
+  return [label, state].filter(Boolean).join(", ");
+}
+
 function ToolCallRow({
   row,
   expanded,
@@ -257,8 +360,6 @@ function ToolCallRow({
   live: boolean;
   now?: number;
 }) {
-  const outputLine = row.output !== undefined ? firstLine(payloadText(row.output)) : "";
-  const KindIcon = toolIcon(row.toolName);
   return (
     <div role="listitem" className="feed-row">
       <button
@@ -267,45 +368,11 @@ function ToolCallRow({
         aria-expanded={expanded}
         className={disclosureClass}
         data-live={live ? "true" : undefined}
-        // The visible words exactly, so the two faces inside the label never split the accessible name.
-        aria-label={[toolCallLabel(row.toolName, row.input), live ? "running" : row.isError ? "failed" : null].filter(Boolean).join(", ")}
+        data-failed={row.isError ? "true" : undefined}
+        aria-label={toolCallAccessibleName(row, live)}
       >
         <Chevron expanded={expanded} />
-        <KindIcon aria-hidden="true" size={16} className="shrink-0 text-muted-foreground" />
-        {/* The same words as toolCallLabel: the tool in the reading face, what it acts on in the code face. */}
-        <span className="feed-call-label min-w-0 truncate text-small text-foreground" title={toolCallLabel(row.toolName, row.input)}>
-          <span className="font-medium">{row.toolName}</span>
-          {toolCallTarget(row.input) && (
-            <>
-              <span className="text-subtle-foreground">{" · "}</span>
-              <span className="font-mono">{toolCallTarget(row.input)}</span>
-            </>
-          )}
-        </span>
-        {live ? (
-          <>
-            <RunningFor startedAt={row.startedAt} heartbeatSeconds={row.elapsedSeconds} now={now} />
-            {/* The live mark: the running icon after the call. Under reduced motion the pulse class is
-                omitted, so it is a plain, fully legible mark and never frozen mid-cycle. */}
-            <LoaderCircle
-              aria-hidden="true"
-              size={15}
-              className={cn("feed-caret shrink-0 text-running", !prefersReducedMotion() && "agent-pulse")}
-            />
-          </>
-        ) : row.isError ? (
-          <span className="feed-call-state ml-auto inline-flex shrink-0 items-center gap-1 text-small font-semibold text-destructive-text" data-state="failed">
-            <CircleX aria-hidden="true" size={14} />
-            failed
-          </span>
-        ) : (
-          !expanded &&
-          outputLine && (
-            <span className="feed-call-output ml-auto min-w-0 max-w-[40%] shrink truncate font-mono text-meta text-subtle-foreground">
-              {outputLine}
-            </span>
-          )
-        )}
+        <ToolCallLine row={row} live={live} now={now} />
       </button>
 
       {expanded && (

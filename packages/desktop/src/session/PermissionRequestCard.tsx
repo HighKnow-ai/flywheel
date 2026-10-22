@@ -43,6 +43,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ASK_USER_QUESTION_TOOL, questionsFromPayload } from "./feedRows";
 import { QuestionForm, type QuestionPicks } from "./QuestionForm";
+import { toolDisplayName } from "./toolVerbs";
 
 export type PermissionRequestCardVariant = "feed" | "compact";
 
@@ -303,7 +304,7 @@ function PermissionRequestRow({
   return (
     <RequestFrame
       role="group"
-      ariaLabel={`${request.toolName} wants to:`}
+      ariaLabel={`${toolDisplayName(request.toolName)} wants to:`}
       card={isGated ? "gated" : "permission"}
       icon={isGated ? <ShieldAlert /> : <KeyRound />}
       title={isGated ? "Gated action — needs your OK every time" : "Permission request"}
@@ -312,10 +313,10 @@ function PermissionRequestRow({
       {/* A long tool name truncates; the card never widens for it. */}
       <span
         className="min-w-0 text-row font-semibold"
-        title={`${request.toolName} wants to:`}
+        title={`${toolDisplayName(request.toolName)} wants to:`}
         style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
       >
-        {request.toolName} wants to:
+        {toolDisplayName(request.toolName)} wants to:
       </span>
 
       {/* A long branch name in the sentence wraps rather than being cut. */}

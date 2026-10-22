@@ -8,7 +8,7 @@
  * - the git lock-retry line and the lock-exhaustion no-render case (D-53) are unchanged.
  */
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { FeedRow, FEED_ROW_TRUNCATION_THRESHOLD, isRowExpandable, type FeedRowData } from "../FeedRow";
 
 function renderRow(row: FeedRowData, opts: { expanded?: boolean; live?: boolean; now?: number } = {}) {
@@ -45,11 +45,42 @@ describe("a tool call", () => {
     output: "5 passed\n0 failed",
   };
 
-  it("is one compact row naming the tool and its target, with the first line of its output", () => {
-    const { container } = renderRow(call);
-    expect(screen.getByRole("button", { name: /Bash · npm test/ })).toHaveAttribute("aria-expanded", "false");
-    expect(container.textContent).toContain("5 passed");
-    expect(container.textContent).not.toContain("0 failed");
+  it("is one compact row: a plain verb, its target and its metrics, the output hidden until expanded", () => {
+    const { container } = renderRow({ ...call, startedAt: "2026-10-19T10:00:00.000Z", endedAt: "2026-10-19T10:00:41.000Z" });
+    expect(screen.getByRole("button", { name: "Ran · npm test, exit 0" })).toHaveAttribute("aria-expanded", "false");
+    expect(container.querySelector(".feed-call-verb")?.textContent).toBe("Ran");
+    const metrics = [...(container.querySelector(".feed-call-metrics")?.children ?? [])].map((el) => el.textContent);
+    expect(metrics).toEqual(["exit 0", "41s"]);
+    expect(container.textContent).not.toContain("5 passed");
+  });
+
+  it("names a board tool by its meaning, never by its MCP name", () => {
+    const { container } = renderRow({
+      kind: "tool_call",
+      key: "k",
+      toolName: "mcp__flywheel-board__task_add",
+      input: { titles: ["Write the store test"] },
+      output: '{"tasks":[]}',
+    });
+    expect(container.querySelector(".feed-call-verb")?.textContent).toBe("Added Task");
+    expect(container.textContent).toContain("Write the store test");
+    expect(container.innerHTML).not.toContain("mcp__");
+  });
+
+  it("draws a failed Check in red and a failed command in neutral ink", () => {
+    const { container } = renderRow({
+      kind: "tool_call",
+      key: "k",
+      toolName: "mcp__flywheel-board__checks_run",
+      input: {},
+      output: '{"checks":[{"result":"passed"},{"result":"failed"}]}',
+    });
+    expect(container.querySelector('[data-tone="failed-check"]')).toHaveClass("text-destructive-text");
+    cleanup();
+    const failed = renderRow({ ...call, isError: true, output: "Exit code 1\nboom" });
+    const metric = failed.container.querySelector('[data-tone="failed"]');
+    expect(metric).toHaveTextContent("exit 1");
+    expect(metric).toHaveClass("text-foreground");
   });
 
   it("expanded, shows its input as named fields and its output as text, with no JSON", () => {
@@ -87,7 +118,7 @@ describe("a tool call", () => {
       elapsedSeconds: 60,
     };
     renderRow(running, { live: true, now });
-    expect(screen.getByText("running · 1m")).toBeInTheDocument();
+    expect(screen.getByText("running · 1m 00s")).toBeInTheDocument();
   });
 
   it("while live with no heartbeat yet, counts from when the call started", () => {

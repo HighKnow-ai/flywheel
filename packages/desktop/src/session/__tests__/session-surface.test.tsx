@@ -635,16 +635,16 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     expect(screen.getByText("Event number 0")).toBeInTheDocument();
   });
 
-  it("renders a collapsed tool-call row with the tool name and target joined by the middle dot, payload hidden until expanded", async () => {
+  it("renders a collapsed tool-call row with its verb and target, payload hidden until expanded", async () => {
     const events = [makeToolCall(0, "Bash", { command: "npm test" })];
     mockWindowReads(() => events);
 
     renderSurface();
 
-    await screen.findByText("Bash · npm test");
+    await screen.findByText("npm test");
     expect(screen.queryByText("command")).not.toBeInTheDocument();
 
-    const toggle = screen.getByRole("button", { name: /Bash · npm test/ });
+    const toggle = screen.getByRole("button", { name: /(Ran|Running) · npm test/ });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     toggle.click();
 
@@ -658,7 +658,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
 
     renderSurface();
 
-    const toggle = await screen.findByRole("button", { name: /Bash · npm test/ });
+    const toggle = await screen.findByRole("button", { name: /(Ran|Running) · npm test/ });
     toggle.click();
 
     expect(await screen.findByText("command")).toBeInTheDocument();
@@ -677,7 +677,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
       </QueryClientProvider>,
     );
 
-    const toggle = await screen.findByRole("button", { name: /Bash · npm test/ });
+    const toggle = await screen.findByRole("button", { name: /(Ran|Running) · npm test/ });
     toggle.click();
     await screen.findByText("command");
 
@@ -685,7 +685,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     await queryClient.invalidateQueries({ queryKey: sessionFeedQueryKey("run-1") });
 
     await waitFor(() => expect(feedItems().length).toBe(4));
-    expect(screen.getByRole("button", { name: /Bash · npm test/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /(Ran|Running) · npm test/ })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("command")).toBeInTheDocument();
   });
 
@@ -965,7 +965,7 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
   it("the running tool call, and only that one, wears the live caret; a finished run's call does not", async () => {
     mockCombinedReads({ events: [makeToolCall(0, "Read", { file_path: "a.ts" }), makeToolResult(1, "Read", "ok"), makeToolCall(2, "Bash", { command: "npm test" })] });
     const running = renderSurface();
-    const bash = await screen.findByRole("button", { name: /Bash · npm test/ });
+    const bash = await screen.findByRole("button", { name: /(Ran|Running) · npm test/ });
     expect(bash).toHaveAttribute("data-live", "true");
     expect(bash.querySelector(".feed-caret.agent-pulse")).not.toBeNull();
     expect(screen.getByRole("button", { name: /Read · a.ts/ })).not.toHaveAttribute("data-live");
@@ -977,7 +977,7 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
         <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="failed" />
       </QueryClientProvider>,
     );
-    const ended = await screen.findByRole("button", { name: /Bash · npm test/ });
+    const ended = await screen.findByRole("button", { name: /(Ran|Running) · npm test/ });
     expect(ended).not.toHaveAttribute("data-live");
     expect(ended.querySelector(".feed-caret")).toBeNull();
   });
@@ -986,7 +986,7 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
     mockMatchMedia(true);
     mockCombinedReads({ events: [makeToolCall(0, "Bash", { command: "npm test" })] });
     renderSurface();
-    const bash = await screen.findByRole("button", { name: /Bash · npm test/ });
+    const bash = await screen.findByRole("button", { name: /(Ran|Running) · npm test/ });
     expect(bash.querySelector(".feed-caret")).not.toBeNull();
     expect(bash.querySelector(".agent-pulse")).toBeNull();
     // @ts-expect-error test-only cleanup of the global override installed above
@@ -998,7 +998,7 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
     const a = renderSurface();
     // The command sits in the code face inside the sentence, so the sentence is read as the status's text.
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent(/^The agent is working: Bash · npm test\. Last activity .+ ago\.$/),
+      expect(screen.getByRole("status")).toHaveTextContent(/^The agent is working: Running · npm test\. Last activity .+ ago\.$/),
     );
     a.unmount();
 
@@ -1025,10 +1025,10 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
       ],
     });
     renderSurface();
-    const call = await screen.findByRole("button", { name: /Bash · cargo test --workspace/ });
+    const call = await screen.findByRole("button", { name: /Running · cargo test --workspace/ });
     expect(call).toHaveTextContent("running · 1m");
     expect(feedItems()).toHaveLength(1);
-    expect(screen.getByRole("status")).toHaveTextContent(/^The agent is working: Bash · cargo test --workspace\. Last activity \d+s ago\.$/);
+    expect(screen.getByRole("status")).toHaveTextContent(/^The agent is working: Running · cargo test --workspace\. Last activity \d+s ago\.$/);
   });
 
   it("while running, Stop leads and Discard sits on the plain edge", async () => {

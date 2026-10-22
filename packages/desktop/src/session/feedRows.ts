@@ -15,6 +15,7 @@
  *   call it names;
  * - Proposals and AskUserQuestion requests are their own row kinds, which render as cards.
  */
+import { describeToolCall } from "./toolVerbs";
 
 /** One AskUserQuestion option, as the sidecar's `parseAskUserQuestionInput` carries it. */
 export interface QuestionOption {
@@ -45,6 +46,8 @@ export type FeedRowData =
       isError?: boolean;
       /** When the call was made (the entry's `at`), for the running clock. */
       startedAt?: string;
+      /** When its result came (the result entry's `at`), for the call's duration. */
+      endedAt?: string;
       /** The newest `tool_progress` heartbeat's elapsed seconds for this call. */
       elapsedSeconds?: number;
     }
@@ -76,11 +79,14 @@ export function toolCallTarget(input: unknown): string {
   return "";
 }
 
-/** The collapsed tool-call label: the tool's name and its target. Built in one place so the fleet's
- * activity cell and the feed row never word the same call differently. */
-export function toolCallLabel(toolName: string, input: unknown): string {
-  const target = toolCallTarget(input);
-  return target ? `${toolName} · ${target}` : toolName;
+/** The collapsed tool-call label: what the agent did and what it acted on ("Ran · npm test", "Added
+ * Task · Write the store test"), worded by `toolVerbs.ts`. Built in one place so the fleet's activity
+ * cell, the status line and the feed row never word the same call differently. `live` words a call
+ * still running ("Running · npm test"). */
+export function toolCallLabel(toolName: string, input: unknown, options: { live?: boolean; output?: unknown } = {}): string {
+  const described = describeToolCall({ toolName, input, output: options.output });
+  const verb = options.live ? described.liveVerb : described.verb;
+  return described.target ? `${verb} · ${described.target}` : verb;
 }
 
 /** A payload as one line of plain text: a string as itself, anything else as its field values. */
@@ -118,7 +124,8 @@ export function feedRowText(row: FeedRowData): string {
     case "system_notice":
       return row.text;
     case "tool_call":
-      return toolCallLabel(row.toolName, row.input);
+      // A call with no result yet is the one in flight: it reads "Running · npm test".
+      return toolCallLabel(row.toolName, row.input, { output: row.output, live: row.output === undefined });
     case "tool_result":
       return payloadText(row.output);
     case "proposal": {
@@ -375,7 +382,8 @@ export function buildFeedRows(entries: Record<string, unknown>[]): FeedRowData[]
       if (typeof slot === "number") {
         const target = rows[slot];
         if (target.kind === "tool_call" || target.kind === "proposal") {
-          rows[slot] = { ...target, output: event.output, ...isError };
+          const endedAt = target.kind === "tool_call" && typeof event.at === "string" ? { endedAt: event.at } : {};
+          rows[slot] = { ...target, output: event.output, ...isError, ...endedAt };
         } else if (target.kind === "question") {
           rows[slot] = { ...target, answer: event.output };
         }
