@@ -5,8 +5,9 @@
  * The current Round heads the dock: its number, the agent's one-paragraph note, then its numbered
  * questions ([`QuestionCard`]), each with the recommended answer already filled in. While the session that
  * posted it is held on it, the Round is Waiting on you and wears the request card's frame: the attention
- * edge and the yellow band, as the session feed's question card does (#100). Its footer carries the one
- * filled action of the region, Accept all recommended, which answers every question still open with the
+ * edge and the yellow band, as the session feed's question card does (#100). Under its note, a bar that
+ * stays on screen while the questions scroll carries the one filled action of the region, Accept all
+ * recommended, which answers every question still open with the
  * agent's recommendation (questions only: it never decides a Proposal), beside the count answered.
  *
  * Every answer is its own write: the dock never batches, so an answer is on the board the moment it is
@@ -123,7 +124,7 @@ function RoundCard({
       aria-labelledby={headingId}
       data-round-state={round.state}
       className={cn(
-        "min-w-0 overflow-hidden rounded-lg bg-card shadow-card",
+        "min-w-0 overflow-clip rounded-lg bg-card shadow-card",
         waiting ? "border-2 border-attention" : "border border-border",
       )}
     >
@@ -142,14 +143,10 @@ function RoundCard({
           {waiting ? "Waiting on you" : open ? "No live session: your answers are kept" : "Answered"}
         </span>
       </header>
-      {open && <p className="m-0 border-b border-border px-4 py-3 text-body break-words">{round.note}</p>}
-      <div className="flex min-w-0 flex-col">
-        {round.questions.map((q) => (
-          <QuestionCard key={q.id} question={q} open={open} onAccept={onAccept} onAnswer={onAnswer} />
-        ))}
-      </div>
+      {open && <p className="m-0 px-4 pt-3 pb-1 text-body break-words">{round.note}</p>}
       {open && (
-        <footer className="flex flex-wrap items-center gap-3 border-t border-border bg-secondary/60 px-4 py-3">
+        // The Round's one filled action, kept on screen while the questions scroll under it.
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-card px-4 py-3">
           <Button onClick={() => void acceptAll()} disabled={accepting || answered === total}>
             <CheckCheck aria-hidden="true" />
             {accepting ? "Accepting…" : "Accept all recommended"}
@@ -157,7 +154,7 @@ function RoundCard({
           <span className="text-small font-semibold tabular-nums">
             {answered} of {total} answered
           </span>
-          <span className="text-small text-muted-foreground">
+          <span className="min-w-0 text-small text-muted-foreground">
             {waiting ? "The agent goes on once every question is answered." : "Every answer is saved as you give it."}
           </span>
           {error && (
@@ -165,8 +162,13 @@ function RoundCard({
               {error}
             </p>
           )}
-        </footer>
+        </div>
       )}
+      <div className="flex min-w-0 flex-col">
+        {round.questions.map((q) => (
+          <QuestionCard key={q.id} question={q} open={open} onAccept={onAccept} onAnswer={onAnswer} />
+        ))}
+      </div>
     </section>
   );
 }
