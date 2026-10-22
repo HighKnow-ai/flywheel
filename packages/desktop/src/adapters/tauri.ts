@@ -223,6 +223,24 @@ export async function epicSetState(epicId: string, to: string): Promise<void> {
   await invokeCommand<void>("epic_set_state", { epicId, to });
 }
 
+/** A shaping session as Shape returns it — mirrors `commands/shaping.rs`'s `ShapingSessionDto`. */
+export interface ShapingSessionDto {
+  id: string;
+  epicId: string;
+  status: string;
+  permissionMode: string;
+}
+
+/** Shape an Epic in Shaping (issue #122): start a read-only shaping session on it. */
+export async function epicShape(epicId: string): Promise<ShapingSessionDto> {
+  return invokeCommand<ShapingSessionDto>("epic_shape", { epicId });
+}
+
+/** The Epic's live shaping session id, or `null` when none is live. */
+export async function epicShapingSession(epicId: string): Promise<string | null> {
+  return invokeCommand<string | null>("epic_shaping_session", { epicId });
+}
+
 /** A Story in one Epic — mirrors `commands/story.rs`'s `StoryDto`. */
 export interface StoryDto {
   id: string;
@@ -610,7 +628,8 @@ export async function sessionRawWindow(
 /** One of a Story's agent runs — mirrors `commands/session.rs`'s `RunSummaryDto`. */
 export interface RunSummaryDto {
   id: string;
-  storyId: string;
+  /** `null` for a shaping session (issue #122), which has no Story. */
+  storyId: string | null;
   status: string;
   startedAt: string;
   endedAt: string | null;
@@ -936,7 +955,8 @@ export async function boardRecoverySummary(projectId: string): Promise<RecoveryS
  * `commands/session.rs`'s `PendingOrphanDto`. */
 export interface PendingOrphanDto {
   runId: string;
-  storyId: string;
+  /** `null` for a shaping session; `storyKey` and `storyTitle` are then its Epic's. */
+  storyId: string | null;
   storyKey: string;
   storyTitle: string;
   projectId: string;

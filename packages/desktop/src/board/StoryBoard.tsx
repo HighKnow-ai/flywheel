@@ -44,6 +44,7 @@ import { WriteStoryDialog } from "./WriteStoryDialog";
 import { MilestoneHeader, useMilestoneProgress } from "./MilestoneHeader";
 import { EpicProgress } from "./EpicProgress";
 import { RoadmapStrip, useMilestoneSelection, useRoadmap } from "./RoadmapStrip";
+import { EpicShapingControl } from "./EpicShapingControl";
 import type { EpicProgressDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
@@ -101,7 +102,8 @@ function useProjectEpics(projectId: string) {
 }
 
 /** Stories grouped under their Epic, Epics in Roadmap order; a Story whose Epic is not read yet sits in a
- * group of its own at the end, so nothing is ever hidden while the Epics load. */
+ * group of its own at the end, so nothing is ever hidden while the Epics load. An Epic with no Story yet is
+ * shown only while it is in Shaping, where its card carries Shape (issue #122). */
 export function groupByEpic(stories: StoryDto[], epics: { epic: EpicDto; milestone: MilestoneDto }[]): EpicGroup[] {
   const groups: EpicGroup[] = epics.map(({ epic, milestone }) => ({ epic, milestone, stories: [] }));
   const byId = new Map(groups.map((group) => [group.epic?.id, group]));
@@ -111,7 +113,7 @@ export function groupByEpic(stories: StoryDto[], epics: { epic: EpicDto; milesto
     if (group) group.stories.push(story);
     else loose.push(story);
   }
-  const shown = groups.filter((group) => group.stories.length > 0);
+  const shown = groups.filter((group) => group.stories.length > 0 || group.epic?.state === "shaping");
   if (loose.length > 0) shown.push({ epic: null, milestone: null, stories: loose });
   return shown;
 }
@@ -162,7 +164,8 @@ function StoryRoster({
   if (storiesQuery.isError) {
     return <p className="m-0 text-body text-destructive-text">{errorText(storiesQuery.error)}</p>;
   }
-  if (storiesQuery.isSuccess && stories.length === 0) {
+  // An Epic in Shaping with no Story yet still has its card (issue #122), so only an empty roster is empty.
+  if (storiesQuery.isSuccess && stories.length === 0 && groups.length === 0) {
     return (
       <section className="flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card px-5 py-6 shadow-card">
         <h2 className="m-0 text-section font-semibold">No Stories yet</h2>
@@ -211,7 +214,7 @@ const ROW_ESTIMATE = 53; // min-h-13 and the top border between rows
 const OVERSCAN = 8;
 
 type RosterItem =
-  | { kind: "epic"; group: number; key: string }
+  | { kind: "epic"; group: number; key: string; empty: boolean }
   | { kind: "story"; group: number; key: string; story: StoryDto; position: number; first: boolean; last: boolean };
 
 /** The roster's virtual items, and where each Epic's run of them starts. The key carries whatever changes
@@ -221,7 +224,13 @@ function rosterItems(groups: EpicGroup[]): { items: RosterItem[]; starts: number
   const starts: number[] = [];
   groups.forEach((group, index) => {
     starts.push(items.length);
-    items.push({ kind: "epic", group: index, key: `epic:${group.epic?.id ?? "none"}:${index === 0 ? "first" : ""}` });
+    const empty = group.stories.length === 0;
+    items.push({
+      kind: "epic",
+      group: index,
+      key: `epic:${group.epic?.id ?? "none"}:${index === 0 ? "first" : ""}:${empty ? "empty" : ""}`,
+      empty,
+    });
     group.stories.forEach((story, position) => {
       const first = position === 0;
       const last = position === group.stories.length - 1;
@@ -246,7 +255,8 @@ function itemEstimate(item: RosterItem): number {
 
 /** The part of an item's size its element does not contain: the gap and card borders around it. */
 function itemFrame(item: RosterItem): number {
-  if (item.kind === "epic") return CARD_BORDER + (item.group > 0 ? EPIC_GAP : 0);
+  // An Epic with no Story yet (one in Shaping) ends at its heading, which then carries the bottom border too.
+  if (item.kind === "epic") return CARD_BORDER + (item.group > 0 ? EPIC_GAP : 0) + (item.empty ? CARD_BORDER : 0);
   return item.last ? CARD_BORDER : 0;
 }
 
@@ -337,6 +347,7 @@ function VirtualRoster({
         return (
           <EpicCard
             key={group.epic?.id ?? "no-epic"}
+            projectId={projectId}
             group={group}
             progress={group.epic ? epicProgress.get(group.epic.id) : undefined}
             top={top}
@@ -370,6 +381,7 @@ function VirtualRoster({
 }
 
 function EpicCard({
+  projectId,
   group,
   progress,
   top,
@@ -387,6 +399,7 @@ function EpicCard({
   /** The heading's virtual item, measured from its element. */
   headingIndex: number;
   measure: (element: Element | null) => void;
+  projectId: string;
   children: ReactNode;
 }) {
   const { epic, milestone, stories } = group;
@@ -398,14 +411,23 @@ function EpicCard({
       className="absolute inset-x-0 overflow-hidden rounded-lg border border-border bg-card shadow-card"
     >
       {progress ? (
-        <header ref={measure} data-index={headingIndex} className="border-b border-border px-4 py-1.5">
-          <EpicProgress epic={progress} headingId={headingId} />
+        <header
+          ref={measure}
+          data-index={headingIndex}
+          className={cn("flex items-center gap-3 border-border px-4 py-1.5", stories.length > 0 && "border-b")}
+        >
+          <EpicProgress epic={progress} headingId={headingId} className="min-w-0 flex-1" />
+          {/* A fixed slot on every progress-headed card, so each Epic's bar still sits in one column; inset by
+              the rows' chevron column, so Shape sits above the rows' own actions. */}
+          <span className="mr-7 flex max-w-[360px] min-w-[132px] flex-none justify-end">
+            {epic && <EpicShapingControl projectId={projectId} epic={epic} />}
+          </span>
         </header>
       ) : (
       <header
         ref={measure}
         data-index={headingIndex}
-        className="flex min-h-14 items-center gap-3 border-b border-border px-4 py-2.5"
+        className={cn("flex min-h-14 items-center gap-3 border-border px-4 py-2.5", stories.length > 0 && "border-b")}
       >
         <Layers aria-hidden="true" size={18} className="shrink-0 text-muted-foreground" />
         <h2 id={headingId} className="m-0 min-w-0 truncate text-section font-semibold">
@@ -422,8 +444,13 @@ function EpicCard({
           </span>
         )}
         <span className="ml-auto shrink-0 text-small text-muted-foreground tabular-nums">
-          {stories.length === 1 ? "1 Story" : `${stories.length} Stories`}
+          {stories.length === 0 ? "No Stories yet" : stories.length === 1 ? "1 Story" : `${stories.length} Stories`}
         </span>
+        {epic && (
+          <span className="mr-7 flex min-w-0 justify-end">
+            <EpicShapingControl projectId={projectId} epic={epic} />
+          </span>
+        )}
       </header>
       )}
       {/* Only the rows near the viewport are mounted; each is placed against the card, not the list. */}
