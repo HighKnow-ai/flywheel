@@ -154,7 +154,7 @@ describe("git lock-retry transient row and the git-lock-exhaustion no-render cas
   it("renders the exact Copywriting Contract line in the muted role", () => {
     renderRow({ kind: "git_retry", key: "k", attempt: 2, max: 5 });
     const node = screen.getByText("git: retrying after index lock (attempt 2/5)…");
-    expect(node.style.color).toBe("var(--muted-foreground)");
+    expect(node.className).toContain("text-muted-foreground");
   });
 
   it("a git_lock_exhausted row renders nothing", () => {

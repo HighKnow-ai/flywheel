@@ -13,7 +13,7 @@
  *
  * ONE keystroke answers ONE request. The card registers a window-level listener per row, with no
  * deduplication, so `keyboardEnabled` is passed `true` to exactly one card (the first in queue order)
- * and `false` to every other. That owner is marked in words and by a left rule, never by colour alone.
+ * and `false` to every other. That owner is marked in words, never by colour alone.
  * Draining a queue may be quick; it may never become approving in bulk.
  *
  * A Gated action raised by the shim lands here like any other request, with Deny leading and no
@@ -30,17 +30,9 @@ import { PermissionRequestCard, type PermissionDecision } from "../session/Permi
 import { ASK_USER_QUESTION_TOOL } from "../session/feedRows";
 import { useUiStore } from "../state/uiStore";
 import { blockedQueueQueryKey, fleetQueryKey } from "./useFleet";
-
-/** A control that keeps the look of the text it replaces: it only gains a destination. */
-const textControlStyle = {
-  padding: 0,
-  border: "none",
-  background: "none",
-  color: "inherit",
-  font: "inherit",
-  textAlign: "left" as const,
-  cursor: "pointer",
-};
+import { ChevronRight, Terminal } from "lucide-react";
+import { StateBadge } from "../components/StateBadge";
+import { Button } from "@/components/ui/button";
 
 /** What the waiting session is about: its Story's key and title. */
 function subjectText(entry: BlockedQueueEntryDto): { key: string; detail: string | null } {
@@ -84,9 +76,9 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
 
   if (entries.length === 0) {
     return (
-      <div style={{ padding: "var(--space-lg)", display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
-        <span className="type-heading">Nothing is waiting on you</span>
-        <span className="type-body" style={{ color: "var(--muted-foreground)" }}>
+      <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-card px-5 py-6 shadow-card">
+        <span className="text-section font-semibold">Nothing is waiting on you</span>
+        <span className="text-body text-muted-foreground">
           When an agent in any project stops to ask for your answer, its request appears here.
         </span>
       </div>
@@ -97,7 +89,7 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
   const ownerIndex = entries.findIndex((e) => e.toolName !== ASK_USER_QUESTION_TOOL);
 
   return (
-    <div role="list" aria-label="Requests waiting on you" style={{ display: "flex", flexDirection: "column" }}>
+    <div role="list" aria-label="Requests waiting on you" className="flex flex-col gap-5">
       {entries.map((entry, index) => {
         const owner = index === ownerIndex;
         const subject = subjectText(entry);
@@ -107,48 +99,44 @@ export function BlockedQueue({ entries, now }: BlockedQueueProps) {
             role="listitem"
             data-run-id={entry.sessionId}
             data-keyboard-owner={owner ? "true" : undefined}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-xs)",
-              padding: "var(--space-sm) var(--space-md)",
-              borderBottom: "1px solid var(--border)",
-              borderLeft: owner ? "4px solid var(--primary)" : "4px solid transparent",
-            }}
+            className="flex flex-col gap-2"
           >
-            <div className="type-label" style={{ display: "flex", gap: "var(--space-sm)", alignItems: "baseline", minWidth: 0 }}>
-              <span style={{ color: "var(--foreground)", fontWeight: 600 }}>Waiting on you</span>
-              <span data-field="project">{entry.projectName}</span>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+              <StateBadge state="waiting_on_you" className="h-5.5 text-meta" />
+              <span data-field="project" className="text-small text-muted-foreground">
+                {entry.projectName}
+              </span>
               <button
                 type="button"
-                className="type-label tabular-nums"
                 data-field="subject"
                 aria-label={`Open Story ${subject.key}`}
                 title={`Open Story ${subject.key}`}
                 onClick={() => openStory(entry.projectId, entry.storyId)}
-                style={textControlStyle}
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent"
               >
-                {subject.key}
-                {subject.detail ? <span style={{ color: "var(--muted-foreground)" }}>{` ${subject.detail}`}</span> : null}
+                <span className="shrink-0 font-mono text-meta text-muted-foreground">{subject.key}</span>
+                {subject.detail ? " " : null}
+                {subject.detail ? <span className="truncate text-body font-semibold">{subject.detail}</span> : null}
+                <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-subtle-foreground" />
               </button>
-              <button
-                type="button"
-                className="control-edge session-action type-label"
+              <Button
+                variant="outline"
+                size="xs"
                 aria-label={`Open live session of ${subject.key}`}
                 onClick={() => setActiveSessionId(entry.sessionId, entry.storyId, null, "blocked")}
               >
+                <Terminal aria-hidden="true" />
                 Open session
-              </button>
+              </Button>
               {owner && (
-                <span data-field="owner" style={{ color: "var(--muted-foreground)" }}>
+                <span data-field="owner" className="text-meta text-muted-foreground">
                   Keys A and D answer this one
                 </span>
               )}
               <span
-                className="tabular-nums"
                 data-field="age"
                 aria-label={`Waiting ${formatAge(entry.blockedSince, now)}`}
-                style={{ marginLeft: "auto", color: "var(--muted-foreground)" }}
+                className="ml-auto text-small text-subtle-foreground tabular-nums"
               >
                 {formatAge(entry.blockedSince, now)}
               </span>

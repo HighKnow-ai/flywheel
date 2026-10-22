@@ -261,7 +261,12 @@ describe("the activity column", () => {
       ]),
     );
     renderFleet();
-    const item = (await screen.findAllByRole("listitem"))[0];
+    // The first fleet row: every list item on the surface but the breadcrumb's.
+    const item = await waitFor(() => {
+      const row = screen.getAllByRole("listitem").find((el) => !el.closest("nav"));
+      if (!row) throw new Error("no fleet row yet");
+      return row;
+    });
     expect(within(item).queryByText("Still going.")).toBeNull();
     expect(item.querySelector('[data-field="activity"]')?.textContent).toBe("");
   });

@@ -46,7 +46,9 @@ import { nextSelectionId, useRegionBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
 import { BlockedQueue } from "./BlockedQueue";
 import { useBlockedQueue, useFleet } from "./useFleet";
-import "../styles/admin-surfaces.css";
+import { PageHeader, SurfaceBody } from "../shell/PageHeader";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
@@ -66,7 +68,7 @@ function useNowTick(enabled: boolean): number {
 
 /** Grid shared by the header-less rows so the columns line up down the whole list. */
 const ROW_COLUMNS =
-  "minmax(150px, 190px) minmax(80px, 140px) 1fr minmax(100px, 1fr) minmax(120px, 1.4fr) minmax(90px, 1fr) 64px 76px";
+  "minmax(150px, 172px) minmax(80px, 120px) minmax(0, 1.4fr) minmax(100px, 1fr) minmax(120px, 1.2fr) minmax(90px, 0.8fr) 56px 76px";
 
 /** The activity line's width in characters, ellipsis at the TAIL — the start of a line (the tool, the
  * first clause) is what says what the agent is doing. Applied to every row kind alike. */
@@ -116,20 +118,11 @@ function ActivityCell({ row }: { row: FleetRowDto }) {
   if (row.runStatus !== "running" && row.runStatus !== "blocked") return <span data-field="activity" />;
   const line = activityLine(row.activity);
   return line === null ? (
-    <span
-      data-field="activity"
-      data-absent="true"
-      title="No activity could be read"
-      style={{ color: "var(--muted-foreground)" }}
-    >
+    <span data-field="activity" data-absent="true" title="No activity could be read" className="text-subtle-foreground">
       {ABSENT}
     </span>
   ) : (
-    <span
-      data-field="activity"
-      title={line}
-      style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--muted-foreground)" }}
-    >
+    <span data-field="activity" title={line} className="truncate text-small text-muted-foreground">
       {line}
     </span>
   );
@@ -141,11 +134,7 @@ function ActivityCell({ row }: { row: FleetRowDto }) {
 export function DoingTaskCell({ row }: { row: FleetRowDto }) {
   const title = row.doingTaskTitle;
   return (
-    <span
-      data-field="doing-task"
-      title={title ? `Doing: ${title}` : undefined}
-      style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-    >
+    <span data-field="doing-task" title={title ? `Doing: ${title}` : undefined} className="truncate text-small">
       {title ?? ""}
     </span>
   );
@@ -172,19 +161,11 @@ export function SpendCell({ row }: { row: FleetRowDto }) {
           .filter((part) => part !== null)
           .join(" \u00b7 ");
   return (
-    <span
-      data-field="spend"
-      className="tabular-nums"
-      style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-    >
+    <span data-field="spend" className="truncate text-small tabular-nums">
       {row.costUsd != null && <span title="Estimated cost, not a billed amount">{formatCostUsd(row.costUsd)}</span>}
       {row.costUsd != null && tokens ? " " : ""}
       {tokens && (
-        <span
-          className="type-label"
-          title="Input tokens include cache reads, so this is larger than the prompt size"
-          style={{ color: "var(--muted-foreground)" }}
-        >
+        <span title="Input tokens include cache reads, so this is larger than the prompt size" className="text-meta text-muted-foreground">
           {tokens}
         </span>
       )}
@@ -197,16 +178,7 @@ export function SpendCell({ row }: { row: FleetRowDto }) {
 export function FleetFooter({ visibleCostUsd }: { visibleCostUsd: number | null }) {
   if (visibleCostUsd == null) return null;
   return (
-    <footer
-      data-fleet-footer
-      className="type-label tabular-nums"
-      style={{
-        padding: "var(--space-xs) var(--space-md)",
-        borderTop: "1px solid var(--border)",
-        color: "var(--muted-foreground)",
-        textAlign: "right",
-      }}
-    >
+    <footer data-fleet-footer className="shrink-0 px-5 pb-3 text-right text-meta text-muted-foreground tabular-nums">
       Estimated spend, this fleet: {formatCostUsd(visibleCostUsd)} (Flywheel's own estimate from a bundled price
       table, not a billed amount)
     </footer>
@@ -249,7 +221,7 @@ export function SubjectTarget({
     <button
       type="button"
       data-subject-target
-      className="type-label tabular-nums"
+      className="rounded-sm font-mono text-meta font-semibold text-running underline-offset-4 hover:underline"
       aria-label={`Open Story ${label}`}
       title={`Open Story ${label}`}
       onClick={(event: MouseEvent) => {
@@ -305,61 +277,52 @@ export function FleetRowView({
       data-run-id={row.sessionId}
       data-selected={selected ? "true" : undefined}
       aria-current={selected ? "true" : undefined}
-      className="type-body"
       onClick={() => onOpenSession?.(row)}
-      style={{
-        cursor: onOpenSession ? "pointer" : undefined,
-        // The codebase's "selected" grammar: a left rule in --selection-rule, never colour on the text.
-        boxShadow: selected ? "inset 4px 0 0 var(--primary)" : undefined,
-        display: "grid",
-        gridTemplateColumns: ROW_COLUMNS,
-        alignItems: "center",
-        gap: "var(--space-md)",
-        minHeight: 32,
-        padding: "var(--space-xs) var(--space-md)",
-        borderBottom: "1px solid var(--border)",
-      }}
+      className={cn(
+        "grid min-h-11 items-center gap-x-4 border-t border-border px-4 py-1.5 text-body transition-colors duration-(--duration-state) ease-(--ease) first:border-t-0",
+        onOpenSession && "cursor-pointer hover:bg-accent",
+        // The selected row takes the running tint (direction.md rule 4), never colour on the text alone.
+        selected && "bg-running-muted hover:bg-running-muted",
+        state === "blocked" && !selected && "bg-attention-muted hover:bg-attention-muted",
+      )}
+      style={{ gridTemplateColumns: ROW_COLUMNS }}
     >
       <span data-field="state" style={{ display: "inline-flex" }}>
         <StateBadge state={state} pulse={pulsing} />
       </span>
-      <span data-field="project" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span data-field="project" className="truncate text-small text-muted-foreground">
         {row.projectName}
       </span>
       <span
         data-field="subject"
         title={subject.detail ? `${subject.key} ${subject.detail}`.trim() : subject.key}
-        style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        className="truncate"
       >
         {subjectTargetId(row) !== null && onOpenSubject ? (
           <SubjectTarget label={subject.key || "Story"} onOpen={() => onOpenSubject(row)} />
         ) : (
-          subject.key && <span className="type-label tabular-nums">{subject.key}</span>
+          subject.key && <span className="font-mono text-meta">{subject.key}</span>
         )}
         {subject.key && subject.detail ? " " : ""}
-        {subject.detail && <span style={{ color: "var(--muted-foreground)" }}>{subject.detail}</span>}
+        {subject.detail && <span className="font-semibold">{subject.detail}</span>}
       </span>
       <DoingTaskCell row={row} />
       <ActivityCell row={row} />
       <SpendCell row={row} />
-      <span
-        className="type-label tabular-nums"
-        data-field="age"
-        aria-label={`In this state for ${age}`}
-        style={{ color: "var(--muted-foreground)", textAlign: "right" }}
-      >
+      <span data-field="age" aria-label={`In this state for ${age}`} className="text-right text-small text-subtle-foreground tabular-nums">
         {age}
       </span>
-      <span data-field="dismiss" style={{ textAlign: "right" }}>
+      <span data-field="dismiss" className="text-right">
         {dismissFailed && (
-          <span role="status" className="type-label" style={{ color: "var(--muted-foreground)" }}>
+          <span role="status" className="text-meta text-muted-foreground">
             Could not dismiss.{" "}
           </span>
         )}
         {isTerminalRun(row) && (
-          <button
-            type="button"
-            className="type-label"
+          <Button
+            variant="ghost"
+            size="xs"
+            className="text-muted-foreground"
             aria-label={`Dismiss ${subject.key || "run"}`}
             onClick={(event: MouseEvent) => {
               // Its own act: a click here must not also bubble into the row and open the session.
@@ -369,7 +332,7 @@ export function FleetRowView({
             }}
           >
             Dismiss
-          </button>
+          </Button>
         )}
       </span>
     </div>
@@ -393,31 +356,23 @@ export function FleetBand({
 }) {
   const [dismissNotice, setDismissNotice] = useState<string | null>(null);
   return (
-    <section data-band={band.id} aria-label={band.header}>
-      <div
-        style={{
-          padding: "var(--space-xs) var(--space-md)",
-          minHeight: 28,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          color: "var(--muted-foreground)",
-          borderBottom: "1px solid var(--border)",
-        }}
-      >
-        <h2 className="type-label" style={{ margin: 0 }}>
-          {band.header}
-        </h2>
+    <section data-band={band.id} aria-label={band.header} className="overflow-hidden rounded-lg border border-border bg-card shadow-card">
+      <div className="flex min-h-10 items-center justify-between gap-3 border-b border-border px-4">
+        <span className="flex items-baseline gap-2">
+          <h2 className="m-0 text-small font-semibold tracking-[0.02em] text-muted-foreground">{band.header}</h2>
+          <span className="text-small text-subtle-foreground tabular-nums">{rows.length}</span>
+        </span>
         {band.id === "done-failed" && (
-          <span>
+          <span className="flex items-center gap-2">
             {dismissNotice && (
-              <span role="status" className="type-label" style={{ marginRight: "var(--space-sm)" }}>
+              <span role="status" className="text-meta text-muted-foreground">
                 {dismissNotice}
               </span>
             )}
-            <button
-              type="button"
-              className="type-label"
+            <Button
+              variant="ghost"
+              size="xs"
+              className="text-muted-foreground"
               onClick={() => {
                 setDismissNotice(null);
                 void sessionAcknowledgeMany(rows.filter(isTerminalRun).map((r) => r.sessionId))
@@ -430,7 +385,7 @@ export function FleetBand({
               }}
             >
               Dismiss finished
-            </button>
+            </Button>
           </span>
         )}
       </div>
@@ -516,72 +471,72 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
     `${total} ${total === 1 ? "agent" : "agents"}` + (needYou > 0 ? ` · ${needYou} need you` : "");
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--foreground)" }}>
-      <header className="admin-header">
-        <button type="button" onClick={onClose} className="type-label admin-back">
-          ← Back
-        </button>
-        <span className="type-heading">{view === "queue" ? "Waiting on you" : "Fleet"}</span>
-        <div role="group" aria-label="Fleet views" style={{ display: "flex", gap: "var(--space-xs)" }}>
-          <button
-            type="button"
-            className="type-label"
-            aria-pressed={view === "fleet"}
-            onClick={() => setFleetSurface({ view: "fleet" })}
-          >
-            All agents
-          </button>
-          <button
-            type="button"
-            className="type-label tabular-nums"
-            aria-pressed={view === "queue"}
-            onClick={() => setFleetSurface({ view: "queue" })}
-          >
-            {`Waiting on you ${queue.length}`}
-          </button>
-        </div>
-        <span
-          className="type-label tabular-nums"
-          aria-live="polite"
-          style={{ marginLeft: "auto", color: "var(--muted-foreground)" }}
-        >
-          {view === "queue" ? `${queue.length} waiting` : countText}
-        </span>
-      </header>
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-        {view === "queue" ? (
-          blocked.isError ? (
-            <p role="alert" className="type-body" style={{ padding: "var(--space-lg)", color: "var(--destructive-text)" }}>
-              Could not load what is waiting on you. It will retry on the next change.
-            </p>
-          ) : (
-            blocked.isSuccess && <BlockedQueue entries={queue} now={now} />
-          )
-        ) : fleet.isError ? (
-          <p role="alert" className="type-body" style={{ padding: "var(--space-lg)", color: "var(--destructive-text)" }}>
-            Could not load the fleet. It will retry on the next change.
-          </p>
-        ) : fleet.isSuccess && rows.length === 0 ? (
-          <div style={{ padding: "var(--space-lg)", display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
-            <span className="type-heading">No agents running</span>
-            <span className="type-body" style={{ color: "var(--muted-foreground)" }}>
-              When an agent starts in any project, it appears here.
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader
+        onBack={onClose}
+        crumbs={[{ label: view === "queue" ? "Waiting on you" : "All agents" }]}
+        actions={
+          <>
+            <span aria-live="polite" className="text-small text-muted-foreground tabular-nums">
+              {view === "queue" ? `${queue.length} waiting` : countText}
             </span>
-          </div>
-        ) : (
-          FLEET_BANDS.filter((band) => byBand.has(band.id)).map((band) => (
-            <FleetBand
-              key={band.id}
-              band={band}
-              rows={byBand.get(band.id) ?? []}
-              now={now}
-              selectedRunId={selectedRunId}
-              onOpenSession={openSession}
-              onOpenSubject={openSubject}
-            />
-          ))
-        )}
-      </div>
+            <div role="group" aria-label="Fleet views" className="flex rounded-md bg-secondary p-0.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-pressed={view === "fleet"}
+                onClick={() => setFleetSurface({ view: "fleet" })}
+                className="h-7.5 aria-pressed:bg-card aria-pressed:shadow-card"
+              >
+                All agents
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-pressed={view === "queue"}
+                onClick={() => setFleetSurface({ view: "queue" })}
+                className="h-7.5 tabular-nums aria-pressed:bg-card aria-pressed:shadow-card"
+              >
+                {`Waiting on you ${queue.length}`}
+              </Button>
+            </div>
+          </>
+        }
+      />
+      <SurfaceBody>
+        <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4">
+          {view === "queue" ? (
+            blocked.isError ? (
+              <p role="alert" className="m-0 text-body text-destructive-text">
+                Could not load what is waiting on you. It will retry on the next change.
+              </p>
+            ) : (
+              blocked.isSuccess && <BlockedQueue entries={queue} now={now} />
+            )
+          ) : fleet.isError ? (
+            <p role="alert" className="m-0 text-body text-destructive-text">
+              Could not load the fleet. It will retry on the next change.
+            </p>
+          ) : fleet.isSuccess && rows.length === 0 ? (
+            <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-card px-5 py-6 shadow-card">
+              <span className="text-section font-semibold">No agents running</span>
+              <span className="text-body text-muted-foreground">When an agent starts in any project, it appears here.</span>
+            </div>
+          ) : (
+            FLEET_BANDS.filter((band) => byBand.has(band.id)).map((band) => (
+              <FleetBand
+                key={band.id}
+                band={band}
+                rows={byBand.get(band.id) ?? []}
+                now={now}
+                selectedRunId={selectedRunId}
+                onOpenSession={openSession}
+                onOpenSubject={openSubject}
+              />
+            ))
+          )}
+        </div>
+      </SurfaceBody>
       {view === "fleet" && <FleetFooter visibleCostUsd={fleet.data?.visibleCostUsd ?? null} />}
     </div>
   );

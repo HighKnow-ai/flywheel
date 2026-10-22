@@ -130,7 +130,7 @@ describe("the question card", () => {
       <FeedRow row={rows[0]} expanded={false} onToggleExpand={() => {}} onAnswerQuestion={onAnswerQuestion} />,
     );
     expectNoPermissionControls(container);
-    expect(screen.getByText(/waiting on you/)).toBeTruthy();
+    expect(screen.getByText("The session waits until you answer")).toBeTruthy();
     fireEvent.click(screen.getByLabelText(/Red/));
     fireEvent.click(screen.getByLabelText(/Windows/));
     fireEvent.click(screen.getByRole("button", { name: "Send answer" }));

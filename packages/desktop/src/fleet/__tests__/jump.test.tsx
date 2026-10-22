@@ -194,7 +194,7 @@ describe("the primary target: a row opens that run's session", () => {
     await renderFleet([row({ sessionId: "run-t" })]);
     fireEvent.keyDown(window, { key: "Enter" });
     expect(spies.setActiveSessionId).not.toHaveBeenCalled();
-    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getAllByRole("listitem").filter((el) => !el.closest("nav"))).toHaveLength(1);
   });
 });
 
@@ -303,7 +303,11 @@ async function mountShellOnFleet(rows: FleetRowDto[], currentProjectId = "proj-A
   return view;
 }
 
-const sessionBack = () => document.querySelector<HTMLElement>(".session-back");
+/** The session's Back control, present only while the session surface shows. */
+const sessionBack = () =>
+  document.querySelector("[data-testid='session-feed-scroll']")
+    ? (screen.queryByRole("button", { name: "Back" }) as HTMLElement | null)
+    : null;
 const fleetRows = () => document.querySelectorAll("[data-run-id]");
 
 describe("AppShell: where a fleet row takes you", () => {

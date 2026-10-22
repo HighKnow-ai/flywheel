@@ -15,7 +15,11 @@
  * same request is answerable from the feed and from Waiting on you. Sending clears the draft.
  */
 import { useId, useRef, useState, type FormEvent } from "react";
+import { Send } from "lucide-react";
 import type { QuestionPrompt } from "./feedRows";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { useUiStore, type QuestionDraft } from "../state/uiStore";
 import "./session.css";
 
@@ -111,75 +115,89 @@ export function QuestionForm({ questions, onSubmit, draftKey }: QuestionFormProp
     }
   }
 
+  const optionClass =
+    "question-option flex cursor-pointer items-start gap-3 rounded-md border border-border px-3 py-2.5 text-body transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent has-[input:checked]:border-primary has-[input:checked]:bg-running-muted has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-ring";
+  const inputClass = "mt-0.5 size-4 shrink-0 accent-(--primary) focus-visible:outline-none";
+
   return (
-    <form className="question-form" onSubmit={(e) => void submit(e)} aria-label="Answer the agent's question">
-      {questions.map((q, i) => {
-        const multi = q.multiSelect === true;
-        const choice = choices[i] ?? EMPTY;
-        const name = `${formId}-q${i}`;
-        return (
-          <fieldset key={i} className="question-fieldset" disabled={sending}>
-            <legend className="question-legend">
-              {q.header && (
-                <span className="type-label" style={{ color: "var(--muted-foreground)", display: "block" }}>
-                  {q.header}
+    <form className="question-form flex min-w-0 flex-col gap-4" onSubmit={(e) => void submit(e)} aria-label="Answer the agent's question">
+      <div className={cn("grid min-w-0 gap-x-6 gap-y-5", questions.length > 1 && "lg:grid-cols-2")}>
+        {questions.map((q, i) => {
+          const multi = q.multiSelect === true;
+          const choice = choices[i] ?? EMPTY;
+          const name = `${formId}-q${i}`;
+          return (
+            <fieldset key={i} className="question-fieldset m-0 flex min-w-0 flex-col gap-2 border-0 p-0" disabled={sending}>
+              <legend className="question-legend mb-2 flex w-full flex-col gap-1 p-0 break-words">
+                <span className="flex items-center gap-2 text-meta font-semibold text-muted-foreground">
+                  {questions.length > 1 && (
+                    <span className="flex size-5 items-center justify-center rounded-sm bg-foreground text-meta text-card tabular-nums">
+                      {i + 1}
+                    </span>
+                  )}
+                  {q.header ?? "Question"}
                   {multi ? " · pick any" : ""}
                 </span>
-              )}
-              <span className="type-body">{q.question}</span>
-            </legend>
-            {q.options.map((option, j) => (
-              <label key={j} className="question-option type-body">
-                <input
-                  type={multi ? "checkbox" : "radio"}
-                  name={name}
-                  checked={choice.labels.includes(option.label)}
-                  onChange={() => pickOption(i, option.label, multi)}
+                <span className="text-body font-semibold">{q.question}</span>
+              </legend>
+              {q.options.map((option, j) => (
+                <label key={j} className={optionClass}>
+                  <input
+                    type={multi ? "checkbox" : "radio"}
+                    name={name}
+                    checked={choice.labels.includes(option.label)}
+                    onChange={() => pickOption(i, option.label, multi)}
+                    className={inputClass}
+                  />
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="font-semibold">{option.label}</span>
+                    {option.description && <span className="text-small text-muted-foreground">{option.description}</span>}
+                  </span>
+                </label>
+              ))}
+              <div className={cn(optionClass, "flex-col items-stretch gap-2 hover:bg-transparent")}>
+                <label className="flex cursor-pointer items-center gap-3">
+                  <input
+                    type={multi ? "checkbox" : "radio"}
+                    name={name}
+                    checked={choice.other}
+                    onChange={() => pickOther(i, multi)}
+                    className={inputClass}
+                  />
+                  <span className="font-semibold">Other</span>
+                </label>
+                <Input
+                  type="text"
+                  aria-label={`Your own answer to: ${q.question}`}
+                  placeholder="Type your own answer"
+                  value={choice.otherText}
+                  onChange={(e) => typeOther(i, e.target.value, multi)}
+                  className="question-other h-8"
                 />
-                <span>
-                  <span style={{ fontWeight: 600 }}>{option.label}</span>
-                  {option.description && (
-                    <span style={{ color: "var(--muted-foreground)" }}>{` — ${option.description}`}</span>
-                  )}
-                </span>
-              </label>
-            ))}
-            <label className="question-option type-body">
-              <input
-                type={multi ? "checkbox" : "radio"}
-                name={name}
-                checked={choice.other}
-                onChange={() => pickOther(i, multi)}
-              />
-              <span>Other</span>
-            </label>
-            <input
-              type="text"
-              aria-label={`Your own answer to: ${q.question}`}
-              placeholder="Type your own answer"
-              value={choice.otherText}
-              onChange={(e) => typeOther(i, e.target.value, multi)}
-              className="control-edge session-field question-other type-body"
-            />
-          </fieldset>
-        );
-      })}
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
-        <button
-          type="submit"
-          disabled={sending || !complete}
-          className="control-edge session-action session-action-lead type-body"
-        >
+              </div>
+            </fieldset>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
+        <Button type="submit" disabled={sending || !complete}>
+          <Send aria-hidden="true" />
           {sending ? "Sending…" : "Send answer"}
-        </button>
-        {!complete && !sending && (
-          <span className="type-label" style={{ color: "var(--muted-foreground)" }}>
-            {questions.length > 1 ? "Answer every question to send." : "Pick an answer or type your own."}
-          </span>
-        )}
+        </Button>
+        <span className="text-small text-muted-foreground">
+          {sending
+            ? "Sending your answer to the agent."
+            : !complete
+              ? questions.length > 1
+                ? "Answer every question to send."
+                : "Pick an answer or type your own."
+              : questions.length > 1
+                ? "Every question is answered. You can still change them."
+                : "Answered. You can still change it."}
+        </span>
       </div>
       {error && (
-        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text)", overflowWrap: "anywhere" }}>
+        <p role="alert" className="m-0 text-small break-words text-destructive-text">
           {error}
         </p>
       )}

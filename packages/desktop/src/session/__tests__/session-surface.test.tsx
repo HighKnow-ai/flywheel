@@ -185,6 +185,12 @@ function renderSurface(queryClient = new QueryClient()) {
   );
 }
 
+
+/** The feed's rows: every list item on the surface but the breadcrumb's. */
+function feedItems() {
+  return screen.getAllByRole("listitem").filter((item) => !item.closest("nav"));
+}
+
 describe("SessionSurface", () => {
   it("renders exactly one row per event returned by the stubbed window read", async () => {
     const events = [makeEvent(0), makeEvent(1), makeEvent(2)];
@@ -192,7 +198,7 @@ describe("SessionSurface", () => {
 
     renderSurface();
 
-    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(3));
+    await waitFor(() => expect(feedItems()).toHaveLength(3));
     expect(screen.getByText("Event number 0")).toBeInTheDocument();
     expect(screen.getByText("Event number 1")).toBeInTheDocument();
     expect(screen.getByText("Event number 2")).toBeInTheDocument();
@@ -204,7 +210,7 @@ describe("SessionSurface", () => {
 
     renderSurface();
 
-    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(3));
+    await waitFor(() => expect(feedItems()).toHaveLength(3));
     const slots = document.querySelectorAll('[data-testid="feed-row-slot"]');
     expect(slots.length).toBe(3);
     slots.forEach((slot) => {
@@ -252,7 +258,7 @@ describe("SessionSurface", () => {
       </QueryClientProvider>,
     );
 
-    const backButton = await screen.findByRole("button", { name: "← Back" });
+    const backButton = await screen.findByRole("button", { name: "Back" });
     backButton.click();
     expect(onBack).toHaveBeenCalledTimes(1);
   });
@@ -585,7 +591,7 @@ describe("SessionSurface persistence-failure banner (plan 02-12, CR-03/PROC-07)"
     mockWindowReads(() => []);
     renderSurface();
 
-    await screen.findByRole("button", { name: "← Back" });
+    await screen.findByRole("button", { name: "Back" });
     capturedAgentEventHandler?.(
       makePersistenceFailureNotice("run-1", "Flywheel could not write this session's log — the transcript below may be incomplete."),
     );
@@ -597,7 +603,7 @@ describe("SessionSurface persistence-failure banner (plan 02-12, CR-03/PROC-07)"
     mockWindowReads(() => []);
     renderSurface();
 
-    await screen.findByRole("button", { name: "← Back" });
+    await screen.findByRole("button", { name: "Back" });
     capturedAgentEventHandler?.(
       makePersistenceFailureNotice("run-9-a-different-run", "Some other run's log failed to open."),
     );
@@ -619,13 +625,13 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     );
 
     await screen.findByText("Starting session…");
-    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(feedItems()).toHaveLength(1);
 
     events = [makeEvent(0)];
     await queryClient.invalidateQueries({ queryKey: sessionFeedQueryKey("run-1") });
 
     await waitFor(() => expect(screen.queryByText("Starting session…")).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
+    await waitFor(() => expect(feedItems()).toHaveLength(1));
     expect(screen.getByText("Event number 0")).toBeInTheDocument();
   });
 
@@ -657,7 +663,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
 
     expect(await screen.findByText("command")).toBeInTheDocument();
     expect(screen.getByText(/5 passed/)).toBeInTheDocument();
-    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(feedItems()).toHaveLength(1);
   });
 
   it("keeps a tool-call row expanded as new events arrive below it", async () => {
@@ -678,7 +684,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     events = [...events, makeEvent(1), makeEvent(2), makeEvent(3)];
     await queryClient.invalidateQueries({ queryKey: sessionFeedQueryKey("run-1") });
 
-    await waitFor(() => expect(screen.getAllByRole("listitem").length).toBe(4));
+    await waitFor(() => expect(feedItems().length).toBe(4));
     expect(screen.getByRole("button", { name: /Bash · npm test/ })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("command")).toBeInTheDocument();
   });
@@ -692,7 +698,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     renderSurface();
 
     const node = await screen.findByText("Retrying request…");
-    expect(node.className).toContain("type-label");
+    expect(node.className).toContain("text-muted-foreground");
   });
 
   it("renders an unrecognised event kind as a raw fallback line, never dropping it", async () => {
@@ -768,8 +774,8 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
 
     renderSurface();
 
-    await waitFor(() => expect(screen.getAllByRole("listitem").length).toBeGreaterThan(0));
-    expect(screen.getAllByRole("listitem").length).toBeLessThanOrEqual(50);
+    await waitFor(() => expect(feedItems().length).toBeGreaterThan(0));
+    expect(feedItems().length).toBeLessThanOrEqual(50);
   });
 
   it("fetches the next older page when scrolled to the top of the loaded window", async () => {
@@ -1018,7 +1024,7 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
     renderSurface();
     const call = await screen.findByRole("button", { name: /Bash · cargo test --workspace/ });
     expect(call).toHaveTextContent("running · 1m");
-    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(feedItems()).toHaveLength(1);
     expect(screen.getByRole("status")).toHaveTextContent(/^The agent is working: Bash · cargo test --workspace\. Last activity \d+s ago\.$/);
   });
 
@@ -1027,8 +1033,9 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
     renderSurface();
     const stop = await screen.findByRole("button", { name: "Stop" });
     const discard = screen.getByRole("button", { name: "Discard" });
-    expect(stop.className).toContain("session-action-lead");
-    expect(discard.className).not.toContain("session-action-lead");
+    // Stop is the outlined control; Discard is quieter still, a ghost beside it.
+    expect(stop).toHaveAttribute("data-variant", "outline");
+    expect(discard).toHaveAttribute("data-variant", "ghost");
   });
 });
 
@@ -1062,7 +1069,7 @@ describe("the header names the Story the session serves (11-22, finish-review fo
     renderHeader({ storyId: "story-1" }, { story_get: () => Promise.reject(new Error("boom")) });
     await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("story_get", { storyId: "story-1" }));
     expect(screen.getByText("Session")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "← Back" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
   });
 });
 
