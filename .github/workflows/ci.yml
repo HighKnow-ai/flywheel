@@ -22,7 +22,9 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macOS 15, not 14: Playwright pins macOS 14 to a frozen WebKit build (revision 2251, browsers.json's
+    # `mac14` override) that its current driver could not connect to, so the browser arm timed out there.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
