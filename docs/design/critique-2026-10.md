@@ -5,12 +5,119 @@ allowed helper agents only where impeccable ships one, and critique's design-rev
 assessors are not shipped agents. The design review below was written and its scores fixed before the
 detector output was read.)
 
-Issue #102, Epic #97. Run with `impeccable critique` on 2026-10-21, against `main` at `ddb8a5d5`.
+Issue #102, Epic #97. The re-shoot after the restyle (#107) and the five complaints before and after are in
+[After the restyle](#after-the-restyle-107-october-2026), first below. Run with `impeccable critique` on 2026-10-21, against `main` at `ddb8a5d5`.
 
 The owner has already decided to **replace** the "Mission Control" world, so this is not a polish list. It
 is the evidence the next Story (#103, "Pick Flywheel's new visual world") designs against: what the
 screens do today, why each of Cyril's five complaints happens, and which screens and states a new world
 has to cover.
+
+## After the restyle (#107), October 2026
+
+Issue #107, Epic #97. The same harness, the same fixture data and the same 1440 × 900 WebKit window as the
+"before" shots above, re-shot after every screen of the M2 flow moved onto the Andon world
+([`direction.md`](direction.md)): shadcn/ui components on the Andon tokens, Lucide icons, the andon lamp
+strip across the top of every screen, and the click model #104 shipped. The fixture gained Acceptance
+criteria with Checks for FLY-4 and FLY-7, so the Story view has something to show; nothing else in the
+data changed. The walk changed where the flow changed: Tasks, sessions, Resume and Drop now live in the
+Story view (03 to 06 open the Story first), and Write a Story is a dialog (02).
+
+Files are in [`critique-2026-10/after/`](critique-2026-10/after/), named as the before shots are.
+`impeccable detect` reports no findings on the changed source, nor on the rendered board, Story view,
+feeds, Waiting on you and All agents (through `critique.html`).
+
+### The five complaints, before and after
+
+Before is the build #102 critiqued (`main` at `ddb8a5d5`, Mission Control); after is this Story's build.
+Light scheme; every after shot also exists in dark.
+
+#### 1. "Nothing really stands out because the design has zero contrast"
+
+| Before | After |
+|---|---|
+| ![](critique-2026-10/01-board-light.webp) | ![](critique-2026-10/after/01-board-light.webp) |
+
+**After.** Regions are told apart by a ground step, a 1px edge and a card shadow: a grey floor, white Epic
+cards, a light sidebar and a graphite strip. Colour is spent only where it changes what to do next:
+Waiting-on-you rows are tinted yellow with a yellow pill and a yellow Answer, the Stopped Story is a red pill
+with its reason and a blue Resume, and the lit lamps in the strip say the same thing from every screen. Each
+row carries one action, the next one, instead of four outlined buttons. Type has real steps (12 to 24px,
+400 to 700), so the Story title, its row and its meta no longer compete. **Left:** the Milestone header that
+gives the board a head is #106's.
+
+#### 2. "Some elements I expect to be clickable, to see what the agent is doing, are not"
+
+| Before | After |
+|---|---|
+| ![](critique-2026-10/03-story-tasks-light.webp) | ![](critique-2026-10/after/03-story-tasks-light.webp) |
+
+**After.** Everything that navigates is a bounded object with a trailing chevron, an accent hover and the
+focus ring: the Story row (with an edge on hover), the lamp, the sidebar's Story rows, the Story link on a
+Waiting-on-you entry, the breadcrumb's crumbs. The Story view is the destination a row opens: its live agent
+sits in a station under the title (what it is doing, its Task note, and Open session), with the Acceptance
+criteria and their Check chips beside the Tasks. Feed rows disclose with a chevron and a hover ground, not a
+7px glyph. Controls that only edit (rename, reorder, drop a Task) are quiet icon buttons with a tooltip and an
+accessible name.
+
+#### 3. "Sometimes it randomly opens the agent when I would not expect it"
+
+| Before | After |
+|---|---|
+| ![](critique-2026-10/15-nav-project-click-keeps-feed-light.webp) | ![](critique-2026-10/after/15-nav-project-click-keeps-feed-light.webp) |
+
+**After.** The mechanism was fixed by #104 (choosing a project replaces whatever shows; Start and Resume stay
+where they are). This Story makes the rule visible. Every place has a breadcrumb (project, Story, session) and
+a Back control; the current project and Story are raised cards in the sidebar and the current Story's lamp
+wears an outline. Only controls that say "session" open one: Open session and Open feed carry the terminal
+icon, Answer carries the question icon, and a lamp, a row or a sidebar Story opens the Story. Screen 15 now
+shows highknow-web's board after the click, with the feed one Back away.
+
+#### 4. "There are very few icons, or none at all"
+
+| Before | After |
+|---|---|
+| ![](critique-2026-10/07-feed-running-light.webp) | ![](critique-2026-10/after/07-feed-running-light.webp) |
+
+**After.** Every state is an icon, a word and one of four tones (StateBadge), on the board, in the sidebar, the
+strip, the Story view, Checks, Tasks and All agents. The sidebar's places, the Epic cards, the Story view's
+panels and every button carry Lucide icons beside their words. Feed rows are told apart by kind: Read, Edit,
+Run, Search, a board tool, the agent's turn. **Left:** a board tool still prints its raw name
+(`mcp__flywheel-board__task_add`); the finish review asked for verbs and a tabular result column, which is a
+change to the feed's words, not its look, and is left for a follow-up.
+
+#### 5. "I cannot quantify project progress at a glance"
+
+| Before | After |
+|---|---|
+| ![](critique-2026-10/01-board-light.webp) | ![](critique-2026-10/after/04-story-stopped-sessions-light.webp) |
+
+**After, in part.** The board is shaped like the model: one card per Epic with its state and Milestone, its
+Stories under it as rows, done work quiet (Merged and Dropped in secondary ink). A Story states its progress
+in its own header (Tasks 1/3, Checks 0/2, its Context packet against the soft limit) and the strip counts the
+live agents. **Left:** the quantified answer (the Milestone header's stacked bar and counts, and each Epic's
+"n of m merged") is #106's, which mounts in the slots this board leaves for it.
+
+### Every screen, after
+
+| # | Screen | Light | Dark |
+|---|---|---|---|
+| 01 | Project board | ![](critique-2026-10/after/01-board-light.webp) | ![](critique-2026-10/after/01-board-dark.webp) |
+| 02 | Write a Story (dialog) | ![](critique-2026-10/after/02-board-write-story-light.webp) | ![](critique-2026-10/after/02-board-write-story-dark.webp) |
+| 03 | Story view, a Task note open | ![](critique-2026-10/after/03-story-tasks-light.webp) | ![](critique-2026-10/after/03-story-tasks-dark.webp) |
+| 04 | Story view of a Stopped Story, its sessions | ![](critique-2026-10/after/04-story-stopped-sessions-light.webp) | ![](critique-2026-10/after/04-story-stopped-sessions-dark.webp) |
+| 05 | Resume with a note (dialog) | ![](critique-2026-10/after/05-story-resume-light.webp) | ![](critique-2026-10/after/05-story-resume-dark.webp) |
+| 06 | Drop confirmation (alert dialog) | ![](critique-2026-10/after/06-story-drop-confirm-light.webp) | ![](critique-2026-10/after/06-story-drop-confirm-dark.webp) |
+| 07 | Session feed, running | ![](critique-2026-10/after/07-feed-running-light.webp) | ![](critique-2026-10/after/07-feed-running-dark.webp) |
+| 08 | Feed, a failed call expanded | ![](critique-2026-10/after/08-feed-call-expanded-light.webp) | ![](critique-2026-10/after/08-feed-call-expanded-dark.webp) |
+| 09 | Feed, Gated action | ![](critique-2026-10/after/09-feed-gated-action-light.webp) | ![](critique-2026-10/after/09-feed-gated-action-dark.webp) |
+| 10 | Feed, the agent's question | ![](critique-2026-10/after/10-feed-question-light.webp) | ![](critique-2026-10/after/10-feed-question-dark.webp) |
+| 11 | Feed, permission request | ![](critique-2026-10/after/11-feed-permission-request-light.webp) | ![](critique-2026-10/after/11-feed-permission-request-dark.webp) |
+| 12 | Feed of a handed-off session | ![](critique-2026-10/after/12-feed-handed-off-light.webp) | ![](critique-2026-10/after/12-feed-handed-off-dark.webp) |
+| 13 | Waiting on you | ![](critique-2026-10/after/13-waiting-on-you-queue-light.webp) | ![](critique-2026-10/after/13-waiting-on-you-queue-dark.webp) |
+| 14 | All agents | ![](critique-2026-10/after/14-fleet-light.webp) | ![](critique-2026-10/after/14-fleet-dark.webp) |
+| 15 | A project chosen while a feed is open | ![](critique-2026-10/after/15-nav-project-click-keeps-feed-light.webp) | ![](critique-2026-10/after/15-nav-project-click-keeps-feed-dark.webp) |
+| 16 | A project chosen while All agents is open | ![](critique-2026-10/after/16-nav-project-click-keeps-fleet-light.webp) | ![](critique-2026-10/after/16-nav-project-click-keeps-fleet-dark.webp) |
 
 ## How the screens were rendered
 
