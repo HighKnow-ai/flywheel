@@ -1,11 +1,12 @@
 name: CI
 
-# DIST-03: every push is a clean-clone build on a machine that has only the
-# prerequisites listed in README.md. The commands below are the README's
-# "Building from source" commands, in the same order.
+# DIST-03: every push is a clean-clone build on a machine that has only the prerequisites listed in
+# README.md. The README's "Building from source" commands are all here, spread over parallel jobs
+# (#144): each job does only the part of the build its own checks need, so the slowest job, not the
+# sum of them, sets the wall-clock time.
 
 # A PR branch runs once, on pull_request; push only covers main itself. merge_group runs the same
-# job on the merge queue's temporary branch, so queued PRs are tested together as one combination
+# jobs on the merge queue's temporary branch, so queued PRs are tested together as one combination
 # before any of them lands on main.
 on:
   push:
@@ -20,10 +21,14 @@ concurrency:
 permissions:
   contents: read
 
+# macOS 15, not 14, wherever macOS is used: Playwright pins macOS 14 to a frozen WebKit build
+# (revision 2251, browsers.json's `mac14` override) that its current driver could not connect to, so
+# the browser arm timed out there (#119). The Rust workspace, the sidecar and the UAT stay on macOS
+# because the product is macOS-only today: stage-runtime.mjs stages darwin Node builds only, the
+# Tauri crate needs WebKit, and tests touch the Keychain and macOS process behaviour.
 jobs:
-  build:
-    # macOS 15, not 14: Playwright pins macOS 14 to a frozen WebKit build (revision 2251, browsers.json's
-    # `mac14` override) that its current driver could not connect to, so the browser arm timed out there.
+  rust:
+    name: Rust workspace tests
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -32,9 +37,52 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            packages/desktop/package-lock.json
-            packages/sidecar/package-lock.json
+          cache-dependency-path: packages/sidecar/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      # tauri_build::build() fails the whole workspace build when a bundle.externalBin file is
+      # missing, and no Rust test runs those three files: they are only copied into the bundle.
+      # Empty stand-ins let this job skip the release shim build and the Node download; the real
+      # staging (npm run build:dist) runs in the sidecar job, and the bundle in the dmg job.
+      - name: Stand-in externalBin files
+        run: |
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          mkdir -p packages/desktop/src-tauri/binaries packages/desktop/src-tauri/resources/sidecar
+          for bin in flywheel-sidecar flywheel-node flywheel-shim; do
+            touch "packages/desktop/src-tauri/binaries/$bin-$triple"
+          done
+
+      # packages/sidecar/dist: the session tests spawn the real sidecar under node.
+      - run: npm --prefix packages/sidecar ci
+
+      - run: npm --prefix packages/sidecar run build
+
+      # nextest, not `cargo test`: one process per test, so the ~90 test binaries run side by side
+      # rather than one after another. .config/nextest.toml holds the one binary whose tests share
+      # something outside the process (the Keychain item) to one at a time.
+      - run: cargo nextest run --workspace --profile ci
+
+      # nextest does not run doctests.
+      - run: cargo test --workspace --doc
+
+  sidecar:
+    name: Sidecar build and tests
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/sidecar/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -42,31 +90,77 @@ jobs:
 
       - run: npm --prefix packages/sidecar ci
 
-      - run: npm --prefix packages/desktop ci
-
-      # Staging MUST precede every cargo step. tauri_build::build() fails the
-      # whole workspace build when a bundle.externalBin file is missing, so a
-      # fresh clone cannot even `cargo test` until the three
-      # binaries/flywheel-* files exist.
+      # The bundle staging: the checksum-verified Node runtime, the release flywheel-shim and the
+      # launcher. push-approval.test.mjs drives that compiled shim.
       - run: npm --prefix packages/sidecar run build:dist
 
       - run: npm --prefix packages/sidecar test
 
-      - run: cargo build --workspace
+  uat:
+    name: Offline UAT
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/sidecar/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm --prefix packages/sidecar ci
+
+      # packages/sidecar/dist.
+      - run: npm --prefix packages/sidecar run build
+
+      # The uat_session_env and uat_fleet_ops harness binaries and flywheel-shim. Not the desktop
+      # crate, so no externalBin staging is needed here.
+      - run: cargo build -p core -p flywheel-shim
 
       # The offline UAT (docs/mvp-spec.md §9): zero tokens, no `claude` binary, no credentials. The
-      # job holds no secret. Needs packages/sidecar/dist (build:dist above) and the uat_session_env,
-      # uat_fleet_ops and flywheel-shim binaries (cargo build --workspace above).
-      # A SKIP exits 3, so it fails this step rather than passing silently.
+      # job holds no secret. A SKIP exits 3, so it fails this step rather than passing silently.
       - name: Offline UAT (harness-supervision-gate, uat-12)
         run: |
           node scripts/uat/harness-supervision-gate.mjs --mode=supervised
           node scripts/uat/harness-supervision-gate.mjs --mode=unsupervised
           node scripts/uat/uat-12-fleet-live-reads.mjs
 
-      - run: cargo test --workspace
+  desktop:
+    name: Desktop unit tests and build
+    # jsdom and the Vite build need nothing from macOS.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/desktop/package-lock.json
+
+      - run: npm --prefix packages/desktop ci
 
       - run: npm --prefix packages/desktop test
+
+      - run: npm --prefix packages/desktop run build
+
+  browser:
+    name: Desktop browser tests
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/desktop/package-lock.json
+
+      - run: npm --prefix packages/desktop ci
 
       # The desktop browser arm (vitest.browser*.config.ts): layout, containment and colour measured in
       # a real engine, which jsdom cannot do. WebKit because the macOS shell renders in WKWebView; this
@@ -93,16 +187,60 @@ jobs:
           npm --prefix packages/desktop run test:browser:motion
           npm --prefix packages/desktop run test:browser:forced-colors
 
-      - run: npm --prefix packages/desktop run build
+  # Unsigned (D-185). The .dmg bundle costs 5-8 minutes and is the step that flaked, so it runs only
+  # on pushes to main, never on pull_request or merge_group runs.
+  dmg:
+    name: macOS bundle (main only)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
 
-      # Unsigned (D-185). The .dmg bundle costs 5-8 minutes and is the step that flaked, so it runs
-      # only on pushes to main, never on pull_request or merge_group runs.
-      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: npm --prefix packages/desktop run tauri build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            packages/desktop/package-lock.json
+            packages/sidecar/package-lock.json
 
-      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm --prefix packages/sidecar ci
+
+      - run: npm --prefix packages/desktop ci
+
+      # tauri.conf.json's beforeBuildCommand runs the sidecar's build:dist and the desktop build.
+      - run: npm --prefix packages/desktop run tauri build
+
+      - uses: actions/upload-artifact@v4
         with:
           name: flywheel-dmg
           path: target/release/bundle/dmg/*.dmg
           retention-days: 7
+
+  # The one check the ruleset on main requires. It runs whatever happened above (`always()`), and
+  # passes only when every job succeeded; the dmg job may instead be skipped, on every run but a push
+  # to main. A failed, cancelled or wrongly skipped job fails `build`.
+  build:
+    name: build
+    if: always()
+    needs: [rust, sidecar, uat, desktop, browser, dmg]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          DMG_EXPECTED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          failed=$(echo "$NEEDS" | jq -r 'to_entries[]
+            | select(.value.result != "success")
+            | select((.key == "dmg" and .value.result == "skipped" and env.DMG_EXPECTED != "true") | not)
+            | .key')
+          if [ -n "$failed" ]; then
+            echo "::error::not passed: $(echo $failed)"
+            exit 1
+          fi

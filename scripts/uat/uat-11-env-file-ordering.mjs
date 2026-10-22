@@ -77,6 +77,7 @@ import {
   drainIncidentalPermissionRequests,
   newRunId,
   probeClaudeAvailable,
+  removeScratchDir,
   runScript,
   skip,
   step,
@@ -198,7 +199,7 @@ function runSelfTest(harness) {
   assert.throws(() => classifyProbe3("neither"), /PROBE 3 FAILED/);
   step("probe3 verdict (selftest): set -> present, unset -> absent, anything else throws");
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  removeScratchDir(dir);
 }
 
 // ---- The live arm ---------------------------------------------------------------------------------

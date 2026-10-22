@@ -3,7 +3,7 @@
 The live and offline UAT scripts. Each one drives the real sidecar and the real core against scratch
 data, so a guarantee is measured by code rather than claimed (`docs/mvp-spec.md` §9).
 
-- **Offline, zero tokens, run in CI on every PR** (`.github/workflows/ci.yml`, step "Offline UAT"):
+- **Offline, zero tokens, run in CI on every PR** (`.github/workflows/ci.yml`, job "Offline UAT"):
   `harness-supervision-gate.mjs` (both modes) and `uat-12-fleet-live-reads.mjs`. Neither needs a
   `claude` binary or any credential. (Item 13, the fan-out run, was deleted with the fan-out
   dispatcher at the schema cut, issue #44.)

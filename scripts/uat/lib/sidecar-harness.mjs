@@ -384,6 +384,20 @@ export function newRunId() {
   return out;
 }
 
+/** Remove a run's scratch directory, and never let the removal fail a run that has already been
+ * judged. A child process that is still exiting (the sidecar, the heartbeat writer) can drop a file
+ * into the tree between rimraf's listing and its `rmdir`, which threw `ENOTEMPTY` on `appdata/runtime`
+ * after a passing gate on main (#144). `maxRetries` makes `fs.rmSync` retry exactly that (and
+ * `EBUSY`/`EPERM`) with a linear backoff; whatever still survives is a leaked temp directory, reported
+ * on stderr, not a verdict. */
+export function removeScratchDir(dir) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch (err) {
+    process.stderr.write(`[uat] could not remove scratch directory ${dir} (left behind): ${String(err)}\n`);
+  }
+}
+
 /** Resolve the compiled harness binary, preferring a debug build and falling back to release —
  * the same two places `destructive-gate.test.mjs` looks for `flywheel-shim`. */
 export function resolveHarnessBinary(name) {
@@ -551,7 +565,7 @@ export class Harness {
     // outlives every run regardless of how this run ends. The artifact from the failed live run
     // this plan closes is still on disk today for exactly that reason; Task 2's own self-test
     // checks assert that survival directly rather than leaving it as a doc-comment claim.
-    this.#removeRoot = () => fs.rmSync(this.root, { recursive: true, force: true });
+    this.#removeRoot = () => removeScratchDir(this.root);
     // The whole point of the FLYWHEEL_APP_DATA_DIR seam: everything this run writes — the fleet
     // database, the runtime protocol's heartbeat/kills/runs directories, the per-run PATH shim —
     // lands under `this.root` and nowhere near the developer's own Flywheel data.
