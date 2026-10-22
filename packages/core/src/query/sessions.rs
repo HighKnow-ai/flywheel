@@ -30,7 +30,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunRow {
     pub id: String,
-    pub story_id: String,
+    /// `None` for a shaping session (issue #122), which has no Story.
+    pub story_id: Option<String>,
     pub status: String,
     pub started_at: String,
     pub ended_at: Option<String>,

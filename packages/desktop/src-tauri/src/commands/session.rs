@@ -1478,7 +1478,7 @@ fn resolve_sessions_limit(limit: Option<i64>) -> i64 {
 #[serde(rename_all = "camelCase")]
 pub struct RunSummaryDto {
     pub id: String,
-    pub story_id: String,
+    pub story_id: Option<String>,
     pub status: String,
     pub started_at: String,
     pub ended_at: Option<String>,
@@ -1839,7 +1839,7 @@ pub fn worktree_forget_record(state: State<AppState>, app: AppHandle, story_id: 
 #[serde(rename_all = "camelCase")]
 pub struct PendingOrphanDto {
     pub run_id: String,
-    pub story_id: String,
+    pub story_id: Option<String>,
     pub story_key: String,
     pub story_title: String,
     pub project_id: String,
@@ -1961,7 +1961,7 @@ mod tests {
     fn sample_live_orphan(run_id: &str) -> flywheel_core::domain::session::LiveOrphan {
         flywheel_core::domain::session::LiveOrphan {
             run_id: run_id.to_string(),
-            story_id: "story-1".to_string(),
+            story_id: Some("story-1".to_string()),
             story_key: "FLY-1".to_string(),
             story_title: "Sample story".to_string(),
             project_id: "project-1".to_string(),

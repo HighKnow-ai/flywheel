@@ -18,14 +18,14 @@ const RECOVERY_STORY_IDS_SQL: &str = "SELECT story_id FROM worktrees \
     WHERE project_id = ?1 AND status = 'missing' \
     UNION \
     SELECT story_id FROM sessions \
-    WHERE project_id = ?1 AND status = 'abandoned' AND acknowledged_at IS NULL \
+    WHERE project_id = ?1 AND kind = 'story' AND status = 'abandoned' AND acknowledged_at IS NULL \
     ORDER BY story_id ASC";
 
 const RECOVERY_COUNT_SQL: &str = "SELECT COUNT(*) FROM (\
     SELECT story_id FROM worktrees WHERE project_id = ?1 AND status = 'missing' \
     UNION \
     SELECT story_id FROM sessions \
-    WHERE project_id = ?1 AND status = 'abandoned' AND acknowledged_at IS NULL)";
+    WHERE project_id = ?1 AND kind = 'story' AND status = 'abandoned' AND acknowledged_at IS NULL)";
 
 /// Every distinct Story id in `project_id` with an outstanding recovery item (D-46).
 pub fn recovery_story_ids_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<String>> {

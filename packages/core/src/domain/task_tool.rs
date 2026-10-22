@@ -112,13 +112,7 @@ pub struct TaskToolOutcome {
 /// Run one call for session `session_id`, writing as the agent actor. Refused when the session is
 /// unknown or has ended, and when a `task_update` names a Task of another Story.
 pub fn apply_task_tool_call(conn: &mut Connection, session_id: &str, call: &TaskToolCall) -> anyhow::Result<TaskToolOutcome> {
-    let (story_id, project_id, status): (String, String, String) = conn
-        .query_row(
-            "SELECT story_id, project_id, status FROM sessions WHERE id = ?1",
-            params![session_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .with_context(|| format!("session {session_id:?} not found"))?;
+    let (story_id, project_id, status) = crate::domain::session::story_session(conn, session_id)?;
     anyhow::ensure!(
         status == "running" || status == "blocked",
         "this session has ended ({status}); its Tasks can no longer be written from it"
