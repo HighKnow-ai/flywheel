@@ -15,5 +15,11 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["src/**/*.browser.test.tsx", "src/test"]
+  "include": ["src/**/*.browser.test.tsx", "src/test"],
+  /*
+   * Reset, not inherited: `tsconfig.json` excludes every browser test (its own program must not see them),
+   * and an inherited `exclude` wins over this `include`, so without this line this program checked none of the
+   * browser tests at all. That is how a duplicate-key fixture in `fleet-group.browser.test.tsx` passed the build.
+   */
+  "exclude": []
 }
