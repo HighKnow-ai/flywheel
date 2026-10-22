@@ -468,6 +468,11 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
       await click("Answer the Round on FLY-8");
       await screen.findByRole("list", { name: "Still open" });
       await shot("41-epic-shaping-stage-bar-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
   async function roadmapStrip() {
     const strip = await screen.findByRole("region", { name: "Roadmap" });
     strip.scrollIntoView({ block: "start" });
