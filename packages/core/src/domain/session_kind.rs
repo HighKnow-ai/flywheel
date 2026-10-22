@@ -8,10 +8,12 @@
 pub const BOARD_SERVER: &str = "flywheel-board";
 
 /// The board tools a shaping session may call, by the name `flywheel-board` registers them under:
-/// `round_post` (issue #123), `propose_spec_change` (issue #125), then the other Proposal tools as the
-/// shaping milestone adds them, one name each. Never a bare `mcp__flywheel-board` entry, which would
-/// allow every board tool, the Task tools and the hand-off included.
-pub const PROPOSAL_TOOL_NAMES: [&str; 2] = crate::domain::shaping_tool::SHAPING_TOOL_NAMES;
+/// `round_post` (issue #123), `round_wait` (issue #124), `propose_spec_change` (issue #125), then the
+/// other Proposal tools as the shaping milestone adds them, one name each. Never a bare
+/// `mcp__flywheel-board` entry, which would allow every board tool, the Task tools and the hand-off
+/// included.
+pub const PROPOSAL_TOOL_NAMES: [&str; crate::domain::shaping_tool::SHAPING_TOOL_NAMES.len()] =
+    crate::domain::shaping_tool::SHAPING_TOOL_NAMES;
 
 /// One board tool's name in `--allowedTools` syntax: `mcp__flywheel-board__<tool>`.
 fn board_tool(name: &str) -> String {

@@ -13,6 +13,11 @@
 //! Waiting on you (a live session holds a pending request, `query::permissions`), else as Running. So
 //! the eight counts add up to every Story in the Milestone, and the bar can stack them.
 //!
+//! **An Epic in Shaping has attention of its own** (issue #124): Waiting on you while a live shaping
+//! session is held on one of its open Rounds (`crate::query::round_waiting_on_you`), or a Shaping
+//! Round waiting while a Round is open and no shaping session is live on it. Shown in place of the
+//! Epic's state word, never counted among its Stories.
+//!
 //! **Dropped is shown, not stacked.** A Dropped Story "counts as closed for its Epic" (spec §2), which
 //! is what lets an Epic's exit test be confirmed; it is not progress. `stories_total` is every Story
 //! that is not Dropped, so "Stories merged / Stories" reads as merged out of the work that will ship,
@@ -62,6 +67,9 @@ pub struct EpicProgress {
     /// The state with In progress derived, as `domain::epic::epic_state` derives it.
     pub state: String,
     pub counts: StoryStateCounts,
+    /// `waiting_on_you` (a live shaping session is held on an open Round of it), `round_waiting` (a
+    /// Round is open with no live shaping session on the Epic) or `None`.
+    pub attention: Option<String>,
 }
 
 /// The `marks` CTE body: one row per Story with its stored state and its attention (`stopped`,
@@ -131,7 +139,15 @@ pub const EPIC_PROGRESS_SQL: &str = concat!(
                 AND s.state IN ('running', 'in_review', 'merged')) \
              THEN 'in_progress' ELSE e.state END, ",
     count_columns!(),
-    " FROM epics e LEFT JOIN marks m ON m.epic_id = e.id \
+    ", CASE WHEN EXISTS (SELECT 1 FROM rounds r JOIN stages st ON st.id = r.stage_id WHERE st.epic_id = e.id AND ",
+    crate::query::round_waiting_on_you!(),
+    ") THEN 'waiting_on_you' \
+        WHEN EXISTS (SELECT 1 FROM rounds r JOIN stages st ON st.id = r.stage_id \
+                WHERE st.epic_id = e.id AND r.state = 'open') \
+            AND NOT EXISTS (SELECT 1 FROM sessions ss WHERE ss.epic_id = e.id AND ss.kind = 'shaping' \
+                AND ss.status IN ('running', 'blocked')) THEN 'round_waiting' \
+        END \
+     FROM epics e LEFT JOIN marks m ON m.epic_id = e.id \
      WHERE e.milestone_id = ?1 GROUP BY e.id ORDER BY e.rank, e.id"
 );
 
@@ -185,6 +201,7 @@ pub fn epic_progress(conn: &Connection, milestone_id: &str) -> anyhow::Result<Ve
                 title: row.get(2)?,
                 state: row.get(3)?,
                 counts: counts_at(row, 4)?,
+                attention: row.get(13)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>();

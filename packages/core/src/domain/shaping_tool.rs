@@ -9,6 +9,10 @@
 //! so the session waits on the developer for as long as it takes. A refused call is answered at once
 //! with the reason, so the agent can correct it.
 //!
+//! `round_wait` (issue #124) is a later session's way back onto a Round its killed predecessor left
+//! open: it takes the open Round over and is HELD the same way, answered once the last question is
+//! answered, or at once when the Round is already complete.
+//!
 //! `propose_spec_change` (issue #125) files a Proposal to rewrite one field of the Epic being shaped
 //! and is answered AT ONCE: a Proposal never holds the agent. The developer decides it on the Epic
 //! card, where it shows as a ghost field (`proposal::accept_proposal` applies it).
@@ -25,16 +29,18 @@ use rusqlite::OptionalExtension;
 use crate::domain::proposal::{file_proposal, NewProposal, ProposalTarget, ProposalVerb};
 use crate::domain::proposal_apply::SpecChange;
 use crate::domain::session::agent_actor_id;
-use crate::domain::round::{post_round, NewQuestion, NewRound};
+use crate::domain::round::{post_round, round_result, wait_round, NewQuestion, NewRound, RoundWait};
 
 /// The tool names the sidecar's MCP server registers for a shaping session, in the order it lists
 /// them. Mirrored by `SHAPING_TOOL_NAMES` in `packages/sidecar/src/mcp-permission-server.ts`.
-pub const SHAPING_TOOL_NAMES: [&str; 2] = ["round_post", "propose_spec_change"];
+pub const SHAPING_TOOL_NAMES: [&str; 3] = ["round_post", "round_wait", "propose_spec_change"];
 
 /// One parsed call of a shaping tool.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ShapingToolCall {
     RoundPost(NewRound),
+    /// Issue #124: wait on the open Round. Takes no argument.
+    RoundWait,
     /// A spec change and the agent's one-line reason for it.
     ProposeSpecChange { change: SpecChange, why: String },
 }
@@ -75,6 +81,7 @@ impl ShapingToolCall {
                 round.validate()?;
                 Ok(ShapingToolCall::RoundPost(round))
             }
+            "round_wait" => Ok(ShapingToolCall::RoundWait),
             "propose_spec_change" => {
                 let change = SpecChange::from_payload(args).context("propose_spec_change")?;
                 let why = string_field(args, "why", "propose_spec_change: ")?;
@@ -96,7 +103,8 @@ impl ShapingToolCall {
 pub enum ShapingToolOutcome {
     /// The Round is on the board and its call is held until the developer answers it all.
     Held { round_id: String, project_id: String },
-    /// The call is answered at once with `result`.
+    /// The call is answered at once with `result`: a filed Proposal (`propose_spec_change`, issue #125), or
+    /// a `round_wait` on a Round already answered, with every answer (issue #124).
     Answered { result: Value, project_id: String },
 }
 
@@ -163,6 +171,22 @@ pub fn apply_shaping_tool_call(
                 |r| r.get(0),
             )?;
             Ok(ShapingToolOutcome::Held { round_id: posted.id, project_id })
+        }
+        ShapingToolCall::RoundWait => {
+            let (round, held) = match wait_round(conn, session_id, request_id)? {
+                RoundWait::Held(round) => (round, true),
+                RoundWait::Answered(round) => (round, false),
+            };
+            let project_id: String = conn.query_row(
+                "SELECT project_id FROM stages WHERE id = ?1",
+                rusqlite::params![round.stage_id],
+                |r| r.get(0),
+            )?;
+            Ok(if held {
+                ShapingToolOutcome::Held { round_id: round.id, project_id }
+            } else {
+                ShapingToolOutcome::Answered { result: round_result(&round), project_id }
+            })
         }
         ShapingToolCall::ProposeSpecChange { change, why } => propose_spec_change(conn, session_id, change, why),
     }

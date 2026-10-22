@@ -13,8 +13,14 @@ use core::domain::project::create_project;
 use core::shaping_packet::build_epic_shaping_packet;
 use rusqlite::Connection;
 
-const SECTION_HEADINGS: [&str; 5] =
-    ["## Standing instructions", "## Milestone and Epic", "## ADRs", "## Sibling Epics", "## Closing instruction"];
+const SECTION_HEADINGS: [&str; 6] = [
+    "## Standing instructions",
+    "## Milestone and Epic",
+    "## ADRs",
+    "## Sibling Epics",
+    "## Rounds",
+    "## Closing instruction",
+];
 
 fn write(dir: &Path, rel: &str, body: &str) {
     let path = dir.join(rel);
