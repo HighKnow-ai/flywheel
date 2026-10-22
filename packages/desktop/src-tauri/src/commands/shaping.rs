@@ -161,6 +161,11 @@ pub struct OpenItemDto {
     pub id: String,
     /// The item in words: "Question 2 of Round 1 is unanswered: Audience".
     pub label: String,
+    /// A question's Round and number; `None` for a Proposal.
+    pub round: Option<i64>,
+    pub number: Option<i64>,
+    /// A question's title, or what a Proposal would do ("change the Problem").
+    pub title: String,
 }
 
 /// What is still open in a Stage, and whether the developer may close it.
@@ -186,11 +191,20 @@ impl From<flywheel_core::domain::stage::StageStatus> for StageStatusDto {
                 .open_items
                 .iter()
                 .map(|item| {
-                    let (kind, id) = match item {
-                        OpenItem::Question { question_id, .. } => ("question", question_id),
-                        OpenItem::Proposal { proposal_id, .. } => ("proposal", proposal_id),
+                    let (kind, id, round, number, title) = match item {
+                        OpenItem::Question { question_id, round, number, title, .. } => {
+                            ("question", question_id, Some(*round), Some(*number), title)
+                        }
+                        OpenItem::Proposal { proposal_id, summary } => ("proposal", proposal_id, None, None, summary),
                     };
-                    OpenItemDto { kind: kind.to_string(), id: id.clone(), label: item.label() }
+                    OpenItemDto {
+                        kind: kind.to_string(),
+                        id: id.clone(),
+                        label: item.label(),
+                        round,
+                        number,
+                        title: title.clone(),
+                    }
                 })
                 .collect(),
             warnings: s.warnings,
