@@ -259,7 +259,12 @@ const BRACKET_ROW = 30;
 /** How far the lowest bracket's feet reach down to the columns. */
 const BRACKET_FOOT = 8;
 /** Where a column's centre sits, from the left edge of the first column. */
-const footX = (column: number) => `calc(${column - 1} * (${COLUMN_WIDTH} + 0.75rem) + ${COLUMN_WIDTH} / 2)`;
+const centre = (column: number) => `${column - 1} * (${COLUMN_WIDTH} + 0.75rem) + ${COLUMN_WIDTH} / 2`;
+/**
+ * A foot's x. A bracket's arrow lands just left of its column's centre and a bracket starts just right of it, so a
+ * Story that both waits and is waited on carries two feet, never one line that reads as both.
+ */
+const footX = (column: number, end: "arrow" | "start") => `(${centre(column)} ${end === "arrow" ? "-" : "+"} 0.75rem)`;
 
 /**
  * A runs-after bracket: a line from the centre of the column it runs after to the centre of the one that waits,
@@ -270,13 +275,15 @@ function Bracket({ constraint, row }: { constraint: Constraint; row: number }) {
   const { from, to, provisional } = constraint;
   const [left, right] = from < to ? [from, to] : [to, from];
   const arrowOnRight = to > from;
+  const leftFoot = footX(left, arrowOnRight ? "start" : "arrow");
+  const rightFoot = footX(right, arrowOnRight ? "arrow" : "start");
   return (
     <li
       data-from={from}
       data-to={to}
       data-provisional={String(provisional)}
       className="absolute bottom-0 min-w-0"
-      style={{ top: row * BRACKET_ROW, left: footX(left), width: `calc(${right - left} * (${COLUMN_WIDTH} + 0.75rem))` }}
+      style={{ top: row * BRACKET_ROW, left: `calc${leftFoot}`, width: `calc(${rightFoot} - ${leftFoot})` }}
       title={constraint.reason ? `${constraint.sentence}: ${constraint.reason}` : constraint.sentence}
     >
       <span className="sr-only">
@@ -300,7 +307,7 @@ function Bracket({ constraint, row }: { constraint: Constraint; row: number }) {
       <span
         aria-hidden="true"
         className={cn(
-          "absolute top-0 z-10 flex h-5 max-w-[calc(100%+8rem)] min-w-0 items-center gap-1.5 bg-background px-1 text-meta",
+          "absolute top-0 z-10 flex h-5 max-w-full min-w-0 items-center gap-1.5 bg-background px-1 text-meta",
           arrowOnRight ? "right-0 translate-x-2" : "left-0 -translate-x-2",
         )}
       >
@@ -383,11 +390,11 @@ function OverflowChips({ regionRef, watch }: { regionRef: RefObject<HTMLDivEleme
     <>
       {(edges.before > 0 || edges.after > 0) && (
         <span className="ml-auto flex items-center gap-2 self-center">
-          <Button variant="outline" size="sm" disabled={edges.before === 0} onClick={() => scroll(-1)} aria-label={`Scroll to the earlier Stories: ${words(edges.before, edges.pendingBefore, "earlier")}`}>
+          <Button variant="outline" size="sm" disabled={edges.before === 0} className={cn(edges.before === 0 && "invisible")} onClick={() => scroll(-1)} aria-label={`Scroll to the earlier Stories: ${words(edges.before, edges.pendingBefore, "earlier")}`}>
             <ChevronLeft aria-hidden="true" />
             <span className="tabular-nums">{words(edges.before, edges.pendingBefore, "earlier")}</span>
           </Button>
-          <Button variant="outline" size="sm" disabled={edges.after === 0} onClick={() => scroll(1)} aria-label={`Scroll to the later Stories: ${words(edges.after, edges.pendingAfter, "more")}`}>
+          <Button variant="outline" size="sm" disabled={edges.after === 0} className={cn(edges.after === 0 && "invisible")} onClick={() => scroll(1)} aria-label={`Scroll to the later Stories: ${words(edges.after, edges.pendingAfter, "more")}`}>
             <span className="tabular-nums">{words(edges.after, edges.pendingAfter, "more")}</span>
             <ChevronRight aria-hidden="true" />
           </Button>
@@ -724,7 +731,7 @@ function GhostColumn({
             maxLength={MAX_TITLE_LEN}
             autoFocus
             disabled={busy}
-            className="min-h-0 font-semibold"
+            className="min-h-0 resize-none font-semibold"
             onChange={(e) => setTitle(e.target.value.replace(/\n/g, " "))}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !(e.metaKey || e.ctrlKey)) e.preventDefault();
@@ -736,6 +743,7 @@ function GhostColumn({
           </label>
           <Textarea
             id={descriptionId}
+            className="resize-none"
             value={description}
             maxLength={MAX_DESCRIPTION_LEN}
             disabled={busy}
