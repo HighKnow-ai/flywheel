@@ -217,7 +217,7 @@ export function NeedsYouSheetButton({ projectId }: { projectId: string }) {
               <NeedsYouCount items={items} />
             </SheetTitle>
             <SheetDescription className="text-small text-muted-foreground">
-              Most urgent first. Each action works here, and the board stays where it is.
+              Most urgent first. Every action works here.
             </SheetDescription>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto p-4">

@@ -75,12 +75,14 @@ Attention is worked out from the session and never stored as a state. It is show
 
 The ranked list of everything waiting on Cyril in a project. The order is: live sessions held up first, then finished or dead work, then decisions about future work. Within a kind, oldest first. Nothing is reordered by hand.
 
-1. Gated action and 2. Permission request, mixed and sorted by age
-3. Stopped session (not stops Cyril made himself)
-4. Review, merge conflicts included
-5. Confirm exit test
-6. Proposals filed during execution, as one row (see [section 5](#5-proposals-from-execution)). A Proposal that changes what a Story is judged on is its own item, ranked with Review.
-7. Shaping Round waiting, including a pending roadmap Round
+1. Gated action, permission request and an agent's question, mixed and sorted by age
+2. Stopped session (not stops Cyril made himself), and a Story whose worktree is missing, whose action is Recreate
+3. Review, merge conflicts included
+4. Confirm exit test
+5. Proposals filed during execution, as one row (see [section 5](#5-proposals-from-execution)). A Proposal that changes what a Story is judged on is its own item, ranked with Review.
+6. Shaping Round waiting: a Round a live session is held on, an open Round whose session died or never launched, and a pending roadmap Round
+
+Amended by [#156](https://github.com/HighKnow-ai/flywheel/issues/156): an agent's question ranks with Gated actions and permission requests, since it holds a live session the same way, and a missing worktree is a Stopped-kind item rather than a figure of its own. **Shipped in Milestone 4** ([#156](https://github.com/HighKnow-ai/flywheel/issues/156)), Proposals and judged-on items aside: one core query ranks the list, the board shows it as a column beside the roster, and the sidebar's project figure is its length.
 
 ## 3. Shaping
 
@@ -271,7 +273,7 @@ The project screen, top to bottom:
    - each Story on one line under its Epic: state mark and word (or its attention flag), what its agent is doing now (the *doing* Task, or the diff size in review), then either an action button or "criteria x/y · tasks x/y"
    - rows that need Cyril tinted
 
-The sidebar shows each project's Needs-you count and the running sessions in every project. Creating an Epic or a Story and moving a Story between Epics are reachable from visible controls, not only from the palette or a hidden key.
+The sidebar shows each project's Needs-you count (the number of its Needs-you items) and the running sessions in every project; the fleet-wide Waiting on you count stays as it is. Creating an Epic or a Story and moving a Story between Epics are reachable from visible controls, not only from the palette or a hidden key.
 
 **Click model** ([#104](https://github.com/HighKnow-ai/flywheel/issues/104)): a Story row, wherever it shows (the board, the sidebar's running list, Needs you), opens the Story. The live session opens only from a control labelled as the session, which every place showing a running Story offers. Nothing opens a session on its own: not Start, not Resume, not a new session event. Back and ⌘[ return to the previous place, and the sidebar marks the current project and Story. The fleet's "All agents" list is a list of sessions, so its row opens that session and its Story key opens the Story.
 

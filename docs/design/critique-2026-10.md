@@ -177,6 +177,10 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 72 | Review card: Merge with failing Check confirms in an AlertDialog naming the Check (#155) | ![](critique-2026-10/after/72-review-card-merge-with-failing-check-light.webp) | ![](critique-2026-10/after/72-review-card-merge-with-failing-check-dark.webp) |
 | 73 | Review card: every criterion accepted and every Check passed, Merge filled (#155) | ![](critique-2026-10/after/73-review-card-ready-light.webp) | ![](critique-2026-10/after/73-review-card-ready-dark.webp) |
 | 74 | Board: an In review Story's row offers Open review (#155) | ![](critique-2026-10/after/74-board-open-review-light.webp) | ![](critique-2026-10/after/74-board-open-review-dark.webp) |
+| 75 | Needs you: the ranked 400px column beside the roster, requests first with their card as a band, and each project's Needs-you figure in the sidebar (#156) | ![](critique-2026-10/after/75-needs-you-column-light.webp) | ![](critique-2026-10/after/75-needs-you-column-dark.webp) |
+| 76 | Needs you, scrolled: Stopped with Resume, a missing worktree with Recreate, Review, Confirm exit test and Rounds no session works, with Continue shaping (#156) | ![](critique-2026-10/after/76-needs-you-column-decisions-light.webp) | ![](critique-2026-10/after/76-needs-you-column-decisions-dark.webp) |
+| 77 | Needs you at the window's minimum width: the top bar's Needs you button opens it as a Sheet (#156) | ![](critique-2026-10/after/77-needs-you-sheet-min-width-light.webp) | ![](critique-2026-10/after/77-needs-you-sheet-min-width-dark.webp) |
+| 78 | Needs you: Confirm exit test from an Epic's card opens the same dialog as the Epic card (#156) | ![](critique-2026-10/after/78-needs-you-confirm-exit-test-light.webp) | ![](critique-2026-10/after/78-needs-you-confirm-exit-test-dark.webp) |
 
 ## How the screens were rendered
 

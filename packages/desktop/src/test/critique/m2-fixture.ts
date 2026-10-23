@@ -21,6 +21,7 @@ import type {
   MilestoneDto,
   MilestoneProgressDto,
   MilestoneShapingDto,
+  NeedsYouItemDto,
   PendingPermissionRequestDto,
   RoadmapProposalDto,
   RoadmapRoundDto,
@@ -700,6 +701,78 @@ function withOpenStageStatus(shaping: EpicShapingDto): EpicShapingDto {
 type Args = Record<string, unknown> | undefined;
 const arg = (args: Args, name: string) => (args?.[name] as string | undefined) ?? "";
 
+/**
+ * Issue #156: two more Needs-you items for the Needs-you screens, off by default so every earlier screen keeps
+ * its shot: an Epic whose Stories are all Merged asks to confirm its exit test, and a Story whose worktree went
+ * missing asks to recreate it.
+ */
+let needsYouExtras = false;
+export function setNeedsYouExtras(on: boolean): void {
+  needsYouExtras = on;
+}
+
+const NEEDS_YOU_RANK: Record<string, number> = {
+  gated_action: 1, permission_request: 1, question: 1, stopped: 2, review: 3, confirm_exit_test: 4, shaping_round: 6,
+};
+
+function needsYouItem(kind: NeedsYouItemDto["kind"], id: string, since: string, record: NeedsYouItemDto["record"], extra: Partial<NeedsYouItemDto> = {}): NeedsYouItemDto {
+  return {
+    kind, rank: NEEDS_YOU_RANK[kind], id, since, record, sessionId: null, request: null, endingReason: null,
+    missingWorktree: false, doingTaskTitle: null, exitTest: null, milestoneTitle: null, round: null, ...extra,
+  };
+}
+
+const storyRecord = (storyId: string): NeedsYouItemDto["record"] => {
+  const s = storyById(storyId) as StoryDto;
+  return { kind: "story", id: s.id, key: s.key, title: s.title, state: null };
+};
+
+/** What the core's `needs_you_list` answers for the seeded board (the core ranks; this mirrors it). */
+function needsYouOf(projectId: string): NeedsYouItemDto[] {
+  const items: NeedsYouItemDto[] = [];
+  for (const entry of QUEUE.filter((q) => q.projectId === projectId)) {
+    const kind = entry.toolName === "AskUserQuestion" ? "question" : entry.destructiveCategory ? "gated_action" : "permission_request";
+    items.push(needsYouItem(kind, entry.requestId, entry.createdAt, storyRecord(entry.storyId), {
+      sessionId: entry.sessionId,
+      request: { id: entry.requestId, toolName: entry.toolName, inputPayload: entry.inputPayload, destructiveCategory: entry.destructiveCategory, suggestedRule: entry.suggestedRule },
+    }));
+  }
+  if (projectId === "p-fly") {
+    items.push(needsYouItem("stopped", "s-7", ago(4200), storyRecord("s-7"), {
+      sessionId: "ses-7b", endingReason: "usage_limit", doingTaskTitle: "Restyle the board's Story rows",
+    }));
+    items.push(needsYouItem("review", "s-3", ago(3600), storyRecord("s-3")));
+    if (needsYouExtras) {
+      items.push(needsYouItem("stopped", "s-6", ago(5000), storyRecord("s-6"), { missingWorktree: true }));
+      items.push(needsYouItem("confirm_exit_test", "e-60", ago(9000),
+        { kind: "epic", id: "e-60", key: "FLY-12", title: "Milestone and Roadmap shaping", state: null },
+        { exitTest: "Cyril shapes a Milestone's exit test and has a roadmap Round propose a change, all in Flywheel.", milestoneTitle: "Shaping" }));
+    }
+    for (const round of waitingRounds().filter((r) => r.projectId === projectId)) {
+      const record: NeedsYouItemDto["record"] = round.subject === "roadmap"
+        ? { kind: "roadmap", id: null, key: null, title: "", state: null }
+        : round.subject === "milestone"
+          ? { kind: "milestone", id: round.milestoneId ?? null, key: null, title: round.milestoneTitle ?? "", state: null }
+          : { kind: "epic", id: round.epicId, key: round.epicKey, title: round.epicTitle ?? "", state: null };
+      items.push(needsYouItem("shaping_round", round.roundId, round.waitingSince, record, {
+        round: { roundId: round.roundId, roundNumber: round.roundNumber, subject: round.subject as "epic", waitingOnYou: true, answered: round.answered, questions: round.questions },
+      }));
+    }
+    // A Round no live session works waits too: Epic shaping's, once its session is gone; the roadmap's, idle.
+    if (!shapingSessionLive) {
+      items.push(needsYouItem("shaping_round", "r-2", ago(1800), { kind: "epic", id: "e-59", key: "FLY-8", title: "Epic shaping", state: null }, {
+        round: { roundId: "r-2", roundNumber: 2, subject: "epic", waitingOnYou: false, answered: 1, questions: 4 },
+      }));
+    }
+    if (roadmapMode === "idle") {
+      items.push(needsYouItem("shaping_round", "rr-2", ago(1500), { kind: "roadmap", id: null, key: null, title: "", state: null }, {
+        round: { roundId: "rr-2", roundNumber: 2, subject: "roadmap", waitingOnYou: false, answered: 1, questions: 4 },
+      }));
+    }
+  }
+  return items.sort((a, b) => a.rank - b.rank || a.since.localeCompare(b.since) || a.id.localeCompare(b.id));
+}
+
 function window_(entries: Record<string, unknown>[], offset: number, limit: number) {
   return { entries: entries.slice(offset, offset + limit), offset, limit, total: entries.length };
 }
@@ -809,6 +882,7 @@ export function answer(cmd: string, args: Args): unknown {
       };
     }
     case "board_recovery_summary": return { recoveryStoryIds: [], recoveryCount: 0 };
+    case "needs_you_list": return needsYouOf(arg(args, "projectId"));
     case "fleet_list": return { rows: FLEET_ROWS, totalRows: FLEET_ROWS.length, visibleCostUsd: 9.3 };
     case "fleet_blocked_queue": return QUEUE;
     case "fleet_waiting_rounds": return waitingRounds();
@@ -858,6 +932,7 @@ const SINCE_LAST_LOOKED = {
 /** Route every `invoke`/`listen` in the app to the seeded data. Call before the first render. */
 export function installFixtureBackend(): void {
   withAdrs = false;
+  needsYouExtras = false;
   roadmapMode = "none";
   milestoneShaping = "off";
   adrsOnlyLeft = false;

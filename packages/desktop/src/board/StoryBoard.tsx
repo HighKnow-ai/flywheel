@@ -67,7 +67,7 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
   // virtualizer picks it up on the render after it mounts.
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   const selection = useMilestoneSelection(projectId);
-  // Needs you (#156) is a column beside the roster from a content width of 1280px, a Sheet below that.
+  // Needs you (#156) is a column beside the roster in a window 1280px wide or more, a Sheet below that.
   const wide = useWideContent(scrollElement);
   return (
     <div className="board-shell flex h-full min-h-0 flex-col">
@@ -109,10 +109,11 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
   );
 }
 
-/** The content width at which Needs you sits beside the roster (direction.md "First viewport"). */
-export const NEEDS_YOU_COLUMN_MIN_WIDTH = 1280;
+/** The board's width at which Needs you sits beside the roster (direction.md "First viewport"): a window
+ * 1280px wide, less the 248px sidebar. The roster keeps about 570px beside the 400px column. */
+export const NEEDS_YOU_COLUMN_MIN_WIDTH = 1280 - 248;
 
-/** Whether the board's content area is at least 1280px wide. Before it is measured (and in jsdom, which has
+/** Whether the board's content area is wide enough for the column. Before it is measured (and in jsdom, which has
  * no layout) it counts as wide, so the column is what renders first. */
 function useWideContent(element: HTMLElement | null): boolean {
   const [width, setWidth] = useState<number | null>(null);
