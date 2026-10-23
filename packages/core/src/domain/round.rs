@@ -289,6 +289,18 @@ pub fn rounds_for_epic(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<R
     Ok(rounds)
 }
 
+/// Every Round of a Milestone (issue #132), oldest first, each with its questions: its one Stage,
+/// Exit test, holds them all.
+pub fn rounds_for_milestone(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<Round>> {
+    let mut stmt = conn.prepare(&format!("{ROUND_SELECT} WHERE s.milestone_id = ?1 ORDER BY s.rank, r.number"))?;
+    let mut rows = stmt.query(params![milestone_id])?;
+    let mut rounds = Vec::new();
+    while let Some(row) = rows.next()? {
+        rounds.push(round_from_row(conn, row)?);
+    }
+    Ok(rounds)
+}
+
 /// What a completed Round answers its `round_post` call with: every answer, in order, and what to do
 /// next.
 pub fn round_result(round: &Round) -> Value {

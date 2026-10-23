@@ -145,7 +145,7 @@ fn every_allowed_board_tool_is_one_the_board_server_registers() {
     let (_, shaping) = board_server_registration(SessionKind::Shaping);
     assert_eq!(
         shaping,
-        ["round_post", "round_wait", "propose_spec_change", "propose_roadmap_change", "roadmap_holds", "propose_story", "propose_story_order"],
+        ["round_post", "round_wait", "propose_spec_change", "propose_roadmap_change", "roadmap_holds", "propose_story", "propose_story_order", "propose_exit_test"],
         "a shaping session sees its Round and Proposal tools and nothing else"
     );
     let (_, story) = board_server_registration(SessionKind::Story);

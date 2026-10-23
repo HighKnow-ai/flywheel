@@ -10,7 +10,8 @@
 //! An Epic is Waiting on you when a live shaping session is held on one of its open Rounds
 //! (issue #124, `crate::query::round_waiting_on_you`); a held Round never writes the session's status.
 //! A project's Roadmap is Waiting on you the same way, while a live roadmap session is held on its
-//! open roadmap Round (issue #133); it counts once.
+//! open roadmap Round (issue #133); it counts once. A Milestone is Waiting on you like an Epic, on a
+//! Round of its Exit test (issue #132).
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -34,9 +35,19 @@ const BLOCKED_COUNT_SQL: &str = concat!(
     + (SELECT COUNT(DISTINCT st.epic_id) FROM rounds r JOIN stages st ON st.id = r.stage_id \
     WHERE st.project_id = ?1 AND st.epic_id IS NOT NULL AND ",
     crate::query::round_waiting_on_you!(),
+    ") + (SELECT COUNT(DISTINCT st.milestone_id) FROM rounds r JOIN stages st ON st.id = r.stage_id \
+    WHERE st.project_id = ?1 AND st.milestone_id IS NOT NULL AND ",
+    crate::query::round_waiting_on_you!(),
     ") + (SELECT COUNT(*) FROM rounds r WHERE r.project_id = ?1 AND r.stage_id IS NULL AND ",
     crate::query::round_waiting_on_you!(),
     ")"
+);
+
+const WAITING_MILESTONE_IDS_SQL: &str = concat!(
+    "SELECT DISTINCT st.milestone_id FROM rounds r JOIN stages st ON st.id = r.stage_id \
+    WHERE st.project_id = ?1 AND st.milestone_id IS NOT NULL AND ",
+    crate::query::round_waiting_on_you!(),
+    " ORDER BY st.milestone_id ASC"
 );
 
 const ROADMAP_WAITING_SQL: &str = concat!(
@@ -65,6 +76,16 @@ pub fn waiting_epic_ids_for_project(conn: &Connection, project_id: &str) -> anyh
     rows.context("failed to list the Epics waiting on you for project")
 }
 
+/// Every distinct Milestone id in `project_id` that is Waiting on you (issue #132): a live shaping
+/// session is held on an open Round of its Exit test. Empty when nothing is, never an error.
+pub fn waiting_milestone_ids_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<String>> {
+    let mut stmt = conn.prepare(WAITING_MILESTONE_IDS_SQL)?;
+    let rows = stmt
+        .query_map(params![project_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>();
+    rows.context("failed to list the Milestones waiting on you for project")
+}
+
 /// Whether the project's Roadmap is Waiting on you (issue #133): a live roadmap session is held on its
 /// open roadmap Round, until the developer decides each of the Round's Proposals.
 pub fn roadmap_waiting_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<bool> {
@@ -73,8 +94,9 @@ pub fn roadmap_waiting_for_project(conn: &Connection, project_id: &str) -> anyho
 }
 
 /// The project's Needs-you count of what is Waiting on you: the distinct Stories, the distinct Epics
-/// (issue #124) and the Roadmap (issue #133). Always equal to `blocked_story_ids_for_project(..).len()`
-/// plus `waiting_epic_ids_for_project(..).len()`, plus one while `roadmap_waiting_for_project`.
+/// (issue #124), the distinct Milestones (issue #132) and the Roadmap (issue #133). Always equal to
+/// `blocked_story_ids_for_project(..).len()` plus `waiting_epic_ids_for_project(..).len()` plus
+/// `waiting_milestone_ids_for_project(..).len()`, plus one while `roadmap_waiting_for_project`.
 pub fn blocked_count_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<i64> {
     let count: i64 = conn
         .query_row(BLOCKED_COUNT_SQL, params![project_id], |row| row.get(0))

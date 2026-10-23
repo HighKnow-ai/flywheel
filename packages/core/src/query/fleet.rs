@@ -223,14 +223,16 @@ pub const WAITING_ROUNDS_MAX_LIMIT: usize = 200;
 /// One shaping Round Waiting on you (issue #124): open, with its call held by a LIVE shaping
 /// session, across every registered project. A shaping session has no Story, so it is not a
 /// [`FleetRow`]; the andon strip lights a lamp for each of these, and the sidebar's Waiting-on-you
-/// count adds them to the queue's requests. An Epic's Round or a roadmap Round (issue #133).
+/// count adds them to the queue's requests. An Epic's Round, a Milestone's (issue #132) or a roadmap
+/// Round (issue #133).
 #[derive(Debug, Clone, PartialEq)]
 pub struct WaitingRound {
     pub round_id: String,
     pub round_number: i64,
-    /// `epic` for an Epic's Round, `roadmap` for a roadmap Round.
+    /// `epic` for an Epic's Round, `milestone` for a Milestone's, `roadmap` for a roadmap Round.
     pub subject: String,
-    /// The Stage's kind: `challenge_spec`, `slice`, `criteria`; `None` for a roadmap Round.
+    /// The Stage's kind: `challenge_spec`, `slice`, `criteria`, a Milestone's `exit_test`; `None` for a
+    /// roadmap Round.
     pub stage_kind: Option<String>,
     pub session_id: String,
     pub project_id: String,
@@ -240,6 +242,9 @@ pub struct WaitingRound {
     pub epic_id: Option<String>,
     pub epic_key: Option<String>,
     pub epic_title: Option<String>,
+    /// The Milestone a Milestone's Round shapes (issue #132); `None` for any other Round.
+    pub milestone_id: Option<String>,
+    pub milestone_title: Option<String>,
     /// When the Round was posted: it has waited on the developer since.
     pub waiting_since: String,
     /// An Epic's Round: how many of its questions are answered, and how many it asks. A roadmap Round:
@@ -249,21 +254,26 @@ pub struct WaitingRound {
 }
 
 /// Every waiting Round, longest waiting first, with the Round id as the final key so two reads of an
-/// unchanged database are byte-identical. A Milestone's Rounds join no Epic and are not read yet.
+/// unchanged database are byte-identical. An Epic's Round names its Epic, a Milestone's its Milestone
+/// (issue #132), and a roadmap Round its project.
 pub const WAITING_ROUNDS_SQL: &str = concat!(
-    "SELECT r.id, r.number, CASE WHEN r.stage_id IS NULL THEN 'roadmap' ELSE 'epic' END, st.kind, r.session_id, \
+    "SELECT r.id, r.number, \
+        CASE WHEN r.stage_id IS NULL THEN 'roadmap' WHEN st.milestone_id IS NOT NULL THEN 'milestone' ELSE 'epic' END, \
+        st.kind, r.session_id, \
         p.id, p.name, p.key_prefix, e.id, e.key, e.title, r.posted_at, \
         CASE WHEN r.stage_id IS NULL \
             THEN (SELECT COUNT(*) FROM proposals pr WHERE pr.round_id = r.id AND pr.state != 'pending') \
             ELSE (SELECT COUNT(*) FROM round_questions q WHERE q.round_id = r.id AND q.answer IS NOT NULL) END, \
         CASE WHEN r.stage_id IS NULL \
             THEN (SELECT COUNT(*) FROM proposals pr WHERE pr.round_id = r.id) \
-            ELSE (SELECT COUNT(*) FROM round_questions q WHERE q.round_id = r.id) END \
+            ELSE (SELECT COUNT(*) FROM round_questions q WHERE q.round_id = r.id) END, \
+        m.id, m.title \
     FROM rounds r \
     LEFT JOIN stages st ON st.id = r.stage_id \
     LEFT JOIN epics e ON e.id = st.epic_id \
+    LEFT JOIN milestones m ON m.id = st.milestone_id \
     JOIN projects p ON p.id = r.project_id AND p.hidden = 0 \
-    WHERE (r.stage_id IS NULL OR st.epic_id IS NOT NULL) AND ",
+    WHERE (r.stage_id IS NULL OR st.epic_id IS NOT NULL OR st.milestone_id IS NOT NULL) AND ",
     crate::query::round_waiting_on_you!(),
     " ORDER BY r.posted_at ASC, r.id ASC LIMIT ?1"
 );
@@ -290,6 +300,8 @@ pub fn waiting_rounds(conn: &Connection, limit: usize) -> anyhow::Result<Vec<Wai
                 waiting_since: row.get(11)?,
                 answered: row.get(12)?,
                 questions: row.get(13)?,
+                milestone_id: row.get(14)?,
+                milestone_title: row.get(15)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()

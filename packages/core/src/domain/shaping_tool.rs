@@ -29,6 +29,11 @@
 //! so its ghost column stands where the Story would land; it is created only once accepted
 //! (`proposal_apply`).
 //!
+//! `propose_exit_test` (issue #132) is the Milestone's sibling of `propose_spec_change`: in a shaping
+//! session on a Milestone it files an Amend Milestone Proposal carrying only the new exit test (the
+//! Roadmap change's own kind, so `proposal_apply` applies it the same way), answered AT ONCE, and shown
+//! as a ghost over the exit test.
+//!
 //! Identity comes from the session the call arrived on, never from an argument: a call reaches only
 //! that session's own subject, and only while the session is live.
 
@@ -40,7 +45,8 @@ use rusqlite::OptionalExtension;
 
 use crate::domain::proposal::{file_proposal, proposals_on_epic, NewProposal, ProposalTarget, ProposalVerb};
 use crate::domain::proposal_apply::{
-    NewStory, RoadmapChange, RunsAfter, SpecChange, MAX_RUNS_AFTER_REASON_LEN, MAX_STORY_DESCRIPTION_LEN, MAX_STORY_TITLE_LEN,
+    NewStory, RoadmapChange, RunsAfter, SpecChange, MAX_ROADMAP_TEXT_LEN, MAX_RUNS_AFTER_REASON_LEN, MAX_STORY_DESCRIPTION_LEN,
+    MAX_STORY_TITLE_LEN,
 };
 use crate::domain::roadmap_round::{propose_roadmap_change, roadmap_holds, wait_roadmap_round, RoadmapWait};
 use crate::domain::story::{stories_in_epic, StoryState};
@@ -50,7 +56,7 @@ use crate::domain::round::{post_round, round_result, wait_round, AdrDraft, NewQu
 
 /// The tool names the sidecar's MCP server registers for a shaping session, in the order it lists
 /// them. Mirrored by `SHAPING_TOOL_NAMES` in `packages/sidecar/src/mcp-permission-server.ts`.
-pub const SHAPING_TOOL_NAMES: [&str; 7] =
+pub const SHAPING_TOOL_NAMES: [&str; 8] =
     [
         "round_post",
         "round_wait",
@@ -59,6 +65,7 @@ pub const SHAPING_TOOL_NAMES: [&str; 7] =
         "roadmap_holds",
         "propose_story",
         "propose_story_order",
+        "propose_exit_test",
     ];
 
 /// One parsed call of a shaping tool.
@@ -73,6 +80,8 @@ pub enum ShapingToolCall {
     ProposeRoadmapChange { change: RoadmapChange, why: String },
     /// Issue #133: the Roadmap still holds, and why.
     RoadmapHolds { why: String },
+    /// Issue #132: the Milestone's whole new exit test, trimmed, and the agent's one-line reason for it.
+    ProposeExitTest { text: String, why: String },
     /// Issue #127: a New Story for the Epic being sliced.
     ProposeStory(StoryDraft),
     /// Issue #127: move a Story of the Epic in its execution order, or retire it, and why.
@@ -206,6 +215,15 @@ impl ShapingToolCall {
                 Ok(ShapingToolCall::ProposeRoadmapChange { change, why: why_field(args, tool)? })
             }
             "roadmap_holds" => Ok(ShapingToolCall::RoadmapHolds { why: why_field(args, tool)? }),
+            "propose_exit_test" => {
+                let text = string_field(args, "text", "propose_exit_test: ")?.trim().to_string();
+                anyhow::ensure!(!text.is_empty(), "propose_exit_test: the proposed exit test is empty");
+                anyhow::ensure!(
+                    text.chars().count() <= MAX_ROADMAP_TEXT_LEN,
+                    "propose_exit_test: the proposed exit test is at most {MAX_ROADMAP_TEXT_LEN} characters"
+                );
+                Ok(ShapingToolCall::ProposeExitTest { text, why: why_field(args, tool)? })
+            }
             "propose_story" => {
                 let tool = "propose_story";
                 let title = one_line(args, "title", tool, MAX_STORY_TITLE_LEN)?;
@@ -506,6 +524,55 @@ fn propose_spec_change(conn: &mut Connection, session_id: &str, change: &SpecCha
     })
 }
 
+/// File a new exit test on the Milestone shaping session `session_id` shapes, as the agent (issue #132):
+/// an Amend Milestone Proposal with only `exit_test` set. Refused for an unknown, ended or Story session
+/// and for a session shaping anything but a Milestone.
+fn propose_exit_test(conn: &mut Connection, session_id: &str, text: &str, why: &str) -> anyhow::Result<ShapingToolOutcome> {
+    let row: Option<(String, String, String, Option<String>)> = conn
+        .query_row(
+            "SELECT kind, status, project_id, milestone_id FROM sessions WHERE id = ?1",
+            rusqlite::params![session_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?;
+    let Some((kind, status, project_id, milestone_id)) = row else { anyhow::bail!("session {session_id:?} not found") };
+    anyhow::ensure!(kind == "shaping", "propose_exit_test belongs to a shaping session; session {session_id:?} is a Story session");
+    anyhow::ensure!(
+        status == "running" || status == "blocked",
+        "this session has ended ({status}); it can no longer propose a change"
+    );
+    let milestone_id = milestone_id.context(
+        "this shaping session shapes an Epic, not a Milestone; propose_exit_test rewrites a Milestone's exit test. \
+         Propose an Epic's exit test with propose_spec_change",
+    )?;
+    let change = RoadmapChange::AmendMilestone { milestone_id, title: None, exit_test: Some(text.to_string()) };
+    let (verb, target, target_id, payload) = change.to_proposal();
+    let agent = agent_actor_id(conn)?;
+    let filed = file_proposal(
+        conn,
+        &agent,
+        &NewProposal {
+            project_id: &project_id,
+            session_id: Some(session_id),
+            epic_id: None,
+            verb,
+            target,
+            target_id,
+            payload,
+            rationale: Some(why),
+        },
+    )?;
+    Ok(ShapingToolOutcome::Answered {
+        result: serde_json::json!({
+            "proposal_id": filed.id,
+            "state": "pending",
+            "next": "Your exit test is over the Milestone's exit test as a Proposal, for the developer to accept, amend \
+                     or reject; nothing changes until they do. Keep shaping: do not wait for the decision.",
+        }),
+        project_id,
+    })
+}
+
 /// Run one call for session `session_id`, whose held call is `request_id`, writing as the agent
 /// actor. Refused when the session is unknown, ended or a Story session (see `round::post_round`).
 pub fn apply_shaping_tool_call(
@@ -544,6 +611,7 @@ pub fn apply_shaping_tool_call(
             })
         }
         ShapingToolCall::ProposeSpecChange { change, why } => propose_spec_change(conn, session_id, change, why),
+        ShapingToolCall::ProposeExitTest { text, why } => propose_exit_test(conn, session_id, text, why),
         ShapingToolCall::ProposeStory(draft) => propose_story(conn, session_id, draft),
         ShapingToolCall::ProposeStoryOrder { story, change, why } => propose_story_order(conn, session_id, story, change, why),
         ShapingToolCall::ProposeRoadmapChange { .. } | ShapingToolCall::RoadmapHolds { .. } => anyhow::bail!(
@@ -609,6 +677,10 @@ fn apply_roadmap_call(conn: &mut Connection, session_id: &str, request_id: &str,
         ),
         ShapingToolCall::ProposeSpecChange { .. } => anyhow::bail!(
             "propose_spec_change rewrites an Epic being shaped; in a roadmap Round, propose Roadmap changes with propose_roadmap_change"
+        ),
+        ShapingToolCall::ProposeExitTest { .. } => anyhow::bail!(
+            "propose_exit_test rewrites the exit test of a Milestone being shaped; in a roadmap Round, propose an amended \
+             Milestone with propose_roadmap_change"
         ),
         ShapingToolCall::ProposeStory(_) | ShapingToolCall::ProposeStoryOrder { .. } => anyhow::bail!(
             "propose_story and propose_story_order slice an Epic being shaped; in a roadmap Round, propose Roadmap changes with propose_roadmap_change"

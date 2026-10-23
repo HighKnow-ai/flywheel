@@ -196,8 +196,9 @@ fn closing_challenge_opens_slice_and_ends_the_live_session() {
     let closed = close_stage(&mut f.conn, &f.human, &stage_id).unwrap();
     assert_eq!(closed.closed.kind, StageKind::ChallengeSpec);
     assert_eq!(closed.closed.state, "closed");
-    assert_eq!(closed.opened.kind, StageKind::Slice);
-    assert_eq!(closed.opened.rank, 2);
+    let opened = closed.opened.as_ref().expect("Slice opens");
+    assert_eq!(opened.kind, StageKind::Slice);
+    assert_eq!(opened.rank, 2);
     assert_eq!(closed.ended_session.as_deref(), Some(f.session_id.as_str()));
     assert_eq!(
         f.stage_rows(),
@@ -237,7 +238,7 @@ fn closing_slice_opens_criteria_and_the_last_stage_does_not_close_yet() {
     close_stage(&mut f.conn, &f.human, &challenge).unwrap();
     let slice = f.open_stage_id();
     let closed = close_stage(&mut f.conn, &f.human, &slice).unwrap();
-    assert_eq!((closed.closed.kind, closed.opened.kind, closed.opened.rank), (StageKind::Slice, StageKind::Criteria, 3));
+    assert_eq!((closed.closed.kind, closed.opened.as_ref().unwrap().kind, closed.opened.as_ref().unwrap().rank), (StageKind::Slice, StageKind::Criteria, 3));
     assert_eq!(closed.ended_session, None, "no session was live");
     let kinds: Vec<StageKind> = stages_for_epic(&f.conn, &f.epic_id).unwrap().into_iter().map(|s| s.kind).collect();
     assert_eq!(kinds, StageKind::EPIC.to_vec());
