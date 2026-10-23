@@ -134,9 +134,93 @@ impl Board {
         id
     }
 
+    /// A Proposal filed by `session_id` on `epic_id` at `at`, in `state`; in a shaping Stage when `stage_id`.
+    #[allow(clippy::too_many_arguments)]
+    fn proposal(
+        &mut self,
+        session_id: &str,
+        epic_id: Option<&str>,
+        verb: &str,
+        target: &str,
+        state: &str,
+        stage_id: Option<&str>,
+        at: &str,
+    ) -> String {
+        let id = new_id();
+        let decided_by = (state == "accepted" || state == "rejected").then(|| self.actor_id.clone());
+        let withdrawn_at = (state == "withdrawn").then_some(at);
+        self.conn
+            .execute(
+                "INSERT INTO proposals (id, project_id, session_id, epic_id, verb, target_type, payload, state, decided_by, \
+                 created_by, created_at, stage_id, withdrawn_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '{}', ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![id, self.project_id, session_id, epic_id, verb, target, state, decided_by, self.actor_id, at, stage_id, withdrawn_at],
+            )
+            .unwrap();
+        id
+    }
+
     fn list(&self) -> Vec<NeedsYouItem> {
         needs_you(&self.conn, &self.project_id).expect("needs_you")
     }
+}
+
+/// Spec §5 "One row" (issue #162): the pending Proposals Story sessions filed are ONE item, "n from m
+/// Stories", ranked after Confirm exit test and before the Shaping Rounds, waiting since the oldest. A
+/// judged-on change (an amended criterion or Epic spec, issue #163) is not counted, nor a withdrawn or
+/// decided Proposal, nor one a shaping session filed.
+#[test]
+fn proposals_from_execution_are_one_row_n_from_m_stories() {
+    let mut b = board();
+    let epic_id = b.epic_id.clone();
+    let other_epic = b.epic("Other");
+    let (a, _) = b.story("Files two", "running", "2026-10-01T00:00:00Z");
+    let (c, _) = b.story_in(&other_epic, "Files one", "running", "2026-10-01T00:00:00Z");
+    let sa = b.session(&a, "2026-10-01T00:00:00Z", None);
+    let sa_old = b.session(&a, "2026-09-30T00:00:00Z", Some(("2026-09-30T01:00:00Z", "stopped_by_developer")));
+    let sc = b.session(&c, "2026-10-01T00:00:00Z", None);
+    b.proposal(&sa, Some(&epic_id), "create", "story", "pending", None, "2026-10-02T00:00:00Z");
+    b.proposal(&sa_old, Some(&epic_id), "reorder", "story", "pending", None, "2026-10-01T05:00:00Z");
+    b.proposal(&sc, None, "create", "epic", "pending", None, "2026-10-03T00:00:00Z");
+    // Not counted: judged-on, withdrawn, decided.
+    b.proposal(&sa, Some(&epic_id), "amend", "criterion", "pending", None, "2026-09-01T00:00:00Z");
+    b.proposal(&sc, Some(&other_epic), "amend", "epic", "pending", None, "2026-09-01T00:00:00Z");
+    b.proposal(&sa, Some(&epic_id), "create", "story", "withdrawn", None, "2026-09-01T00:00:00Z");
+    b.proposal(&sc, Some(&other_epic), "create", "story", "accepted", None, "2026-09-01T00:00:00Z");
+    // A shaping session's Proposal waits in its Stage, not here.
+    let shaping = b.shaping_session(Some(&epic_id), None, true);
+    let round = b.open_round(Some(&epic_id), Some(&shaping), true, "2026-09-01T00:00:00Z");
+    let stage: String = b.conn.query_row("SELECT stage_id FROM rounds WHERE id = ?1", params![round], |r| r.get(0)).unwrap();
+    b.proposal(&shaping, Some(&epic_id), "create", "story", "pending", Some(&stage), "2026-09-01T00:00:00Z");
+
+    let items = b.list();
+    let rows: Vec<&NeedsYouItem> = items.iter().filter(|i| i.kind == NeedsYouKind::Proposals).collect();
+    assert_eq!(rows.len(), 1, "one row, whatever the count: {items:?}");
+    let row = rows[0];
+    let proposals = row.proposals.as_ref().expect("the row carries its counts");
+    assert_eq!((proposals.count, proposals.stories), (3, 2), "3 from 2 Stories");
+    assert_eq!((proposals.epics, proposals.roadmap), (1, true), "they land on one Epic and on the Roadmap");
+    assert_eq!(row.since, "2026-10-01T05:00:00Z", "it has waited since the oldest");
+    assert_eq!(row.record.kind, "project");
+    assert_eq!(row.record.id.as_deref(), Some(b.project_id.as_str()));
+    assert_eq!(NeedsYouKind::Proposals.rank(), 5);
+    assert_eq!(NeedsYouKind::Proposals.as_str(), "proposals");
+    let ranks: Vec<u8> = items.iter().map(|item| item.kind.rank()).collect();
+    assert!(ranks.windows(2).all(|w| w[0] <= w[1]), "ranks never go down: {ranks:?}");
+    let at = items.iter().position(|i| i.kind == NeedsYouKind::Proposals).unwrap();
+    assert_eq!(items[at + 1].kind, NeedsYouKind::ShapingRound, "decisions about future work: Proposals, then the Round");
+}
+
+/// No pending Proposal from execution, no row: a judged-on change alone does not make one.
+#[test]
+fn no_proposals_row_without_a_pending_proposal_from_execution() {
+    let mut b = board();
+    let epic_id = b.epic_id.clone();
+    let (a, _) = b.story("Files", "running", "2026-10-01T00:00:00Z");
+    let sa = b.session(&a, "2026-10-01T00:00:00Z", None);
+    b.proposal(&sa, Some(&epic_id), "amend", "criterion", "pending", None, "2026-10-02T00:00:00Z");
+    b.proposal(&sa, Some(&epic_id), "create", "story", "rejected", None, "2026-10-02T00:00:00Z");
+    let items = b.list();
+    assert!(items.iter().all(|i| i.kind != NeedsYouKind::Proposals), "{items:?}");
 }
 
 fn kinds(items: &[NeedsYouItem]) -> Vec<NeedsYouKind> {

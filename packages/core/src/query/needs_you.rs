@@ -14,7 +14,10 @@
 //!    conflicting paths (`domain::review::conflicts_for_story`) and reads **Rebase needed** (issue #158).
 //! 4. **Confirm exit test**: the core mirror of the renderer's `epicExitTestConfirmable` and
 //!    `milestoneExitTestConfirmable` (`board/ConfirmExitTest.tsx`).
-//! 5. **Shaping Round waiting**: an open Round a live session is held on (Waiting on you), or an open
+//! 5. **Proposals**: the pending Proposals Story sessions filed, as ONE item, "n from m Stories"
+//!    (`crate::query::awaits_triage`, issue #162), waiting since the oldest. A judged-on change is left
+//!    out: it is its own item (issue #163).
+//! 6. **Shaping Round waiting**: an open Round a live session is held on (Waiting on you), or an open
 //!    Round no live session of its subject is working on (it died, or never launched), a roadmap
 //!    Round included. An open Round a live session is still working on waits on no one.
 //!
@@ -28,9 +31,8 @@ use crate::domain::question::is_question;
 use crate::query::recovery::missing_worktrees_for_project;
 use crate::query::sessions::stopped_session_for_story;
 
-/// What an item waits on the developer for. The kinds a later Story adds slot in by rank: the
-/// Proposals filed during execution, as one row, rank 5 (issue #162); a Proposal that changes what a
-/// Story is judged on, ranked with Review, rank 3 (issue #163).
+/// What an item waits on the developer for. The kind a later Story adds slots in by rank: a Proposal
+/// that changes what a Story is judged on, ranked with Review, rank 3 (issue #163).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NeedsYouKind {
     GatedAction,
@@ -41,6 +43,8 @@ pub enum NeedsYouKind {
     Stopped,
     Review,
     ConfirmExitTest,
+    /// The Proposals filed during execution, as one row (issue #162).
+    Proposals,
     ShapingRound,
 }
 
@@ -53,18 +57,19 @@ impl NeedsYouKind {
             NeedsYouKind::Stopped => "stopped",
             NeedsYouKind::Review => "review",
             NeedsYouKind::ConfirmExitTest => "confirm_exit_test",
+            NeedsYouKind::Proposals => "proposals",
             NeedsYouKind::ShapingRound => "shaping_round",
         }
     }
 
-    /// The kind's place in spec §2's order; kinds that share a rank are mixed by age. Rank 5 is kept
-    /// for the Proposals row.
+    /// The kind's place in spec §2's order; kinds that share a rank are mixed by age.
     pub fn rank(self) -> u8 {
         match self {
             NeedsYouKind::GatedAction | NeedsYouKind::PermissionRequest | NeedsYouKind::Question => 1,
             NeedsYouKind::Stopped => 2,
             NeedsYouKind::Review => 3,
             NeedsYouKind::ConfirmExitTest => 4,
+            NeedsYouKind::Proposals => 5,
             NeedsYouKind::ShapingRound => 6,
         }
     }
@@ -73,9 +78,9 @@ impl NeedsYouKind {
 /// The board record an item is about.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NeedsYouRecord {
-    /// `story`, `epic`, `milestone` or `roadmap`.
+    /// `story`, `epic`, `milestone`, `roadmap`, or `project` for the Proposals row.
     pub kind: &'static str,
-    /// `None` for the Roadmap, which is the project's.
+    /// `None` for the Roadmap, which is the project's; the project's own id for the Proposals row.
     pub id: Option<String>,
     /// A Story's or an Epic's key; a Milestone and the Roadmap have none.
     pub key: Option<String>,
@@ -109,6 +114,19 @@ pub struct NeedsYouRound {
     pub questions: i64,
 }
 
+/// The Proposals row's counts: "n from m Stories", and where they land.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NeedsYouProposals {
+    /// Proposals awaiting triage.
+    pub count: i64,
+    /// The Stories whose sessions filed them.
+    pub stories: i64,
+    /// The Epics they land on.
+    pub epics: i64,
+    /// Whether any is a New Epic, landing on the Roadmap.
+    pub roadmap: bool,
+}
+
 /// One thing waiting on the developer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NeedsYouItem {
@@ -135,6 +153,7 @@ pub struct NeedsYouItem {
     /// A Review item whose branch would conflict with its base branch: the paths. Rebase needed when not
     /// empty.
     pub conflicts: Vec<String>,
+    pub proposals: Option<NeedsYouProposals>,
 }
 
 impl NeedsYouItem {
@@ -153,6 +172,7 @@ impl NeedsYouItem {
             milestone_title: None,
             round: None,
             conflicts: Vec::new(),
+            proposals: None,
         }
     }
 }
@@ -225,6 +245,15 @@ const ROUNDS_SQL: &str = concat!(
         AND (r.stage_id IS NULL OR st.epic_id IS NOT NULL OR st.milestone_id IS NOT NULL)"
 );
 
+/// The Proposals row: what awaits triage, counted in one statement; no row when nothing does.
+const PROPOSALS_SQL: &str = concat!(
+    "SELECT COUNT(*), COUNT(DISTINCT s.story_id), COUNT(DISTINCT p.epic_id), \
+        COALESCE(MAX(p.epic_id IS NULL), 0), MIN(p.created_at) \
+    FROM proposals p JOIN sessions s ON s.id = p.session_id \
+    WHERE p.project_id = ?1 AND ",
+    crate::query::awaits_triage!()
+);
+
 /// Everything in `project_id` that waits on the developer, ranked. An empty project returns nothing,
 /// never an error.
 pub fn needs_you(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<NeedsYouItem>> {
@@ -245,6 +274,7 @@ pub fn needs_you(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<Need
     }
     push_review(conn, project_id, &missing_ids, &mut items)?;
     push_confirm_exit_test(conn, project_id, &mut items)?;
+    push_proposals(conn, project_id, &mut items)?;
     push_rounds(conn, project_id, &mut items)?;
     items.sort_by(|a, b| {
         (a.kind.rank(), a.since.as_str(), a.id.as_str()).cmp(&(b.kind.rank(), b.since.as_str(), b.id.as_str()))
@@ -407,5 +437,20 @@ fn push_rounds(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouItem
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the Rounds waiting")?;
     items.extend(rows.into_iter().flatten());
+    Ok(())
+}
+
+fn push_proposals(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouItem>) -> anyhow::Result<()> {
+    let (proposals, since) = conn
+        .query_row(PROPOSALS_SQL, params![project_id], |row| {
+            let counts = NeedsYouProposals { count: row.get(0)?, stories: row.get(1)?, epics: row.get(2)?, roadmap: row.get(3)? };
+            Ok((counts, row.get::<_, Option<String>>(4)?))
+        })
+        .context("failed to count the Proposals awaiting triage")?;
+    let Some(since) = since.filter(|_| proposals.count > 0) else { return Ok(()) };
+    let record = NeedsYouRecord { kind: "project", id: Some(project_id.to_string()), key: None, title: String::new(), state: None };
+    let mut item = NeedsYouItem::new(NeedsYouKind::Proposals, project_id.to_string(), since, record);
+    item.proposals = Some(proposals);
+    items.push(item);
     Ok(())
 }

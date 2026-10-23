@@ -190,6 +190,43 @@ fn a_selected_milestone_reads_its_own_progress() {
     assert_eq!(milestone_progress(&conn, &project.id, Some("no-such-milestone")).unwrap(), None);
 }
 
+/// Spec §7 roster, issue #162: an Epic row carries "n Proposals" while Story sessions have pending
+/// Proposals on it, counted in the same read. A judged-on change (issue #163), a decided or withdrawn
+/// Proposal and a shaping session's are not counted.
+#[test]
+fn an_epic_row_counts_its_pending_proposals_from_execution() {
+    let (mut conn, actor, project) = common::seeded_project();
+    let m = create_milestone(&mut conn, &project.id, &actor, "Now", None).unwrap();
+    let a = create_epic(&mut conn, &actor, &m.id, "With Proposals").unwrap();
+    create_epic(&mut conn, &actor, &m.id, "Without").unwrap();
+    let s = create_story(&mut conn, &actor, &a.id, "Files").unwrap();
+    let session = core::ids::new_id();
+    conn.execute(
+        "INSERT INTO sessions (id, story_id, project_id, actor_id, status, permission_mode, log_path, started_at)
+         VALUES (?1, ?2, ?3, ?4, 'running', 'acceptEdits', '/log', '2026-10-01T00:00:00Z')",
+        params![session, s.id, project.id, actor],
+    )
+    .unwrap();
+    for (verb, target, state) in [
+        ("create", "story", "pending"),
+        ("reorder", "story", "pending"),
+        ("amend", "criterion", "pending"),
+        ("amend", "epic", "pending"),
+        ("retire", "story", "accepted"),
+    ] {
+        let decided_by = (state == "accepted").then_some(actor.as_str());
+        conn.execute(
+            "INSERT INTO proposals (id, project_id, session_id, epic_id, verb, target_type, payload, state, decided_by, created_by, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, '{}', ?7, ?8, ?9, '2026-10-01T00:00:00Z')",
+            params![core::ids::new_id(), project.id, session, a.id, verb, target, state, decided_by, actor],
+        )
+        .unwrap();
+    }
+    let rows = epic_progress(&conn, &m.id).unwrap();
+    let counts: Vec<(&str, i64)> = rows.iter().map(|e| (e.title.as_str(), e.proposals)).collect();
+    assert_eq!(counts, vec![("With Proposals", 2), ("Without", 0)]);
+}
+
 #[test]
 fn the_header_query_walks_indexes_only() {
     let (conn, _actor, project) = common::seeded_project();
