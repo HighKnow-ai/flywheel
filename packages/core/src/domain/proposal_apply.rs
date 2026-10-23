@@ -26,6 +26,13 @@
 //! proposed rank; a retirement (`retire` on `story`) drops a Story still in Shaping. The marker is
 //! informational and never blocks anything.
 //!
+//! Writing the Acceptance criteria (issue #128) adds the criterion kind. A New criterion (`create` on
+//! `criterion`, [`NewCriterion`]) is created on a Story of the Proposal's Epic still in Shaping, then
+//! its Check when it carries a command, both as the developer who accepted it. The criterion is not
+//! accepted by this: in shaping, an accepted criterion is one whose Proposal was accepted, which
+//! creates the row; its `accepted_by` stays empty until review. The Proposal then names the
+//! criterion it created (`target_id`).
+//!
 //! An ADR draft (`create` on `adr`, issue #129) is checked here ([`AdrDraft`]) and has no effect on
 //! the board beyond its acceptance: accepted, it is attached to its Epic, and the Epic's Story
 //! packet carries it as full text until the repo holds the file (ADR 0002: Flywheel never writes
@@ -35,6 +42,8 @@ use anyhow::Context;
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 
+use crate::domain::acceptance_criterion::create_criterion_in_tx;
+use crate::domain::check::set_check_in_tx;
 use crate::domain::epic::{create_epic_in_tx, get_epic, set_epic_state_in_tx, update_epic_in_tx, EpicSpec, EpicState};
 use crate::domain::milestone::{
     create_milestone_in_tx, get_milestone, move_milestone_in_tx, set_milestone_state_in_tx, update_milestone_in_tx,
@@ -570,6 +579,9 @@ pub fn validate_payload(verb: ProposalVerb, target: ProposalTarget, payload: &Va
     if verb == ProposalVerb::Reorder && target == ProposalTarget::Story {
         reorder_rank(payload)?;
     }
+    if is_new_criterion(verb, target) {
+        NewCriterion::from_payload(payload)?;
+    }
     Ok(())
 }
 
@@ -587,6 +599,8 @@ pub enum Applied {
     StoryMoved { story_id: String },
     /// A Story was retired: Dropped (issue #127).
     StoryRetired { story_id: String },
+    /// A criterion was created on its Story, with its Check when it carried one (issue #128).
+    CriterionCreated { criterion_id: String, story_id: String },
     /// No effect for this kind yet: the decision alone was recorded.
     RecordedOnly,
 }
@@ -612,6 +626,7 @@ pub(crate) fn apply_in_tx(tx: &Transaction, actor_id: &str, accepted: &Accepted,
     }
     match (accepted.verb, accepted.target) {
         (ProposalVerb::Create, ProposalTarget::Story) => return apply_new_story(tx, actor_id, accepted, payload),
+        (ProposalVerb::Create, ProposalTarget::Criterion) => return apply_new_criterion(tx, actor_id, accepted, payload),
         (ProposalVerb::Reorder, ProposalTarget::Story) => {
             let story_id = accepted.target_id.context("a reorder names the Story it moves")?;
             story_in_epic(tx, story_id, accepted.epic_id)?;
@@ -773,4 +788,76 @@ fn apply_new_story(tx: &Transaction, actor_id: &str, accepted: &Accepted, payloa
         }
     }
     Ok(Applied::StoryCreated { story_id: created.id })
+}
+
+/// The longest a criterion statement may be.
+pub const MAX_CRITERION_STATEMENT_LEN: usize = 2_000;
+
+/// The longest a Check command may be: what the desktop's `check_set` accepts too.
+pub const MAX_CHECK_COMMAND_LEN: usize = 2_000;
+
+/// A New criterion Proposal's payload (`create` on `criterion`, issue #128): the Story it is anchored
+/// to, its statement, and the Check command that proves it, or none when it is judged at review.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewCriterion {
+    pub story_id: String,
+    pub statement: String,
+    pub check_command: Option<String>,
+}
+
+impl NewCriterion {
+    /// Read and check a payload `{ "story_id", "statement", "check_command"? }`: a Story, a statement,
+    /// and a command that is not blank when one is given. A blank or null command is judged at review.
+    pub fn from_payload(payload: &Value) -> anyhow::Result<Self> {
+        let text = |key: &str| payload.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+        let story_id = text("story_id").context("a criterion names the `story_id` it is anchored to")?;
+        let statement = text("statement").context("a criterion needs a `statement`")?;
+        anyhow::ensure!(
+            statement.chars().count() <= MAX_CRITERION_STATEMENT_LEN,
+            "a criterion statement is at most {MAX_CRITERION_STATEMENT_LEN} characters"
+        );
+        let check_command = match payload.get("check_command") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(c)) if c.trim().is_empty() => None,
+            Some(Value::String(c)) => {
+                anyhow::ensure!(
+                    c.trim().chars().count() <= MAX_CHECK_COMMAND_LEN,
+                    "a Check command is at most {MAX_CHECK_COMMAND_LEN} characters"
+                );
+                Some(c.trim().to_string())
+            }
+            Some(_) => anyhow::bail!("a criterion's `check_command` is a string, or null when it is judged at review"),
+        };
+        Ok(NewCriterion { story_id: story_id.to_string(), statement: statement.to_string(), check_command })
+    }
+
+    pub fn to_payload(&self) -> Value {
+        let mut payload = json!({ "story_id": self.story_id, "statement": self.statement });
+        if let Some(command) = &self.check_command {
+            payload["check_command"] = json!(command);
+        }
+        payload
+    }
+}
+
+/// Whether a Proposal of `verb` on `target` creates an Acceptance criterion.
+pub fn is_new_criterion(verb: ProposalVerb, target: ProposalTarget) -> bool {
+    verb == ProposalVerb::Create && target == ProposalTarget::Criterion
+}
+
+/// Create the criterion on its Story, then its Check when it has one, as the developer who accepted
+/// it (issue #128): `set_check` is human-only, and the accepting human is who sets it. The criterion
+/// is not accepted here: in shaping, an accepted criterion is one whose Proposal was accepted, and
+/// `accepted_by` stays empty until review. The Proposal then names the criterion it created.
+fn apply_new_criterion(tx: &Transaction, actor_id: &str, accepted: &Accepted, payload: &Value) -> anyhow::Result<Applied> {
+    let criterion = NewCriterion::from_payload(payload)?;
+    let (key, state) = story_in_epic(tx, &criterion.story_id, accepted.epic_id)?;
+    anyhow::ensure!(state == "shaping", "{key} is {state}; criteria are written on a Story still in Shaping");
+    let created = create_criterion_in_tx(tx, actor_id, &criterion.story_id, &criterion.statement)?;
+    if let Some(command) = &criterion.check_command {
+        set_check_in_tx(tx, actor_id, &created.id, command, None)?;
+    }
+    tx.execute("UPDATE proposals SET target_id = ?1 WHERE id = ?2", params![created.id, accepted.id])
+        .context("failed to record the criterion the Proposal created")?;
+    Ok(Applied::CriterionCreated { criterion_id: created.id, story_id: criterion.story_id })
 }

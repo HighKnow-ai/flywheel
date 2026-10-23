@@ -141,6 +141,7 @@ test("round_post is listed to a shaping session with what each question carries"
     "propose_story",
     "propose_story_order",
     "propose_exit_test",
+    "propose_criterion",
   ]);
   const post = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "round_post");
   assert.deepEqual(post.inputSchema.required, ["note", "questions"]);
@@ -305,6 +306,42 @@ test("propose_story is relayed to the core and its answer reaches the agent", as
   assert.equal(request.tool, "propose_story");
   assert.deepEqual(request.args, args);
   const answer = { proposal_id: "01STORY", state: "pending" };
+  adapter.resolveBoardTool(runId, request.requestId, answer);
+  await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
+  assert.deepEqual(JSON.parse(unknownLines(events, "task_tool_result")[0].text), answer);
+  await session;
+});
+
+// Issue #128: writing the Acceptance criteria. The Check is optional: without it, judged at review.
+test("propose_criterion is listed with its Story, its statement and an optional Check", () => {
+  const criterion = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "propose_criterion");
+  assert.deepEqual(criterion.inputSchema.required, ["story", "statement"]);
+  assert.ok("check" in criterion.inputSchema.properties);
+  assert.match(criterion.description, /judged at review/);
+  assert.match(criterion.description, /answered at once/);
+});
+
+test("propose_criterion is relayed to the core and its answer reaches the agent", async () => {
+  const adapter = new ClaudeCodeAdapter();
+  const events = [];
+  const runId = "shaping-run-criterion";
+  const args = { story: "FLY-3", statement: "A malformed line is skipped", check: "cargo test -p core --test parser" };
+  const session = adapter.startSession({
+    runId,
+    worktreePath: process.cwd(),
+    prompt: "write the criteria",
+    permissionMode: "dontAsk",
+    allowedTools: ["Read", "Glob", "Grep", `mcp__${MCP_SERVER_NAME}__propose_criterion`],
+    permissionPrompt: false,
+    sessionKind: "shaping",
+    env: { FLYWHEEL_FAKE_CALL_TASK_TOOL: JSON.stringify({ name: "propose_criterion", arguments: args }) },
+    onEvent: (event) => events.push(event),
+  });
+  await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
+  const request = events.find((e) => e.type === "board_tool_request");
+  assert.equal(request.tool, "propose_criterion");
+  assert.deepEqual(request.args, args);
+  const answer = { proposal_id: "01CRITERION", state: "pending" };
   adapter.resolveBoardTool(runId, request.requestId, answer);
   await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
   assert.deepEqual(JSON.parse(unknownLines(events, "task_tool_result")[0].text), answer);

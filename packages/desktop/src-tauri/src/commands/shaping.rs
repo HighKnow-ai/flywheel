@@ -163,17 +163,20 @@ pub struct EpicShapingDto {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenItemDto {
-    /// `question` or `proposal`.
+    /// `question`, `proposal`, `story_without_criterion` (issue #128: a Story still in Shaping with no
+    /// criterion) or `no_story` (issue #128: the Epic has no Story to make Ready).
     pub kind: String,
-    /// The question's or the Proposal's id.
+    /// The question's, the Proposal's or the Story's id; empty for `no_story`.
     pub id: String,
     /// The item in words: "Question 2 of Round 1 is unanswered: Audience".
     pub label: String,
-    /// A question's Round and number; `None` for a Proposal.
+    /// A question's Round and number; `None` otherwise.
     pub round: Option<i64>,
     pub number: Option<i64>,
-    /// A question's title, or what a Proposal would do ("change the Problem").
+    /// A question's title, what a Proposal would do ("change the Problem"), or the Story's title.
     pub title: String,
+    /// The Story's key, for `story_without_criterion`.
+    pub story_key: Option<String>,
 }
 
 /// What is still open in a Stage, and whether the developer may close it.
@@ -186,6 +189,9 @@ pub struct StageStatusDto {
     pub warnings: Vec<String>,
     /// The Stage closing this one opens (`slice`, `criteria`), or `None` for the last Stage.
     pub next: Option<String>,
+    /// Whether closing this Stage makes its record Ready instead of opening a next one: an Epic's
+    /// Criteria with its Stories (issue #128), a Milestone's Exit test (issue #132).
+    pub makes_ready: bool,
     pub closable: bool,
 }
 
@@ -194,25 +200,25 @@ impl From<flywheel_core::domain::stage::StageStatus> for StageStatusDto {
         use flywheel_core::domain::stage::OpenItem;
         Self {
             closable: s.closable(),
+            makes_ready: s.closes_the_record(),
             stage_id: s.stage.id,
             open_items: s
                 .open_items
                 .iter()
                 .map(|item| {
-                    let (kind, id, round, number, title) = match item {
+                    let (kind, id, round, number, title, story_key) = match item {
                         OpenItem::Question { question_id, round, number, title, .. } => {
-                            ("question", question_id, Some(*round), Some(*number), title)
+                            ("question", question_id.clone(), Some(*round), Some(*number), title.clone(), None)
                         }
-                        OpenItem::Proposal { proposal_id, summary } => ("proposal", proposal_id, None, None, summary),
+                        OpenItem::Proposal { proposal_id, summary } => {
+                            ("proposal", proposal_id.clone(), None, None, summary.clone(), None)
+                        }
+                        OpenItem::StoryWithoutCriterion { story_id, key, title } => {
+                            ("story_without_criterion", story_id.clone(), None, None, title.clone(), Some(key.clone()))
+                        }
+                        OpenItem::NoStory => ("no_story", String::new(), None, None, item.label(), None),
                     };
-                    OpenItemDto {
-                        kind: kind.to_string(),
-                        id: id.clone(),
-                        label: item.label(),
-                        round,
-                        number,
-                        title: title.clone(),
-                    }
+                    OpenItemDto { kind: kind.to_string(), id, label: item.label(), round, number, title, story_key }
                 })
                 .collect(),
             warnings: s.warnings,
@@ -447,9 +453,12 @@ pub(crate) fn continue_epic(
 pub struct StageCloseDto {
     pub closed_stage_id: String,
     /// The Stage the close opened; `None` when the closed Stage was its record's last and made it
-    /// Ready (a Milestone's Exit test, issue #132).
+    /// Ready (a Milestone's Exit test, issue #132; an Epic's Criteria, issue #128).
     pub opened: Option<StageDto>,
-    /// The next Stage's shaping session, started from a fresh packet; `None` when it could not start.
+    /// The Stories closing an Epic's Criteria Stage made Ready, by id (issue #128); empty otherwise.
+    pub made_ready: Vec<String>,
+    /// The next Stage's shaping session, started from a fresh packet; `None` when it could not start,
+    /// and when no Stage follows: the record is Ready, and nothing is left to shape.
     pub session: Option<ShapingSessionDto>,
     /// Why the next Stage's session did not start, when it did not. The Stage is closed regardless;
     /// Shape starts the session.
@@ -521,7 +530,14 @@ pub(crate) fn close_stage_and_shape(
         },
         None => (None, None),
     };
-    Ok(StageCloseDto { closed_stage_id: closed.closed.id, opened, session, launch_error, sidecar_warning })
+    Ok(StageCloseDto {
+        closed_stage_id: closed.closed.id,
+        opened,
+        made_ready: closed.made_ready,
+        session,
+        launch_error,
+        sidecar_warning,
+    })
 }
 
 /// [`epic_shape`]'s body, driven without a Tauri app handle. `find_claude` runs before anything is
@@ -1175,6 +1191,7 @@ mod tests {
             assert_eq!(interrupted, Some((first.clone(), "interrupted".to_string())), "recorded first, then interrupted");
             let opened = dto.opened.as_ref().expect("Slice opens");
             assert_eq!((opened.kind.as_str(), opened.rank), ("slice", 2));
+            assert!(dto.made_ready.is_empty());
             assert_eq!(dto.launch_error, None);
             assert_eq!(dto.sidecar_warning, None);
             let next = dto.session.expect("the next Stage's session started");
@@ -1286,6 +1303,51 @@ mod tests {
                 flywheel_core::domain::session::live_shaping_session(&db.lock().unwrap(), &ShapingSubject::Milestone(milestone_id)).unwrap(),
                 None
             );
+        });
+    }
+
+    /// Issue #128: the Criteria Stage lists each Story with no criterion, and closing it makes the
+    /// Stories and the Epic Ready, opens no Stage and starts no session.
+    #[test]
+    fn closing_the_criteria_stage_makes_the_epic_ready_and_starts_no_session() {
+        with_scratch(|| {
+            let (db, epic_id, _checkout) = shaping_epic();
+            let story = {
+                let mut conn = db.lock().unwrap();
+                let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+                flywheel_core::domain::story::create_story(&mut conn, &human, &epic_id, "Parser").unwrap()
+            };
+            shape_epic(&db, &epic_id, found_claude, |_, _| Ok(())).unwrap();
+            for _ in 0..2 {
+                let stage_id = open_status(&db, &epic_id).stage_id;
+                // Each close starts the next Stage's session.
+                close_stage_and_shape(&db, &stage_id, |_| Ok(()), found_claude, |_, _| Ok(())).unwrap();
+            }
+            let status = open_status(&db, &epic_id);
+            assert_eq!((status.next.as_deref(), status.makes_ready, status.closable), (None, true, false));
+            let item = &status.open_items[0];
+            assert_eq!(
+                (item.kind.as_str(), item.id.as_str(), item.story_key.as_deref(), item.title.as_str()),
+                ("story_without_criterion", story.id.as_str(), Some(story.key.as_str()), "Parser")
+            );
+
+            {
+                let mut conn = db.lock().unwrap();
+                let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+                flywheel_core::domain::acceptance_criterion::create_criterion(&mut conn, &human, &story.id, "It parses").unwrap();
+            }
+            let status = open_status(&db, &epic_id);
+            assert!(status.closable);
+            let dto = close_stage_and_shape(&db, &status.stage_id, |_| Ok(()), || panic!("no session starts"), |_, _| {
+                panic!("nothing may be spawned")
+            })
+            .unwrap();
+            assert!(dto.opened.is_none());
+            assert_eq!(dto.made_ready, vec![story.id.clone()]);
+            assert!(dto.session.is_none() && dto.launch_error.is_none());
+            let view = read_epic_shaping(&db.lock().unwrap(), &epic_id).unwrap();
+            assert!(view.open_stage_status.is_none(), "no Stage is open");
+            assert_eq!(view.stories[0].state, "ready");
         });
     }
 }

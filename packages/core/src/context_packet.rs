@@ -389,6 +389,12 @@ pub(crate) fn rejected_proposals(conn: &Connection, epic_id: &str) -> anyhow::Re
             if let Ok(change) = crate::domain::proposal_apply::SpecChange::from_payload(&payload) {
                 return format!("{verb} {target} {}: \"{}\"; rejected: {reason}", change.field.label(), change.text);
             }
+            // A New criterion (issue #128) names its statement.
+            if target == "criterion" {
+                if let Ok(c) = crate::domain::proposal_apply::NewCriterion::from_payload(&payload) {
+                    return format!("{verb} criterion \"{}\"; rejected: {reason}", c.statement);
+                }
+            }
             let what = payload
                 .get("title")
                 .and_then(|v| v.as_str())

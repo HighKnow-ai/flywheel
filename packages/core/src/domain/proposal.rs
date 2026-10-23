@@ -463,7 +463,8 @@ pub(crate) fn decide_in_tx(tx: &Transaction, actor_id: &str, proposal_id: &str, 
 
 /// An amendment edits what a Proposal says, never what it lands on: a spec change keeps its field, a
 /// new Epic its Milestone and a move its anchor (issue #133), and a New Story its place in the order
-/// and what it runs after (issue #127), its title, description and reason being the developer's to edit.
+/// and what it runs after (issue #127), its title, description and reason being the developer's to edit,
+/// and a New criterion its Story (issue #128).
 fn same_kind_of_change(
     verb: ProposalVerb,
     target: ProposalTarget,
@@ -478,6 +479,13 @@ fn same_kind_of_change(
             before.runs_after.as_ref().map(|(a, _)| a) == after.runs_after.as_ref().map(|(a, _)| a),
             "an amendment keeps what the New Story runs after; edit only its reason"
         );
+        return Ok(());
+    }
+    if crate::domain::proposal_apply::is_new_criterion(verb, target) {
+        // Issue #128: the developer edits the statement and the Check, never the Story it is on.
+        use crate::domain::proposal_apply::NewCriterion;
+        let (before, after) = (NewCriterion::from_payload(original)?, NewCriterion::from_payload(amended)?);
+        anyhow::ensure!(before.story_id == after.story_id, "an amendment keeps the Story the criterion is anchored to");
         return Ok(());
     }
     for key in ["milestone_id", "before_milestone_id"] {
