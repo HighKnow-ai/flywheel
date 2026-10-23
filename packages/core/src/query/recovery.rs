@@ -36,6 +36,35 @@ pub fn recovery_story_ids_for_project(conn: &Connection, project_id: &str) -> an
     rows.context("failed to list recovery Story ids for project")
 }
 
+/// One Story whose worktree is missing (D-45): the reconciler found nothing on disk where the
+/// database expected it. Needs you lists it as a Stopped-kind item whose action is Recreate (issue
+/// #156). A Merged or Dropped Story has no worktree to recreate, so it is left out.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MissingWorktree {
+    pub story_id: String,
+    pub story_key: String,
+    pub story_title: String,
+    /// When the Story's last session ended, or when the worktree was made: the item's age.
+    pub since: String,
+}
+
+const MISSING_WORKTREES_SQL: &str = "SELECT w.story_id, s.key, s.title, \
+        COALESCE((SELECT MAX(r.ended_at) FROM sessions r WHERE r.story_id = w.story_id), w.created_at) \
+    FROM worktrees w JOIN stories s ON s.id = w.story_id \
+    WHERE w.project_id = ?1 AND w.status = 'missing' AND s.state NOT IN ('merged', 'dropped') \
+    ORDER BY w.story_id ASC";
+
+/// Every open Story in `project_id` whose worktree is missing, by Story id.
+pub fn missing_worktrees_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<MissingWorktree>> {
+    let mut stmt = conn.prepare(MISSING_WORKTREES_SQL)?;
+    let rows = stmt
+        .query_map(params![project_id], |row| {
+            Ok(MissingWorktree { story_id: row.get(0)?, story_key: row.get(1)?, story_title: row.get(2)?, since: row.get(3)? })
+        })?
+        .collect::<Result<Vec<_>, _>>();
+    rows.context("failed to list the missing worktrees for project")
+}
+
 /// The count of distinct Stories in `project_id` with an outstanding recovery item (D-46). Always
 /// equal to `recovery_story_ids_for_project(..).len()`.
 pub fn recovery_count_for_project(conn: &Connection, project_id: &str) -> anyhow::Result<i64> {

@@ -22,6 +22,7 @@ pub(crate) use round_waiting_on_you;
 pub mod sessions;
 pub mod events;
 pub mod fleet;
+pub mod needs_you;
 pub mod permissions;
 pub mod progress;
 pub mod recovery;
