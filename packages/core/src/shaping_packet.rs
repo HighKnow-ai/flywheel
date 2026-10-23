@@ -38,7 +38,9 @@ use crate::domain::adr_link::{adr_links_for_project, AdrLinkTarget};
 use crate::domain::epic::get_epic;
 use crate::domain::milestone::{get_milestone, milestone_state, roadmap, MilestoneState};
 use crate::domain::proposal::proposals_on_epic;
-use crate::domain::proposal_apply::{NewStory, RunsAfter};
+use crate::domain::acceptance_criterion::criteria_for_story;
+use crate::domain::check::check_for_criterion;
+use crate::domain::proposal_apply::{NewCriterion, NewStory, RunsAfter};
 use crate::domain::story::stories_in_epic;
 use crate::domain::round::{rounds_for_epic, rounds_for_milestone, Round};
 use crate::domain::session::ShapingSubject;
@@ -305,7 +307,8 @@ fn story_state_words(state: &str) -> &str {
 
 /// The Epic's Stories in execution order, each with its key, state and runs-after marker, then its
 /// pending Story Proposals: each New Story with the proposal_id that names it until it is accepted,
-/// and each move or retirement (issue #127).
+/// and each move or retirement (issue #127). Each Story lists its criteria with their Checks, and
+/// the pending criterion Proposals follow (issue #128).
 fn write_stories(out: &mut String, conn: &Connection, epic_id: &str) -> anyhow::Result<()> {
     let stories = stories_in_epic(conn, epic_id)?;
     let key_of = |id: &str| stories.iter().find(|s| s.id == id).map_or(id.to_string(), |s| s.key.clone());
@@ -322,16 +325,19 @@ fn write_stories(out: &mut String, conn: &Connection, epic_id: &str) -> anyhow::
                 }
             }
             out.push('\n');
+            // Issue #128: each criterion under its Story, with its Check or judged at review.
+            for c in criteria_for_story(conn, &s.id)? {
+                write!(out, "  - {}", c.statement)?;
+                write_check(out, check_for_criterion(conn, &c.id)?.map(|check| check.command).as_deref())?;
+                out.push('\n');
+            }
         }
     }
-    let pending: Vec<_> = proposals_on_epic(conn, epic_id)?
-        .into_iter()
-        .filter(|p| p.state == "pending" && p.target_type == "story")
-        .collect();
-    if pending.is_empty() {
-        return Ok(());
+    let proposals = proposals_on_epic(conn, epic_id)?;
+    let pending: Vec<_> = proposals.iter().filter(|p| p.state == "pending" && p.target_type == "story").collect();
+    if !pending.is_empty() {
+        out.push_str("\nStory Proposals waiting on the developer, oldest first:\n");
     }
-    out.push_str("\nStory Proposals waiting on the developer, oldest first:\n");
     for p in pending {
         match p.verb.as_str() {
             "create" => {
@@ -352,7 +358,29 @@ fn write_stories(out: &mut String, conn: &Connection, epic_id: &str) -> anyhow::
             _ => {}
         }
     }
+    // Issue #128: the criteria waiting on the developer, each with the Story it is for.
+    let criteria: Vec<_> = proposals
+        .iter()
+        .filter(|p| p.state == "pending" && p.target_type == "criterion" && p.verb == "create")
+        .filter_map(|p| NewCriterion::from_payload(&p.payload).ok().map(|c| (p, c)))
+        .collect();
+    if !criteria.is_empty() {
+        out.push_str("\nCriterion Proposals waiting on the developer, oldest first:\n");
+    }
+    for (p, c) in criteria {
+        write!(out, "- Criterion on {}: \"{}\"", key_of(&c.story_id), c.statement)?;
+        write_check(out, c.check_command.as_deref())?;
+        writeln!(out, " (proposal_id {})", p.id)?;
+    }
     Ok(())
+}
+
+/// A criterion's Check as the packet gives it: the command, or judged at review.
+fn write_check(out: &mut String, command: Option<&str>) -> std::fmt::Result {
+    match command {
+        Some(command) => write!(out, " · Check: `{command}`"),
+        None => write!(out, " · judged at review"),
+    }
 }
 
 /// `(key, title, state)` of every other Epic in `milestone_id`, by rank then id.

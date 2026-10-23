@@ -205,23 +205,81 @@ describe("the Stage bar (issue #126)", () => {
     expect((await within(dialog).findByRole("alert")).textContent).toContain("A Proposal to change the Scope is undecided");
   });
 
-  it("does not close the last Stage yet", async () => {
+  // Issue #128: the last Stage closes with every Story still in Shaping, and the Epic, made Ready.
+  const CRITERIA_STAGES: StageDto[] = [
+    { id: "s1", kind: "challenge_spec", state: "closed", rank: 1 },
+    { id: "s2", kind: "slice", state: "closed", rank: 2 },
+    { id: "s3", kind: "criteria", state: "open", rank: 3 },
+  ];
+
+  function storyItem(id: string, key: string, title: string): OpenItemDto {
+    return { kind: "story_without_criterion", id, label: `${key} “${title}” has no Acceptance criterion`, round: null, number: null, title, storyKey: key };
+  }
+
+  function criteriaStatus(openItems: OpenItemDto[]): StageStatusDto {
+    return { ...status(openItems, null), stageId: "s3", makesReady: true, closable: openItems.length === 0 };
+  }
+
+  it("keeps the Criteria Stage open while a Story has no criterion, naming each", async () => {
     epicShapingRounds.mockResolvedValue(
-      shaping(
-        [
-          { id: "s1", kind: "challenge_spec", state: "closed", rank: 1 },
-          { id: "s2", kind: "slice", state: "closed", rank: 2 },
-          { id: "s3", kind: "criteria", state: "open", rank: 3 },
-        ],
-        { ...status([], null), stageId: "s3" },
-        [],
-      ),
+      shaping(CRITERIA_STAGES, criteriaStatus([PROPOSAL_ITEM, storyItem("st1", "FLY-5", "Parser"), storyItem("st2", "FLY-6", "Feed row")]), []),
     );
     renderView();
     const region = await bar();
     expect(within(region).getByRole("button", { name: "Close Stage" }).getAttribute("aria-disabled")).toBe("true");
-    expect(within(region).getByText(/Write the Acceptance criteria is the last Stage/)).toBeTruthy();
-    expect(within(region).getAllByRole("listitem")[0].textContent).toBe("Challenge the spec, closed");
+    expect(
+      within(region).getByText("Write the Acceptance criteria stays open while 1 Proposal is still open and 2 Stories have no criterion:"),
+    ).toBeTruthy();
+    const open = within(region).getByRole("list", { name: "Still open" });
+    expect(within(open).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Proposal undecided · Change the Problem",
+      "FLY-5 Parser · no criterion yet",
+      "FLY-6 Feed row · no criterion yet",
+    ]);
+  });
+
+  it("says when the Epic has no Story left to make Ready", async () => {
+    const noStory: OpenItemDto = { kind: "no_story", id: "", label: "The Epic has no Story to make Ready", round: null, number: null, title: "The Epic has no Story to make Ready" };
+    epicShapingRounds.mockResolvedValue(shaping(CRITERIA_STAGES, criteriaStatus([noStory]), []));
+    renderView();
+    const region = await bar();
+    expect(within(region).getByText("Write the Acceptance criteria stays open while the Epic has no Story to make Ready.")).toBeTruthy();
+  });
+
+  it("closes the last Stage, once confirmed, with the Epic and its Stories made Ready and no next session", async () => {
+    epicShapingRounds.mockResolvedValue(shaping(CRITERIA_STAGES, criteriaStatus([]), []));
+    stageClose.mockImplementation(async () => {
+      epicShapingRounds.mockResolvedValue({
+        ...shaping(CRITERIA_STAGES.map((s) => ({ ...s, state: "closed" })), null, []),
+        epic: { ...EPIC, state: "ready" },
+      });
+      return { closedStageId: "s3", opened: null, madeReady: ["st1", "st2"], session: null, launchError: null, sidecarWarning: null };
+    });
+    epicShapingSession.mockResolvedValue(null);
+    renderView();
+    const region = await bar();
+    expect(
+      within(region).getByText(/It is the Epic's last Stage: closing it settles its answers and makes the Epic and its Stories Ready/),
+    ).toBeTruthy();
+    expect(within(region).getByRole("button", { name: "Close Stage" }).getAttribute("aria-disabled")).toBe("false");
+    fireEvent.click(within(region).getByRole("button", { name: "Close Stage" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Close Write the Acceptance criteria?" });
+    expect(within(dialog).getByText(/Flywheel moves the Epic and each of its Stories still in Shaping to Ready/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close and make the Epic Ready" }));
+    await waitFor(() => expect(stageClose).toHaveBeenCalledWith("s3"));
+    expect(await screen.findByText("Write the Acceptance criteria is closed: the Epic and its 2 Stories are Ready.")).toBeTruthy();
+    await waitFor(() =>
+      expect(within(screen.getByRole("region", { name: "Stages" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+        "Challenge the spec, closed",
+        "Slice into Stories, closed",
+        "Write the Acceptance criteria, closed",
+      ]),
+    );
+    expect(screen.queryByText(/session did not start/)).toBeNull();
+    expect(screen.getByText("Every Stage is closed: shaping is done.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Close Stage" })).toBeNull();
+    // No Round is to come: the dock waits for none.
+    expect(screen.queryByRole("heading", { name: /^No Round yet/ })).toBeNull();
   });
 
   it("is not drawn before shaping has opened a Stage", async () => {

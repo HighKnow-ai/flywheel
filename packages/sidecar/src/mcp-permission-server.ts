@@ -83,7 +83,8 @@ export const BOARD_TOOL_NAMES = [...TASK_TOOL_NAMES, ...HANDOFF_TOOL_NAMES] as c
  * `propose_roadmap_change` and `roadmap_holds` (issue #133) are a roadmap Round's: the first files one
  * Roadmap change and is answered at once, the second closes the Round with "Roadmap still holds".
  * `propose_exit_test` (issue #132) is `propose_spec_change`'s Milestone sibling, answered at once the same way.
- * `propose_story` and `propose_story_order` (issue #127) slice the Epic into Stories, answered at once too. */
+ * `propose_story` and `propose_story_order` (issue #127) slice the Epic into Stories, answered at once too.
+ * `propose_criterion` (issue #128) writes a Story's Acceptance criterion and its Check, answered at once too. */
 export const SHAPING_TOOL_NAMES = [
   "round_post",
   "round_wait",
@@ -93,6 +94,7 @@ export const SHAPING_TOOL_NAMES = [
   "propose_story",
   "propose_story_order",
   "propose_exit_test",
+  "propose_criterion",
 ] as const;
 
 export type ShapingToolName = (typeof SHAPING_TOOL_NAMES)[number];
@@ -321,6 +323,25 @@ export const SHAPING_TOOL_DEFINITIONS = [
         why: { type: "string", minLength: 1, description: "One line: what in the Rounds or the Roadmap makes this the better exit test." },
       },
       required: ["text", "why"],
+    },
+  },
+  {
+    name: "propose_criterion",
+    description:
+      "Propose one Acceptance criterion for a Story of the Epic you are shaping, in the Write the Acceptance criteria Stage: an observable statement of what is true once the Story ships. When a command can prove it, give `check`: the shell command, run from the worktree root, that exits 0 once the criterion holds (such as `cargo test -p core --test parser`). Leave `check` out when no command can prove it: the criterion is then judged at review. The criterion shows under its Story as a ghost card, for the developer to accept, amend or reject; nothing is written until they do. This call is answered at once with the Proposal's id: keep writing criteria, do not wait for the decision. Every Story still in Shaping needs at least one criterion before the Stage can close.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        story: { type: "string", minLength: 1, description: "The Story's key, such as FLY-12." },
+        statement: { type: "string", minLength: 1, maxLength: 2000, description: "What is observably true once the Story ships." },
+        check: {
+          type: "string",
+          minLength: 1,
+          maxLength: 2000,
+          description: "The shell command that proves it, run from the worktree root; leave out when it is judged at review.",
+        },
+      },
+      required: ["story", "statement"],
     },
   },
 ] as const;

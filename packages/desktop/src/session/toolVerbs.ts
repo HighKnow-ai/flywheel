@@ -270,6 +270,11 @@ function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescripti
       const target = input.action === "retire" ? `Retire ${story}` : `Move ${story} ${place}`;
       return { ...base, verb: "Proposed", liveVerb: "Proposing", target };
     }
+    case "propose_criterion": {
+      // Issue #128: a criterion for a Story, waiting as a ghost card under it; the agent keeps writing.
+      const check = str(input.check) ? " · with a Check" : " · judged at review";
+      return { ...base, verb: "Proposed", liveVerb: "Proposing", target: `Criterion on ${str(input.story)}: ${str(input.statement)}${check}` };
+    }
     default:
       return {
         ...base,

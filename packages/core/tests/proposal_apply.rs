@@ -21,7 +21,9 @@ use core::domain::round::{accept_all_recommended, post_round, NewQuestion, NewRo
 use core::domain::session::{agent_actor_id, start_shaping_session, ShapingSubject};
 use core::domain::session_kind::SessionKind;
 use core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome, SHAPING_TOOL_NAMES};
-use core::domain::stage::{open_stage, stage_status, StageKind};
+use core::domain::acceptance_criterion::criteria_for_story;
+use core::domain::check::check_for_criterion;
+use core::domain::stage::{close_stage, open_stage, stage_status, StageKind};
 use core::domain::story::{self, stories_in_epic, Story};
 use core::shaping_packet::build_epic_shaping_packet;
 use rusqlite::Connection;
@@ -580,4 +582,194 @@ fn the_slice_stage_names_its_tools_and_the_packet_lists_the_stories_and_their_pr
     assert!(stories.contains(&format!("- {} Parser (Shaping)", parser.key)), "{stories}");
     assert!(stories.contains(&format!("- New Story \"Schema\" (proposal_id {schema})")), "{stories}");
     assert!(stories.contains(&format!("runs after {}: shares `FeedRow.tsx`", parser.key)), "{stories}");
+}
+
+// ============================================================================================
+// Issue #128: writing the Acceptance criteria and their Checks
+// ============================================================================================
+
+/// Close the Challenge the spec and Slice into Stories Stages and start the Criteria Stage's session,
+/// as the developer would: closing a Stage ends the session that worked it.
+fn in_criteria_stage(f: &mut Fixture) {
+    for _ in 0..2 {
+        let stage = open_stage(&f.conn, &ShapingSubject::Epic(f.epic_id.clone())).unwrap().unwrap();
+        close_stage(&mut f.conn, &f.human, &stage.id).unwrap();
+    }
+    f.session_id = start_shaping_session(
+        &mut f.conn,
+        &ShapingSubject::Epic(f.epic_id.clone()),
+        SessionKind::Shaping.launch_policy().permission_mode,
+        &f.human,
+    )
+    .unwrap()
+    .id;
+}
+
+/// `propose_criterion` on Story `story` (its key) with `statement` and an optional Check command.
+fn propose_criterion(f: &mut Fixture, story: &str, statement: &str, check: Option<&str>) -> anyhow::Result<String> {
+    let mut args = json!({ "story": story, "statement": statement });
+    if let Some(check) = check {
+        args["check"] = json!(check);
+    }
+    Ok(proposal_id(&story_tool(f, "propose_criterion", args)?))
+}
+
+#[test]
+fn propose_criterion_is_a_shaping_tool_answered_at_once_that_creates_nothing() {
+    assert!(SHAPING_TOOL_NAMES.contains(&"propose_criterion"), "{SHAPING_TOOL_NAMES:?}");
+    let mut f = shaping();
+    let parser = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Parser").unwrap();
+    in_criteria_stage(&mut f);
+    let id = propose_criterion(&mut f, &parser.key, "A malformed line is skipped", Some("cargo test -p core --test parser")).unwrap();
+    let p = get_proposal(&f.conn, &id).unwrap().unwrap();
+    assert_eq!((p.verb.as_str(), p.target_type.as_str(), p.state.as_str()), ("create", "criterion", "pending"));
+    assert_eq!(p.epic_id.as_deref(), Some(f.epic_id.as_str()));
+    assert_eq!(p.target_id, None, "no criterion exists until it is accepted");
+    assert_eq!(
+        p.payload,
+        json!({ "story_id": parser.id, "statement": "A malformed line is skipped", "check_command": "cargo test -p core --test parser" })
+    );
+    assert!(criteria_for_story(&f.conn, &parser.id).unwrap().is_empty(), "filing creates nothing");
+}
+
+#[test]
+fn accepting_a_criterion_creates_it_on_its_story_with_its_check_and_leaves_it_unaccepted_for_review() {
+    let mut f = shaping();
+    let parser = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Parser").unwrap();
+    in_criteria_stage(&mut f);
+    let checked = propose_criterion(&mut f, &parser.key, "A malformed line is skipped", Some("cargo test -p core --test parser")).unwrap();
+    let judged = propose_criterion(&mut f, &parser.key, "The error reads plainly", None).unwrap();
+    for id in [&checked, &judged] {
+        accept_proposal(&mut f.conn, &f.human, id).unwrap();
+    }
+
+    let criteria = criteria_for_story(&f.conn, &parser.id).unwrap();
+    let statements: Vec<&str> = criteria.iter().map(|c| c.statement.as_str()).collect();
+    assert_eq!(statements, ["A malformed line is skipped", "The error reads plainly"], "in the order accepted");
+    for c in &criteria {
+        assert_eq!(c.story_id, parser.id, "anchored to the Story the Proposal named");
+        assert_eq!((c.accepted_by.as_deref(), c.accepted_at.as_deref()), (None, None), "accepted at review, not here");
+    }
+    let check = check_for_criterion(&f.conn, &criteria[0].id).unwrap().expect("the Check came with it");
+    assert_eq!(check.command, "cargo test -p core --test parser");
+    assert_eq!(check_for_criterion(&f.conn, &criteria[1].id).unwrap(), None, "no command: judged at review");
+
+    let p = get_proposal(&f.conn, &checked).unwrap().unwrap();
+    assert_eq!(p.target_id.as_deref(), Some(criteria[0].id.as_str()), "the Proposal names the criterion it created");
+    // Written as the developer who accepted it: a Check is never the agent's to set.
+    let creators: Vec<String> = {
+        let mut stmt = f.conn.prepare("SELECT created_by FROM acceptance_criteria UNION ALL SELECT created_by FROM checks").unwrap();
+        stmt.query_map([], |r| r.get(0)).unwrap().collect::<Result<_, _>>().unwrap()
+    };
+    assert_eq!(creators, vec![f.human.clone(); 3]);
+    assert_eq!(events(&f.conn, "check.set").len(), 1);
+}
+
+#[test]
+fn amend_edits_a_criterions_statement_and_check_but_not_its_story() {
+    let mut f = shaping();
+    let parser = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Parser").unwrap();
+    let feed = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Feed").unwrap();
+    in_criteria_stage(&mut f);
+    let id = propose_criterion(&mut f, &parser.key, "It parses", Some("cargo test")).unwrap();
+    let original = get_proposal(&f.conn, &id).unwrap().unwrap().payload;
+
+    let mut moved = original.clone();
+    moved["story_id"] = json!(feed.id);
+    let err = accept_proposal_amended(&mut f.conn, &f.human, &id, &moved).unwrap_err();
+    assert!(format!("{err:#}").contains("Story"), "{err:#}");
+
+    let mut edited = original.clone();
+    edited["statement"] = json!("A malformed line is skipped");
+    edited["check_command"] = Value::Null;
+    accept_proposal_amended(&mut f.conn, &f.human, &id, &edited).unwrap();
+    let criteria = criteria_for_story(&f.conn, &parser.id).unwrap();
+    assert_eq!(criteria.len(), 1);
+    assert_eq!(criteria[0].statement, "A malformed line is skipped");
+    assert_eq!(check_for_criterion(&f.conn, &criteria[0].id).unwrap(), None, "the developer struck the Check out");
+}
+
+#[test]
+fn a_criterion_is_proposed_only_on_a_shaping_story_of_the_epic_in_the_criteria_stage() {
+    let mut f = shaping();
+    let parser = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Parser").unwrap();
+    // Slicing first: criteria wait for their Stage.
+    let err = propose_criterion(&mut f, &parser.key, "It parses", None).unwrap_err();
+    assert!(format!("{err:#}").contains("Write the Acceptance criteria"), "{err:#}");
+
+    let gone = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Gone").unwrap();
+    story::set_story_state(&mut f.conn, &f.human, &gone.id, story::StoryState::Dropped).unwrap();
+    let m = milestone::create_milestone(&mut f.conn, &f.project_id, &f.human, "Other", None).unwrap();
+    let other_epic = epic::create_epic(&mut f.conn, &f.human, &m.id, "Other epic").unwrap();
+    let elsewhere = story::create_story(&mut f.conn, &f.human, &other_epic.id, "Elsewhere").unwrap();
+    in_criteria_stage(&mut f);
+    let pending_story = propose_story(&mut f, "Later", json!({}));
+
+    for (story, statement, check, says) in [
+        (gone.key.as_str(), "It parses", None, "dropped"),
+        (elsewhere.key.as_str(), "It parses", None, "neither a Story of this Epic"),
+        (pending_story.as_str(), "It parses", None, "not a Story yet"),
+        (parser.key.as_str(), "   ", None, "statement"),
+        (parser.key.as_str(), "It parses", Some("  "), "check"),
+        ("FLY-999", "It parses", None, "neither a Story of this Epic"),
+    ] {
+        let err = propose_criterion(&mut f, story, statement, check).unwrap_err();
+        assert!(format!("{err:#}").contains(says), "{story} {statement:?} {check:?}: {err:#}");
+    }
+    assert!(story_tool(&mut f, "propose_criterion", json!({ "statement": "It parses" })).is_err(), "a criterion names its Story");
+    let filed: Vec<_> = proposals_on_epic(&f.conn, &f.epic_id).unwrap().into_iter().filter(|p| p.target_type == "criterion").collect();
+    assert!(filed.is_empty(), "{filed:?}");
+
+    // A criterion Proposal on a Story retired before it is decided is not applied.
+    let id = propose_criterion(&mut f, &parser.key, "It parses", None).unwrap();
+    f.conn.execute("UPDATE stories SET state = 'dropped' WHERE id = ?1", [&parser.id]).unwrap();
+    assert!(accept_proposal(&mut f.conn, &f.human, &id).is_err());
+    assert!(criteria_for_story(&f.conn, &parser.id).unwrap().is_empty());
+    assert_eq!(get_proposal(&f.conn, &id).unwrap().unwrap().state, "pending", "the refused decision rolled back");
+}
+
+#[test]
+fn criterion_proposals_read_as_what_they_do_in_the_stage_status() {
+    let mut f = shaping();
+    let parser = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Parser").unwrap();
+    in_criteria_stage(&mut f);
+    propose_criterion(&mut f, &parser.key, "A malformed line is skipped", None).unwrap();
+    let stage = open_stage(&f.conn, &ShapingSubject::Epic(f.epic_id.clone())).unwrap().unwrap();
+    let labels: Vec<String> = stage_status(&f.conn, &stage.id).unwrap().open_items.iter().map(|i| i.label()).collect();
+    // The Story is named once, through its Proposal: two items for one decision would read as two blockers.
+    assert_eq!(labels, [format!("A Proposal to add the criterion “A malformed line is skipped” to {} is undecided", parser.key)]);
+
+    // Rejected, the Proposal leaves the Story with no criterion, and the Story is listed again.
+    let pending = proposals_on_epic(&f.conn, &f.epic_id).unwrap().into_iter().find(|p| p.target_type == "criterion").unwrap();
+    reject_proposal(&mut f.conn, &f.human, &pending.id, None).unwrap();
+    let labels: Vec<String> = stage_status(&f.conn, &stage.id).unwrap().open_items.iter().map(|i| i.label()).collect();
+    assert_eq!(labels, [format!("{} “Parser” has no Acceptance criterion", parser.key)]);
+}
+
+#[test]
+fn the_criteria_stage_names_its_tool_and_the_packet_lists_each_storys_criteria_and_checks() {
+    let purpose = StageKind::Criteria.purpose();
+    assert!(purpose.contains("`propose_criterion`"), "{purpose}");
+    assert!(purpose.contains("judged at review"), "{purpose}");
+
+    let mut f = shaping();
+    let parser = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Parser").unwrap();
+    in_criteria_stage(&mut f);
+    let checked = propose_criterion(&mut f, &parser.key, "A malformed line is skipped", Some("cargo test -p core --test parser")).unwrap();
+    let judged = propose_criterion(&mut f, &parser.key, "The error reads plainly", None).unwrap();
+    accept_proposal(&mut f.conn, &f.human, &checked).unwrap();
+    accept_proposal(&mut f.conn, &f.human, &judged).unwrap();
+    let pending = propose_criterion(&mut f, &parser.key, "It is fast", Some("cargo bench")).unwrap();
+    let rejected = propose_criterion(&mut f, &parser.key, "It is pretty", None).unwrap();
+    reject_proposal(&mut f.conn, &f.human, &rejected, Some("Not observable")).unwrap();
+
+    let packet = build_epic_shaping_packet(&f.conn, &f.epic_id).unwrap();
+    let stories = &packet[packet.find("## Stories").unwrap()..packet.find("## Rounds").unwrap()];
+    assert!(stories.contains("  - A malformed line is skipped · Check: `cargo test -p core --test parser`"), "{stories}");
+    assert!(stories.contains("  - The error reads plainly · judged at review"), "{stories}");
+    assert!(
+        stories.contains(&format!("- Criterion on {}: \"It is fast\" · Check: `cargo bench` (proposal_id {pending})", parser.key)),
+        "{stories}"
+    );
+    assert!(packet.contains("create criterion \"It is pretty\"; rejected: Not observable"), "{packet}");
 }

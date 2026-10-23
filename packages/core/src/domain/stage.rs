@@ -15,15 +15,21 @@
 //!
 //! Issue #132: a Milestone's one Stage, Exit test, has no next Stage. Closing it moves the Milestone
 //! from Shaping to Ready (`milestone::set_milestone_state_in_tx`) in the close's own transaction.
+//!
+//! Issue #128: an Epic's last Stage, Write the Acceptance criteria, also lists every Story still in
+//! Shaping with no criterion (and an Epic with no Story left to make Ready). Closing it opens no
+//! Stage: it moves those Stories and the Epic from Shaping to Ready in the same transaction.
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
+use crate::domain::acceptance_criterion::criteria_for_story;
 use crate::domain::actor::assert_human_actor_in_tx;
+use crate::domain::epic::{set_epic_state_in_tx, EpicState};
 use crate::domain::proposal::count_undecided_proposals_in_stage;
 use crate::domain::milestone::{set_milestone_state_in_tx, MilestoneState};
-use crate::domain::proposal_apply::{NewStory, SpecChange};
-use crate::domain::story::get_story;
+use crate::domain::proposal_apply::{NewCriterion, NewStory, SpecChange};
+use crate::domain::story::{get_story, set_story_state_in_tx, stories_in_epic, StoryState};
 use crate::domain::session::{interrupt_session_in_tx, live_shaping_session, ShapingSubject};
 use crate::domain::{now, record_event, EventScope};
 use crate::ids::new_id;
@@ -115,7 +121,13 @@ impl StageKind {
             StageKind::Criteria => {
                 "the Stories are sliced. For each Story, write its Acceptance criteria: observable statements of \
                  what is true once it ships, each with the Check command that proves it, or judged at review when \
-                 no command can. Reslice only when a criterion shows a Story is wrong, and then as a Proposal."
+                 no command can. Propose each criterion with `propose_criterion`: the Story's key, the statement \
+                 and, when a command can prove it, `check`, the shell command run from the worktree root that \
+                 exits 0 once it holds; leave `check` out when the criterion is judged at review. It is answered \
+                 at once; keep writing without waiting for the developer's decision. Every Story still in \
+                 Shaping needs at least one criterion before the developer can close this Stage, which makes the \
+                 Stories and the Epic Ready. Reslice only when a criterion shows a Story is wrong, and then as a \
+                 Proposal."
             }
             StageKind::ExitTest => {
                 "challenge the Milestone's exit test until it is observable, has no date and can be told apart \
@@ -200,6 +212,13 @@ pub enum OpenItem {
     Question { question_id: String, round_id: String, round: i64, number: i64, title: String },
     /// A Proposal filed in the Stage, still pending.
     Proposal { proposal_id: String, summary: String },
+    /// Issue #128, the Criteria Stage only: a Story of the Epic still in Shaping with no Acceptance
+    /// criterion yet. Closing would make it Ready with nothing to judge it by. A Dropped Story does
+    /// not count.
+    StoryWithoutCriterion { story_id: String, key: String, title: String },
+    /// Issue #128, the Criteria Stage only: the Epic has no Story left to make Ready, every one of
+    /// them dropped or none sliced.
+    NoStory,
 }
 
 impl OpenItem {
@@ -210,6 +229,8 @@ impl OpenItem {
                 format!("Question {number} of Round {round} is unanswered: {title}")
             }
             OpenItem::Proposal { summary, .. } => format!("A Proposal to {summary} is undecided"),
+            OpenItem::StoryWithoutCriterion { key, title, .. } => format!("{key} “{title}” has no Acceptance criterion"),
+            OpenItem::NoStory => "The Epic has no Story to make Ready".to_string(),
         }
     }
 }
@@ -225,21 +246,22 @@ pub struct StageStatus {
     pub undecided_proposals: i64,
     /// Empty spec fields of the record being shaped, worth a look before closing. Never block.
     pub warnings: Vec<String>,
-    /// The Stage closing this one opens; `None` for the last Stage, which does not close yet.
+    /// The Stage closing this one opens; `None` for the last Stage.
     pub next: Option<StageKind>,
 }
 
 impl StageStatus {
-    /// Whether the developer may close the Stage now: it is open, nothing in it is open, and a next
-    /// Stage follows it.
+    /// Whether the developer may close the Stage now: it is open, nothing in it is open, and closing
+    /// it either opens a next Stage or makes the record Ready.
     pub fn closable(&self) -> bool {
         self.stage.state == "open" && self.open_items.is_empty() && (self.next.is_some() || self.closes_the_record())
     }
 
     /// Whether closing this Stage finishes shaping its record and makes it Ready: a Milestone's Exit
-    /// test (issue #132).
+    /// test (issue #132), or an Epic's Write the Acceptance criteria, which makes its Shaping Stories
+    /// and the Epic Ready (issue #128).
     pub fn closes_the_record(&self) -> bool {
-        self.stage.kind == StageKind::ExitTest
+        matches!(self.stage.kind, StageKind::ExitTest | StageKind::Criteria)
     }
 }
 
@@ -272,6 +294,13 @@ fn proposal_summary(conn: &Connection, verb: &str, target_type: &str, target_id:
     if verb == "amend" && target_type == "milestone" && payload.get("exit_test").is_some_and(|t| t.is_string()) {
         let title = payload.get("title").and_then(|t| t.as_str());
         return if title.is_some() { "change the title and the exit test".to_string() } else { "change the exit test".to_string() };
+    }
+    if target_type == "criterion" && verb == "create" {
+        // Issue #128: a New criterion names its statement and the Story it is for.
+        if let Ok(criterion) = NewCriterion::from_payload(&payload) {
+            let key = get_story(conn, &criterion.story_id).ok().flatten().map(|s| s.key).unwrap_or(criterion.story_id);
+            return format!("add the criterion “{}” to {key}", criterion.statement);
+        }
     }
     format!("{verb} a {}", target_type.replace('_', " "))
 }
@@ -315,6 +344,31 @@ pub fn stage_status(conn: &Connection, stage_id: &str) -> anyhow::Result<StageSt
         open_items.push(OpenItem::Proposal { proposal_id, summary });
     }
 
+    // Issue #128: closing the Criteria Stage makes every Story still in Shaping Ready, so each needs
+    // a criterion first, and there must be one to make Ready. A Dropped Story does not count.
+    if stage.kind == StageKind::Criteria {
+        if let Some(epic_id) = &stage.epic_id {
+            let open: Vec<_> = stories_in_epic(conn, epic_id)?.into_iter().filter(|s| s.state != "dropped").collect();
+            if open.is_empty() {
+                open_items.push(OpenItem::NoStory);
+            }
+            // A Story with an undecided criterion Proposal is already listed through that Proposal, which
+            // names it; it comes back here if the Proposal is rejected.
+            let proposed: Vec<String> = conn
+                .prepare("SELECT payload FROM proposals WHERE stage_id = ?1 AND state = 'pending' AND verb = 'create' AND target_type = 'criterion'")?
+                .query_map(params![stage_id], |r| r.get::<_, String>(0))?
+                .filter_map(|p| p.ok())
+                .filter_map(|p| NewCriterion::from_payload(&serde_json::from_str(&p).unwrap_or_default()).ok())
+                .map(|c| c.story_id)
+                .collect();
+            for s in open.into_iter().filter(|s| s.state == "shaping" && !proposed.contains(&s.id)) {
+                if criteria_for_story(conn, &s.id)?.is_empty() {
+                    open_items.push(OpenItem::StoryWithoutCriterion { story_id: s.id, key: s.key, title: s.title });
+                }
+            }
+        }
+    }
+
     let mut warnings = Vec::new();
     let blank = |v: &Option<String>| v.as_deref().is_none_or(|v| v.trim().is_empty());
     if let Some(epic_id) = &stage.epic_id {
@@ -345,17 +399,21 @@ pub struct StageClosed {
     /// The Stage, now closed.
     pub closed: Stage,
     /// The next Stage, now open; `None` when the closed Stage was its record's last and made it Ready
-    /// (a Milestone's Exit test, issue #132).
+    /// (a Milestone's Exit test, issue #132; an Epic's Criteria, issue #128).
     pub opened: Option<Stage>,
+    /// The Stories closing an Epic's Criteria Stage made Ready, in execution order (issue #128); empty
+    /// otherwise.
+    pub made_ready: Vec<String>,
     /// The live shaping session the close ended, if one was live: it worked the closed Stage.
     pub ended_session: Option<String>,
 }
 
 /// Close Stage `stage_id` as the developer (issue #126) and open the next one, in one transaction.
-/// Refused for any actor but a human, a Stage that is not open, a Stage with anything still open
-/// (the refusal names each item), and an Epic's last Stage, whose close makes the Stories Ready
-/// (issue #128). Closing a Milestone's Exit test opens no Stage: it moves the Milestone from Shaping
-/// to Ready in the same transaction (issue #132). The subject's live shaping session worked the closed Stage, so it ends here too:
+/// Refused for any actor but a human, a Stage that is not open, and a Stage with anything still open
+/// (the refusal names each item). Closing a record's last Stage opens none: an Epic's Write the
+/// Acceptance criteria moves its Shaping Stories and the Epic to Ready (issue #128), a Milestone's
+/// Exit test the Milestone (issue #132), in the same transaction. The subject's live shaping session
+/// worked the closed Stage, so it ends here too:
 /// the next Stage starts from a fresh session and packet. No held `round_post` call is left behind:
 /// a call is held only on an open Round, and an open Round always has an unanswered question.
 pub fn close_stage(conn: &mut Connection, actor_id: &str, stage_id: &str) -> anyhow::Result<StageClosed> {
@@ -396,8 +454,14 @@ pub fn close_stage(conn: &mut Connection, actor_id: &str, stage_id: &str) -> any
         &at,
     )?;
 
+    let mut made_ready = Vec::new();
     let opened_id = match status.next {
         Some(next) => Some(open_next_stage_in_tx(&tx, stage, next, actor_id, &at)?),
+        // Issue #128: the Epic's Criteria Stage was its last, so its Stories and the Epic are Ready.
+        None if stage.kind == StageKind::Criteria => {
+            made_ready = make_ready_in_tx(&tx, stage, actor_id)?;
+            None
+        }
         None => {
             // Issue #132: the Milestone's Exit test was its only Stage, so its shaping is done.
             let milestone_id = stage.milestone_id.as_deref().context("the Exit test Stage shapes a Milestone")?;
@@ -428,7 +492,28 @@ pub fn close_stage(conn: &mut Connection, actor_id: &str, stage_id: &str) -> any
         None => None,
     };
     tx.commit().context("failed to commit close_stage")?;
-    Ok(StageClosed { closed, opened, ended_session })
+    Ok(StageClosed { closed, opened, made_ready, ended_session })
+}
+
+/// Issue #128: closing an Epic's Criteria Stage moves every Story of the Epic still in Shaping to
+/// Ready, in execution order, then the Epic, through their own state writers and inside the close's
+/// transaction, so a refusal from any of them refuses the close. A Dropped Story stays dropped. The
+/// Stories made Ready, by id.
+fn make_ready_in_tx(tx: &Transaction, closed: &Stage, actor_id: &str) -> anyhow::Result<Vec<String>> {
+    let epic_id = closed.epic_id.as_deref().context("only an Epic's Stage makes its Stories Ready")?;
+    let mut made_ready = Vec::new();
+    for story in stories_in_epic(tx, epic_id)?.into_iter().filter(|s| s.state == "shaping") {
+        set_story_state_in_tx(tx, actor_id, &story.id, StoryState::Ready)?;
+        made_ready.push(story.id);
+    }
+    set_epic_state_in_tx(
+        tx,
+        actor_id,
+        epic_id,
+        EpicState::Ready,
+        serde_json::json!({ "label": format!("Closed the {} Stage: the Epic is Ready", closed.kind.label()) }),
+    )?;
+    Ok(made_ready)
 }
 
 /// Open `next`, the Stage after `closed`, at the next rank, and append `stage.opened`. Returns its id.

@@ -34,6 +34,11 @@
 //! Roadmap change's own kind, so `proposal_apply` applies it the same way), answered AT ONCE, and shown
 //! as a ghost over the exit test.
 //!
+//! `propose_criterion` (issue #128) writes an Acceptance criterion for a Story of the Epic, with the
+//! Check command that proves it or none when it is judged at review. It is answered AT ONCE, only in
+//! the Write the Acceptance criteria Stage, and only on a Story still in Shaping; accepted, it
+//! creates the criterion and its Check as the developer (`proposal_apply`).
+//!
 //! Identity comes from the session the call arrived on, never from an argument: a call reaches only
 //! that session's own subject, and only while the session is live.
 
@@ -45,9 +50,10 @@ use rusqlite::OptionalExtension;
 
 use crate::domain::proposal::{file_proposal, proposals_on_epic, NewProposal, ProposalTarget, ProposalVerb};
 use crate::domain::proposal_apply::{
-    NewStory, RoadmapChange, RunsAfter, SpecChange, MAX_ROADMAP_TEXT_LEN, MAX_RUNS_AFTER_REASON_LEN, MAX_STORY_DESCRIPTION_LEN,
-    MAX_STORY_TITLE_LEN,
+    NewCriterion, NewStory, RoadmapChange, RunsAfter, SpecChange, MAX_CHECK_COMMAND_LEN, MAX_CRITERION_STATEMENT_LEN,
+    MAX_ROADMAP_TEXT_LEN, MAX_RUNS_AFTER_REASON_LEN, MAX_STORY_DESCRIPTION_LEN, MAX_STORY_TITLE_LEN,
 };
+use crate::domain::stage::{open_stage, StageKind};
 use crate::domain::roadmap_round::{propose_roadmap_change, roadmap_holds, wait_roadmap_round, RoadmapWait};
 use crate::domain::story::{stories_in_epic, StoryState};
 use crate::ranking::{rank_after, rank_before, rank_between};
@@ -56,7 +62,7 @@ use crate::domain::round::{post_round, round_result, wait_round, AdrDraft, NewQu
 
 /// The tool names the sidecar's MCP server registers for a shaping session, in the order it lists
 /// them. Mirrored by `SHAPING_TOOL_NAMES` in `packages/sidecar/src/mcp-permission-server.ts`.
-pub const SHAPING_TOOL_NAMES: [&str; 8] =
+pub const SHAPING_TOOL_NAMES: [&str; 9] =
     [
         "round_post",
         "round_wait",
@@ -66,6 +72,7 @@ pub const SHAPING_TOOL_NAMES: [&str; 8] =
         "propose_story",
         "propose_story_order",
         "propose_exit_test",
+        "propose_criterion",
     ];
 
 /// One parsed call of a shaping tool.
@@ -86,6 +93,9 @@ pub enum ShapingToolCall {
     ProposeStory(StoryDraft),
     /// Issue #127: move a Story of the Epic in its execution order, or retire it, and why.
     ProposeStoryOrder { story: String, change: OrderChange, why: String },
+    /// Issue #128: an Acceptance criterion for a Story of the Epic (its key), with the Check command
+    /// that proves it, or none when it is judged at review.
+    ProposeCriterion { story: String, statement: String, check: Option<String> },
 }
 
 /// Where a Story lands in its Epic's execution order (issue #127). A reference is a Story's key
@@ -259,6 +269,31 @@ impl ShapingToolCall {
                 };
                 let why = one_line(args, "why", tool, crate::domain::round::MAX_ROUND_TEXT_LEN)?;
                 Ok(ShapingToolCall::ProposeStoryOrder { story, change, why })
+            }
+            "propose_criterion" => {
+                let tool = "propose_criterion";
+                let story = optional_text(args, "story").with_context(|| format!("{tool}: `story` is missing: the Story's key"))?;
+                let statement = optional_text(args, "statement")
+                    .with_context(|| format!("{tool}: `statement` is missing or empty: say what is observably true once the Story ships"))?;
+                anyhow::ensure!(
+                    statement.chars().count() <= MAX_CRITERION_STATEMENT_LEN,
+                    "{tool}: `statement` is at most {MAX_CRITERION_STATEMENT_LEN} characters"
+                );
+                let check = match args.get("check") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(c)) if c.trim().is_empty() => anyhow::bail!(
+                        "{tool}: `check` is blank; give the command that proves the criterion, or leave `check` out when it is judged at review"
+                    ),
+                    Some(Value::String(c)) => {
+                        anyhow::ensure!(
+                            c.trim().chars().count() <= MAX_CHECK_COMMAND_LEN,
+                            "{tool}: `check` is at most {MAX_CHECK_COMMAND_LEN} characters"
+                        );
+                        Some(c.trim().to_string())
+                    }
+                    Some(_) => anyhow::bail!("{tool}: `check` is a shell command, as a string"),
+                };
+                Ok(ShapingToolCall::ProposeCriterion { story, statement, check })
             }
             other => anyhow::bail!("{other:?} is not a shaping tool"),
         }
@@ -491,6 +526,69 @@ fn propose_story_order(
     })
 }
 
+/// File a New criterion on a Story of the Epic shaping session `session_id` shapes, as the agent
+/// (issue #128), with the Check command that proves it or none. Only in the Write the Acceptance
+/// criteria Stage, and only on a Story still in Shaping: a New Story Proposal gets its criteria once
+/// it is accepted.
+fn propose_criterion(
+    conn: &mut Connection,
+    session_id: &str,
+    story: &str,
+    statement: &str,
+    check: Option<&str>,
+) -> anyhow::Result<ShapingToolOutcome> {
+    let tool = "propose_criterion";
+    let (project_id, epic_id) = shaping_epic(conn, session_id, tool, "writes the criteria of an Epic's Stories")?;
+    let stage = open_stage(conn, &crate::domain::session::ShapingSubject::Epic(epic_id.clone()))?;
+    if let Some(stage) = stage.filter(|s| s.kind != StageKind::Criteria) {
+        anyhow::bail!(
+            "{tool}: this Epic is in the {} Stage; criteria are written in the {} Stage, once the Stories are sliced",
+            stage.kind.label(),
+            StageKind::Criteria.label()
+        );
+    }
+    let (story_id, key) = match resolve(conn, &epic_id, story, tool)? {
+        Named::Story { id, key, state } => {
+            anyhow::ensure!(state == "shaping", "{tool}: {key} is {state}; criteria are written on a Story still in Shaping");
+            (id, key)
+        }
+        Named::Proposal { .. } => anyhow::bail!(
+            "{tool}: {story:?} is a New Story Proposal, not a Story yet; write its criteria once the developer accepts it"
+        ),
+    };
+    let criterion = NewCriterion {
+        story_id,
+        statement: statement.to_string(),
+        check_command: check.map(str::to_string),
+    };
+    let agent = agent_actor_id(conn)?;
+    let filed = file_proposal(
+        conn,
+        &agent,
+        &NewProposal {
+            project_id: &project_id,
+            session_id: Some(session_id),
+            epic_id: Some(&epic_id),
+            verb: ProposalVerb::Create,
+            target: ProposalTarget::Criterion,
+            target_id: None,
+            payload: criterion.to_payload(),
+            rationale: None,
+        },
+    )?;
+    Ok(ShapingToolOutcome::Answered {
+        result: serde_json::json!({
+            "proposal_id": filed.id,
+            "state": "pending",
+            "next": format!(
+                "The criterion is under {key} as a ghost card, for the developer to accept, amend or reject; nothing \
+                 is written until they do. Keep writing criteria: do not wait for the decision."
+            ),
+        }),
+        project_id,
+    })
+}
+
 /// File a spec change on the Epic shaping session `session_id` shapes, as the agent. Refused for an
 /// unknown, ended or Story session and for a session shaping anything but an Epic.
 fn propose_spec_change(conn: &mut Connection, session_id: &str, change: &SpecChange, why: &str) -> anyhow::Result<ShapingToolOutcome> {
@@ -614,6 +712,9 @@ pub fn apply_shaping_tool_call(
         ShapingToolCall::ProposeExitTest { text, why } => propose_exit_test(conn, session_id, text, why),
         ShapingToolCall::ProposeStory(draft) => propose_story(conn, session_id, draft),
         ShapingToolCall::ProposeStoryOrder { story, change, why } => propose_story_order(conn, session_id, story, change, why),
+        ShapingToolCall::ProposeCriterion { story, statement, check } => {
+            propose_criterion(conn, session_id, story, statement, check.as_deref())
+        }
         ShapingToolCall::ProposeRoadmapChange { .. } | ShapingToolCall::RoadmapHolds { .. } => anyhow::bail!(
             "propose_roadmap_change and roadmap_holds belong to a roadmap Round; this session shapes an Epic or a Milestone"
         ),
@@ -684,6 +785,9 @@ fn apply_roadmap_call(conn: &mut Connection, session_id: &str, request_id: &str,
         ),
         ShapingToolCall::ProposeStory(_) | ShapingToolCall::ProposeStoryOrder { .. } => anyhow::bail!(
             "propose_story and propose_story_order slice an Epic being shaped; in a roadmap Round, propose Roadmap changes with propose_roadmap_change"
+        ),
+        ShapingToolCall::ProposeCriterion { .. } => anyhow::bail!(
+            "propose_criterion writes a Story's criteria in an Epic being shaped; in a roadmap Round, propose Roadmap changes with propose_roadmap_change"
         ),
     }
 }

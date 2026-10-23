@@ -13,14 +13,34 @@
  *   waits, its one-line reason on it ("shares `FeedRow.tsx`"). It is informational and never blocks; a pending
  *   Story's bracket is dashed, the ghost's provisional mark.
  *
- * Rejected Story Proposals shrink to struck-through lines under the columns with the developer's reason, like a
- * rejected spec change. A Dropped Story leaves the order. The columns sit on the floor rather than inside a card,
+ * From the Write the Acceptance criteria Stage on (issue #128), each Story column stacks its criteria under its
+ * description (`board/CriteriaList`, compact): each with its Check as a chip and its command, or judged at review,
+ * and the developer's own Add Check, Change and Remove. A pending criterion Proposal is a ghost card under them,
+ * decided there: Accept, Amend (its statement and Check; never its Story) or Reject.
+ *
+ * Rejected Story and criterion Proposals shrink to struck-through lines under the columns with the developer's
+ * reason, like a rejected spec change. A Dropped Story leaves the order. The columns sit on the floor rather than inside a card,
  * since each is a card of its own.
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowRightLeft, Ban, Check, ChevronLeft, ChevronRight, CircleDashed, CircleSlash, Columns3, PenLine, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowRightLeft,
+  Ban,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  CircleDashed,
+  CircleSlash,
+  Columns3,
+  ListChecks,
+  PenLine,
+  SquareTerminal,
+  X,
+} from "lucide-react";
 import { proposalAccept, proposalAmend, proposalReject, type ProposalDto, type StoryDto } from "../adapters/tauri";
+import { CriteriaList, useCriteria } from "../board/CriteriaList";
 import { StateBadge } from "../components/StateBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +54,9 @@ const MAX_REASON_LEN = 500;
 const MAX_TITLE_LEN = 500;
 const MAX_DESCRIPTION_LEN = 20_000;
 const MAX_RUNS_AFTER_REASON_LEN = 500;
+/** The core's limits on a New criterion (`proposal_apply::MAX_CRITERION_STATEMENT_LEN`, `MAX_CHECK_COMMAND_LEN`). */
+const MAX_CRITERION_LEN = 2_000;
+const MAX_CHECK_COMMAND_LEN = 2_000;
 /** A column's width; the brackets above the columns meet their centres, half of it in. */
 const COLUMN_WIDTH = "17.5rem";
 
@@ -63,6 +86,24 @@ export function newStoryOf(proposal: ProposalDto): NewStoryPayload | null {
     runs_after_proposal_id: text(p.runs_after_proposal_id),
     runs_after_reason: text(p.runs_after_reason),
   };
+}
+
+/** A New criterion Proposal's payload (`proposal_apply::NewCriterion`, issue #128). */
+interface NewCriterionPayload {
+  story_id: string;
+  statement: string;
+  /** `null`: judged at review. */
+  check_command: string | null;
+}
+
+/** A New criterion Proposal's payload, or null for any other Proposal. */
+export function newCriterionOf(proposal: ProposalDto): NewCriterionPayload | null {
+  if (proposal.verb !== "create" || proposal.targetType !== "criterion") return null;
+  const p = (proposal.payload ?? {}) as Record<string, unknown>;
+  const storyId = text(p.story_id);
+  const statement = text(p.statement);
+  if (!storyId || !statement) return null;
+  return { story_id: storyId, statement, check_command: text(p.check_command) };
 }
 
 type Column =
@@ -110,21 +151,32 @@ interface Constraint {
 }
 
 export interface StoryColumnsProps {
+  /** The project the Epic belongs to: each column's criteria are read under it (issue #128). */
+  projectId: string;
   /** The Epic's Stories, in any order. */
   stories: StoryDto[];
-  /** The Epic's pending and rejected Proposals; only the Story ones are drawn here. */
+  /** The Epic's pending and rejected Proposals; only the Story and criterion ones are drawn here. */
   proposals: ProposalDto[];
   /** The read to refresh once a decision lands. */
   queryKey: readonly unknown[];
+  /**
+   * Whether each column stacks its Acceptance criteria (issue #128): from the Criteria Stage on, or as soon as a
+   * criterion or a criterion Proposal exists. Slicing leaves them out.
+   */
+  criteria?: boolean;
   className?: string;
 }
 
-export function StoryColumns({ stories, proposals, queryKey, className }: StoryColumnsProps) {
+export function StoryColumns({ projectId, stories, proposals, queryKey, criteria = false, className }: StoryColumnsProps) {
   const headingId = useId();
   const regionRef = useRef<HTMLDivElement>(null);
   const storyProposals = proposals.filter((p) => p.targetType === "story");
   const pending = storyProposals.filter((p) => p.state === "pending");
-  const rejected = storyProposals.filter((p) => p.state === "rejected");
+  // Issue #128: criterion Proposals, drawn under the Story each is for.
+  const criterionProposals = proposals.filter((p) => newCriterionOf(p) !== null);
+  const pendingCriteria = criterionProposals.filter((p) => p.state === "pending");
+  const rejected = [...storyProposals, ...criterionProposals].filter((p) => p.state === "rejected");
+  const showCriteria = criteria || criterionProposals.length > 0;
 
   const columns: Column[] = [
     ...stories.filter((s) => s.state !== "dropped").map((story) => ({ kind: "story" as const, id: story.id, rank: story.rank, story })),
@@ -218,10 +270,12 @@ export function StoryColumns({ stories, proposals, queryKey, className }: StoryC
                   column.kind === "story" ? (
                     <StoryColumn
                       key={column.id}
+                      projectId={projectId}
                       number={index + 1}
                       story={column.story}
                       columns={columns}
                       proposals={pending.filter((p) => p.targetId === column.id && (p.verb === "reorder" || p.verb === "retire"))}
+                      criteria={showCriteria ? pendingCriteria.filter((p) => newCriterionOf(p)?.story_id === column.id) : null}
                       queryKey={queryKey}
                       onSettled={settle}
                     />
@@ -244,7 +298,7 @@ export function StoryColumns({ stories, proposals, queryKey, className }: StoryC
       )}
 
       {rejected.length > 0 && (
-        <ul aria-label="Rejected Story Proposals" className="m-0 flex list-none flex-col gap-2 p-0">
+        <ul aria-label="Rejected Proposals" className="m-0 flex list-none flex-col gap-2 p-0">
           {rejected.map((p) => (
             <RejectedLine key={p.id} proposal={p} stories={stories} />
           ))}
@@ -498,18 +552,23 @@ function ErrorLine({ error }: { error: string | null }) {
 }
 
 function StoryColumn({
+  projectId,
   number,
   story,
   columns,
   proposals,
+  criteria,
   queryKey,
   onSettled,
 }: {
+  projectId: string;
   number: number;
   story: StoryDto;
   columns: Column[];
   /** Its pending move and retirement Proposals. */
   proposals: ProposalDto[];
+  /** Its pending criterion Proposals, or `null` while its criteria are not shown (slicing). */
+  criteria: ProposalDto[] | null;
   queryKey: readonly unknown[];
   onSettled: () => void;
 }) {
@@ -533,6 +592,9 @@ function StoryColumn({
         </p>
       ) : (
         <p className="m-0 text-small text-subtle-foreground">No description yet</p>
+      )}
+      {criteria && (
+        <StoryCriteria projectId={projectId} story={story} pending={criteria} queryKey={queryKey} onSettled={onSettled} />
       )}
       {proposals.map((p) => (
         <OrderPlate key={p.id} proposal={p} story={story} columns={columns} queryKey={queryKey} onSettled={onSettled} />
@@ -825,15 +887,212 @@ function GhostColumn({
   );
 }
 
-/** A rejected Story Proposal, shrunk to one struck-through line with the developer's reason. */
+/**
+ * A Story's Acceptance criteria at the foot of its column, under its description (issue #128): the criteria already
+ * on it (`CriteriaList`, compact), each with its Check as a chip or judged at review, then each pending criterion
+ * as a ghost card, decided there.
+ */
+function StoryCriteria({
+  projectId,
+  story,
+  pending,
+  queryKey,
+  onSettled,
+}: {
+  projectId: string;
+  story: StoryDto;
+  pending: ProposalDto[];
+  queryKey: readonly unknown[];
+  onSettled: () => void;
+}) {
+  const headingId = useId();
+  const recorded = useCriteria(projectId, story.id).data?.length ?? 0;
+  const count = [recorded > 0 ? String(recorded) : null, pending.length > 0 ? `${pending.length} proposed` : null].filter(Boolean).join(" · ");
+  return (
+    <section aria-labelledby={headingId} className="flex min-w-0 flex-col gap-2 border-t border-border pt-2.5">
+      <h4 id={headingId} className="m-0 flex items-center gap-1.5 text-meta font-semibold text-muted-foreground">
+        <ListChecks aria-hidden="true" className="size-3.5 shrink-0" />
+        Acceptance criteria
+        {count && <span className="font-normal tabular-nums text-subtle-foreground">{count}</span>}
+      </h4>
+      <CriteriaList
+        projectId={projectId}
+        storyId={story.id}
+        storyKey={story.key}
+        compact
+        emptyText={pending.length > 0 ? null : "No criterion yet"}
+      />
+      {pending.map((p) => (
+        <GhostCriterion key={p.id} proposal={p} queryKey={queryKey} onSettled={onSettled} />
+      ))}
+    </section>
+  );
+}
+
+/** The Check a criterion would carry: its command, or judged at review. */
+function ProposedCheck({ command }: { command: string | null }) {
+  if (!command) return <StateBadge state="judged_at_review" label="Judged at review" className="h-5.5 self-start text-meta" />;
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 text-meta text-muted-foreground">
+      <SquareTerminal aria-hidden="true" className="size-3.5 shrink-0" />
+      <span className="sr-only">Check: </span>
+      <code className="min-w-0 truncate font-mono text-foreground" title={command}>
+        {command}
+      </code>
+    </span>
+  );
+}
+
+/** A pending criterion under its Story: Accept, Amend (its statement and Check, never its Story) or Reject. */
+function GhostCriterion({ proposal, queryKey, onSettled }: { proposal: ProposalDto; queryKey: readonly unknown[]; onSettled: () => void }) {
+  const draft = newCriterionOf(proposal) as NewCriterionPayload;
+  const name = `the proposed criterion ${draft.statement}`;
+  const { busy, error, setError, decide } = useDecision(queryKey, name, onSettled);
+  const [mode, setMode] = useState<Mode>("idle");
+  const [statement, setStatement] = useState("");
+  const [command, setCommand] = useState("");
+  const statementId = useId();
+  const commandId = useId();
+  const amendRef = useRef<HTMLButtonElement>(null);
+  const rejectRef = useRef<HTMLButtonElement>(null);
+
+  function cancel() {
+    const opener = mode === "amending" ? amendRef : rejectRef;
+    setMode("idle");
+    setError(null);
+    requestAnimationFrame(() => opener.current?.focus());
+  }
+
+  function submitAmend(event: FormEvent | KeyboardEvent) {
+    event.preventDefault();
+    if (!statement.trim()) return;
+    const edited = { story_id: draft.story_id, statement: statement.trim(), check_command: command.trim() === "" ? null : command.trim() };
+    void decide(() => proposalAmend(proposal.id, edited));
+  }
+
+  const onEditKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      cancel();
+    } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      submitAmend(e);
+    }
+  };
+
+  return (
+    <div
+      role="group"
+      aria-label={`Proposed criterion: ${draft.statement}`}
+      data-state="pending"
+      className="flex min-w-0 flex-col gap-2 rounded-md border border-dashed border-primary bg-running-muted px-2.5 py-2"
+    >
+      <span className="flex items-center gap-1.5 text-meta font-semibold text-running">
+        <CircleDashed aria-hidden="true" className="size-3.5 shrink-0" />
+        Proposed criterion
+      </span>
+      {mode === "amending" ? (
+        <form className="flex min-w-0 flex-col gap-2" onSubmit={submitAmend}>
+          <label htmlFor={statementId} className="text-meta font-semibold text-muted-foreground">
+            Criterion
+          </label>
+          <Textarea
+            id={statementId}
+            className="min-h-16 resize-none text-small"
+            value={statement}
+            maxLength={MAX_CRITERION_LEN}
+            autoFocus
+            disabled={busy}
+            onChange={(e) => setStatement(e.target.value)}
+            onKeyDown={onEditKey}
+          />
+          <label htmlFor={commandId} className="text-meta font-semibold text-muted-foreground">
+            Check command <span className="font-normal">(blank: judged at review)</span>
+          </label>
+          <Input
+            id={commandId}
+            value={command}
+            maxLength={MAX_CHECK_COMMAND_LEN}
+            disabled={busy}
+            className="h-7.5 font-mono text-small"
+            onChange={(e) => setCommand(e.target.value)}
+            onKeyDown={onEditKey}
+          />
+          <div className="flex flex-wrap items-center gap-1">
+            <Button type="submit" variant="outline" size="xs" disabled={busy || !statement.trim()} aria-label={`Accept edit to ${name}`}>
+              <Check aria-hidden="true" />
+              {busy ? "Saving…" : "Accept edit"}
+            </Button>
+            <Button type="button" variant="ghost" size="xs" disabled={busy} onClick={cancel}>
+              <X aria-hidden="true" />
+              Cancel
+            </Button>
+            <Kbd className="ml-auto">⌘↩</Kbd>
+          </div>
+        </form>
+      ) : (
+        <>
+          <p className="m-0 text-small font-semibold break-words text-foreground">{draft.statement}</p>
+          <ProposedCheck command={draft.check_command} />
+        </>
+      )}
+      {mode === "rejecting" && (
+        <RejectForm busy={busy} onReject={(given) => void decide(() => proposalReject(proposal.id, given))} onCancel={cancel} />
+      )}
+      {mode === "idle" && (
+        <div className="flex flex-wrap items-center gap-1">
+          <Button variant="outline" size="xs" disabled={busy} aria-label={`Accept ${name}`} onClick={() => void decide(() => proposalAccept(proposal.id))}>
+            <Check aria-hidden="true" />
+            {busy ? "Saving…" : "Accept"}
+          </Button>
+          <Button
+            ref={amendRef}
+            variant="ghost"
+            size="xs"
+            disabled={busy}
+            aria-label={`Amend ${name}`}
+            onClick={() => {
+              setStatement(draft.statement);
+              setCommand(draft.check_command ?? "");
+              setError(null);
+              setMode("amending");
+            }}
+          >
+            <PenLine aria-hidden="true" />
+            Amend
+          </Button>
+          <Button
+            ref={rejectRef}
+            variant="ghost"
+            size="xs"
+            disabled={busy}
+            aria-label={`Reject ${name}`}
+            onClick={() => {
+              setError(null);
+              setMode("rejecting");
+            }}
+          >
+            <Ban aria-hidden="true" />
+            Reject
+          </Button>
+        </div>
+      )}
+      <ErrorLine error={error} />
+    </div>
+  );
+}
+
+/** A rejected Story or criterion Proposal, shrunk to one struck-through line with the developer's reason. */
 function RejectedLine({ proposal, stories }: { proposal: ProposalDto; stories: StoryDto[] }) {
   const draft = newStoryOf(proposal);
-  const key = stories.find((s) => s.id === proposal.targetId)?.key ?? "a Story";
-  const [label, struck] = draft
-    ? [`Rejected Story ${draft.title}`, draft.title]
-    : proposal.verb === "reorder"
-      ? [`Rejected move of ${key}`, `Move ${key}`]
-      : [`Rejected retirement of ${key}`, `Retire ${key}`];
+  const criterion = newCriterionOf(proposal);
+  const key = stories.find((s) => s.id === (criterion?.story_id ?? proposal.targetId))?.key ?? "a Story";
+  const [label, struck] = criterion
+    ? [`Rejected criterion on ${key}: ${criterion.statement}`, criterion.statement]
+    : draft
+      ? [`Rejected Story ${draft.title}`, draft.title]
+      : proposal.verb === "reorder"
+        ? [`Rejected move of ${key}`, `Move ${key}`]
+        : [`Rejected retirement of ${key}`, `Retire ${key}`];
   return (
     <li role="group" aria-label={label} data-state="rejected" className="flex min-w-0 flex-col gap-0.5">
       <span className="flex min-w-0 items-center gap-1.5 text-small text-muted-foreground">

@@ -7,6 +7,10 @@
 //! open item. Closing Challenge the spec opens Slice into Stories, and closing Slice opens Write the
 //! Acceptance criteria, in the same transaction; the live shaping session on the Epic ends with it,
 //! so the next Stage starts from a fresh packet that names it.
+//!
+//! Issue #128: the Criteria Stage also stays open while a Story still in Shaping has no criterion,
+//! a Dropped Story aside. Closing it opens no Stage: every Shaping Story and the Epic move to Ready,
+//! all in the close's transaction or none of them.
 
 mod common;
 
@@ -18,6 +22,8 @@ use core::domain::session::{agent_actor_id, live_shaping_session, start_shaping_
 use core::domain::session_kind::SessionKind;
 use core::domain::shaping_tool::{apply_shaping_tool_call, ShapingToolCall, ShapingToolOutcome};
 use core::domain::stage::{close_stage, open_stage, stage_status, stages_for_epic, OpenItem, StageKind};
+use core::domain::acceptance_criterion::create_criterion;
+use core::domain::story::{self, StoryState};
 use core::domain::{actor, epic, milestone};
 use core::shaping_packet::build_epic_shaping_packet;
 use rusqlite::Connection;
@@ -196,7 +202,7 @@ fn closing_challenge_opens_slice_and_ends_the_live_session() {
     let closed = close_stage(&mut f.conn, &f.human, &stage_id).unwrap();
     assert_eq!(closed.closed.kind, StageKind::ChallengeSpec);
     assert_eq!(closed.closed.state, "closed");
-    let opened = closed.opened.as_ref().expect("Slice opens");
+    let opened = closed.opened.as_ref().expect("Challenge is not the last Stage");
     assert_eq!(opened.kind, StageKind::Slice);
     assert_eq!(opened.rank, 2);
     assert_eq!(closed.ended_session.as_deref(), Some(f.session_id.as_str()));
@@ -232,24 +238,140 @@ fn the_next_sessions_packet_names_the_slice_stage() {
 }
 
 #[test]
-fn closing_slice_opens_criteria_and_the_last_stage_does_not_close_yet() {
+fn closing_slice_opens_criteria() {
     let mut f = shaping();
     let challenge = f.open_stage_id();
     close_stage(&mut f.conn, &f.human, &challenge).unwrap();
     let slice = f.open_stage_id();
     let closed = close_stage(&mut f.conn, &f.human, &slice).unwrap();
-    assert_eq!((closed.closed.kind, closed.opened.as_ref().unwrap().kind, closed.opened.as_ref().unwrap().rank), (StageKind::Slice, StageKind::Criteria, 3));
+    let opened = closed.opened.expect("Slice is not the last Stage");
+    assert_eq!((closed.closed.kind, opened.kind, opened.rank), (StageKind::Slice, StageKind::Criteria, 3));
     assert_eq!(closed.ended_session, None, "no session was live");
     let kinds: Vec<StageKind> = stages_for_epic(&f.conn, &f.epic_id).unwrap().into_iter().map(|s| s.kind).collect();
     assert_eq!(kinds, StageKind::EPIC.to_vec());
 
-    // Closing the Criteria Stage makes the Stories Ready (issue #128); until then it is refused.
     let criteria = f.open_stage_id();
     let status = stage_status(&f.conn, &criteria).unwrap();
-    assert_eq!(status.next, None);
+    assert_eq!(status.next, None, "Write the Acceptance criteria is the last Stage");
+    assert!(status.closes_the_record(), "closing it makes the Stories Ready");
+}
+
+// ============================================================================================
+// Issue #128: closing the Criteria Stage makes the Stories and the Epic Ready
+// ============================================================================================
+
+impl Fixture {
+    /// Close Challenge the spec and Slice into Stories; the Criteria Stage's id.
+    fn to_criteria(&mut self) -> String {
+        for _ in 0..2 {
+            let id = self.open_stage_id();
+            close_stage(&mut self.conn, &self.human, &id).unwrap();
+        }
+        self.open_stage_id()
+    }
+
+    fn state_of(&self, table: &str, id: &str) -> String {
+        self.conn.query_row(&format!("SELECT state FROM {table} WHERE id = ?1"), [id], |r| r.get(0)).unwrap()
+    }
+}
+
+#[test]
+fn the_criteria_stage_stays_open_while_an_accepted_story_has_no_criterion() {
+    let mut f = shaping();
+    let criteria = f.to_criteria();
+    // No Story at all: nothing to make Ready.
+    let status = stage_status(&f.conn, &criteria).unwrap();
+    let labels: Vec<String> = status.open_items.iter().map(OpenItem::label).collect();
+    assert_eq!(labels, vec!["The Epic has no Story to make Ready".to_string()]);
     assert!(!status.closable());
+
+    let parser = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Parser").unwrap();
+    let feed = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Feed row").unwrap();
+    let gone = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Gone").unwrap();
+    story::set_story_state(&mut f.conn, &f.human, &gone.id, StoryState::Dropped).unwrap();
+    create_criterion(&mut f.conn, &f.human, &parser.id, "A malformed line is skipped").unwrap();
+
+    let status = stage_status(&f.conn, &criteria).unwrap();
+    assert_eq!(
+        status.open_items,
+        vec![OpenItem::StoryWithoutCriterion { story_id: feed.id.clone(), key: feed.key.clone(), title: "Feed row".into() }],
+        "a dropped Story needs no criterion"
+    );
+    assert_eq!(status.open_items[0].label(), format!("{} “Feed row” has no Acceptance criterion", feed.key));
+    assert!(!status.closable());
+    let before = f.stage_rows();
     let err = format!("{:#}", close_stage(&mut f.conn, &f.human, &criteria).unwrap_err());
-    assert!(err.contains("Write the Acceptance criteria"), "{err}");
+    assert!(err.contains(&format!("{} “Feed row” has no Acceptance criterion", feed.key)), "{err}");
+    assert_eq!(f.stage_rows(), before, "a refused close writes nothing");
+    assert_eq!(f.state_of("stories", &parser.id), "shaping");
+
+    create_criterion(&mut f.conn, &f.human, &feed.id, "The row shows the live verb").unwrap();
+    assert!(stage_status(&f.conn, &criteria).unwrap().closable());
+}
+
+#[test]
+fn closing_criteria_moves_every_shaping_story_and_the_epic_to_ready_and_ends_shaping() {
+    let mut f = shaping();
+    let parser = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Parser").unwrap();
+    let feed = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Feed row").unwrap();
+    let gone = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Gone").unwrap();
+    story::set_story_state(&mut f.conn, &f.human, &gone.id, StoryState::Dropped).unwrap();
+    for s in [&parser, &feed] {
+        create_criterion(&mut f.conn, &f.human, &s.id, "It ships").unwrap();
+    }
+    let criteria = f.to_criteria();
+    let session = start_session_on(&mut f.conn, &f.human, &f.epic_id);
+
+    let closed = close_stage(&mut f.conn, &f.human, &criteria).unwrap();
+    assert_eq!(closed.closed.kind, StageKind::Criteria);
+    assert_eq!(closed.opened, None, "no Stage follows the last one");
+    assert_eq!(closed.made_ready, vec![parser.id.clone(), feed.id.clone()], "in execution order");
+    assert_eq!(closed.ended_session.as_deref(), Some(session.as_str()));
+    assert_eq!((f.state_of("stories", &parser.id), f.state_of("stories", &feed.id)), ("ready".into(), "ready".into()));
+    assert_eq!(f.state_of("stories", &gone.id), "dropped", "a dropped Story stays dropped");
+    assert_eq!(f.state_of("epics", &f.epic_id), "ready");
+    assert!(f.stage_rows().iter().all(|(_, state, _, _)| state == "closed"), "{:?}", f.stage_rows());
+    assert_eq!(live_shaping_session(&f.conn, &ShapingSubject::Epic(f.epic_id.clone())).unwrap(), None);
+
+    let events: Vec<(String, String)> = {
+        let mut stmt = f
+            .conn
+            .prepare("SELECT event_type, actor_id FROM events WHERE event_type IN ('story.state_changed', 'epic.state_changed') ORDER BY sequence")
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().collect::<Result<_, _>>().unwrap()
+    };
+    let human = f.human.clone();
+    assert_eq!(
+        events,
+        vec![
+            ("story.state_changed".to_string(), human.clone()), // Gone, dropped by hand
+            ("story.state_changed".to_string(), human.clone()),
+            ("story.state_changed".to_string(), human.clone()),
+            ("epic.state_changed".to_string(), human),
+        ]
+    );
+    // Nothing is left to shape: a Ready Epic starts no shaping session.
+    assert!(start_shaping_session(
+        &mut f.conn,
+        &ShapingSubject::Epic(f.epic_id.clone()),
+        SessionKind::Shaping.launch_policy().permission_mode,
+        &f.human,
+    )
+    .is_err());
+}
+
+#[test]
+fn closing_criteria_is_all_or_nothing() {
+    let mut f = shaping();
+    let parser = story::create_story(&mut f.conn, &f.human, &f.epic_id, "Parser").unwrap();
+    create_criterion(&mut f.conn, &f.human, &parser.id, "It ships").unwrap();
+    let criteria = f.to_criteria();
+    // The Epic cannot be made Ready (dropped under the close, by hand): the Stories' moves roll back too.
+    f.conn.execute("UPDATE epics SET state = 'dropped' WHERE id = ?1", [&f.epic_id]).unwrap();
+    let before = f.stage_rows();
+    assert!(close_stage(&mut f.conn, &f.human, &criteria).is_err());
+    assert_eq!(f.state_of("stories", &parser.id), "shaping");
+    assert_eq!(f.stage_rows(), before);
 }
 
 #[test]

@@ -228,6 +228,21 @@ describe("describeToolCall: board tools by their meaning", () => {
     expect(describeToolCall({ toolName: `${BOARD}propose_story_order`, input: retire }).target).toBe("Retire FLY-3");
   });
 
+  // Issue #128: writing criteria reads as the criterion Proposal it files, with its Check or judged at review.
+  it("reads propose_criterion as Proposed with its Story, its statement and whether it has a Check", () => {
+    const input = { story: "FLY-3", statement: "A malformed line is skipped", check: "cargo test" };
+    expect(describeToolCall({ toolName: `${BOARD}propose_criterion`, input })).toMatchObject({
+      kind: "board",
+      verb: "Proposed",
+      liveVerb: "Proposing",
+      target: "Criterion on FLY-3: A malformed line is skipped · with a Check",
+    });
+    const judged = { story: "FLY-3", statement: "It reads plainly" };
+    expect(describeToolCall({ toolName: `${BOARD}propose_criterion`, input: judged }).target).toBe(
+      "Criterion on FLY-3: It reads plainly · judged at review",
+    );
+  });
+
   // Issue #124: a later session picks the open Round up and waits on it like round_post did.
   it("reads round_wait as Resumed Round, waiting on your answers, then the Round it came back with", () => {
     expect(describeToolCall({ toolName: `${BOARD}round_wait`, input: {} })).toMatchObject({

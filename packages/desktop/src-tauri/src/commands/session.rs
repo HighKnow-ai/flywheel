@@ -2169,7 +2169,8 @@ mod tests {
                 "mcp__flywheel-board__roadmap_holds",
                 "mcp__flywheel-board__propose_story",
                 "mcp__flywheel-board__propose_story_order",
-                "mcp__flywheel-board__propose_exit_test"
+                "mcp__flywheel-board__propose_exit_test",
+                "mcp__flywheel-board__propose_criterion"
             ])
         );
         let denied: Vec<String> = serde_json::from_value(request["disallowedTools"].clone()).unwrap();

@@ -10,14 +10,16 @@
  *
  * Closing is confirmed, because a closed Stage stays closed: the core closes it, opens the next Stage, ends
  * the session that worked the closed one, and starts the next Stage's shaping session from a fresh packet
- * that names it. The Epic's last Stage closes with the Stories made Ready, which is not built yet.
+ * that names it. The Epic's last Stage, Write the Acceptance criteria (issue #128), also stays open while a Story
+ * still in Shaping has no criterion, each listed by key and title; closing it opens nothing and starts no session:
+ * the Epic and each of its Stories in Shaping move to Ready, and shaping is done.
  *
  * A Milestone (issue #132) has one Stage, Exit test, so its bar is the one-step variant (`stages={MILESTONE_STAGES}`,
  * `record="Milestone"`): closing Exit test opens nothing and starts no session; it makes the Milestone Ready.
  */
 import { useEffect, useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Circle, CircleCheck, CircleDashed, CircleDot, Info, MessageCircleQuestionMark, StepForward } from "lucide-react";
+import { Circle, CircleCheck, CircleDashed, CircleDot, Info, ListChecks, MessageCircleQuestionMark, StepForward } from "lucide-react";
 import { stageClose, type StageDto, type StageStatusDto } from "../adapters/tauri";
 import { errorText } from "../board/StoryControls";
 import { STAGE_LABELS } from "./RoundDock";
@@ -63,6 +65,24 @@ function plural(n: number, one: string, many: string) {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/**
+ * What keeps the Stage open, as one sentence: "Slice into Stories stays open while 2 questions and 1 Proposal are
+ * still open:", and in the Criteria Stage (issue #128) "… and 2 Stories have no criterion:".
+ */
+function openSentence(stage: string, questions: number, proposals: number, bare: number, noStory: boolean) {
+  const parts: string[] = [];
+  const undecided = questions + proposals;
+  if (undecided > 0) {
+    const what = [questions > 0 && plural(questions, "question", "questions"), proposals > 0 && plural(proposals, "Proposal", "Proposals")]
+      .filter(Boolean)
+      .join(" and ");
+    parts.push(`${what} ${undecided === 1 ? "is" : "are"} still open`);
+  }
+  if (bare > 0) parts.push(`${plural(bare, "Story has", "Stories have")} no criterion`);
+  if (noStory) parts.push("the Epic has no Story to make Ready");
+  return `${stage} stays open while ${parts.join(" and ")}${undecided + bare > 0 ? ":" : "."}`;
+}
+
 
 export function StageBar({
   stages,
@@ -92,9 +112,14 @@ export function StageBar({
   const items = status?.openItems ?? [];
   const questions = items.filter((i) => i.kind === "question");
   const proposals = items.filter((i) => i.kind === "proposal");
+  // Issue #128: the Criteria Stage also waits on every Story still in Shaping with no criterion.
+  const bare = items.filter((i) => i.kind === "story_without_criterion");
+  const noStory = items.some((i) => i.kind === "no_story");
   const closable = Boolean(status?.closable) && !closing;
-  // Issue #132: the Milestone's one Stage closes to Ready instead of opening a next one.
-  const finishes = record === "Milestone" && !next;
+  // The record's last Stage closes to Ready instead of opening a next one: a Milestone's one Stage (issue #132),
+  // an Epic's Write the Acceptance criteria, with its Stories (issue #128).
+  const finishes = !next && (record === "Milestone" || Boolean(status?.makesReady) || open?.kind === "criteria");
+  const allClosed = !open && stages.length === order.length && stages.every((s) => s.state === "closed");
   // A Milestone's Stage is named after the field it shapes, so it is called a Stage outright: "the Exit test
   // Stage is open" never reads as the exit test itself.
   const stageRef = record === "Milestone" && current ? `the ${current} Stage` : current;
@@ -110,7 +135,14 @@ export function StageBar({
       if (done.launchError && done.opened) {
         notes.push(`The ${stageLabel(done.opened.kind)} session did not start: ${done.launchError}. Shape starts it.`);
       }
-      if (!done.opened && finishes) notes.push(`${StageRef} is closed: the ${record} is Ready.`);
+      if (!done.opened && finishes) {
+        const made = done.madeReady?.length ?? 0;
+        notes.push(
+          record === "Epic"
+            ? `${StageRef} is closed: the Epic and its ${plural(made, "Story", "Stories")} are Ready.`
+            : `${StageRef} is closed: the ${record} is Ready.`,
+        );
+      }
       if (done.sidecarWarning) notes.push(done.sidecarWarning);
       setNotice(notes);
       setConfirming(false);
@@ -187,17 +219,8 @@ export function StageBar({
           <div id={openListId} className="flex min-w-0 flex-col gap-2">
             {items.length > 0 ? (
               <>
-                <p className="m-0 text-small font-semibold">
-                  {StageRef} stays open while{" "}
-                  {[
-                    questions.length > 0 && plural(questions.length, "question", "questions"),
-                    proposals.length > 0 && plural(proposals.length, "Proposal", "Proposals"),
-                  ]
-                    .filter(Boolean)
-                    .join(" and ")}{" "}
-                  {items.length === 1 ? "is" : "are"} still open:
-                </p>
-                <ul aria-label="Still open" className="m-0 flex min-w-0 flex-col gap-1.5 p-0">
+                <p className="m-0 text-small font-semibold">{openSentence(StageRef ?? "", questions.length, proposals.length, bare.length, noStory)}</p>
+                <ul aria-label="Still open" className="m-0 flex min-w-0 flex-col gap-1.5 p-0 empty:hidden">
                   {questions.length > 0 && (
                     <li className="flex min-w-0 list-none items-start gap-2 text-small [&_svg]:mt-0.5 [&_svg]:size-4 [&_svg]:shrink-0">
                       <MessageCircleQuestionMark aria-hidden="true" className="text-muted-foreground" />
@@ -221,6 +244,19 @@ export function StageBar({
                       </span>
                     </li>
                   ))}
+                  {bare.map((s) => (
+                    <li
+                      key={s.id}
+                      className="flex min-w-0 list-none items-start gap-2 text-small [&_svg]:mt-0.5 [&_svg]:size-4 [&_svg]:shrink-0"
+                    >
+                      <ListChecks aria-hidden="true" className="text-muted-foreground" />
+                      <span className="min-w-0 break-words">
+                        {s.storyKey && <span className="font-mono text-muted-foreground">{s.storyKey} </span>}
+                        <span className="font-semibold">{s.title}</span>
+                        <span className="text-muted-foreground"> · no criterion yet</span>
+                      </span>
+                    </li>
+                  ))}
                 </ul>
               </>
             ) : next ? (
@@ -230,16 +266,20 @@ export function StageBar({
                   Closing it settles its answers and starts {next} in a fresh shaping session.
                 </span>
               </p>
-            ) : finishes ? (
+            ) : finishes && record === "Epic" ? (
+              <p className="m-0 text-small">
+                <span className="font-semibold">Nothing in {stageRef} is open.</span>{" "}
+                <span className="text-muted-foreground">
+                  It is the Epic's last Stage: closing it settles its answers and makes the Epic and its Stories Ready, each
+                  with its criteria and Checks.
+                </span>
+              </p>
+            ) : (
               <p className="m-0 text-small">
                 <span className="font-semibold">Nothing in {stageRef} is open.</span>{" "}
                 <span className="text-muted-foreground">
                   It is the {record}'s only Stage: closing it settles its answers and makes the {record} Ready.
                 </span>
-              </p>
-            ) : (
-              <p className="m-0 text-small text-muted-foreground">
-                {current} is the last Stage. Closing it makes the Epic's Stories Ready, which is not built yet.
               </p>
             )}
           </div>
@@ -250,6 +290,11 @@ export function StageBar({
             </p>
           )}
         </div>
+      )}
+      {allClosed && (
+        <p className="m-0 border-t border-border px-4 py-3 text-small text-muted-foreground">
+          Every Stage is closed: shaping is done.
+        </p>
       )}
       {/* Always mounted, so a notice that lands in it is announced. */}
       <div role="status" className="flex min-w-0 flex-col gap-1 empty:hidden px-4 pb-3">
@@ -265,9 +310,11 @@ export function StageBar({
           <AlertDialogHeader>
             <AlertDialogTitle className="text-section font-semibold">{`Close ${stageRef}?`}</AlertDialogTitle>
             <AlertDialogDescription>
-              {finishes
-                ? `A closed Stage stays closed: its answers are settled. Flywheel moves the ${record} to Ready; a session still working ${stageRef} ends.`
-                : `A closed Stage stays closed: its answers are settled. Flywheel opens ${next} and starts its shaping session from a fresh packet; a session still working ${current} ends.`}
+              {finishes && record === "Epic"
+                ? `A closed Stage stays closed: its answers are settled. Flywheel moves the Epic and each of its Stories still in Shaping to Ready, and shaping ends; a session still working ${stageRef} ends with it.`
+                : finishes
+                  ? `A closed Stage stays closed: its answers are settled. Flywheel moves the ${record} to Ready; a session still working ${stageRef} ends.`
+                  : `A closed Stage stays closed: its answers are settled. Flywheel opens ${next} and starts its shaping session from a fresh packet; a session still working ${current} ends.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {error && (
@@ -279,7 +326,7 @@ export function StageBar({
             <AlertDialogCancel disabled={closing}>Keep it open</AlertDialogCancel>
             <Button disabled={closing} onClick={() => void close()}>
               <StepForward aria-hidden="true" />
-              {closing ? "Closing…" : finishes ? `Close and make it Ready` : `Close and start ${next}`}
+              {closing ? "Closing…" : finishes ? (record === "Epic" ? "Close and make the Epic Ready" : "Close and make it Ready") : `Close and start ${next}`}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
