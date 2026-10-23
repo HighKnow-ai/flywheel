@@ -82,7 +82,7 @@ The ranked list of everything waiting on Cyril in a project. The order is: live 
 5. Proposals filed during execution, as one row (see [section 5](#5-proposals-from-execution)). A Proposal that changes what a Story is judged on is its own item, ranked with Review.
 6. Shaping Round waiting: a Round a live session is held on, an open Round whose session died or never launched, and a pending roadmap Round
 
-Amended by [#156](https://github.com/HighKnow-ai/flywheel/issues/156): an agent's question ranks with Gated actions and permission requests, since it holds a live session the same way, and a missing worktree is a Stopped-kind item rather than a figure of its own. **Shipped in Milestone 4** ([#156](https://github.com/HighKnow-ai/flywheel/issues/156)), judged-on items aside: one core query ranks the list, the board shows it as a column beside the roster, and the sidebar's project figure is its length. The Proposals row shipped with [#162](https://github.com/HighKnow-ai/flywheel/issues/162).
+Amended by [#156](https://github.com/HighKnow-ai/flywheel/issues/156): an agent's question ranks with Gated actions and permission requests, since it holds a live session the same way, and a missing worktree is a Stopped-kind item rather than a figure of its own. **Shipped in Milestone 4** ([#156](https://github.com/HighKnow-ai/flywheel/issues/156)), judged-on items aside: one core query ranks the list, the board shows it as a column beside the roster, and the sidebar's project figure is its length. The Proposals row shipped with [#162](https://github.com/HighKnow-ai/flywheel/issues/162). Judged-on changes shipped with [#163](https://github.com/HighKnow-ai/flywheel/issues/163): an Amend criterion, or an Amend Epic spec a Story session filed, is its own item mixed with Review by age, with its before and after and Accept / Edit / Reject in the card ([ADR-0011](adr/0011-a-judged-on-change-marks-the-last-check-run-stale-by-time.md)).
 
 ## 3. Shaping
 
@@ -194,7 +194,7 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
 - **Results** are *not run*, *passed*, *failed* or *timed out*. Each is tied to the commit it ran against and marked *stale* if the branch moves. A result shows as the criterion's chip on the roster and the review card.
 - **What a pass does:** it only pre-ticks its criterion. Cyril still accepts every criterion at review, and a criterion with no Check starts unticked ("judged at review").
 - **Failing at merge:** a failing or timed-out Check needs an explicit, recorded "Merge with failing Check".
-- **Re-runs:** Cyril can re-run all Checks from review. Editing a Check resets it to *not run*. An accepted criterion-changing Proposal marks the last run stale.
+- **Re-runs:** Cyril can re-run all Checks from review. Editing a Check resets it to *not run*. An accepted criterion-changing Proposal marks the last run stale, or, when it brings a new Check command, resets it to *not run*; the run itself is kept ([#163](https://github.com/HighKnow-ai/flywheel/issues/163)).
 
 ### 4.5 Stopped sessions and Resume
 
