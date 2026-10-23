@@ -58,11 +58,14 @@ pub struct Review {
     pub failing_checks_overridden: Option<Value>,
     pub decided_by: Option<String>,
     pub decided_at: Option<String>,
+    /// The developer's Not an ADR and Wrong decision marks on the ADRs the branch adds (issue #164):
+    /// a JSON array, read with `review_decisions::stored_adr_decisions`. Keep is not stored.
+    pub adr_decisions: Value,
 }
 
 const SELECT_REVIEWS: &str = "SELECT id, project_id, story_id, session_id, opened_at, base_sha, head_sha, files, added,
-    removed, open_tasks, check_objections, adr_notes, outcome, comments, failing_checks_overridden, decided_by, decided_at
-    FROM reviews";
+    removed, open_tasks, check_objections, adr_notes, outcome, comments, failing_checks_overridden, decided_by, decided_at,
+    adr_decisions FROM reviews";
 
 fn json_column(row: &Row, index: usize) -> rusqlite::Result<Value> {
     let text: String = row.get(index)?;
@@ -94,6 +97,7 @@ fn row_to_review(row: &Row) -> rusqlite::Result<Review> {
             .map_err(|e| rusqlite::Error::FromSqlConversionFailure(15, rusqlite::types::Type::Text, Box::new(e)))?,
         decided_by: row.get(16)?,
         decided_at: row.get(17)?,
+        adr_decisions: json_column(row, 18)?,
     })
 }
 
@@ -183,6 +187,20 @@ pub(crate) fn open_review_in_tx(
     )
     .context("failed to open the review; a Story has one open review at a time")?;
     Ok(id)
+}
+
+/// The diff to open `story_id`'s review from, read from its worktree, when it has no open review (a
+/// Story handed off before reviews existed); `None` when one is open. A decision taken on such a Story
+/// opens its review first, so the decision has a row to land on.
+pub(crate) fn diff_to_open_review(conn: &Connection, story_id: &str, story_key: &str) -> anyhow::Result<Option<ReviewDiff>> {
+    if open_review(conn, story_id)?.is_some() {
+        return Ok(None);
+    }
+    let worktree = worktree_for_story(conn, story_id)?
+        .filter(|w| Path::new(&w.path).is_dir())
+        .with_context(|| format!("{story_key} has no worktree on disk to review. Recreate it, or drop the Story."))?;
+    let path = Path::new(&worktree.path);
+    Ok(Some(read_review_diff(path, &worktree.base_branch, &check::worktree_head(path)?)?))
 }
 
 /// Close the Story's open review with `outcome` and the developer's `comments`, as `actor_id`, inside

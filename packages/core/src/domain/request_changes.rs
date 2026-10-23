@@ -7,31 +7,31 @@
 //! next session starts in the same worktree from a Context packet whose section 7 carries the
 //! comments (`context_packet`), and the agent adds one Task per review point before anything else.
 //!
+//! The review's ADR review points (issue #164, ADR 0016) go with the comments: each new ADR marked
+//! Not an ADR or Wrong decision, and each renumber or missing supersession line flagged in the
+//! Decisions section, as a list headed "ADR review points:" after the developer's own words
+//! ([`comments_with_adr_points`]). They are stored with the comments, so section 7 carries them.
+//!
 //! Starting that session is the command's job (`story_request_changes` in the desktop crate), which
 //! calls this first and then launches, under one database lock, so the Story never reads Stopped
 //! unless the launch fails; a failed launch leaves it Stopped, with Resume.
 //!
-//! Refused, writing nothing, for an agent, for blank comments, for a Story not In review, and while
-//! a session of the Story is live. A Story handed off before reviews existed has no open review: one
-//! is opened from its worktree's diff, so the comments have a row to land on.
-
-use std::path::Path;
+//! Refused, writing nothing, for an agent, for blank comments with no ADR review point, for a Story
+//! not In review, and while a session of the Story is live. A Story handed off before reviews existed
+//! has no open review: one is opened from its worktree's diff, so the comments have a row to land on.
 
 use anyhow::Context;
 use rusqlite::{params, Connection};
 
 use crate::domain::actor::assert_human_actor;
-use crate::domain::check::worktree_head;
-use crate::domain::review::{close_review_in_tx, open_review, open_review_in_tx, read_review_diff};
+use crate::domain::review::{close_review_in_tx, diff_to_open_review, open_review, open_review_in_tx};
+use crate::domain::review_decisions::{review_decisions, stored_adr_decisions, ReviewDecisions};
 use crate::domain::story::{get_story, set_story_state_in_tx, StoryState};
-use crate::domain::worktree::worktree_for_story;
 use crate::domain::{now, record_event, EventScope};
 
 /// Send `story_id` back to Running with `comments`, as `actor_id`. See the module documentation.
 pub fn request_changes(conn: &mut Connection, actor_id: &str, story_id: &str, comments: &str) -> anyhow::Result<()> {
     assert_human_actor(conn, actor_id)?;
-    let comments = comments.trim();
-    anyhow::ensure!(!comments.is_empty(), "Request changes needs a comment: say what the agent should change.");
     let story = get_story(conn, story_id)?.with_context(|| format!("Story {story_id:?} not found"))?;
     anyhow::ensure!(
         story.state == StoryState::InReview.as_str(),
@@ -46,16 +46,10 @@ pub fn request_changes(conn: &mut Connection, actor_id: &str, story_id: &str, co
     )?;
     anyhow::ensure!(!live, "{} has a live session. Stop it before requesting changes.", story.key);
 
-    let diff = match open_review(conn, story_id)? {
-        Some(_) => None,
-        None => {
-            let worktree = worktree_for_story(conn, story_id)?
-                .filter(|w| Path::new(&w.path).is_dir())
-                .with_context(|| format!("{} has no worktree on disk to send back to. Recreate it, or drop the Story.", story.key))?;
-            let path = Path::new(&worktree.path);
-            Some(read_review_diff(path, &worktree.base_branch, &worktree_head(path)?)?)
-        }
-    };
+    let comments = comments_with_adr_points(comments, &adr_review_points(conn, story_id)?);
+    anyhow::ensure!(!comments.is_empty(), "Request changes needs a comment: say what the agent should change.");
+    let comments = comments.as_str();
+    let diff = diff_to_open_review(conn, story_id, &story.key)?;
 
     let now = now();
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -85,4 +79,35 @@ pub fn request_changes(conn: &mut Connection, actor_id: &str, story_id: &str, co
     )?;
     tx.commit().context("failed to commit request_changes")?;
     Ok(())
+}
+
+/// The open review's ADR review points: its Not an ADR and Wrong decision marks, and the renumber and
+/// supersession flags read from the repository. Reading the repository is best-effort here: when it
+/// cannot answer, the stored marks still go.
+fn adr_review_points(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<String>> {
+    let decisions = match review_decisions(conn, story_id) {
+        Ok(decisions) => decisions,
+        Err(e) => {
+            eprintln!("request changes: could not read the Decisions section's flags: {e:#}");
+            let stored = open_review(conn, story_id)?.map(|r| stored_adr_decisions(&r.adr_decisions)).unwrap_or_default();
+            ReviewDecisions { decisions: stored, ..ReviewDecisions::default() }
+        }
+    };
+    Ok(decisions.review_points())
+}
+
+/// The developer's comments, trimmed, then the ADR review points as a list headed "ADR review
+/// points:". Empty when both are.
+pub fn comments_with_adr_points(comments: &str, points: &[String]) -> String {
+    let comments = comments.trim();
+    if points.is_empty() {
+        return comments.to_string();
+    }
+    let list: Vec<String> = points.iter().map(|p| format!("- {p}")).collect();
+    let block = format!("ADR review points:\n{}", list.join("\n"));
+    if comments.is_empty() {
+        block
+    } else {
+        format!("{comments}\n\n{block}")
+    }
 }

@@ -9,7 +9,10 @@
  *    its criterion only as a suggestion: the box wears the dashed "not on the record yet" edge until the
  *    developer ticks it. A passing Check's objections sit under its chip.
  * 3. The Decisions section (issue #161, `DecisionsSection.tsx`): `docs/adr/` and `GLOSSARY.md` changes apart
- *    from the code, each new ADR with its bar lines, its related live ADRs and Keep.
+ *    from the code, each new ADR with its bar lines, its related live ADRs and its decision (Keep, Not an ADR,
+ *    Wrong decision, issue #164), and each change's flags. A new ADR marked anything but Keep holds Merge, and
+ *    the composer lists the ADR review points the core sends after the comments; with any, the comments may
+ *    stay empty.
  * 4. The warnings: "n Tasks not done" (open or doing).
  * 5. The changed files, each with its patch (`ReviewFiles`).
  * 6. The footer: what still holds Merge, then Request changes and Merge (the region's one filled primary),
@@ -38,6 +41,7 @@ import {
   MessageSquareReply,
   MessageSquareWarning,
   RefreshCw,
+  ScrollText,
   SquareTerminal,
   Undo2,
 } from "lucide-react";
@@ -100,6 +104,14 @@ export function mergeBlockers(review: StoryReviewDto): string[] {
   if (review.liveSession) blockers.push("A session is live: stop it before merging.");
   const unaccepted = review.criteria.filter((c) => !c.accepted).length;
   if (unaccepted > 0) blockers.push(`Accept ${unaccepted} more ${unaccepted === 1 ? "criterion" : "criteria"} to merge.`);
+  for (const change of review.decisions) {
+    const decision = change.newAdr?.decision.kind;
+    if (decision && decision !== "keep") {
+      blockers.push(
+        `${change.path} is marked ${decision === "not_an_adr" ? "Not an ADR" : "Wrong decision"}: request changes, or set it back to Keep.`,
+      );
+    }
+  }
   if (review.uncommitted.length > 0) {
     blockers.push(`The worktree has uncommitted changes (${review.uncommitted.join(", ")}): commit or discard them.`);
   }
@@ -253,10 +265,13 @@ function RebaseNeeded({
 function RequestChangesComposer({
   story,
   initial,
+  adrPoints,
   onClose,
 }: {
   story: StoryDto;
   initial: string;
+  /** The ADR review points the core sends after the comments. */
+  adrPoints: string[];
   onClose: () => void;
 }) {
   const [comments, setComments] = useState(initial);
@@ -267,7 +282,7 @@ function RequestChangesComposer({
 
   function send() {
     if (busy) return;
-    if (comments.trim() === "") {
+    if (comments.trim() === "" && adrPoints.length === 0) {
       setEmpty(true);
       return;
     }
@@ -309,6 +324,21 @@ function RequestChangesComposer({
         }}
         className="max-h-60"
       />
+      {adrPoints.length > 0 && (
+        <div className="flex min-w-0 flex-col gap-1">
+          <span id={`${id}-adr`} className="text-meta font-semibold text-muted-foreground">
+            {`Also sent: ${adrPoints.length === 1 ? "1 ADR review point" : `${adrPoints.length} ADR review points`}`}
+          </span>
+          <ul aria-labelledby={`${id}-adr`} className="m-0 flex min-w-0 list-none flex-col gap-1 p-0">
+            {adrPoints.map((point) => (
+              <li key={point} className="flex min-w-0 items-start gap-1.5 text-small break-words text-foreground">
+                <ScrollText aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                {point}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {empty && (
         <p id={`${id}-empty`} className="m-0 text-small text-destructive-text">
           Write at least one review point.
@@ -604,6 +634,7 @@ export interface ReviewCardProps {
 
 export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
   const reviewQuery = useStoryReview(projectId, story.id);
+  const queryClient = useQueryClient();
   const review = reviewQuery.data;
   const blockers = review ? mergeBlockers(review) : [];
   const diff = review?.review;
@@ -643,7 +674,13 @@ export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
           <RebaseNeeded story={story} conflicts={review.conflicts} onRequestRebase={() => setComposing(review.rebaseComment ?? "")} />
         )}
         {review && review.failingChecks.length > 0 && <FailingChecks checks={review.failingChecks} />}
-        {review && <DecisionsSection decisions={review.decisions} />}
+        {review && (
+          <DecisionsSection
+            storyId={story.id}
+            decisions={review.decisions}
+            onDecided={() => void queryClient.invalidateQueries({ queryKey: reviewQueryKey(projectId, story.id) })}
+          />
+        )}
         {review && review.criteria.length === 0 && (
           <p className="m-0 text-body text-muted-foreground">This Story has no Acceptance criteria to accept.</p>
         )}
@@ -677,7 +714,13 @@ export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
       </div>
       {review && composing !== null && (
         <footer className="flex rounded-b-lg border-t border-border bg-muted/50 px-4 py-3">
-          <RequestChangesComposer key={composing} story={story} initial={composing} onClose={closeComposer} />
+          <RequestChangesComposer
+            key={composing}
+            story={story}
+            initial={composing}
+            adrPoints={review.adrReviewPoints}
+            onClose={closeComposer}
+          />
         </footer>
       )}
       {review && composing === null && (

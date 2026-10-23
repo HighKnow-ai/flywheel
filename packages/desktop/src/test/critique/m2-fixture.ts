@@ -907,12 +907,16 @@ function window_(entries: Record<string, unknown>[], offset: number, limit: numb
  * every criterion accepted and every Check passed. `decisions` (issue #161): `ready`, with the branch's ADR
  * and glossary changes: a new ADR with its hand-off bar lines and a related live ADR, one accepted in shaping,
  * one without bar lines, an edited ADR and the glossary. `rebase` (issue #158): `ready`, but the branch
- * conflicts with main in two files, so it reads Rebase needed.
+ * conflicts with main in two files, so it reads Rebase needed. `adr_flags` (issue #164): `ready`, with the
+ * edited ADR flagged "wording or supersede?", one new ADR flagged to renumber and missing its superseded ADR's
+ * Status line, one marked Wrong decision and one marked Not an ADR, so Merge is held and the composer lists the
+ * ADR review points.
  */
-let reviewMode: "judging" | "override" | "ready" | "decisions" | "rebase" = "judging";
+type ReviewMode = "judging" | "override" | "ready" | "decisions" | "rebase" | "adr_flags";
+let reviewMode: ReviewMode = "judging";
 /** Issue #157: FLY-3 handed off with its last Task still open, so the review card warns "1 Task not done". */
 let reviewTaskOpen = false;
-export function setReviewInFixture(mode: "judging" | "override" | "ready" | "decisions" | "rebase", { taskOpen = false } = {}): void {
+export function setReviewInFixture(mode: ReviewMode, { taskOpen = false } = {}): void {
   reviewMode = mode;
   reviewTaskOpen = taskOpen;
 }
@@ -922,10 +926,12 @@ function tasksOf(storyId: string): TaskDto[] {
   return reviewTaskOpen && storyId === "s-3" ? tasks.map((t) => (t.id === "t-3c" ? { ...t, state: "open" } : t)) : tasks;
 }
 
+const KEEP_DECISION = { kind: "keep" as const, whatIsWrong: null, shouldBe: null };
+
 const REVIEW_DECISIONS: DecisionChangeDto[] = [
   {
     kind: "adr", path: "docs/adr/0004-tailwind-and-shadcn-ui-for-the-desktop-ui.md", oldPath: null, status: "M",
-    added: 3, removed: 1, newAdr: null,
+    added: 3, removed: 1, newAdr: null, flags: [],
   },
   {
     kind: "adr", path: "docs/adr/0010-the-andon-is-the-visual-world.md", oldPath: null, status: "A", added: 41, removed: 0,
@@ -940,7 +946,9 @@ const REVIEW_DECISIONS: DecisionChangeDto[] = [
       barLinesFrom: "handoff",
       related: [{ path: "docs/adr/0004-tailwind-and-shadcn-ui-for-the-desktop-ui.md", title: "Tailwind and shadcn/ui for the desktop UI" }],
       proposalId: null,
+      decision: KEEP_DECISION,
     },
+    flags: [],
   },
   {
     kind: "adr", path: "docs/adr/0011-barlow-for-reading.md", oldPath: null, status: "A", added: 18, removed: 0,
@@ -955,13 +963,58 @@ const REVIEW_DECISIONS: DecisionChangeDto[] = [
       barLinesFrom: "shaping",
       related: [],
       proposalId: "p-adr-11",
+      decision: KEEP_DECISION,
     },
+    flags: [],
   },
   {
     kind: "adr", path: "docs/adr/0012-direction-file.md", oldPath: null, status: "A", added: 9, removed: 0,
-    newAdr: { title: "The picked direction lives in direction.md", barLines: null, barLinesFrom: null, related: [], proposalId: null },
+    newAdr: {
+      title: "The picked direction lives in direction.md", barLines: null, barLinesFrom: null, related: [], proposalId: null,
+      decision: KEEP_DECISION,
+    },
+    flags: [],
   },
-  { kind: "glossary", path: "GLOSSARY.md", oldPath: null, status: "M", added: 6, removed: 0, newAdr: null },
+  { kind: "glossary", path: "GLOSSARY.md", oldPath: null, status: "M", added: 6, removed: 0, newAdr: null, flags: [] },
+];
+
+/** `adr_flags` (issue #164): the same changes, flagged and decided. */
+const FLAGGED_DECISIONS: DecisionChangeDto[] = [
+  {
+    ...REVIEW_DECISIONS[0],
+    flags: [{ kind: "wording_or_supersede", number: null, takenBy: null, baseBranch: null, superseded: null }],
+  },
+  {
+    ...REVIEW_DECISIONS[1],
+    flags: [
+      { kind: "renumber", number: 10, takenBy: "docs/adr/0010-a-review-is-a-board-record.md", baseBranch: "main", superseded: null },
+      { kind: "supersession_line_missing", number: 4, takenBy: null, baseBranch: null, superseded: "docs/adr/0004-tailwind-and-shadcn-ui-for-the-desktop-ui.md" },
+    ],
+  },
+  {
+    ...REVIEW_DECISIONS[2],
+    newAdr: REVIEW_DECISIONS[2].newAdr && {
+      ...REVIEW_DECISIONS[2].newAdr,
+      decision: {
+        kind: "wrong_decision",
+        whatIsWrong: "Barlow's figures are not tabular, so counts jitter as they change",
+        shouldBe: "Barlow for prose, with tabular figures from JetBrains Mono wherever a count changes",
+      },
+    },
+  },
+  {
+    ...REVIEW_DECISIONS[3],
+    newAdr: REVIEW_DECISIONS[3].newAdr && { ...REVIEW_DECISIONS[3].newAdr, decision: { kind: "not_an_adr", whatIsWrong: null, shouldBe: null } },
+  },
+  REVIEW_DECISIONS[4],
+];
+
+/** The ADR review points the core writes for `adr_flags`, in its order: by ADR path. */
+const FLAGGED_POINTS = [
+  "Renumber `docs/adr/0010-the-andon-is-the-visual-world.md`: ADR-0010 is already taken on main by `docs/adr/0010-a-review-is-a-board-record.md`.",
+  "Add a `Status: superseded by ADR-0010` line to `docs/adr/0004-tailwind-and-shadcn-ui-for-the-desktop-ui.md`, which `docs/adr/0010-the-andon-is-the-visual-world.md` supersedes.",
+  "Wrong decision in `docs/adr/0011-barlow-for-reading.md`: Barlow's figures are not tabular, so counts jitter as they change. It should be: Barlow for prose, with tabular figures from JetBrains Mono wherever a count changes. Change the code and the ADR.",
+  "Delete `docs/adr/0012-direction-file.md`; keep the decision out of docs/adr.",
 ];
 
 /** `rebase`: the two files FLY-3's branch conflicts with main in. */
@@ -1035,7 +1088,7 @@ const CONTRAST_TAIL = [
 ].join("\n");
 
 function reviewOf(storyId: string): StoryReviewDto {
-  const ready = reviewMode === "ready" || reviewMode === "decisions" || reviewMode === "rebase";
+  const ready = reviewMode === "ready" || reviewMode === "decisions" || reviewMode === "rebase" || reviewMode === "adr_flags";
   const conflicts = reviewConflicts();
   const accepted = reviewMode !== "judging";
   const renders = reviewCheck("k-3a", "c-3a", "test -f docs/design/directions/andon.html", "passed");
@@ -1068,12 +1121,13 @@ function reviewOf(storyId: string): StoryReviewDto {
     failingChecks: ready ? [] : [contrast],
     liveSession: false,
     uncommitted: [],
-    decisions: reviewMode === "decisions" ? REVIEW_DECISIONS : [],
+    decisions: reviewMode === "decisions" ? REVIEW_DECISIONS : reviewMode === "adr_flags" ? FLAGGED_DECISIONS : [],
     conflicts,
     rebaseComment: conflicts.length
       ? `Rebase needed: merging into main would conflict in ${conflicts.join(", ")}. Rebase this branch on main, resolve those conflicts, and re-run the Checks before handing off.`
       : null,
     files: REVIEW_FILES,
+    adrReviewPoints: reviewMode === "adr_flags" ? FLAGGED_POINTS : [],
   };
 }
 

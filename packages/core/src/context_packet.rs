@@ -592,15 +592,13 @@ fn live_adrs_of(files: impl Iterator<Item = (String, String)>) -> Vec<AdrEntry> 
                     title = Some(t.trim().to_string());
                 }
             }
-            let lower = trimmed.trim_matches(|c: char| c == '*' || c == '_' || c == '-' || c == '>' || c == ' ').to_lowercase();
-            if lower.starts_with("status:") && lower.contains("superseded by") {
+            let lower = adr_line(trimmed);
+            if is_superseded_status(&lower) {
                 marked_superseded = true;
             }
-            if let Some(at) = lower.find("supersedes") {
-                for n in adr_numbers(&lower[at + "supersedes".len()..]) {
-                    if Some(n) != number {
-                        superseded_numbers.insert(n);
-                    }
+            for n in supersedes_numbers(&lower) {
+                if Some(n) != number {
+                    superseded_numbers.insert(n);
                 }
             }
         }
@@ -612,6 +610,22 @@ fn live_adrs_of(files: impl Iterator<Item = (String, String)>) -> Vec<AdrEntry> 
         .filter(|p| !p.marked_superseded && !p.number.is_some_and(|n| superseded_numbers.contains(&n)))
         .map(|p| AdrEntry { path: format!("docs/adr/{}", p.name), title: p.title })
         .collect()
+}
+
+/// An ADR line as the supersession walk reads it: trimmed of markdown emphasis, quote and list marks,
+/// lowercased.
+pub(crate) fn adr_line(line: &str) -> String {
+    line.trim().trim_matches(|c: char| c == '*' || c == '_' || c == '-' || c == '>' || c == ' ').to_lowercase()
+}
+
+/// Whether an [`adr_line`] is a `Status: superseded by …` line.
+pub(crate) fn is_superseded_status(line: &str) -> bool {
+    line.starts_with("status:") && line.contains("superseded by")
+}
+
+/// The ADR numbers an [`adr_line`] says it supersedes ("Supersedes ADR-NNNN"), in order.
+pub(crate) fn supersedes_numbers(line: &str) -> Vec<u32> {
+    line.find("supersedes").map(|at| adr_numbers(&line[at + "supersedes".len()..])).unwrap_or_default()
 }
 
 pub(crate) fn leading_number(name: &str) -> Option<u32> {

@@ -1075,6 +1075,30 @@ export interface NewAdrDto {
   related: RelatedAdrDto[];
   /** The ADR Proposal accepted on the Epic in shaping at this path. */
   proposalId: string | null;
+  /** Keep, Not an ADR or Wrong decision, as stored on the open review (issue #164). */
+  decision: AdrDecisionDto;
+}
+
+/** The developer's decision on a new ADR — mirrors `commands/review.rs`'s `AdrDecisionDto`. */
+export interface AdrDecisionDto {
+  kind: AdrDecisionKind;
+  /** Set for `wrong_decision`. */
+  whatIsWrong: string | null;
+  shouldBe: string | null;
+}
+
+export type AdrDecisionKind = "keep" | "not_an_adr" | "wrong_decision";
+
+/** What the Decisions section flags on an ADR change (issue #164) — mirrors `DecisionFlagDto`. */
+export interface DecisionFlagDto {
+  kind: "wording_or_supersede" | "renumber" | "supersession_line_missing";
+  /** Renumber: the number taken. Supersession line missing: the superseded ADR's number. */
+  number: number | null;
+  /** Renumber: the file holding the number on the base branch, and that branch. */
+  takenBy: string | null;
+  baseBranch: string | null;
+  /** Supersession line missing: the ADR file without its `Status: superseded by` line. */
+  superseded: string | null;
 }
 
 /** One `docs/adr/` or `GLOSSARY.md` change — mirrors `commands/review.rs`'s `DecisionChangeDto`. */
@@ -1089,6 +1113,8 @@ export interface DecisionChangeDto {
   removed: number | null;
   /** Set for an ADR the branch adds. */
   newAdr: NewAdrDto | null;
+  /** Wording or supersede?, Renumber, Supersession line missing. */
+  flags: DecisionFlagDto[];
 }
 
 /** The review card's read model — mirrors `commands/review.rs`'s `StoryReviewDto`. */
@@ -1114,6 +1140,11 @@ export interface StoryReviewDto {
   rebaseComment: string | null;
   /** The changed files of the review's diff, against the branch's head now. */
   files: ReviewFileDto[];
+  /**
+   * The ADR review points a request for changes carries after the comments (issue #164): each Not an ADR
+   * and Wrong decision, and each renumber and missing supersession line, written by the core.
+   */
+  adrReviewPoints: string[];
 }
 
 /** What a Merge did — mirrors `commands/review.rs`'s `MergeDto`. */
@@ -1157,10 +1188,25 @@ export async function storyMerge(storyId: string, withFailingChecks: boolean): P
 }
 
 /**
+ * The developer's decision on a new ADR of a Story In review (issue #164): Keep, Not an ADR, or Wrong
+ * decision with what is wrong and what it should be. Stored on the open review: anything but Keep holds
+ * Merge, and Request changes carries it to the agent. It never sends the Story back by itself.
+ */
+export async function storyAdrDecide(
+  storyId: string,
+  path: string,
+  decision: AdrDecisionKind,
+  whatIsWrong: string | null = null,
+  shouldBe: string | null = null,
+): Promise<void> {
+  return invokeCommand<void>("story_adr_decide", { storyId, path, decision, whatIsWrong, shouldBe });
+}
+
+/**
  * The developer's Request changes on an In review Story (issue #158): the comments close its review, the
  * Story moves to Running, and a fresh session starts in its worktree from a Context packet that carries
- * them. Refused, in words meant for the developer, for blank comments, a Story not In review, or a live
- * session. When the move lands but the launch fails, the Story reads Stopped, with Resume.
+ * them, then the review's ADR review points (issue #164). Refused, in words meant for the developer, for
+ * blank comments with no ADR review point, a Story not In review, or a live session. When the move lands but the launch fails, the Story reads Stopped, with Resume.
  */
 export async function storyRequestChanges(storyId: string, comments: string): Promise<SessionDto> {
   return invokeCommand<SessionDto>("story_request_changes", { storyId, comments });
