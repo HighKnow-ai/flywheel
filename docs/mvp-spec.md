@@ -91,7 +91,7 @@ Flywheel has one opinionated, built-in way of working, adapted from mattpocock/s
 ### Shaping an Epic
 
 - **Stages:** challenge the spec, then slice into Stories, then write the Acceptance criteria. Each Stage takes one or more Rounds. The agent posts the next Round once every question in the current one is answered.
-- **Closing a Stage:** a Stage is closable when nothing in it is open: no unanswered question and no undecided Proposal. The criteria Stage also needs every accepted Story to have at least one accepted criterion. Even then **Cyril closes the Stage himself**. The close button lists whatever is still open, and nothing advances on its own.
+- **Closing a Stage:** a Stage is closable when nothing in it is open: no unanswered question and no undecided Proposal. The criteria Stage also needs every accepted Story to have at least one accepted criterion. In shaping, an accepted criterion is one whose Proposal was accepted, which creates the criterion; its `accepted_by` stays empty until Cyril accepts it at review. Closing the criteria Stage moves every Story in Shaping, and the Epic, to Ready in one step. Even then **Cyril closes the Stage himself**. The close button lists whatever is still open, and nothing advances on its own.
 - **Screen:** the board is the main surface.
   - The Epic card sits at the top, with Problem, Scope and Out of scope as fields and ADR and glossary chips.
   - Story columns hang off the Epic, left to right in execution order. Each Story's criteria are stacked underneath, with their Check as a chip or "judged at review".
