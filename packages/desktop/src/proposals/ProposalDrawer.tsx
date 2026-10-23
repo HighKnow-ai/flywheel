@@ -17,8 +17,9 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpDown, CircleCheck, CircleMinus, Compass, Copy, FilePlus2, Layers, Lightbulb, ListChecks, ScanSearch, SquareTerminal } from "lucide-react";
+import { ArrowUpDown, CircleCheck, CircleMinus, Compass, FilePlus2, Layers, Lightbulb, ListChecks, ScanSearch, SquareTerminal } from "lucide-react";
 import { proposalListForTriage, type ProposalDto, type TriageProposalDto } from "../adapters/tauri";
+import { DuplicateFlag } from "./DuplicateFlag";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -415,24 +416,6 @@ function CardBody({ t }: { t: TriageProposalDto }) {
     default:
       return null;
   }
-}
-
-/** A duplicate's flag (issue #165): what it repeats, who filed that one, and that accepting it closes this one. */
-function DuplicateFlag({ duplicate }: { duplicate: NonNullable<TriageProposalDto["duplicate"]> }) {
-  return (
-    <p data-duplicate-of={duplicate.proposalId} className="m-0 flex min-w-0 items-start gap-1.5 rounded-md bg-secondary px-3 py-2 text-small text-muted-foreground">
-      <Copy aria-hidden="true" size={15} className="mt-0.5 shrink-0" />
-      <span className="min-w-0 break-words">
-        <span className="font-semibold text-foreground">Duplicate of “{duplicate.title}”</span>
-        {duplicate.storyKey && (
-          <>
-            , filed by <span className="font-mono text-meta">{duplicate.storyKey}</span>
-          </>
-        )}
-        . Accepting that one closes this one.
-      </span>
-    </p>
-  );
 }
 
 function TriageCard({ card: t, now, afterDecide }: { card: TriageProposalDto; now: number; afterDecide: () => Promise<void> }) {

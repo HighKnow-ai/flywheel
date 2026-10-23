@@ -47,14 +47,9 @@
  * surface). Every shape a test passes here for a hard limit is CONSTRUCTED from the documented
  * shape; no hard limit has ever been observed live in this project.
  *
- * **Commit mode** (`FLYWHEEL_FAKE_COMMIT_FILE=<repo-relative path>`, plan 11-16, D-REV-34): plays an
- * agent that does the work and commits it, but ONLY when its briefing tells it to. It reads its own
- * `-p <prompt>` argv and commits just when the prompt carries the dispatcher's commit instruction
- * (`DISPATCHED_COMMIT_INSTRUCTION`, "Commit your work on this branch ..."); it writes the file in
- * its own working directory (the run's worktree), `git add`s and `git commit`s it, and prints a
- * `fake_commit` line with the new HEAD (or a `fake_commit_skipped` line when the briefing did not
- * say to). Run through the session's `PATH`, so the commit passes the real PATH shim. This is
- * wiring, not obedience: a real model's compliance with the instruction is not what it shows.
+ * **Commits** are a step of the scripted board-call mode below (`{ commit: { path, content } }`, issue
+ * #169), interleaved with board calls as an agent works. The old `FLYWHEEL_FAKE_COMMIT_FILE` mode, which
+ * matched the fan-out dispatcher's commit instruction, went with that instruction and is retired.
  *
  * **Usage block** (G-02-4, plan 02-18): both of this script's `result` lines carry a `usage`
  * object in the real CLI's own field shape (`input_tokens`, `cache_creation_input_tokens`,
@@ -152,6 +147,29 @@ async function callTaskToolOnce(toolCall) {
 }
 
 /**
+ * A board script's `commit` step (`{ commit: { path, content } }`, issue #169): write `content` at `path`
+ * in this process's working directory (the session's worktree), then `git add` and `git commit` it. Run
+ * through the session's `PATH`, so both commands pass the real PATH shim. Prints a `fake_commit` line with
+ * the new HEAD, or `fake_commit_failed` with git's stderr.
+ */
+function commitFile({ path: file, content }) {
+  fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
+  fs.writeFileSync(file, content);
+  // Identity through the environment, not `git -c ...`: the PATH shim classifies a git command line
+  // that opens with global options as uncategorised and raises a permission request for it, so the
+  // plain `git add` / `git commit` below is also what a real agent runs.
+  const identity = { GIT_AUTHOR_NAME: "Fake Agent", GIT_AUTHOR_EMAIL: "fake@flywheel.test", GIT_COMMITTER_NAME: "Fake Agent", GIT_COMMITTER_EMAIL: "fake@flywheel.test" };
+  const git = (...args) => spawnSync("git", args, { encoding: "utf8", env: { ...process.env, ...identity } });
+  const steps = [git("add", "--", file), git("commit", "-m", `agent work: ${file}`)];
+  const failed = steps.find((r) => r.status !== 0);
+  if (failed) {
+    printLine({ type: "fake_commit_failed", path: file, stderr: failed.stderr.trim() });
+  } else {
+    printLine({ type: "fake_commit", path: file, head: git("log", "-1", "--format=%H").stdout.trim() });
+  }
+}
+
+/**
  * Scripted board-call mode (`FLYWHEEL_FAKE_BOARD_CALLS=<json [{name, arguments, when?, unless?}]>`,
  * issue #134's offline UAT): a scripted agent that reads its own `-p` packet and makes board calls in
  * order over ONE connection to the session's MCP server, each awaited, so a held call (`round_wait`)
@@ -161,8 +179,10 @@ async function callTaskToolOnce(toolCall) {
  * packet (a step whose placeholder does not match fails loudly as `board_call_unresolved`), and
  * `{{result:<tool>:<field>}}` by that field of the JSON the latest successful call to `<tool>` in this
  * session answered with (issue #130: the second `propose_story` names the first one's `proposal_id` in
- * `runs_after`, as an agent reads it off the first call's answer). Each call prints a `board_call_result`
- * line `{name, isError, text}`; a skipped step prints `board_call_skipped`.
+ * `runs_after`, as an agent reads it off the first call's answer); a dotted `<field>` reads into the answer
+ * (`{{result:task_add:tasks.0.task_id}}`). Each call prints a `board_call_result` line
+ * `{name, isError, text}`; a skipped step prints `board_call_skipped`. A `{ commit: { path, content } }`
+ * step, under the same `when`/`unless`, commits a file between two calls (`commitFile`, issue #169).
  */
 async function runBoardScript(steps) {
   const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
@@ -184,8 +204,9 @@ async function runBoardScript(steps) {
           if (!match) throw new Error(`no match for ${source}`);
           return match[1];
         })
-        .replace(/\{\{result:([a-z_]+):([a-z_]+)\}\}/g, (_, tool, field) => {
-          const found = answers.get(tool)?.[field];
+        .replace(/\{\{result:([a-z_]+):([a-z0-9_.]+)\}\}/g, (_, tool, field) => {
+          // A dotted path reads into the answer: `tasks.0.task_id` is the first Task's id.
+          const found = field.split(".").reduce((at, key) => at?.[key], answers.get(tool));
           if (typeof found !== "string") throw new Error(`no ${field} in an answer to ${tool}`);
           return found;
         });
@@ -197,7 +218,11 @@ async function runBoardScript(steps) {
   try {
     for (const step of steps) {
       if ((step.when && !new RegExp(step.when).test(prompt)) || (step.unless && new RegExp(step.unless).test(prompt))) {
-        printLine({ type: "board_call_skipped", name: step.name });
+        printLine({ type: "board_call_skipped", name: step.name ?? "commit" });
+        continue;
+      }
+      if (step.commit) {
+        commitFile(step.commit);
         continue;
       }
       let args;
@@ -272,29 +297,6 @@ if (process.env.FLYWHEEL_FAKE_BOARD_CALLS) {
   await runBoardScript(JSON.parse(process.env.FLYWHEEL_FAKE_BOARD_CALLS));
 }
 
-const COMMIT_FILE = process.env.FLYWHEEL_FAKE_COMMIT_FILE;
-if (COMMIT_FILE) {
-  // Matches the first words of `DISPATCHED_COMMIT_INSTRUCTION` in packages/core/src/context_packet.rs.
-  if (!(readFlag("-p") ?? "").includes("Commit your work on this branch")) {
-    printLine({ type: "fake_commit_skipped", reason: "the briefing did not tell the agent to commit" });
-  } else {
-    fs.mkdirSync(path.dirname(path.resolve(COMMIT_FILE)), { recursive: true });
-    fs.writeFileSync(COMMIT_FILE, `written by the fake agent in ${path.basename(process.cwd())}\n`);
-    // Identity through the environment, not `git -c ...`: the PATH shim classifies a git command line
-    // that opens with global options as uncategorised and raises a permission request for it, so the
-    // plain `git add` / `git commit` below is also what a real agent's briefing leads to.
-    const identity = { GIT_AUTHOR_NAME: "Fake Agent", GIT_AUTHOR_EMAIL: "fake@flywheel.test", GIT_COMMITTER_NAME: "Fake Agent", GIT_COMMITTER_EMAIL: "fake@flywheel.test" };
-    const git = (...args) => spawnSync("git", args, { encoding: "utf8", env: { ...process.env, ...identity } });
-    const steps = [git("add", "--", COMMIT_FILE), git("commit", "-m", `agent work: ${COMMIT_FILE}`)];
-    const failed = steps.find((r) => r.status !== 0);
-    if (failed) {
-      printLine({ type: "fake_commit_failed", stderr: failed.stderr.trim() });
-    } else {
-      printLine({ type: "fake_commit", head: git("log", "-1", "--format=%H").stdout.trim() });
-    }
-  }
-}
-
 const CHECK_ENV_VAR = process.env.FLYWHEEL_FAKE_CHECK_ENV_VAR;
 if (CHECK_ENV_VAR) {
   // Never print process.env[CHECK_ENV_VAR] itself — only the boolean equality result. Both
@@ -351,7 +353,9 @@ if (STUBBORN) {
   });
 
   // Give SIGINT a moment to land in interrupt-focused tests before the process would otherwise
-  // finish on its own.
+  // finish on its own. `FLYWHEEL_FAKE_AWAIT_INTERRUPT=1` waits for the interrupt instead (a 30s
+  // safety exit aside): a test that must see the interrupt land cannot race a 50ms self-exit, which
+  // a loaded machine loses (issue #169).
   setTimeout(() => {
     if (interrupted) return;
     printLine({
@@ -362,5 +366,5 @@ if (STUBBORN) {
       usage: FAKE_USAGE,
     });
     process.exit(0);
-  }, 50);
+  }, process.env.FLYWHEEL_FAKE_AWAIT_INTERRUPT === "1" ? 30_000 : 50);
 }

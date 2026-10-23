@@ -842,7 +842,14 @@ export interface TriageProposalDto {
   reorder: { nowAfter: string | null; proposedAfter: string | null } | null;
   /** What a duplicate repeats (issue #165): the Proposal, what it names, and the Story that filed it; null for an
    * original. Accepting that one closes this one. */
-  duplicate?: { proposalId: string; title: string; storyKey: string | null } | null;
+  duplicate?: DuplicateOfDto | null;
+}
+
+/** The Proposal a duplicate repeats (issue #165) — mirrors `commands/proposal.rs`'s `DuplicateOfDto`. */
+export interface DuplicateOfDto {
+  proposalId: string;
+  title: string;
+  storyKey: string | null;
 }
 
 /** The project's Proposals awaiting triage, in the drawer's order: by Epic in Roadmap order, then the New Epics;
@@ -1671,6 +1678,8 @@ export interface NeedsYouJudgedOnDto {
   evidence: string | null;
   /** The key of the Story whose session filed it. */
   filedBy: string | null;
+  /** The pending change this one repeats (issue #165); null for an original. Accepting that one closes this one. */
+  duplicate?: DuplicateOfDto | null;
 }
 
 /** One Needs-you item — mirrors `commands/needs_you.rs`'s `NeedsYouItemDto`. Ranked by the core. */

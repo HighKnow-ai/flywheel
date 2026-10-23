@@ -127,7 +127,7 @@ jobs:
 
       # The offline UAT (docs/mvp-spec.md §9): zero tokens, no `claude` binary, no credentials. The
       # job holds no secret. A SKIP exits 3, so it fails this step rather than passing silently.
-      - name: Offline UAT (harness-supervision-gate, uat-12, uat-16, uat-17, uat-18)
+      - name: Offline UAT (harness-supervision-gate, uat-12, uat-16, uat-17, uat-18, uat-19)
         run: |
           node scripts/uat/harness-supervision-gate.mjs --mode=supervised
           node scripts/uat/harness-supervision-gate.mjs --mode=unsupervised
@@ -135,6 +135,7 @@ jobs:
           node scripts/uat/uat-16-epic-shaping.mjs
           node scripts/uat/uat-17-roadmap-round.mjs
           node scripts/uat/uat-18-execution-proposals.mjs
+          node scripts/uat/uat-19-board-and-review.mjs
 
   desktop:
     name: Desktop unit tests and build

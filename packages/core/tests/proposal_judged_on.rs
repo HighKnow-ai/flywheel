@@ -305,6 +305,24 @@ fn judged_on_is_an_amend_criterion_or_a_story_sessions_amend_epic_spec() {
     assert!(!judged(&f, &shaping.id));
 }
 
+/// Issue #169 (a loose end of #183 and #185): a judged-on change that repeats a pending one is flagged in
+/// Needs you as the triage drawer flags a duplicate, naming what it repeats and the Story that filed it.
+#[test]
+fn a_judged_on_duplicate_names_the_change_it_repeats_in_needs_you() {
+    let mut f = fixture();
+    let first = amend(&mut f, "Parses an empty line as no token", None);
+    let second = amend(&mut f, "Parses an empty line and a blank one as no token", None);
+    let items = core::query::needs_you::needs_you(&f.conn, &f.story.project_id).unwrap();
+    let judged: Vec<_> = items.iter().filter_map(|i| i.judged_on.as_ref()).collect();
+    assert_eq!(judged.len(), 2, "each judged-on change is its own item");
+    let original = judged.iter().find(|j| j.proposal_id == first).unwrap();
+    assert_eq!(original.duplicate, None, "the first is no one's duplicate");
+    let duplicate = judged.iter().find(|j| j.proposal_id == second).unwrap().duplicate.as_ref().expect("flagged");
+    assert_eq!(duplicate.proposal_id, first);
+    assert_eq!(duplicate.story_key.as_deref(), Some(f.story.key.as_str()));
+    assert_eq!(duplicate.title, "Parses a line", "it names the criterion both change");
+}
+
 /// Migration 0013 adds `checks.stale_since`, NULL until a judged-on change marks the run stale.
 #[test]
 fn a_fresh_database_migrates_through_0013() {
