@@ -216,6 +216,34 @@ pub fn set_project_credential_mode(
     Ok(())
 }
 
+/// The Developer opened a project's board (issue #167): return what changed since the last visit
+/// (`query::events::events_since_last_look`, the newest `limit` meaningful events and their total)
+/// and move the project's cursor to the newest event of its stream, meaningful or not, so the next
+/// visit starts after everything this one saw. The first visit lists nothing and only sets the
+/// cursor: there is no last look before it.
+///
+/// One immediate transaction, so no event can land between the read and the cursor move and be
+/// skipped by both. Writes one `settings` row (`last_looked:<project_id>`) and no event: looking is
+/// not a change to the board.
+pub fn board_visit(
+    conn: &mut Connection,
+    actor_id: &str,
+    project_id: &str,
+    limit: i64,
+) -> anyhow::Result<crate::query::events::SinceLastLooked> {
+    use crate::query::events::{events_after, last_looked_key, last_looked_sequence, newest_sequence, SinceLastLooked};
+
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let newest = newest_sequence(&tx, project_id)?;
+    let seen = match last_looked_sequence(&tx, project_id)? {
+        Some(after) => events_after(&tx, project_id, after, limit)?,
+        None => SinceLastLooked { total: 0, events: Vec::new() },
+    };
+    upsert_setting(&tx, &last_looked_key(project_id), &newest.to_string(), actor_id, &Utc::now().to_rfc3339())?;
+    tx.commit().context("failed to commit board_visit")?;
+    Ok(seen)
+}
+
 fn human_mode_name(mode: &str) -> &'static str {
     match mode {
         "api_key" => "API key",

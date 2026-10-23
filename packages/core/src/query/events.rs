@@ -14,9 +14,13 @@
 //! chronological timeline is *approximate*, by sorting the fetched rows on `events.id` (a ULID,
 //! clock-ordered across any writer without cross-machine coordination) — sufficient for a
 //! human-facing trail, not a strict causal ordering (see `01-10-PLAN.md`'s "Flagged assumption").
+//!
+//! A third read, [`events_since_last_look`] (issue #167), is the board's "Since you last looked"
+//! timeline: the same stream filtered to the human-meaningful event types after a per-project cursor
+//! kept in `settings`, which `domain::settings::board_visit` moves when the board is opened.
 
 use anyhow::Context;
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::domain::event::render_description;
 
@@ -155,4 +159,117 @@ pub fn events_since_cursor(
         )?
         .collect::<Result<Vec<_>, _>>();
     rows.context("failed to query events since cursor")
+}
+
+/// The `settings` key holding a project's "Since you last looked" cursor (issue #167): the newest
+/// `local` sequence the Developer had seen when they last opened that project's board.
+pub fn last_looked_key(project_id: &str) -> String {
+    format!("last_looked:{project_id}")
+}
+
+/// The event types the "Since you last looked" timeline lists (spec §7, issue #167): state moves (a
+/// merge and a confirmed Done are state moves too), hand-offs, Proposals filed or decided, and Rounds
+/// opened or closed, shaping and roadmap alike. Task churn, edits, sessions and criteria are left out.
+pub const MEANINGFUL_EVENT_TYPES: &[&str] = &[
+    "story.state_changed",
+    "story.handed_off",
+    "epic.state_changed",
+    "milestone.state_changed",
+    "proposal.filed",
+    "proposal.accepted",
+    "proposal.rejected",
+    "round.posted",
+    "round.answered",
+    "round.opened",
+    "round.closed",
+    "round.dismissed",
+];
+
+/// One event of the "Since you last looked" timeline, with the record it is about: a Story's or
+/// Epic's key and title, or a Milestone's title (no key). Both are `None` for a project-level event
+/// such as a roadmap Round, whose own sentence names it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LookedEvent {
+    pub event: EventRow,
+    pub subject_key: Option<String>,
+    pub subject_title: Option<String>,
+}
+
+/// What changed since the last look: the newest `limit` meaningful events, oldest first, and how
+/// many there are in all.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SinceLastLooked {
+    pub total: i64,
+    pub events: Vec<LookedEvent>,
+}
+
+// `?2` is the cursor; `?3` the event types as a JSON array, so the list stays one literal statement.
+const SINCE_LAST_LOOK_COUNT_SQL: &str = "SELECT COUNT(*) FROM events \
+    WHERE project_id = ?1 AND origin = 'local' AND sequence > ?2 \
+    AND event_type IN (SELECT value FROM json_each(?3))";
+
+const SINCE_LAST_LOOK_SQL: &str = "SELECT * FROM (\
+    SELECT e.id, e.project_id, e.origin, e.sequence, e.stream_type, e.stream_id, \
+    e.story_id, e.epic_id, e.actor_id, e.event_type, e.payload, e.occurred_at, \
+    CASE \
+      WHEN e.story_id IS NOT NULL THEN (SELECT s.key FROM stories s WHERE s.id = e.story_id) \
+      WHEN e.epic_id IS NOT NULL THEN (SELECT ep.key FROM epics ep WHERE ep.id = e.epic_id) \
+    END AS subject_key, \
+    CASE \
+      WHEN e.story_id IS NOT NULL THEN (SELECT s.title FROM stories s WHERE s.id = e.story_id) \
+      WHEN e.epic_id IS NOT NULL THEN (SELECT ep.title FROM epics ep WHERE ep.id = e.epic_id) \
+      WHEN e.stream_type = 'milestone' THEN (SELECT m.title FROM milestones m WHERE m.id = e.stream_id) \
+      WHEN e.stream_type = 'round' THEN (SELECT m.title FROM rounds r JOIN stages st ON st.id = r.stage_id \
+        JOIN milestones m ON m.id = st.milestone_id WHERE r.id = e.stream_id) \
+    END AS subject_title \
+    FROM events e \
+    WHERE e.project_id = ?1 AND e.origin = 'local' AND e.sequence > ?2 \
+    AND e.event_type IN (SELECT value FROM json_each(?3)) \
+    ORDER BY e.sequence DESC LIMIT ?4\
+    ) ORDER BY sequence ASC";
+
+/// A project's cursor, or `None` before its board was ever opened. An unreadable value reads as
+/// `None` too: the next visit then sets a fresh baseline rather than failing the board.
+pub fn last_looked_sequence(conn: &Connection, project_id: &str) -> anyhow::Result<Option<i64>> {
+    let value: Option<String> = conn
+        .query_row("SELECT value FROM settings WHERE key = ?1", params![last_looked_key(project_id)], |r| r.get(0))
+        .optional()
+        .context("failed to read the last-looked cursor")?;
+    Ok(value.and_then(|v| v.parse().ok()))
+}
+
+/// The meaningful events since the project's last look (issue #167), read only: the cursor stays
+/// where it is (`domain::settings::board_visit` moves it). A project never looked at has no last
+/// look, so nothing is listed.
+pub fn events_since_last_look(conn: &Connection, project_id: &str, limit: i64) -> anyhow::Result<SinceLastLooked> {
+    let Some(after) = last_looked_sequence(conn, project_id)? else {
+        return Ok(SinceLastLooked { total: 0, events: Vec::new() });
+    };
+    events_after(conn, project_id, after, limit)
+}
+
+/// The meaningful events after `after`, as [`events_since_last_look`] lists them.
+pub(crate) fn events_after(conn: &Connection, project_id: &str, after: i64, limit: i64) -> anyhow::Result<SinceLastLooked> {
+    let types = serde_json::to_string(MEANINGFUL_EVENT_TYPES)?;
+    let total: i64 = conn
+        .query_row(SINCE_LAST_LOOK_COUNT_SQL, params![project_id, after, types], |r| r.get(0))
+        .context("failed to count events since the last look")?;
+    let mut stmt = conn.prepare(SINCE_LAST_LOOK_SQL)?;
+    let events = stmt
+        .query_map(params![project_id, after, types, limit], |row| {
+            Ok(LookedEvent { event: row_to_event(row)?, subject_key: row.get(12)?, subject_title: row.get(13)? })
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to query events since the last look")?;
+    Ok(SinceLastLooked { total, events })
+}
+
+/// The newest `local` sequence in the project's stream, or 0 for an empty stream.
+pub(crate) fn newest_sequence(conn: &Connection, project_id: &str) -> anyhow::Result<i64> {
+    conn.query_row(
+        "SELECT COALESCE(MAX(sequence), 0) FROM events WHERE project_id = ?1 AND origin = 'local'",
+        params![project_id],
+        |r| r.get(0),
+    )
+    .context("failed to read the newest event sequence")
 }
