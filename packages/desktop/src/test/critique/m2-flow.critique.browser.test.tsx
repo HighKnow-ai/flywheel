@@ -898,15 +898,15 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await shot("78-needs-you-confirm-exit-test");
   });
 
-  it("79 review card: Rebase needed names the conflicting files first, Merge held (issue #158)", async () => {
+  it("87 review card: Rebase needed names the conflicting files first, Merge held (issue #158)", async () => {
     setReviewInFixture("rebase");
     await boardReady();
     await click("Open review of FLY-3");
     await screen.findByRole("region", { name: "Rebase needed" });
-    await shot("79-review-card-rebase-needed");
+    await shot("87-review-card-rebase-needed");
   });
 
-  it("80 review card: Request changes writes the review points in the footer (issue #158)", async () => {
+  it("88 review card: Request changes writes the review points in the footer (issue #158)", async () => {
     setReviewInFixture("judging");
     await boardReady();
     await click("Open review of FLY-3");
@@ -916,7 +916,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
       "Lift subtle-foreground on the dark card until it clears 4.5:1.{Enter}Record the lift in direction.md.",
     );
     (await screen.findByRole("button", { name: "Send FLY-3 back to Running" })).scrollIntoView({ block: "end" });
-    await shot("80-review-card-request-changes");
+    await shot("88-review-card-request-changes");
   });
 
   it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {
