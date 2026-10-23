@@ -40,6 +40,7 @@ import {
   isOwnControl,
   useStopped,
 } from "./StoryControls";
+import { OpenReviewControl } from "../review/ReviewCard";
 import { WriteStoryDialog } from "./WriteStoryDialog";
 import { MilestoneHeader, useMilestoneProgress } from "./MilestoneHeader";
 import { EpicProgress } from "./EpicProgress";
@@ -557,6 +558,7 @@ function StoryRow({
   else if (waiting) action = <AnswerControl projectId={projectId} story={story} />;
   else if (story.state === "running") action = <OpenSessionControl projectId={projectId} story={story} />;
   else if (story.state === "ready") action = <StartControl story={story} onError={setError} />;
+  else if (story.state === "in_review") action = <OpenReviewControl projectId={projectId} story={story} />;
 
   return (
     <li
