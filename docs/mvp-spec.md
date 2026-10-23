@@ -82,7 +82,7 @@ The ranked list of everything waiting on Cyril in a project. The order is: live 
 5. Proposals filed during execution, as one row (see [section 5](#5-proposals-from-execution)). A Proposal that changes what a Story is judged on is its own item, ranked with Review.
 6. Shaping Round waiting: a Round a live session is held on, an open Round whose session died or never launched, and a pending roadmap Round
 
-Amended by [#156](https://github.com/HighKnow-ai/flywheel/issues/156): an agent's question ranks with Gated actions and permission requests, since it holds a live session the same way, and a missing worktree is a Stopped-kind item rather than a figure of its own. **Shipped in Milestone 4** ([#156](https://github.com/HighKnow-ai/flywheel/issues/156)), Proposals and judged-on items aside: one core query ranks the list, the board shows it as a column beside the roster, and the sidebar's project figure is its length.
+Amended by [#156](https://github.com/HighKnow-ai/flywheel/issues/156): an agent's question ranks with Gated actions and permission requests, since it holds a live session the same way, and a missing worktree is a Stopped-kind item rather than a figure of its own. **Shipped in Milestone 4** ([#156](https://github.com/HighKnow-ai/flywheel/issues/156)), judged-on items aside: one core query ranks the list, the board shows it as a column beside the roster, and the sidebar's project figure is its length. The Proposals row shipped with [#162](https://github.com/HighKnow-ai/flywheel/issues/162).
 
 ## 3. Shaping
 
@@ -222,7 +222,7 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
 
 - **Targets:** execution Proposals target board records only. ADRs and glossary terms go through the Story's diff instead.
 - **Never a pause:** a Proposal never pauses the agent that filed it. An agent that can't go on without an answer asks a question instead (Waiting on you).
-- **One row:** Needs you has one "Proposals" row ("n from m Stories"). Its Triage button opens a drawer beside the roster, grouped by the record each Proposal lands on: each Epic, then "Roadmap · after this Milestone" for new Epics. The roster only carries an "n Proposals" marker on an Epic row.
+- **One row:** Needs you has one "Proposals" row ("n from m Stories"). Its Triage button opens a drawer beside the roster, grouped by the record each Proposal lands on: each Epic, then "Roadmap · after this Milestone" for new Epics. The roster only carries an "n Proposals" marker on an Epic row. **Shipped** ([#162](https://github.com/HighKnow-ai/flywheel/issues/162)): the row, the drawer and the marker count one set, a Story session's pending Proposals less the judged-on ones, and the marker opens the drawer at its Epic. Amend edits what a Proposal carries as text (a New Story's title and description, a New Epic's title and problem); a Reorder or a Retire is accepted or rejected as filed.
 - **Card:** each card shows the kind (New Story, Amend criterion, Reorder, Retire Story, New Epic, Amend Epic spec), the title, a diff for amendments, the agent's *why*, an evidence line, and the filing Story and time.
 - **Judged-on changes skip the wait:** a Proposal that changes a Story's Acceptance criteria or the Epic spec is its own Needs-you item at once, with a before/after diff and Accept / Edit / Reject inline.
 - **Soft cap:** 3 open Proposals per Story session. The board tool refuses a 4th and tells the agent to merge or withdraw one.

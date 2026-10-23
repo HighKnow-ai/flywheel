@@ -84,6 +84,10 @@ _Avoid_: Knowledge diff
 A change suggested by an agent to any board record, ADR or glossary term (create, amend, reorder or retire it) that has no effect until the developer accepts it.
 _Avoid_: Issue, suggestion, draft
 
+**Triage**:
+Deciding the Proposals running Stories filed, each accepted, amended or rejected, in one drawer that groups them by the record each lands on; a Proposal that changes what a Story is judged on is decided on its own instead.
+_Avoid_: Inbox, backlog grooming
+
 ## Shaping
 
 **Shaping**:
