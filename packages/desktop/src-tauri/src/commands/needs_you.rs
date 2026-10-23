@@ -75,6 +75,8 @@ pub struct NeedsYouJudgedOnDto {
     pub evidence: Option<String>,
     /// The key of the Story whose session filed it.
     pub filed_by: Option<String>,
+    /// The pending change this one repeats (issue #165), named as the triage drawer names it.
+    pub duplicate: Option<super::proposal::DuplicateOfDto>,
 }
 
 /// One item. `kind` is `gated_action`, `permission_request`, `question`, `stopped`, `review`,
@@ -156,6 +158,11 @@ impl From<flywheel_core::query::needs_you::NeedsYouItem> for NeedsYouItemDto {
                 rationale: j.rationale,
                 evidence: j.evidence,
                 filed_by: j.filed_by,
+                duplicate: j.duplicate.map(|d| super::proposal::DuplicateOfDto {
+                    proposal_id: d.proposal_id,
+                    title: d.title,
+                    story_key: d.story_key,
+                }),
             }),
         }
     }

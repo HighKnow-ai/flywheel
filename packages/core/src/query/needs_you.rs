@@ -31,6 +31,7 @@
 use anyhow::Context;
 use rusqlite::{params, Connection};
 
+use crate::domain::proposal::{duplicate_of, DuplicateOf};
 use crate::domain::question::is_question;
 use crate::query::recovery::missing_worktrees_for_project;
 use crate::query::sessions::stopped_session_for_story;
@@ -157,6 +158,9 @@ pub struct NeedsYouJudgedOn {
     pub evidence: Option<String>,
     /// The key of the Story whose session filed it.
     pub filed_by: Option<String>,
+    /// The pending change this one repeats (issue #165), when it is a duplicate: the card names it,
+    /// as the triage drawer's card does, and accepting that one closes this one.
+    pub duplicate: Option<DuplicateOf>,
 }
 
 /// One thing waiting on the developer.
@@ -239,7 +243,7 @@ const REVIEW_SQL: &str = "SELECT s.id, s.key, s.title, \
 const JUDGED_ON_SQL: &str = concat!(
     "SELECT p.id, p.target_type, p.payload, p.rationale, p.evidence, p.created_at, fs.key, \
         c.id, c.statement, k.command, cs.id, cs.key, cs.title, \
-        e.id, e.key, e.title, e.problem, e.scope, e.out_of_scope, e.exit_test \
+        e.id, e.key, e.title, e.problem, e.scope, e.out_of_scope, e.exit_test, p.duplicate_of \
     FROM proposals p \
     LEFT JOIN sessions ss ON ss.id = p.session_id \
     LEFT JOIN stories fs ON fs.id = ss.story_id \
@@ -470,12 +474,18 @@ fn push_judged_on(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouI
                 rationale: row.get(3)?,
                 evidence: row.get(4)?,
                 filed_by: row.get(6)?,
+                duplicate: None,
             });
-            Ok(item)
+            Ok((item, row.get::<_, Option<String>>(20)?))
         })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the judged-on changes waiting")?;
-    items.extend(rows);
+    for (mut item, original) in rows {
+        if let (Some(change), Some(original)) = (item.judged_on.as_mut(), original) {
+            change.duplicate = duplicate_of(conn, &original)?;
+        }
+        items.push(item);
+    }
     Ok(())
 }
 

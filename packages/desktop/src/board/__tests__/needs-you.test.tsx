@@ -407,6 +407,22 @@ describe("Needs you: judged-on changes", () => {
     expect(within(card).getByText("Accepting clears its acceptance and marks its Check's last run stale")).toBeInTheDocument();
   });
 
+  it("flags a duplicate as the triage drawer does: what it repeats and who filed that one (issue #169)", async () => {
+    needsYouList.mockResolvedValue([
+      AMEND_CRITERION,
+      {
+        ...AMEND_CRITERION,
+        id: "p-3",
+        judgedOn: { ...AMEND_CRITERION.judgedOn!, proposalId: "p-3", duplicate: { proposalId: "p-1", title: "Parses a line", storyKey: "FLY-4" } },
+      },
+    ]);
+    await cards();
+    expect(cardOf("p-1").querySelector("[data-duplicate-of]")).toBeNull();
+    const flag = cardOf("p-3").querySelector("[data-duplicate-of]") as HTMLElement;
+    expect(flag).toHaveAttribute("data-duplicate-of", "p-1");
+    expect(flag).toHaveTextContent("Duplicate of “Parses a line”, filed by FLY-4. Accepting that one closes this one.");
+  });
+
   it("accepts in place and refetches", async () => {
     await cards();
     fireEvent.click(within(cardOf("p-1")).getByRole("button", { name: "Accept the Amend criterion on FLY-p-1" }));

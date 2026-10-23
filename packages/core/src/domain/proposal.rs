@@ -399,17 +399,24 @@ pub fn proposals_for_triage(conn: &Connection, project_id: &str) -> anyhow::Resu
     }
     for t in rows.iter_mut() {
         let Some(original) = t.proposal.duplicate_of.as_deref() else { continue };
-        let Some(o) = get_proposal(conn, original)? else { continue };
-        let story_key: Option<String> = conn
-            .query_row(
-                "SELECT s.key FROM sessions ss JOIN stories s ON s.id = ss.story_id WHERE ss.id = ?1",
-                params![o.session_id],
-                |r| r.get(0),
-            )
-            .optional()?;
-        t.duplicate = Some(DuplicateOf { title: proposal_title(conn, &o)?, proposal_id: o.id, story_key });
+        t.duplicate = duplicate_of(conn, original)?;
     }
     Ok(rows)
+}
+
+/// What a duplicate's card names about `original`, the Proposal it repeats (issue #165): its title and
+/// the Story whose session filed it. `None` when that Proposal is gone. The triage drawer's cards and
+/// the judged-on cards in Needs you both read this.
+pub fn duplicate_of(conn: &Connection, original: &str) -> anyhow::Result<Option<DuplicateOf>> {
+    let Some(o) = get_proposal(conn, original)? else { return Ok(None) };
+    let story_key: Option<String> = conn
+        .query_row(
+            "SELECT s.key FROM sessions ss JOIN stories s ON s.id = ss.story_id WHERE ss.id = ?1",
+            params![o.session_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(Some(DuplicateOf { title: proposal_title(conn, &o)?, proposal_id: o.id, story_key }))
 }
 
 /// A Reorder's places: which Story its Story sits after now, and which it would sit after at `rank`.

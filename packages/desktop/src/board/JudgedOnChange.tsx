@@ -6,8 +6,9 @@
  * The card shows the change as a before and after, on an inset panel: the text the board holds now, struck
  * through in secondary ink, then the proposed text in ink on the dashed running tint, the shape of something
  * not yet on the record (`GhostCard`'s ghost). An Amend criterion that proposes a new Check command shows the
- * Check's before and after too, in the code face. One line says what accepting does, then the agent's why,
- * its evidence and the Story whose session filed it.
+ * Check's before and after too, in the code face. A duplicate (issue #165) is flagged under the change, as the
+ * triage drawer flags one: what it repeats and who filed that one. One line says what accepting does, then the
+ * agent's why, its evidence and the Story whose session filed it.
  *
  * The decisions are the shared `ProposalDecision` (the ghost card's and the triage drawer's), with its edit
  * control worded Edit, as spec §5 names it: Accept applies it as proposed, Edit opens the proposed text (and
@@ -20,6 +21,7 @@ import { Minus, Plus, SquareTerminal } from "lucide-react";
 import type { NeedsYouItemDto, NeedsYouJudgedOnDto, ProposalDto } from "../adapters/tauri";
 import { ProposalDecision, type AmendField } from "../shaping/GhostCard";
 import { needsYouQueryKey } from "../fleet/useFleet";
+import { DuplicateFlag } from "../proposals/DuplicateFlag";
 
 /** The longest criterion statement, Check command and spec field the core accepts (`proposal_apply`). */
 const MAX_STATEMENT_LEN = 2_000;
@@ -135,6 +137,7 @@ export function JudgedOnChange({ item }: { item: NeedsYouItemDto }) {
             <Diff label="Check" icon={<SquareTerminal aria-hidden="true" />} before={change.checkBefore} after={proposed} code />
           )}
         </div>
+        {change.duplicate && <DuplicateFlag duplicate={change.duplicate} />}
         <p className="m-0 text-small text-foreground">{consequenceOf(change)}</p>
         {change.rationale && (
           <p className="m-0 text-small break-words text-muted-foreground">
