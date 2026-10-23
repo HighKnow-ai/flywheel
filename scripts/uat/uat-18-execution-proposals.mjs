@@ -18,7 +18,8 @@
  *   4. The agent withdraws its third Proposal and files the fourth again: it is filed.
  *   5. No call was ever held: every one was answered as it arrived, and the session ran to its end.
  *   6. The Story's list holds three pending Proposals and the withdrawn one; the developer accepts the
- *      New Story and it is on the board, in Shaping.
+ *      New Story and it is on the board, in Shaping, with the criteria and Check it carried (issue #166).
+ *   7. The developer's Make Ready moves it to Ready: the Epic's shaping is closed, so nothing else would.
  *
  * SCRATCH DATA ONLY: everything runs under one `mkdtemp` root (the harness's FLYWHEEL_APP_DATA_DIR and a
  * scratch FLYWHEEL_WORKTREE_ROOT), and the bridge refuses to run without it. Exit codes: 0 pass, 1 fail.
@@ -36,15 +37,17 @@ const SESSION_TIMEOUT_MS = 30_000;
 const WHY = "Found while working the Parser";
 const EVIDENCE = "src/parser.rs:42 panics on an empty line";
 const STORY_PACKET = String.raw`FLY-\d+ Parser \(Running\)`;
+/** A New Story carries its criteria (issue #166): one proven by a Check, one judged at review. */
+const CRITERIA = [{ statement: "An empty line yields no token", check: "cargo test lexer" }, { statement: "The error names the line" }];
 
 /** The scripted Story agent: three Proposals, a fourth that is refused, a withdrawal, and the fourth again. */
 const AGENT_SCRIPT = [
-  { when: STORY_PACKET, name: "propose", arguments: { kind: "new_story", title: "Empty-line recovery", description: "Recover from an empty line", why: WHY, evidence: EVIDENCE } },
+  { when: STORY_PACKET, name: "propose", arguments: { kind: "new_story", title: "Empty-line recovery", description: "Recover from an empty line", criteria: CRITERIA, why: WHY, evidence: EVIDENCE } },
   { when: STORY_PACKET, name: "propose", arguments: { kind: "amend_epic_spec", field: "scope", text: "The parser, and recovering from bad lines", why: WHY, evidence: EVIDENCE } },
   { when: STORY_PACKET, name: "propose", arguments: { kind: "new_epic", title: "Error recovery", problem: "One bad line stops the parse", why: WHY, evidence: EVIDENCE } },
-  { when: STORY_PACKET, name: "propose", arguments: { kind: "new_story", title: "Line numbers in errors", why: WHY, evidence: EVIDENCE } },
+  { when: STORY_PACKET, name: "propose", arguments: { kind: "new_story", title: "Line numbers in errors", criteria: CRITERIA, why: WHY, evidence: EVIDENCE } },
   { when: STORY_PACKET, name: "proposal_withdraw", arguments: { proposal_id: "{{result:propose:proposal_id}}" } },
-  { when: STORY_PACKET, name: "propose", arguments: { kind: "new_story", title: "Line numbers in errors", why: WHY, evidence: EVIDENCE } },
+  { when: STORY_PACKET, name: "propose", arguments: { kind: "new_story", title: "Line numbers in errors", criteria: CRITERIA, why: WHY, evidence: EVIDENCE } },
 ];
 
 await runScript("uat-18", "UAT 18 — a running Story files Proposals, capped at 3, withdrawable, answered at once (zero tokens)", async (harness) => {
@@ -159,4 +162,11 @@ await runScript("uat-18", "UAT 18 — a running Story files Proposals, capped at
   const { applied } = ops("accept", proposals[0].id);
   assert.match(applied, /^StoryCreated/, applied);
   step(`6. the Story lists ${proposals.length} Proposals; accepting the New Story created it in Shaping`);
+
+  // ---- 7. Make Ready ------------------------------------------------------------------------------
+  const created = /story_id: "([^"]+)"/.exec(applied)?.[1];
+  assert.ok(created, `the accepted Proposal names the Story it created: ${applied}`);
+  const ready = ops("make-ready", created);
+  assert.deepEqual(ready, { state: "ready", criteria: 2, checks: 1 }, JSON.stringify(ready));
+  step("7. the New Story carried its 2 criteria and 1 Check; the developer's Make Ready moved it to Ready");
 });

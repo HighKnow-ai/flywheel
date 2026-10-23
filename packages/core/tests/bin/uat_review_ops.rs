@@ -16,6 +16,7 @@
 //!                                     as `commands::proposal::answer_story_proposal_tool_call` answers it
 //!   proposal_list_for_story        -> `domain::proposal::proposals_filed_by_story`
 //!   proposal_accept                -> `domain::proposal::accept_proposal`
+//!   story_make_ready               -> `domain::story::make_ready` (issue #166)
 //!   the sidecar's session_closed   -> `domain::session::close_session`
 //!
 //! Not exercised: the `AppState` mutex, the `board:changed` emit and the IPC serialisation.
@@ -29,6 +30,7 @@
 //!   uat_review_ops tool-call <run_id> <request_id> <tool> <args_json>
 //!   uat_review_ops story-proposals <story_id>
 //!   uat_review_ops accept <proposal_id>
+//!   uat_review_ops make-ready <story_id>
 //!   uat_review_ops session-closed <run_id>
 
 use core::domain::proposal::{accept_proposal, proposals_filed_by_story};
@@ -66,8 +68,9 @@ fn ok<T>(what: &str, r: anyhow::Result<T>) -> T {
     r.unwrap_or_else(|e| fail(&format!("{what}: {e:#}")))
 }
 
-/// A Roadmap of two Milestones; the Current one holds Epic "Parsing" with a Ready Story "Parser" (the
-/// one the UAT starts), a Story "Lexer" still in Shaping and a Ready Story "Printer".
+/// A Roadmap of two Milestones; the Current one holds Epic "Parsing", its shaping closed (Ready), with a
+/// Ready Story "Parser" (the one the UAT starts), a Story "Lexer" still in Shaping and a Ready Story
+/// "Printer".
 fn seed(repo: &str) -> Value {
     let mut conn = open_conn();
     let h = human(&conn);
@@ -83,6 +86,7 @@ fn seed(repo: &str) -> Value {
         }
         stories.push(json!({ "id": s.id, "key": s.key, "title": title }));
     }
+    ok("set_epic_state", epic::set_epic_state(&mut conn, &h, &e.id, epic::EpicState::Ready));
     json!({ "projectId": p.id, "epicId": e.id, "nextMilestoneId": next.id, "stories": stories })
 }
 
@@ -153,6 +157,25 @@ fn accept(proposal_id: &str) -> Value {
     json!({ "applied": format!("{applied:?}") })
 }
 
+/// The developer's Make Ready on a Story (issue #166): its state after, and how many criteria it has.
+fn make_ready(story_id: &str) -> Value {
+    let mut conn = open_conn();
+    let h = human(&conn);
+    ok("make_ready", story::make_ready(&mut conn, &h, story_id));
+    let s = ok("get_story", story::get_story(&conn, story_id)).unwrap_or_else(|| fail("the Story is gone"));
+    let criteria = ok("criteria_for_story", core::domain::acceptance_criterion::criteria_for_story(&conn, story_id));
+    let checks: i64 = ok(
+        "count checks",
+        conn.query_row(
+            "SELECT COUNT(*) FROM checks k JOIN acceptance_criteria c ON c.id = k.criterion_id WHERE c.story_id = ?1",
+            [story_id],
+            |r| r.get(0),
+        )
+        .map_err(Into::into),
+    );
+    json!({ "state": s.state, "criteria": criteria.len(), "checks": checks })
+}
+
 fn session_closed(run_id: &str) -> Value {
     let mut conn = open_conn();
     ok("close_session", close_session(&mut conn, run_id, SessionStatus::Completed, None, None, None));
@@ -168,6 +191,7 @@ fn main() {
         "tool-call" => tool_call(arg(1), arg(3), arg(4)),
         "story-proposals" => story_proposals(arg(1)),
         "accept" => accept(arg(1)),
+        "make-ready" => make_ready(arg(1)),
         "session-closed" => session_closed(arg(1)),
         other => fail(&format!("unknown subcommand {other:?}")),
     };
