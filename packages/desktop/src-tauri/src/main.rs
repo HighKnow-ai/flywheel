@@ -205,6 +205,7 @@ fn main() {
             commands::actor::actor_list,
             commands::events::events_activity_trail,
             commands::events::events_since_cursor,
+            commands::events::board_visit,
             commands::menu::menu_set_action_enabled,
             commands::session::session_start,
             commands::session::story_start,

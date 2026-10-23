@@ -37,6 +37,7 @@ const ROSTER: &[&str] = &[
     "epic::epic_list",
     "epic::epic_set_state",
     "epic::epic_update",
+    "events::board_visit",
     "events::events_activity_trail",
     "events::events_since_cursor",
     "fleet::fleet_blocked_queue",
