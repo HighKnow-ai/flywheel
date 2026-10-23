@@ -53,7 +53,8 @@ answers, Accept on a ghost, Close Stage and the sidecar's `session_closed`.
   by its `proposal_id`; the developer accepts both and closes the Stage.
 - **D. Write the Acceptance criteria.** The next session proposes one criterion with a Check per Story;
   the developer accepts them and closes the Stage. The Epic and both Stories are Ready, each criterion
-  has its Check (600s), and the first Story's Context packet carries the accepted ADR to write verbatim.
+  has its Check (600s), and the first Story's Context packet carries the accepted ADR to write verbatim;
+  the second Story's names it and the Story that writes it.
 
 Not exercised: the desktop's `AppState` mutex, the `board:changed` emit and the IPC serialisation. The
 desktop's half of the same walk, clicked through the real `<App />`, is

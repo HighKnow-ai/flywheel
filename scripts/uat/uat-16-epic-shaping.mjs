@@ -23,7 +23,8 @@
  *      by the first one's proposal_id; the developer accepts both and closes the Stage.
  *   D. Write the Acceptance criteria. The next session proposes one criterion with a Check per Story;
  *      the developer accepts them and closes the Stage: the Epic and both Stories are Ready, each Story
- *      with its criterion and Check, and a Story session's packet carries the accepted ADR.
+ *      with its criterion and Check. The first Story's packet carries the accepted ADR to write verbatim, and
+ *      the second Story's names it and the Story that writes it.
  *
  * SCRATCH DATA ONLY: everything runs under one `mkdtemp` root (the harness's FLYWHEEL_APP_DATA_DIR), and
  * the bridge refuses to run without it. Exit codes: 0 pass, 1 fail.
@@ -344,5 +345,11 @@ await runScript("uat-16", "UAT 16 — a one-line Epic shaped to Ready Stories, t
     `the Story packet carries the accepted ADR:\n${packet}`,
   );
   assert.ok(packet.includes(ADR_TEXT.trim()), "with its whole text");
-  step(`   ${view.stories[0].key}'s Context packet carries ADR ${ADR_PATH}, accepted in Round 1, to write verbatim`);
+  const later = ops("story-packet", view.stories[1].id).packet;
+  assert.ok(!later.includes(ADR_TEXT.trim()), "a later Story's packet does not carry the ADR's text");
+  assert.ok(
+    later.includes(`Accepted for this Epic but not in the repo yet: \`${ADR_PATH}\`. ${view.stories[0].key} writes it, the Epic's first Story`),
+    `a later Story's packet names the ADR and the Story that writes it:\n${later}`,
+  );
+  step(`   ${view.stories[0].key}'s Context packet carries ADR ${ADR_PATH}, accepted in Round 1, to write verbatim; ${view.stories[1].key}'s names it`);
 });

@@ -272,6 +272,59 @@ fn an_adr_accepted_in_a_shaping_round_reaches_the_epics_story_packet_as_full_tex
     });
 }
 
+/// Issue #130: an accepted ADR is written by the Epic's first Story (ADR 0002, docs/mvp-spec.md §3), so only that
+/// Story's packet carries its text; every later Story's packet names the file and the Story that writes it. A
+/// Dropped first Story hands the write to the next one.
+#[test]
+fn only_the_epics_first_story_is_told_to_write_an_accepted_adr() {
+    with_scratch_worktree_root(|_| {
+        let mut f = fixture();
+        let epic_id = f.story.epic_id.clone();
+        let project_id = f.story.project_id.clone();
+        let p = file_proposal(
+            &mut f.conn,
+            &f.actor_id,
+            &NewProposal {
+                project_id: &project_id,
+                session_id: None,
+                epic_id: Some(&epic_id),
+                verb: ProposalVerb::Create,
+                target: ProposalTarget::Adr,
+                target_id: None,
+                payload: serde_json::json!({
+                    "path": "docs/adr/0007-packet.md",
+                    "text": "# Build the packet in Rust\n\nThe core owns it.\n",
+                    "hard_to_reverse": "Every session is rebuilt from it",
+                    "surprising": "The sidecar drives sessions but does not build their packet",
+                    "losing_alternative": "Building it in the sidecar",
+                }),
+                rationale: None,
+            },
+        )
+        .unwrap();
+        accept_proposal(&mut f.conn, &f.actor_id, &p.id).unwrap();
+        let sibling = core::domain::story::stories_in_epic(&f.conn, &epic_id).unwrap().remove(1);
+
+        let first = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        assert!(first.contains("write it verbatim at `docs/adr/0007-packet.md`"), "{first}");
+        let later = build_context_packet(&f.conn, &sibling.id, "").unwrap();
+        assert!(!later.contains("The core owns it."), "a later Story is not sent the text:\n{later}");
+        assert!(!later.contains("write it verbatim"), "{later}");
+        assert!(
+            later.contains(&format!(
+                "Accepted for this Epic but not in the repo yet: `docs/adr/0007-packet.md`. {} writes it, the Epic's first Story; do not write it here.",
+                f.story.key
+            )),
+            "{later}"
+        );
+
+        core::domain::story::set_story_state(&mut f.conn, &f.actor_id, &f.story.id, core::domain::story::StoryState::Dropped)
+            .unwrap();
+        let next = build_context_packet(&f.conn, &sibling.id, "").unwrap();
+        assert!(next.contains("write it verbatim at `docs/adr/0007-packet.md`"), "the next Story takes the write over:\n{next}");
+    });
+}
+
 #[test]
 fn the_story_lists_siblings_criteria_checks_and_latest_results() {
     with_scratch_worktree_root(|_| {
