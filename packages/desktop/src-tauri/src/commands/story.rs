@@ -110,12 +110,13 @@ pub fn story_update(
     Ok(())
 }
 
-/// The developer moves a Story along the spec's transition table (starting it, requesting changes,
-/// merging, dropping). The domain refuses any move outside the table.
+/// The developer moves a Story along the spec's transition table (starting it, requesting changes).
+/// The domain refuses any move outside the table; Drop and Merge have commands of their own.
 #[tauri::command]
 pub fn story_set_state(state: State<AppState>, app: AppHandle, story_id: String, to: String) -> Result<(), String> {
     let to = flywheel_core::domain::story::StoryState::parse(&to).map_err(|e| e.to_string())?;
     refuse_bare_drop(to)?;
+    refuse_bare_merge(to)?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::story::set_story_state(&mut conn, &actor_id, &story_id, to).map_err(|e| e.to_string())?;
@@ -130,6 +131,16 @@ pub fn story_set_state(state: State<AppState>, app: AppHandle, story_id: String,
 fn refuse_bare_drop(to: flywheel_core::domain::story::StoryState) -> Result<(), String> {
     if to == flywheel_core::domain::story::StoryState::Dropped {
         return Err("drop a Story with story_drop, which also removes its worktree and branch".to_string());
+    }
+    Ok(())
+}
+
+/// Merging goes through `review::story_merge` (issue #155), which writes the merge commit, removes
+/// the worktree and branch and closes the review; a bare state write would mark a Story Merged with
+/// nothing on its base branch.
+fn refuse_bare_merge(to: flywheel_core::domain::story::StoryState) -> Result<(), String> {
+    if to == flywheel_core::domain::story::StoryState::Merged {
+        return Err("merge a Story with story_merge, which writes the merge commit on its base branch".to_string());
     }
     Ok(())
 }
@@ -231,6 +242,13 @@ mod tests {
         use flywheel_core::domain::story::StoryState;
         assert!(refuse_bare_drop(StoryState::Dropped).unwrap_err().contains("story_drop"));
         assert!(refuse_bare_drop(StoryState::Merged).is_ok());
+    }
+
+    #[test]
+    fn a_bare_state_write_cannot_merge_a_story() {
+        use flywheel_core::domain::story::StoryState;
+        assert!(refuse_bare_merge(StoryState::Merged).unwrap_err().contains("story_merge"));
+        assert!(refuse_bare_merge(StoryState::Running).is_ok());
     }
 
     #[test]
