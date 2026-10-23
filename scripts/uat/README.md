@@ -5,7 +5,8 @@ data, so a guarantee is measured by code rather than claimed (`docs/mvp-spec.md`
 
 - **Offline, zero tokens, run in CI on every PR** (`.github/workflows/ci.yml`, job "Offline UAT"):
   `harness-supervision-gate.mjs` (both modes), `uat-12-fleet-live-reads.mjs`,
-  `uat-16-epic-shaping.mjs`, `uat-17-roadmap-round.mjs` and `uat-18-execution-proposals.mjs`. None needs a `claude` binary or any credential. (Item 13, the fan-out run, was deleted with the fan-out
+  `uat-16-epic-shaping.mjs`, `uat-17-roadmap-round.mjs`, `uat-18-execution-proposals.mjs` and
+  `uat-19-board-and-review.mjs`. None needs a `claude` binary or any credential. (Item 13, the fan-out run, was deleted with the fan-out
   dispatcher at the schema cut, issue #44.)
 - **Manual, pre-release only:** items 1, 3, 5, 6, 7 and 11. Items 3, 5, 6, 7 and 11's live arm
   spend real tokens.
@@ -32,6 +33,7 @@ bash scripts/uat/run-all.sh          # add --no-build to skip the prerequisite b
 | 16 — A one-line idea becomes an Epic with Ready Stories, each with criteria and Checks; a killed shaping session resumes at the open Round (Epic #59's exit test, #130) | `uat-16-epic-shaping.mjs` | **PASS** — zero tokens, CI |
 | 17 — Shape a Milestone's exit test; confirming an Epic Done runs a roadmap Round that proposes a change or says the Roadmap holds (Epic #60's exit test, #134) | `uat-17-roadmap-round.mjs` | **PASS** — zero tokens, CI |
 | 18 — A running Story files Proposals with `propose`, capped at 3, withdrawable, answered at once (Epic #62, #160) | `uat-18-execution-proposals.mjs` | **PASS** — zero tokens, CI |
+| 19 — Milestone 4's exit test: a Story from Ready to Merged through Needs you, triage, a request for changes, the Decisions section and Merge (Epics #61, #62, #63, #169) | `uat-19-board-and-review.mjs` | **PASS** — zero tokens, CI |
 
 ### Item 16 — shaping an Epic from one line to Ready Stories (Epic #59's exit test)
 
@@ -91,6 +93,34 @@ fourth is refused naming `proposal_withdraw`; it withdraws one and files the fou
 ever held, and accepting the New Story creates it in Shaping.
 
 Not exercised: the desktop's `AppState` mutex, the `board:changed` emit, and the IPC serialisation.
+
+### Item 19 — Milestone 4's exit test: Ready to Merged (Epics #61, #62, #63, issue #169)
+
+Drives the real sidecar and its real board MCP server, listed to a Story session, with the scripted
+fake agent (`FLYWHEEL_FAKE_BOARD_CALLS`), whose `{ commit: { path, content } }` steps commit files
+between board calls through the session's PATH shim. The board's half runs through the
+`uat_review_ops` bridge, which calls the core functions behind Start, the Story's Task, Proposal and
+hand-off tools, Needs you, the triage drawer, Accept and Reject, Request changes, the review card,
+accepting a criterion, an ADR decision and Merge.
+
+- **Work and hand off.** A Ready Story with two criteria (one proven by `test -f src/parser.rs`, one
+  judged at review) is started. Its agent writes two Tasks, commits the parser, files a New Story and
+  an Amend criterion, commits `docs/adr/0001-…`, and hands off with the ADR's bar lines.
+- **Needs you.** While the hand-off waits, Needs you lists the judged-on change and the Proposals row;
+  after it, the Review too.
+- **Triage.** The New Story is rejected in the drawer with a reason; the Amend criterion is accepted
+  where Needs you draws it. Needs you keeps only the Review.
+- **Request changes.** A second session starts in the same worktree on a packet carrying the comments,
+  the decided Proposals and the amended criterion. It adds a Task for the review point, commits the
+  fix, re-runs the Checks (`checks_run`, recorded nowhere) and hands off again.
+- **Review and Merge.** The card pre-ticks the passed Check and shows the new ADR with its hand-off
+  bar lines, unflagged. Both criteria accepted and the ADR kept, Merge puts a two-parent commit on
+  `main`, removes the worktree and its branch, links the ADR to the Story, and Needs you lists
+  Confirm exit test for the Epic, whose only Story is Merged.
+
+Not exercised: the desktop's `AppState` mutex, the `board:changed` emit, and the IPC serialisation.
+The desktop's half of the same walk, clicked through the real `<App />`, is
+`packages/desktop/src/review/__tests__/browser/review-merge-flow.browser.test.tsx`.
 
 ### Supervision — why every live item outlives the watchdog, and why that is not each item's job
 
@@ -333,7 +363,7 @@ Costs real tokens, same as items 3, 5 and 6.
 | `packages/core/tests/bin/uat_fleet_ops.rs` | Bridge binary for item 12 — calls the core functions behind the fleet commands against scratch data |
 | `packages/core/tests/bin/uat_shaping_ops.rs` | Bridge binary for item 16 — calls the core functions behind Shape, Continue shaping, the dock's answers, Accept and Close Stage |
 | `packages/core/tests/bin/uat_roadmap_ops.rs` | Bridge binary for item 17 — calls the core functions behind Shape on a Milestone, Confirm Done and the roadmap Round |
-| `packages/core/tests/bin/uat_review_ops.rs` | Bridge binary for item 18 — calls the core functions behind Start, the Story's Proposal tools, the Story's Proposals list and Accept |
+| `packages/core/tests/bin/uat_review_ops.rs` | Bridge binary for items 18 and 19 — calls the core functions behind Start, the Story's Task, Proposal and hand-off tools, Needs you, triage, Accept and Reject, Request changes, the review card, criterion acceptance, ADR decisions and Merge |
 | `scripts/uat/fixtures/` | Frozen, real, zero-cost captures replayed offline by the sidecar tests and `lib/sidecar-harness.mjs` (e.g. the unauthenticated CLI first-turn stream) — read at module load, never retyped |
 | `scripts/uat/fixtures/live-opus5-unmodelled-shapes.json` | The frozen real capture (200-character prefixes) of the reasoning-only assistant message and the `rate_limit_event` line live run `01M3C48C3PV1NSGHERBZ587YB1` emitted and the adapter did not model, with mechanical anti-drift/anti-invention gates |
 | `scripts/uat/fixtures/live-opus5-ask-user-question.json` | Unlike its sibling fixture above, this one is FULL FIDELITY — read from Claude Code's own session log inside a preserved scratch root of live run `01M3DNC0G9CYAWSD8DYEGTRP8C`, not from a 200-character stderr prefix. References the committed capture artifact `planning-archive:.planning/phases/05-socratic-epic-authoring/05-ASK-USER-QUESTION-CAPTURE.json` in the phase directory, never an absolute scratch path |

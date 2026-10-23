@@ -94,6 +94,8 @@ run_item "UAT 17 — shape a Milestone exit test; confirming an Epic Done runs a
   node scripts/uat/uat-17-roadmap-round.mjs
 run_item "UAT 18 — a running Story files Proposals, capped at 3, withdrawable, answered at once (issue #160, zero tokens)" \
   node scripts/uat/uat-18-execution-proposals.mjs
+run_item "UAT 19 — Milestone 4's exit test: a Story from Ready to Merged through Needs you, triage, review and Merge (issue #169, zero tokens)" \
+  node scripts/uat/uat-19-board-and-review.mjs
 
 printf '\n\n┌─ UAT results ─────────────────────────────────────────────────────────────\n'
 FAILED=0
