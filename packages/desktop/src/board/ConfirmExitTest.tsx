@@ -66,6 +66,11 @@ function nameOf(subject: ExitTestSubject): string {
   return subject.kind === "epic" ? `${subject.key} ${subject.title}` : subject.title;
 }
 
+/** "FLY-3" or "Milestone "Shaping"": the dialog's title names the record short, its exit test names it whole. */
+function shortName(subject: ExitTestSubject): string {
+  return subject.kind === "epic" ? subject.key : `Milestone "${subject.title}"`;
+}
+
 /** What confirming starts, in one sentence, as the packet's scope line puts it. */
 function roundSentence(subject: ExitTestSubject, openRound: number | null): string {
   if (openRound !== null) {
@@ -189,18 +194,18 @@ export function ConfirmExitTest({
         <AlertDialogContent className="sm:max-w-lg">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-section font-semibold">
-              {result ? `${name} is Done` : `Confirm ${name}'s exit test?`}
+              {result ? `${shortName(subject)} is Done` : `Confirm the exit test of ${shortName(subject)}?`}
             </AlertDialogTitle>
             {result ? (
               <AlertDialogDescription>
                 {`Roadmap Round ${result.roundNumber} is open, but its session could not start. Continue it from the Roadmap strip once that is fixed.`}
               </AlertDialogDescription>
             ) : (
-              <AlertDialogDescription asChild>
+              <AlertDialogDescription asChild className="text-pretty">
                 <div className="flex flex-col gap-3 text-left">
                   <figure className="m-0 flex flex-col gap-1 rounded-md border border-border bg-secondary px-3 py-2">
                     <figcaption id={exitId} className="text-meta font-semibold text-muted-foreground">
-                      Exit test
+                      {`Exit test · ${subject.title}`}
                     </figcaption>
                     <blockquote aria-labelledby={exitId} className="m-0 max-w-[68ch] text-body text-foreground">
                       {subject.exitTest ?? <span className="text-subtle-foreground">Not written</span>}

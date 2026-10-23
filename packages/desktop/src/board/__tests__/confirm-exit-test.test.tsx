@@ -177,7 +177,7 @@ describe("Confirm exit test on an Epic card", () => {
     renderBoard();
     fireEvent.click(await within(await card("Rounds")).findByRole("button", { name: "Confirm exit test of FLY-1 Rounds" }));
     fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Confirm FLY-1 Rounds Done" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "FLY-1 Rounds is Done" });
+    const dialog = await screen.findByRole("alertdialog", { name: "FLY-1 is Done" });
     expect(within(dialog).getByText("claude is not on PATH")).toBeTruthy();
     expect(within(dialog).getByText(/Continue it from the Roadmap strip/)).toBeTruthy();
   });

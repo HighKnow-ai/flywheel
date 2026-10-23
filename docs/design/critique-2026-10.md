@@ -160,6 +160,11 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 55 | Milestone shaping: nothing open, closing Exit test makes the Milestone Ready (#132) | ![](critique-2026-10/after/55-milestone-shaping-closable-light.webp) | ![](critique-2026-10/after/55-milestone-shaping-closable-dark.webp) |
 | 56 | Milestone shaping: confirming Close Stage on Exit test (#132) | ![](critique-2026-10/after/56-milestone-shaping-close-confirm-light.webp) | ![](critique-2026-10/after/56-milestone-shaping-close-confirm-dark.webp) |
 | 57 | Milestone shaping at the window's minimum width: the dock first (#132) | ![](critique-2026-10/after/57-milestone-shaping-min-width-light.webp) | ![](critique-2026-10/after/57-milestone-shaping-min-width-dark.webp) |
+| 53 | Epic card: every Story Merged, so its heading offers Confirm exit test and Decline (#134) | ![](critique-2026-10/after/53-epic-confirm-exit-test-light.webp) | ![](critique-2026-10/after/53-epic-confirm-exit-test-dark.webp) |
+| 54 | Confirming an Epic's exit test: the dialog quotes it and names the short roadmap Round the click starts (#134) | ![](critique-2026-10/after/54-epic-confirm-exit-test-dialog-light.webp) | ![](critique-2026-10/after/54-epic-confirm-exit-test-dialog-dark.webp) |
+| 55 | Every Epic Done: Confirm exit test under the Milestone's row on the Roadmap strip and in its header (#134) | ![](critique-2026-10/after/55-milestone-confirm-exit-test-light.webp) | ![](critique-2026-10/after/55-milestone-confirm-exit-test-dark.webp) |
+| 56 | Roadmap strip: a Round opened on an Epic's Done, with another Done noted on its band (#134) | ![](critique-2026-10/after/56-roadmap-round-noted-trigger-light.webp) | ![](critique-2026-10/after/56-roadmap-round-noted-trigger-dark.webp) |
+| 57 | Confirm exit test on the Milestone's row and header at the window's minimum width (#134) | ![](critique-2026-10/after/57-milestone-confirm-exit-test-min-width-light.webp) | ![](critique-2026-10/after/57-milestone-confirm-exit-test-min-width-dark.webp) |
 
 ## How the screens were rendered
 
