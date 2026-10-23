@@ -45,7 +45,7 @@ import { MilestoneHeader, useMilestoneProgress } from "./MilestoneHeader";
 import { EpicProgress } from "./EpicProgress";
 import { RoadmapStrip, useMilestoneSelection, useRoadmap } from "./RoadmapStrip";
 import { EpicShapingControl } from "./EpicShapingControl";
-import { ConfirmExitTest, epicExitTestConfirmable } from "./ConfirmExitTest";
+import { ConfirmExitTest, ConfirmExitTestOutcome, epicExitTestConfirmable } from "./ConfirmExitTest";
 import type { EpicProgressDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
@@ -71,6 +71,7 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
           {/* The Roadmap (#131); the Milestone picked on it heads the board with its progress (#106), above
               the roster of its Epics. */}
           <RoadmapStrip projectId={projectId} />
+          <ConfirmExitTestOutcome />
           <MilestoneHeader projectId={projectId} milestoneId={selection.requested} />
           <StoryRoster projectId={projectId} selection={selection} scrollElement={scrollElement} />
         </div>
@@ -446,7 +447,7 @@ function EpicCard({
           <EpicProgress epic={progress} headingId={headingId} className="min-w-0 flex-1" />
           {/* A fixed slot on every progress-headed card, so each Epic's bar still sits in one column; inset by
               the rows' chevron column, so Shape sits above the rows' own actions. */}
-          <span className="mr-7 flex max-w-[360px] min-w-[132px] flex-none justify-end">
+          <span className="mr-7 flex max-w-[360px] min-w-[152px] flex-none justify-end">
             {epic && <EpicHeadingAction projectId={projectId} group={group} />}
           </span>
         </header>

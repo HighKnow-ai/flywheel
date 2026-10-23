@@ -778,46 +778,47 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     );
   }
 
-  it("53 Epic card: every Story Merged, Confirm exit test and Decline (issue #134)", async () => {
+  it("58 Epic card: every Story Merged, Confirm exit test (issue #134)", async () => {
     exitTestScene("epic");
     await boardReady();
     const confirm = await screen.findByRole("button", { name: "Confirm exit test of FLY-1 Design system and a legible app" });
     confirm.closest("section")?.scrollIntoView({ block: "center" });
-    await shot("53-epic-confirm-exit-test");
+    await shot("58-epic-confirm-exit-test");
   });
 
-  it("54 Confirming an Epic's exit test: the dialog names the short roadmap Round it starts (issue #134)", async () => {
+  it("59 Confirming an Epic's exit test: the dialog names the short roadmap Round it starts, and Not met (issue #134)", async () => {
     exitTestScene("epic");
     await boardReady();
     await click("Confirm exit test of FLY-1 Design system and a legible app");
     await screen.findByRole("alertdialog");
-    await shot("54-epic-confirm-exit-test-dialog");
+    await shot("59-epic-confirm-exit-test-dialog");
   });
 
-  it("55 Milestone row and header: every Epic Done, Confirm exit test (issue #134)", async () => {
+  it("60 Milestone header: every Epic Done, Confirm exit test (issue #134)", async () => {
     exitTestScene("milestone");
     await boardReady();
-    await screen.findAllByRole("button", { name: "Confirm exit test of Shaping" });
+    await screen.findByRole("button", { name: "Confirm exit test of Shaping" });
     await roadmapStrip();
-    await shot("55-milestone-confirm-exit-test");
+    await shot("60-milestone-confirm-exit-test");
   });
 
-  it("56 Roadmap strip: a Done confirmed while a Round was open is noted on its band (issue #134)", async () => {
+  it("61 Roadmap strip: a Done confirmed while a Round was open is noted on its band (issue #134)", async () => {
     exitTestScene("noted");
     await boardReady();
     await screen.findByText("Also noted: Epic FLY-8 done.");
     await roadmapStrip();
-    await shot("56-roadmap-round-noted-trigger");
+    await shot("61-roadmap-round-noted-trigger");
   });
 
-  it("57 Milestone row and header at the window's minimum width (issue #134)", async () => {
+  it("62 Another Milestone picked at the window's minimum width: Confirm exit test in Shaping's strip row (issue #134)", async () => {
     exitTestScene("milestone");
     await page.viewport(900, 900);
     try {
       await boardReady();
-      await screen.findAllByRole("button", { name: "Confirm exit test of Shaping" });
+      await click(/^Board and review,/);
+      await screen.findByRole("button", { name: "Confirm exit test of Shaping" });
       await roadmapStrip();
-      await shot("57-milestone-confirm-exit-test-min-width");
+      await shot("62-milestone-row-confirm-exit-test-min-width");
     } finally {
       await page.viewport(1440, 900);
     }

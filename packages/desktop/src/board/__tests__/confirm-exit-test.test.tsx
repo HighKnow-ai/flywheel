@@ -1,12 +1,13 @@
 /**
  * Behaviour under test (issue #134, docs/mvp-spec.md §3): Confirm exit test shows on an Epic card only once
  * every Story is Merged or Dropped (and shaping is closed), and on a Milestone's row and header only once
- * every Epic is Done. Decline reopens shaping; Confirm asks first, saying what Round the click starts, then
- * calls the core's confirmation, which starts it. A session that cannot start keeps the dialog open to say
- * so. A Done confirmed while a Round is open is noted on that Round's band.
+ * every Epic is Done (the picked Milestone's in its header, any other's on its row). Confirm asks first, saying
+ * what Round the click starts, then calls the core's confirmation, which starts it; Not met, in the same dialog,
+ * reopens shaping. A session that cannot start is said even once the record is Done and the control gone. A
+ * Done confirmed while a Round is open is noted on that Round's band.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryBoard } from "../StoryBoard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
@@ -43,6 +44,8 @@ vi.mock("../../adapters/tauri", async () => {
     epicSetState: (...args: unknown[]) => epicSetState(...args),
     milestoneSetState: (...args: unknown[]) => milestoneSetState(...args),
     epicShapingSession: () => Promise.resolve(null),
+    milestoneShapingSession: () => Promise.resolve(null),
+    milestoneShapingRounds: () => Promise.resolve({ milestone: null, stages: [], rounds: [] }),
     epicShapingRounds: () => Promise.resolve({ epic: null, stages: [], rounds: [] }),
     taskList: () => Promise.resolve([]),
     storyContextPacketSize: () => Promise.resolve({ bytes: 4000, approxTokens: 1000, overSoftLimit: false }),
@@ -107,7 +110,9 @@ beforeEach(() => {
   useUiStore.setState({ currentProjectId: "p1" });
   roadmap = [milestone()];
   milestoneList.mockReset().mockImplementation(() => Promise.resolve(roadmap));
-  milestoneProgress.mockReset().mockImplementation(() => Promise.resolve(progress(roadmap[0])));
+  milestoneProgress.mockReset().mockImplementation((_project: string, id: string | null) =>
+    Promise.resolve(progress(roadmap.find((m) => (id === null ? m.current : m.id === id)) ?? roadmap[0])),
+  );
   epicList.mockReset().mockResolvedValue([
     epic("e1", "FLY-1", "Rounds", "in_progress"),
     epic("e2", "FLY-2", "Ghost rows", "in_progress"),
@@ -132,7 +137,6 @@ describe("Confirm exit test on an Epic card", () => {
     renderBoard();
     const rounds = await card("Rounds");
     expect(await within(rounds).findByRole("button", { name: "Confirm exit test of FLY-1 Rounds" })).toBeTruthy();
-    expect(within(rounds).getByRole("button", { name: "Decline exit test of FLY-1 Rounds: reopen shaping" })).toBeTruthy();
     // A Story still In review: not yet.
     expect(within(await card("Ghost rows")).queryByRole("button", { name: /Confirm exit test/ })).toBeNull();
   });
@@ -145,23 +149,27 @@ describe("Confirm exit test on an Epic card", () => {
     expect(within(slicing).queryByRole("button", { name: /Confirm exit test/ })).toBeNull();
   });
 
-  it("Decline reopens shaping, and no Round starts", async () => {
+  it("Decline, in the dialog, reopens shaping, and no Round starts", async () => {
     renderBoard();
-    fireEvent.click(await within(await card("Rounds")).findByRole("button", { name: /^Decline exit test of FLY-1/ }));
+    fireEvent.click(await within(await card("Rounds")).findByRole("button", { name: "Confirm exit test of FLY-1 Rounds" }));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Not met: reopen shaping on FLY-1 Rounds" }));
     await waitFor(() => expect(epicSetState).toHaveBeenCalledWith("e1", "shaping"));
     expect(epicConfirmDone).not.toHaveBeenCalled();
+    expect(await screen.findByText("Shaping reopened on FLY-1 Rounds.")).toBeTruthy();
   });
 
   it("Confirm asks first, naming the exit test and the short Round it starts, then confirms Done", async () => {
     renderBoard();
     fireEvent.click(await within(await card("Rounds")).findByRole("button", { name: "Confirm exit test of FLY-1 Rounds" }));
-    const dialog = await screen.findByRole("alertdialog");
+    const dialog = await screen.findByRole("alertdialog", { name: "Confirm the exit test of Rounds?" });
     expect(within(dialog).getByText("Rounds is done end to end.")).toBeTruthy();
     expect(within(dialog).getByText(/short roadmap Round on "Shaping"/)).toBeTruthy();
     expect(epicConfirmDone).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm FLY-1 Rounds Done" }));
     await waitFor(() => expect(epicConfirmDone).toHaveBeenCalledWith("e1"));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(await screen.findByText("FLY-1 Rounds is Done. Roadmap Round 1 started, on the Roadmap strip.")).toBeTruthy();
   });
 
   it("says the trigger is noted when a roadmap Round is already open", async () => {
@@ -172,45 +180,64 @@ describe("Confirm exit test on an Epic card", () => {
     expect(await within(dialog).findByText(/Roadmap Round 2 is already open, so no second Round starts/)).toBeTruthy();
   });
 
-  it("keeps the dialog open to say the Round's session could not start", async () => {
-    epicConfirmDone.mockResolvedValue({ outcome: "opened", roundNumber: 1, sessionId: null, sessionError: "claude is not on PATH" });
+  it("says the Round's session could not start, even once the Epic reads Done and its control is gone", async () => {
+    epicConfirmDone.mockImplementation(async () => {
+      // The board refetches after the confirmation: the Epic is Done now.
+      epicList.mockResolvedValue([
+        epic("e1", "FLY-1", "Rounds", "done"),
+        epic("e2", "FLY-2", "Ghost rows", "in_progress"),
+      ]);
+      return { outcome: "opened", roundNumber: 1, sessionId: null, sessionError: "claude is not on PATH" };
+    });
     renderBoard();
     fireEvent.click(await within(await card("Rounds")).findByRole("button", { name: "Confirm exit test of FLY-1 Rounds" }));
     fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Confirm FLY-1 Rounds Done" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "FLY-1 is Done" });
+    const dialog = await screen.findByRole("alertdialog", { name: "Rounds is Done" });
     expect(within(dialog).getByText("claude is not on PATH")).toBeTruthy();
     expect(within(dialog).getByText(/Continue it from the Roadmap strip/)).toBeTruthy();
+    // Behind the modal dialog the board is hidden from the accessibility tree, hence `hidden: true`.
+    await waitFor(() => expect(screen.queryAllByRole("button", { name: /Confirm exit test of FLY-1/, hidden: true })).toHaveLength(0));
+    expect(screen.getByRole("alertdialog", { name: "Rounds is Done" })).toBeTruthy();
   });
 });
 
 describe("Confirm exit test on a Milestone", () => {
-  it("shows on the row and the header only once every Epic is Done", async () => {
+  it("shows only once every Epic is Done", async () => {
     renderBoard();
     const strip = await screen.findByRole("region", { name: "Roadmap" });
     await within(strip).findByRole("button", { name: /^Shaping,/ });
-    expect(within(strip).queryByRole("button", { name: /Confirm exit test of Shaping/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Confirm exit test of Shaping/ })).toBeNull();
   });
 
-  it("confirms from the row, and a Milestone in Shaping cannot be declined", async () => {
-    roadmap = [milestone({ epicsDone: 2, epicsTotal: 2, state: "shaping" })];
+  it("shows in the header of the picked Milestone, and on the row of any other", async () => {
+    roadmap = [
+      milestone({ id: "m2", title: "Supervised", current: false, rank: "0", epicsDone: 3, epicsTotal: 3, state: "in_progress" }),
+      milestone({ epicsDone: 2, epicsTotal: 2, state: "shaping" }),
+    ];
     renderBoard();
     const strip = await screen.findByRole("region", { name: "Roadmap" });
     const header = await screen.findByRole("region", { name: "Shaping" });
     expect(await within(header).findByRole("button", { name: "Confirm exit test of Shaping" })).toBeTruthy();
-    fireEvent.click(await within(strip).findByRole("button", { name: "Confirm exit test of Shaping" }));
-    expect(within(strip).queryByRole("button", { name: /^Decline/ })).toBeNull();
+    // The picked row leaves its slot empty: the header carries the control.
+    expect(within(strip).queryByRole("button", { name: "Confirm exit test of Shaping" })).toBeNull();
+    fireEvent.click(await within(strip).findByRole("button", { name: "Confirm exit test of Supervised" }));
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByText(/starts a Roadmap Round/)).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm Shaping Done" }));
-    await waitFor(() => expect(milestoneConfirmDone).toHaveBeenCalledWith("m3"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm Supervised Done" }));
+    await waitFor(() => expect(milestoneConfirmDone).toHaveBeenCalledWith("m2"));
   });
 
-  it("Decline on an In progress Milestone reopens its shaping", async () => {
+  it("a Milestone in Shaping is never declined; one In progress reopens its shaping", async () => {
+    roadmap = [milestone({ epicsDone: 2, epicsTotal: 2, state: "shaping" })];
+    renderBoard();
+    fireEvent.click(await within(await screen.findByRole("region", { name: "Shaping" })).findByRole("button", { name: "Confirm exit test of Shaping" }));
+    expect(within(await screen.findByRole("alertdialog")).queryByRole("button", { name: /reopen shaping/ })).toBeNull();
+    cleanup();
+
     roadmap = [milestone({ epicsDone: 2, epicsTotal: 2 })];
     renderBoard();
-    const header = await screen.findByRole("region", { name: "Shaping" });
-    fireEvent.click(await within(header).findByRole("button", { name: /^Decline exit test of Shaping/ }));
+    fireEvent.click(await within(await screen.findByRole("region", { name: "Shaping" })).findByRole("button", { name: "Confirm exit test of Shaping" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Not met: reopen shaping on Shaping" }));
     await waitFor(() => expect(milestoneSetState).toHaveBeenCalledWith("m3", "shaping"));
   });
 });

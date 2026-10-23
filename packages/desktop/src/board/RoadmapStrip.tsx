@@ -327,27 +327,24 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                   </button>
                   {actionSlot && (
                     <span data-slot="roadmap-shaping" className="flex w-36 shrink-0 justify-end py-1 pr-2">
-                      {/* Issue #134: every Epic Done, the slot holds Confirm exit test instead. Mounted on every
-                          open row (drawing nothing until it applies), so its dialog outlives the refetch that
-                          turns the Milestone Done. The picked Milestone's header, right below, carries its
-                          control: one per screen. */}
-                      {!closed && (
-                        <ConfirmExitTest
-                          projectId={projectId}
-                          place="row"
-                          available={!selected && milestoneExitTestConfirmable(milestone)}
-                          subject={{
-                            kind: "milestone",
-                            id: milestone.id,
-                            title: milestone.title,
-                            exitTest: milestone.exitTest,
-                            state: milestone.state,
-                          }}
-                        />
-                      )}
-                      {!selected && !milestoneExitTestConfirmable(milestone) && (
-                        <MilestoneShapingControl projectId={projectId} milestone={milestone} place="strip" />
-                      )}
+                      {/* The picked Milestone's header, right below, carries its control: one per screen. Issue
+                          #134: every Epic Done, the slot holds Confirm exit test instead of shaping. */}
+                      {!selected &&
+                        (milestoneExitTestConfirmable(milestone) ? (
+                          <ConfirmExitTest
+                            projectId={projectId}
+                            place="row"
+                            subject={{
+                              kind: "milestone",
+                              id: milestone.id,
+                              title: milestone.title,
+                              exitTest: milestone.exitTest,
+                              state: milestone.state,
+                            }}
+                          />
+                        ) : (
+                          <MilestoneShapingControl projectId={projectId} milestone={milestone} place="strip" />
+                        ))}
                     </span>
                   )}
                 </div>

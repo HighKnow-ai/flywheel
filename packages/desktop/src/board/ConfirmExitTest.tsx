@@ -10,14 +10,15 @@
  * - **Not met: reopen shaping** (Decline), set apart in the same dialog, moves the record back to Shaping
  *   (`set_*_state(Shaping)`). No Round starts. A Milestone still in Shaping has nothing to reopen.
  *
- * The component stays mounted while its record is not confirmable (`available` false, nothing drawn), so
- * the dialog outlives the refetch that turns the record Done: a session that cannot start (no `claude`)
- * leaves the record Done and the Round waiting on the strip for Continue, and the dialog stays to say so.
- * Starting a Round opens nothing: the board stays put, the keyboard moves to the Round's band without
- * scrolling, and the outcome is announced.
+ * Confirming or declining removes the control (the record is Done, or back in Shaping), so what follows
+ * is said by {@link ConfirmExitTestOutcome}, mounted once on the board: the announcement, and, when the
+ * Round's session could not start (no `claude`), a dialog saying the record is Done and the Round waits on
+ * the strip for Continue. Starting a Round opens nothing: the board stays put, and the keyboard moves to
+ * the Round's band without scrolling.
  */
 import { useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { create } from "zustand";
 import { Check, CircleCheckBig, Undo2 } from "lucide-react";
 import {
   epicConfirmDone,
@@ -84,6 +85,57 @@ function roundSentence(subject: ExitTestSubject, openRound: number | null): stri
   return "Confirming also starts a Roadmap Round: an agent asks whether the next Milestone is still right, and proposes reordering, amending, retiring or adding Milestones.";
 }
 
+/** What the last confirmation or decline left to say, once its control is gone (UI state). */
+interface Outcome {
+  /** The polite announcement. */
+  message: string;
+  /** Set when the record is Done but its Round's session could not start. */
+  stalled: { title: string; roundNumber: number; reason: string } | null;
+}
+
+const useOutcome = create<{ outcome: Outcome | null; set: (outcome: Outcome | null) => void }>((set) => ({
+  outcome: null,
+  set: (outcome) => set({ outcome }),
+}));
+
+/**
+ * Mounted once on the board: the live region that announces what a confirmation or a decline did, and the
+ * dialog that says a record is Done while its Round's session could not start.
+ */
+export function ConfirmExitTestOutcome() {
+  const outcome = useOutcome((s) => s.outcome);
+  const setOutcome = useOutcome((s) => s.set);
+  const stalled = outcome?.stalled ?? null;
+  return (
+    <>
+      <span role="status" className="sr-only">
+        {outcome?.message ?? ""}
+      </span>
+      <AlertDialog
+        open={stalled !== null}
+        onOpenChange={(open) => {
+          if (!open && outcome) setOutcome({ message: outcome.message, stalled: null });
+        }}
+      >
+        <AlertDialogContent className="data-[size=default]:sm:max-w-lg">
+          <AlertDialogHeader className="w-full">
+            <AlertDialogTitle className="text-section font-semibold text-balance">{`${stalled?.title ?? ""} is Done`}</AlertDialogTitle>
+            <AlertDialogDescription className="text-pretty">
+              {`Roadmap Round ${stalled?.roundNumber ?? ""} is open, but its session could not start. Continue it from the Roadmap strip once that is fixed.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <p role="alert" className="m-0 rounded-md border border-border bg-secondary px-3 py-2 font-mono text-meta break-words text-muted-foreground">
+            {stalled?.reason}
+          </p>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Close</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
 /** Focus `selector`'s first match once the board has re-rendered, without scrolling the board. */
 function focusLater(selector: string) {
   requestAnimationFrame(() => {
@@ -95,24 +147,20 @@ export function ConfirmExitTest({
   projectId,
   subject,
   place,
-  available = true,
   className,
 }: {
   projectId: string;
   subject: ExitTestSubject;
-  /** The Epic card's heading or the Milestone header (full size), or a Roadmap strip line (compact). */
+  /** The Epic card's heading or the Milestone header (full size), or a Roadmap strip row's slot (compact). */
   place: "card" | "header" | "row";
-  /** Whether the exit test can be confirmed now. While it cannot, nothing is drawn but an open dialog. */
-  available?: boolean;
   className?: string;
 }) {
   const queryClient = useQueryClient();
   const openRound = useRoadmapRound(projectId).data?.open ?? null;
+  const setOutcome = useOutcome((s) => s.set);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<"confirm" | "decline" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<ConfirmDoneDto | null>(null);
-  const [announcement, setAnnouncement] = useState("");
   const exitId = useId();
   const name = nameOf(subject);
   const compact = place === "row";
@@ -123,19 +171,19 @@ export function ConfirmExitTest({
     setBusy("confirm");
     setError(null);
     try {
-      const done = subject.kind === "epic" ? await epicConfirmDone(subject.id) : await milestoneConfirmDone(subject.id);
-      // Set before the refetch: the record turns Done and the dialog must still be able to say why.
-      if (done.sessionError) setResult(done);
-      await queryClient.invalidateQueries({ queryKey: ["board", projectId] });
-      if (!done.sessionError) {
-        setOpen(false);
-        setAnnouncement(
+      const done: ConfirmDoneDto =
+        subject.kind === "epic" ? await epicConfirmDone(subject.id) : await milestoneConfirmDone(subject.id);
+      // Said by the board's ConfirmExitTestOutcome: this control goes with the refetch, the record being Done.
+      setOutcome({
+        message:
           done.outcome === "noted"
             ? `${name} is Done. Noted on Roadmap Round ${done.roundNumber}, on the Roadmap strip.`
             : `${name} is Done. Roadmap Round ${done.roundNumber} started, on the Roadmap strip.`,
-        );
-        focusLater("[data-slot=roadmap-round-band] button");
-      }
+        stalled: done.sessionError ? { title: titleOf(subject), roundNumber: done.roundNumber, reason: done.sessionError } : null,
+      });
+      setOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      if (!done.sessionError) focusLater("[data-slot=roadmap-round-band] button");
     } catch (err) {
       setError(`Could not confirm the exit test: ${errorText(err)}`);
     } finally {
@@ -150,9 +198,9 @@ export function ConfirmExitTest({
     try {
       if (subject.kind === "epic") await epicSetState(subject.id, "shaping");
       else await milestoneSetState(subject.id, "shaping");
-      await queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      setOutcome({ message: `Shaping reopened on ${name}.`, stalled: null });
       setOpen(false);
-      setAnnouncement(`Shaping reopened on ${name}.`);
+      await queryClient.invalidateQueries({ queryKey: ["board", projectId] });
       // The control is gone with the dialog: the keyboard goes to what replaced it.
       focusLater(
         subject.kind === "epic"
@@ -167,97 +215,71 @@ export function ConfirmExitTest({
   }
 
   return (
-    <span
-      data-slot="confirm-exit-test"
-      className={cn(available ? "flex min-w-0 flex-wrap items-center justify-end gap-1.5" : "contents", className)}
-    >
-      <span role="status" className="sr-only">
-        {announcement}
-      </span>
-      {available && (
-        <Button
-          variant={compact ? "outline" : "default"}
-          size={compact ? "xs" : "sm"}
-          aria-label={`Confirm exit test of ${name}`}
-          aria-haspopup="dialog"
-          onClick={() => {
-            setError(null);
-            setResult(null);
-            setOpen(true);
-          }}
-          className="shrink-0"
-        >
-          <CircleCheckBig aria-hidden="true" />
-          Confirm exit test
-        </Button>
-      )}
+    <span data-slot="confirm-exit-test" className={cn("flex min-w-0 items-center justify-end", className)}>
+      <Button
+        variant={compact ? "outline" : "default"}
+        size={compact ? "xs" : "sm"}
+        aria-label={`Confirm exit test of ${name}`}
+        aria-haspopup="dialog"
+        onClick={() => {
+          setError(null);
+          setOpen(true);
+        }}
+        className="shrink-0"
+      >
+        <CircleCheckBig aria-hidden="true" />
+        Confirm exit test
+      </Button>
 
       <AlertDialog open={open} onOpenChange={(next) => busy === null && setOpen(next)}>
         <AlertDialogContent className="data-[size=default]:sm:max-w-lg">
           <AlertDialogHeader className="w-full">
             <AlertDialogTitle className="text-section font-semibold text-balance">
-              {result ? `${titleOf(subject)} is Done` : `Confirm the exit test of ${titleOf(subject)}?`}
+              {`Confirm the exit test of ${titleOf(subject)}?`}
             </AlertDialogTitle>
-            {result ? (
-              <AlertDialogDescription className="text-pretty">
-                {`Roadmap Round ${result.roundNumber} is open, but its session could not start. Continue it from the Roadmap strip once that is fixed.`}
-              </AlertDialogDescription>
-            ) : (
-              <AlertDialogDescription asChild>
-                <div className="flex w-full flex-col gap-3 text-left text-pretty">
-                  <figure className="m-0 flex flex-col gap-1 rounded-md border border-border bg-secondary px-3 py-2">
-                    <figcaption id={exitId} className="text-meta font-semibold text-muted-foreground">
-                      {subject.kind === "epic" ? `Exit test · ${subject.key}` : "Exit test"}
-                    </figcaption>
-                    <blockquote aria-labelledby={exitId} className="m-0 text-body text-foreground">
-                      {subject.exitTest ?? <span className="text-subtle-foreground">Not written</span>}
-                    </blockquote>
-                  </figure>
-                  <p className="m-0 text-body text-muted-foreground">
-                    {subject.kind === "epic"
-                      ? "Every Story is Merged or Dropped. A Done Epic stays done."
-                      : "Every Epic is Done. A Done Milestone is frozen: later changes go in a new Milestone."}
-                  </p>
-                  <p className="m-0 text-body text-foreground">{roundSentence(subject, openRound?.number ?? null)}</p>
-                </div>
-              </AlertDialogDescription>
-            )}
+            <AlertDialogDescription asChild>
+              <div className="flex w-full flex-col gap-3 text-left text-pretty">
+                <figure className="m-0 flex flex-col gap-1 rounded-md border border-border bg-secondary px-3 py-2">
+                  <figcaption id={exitId} className="text-meta font-semibold text-muted-foreground">
+                    {subject.kind === "epic" ? `Exit test · ${subject.key}` : "Exit test"}
+                  </figcaption>
+                  <blockquote aria-labelledby={exitId} className="m-0 text-body text-foreground">
+                    {subject.exitTest ?? <span className="text-subtle-foreground">Not written</span>}
+                  </blockquote>
+                </figure>
+                <p className="m-0 text-body text-muted-foreground">
+                  {subject.kind === "epic"
+                    ? "Every Story is Merged or Dropped. A Done Epic stays done."
+                    : "Every Epic is Done. A Done Milestone is frozen: later changes go in a new Milestone."}
+                </p>
+                <p className="m-0 text-body text-foreground">{roundSentence(subject, openRound?.number ?? null)}</p>
+              </div>
+            </AlertDialogDescription>
           </AlertDialogHeader>
-          {result?.sessionError && (
-            <p role="alert" className="m-0 rounded-md border border-border bg-secondary px-3 py-2 font-mono text-meta break-words text-muted-foreground">
-              {result.sessionError}
-            </p>
-          )}
           {error && (
             <p role="alert" className="m-0 text-small break-words text-destructive-text">
               {error}
             </p>
           )}
           <AlertDialogFooter>
-            {result ? (
-              <AlertDialogCancel>Close</AlertDialogCancel>
-            ) : (
-              <>
-                {declinable && (
-                  // Set apart at the start of the footer: the other answer to the question, not a way out.
-                  <Button
-                    variant="ghost"
-                    className="sm:mr-auto"
-                    aria-label={`Not met: reopen shaping on ${name}`}
-                    disabled={busy !== null}
-                    onClick={() => void decline()}
-                  >
-                    <Undo2 aria-hidden="true" />
-                    {busy === "decline" ? "Reopening…" : "Not met: reopen shaping"}
-                  </Button>
-                )}
-                <AlertDialogCancel disabled={busy !== null}>Not yet</AlertDialogCancel>
-                <Button aria-label={`Confirm ${name} Done`} disabled={busy !== null} onClick={() => void confirm()}>
-                  <Check aria-hidden="true" />
-                  {busy === "confirm" ? "Confirming…" : "Confirm Done"}
-                </Button>
-              </>
+            {declinable && (
+              // Set apart at the start of the footer: the other answer to the question, not a way out.
+              <Button
+                variant="ghost"
+                className="sm:mr-auto"
+                aria-label={`Not met: reopen shaping on ${name}`}
+                disabled={busy !== null}
+                onClick={() => void decline()}
+              >
+                <Undo2 aria-hidden="true" />
+                {busy === "decline" ? "Reopening…" : "Not met: reopen shaping"}
+              </Button>
             )}
+            <AlertDialogCancel disabled={busy !== null}>Not yet</AlertDialogCancel>
+            <Button aria-label={`Confirm ${name} Done`} disabled={busy !== null} onClick={() => void confirm()}>
+              <Check aria-hidden="true" />
+              {busy === "confirm" ? "Confirming…" : "Confirm Done"}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
