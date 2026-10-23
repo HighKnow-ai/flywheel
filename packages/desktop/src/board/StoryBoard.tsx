@@ -45,6 +45,7 @@ import { MilestoneHeader, useMilestoneProgress } from "./MilestoneHeader";
 import { EpicProgress } from "./EpicProgress";
 import { RoadmapStrip, useMilestoneSelection, useRoadmap } from "./RoadmapStrip";
 import { EpicShapingControl } from "./EpicShapingControl";
+import { ConfirmExitTest, epicExitTestConfirmable } from "./ConfirmExitTest";
 import type { EpicProgressDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
@@ -380,6 +381,32 @@ function VirtualRoster({
   );
 }
 
+/**
+ * The action in an Epic card's heading: Confirm exit test once shaping is closed and every Story is Merged
+ * or Dropped (issue #134), else the shaping control, which shows only while the Epic is in Shaping.
+ */
+function EpicHeadingAction({ projectId, group }: { projectId: string; group: EpicGroup }) {
+  const { epic, milestone, stories } = group;
+  if (!epic) return null;
+  if (epicExitTestConfirmable(epic.state, stories)) {
+    return (
+      <ConfirmExitTest
+        projectId={projectId}
+        place="card"
+        subject={{
+          kind: "epic",
+          id: epic.id,
+          key: epic.key,
+          title: epic.title,
+          exitTest: epic.exitTest,
+          milestoneTitle: milestone?.title ?? null,
+        }}
+      />
+    );
+  }
+  return <EpicShapingControl projectId={projectId} epic={epic} />;
+}
+
 function EpicCard({
   projectId,
   group,
@@ -420,7 +447,7 @@ function EpicCard({
           {/* A fixed slot on every progress-headed card, so each Epic's bar still sits in one column; inset by
               the rows' chevron column, so Shape sits above the rows' own actions. */}
           <span className="mr-7 flex max-w-[360px] min-w-[132px] flex-none justify-end">
-            {epic && <EpicShapingControl projectId={projectId} epic={epic} />}
+            {epic && <EpicHeadingAction projectId={projectId} group={group} />}
           </span>
         </header>
       ) : (
@@ -448,7 +475,7 @@ function EpicCard({
         </span>
         {epic && (
           <span className="mr-7 flex min-w-0 justify-end">
-            <EpicShapingControl projectId={projectId} epic={epic} />
+            <EpicHeadingAction projectId={projectId} group={group} />
           </span>
         )}
       </header>

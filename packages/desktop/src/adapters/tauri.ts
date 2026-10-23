@@ -90,6 +90,10 @@ export interface MilestoneDto {
   /** Whether this is the Current Milestone (the first in Roadmap order not done or dropped). */
   current: boolean;
   rank: string;
+  /** Issue #134: its Epics Done, and its Epics with a Dropped one left out. Every Epic is Done, and its
+   * exit test can be confirmed, when `epicsDone === epicsTotal > 0`. Always sent by the core. */
+  epicsDone?: number;
+  epicsTotal?: number;
 }
 
 /** Add a Milestone at the end of the project's Roadmap, in Shaping. */
@@ -114,7 +118,7 @@ export async function milestoneMove(milestoneId: string, beforeId: string | null
   await invokeCommand<void>("milestone_move", { milestoneId, beforeId });
 }
 
-/** Move a Milestone (`shaping`, `ready`, `done` or `dropped`); the domain refuses the rest. */
+/** Move a Milestone (`shaping`, `ready` or `dropped`); `done` is `milestoneConfirmDone`'s. */
 export async function milestoneSetState(milestoneId: string, to: string): Promise<void> {
   await invokeCommand<void>("milestone_set_state", { milestoneId, to });
 }
@@ -223,7 +227,7 @@ export async function epicUpdate(epicId: string, title: string, spec: EpicSpecIn
   });
 }
 
-/** Move an Epic (`shaping`, `ready` or `done`); the domain refuses the rest. */
+/** Move an Epic (`shaping` or `ready`); `done` is `epicConfirmDone`'s, which starts the roadmap Round. */
 export async function epicSetState(epicId: string, to: string): Promise<void> {
   await invokeCommand<void>("epic_set_state", { epicId, to });
 }
@@ -277,6 +281,29 @@ export interface RoadmapRoundDto {
   closedAt: string | null;
   /** A closed Round that filed none said the Roadmap still holds. */
   proposalsFiled: number;
+  /** Issue #134: Done triggers that came while it was open ("Epic FLY-4 done"); its next session reads
+   * them. Always sent by the core. */
+  notedTriggers?: string[];
+}
+
+/** What confirming an exit test did (issue #134) — mirrors `commands/roadmap_round.rs`'s `ConfirmDoneDto`. */
+export interface ConfirmDoneDto {
+  /** `opened`: a roadmap Round opened on it. `noted`: one was open, and the trigger is noted on it. */
+  outcome: "opened" | "noted";
+  roundNumber: number;
+  sessionId: string | null;
+  /** Why the Round's session could not start; the record is Done all the same and the Round waits. */
+  sessionError: string | null;
+}
+
+/** Confirm an Epic's exit test (issue #134): it moves to Done and a short roadmap Round starts. */
+export async function epicConfirmDone(epicId: string): Promise<ConfirmDoneDto> {
+  return invokeCommand<ConfirmDoneDto>("epic_confirm_done", { epicId });
+}
+
+/** Confirm a Milestone's exit test (issue #134): it moves to Done and a Roadmap Round starts. */
+export async function milestoneConfirmDone(milestoneId: string): Promise<ConfirmDoneDto> {
+  return invokeCommand<ConfirmDoneDto>("milestone_confirm_done", { milestoneId });
 }
 
 /** A Roadmap Proposal of the open Round, with the change in one line. */

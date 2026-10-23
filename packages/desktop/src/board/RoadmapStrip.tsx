@@ -18,6 +18,8 @@
  *   (`MilestoneShapingControl`): Shape, Answer, Open session or Continue shaping. The slot is there on
  *   every row while any Milestone is in Shaping, so the columns still line up, and empty on the picked row,
  *   whose Milestone header below carries the same control.
+ * - **Confirm exit test** (issue #134, `ConfirmExitTest.tsx`): once every Epic of a Milestone is Done, the
+ *   same slot carries Confirm exit test instead, again empty on the picked row, whose header carries it.
  *
  * Server data stays in React Query under the board's key (`board:changed` keeps it live), and the strip
  * never reorders its own copy: the new order is what the core says after the move.
@@ -31,6 +33,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
 import { useUiStore } from "../state/uiStore";
+import { ConfirmExitTest, milestoneExitTestConfirmable } from "./ConfirmExitTest";
 import { EPIC_STATE_WORDS } from "./EpicProgress";
 import { GhostRow, LastRoundNote, RevisitRoadmapButton, RoundBand, useRoadmapRound } from "./RoadmapRound";
 import { MilestoneShapingControl } from "./MilestoneShapingControl";
@@ -140,8 +143,9 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
   }
 
   const draggedIndex = milestones.findIndex((m) => m.id === dragging);
-  // Issue #132: the shaping slot, on every row while any Milestone is in Shaping.
-  const shapingSlot = milestones.some((m) => m.state === "shaping");
+  // Issue #132: the shaping slot, on every row while any Milestone is in Shaping; issue #134: or while any
+  // Milestone's exit test can be confirmed, which the same slot carries.
+  const actionSlot = milestones.some((m) => m.state === "shaping" || milestoneExitTestConfirmable(m));
 
   return (
     <section
@@ -321,10 +325,29 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                       )}
                     />
                   </button>
-                  {shapingSlot && (
+                  {actionSlot && (
                     <span data-slot="roadmap-shaping" className="flex w-36 shrink-0 justify-end py-1 pr-2">
-                      {/* The picked Milestone's header, right below, carries its control: one per screen. */}
-                      {!selected && <MilestoneShapingControl projectId={projectId} milestone={milestone} place="strip" />}
+                      {/* Issue #134: every Epic Done, the slot holds Confirm exit test instead. Mounted on every
+                          open row (drawing nothing until it applies), so its dialog outlives the refetch that
+                          turns the Milestone Done. The picked Milestone's header, right below, carries its
+                          control: one per screen. */}
+                      {!closed && (
+                        <ConfirmExitTest
+                          projectId={projectId}
+                          place="row"
+                          available={!selected && milestoneExitTestConfirmable(milestone)}
+                          subject={{
+                            kind: "milestone",
+                            id: milestone.id,
+                            title: milestone.title,
+                            exitTest: milestone.exitTest,
+                            state: milestone.state,
+                          }}
+                        />
+                      )}
+                      {!selected && !milestoneExitTestConfirmable(milestone) && (
+                        <MilestoneShapingControl projectId={projectId} milestone={milestone} place="strip" />
+                      )}
                     </span>
                   )}
                 </div>

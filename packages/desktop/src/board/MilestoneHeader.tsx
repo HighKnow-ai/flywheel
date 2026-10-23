@@ -5,6 +5,7 @@ import { milestoneProgress, type MilestoneProgressDto } from "../adapters/tauri"
 import { Icon, type IconName } from "../components/Icon";
 import { StateBadge } from "../components/StateBadge";
 import { Skeleton } from "../components/ui/skeleton";
+import { ConfirmExitTest, milestoneExitTestConfirmable } from "./ConfirmExitTest";
 import { EPIC_STATE_WORDS } from "./EpicProgress";
 import { MilestoneShapingControl, useMilestoneAttention } from "./MilestoneShapingControl";
 import { BAR_SEGMENTS, StoryStateBar, type BarSegment } from "./StoryStateBar";
@@ -117,6 +118,21 @@ function MilestoneProgress({ projectId, progress }: { projectId: string; progres
           <p className="text-small text-muted-foreground">
             {progress.nextMilestoneTitle ? `Next: ${progress.nextMilestoneTitle}` : "No Milestone after this one yet"}
           </p>
+          {/* Issue #134: every Epic Done, the Milestone's exit test is the developer's to confirm. */}
+          {milestoneExitTestConfirmable(progress) && (
+            <ConfirmExitTest
+              projectId={projectId}
+              place="header"
+              className="justify-start"
+              subject={{
+                kind: "milestone",
+                id: progress.milestoneId,
+                title: progress.title,
+                exitTest: progress.exitTest,
+                state: progress.state,
+              }}
+            />
+          )}
         </div>
 
         <div className="grid grid-cols-[repeat(5,minmax(96px,auto))] gap-1.5" role="list" aria-label="Stories by state">
