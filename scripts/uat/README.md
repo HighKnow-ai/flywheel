@@ -29,20 +29,21 @@ bash scripts/uat/run-all.sh          # add --no-build to skip the prerequisite b
 | 7 — Launcher-wrapped destructive command, measured live (AGNT-07, D-62 item 2) | `uat-07-launcher-shape-gate.mjs` | **PASS** — properties A, B and C all held |
 | 11 — `CLAUDE_ENV_FILE` ordering, PATH shadow restoration, ask-branch (AGNT-07) | `uat-11-env-file-ordering.mjs` (`--selftest` is zero tokens) | **Manual** — the live run spends tokens |
 | 12 — Fleet live reads: log tail, dismiss, blocked queue, reclaim (D-REV-48/49/50/55) | `uat-12-fleet-live-reads.mjs` | **PASS** — zero tokens, CI |
-| 17 — Confirming an Epic Done runs a roadmap Round that proposes a change or says the Roadmap holds (Epic #60's exit test, #134) | `uat-17-roadmap-round.mjs` | **PASS** — zero tokens, CI; shaping the Milestone's exit test is skipped until #132 merges |
+| 17 — Shape a Milestone's exit test; confirming an Epic Done runs a roadmap Round that proposes a change or says the Roadmap holds (Epic #60's exit test, #134) | `uat-17-roadmap-round.mjs` | **PASS** — zero tokens, CI |
 
 ### Item 17 — the roadmap Round on Epic Done (Epic #60's exit test)
 
 Drives the real sidecar and its real board MCP server, with `packages/sidecar/test/fake-claude.mjs` at
 the backend leaf in its scripted board-call mode (`FLYWHEEL_FAKE_BOARD_CALLS`): a scripted agent that
-reads the roadmap packet it was spawned with and makes board calls according to it. The board's half
+reads the packet it was spawned with and makes board calls according to it. The board's half
 runs through the `uat_roadmap_ops` bridge (`packages/core/tests/bin`), which calls the same core
 functions `epic_confirm_done`, the shaping tool router and `proposal_accept` wrap; the script relays
 each held board call between the two, as `sidecar.rs` does.
 
-- **A.** Shaping a Milestone's exit test is **skipped**, and the output says so, until #132 (Milestone
-  exit-test shaping) merges. Once its command is in the tree the step fails loudly, asking to be
-  written, rather than skipping silently.
+- **A.** Shape on the Milestone (#132) starts its shaping session on the Milestone's shaping packet. The
+  agent posts a Round; the developer accepts every recommendation, which answers the held call; the
+  agent proposes a sharper exit test; the developer accepts it and closes Exit test, so the Milestone
+  is Ready with the new text, which the next roadmap packet reads.
 - **B.** Confirming Epic FLY-1 Done opens one roadmap Round and starts its session on a packet that
   names the trigger and keeps the Round short and on the Epic's Milestone. The agent proposes a new
   Epic and calls `round_wait`; the developer accepts it; the held call is answered with the decision,

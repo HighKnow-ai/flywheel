@@ -26,6 +26,10 @@
 //!
 //! Usage:
 //!   uat_roadmap_ops seed <repo_path>
+//!   uat_roadmap_ops shape-milestone <milestone_id>     (#132's milestone_shape)
+//!   uat_roadmap_ops answer-round <milestone_id>        (Accept all recommended on its open Round)
+//!   uat_roadmap_ops milestone <milestone_id>
+//!   uat_roadmap_ops close-exit-test <milestone_id>     (stage_close on its Exit test Stage)
 //!   uat_roadmap_ops confirm-epic <epic_id>
 //!   uat_roadmap_ops tool-call <run_id> <request_id> <tool> <args_json>
 //!   uat_roadmap_ops decide <proposal_id> <accept|reject>
@@ -33,7 +37,9 @@
 //!   uat_roadmap_ops roadmap <project_id>
 
 use core::domain::confirm_done::{confirm_epic_done, DoneTrigger};
-use core::domain::proposal::{accept_proposal_released, proposals_in_round, reject_proposal_released};
+use core::domain::proposal::{accept_proposal_released, proposals_in_round, proposals_on_milestone, reject_proposal_released};
+use core::domain::round::{accept_all_recommended, rounds_for_milestone};
+use core::domain::stage::{close_stage, open_stage};
 use core::domain::roadmap_round::{describe_proposal, latest_roadmap_round, noted_triggers};
 use core::domain::session::{close_session, start_shaping_session, SessionStatus, ShapingSubject};
 use core::domain::session_kind::SessionKind;
@@ -65,7 +71,7 @@ fn ok<T>(what: &str, r: anyhow::Result<T>) -> T {
     r.unwrap_or_else(|e| fail(&format!("{what}: {e:#}")))
 }
 
-/// A Roadmap of two Milestones; the first, Ready, holds two Ready Epics with an exit test each and
+/// A Roadmap of two Milestones; the first, still in Shaping, holds two Ready Epics with an exit test each and
 /// one Story each, already Merged: both Epics' exit tests can be confirmed.
 fn seed(repo: &str) -> Value {
     let mut conn = open_conn();
@@ -75,8 +81,8 @@ fn seed(repo: &str) -> Value {
         "create_milestone",
         milestone::create_milestone(&mut conn, &p.id, &h, "Shaping", Some("Cyril takes a one-line idea to Ready Stories in Flywheel")),
     );
+    // The Milestone stays in Shaping: the UAT shapes its exit test, and closing that Stage makes it Ready.
     let next = ok("create_milestone", milestone::create_milestone(&mut conn, &p.id, &h, "Board and review", Some("A Story merges in Flywheel alone")));
-    ok("set_milestone_state", milestone::set_milestone_state(&mut conn, &h, &m.id, milestone::MilestoneState::Ready));
     let mut epics = Vec::new();
     for (title, exit) in [("Rounds", "A Round is answered on the board"), ("Roadmap strip", "The Roadmap reads at a glance")] {
         let e = ok("create_epic", epic::create_epic(&mut conn, &h, &m.id, title));
@@ -103,29 +109,20 @@ fn confirm_epic(epic_id: &str) -> Value {
     let DoneTrigger::Opened(_) = outcome else {
         return json!({ "outcome": "noted", "round": round.number });
     };
-    let kind = SessionKind::Shaping;
-    let policy = kind.launch_policy();
     let session = ok(
         "start_shaping_session",
-        start_shaping_session(&mut conn, &ShapingSubject::Roadmap(round.project_id.clone()), policy.permission_mode, &h),
+        start_shaping_session(
+            &mut conn,
+            &ShapingSubject::Roadmap(round.project_id.clone()),
+            SessionKind::Shaping.launch_policy().permission_mode,
+            &h,
+        ),
     );
     let prompt = ok("build_roadmap_packet", core::roadmap_packet::build_roadmap_packet(&conn, &round.project_id));
-    let policy_env: serde_json::Map<String, Value> = policy.env.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
-    json!({
-        "outcome": "opened",
-        "round": round.number,
-        "spawn": {
-            "op": "spawn",
-            "runId": session.id,
-            "prompt": prompt,
-            "permissionMode": policy.permission_mode,
-            "allowedTools": policy.allowed_tools,
-            "disallowedTools": policy.disallowed_tools,
-            "permissionPrompt": policy.raises_requests,
-            "sessionKind": kind.as_str(),
-        },
-        "policyEnv": policy_env,
-    })
+    let mut out = spawn_for(&session.id, prompt);
+    out["outcome"] = json!("opened");
+    out["round"] = json!(round.number);
+    out
 }
 
 /// One board tool call from the session, answered as the desktop's shaping router answers it:
@@ -152,6 +149,77 @@ fn decide(proposal_id: &str, verdict: &str) -> Value {
     };
     let release = decided.release.map(|r| json!({ "sessionId": r.session_id, "requestId": r.request_id, "answer": { "result": r.result } }));
     json!({ "release": release })
+}
+
+/// The spawn request the desktop's `shaping_launch` sends for a session of `subject`: `SessionKind::Shaping`'s
+/// launch policy and the subject's shaping packet as its prompt (its `env` is the caller's to supply).
+fn spawn_for(run_id: &str, prompt: String) -> Value {
+    let kind = SessionKind::Shaping;
+    let policy = kind.launch_policy();
+    let policy_env: serde_json::Map<String, Value> = policy.env.iter().map(|(k, v)| (k.to_string(), json!(v))).collect();
+    json!({
+        "spawn": {
+            "op": "spawn",
+            "runId": run_id,
+            "prompt": prompt,
+            "permissionMode": policy.permission_mode,
+            "allowedTools": policy.allowed_tools,
+            "disallowedTools": policy.disallowed_tools,
+            "permissionPrompt": policy.raises_requests,
+            "sessionKind": kind.as_str(),
+        },
+        "policyEnv": policy_env,
+    })
+}
+
+/// Shape a Milestone's exit test (#132's `milestone_shape`): start its shaping session, which opens the
+/// Exit test Stage, on its shaping packet.
+fn shape_milestone(milestone_id: &str) -> Value {
+    let mut conn = open_conn();
+    let h = human(&conn);
+    let subject = ShapingSubject::Milestone(milestone_id.to_string());
+    let session = ok(
+        "start_shaping_session",
+        start_shaping_session(&mut conn, &subject, SessionKind::Shaping.launch_policy().permission_mode, &h),
+    );
+    let prompt = ok("build_shaping_packet", core::shaping_packet::build_shaping_packet(&conn, &subject));
+    spawn_for(&session.id, prompt)
+}
+
+/// The developer answers the Milestone's open Round with every recommended answer (Accept all
+/// recommended); the held `round_post` it settles comes back as `release`.
+fn answer_round(milestone_id: &str) -> Value {
+    let mut conn = open_conn();
+    let h = human(&conn);
+    let round = ok("rounds_for_milestone", rounds_for_milestone(&conn, milestone_id))
+        .into_iter()
+        .find(|r| r.state == "open")
+        .unwrap_or_else(|| fail("the Milestone has no open Round"));
+    let outcome = ok("accept_all_recommended", accept_all_recommended(&mut conn, &h, &round.id));
+    let release = outcome.release.map(|r| json!({ "sessionId": r.session_id, "requestId": r.request_id, "answer": { "result": r.result } }));
+    json!({ "round": round.number, "release": release })
+}
+
+/// The Milestone as its shaping left it: state, exit test, and its pending Proposals.
+fn milestone_view(milestone_id: &str) -> Value {
+    let conn = open_conn();
+    let m = ok("get_milestone", milestone::get_milestone(&conn, milestone_id)).unwrap_or_else(|| fail("no such Milestone"));
+    let pending: Vec<Value> = ok("proposals_on_milestone", proposals_on_milestone(&conn, milestone_id))
+        .iter()
+        .filter(|p| p.state == "pending")
+        .map(|p| json!({ "id": p.id, "payload": p.payload }))
+        .collect();
+    json!({ "state": m.state, "exitTest": m.exit_test, "pending": pending })
+}
+
+/// The developer closes the Milestone's Exit test Stage: it moves to Ready (#132).
+fn close_exit_test(milestone_id: &str) -> Value {
+    let mut conn = open_conn();
+    let h = human(&conn);
+    let stage = ok("open_stage", open_stage(&conn, &ShapingSubject::Milestone(milestone_id.to_string())))
+        .unwrap_or_else(|| fail("the Milestone has no open Stage"));
+    let closed = ok("close_stage", close_stage(&mut conn, &h, &stage.id));
+    json!({ "closed": closed.closed.id, "endedSession": closed.ended_session })
 }
 
 fn session_closed(run_id: &str) -> Value {
@@ -201,6 +269,10 @@ fn main() {
     let arg = |i: usize| args.get(i).map(String::as_str).unwrap_or_else(|| fail("missing argument; see the usage in this file's header"));
     let out = match arg(0) {
         "seed" => seed(arg(1)),
+        "shape-milestone" => shape_milestone(arg(1)),
+        "answer-round" => answer_round(arg(1)),
+        "milestone" => milestone_view(arg(1)),
+        "close-exit-test" => close_exit_test(arg(1)),
         "confirm-epic" => confirm_epic(arg(1)),
         "tool-call" => tool_call(arg(1), arg(2), arg(3), arg(4)),
         "decide" => decide(arg(1), arg(2)),

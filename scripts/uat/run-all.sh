@@ -88,7 +88,7 @@ run_item "UAT 11 — env-file-ordering verdict functions, self-test only (zero t
   node scripts/uat/uat-11-env-file-ordering.mjs --selftest
 run_item "UAT 12 — fleet live reads: log tail, dismiss, blocked queue, reclaim (D-REV-48/49/50/55, zero tokens)" \
   node scripts/uat/uat-12-fleet-live-reads.mjs
-run_item "UAT 17 — confirming an Epic Done runs a roadmap Round that proposes or holds (issue #134, zero tokens)" \
+run_item "UAT 17 — shape a Milestone exit test; confirming an Epic Done runs a roadmap Round that proposes or holds (issue #134, zero tokens)" \
   node scripts/uat/uat-17-roadmap-round.mjs
 
 printf '\n\n┌─ UAT results ─────────────────────────────────────────────────────────────\n'

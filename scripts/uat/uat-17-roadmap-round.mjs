@@ -5,14 +5,16 @@
  *
  * Drives the REAL sidecar (`packages/sidecar/dist/index.js`) and its REAL board MCP server, with a
  * scripted fake agent at the backend leaf (`packages/sidecar/test/fake-claude.mjs`, its scripted
- * board-call mode). The agent reads the roadmap packet it was spawned with and answers it: a packet
- * whose trigger is Epic "Rounds" Done gets a proposed change (an Epic missing from its Milestone),
- * any other gets "Roadmap still holds". The board's half runs through `uat_roadmap_ops`
- * (packages/core/tests/bin), which calls the same core functions the desktop commands wrap; this
- * script relays each board tool call between the two, as `sidecar.rs` and the shaping router do.
+ * board-call mode). The agent reads the packet it was spawned with and answers it: a Milestone's shaping
+ * packet gets a Round and a sharper exit test; a roadmap packet whose trigger is Epic "Rounds" Done gets
+ * a proposed change (an Epic missing from its Milestone); any other roadmap packet gets "Roadmap still
+ * holds". The board's half runs through `uat_roadmap_ops` (packages/core/tests/bin), which calls the
+ * same core functions the desktop commands wrap; this script relays each board tool call between the
+ * two, as `sidecar.rs` and the shaping router do, and plays the developer's clicks.
  *
- *   A. Shape a Milestone's exit test: SKIPPED until #132 (Milestone exit-test shaping) merges, and the
- *      output says so. When it merges this step fails loudly rather than skipping silently.
+ *   A. Shape the Milestone's exit test (#132): its shaping session posts a Round; the developer accepts
+ *      every recommendation; the agent proposes a new exit test; the developer accepts it and closes the
+ *      Exit test Stage, so the Milestone is Ready with the new exit test.
  *   B. Confirm Epic FLY-1 Done: one short Round opens on its Milestone, its session starts, the packet
  *      names the trigger and the short scope; the agent proposes a new Epic and waits; the developer
  *      accepts it; the held call is answered and the Round closes with the change applied.
@@ -24,22 +26,39 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
 
-import { REPO_ROOT, newRunId, resolveHarnessBinary, runScript, step } from "./lib/sidecar-harness.mjs";
+import { REPO_ROOT, resolveHarnessBinary, runScript, step } from "./lib/sidecar-harness.mjs";
 
 const FAKE_CLAUDE = path.join(REPO_ROOT, "packages", "sidecar", "test", "fake-claude.mjs");
-const ROUND_TIMEOUT_MS = 30_000;
+const SESSION_TIMEOUT_MS = 30_000;
 
-/** #132 lands Milestone exit-test shaping; its desktop command is how this script knows. */
-const MILESTONE_SHAPING_MERGED = fs.existsSync(path.join(REPO_ROOT, "packages", "desktop", "src-tauri", "src", "commands", "milestone_shaping.rs"))
-  || spawnSync("git", ["grep", "-q", "fn milestone_shape", "--", "packages/desktop/src-tauri/src"], { cwd: REPO_ROOT }).status === 0;
+const SHARPER_EXIT_TEST = "Cyril takes a one-line idea to Ready Stories in Flywheel, and a roadmap Round answers each Epic he confirms Done.";
 
-/** The scripted agent. It reads its packet: an Epic "Rounds" confirmed Done means an Epic is missing
- * from its Milestone, so it proposes one and waits for the decision; any other trigger, it holds. */
+/** The scripted agent. It reads its packet and answers it, one step list for every session. */
+const MILESTONE_PACKET = String.raw`^# Shaping packet: Milestone `;
+const ROADMAP_PACKET = String.raw`^# Roadmap packet: `;
 const ROUNDS_DONE = String.raw`confirmed Epic FLY-1 "Rounds" Done`;
 const AGENT_SCRIPT = [
+  // A Milestone's exit test: challenge it in a Round, then propose the sharper text.
+  {
+    when: MILESTONE_PACKET,
+    name: "round_post",
+    arguments: {
+      note: "This Round settles what the exit test observes.",
+      questions: [
+        {
+          title: "Observable",
+          question: "Should the exit test name the roadmap Round an Epic's Done starts?",
+          grounding: "Read the Milestone's exit test in the packet",
+          recommended_answer: "Yes",
+          because: "Epic #60 makes the Round part of what the Milestone delivers",
+        },
+      ],
+    },
+  },
+  { when: MILESTONE_PACKET, name: "propose_exit_test", arguments: { text: SHARPER_EXIT_TEST, why: "Round 1 settled it" } },
+  // A roadmap Round: an Epic missing after Rounds is Done, else the Roadmap holds.
   {
     when: ROUNDS_DONE,
     name: "propose_roadmap_change",
@@ -53,13 +72,14 @@ const AGENT_SCRIPT = [
   },
   { when: ROUNDS_DONE, name: "round_wait", arguments: {} },
   {
+    when: ROADMAP_PACKET,
     unless: ROUNDS_DONE,
     name: "roadmap_holds",
     arguments: { why: "The Milestone's exit test is still reachable and no Epic is missing." },
   },
 ];
 
-await runScript("uat-17", "UAT 17 — confirming an Epic Done runs a roadmap Round (zero tokens)", async (harness) => {
+await runScript("uat-17", "UAT 17 — shape a Milestone's exit test; confirming an Epic Done runs a roadmap Round (zero tokens)", async (harness) => {
   const bin = resolveHarnessBinary("uat_roadmap_ops");
   if (bin === undefined) {
     throw new Error(
@@ -74,29 +94,23 @@ await runScript("uat-17", "UAT 17 — confirming an Epic Done runs a roadmap Rou
     return JSON.parse(r.stdout.trim().split("\n").at(-1));
   };
 
-  // ---- A. Shape a Milestone's exit test ----------------------------------------------------------
-  if (MILESTONE_SHAPING_MERGED) {
-    throw new Error(
-      "#132 (Milestone exit-test shaping) has merged: extend step A to shape the Milestone's exit test " +
-        "through it before confirming an Epic Done, then drop this guard",
-    );
-  }
-  step("A. SKIPPED — shaping a Milestone's exit test waits for #132 (Milestone exit-test shaping), not merged yet");
-
   const { workPath } = harness.createRepoWithRemote();
   const seeded = ops("seed", workPath);
   const [rounds, strip] = seeded.epics;
-  step(`seeded "Shaping" with ${rounds.key} ${rounds.title} and ${strip.key} ${strip.title}, every Story Merged`);
+  step(`seeded Milestone "Shaping", in Shaping, with ${rounds.key} ${rounds.title} and ${strip.key} ${strip.title}, every Story Merged`);
 
   const sidecar = await harness.startSidecar({ env: { FLYWHEEL_CLAUDE_BIN: FAKE_CLAUDE } });
 
-  /** Spawn the Round's session as the desktop does, relay its board calls, accept what it proposes,
-   * and return what its scripted agent printed once the session ends. */
-  async function runRound(confirmed) {
-    const { runId, ...spawn } = confirmed.spawn;
+  /**
+   * Spawn a shaping session as the desktop does and relay its board calls until it ends. A held call is
+   * handed to `onHeld(event)`, which plays the developer and returns the release that answers it.
+   * Returns what the scripted agent printed.
+   */
+  async function runSession(launched, onHeld) {
+    const { runId, ...spawn } = launched.spawn;
     const sessionEnv = {
       ...harness.sessionEnv(runId, "main"),
-      ...confirmed.policyEnv,
+      ...launched.policyEnv,
       FLYWHEEL_FAKE_ECHO_ARGV: "1",
       FLYWHEEL_FAKE_BOARD_CALLS: JSON.stringify(AGENT_SCRIPT),
     };
@@ -111,8 +125,8 @@ await runScript("uat-17", "UAT 17 — confirming an Epic Done runs a roadmap Rou
           sidecar.events.indexOf(e) >= cursor &&
           mine(e) &&
           ((e.type === "board_tool_request" && !handled.has(e.requestId)) || e.type === "session_closed"),
-        ROUND_TIMEOUT_MS,
-        `roadmap session ${runId}'s next board call or its end`,
+        SESSION_TIMEOUT_MS,
+        `session ${runId}'s next board call or its end`,
       );
       if (event.type === "session_closed") break;
       handled.add(event.requestId);
@@ -121,16 +135,9 @@ await runScript("uat-17", "UAT 17 — confirming an Epic Done runs a roadmap Rou
         await sidecar.request({ op: "board_tool_answer", runId, requestId: event.requestId, ...answer });
         continue;
       }
-      // Held (`round_wait`): the developer decides every Proposal on the strip; the last decision
-      // releases the call, answered with every decision, as the desktop's settle does.
-      step(`   ${event.tool} is held: the Round is Waiting on you`);
-      const view = ops("roadmap", seeded.projectId);
-      let release = null;
-      for (const p of view.round.proposals.filter((x) => x.state === "pending")) {
-        step(`   the developer accepts "${p.summary}"`);
-        release = ops("decide", p.id, "accept").release ?? release;
-      }
-      assert.ok(release, "accepting the Round's last Proposal releases the held round_wait");
+      step(`   ${event.tool} is held: Waiting on you`);
+      const release = onHeld(event);
+      assert.ok(release, `the developer's answer releases the held ${event.tool}`);
       assert.equal(release.requestId, event.requestId);
       await sidecar.request({ op: "board_tool_answer", runId, requestId: release.requestId, ...release.answer });
     }
@@ -147,33 +154,68 @@ await runScript("uat-17", "UAT 17 — confirming an Epic Done runs a roadmap Rou
         }
       })
       .filter(Boolean);
-    return { runId, prompt: spawn.prompt, printed };
+    const argv = printed.find((l) => l.type === "argv_seen")?.argv ?? [];
+    assert.equal(argv[argv.indexOf("-p") + 1], spawn.prompt, "the agent was spawned on its packet");
+    assert.ok(!printed.some((l) => l.type === "board_call_unresolved"), `every step resolved: ${JSON.stringify(printed)}`);
+    return printed;
   }
+  const called = (printed, name) => printed.find((l) => l.type === "board_call_result" && l.name === name);
+
+  // ---- A. Shape the Milestone's exit test ----------------------------------------------------------
+  const shaping = ops("shape-milestone", seeded.milestoneId);
+  assert.match(shaping.spawn.prompt, /^# Shaping packet: Milestone Shaping/);
+  step('A. Shape on Milestone "Shaping": its shaping session starts on the Milestone\'s shaping packet');
+  const a = await runSession(shaping, (event) => {
+    assert.equal(event.tool, "round_post", "a Milestone's session is held only on its Round");
+    const answered = ops("answer-round", seeded.milestoneId);
+    step(`   the developer accepts every recommendation in Round ${answered.round}`);
+    return answered.release;
+  });
+  const posted = called(a, "round_post");
+  assert.ok(posted && !posted.isError, `the Round was posted and answered: ${JSON.stringify(a)}`);
+  const proposedText = called(a, "propose_exit_test");
+  assert.ok(proposedText && !proposedText.isError, `the agent proposed an exit test: ${JSON.stringify(a)}`);
+  let milestone = ops("milestone", seeded.milestoneId);
+  assert.equal(milestone.pending.length, 1, "one exit-test change waits on the developer");
+  assert.deepEqual(milestone.pending[0].payload, { title: null, exit_test: SHARPER_EXIT_TEST });
+  ops("decide", milestone.pending[0].id, "accept");
+  ops("close-exit-test", seeded.milestoneId);
+  milestone = ops("milestone", seeded.milestoneId);
+  assert.deepEqual([milestone.state, milestone.exitTest], ["ready", SHARPER_EXIT_TEST]);
+  step("   the developer accepts the new exit test and closes Exit test: the Milestone is Ready with it");
 
   // ---- B. Confirm Epic "Rounds" Done: the Round proposes a change -------------------------------
   const first = ops("confirm-epic", rounds.id);
   assert.equal(first.outcome, "opened", "confirming the Epic Done opens a roadmap Round");
   assert.match(first.spawn.prompt, /The developer confirmed Epic FLY-1 "Rounds" Done, in Milestone "Shaping"\./);
   assert.match(first.spawn.prompt, /This Round is short, and on one Milestone: "Shaping"/);
+  assert.ok(first.spawn.prompt.includes(`Exit test: ${SHARPER_EXIT_TEST}`), "the Round reads the exit test shaped in A");
   assert.ok(first.spawn.allowedTools.includes("mcp__flywheel-board__propose_roadmap_change"), "the session may propose");
   step(`B. ${rounds.key} confirmed Done: roadmap Round ${first.round} opened, its packet names the trigger and the short scope`);
 
-  const b = await runRound(first);
-  const argv = b.printed.find((l) => l.type === "argv_seen")?.argv ?? [];
-  assert.equal(argv[argv.indexOf("-p") + 1], first.spawn.prompt, "the agent was spawned on the roadmap packet");
-  const proposed = b.printed.find((l) => l.type === "board_call_result" && l.name === "propose_roadmap_change");
-  assert.ok(proposed && !proposed.isError, `the agent's proposal was filed: ${JSON.stringify(b.printed)}`);
-  const waited = b.printed.find((l) => l.type === "board_call_result" && l.name === "round_wait");
+  const b = await runSession(first, (event) => {
+    assert.equal(event.tool, "round_wait");
+    const view = ops("roadmap", seeded.projectId);
+    let release = null;
+    for (const p of view.round.proposals.filter((x) => x.state === "pending")) {
+      step(`   the developer accepts "${p.summary}"`);
+      release = ops("decide", p.id, "accept").release ?? release;
+    }
+    return release;
+  });
+  const proposed = called(b, "propose_roadmap_change");
+  assert.ok(proposed && !proposed.isError, `the agent's proposal was filed: ${JSON.stringify(b)}`);
+  const waited = called(b, "round_wait");
   assert.ok(waited && !waited.isError, "the held round_wait was answered");
   const decisions = JSON.parse(waited.text).decisions;
   assert.deepEqual(decisions.map((d) => [d.change, d.state]), [['New Epic "Round history" in Milestone "Shaping"', "accepted"]]);
-  assert.ok(b.printed.some((l) => l.type === "board_call_skipped" && l.name === "roadmap_holds"), "it did not also say it holds");
+  assert.ok(!called(b, "roadmap_holds"), "it did not also say it holds");
 
   let view = ops("roadmap", seeded.projectId);
   assert.equal(view.round.state, "closed");
   assert.match(view.round.ended, /Closed roadmap Round 1: 1 accepted, 0 rejected/);
-  const shaping = view.milestones.find((m) => m.id === seeded.milestoneId);
-  assert.ok(shaping.epics.some((e) => e.title === "Round history" && e.state === "shaping"), "the accepted Epic is on the board, in Shaping");
+  const shaped = view.milestones.find((m) => m.id === seeded.milestoneId);
+  assert.ok(shaped.epics.some((e) => e.title === "Round history" && e.state === "shaping"), "the accepted Epic is on the board, in Shaping");
   step(`   the agent proposed "${decisions[0].change}", it was accepted, and Round 1 closed with it applied`);
 
   // ---- C. Confirm Epic "Roadmap strip" Done: the Round says the Roadmap holds -------------------
@@ -183,10 +225,10 @@ await runScript("uat-17", "UAT 17 — confirming an Epic Done runs a roadmap Rou
   assert.match(second.spawn.prompt, /The developer confirmed Epic FLY-3 "Roadmap strip" Done/);
   step(`C. ${strip.key} confirmed Done: roadmap Round 2 opened`);
 
-  const c = await runRound(second);
-  const held = c.printed.find((l) => l.type === "board_call_result" && l.name === "roadmap_holds");
-  assert.ok(held && !held.isError, `the agent said the Roadmap holds: ${JSON.stringify(c.printed)}`);
-  assert.ok(!c.printed.some((l) => l.type === "board_call_result" && l.name === "propose_roadmap_change"), "and proposed nothing");
+  const c = await runSession(second, (event) => assert.fail(`nothing holds a Round that holds: ${event.tool}`));
+  const held = called(c, "roadmap_holds");
+  assert.ok(held && !held.isError, `the agent said the Roadmap holds: ${JSON.stringify(c)}`);
+  assert.ok(!called(c, "propose_roadmap_change"), "and proposed nothing");
   view = ops("roadmap", seeded.projectId);
   assert.deepEqual([view.round.number, view.round.state, view.round.ended, view.round.proposals.length], [2, "closed", "Roadmap still holds", 0]);
   step('   the agent said the Roadmap still holds, and Round 2 closed with "Roadmap still holds"');
