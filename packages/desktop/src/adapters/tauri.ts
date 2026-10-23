@@ -975,6 +975,12 @@ export async function storyMerge(storyId: string, withFailingChecks: boolean): P
   return invokeCommand<MergeDto>("story_merge", { storyId, withFailingChecks });
 }
 
+/** The developer's Move to Epic (issue #168): the Story lands at the end of `epicId`, an open Epic of its
+ * project, with its key, criteria, Tasks and worktree untouched. */
+export async function storyMove(storyId: string, epicId: string): Promise<void> {
+  return invokeCommand<void>("story_move", { storyId, epicId });
+}
+
 export async function storyResume(storyId: string, note?: string): Promise<SessionDto> {
   return invokeCommand<SessionDto>("story_resume", { storyId, note: note ?? null });
 }

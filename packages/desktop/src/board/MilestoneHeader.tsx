@@ -6,6 +6,7 @@ import { Icon, type IconName } from "../components/Icon";
 import { StateBadge } from "../components/StateBadge";
 import { Skeleton } from "../components/ui/skeleton";
 import { ConfirmExitTest, milestoneExitTestConfirmable } from "./ConfirmExitTest";
+import { AddEpicToMilestone } from "./AddRecordControls";
 import { EPIC_STATE_WORDS } from "./EpicProgress";
 import { MilestoneShapingControl, useMilestoneAttention } from "./MilestoneShapingControl";
 import { BAR_SEGMENTS, StoryStateBar, type BarSegment } from "./StoryStateBar";
@@ -127,6 +128,11 @@ function MilestoneProgress({ projectId, progress }: { projectId: string; progres
                 }}
               />
             )}
+            {/* Issue #168: + Epic adds an Epic to this Milestone, the one the roster below shows. */}
+            <AddEpicToMilestone
+              projectId={projectId}
+              milestone={{ id: progress.milestoneId, title: progress.title, state: progress.state }}
+            />
           </div>
           <p className="max-w-[72ch] text-[14.5px] leading-[1.45]">
             <b className="font-bold">Exit test:</b>{" "}
