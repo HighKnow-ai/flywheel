@@ -78,7 +78,7 @@ describe("SinceYouLastLooked", () => {
     expect(rows[0].textContent).toContain("FLY-12");
     expect(rows[0].textContent).toContain("Make clicking predictable");
     expect(rows[0].textContent).toContain("Handed off for review");
-    expect(rows[1].textContent).toContain("Moved Story from in_review to merged");
+    expect(rows[1].textContent).toContain("Moved Story from In review to Merged");
     expect(rows[2].textContent).toContain("Opened roadmap Round 2");
 
     fireEvent.click(toggle);
@@ -118,5 +118,28 @@ describe("SinceYouLastLooked", () => {
     renderTimeline();
     fireEvent.click(await screen.findByRole("button", { name: /250 events since you last looked/ }));
     expect(screen.getByText("The newest 1 of 250")).toBeTruthy();
+  });
+
+  it("names every state in the glossary's words, never the core's snake case, and keeps any other sentence as it is", async () => {
+    boardVisit.mockResolvedValue(
+      seen([
+        event("story.state_changed", "Moved Story from in_review to merged", "FLY-2", "Refresh"),
+        event("story.state_changed", "Moved Story from shaping to ready", "FLY-9", "Dock"),
+        event("epic.state_changed", "Moved Epic from ready to in_progress", "FLY-1", "Design system"),
+        event("milestone.state_changed", "Moved Milestone from shaping to ready", null, "Board and review"),
+        event("epic.state_changed", "Confirmed Epic FLY-1's exit test: Done", "FLY-1", "Design system"),
+      ]),
+    );
+    renderTimeline();
+    fireEvent.click(await screen.findByRole("button", { name: /5 events since you last looked/ }));
+    const rows = within(screen.getByRole("list", { name: "Since you last looked" })).getAllByRole("listitem");
+    expect(rows.map((row) => row.lastElementChild?.textContent)).toEqual([
+      "Moved Story from In review to Merged",
+      "Moved Story from Shaping to Ready",
+      "Moved Epic from Ready to In progress",
+      "Moved Milestone from Shaping to Ready",
+      "Confirmed Epic FLY-1's exit test: Done",
+    ]);
+    expect(screen.queryByText(/in_review|in_progress/)).toBeNull();
   });
 });

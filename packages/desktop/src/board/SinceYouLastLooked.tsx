@@ -29,6 +29,7 @@ import {
 import { boardVisit, type LookedEventDto, type SinceLastLookedDto } from "../adapters/tauri";
 import { formatAge } from "../legend/runStatus";
 import { errorText } from "./StoryControls";
+import { stateWordOf } from "../components/StateBadge";
 import { cn } from "@/lib/utils";
 
 const KIND_ICON: Record<string, LucideIcon> = {
@@ -43,6 +44,21 @@ const KIND_ICON: Record<string, LucideIcon> = {
 
 function kindIcon(eventType: string): LucideIcon {
   return KIND_ICON[eventType] ?? (eventType.startsWith("round.") ? MessagesSquare : ArrowRight);
+}
+
+/**
+ * The core's default sentence for a state move names the states by their stored values ("Moved Story from
+ * in_review to merged"), and that sentence is kept in each event as written. The timeline names them in the
+ * glossary's words from StateBadge's one vocabulary ("In review", "Merged"), so old events read right too.
+ * A sentence of any other shape (a confirmed exit test, a hand-off) is the core's own and is shown as it is.
+ */
+const STATE_MOVE = /^Moved (Story|Epic|Milestone) from ([a-z_]+) to ([a-z_]+)$/;
+
+export function eventSentence(description: string): string {
+  const move = STATE_MOVE.exec(description);
+  if (!move) return description;
+  const [, record, from, to] = move;
+  return `Moved ${record} from ${stateWordOf(from)} to ${stateWordOf(to)}`;
 }
 
 export function SinceYouLastLooked({ projectId }: { projectId: string }) {
@@ -147,7 +163,7 @@ function TimelineRow({ event, now }: { event: LookedEventDto; now: number }) {
         {event.subjectKey && <span className="w-14 shrink-0 font-mono text-meta text-muted-foreground">{event.subjectKey}</span>}
         <span className="truncate text-body font-semibold">{event.subjectTitle ?? "Roadmap"}</span>
       </span>
-      <span className="truncate text-small text-muted-foreground">{event.description}</span>
+      <span className="truncate text-small text-muted-foreground">{eventSentence(event.description)}</span>
     </li>
   );
 }
