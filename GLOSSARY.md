@@ -49,11 +49,11 @@ An executable test or command attached to an Acceptance criterion that must pass
 _Avoid_: Validation, gate
 
 **Review**:
-The developer's judgement of a Story In review, opened by its hand-off and closed by Merge or a request for changes. It records the diff's size and the Tasks not done at hand-off, and, at Merge, any failing Check the developer overrode. A Story has at most one open review.
+The developer's judgement of a Story In review, opened by its hand-off and closed by Merge or a request for changes. It records the diff's size, the Tasks not done and the bar lines of each ADR the Story wrote, at hand-off, and, at Merge, any failing Check the developer overrode. A Story has at most one open review (ADR 0010).
 _Avoid_: PR, code review (for the record)
 
 **Merge**:
-The developer's act that ends a review: Flywheel writes a merge commit on the project's local base branch, removes the worktree and the branch, and moves the Story to Merged. It needs every criterion accepted, and a Check failed, timed out, not run or stale needs "Merge with failing Check". Flywheel never pushes (ADR 0009).
+The developer's act that ends a review: Flywheel writes a merge commit on the project's local base branch, removes the worktree and the branch, links each new ADR to the Story by path, and moves the Story to Merged. It needs every criterion accepted, and a Check failed, timed out, not run or stale needs "Merge with failing Check". Flywheel never pushes (ADR 0009).
 _Avoid_: Ship, land
 
 **Exit test**:
@@ -63,6 +63,14 @@ _Avoid_: Definition of done, success criteria
 **ADR**:
 A record of a hard-to-reverse decision with a real trade-off behind it, kept with the project's code and linked to the Milestone, Epic or Story where the decision came up.
 _Avoid_: Decision log, design doc
+
+**Bar lines**:
+The four lines an ADR is offered with, shown beside it and never written into the file: why it is hard to reverse, why it would surprise a reader, which alternative lost, and which ADRs it relates to. Without the first three there is no ADR. In shaping they come with the draft; from a Story they come in its hand-off (ADR 0010).
+_Avoid_: ADR metadata, front matter
+
+**Decisions section**:
+The part of a review that lists the Story's `docs/adr/` and `GLOSSARY.md` changes apart from its code, with a count. Each new ADR shows its bar lines, the live ADRs it relates to, and Keep.
+_Avoid_: Knowledge diff
 
 **Proposal**:
 A change suggested by an agent to any board record, ADR or glossary term (create, amend, reorder or retire it) that has no effect until the developer accepts it.

@@ -253,7 +253,7 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
   - which alternative lost
   - "Relates to: ADR-NNNN… / none"
 
-  Without the first three, there is no ADR. The packet tells the agent to check the ADR index and either supersede a related ADR or not write a new one.
+  Without the first three, there is no ADR. The packet tells the agent to check the ADR index and either supersede a related ADR or not write a new one. A Story agent gives the bar lines of each ADR it adds in its hand-off; they are stored on the review (ADR 0010).
 - **Supersession:** a changed merged decision is a new ADR that opens "Supersedes ADR-NNNN", and the old one gets one `Status: superseded by ADR-MMMM` line in the same merge. Wording is fixed in place. Before merge, an accepted ADR changes by amending its Proposal.
 - **No limit** on ADRs per Story.
 - **Unlinked ADRs:** an ADR with no board link is shown as unlinked.
@@ -287,10 +287,11 @@ The sidebar shows each project's Needs-you count (the number of its Needs-you it
   - Each ADR card shows the bar lines and the related live ADRs inline, and offers **Keep** (the default), **Not an ADR** (the agent deletes the file) or **Wrong decision** (a short grilling inside the review, then a request for changes covering code and ADR).
   - A diff to an existing ADR other than its `Status:` line is flagged ("wording or supersede?").
   - An ADR number already taken on the default branch is flagged for the agent to renumber.
+  - **Shipped** ([#161](https://github.com/HighKnow-ai/flywheel/issues/161)) with Keep as the only decision so far and without the two flags, which come with [#164](https://github.com/HighKnow-ai/flywheel/issues/164). The bar lines come from the hand-off's `adrs`, stored on the review, or else from the ADR accepted on the Epic in shaping; the related live ADRs are resolved against the base branch (ADR 0010).
 - **Actions:**
   - **Request changes** sends the Story back to Running with the comments.
   - **Re-run Checks** reruns them all.
-  - **Merge** merges into the base branch, removes the worktree, links new ADRs to the Story by path and marks superseded ones. It needs every criterion accepted by Cyril, no live session and a clean worktree. A Check that is failed, timed out, not run or stale (run against an older commit) counts as failing, and needs "Merge with failing Check", recorded on the review and on the `story.merged` event. Merge is Cyril's action, not an agent Gated action. How the merge commit is written to the local base branch is ADR 0009. **Shipped** ([#155](https://github.com/HighKnow-ai/flywheel/issues/155)) without the ADR linking, which comes with the Decisions section.
+  - **Merge** merges into the base branch, removes the worktree, links new ADRs to the Story by path and marks superseded ones. It needs every criterion accepted by Cyril, no live session and a clean worktree. A Check that is failed, timed out, not run or stale (run against an older commit) counts as failing, and needs "Merge with failing Check", recorded on the review and on the `story.merged` event. Merge is Cyril's action, not an agent Gated action. How the merge commit is written to the local base branch is ADR 0009. **Shipped** ([#155](https://github.com/HighKnow-ai/flywheel/issues/155)). ADR linking shipped with the Decisions section ([#161](https://github.com/HighKnow-ai/flywheel/issues/161)): an ADR accepted in shaping keeps its Epic Proposal and gets no second link. Marking superseded ones is not built yet.
 
 ## 9. Codebase plan
 

@@ -181,6 +181,8 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 76 | Needs you, scrolled: Stopped with Resume, a missing worktree with Recreate, Review, Confirm exit test and Rounds no session works, with Continue shaping (#156) | ![](critique-2026-10/after/76-needs-you-column-decisions-light.webp) | ![](critique-2026-10/after/76-needs-you-column-decisions-dark.webp) |
 | 77 | Needs you at the window's minimum width: the top bar's Needs you button opens it as a Sheet (#156) | ![](critique-2026-10/after/77-needs-you-sheet-min-width-light.webp) | ![](critique-2026-10/after/77-needs-you-sheet-min-width-dark.webp) |
 | 78 | Needs you: Confirm exit test from an Epic's card opens the same dialog as the Epic card (#156) | ![](critique-2026-10/after/78-needs-you-confirm-exit-test-light.webp) | ![](critique-2026-10/after/78-needs-you-confirm-exit-test-dark.webp) |
+| 85 | Review card: the Decisions section, an edited ADR, a new ADR with its hand-off bar lines and related live ADR, one with bar lines from shaping, one with none, each with Keep selected, and the glossary (#161) | ![](critique-2026-10/after/85-review-card-decisions-light.webp) | ![](critique-2026-10/after/85-review-card-decisions-dark.webp) |
+| 86 | Review card: the Decisions section at the window's 900px minimum width (#161) | ![](critique-2026-10/after/86-review-card-decisions-min-width-light.webp) | ![](critique-2026-10/after/86-review-card-decisions-min-width-dark.webp) |
 
 ## How the screens were rendered
 
