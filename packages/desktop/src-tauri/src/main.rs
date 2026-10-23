@@ -237,6 +237,7 @@ fn main() {
             commands::session::story_latest_session,
             commands::session::board_blocked_summary,
             commands::session::board_recovery_summary,
+            commands::needs_you::needs_you_list,
             commands::session::sessions_pending_orphans,
             commands::session::orphan_kill,
             commands::settings::settings_get,

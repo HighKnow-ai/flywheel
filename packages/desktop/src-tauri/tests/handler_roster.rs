@@ -51,6 +51,7 @@ const ROSTER: &[&str] = &[
     "git_truth::git_facts",
     "git_truth::git_truth_focus_story",
     "menu::menu_set_action_enabled",
+    "needs_you::needs_you_list",
     "project::project_hide",
     "project::project_list",
     "project::project_reconcile",

@@ -27,6 +27,7 @@ import {
   installFixtureBackend,
   offerAdrsInShaping,
   setReviewInFixture,
+  setNeedsYouExtras,
   setRoadmapRound,
   setShapingSessionLive,
   shapeMilestoneInFixture,
@@ -290,12 +291,14 @@ async function storyColumnsInView() {
   heading.scrollIntoView({ block: "start" });
 }
 
+// The first match: since Needs you (#156) a Story's controls show both in its card and on its roster row,
+// and either is the same control.
 async function click(label: string | RegExp) {
-  await userEvent.click(await screen.findByRole("button", { name: label }));
+  await userEvent.click((await screen.findAllByRole("button", { name: label }))[0]);
 }
 
 async function openStory(key: string, title: string | RegExp) {
-  await userEvent.click(await screen.findByRole("button", { name: new RegExp(`^Open Story ${key} ${typeof title === "string" ? title : title.source}$`) }));
+  await userEvent.click((await screen.findAllByRole("button", { name: new RegExp(`^Open Story ${key} ${typeof title === "string" ? title : title.source}$`) }))[0]);
 }
 
 describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
@@ -829,6 +832,47 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await boardReady();
     (await screen.findByRole("button", { name: "Open review of FLY-3" })).scrollIntoView({ block: "center" });
     await shot("74-board-open-review");
+  });
+
+  it("75 Needs you: the ranked column beside the roster, and each project's figure in the sidebar (issue #156)", async () => {
+    setNeedsYouExtras(true);
+    await boardReady();
+    await screen.findByRole("list", { name: "Needs you, most urgent first" });
+    await shot("75-needs-you-column");
+  });
+
+  it("76 Needs you, scrolled: Stopped, a missing worktree, Review, Confirm exit test and Rounds no session works (issue #156)", async () => {
+    setNeedsYouExtras(true);
+    setShapingSessionLive(false);
+    setRoadmapRound("idle");
+    await boardReady();
+    const column = await screen.findByRole("region", { name: /^Needs you/ });
+    await screen.findByText("Round 2 · No live session: your answers are kept");
+    // The board scrolls the column to its top, where it sticks; then the column scrolls its own list.
+    column.scrollIntoView({ block: "start" });
+    column.scrollTop = column.scrollHeight;
+    await shot("76-needs-you-column-decisions");
+  });
+
+  it("77 Needs you at the window's minimum width: the top bar's button opens it as a Sheet (issue #156)", async () => {
+    setNeedsYouExtras(true);
+    await page.viewport(900, 900);
+    try {
+      await boardReady();
+      await click(/^Open Needs you/);
+      await screen.findByRole("dialog");
+      await shot("77-needs-you-sheet-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
+  it("78 Needs you: confirming an Epic's exit test from its card (issue #156)", async () => {
+    setNeedsYouExtras(true);
+    await boardReady();
+    await click("Confirm exit test of FLY-12 Milestone and Roadmap shaping");
+    await screen.findByRole("alertdialog");
+    await shot("78-needs-you-confirm-exit-test");
   });
 
   it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {

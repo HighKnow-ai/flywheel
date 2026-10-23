@@ -1390,6 +1390,62 @@ export async function boardRecoverySummary(projectId: string): Promise<RecoveryS
   return invokeCommand<RecoverySummaryDto>("board_recovery_summary", { projectId });
 }
 
+/** What a Needs-you item waits on the developer for (docs/mvp-spec.md §2, issue #156). The Proposals row
+ * (#162) and a Proposal that changes what a Story is judged on (#163) join this union. */
+export type NeedsYouKind =
+  | "gated_action"
+  | "permission_request"
+  | "question"
+  | "stopped"
+  | "review"
+  | "confirm_exit_test"
+  | "shaping_round";
+
+/** One Needs-you item — mirrors `commands/needs_you.rs`'s `NeedsYouItemDto`. Ranked by the core. */
+export interface NeedsYouItemDto {
+  kind: NeedsYouKind;
+  /** Its place in spec §2's order; kinds sharing a rank are mixed by age. */
+  rank: number;
+  id: string;
+  /** Since when it has waited (RFC 3339). */
+  since: string;
+  record: {
+    kind: "story" | "epic" | "milestone" | "roadmap";
+    id: string | null;
+    key: string | null;
+    title: string;
+    /** A Milestone's derived state, for Confirm exit test. */
+    state: string | null;
+  };
+  sessionId: string | null;
+  request: {
+    id: string;
+    toolName: string;
+    inputPayload: string | null;
+    destructiveCategory: string | null;
+    suggestedRule: string | null;
+  } | null;
+  endingReason: EndingReason | null;
+  /** A Stopped-kind item whose worktree is missing: Recreate, not Resume. */
+  missingWorktree: boolean;
+  doingTaskTitle: string | null;
+  exitTest: string | null;
+  milestoneTitle: string | null;
+  round: {
+    roundId: string;
+    roundNumber: number;
+    subject: "epic" | "milestone" | "roadmap";
+    /** A live session is held on it; otherwise no live session works it. */
+    waitingOnYou: boolean;
+    answered: number;
+    questions: number;
+  } | null;
+}
+
+export async function needsYouList(projectId: string): Promise<NeedsYouItemDto[]> {
+  return invokeCommand<NeedsYouItemDto[]>("needs_you_list", { projectId });
+}
+
 /** One genuinely-alive orphaned run the launch reconciler found (PROC-05, D-46) — mirrors
  * `commands/session.rs`'s `PendingOrphanDto`. */
 export interface PendingOrphanDto {
