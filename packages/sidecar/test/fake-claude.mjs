@@ -151,6 +151,60 @@ async function callTaskToolOnce(toolCall) {
   }
 }
 
+/**
+ * Scripted board-call mode (`FLYWHEEL_FAKE_BOARD_CALLS=<json [{name, arguments, when?, unless?}]>`,
+ * issue #134's offline UAT): a scripted agent that reads its own `-p` packet and makes board calls in
+ * order over ONE connection to the session's MCP server, each awaited, so a held call (`round_wait`)
+ * holds the script until the core answers it. A step runs only when its `when` regex matches the
+ * packet and its `unless` regex does not, so one script can answer differently to different packets.
+ * In any string argument, `{{prompt:<regex>}}` is replaced by that regex's first capture group in the
+ * packet (a step whose placeholder does not match fails loudly as `board_call_unresolved`). Each call
+ * prints a `board_call_result` line `{name, isError, text}`; a skipped step prints `board_call_skipped`.
+ */
+async function runBoardScript(steps) {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+  const prompt = readFlag("-p") ?? "";
+  const mcpConfig = JSON.parse(readFlag("--mcp-config"));
+  const [serverName] = Object.keys(mcpConfig.mcpServers);
+  const serverConfig = mcpConfig.mcpServers[serverName];
+  const transport = new StdioClientTransport({ command: serverConfig.command, args: serverConfig.args });
+  const client = new Client({ name: "fake-claude", version: "0.1.0" });
+  await client.connect(transport);
+  const resolve = (value) => {
+    if (typeof value === "string") {
+      return value.replace(/\{\{prompt:(.+?)\}\}/g, (_, source) => {
+        const match = prompt.match(new RegExp(source));
+        if (!match) throw new Error(`no match for ${source}`);
+        return match[1];
+      });
+    }
+    if (Array.isArray(value)) return value.map(resolve);
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolve(v)]));
+    return value;
+  };
+  try {
+    for (const step of steps) {
+      if ((step.when && !new RegExp(step.when).test(prompt)) || (step.unless && new RegExp(step.unless).test(prompt))) {
+        printLine({ type: "board_call_skipped", name: step.name });
+        continue;
+      }
+      let args;
+      try {
+        args = resolve(step.arguments ?? {});
+      } catch (err) {
+        printLine({ type: "board_call_unresolved", name: step.name, error: String(err) });
+        continue;
+      }
+      // A held call waits on the developer: no client-side deadline cuts it short.
+      const result = await client.callTool({ name: step.name, arguments: args }, undefined, { timeout: 600_000 });
+      printLine({ type: "board_call_result", name: step.name, isError: result.isError === true, text: result.content?.[0]?.text ?? "" });
+    }
+  } finally {
+    await client.close();
+  }
+}
+
 printLine({
   type: "system",
   subtype: "init",
@@ -193,6 +247,10 @@ if (CALL_PERMISSION === 1) {
 
 if (process.env.FLYWHEEL_FAKE_CALL_TASK_TOOL) {
   await callTaskToolOnce(JSON.parse(process.env.FLYWHEEL_FAKE_CALL_TASK_TOOL));
+}
+
+if (process.env.FLYWHEEL_FAKE_BOARD_CALLS) {
+  await runBoardScript(JSON.parse(process.env.FLYWHEEL_FAKE_BOARD_CALLS));
 }
 
 const COMMIT_FILE = process.env.FLYWHEEL_FAKE_COMMIT_FILE;

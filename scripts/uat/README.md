@@ -4,8 +4,8 @@ The live and offline UAT scripts. Each one drives the real sidecar and the real 
 data, so a guarantee is measured by code rather than claimed (`docs/mvp-spec.md` §9).
 
 - **Offline, zero tokens, run in CI on every PR** (`.github/workflows/ci.yml`, job "Offline UAT"):
-  `harness-supervision-gate.mjs` (both modes) and `uat-12-fleet-live-reads.mjs`. Neither needs a
-  `claude` binary or any credential. (Item 13, the fan-out run, was deleted with the fan-out
+  `harness-supervision-gate.mjs` (both modes), `uat-12-fleet-live-reads.mjs` and
+  `uat-17-roadmap-round.mjs`. None needs a `claude` binary or any credential. (Item 13, the fan-out run, was deleted with the fan-out
   dispatcher at the schema cut, issue #44.)
 - **Manual, pre-release only:** items 1, 3, 5, 6, 7 and 11. Items 3, 5, 6, 7 and 11's live arm
   spend real tokens.
@@ -29,6 +29,28 @@ bash scripts/uat/run-all.sh          # add --no-build to skip the prerequisite b
 | 7 — Launcher-wrapped destructive command, measured live (AGNT-07, D-62 item 2) | `uat-07-launcher-shape-gate.mjs` | **PASS** — properties A, B and C all held |
 | 11 — `CLAUDE_ENV_FILE` ordering, PATH shadow restoration, ask-branch (AGNT-07) | `uat-11-env-file-ordering.mjs` (`--selftest` is zero tokens) | **Manual** — the live run spends tokens |
 | 12 — Fleet live reads: log tail, dismiss, blocked queue, reclaim (D-REV-48/49/50/55) | `uat-12-fleet-live-reads.mjs` | **PASS** — zero tokens, CI |
+| 17 — Confirming an Epic Done runs a roadmap Round that proposes a change or says the Roadmap holds (Epic #60's exit test, #134) | `uat-17-roadmap-round.mjs` | **PASS** — zero tokens, CI; shaping the Milestone's exit test is skipped until #132 merges |
+
+### Item 17 — the roadmap Round on Epic Done (Epic #60's exit test)
+
+Drives the real sidecar and its real board MCP server, with `packages/sidecar/test/fake-claude.mjs` at
+the backend leaf in its scripted board-call mode (`FLYWHEEL_FAKE_BOARD_CALLS`): a scripted agent that
+reads the roadmap packet it was spawned with and makes board calls according to it. The board's half
+runs through the `uat_roadmap_ops` bridge (`packages/core/tests/bin`), which calls the same core
+functions `epic_confirm_done`, the shaping tool router and `proposal_accept` wrap; the script relays
+each held board call between the two, as `sidecar.rs` does.
+
+- **A.** Shaping a Milestone's exit test is **skipped**, and the output says so, until #132 (Milestone
+  exit-test shaping) merges. Once its command is in the tree the step fails loudly, asking to be
+  written, rather than skipping silently.
+- **B.** Confirming Epic FLY-1 Done opens one roadmap Round and starts its session on a packet that
+  names the trigger and keeps the Round short and on the Epic's Milestone. The agent proposes a new
+  Epic and calls `round_wait`; the developer accepts it; the held call is answered with the decision,
+  and the Round closes with the Epic on the board.
+- **C.** Confirming Epic FLY-3 Done opens Round 2; the same agent, on a packet with another trigger,
+  says the Roadmap still holds, and the Round closes with "Roadmap still holds".
+
+Not exercised: the desktop's `AppState` mutex, the `board:changed` emit, and the IPC serialisation.
 
 ### Supervision — why every live item outlives the watchdog, and why that is not each item's job
 
