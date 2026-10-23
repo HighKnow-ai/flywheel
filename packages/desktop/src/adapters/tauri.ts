@@ -202,6 +202,8 @@ export interface RosterRowDto {
   tasksTotal: number;
   /** The open review's diff size, while the Story is In review. */
   review: ReviewDiffSizeDto | null;
+  /** Whether the row offers Make Ready (issue #166): Shaping, a criterion, its Epic's shaping closed. */
+  canMakeReady: boolean;
 }
 
 /** Every Story row of a Milestone's roster, in Roadmap order: one core read for the whole roster. */
@@ -1216,6 +1218,23 @@ export async function storyRequestChanges(storyId: string, comments: string): Pr
  * project, with its key, criteria, Tasks and worktree untouched. */
 export async function storyMove(storyId: string, epicId: string): Promise<void> {
   return invokeCommand<void>("story_move", { storyId, epicId });
+}
+
+/** Whether the Story view offers Make Ready (issue #166): `offered` for a Shaping Story whose Epic's shaping
+ * is closed; `refusal` names what holds it back (no criterion yet), or `null` when it can be made Ready. */
+export interface MakeReadyOfferDto {
+  offered: boolean;
+  refusal: string | null;
+}
+
+export async function storyMakeReadyOffer(storyId: string): Promise<MakeReadyOfferDto> {
+  return invokeCommand<MakeReadyOfferDto>("story_make_ready_offer", { storyId });
+}
+
+/** The developer's Make Ready (issue #166): Shaping → Ready for one Story. The core refuses an agent, a Story
+ * with no criterion and a Story whose Epic is still being shaped. */
+export async function storyMakeReady(storyId: string): Promise<void> {
+  return invokeCommand<void>("story_make_ready", { storyId });
 }
 
 export async function storyResume(storyId: string, note?: string): Promise<SessionDto> {

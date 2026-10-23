@@ -98,6 +98,7 @@ function row(storyId: string, figures: Partial<RosterRowDto> = {}): RosterRowDto
     tasksDone: 0,
     tasksTotal: 0,
     review: null,
+    canMakeReady: false,
     ...figures,
   };
 }

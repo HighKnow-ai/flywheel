@@ -7,7 +7,7 @@
 //!
 //! | Transition | Who |
 //! |---|---|
-//! | Shaping → Ready | the developer closes the Epic's criteria Stage |
+//! | Shaping → Ready | the developer closes the Epic's criteria Stage, or makes one Story Ready ([`make_ready`]) |
 //! | Ready → Running | the developer starts the Story |
 //! | Running → In review | the session hands off |
 //! | In review → Running | the developer requests changes |
@@ -464,6 +464,71 @@ pub(crate) fn set_story_rank_in_tx(
         }),
         &now,
     )?;
+    Ok(())
+}
+
+/// Whether the developer can Make Ready Story `story_id` (issue #166), and when not, why: what the
+/// Story view and the roster offer. `offered` is false where Make Ready is not the way to Ready at
+/// all (the Story is past Shaping, or its Epic is still being shaped, which makes it Ready when the
+/// criteria Stage closes); `refusal` names what holds an offered one back (no criterion yet).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MakeReadyOffer {
+    pub offered: bool,
+    pub refusal: Option<String>,
+}
+
+/// Whether the developer can Make Ready Story `story_id`, and when not, the words [`make_ready`]
+/// refuses with. Whether it can is `query::can_make_ready!`'s one rule; the refusal names which part
+/// of it failed.
+pub fn make_ready_offer(conn: &Connection, story_id: &str) -> anyhow::Result<MakeReadyOffer> {
+    let (key, state, epic_key, epic_state, criteria, can): (String, String, String, String, i64, bool) = conn
+        .query_row(
+            concat!(
+                "SELECT s.key, s.state, e.key, e.state, \
+                    (SELECT COUNT(*) FROM acceptance_criteria c WHERE c.story_id = s.id), ",
+                crate::query::can_make_ready!(),
+                " FROM stories s JOIN epics e ON e.id = s.epic_id WHERE s.id = ?1"
+            ),
+            params![story_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+        )
+        .optional()?
+        .with_context(|| format!("Story {story_id:?} not found"))?;
+    let refusal = if can {
+        None
+    } else if state != StoryState::Shaping.as_str() {
+        Some(format!("{key} is {}; only a Story in Shaping is made Ready", state.replace('_', " ")))
+    } else if epic_state == "shaping" {
+        Some(format!(
+            "{epic_key} is still being shaped; closing its Write the Acceptance criteria Stage makes {key} Ready"
+        ))
+    } else if epic_state != "ready" && epic_state != "in_progress" {
+        Some(format!("{epic_key} is {epic_state}; a Story of a closed Epic is not made Ready"))
+    } else if criteria == 0 {
+        Some(format!("{key} has no Acceptance criterion yet; a Story needs one before it is Ready"))
+    } else {
+        Some(format!("{key} cannot be made Ready"))
+    };
+    let offered = state == StoryState::Shaping.as_str() && (epic_state == "ready" || epic_state == "in_progress");
+    Ok(MakeReadyOffer { offered, refusal })
+}
+
+/// The developer's Make Ready (docs/mvp-spec.md §2, issue #166): Shaping → Ready for one Story whose
+/// Epic's shaping is already closed, such as a New Story a running Story proposed and the developer
+/// accepted. Closing the criteria Stage makes an Epic's Stories Ready while it is shaped; a Story that
+/// arrives after is made Ready here, never by reopening the Epic's shaping.
+///
+/// Human-only. Refused unless the Story is in Shaping, its Epic is Ready or In progress, and it has at
+/// least one Acceptance criterion. A refusal writes nothing.
+pub fn make_ready(conn: &mut Connection, actor_id: &str, story_id: &str) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    assert_human_actor_in_tx(&tx, actor_id)?;
+    if let Some(refusal) = make_ready_offer(&tx, story_id)?.refusal {
+        anyhow::bail!(refusal);
+    }
+    set_story_state_in_tx(&tx, actor_id, story_id, StoryState::Ready)?;
+    tx.commit().context("failed to commit make_ready")?;
     Ok(())
 }
 

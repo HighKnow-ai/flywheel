@@ -51,7 +51,7 @@ The MVP is the whole model at minimum depth: every record type exists, each with
 
 | Transition | When |
 |---|---|
-| Shaping → Ready | Cyril closes the Epic's criteria Stage |
+| Shaping → Ready | Cyril closes the Epic's criteria Stage. A Story that arrives once the Epic's shaping is closed (a New Story from execution) is made Ready by Cyril's **Make Ready**, never by reopening the Epic's shaping: it needs the Story in Shaping, its Epic Ready or In progress, and at least one criterion ([#166](https://github.com/HighKnow-ai/flywheel/issues/166)) |
 | Ready → Running | Cyril starts the Story |
 | Running → In review | the agent hands off (summary plus an up-to-date Task checklist). Flywheel runs the Checks, and the Story moves to In review **whatever the results are** |
 | In review → Running | Cyril requests changes. A new session starts in the same worktree with the review comments |
@@ -223,7 +223,8 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
 - **Targets:** execution Proposals target board records only. ADRs and glossary terms go through the Story's diff instead.
 - **Never a pause:** a Proposal never pauses the agent that filed it. An agent that can't go on without an answer asks a question instead (Waiting on you).
 - **One row:** Needs you has one "Proposals" row ("n from m Stories"). Its Triage button opens a drawer beside the roster, grouped by the record each Proposal lands on: each Epic, then "Roadmap · after this Milestone" for new Epics. The roster only carries an "n Proposals" marker on an Epic row. **Shipped** ([#162](https://github.com/HighKnow-ai/flywheel/issues/162)): the row, the drawer and the marker count one set, a Story session's pending Proposals less the judged-on ones, and the marker opens the drawer at its Epic. Amend edits what a Proposal carries as text (a New Story's title and description, a New Epic's title and problem); a Reorder or a Retire is accepted or rejected as filed.
-- **Card:** each card shows the kind (New Story, Amend criterion, Reorder, Retire Story, New Epic, Amend Epic spec), the title, a diff for amendments, the agent's *why*, an evidence line, and the filing Story and time.
+- **Card:** each card shows the kind (New Story, Amend criterion, Reorder, Retire Story, New Epic, Amend Epic spec), the title, a diff for amendments, the agent's *why*, an evidence line, and the filing Story and time. A New Story's card lists the criteria it carries, each with its Check or "Judged at review".
+- **A New Story carries its criteria** ([#166](https://github.com/HighKnow-ai/flywheel/issues/166)): `propose new_story` needs at least one `{ statement, check? }` (at most 20), so every Story an agent proposes is anchored to Acceptance criteria from the start. Amend keeps them.
 - **Judged-on changes skip the wait:** a Proposal that changes a Story's Acceptance criteria or the Epic spec is its own Needs-you item at once, with a before/after diff and Accept / Edit / Reject inline.
 - **Soft cap:** 3 open Proposals per Story session. The board tool refuses a 4th and tells the agent to merge or withdraw one.
 - **Duplicates** are flagged on the card. Accepting the original closes the duplicate and tells the Story that filed it. **Shipped** ([#165](https://github.com/HighKnow-ai/flywheel/issues/165)): detection is deterministic, no fuzzy or model matching: the same kind on the same target (the same Story, criterion or Epic field), or a New Story or New Epic with the same title, any case, in the same Epic or Milestone. The agent hears it at once in `propose`'s answer, and a duplicate holds no slot under the cap. Accepting any Proposal of the group rejects the others in the same transaction, as the developer, with the reason "duplicate of <title>". Rejecting or withdrawing the original frees its duplicates, the oldest taking its place. The filing Story hears every decision through its next packet (section 7 of [4.2](#42-context-packet)), never a live push. A shaping session's Proposals are never flagged.
@@ -231,7 +232,7 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
 
   | Kind | Effect |
   |---|---|
-  | New Story | created in Shaping inside its Epic |
+  | New Story | created in Shaping inside its Epic, at the end of its order, with its criteria and their Checks; Cyril makes it Ready with Make Ready (§2) |
   | Amend criterion | changes the criterion and marks the last Check run stale |
   | Amend Epic spec | reaches every Story packet from the next session |
   | Reorder | changes the execution order |

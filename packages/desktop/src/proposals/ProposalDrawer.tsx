@@ -6,7 +6,8 @@
  * Grouped by the record each lands on, in the core's order (`proposal_list_for_triage`): each Epic in Roadmap
  * order, then "Roadmap · after this Milestone" for the New Epics. Each card reads its kind, what it names, the
  * change (a Reorder's places as a before and after), the agent's why, its evidence, and the Story that filed it
- * with its age. Accept, Amend and Reject are the shaping ghost's own controls (`ProposalDecision`), on the same
+ * with its age. A New Story lists the criteria it carries (issue #166), each with its Check or "Judged at review".
+ * Accept, Amend and Reject are the shaping ghost's own controls (`ProposalDecision`), on the same
  * commands, so a decision here is the same decision. Deciding never touches the session that filed it.
  *
  * A duplicate (issue #165) is flagged under what it names: what it repeats and the Story that filed that one, since
@@ -16,7 +17,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpDown, CircleMinus, Compass, Copy, FilePlus2, Layers, Lightbulb, ListChecks, ScanSearch } from "lucide-react";
+import { ArrowUpDown, CircleCheck, CircleMinus, Compass, Copy, FilePlus2, Layers, Lightbulb, ListChecks, ScanSearch, SquareTerminal } from "lucide-react";
 import { proposalListForTriage, type ProposalDto, type TriageProposalDto } from "../adapters/tauri";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -113,6 +114,54 @@ function amendOf(t: TriageProposalDto): { fields: AmendField[]; payload: (values
     default:
       return null;
   }
+}
+
+/** One criterion a New Story carries (issue #166), as its payload holds it. */
+export interface ProposedCriterion {
+  statement: string;
+  check: string | null;
+}
+
+/** A New Story's proposed criteria, in order; anything malformed is left out. */
+export function proposedCriteria(payload: unknown): ProposedCriterion[] {
+  const list = payload && typeof payload === "object" ? (payload as Record<string, unknown>).criteria : undefined;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((item) => {
+    const statement = field(item, "statement");
+    if (!statement) return [];
+    return [{ statement, check: field(item, "check") || null }];
+  });
+}
+
+/** The criteria a New Story carries, each with the Check that proves it or "Judged at review". */
+function ProposedCriteria({ criteria }: { criteria: ProposedCriterion[] }) {
+  if (criteria.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="m-0 text-meta font-semibold text-muted-foreground">
+        {criteria.length === 1 ? "1 Acceptance criterion" : `${criteria.length} Acceptance criteria`}
+      </p>
+      <ol aria-label="Proposed Acceptance criteria" className="m-0 flex list-none flex-col gap-1.5 p-0">
+        {criteria.map((c, i) => (
+          <li key={i} className="flex min-w-0 items-start gap-2">
+            <CircleCheck aria-hidden="true" size={15} className="mt-0.5 shrink-0 text-subtle-foreground" />
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-small break-words">{c.statement}</span>
+              {c.check ? (
+                <span className="flex min-w-0 items-start gap-1 text-meta text-muted-foreground">
+                  <SquareTerminal aria-hidden="true" size={13} className="mt-0.5 shrink-0" />
+                  <span className="sr-only">Check: </span>
+                  <code className="min-w-0 font-mono break-all">{c.check}</code>
+                </span>
+              ) : (
+                <span className="text-meta text-subtle-foreground">Judged at review</span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
 }
 
 /** One group of the drawer: an Epic, or the Roadmap. */
@@ -343,7 +392,8 @@ function CardBody({ t }: { t: TriageProposalDto }) {
       return (
         <>
           {description && <p className="m-0 line-clamp-4 max-w-[68ch] text-small whitespace-pre-wrap break-words text-muted-foreground">{description}</p>}
-          <p className="m-0 text-meta text-subtle-foreground">Created in Shaping, at the end of the Epic's order</p>
+          <ProposedCriteria criteria={proposedCriteria(p.payload)} />
+          <p className="m-0 text-meta text-subtle-foreground">Created in Shaping, at the end of the Epic's order; you make it Ready</p>
         </>
       );
     }

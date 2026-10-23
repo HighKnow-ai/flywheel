@@ -161,6 +161,7 @@ fn one_read_returns_every_rows_attention_doing_task_counts_and_diff_size() {
                 tasks_done: 1,
                 tasks_total: 3,
                 review: None,
+                can_make_ready: false,
             },
             "a dropped Task is closed, not work: it leaves the Task total"
         );
@@ -185,6 +186,7 @@ fn one_read_returns_every_rows_attention_doing_task_counts_and_diff_size() {
                 tasks_done: 1,
                 tasks_total: 1,
                 review: Some(ReviewDiffSize { files: 3, added: 40, removed: 7 }),
+                can_make_ready: false,
             },
             "accepted, or passed at the handed-off head; the open review's diff, not the closed one's"
         );

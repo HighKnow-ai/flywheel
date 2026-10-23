@@ -553,6 +553,61 @@ pub struct NewStory {
     pub rank: Option<String>,
     /// What it runs after and why, or `None`.
     pub runs_after: Option<(RunsAfter, String)>,
+    /// Its Acceptance criteria, each with the Check that proves it or none (issue #166). A Story
+    /// session's follow-up Story carries at least one; a slicing Proposal carries none, since shaping
+    /// writes the criteria in its own Stage.
+    pub criteria: Vec<NewStoryCriterion>,
+}
+
+/// One Acceptance criterion a New Story carries (issue #166): its statement, and the Check command
+/// that proves it, or none when it is judged at review. Held to [`NewCriterion`]'s limits.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewStoryCriterion {
+    pub statement: String,
+    pub check: Option<String>,
+}
+
+/// The most criteria one New Story may carry.
+pub const MAX_NEW_STORY_CRITERIA: usize = 20;
+
+impl NewStoryCriterion {
+    /// Read a payload's `criteria`: absent or null is none; otherwise an array of at most
+    /// [`MAX_NEW_STORY_CRITERIA`] `{ "statement", "check"? }`, each a statement and a command that is
+    /// not blank when one is given.
+    pub fn list_from(value: Option<&Value>) -> anyhow::Result<Vec<Self>> {
+        let items = match value {
+            None | Some(Value::Null) => return Ok(Vec::new()),
+            Some(Value::Array(items)) => items,
+            Some(_) => anyhow::bail!("a New Story's `criteria` is an array of {{ statement, check? }}"),
+        };
+        anyhow::ensure!(
+            items.len() <= MAX_NEW_STORY_CRITERIA,
+            "a New Story carries at most {MAX_NEW_STORY_CRITERIA} criteria, got {}",
+            items.len()
+        );
+        items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                anyhow::ensure!(item.is_object(), "criterion {} is not an object {{ statement, check? }}", i + 1);
+                let checked = NewCriterion::from_payload(&json!({
+                    "story_id": "new",
+                    "statement": item.get("statement").cloned().unwrap_or(Value::Null),
+                    "check_command": item.get("check").cloned().unwrap_or(Value::Null),
+                }))
+                .with_context(|| format!("criterion {}", i + 1))?;
+                Ok(NewStoryCriterion { statement: checked.statement, check: checked.check_command })
+            })
+            .collect()
+    }
+
+    fn to_value(&self) -> Value {
+        let mut value = json!({ "statement": self.statement });
+        if let Some(check) = &self.check {
+            value["check"] = json!(check);
+        }
+        value
+    }
 }
 
 impl NewStory {
@@ -594,7 +649,14 @@ impl NewStory {
             (None, Some(_)) => anyhow::bail!("a runs-after reason needs the Story it runs after"),
             (None, None) => None,
         };
-        Ok(NewStory { title: title.to_string(), description: description.map(str::to_string), rank: rank.map(str::to_string), runs_after })
+        let criteria = NewStoryCriterion::list_from(payload.get("criteria"))?;
+        Ok(NewStory {
+            title: title.to_string(),
+            description: description.map(str::to_string),
+            rank: rank.map(str::to_string),
+            runs_after,
+            criteria,
+        })
     }
 
     pub fn to_payload(&self) -> Value {
@@ -603,14 +665,18 @@ impl NewStory {
             Some((RunsAfter::Proposal(id), reason)) => (None, Some(id), Some(reason)),
             None => (None, None, None),
         };
-        json!({
+        let mut payload = json!({
             "title": self.title,
             "description": self.description,
             "rank": self.rank,
             "runs_after_story_id": story,
             "runs_after_proposal_id": proposal,
             "runs_after_reason": reason,
-        })
+        });
+        if !self.criteria.is_empty() {
+            payload["criteria"] = Value::Array(self.criteria.iter().map(NewStoryCriterion::to_value).collect());
+        }
+        payload
     }
 }
 
@@ -827,7 +893,7 @@ fn story_created_by(tx: &Transaction, proposal_id: &str) -> anyhow::Result<Optio
 }
 
 /// Create the New Story in Shaping inside the Proposal's own Epic, at the rank it proposed, with its
-/// runs-after marker and reason (issue #127). The Proposal then names the Story it created. A New
+/// criteria and their Checks (issue #166) and its runs-after marker and reason (issue #127). The Proposal then names the Story it created. A New
 /// Story that runs after a Proposal not accepted yet gets its marker once that one is: any accepted
 /// Story waiting on this Proposal gets its marker here.
 fn apply_new_story(tx: &Transaction, actor_id: &str, accepted: &Accepted, payload: &Value) -> anyhow::Result<Applied> {
@@ -836,6 +902,14 @@ fn apply_new_story(tx: &Transaction, actor_id: &str, accepted: &Accepted, payloa
     let created = create_story_in_tx(tx, actor_id, epic_id, &story.title, story.description.as_deref(), story.rank.as_deref())?;
     tx.execute("UPDATE proposals SET target_id = ?1 WHERE id = ?2", params![created.id, accepted.id])
         .context("failed to record the Story the Proposal created")?;
+    // Its criteria and their Checks (issue #166), in order, as `apply_new_criterion` writes one: as the
+    // developer who accepted it, the criterion itself not accepted until review.
+    for criterion in &story.criteria {
+        let written = create_criterion_in_tx(tx, actor_id, &created.id, &criterion.statement)?;
+        if let Some(command) = &criterion.check {
+            set_check_in_tx(tx, actor_id, &written.id, command, None)?;
+        }
+    }
 
     if let Some((after, reason)) = &story.runs_after {
         let after_story = match after {

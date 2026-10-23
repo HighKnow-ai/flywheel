@@ -28,6 +28,10 @@ _Avoid_: Ticket, task (for the executable unit)
 Where a Story is in its life: Shaping, Ready, Running, In review, then Merged or Dropped. What its session is doing is not part of the state.
 _Avoid_: Status (for the lifecycle), column
 
+**Make Ready**:
+The developer's move of one Story from Shaping to Ready once its Epic's shaping is closed, such as a New Story a running Story proposed; it needs at least one Acceptance criterion, and it never reopens the Epic's shaping.
+_Avoid_: Promote, approve, reshape
+
 **Dropped**:
 The end state of a Story the developer has decided not to finish; its record stays readable and it counts as closed for its Epic.
 _Avoid_: Cancelled, abandoned, closed

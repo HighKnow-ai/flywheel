@@ -196,6 +196,10 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 104 | Review card: the Decisions section's flags (Wording or supersede?, Renumber, Supersession line missing), and Not an ADR and Wrong decision beside Keep, Wrong decision's two answers in place (#164) | ![](critique-2026-10/after/104-review-card-adr-flags-light.webp) | ![](critique-2026-10/after/104-review-card-adr-flags-dark.webp) |
 | 105 | Review card: the composer lists the ADR review points it sends after the comments, which may stay empty (#164) | ![](critique-2026-10/after/105-review-card-adr-review-points-light.webp) | ![](critique-2026-10/after/105-review-card-adr-review-points-dark.webp) |
 | 106 | Review card: the flags and the three choices at the window's 900px minimum width (#164) | ![](critique-2026-10/after/106-review-card-adr-flags-min-width-light.webp) | ![](critique-2026-10/after/106-review-card-adr-flags-min-width-dark.webp) |
+| 112 | Triage drawer: a New Story's card lists the criteria it carries, each with its Check or "Judged at review" (#166) | ![](critique-2026-10/after/112-triage-drawer-new-story-criteria-light.webp) | ![](critique-2026-10/after/112-triage-drawer-new-story-criteria-dark.webp) |
+| 113 | Board: an accepted New Story's row offers Make Ready; one with no criterion shows its counts (#166) | ![](critique-2026-10/after/113-board-make-ready-row-light.webp) | ![](critique-2026-10/after/113-board-make-ready-row-dark.webp) |
+| 114 | Story view: Make Ready on a Shaping Story with its criteria (#166) | ![](critique-2026-10/after/114-story-view-make-ready-light.webp) | ![](critique-2026-10/after/114-story-view-make-ready-dark.webp) |
+| 115 | Story view: Make Ready held while the Story has no criterion, saying why (#166) | ![](critique-2026-10/after/115-story-view-make-ready-waits-light.webp) | ![](critique-2026-10/after/115-story-view-make-ready-waits-dark.webp) |
 
 ## How the screens were rendered
 

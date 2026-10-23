@@ -186,6 +186,8 @@ fn main() {
             commands::story::story_write_by_hand,
             commands::story::story_list_for_project,
             commands::story::story_move,
+            commands::story::story_make_ready,
+            commands::story::story_make_ready_offer,
             commands::story::story_request_changes,
             commands::review::story_review,
             commands::review::story_merge,

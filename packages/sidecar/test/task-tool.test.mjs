@@ -193,6 +193,12 @@ test("a Story session is listed propose and proposal_withdraw, and a shaping ses
   // Issue #165: the agent learns a duplicate is flagged in the answer, and hears decisions through its next packet.
   assert.match(propose.description, /flagged a duplicate in the answer and holds no slot/);
   assert.match(propose.description, /next session's packet/);
+  // Issue #166: a New Story carries its criteria, each a statement and an optional Check.
+  const criteria = propose.inputSchema.properties.criteria;
+  assert.equal(criteria.type, "array");
+  assert.equal(criteria.minItems, 1);
+  assert.deepEqual([...criteria.items.required], ["statement"]);
+  assert.equal(criteria.items.properties.check.type, "string");
 });
 
 test("a propose call is relayed to the core and the agent receives its answer", async () => {

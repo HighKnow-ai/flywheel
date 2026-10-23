@@ -35,6 +35,7 @@ const rosterRows = vi.fn(async () => {
       tasksDone: tasks.filter((t) => t.state === "done").length,
       tasksTotal: tasks.filter((t) => t.state !== "dropped").length,
       review: null,
+      canMakeReady: false,
     },
   ];
 });

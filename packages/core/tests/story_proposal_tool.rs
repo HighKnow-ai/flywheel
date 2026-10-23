@@ -23,7 +23,7 @@ use core::domain::session::{agent_actor_id, start_shaping_session, ShapingSubjec
 use core::domain::session_kind::{story_board_tools, SessionKind};
 use core::domain::story::{self, get_story, stories_in_epic, StoryState};
 use core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall, STORY_PROPOSAL_TOOL_NAMES};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde_json::{json, Value};
 
 struct Fixture {
@@ -97,8 +97,16 @@ fn call(conn: &mut Connection, session_id: &str, tool: &str, args: Value) -> any
     Ok(outcome.result)
 }
 
+/// A New Story's criteria, for the calls that are not about them (issue #166: at least one).
+fn one_criterion() -> Value {
+    json!([{ "statement": "It holds", "check": "cargo test it_holds" }])
+}
+
 fn propose(f: &mut Fixture, args: Value) -> anyhow::Result<Value> {
     let mut args = args;
+    if args["kind"] == "new_story" && args.get("criteria").is_none() {
+        args["criteria"] = one_criterion();
+    }
     args["why"] = json!("found while working the Parser");
     args["evidence"] = json!("src/parser.rs:42 panics on an empty line");
     call(&mut f.conn, &f.session_id, "propose", args)
@@ -215,7 +223,7 @@ fn a_session_withdraws_only_its_own_pending_proposals() {
 
     let theirs_session = story_session(&mut f.conn, &f.project_id, &f.own.id);
     let theirs = proposal_id(&call(&mut f.conn, &theirs_session, "propose", json!({
-        "kind": "new_story", "title": "Theirs", "why": "w", "evidence": "e",
+        "kind": "new_story", "title": "Theirs", "why": "w", "evidence": "e", "criteria": one_criterion(),
     })).unwrap());
     let err = withdraw(&mut f, &theirs).unwrap_err();
     assert!(format!("{err:#}").contains("another session"), "{err:#}");
@@ -238,7 +246,7 @@ fn a_call_lands_only_on_the_sessions_own_epic_and_only_while_it_is_live() {
         let err = propose(&mut f, args.clone()).unwrap_err();
         assert!(format!("{err:#}").contains(needle), "{args}: {err:#}");
     }
-    let missing = call(&mut f.conn, &f.session_id, "propose", json!({ "kind": "new_story", "title": "T", "why": "w" })).unwrap_err();
+    let missing = call(&mut f.conn, &f.session_id, "propose", json!({ "kind": "new_story", "title": "T", "why": "w", "criteria": one_criterion() })).unwrap_err();
     assert!(format!("{missing:#}").contains("evidence"), "{missing:#}");
 
     // An ended session can no longer file.
@@ -254,7 +262,7 @@ fn a_call_lands_only_on_the_sessions_own_epic_and_only_while_it_is_live() {
         &f.human,
     )
     .unwrap();
-    let err = call(&mut f.conn, &shaping.id, "propose", json!({ "kind": "new_story", "title": "T", "why": "w", "evidence": "e" })).unwrap_err();
+    let err = call(&mut f.conn, &shaping.id, "propose", json!({ "kind": "new_story", "title": "T", "why": "w", "evidence": "e", "criteria": one_criterion() })).unwrap_err();
     assert!(format!("{err:#}").contains("shaping session"), "{err:#}");
 }
 
@@ -298,7 +306,7 @@ fn a_proposal_filed_by_a_running_story_is_triaged_from_the_drawer_and_lands_with
     move_story(&mut f.conn, &f.human, &f.elsewhere.id, &[StoryState::Ready, StoryState::Running]);
     let other_session = story_session(&mut f.conn, &f.project_id, &f.elsewhere.id);
     let elsewhere = proposal_id(&call(&mut f.conn, &other_session, "propose", json!({
-        "kind": "new_story", "title": "Elsewhere follow-up", "why": "w", "evidence": "e",
+        "kind": "new_story", "title": "Elsewhere follow-up", "why": "w", "evidence": "e", "criteria": one_criterion(),
     })).unwrap());
 
     let (ready_key, lexer_key, own_key) = (f.ready.key.clone(), f.shaping.key.clone(), f.own.key.clone());
@@ -408,4 +416,78 @@ fn the_proposals_table_keeps_its_columns_and_the_round_questions_foreign_key() {
         .query_row("SELECT \"table\" FROM pragma_foreign_key_list('round_questions') WHERE \"from\" = 'adr_proposal_id'", [], |r| r.get(0))
         .unwrap();
     assert_eq!(parent, "proposals");
+}
+
+/// Issue #166: a New Story from execution carries its criteria, each with its Check or none, and
+/// accepting it creates the Story in Shaping with them, as the developer who accepted it.
+#[test]
+fn accepting_a_new_story_with_criteria_creates_it_in_shaping_with_its_criteria_and_checks() {
+    let mut f = fixture();
+    let answer = propose(&mut f, json!({
+        "kind": "new_story", "title": "Empty-line recovery", "description": "Skip an empty line",
+        "criteria": [
+            { "statement": "An empty line yields no token", "check": "  cargo test -p core --test lexer empty_line  " },
+            { "statement": "The error names the line", "check": "   " },
+            { "statement": "Recovery reads well in the feed" },
+        ],
+    }))
+    .unwrap();
+    let id = proposal_id(&answer);
+    let filed = get_proposal(&f.conn, &id).unwrap().unwrap();
+    assert_eq!(
+        filed.payload["criteria"],
+        json!([
+            { "statement": "An empty line yields no token", "check": "cargo test -p core --test lexer empty_line" },
+            { "statement": "The error names the line" },
+            { "statement": "Recovery reads well in the feed" },
+        ]),
+        "a blank check is judged at review, like a missing one"
+    );
+
+    let Applied::StoryCreated { story_id } = accept_proposal(&mut f.conn, &f.human, &id).unwrap() else { panic!("a New Story") };
+    assert_eq!(get_story(&f.conn, &story_id).unwrap().unwrap().state, "shaping");
+    let criteria = core::domain::acceptance_criterion::criteria_for_story(&f.conn, &story_id).unwrap();
+    let statements: Vec<&str> = criteria.iter().map(|c| c.statement.as_str()).collect();
+    assert_eq!(statements, ["An empty line yields no token", "The error names the line", "Recovery reads well in the feed"]);
+    assert!(criteria.iter().all(|c| c.accepted_by.is_none()), "a criterion is accepted at review, not by accepting the Story");
+    let checks: Vec<Option<String>> = criteria
+        .iter()
+        .map(|c| {
+            f.conn
+                .query_row("SELECT command FROM checks WHERE criterion_id = ?1", [&c.id], |r| r.get(0))
+                .optional()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(checks, vec![Some("cargo test -p core --test lexer empty_line".to_string()), None, None]);
+}
+
+#[test]
+fn a_new_story_without_criteria_or_with_a_malformed_one_is_refused_before_anything_is_filed() {
+    let mut f = fixture();
+    for (criteria, needle) in [
+        (Value::Null, "criteria"),
+        (json!([]), "criteria"),
+        (json!([{ "statement": "  " }]), "statement"),
+        (json!(["just text"]), "criterion 1"),
+        (json!({ "statement": "x" }), "array"),
+        (json!((0..21).map(|n| json!({ "statement": format!("c{n}") })).collect::<Vec<_>>()), "at most 20"),
+    ] {
+        let args = json!({ "kind": "new_story", "title": "T", "why": "w", "evidence": "e", "criteria": criteria });
+        let err = call(&mut f.conn, &f.session_id, "propose", args).unwrap_err();
+        assert!(format!("{err:#}").contains(needle), "{criteria}: {err:#}");
+    }
+    assert!(proposals_filed_by_story(&f.conn, &f.own.id).unwrap().is_empty());
+}
+
+/// Amend edits a New Story's title and description only: its criteria survive the amended payload.
+#[test]
+fn an_amended_new_story_keeps_its_criteria() {
+    let mut f = fixture();
+    let id = proposal_id(&propose(&mut f, json!({ "kind": "new_story", "title": "Recovery" })).unwrap());
+    let mut amended = get_proposal(&f.conn, &id).unwrap().unwrap().payload;
+    amended["title"] = json!("Recover from an empty line");
+    let decided = accept_proposal_released(&mut f.conn, &f.human, &id, Some(&amended)).unwrap();
+    let Applied::StoryCreated { story_id } = decided.applied else { panic!("a New Story") };
+    assert_eq!(core::domain::acceptance_criterion::criteria_for_story(&f.conn, &story_id).unwrap().len(), 1);
 }

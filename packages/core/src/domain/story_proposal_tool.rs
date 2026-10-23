@@ -9,7 +9,7 @@
 //!
 //! | Kind | Proposal | Payload |
 //! |---|---|---|
-//! | `new_story` | create story, on the session's Epic | [`NewStory`], at the end of the order |
+//! | `new_story` | create story, on the session's Epic | [`NewStory`] with its criteria, at the end of the order |
 //! | `amend_criterion` | amend criterion (target: it) | [`AmendCriterion`] |
 //! | `amend_epic_spec` | amend epic (target: the session's Epic) | [`SpecChange`] |
 //! | `reorder_story` | reorder story (target: it) | its new `rank` |
@@ -19,6 +19,10 @@
 //! A session holds at most [`OPEN_PROPOSALS_PER_SESSION`] open Proposals; the 4th is refused, naming
 //! `proposal_withdraw`, which takes one of the session's own pending Proposals back and frees its slot.
 //! There is no merge verb: to merge two, withdraw both and file the combined one.
+//!
+//! A New Story carries its Acceptance criteria (issue #166): at least one, each with its Check or none.
+//! Accepted, it is created in Shaping with them, and the developer's Make Ready (`story::make_ready`)
+//! moves it to Ready: its Epic's shaping is already closed, so no Stage closing will.
 //!
 //! Identity comes from the session the call arrived on, never from an argument: a call lands only on
 //! the session's own Epic and the Stories in it, only while the session is live, and never from a
@@ -35,7 +39,7 @@ use crate::domain::proposal::{
     OPEN_PROPOSALS_PER_SESSION,
 };
 use crate::domain::proposal_apply::{
-    AmendCriterion, NewStory, RoadmapChange, SpecChange, MAX_ROADMAP_TEXT_LEN, MAX_ROADMAP_TITLE_LEN, MAX_STORY_DESCRIPTION_LEN,
+    AmendCriterion, NewStory, NewStoryCriterion, RoadmapChange, SpecChange, MAX_ROADMAP_TEXT_LEN, MAX_ROADMAP_TITLE_LEN, MAX_STORY_DESCRIPTION_LEN,
     MAX_STORY_TITLE_LEN,
 };
 use crate::domain::roadmap_round::milestone_after_current;
@@ -56,8 +60,8 @@ pub const MAX_EVIDENCE_LEN: usize = 1_000;
 /// One Proposal as `propose` gives it, its Story references not resolved yet.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StoryProposal {
-    /// A follow-up Story in the session's Epic, at the end of its order.
-    NewStory { title: String, description: Option<String> },
+    /// A follow-up Story in the session's Epic, at the end of its order, with its criteria.
+    NewStory { title: String, description: Option<String>, criteria: Vec<NewStoryCriterion> },
     AmendCriterion(AmendCriterion),
     /// New text for one field of the session's Epic.
     AmendEpicSpec(SpecChange),
@@ -102,6 +106,18 @@ fn required_text(args: &Value, name: &str, tool: &str, max: usize) -> anyhow::Re
     optional_text(args, name, tool, max)?.with_context(|| format!("{tool}: `{name}` is missing or empty"))
 }
 
+/// A New Story's `criteria` (issue #166): at least one `{ statement, check? }`, so the Story can be
+/// made Ready once it is accepted.
+fn new_story_criteria(args: &Value) -> anyhow::Result<Vec<NewStoryCriterion>> {
+    let criteria = NewStoryCriterion::list_from(args.get("criteria")).map_err(|e| e.context("propose new_story"))?;
+    anyhow::ensure!(
+        !criteria.is_empty(),
+        "propose new_story: `criteria` is missing: give at least one {{ statement, check? }}, an observable statement \
+         of what is true once the Story ships and, when a command can prove it, the `check` that does"
+    );
+    Ok(criteria)
+}
+
 impl StoryProposalCall {
     /// Parse a call from the tool name and its JSON arguments, refusing anything malformed before any
     /// write happens.
@@ -116,6 +132,7 @@ impl StoryProposalCall {
                     "new_story" => StoryProposal::NewStory {
                         title: required_text(args, "title", tool, MAX_STORY_TITLE_LEN)?,
                         description: optional_text(args, "description", tool, MAX_STORY_DESCRIPTION_LEN)?,
+                        criteria: new_story_criteria(args)?,
                     },
                     "amend_criterion" => StoryProposal::AmendCriterion(
                         AmendCriterion::from_payload(args).map_err(|e| e.context("propose amend_criterion"))?,
@@ -183,8 +200,14 @@ fn to_new_proposal<'a>(
 ) -> anyhow::Result<(ProposalVerb, ProposalTarget, Option<String>, Option<&'a str>, Value)> {
     let tool = "propose";
     Ok(match proposal {
-        StoryProposal::NewStory { title, description } => {
-            let story = NewStory { title: title.clone(), description: description.clone(), rank: None, runs_after: None };
+        StoryProposal::NewStory { title, description, criteria } => {
+            let story = NewStory {
+                title: title.clone(),
+                description: description.clone(),
+                rank: None,
+                runs_after: None,
+                criteria: criteria.clone(),
+            };
             (ProposalVerb::Create, ProposalTarget::Story, None, Some(epic_id), story.to_payload())
         }
         StoryProposal::AmendCriterion(change) => {

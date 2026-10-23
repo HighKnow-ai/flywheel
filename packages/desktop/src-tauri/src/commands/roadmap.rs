@@ -326,6 +326,8 @@ pub struct RosterRowDto {
     pub tasks_total: i64,
     /// The open review's diff size, while the Story is In review.
     pub review: Option<ReviewDiffSizeDto>,
+    /// Whether the row offers Make Ready (issue #166).
+    pub can_make_ready: bool,
 }
 
 /// Every Story row of `milestone_id`'s roster, in Roadmap order (docs/mvp-spec.md §7). Read-only and
@@ -347,6 +349,7 @@ pub fn roster_rows(state: State<AppState>, milestone_id: String) -> Result<Vec<R
             tasks_done: r.tasks_done,
             tasks_total: r.tasks_total,
             review: r.review.map(|d| ReviewDiffSizeDto { files: d.files, added: d.added, removed: d.removed }),
+            can_make_ready: r.can_make_ready,
         })
         .collect())
 }

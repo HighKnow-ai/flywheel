@@ -35,6 +35,7 @@ const rosterRows = vi.fn(async () => {
       tasksDone: 0,
       tasksTotal: 0,
       review: null,
+      canMakeReady: false,
     },
   ];
 });

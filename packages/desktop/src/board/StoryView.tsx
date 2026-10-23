@@ -11,11 +11,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bot, CircleCheck, ListChecks, Terminal } from "lucide-react";
-import { blockedSummary, sessionsForStory, storyGet, type StoryDto } from "../adapters/tauri";
+import { blockedSummary, sessionsForStory, storyGet, storyMakeReadyOffer, type StoryDto } from "../adapters/tauri";
 import { CriteriaList, checkPasses, useCriteria } from "./CriteriaList";
 import {
   AnswerControl,
   DropControl,
+  MakeReadyControl,
   OpenSessionControl,
   PacketSize,
   ResumeControl,
@@ -309,6 +310,13 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
   const passing = criteria.filter(checkPasses).length;
   // In review, the review card holds the criteria (issue #155): they are accepted there, not listed twice.
   const inReview = story.state === "in_review";
+  // A Shaping Story whose Epic's shaping is closed is made Ready here (issue #166); the core says whether.
+  const makeReady = useQuery({
+    queryKey: ["board", projectId, "make-ready", story.id],
+    queryFn: () => storyMakeReadyOffer(story.id),
+    enabled: story.state === "shaping",
+  }).data;
+  const makeReadyOffered = story.state === "shaping" && makeReady?.offered === true;
 
   return (
     <>
@@ -326,6 +334,7 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
           </h1>
           <div className="flex shrink-0 items-center gap-2">
             {story.state === "ready" && <StartControl story={story} onError={setError} />}
+            {makeReadyOffered && <MakeReadyControl story={story} refusal={makeReady?.refusal ?? null} onError={setError} />}
             {stopped && <ResumeControl story={story} />}
             {open && <MoveToEpicControl projectId={projectId} story={story} onError={setError} />}
             {open && <DropControl story={story} />}
@@ -353,6 +362,9 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
               stopped.endedAt ? ` at ${formatWhen(stopped.endedAt)}` : ""
             } without handing off. Resume starts a fresh session from the Context packet.`}
           </p>
+        )}
+        {makeReadyOffered && makeReady?.refusal && (
+          <p className="m-0 text-small text-muted-foreground">{`Make Ready waits: ${makeReady.refusal}.`}</p>
         )}
         {error && <p className="m-0 text-small text-destructive-text">{error}</p>}
         {story.description && (

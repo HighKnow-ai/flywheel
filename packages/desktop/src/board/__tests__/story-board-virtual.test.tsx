@@ -101,6 +101,7 @@ const rows: RosterRowDto[] = stories.map((story, i) => ({
   tasksDone: 1,
   tasksTotal: 3,
   review: i % 6 === 5 ? { files: 3, added: 40, removed: 7 } : null,
+  canMakeReady: false,
 }));
 
 /** The names of the commands issued, once each. */
