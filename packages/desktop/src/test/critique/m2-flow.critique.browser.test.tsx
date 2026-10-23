@@ -556,8 +556,11 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
   it("31 board: a killed shaping session leaves Shaping Round waiting and Continue shaping (issue #124)", async () => {
     setShapingSessionLive(false);
     await boardReady();
-    const resume = await screen.findByRole("button", { name: "Continue shaping FLY-8 Epic shaping" });
-    resume.scrollIntoView({ block: "center" });
+    // The Epic card's own control: Needs you beside the roster (#156) offers Continue shaping too.
+    const resume = (await screen.findAllByRole("button", { name: "Continue shaping FLY-8 Epic shaping" })).find((b) =>
+      b.closest("section[aria-labelledby^='epic-']"),
+    );
+    resume?.scrollIntoView({ block: "center" });
     await shot("31-board-epic-continue-shaping");
   });
 
@@ -1135,6 +1138,37 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
       await click("Move FLY-4 to another Epic");
       await screen.findByRole("menu");
       await shot("78-story-move-to-epic-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
+  /** Centre a Story's roster row (Needs you beside the roster names some of the same Stories). */
+  async function rosterRowInView(key: string) {
+    const opens = await screen.findAllByRole("button", { name: new RegExp(`^Open Story ${key} `) });
+    const row = opens.map((b) => b.closest("li[data-story-id]")).find((li) => li !== null);
+    if (!row) throw new Error(`no roster row for ${key}`);
+    row.scrollIntoView({ block: "center" });
+  }
+
+  it("83 board: roster rows from one core read, the rows that need you tinted with a word (issue #159)", async () => {
+    await boardReady();
+    await rosterRowInView("FLY-5");
+    await shot("83-board-roster-rows");
+  });
+
+  it("84 board: an Epic in Shaping carries its shaping marker (issue #159)", async () => {
+    await boardReady();
+    await rosterRowInView("FLY-10");
+    await shot("84-board-epic-shaping-marker");
+  });
+
+  it("87 board at the window's minimum width: the roster rows (issue #159)", async () => {
+    await page.viewport(900, 900);
+    try {
+      await boardReady();
+      await rosterRowInView("FLY-5");
+      await shot("87-board-roster-rows-min-width");
     } finally {
       await page.viewport(1440, 900);
     }

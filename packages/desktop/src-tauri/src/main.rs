@@ -154,6 +154,7 @@ fn main() {
             commands::roadmap::milestone_update,
             commands::roadmap::milestone_move,
             commands::roadmap::milestone_progress,
+            commands::roadmap::roster_rows,
             commands::epic::epic_create,
             commands::epic::epic_list,
             commands::epic::epic_update,

@@ -26,3 +26,4 @@ pub mod needs_you;
 pub mod permissions;
 pub mod progress;
 pub mod recovery;
+pub mod roster;

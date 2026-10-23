@@ -2,23 +2,33 @@
  * Behaviour under test (issue #50): the bare board writes a Milestone, an Epic and a Story with
  * criteria and Checks from visible controls, lists the project's Stories with their state, keeps
  * that state live on `board:changed`, and Start reaches the core's `story_start` for a Ready Story.
+ *
+ * Issue #159: each row draws what the roster's one core read (`roster_rows`) says of it: its attention, the
+ * *doing* Task or the open review's diff size, then its action or "criteria x/y · tasks x/y"; a row that needs
+ * the developer is tinted and says why in a word; an Epic in Shaping carries its shaping marker.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryBoard } from "../StoryBoard";
+import { PacketSize } from "../StoryControls";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import type { EpicDto, MilestoneDto, StoryDto } from "../../adapters/tauri";
+import type { EpicDto, EpicProgressDto, MilestoneDto, RosterRowDto, StoryDto } from "../../adapters/tauri";
 
 const milestoneList = vi.fn();
 const milestoneCreate = vi.fn();
+const milestoneProgress = vi.fn();
 const epicList = vi.fn();
 const epicCreate = vi.fn();
 const storyListForProject = vi.fn();
 const storyWriteByHand = vi.fn();
 const storyStart = vi.fn();
 const storyContextPacketSize = vi.fn();
-const blockedSummary = vi.fn();
+const rosterRows = vi.fn();
+// The per-row reads the roster used to issue; it issues none of them now (#159).
+const taskList = vi.fn();
+const storyStopped = vi.fn();
+const sessionsForStory = vi.fn();
 let boardChanged: ((payload: { projectId: string }) => void) | null = null;
 
 vi.mock("../../adapters/tauri", async () => {
@@ -35,9 +45,12 @@ vi.mock("../../adapters/tauri", async () => {
     storyListForProject: (...args: unknown[]) => storyListForProject(...args),
     storyWriteByHand: (...args: unknown[]) => storyWriteByHand(...args),
     storyStart: (...args: unknown[]) => storyStart(...args),
-    taskList: () => Promise.resolve([]),
+    milestoneProgress: (...args: unknown[]) => milestoneProgress(...args),
+    rosterRows: (...args: unknown[]) => rosterRows(...args),
+    taskList: (...args: unknown[]) => taskList(...args),
+    storyStopped: (...args: unknown[]) => storyStopped(...args),
+    sessionsForStory: (...args: unknown[]) => sessionsForStory(...args),
     storyContextPacketSize: (...args: unknown[]) => storyContextPacketSize(...args),
-    blockedSummary: (...args: unknown[]) => blockedSummary(...args),
     subscribeBoardChanged: (handler: (payload: { projectId: string }) => void) => {
       boardChanged = handler;
       return Promise.resolve(() => {});
@@ -67,6 +80,39 @@ function epic(id: string, title: string, milestoneId = "m1"): EpicDto {
 
 function story(id: string, key: string, title: string, state: string): StoryDto {
   return { id, projectId: "p1", epicId: "e1", key, title, description: null, state, runsAfterStoryId: null, rank: "a" };
+}
+
+/** A row's figures as the core reads them, quiet unless overridden. */
+function row(storyId: string, figures: Partial<RosterRowDto> = {}): RosterRowDto {
+  return {
+    storyId,
+    attention: null,
+    endingReason: null,
+    liveSessionId: null,
+    doingTaskTitle: null,
+    criteriaMet: 0,
+    criteriaTotal: 0,
+    tasksDone: 0,
+    tasksTotal: 0,
+    review: null,
+    ...figures,
+  };
+}
+
+/** The board with Milestone m1 Current, its Epic e1, these Stories in it, and the core's rows for them. */
+function seedRoster(stories: StoryDto[], rows: RosterRowDto[]) {
+  milestoneList.mockResolvedValue([milestone("m1", "M1")]);
+  epicList.mockResolvedValue([epic("e1", "E1")]);
+  storyListForProject.mockResolvedValue(stories);
+  rosterRows.mockResolvedValue(rows);
+}
+
+/** The Story rows of Epic E1's card, once the core's rows have landed on them. */
+async function rosterRowsOnScreen(count: number) {
+  const list = await screen.findByRole("list", { name: "E1 Stories" });
+  await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(count));
+  await waitFor(() => expect(rosterRows).toHaveBeenCalled());
+  return within(list).getAllByRole("listitem");
 }
 
 function renderBoard() {
@@ -104,48 +150,37 @@ beforeEach(() => {
   storyWriteByHand.mockReset().mockResolvedValue(story("s1", "FLY-2", "S", "ready"));
   storyStart.mockReset().mockResolvedValue({ id: "run-1", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
   storyContextPacketSize.mockReset().mockResolvedValue({ bytes: 4000, approxTokens: 1000, overSoftLimit: false });
-  blockedSummary.mockReset().mockResolvedValue({ blockedStoryIds: [], blockedCount: 0 });
+  milestoneProgress.mockReset().mockResolvedValue(null);
+  rosterRows.mockReset().mockResolvedValue([]);
+  taskList.mockReset().mockResolvedValue([]);
+  storyStopped.mockReset().mockResolvedValue(null);
+  sessionsForStory.mockReset().mockResolvedValue([]);
 });
 
-describe("StoryBoard: the Context packet size (issue #51)", () => {
-  it("shows each open Story's packet size without a warning under the soft limit", async () => {
-    storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Small", "ready")]);
-    storyContextPacketSize.mockResolvedValue({ bytes: 4800, approxTokens: 1200, overSoftLimit: false });
-    renderBoard();
+describe("PacketSize: the Context packet size (issue #51), shown in the Story view", () => {
+  function renderSize(state: string) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PacketSize story={story("s1", "FLY-2", "Sized", state)} />
+      </QueryClientProvider>,
+    );
+  }
 
-    const row = await within(await screen.findByRole("list", { name: "Stories" })).findByRole("listitem");
-    expect(await within(row).findByText("Context packet ~1.2K tokens")).toBeInTheDocument();
-    expect(within(row).queryByText(/soft limit/)).toBeNull();
+  it("shows the packet size without a warning under the soft limit", async () => {
+    storyContextPacketSize.mockResolvedValue({ bytes: 4800, approxTokens: 1200, overSoftLimit: false });
+    renderSize("ready");
+
+    expect(await screen.findByText("Context packet ~1.2K tokens")).toBeInTheDocument();
+    expect(screen.queryByText(/soft limit/)).toBeNull();
     expect(storyContextPacketSize).toHaveBeenCalledWith("s1");
   });
 
   it("warns above about 20K tokens", async () => {
-    storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Big", "running")]);
     storyContextPacketSize.mockResolvedValue({ bytes: 100_000, approxTokens: 25_000, overSoftLimit: true });
-    renderBoard();
+    renderSize("running");
 
-    const row = await within(await screen.findByRole("list", { name: "Stories" })).findByRole("listitem");
-    expect(await within(row).findByText("Context packet ~25.0K tokens, above the ~20K soft limit")).toBeInTheDocument();
-  });
-
-  it("does not size a closed Story", async () => {
-    storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Done", "merged")]);
-    renderBoard();
-
-    await screen.findByText("Merged");
-    expect(storyContextPacketSize).not.toHaveBeenCalled();
-  });
-
-  it("re-reads the size when the core says the board changed", async () => {
-    storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Live", "ready")]);
-    renderBoard();
-    const row = await within(await screen.findByRole("list", { name: "Stories" })).findByRole("listitem");
-    await within(row).findByText("Context packet ~1.0K tokens");
-
-    storyContextPacketSize.mockResolvedValue({ bytes: 8000, approxTokens: 2000, overSoftLimit: false });
-    await waitFor(() => expect(boardChanged).not.toBeNull());
-    act(() => boardChanged?.({ projectId: "p1" }));
-    expect(await within(row).findByText("Context packet ~2.0K tokens")).toBeInTheDocument();
+    expect(await screen.findByText("Context packet ~25.0K tokens, above the ~20K soft limit")).toBeInTheDocument();
   });
 });
 
@@ -183,38 +218,36 @@ describe("StoryBoard: the Story list", () => {
   });
 
   it("shows Waiting on you, in yellow, in place of the state word of a Story whose session waits on you (#57)", async () => {
-    storyListForProject.mockResolvedValue([
-      story("s1", "FLY-2", "Waiting one", "running"),
-      story("s2", "FLY-3", "Busy one", "running"),
-    ]);
-    blockedSummary.mockResolvedValue({ blockedStoryIds: ["s1"], blockedCount: 1 });
+    seedRoster(
+      [story("s1", "FLY-2", "Waiting one", "running"), story("s2", "FLY-3", "Busy one", "running")],
+      [row("s1", { attention: "waiting_on_you", liveSessionId: "ses-1" }), row("s2", { liveSessionId: "ses-2" })],
+    );
     renderBoard();
 
-    const list = await screen.findByRole("list", { name: "Stories" });
-    await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(2));
-    const [waiting, busy] = within(list).getAllByRole("listitem");
+    const [waiting, busy] = await rosterRowsOnScreen(2);
     const flag = await within(waiting).findByText("Waiting on you");
     expect(flag.closest("[data-tone]")).toHaveAttribute("data-tone", "attention");
     expect(within(waiting).queryByText("Running")).toBeNull();
     expect(within(busy).getByText("Running")).toBeInTheDocument();
-    expect(blockedSummary).toHaveBeenCalledWith("p1");
+    expect(rosterRows).toHaveBeenCalledWith("m1");
   });
 
   it("drops Waiting on you live once the request is answered", async () => {
-    storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Waiting one", "running")]);
-    blockedSummary.mockResolvedValue({ blockedStoryIds: ["s1"], blockedCount: 1 });
+    seedRoster(
+      [story("s1", "FLY-2", "Waiting one", "running")],
+      [row("s1", { attention: "waiting_on_you", liveSessionId: "ses-1" })],
+    );
     renderBoard();
-    const list = await screen.findByRole("list", { name: "Stories" });
-    await within(list).findByText("Waiting on you");
+    const [waiting] = await rosterRowsOnScreen(1);
+    await within(waiting).findByText("Waiting on you");
 
-    blockedSummary.mockResolvedValue({ blockedStoryIds: [], blockedCount: 0 });
+    rosterRows.mockResolvedValue([row("s1", { liveSessionId: "ses-1" })]);
     await waitFor(() => expect(boardChanged).not.toBeNull());
     act(() => boardChanged?.({ projectId: "p1" }));
 
-    await within(list).findByText("Running");
-    expect(within(list).queryByText("Waiting on you")).toBeNull();
+    await within(waiting).findByText("Running");
+    expect(within(waiting).queryByText("Waiting on you")).toBeNull();
   });
-
   it("Start calls the core's story_start and stays on the board: it never opens the session (issue #104)", async () => {
     storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Ready one", "ready")]);
     renderBoard();
@@ -318,5 +351,148 @@ describe("StoryBoard: the hand-written Story form", () => {
 
     expect(await screen.findByText("Epic is done; a new Story goes into an open Epic")).toBeInTheDocument();
     expect(screen.getByLabelText("Story title")).toHaveValue("Kept");
+  });
+});
+
+describe("StoryBoard: rows from the roster's one core read (issue #159)", () => {
+  it("shows an In review row's diff size and Open review, tinted and saying In review", async () => {
+    seedRoster(
+      [story("s1", "FLY-2", "Under review", "in_review")],
+      [row("s1", { criteriaMet: 2, criteriaTotal: 5, tasksDone: 1, tasksTotal: 1, review: { files: 3, added: 40, removed: 7 } })],
+    );
+    renderBoard();
+
+    const [review] = await rosterRowsOnScreen(1);
+    expect(await within(review).findByText("+40 −7 · 3 files")).toBeInTheDocument();
+    expect(within(review).getByRole("button", { name: "Open review of FLY-2" })).toBeInTheDocument();
+    expect(within(review).getByText("In review")).toBeInTheDocument();
+    expect(review).toHaveAttribute("data-needs-you", "review");
+    expect(review.className).toMatch(/bg-attention-muted/);
+    // The row offers its action, not the counts.
+    expect(within(review).queryByText(/criteria/)).toBeNull();
+  });
+
+  it("answers a row Waiting on you from the session the core named, tinted and saying Waiting on you", async () => {
+    seedRoster(
+      [story("s1", "FLY-2", "Waiting one", "running")],
+      [row("s1", { attention: "waiting_on_you", liveSessionId: "ses-1", doingTaskTitle: "Wire the command" })],
+    );
+    renderBoard();
+
+    const [waiting] = await rosterRowsOnScreen(1);
+    expect(await within(waiting).findByText("Doing: Wire the command")).toBeInTheDocument();
+    expect(waiting).toHaveAttribute("data-needs-you", "waiting");
+    expect(waiting.className).toMatch(/bg-attention-muted/);
+    fireEvent.click(within(waiting).getByRole("button", { name: "Answer FLY-2" }));
+
+    expect(useUiStore.getState().activeSessionId).toBe("ses-1");
+  });
+
+  it("offers Resume on a Stopped row, says why it stopped and what it was doing, tinted", async () => {
+    seedRoster(
+      [story("s1", "FLY-2", "Stopped one", "running")],
+      [row("s1", { attention: "stopped", endingReason: "crash", doingTaskTitle: "Half done" })],
+    );
+    renderBoard();
+
+    const [stopped] = await rosterRowsOnScreen(1);
+    expect(await within(stopped).findByText("Stopped: crash")).toBeInTheDocument();
+    expect(within(stopped).getByText("· was doing “Half done”")).toBeInTheDocument();
+    expect(within(stopped).getByRole("button", { name: "Resume FLY-2" })).toBeInTheDocument();
+    expect(within(stopped).getByText("Stopped")).toBeInTheDocument();
+    expect(stopped).toHaveAttribute("data-needs-you", "stopped");
+    expect(stopped.className).toMatch(/bg-attention-muted/);
+  });
+
+  it("opens a Running row's live session from the session the core named, untinted", async () => {
+    seedRoster(
+      [story("s1", "FLY-2", "Busy one", "running")],
+      [row("s1", { liveSessionId: "ses-1", doingTaskTitle: "Draw the row" })],
+    );
+    renderBoard();
+
+    const [busy] = await rosterRowsOnScreen(1);
+    expect(await within(busy).findByText("Doing: Draw the row")).toBeInTheDocument();
+    expect(busy).not.toHaveAttribute("data-needs-you");
+    fireEvent.click(within(busy).getByRole("button", { name: "Open live session of FLY-2" }));
+
+    expect(useUiStore.getState().activeSessionId).toBe("ses-1");
+  });
+
+  it("shows criteria x/y · tasks x/y on a row with no action", async () => {
+    seedRoster(
+      [story("s1", "FLY-2", "Done one", "merged"), story("s2", "FLY-3", "Being shaped", "shaping")],
+      [
+        row("s1", { criteriaMet: 4, criteriaTotal: 4, tasksDone: 3, tasksTotal: 3 }),
+        row("s2", { criteriaMet: 0, criteriaTotal: 2 }),
+      ],
+    );
+    renderBoard();
+
+    const [merged, shaping] = await rosterRowsOnScreen(2);
+    expect(await within(merged).findByText("criteria 4/4 · tasks 3/3")).toBeInTheDocument();
+    expect(within(shaping).getByText("criteria 0/2 · tasks 0/0")).toBeInTheDocument();
+    expect(within(merged).queryByRole("button", { name: /FLY-2$/ })).toBeNull();
+    expect(merged).not.toHaveAttribute("data-needs-you");
+  });
+
+  it("issues no read per row: one roster read for the Milestone", async () => {
+    seedRoster(
+      [
+        story("s1", "FLY-2", "Waiting", "running"),
+        story("s2", "FLY-3", "Stopped", "running"),
+        story("s3", "FLY-4", "Ready", "ready"),
+        story("s4", "FLY-5", "Review", "in_review"),
+      ],
+      [
+        row("s1", { attention: "waiting_on_you", liveSessionId: "ses-1" }),
+        row("s2", { attention: "stopped", endingReason: "crash" }),
+        row("s3"),
+        row("s4", { review: { files: 1, added: 1, removed: 0 } }),
+      ],
+    );
+    renderBoard();
+
+    await rosterRowsOnScreen(4);
+    await screen.findByRole("button", { name: "Answer FLY-2" });
+    expect(rosterRows).toHaveBeenCalledTimes(1);
+    expect(taskList).not.toHaveBeenCalled();
+    expect(storyStopped).not.toHaveBeenCalled();
+    expect(sessionsForStory).not.toHaveBeenCalled();
+    expect(storyContextPacketSize).not.toHaveBeenCalled();
+  });
+
+  it("marks an Epic in Shaping with where its shaping has got to", async () => {
+    seedRoster([story("s1", "FLY-2", "One", "shaping")], [row("s1")]);
+    const counts = {
+      shaping: 1, ready: 0, running: 0, waitingOnYou: 0, stopped: 0, inReview: 0, merged: 0, dropped: 0, storiesTotal: 1,
+    };
+    const progress: EpicProgressDto = {
+      epicId: "e1",
+      key: "FLY-1",
+      title: "E1",
+      state: "shaping",
+      counts,
+      attention: null,
+      shaping: { stageKind: "slice", stageRank: 2, roundNumber: 3, roundOpen: true, answered: 2, questions: 5 },
+    };
+    milestoneProgress.mockResolvedValue({
+      milestoneId: "m1",
+      title: "M1",
+      exitTest: null,
+      state: "shaping",
+      current: true,
+      nextMilestoneTitle: null,
+      counts,
+      epicsDone: 0,
+      epicsTotal: 1,
+      epics: [progress],
+    });
+    renderBoard();
+
+    const card = (await screen.findByRole("list", { name: "E1 Stories" })).closest("section")!;
+    expect(
+      await within(card).findByText("Stage 2 of 3, Slice into Stories · Round 3 · 2 of 5 answered"),
+    ).toBeInTheDocument();
   });
 });

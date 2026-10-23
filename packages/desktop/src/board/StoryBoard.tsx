@@ -9,6 +9,12 @@
  * on a Ready one. Start and Resume stay where they are; nothing here opens a session on its own. Drop,
  * the Tasks and the sessions live in the Story view.
  *
+ * What a row draws besides the Story itself comes from the roster's one core read (`roster_rows`, issue #159):
+ * its attention (Waiting on you, Stopped and why), the live session its Answer or Open session opens, the
+ * *doing* Task, the open review's diff size, and "criteria x/y · tasks x/y", shown when the row has no action.
+ * A row issues no read of its own. A row that needs the developer (Waiting on you, Stopped, In review) takes
+ * the yellow tint, and its state word says which.
+ *
  * Every read is keyed under the project so the one `board:changed` subscription keeps the board live;
  * the renderer never trusts its own write. The Roadmap strip (#131) heads the board; the Milestone picked on it
  * (the Current one until another is picked) is what the Milestone header (#106) and the roster below show, and
@@ -17,28 +23,26 @@
 import { useLayoutEffect, useState, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { defaultRangeExtractor, useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
-import { ChevronRight, Flag, Layers } from "lucide-react";
+import { ChevronRight, FileDiff, Flag, Layers } from "lucide-react";
 import {
-  blockedSummary,
   epicList,
+  rosterRows,
   storyListForProject,
   type EpicDto,
   type MilestoneDto,
+  type RosterRowDto,
   type StoryDto,
 } from "../adapters/tauri";
 import { useBoardChangedSubscription } from "./useBoardQuery";
-import { DoingTask, useStoryTasks } from "./TaskChecklist";
 import {
   AnswerControl,
   OpenSessionControl,
-  PacketSize,
   ResumeControl,
   StartControl,
   StoryStateWord,
   endingWords,
   errorText,
   isOwnControl,
-  useStopped,
 } from "./StoryControls";
 import { OpenReviewControl } from "../review/ReviewCard";
 import { WriteStoryDialog } from "./WriteStoryDialog";
@@ -198,13 +202,15 @@ function StoryRoster({
     queryFn: () => storyListForProject(projectId),
   });
   const stories = storiesQuery.data ?? [];
-  // Waiting on you (docs/mvp-spec.md §2 "Attention"): derived by the core from a live session's
-  // pending request, never a stored state. Keyed under the project so `board:changed` keeps it live.
-  const waitingQuery = useQuery({
-    queryKey: ["board", projectId, "waiting-on-you"],
-    queryFn: () => blockedSummary(projectId),
+  // Every row's figures in one core read for the shown Milestone (#159): attention (docs/mvp-spec.md §2,
+  // derived by the core, never stored), the live session, the doing Task, the counts and the review's diff.
+  // Keyed under the project so `board:changed` keeps it live; no row reads anything of its own.
+  const rowsQuery = useQuery({
+    queryKey: ["board", projectId, "roster-rows", selection.shown],
+    queryFn: () => rosterRows(selection.shown as string),
+    enabled: selection.shown !== null,
   });
-  const waitingIds = new Set(waitingQuery.data?.blockedStoryIds ?? []);
+  const figures = new Map((rowsQuery.data ?? []).map((row) => [row.storyId, row]));
   const shown = storiesOfMilestone(stories, useProjectEpics(projectId), selection.shown);
   const groups = groupByEpic(shown.stories, shown.epics);
   // Each Epic of the shown Milestone carries its own bar, from the header's one core read (#106).
@@ -240,7 +246,7 @@ function StoryRoster({
       projectId={projectId}
       groups={groups}
       epicProgress={epicProgress}
-      waitingIds={waitingIds}
+      figures={figures}
       scrollElement={scrollElement}
     />
   );
@@ -330,13 +336,14 @@ function VirtualRoster({
   projectId,
   groups,
   epicProgress,
-  waitingIds,
+  figures,
   scrollElement,
 }: {
   projectId: string;
   groups: EpicGroup[];
   epicProgress: Map<string, EpicProgressDto>;
-  waitingIds: Set<string>;
+  /** Each Story's row figures from the roster's one read, by Story id; absent until it lands. */
+  figures: Map<string, RosterRowDto>;
   scrollElement: HTMLElement | null;
 }) {
   const { items, starts } = rosterItems(groups);
@@ -412,7 +419,7 @@ function VirtualRoster({
                   key={item.story.id}
                   projectId={projectId}
                   story={item.story}
-                  waitingOnYou={waitingIds.has(item.story.id)}
+                  figures={figures.get(item.story.id) ?? null}
                   index={virtualItem.index}
                   // Placed inside the card's padding box, which starts below its top border.
                   top={virtualItem.start - scrollMargin - top - CARD_BORDER}
@@ -539,30 +546,49 @@ function EpicCard({
   );
 }
 
-/** The row's second line: what the agent is doing, why it stopped, or how big its next session starts. */
-function RowDetail({
-  projectId,
-  story,
-  stoppedReason,
-}: {
-  projectId: string;
-  story: StoryDto;
-  stoppedReason: string | null;
-}) {
-  const tasks = useStoryTasks(projectId, story.id).data ?? [];
-  const doing = tasks.find((task) => task.state === "doing");
-  const open = story.state !== "merged" && story.state !== "dropped";
+/** An open review's diff size as the row says it: "+40 −7 · 3 files". */
+export function diffSizeWords(diff: { files: number; added: number; removed: number }): string {
+  return `+${diff.added} −${diff.removed} · ${diff.files === 1 ? "1 file" : `${diff.files} files`}`;
+}
+
+/** Why a row needs the developer, if it does (docs/mvp-spec.md §7 "rows that need Cyril tinted"): a session
+ * Waiting on you, a Stopped Story, or a review to make. The state word beside the tint says which. */
+type NeedsYou = "waiting" | "stopped" | "review";
+
+/** The row's second line: why it stopped, what its agent is doing, or the size of the diff in review. */
+function RowDetail({ story, figures }: { story: StoryDto; figures: RosterRowDto | null }) {
+  const stopped = figures?.attention === "stopped";
+  const doing = figures?.doingTaskTitle ?? null;
+  const review = story.state === "in_review" ? (figures?.review ?? null) : null;
   return (
     <span className="flex min-w-0 items-baseline gap-1.5 truncate text-meta text-subtle-foreground">
-      {stoppedReason !== null && (
+      {stopped && (
         <>
-          <span className="shrink-0 font-semibold text-destructive-text">{`Stopped: ${stoppedReason}`}</span>
-          {doing && <span className="truncate">{`· was doing “${doing.title}”`}</span>}
+          <span className="shrink-0 font-semibold text-destructive-text">{`Stopped: ${endingWords(figures.endingReason)}`}</span>
+          {doing && <span className="truncate">{`· was doing “${doing}”`}</span>}
         </>
       )}
-      {stoppedReason === null && <DoingTask tasks={tasks} storyKey={story.key} className="truncate" />}
-      {open && stoppedReason === null && !doing && <PacketSize story={story} className="truncate" />}
+      {!stopped && doing && (
+        <span aria-label={`${story.key} is doing`} className="truncate">{`Doing: ${doing}`}</span>
+      )}
+      {review && (
+        <span className="inline-flex shrink-0 items-center gap-1 self-center text-muted-foreground tabular-nums">
+          <FileDiff aria-hidden="true" size={13} className="shrink-0" />
+          <span className="sr-only">Diff </span>
+          {diffSizeWords(review)}
+        </span>
+      )}
       {story.state === "dropped" && <span>Dropped: kept readable, no worktree</span>}
+    </span>
+  );
+}
+
+/** "criteria x/y · tasks x/y", where a row has no action to offer: how far the Story is judged done. */
+function RowCounts({ figures }: { figures: RosterRowDto | null }) {
+  if (!figures) return null;
+  return (
+    <span className="text-meta whitespace-nowrap text-muted-foreground tabular-nums">
+      {`criteria ${figures.criteriaMet}/${figures.criteriaTotal} · tasks ${figures.tasksDone}/${figures.tasksTotal}`}
     </span>
   );
 }
@@ -570,7 +596,7 @@ function RowDetail({
 function StoryRow({
   projectId,
   story,
-  waitingOnYou,
+  figures,
   index,
   top,
   first,
@@ -580,8 +606,8 @@ function StoryRow({
 }: {
   projectId: string;
   story: StoryDto;
-  /** A live session of this Story holds a Gated action, permission request or question. */
-  waitingOnYou: boolean;
+  /** The row's figures from the roster's one core read; `null` until it lands. */
+  figures: RosterRowDto | null;
   /** The row's virtual item, measured from its element, and where it sits in its Epic's card. */
   index: number;
   top: number;
@@ -593,16 +619,20 @@ function StoryRow({
   measure: (element: Element | null) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const stopped = useStopped(projectId, story);
   const openStory = useUiStore((state) => state.openStory);
   const here = useUiStore((state) => state.currentStoryId === story.id || state.activeSessionStoryId === story.id);
-  // A Stopped Story has no live session, so it is never Waiting on you (the core agrees).
-  const waiting = waitingOnYou && !stopped;
+  // Attention is the core's (a Stopped Story has no live session, so it is never also Waiting on you).
+  const stopped = figures?.attention === "stopped" ? { endingReason: figures.endingReason } : null;
+  const waiting = figures?.attention === "waiting_on_you";
+  const liveSessionId = figures?.liveSessionId ?? null;
+  const needsYou: NeedsYou | null = waiting ? "waiting" : stopped ? "stopped" : story.state === "in_review" ? "review" : null;
 
-  let action: React.ReactNode = null;
+  // The one next action, else the counts (docs/mvp-spec.md §7: "either an action button or criteria x/y · tasks x/y").
+  let action: ReactNode = null;
   if (stopped) action = <ResumeControl story={story} />;
-  else if (waiting) action = <AnswerControl projectId={projectId} story={story} />;
-  else if (story.state === "running") action = <OpenSessionControl projectId={projectId} story={story} />;
+  else if (waiting) action = <AnswerControl projectId={projectId} story={story} sessionId={liveSessionId} />;
+  else if (story.state === "running" && liveSessionId)
+    action = <OpenSessionControl projectId={projectId} story={story} sessionId={liveSessionId} />;
   else if (story.state === "ready") action = <StartControl story={story} onError={setError} />;
   else if (story.state === "in_review") action = <OpenReviewControl projectId={projectId} story={story} />;
 
@@ -612,6 +642,7 @@ function StoryRow({
       data-index={index}
       data-story-id={story.id}
       data-attention={waiting ? "waiting" : stopped ? "stopped" : undefined}
+      data-needs-you={needsYou ?? undefined}
       aria-current={here ? "true" : undefined}
       aria-posinset={position}
       aria-setsize={setSize}
@@ -625,8 +656,9 @@ function StoryRow({
         "group/row absolute inset-x-0 cursor-pointer border-border transition-[background-color,box-shadow] duration-(--duration-state) ease-(--ease)",
         !first && "border-t",
         "hover:bg-accent hover:shadow-[inset_0_0_0_1px_var(--input)]",
-        waiting && "bg-attention-muted hover:bg-attention-muted",
-        here && !waiting && "bg-running-muted hover:bg-running-muted",
+        // A row that needs the developer takes the yellow tint (DESIGN.md); its state word says why.
+        needsYou && "bg-attention-muted hover:bg-attention-muted",
+        here && !needsYou && "bg-running-muted hover:bg-running-muted",
       )}
     >
       <div className="grid min-h-13 grid-cols-[152px_minmax(0,1fr)_auto_16px] items-center gap-x-3 py-1.5 pr-3 pl-4">
@@ -650,11 +682,11 @@ function StoryRow({
               {story.title}
             </span>
           </button>
-          <span className="pl-16">
-            <RowDetail projectId={projectId} story={story} stoppedReason={stopped ? endingWords(stopped.endingReason) : null} />
+          <span className="pl-16 empty:hidden">
+            <RowDetail story={story} figures={figures} />
           </span>
         </span>
-        <span className="flex justify-end">{action}</span>
+        <span className="flex justify-end">{action ?? <RowCounts figures={figures} />}</span>
         <ChevronRight aria-hidden="true" size={16} className="text-subtle-foreground transition-colors group-hover/row:text-foreground" />
       </div>
       {error && <p className="m-0 px-4 pb-2 text-small text-destructive-text">{error}</p>}

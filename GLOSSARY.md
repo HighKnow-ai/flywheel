@@ -41,7 +41,7 @@ A checklist step inside a Story that the Story's agent writes, works through and
 _Avoid_: Subtask, todo
 
 **Acceptance criterion**:
-A testable statement a Story must satisfy, judged against the Story's diff at review. In shaping, an *accepted criterion* is one whose Proposal was accepted, which creates it; it is accepted against the diff (`accepted_by`) only at review.
+A testable statement a Story must satisfy, judged against the Story's diff at review. In shaping, an *accepted criterion* is one whose Proposal was accepted, which creates it; it is accepted against the diff (`accepted_by`) only at review. A criterion is *met*, as the roster's "criteria x/y" counts it, once accepted, or once its Check passed and is not stale against the head the Story last handed off (ADR 0012).
 _Avoid_: Validation, requirement, AC
 
 **Check**:
@@ -103,6 +103,10 @@ _Avoid_: Failed, interrupted, abandoned
 **Needs you**:
 The ranked list of everything waiting on the developer across a project, with the most urgent first.
 _Avoid_: Inbox, queue, notifications
+
+**Roster**:
+The picked Milestone's Epics on the project board, each with its Stories as rows: a row's state or attention, what its agent is doing (or its diff in review), and its next action or "criteria x/y · tasks x/y".
+_Avoid_: Backlog, list, kanban
 
 **Context packet**:
 Everything a new Story session is rebuilt from, read off the board and the worktree, so that ending a session loses nothing.

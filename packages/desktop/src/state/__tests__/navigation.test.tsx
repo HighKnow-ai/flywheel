@@ -80,7 +80,24 @@ vi.mock("../../adapters/tauri", async () => {
     fleetBlockedQueue: () => Promise.resolve([]),
     boardRecoverySummary: () => Promise.resolve({ recoveryCount: 0 }),
     pendingOrphans: () => Promise.resolve([]),
-    milestoneList: () => Promise.resolve([]),
+    milestoneList: () =>
+      Promise.resolve([{ id: "m1", projectId: "p1", title: "M1", exitTest: null, state: "ready", current: true, rank: "a" }]),
+    epicList: () => Promise.resolve([]),
+    milestoneProgress: () => Promise.resolve(null),
+    // The roster's one read (#159): the Running Story is doing a Task in its live session.
+    rosterRows: async () =>
+      ((await storyListForProject("p1")) as { id: string }[]).map((story) => ({
+        storyId: story.id,
+        attention: null,
+        endingReason: null,
+        liveSessionId: story.id === "s-run" ? "run-live" : null,
+        doingTaskTitle: story.id === "s-run" ? DOING.title : null,
+        criteriaMet: 0,
+        criteriaTotal: 0,
+        tasksDone: 0,
+        tasksTotal: 0,
+        review: null,
+      })),
     storyListForProject: (projectId: string) => storyListForProject(projectId),
     storyGet: (storyId: string) => storyGet(storyId),
     storyStart: (storyId: string) => storyStart(storyId),

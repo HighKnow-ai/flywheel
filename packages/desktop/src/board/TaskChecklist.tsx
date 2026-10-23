@@ -43,17 +43,6 @@ export function useStoryTasks(projectId: string, storyId: string) {
   });
 }
 
-/** The Story row's one-line "what its agent is doing now": the *doing* Task, when there is one. */
-export function DoingTask({ tasks, storyKey, className }: { tasks: TaskDto[]; storyKey: string; className?: string }) {
-  const doing = tasks.find((t) => t.state === "doing");
-  if (!doing) return null;
-  return (
-    <span aria-label={`${storyKey} is doing`} className={className}>
-      Doing: {doing.title}
-    </span>
-  );
-}
-
 /** A quiet icon control: an icon, its tooltip, and its accessible name. */
 function IconControl({
   label,
