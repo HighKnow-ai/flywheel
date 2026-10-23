@@ -34,7 +34,7 @@ Cyril asked for fewer colours. Five hues carry meaning. Every other surface is a
 | Graphite (`--strip`) | `#17191e` | `#000000` | **The live strip and the lead count.** Hardware, not a state. |
 | Neutral grey ramp | see tokens | see tokens | Everything else: Shaping, Ready, In review, Merged, Dropped, passed / not run / timed out / stale Checks, open and done Tasks. |
 
-No green anywhere: passed reads from the check icon and its word. The brand blue keeps the hue of the HighKnow mark (`hsl(225, 70%, 55%)`). On dark grounds its text is lifted to `#8ea8ff`, the same hue, as PRODUCT.md's brand rule requires.
+No green anywhere but a diff: passed reads from the check icon and its word. The one exception is the pale pair of Diff Tints under an added or removed line on the review card (ADR 0011). The brand blue keeps the hue of the HighKnow mark (`hsl(225, 70%, 55%)`). On dark grounds its text is lifted to `#8ea8ff`, the same hue, as PRODUCT.md's brand rule requires.
 
 ## Tokens (shadcn/ui variable names, Tailwind v4)
 
@@ -75,6 +75,7 @@ Each token keeps the variable name shadcn/ui uses, so its generated components t
 | `--strip-foreground` | `#f2f3f5` | `#f2f3f5` | text on the strip |
 | `--strip-muted-foreground` | `#a4a9b3` | `#9aa0aa` | secondary text on the strip |
 | `--lamp` | `#25282f` | `#1a1c20` | an unlit lamp |
+| `--diff-insert` / `--diff-delete` | `#e3f4e7` / `#fce6e4` | `#142a1b` / `#351816` | the ground of a line a diff adds or removes, on the review card only (ADR 0011) |
 | `--chart-1` … `--chart-4` | `#111318` · `#7d838f` · `#3c64dd` · `#c3c7ce` | `#eceef1` · `#7d838f` · `#3c64dd` · `#4a4f58` | stacked bar: Merged · In review · Running · Ready. Shaping is a hatch of chart-4, Dropped an outline; Waiting on you and Stopped use attention and destructive |
 | `--radius` | `0.625rem` | | cards 10px, buttons and inputs 8px, pills fully round |
 
