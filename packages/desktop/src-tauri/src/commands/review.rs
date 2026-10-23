@@ -212,6 +212,11 @@ pub struct StoryReviewDto {
     pub uncommitted: Vec<String>,
     /// The Decisions section: `docs/adr/` changes by path, then `GLOSSARY.md` (issue #161).
     pub decisions: Vec<DecisionChangeDto>,
+    /// Rebase needed (issue #158): the repository-relative paths a merge into the base branch would
+    /// conflict in; empty when it merges cleanly.
+    pub conflicts: Vec<String>,
+    /// The request for changes Rebase needed pre-fills, naming the base branch and those paths.
+    pub rebase_comment: Option<String>,
 }
 
 impl StoryReviewDto {
@@ -222,6 +227,7 @@ impl StoryReviewDto {
 
 impl From<StoryReview> for StoryReviewDto {
     fn from(r: StoryReview) -> Self {
+        let rebase_comment = r.rebase_comment();
         Self {
             story_id: r.story_id,
             story_key: r.story_key,
@@ -234,6 +240,8 @@ impl From<StoryReview> for StoryReviewDto {
             live_session: r.live_session,
             uncommitted: r.uncommitted,
             decisions: Vec::new(),
+            conflicts: r.conflicts,
+            rebase_comment,
         }
     }
 }
