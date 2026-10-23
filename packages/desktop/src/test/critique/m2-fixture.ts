@@ -766,14 +766,24 @@ function triageMarker(epicId: string): number {
   return triageList().filter((t) => t.proposal.epicId === epicId).length;
 }
 
+/**
+ * Issue #163: two judged-on changes for the judged-on screens, off by default: FLY-5's agent amends one of its
+ * criteria with a new Check command, and FLY-4's agent rewrites Epic FLY-1's Scope.
+ */
+let judgedOn = false;
+export function setJudgedOnInFixture(on: boolean): void {
+  judgedOn = on;
+}
+
 const NEEDS_YOU_RANK: Record<string, number> = {
-  gated_action: 1, permission_request: 1, question: 1, stopped: 2, review: 3, confirm_exit_test: 4, proposals: 5, shaping_round: 6,
+  gated_action: 1, permission_request: 1, question: 1, stopped: 2, review: 3, judged_on: 3, confirm_exit_test: 4, proposals: 5,
+  shaping_round: 6,
 };
 
 function needsYouItem(kind: NeedsYouItemDto["kind"], id: string, since: string, record: NeedsYouItemDto["record"], extra: Partial<NeedsYouItemDto> = {}): NeedsYouItemDto {
   return {
     kind, rank: NEEDS_YOU_RANK[kind], id, since, record, sessionId: null, request: null, endingReason: null,
-    missingWorktree: false, doingTaskTitle: null, exitTest: null, milestoneTitle: null, round: null, conflicts: [], proposals: null, ...extra,
+    missingWorktree: false, doingTaskTitle: null, exitTest: null, milestoneTitle: null, round: null, conflicts: [], proposals: null, judgedOn: null, ...extra,
   };
 }
 
@@ -797,6 +807,33 @@ function needsYouOf(projectId: string): NeedsYouItemDto[] {
       sessionId: "ses-7b", endingReason: "usage_limit", doingTaskTitle: "Restyle the board's Story rows",
     }));
     items.push(needsYouItem("review", "s-3", ago(3600), storyRecord("s-3"), { conflicts: reviewConflicts() }));
+    if (judgedOn) {
+      items.push(needsYouItem("judged_on", "pj-1", ago(2400), storyRecord("s-5"), {
+        judgedOn: {
+          proposalId: "pj-1", change: "amend_criterion", criterionId: "c-5a", field: null,
+          before: "Every colour token has one meaning, and its contrast is asserted by a test",
+          after: "Every colour token has one meaning, and its contrast is asserted in light and in dark by a test",
+          checkBefore: "npm --prefix packages/desktop test -- tokens",
+          checkAfter: "npm --prefix packages/desktop test -- tokens contrast",
+          payload: { criterion_id: "c-5a", statement: "Every colour token has one meaning, and its contrast is asserted in light and in dark by a test", check_command: "npm --prefix packages/desktop test -- tokens contrast" },
+          rationale: "The dark theme lifts the brand hue, so a light-only assertion misses its contrast.",
+          evidence: "src/styles/tokens.css:41 --primary differs under .dark",
+          filedBy: "FLY-5",
+        },
+      }));
+      items.push(needsYouItem("judged_on", "pj-2", ago(2000), { kind: "epic", id: "e-97", key: "FLY-1", title: "Design system and a legible app", state: null }, {
+        judgedOn: {
+          proposalId: "pj-2", change: "amend_epic_spec", criterionId: null, field: "scope",
+          before: "The board, the roster and the session feed, restyled in the new world.",
+          after: "The board, the roster, the session feed and the review card, restyled in the new world.",
+          checkBefore: null, checkAfter: null,
+          payload: { field: "scope", text: "The board, the roster, the session feed and the review card, restyled in the new world." },
+          rationale: "The review card shipped after the scope was written and still wears the old look.",
+          evidence: "src/review/ReviewCard.tsx uses the old chip classes",
+          filedBy: "FLY-4",
+        },
+      }));
+    }
     if (needsYouExtras) {
       items.push(needsYouItem("stopped", "s-6", ago(5000), storyRecord("s-6"), { missingWorktree: true }));
       items.push(needsYouItem("confirm_exit_test", "e-60", ago(9000),
@@ -1104,6 +1141,7 @@ export function installFixtureBackend(): void {
   withAdrs = false;
   needsYouExtras = false;
   triageOn = false;
+  judgedOn = false;
   roadmapMode = "none";
   milestoneShaping = "off";
   adrsOnlyLeft = false;

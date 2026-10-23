@@ -107,6 +107,8 @@ export interface AmendField {
   /** Accept edit waits until it holds text. */
   required?: boolean;
   hideLabel?: boolean;
+  /** A command: drawn in the code face, so `--` never reads as a dash. */
+  code?: boolean;
 }
 
 export interface ProposalDecisionProps {
@@ -119,6 +121,8 @@ export interface ProposalDecisionProps {
   children: ReactNode;
   /** Runs once a decision lands, while this Proposal is still mounted: refresh the reads, move the keyboard. */
   afterDecide: () => Promise<void>;
+  /** The edit control's word: "Amend" by default; a judged-on change in Needs you says "Edit" (issue #163). */
+  amendWord?: string;
 }
 
 /**
@@ -127,7 +131,7 @@ export interface ProposalDecisionProps {
  * edit in one act (`proposal_amend`), Reject asks for an optional reason (`proposal_reject`). While an edit is open
  * it replaces the Proposal's text, with the agent's why kept in sight.
  */
-export function ProposalDecision({ proposal, subject, amend, children, afterDecide }: ProposalDecisionProps) {
+export function ProposalDecision({ proposal, subject, amend, children, afterDecide, amendWord = "Amend" }: ProposalDecisionProps) {
   const fieldId = useId();
   const reasonId = useId();
   const [mode, setMode] = useState<Mode>("idle");
@@ -209,7 +213,7 @@ export function ProposalDecision({ proposal, subject, amend, children, afterDeci
                 {f.multiline ? (
                   <Textarea {...common} onChange={(e) => setDraft((d) => ({ ...d, [f.name]: e.target.value }))} />
                 ) : (
-                  <Input {...common} className="h-8" onChange={(e) => setDraft((d) => ({ ...d, [f.name]: e.target.value }))} />
+                  <Input {...common} className={f.code ? "h-8 font-mono text-small" : "h-8"} onChange={(e) => setDraft((d) => ({ ...d, [f.name]: e.target.value }))} />
                 )}
               </div>
             );
@@ -286,10 +290,10 @@ export function ProposalDecision({ proposal, subject, amend, children, afterDeci
                 setError(null);
                 setMode("amending");
               }}
-              aria-label={`Amend ${subject}`}
+              aria-label={`${amendWord} ${subject}`}
             >
               <PenLine aria-hidden="true" />
-              Amend
+              {amendWord}
             </Button>
           )}
           <Button

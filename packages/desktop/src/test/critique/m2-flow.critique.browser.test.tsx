@@ -29,6 +29,7 @@ import {
   offerAdrsInShaping,
   setReviewInFixture,
   setNeedsYouExtras,
+  setJudgedOnInFixture,
   setRoadmapRound,
   setShapingSessionLive,
   setTriageInFixture,
@@ -959,6 +960,23 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await userEvent.click(await within(drawer).findByRole("button", { name: /^Amend New Story “Keyboard shortcuts/ }));
     await within(drawer).findByRole("textbox", { name: "Title" });
     await shot("98-triage-drawer-amend");
+  });
+
+  it("100 Needs you: judged-on changes ranked with Review, each with its before and after (issue #163)", async () => {
+    setJudgedOnInFixture(true);
+    await boardReady();
+    const card = await screen.findByRole("group", { name: "Criterion, before and after" });
+    card.closest("li")?.scrollIntoView({ block: "center" });
+    await shot("100-needs-you-judged-on");
+  });
+
+  it("101 Needs you: editing a judged-on change in place (issue #163)", async () => {
+    setJudgedOnInFixture(true);
+    await boardReady();
+    await click("Edit the Amend criterion on FLY-5");
+    const field = await screen.findByRole("textbox", { name: "Your criterion" });
+    field.closest("li")?.scrollIntoView({ block: "center" });
+    await shot("101-needs-you-judged-on-edit");
   });
 
   it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {

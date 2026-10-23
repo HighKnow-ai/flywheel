@@ -45,7 +45,7 @@ A testable statement a Story must satisfy, judged against the Story's diff at re
 _Avoid_: Validation, requirement, AC
 
 **Check**:
-An executable test or command attached to an Acceptance criterion that must pass. Run by Flywheel at hand-off; its result belongs to the commit it ran against.
+An executable test or command attached to an Acceptance criterion that must pass. Run by Flywheel at hand-off; its result belongs to the commit it ran against, and is *stale* once the branch moves past that commit or an accepted Judged-on change rewrites its criterion.
 _Avoid_: Validation, gate
 
 **Review**:
@@ -87,6 +87,10 @@ _Avoid_: Issue, suggestion, draft
 **Triage**:
 Deciding the Proposals running Stories filed, each accepted, amended or rejected, in one drawer that groups them by the record each lands on; a Proposal that changes what a Story is judged on is decided on its own instead.
 _Avoid_: Inbox, backlog grooming
+
+**Judged-on change**:
+A Proposal that changes what a Story is judged on: an Amend criterion, or an Amend Epic spec filed by a Story session. It is its own Needs-you item at once, ranked with Review, never in the Proposals row. Accepting an Amend criterion clears the criterion's acceptance, and either replaces its Check (which then reads not run) or marks the Check's last run stale (ADR 0015).
+_Avoid_: Spec change (that is any Amend Epic spec, shaping's included), criterion edit
 
 ## Shaping
 

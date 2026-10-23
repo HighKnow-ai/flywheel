@@ -54,8 +54,31 @@ pub struct NeedsYouProposalsDto {
     pub roadmap: bool,
 }
 
+/// A judged-on change (issue #163): what it changes, before and after, and why.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeedsYouJudgedOnDto {
+    pub proposal_id: String,
+    /// `amend_criterion` or `amend_epic_spec`.
+    pub change: String,
+    pub criterion_id: Option<String>,
+    /// `problem`, `scope`, `out_of_scope` or `exit_test`.
+    pub field: Option<String>,
+    pub before: Option<String>,
+    pub after: String,
+    pub check_before: Option<String>,
+    /// `None`: the Check is kept, and its last run is marked stale.
+    pub check_after: Option<String>,
+    /// The Proposal's payload, which Edit starts from.
+    pub payload: serde_json::Value,
+    pub rationale: Option<String>,
+    pub evidence: Option<String>,
+    /// The key of the Story whose session filed it.
+    pub filed_by: Option<String>,
+}
+
 /// One item. `kind` is `gated_action`, `permission_request`, `question`, `stopped`, `review`,
-/// `confirm_exit_test`, `proposals` or `shaping_round`; `rank` is its place in spec §2's order.
+/// `judged_on`, `confirm_exit_test`, `proposals` or `shaping_round`; `rank` is its place in spec §2's order.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NeedsYouItemDto {
@@ -75,6 +98,7 @@ pub struct NeedsYouItemDto {
     /// A Review item's Rebase needed (issue #158): the paths a merge would conflict in.
     pub conflicts: Vec<String>,
     pub proposals: Option<NeedsYouProposalsDto>,
+    pub judged_on: Option<NeedsYouJudgedOnDto>,
 }
 
 impl From<flywheel_core::query::needs_you::NeedsYouItem> for NeedsYouItemDto {
@@ -118,6 +142,20 @@ impl From<flywheel_core::query::needs_you::NeedsYouItem> for NeedsYouItemDto {
                 stories: p.stories,
                 epics: p.epics,
                 roadmap: p.roadmap,
+            }),
+            judged_on: item.judged_on.map(|j| NeedsYouJudgedOnDto {
+                proposal_id: j.proposal_id,
+                change: j.change.to_string(),
+                criterion_id: j.criterion_id,
+                field: j.field,
+                before: j.before,
+                after: j.after,
+                check_before: j.check_before,
+                check_after: j.check_after,
+                payload: j.payload,
+                rationale: j.rationale,
+                evidence: j.evidence,
+                filed_by: j.filed_by,
             }),
         }
     }

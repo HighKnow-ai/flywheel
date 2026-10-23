@@ -75,7 +75,7 @@ function needsYouOf(): NeedsYouItemDto[] {
       kind: "proposals", rank: 5, id: "p1", since: "2026-10-23T08:00:00Z",
       record: { kind: "project", id: "p1", key: null, title: "", state: null },
       sessionId: null, request: null, endingReason: null, missingWorktree: false, doingTaskTitle: null,
-      exitTest: null, milestoneTitle: null, round: null, conflicts: [],
+      exitTest: null, milestoneTitle: null, round: null, conflicts: [], judgedOn: null,
       proposals: { count: pending.length, stories, epics, roadmap: pending.some((t) => t.proposal.epicId === null) },
     },
   ];

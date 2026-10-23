@@ -12,6 +12,10 @@
 //!    whose action is Recreate, and it stands in for the Story's other Story items.
 //! 3. **Review**: Stories In review. One whose branch would conflict with its base branch carries the
 //!    conflicting paths (`domain::review::conflicts_for_story`) and reads **Rebase needed** (issue #158).
+//!    Ranked with them, each pending **judged-on change** (issue
+//!    #163): a Proposal that changes what a Story is judged on, an Amend criterion or a Story session's
+//!    Amend Epic spec (`query::judged_on_proposal!`), with its before and after. It is left out of
+//!    the Proposals row.
 //! 4. **Confirm exit test**: the core mirror of the renderer's `epicExitTestConfirmable` and
 //!    `milestoneExitTestConfirmable` (`board/ConfirmExitTest.tsx`).
 //! 5. **Proposals**: the pending Proposals Story sessions filed, as ONE item, "n from m Stories"
@@ -31,8 +35,7 @@ use crate::domain::question::is_question;
 use crate::query::recovery::missing_worktrees_for_project;
 use crate::query::sessions::stopped_session_for_story;
 
-/// What an item waits on the developer for. The kind a later Story adds slots in by rank: a Proposal
-/// that changes what a Story is judged on, ranked with Review, rank 3 (issue #163).
+/// What an item waits on the developer for, in spec §2's order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NeedsYouKind {
     GatedAction,
@@ -42,6 +45,8 @@ pub enum NeedsYouKind {
     /// A Stopped Story, or one whose worktree is missing (`NeedsYouItem::missing_worktree`).
     Stopped,
     Review,
+    /// A Proposal that changes what a Story is judged on (issue #163), ranked with Review.
+    JudgedOn,
     ConfirmExitTest,
     /// The Proposals filed during execution, as one row (issue #162).
     Proposals,
@@ -56,6 +61,7 @@ impl NeedsYouKind {
             NeedsYouKind::Question => "question",
             NeedsYouKind::Stopped => "stopped",
             NeedsYouKind::Review => "review",
+            NeedsYouKind::JudgedOn => "judged_on",
             NeedsYouKind::ConfirmExitTest => "confirm_exit_test",
             NeedsYouKind::Proposals => "proposals",
             NeedsYouKind::ShapingRound => "shaping_round",
@@ -67,7 +73,7 @@ impl NeedsYouKind {
         match self {
             NeedsYouKind::GatedAction | NeedsYouKind::PermissionRequest | NeedsYouKind::Question => 1,
             NeedsYouKind::Stopped => 2,
-            NeedsYouKind::Review => 3,
+            NeedsYouKind::Review | NeedsYouKind::JudgedOn => 3,
             NeedsYouKind::ConfirmExitTest => 4,
             NeedsYouKind::Proposals => 5,
             NeedsYouKind::ShapingRound => 6,
@@ -127,6 +133,32 @@ pub struct NeedsYouProposals {
     pub roadmap: bool,
 }
 
+/// A judged-on change an item decides (issue #163): what it changes, before and after, and why.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NeedsYouJudgedOn {
+    pub proposal_id: String,
+    /// `amend_criterion` or `amend_epic_spec`, as `propose` names the kind.
+    pub change: &'static str,
+    /// The criterion an Amend criterion rewrites.
+    pub criterion_id: Option<String>,
+    /// The Epic spec field an Amend Epic spec rewrites: `problem`, `scope`, `out_of_scope`, `exit_test`.
+    pub field: Option<String>,
+    /// The text as the board holds it now; `None` when the criterion is gone or the field is empty.
+    pub before: Option<String>,
+    /// The text the Proposal writes.
+    pub after: String,
+    /// An Amend criterion's Check command now, and the one it proposes (`None`: the Check is kept).
+    pub check_before: Option<String>,
+    pub check_after: Option<String>,
+    /// The Proposal's payload, which Edit starts from.
+    pub payload: serde_json::Value,
+    /// The agent's why and evidence line.
+    pub rationale: Option<String>,
+    pub evidence: Option<String>,
+    /// The key of the Story whose session filed it.
+    pub filed_by: Option<String>,
+}
+
 /// One thing waiting on the developer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NeedsYouItem {
@@ -154,6 +186,7 @@ pub struct NeedsYouItem {
     /// empty.
     pub conflicts: Vec<String>,
     pub proposals: Option<NeedsYouProposals>,
+    pub judged_on: Option<NeedsYouJudgedOn>,
 }
 
 impl NeedsYouItem {
@@ -173,6 +206,7 @@ impl NeedsYouItem {
             round: None,
             conflicts: Vec::new(),
             proposals: None,
+            judged_on: None,
         }
     }
 }
@@ -199,6 +233,23 @@ const RUNNING_STORIES_SQL: &str = "SELECT id, key, title, updated_at, \
 const REVIEW_SQL: &str = "SELECT s.id, s.key, s.title, \
         COALESCE((SELECT MAX(r.ended_at) FROM sessions r WHERE r.story_id = s.id), s.updated_at) \
     FROM stories s WHERE s.project_id = ?1 AND s.state = 'in_review'";
+
+/// A pending judged-on change (`judged_on_proposal!`), with what it changes as the board holds it now:
+/// the criterion, its Story and its Check, or the Epic and its spec; and the Story that filed it.
+const JUDGED_ON_SQL: &str = concat!(
+    "SELECT p.id, p.target_type, p.payload, p.rationale, p.evidence, p.created_at, fs.key, \
+        c.id, c.statement, k.command, cs.id, cs.key, cs.title, \
+        e.id, e.key, e.title, e.problem, e.scope, e.out_of_scope, e.exit_test \
+    FROM proposals p \
+    LEFT JOIN sessions ss ON ss.id = p.session_id \
+    LEFT JOIN stories fs ON fs.id = ss.story_id \
+    LEFT JOIN acceptance_criteria c ON p.target_type = 'criterion' AND c.id = p.target_id \
+    LEFT JOIN checks k ON k.criterion_id = c.id \
+    LEFT JOIN stories cs ON cs.id = c.story_id \
+    LEFT JOIN epics e ON e.id = p.epic_id \
+    WHERE p.project_id = ?1 AND p.state = 'pending' AND ",
+    crate::query::judged_on_proposal!()
+);
 
 /// `epicExitTestConfirmable`: shaping closed (stored `ready`, read as Ready or In progress), at least one
 /// Story, every Story Merged or Dropped. It has waited since its last Story changed.
@@ -273,6 +324,7 @@ pub fn needs_you(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<Need
         items.push(item);
     }
     push_review(conn, project_id, &missing_ids, &mut items)?;
+    push_judged_on(conn, project_id, &mut items)?;
     push_confirm_exit_test(conn, project_id, &mut items)?;
     push_proposals(conn, project_id, &mut items)?;
     push_rounds(conn, project_id, &mut items)?;
@@ -360,6 +412,70 @@ fn push_review(conn: &Connection, project_id: &str, missing: &[&str], items: &mu
         item.conflicts = crate::domain::review::conflicts_for_story(conn, &item.id)?;
         items.push(item);
     }
+    Ok(())
+}
+
+fn push_judged_on(conn: &Connection, project_id: &str, items: &mut Vec<NeedsYouItem>) -> anyhow::Result<()> {
+    let mut stmt = conn.prepare(JUDGED_ON_SQL)?;
+    let rows = stmt
+        .query_map(params![project_id], |row| {
+            let id: String = row.get(0)?;
+            let target: String = row.get(1)?;
+            let payload: serde_json::Value = serde_json::from_str(&row.get::<_, String>(2)?).unwrap_or(serde_json::Value::Null);
+            let text = |key: &str| payload.get(key).and_then(serde_json::Value::as_str).map(str::to_string);
+            let epic = NeedsYouRecord { kind: "epic", id: row.get(13)?, key: row.get(14)?, title: row.get::<_, Option<String>>(15)?.unwrap_or_default(), state: None };
+            let (change, record, criterion_id, field, before, after, check_before, check_after) = if target == "criterion" {
+                let story: Option<String> = row.get(10)?;
+                let record = match story {
+                    Some(story) => story_record(story, row.get(11)?, row.get(12)?),
+                    None => epic,
+                };
+                let criterion_id: Option<String> = row.get(7)?;
+                (
+                    "amend_criterion",
+                    record,
+                    criterion_id.or_else(|| text("criterion_id")),
+                    None,
+                    row.get::<_, Option<String>>(8)?,
+                    text("statement").unwrap_or_default(),
+                    row.get::<_, Option<String>>(9)?,
+                    text("check_command"),
+                )
+            } else {
+                let field = text("field");
+                let column = match field.as_deref() {
+                    Some("problem") => Some(16),
+                    Some("scope") => Some(17),
+                    Some("out_of_scope") => Some(18),
+                    Some("exit_test") => Some(19),
+                    _ => None,
+                };
+                let before = match column {
+                    Some(i) => row.get::<_, Option<String>>(i)?.filter(|t| !t.trim().is_empty()),
+                    None => None,
+                };
+                ("amend_epic_spec", epic, None, field, before, text("text").unwrap_or_default(), None, None)
+            };
+            let mut item = NeedsYouItem::new(NeedsYouKind::JudgedOn, id.clone(), row.get(5)?, record);
+            item.judged_on = Some(NeedsYouJudgedOn {
+                proposal_id: id,
+                change,
+                criterion_id,
+                field,
+                before,
+                after,
+                check_before,
+                check_after,
+                payload,
+                rationale: row.get(3)?,
+                evidence: row.get(4)?,
+                filed_by: row.get(6)?,
+            });
+            Ok(item)
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the judged-on changes waiting")?;
+    items.extend(rows);
     Ok(())
 }
 

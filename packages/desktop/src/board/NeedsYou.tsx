@@ -13,6 +13,8 @@
  *   own A and D, and one key must never answer two agents;
  * - a Stopped Story: Resume; one whose worktree is missing: Recreate worktree;
  * - a Story In review: Open review, which opens the Story view (the review card lives there);
+ * - a judged-on change (issue #163), ranked with Review: its before and after, and Accept, Edit and Reject
+ *   in place (`JudgedOnChange`);
  * - Confirm exit test: the same control and dialog as the Epic card and the Milestone header;
  * - the Proposals row (issue #162): Triage, which opens the triage drawer;
  * - a Shaping Round: Answer (Decide for a roadmap Round) while a live session is held on it, else Continue
@@ -39,6 +41,7 @@ import {
   Lightbulb,
   MessageCircleQuestionMark,
   RotateCcw,
+  Scale,
   ShieldAlert,
 } from "lucide-react";
 import {
@@ -65,6 +68,7 @@ import { blockedQueueQueryKey, needsYouQueryKey, useNeedsYou } from "../fleet/us
 import { pendingPermissionRequestsQueryKey } from "./useBoardQuery";
 import { ResumeControl, endingWords, errorText } from "./StoryControls";
 import { ConfirmExitTest, type ExitTestSubject } from "./ConfirmExitTest";
+import { JudgedOnChange, judgedOnWord } from "./JudgedOnChange";
 import { ContinueShapingButton } from "./EpicShapingControl";
 import { ContinueMilestoneShapingButton } from "./MilestoneShapingControl";
 import { TriageButton } from "../proposals/ProposalDrawer";
@@ -83,6 +87,7 @@ const KIND: Record<NeedsYouKind, { word: string; icon: ReactNode }> = {
   question: { word: "Question", icon: <MessageCircleQuestionMark /> },
   stopped: { word: "Stopped", icon: <Box /> },
   review: { word: "Review", icon: <GitPullRequest /> },
+  judged_on: { word: "Judged-on change", icon: <Scale /> },
   confirm_exit_test: { word: "Confirm exit test", icon: <CircleCheckBig /> },
   proposals: { word: "Proposals", icon: <Lightbulb /> },
   shaping_round: { word: "Shaping Round", icon: <CircleDashed /> },
@@ -233,7 +238,8 @@ export function NeedsYouList({ projectId, className }: { projectId: string; clas
         {live}
         <span className="text-row font-semibold">Nothing needs you</span>
         <span className="text-small text-muted-foreground">
-          A request, a stopped agent, a Story to review, a Proposal or a Round to answer shows here, most urgent first.
+          A request, a stopped agent, a Story to review, a change to what a Story is judged on, a Proposal or a Round to
+          answer shows here, most urgent first.
         </span>
       </div>
     );
@@ -434,7 +440,7 @@ function LeadPill({ item }: { item: NeedsYouItemDto }) {
   return (
     <Badge variant="outline" className="h-5.5 text-meta">
       {kind.icon}
-      {kind.word}
+      {item.kind === "judged_on" && item.judgedOn ? judgedOnWord(item.judgedOn) : kind.word}
     </Badge>
   );
 }
@@ -490,7 +496,12 @@ function NeedsYouCard({
             {detail}
           </p>
         )}
-        {!request && (
+        {item.kind === "judged_on" && item.judgedOn && (
+          <div className="mt-1 min-w-0">
+            <JudgedOnChange item={item} />
+          </div>
+        )}
+        {!request && item.kind !== "judged_on" && (
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
             <ItemAction projectId={projectId} item={item} filled={filled} />
           </div>

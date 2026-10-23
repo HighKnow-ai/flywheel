@@ -188,6 +188,8 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 96 | Needs you: the Proposals row, "4 from 3 Stories" with Triage, and FLY-1's "3 Proposals" on the roster (#162) | ![](critique-2026-10/after/96-needs-you-proposals-row-light.webp) | ![](critique-2026-10/after/96-needs-you-proposals-row-dark.webp) |
 | 97 | Triage drawer: grouped by Epic, then the Roadmap; each card with its kind, change, why, evidence and filing Story (#162) | ![](critique-2026-10/after/97-triage-drawer-light.webp) | ![](critique-2026-10/after/97-triage-drawer-dark.webp) |
 | 98 | Triage drawer: Amend opens a New Story's title and description, its why kept in sight (#162) | ![](critique-2026-10/after/98-triage-drawer-amend-light.webp) | ![](critique-2026-10/after/98-triage-drawer-amend-dark.webp) |
+| 100 | Needs you: judged-on changes ranked with Review, an Amend criterion with its Check and an Amend Epic spec, each with its before and after and Accept, Edit, Reject (#163) | ![](critique-2026-10/after/100-needs-you-judged-on-light.webp) | ![](critique-2026-10/after/100-needs-you-judged-on-dark.webp) |
+| 101 | Needs you: editing an Amend criterion in place, its statement and Check command, then Accept edit (#163) | ![](critique-2026-10/after/101-needs-you-judged-on-edit-light.webp) | ![](critique-2026-10/after/101-needs-you-judged-on-edit-dark.webp) |
 
 ## How the screens were rendered
 

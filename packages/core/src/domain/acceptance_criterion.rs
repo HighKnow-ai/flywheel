@@ -141,28 +141,43 @@ pub fn criteria_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<V
 /// Rewrite a criterion's statement. A changed statement is a new thing to judge, so an acceptance
 /// already recorded is cleared with it. The Story it belongs to never changes.
 pub fn amend_criterion(conn: &mut Connection, actor_id: &str, criterion_id: &str, statement: &str) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    amend_criterion_in_tx(&tx, actor_id, criterion_id, statement, serde_json::json!({ "label": "Amended a criterion" }))?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// [`amend_criterion`] inside the caller's transaction: an accepted Amend criterion Proposal rewrites
+/// the statement in its deciding transaction (issue #163). `detail` is the event's; it gains the new
+/// statement.
+pub(crate) fn amend_criterion_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    criterion_id: &str,
+    statement: &str,
+    mut detail: serde_json::Value,
+) -> anyhow::Result<()> {
     let statement = statement.trim();
     anyhow::ensure!(!statement.is_empty(), "a criterion needs a statement");
     let now = now();
-    let tx = conn.transaction()?;
-    let (story_id, epic_id, project_id) = criterion_scope(&tx, criterion_id)?;
+    let (story_id, epic_id, project_id) = criterion_scope(tx, criterion_id)?;
     tx.execute(
         "UPDATE acceptance_criteria SET statement = ?1, accepted_by = NULL, accepted_at = NULL, updated_at = ?2
          WHERE id = ?3",
         params![statement, now, criterion_id],
     )?;
+    detail["statement"] = serde_json::json!(statement);
     record_event(
-        &tx,
+        tx,
         &project_id,
         "criterion",
         criterion_id,
         EventScope { story_id: Some(&story_id), epic_id: Some(&epic_id) },
         actor_id,
         "criterion.amended",
-        &serde_json::json!({ "statement": statement, "label": "Amended a criterion" }),
+        &detail,
         &now,
     )?;
-    tx.commit()?;
     Ok(())
 }
 

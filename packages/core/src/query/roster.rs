@@ -16,7 +16,8 @@
 //!   (its latest run since the Check's last edit, `domain::check::current_result`) passed and is not
 //!   stale. Stale is judged against the head the Story last handed off, its latest review's
 //!   `head_sha`, never against git: the roster reads no worktree (ADR 0012). With no review yet no
-//!   head is known, and a result whose head can't be known is not stale (`CurrentResult::is_stale`).
+//!   head is known, and a result whose head can't be known is not stale (`CurrentResult::is_stale`). A
+//!   run an accepted Amend criterion marked stale (`checks.stale_since`, ADR 0015) is stale too.
 //! - **tasks x/y**: Tasks done out of every Task not Dropped. A Dropped Task is closed, not work.
 //! - **The diff size** of the Story's open review, while it is In review.
 //!
@@ -68,7 +69,8 @@ pub const ROSTER_ROWS_SQL: &str = "SELECT s.id, \
                 JOIN check_runs cr ON cr.id = (SELECT id FROM check_runs WHERE check_id = k.id \
                     AND started_at >= k.updated_at ORDER BY started_at DESC, id DESC LIMIT 1) \
                 WHERE k.criterion_id = c.id AND cr.result = 'passed' \
-                AND (handed_off.head_sha IS NULL OR cr.commit_sha = handed_off.head_sha)))), \
+                AND (handed_off.head_sha IS NULL OR cr.commit_sha = handed_off.head_sha) \
+                AND (k.stale_since IS NULL OR cr.started_at >= k.stale_since)))), \
         (SELECT COUNT(*) FROM acceptance_criteria c WHERE c.story_id = s.id), \
         (SELECT COUNT(*) FROM tasks t WHERE t.story_id = s.id AND t.state = 'done'), \
         (SELECT COUNT(*) FROM tasks t WHERE t.story_id = s.id AND t.state <> 'dropped'), \

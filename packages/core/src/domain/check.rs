@@ -8,7 +8,9 @@
 //! A run of record is tied to the commit it ran against. "Not run" is the absence of a current run,
 //! and editing a Check resets it to not run: a run that started before the Check's last edit is not
 //! its current result. Whether a result is stale (the branch moved since) is decided against the
-//! branch head by the caller, never stored.
+//! branch head by the caller, never stored. An accepted Amend criterion that keeps its Check marks
+//! the last run stale too (issue #163): `checks.stale_since` says when, and a run that started
+//! before it is stale whatever the branch head. Runs are never deleted.
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
@@ -71,14 +73,23 @@ pub struct CurrentResult {
     pub result: CheckResult,
     pub commit_sha: Option<String>,
     pub output_tail: Option<String>,
+    /// When the run started; `None` when not run.
+    pub started_at: Option<String>,
+    /// When an accepted judged-on change marked the Check's last run stale (`checks.stale_since`).
+    pub stale_since: Option<String>,
 }
 
 impl CurrentResult {
-    /// Whether the branch has moved since this result ran: it ran against a commit that is not the
-    /// branch head `head`. A result never run is not stale, and neither is one whose branch head
-    /// can't be read (the worktree is gone, so the branch can no longer move).
+    /// Whether this result no longer says anything about the branch: it ran against a commit that is
+    /// not the branch head `head`, or it started before an accepted judged-on change marked it stale
+    /// (issue #163). A result never run is not stale, and the branch head alone can't make one stale
+    /// when it can't be read (the worktree is gone, so the branch can no longer move).
     pub fn is_stale(&self, head: Option<&str>) -> bool {
-        matches!((self.commit_sha.as_deref(), head), (Some(ran), Some(head)) if ran != head)
+        if self.result == CheckResult::NotRun {
+            return false;
+        }
+        let marked = matches!((self.started_at.as_deref(), self.stale_since.as_deref()), (Some(ran), Some(since)) if ran < since);
+        marked || matches!((self.commit_sha.as_deref(), head), (Some(ran), Some(head)) if ran != head)
     }
 }
 
@@ -230,23 +241,61 @@ pub(crate) fn record_check_run_in_tx(conn: &Connection, check_id: &str, run: &Ch
 
 /// A Check's current result: its latest run that started after the Check's last edit, or not run.
 pub fn current_result(conn: &Connection, check_id: &str) -> anyhow::Result<CurrentResult> {
-    let latest: Option<(String, String, Option<String>)> = conn
+    let latest: Option<(String, String, Option<String>, String, Option<String>)> = conn
         .query_row(
-            "SELECT r.result, r.commit_sha, r.output_tail FROM check_runs r JOIN checks k ON k.id = r.check_id
+            "SELECT r.result, r.commit_sha, r.output_tail, r.started_at, k.stale_since FROM check_runs r
+             JOIN checks k ON k.id = r.check_id
              WHERE r.check_id = ?1 AND r.started_at >= k.updated_at
              ORDER BY r.started_at DESC, r.id DESC LIMIT 1",
             params![check_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .optional()?;
     Ok(match latest {
-        None => CurrentResult { result: CheckResult::NotRun, commit_sha: None, output_tail: None },
-        Some((result, sha, tail)) => CurrentResult {
+        None => CurrentResult { result: CheckResult::NotRun, commit_sha: None, output_tail: None, started_at: None, stale_since: None },
+        Some((result, sha, tail, started_at, stale_since)) => CurrentResult {
             result: CheckResult::parse_stored(&result)?,
             commit_sha: Some(sha),
             output_tail: tail,
+            started_at: Some(started_at),
+            stale_since,
         },
     })
+}
+
+/// Mark the last run of the Check on `criterion_id` stale (issue #163): an accepted Amend criterion
+/// that keeps its Check. The run is kept; [`CurrentResult::is_stale`] reads it as stale until a run
+/// that starts after now. A criterion with no Check has no run to mark. Returns the Check marked.
+pub(crate) fn mark_last_run_stale_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    criterion_id: &str,
+    proposal_id: &str,
+) -> anyhow::Result<Option<String>> {
+    let found: Option<(String, String, String, String)> = tx
+        .query_row(
+            "SELECT k.id, c.story_id, s.epic_id, s.project_id FROM checks k
+             JOIN acceptance_criteria c ON c.id = k.criterion_id
+             JOIN stories s ON s.id = c.story_id WHERE k.criterion_id = ?1",
+            params![criterion_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?;
+    let Some((check_id, story_id, epic_id, project_id)) = found else { return Ok(None) };
+    let now = now();
+    tx.execute("UPDATE checks SET stale_since = ?1 WHERE id = ?2", params![now, check_id])?;
+    record_event(
+        tx,
+        &project_id,
+        "check",
+        &check_id,
+        EventScope { story_id: Some(&story_id), epic_id: Some(&epic_id) },
+        actor_id,
+        "check.marked_stale",
+        &serde_json::json!({ "proposal_id": proposal_id, "label": "Marked the Check's last run stale: its criterion changed" }),
+        &now,
+    )?;
+    Ok(Some(check_id))
 }
 
 /// Every Check of a Story, in its criteria's order.

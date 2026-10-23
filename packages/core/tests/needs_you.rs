@@ -498,3 +498,145 @@ fn another_projects_items_stay_out() {
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].record.title, "Here");
 }
+
+/// Issue #163: a Proposal from execution that changes what a Story is judged on.
+impl Board {
+    /// A pending Proposal filed by session `session_id` on the Board's Epic, at `at`.
+    fn filed(
+        &mut self,
+        session_id: Option<&str>,
+        verb: &str,
+        target: &str,
+        target_id: Option<&str>,
+        payload: serde_json::Value,
+        at: &str,
+    ) -> String {
+        use core::domain::proposal::{file_proposal, NewProposal, ProposalTarget, ProposalVerb};
+        let filed = file_proposal(
+            &mut self.conn,
+            &self.actor_id,
+            &NewProposal {
+                project_id: &self.project_id,
+                session_id,
+                epic_id: Some(&self.epic_id),
+                verb: ProposalVerb::parse(verb).unwrap(),
+                target: ProposalTarget::parse(target).unwrap(),
+                target_id,
+                payload,
+                rationale: Some("the criterion misses the empty line"),
+            },
+        )
+        .expect("file_proposal");
+        self.conn
+            .execute("UPDATE proposals SET created_at = ?1, evidence = 'src/parser.rs:42' WHERE id = ?2", params![at, filed.id])
+            .unwrap();
+        filed.id
+    }
+}
+
+/// Spec §2 and §5: a judged-on change is its own item at once, ranked with Review and mixed with it by
+/// age, whatever else waits.
+#[test]
+fn a_judged_on_proposal_is_its_own_item_ranked_with_review() {
+    let mut b = board();
+    let (running, running_key) = b.story("Parser", "running", "2026-10-01T00:00:00Z");
+    let live = b.session(&running, "2026-10-01T00:00:00Z", None);
+    let criterion = core::domain::acceptance_criterion::create_criterion(&mut b.conn, &b.actor_id, &running, "Parses a line").unwrap();
+    core::domain::check::set_check(&mut b.conn, &b.actor_id, &criterion.id, "cargo test parser", None).unwrap();
+
+    let (old_review, _) = b.story("Handed off early", "in_review", "2026-10-02T00:00:00Z");
+    let (new_review, _) = b.story("Handed off late", "in_review", "2026-10-06T00:00:00Z");
+    let amend = b.filed(
+        Some(&live),
+        "amend",
+        "criterion",
+        Some(&criterion.id),
+        serde_json::json!({ "criterion_id": criterion.id, "statement": "Parses an empty line", "check_command": "cargo test empty" }),
+        "2026-10-04T00:00:00Z",
+    );
+    let epic_id = b.epic_id.clone();
+    b.conn.execute("UPDATE epics SET scope = 'Parse a line' WHERE id = ?1", params![epic_id]).unwrap();
+    let spec = b.filed(
+        Some(&live),
+        "amend",
+        "epic",
+        Some(&epic_id),
+        serde_json::json!({ "field": "scope", "text": "Parse every line" }),
+        "2026-10-05T00:00:00Z",
+    );
+    let (stopped, _) = b.story("Crashed", "running", "2026-10-09T00:00:00Z");
+    b.session(&stopped, "2026-10-09T00:00:00Z", Some(("2026-10-09T01:00:00Z", "crash")));
+
+    let items = b.list();
+    assert_eq!(
+        kinds(&items),
+        vec![NeedsYouKind::Stopped, NeedsYouKind::Review, NeedsYouKind::JudgedOn, NeedsYouKind::JudgedOn, NeedsYouKind::Review]
+    );
+    assert_eq!(NeedsYouKind::JudgedOn.rank(), NeedsYouKind::Review.rank());
+    let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
+    assert_eq!(ids[1..], [old_review.as_str(), amend.as_str(), spec.as_str(), new_review.as_str()]);
+
+    let item = &items[2];
+    assert_eq!(item.since, "2026-10-04T00:00:00Z");
+    assert_eq!(item.record.kind, "story", "an amended criterion is about its Story");
+    assert_eq!(item.record.id.as_deref(), Some(running.as_str()));
+    let change = item.judged_on.as_ref().expect("the item carries the change");
+    assert_eq!(change.proposal_id, amend);
+    assert_eq!(change.change, "amend_criterion");
+    assert_eq!(change.criterion_id.as_deref(), Some(criterion.id.as_str()));
+    assert_eq!((change.before.as_deref(), change.after.as_str()), (Some("Parses a line"), "Parses an empty line"));
+    assert_eq!((change.check_before.as_deref(), change.check_after.as_deref()), (Some("cargo test parser"), Some("cargo test empty")));
+    assert_eq!(change.rationale.as_deref(), Some("the criterion misses the empty line"));
+    assert_eq!(change.evidence.as_deref(), Some("src/parser.rs:42"));
+    assert_eq!(change.filed_by.as_deref(), Some(running_key.as_str()));
+    assert_eq!(change.payload["statement"], "Parses an empty line");
+
+    let item = &items[3];
+    assert_eq!(item.record.kind, "epic", "an amended Epic spec is about its Epic");
+    assert_eq!(item.record.id.as_deref(), Some(epic_id.as_str()));
+    let change = item.judged_on.as_ref().unwrap();
+    assert_eq!(change.change, "amend_epic_spec");
+    assert_eq!(change.field.as_deref(), Some("scope"));
+    assert_eq!((change.before.as_deref(), change.after.as_str()), (Some("Parse a line"), "Parse every line"));
+}
+
+/// Only a pending judged-on Proposal is an item. Every other Proposal from execution waits in the
+/// Proposals row (#162), a shaping session's Epic spec change in its Round, and a decided or withdrawn
+/// one waits on no one. The New Story waits in the Proposals row.
+#[test]
+fn only_pending_judged_on_proposals_are_items() {
+    let mut b = board();
+    let (running, _) = b.story("Parser", "running", "2026-10-01T00:00:00Z");
+    let live = b.session(&running, "2026-10-01T00:00:00Z", None);
+    let epic_id = b.epic_id.clone();
+    let at = "2026-10-02T00:00:00Z";
+    b.filed(Some(&live), "create", "story", None, serde_json::json!({ "title": "Recovery" }), at);
+    b.filed(None, "amend", "epic", Some(&epic_id), serde_json::json!({ "field": "scope", "text": "By hand" }), at);
+    let shaping = b.shaping_session(Some(&epic_id), None, false);
+    b.filed(Some(&shaping), "amend", "epic", Some(&epic_id), serde_json::json!({ "field": "scope", "text": "In shaping" }), at);
+    for state in ["accepted", "rejected", "withdrawn"] {
+        let id = b.filed(Some(&live), "amend", "epic", Some(&epic_id), serde_json::json!({ "field": "problem", "text": state }), at);
+        let decided_by = (state != "withdrawn").then(|| b.actor_id.clone());
+        let withdrawn_at = (state == "withdrawn").then_some(at);
+        b.conn
+            .execute(
+                "UPDATE proposals SET state = ?1, decided_by = ?2, withdrawn_at = ?3 WHERE id = ?4",
+                params![state, decided_by, withdrawn_at, id],
+            )
+            .unwrap();
+    }
+    // A pending judged-on change is its own item and never counted in the Proposals row (#162).
+    let criterion = core::domain::acceptance_criterion::create_criterion(&mut b.conn, &b.actor_id, &running, "Parses a line").unwrap();
+    let judged = b.filed(
+        Some(&live),
+        "amend",
+        "criterion",
+        Some(&criterion.id),
+        serde_json::json!({ "criterion_id": criterion.id, "statement": "Parses an empty line" }),
+        at,
+    );
+    let items = b.list();
+    assert_eq!(kinds(&items), vec![NeedsYouKind::JudgedOn, NeedsYouKind::Proposals], "{items:?}");
+    assert_eq!(items[0].id, judged);
+    assert_eq!(items[1].proposals.as_ref().unwrap().count, 1, "only the New Story awaits triage");
+}

@@ -1517,17 +1517,39 @@ export async function boardRecoverySummary(projectId: string): Promise<RecoveryS
   return invokeCommand<RecoverySummaryDto>("board_recovery_summary", { projectId });
 }
 
-/** What a Needs-you item waits on the developer for (docs/mvp-spec.md §2, issues #156 and #162). A Proposal that
- * changes what a Story is judged on (#163) joins this union. */
+/** What a Needs-you item waits on the developer for (docs/mvp-spec.md §2, issues #156, #162 and #163). */
 export type NeedsYouKind =
   | "gated_action"
   | "permission_request"
   | "question"
   | "stopped"
   | "review"
+  | "judged_on"
   | "confirm_exit_test"
   | "proposals"
   | "shaping_round";
+
+/** A judged-on change (issue #163): a Proposal that changes what a Story is judged on, with its before and
+ * after — mirrors `commands/needs_you.rs`'s `NeedsYouJudgedOnDto`. */
+export interface NeedsYouJudgedOnDto {
+  proposalId: string;
+  change: "amend_criterion" | "amend_epic_spec";
+  criterionId: string | null;
+  /** The Epic spec field: `problem`, `scope`, `out_of_scope` or `exit_test`. */
+  field: string | null;
+  /** The text as the board holds it now; null when it is empty or gone. */
+  before: string | null;
+  after: string;
+  checkBefore: string | null;
+  /** The proposed Check command; null keeps the Check and marks its last run stale. */
+  checkAfter: string | null;
+  /** The Proposal's payload, which Edit starts from. */
+  payload: Record<string, unknown>;
+  rationale: string | null;
+  evidence: string | null;
+  /** The key of the Story whose session filed it. */
+  filedBy: string | null;
+}
 
 /** One Needs-you item — mirrors `commands/needs_you.rs`'s `NeedsYouItemDto`. Ranked by the core. */
 export interface NeedsYouItemDto {
@@ -1573,6 +1595,7 @@ export interface NeedsYouItemDto {
   conflicts: string[];
   /** The Proposals row (issue #162): "n from m Stories", and where they land. */
   proposals: { count: number; stories: number; epics: number; roadmap: boolean } | null;
+  judgedOn: NeedsYouJudgedOnDto | null;
 }
 
 export async function needsYouList(projectId: string): Promise<NeedsYouItemDto[]> {
