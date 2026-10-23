@@ -62,14 +62,39 @@ after(() => {
   }
 });
 
-/** Poll `predicate` until it's true or `timeoutMs` elapses. */
-async function waitForCondition(predicate, { timeoutMs = 2000, intervalMs = 10 } = {}) {
+/** Poll `predicate` until it is true or `timeoutMs` elapses. The default is wider than every caller's `withTimeout`, so
+ * the caller's bound and its message are the ones that fire: a 2s default here once cut an 8s budget short under load. */
+async function waitForCondition(predicate, { timeoutMs = 10_000, intervalMs = 10 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
   throw new Error("waitForCondition timed out");
+}
+
+/**
+ * Wait until `pid` no longer exists (`kill(pid, 0)` throws ESRCH), failing with `message` after `timeoutMs`.
+ *
+ * A signalled process is not gone the instant the signal is sent: it still has to be scheduled to die, and
+ * until its new parent reaps it, it is a zombie that `kill(pid, 0)` still finds. On a loaded machine that
+ * takes measurable time after the ack arrived (measured: a grandchild still in state `E`, exiting, 11-37ms after
+ * the ack under 20 parallel runs), so asserting ESRCH at once fails intermittently although the
+ * group signal did its work (issue #169). The proof is that the process is gone within a bound, not in zero
+ * time.
+ */
+async function waitUntilGone(pid, message, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      process.kill(pid, 0);
+    } catch (err) {
+      if (err.code === "ESRCH") return;
+      throw err;
+    }
+    if (Date.now() > deadline) assert.fail(`${message} (pid ${pid} still exists ${timeoutMs}ms later)`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 /** Bounds an otherwise-hanging promise with a clear failure instead of stalling the suite. */
@@ -171,16 +196,8 @@ test("a shutdown request tears down two stubborn sessions and both of their gran
     assert.equal(ack.ok, true, "the shutdown request must ack ok");
     assert.equal(ack.data?.killed, 2, "the shutdown ack must report both sessions killed");
 
-    assert.throws(
-      () => process.kill(pidA, 0),
-      (err) => err.code === "ESRCH",
-      "grandchild A must no longer exist after the shutdown reached its process group",
-    );
-    assert.throws(
-      () => process.kill(pidB, 0),
-      (err) => err.code === "ESRCH",
-      "grandchild B must no longer exist after the shutdown reached its process group",
-    );
+    await waitUntilGone(pidA, "grandchild A must no longer exist after the shutdown reached its process group");
+    await waitUntilGone(pidB, "grandchild B must no longer exist after the shutdown reached its process group");
   } finally {
     sidecar.child.kill();
   }
@@ -189,6 +206,14 @@ test("a shutdown request tears down two stubborn sessions and both of their gran
 test("a shutdown request against a sidecar with no live sessions acks ok with killed 0, promptly", async () => {
   const sidecar = startSidecar();
   try {
+    // Time the shutdown from a booted sidecar: a ping's ack says it reads requests. Timing from the spawn
+    // measured Node's own start-up too, which a loaded machine stretches past the bound (issue #169).
+    sidecar.send({ id: "ping-empty", op: "ping" });
+    await withTimeout(
+      waitForCondition(() => ackFor(sidecar, "ping-empty") !== undefined),
+      8000,
+      "the sidecar did not answer its ping in time",
+    );
     const startedAt = Date.now();
     sidecar.send({ id: "shutdown-empty", op: "shutdown" });
 
@@ -271,11 +296,7 @@ test("SIGTERM to the sidecar process tears down a stubborn session's grandchild"
     sidecar.child.kill("SIGTERM");
     await withTimeout(exited, 8000, "the sidecar process did not exit after SIGTERM in time");
 
-    assert.throws(
-      () => process.kill(pid, 0),
-      (err) => err.code === "ESRCH",
-      "the grandchild must be gone after the sidecar's own SIGTERM fallback net ran",
-    );
+    await waitUntilGone(pid, "the grandchild must be gone after the sidecar's own SIGTERM fallback net ran");
   } finally {
     try {
       sidecar.child.kill();

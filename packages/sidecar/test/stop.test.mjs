@@ -63,14 +63,38 @@ after(() => {
   }
 });
 
-/** Poll `predicate` until it's true or `timeoutMs` elapses. */
-async function waitForCondition(predicate, { timeoutMs = 2000, intervalMs = 10 } = {}) {
+/** Poll `predicate` until it is true or `timeoutMs` elapses. The default is wider than every caller's `withTimeout`, so
+ * the caller's bound and its message are the ones that fire: a 2s default here once cut an 8s budget short under load. */
+async function waitForCondition(predicate, { timeoutMs = 10_000, intervalMs = 10 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
   throw new Error("waitForCondition timed out");
+}
+
+/**
+ * Wait until `pid` no longer exists (`kill(pid, 0)` throws ESRCH), failing with `message` after `timeoutMs`.
+ *
+ * A signalled process is not gone the instant the signal is sent: it still has to be scheduled to die, and
+ * until its new parent reaps it, it is a zombie that `kill(pid, 0)` still finds. On a loaded machine that
+ * takes measurable time after the session closed or the ack arrived, so asserting ESRCH at once fails
+ * intermittently although the group signal did its work (issue #169). The proof is that the process is gone
+ * within a bound, not in zero time.
+ */
+async function waitUntilGone(pid, message, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      process.kill(pid, 0);
+    } catch (err) {
+      if (err.code === "ESRCH") return;
+      throw err;
+    }
+    if (Date.now() > deadline) assert.fail(`${message} (pid ${pid} still exists ${timeoutMs}ms later)`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 /** Bounds an otherwise-hanging promise with a clear failure instead of stalling the suite. */
@@ -98,7 +122,9 @@ test("interrupting a cooperative session ends with reason interrupted", async ()
   const events = [];
   const runId = "run-cooperative";
 
-  const startPromise = startFakeSession(adapter, runId, events);
+  // Waits for the interrupt: the default fake exits on its own 50ms after its assistant line, and a loaded
+  // machine can take longer than that to deliver the interrupt, which then closes the session `completed`.
+  const startPromise = startFakeSession(adapter, runId, events, { FLYWHEEL_FAKE_AWAIT_INTERRUPT: "1" });
   await waitForCondition(() => events.some((e) => e.type === "assistant_text"));
 
   await withTimeout(adapter.interruptSession(runId), 8000, "interruptSession did not resolve in time");
@@ -158,11 +184,7 @@ test("interrupting a stubborn session escalates to a group SIGTERM and tears dow
   assert.ok(closed, "expected a session_closed event for the stubborn session");
   assert.equal(closed.reason, "interrupted");
 
-  assert.throws(
-    () => process.kill(grandchildPid, 0),
-    (err) => err.code === "ESRCH",
-    "the grandchild process must no longer exist after the force step reached the whole process group",
-  );
+  await waitUntilGone(grandchildPid, "the grandchild process must no longer exist after the force step reached the whole process group");
 });
 
 test("interrupting an unknown runId rejects with a typed error naming the id and signals no other session", async () => {

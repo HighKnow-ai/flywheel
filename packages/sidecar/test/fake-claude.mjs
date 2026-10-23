@@ -353,7 +353,9 @@ if (STUBBORN) {
   });
 
   // Give SIGINT a moment to land in interrupt-focused tests before the process would otherwise
-  // finish on its own.
+  // finish on its own. `FLYWHEEL_FAKE_AWAIT_INTERRUPT=1` waits for the interrupt instead (a 30s
+  // safety exit aside): a test that must see the interrupt land cannot race a 50ms self-exit, which
+  // a loaded machine loses (issue #169).
   setTimeout(() => {
     if (interrupted) return;
     printLine({
@@ -364,5 +366,5 @@ if (STUBBORN) {
       usage: FAKE_USAGE,
     });
     process.exit(0);
-  }, 50);
+  }, process.env.FLYWHEEL_FAKE_AWAIT_INTERRUPT === "1" ? 30_000 : 50);
 }
