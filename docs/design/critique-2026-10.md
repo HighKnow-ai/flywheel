@@ -193,6 +193,9 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 100 | Needs you: judged-on changes ranked with Review, an Amend criterion with its Check and an Amend Epic spec, each with its before and after and Accept, Edit, Reject (#163) | ![](critique-2026-10/after/100-needs-you-judged-on-light.webp) | ![](critique-2026-10/after/100-needs-you-judged-on-dark.webp) |
 | 101 | Needs you: editing an Amend criterion in place, its statement and Check command, then Accept edit (#163) | ![](critique-2026-10/after/101-needs-you-judged-on-edit-light.webp) | ![](critique-2026-10/after/101-needs-you-judged-on-edit-dark.webp) |
 | 108 | Triage drawer: a duplicate New Story names what it repeats and who filed it; accepting that one closes it (#165) | ![](critique-2026-10/after/108-triage-drawer-duplicate-light.webp) | ![](critique-2026-10/after/108-triage-drawer-duplicate-dark.webp) |
+| 104 | Review card: the Decisions section's flags (Wording or supersede?, Renumber, Supersession line missing), and Not an ADR and Wrong decision beside Keep, Wrong decision's two answers in place (#164) | ![](critique-2026-10/after/104-review-card-adr-flags-light.webp) | ![](critique-2026-10/after/104-review-card-adr-flags-dark.webp) |
+| 105 | Review card: the composer lists the ADR review points it sends after the comments, which may stay empty (#164) | ![](critique-2026-10/after/105-review-card-adr-review-points-light.webp) | ![](critique-2026-10/after/105-review-card-adr-review-points-dark.webp) |
+| 106 | Review card: the flags and the three choices at the window's 900px minimum width (#164) | ![](critique-2026-10/after/106-review-card-adr-flags-min-width-light.webp) | ![](critique-2026-10/after/106-review-card-adr-flags-min-width-dark.webp) |
 
 ## How the screens were rendered
 
