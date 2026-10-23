@@ -8,7 +8,9 @@
 //! own (WAL plus `busy_timeout`). A refusal reaches the developer as written; any other failure
 //! crosses IPC only as its fixed category (`ipc_error`), since git's output carries paths.
 
+use flywheel_core::domain::proposal_apply::AdrBarLines;
 use flywheel_core::domain::review::{Review, ReviewCheck, ReviewCriterion, StoryReview};
+use flywheel_core::domain::review_decisions::{DecisionChange, NewAdr, RelatedAdr, ReviewDecisions};
 use flywheel_core::domain::story_merge::{MergeOptions, MergeOutcome, MergeRefused};
 use serde::Serialize;
 use serde_json::Value;
@@ -102,6 +104,96 @@ impl From<Review> for ReviewDto {
     }
 }
 
+/// An ADR's four bar lines, as the review card shows them beside it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdrBarLinesDto {
+    pub hard_to_reverse: String,
+    pub surprising: String,
+    pub losing_alternative: String,
+    pub relates_to: Option<String>,
+}
+
+impl From<AdrBarLines> for AdrBarLinesDto {
+    fn from(b: AdrBarLines) -> Self {
+        Self {
+            hard_to_reverse: b.hard_to_reverse,
+            surprising: b.surprising,
+            losing_alternative: b.losing_alternative,
+            relates_to: b.relates_to,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelatedAdrDto {
+    pub path: String,
+    pub title: String,
+}
+
+impl From<RelatedAdr> for RelatedAdrDto {
+    fn from(r: RelatedAdr) -> Self {
+        Self { path: r.path, title: r.title }
+    }
+}
+
+/// A new ADR's card in the Decisions section.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewAdrDto {
+    pub title: String,
+    /// `null`: no bar lines, from the hand-off or from shaping.
+    pub bar_lines: Option<AdrBarLinesDto>,
+    /// `handoff` or `shaping`; `null` with no bar lines.
+    pub bar_lines_from: Option<String>,
+    pub related: Vec<RelatedAdrDto>,
+    /// The ADR Proposal accepted on the Epic in shaping at this path.
+    pub proposal_id: Option<String>,
+}
+
+impl From<NewAdr> for NewAdrDto {
+    fn from(a: NewAdr) -> Self {
+        Self {
+            title: a.title,
+            bar_lines: a.bar_lines.map(AdrBarLinesDto::from),
+            bar_lines_from: a.bar_lines_from.map(|s| s.as_str().to_string()),
+            related: a.related.into_iter().map(RelatedAdrDto::from).collect(),
+            proposal_id: a.proposal_id,
+        }
+    }
+}
+
+/// One `docs/adr/` or `GLOSSARY.md` change.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecisionChangeDto {
+    /// `adr` or `glossary`.
+    pub kind: String,
+    pub path: String,
+    pub old_path: Option<String>,
+    /// git's status letter: `A`, `M`, `D`, `R`, `C` or `T`.
+    pub status: String,
+    pub added: Option<u32>,
+    pub removed: Option<u32>,
+    /// Set for an ADR the branch adds.
+    pub new_adr: Option<NewAdrDto>,
+}
+
+impl From<DecisionChange> for DecisionChangeDto {
+    fn from(c: DecisionChange) -> Self {
+        Self {
+            kind: c.kind.as_str().to_string(),
+            path: c.path,
+            old_path: c.old_path,
+            status: c.status,
+            added: c.added,
+            removed: c.removed,
+            new_adr: c.new_adr.map(NewAdrDto::from),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoryReviewDto {
@@ -118,6 +210,14 @@ pub struct StoryReviewDto {
     pub live_session: bool,
     /// Uncommitted paths in the Story's worktree, repository-relative.
     pub uncommitted: Vec<String>,
+    /// The Decisions section: `docs/adr/` changes by path, then `GLOSSARY.md` (issue #161).
+    pub decisions: Vec<DecisionChangeDto>,
+}
+
+impl StoryReviewDto {
+    fn new(r: StoryReview, decisions: ReviewDecisions) -> Self {
+        Self { decisions: decisions.changes.into_iter().map(DecisionChangeDto::from).collect(), ..Self::from(r) }
+    }
 }
 
 impl From<StoryReview> for StoryReviewDto {
@@ -133,6 +233,7 @@ impl From<StoryReview> for StoryReviewDto {
             failing_checks: r.failing_checks.into_iter().map(ReviewCheckDto::from).collect(),
             live_session: r.live_session,
             uncommitted: r.uncommitted,
+            decisions: Vec::new(),
         }
     }
 }
@@ -148,6 +249,8 @@ pub struct MergeDto {
     pub failing_checks_overridden: usize,
     /// The worktree or branch Merge could not remove after the commit landed.
     pub cleanup_warning: Option<String>,
+    /// The new ADRs Merge linked to the Story, by path.
+    pub adrs_linked: Vec<String>,
 }
 
 impl From<MergeOutcome> for MergeDto {
@@ -158,18 +261,20 @@ impl From<MergeOutcome> for MergeDto {
             method: o.method.as_str().to_string(),
             failing_checks_overridden: o.failing_checks_overridden.len(),
             cleanup_warning: o.cleanup_warning,
+            adrs_linked: o.adrs_linked,
         }
     }
 }
 
 /// The review card of one Story: criteria with their Check chips and pre-ticks, the Tasks not done,
-/// the failing Checks, and what would stop a Merge now. Read-only.
+/// the failing Checks, what would stop a Merge now, and the Decisions section. Read-only.
 #[tauri::command]
 pub fn story_review(state: State<AppState>, story_id: String) -> Result<StoryReviewDto, String> {
     let conn = state.db.lock().map_err(|e| ipc_error("story_review:lock", e))?;
-    flywheel_core::domain::review::review_for_story(&conn, &story_id)
-        .map(StoryReviewDto::from)
-        .map_err(|e| ipc_error("story_review:read", e))
+    let review = flywheel_core::domain::review::review_for_story(&conn, &story_id).map_err(|e| ipc_error("story_review:read", e))?;
+    let decisions = flywheel_core::domain::review_decisions::review_decisions(&conn, &story_id)
+        .map_err(|e| ipc_error("story_review:decisions", e))?;
+    Ok(StoryReviewDto::new(review, decisions))
 }
 
 /// A Merge failure as the renderer sees it: a refusal's own words, or a fixed category.

@@ -90,8 +90,9 @@ answer, ask a question instead.
 - Decisions about the code live in the repo: ADRs in `docs/adr/` and terms in `GLOSSARY.md`. Before \
 writing an ADR, check the index below: either supersede a related ADR (open the new one with \
 `Supersedes ADR-NNNN` and add `Status: superseded by ADR-MMMM` to the old one) or do not write a new \
-one. Offer every ADR with three lines: why it is hard to reverse, why it would surprise a reader, and \
-which alternative lost.
+one. Offer every ADR you add with its bar lines in the hand-off's `adrs`: why it is hard to reverse, why \
+it would surprise a reader, which alternative lost, and the ADRs it relates to. They are shown beside \
+it at review and never written into the file.
 - Commit your work on the Story's branch as you go.
 ";
 
@@ -473,7 +474,50 @@ pub(crate) fn live_adrs(adr_dir: &Path) -> Vec<AdrEntry> {
         .filter(|n| n.ends_with(".md"))
         .collect();
     names.sort();
+    let files = names.into_iter().filter_map(|name| {
+        let text = std::fs::read_to_string(adr_dir.join(&name)).ok()?;
+        Some((name, text))
+    });
+    live_adrs_of(files)
+}
 
+/// [`live_adrs`] as committed at `rev` in the repository at `repo`, read without a checkout (issue
+/// #161: the review resolves an ADR's "Relates to" against the base branch). Two git reads: the
+/// file names, and only the lines the walk looks at (a `# ` title, a line naming a supersession),
+/// in file order, which is all [`live_adrs_of`] reads.
+pub(crate) fn live_adrs_at(repo: &Path, rev: &str) -> anyhow::Result<Vec<AdrEntry>> {
+    let listed = crate::git::git_at(repo, &["ls-tree", "-z", "--name-only", rev, "docs/adr/"])?;
+    let mut names: Vec<String> = String::from_utf8_lossy(&listed.stdout)
+        .split('\0')
+        .filter_map(|p| p.strip_prefix("docs/adr/"))
+        .filter(|n| n.ends_with(".md") && !n.contains('/'))
+        .map(str::to_string)
+        .collect();
+    names.sort();
+    let grep = crate::git::git_output_at(
+        repo,
+        &["grep", "--no-line-number", "--no-column", "--no-color", "-z", "-I", "-i", "-E", "-e", "^[[:space:]]*#[[:space:]]", "-e", "supersed", rev, "--", "docs/adr/"],
+    )?;
+    // Exit 1 is "no line matched"; anything else is a failure.
+    anyhow::ensure!(grep.status.code().is_some_and(|c| c <= 1), "could not read the ADRs at {rev}");
+    let mut texts: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    let prefix = format!("{rev}:docs/adr/");
+    for line in String::from_utf8_lossy(&grep.stdout).lines() {
+        let Some((file, text)) = line.split_once('\0') else { continue };
+        if let Some(name) = file.strip_prefix(&prefix) {
+            let body = texts.entry(name.to_string()).or_default();
+            body.push_str(text);
+            body.push('\n');
+        }
+    }
+    Ok(live_adrs_of(names.into_iter().map(|name| {
+        let text = texts.remove(&name).unwrap_or_default();
+        (name, text)
+    })))
+}
+
+/// The supersession walk over ADR files given as `(file name, text)` in file-name order.
+fn live_adrs_of(files: impl Iterator<Item = (String, String)>) -> Vec<AdrEntry> {
     struct Parsed {
         name: String,
         number: Option<u32>,
@@ -482,8 +526,7 @@ pub(crate) fn live_adrs(adr_dir: &Path) -> Vec<AdrEntry> {
     }
     let mut parsed = Vec::new();
     let mut superseded_numbers = BTreeSet::new();
-    for name in names {
-        let Ok(text) = std::fs::read_to_string(adr_dir.join(&name)) else { continue };
+    for (name, text) in files {
         let number = leading_number(&name);
         let mut title = None;
         let mut marked_superseded = false;
@@ -516,13 +559,13 @@ pub(crate) fn live_adrs(adr_dir: &Path) -> Vec<AdrEntry> {
         .collect()
 }
 
-fn leading_number(name: &str) -> Option<u32> {
+pub(crate) fn leading_number(name: &str) -> Option<u32> {
     let digits: String = name.chars().take_while(char::is_ascii_digit).collect();
     digits.parse().ok()
 }
 
 /// The ADR numbers named in `text` as `ADR-NNNN` / `ADR NNNN` / `ADR-0007-slug`, in order.
-fn adr_numbers(text: &str) -> Vec<u32> {
+pub(crate) fn adr_numbers(text: &str) -> Vec<u32> {
     let mut numbers = Vec::new();
     let mut rest = text;
     while let Some(at) = rest.find("adr") {
