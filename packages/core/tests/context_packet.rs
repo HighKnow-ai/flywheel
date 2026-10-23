@@ -18,7 +18,8 @@ use core::domain::proposal::{accept_proposal, file_proposal, reject_proposal, Ne
 use core::domain::round::{answer_round_question, post_round, AdrDraft, NewQuestion, NewRound, RoundAnswer};
 use core::domain::session::{start_session, start_shaping_session, ShapingSubject};
 use core::domain::session_summary::create_summary;
-use core::domain::story::{create_story, write_story_by_hand, HandWrittenCriterion, Story};
+use core::domain::request_changes::request_changes;
+use core::domain::story::{create_story, set_story_state, write_story_by_hand, HandWrittenCriterion, Story, StoryState};
 use core::domain::task::{add_task, set_task_note, set_task_state, TaskState};
 use core::domain::worktree::ensure_worktree;
 use rusqlite::Connection;
@@ -432,6 +433,44 @@ fn the_resume_note_appears_only_when_given() {
         assert!(with.contains("Resume note: Re-run the migration first.\n"), "{with}");
         let without = build_context_packet(&f.conn, &f.story.id, "").unwrap();
         assert!(!without.contains("Resume note:"), "{without}");
+    });
+}
+
+/// The section between `## Review feedback and resume note` and the next heading.
+fn review_section(packet: &str) -> &str {
+    let start = packet.find("\n## Review feedback and resume note\n").expect("section 7");
+    let end = packet.find("\n## Session summaries\n").expect("section 8");
+    &packet[start..end]
+}
+
+/// Issue #158: after a request for changes, section 7 carries the review's comments in full, with the
+/// instruction to add one Task per review point before anything else (spec §4.3); the resume note,
+/// when given, follows them.
+#[test]
+fn a_request_for_changes_puts_its_comments_in_section_seven() {
+    with_scratch_worktree_root(|_| {
+        let mut f = fixture();
+        set_story_state(&mut f.conn, &f.actor_id, &f.story.id, StoryState::Running).unwrap();
+        set_story_state(&mut f.conn, &f.actor_id, &f.story.id, StoryState::InReview).unwrap();
+        request_changes(&mut f.conn, &f.actor_id, &f.story.id, "Name the line in each error.\nCover an empty file.").unwrap();
+
+        let packet = build_context_packet(&f.conn, &f.story.id, "Start with the empty file.").unwrap();
+        let section = review_section(&packet);
+        assert!(section.contains("The developer requested changes at review:\n\nName the line in each error.\nCover an empty file.\n"), "{section}");
+        assert!(section.contains("add one Task per review point"), "{section}");
+        assert!(section.contains("Resume note: Start with the empty file."), "{section}");
+        assert!(packet.contains("the developer requested changes: before anything else, add one Task per review point"), "{packet}");
+        assert_eq!(packet, build_context_packet(&f.conn, &f.story.id, "Start with the empty file.").unwrap(), "still deterministic");
+    });
+}
+
+#[test]
+fn a_story_never_sent_back_has_no_review_feedback() {
+    with_scratch_worktree_root(|_| {
+        let f = fixture();
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        assert!(review_section(&packet).contains("None."), "{packet}");
+        assert!(!packet.contains("requested changes at review"), "{packet}");
     });
 }
 

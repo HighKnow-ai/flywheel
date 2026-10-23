@@ -234,7 +234,7 @@ pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, option
     }
     set_story_state_in_tx(&tx, actor_id, story_id, StoryState::Merged)?;
     let overridden_json = Value::Array(overridden.clone());
-    close_review_in_tx(&tx, story_id, actor_id, "merged", (!overridden.is_empty()).then_some(&overridden_json))?;
+    close_review_in_tx(&tx, story_id, actor_id, "merged", (!overridden.is_empty()).then_some(&overridden_json), None)?;
     let mut adrs_linked = Vec::new();
     for path in new_adrs {
         if !is_linked(&tx, &story.project_id, &path)? {

@@ -131,6 +131,7 @@ const ROSTER: &[&str] = &[
     "story::story_list",
     "story::story_list_for_project",
     "story::story_move",
+    "story::story_request_changes",
     "story::story_set_state",
     "story::story_update",
     "story::story_write_by_hand",

@@ -56,6 +56,14 @@ _Avoid_: PR, code review (for the record)
 The developer's act that ends a review: Flywheel writes a merge commit on the project's local base branch, removes the worktree and the branch, links each new ADR to the Story by path, and moves the Story to Merged. It needs every criterion accepted, and a Check failed, timed out, not run or stale needs "Merge with failing Check". Flywheel never pushes (ADR 0009).
 _Avoid_: Ship, land
 
+**Request changes**:
+The developer's act that ends a review without merging: the review closes with the developer's comments, the Story moves back to Running, and a fresh session starts in the same worktree from a Context packet that carries the comments. The Task checklist is kept, and the agent adds one Task per review point before going on. A launch that fails leaves the Story Stopped, with Resume.
+_Avoid_: Reject, send back (as a name), reopen
+
+**Rebase needed**:
+What an In review Story reads when merging its branch into the base branch would conflict, with the conflicting paths. Merge refuses it; the review card offers a request for changes pre-filled with a comment naming those paths.
+_Avoid_: Merge conflict (as a state), blocked
+
 **Exit test**:
 The prose statement that tells you a Milestone or Epic is done.
 _Avoid_: Definition of done, success criteria

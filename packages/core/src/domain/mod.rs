@@ -32,6 +32,7 @@ pub mod project;
 pub mod proposal;
 pub mod proposal_apply;
 pub mod question;
+pub mod request_changes;
 pub mod review;
 pub mod review_decisions;
 pub mod roadmap_round;

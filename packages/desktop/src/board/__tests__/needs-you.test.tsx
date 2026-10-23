@@ -52,6 +52,7 @@ function item(kind: NeedsYouItemDto["kind"], id: string, extra: Partial<NeedsYou
     exitTest: null,
     milestoneTitle: null,
     round: null,
+    conflicts: [],
     ...extra,
   };
 }
@@ -194,6 +195,15 @@ describe("Needs you", () => {
     await cards();
     fireEvent.click(within(cardOf("4")).getByRole("button", { name: "Recreate the worktree of FLY-4" }));
     await waitFor(() => expect(worktreeRecreate).toHaveBeenCalledWith("s-4"));
+  });
+
+  it("labels a conflicting Review item Rebase needed, naming the paths (issue #158)", async () => {
+    needsYouList.mockResolvedValue([item("review", "5", { rank: 3, conflicts: ["README.md", "src/lib.rs"] })]);
+    await cards();
+    const card = cardOf("5");
+    expect(within(card).getByText("Rebase needed")).toBeInTheDocument();
+    expect(within(card).getByText("Merging would conflict in README.md, src/lib.rs: request a rebase from its review")).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Open review of FLY-5 Story 5" })).toBeInTheDocument();
   });
 
   it("Open review opens the Story view, never the session", async () => {

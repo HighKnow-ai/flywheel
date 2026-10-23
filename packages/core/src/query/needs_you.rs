@@ -10,7 +10,8 @@
 //! 2. **Stopped Stories**: `query::sessions::stopped_session_for_story`, leaving out a stop the developer
 //!    made (`stopped_by_developer`). A missing worktree (`query::recovery`) is a Stopped-kind item too,
 //!    whose action is Recreate, and it stands in for the Story's other Story items.
-//! 3. **Review**: Stories In review.
+//! 3. **Review**: Stories In review. One whose branch would conflict with its base branch carries the
+//!    conflicting paths (`domain::review::conflicts_for_story`) and reads **Rebase needed** (issue #158).
 //! 4. **Confirm exit test**: the core mirror of the renderer's `epicExitTestConfirmable` and
 //!    `milestoneExitTestConfirmable` (`board/ConfirmExitTest.tsx`).
 //! 5. **Shaping Round waiting**: an open Round a live session is held on (Waiting on you), or an open
@@ -131,6 +132,9 @@ pub struct NeedsYouItem {
     pub exit_test: Option<String>,
     pub milestone_title: Option<String>,
     pub round: Option<NeedsYouRound>,
+    /// A Review item whose branch would conflict with its base branch: the paths. Rebase needed when not
+    /// empty.
+    pub conflicts: Vec<String>,
 }
 
 impl NeedsYouItem {
@@ -148,6 +152,7 @@ impl NeedsYouItem {
             exit_test: None,
             milestone_title: None,
             round: None,
+            conflicts: Vec::new(),
         }
     }
 }
@@ -321,7 +326,10 @@ fn push_review(conn: &Connection, project_id: &str, missing: &[&str], items: &mu
         })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the Stories In review")?;
-    items.extend(rows.into_iter().filter(|item| !missing.contains(&item.id.as_str())));
+    for mut item in rows.into_iter().filter(|item| !missing.contains(&item.id.as_str())) {
+        item.conflicts = crate::domain::review::conflicts_for_story(conn, &item.id)?;
+        items.push(item);
+    }
     Ok(())
 }
 

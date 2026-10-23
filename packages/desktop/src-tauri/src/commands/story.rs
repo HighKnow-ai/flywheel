@@ -1,6 +1,6 @@
 //! `story_create` / `story_list` / `story_get` / `story_update` / `story_set_state` / `story_move`, plus
-//! `story_write_by_hand` and `story_list_for_project` for the hand-written Story form — the Story
-//! command surface. A Story sits in one Epic and is the unit an agent executes in its own worktree
+//! `story_write_by_hand` and `story_list_for_project` for the hand-written Story form, and
+//! `story_request_changes` from the review card — the Story command surface. A Story sits in one Epic and is the unit an agent executes in its own worktree
 //! (`domain::story`). Every handler stamps the local human actor server-side (T-01-04), so every
 //! transition reached from here is the developer's act; the hand-off is the session's, never an IPC
 //! command's.
@@ -9,7 +9,10 @@ use flywheel_core::domain::story::HandWrittenCriterion;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
+use flywheel_core::domain::session_kind::SessionKind;
+
 use super::criterion::MAX_CHECK_COMMAND_LEN;
+use super::session::{prepare_launch, spawn_prepared_run, PreparedLaunch, StartRunOutcome};
 use super::{emit_board_changed, validate_text, MAX_PROSE_LEN, MAX_TITLE_LEN};
 use crate::state::AppState;
 
@@ -117,6 +120,7 @@ pub fn story_set_state(state: State<AppState>, app: AppHandle, story_id: String,
     let to = flywheel_core::domain::story::StoryState::parse(&to).map_err(|e| e.to_string())?;
     refuse_bare_drop(to)?;
     refuse_bare_merge(to)?;
+    refuse_bare_running(to)?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::story::set_story_state(&mut conn, &actor_id, &story_id, to).map_err(|e| e.to_string())?;
@@ -143,6 +147,86 @@ fn refuse_bare_merge(to: flywheel_core::domain::story::StoryState) -> Result<(),
         return Err("merge a Story with story_merge, which writes the merge commit on its base branch".to_string());
     }
     Ok(())
+}
+
+/// Running is reached only with a session: Start (`session::story_start`) from Ready, and
+/// [`story_request_changes`] from In review. A bare state write would leave a Running Story with no
+/// session, which reads Stopped.
+fn refuse_bare_running(to: flywheel_core::domain::story::StoryState) -> Result<(), String> {
+    if to == flywheel_core::domain::story::StoryState::Running {
+        return Err("start a Story with story_start, or send it back with story_request_changes; both launch its session"
+            .to_string());
+    }
+    Ok(())
+}
+
+/// The developer's Request changes on the review card (docs/mvp-spec.md §2 "In review → Running", §8,
+/// issue #158): the comments close the open review, the Story moves to Running, and a fresh session
+/// starts in its worktree from a Context packet that carries them. A launch that fails leaves the Story
+/// Stopped, with Resume; the board is told either way.
+#[tauri::command]
+pub fn story_request_changes(
+    state: State<AppState>,
+    app: AppHandle,
+    story_id: String,
+    comments: String,
+) -> Result<super::session::SessionDto, String> {
+    validate_text("comments", &comments, MAX_PROSE_LEN)?;
+    let result = request_changes_and_launch(
+        &state.db,
+        &story_id,
+        &comments,
+        flywheel_core::login_path::claude_bin,
+        crate::sidecar::merge_shim_env_for_run,
+        |repo_path, request| super::session::send_gated_spawn(&state, repo_path, request),
+    );
+    let project_id = super::project_of_locked(&state.db, "stories", &story_id);
+    emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
+    let outcome = result?;
+    Ok(super::session::SessionDto {
+        id: outcome.run_id,
+        story_id,
+        status: "running".to_string(),
+        permission_mode: SessionKind::Story.launch_policy().permission_mode.to_string(),
+    })
+}
+
+/// [`story_request_changes`]'s body, driven without a Tauri app handle. The In review check, the move
+/// and the launch's database half share one lock, so nothing reads the Story between its move to
+/// Running and its new session's row: it never reads Stopped on the way. The comments are on the
+/// board before the packet is built, which is how section 7 carries them.
+///
+/// Nothing is written when the Story is not In review or `claude` is missing (issue #88): the Story
+/// stays In review. Once it moved, a launch that fails (the credential, the session row, the shim or
+/// the spawn) leaves it Running with no live session, which is Stopped: Resume starts the session
+/// later, from a packet that still carries the comments.
+pub(crate) fn request_changes_and_launch(
+    db: &std::sync::Mutex<rusqlite::Connection>,
+    story_id: &str,
+    comments: &str,
+    find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
+    merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
+    send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
+) -> Result<StartRunOutcome, String> {
+    let mut conn = db.lock().map_err(|e| e.to_string())?;
+    let current = flywheel_core::domain::story::get_story(&conn, story_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Story {story_id:?} not found"))?
+        .state;
+    if current != flywheel_core::domain::story::StoryState::InReview.as_str() {
+        return Err(format!("Request changes needs a Story In review; this one is {}", current.replace('_', " ")));
+    }
+    find_claude()?;
+    let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::request_changes::request_changes(&mut conn, &human, story_id, comments)
+        .map_err(|e| format!("{e:#}"))?;
+
+    let stopped = |why: String| format!("The Story is back in Running, but its session did not start ({why}). Resume it.");
+    let PreparedLaunch { outcome, repo_path, env } =
+        prepare_launch(&mut conn, story_id, SessionKind::Story, "").map_err(stopped)?;
+    spawn_prepared_run(db, conn, &outcome, env, SessionKind::Story, merge_shim, |request| send(&repo_path, request))
+        .map_err(stopped)?;
+    Ok(outcome)
 }
 
 /// The developer's Drop (docs/mvp-spec.md §2): the Story moves to Dropped and its worktree and
@@ -263,6 +347,125 @@ mod tests {
         use flywheel_core::domain::story::StoryState;
         assert!(refuse_bare_merge(StoryState::Merged).unwrap_err().contains("story_merge"));
         assert!(refuse_bare_merge(StoryState::Running).is_ok());
+    }
+
+    #[test]
+    fn a_bare_state_write_cannot_move_a_story_to_running() {
+        use flywheel_core::domain::story::StoryState;
+        let err = refuse_bare_running(StoryState::Running).unwrap_err();
+        assert!(err.contains("story_start") && err.contains("story_request_changes"), "{err}");
+        assert!(refuse_bare_running(StoryState::InReview).is_ok());
+    }
+
+    // --- Request changes (issue #158): In review → Running with a fresh session -----------------
+
+    use crate::commands::session::tests::{found_claude, seeded_git_conn_with_story, story_state, with_scratch_dirs};
+    use rusqlite::Connection;
+
+    /// An In review Story: started, one Task done, handed off, its session ended.
+    fn in_review_story() -> (std::sync::Mutex<Connection>, String, String, tempfile::TempDir) {
+        let (mut conn, human, _project, story, repo) = seeded_git_conn_with_story();
+        flywheel_core::domain::story::set_story_state(&mut conn, &human, &story, flywheel_core::domain::story::StoryState::Ready)
+            .unwrap();
+        let db = std::sync::Mutex::new(conn);
+        let first = crate::commands::session::start_ready_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, _| Ok(()))
+            .unwrap();
+        let mut conn = db.lock().unwrap();
+        let agent = flywheel_core::domain::session::agent_actor_id(&conn).unwrap();
+        let task = flywheel_core::domain::task::add_task(&mut conn, &agent, &story, "Write the parser").unwrap();
+        flywheel_core::domain::task::set_task_state(&mut conn, &agent, &task.id, flywheel_core::domain::task::TaskState::Done, None)
+            .unwrap();
+        flywheel_core::domain::handoff::hand_off(&mut conn, &first.run_id, "Parser done.", "").unwrap();
+        flywheel_core::domain::session::close_session(
+            &mut conn,
+            &first.run_id,
+            flywheel_core::domain::session::SessionStatus::Completed,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        drop(conn);
+        (db, story, first.worktree_path, repo)
+    }
+
+    fn live_sessions(conn: &Connection, story_id: &str) -> i64 {
+        conn.query_row(
+            "SELECT COUNT(*) FROM sessions WHERE story_id = ?1 AND status IN ('running', 'blocked')",
+            rusqlite::params![story_id],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn request_changes_starts_one_session_in_the_same_worktree_whose_packet_carries_the_comments() {
+        with_scratch_dirs(|| {
+            let (db, story, worktree_path, _repo) = in_review_story();
+            let mut sent = None;
+            let outcome = request_changes_and_launch(&db, &story, "Name the line in each error.", found_claude, |_, _| Ok(()), |_, request| {
+                sent = Some(request.clone());
+                Ok(())
+            })
+            .expect("an In review Story goes back to Running");
+
+            let conn = db.lock().unwrap();
+            assert_eq!(story_state(&conn, &story), "running");
+            assert_eq!(live_sessions(&conn, &story), 1, "one session");
+            assert_eq!(outcome.worktree_path, worktree_path, "in the same worktree");
+            let sent = sent.expect("one spawn request");
+            assert_eq!(sent["worktreePath"], serde_json::Value::String(worktree_path));
+            let prompt = sent["prompt"].as_str().unwrap();
+            assert!(prompt.contains("The developer requested changes at review:\n\nName the line in each error."), "{prompt}");
+            assert!(prompt.contains("- [done] Write the parser"), "the checklist is kept: {prompt}");
+            assert!(flywheel_core::query::sessions::stopped_session_for_story(&conn, &story).unwrap().is_none());
+        });
+    }
+
+    #[test]
+    fn a_failed_launch_leaves_the_story_stopped_with_resume() {
+        with_scratch_dirs(|| {
+            let (db, story, _worktree, _repo) = in_review_story();
+            let err = request_changes_and_launch(&db, &story, "Cover an empty file.", found_claude, |_, _| Ok(()), |_, _| {
+                Err("spawn boom".to_string())
+            })
+            .expect_err("the spawn fails");
+            assert!(err.contains("spawn boom") && err.contains("Resume"), "{err}");
+
+            {
+                let conn = db.lock().unwrap();
+                assert_eq!(story_state(&conn, &story), "running");
+                assert_eq!(live_sessions(&conn, &story), 0);
+                assert!(flywheel_core::query::sessions::stopped_session_for_story(&conn, &story).unwrap().is_some(), "Stopped");
+            }
+            let mut sent = None;
+            crate::commands::session::resume_stopped_story(&db, &story, "", found_claude, |_, _| Ok(()), |_, request| {
+                sent = Some(request.clone());
+                Ok(())
+            })
+            .expect("Resume starts the session");
+            assert!(sent.unwrap()["prompt"].as_str().unwrap().contains("Cover an empty file."), "Resume's packet still carries the comments");
+        });
+    }
+
+    #[test]
+    fn request_changes_without_claude_or_on_a_story_not_in_review_writes_nothing() {
+        with_scratch_dirs(|| {
+            let (db, story, _worktree, _repo) = in_review_story();
+            let err = request_changes_and_launch(&db, &story, "Cover it.", || Err("no claude on PATH".to_string()), |_, _| {
+                panic!("no shim")
+            }, |_, _| panic!("nothing may be spawned"))
+            .expect_err("refused without claude");
+            assert!(err.contains("no claude"), "{err}");
+            assert_eq!(story_state(&db.lock().unwrap(), &story), "in_review", "the Story stays In review");
+
+            request_changes_and_launch(&db, &story, "Cover it.", found_claude, |_, _| Ok(()), |_, _| Ok(())).unwrap();
+            let err = request_changes_and_launch(&db, &story, "Again.", found_claude, |_, _| panic!("no shim"), |_, _| {
+                panic!("nothing may be spawned")
+            })
+            .expect_err("a Running Story is not In review");
+            assert!(err.contains("In review"), "{err}");
+        });
     }
 
     #[test]

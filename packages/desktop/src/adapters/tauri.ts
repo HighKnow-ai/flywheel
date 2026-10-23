@@ -1044,6 +1044,10 @@ export interface StoryReviewDto {
   uncommitted: string[];
   /** The Decisions section: `docs/adr/` changes by path, then `GLOSSARY.md` (issue #161). */
   decisions: DecisionChangeDto[];
+  /** Rebase needed (issue #158): the paths a merge into the base branch would conflict in; empty when it merges cleanly. */
+  conflicts: string[];
+  /** The request for changes Rebase needed pre-fills, naming the base branch and those paths. */
+  rebaseComment: string | null;
 }
 
 /** What a Merge did — mirrors `commands/review.rs`'s `MergeDto`. */
@@ -1071,6 +1075,16 @@ export async function storyReview(storyId: string): Promise<StoryReviewDto> {
  */
 export async function storyMerge(storyId: string, withFailingChecks: boolean): Promise<MergeDto> {
   return invokeCommand<MergeDto>("story_merge", { storyId, withFailingChecks });
+}
+
+/**
+ * The developer's Request changes on an In review Story (issue #158): the comments close its review, the
+ * Story moves to Running, and a fresh session starts in its worktree from a Context packet that carries
+ * them. Refused, in words meant for the developer, for blank comments, a Story not In review, or a live
+ * session. When the move lands but the launch fails, the Story reads Stopped, with Resume.
+ */
+export async function storyRequestChanges(storyId: string, comments: string): Promise<SessionDto> {
+  return invokeCommand<SessionDto>("story_request_changes", { storyId, comments });
 }
 
 /** The developer's Move to Epic (issue #168): the Story lands at the end of `epicId`, an open Epic of its
@@ -1531,6 +1545,8 @@ export interface NeedsYouItemDto {
     answered: number;
     questions: number;
   } | null;
+  /** A Review item's Rebase needed (issue #158): the paths a merge into the base branch would conflict in. */
+  conflicts: string[];
 }
 
 export async function needsYouList(projectId: string): Promise<NeedsYouItemDto[]> {

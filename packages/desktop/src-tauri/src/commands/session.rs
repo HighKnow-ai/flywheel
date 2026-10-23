@@ -1981,7 +1981,7 @@ pub fn orphan_kill(
 pub(crate) mod scratch_root;
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn sample_live_orphan(run_id: &str) -> flywheel_core::domain::session::LiveOrphan {
@@ -2805,7 +2805,7 @@ mod tests {
     /// The shared scratch worktree root (`super::scratch_root`, which holds the process-wide lock),
     /// plus a scratch runtime dir set and cleared inside that same lock, so nothing a launch writes
     /// under `runtime_dir()` lands in the developer's real `<app-data>/runtime/`.
-    fn with_scratch_dirs<T>(f: impl FnOnce() -> T) -> T {
+    pub(crate) fn with_scratch_dirs<T>(f: impl FnOnce() -> T) -> T {
         super::scratch_root::with_scratch_worktree_root(|_| {
             let runtime_dir = tempfile::tempdir().expect("failed to create scratch runtime dir");
             // SAFETY: the shared helper's lock serializes every caller in this binary, so no other
@@ -2824,7 +2824,7 @@ mod tests {
     /// creates a real worktree (`ensure_worktree`) and therefore needs a real repository to clone
     /// from. Returns the connection, the human actor id, the project id, the Story id, and the
     /// repository's own `TempDir` (kept alive by the caller for the test's duration).
-    fn seeded_git_conn_with_story() -> (Connection, String, String, String, tempfile::TempDir) {
+    pub(crate) fn seeded_git_conn_with_story() -> (Connection, String, String, String, tempfile::TempDir) {
         let repo_dir = tempfile::tempdir().expect("failed to create scratch repo dir");
         let repo_path = repo_dir.path();
 
@@ -2977,7 +2977,7 @@ mod tests {
 
     // --- story_start (issue #50): Ready → Running, with a worktree, a branch and a session ---------
 
-    fn story_state(conn: &Connection, story_id: &str) -> String {
+    pub(crate) fn story_state(conn: &Connection, story_id: &str) -> String {
         conn.query_row("SELECT state FROM stories WHERE id = ?1", rusqlite::params![story_id], |r| r.get(0)).unwrap()
     }
 
@@ -3058,7 +3058,7 @@ mod tests {
         });
     }
 
-    fn found_claude() -> Result<std::path::PathBuf, String> {
+    pub(crate) fn found_claude() -> Result<std::path::PathBuf, String> {
         Ok(std::path::PathBuf::from("/opt/stub/claude"))
     }
 

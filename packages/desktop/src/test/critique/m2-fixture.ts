@@ -719,7 +719,7 @@ const NEEDS_YOU_RANK: Record<string, number> = {
 function needsYouItem(kind: NeedsYouItemDto["kind"], id: string, since: string, record: NeedsYouItemDto["record"], extra: Partial<NeedsYouItemDto> = {}): NeedsYouItemDto {
   return {
     kind, rank: NEEDS_YOU_RANK[kind], id, since, record, sessionId: null, request: null, endingReason: null,
-    missingWorktree: false, doingTaskTitle: null, exitTest: null, milestoneTitle: null, round: null, ...extra,
+    missingWorktree: false, doingTaskTitle: null, exitTest: null, milestoneTitle: null, round: null, conflicts: [], ...extra,
   };
 }
 
@@ -742,7 +742,7 @@ function needsYouOf(projectId: string): NeedsYouItemDto[] {
     items.push(needsYouItem("stopped", "s-7", ago(4200), storyRecord("s-7"), {
       sessionId: "ses-7b", endingReason: "usage_limit", doingTaskTitle: "Restyle the board's Story rows",
     }));
-    items.push(needsYouItem("review", "s-3", ago(3600), storyRecord("s-3")));
+    items.push(needsYouItem("review", "s-3", ago(3600), storyRecord("s-3"), { conflicts: reviewConflicts() }));
     if (needsYouExtras) {
       items.push(needsYouItem("stopped", "s-6", ago(5000), storyRecord("s-6"), { missingWorktree: true }));
       items.push(needsYouItem("confirm_exit_test", "e-60", ago(9000),
@@ -783,10 +783,11 @@ function window_(entries: Record<string, unknown>[], offset: number, limit: numb
  * not accepted yet, one accepted. `override`: every criterion accepted, the Check still failing. `ready`:
  * every criterion accepted and every Check passed. `decisions` (issue #161): `ready`, with the branch's ADR
  * and glossary changes: a new ADR with its hand-off bar lines and a related live ADR, one accepted in shaping,
- * one without bar lines, an edited ADR and the glossary.
+ * one without bar lines, an edited ADR and the glossary. `rebase` (issue #158): `ready`, but the branch
+ * conflicts with main in two files, so it reads Rebase needed.
  */
-let reviewMode: "judging" | "override" | "ready" | "decisions" = "judging";
-export function setReviewInFixture(mode: "judging" | "override" | "ready" | "decisions"): void {
+let reviewMode: "judging" | "override" | "ready" | "decisions" | "rebase" = "judging";
+export function setReviewInFixture(mode: "judging" | "override" | "ready" | "decisions" | "rebase"): void {
   reviewMode = mode;
 }
 
@@ -832,6 +833,11 @@ const REVIEW_DECISIONS: DecisionChangeDto[] = [
   { kind: "glossary", path: "GLOSSARY.md", oldPath: null, status: "M", added: 6, removed: 0, newAdr: null },
 ];
 
+/** `rebase`: the two files FLY-3's branch conflicts with main in. */
+function reviewConflicts(): string[] {
+  return reviewMode === "rebase" ? ["DESIGN.md", "packages/desktop/src/theme/tokens.css"] : [];
+}
+
 function reviewCheck(id: string, criterionId: string, command: string, result: string, outputTail: string | null = null): ReviewCheckDto {
   return { checkId: id, criterionId, command, result, stale: false, commitSha: "9f3c2ab", outputTail };
 }
@@ -852,7 +858,8 @@ const CONTRAST_TAIL = [
 ].join("\n");
 
 function reviewOf(storyId: string): StoryReviewDto {
-  const ready = reviewMode === "ready" || reviewMode === "decisions";
+  const ready = reviewMode === "ready" || reviewMode === "decisions" || reviewMode === "rebase";
+  const conflicts = reviewConflicts();
   const accepted = reviewMode !== "judging";
   const renders = reviewCheck("k-3a", "c-3a", "test -f docs/design/directions/andon.html", "passed");
   const contrast = ready
@@ -883,6 +890,10 @@ function reviewOf(storyId: string): StoryReviewDto {
     liveSession: false,
     uncommitted: [],
     decisions: reviewMode === "decisions" ? REVIEW_DECISIONS : [],
+    conflicts,
+    rebaseComment: conflicts.length
+      ? `Rebase needed: merging into main would conflict in ${conflicts.join(", ")}. Rebase this branch on main, resolve those conflicts, and re-run the Checks before handing off.`
+      : null,
   };
 }
 

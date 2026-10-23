@@ -31,6 +31,7 @@ use crate::domain::acceptance_criterion::criteria_for_story;
 use crate::domain::check::{check_for_criterion, current_result, CheckResult};
 use crate::domain::epic::get_epic;
 use crate::domain::milestone::get_milestone;
+use crate::domain::review::latest_review;
 use crate::domain::session_summary::list_summaries_for_story;
 use crate::domain::story::{get_story, stories_in_epic};
 use crate::domain::task::tasks_for_story;
@@ -80,6 +81,8 @@ wrong, say so in your hand-off.
 code and docs the Story touches, then write it as your plan. Do not add a Task to survey or explore \
 the repo. At most one Task is doing at a time. Drop a Task with a one-line reason \
 rather than deleting it.
+- If section 7 below carries review feedback, the developer requested changes: before anything else, add \
+one Task per review point to the checklist, keeping the Tasks already there, then work them.
 - Keep the doing Task's note current through `task_update`: whenever you learn something the next \
 session would otherwise have to find again (findings, file paths, decisions, what is left), write it \
 there at once, and always when you finish or leave a Task. Each write replaces the whole note, and it \
@@ -285,11 +288,20 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
 
     // 7. Review feedback and the resume note
     section(&mut out, "Review feedback and resume note");
+    let feedback = changes_requested(conn, story_id)?;
     let note = resume_note.trim();
-    if note.is_empty() {
-        out.push_str("None.\n");
-    } else {
-        writeln!(out, "Resume note: {note}")?;
+    if let Some(comments) = &feedback {
+        writeln!(out, "The developer requested changes at review:\n\n{comments}\n")?;
+        out.push_str(
+            "Before anything else, add one Task per review point to the checklist above, keeping the Tasks \
+             already there, then work them.\n",
+        );
+    }
+    match (feedback.is_some(), note.is_empty()) {
+        (false, true) => out.push_str("None.\n"),
+        (true, true) => {}
+        (true, false) => writeln!(out, "\nResume note: {note}")?,
+        (false, false) => writeln!(out, "Resume note: {note}")?,
     }
 
     // 8. Session summaries
@@ -323,6 +335,14 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
     section(&mut out, "Closing instruction");
     out.push_str(CLOSING_INSTRUCTION);
     Ok(out)
+}
+
+/// The comments of the developer's latest request for changes, while it is the Story's latest review:
+/// once the next hand-off opens a review, they have been answered.
+fn changes_requested(conn: &Connection, story_id: &str) -> anyhow::Result<Option<String>> {
+    Ok(latest_review(conn, story_id)?
+        .filter(|r| r.outcome.as_deref() == Some("changes_requested"))
+        .and_then(|r| non_blank(&r.comments).map(str::to_string)))
 }
 
 pub(crate) fn section(out: &mut String, heading: &str) {
