@@ -516,7 +516,8 @@ fn the_next_packet_names_the_proposals_decided_since_the_last_session() {
         assert!(review_section(&during).contains("- New Story \"Recovery\": accepted"), "the session just started still hears them");
         close_session(&mut f.conn, &second.id, SessionStatus::Completed, None, None, None).unwrap();
         let later = build_context_packet(&f.conn, &f.story.id, "").unwrap();
-        assert!(!later.contains("decided since your last session"), "{later}");
+        assert!(!review_section(&later).contains("Your Proposals decided"), "{later}");
+        assert!(later.contains("Section 7 names your Proposals decided since your last session"), "the agent is told where to look");
         assert!(review_section(&later).contains("None."), "{later}");
     });
 }
