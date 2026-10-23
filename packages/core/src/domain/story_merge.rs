@@ -12,7 +12,9 @@
 //! --no-ff` runs there (aborted on failure); checked out but dirty, Merge refuses and says so;
 //! otherwise the same two-parent commit is built with plumbing and the branch moved by
 //! compare-and-swap. Then the worktree is removed and the branch deleted once it is contained in
-//! the base branch, and one board transaction moves the Story to Merged and closes its review.
+//! the base branch, and one board transaction moves the Story to Merged, closes its review and links
+//! each ADR the branch adds to the Story by path (issue #161). An ADR accepted in shaping keeps its
+//! Epic Proposal and gets no second link, and an ADR some record already links is left as it is.
 //!
 //! Once the commit is on the base branch the Story is Merged, whatever happens next: a worktree or
 //! branch that could not be removed is reported in [`MergeOutcome::cleanup_warning`] and left for
@@ -26,6 +28,8 @@ use rusqlite::{params, Connection};
 use serde_json::Value;
 
 use crate::domain::actor::assert_human_actor;
+use crate::domain::adr_link::{is_linked, link_adr_in_tx, AdrLinkTarget};
+use crate::domain::review_decisions::{accepted_epic_adrs, new_adr_paths};
 use crate::domain::review::{close_review_in_tx, open_review_in_tx, read_review_diff, review_for_story, StoryReview};
 use crate::domain::story::{get_story, set_story_state_in_tx, StoryState};
 use crate::domain::worktree::{record_worktree_removed_in_tx, worktree_for_story, Worktree};
@@ -70,6 +74,8 @@ pub struct MergeOutcome {
     pub failing_checks_overridden: Vec<Value>,
     /// The worktree or branch the Merge could not remove after the commit landed.
     pub cleanup_warning: Option<String>,
+    /// The new ADRs Merge linked to the Story, by path.
+    pub adrs_linked: Vec<String>,
 }
 
 /// A Merge refused before anything was written, with a reason meant for the developer. Its text
@@ -183,6 +189,11 @@ pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, option
     // A Story handed off before reviews existed has no open review: open it now, so the decision has
     // a row to land on.
     let diff = if review.review.is_none() { Some(read_review_diff(worktree_path, &base, &head)?) } else { None };
+    // The ADRs the branch adds, read now: the worktree is gone after the git step. One accepted in
+    // shaping keeps its Epic Proposal.
+    let shaped: Vec<String> = accepted_epic_adrs(conn, &story.epic_id)?.into_iter().map(|(_, d)| d.path).collect();
+    let new_adrs: Vec<String> =
+        new_adr_paths(&git::review_files(repo, &base_tip, &head)?).into_iter().filter(|p| !shaped.contains(p)).collect();
 
     // The git step. Everything above wrote nothing.
     let message = format!("Merge {}: {}\n\nMerged in Flywheel from {}.", story.key, story.title, worktree.branch);
@@ -216,7 +227,7 @@ pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, option
     let now = now();
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     if let Some(diff) = &diff {
-        open_review_in_tx(&tx, &story.project_id, story_id, None, diff)?;
+        open_review_in_tx(&tx, &story.project_id, story_id, None, diff, &Value::Array(Vec::new()))?;
     }
     if removed {
         record_worktree_removed_in_tx(&tx, &worktree, story_id, &story.key, actor_id, &now)?;
@@ -224,6 +235,13 @@ pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, option
     set_story_state_in_tx(&tx, actor_id, story_id, StoryState::Merged)?;
     let overridden_json = Value::Array(overridden.clone());
     close_review_in_tx(&tx, story_id, actor_id, "merged", (!overridden.is_empty()).then_some(&overridden_json))?;
+    let mut adrs_linked = Vec::new();
+    for path in new_adrs {
+        if !is_linked(&tx, &story.project_id, &path)? {
+            link_adr_in_tx(&tx, actor_id, &story.project_id, &path, &AdrLinkTarget::Story(story_id.to_string()), &now)?;
+            adrs_linked.push(path);
+        }
+    }
     let label = if overridden.is_empty() {
         format!("Merged {} into {base}", story.key)
     } else {
@@ -244,6 +262,7 @@ pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, option
             "method": method.as_str(),
             "failing_checks_overridden": overridden_json,
             "cleanup_warning": cleanup_warning,
+            "adrs_linked": adrs_linked,
             "label": label,
         }),
         &now,
@@ -257,5 +276,6 @@ pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, option
         method,
         failing_checks_overridden: overridden,
         cleanup_warning,
+        adrs_linked,
     })
 }

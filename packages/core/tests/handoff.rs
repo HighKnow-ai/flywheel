@@ -16,7 +16,8 @@ use std::time::{Duration, Instant};
 use common::with_scratch_worktree_root;
 use core::domain::acceptance_criterion::create_criterion;
 use core::domain::check::{branch_head, current_result, remove_check, set_check, Check, CheckResult};
-use core::domain::handoff::{hand_off, plan_feedback_run, run_checks, HandoffToolCall};
+use core::domain::handoff::{hand_off, hand_off_with, plan_feedback_run, run_checks, HandoffSummary, HandoffToolCall};
+use core::domain::proposal_apply::AdrBarLines;
 use core::domain::review::{open_review, reviews_for_story};
 use core::domain::session::{agent_actor_id, close_session, start_session, Session, SessionStatus};
 use core::domain::session_summary::list_summaries_for_story;
@@ -255,7 +256,11 @@ fn the_hand_off_needs_a_current_checklist_a_summary_and_a_live_session() {
         }
         assert_eq!(
             HandoffToolCall::parse("handoff", &json!({ "next_session_must_know": " Know this. ", "decisions": "" })).unwrap(),
-            HandoffToolCall::Handoff { next_session_must_know: "Know this.".into(), decisions: String::new() }
+            HandoffToolCall::Handoff(HandoffSummary {
+                next_session_must_know: "Know this.".into(),
+                decisions: String::new(),
+                adrs: Vec::new(),
+            })
         );
 
         // A Task still doing: the checklist is not current.
@@ -286,5 +291,72 @@ fn a_hand_off_without_a_checklist_is_refused() {
         let session = start_session(&mut conn, &story.id, "acceptEdits", &human).unwrap();
         let err = hand_off(&mut conn, &session.id, "Done.", "").unwrap_err();
         assert!(err.to_string().contains("task_add"), "{err}");
+    });
+}
+
+/// Issue #161, ADR 0010: the hand-off carries each ADR's bar lines, checked as an ADR draft's are
+/// (without its text), and they are stored on the review, never read out of the file.
+fn bar_lines(path: &str) -> serde_json::Value {
+    json!({
+        "path": path,
+        "hard_to_reverse": " Every review reads it ",
+        "surprising": "Bar lines usually live in the file",
+        "losing_alternative": "Parsing the ADR file",
+        "relates_to": "ADR-0002",
+    })
+}
+
+#[test]
+fn the_hand_off_takes_each_adrs_bar_lines_and_refuses_one_without_them() {
+    let summary = |adrs: serde_json::Value| json!({ "next_session_must_know": "Done.", "decisions": "", "adrs": adrs });
+
+    let parsed = HandoffToolCall::parse("handoff", &summary(json!([bar_lines("docs/adr/0010-reviews.md")]))).unwrap();
+    let HandoffToolCall::Handoff(parsed) = parsed else { panic!("a hand-off") };
+    assert_eq!(
+        parsed.adrs,
+        vec![AdrBarLines {
+            path: "docs/adr/0010-reviews.md".into(),
+            hard_to_reverse: "Every review reads it".into(),
+            surprising: "Bar lines usually live in the file".into(),
+            losing_alternative: "Parsing the ADR file".into(),
+            relates_to: Some("ADR-0002".into()),
+        }],
+        "each line trimmed"
+    );
+
+    let mut none = bar_lines("docs/adr/0011-x.md");
+    none["relates_to"] = json!("none");
+    let HandoffToolCall::Handoff(parsed) = HandoffToolCall::parse("handoff", &summary(json!([none]))).unwrap() else { panic!() };
+    assert_eq!(parsed.adrs[0].relates_to, None, "\"none\" relates to nothing");
+
+    let without_adrs = HandoffToolCall::parse("handoff", &json!({ "next_session_must_know": "Done.", "decisions": "" })).unwrap();
+    assert_eq!(without_adrs, HandoffToolCall::Handoff(HandoffSummary { next_session_must_know: "Done.".into(), decisions: String::new(), adrs: vec![] }));
+
+    let mut missing = bar_lines("docs/adr/0010-reviews.md");
+    missing.as_object_mut().unwrap().remove("surprising");
+    let err = HandoffToolCall::parse("handoff", &summary(json!([missing]))).unwrap_err().to_string();
+    assert!(err.contains("adrs[0].`surprising` is missing"), "{err}");
+
+    let err = HandoffToolCall::parse("handoff", &summary(json!([bar_lines("README.md")]))).unwrap_err().to_string();
+    assert!(err.contains("not an ADR file"), "{err}");
+
+    let twice = json!([bar_lines("docs/adr/0010-reviews.md"), bar_lines("docs/adr/0010-reviews.md")]);
+    let err = HandoffToolCall::parse("handoff", &summary(twice)).unwrap_err().to_string();
+    assert!(err.contains("twice"), "{err}");
+
+    let err = HandoffToolCall::parse("handoff", &summary(json!("docs/adr/0010-reviews.md"))).unwrap_err().to_string();
+    assert!(err.contains("`adrs`"), "{err}");
+}
+
+#[test]
+fn a_hand_off_stores_the_adr_bar_lines_on_the_review_it_opens() {
+    with_scratch_worktree_root(|_| {
+        let mut f = running_story(&[("true", None)]);
+        let lines = AdrBarLines::from_payload(&bar_lines("docs/adr/0010-reviews.md")).unwrap();
+        let summary = HandoffSummary { next_session_must_know: "Done.".into(), decisions: String::new(), adrs: vec![lines.clone()] };
+        hand_off_with(&mut f.conn, &f.session.id, &summary).unwrap();
+
+        let review = open_review(&f.conn, &f.story.id).unwrap().expect("the hand-off opened a review");
+        assert_eq!(review.adr_notes, json!([lines.to_payload()]));
     });
 }

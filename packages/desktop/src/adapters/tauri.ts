@@ -940,6 +940,46 @@ export interface ReviewDto {
   adrNotes: unknown[];
 }
 
+/** An ADR's four bar lines (docs/mvp-spec.md §6) — mirrors `commands/review.rs`'s `AdrBarLinesDto`. */
+export interface AdrBarLinesDto {
+  hardToReverse: string;
+  surprising: string;
+  losingAlternative: string;
+  relatesTo: string | null;
+}
+
+/** A live ADR on the base branch a new ADR relates to — mirrors `RelatedAdrDto`. */
+export interface RelatedAdrDto {
+  path: string;
+  title: string;
+}
+
+/** A new ADR's card in the Decisions section — mirrors `commands/review.rs`'s `NewAdrDto`. */
+export interface NewAdrDto {
+  title: string;
+  /** `null`: no bar lines, from the hand-off or from shaping. */
+  barLines: AdrBarLinesDto | null;
+  /** `handoff` or `shaping`; `null` with no bar lines. */
+  barLinesFrom: string | null;
+  related: RelatedAdrDto[];
+  /** The ADR Proposal accepted on the Epic in shaping at this path. */
+  proposalId: string | null;
+}
+
+/** One `docs/adr/` or `GLOSSARY.md` change — mirrors `commands/review.rs`'s `DecisionChangeDto`. */
+export interface DecisionChangeDto {
+  /** `adr` or `glossary`. */
+  kind: string;
+  path: string;
+  oldPath: string | null;
+  /** git's status letter: `A`, `M`, `D`, `R`, `C` or `T`. */
+  status: string;
+  added: number | null;
+  removed: number | null;
+  /** Set for an ADR the branch adds. */
+  newAdr: NewAdrDto | null;
+}
+
 /** The review card's read model — mirrors `commands/review.rs`'s `StoryReviewDto`. */
 export interface StoryReviewDto {
   storyId: string;
@@ -955,6 +995,8 @@ export interface StoryReviewDto {
   liveSession: boolean;
   /** Uncommitted paths in the Story's worktree. */
   uncommitted: string[];
+  /** The Decisions section: `docs/adr/` changes by path, then `GLOSSARY.md` (issue #161). */
+  decisions: DecisionChangeDto[];
 }
 
 /** What a Merge did — mirrors `commands/review.rs`'s `MergeDto`. */
@@ -966,6 +1008,8 @@ export interface MergeDto {
   failingChecksOverridden: number;
   /** The worktree or branch Merge could not remove after the commit landed. */
   cleanupWarning: string | null;
+  /** The new ADRs Merge linked to the Story, by path. */
+  adrsLinked: string[];
 }
 
 /** The review card of one Story. Read-only. */

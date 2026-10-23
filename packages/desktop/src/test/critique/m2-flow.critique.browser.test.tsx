@@ -828,6 +828,29 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await shot("73-review-card-ready");
   });
 
+  it("85 review card: the Decisions section, each new ADR with its bar lines, related ADRs and Keep (issue #161)", async () => {
+    setReviewInFixture("decisions");
+    await boardReady();
+    await click("Open review of FLY-3");
+    const section = await screen.findByRole("region", { name: "Decisions, 5 changes" });
+    section.scrollIntoView({ block: "start" });
+    await shot("85-review-card-decisions");
+  });
+
+  it("86 review card: the Decisions section at the window's minimum width (issue #161)", async () => {
+    setReviewInFixture("decisions");
+    await page.viewport(900, 900);
+    try {
+      await boardReady();
+      await click("Open review of FLY-3");
+      const section = await screen.findByRole("region", { name: "Decisions, 5 changes" });
+      section.scrollIntoView({ block: "start" });
+      await shot("86-review-card-decisions-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
   it("74 board: an In review Story's row offers Open review (issue #155)", async () => {
     await boardReady();
     (await screen.findByRole("button", { name: "Open review of FLY-3" })).scrollIntoView({ block: "center" });

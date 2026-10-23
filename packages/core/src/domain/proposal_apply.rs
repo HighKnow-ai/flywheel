@@ -164,20 +164,13 @@ pub struct AdrDraft {
 
 impl AdrDraft {
     /// The three bar lines an ADR cannot go without, as `(payload key, what it says)`.
-    pub const REQUIRED_BAR_LINES: [(&'static str, &'static str); 3] = [
-        ("hard_to_reverse", "why the decision is hard to reverse"),
-        ("surprising", "why it would surprise a reader"),
-        ("losing_alternative", "which alternative lost"),
-    ];
+    pub const REQUIRED_BAR_LINES: [(&'static str, &'static str); 3] = AdrBarLines::REQUIRED;
 
     /// Read and check a payload `{ "path", "text", "hard_to_reverse", "surprising",
     /// "losing_alternative", "relates_to"? }`, every line trimmed and the text kept verbatim. A blank `relates_to` or one that
     /// says "none" is none. `at` prefixes the field a refusal names.
     pub fn from_payload_at(payload: &Value, at: &str) -> anyhow::Result<Self> {
-        let text_of = |key: &str| -> Option<String> {
-            payload.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
-        };
-        let path = text_of("path").with_context(|| format!("{at}`path` is missing: the ADR's path, docs/adr/NNNN-slug.md"))?;
+        let bar = AdrBarLines::from_payload_at(payload, at)?;
         // The text is kept verbatim, as the Story will write it; only a blank one is refused.
         let text = payload
             .get("text")
@@ -185,17 +178,94 @@ impl AdrDraft {
             .filter(|t| !t.trim().is_empty())
             .map(str::to_string)
             .with_context(|| format!("{at}`text` is missing: the ADR's whole text"))?;
+        anyhow::ensure!(text.chars().count() <= MAX_ADR_TEXT_LEN, "{at}`text` is at most {MAX_ADR_TEXT_LEN} characters");
+        let AdrBarLines { path, hard_to_reverse, surprising, losing_alternative, relates_to } = bar;
+        Ok(AdrDraft { path, text, hard_to_reverse, surprising, losing_alternative, relates_to })
+    }
+
+    /// [`Self::from_payload_at`] with no prefix.
+    pub fn from_payload(payload: &Value) -> anyhow::Result<Self> {
+        Self::from_payload_at(payload, "")
+    }
+
+    /// The draft's path and bar lines, without its text.
+    pub fn bar_lines(&self) -> AdrBarLines {
+        AdrBarLines {
+            path: self.path.clone(),
+            hard_to_reverse: self.hard_to_reverse.clone(),
+            surprising: self.surprising.clone(),
+            losing_alternative: self.losing_alternative.clone(),
+            relates_to: self.relates_to.clone(),
+        }
+    }
+
+    pub fn to_payload(&self) -> Value {
+        json!({
+            "path": self.path,
+            "text": self.text,
+            "hard_to_reverse": self.hard_to_reverse,
+            "surprising": self.surprising,
+            "losing_alternative": self.losing_alternative,
+            "relates_to": self.relates_to,
+        })
+    }
+}
+
+/// Whether `path` names an ADR file: `docs/adr/<name>.md`, directly under `docs/adr/`.
+pub fn is_adr_path(path: &str) -> bool {
+    path.starts_with("docs/adr/")
+        && path.ends_with(".md")
+        && path.len() > "docs/adr/.md".len()
+        && !path.contains("..")
+        && !path.contains('\\')
+        && !path["docs/adr/".len()..].contains('/')
+}
+
+/// An ADR's path and its four bar lines, without its text (docs/mvp-spec.md §6, issue #161): what a
+/// hand-off says of each ADR its Story wrote, stored on the review (`reviews.adr_notes`) and shown
+/// beside the ADR at review, never parsed out of the file (ADR 0010). [`AdrDraft`] is this plus the
+/// text, and is checked the same way.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdrBarLines {
+    /// `docs/adr/NNNN-slug.md`.
+    pub path: String,
+    /// Why the decision is hard to reverse.
+    pub hard_to_reverse: String,
+    /// Why it would surprise a reader.
+    pub surprising: String,
+    /// Which alternative lost.
+    pub losing_alternative: String,
+    /// "Relates to: ADR-NNNN…"; `None` reads as none.
+    pub relates_to: Option<String>,
+}
+
+impl AdrBarLines {
+    /// The three bar lines an ADR cannot go without, as `(payload key, what it says)`.
+    pub const REQUIRED: [(&'static str, &'static str); 3] = [
+        ("hard_to_reverse", "why the decision is hard to reverse"),
+        ("surprising", "why it would surprise a reader"),
+        ("losing_alternative", "which alternative lost"),
+    ];
+
+    /// Read and check `{ "path", "hard_to_reverse", "surprising", "losing_alternative",
+    /// "relates_to"? }`, every line trimmed. A blank `relates_to` or one that says "none" is none.
+    /// Any other key (an [`AdrDraft`]'s `text`) is ignored. `at` prefixes the field a refusal names.
+    pub fn from_payload_at(payload: &Value, at: &str) -> anyhow::Result<Self> {
+        let text_of = |key: &str| -> Option<String> {
+            payload.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+        };
+        let path = text_of("path").with_context(|| format!("{at}`path` is missing: the ADR's path, docs/adr/NNNN-slug.md"))?;
         let mut bar = Vec::with_capacity(3);
-        for (key, says) in Self::REQUIRED_BAR_LINES {
+        for (key, says) in Self::REQUIRED {
             bar.push(text_of(key).with_context(|| {
                 format!("{at}`{key}` is missing: an ADR carries the bar line saying {says}; without the first three bar lines there is no ADR")
             })?);
         }
         let relates_to = text_of("relates_to").filter(|r| !r.eq_ignore_ascii_case("none"));
         let [hard_to_reverse, surprising, losing_alternative] = <[String; 3]>::try_from(bar).expect("three bar lines");
-        let draft = AdrDraft { path, text, hard_to_reverse, surprising, losing_alternative, relates_to };
-        draft.check(at)?;
-        Ok(draft)
+        let lines = AdrBarLines { path, hard_to_reverse, surprising, losing_alternative, relates_to };
+        lines.check(at)?;
+        Ok(lines)
     }
 
     /// [`Self::from_payload_at`] with no prefix.
@@ -205,23 +275,14 @@ impl AdrDraft {
 
     fn check(&self, at: &str) -> anyhow::Result<()> {
         let path = &self.path;
-        anyhow::ensure!(
-            path.starts_with("docs/adr/")
-                && path.ends_with(".md")
-                && path.len() > "docs/adr/.md".len()
-                && !path.contains("..")
-                && !path.contains('\\')
-                && !path["docs/adr/".len()..].contains('/'),
-            "{at}`path` {path:?} is not an ADR file: an ADR lives at docs/adr/NNNN-slug.md"
-        );
-        for (key, value, max) in [
-            ("path", &self.path, MAX_ADR_LINE_LEN),
-            ("text", &self.text, MAX_ADR_TEXT_LEN),
-            ("hard_to_reverse", &self.hard_to_reverse, MAX_ADR_LINE_LEN),
-            ("surprising", &self.surprising, MAX_ADR_LINE_LEN),
-            ("losing_alternative", &self.losing_alternative, MAX_ADR_LINE_LEN),
+        anyhow::ensure!(is_adr_path(path), "{at}`path` {path:?} is not an ADR file: an ADR lives at docs/adr/NNNN-slug.md");
+        for (key, value) in [
+            ("path", &self.path),
+            ("hard_to_reverse", &self.hard_to_reverse),
+            ("surprising", &self.surprising),
+            ("losing_alternative", &self.losing_alternative),
         ] {
-            anyhow::ensure!(value.chars().count() <= max, "{at}`{key}` is at most {max} characters");
+            anyhow::ensure!(value.chars().count() <= MAX_ADR_LINE_LEN, "{at}`{key}` is at most {MAX_ADR_LINE_LEN} characters");
         }
         if let Some(relates_to) = &self.relates_to {
             anyhow::ensure!(
@@ -235,7 +296,6 @@ impl AdrDraft {
     pub fn to_payload(&self) -> Value {
         json!({
             "path": self.path,
-            "text": self.text,
             "hard_to_reverse": self.hard_to_reverse,
             "surprising": self.surprising,
             "losing_alternative": self.losing_alternative,

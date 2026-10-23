@@ -33,6 +33,7 @@ import type {
   TaskDto,
   WaitingRoundDto,
   ReviewCheckDto,
+  DecisionChangeDto,
   StoryReviewDto,
 } from "../../adapters/tauri";
 import type { Project } from "../../board/useBoardQuery";
@@ -780,12 +781,56 @@ function window_(entries: Record<string, unknown>[], offset: number, limit: numb
 /**
  * FLY-3's review card (issue #155). `judging`: one Check failed and its output tail, a pre-ticked criterion
  * not accepted yet, one accepted. `override`: every criterion accepted, the Check still failing. `ready`:
- * every criterion accepted and every Check passed.
+ * every criterion accepted and every Check passed. `decisions` (issue #161): `ready`, with the branch's ADR
+ * and glossary changes: a new ADR with its hand-off bar lines and a related live ADR, one accepted in shaping,
+ * one without bar lines, an edited ADR and the glossary.
  */
-let reviewMode: "judging" | "override" | "ready" = "judging";
-export function setReviewInFixture(mode: "judging" | "override" | "ready"): void {
+let reviewMode: "judging" | "override" | "ready" | "decisions" = "judging";
+export function setReviewInFixture(mode: "judging" | "override" | "ready" | "decisions"): void {
   reviewMode = mode;
 }
+
+const REVIEW_DECISIONS: DecisionChangeDto[] = [
+  {
+    kind: "adr", path: "docs/adr/0004-tailwind-and-shadcn-ui-for-the-desktop-ui.md", oldPath: null, status: "M",
+    added: 3, removed: 1, newAdr: null,
+  },
+  {
+    kind: "adr", path: "docs/adr/0010-the-andon-is-the-visual-world.md", oldPath: null, status: "A", added: 41, removed: 0,
+    newAdr: {
+      title: "The Andon is the visual world: one loud colour means a person is needed",
+      barLines: {
+        hardToReverse: "Every screen, token and contrast test is built on its four tones",
+        surprising: "A developer tool with no green, where a passed Check reads from its icon and word",
+        losingAlternative: "The Ledger direction: a quiet document world with no signal hue",
+        relatesTo: "ADR-0004",
+      },
+      barLinesFrom: "handoff",
+      related: [{ path: "docs/adr/0004-tailwind-and-shadcn-ui-for-the-desktop-ui.md", title: "Tailwind and shadcn/ui for the desktop UI" }],
+      proposalId: null,
+    },
+  },
+  {
+    kind: "adr", path: "docs/adr/0011-barlow-for-reading.md", oldPath: null, status: "A", added: 18, removed: 0,
+    newAdr: {
+      title: "Barlow for reading, JetBrains Mono for keys and commands",
+      barLines: {
+        hardToReverse: "Every type step and the self-hosted font files depend on it",
+        surprising: "A DIN-descended face rather than the platform sans",
+        losingAlternative: "SF Pro through system-ui",
+        relatesTo: null,
+      },
+      barLinesFrom: "shaping",
+      related: [],
+      proposalId: "p-adr-11",
+    },
+  },
+  {
+    kind: "adr", path: "docs/adr/0012-direction-file.md", oldPath: null, status: "A", added: 9, removed: 0,
+    newAdr: { title: "The picked direction lives in direction.md", barLines: null, barLinesFrom: null, related: [], proposalId: null },
+  },
+  { kind: "glossary", path: "GLOSSARY.md", oldPath: null, status: "M", added: 6, removed: 0, newAdr: null },
+];
 
 function reviewCheck(id: string, criterionId: string, command: string, result: string, outputTail: string | null = null): ReviewCheckDto {
   return { checkId: id, criterionId, command, result, stale: false, commitSha: "9f3c2ab", outputTail };
@@ -807,7 +852,7 @@ const CONTRAST_TAIL = [
 ].join("\n");
 
 function reviewOf(storyId: string): StoryReviewDto {
-  const ready = reviewMode === "ready";
+  const ready = reviewMode === "ready" || reviewMode === "decisions";
   const accepted = reviewMode !== "judging";
   const renders = reviewCheck("k-3a", "c-3a", "test -f docs/design/directions/andon.html", "passed");
   const contrast = ready
@@ -837,6 +882,7 @@ function reviewOf(storyId: string): StoryReviewDto {
     failingChecks: ready ? [] : [contrast],
     liveSession: false,
     uncommitted: [],
+    decisions: reviewMode === "decisions" ? REVIEW_DECISIONS : [],
   };
 }
 

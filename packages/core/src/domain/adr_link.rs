@@ -4,7 +4,7 @@
 //! at all is simply an unlinked file in the repo.
 
 use anyhow::Context;
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Connection, Row, Transaction};
 
 use crate::domain::{now, record_event, EventScope};
 use crate::ids::new_id;
@@ -46,11 +46,25 @@ pub fn link_adr(
     path: &str,
     target: &AdrLinkTarget,
 ) -> anyhow::Result<AdrLink> {
+    let tx = conn.transaction()?;
+    let link = link_adr_in_tx(&tx, actor_id, project_id, path, target, &now())?;
+    tx.commit()?;
+    Ok(link)
+}
+
+/// [`link_adr`] inside the caller's transaction, at `now` (Merge links each new ADR in its own
+/// board transaction, issue #161).
+pub(crate) fn link_adr_in_tx(
+    tx: &Transaction,
+    actor_id: &str,
+    project_id: &str,
+    path: &str,
+    target: &AdrLinkTarget,
+    now: &str,
+) -> anyhow::Result<AdrLink> {
     let path = path.trim();
     anyhow::ensure!(!path.is_empty() && !path.starts_with('/'), "an ADR link names a repo-relative path");
-    let now = now();
     let id = new_id();
-    let tx = conn.transaction()?;
     let (milestone_id, epic_id, story_id, owner_project): (Option<&str>, Option<&str>, Option<&str>, String) = match target {
         AdrLinkTarget::Milestone(m) => {
             (Some(m), None, None, tx.query_row("SELECT project_id FROM milestones WHERE id = ?1", params![m], |r| r.get(0))?)
@@ -78,9 +92,8 @@ pub fn link_adr(
         actor_id,
         "adr.linked",
         &serde_json::json!({ "path": path, "label": format!("Linked {path}") }),
-        &now,
+        now,
     )?;
-    tx.commit()?;
     Ok(AdrLink { id, project_id: project_id.to_string(), path: path.to_string(), target: target.clone() })
 }
 
@@ -91,4 +104,14 @@ pub fn adr_links_for_project(conn: &Connection, project_id: &str) -> anyhow::Res
     )?;
     let rows = stmt.query_map(params![project_id], row_to_link)?.collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the ADR links")
+}
+
+/// Whether any record of `project_id` links the ADR at `path`.
+pub(crate) fn is_linked(conn: &Connection, project_id: &str, path: &str) -> anyhow::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM adr_links WHERE project_id = ?1 AND path = ?2)",
+        params![project_id, path],
+        |r| r.get(0),
+    )
+    .context("failed to read the ADR's links")
 }

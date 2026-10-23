@@ -136,21 +136,26 @@ pub(crate) fn tasks_not_done(conn: &Connection, story_id: &str) -> anyhow::Resul
     .context("failed to count the Story's open Tasks")
 }
 
-/// Open a review of `story_id` inside the caller's transaction. Refused while one is open: a
-/// review closes before the next one opens.
+/// Open a review of `story_id` inside the caller's transaction, with the hand-off's ADR bar lines
+/// (`adr_notes`, a JSON array, ADR 0010). Refused while one is open: a review closes before the next
+/// one opens.
 pub(crate) fn open_review_in_tx(
     tx: &Transaction,
     project_id: &str,
     story_id: &str,
     session_id: Option<&str>,
     diff: &ReviewDiff,
+    adr_notes: &Value,
 ) -> anyhow::Result<String> {
     let open_tasks = tasks_not_done(tx, story_id)?;
     let id = new_id();
     tx.execute(
-        "INSERT INTO reviews (id, project_id, story_id, session_id, opened_at, base_sha, head_sha, files, added, removed, open_tasks)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![id, project_id, story_id, session_id, now(), diff.base_sha, diff.head_sha, diff.files, diff.added, diff.removed, open_tasks],
+        "INSERT INTO reviews (id, project_id, story_id, session_id, opened_at, base_sha, head_sha, files, added, removed, open_tasks, adr_notes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![
+            id, project_id, story_id, session_id, now(), diff.base_sha, diff.head_sha, diff.files, diff.added, diff.removed, open_tasks,
+            adr_notes.to_string()
+        ],
     )
     .context("failed to open the review; a Story has one open review at a time")?;
     Ok(id)

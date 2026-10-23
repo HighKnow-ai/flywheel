@@ -18,6 +18,8 @@ use std::process::Command;
 
 use common::with_scratch_worktree_root;
 use core::domain::acceptance_criterion::{accept_criterion, create_criterion, criteria_for_story};
+use core::domain::adr_link::{adr_links_for_project, link_adr, AdrLinkTarget};
+use core::domain::proposal::{accept_proposal, file_proposal, NewProposal, ProposalTarget, ProposalVerb};
 use core::domain::check::{set_check, Check};
 use core::domain::handoff::hand_off;
 use core::domain::review::{open_review, reviews_for_story};
@@ -94,6 +96,11 @@ impl Fixture {
 /// An In review Story: one criterion per Check command, a worktree with one commit adding
 /// `feature.txt`, handed off (so each Check has its run of record) and its session ended.
 fn in_review(checks: &[&str]) -> Fixture {
+    in_review_with(checks, &[])
+}
+
+/// [`in_review`], the branch's one commit also adding each `(path, body)` of `files`.
+fn in_review_with(checks: &[&str], files: &[(&str, &str)]) -> Fixture {
     let (mut conn, human, project, repo) = common::seeded_git_project();
     let story = common::new_story(&mut conn, &project.id, &human, "Parse the config");
     let checks = checks
@@ -112,6 +119,12 @@ fn in_review(checks: &[&str]) -> Fixture {
     let agent = agent_actor_id(&conn).unwrap();
     let task = add_task(&mut conn, &agent, &story.id, "Write the parser").unwrap();
     set_task_state(&mut conn, &agent, &task.id, TaskState::Done, None).unwrap();
+    for (path, body) in files {
+        let file = worktree.join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, body).unwrap();
+        git(&worktree, &["add", path]);
+    }
     commit_file(&worktree, "feature.txt", "parsed\n", "Parse the config");
     hand_off(&mut conn, &session.id, "The parser is done.", "").unwrap();
     close_session(&mut conn, &session.id, SessionStatus::Completed, None, None, None).unwrap();
@@ -361,5 +374,66 @@ fn a_story_that_is_not_in_review_does_not_merge() {
         let err = merge_story(&mut conn, &human, &story.id, MergeOptions { with_failing_checks: true }).unwrap_err();
         assert!(format!("{err:#}").contains("In review"), "{err:#}");
         assert_eq!(get_story(&conn, &story.id).unwrap().unwrap().state, "shaping");
+    });
+}
+
+/// Issue #161: Merge links each ADR the branch adds to the Story by path, in the board transaction
+/// that marks it Merged. An ADR accepted in shaping keeps its Epic Proposal and gets no second link;
+/// an edited ADR, or one already linked, is not linked again.
+#[test]
+fn merge_links_each_new_adr_to_the_story_by_path_and_an_adr_accepted_in_shaping_keeps_its_epic_proposal() {
+    with_scratch_worktree_root(|_| {
+        let mut f = in_review_with(
+            &["true"],
+            &[
+                ("docs/adr/0010-reviews.md", "# Reviews are a board record\n"),
+                ("docs/adr/0011-shaped.md", "# Shaped in a Round\n"),
+                ("docs/adr/0012-linked-by-hand.md", "# Already linked\n"),
+                ("docs/adr/notes.txt", "not an ADR\n"),
+                ("GLOSSARY.md", "**Review**: a board record.\n"),
+            ],
+        );
+        let (human, project_id, epic_id) = (f.human.clone(), f.story.project_id.clone(), f.story.epic_id.clone());
+        let shaped = file_proposal(
+            &mut f.conn,
+            &human,
+            &NewProposal {
+                project_id: &project_id,
+                session_id: None,
+                epic_id: Some(&epic_id),
+                verb: ProposalVerb::Create,
+                target: ProposalTarget::Adr,
+                target_id: None,
+                payload: serde_json::json!({
+                    "path": "docs/adr/0011-shaped.md",
+                    "text": "# Shaped in a Round\n",
+                    "hard_to_reverse": "Shaping settled it",
+                    "surprising": "It came from a Round",
+                    "losing_alternative": "Leaving it to the Story",
+                }),
+                rationale: None,
+            },
+        )
+        .unwrap();
+        accept_proposal(&mut f.conn, &human, &shaped.id).unwrap();
+        link_adr(&mut f.conn, &human, &project_id, "docs/adr/0012-linked-by-hand.md", &AdrLinkTarget::Epic(epic_id.clone()))
+            .unwrap();
+        f.accept_all();
+
+        let outcome = f.merge(false).expect("merges");
+
+        assert_eq!(outcome.adrs_linked, ["docs/adr/0010-reviews.md"]);
+        let links: Vec<(String, AdrLinkTarget)> =
+            adr_links_for_project(&f.conn, &project_id).unwrap().into_iter().map(|l| (l.path, l.target)).collect();
+        assert_eq!(
+            links,
+            [
+                ("docs/adr/0010-reviews.md".to_string(), AdrLinkTarget::Story(f.story.id.clone())),
+                ("docs/adr/0012-linked-by-hand.md".to_string(), AdrLinkTarget::Epic(epic_id)),
+            ],
+            "the shaped ADR keeps its Epic Proposal, the hand-linked one its link"
+        );
+        let merged = event_payload(&f.conn, &f.story.id, "story.merged");
+        assert_eq!(merged["adrs_linked"], serde_json::json!(["docs/adr/0010-reviews.md"]));
     });
 }
