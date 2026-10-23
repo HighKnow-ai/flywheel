@@ -228,6 +228,57 @@ describe("Needs you", () => {
     expect(useUiStore.getState().currentStoryId).toBe("s-3");
   });
 
+  it("fills only the first card's primary action; every other is an outline (one filled primary per region)", async () => {
+    await cards();
+    const filled = Array.from(document.querySelectorAll('[data-item-id] [data-variant="default"]'));
+    expect(filled).toHaveLength(1);
+    expect(filled[0]).toHaveAccessibleName("Resume FLY-3");
+    expect(within(cardOf("4")).getByRole("button", { name: "Recreate the worktree of FLY-4" })).toHaveAttribute("data-variant", "outline");
+    expect(within(cardOf("e-6")).getByRole("button", { name: "Confirm exit test of FLY-E6 Roster" })).toHaveAttribute("data-variant", "outline");
+  });
+
+  it("names a request's kind once: no yellow header inside the card", async () => {
+    await cards();
+    expect(within(cardOf("1")).queryByText(/needs your OK every time/)).toBeNull();
+    expect(within(cardOf("1")).getByText("No rule can cover it")).toBeInTheDocument();
+  });
+
+  it("folds a question to its first line until Answer opens its form in place", async () => {
+    needsYouList.mockResolvedValue([
+      item("question", "q", {
+        sessionId: "ses-q",
+        request: {
+          id: "req-q",
+          toolName: "AskUserQuestion",
+          inputPayload: JSON.stringify({ questions: [{ question: "Count Dropped Stories?", header: "Dropped", options: [{ label: "Yes", description: "" }], multiSelect: false }] }),
+          destructiveCategory: null,
+          suggestedRule: null,
+        },
+      }),
+    ]);
+    await cards();
+    const card = cardOf("q");
+    expect(within(card).getByText("Count Dropped Stories?")).toBeInTheDocument();
+    const answer = within(card).getByRole("button", { name: "Answer FLY-q's question" });
+    expect(answer).toHaveAttribute("aria-expanded", "false");
+    expect(within(card).queryByRole("group", { name: "The agent has a question" })).toBeNull();
+    fireEvent.click(answer);
+    expect(answer).toHaveAttribute("aria-expanded", "true");
+    expect(within(card).getByRole("group", { name: "The agent has a question" })).toBeInTheDocument();
+  });
+
+  it("when an answer takes a card off the list, says so and moves the keyboard to the card in its place", async () => {
+    const remaining = RANKED.filter((i) => i.id !== "2");
+    await cards();
+    const allow = within(cardOf("2")).getByRole("button", { name: "Allow once" });
+    allow.focus();
+    needsYouList.mockResolvedValue(remaining);
+    fireEvent.click(allow);
+    await waitFor(() => expect(document.querySelector('[data-item-id="2"]')).toBeNull());
+    expect(await screen.findByRole("status")).toHaveTextContent(`FLY-2 off the list. ${remaining.length} items need you.`);
+    await waitFor(() => expect(document.activeElement).toBe(within(cardOf("3")).getByRole("button", { name: "Open Story FLY-3 Story 3" })));
+  });
+
   it("says so when nothing needs you", async () => {
     needsYouList.mockResolvedValue([]);
     renderList();

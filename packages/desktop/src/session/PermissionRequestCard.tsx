@@ -405,6 +405,11 @@ function PermissionRequestRow({
  * its own card. */
 export const RequestInCard = createContext(false);
 
+/** Issue #156: a request inside a Needs-you card, whose lead line already names its kind and that it waits on
+ * you. There the yellow header is left out (it would say it twice and wrap at 400px): the card's own attention
+ * edge carries the yellow, and the header's note becomes one meta line at the top of the body. */
+export const RequestHeaderless = createContext(false);
+
 /** The frame every request shares: Waiting on you's yellow header (its icon, its title, a note on the
  * right), then the body. */
 function RequestFrame({
@@ -425,6 +430,15 @@ function RequestFrame({
   children: ReactNode;
 }) {
   const inCard = useContext(RequestInCard);
+  const headerless = useContext(RequestHeaderless);
+  if (headerless) {
+    return (
+      <div role={role} aria-label={ariaLabel} data-card={card} className="session-card flex min-w-0 flex-col gap-3">
+        {aside && <span className="text-meta font-semibold text-muted-foreground">{aside}</span>}
+        {children}
+      </div>
+    );
+  }
   return (
     <div
       role={role}

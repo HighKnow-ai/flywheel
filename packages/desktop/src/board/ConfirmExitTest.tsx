@@ -147,8 +147,11 @@ export function ConfirmExitTest({
   projectId,
   subject,
   place,
+  outline = false,
   className,
 }: {
+  /** Drawn as an outline where another action is the region's one filled primary (a Needs-you card). */
+  outline?: boolean;
   projectId: string;
   subject: ExitTestSubject;
   /** The Epic card's heading or the Milestone header (full size), or a Roadmap strip row's slot (compact). */
@@ -217,7 +220,7 @@ export function ConfirmExitTest({
   return (
     <span data-slot="confirm-exit-test" className={cn("flex min-w-0 items-center justify-end", className)}>
       <Button
-        variant={compact ? "outline" : "default"}
+        variant={compact || outline ? "outline" : "default"}
         size={compact ? "xs" : "sm"}
         aria-label={`Confirm exit test of ${name}`}
         aria-haspopup="dialog"

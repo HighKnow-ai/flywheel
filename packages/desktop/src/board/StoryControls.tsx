@@ -319,7 +319,14 @@ export function StoryStateWord({
  * one-line note, asked in a dialog. The core starts a fresh session in the same worktree from the Context
  * packet. Like Start, Resume stays where it is: the new session opens only from its own control.
  */
-export function ResumeControl({ story }: { story: Pick<StoryDto, "id" | "key"> }) {
+export function ResumeControl({
+  story,
+  variant = "default",
+}: {
+  story: Pick<StoryDto, "id" | "key">;
+  /** Outline where another action is the region's one filled primary (a Needs-you card below the first). */
+  variant?: "default" | "outline";
+}) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -343,6 +350,7 @@ export function ResumeControl({ story }: { story: Pick<StoryDto, "id" | "key"> }
   return (
     <>
       <Button
+        variant={variant}
         size="sm"
         aria-label={`Resume ${story.key}`}
         onClick={() => {
