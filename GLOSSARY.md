@@ -92,6 +92,10 @@ _Avoid_: Knowledge diff
 A change suggested by an agent to any board record, ADR or glossary term (create, amend, reorder or retire it) that has no effect until the developer accepts it.
 _Avoid_: Issue, suggestion, draft
 
+**Duplicate Proposal**:
+A pending Proposal from execution that repeats one already pending: the same kind on the same target (the same Story, criterion or Epic field), or a New Story or New Epic with the same title, any case, in the same Epic or Milestone. It holds no slot under the cap, and accepting either closes the other as "duplicate of <title>".
+_Avoid_: Near-duplicate, similar Proposal
+
 **Triage**:
 Deciding the Proposals running Stories filed, each accepted, amended or rejected, in one drawer that groups them by the record each lands on; a Proposal that changes what a Story is judged on is decided on its own instead.
 _Avoid_: Inbox, backlog grooming

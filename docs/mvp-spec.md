@@ -168,7 +168,7 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
 4. Sibling Stories: title and state only
 5. The Story, with each criterion's Check command and latest result
 6. The Task checklist with states, each Task's note under it
-7. Review feedback and the resume note, if any
+7. Review feedback and the resume note, if any, and the Story's Proposals decided since its last session started: accepted, rejected with the reason, or closed as a duplicate ([#165](https://github.com/HighKnow-ai/flywheel/issues/165))
 8. Session summaries: the last 3 in full, older ones as one line ("N earlier sessions omitted")
 9. The diff so far: stat and file names, no hunks. Uncommitted changes left by a stopped session are marked as such.
 10. Closing instruction
@@ -226,7 +226,7 @@ Every Story session starts fresh from a fixed, ordered packet, stable parts firs
 - **Card:** each card shows the kind (New Story, Amend criterion, Reorder, Retire Story, New Epic, Amend Epic spec), the title, a diff for amendments, the agent's *why*, an evidence line, and the filing Story and time.
 - **Judged-on changes skip the wait:** a Proposal that changes a Story's Acceptance criteria or the Epic spec is its own Needs-you item at once, with a before/after diff and Accept / Edit / Reject inline.
 - **Soft cap:** 3 open Proposals per Story session. The board tool refuses a 4th and tells the agent to merge or withdraw one.
-- **Duplicates** are flagged on the card. Accepting the original closes the duplicate and tells the Story that filed it.
+- **Duplicates** are flagged on the card. Accepting the original closes the duplicate and tells the Story that filed it. **Shipped** ([#165](https://github.com/HighKnow-ai/flywheel/issues/165)): detection is deterministic, no fuzzy or model matching: the same kind on the same target (the same Story, criterion or Epic field), or a New Story or New Epic with the same title, any case, in the same Epic or Milestone. The agent hears it at once in `propose`'s answer, and a duplicate holds no slot under the cap. Accepting any Proposal of the group rejects the others in the same transaction, as the developer, with the reason "duplicate of <title>". Rejecting or withdrawing the original frees its duplicates, the oldest taking its place. The filing Story hears every decision through its next packet (section 7 of [4.2](#42-context-packet)), never a live push. A shaping session's Proposals are never flagged.
 - **What each accepted kind does:**
 
   | Kind | Effect |

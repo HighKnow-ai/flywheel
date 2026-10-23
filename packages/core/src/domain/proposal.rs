@@ -120,6 +120,9 @@ pub struct Proposal {
     /// What the agent saw that made it file, beside its why (`rationale`): a Story session's
     /// Proposal carries one (issue #160); a shaping session's has none.
     pub evidence: Option<String>,
+    /// The pending Proposal this one repeats (issue #165): the same kind on the same target, flagged
+    /// when a Story session filed it. Accepting either closes the other.
+    pub duplicate_of: Option<String>,
 }
 
 fn row_to_proposal(row: &Row) -> rusqlite::Result<Proposal> {
@@ -141,6 +144,7 @@ fn row_to_proposal(row: &Row) -> rusqlite::Result<Proposal> {
         stage_id: row.get(13)?,
         round_id: row.get(14)?,
         evidence: row.get(15)?,
+        duplicate_of: row.get(16)?,
     })
 }
 
@@ -149,7 +153,7 @@ macro_rules! select_proposals {
     ($tail:literal) => {
         concat!(
             "SELECT id, project_id, session_id, epic_id, verb, target_type, target_id, payload, rationale, state, \
-             rejection_reason, decided_by, created_at, stage_id, round_id, evidence FROM proposals ",
+             rejection_reason, decided_by, created_at, stage_id, round_id, evidence, duplicate_of FROM proposals ",
             $tail
         )
     };
@@ -220,9 +224,14 @@ pub fn file_proposal_with_evidence(
     get_proposal(conn, &id)?.context("the filed Proposal could not be read back")
 }
 
-/// How many Proposals session `session_id` holds open (pending): what the soft cap counts.
+/// How many Proposals session `session_id` holds open (pending): what the soft cap counts. A
+/// duplicate (issue #165) holds no slot: it repeats one already counted.
 pub fn open_proposals_in_session(conn: &Connection, session_id: &str) -> anyhow::Result<i64> {
-    conn.query_row("SELECT COUNT(*) FROM proposals WHERE session_id = ?1 AND state = 'pending'", params![session_id], |r| r.get(0))
+    conn.query_row(
+        "SELECT COUNT(*) FROM proposals WHERE session_id = ?1 AND state = 'pending' AND duplicate_of IS NULL",
+        params![session_id],
+        |r| r.get(0),
+    )
         .context("failed to count the session's open Proposals")
 }
 
@@ -241,6 +250,7 @@ pub fn withdraw_proposal(conn: &mut Connection, actor_id: &str, session_id: &str
     anyhow::ensure!(p.state == "pending", "Proposal {proposal_id:?} was already {}; only a pending Proposal is withdrawn", p.state);
     tx.execute("UPDATE proposals SET state = 'withdrawn', withdrawn_at = ?1 WHERE id = ?2", params![at, proposal_id])
         .context("failed to withdraw the Proposal")?;
+    release_duplicates_in_tx(&tx, proposal_id)?;
     record_event(
         &tx,
         &p.project_id,
@@ -264,6 +274,40 @@ pub fn proposals_filed_by_story(conn: &Connection, story_id: &str) -> anyhow::Re
     ))?;
     let rows = stmt.query_map(params![story_id], row_to_proposal)?.collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the Proposals the Story filed")
+}
+
+/// The Proposals the sessions of Story `story_id` filed that were decided since its last ended
+/// session started (issue #165), oldest filed first: how the filing Story hears each decision, through
+/// its next packet and never a live push. A session's own decisions arrive after it is gone or while it
+/// works without hearing them, so a decision is news to every session that starts after the one that
+/// filed it, until one has started since. Empty when the Story has no ended session.
+pub fn proposals_decided_since_last_session(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<Proposal>> {
+    let since: Option<String> = conn
+        .query_row("SELECT MAX(started_at) FROM sessions WHERE story_id = ?1 AND ended_at IS NOT NULL", params![story_id], |r| {
+            r.get(0)
+        })
+        .context("failed to read when the Story's last session started")?;
+    let Some(since) = since else { return Ok(Vec::new()) };
+    let mut stmt = conn.prepare(select_proposals!(
+        "WHERE session_id IN (SELECT id FROM sessions WHERE story_id = ?1) AND state IN ('accepted', 'rejected') \
+           AND decided_at >= ?2 \
+         ORDER BY created_at, id"
+    ))?;
+    let rows = stmt.query_map(params![story_id, since], row_to_proposal)?.collect::<Result<Vec<_>, _>>();
+    rows.context("failed to read the Story's decided Proposals")
+}
+
+/// The words for a Proposal's kind, as the `propose` tool and the triage card name it.
+pub fn proposal_kind_words(p: &Proposal) -> String {
+    match (p.verb.as_str(), p.target_type.as_str()) {
+        ("create", "story") => "New Story".into(),
+        ("amend", "criterion") => "Amend criterion".into(),
+        ("amend", "epic") => "Amend Epic spec".into(),
+        ("reorder", "story") => "Reorder".into(),
+        ("retire", "story") => "Retire Story".into(),
+        ("create", "epic") => "New Epic".into(),
+        (verb, target) => format!("{verb} {target}"),
+    }
 }
 
 /// Where a Reorder moves its Story: the key of the Story it sits after now, and the key of the one it
@@ -293,6 +337,17 @@ pub struct TriageProposal {
     pub target_title: Option<String>,
     /// A Reorder's places in the Epic's order.
     pub reorder: Option<ReorderPlaces>,
+    /// The Proposal this one repeats (issue #165), when it is a duplicate.
+    pub duplicate: Option<DuplicateOf>,
+}
+
+/// What a duplicate's card names (issue #165): the Proposal it repeats, what that one names, and the
+/// Story whose session filed it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DuplicateOf {
+    pub proposal_id: String,
+    pub title: String,
+    pub story_key: Option<String>,
 }
 
 /// Every Proposal awaiting triage in `project_id` (`crate::query::awaits_triage`: pending, filed by a
@@ -302,7 +357,7 @@ pub struct TriageProposal {
 pub fn proposals_for_triage(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<TriageProposal>> {
     const SQL: &str = concat!(
         "SELECT p.id, p.project_id, p.session_id, p.epic_id, p.verb, p.target_type, p.target_id, p.payload, p.rationale, \
-            p.state, p.rejection_reason, p.decided_by, p.created_at, p.stage_id, p.round_id, p.evidence, \
+            p.state, p.rejection_reason, p.decided_by, p.created_at, p.stage_id, p.round_id, p.evidence, p.duplicate_of, \
             fs.id, fs.key, fs.title, e.key, e.title, nm.title, ts.key, ts.title \
          FROM proposals p \
          JOIN sessions ss ON ss.id = p.session_id \
@@ -321,15 +376,16 @@ pub fn proposals_for_triage(conn: &Connection, project_id: &str) -> anyhow::Resu
         .query_map(params![project_id], |row| {
             Ok(TriageProposal {
                 proposal: row_to_proposal(row)?,
-                story_id: row.get(16)?,
-                story_key: row.get(17)?,
-                story_title: row.get(18)?,
-                epic_key: row.get(19)?,
-                epic_title: row.get(20)?,
-                milestone_title: row.get(21)?,
-                target_key: row.get(22)?,
-                target_title: row.get(23)?,
+                story_id: row.get(17)?,
+                story_key: row.get(18)?,
+                story_title: row.get(19)?,
+                epic_key: row.get(20)?,
+                epic_title: row.get(21)?,
+                milestone_title: row.get(22)?,
+                target_key: row.get(23)?,
+                target_title: row.get(24)?,
                 reorder: None,
+                duplicate: None,
             })
         })?
         .collect::<Result<Vec<_>, _>>()
@@ -340,6 +396,18 @@ pub fn proposals_for_triage(conn: &Connection, project_id: &str) -> anyhow::Resu
             continue;
         };
         t.reorder = Some(reorder_places(conn, story_id, rank)?);
+    }
+    for t in rows.iter_mut() {
+        let Some(original) = t.proposal.duplicate_of.as_deref() else { continue };
+        let Some(o) = get_proposal(conn, original)? else { continue };
+        let story_key: Option<String> = conn
+            .query_row(
+                "SELECT s.key FROM sessions ss JOIN stories s ON s.id = ss.story_id WHERE ss.id = ?1",
+                params![o.session_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        t.duplicate = Some(DuplicateOf { title: proposal_title(conn, &o)?, proposal_id: o.id, story_key });
     }
     Ok(rows)
 }
@@ -361,25 +429,29 @@ fn reorder_places(conn: &Connection, story_id: &str, rank: &str) -> anyhow::Resu
 pub(crate) fn file_proposal_in_tx(tx: &Transaction, actor_id: &str, new: &NewProposal, now: &str) -> anyhow::Result<String> {
     validate_payload(new.verb, new.target, &new.payload)?;
     let id = new_id();
-    let (stage_id, round_id) = match new.session_id {
-        None => (None, None),
+    let ((stage_id, round_id), duplicate_of) = match new.session_id {
+        None => ((None, None), None),
         Some(session_id) => match shaping_place(tx, session_id)? {
-            Some(place) => place,
+            Some(place) => (place, None),
             None => {
-                let open = open_proposals_in_session(tx, session_id)?;
-                anyhow::ensure!(
-                    open < OPEN_PROPOSALS_PER_SESSION,
-                    "this session already has {open} open Proposals, the most it may hold; withdraw one with \
-                     proposal_withdraw before filing another (to merge two, withdraw both and file the combined one)"
-                );
-                (None, None)
+                // Issue #165: a duplicate repeats a Proposal already counted, so it holds no slot.
+                let duplicate_of = original_of(tx, new)?;
+                if duplicate_of.is_none() {
+                    let open = open_proposals_in_session(tx, session_id)?;
+                    anyhow::ensure!(
+                        open < OPEN_PROPOSALS_PER_SESSION,
+                        "this session already has {open} open Proposals, the most it may hold; withdraw one with \
+                         proposal_withdraw before filing another (to merge two, withdraw both and file the combined one)"
+                    );
+                }
+                ((None, None), duplicate_of)
             }
         },
     };
     tx.execute(
         "INSERT INTO proposals (id, project_id, session_id, epic_id, verb, target_type, target_id, payload, rationale,
-             state, created_by, created_at, stage_id, round_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', ?10, ?11, ?12, ?13)",
+             state, created_by, created_at, stage_id, round_id, duplicate_of)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'pending', ?10, ?11, ?12, ?13, ?14)",
         params![
             id,
             new.project_id,
@@ -393,7 +465,8 @@ pub(crate) fn file_proposal_in_tx(tx: &Transaction, actor_id: &str, new: &NewPro
             actor_id,
             now,
             stage_id,
-            round_id
+            round_id,
+            duplicate_of
         ],
     )
     .context("failed to file the Proposal")?;
@@ -406,7 +479,7 @@ pub(crate) fn file_proposal_in_tx(tx: &Transaction, actor_id: &str, new: &NewPro
         actor_id,
         "proposal.filed",
         &serde_json::json!({
-            "verb": new.verb.as_str(), "target_type": new.target.as_str(),
+            "verb": new.verb.as_str(), "target_type": new.target.as_str(), "duplicate_of": duplicate_of,
             "label": format!("Proposed to {} a {}", new.verb.as_str(), new.target.as_str()),
         }),
         now,
@@ -554,6 +627,7 @@ pub(crate) fn decide_in_tx(tx: &Transaction, actor_id: &str, proposal_id: &str, 
                 "UPDATE proposals SET state = 'rejected', rejection_reason = ?1, decided_by = ?2, decided_at = ?3 WHERE id = ?4",
                 params![reason, actor_id, now, proposal_id],
             )?;
+            release_duplicates_in_tx(tx, proposal_id)?;
             record_event(
                 tx,
                 &p.project_id,
@@ -591,6 +665,7 @@ pub(crate) fn decide_in_tx(tx: &Transaction, actor_id: &str, proposal_id: &str, 
                 epic_id: p.epic_id.as_deref(),
             };
             let applied = apply_in_tx(tx, actor_id, &accepted, payload)?;
+            close_duplicates_in_tx(tx, actor_id, &Proposal { payload: payload.clone(), ..p.clone() }, now)?;
             record_event(
                 tx,
                 &p.project_id,
@@ -662,6 +737,139 @@ fn same_kind_of_change(
             amended.get("field").and_then(|f| f.as_str()) == Some(field),
             "an amendment keeps the field the Proposal changes ({label})"
         );
+    }
+    Ok(())
+}
+
+/// The key two Proposals of the same verb and target type share when one repeats the other (issue
+/// #165), or `None` for a kind that is never flagged. Deterministic: the same target (the Story, the
+/// criterion, the Epic and its field) or, for a New Story or a New Epic, the same Epic or Milestone and
+/// the same title, trimmed and compared case-insensitively. No fuzzy or model matching.
+fn duplicate_key(
+    verb: &str,
+    target_type: &str,
+    target_id: Option<&str>,
+    epic_id: Option<&str>,
+    payload: &serde_json::Value,
+) -> Option<String> {
+    let text = |key: &str| payload.get(key).and_then(|v| v.as_str()).map(|t| t.trim().to_lowercase());
+    let parts: Vec<String> = match (verb, target_type) {
+        ("create", "story") => vec![epic_id?.to_string(), text("title")?],
+        ("create", "epic") => vec![text("milestone_id")?, text("title")?],
+        ("amend", "epic") => vec![target_id?.to_string(), text("field")?],
+        ("amend", "criterion") | ("reorder", "story") | ("retire", "story") => vec![target_id?.to_string()],
+        _ => return None,
+    };
+    Some(parts.join("\u{1f}"))
+}
+
+/// The pending Proposal from execution that `new` repeats, oldest first: an original, never a
+/// duplicate itself, so every duplicate points at the head of its group.
+fn original_of(tx: &Transaction, new: &NewProposal) -> anyhow::Result<Option<String>> {
+    let Some(key) = duplicate_key(new.verb.as_str(), new.target.as_str(), new.target_id, new.epic_id, &new.payload) else {
+        return Ok(None);
+    };
+    let mut stmt = tx.prepare(select_proposals!(
+        "WHERE project_id = ?1 AND verb = ?2 AND target_type = ?3 AND state = 'pending' AND duplicate_of IS NULL \
+           AND stage_id IS NULL \
+           AND EXISTS (SELECT 1 FROM sessions ps WHERE ps.id = proposals.session_id AND ps.kind = 'story') \
+         ORDER BY created_at, id"
+    ))?;
+    let candidates = stmt
+        .query_map(params![new.project_id, new.verb.as_str(), new.target.as_str()], row_to_proposal)?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to look for a pending Proposal this one repeats")?;
+    Ok(candidates
+        .into_iter()
+        .find(|p| duplicate_key(&p.verb, &p.target_type, p.target_id.as_deref(), p.epic_id.as_deref(), &p.payload).as_ref() == Some(&key))
+        .map(|p| p.id))
+}
+
+/// What a Proposal names, as a duplicate's card, its closing reason and the packet say it (issue
+/// #165): a New Story's or a New Epic's title, the key and title of the Story a Reorder or a Retire
+/// names, a criterion's statement, or which field of which Epic an amendment rewrites.
+pub fn proposal_title(conn: &Connection, p: &Proposal) -> anyhow::Result<String> {
+    let named = match (p.verb.as_str(), p.target_type.as_str(), p.target_id.as_deref()) {
+        ("create", _, _) => p.payload.get("title").and_then(|t| t.as_str()).map(|t| t.trim().to_string()),
+        ("reorder" | "retire", "story", Some(id)) => conn
+            .query_row("SELECT key || ' ' || title FROM stories WHERE id = ?1", params![id], |r| r.get(0))
+            .optional()
+            .context("failed to read the Story a Proposal names")?,
+        ("amend", "criterion", Some(id)) => conn
+            .query_row("SELECT statement FROM acceptance_criteria WHERE id = ?1", params![id], |r| r.get(0))
+            .optional()
+            .context("failed to read the criterion a Proposal names")?,
+        ("amend", "epic", Some(id)) => {
+            let epic: Option<String> =
+                conn.query_row("SELECT title FROM epics WHERE id = ?1", params![id], |r| r.get(0)).optional()?;
+            let field = p.payload.get("field").and_then(|f| f.as_str()).unwrap_or("spec");
+            let label = crate::domain::proposal_apply::SpecField::parse(field).map(|f| f.label()).unwrap_or(field);
+            epic.map(|e| format!("{label} of {e}"))
+        }
+        _ => None,
+    };
+    Ok(named.unwrap_or_else(|| format!("{} a {}", p.verb, p.target_type)))
+}
+
+/// Close the rest of accepted Proposal `accepted`'s group (issue #165): its original if it was a
+/// duplicate, and every other duplicate of that original. Each is rejected as the developer who
+/// accepted, in the acceptance's own transaction, with the reason "duplicate of <title>", and points
+/// at the Proposal accepted, which is the group's original from now on.
+fn close_duplicates_in_tx(tx: &Transaction, actor_id: &str, accepted: &Proposal, now: &str) -> anyhow::Result<()> {
+    let head = accepted.duplicate_of.as_deref().unwrap_or(&accepted.id);
+    if accepted.duplicate_of.is_some() {
+        tx.execute("UPDATE proposals SET duplicate_of = NULL WHERE id = ?1", params![accepted.id])?;
+    }
+    let others: Vec<(String, Option<String>)> = tx
+        .prepare(
+            "SELECT id, epic_id FROM proposals WHERE state = 'pending' AND id != ?1 AND (id = ?2 OR duplicate_of = ?2) \
+             ORDER BY created_at, id",
+        )?
+        .query_map(params![accepted.id, head], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_, _>>()
+        .context("failed to read the duplicates to close")?;
+    if others.is_empty() {
+        return Ok(());
+    }
+    let reason = format!("duplicate of {}", proposal_title(tx, accepted)?);
+    for (id, epic_id) in others {
+        tx.execute(
+            "UPDATE proposals SET state = 'rejected', rejection_reason = ?1, decided_by = ?2, decided_at = ?3, duplicate_of = ?4 \
+             WHERE id = ?5",
+            params![reason, actor_id, now, accepted.id, id],
+        )
+        .context("failed to close a duplicate Proposal")?;
+        record_event(
+            tx,
+            &accepted.project_id,
+            "proposal",
+            &id,
+            EventScope { story_id: None, epic_id: epic_id.as_deref() },
+            actor_id,
+            "proposal.rejected",
+            &serde_json::json!({
+                "field": "state", "before": "pending", "after": "rejected", "reason": reason,
+                "duplicate_of": accepted.id, "label": "Closed a duplicate Proposal",
+            }),
+            now,
+        )?;
+    }
+    Ok(())
+}
+
+/// Free the pending duplicates of `original` once it is rejected or withdrawn (issue #165): the
+/// developer decides each on its own, so the oldest becomes the group's original and the rest point at
+/// it.
+fn release_duplicates_in_tx(tx: &Transaction, original: &str) -> anyhow::Result<()> {
+    let ids: Vec<String> = tx
+        .prepare("SELECT id FROM proposals WHERE duplicate_of = ?1 AND state = 'pending' ORDER BY created_at, id")?
+        .query_map(params![original], |r| r.get(0))?
+        .collect::<Result<_, _>>()
+        .context("failed to read the duplicates to free")?;
+    let Some((head, rest)) = ids.split_first() else { return Ok(()) };
+    tx.execute("UPDATE proposals SET duplicate_of = NULL WHERE id = ?1", params![head])?;
+    for id in rest {
+        tx.execute("UPDATE proposals SET duplicate_of = ?1 WHERE id = ?2", params![head, id])?;
     }
     Ok(())
 }

@@ -192,6 +192,7 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 98 | Triage drawer: Amend opens a New Story's title and description, its why kept in sight (#162) | ![](critique-2026-10/after/98-triage-drawer-amend-light.webp) | ![](critique-2026-10/after/98-triage-drawer-amend-dark.webp) |
 | 100 | Needs you: judged-on changes ranked with Review, an Amend criterion with its Check and an Amend Epic spec, each with its before and after and Accept, Edit, Reject (#163) | ![](critique-2026-10/after/100-needs-you-judged-on-light.webp) | ![](critique-2026-10/after/100-needs-you-judged-on-dark.webp) |
 | 101 | Needs you: editing an Amend criterion in place, its statement and Check command, then Accept edit (#163) | ![](critique-2026-10/after/101-needs-you-judged-on-edit-light.webp) | ![](critique-2026-10/after/101-needs-you-judged-on-edit-dark.webp) |
+| 108 | Triage drawer: a duplicate New Story names what it repeats and who filed it; accepting that one closes it (#165) | ![](critique-2026-10/after/108-triage-drawer-duplicate-light.webp) | ![](critique-2026-10/after/108-triage-drawer-duplicate-dark.webp) |
 
 ## How the screens were rendered
 

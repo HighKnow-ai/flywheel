@@ -31,7 +31,7 @@ use serde_json::{json, Value};
 
 use crate::domain::acceptance_criterion::get_criterion;
 use crate::domain::proposal::{
-    file_proposal_with_evidence, open_proposals_in_session, withdraw_proposal, NewProposal, ProposalTarget, ProposalVerb,
+    file_proposal_with_evidence, get_proposal, open_proposals_in_session, proposal_title, withdraw_proposal, NewProposal, ProposalTarget, ProposalVerb,
     OPEN_PROPOSALS_PER_SESSION,
 };
 use crate::domain::proposal_apply::{
@@ -271,6 +271,19 @@ pub fn apply_story_proposal_call(conn: &mut Connection, session_id: &str, call: 
                 Some(evidence),
             )?;
             let open = open_proposals_in_session(conn, session_id)?;
+            // Issue #165: a duplicate is told at once what it repeats; it holds no slot.
+            let original = filed.duplicate_of.as_deref().map(|id| get_proposal(conn, id)).transpose()?.flatten();
+            let (duplicate_of, flagged) = match &original {
+                Some(o) => {
+                    let title = proposal_title(conn, o)?;
+                    let line = format!(
+                        " It repeats \"{title}\", already pending, so it is flagged a duplicate and holds no slot: accepting \
+                         that one closes yours."
+                    );
+                    (json!({ "proposal_id": o.id, "title": title }), line)
+                }
+                None => (Value::Null, String::new()),
+            };
             Ok(StoryProposalOutcome {
                 result: json!({
                     "proposal_id": filed.id,
@@ -278,10 +291,11 @@ pub fn apply_story_proposal_call(conn: &mut Connection, session_id: &str, call: 
                     "state": "pending",
                     "open": open,
                     "cap": OPEN_PROPOSALS_PER_SESSION,
+                    "duplicate_of": duplicate_of,
                     "next": format!(
-                        "Filed. {} Nothing changes until they accept it. You hold {open} of {OPEN_PROPOSALS_PER_SESSION} open \
+                        "Filed.{flagged} {} Nothing changes until they accept it. You hold {open} of {OPEN_PROPOSALS_PER_SESSION} open \
                          Proposals; withdraw one with proposal_withdraw to free a slot. Keep working on your Story: do not \
-                         wait for the decision.",
+                         wait for the decision. Each decision reaches your next session's packet.",
                         where_it_waits(proposal)
                     ),
                 }),

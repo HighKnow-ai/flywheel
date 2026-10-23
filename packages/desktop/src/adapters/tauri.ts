@@ -812,6 +812,8 @@ export interface ProposalDto {
   roundId: string | null;
   /** The agent's evidence line beside its why (issue #160); null for a shaping session's. */
   evidence?: string | null;
+  /** The pending Proposal this one repeats (issue #165); null for an original. */
+  duplicateOf?: string | null;
 }
 
 /** A project's pending Proposals, oldest first. Read-only. */
@@ -836,6 +838,9 @@ export interface TriageProposalDto {
   targetTitle: string | null;
   /** A Reorder's places: the key of the Story it sits after now and would sit after; null is the top. */
   reorder: { nowAfter: string | null; proposedAfter: string | null } | null;
+  /** What a duplicate repeats (issue #165): the Proposal, what it names, and the Story that filed it; null for an
+   * original. Accepting that one closes this one. */
+  duplicate?: { proposalId: string; title: string; storyKey: string | null } | null;
 }
 
 /** The project's Proposals awaiting triage, in the drawer's order: by Epic in Roadmap order, then the New Epics;

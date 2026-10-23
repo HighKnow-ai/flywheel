@@ -33,6 +33,8 @@ pub struct ProposalDto {
     pub round_id: Option<String>,
     /// The agent's evidence line, beside its why (issue #160); `None` for a shaping session's.
     pub evidence: Option<String>,
+    /// The pending Proposal this one repeats (issue #165), when it is a duplicate.
+    pub duplicate_of: Option<String>,
 }
 
 impl From<flywheel_core::domain::proposal::Proposal> for ProposalDto {
@@ -53,6 +55,7 @@ impl From<flywheel_core::domain::proposal::Proposal> for ProposalDto {
             stage_id: p.stage_id,
             round_id: p.round_id,
             evidence: p.evidence,
+            duplicate_of: p.duplicate_of,
         }
     }
 }
@@ -84,6 +87,17 @@ pub struct TriageProposalDto {
     pub target_key: Option<String>,
     pub target_title: Option<String>,
     pub reorder: Option<ReorderPlacesDto>,
+    /// What a duplicate repeats (issue #165); `None` for an original.
+    pub duplicate: Option<DuplicateOfDto>,
+}
+
+/// The Proposal a duplicate repeats (issue #165): its id, what it names, and the Story that filed it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateOfDto {
+    pub proposal_id: String,
+    pub title: String,
+    pub story_key: Option<String>,
 }
 
 /// The project's Proposals awaiting triage, in the drawer's order (issue #162): grouped by the Epic
@@ -105,6 +119,7 @@ pub fn proposal_list_for_triage(state: State<AppState>, project_id: String) -> R
             target_key: t.target_key,
             target_title: t.target_title,
             reorder: t.reorder.map(|r| ReorderPlacesDto { now_after: r.now_after, proposed_after: r.proposed_after }),
+            duplicate: t.duplicate.map(|d| DuplicateOfDto { proposal_id: d.proposal_id, title: d.title, story_key: d.story_key }),
         })
         .collect())
 }

@@ -740,8 +740,30 @@ function triageProposal(
   };
 }
 
+/** Issue #165: one more New Story on FLY-1 that repeats tp-1, flagged as its duplicate. Off by default. */
+let duplicateOn = false;
+export function setTriageDuplicateInFixture(on: boolean): void {
+  duplicateOn = on;
+}
+
 function triageList(): TriageProposalDto[] {
   if (!triageOn) return [];
+  const duplicate = duplicateOn
+    ? [
+        triageProposal("tp-5", 12, "create", "story", "e-97",
+          { title: "Keyboard shortcuts for the roster's row actions", description: "Row actions from the keyboard." },
+          "Resuming a Stopped Story took four clicks and no key.",
+          "src/board/StoryBoard.tsx:640 Resume is a click target only", "s-6",
+          { duplicate: { proposalId: "tp-1", title: "Keyboard shortcuts for the roster's row actions", storyKey: (storyById("s-4") as StoryDto).key } }),
+      ]
+    : [];
+  return [
+    ...triageListBase(),
+    ...duplicate,
+  ].sort((a, b) => Number(a.proposal.epicId === null) - Number(b.proposal.epicId === null));
+}
+
+function triageListBase(): TriageProposalDto[] {
   return [
     triageProposal("tp-1", 95, "create", "story", "e-97",
       { title: "Keyboard shortcuts for the roster's row actions", description: "Start, Resume and Open session reachable from the keyboard on a focused row, with the keys shown in their tooltips." },

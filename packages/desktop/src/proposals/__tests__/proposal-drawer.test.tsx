@@ -222,6 +222,38 @@ describe("Proposals in Needs you and the triage drawer", () => {
     await waitFor(() => expect(document.activeElement?.textContent).toBe("FLY-BEpic B1"));
   });
 
+  // Issue #165: a duplicate waits in the drawer, flagged with what it repeats; accepting the original closes it.
+  it("a duplicate's card says what it repeats, and accepting the original takes both off the drawer", async () => {
+    pending = [
+      ...seed(),
+      card("p-dup", "create", "story", "A", { title: "empty-line recovery", rank: null }, ["FLY-5", "Lexer"], {
+        duplicate: { proposalId: "p-new", title: "Empty-line recovery", storyKey: "FLY-2" },
+      }),
+    ];
+    // As the core does: accepting the original rejects its duplicates in the same transaction.
+    proposalAccept.mockImplementation((id: string) => {
+      pending = pending.filter((t) => t.proposal.id !== id && t.duplicate?.proposalId !== id);
+      return Promise.resolve();
+    });
+    renderBoardBits();
+    fireEvent.click(await screen.findByRole("button", { name: "Triage 5 Proposals" }));
+    const drawer = await screen.findByRole("dialog", { name: /Triage Proposals/ });
+    await within(drawer).findByText("empty-line recovery");
+
+    const dup = cardOf("p-dup");
+    expect(dup.dataset.duplicate).toBe("p-new");
+    const flag = within(dup).getByText(/^Duplicate of/).closest("[data-duplicate-of]") as HTMLElement;
+    expect(flag).toHaveTextContent("Duplicate of “Empty-line recovery”, filed by FLY-2. Accepting that one closes this one.");
+    expect(cardOf("p-new").querySelector("[data-duplicate-of]")).toBeNull();
+    expect(within(cardOf("p-new")).queryByText(/Duplicate of/)).toBeNull();
+
+    fireEvent.click(within(cardOf("p-new")).getByRole("button", { name: "Accept New Story “Empty-line recovery”" }));
+    await waitFor(() => expect(proposalAccept).toHaveBeenCalledWith("p-new"));
+    await waitFor(() => expect(drawer.querySelector('[data-proposal-card="p-dup"]')).toBeNull());
+    expect(drawer.querySelector('[data-proposal-card="p-new"]')).toBeNull();
+    expect(within(drawer).getByRole("status")).toHaveTextContent("Decided. 3 Proposals left to triage.");
+  });
+
   it("an Epic with no pending Proposal carries no marker", () => {
     renderBoardBits(<ProposalsMarker projectId="p1" epic={{ id: "C", title: "Epic C" }} count={0} />);
     expect(screen.queryByRole("button", { name: /Proposals? on Epic C/ })).toBeNull();
