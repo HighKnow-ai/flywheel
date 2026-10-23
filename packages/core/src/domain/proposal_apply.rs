@@ -977,17 +977,14 @@ pub fn is_amend_criterion(verb: ProposalVerb, target: ProposalTarget) -> bool {
     verb == ProposalVerb::Amend && target == ProposalTarget::Criterion
 }
 
-/// Whether `proposal` changes what a Story is judged on (docs/mvp-spec.md §5, issue #163): an amend to
-/// a criterion, or an amend to an Epic's spec filed by a Story session. Shaping files Epic spec changes
-/// in a Round, where they are decided. Needs you lists each judged-on Proposal as its own item, ranked
-/// with Review, and leaves it out of the Proposals row. Mirrors `query::judged_on_proposal!`.
+/// Whether `proposal` changes what a Story is judged on (docs/mvp-spec.md §5, issue #163): an Amend
+/// criterion or an Amend Epic spec filed by a Story session. Shaping files its changes in a Round, where
+/// they are decided. Needs you lists each judged-on Proposal as its own item, ranked with Review, and
+/// leaves it out of the Proposals row (`query::awaits_triage!`). Mirrors `query::judged_on_proposal!`.
 pub fn is_judged_on(conn: &rusqlite::Connection, proposal: &crate::domain::proposal::Proposal) -> anyhow::Result<bool> {
     let verb = ProposalVerb::parse(&proposal.verb)?;
     let target = ProposalTarget::parse(&proposal.target_type)?;
-    if is_amend_criterion(verb, target) {
-        return Ok(true);
-    }
-    if !is_spec_change(verb, target) || proposal.stage_id.is_some() {
+    if !(is_amend_criterion(verb, target) || is_spec_change(verb, target)) || proposal.stage_id.is_some() {
         return Ok(false);
     }
     let Some(session_id) = &proposal.session_id else { return Ok(false) };

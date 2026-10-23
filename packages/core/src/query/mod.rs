@@ -19,16 +19,33 @@ macro_rules! round_waiting_on_you {
 }
 pub(crate) use round_waiting_on_you;
 
+/// A judged-on change (docs/mvp-spec.md §5, issue #163), as a literal SQL predicate over a `proposals`
+/// row aliased `p`: an Amend criterion or an Amend Epic spec filed by a Story session (so in no shaping
+/// Stage; shaping decides its spec changes in its Round). It changes what a Story is judged on, so it is
+/// its own Needs-you item, never in the Proposals row. Mirrored by `domain::proposal_apply::is_judged_on`.
+/// Spliced with `concat!`, never `format!`.
+macro_rules! judged_on_proposal {
+    () => {
+        "(p.verb = 'amend' AND p.target_type IN ('criterion', 'epic') AND p.stage_id IS NULL \
+            AND EXISTS (SELECT 1 FROM sessions js WHERE js.id = p.session_id AND js.kind = 'story'))"
+    };
+}
+pub(crate) use judged_on_proposal;
+
 /// The one derivation of a Proposal awaiting triage (docs/mvp-spec.md §5, issue #162), as a literal
 /// SQL predicate over a `proposals` row aliased `p`: pending, filed by a Story session (so in no shaping
-/// Stage), and not a judged-on change. A judged-on change (an amended criterion, or an amended Epic spec
-/// from a Story session, issue #163) changes what a Story is judged on and is its own Needs-you item.
-/// The Needs-you Proposals row, the triage drawer and each Epic row's "n Proposals" count this one set.
+/// Stage), and not a judged-on change (`judged_on_proposal!`, issue #163), which is its own Needs-you
+/// item. The Needs-you Proposals row, the triage drawer and each Epic row's "n Proposals" count this one
+/// set.
 macro_rules! awaits_triage {
     () => {
-        "(p.state = 'pending' AND p.stage_id IS NULL \
+        concat!(
+            "(p.state = 'pending' AND p.stage_id IS NULL \
             AND EXISTS (SELECT 1 FROM sessions ps WHERE ps.id = p.session_id AND ps.kind = 'story') \
-            AND NOT (p.verb = 'amend' AND p.target_type IN ('criterion', 'epic')))"
+            AND NOT ",
+            crate::query::judged_on_proposal!(),
+            ")"
+        )
     };
 }
 pub(crate) use awaits_triage;
