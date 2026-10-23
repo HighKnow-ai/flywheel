@@ -620,6 +620,10 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
       await screen.findByRole("group", { name: /^Proposed: New Milestone "Relay and mobile"/ });
       await roadmapStrip();
       await shot("49-roadmap-ghost-rows-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
 
   it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {
     slicingShaping();
