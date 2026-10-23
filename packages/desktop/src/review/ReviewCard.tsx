@@ -14,9 +14,9 @@
  * Every write is a core command; the card re-reads on `board:changed` and never trusts its own edit. A
  * refused Merge shows the core's reason as written.
  */
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileDiff, GitMerge, GitPullRequest, ListTodo, SquareTerminal } from "lucide-react";
+import { Check, CircleDashed, FileDiff, GitMerge, GitPullRequest, ListTodo, SquareTerminal } from "lucide-react";
 import {
   criterionAccept,
   criterionUnaccept,
@@ -93,6 +93,24 @@ function CheckCommand({ command }: { command: string }) {
   );
 }
 
+/** A run's output tail, scrolled to its end: the failure summary is at the bottom of what a Check prints. */
+function OutputTail({ text }: { text: string }) {
+  const ref = useRef<HTMLPreElement>(null);
+  useLayoutEffect(() => {
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [text]);
+  return (
+    <pre
+      ref={ref}
+      tabIndex={0}
+      aria-label="Output tail"
+      className="m-0 max-h-40 overflow-auto rounded-sm bg-card px-2.5 py-2 font-mono text-meta whitespace-pre-wrap text-foreground"
+    >
+      {text}
+    </pre>
+  );
+}
+
 /** The Checks that have not passed at the branch's head, first on the card, each with its output tail. */
 function FailingChecks({ checks }: { checks: ReviewCheckDto[] }) {
   const label = `${plural(checks.length, "Check")} not passing`;
@@ -106,11 +124,7 @@ function FailingChecks({ checks }: { checks: ReviewCheckDto[] }) {
               <ReviewCheckChip check={check} />
               <CheckCommand command={check.command} />
             </span>
-            {check.outputTail && check.outputTail.trim() !== "" && (
-              <pre className="m-0 max-h-40 overflow-auto rounded-sm border border-border bg-card px-2.5 py-2 font-mono text-meta whitespace-pre-wrap text-foreground">
-                {check.outputTail.trimEnd()}
-              </pre>
-            )}
+            {check.outputTail && check.outputTail.trim() !== "" && <OutputTail text={check.outputTail.trimEnd()} />}
             {!check.outputTail && check.result === "not_run" && (
               <span className="text-meta text-muted-foreground">Not run since the Check was last edited.</span>
             )}
@@ -152,14 +166,21 @@ function CriterionRow({
   return (
     <li className="flex min-w-0 flex-col gap-1.5 border-t border-border py-3 first:border-t-0 first:pt-0">
       <div className="flex min-w-0 items-start gap-3">
-        <Checkbox
-          id={id}
-          checked={criterion.accepted}
-          disabled={busy}
-          aria-describedby={suggested ? `${id}-hint` : undefined}
-          onCheckedChange={(value) => toggle(value === true)}
-          className={cn("mt-0.5", suggested && "border-dashed border-primary")}
-        />
+        {/* A pre-tick is a ghost tick: the dashed primary edge on the running tint ("not yet on the record"),
+            the tick in running ink. The box stays unchecked until the developer ticks it. */}
+        <span className="relative mt-0.5 flex shrink-0">
+          <Checkbox
+            id={id}
+            checked={criterion.accepted}
+            disabled={busy}
+            aria-describedby={suggested ? `${id}-hint` : undefined}
+            onCheckedChange={(value) => toggle(value === true)}
+            className={cn(suggested && "border-dashed border-primary bg-running-muted")}
+          />
+          {suggested && (
+            <Check aria-hidden="true" className="pointer-events-none absolute inset-0 m-auto size-3.5 text-running" />
+          )}
+        </span>
         <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer text-body font-semibold break-words">
           {criterion.statement}
         </label>
@@ -175,8 +196,9 @@ function CriterionRow({
         )}
       </div>
       {suggested && (
-        <p id={`${id}-hint`} className="m-0 pl-7 text-meta text-running">
-          Check passed at this commit: tick to accept.
+        <p id={`${id}-hint`} className="m-0 flex items-center gap-1.5 pl-7 text-meta text-running">
+          <CircleDashed aria-hidden="true" className="size-3.5 shrink-0" />
+          Suggested · Check passed at this commit: tick to accept.
         </p>
       )}
       {error && (
@@ -286,7 +308,7 @@ function MergeControl({
           )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Not yet</AlertDialogCancel>
-            <Button onClick={() => merge(true)} disabled={busy}>
+            <Button variant="destructive" onClick={() => merge(true)} disabled={busy}>
               <GitMerge aria-hidden="true" />
               {busy ? "Merging…" : `Merge with ${plural(failing.length, "failing Check")}`}
             </Button>

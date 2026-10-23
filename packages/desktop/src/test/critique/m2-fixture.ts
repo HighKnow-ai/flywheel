@@ -718,6 +718,21 @@ function reviewCheck(id: string, criterionId: string, command: string, result: s
   return { checkId: id, criterionId, command, result, stale: false, commitSha: "9f3c2ab", outputTail };
 }
 
+/** A realistic Check tail: long, with its failure summary at the end. */
+const CONTRAST_TAIL = [
+  "> desktop@0.1.0 test",
+  "> vitest run contrast",
+  "",
+  " RUN  v5.0.0 packages/desktop",
+  "",
+  ...Array.from({ length: 48 }, (_, i) => ` ✓ src/theme/__tests__/contrast.test.ts > light > role ${i + 1} meets its floor`),
+  " × src/theme/__tests__/contrast.test.ts > dark > subtle-foreground on card",
+  "   → expected 4.31 to be greater than or equal to 4.5",
+  "",
+  " Test Files  1 failed (1)",
+  "      Tests  1 failed | 48 passed (49)",
+].join("\n");
+
 function reviewOf(storyId: string): StoryReviewDto {
   const ready = reviewMode === "ready";
   const accepted = reviewMode !== "judging";
@@ -729,7 +744,7 @@ function reviewOf(storyId: string): StoryReviewDto {
         "c-3b",
         "npm test -- contrast",
         "failed",
-        " FAIL  src/theme/__tests__/contrast.test.ts > dark > subtle-foreground on card\n   expected 4.31 to be greater than or equal to 4.5\n\n Test Files  1 failed | 37 passed (38)\n      Tests  1 failed | 912 passed (913)",
+        CONTRAST_TAIL,
       );
   return {
     storyId,

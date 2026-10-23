@@ -825,6 +825,12 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await shot("72-review-card-ready");
   });
 
+  it("73 board: an In review Story's row offers Open review (issue #155)", async () => {
+    await boardReady();
+    (await screen.findByRole("button", { name: "Open review of FLY-3" })).scrollIntoView({ block: "center" });
+    await shot("73-board-open-review");
+  });
+
   it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {
     slicingShaping();
     await boardReady();
