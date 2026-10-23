@@ -427,17 +427,20 @@ export interface EpicShapingDto {
 
 /** One thing that keeps a Stage open — mirrors `commands/shaping.rs`'s `OpenItemDto`. */
 export interface OpenItemDto {
-  /** `question` or `proposal`. */
+  /** `question`, `proposal`, `story_without_criterion` (issue #128: a Story still in Shaping with no criterion) or
+   * `no_story` (issue #128: the Epic has no Story to make Ready). */
   kind: string;
-  /** The question's or the Proposal's id. */
+  /** The question's, the Proposal's or the Story's id; empty for `no_story`. */
   id: string;
   /** The item in words: "Question 2 of Round 1 is unanswered: Audience". */
   label: string;
-  /** A question's Round and number; `null` for a Proposal. */
+  /** A question's Round and number; `null` otherwise. */
   round: number | null;
   number: number | null;
-  /** A question's title, or what a Proposal would do ("change the Problem"). */
+  /** A question's title, what a Proposal would do ("change the Problem"), or the Story's title. */
   title: string;
+  /** The Story's key, for `story_without_criterion`. Optional for older fixtures. */
+  storyKey?: string | null;
 }
 
 /** What is still open in a Stage — mirrors `commands/shaping.rs`'s `StageStatusDto`. */
@@ -449,6 +452,9 @@ export interface StageStatusDto {
   warnings: string[];
   /** The Stage closing this one opens, or `null` for the last Stage. */
   next: string | null;
+  /** Whether closing this Stage makes its record Ready instead: an Epic's Criteria with its Stories (issue #128), a
+   * Milestone's Exit test (issue #132). Optional for older fixtures. */
+  makesReady?: boolean;
   closable: boolean;
 }
 
@@ -458,6 +464,8 @@ export interface StageCloseDto {
   /** The Stage the close opened; `null` when the closed Stage was its record's last and made it Ready (a
    * Milestone's Exit test, issue #132). */
   opened: StageDto | null;
+  /** The Stories closing an Epic's Criteria Stage made Ready, by id (issue #128). Optional for older fixtures. */
+  madeReady?: string[];
   /** The next Stage's shaping session, or `null` when it could not start (`launchError` says why). */
   session: ShapingSessionDto | null;
   launchError: string | null;
