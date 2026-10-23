@@ -1,16 +1,18 @@
 /**
- * The review card (docs/mvp-spec.md §8, issue #155): what the developer judges an In review Story on, in
- * the spec's order, and the Merge that ends it.
+ * The review card (docs/mvp-spec.md §8, issues #155 and #157): what the developer judges an In review Story
+ * on, in the spec's order, and the Merge that ends it. The header carries Re-run Checks (`story_checks_rerun`).
  *
- * 1. Failing Checks first: every Check that has not passed at the branch's head (failed, timed out, not
- *    run, stale), with its output tail.
+ * 1. Failing Checks first: every Check that has not passed at the branch's head (failed and timed out
+ *    before stale and not run, as the core sorts them), with its output tail and the agent's objections.
  * 2. Every Acceptance criterion with its Check chip and a checkbox. Ticking it is the developer's
  *    acceptance (`criterion_accept`); unticking withdraws it. A Check that passed at this commit pre-ticks
  *    its criterion only as a suggestion: the box wears the dashed "not on the record yet" edge until the
- *    developer ticks it.
+ *    developer ticks it. A passing Check's objections sit under its chip.
  * 3. The Decisions section (issue #161, `DecisionsSection.tsx`): `docs/adr/` and `GLOSSARY.md` changes apart
  *    from the code, each new ADR with its bar lines, its related live ADRs and Keep.
- * 4. The footer: what still holds Merge, then Request changes and Merge (the region's one filled primary),
+ * 4. The warnings: "n Tasks not done" (open or doing).
+ * 5. The changed files, each with its patch (`ReviewFiles`).
+ * 6. The footer: what still holds Merge, then Request changes and Merge (the region's one filled primary),
  *    or, while a Check is failing, "Merge with failing Check", which confirms in an AlertDialog naming those
  *    Checks. Request changes (issue #158) opens a composer in the footer itself: the comments, one review
  *    point per line, and "Send back to Running", which then takes the filled primary in Merge's place.
@@ -32,24 +34,31 @@ import {
   GitMergeConflict,
   GitPullRequest,
   ListTodo,
+  LoaderCircle,
   MessageSquareReply,
+  MessageSquareWarning,
+  RefreshCw,
   SquareTerminal,
   Undo2,
 } from "lucide-react";
 import {
   criterionAccept,
   criterionUnaccept,
+  storyChecksRerun,
   storyMerge,
   storyRequestChanges,
   storyReview,
+  type ChecksRerunDto,
   type MergeDto,
   type ReviewCheckDto,
   type ReviewCriterionDto,
+  type ReviewObjectionDto,
   type StoryDto,
   type StoryReviewDto,
 } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
 import { DecisionsSection } from "./DecisionsSection";
+import { ReviewFiles } from "./ReviewFiles";
 import { useUiStore } from "../state/uiStore";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -136,6 +145,34 @@ function OutputTail({ text }: { text: string }) {
   );
 }
 
+/**
+ * The handing-off agent's objections to one Check, beside it: what the developer weighs before overriding
+ * or editing the Check. When the agent objected to an earlier command, that command is named.
+ */
+function CheckObjections({ check, className }: { check: ReviewCheckDto; className?: string }) {
+  if (check.objections.length === 0) return null;
+  return (
+    <ul aria-label={`Agent's objections to ${check.command}`} className={cn("m-0 flex list-none flex-col gap-1.5 p-0", className)}>
+      {check.objections.map((objection: ReviewObjectionDto, index) => (
+        <li key={index} className="flex min-w-0 items-start gap-1.5 text-small">
+          <MessageSquareWarning aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 break-words">
+            <span className="font-semibold">Agent objects: </span>
+            <span>{objection.why}</span>
+            {objection.command !== check.command && (
+              <span className="text-meta text-muted-foreground">
+                {" (to "}
+                <code className="font-mono">{objection.command}</code>
+                {", since edited)"}
+              </span>
+            )}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** The Checks that have not passed at the branch's head, first on the card, each with its output tail. */
 function FailingChecks({ checks }: { checks: ReviewCheckDto[] }) {
   const label = `${plural(checks.length, "Check")} not passing`;
@@ -153,6 +190,7 @@ function FailingChecks({ checks }: { checks: ReviewCheckDto[] }) {
             {!check.outputTail && check.result === "not_run" && (
               <span className="text-meta text-muted-foreground">Not run since the Check was last edited.</span>
             )}
+            <CheckObjections check={check} />
           </li>
         ))}
       </ul>
@@ -315,10 +353,13 @@ function CriterionRow({
   projectId,
   storyId,
   criterion,
+  objectionsShownAbove,
 }: {
   projectId: string;
   storyId: string;
   criterion: ReviewCriterionDto;
+  /** Its Check is in the failing panel, which already shows the agent's objections to it. */
+  objectionsShownAbove: boolean;
 }) {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
@@ -371,6 +412,7 @@ function CriterionRow({
           <StateBadge state="judged_at_review" label="Judged at review" className="h-5.5 text-meta" />
         )}
       </div>
+      {criterion.check && !objectionsShownAbove && <CheckObjections check={criterion.check} className="pl-7" />}
       {suggested && (
         <p id={`${id}-hint`} className="m-0 flex items-center gap-1.5 pl-7 text-meta text-running">
           <CircleDashed aria-hidden="true" className="size-3.5 shrink-0" />
@@ -495,6 +537,64 @@ function MergeControl({
   );
 }
 
+/** What a Re-run Checks recorded, in one line. */
+export function rerunSummary(run: ChecksRerunDto): string {
+  const total = run.passed + run.failed + run.timedOut;
+  const parts = [`${run.passed} passed`, `${run.failed} failed`];
+  if (run.timedOut > 0) parts.push(`${run.timedOut} timed out`);
+  return `Ran ${plural(total, "Check")} at ${run.commitSha.slice(0, 7)}: ${parts.join(", ")}.`;
+}
+
+/**
+ * Re-run Checks: every Check runs again in the worktree with no session, each run recorded against the
+ * branch's head. A run takes minutes, so the control says it is running; the card re-reads on
+ * `board:changed`. Held while a session is live (the core refuses it too), and a refusal is shown as written.
+ */
+function RerunChecksControl({ projectId, story, review }: { projectId: string; story: StoryDto; review: StoryReviewDto }) {
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [last, setLast] = useState<ChecksRerunDto | null>(null);
+  const held = review.liveSession;
+
+  function rerun() {
+    if (busy || held) return;
+    setBusy(true);
+    setError(null);
+    storyChecksRerun(story.id)
+      .then((run) => {
+        setLast(run);
+        void queryClient.invalidateQueries({ queryKey: reviewQueryKey(projectId, story.id) });
+      })
+      .catch((err: unknown) => setError(errorText(err)))
+      .finally(() => setBusy(false));
+  }
+
+  return (
+    <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-1">
+      <span aria-live="polite" className="text-meta text-muted-foreground tabular-nums">
+        {busy ? "Running every Check in the worktree…" : last ? rerunSummary(last) : ""}
+      </span>
+      <Button
+        variant="outline"
+        size="sm"
+        aria-disabled={held || busy ? "true" : undefined}
+        aria-describedby={held ? "review-merge-blockers" : undefined}
+        onClick={rerun}
+        className={cn(held && "opacity-50")}
+      >
+        {busy ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : <RefreshCw aria-hidden="true" />}
+        Re-run Checks
+      </Button>
+      {error && (
+        <p role="alert" className="m-0 basis-full text-right text-small text-destructive-text">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export interface ReviewCardProps {
   projectId: string;
   story: StoryDto;
@@ -515,6 +615,8 @@ export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
     setComposing(null);
     requestAnimationFrame(() => requestButton.current?.focus());
   }
+  const hasChecks = review?.criteria.some((c) => c.check !== null) ?? false;
+  const failingIds = new Set(review?.failingChecks.map((k) => k.checkId) ?? []);
 
   return (
     <section aria-labelledby="review-heading" className="flex flex-col rounded-lg border border-border bg-card shadow-card">
@@ -533,12 +635,7 @@ export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
             {`${plural(diff.files, "file")} · +${diff.added} −${diff.removed}`}
           </span>
         )}
-        {review && review.openTasks > 0 && (
-          <span className="inline-flex items-center gap-1.5 text-small font-semibold tabular-nums">
-            <ListTodo aria-hidden="true" size={16} />
-            {`${plural(review.openTasks, "Task")} not done`}
-          </span>
-        )}
+        {review && hasChecks && <RerunChecksControl projectId={projectId} story={story} review={review} />}
       </header>
       <div className="flex flex-col gap-4 px-4 pb-4">
         {reviewQuery.isError && <p className="m-0 text-small text-destructive-text">{errorText(reviewQuery.error)}</p>}
@@ -553,9 +650,29 @@ export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
         {review && (
           <ol aria-label={`${story.key} criteria to accept`} className="m-0 list-none p-0 empty:hidden">
             {review.criteria.map((criterion) => (
-              <CriterionRow key={criterion.id} projectId={projectId} storyId={story.id} criterion={criterion} />
+              <CriterionRow
+                key={criterion.id}
+                projectId={projectId}
+                storyId={story.id}
+                criterion={criterion}
+                objectionsShownAbove={failingIds.has(criterion.check?.checkId ?? "")}
+              />
             ))}
           </ol>
+        )}
+        {review && review.openTasks > 0 && (
+          <section aria-label="Warnings" className="flex flex-col gap-1 border-t border-border pt-3">
+            <p className="m-0 flex items-center gap-1.5 text-small font-semibold tabular-nums">
+              <ListTodo aria-hidden="true" className="size-4 shrink-0" />
+              {`${plural(review.openTasks, "Task")} not done`}
+            </p>
+            <p className="m-0 pl-5.5 text-meta text-muted-foreground">
+              Open or doing on the checklist. They do not hold Merge; read the checklist before you accept.
+            </p>
+          </section>
+        )}
+        {review && review.files.length > 0 && (
+          <ReviewFiles projectId={projectId} storyId={story.id} headSha={review.headSha} files={review.files} />
         )}
       </div>
       {review && composing !== null && (

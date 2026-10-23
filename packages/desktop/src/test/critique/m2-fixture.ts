@@ -35,6 +35,7 @@ import type {
   WaitingRoundDto,
   ReviewCheckDto,
   DecisionChangeDto,
+  ReviewFileDto,
   StoryReviewDto,
 } from "../../adapters/tauri";
 import type { Project } from "../../board/useBoardQuery";
@@ -902,8 +903,54 @@ function reviewConflicts(): string[] {
 }
 
 function reviewCheck(id: string, criterionId: string, command: string, result: string, outputTail: string | null = null): ReviewCheckDto {
-  return { checkId: id, criterionId, command, result, stale: false, commitSha: "9f3c2ab", outputTail };
+  return { checkId: id, criterionId, command, result, stale: false, commitSha: "9f3c2ab", outputTail, objections: [] };
 }
+
+/** FLY-3's changed files (issue #157): the first two with real patches, the rest folded under the count. */
+const REVIEW_FILES: ReviewFileDto[] = [
+  { path: "docs/design/direction.md", oldPath: null, status: "M", added: 6, removed: 2, binary: false },
+  { path: "packages/desktop/src/theme/tokens.ts", oldPath: null, status: "M", added: 3, removed: 1, binary: false },
+  { path: "docs/design/directions/andon.png", oldPath: null, status: "A", added: null, removed: null, binary: true },
+];
+
+const REVIEW_PATCHES: Record<string, string> = {
+  "docs/design/direction.md": [
+    "diff --git a/docs/design/direction.md b/docs/design/direction.md",
+    "index 3b1c0de..9f3c2ab 100644",
+    "--- a/docs/design/direction.md",
+    "+++ b/docs/design/direction.md",
+    "@@ -12,8 +12,12 @@ Three directions were rendered over the M3 backlog, light and dark.",
+    " ## The pick",
+    " ",
+    "-Undecided: the three directions are rendered and waiting on Cyril.",
+    "-The critique screens are in docs/design/critique-2026-10/.",
+    "+**The Andon.** A neutral grey floor carries white cards; a graphite strip is the line's",
+    "+hardware; one loud colour, safety yellow, means a person is needed.",
+    "+",
+    "+Two changes to the rendered direction:",
+    "+1. the brand blue is spent on an agent at work and on your next action, not only on progress;",
+    "+2. subtle text is lifted on dark until it clears 4.5:1 on the card.",
+    " ",
+    " ## Tokens",
+    " ",
+    "",
+  ].join("\n"),
+  "packages/desktop/src/theme/tokens.ts": [
+    "diff --git a/packages/desktop/src/theme/tokens.ts b/packages/desktop/src/theme/tokens.ts",
+    "index 41d07e2..9f3c2ab 100644",
+    "--- a/packages/desktop/src/theme/tokens.ts",
+    "+++ b/packages/desktop/src/theme/tokens.ts",
+    "@@ -58,7 +58,9 @@ export const DARK: Palette = {",
+    "   accentForeground: \"#eceef1\",",
+    "   border: \"#2c2f36\",",
+    "-  subtleForeground: \"#6f7580\",",
+    "+  // Lifted from #6f7580 (3.6:1 on the card) to clear 4.5:1.",
+    "+  subtleForeground: \"#80868f\",",
+    "+  input: \"#6e7480\",",
+    "   ring: \"#8ea8ff\",",
+    "",
+  ].join("\n"),
+};
 
 /** A realistic Check tail: long, with its failure summary at the end. */
 const CONTRAST_TAIL = [
@@ -927,13 +974,15 @@ function reviewOf(storyId: string): StoryReviewDto {
   const renders = reviewCheck("k-3a", "c-3a", "test -f docs/design/directions/andon.html", "passed");
   const contrast = ready
     ? reviewCheck("k-3b", "c-3b", "npm test -- contrast", "passed")
-    : reviewCheck(
-        "k-3b",
-        "c-3b",
-        "npm test -- contrast",
-        "failed",
-        CONTRAST_TAIL,
-      );
+    : {
+        ...reviewCheck("k-3b", "c-3b", "npm test -- contrast", "failed", CONTRAST_TAIL),
+        objections: [
+          {
+            why: "subtle-foreground is never drawn on the dark card, only on the floor, where it measures 4.6:1; the Check tests a pair the app does not use.",
+            command: "npm test -- contrast",
+          },
+        ],
+      };
   return {
     storyId,
     storyKey: "FLY-3",
@@ -941,14 +990,14 @@ function reviewOf(storyId: string): StoryReviewDto {
     headSha: "9f3c2ab",
     review: {
       id: "r-3", openedAt: ago(3000), baseSha: "41d07e2", headSha: "9f3c2ab",
-      files: 14, added: 1286, removed: 212, openTasks: 0, checkObjections: [], adrNotes: [],
+      files: 3, added: 9, removed: 3, openTasks: 1, checkObjections: [], adrNotes: [],
     },
     criteria: [
       { id: "c-3a", statement: "Each of the three directions is rendered from code over the M3 backlog, light and dark", accepted, acceptedAt: accepted ? ago(60) : null, preTicked: true, check: renders },
       { id: "c-3b", statement: "Every text role measures at least 4.5:1 in both schemes", accepted: true, acceptedAt: ago(120), preTicked: ready, check: contrast },
       { id: "c-3c", statement: "The pick and its two changes are recorded in direction.md", accepted, acceptedAt: accepted ? ago(30) : null, preTicked: false, check: null },
     ],
-    openTasks: 0,
+    openTasks: ready ? 0 : 1,
     failingChecks: ready ? [] : [contrast],
     liveSession: false,
     uncommitted: [],
@@ -957,6 +1006,7 @@ function reviewOf(storyId: string): StoryReviewDto {
     rebaseComment: conflicts.length
       ? `Rebase needed: merging into main would conflict in ${conflicts.join(", ")}. Rebase this branch on main, resolve those conflicts, and re-run the Checks before handing off.`
       : null,
+    files: REVIEW_FILES,
   };
 }
 
@@ -1070,6 +1120,8 @@ export function answer(cmd: string, args: Args): unknown {
     case "proposal_list_for_triage": return arg(args, "projectId") === "p-fly" ? triageList() : [];
     case "criterion_list": return CRITERIA[arg(args, "storyId")] ?? [];
     case "story_review": return reviewOf(arg(args, "storyId"));
+    case "review_file_patch": return { patch: REVIEW_PATCHES[arg(args, "path")] ?? "", tooLarge: false };
+    case "story_checks_rerun": return { commitSha: "9f3c2ab", passed: 1, failed: 1, timedOut: 0 };
     case "epic_shaping_session": return arg(args, "epicId") === "e-59" && shapingSessionLive ? "ses-shape-8" : null;
     case "epic_shaping_rounds": return shapingOf(arg(args, "epicId"));
     case "roadmap_round_read": return arg(args, "projectId") === "p-fly" ? roadmapView() : { open: null, proposals: [], last: null };

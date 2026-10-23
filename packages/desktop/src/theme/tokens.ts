@@ -71,6 +71,10 @@ export interface Palette {
   stripMutedForeground: string;
   /** An unlit lamp. */
   lamp: string;
+  /** The ground of a line a diff adds, on the review card. Nothing else. */
+  diffInsert: string;
+  /** The ground of a line a diff removes, on the review card. Nothing else. */
+  diffDelete: string;
   /** Stacked bar: Merged · In review · Running · Ready. */
   chart1: string;
   chart2: string;
@@ -117,6 +121,8 @@ export const LIGHT: Palette = {
   stripForeground: "#f2f3f5",
   stripMutedForeground: "#a4a9b3",
   lamp: "#25282f",
+  diffInsert: "#e3f4e7",
+  diffDelete: "#fce6e4",
   chart1: "#111318",
   chart2: "#7d838f",
   chart3: "#3c64dd",
@@ -162,6 +168,8 @@ export const DARK: Palette = {
   stripForeground: "#f2f3f5",
   stripMutedForeground: "#9aa0aa",
   lamp: "#1a1c20",
+  diffInsert: "#142a1b",
+  diffDelete: "#351816",
   chart1: "#eceef1",
   chart2: "#7d838f",
   chart3: "#3c64dd",

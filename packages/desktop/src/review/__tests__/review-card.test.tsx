@@ -18,6 +18,8 @@ const storyMerge = vi.fn();
 const storyRequestChanges = vi.fn();
 const criterionAccept = vi.fn(() => Promise.resolve());
 const criterionUnaccept = vi.fn(() => Promise.resolve());
+const reviewFilePatch = vi.fn();
+const storyChecksRerun = vi.fn();
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -28,6 +30,8 @@ vi.mock("../../adapters/tauri", async () => {
     storyRequestChanges: (...args: unknown[]) => storyRequestChanges(...args),
     criterionAccept: (...args: unknown[]) => criterionAccept(...(args as [])),
     criterionUnaccept: (...args: unknown[]) => criterionUnaccept(...(args as [])),
+    reviewFilePatch: (...args: unknown[]) => reviewFilePatch(...args),
+    storyChecksRerun: (...args: unknown[]) => storyChecksRerun(...args),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
   };
 });
@@ -46,7 +50,7 @@ const story: StoryDto = {
 };
 
 function check(command: string, result: string, stale = false, outputTail: string | null = null): ReviewCheckDto {
-  return { checkId: `k-${command}`, criterionId: `c-${command}`, command, result, stale, commitSha: "abc", outputTail };
+  return { checkId: `k-${command}`, criterionId: `c-${command}`, command, result, stale, commitSha: "abc", outputTail, objections: [] };
 }
 
 function review(overrides: Partial<StoryReviewDto> = {}): StoryReviewDto {
@@ -78,6 +82,7 @@ function review(overrides: Partial<StoryReviewDto> = {}): StoryReviewDto {
     decisions: [],
     conflicts: [],
     rebaseComment: null,
+    files: [],
     ...overrides,
   };
 }
@@ -345,6 +350,137 @@ describe("Rebase needed", () => {
     expect(screen.getByRole("textbox", { name: "What should change?" })).toHaveValue(rebaseComment);
     fireEvent.click(screen.getByRole("button", { name: "Send FLY-7 back to Running" }));
     await waitFor(() => expect(storyRequestChanges).toHaveBeenCalledWith("s1", rebaseComment));
+  });
+});
+
+const PATCH = [
+  "diff --git a/src/config.rs b/src/config.rs",
+  "index 1111111..2222222 100644",
+  "--- a/src/config.rs",
+  "+++ b/src/config.rs",
+  "@@ -1,3 +1,4 @@",
+  " fn parse() {",
+  "-    todo!()",
+  "+    let text = read();",
+  "+    toml::from_str(&text)",
+  " }",
+  "",
+].join("\n");
+
+/** The card's issue #157 shape: a failed Check with an objection, a passing Check with one, Tasks left, two files. */
+function fullReview(): StoryReviewDto {
+  const failed = {
+    ...check("npm test", "failed", false, "1 test failed: parses_empty"),
+    criterionId: "c3",
+    objections: [{ why: "parses_empty tests a case the spec rules out.", command: "npm test" }],
+  };
+  const passed = {
+    ...check("cargo test config", "passed"),
+    criterionId: "c1",
+    objections: [{ why: "It runs only the unit tests.", command: "cargo test -p config" }],
+  };
+  return review({
+    criteria: [
+      { id: "c1", statement: "The config parses.", accepted: false, acceptedAt: null, preTicked: true, check: passed },
+      { id: "c3", statement: "The tests pass.", accepted: false, acceptedAt: null, preTicked: false, check: failed },
+    ],
+    failingChecks: [failed],
+    openTasks: 2,
+    files: [
+      { path: "src/config.rs", oldPath: null, status: "M", added: 2, removed: 1, binary: false },
+      { path: "assets/logo.png", oldPath: null, status: "A", added: null, removed: null, binary: true },
+    ],
+  });
+}
+
+describe("the review card's order, objections, files and Re-run Checks (issue #157)", () => {
+  it("lays out failing Checks, then criteria, then warnings, then the changed files", async () => {
+    storyReview.mockResolvedValue(fullReview());
+    reviewFilePatch.mockResolvedValue({ patch: PATCH, tooLarge: false });
+    renderCard();
+
+    const failing = await screen.findByRole("region", { name: "1 Check not passing" });
+    const criteria = screen.getByRole("list", { name: "FLY-7 criteria to accept" });
+    const warnings = screen.getByRole("region", { name: "Warnings" });
+    const files = screen.getByRole("region", { name: "2 changed files" });
+    const follows = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(follows(failing, criteria)).toBe(true);
+    expect(follows(criteria, warnings)).toBe(true);
+    expect(follows(warnings, files)).toBe(true);
+    expect(within(warnings).getByText("2 Tasks not done")).toBeInTheDocument();
+  });
+
+  it("shows each Check objection beside its Check, naming the command the agent objected to when it changed", async () => {
+    storyReview.mockResolvedValue(fullReview());
+    reviewFilePatch.mockResolvedValue({ patch: PATCH, tooLarge: false });
+    renderCard();
+
+    const failing = await screen.findByRole("region", { name: "1 Check not passing" });
+    expect(within(failing).getByText("parses_empty tests a case the spec rules out.")).toBeInTheDocument();
+
+    const criteria = screen.getByRole("list", { name: "FLY-7 criteria to accept" });
+    const first = within(criteria).getAllByRole("listitem")[0];
+    expect(within(first).getByText("It runs only the unit tests.")).toBeInTheDocument();
+    expect(within(first).getByText("cargo test -p config")).toBeInTheDocument();
+    // A failing Check's objection is shown once, in the failing panel, not again on its criterion.
+    expect(screen.getAllByText("parses_empty tests a case the spec rules out.")).toHaveLength(1);
+  });
+
+  it("lists the changed files and renders each file's patch as a diff", async () => {
+    storyReview.mockResolvedValue(fullReview());
+    reviewFilePatch.mockResolvedValue({ patch: PATCH, tooLarge: false });
+    renderCard();
+
+    const files = await screen.findByRole("region", { name: "2 changed files" });
+    expect(within(files).getByText("src/config.rs")).toBeInTheDocument();
+    expect(within(files).getByText("assets/logo.png")).toBeInTheDocument();
+    await waitFor(() => expect(reviewFilePatch).toHaveBeenCalledWith("s1", "src/config.rs", null));
+    expect(reviewFilePatch).toHaveBeenCalledTimes(1);
+
+    const diff = await within(files).findByRole("group", { name: "Diff of src/config.rs" });
+    expect(within(diff).getByText("toml::from_str(&text)", { exact: false })).toBeInTheDocument();
+    expect(within(diff).getByText("todo!()", { exact: false })).toBeInTheDocument();
+    expect(within(files).getByText("Binary file: not shown.")).toBeInTheDocument();
+
+    fireEvent.click(within(files).getByRole("button", { name: /src\/config\.rs/ }));
+    expect(within(files).queryByRole("group", { name: "Diff of src/config.rs" })).not.toBeInTheDocument();
+  });
+
+  it("says when a file's patch is too large to show", async () => {
+    storyReview.mockResolvedValue(fullReview());
+    reviewFilePatch.mockResolvedValue({ patch: "", tooLarge: true });
+    renderCard();
+    expect(await screen.findByText(/too large to show here/)).toBeInTheDocument();
+  });
+
+  it("re-runs the Checks and says what the run recorded", async () => {
+    storyReview.mockResolvedValue(fullReview());
+    reviewFilePatch.mockResolvedValue({ patch: PATCH, tooLarge: false });
+    storyChecksRerun.mockResolvedValue({ commitSha: "9f3c2ab0d1", passed: 1, failed: 1, timedOut: 0 });
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Re-run Checks" }));
+    await waitFor(() => expect(storyChecksRerun).toHaveBeenCalledWith("s1"));
+    expect(await screen.findByText("Ran 2 Checks at 9f3c2ab: 1 passed, 1 failed.")).toBeInTheDocument();
+  });
+
+  it("holds Re-run Checks while a session is live", async () => {
+    storyReview.mockResolvedValue({ ...fullReview(), liveSession: true });
+    reviewFilePatch.mockResolvedValue({ patch: PATCH, tooLarge: false });
+    renderCard();
+    const rerun = await screen.findByRole("button", { name: "Re-run Checks" });
+    expect(rerun).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(rerun);
+    expect(storyChecksRerun).not.toHaveBeenCalled();
+  });
+
+  it("shows the core's refusal of a Re-run Checks as written", async () => {
+    storyReview.mockResolvedValue(fullReview());
+    reviewFilePatch.mockResolvedValue({ patch: PATCH, tooLarge: false });
+    storyChecksRerun.mockRejectedValue("A session of FLY-7 is live: stop it before re-running its Checks.");
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Re-run Checks" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("stop it before re-running its Checks");
   });
 });
 

@@ -41,6 +41,7 @@ const TEXT_PAIRS: Record<string, Pair[]> = {
   "sidebar": [["sidebarForeground", "sidebar"], ["sidebarForeground", "sidebarAccent"], ["sidebarPrimaryForeground", "sidebarPrimary"]],
   "strip text on a lamp": [["stripForeground", "lamp"], ["stripForeground", "strip"]],
   "strip secondary text on a lamp": [["stripMutedForeground", "lamp"], ["stripMutedForeground", "strip"]],
+  "diff lines": [["foreground", "diffInsert"], ["foreground", "diffDelete"], ["mutedForeground", "diffInsert"], ["mutedForeground", "diffDelete"]],
 };
 
 /** Non-text roles that must be seen against what they sit on (3:1). */
