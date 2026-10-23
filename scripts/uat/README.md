@@ -4,8 +4,8 @@ The live and offline UAT scripts. Each one drives the real sidecar and the real 
 data, so a guarantee is measured by code rather than claimed (`docs/mvp-spec.md` §9).
 
 - **Offline, zero tokens, run in CI on every PR** (`.github/workflows/ci.yml`, job "Offline UAT"):
-  `harness-supervision-gate.mjs` (both modes), `uat-12-fleet-live-reads.mjs` and
-  `uat-17-roadmap-round.mjs`. None needs a `claude` binary or any credential. (Item 13, the fan-out run, was deleted with the fan-out
+  `harness-supervision-gate.mjs` (both modes), `uat-12-fleet-live-reads.mjs`,
+  `uat-16-epic-shaping.mjs` and `uat-17-roadmap-round.mjs`. None needs a `claude` binary or any credential. (Item 13, the fan-out run, was deleted with the fan-out
   dispatcher at the schema cut, issue #44.)
 - **Manual, pre-release only:** items 1, 3, 5, 6, 7 and 11. Items 3, 5, 6, 7 and 11's live arm
   spend real tokens.
@@ -29,7 +29,35 @@ bash scripts/uat/run-all.sh          # add --no-build to skip the prerequisite b
 | 7 — Launcher-wrapped destructive command, measured live (AGNT-07, D-62 item 2) | `uat-07-launcher-shape-gate.mjs` | **PASS** — properties A, B and C all held |
 | 11 — `CLAUDE_ENV_FILE` ordering, PATH shadow restoration, ask-branch (AGNT-07) | `uat-11-env-file-ordering.mjs` (`--selftest` is zero tokens) | **Manual** — the live run spends tokens |
 | 12 — Fleet live reads: log tail, dismiss, blocked queue, reclaim (D-REV-48/49/50/55) | `uat-12-fleet-live-reads.mjs` | **PASS** — zero tokens, CI |
+| 16 — A one-line idea becomes an Epic with Ready Stories, each with criteria and Checks; a killed shaping session resumes at the open Round (Epic #59's exit test, #130) | `uat-16-epic-shaping.mjs` | **PASS** — zero tokens, CI |
 | 17 — Shape a Milestone's exit test; confirming an Epic Done runs a roadmap Round that proposes a change or says the Roadmap holds (Epic #60's exit test, #134) | `uat-17-roadmap-round.mjs` | **PASS** — zero tokens, CI |
+
+### Item 16 — shaping an Epic from one line to Ready Stories (Epic #59's exit test)
+
+Drives the real sidecar and its real board MCP server with the same scripted fake agent as item 17
+(`FLYWHEEL_FAKE_BOARD_CALLS`): each step runs only in the session whose packet names its Stage, and
+`{{result:<tool>:<field>}}` reads a field of an earlier call's answer, as an agent reads the
+`proposal_id` a `propose_story` returns. The board's half runs through the `uat_shaping_ops` bridge
+(`packages/core/tests/bin`), which calls the core functions behind Shape, Continue shaping, the dock's
+answers, Accept on a ghost, Close Stage and the sidecar's `session_closed`.
+
+- **A. Challenge the spec.** Shape starts a session on a one-line Epic. The agent posts Round 1: two
+  questions and an ADR question. The developer writes their own answer to one and presses Accept all
+  recommended, which answers the other and leaves the ADR open, so the Round stays held.
+- **B. Kill and resume.** The sidecar kills the session mid-Round. The answers stay on the board, and
+  no session is held on the Round. Continue shaping starts a fresh session whose packet carries the open
+  Round with both answers and says to call `round_wait`, which takes the Round over. The ADR's Yes
+  answers it with all three answers. The agent proposes the problem and the exit test; the developer
+  accepts both and closes the Stage.
+- **C. Slice into Stories.** The next session proposes two Stories, the second running after the first
+  by its `proposal_id`; the developer accepts both and closes the Stage.
+- **D. Write the Acceptance criteria.** The next session proposes one criterion with a Check per Story;
+  the developer accepts them and closes the Stage. The Epic and both Stories are Ready, each criterion
+  has its Check (600s), and the first Story's Context packet carries the accepted ADR to write verbatim.
+
+Not exercised: the desktop's `AppState` mutex, the `board:changed` emit and the IPC serialisation. The
+desktop's half of the same walk, clicked through the real `<App />`, is
+`packages/desktop/src/shaping/__tests__/browser/epic-shaping-flow.browser.test.tsx`.
 
 ### Item 17 — the roadmap Round on Epic Done (Epic #60's exit test)
 
@@ -292,6 +320,8 @@ Costs real tokens, same as items 3, 5 and 6.
 | `lib/long-lived-backend.mjs` | Backend stub for item 1 and the supervision gate, so the leaf outlives the stale window |
 | `packages/core/tests/bin/uat_session_env.rs` | Builds the spawn environment from the **production** functions; also `--touch-heartbeat` |
 | `packages/core/tests/bin/uat_fleet_ops.rs` | Bridge binary for item 12 — calls the core functions behind the fleet commands against scratch data |
+| `packages/core/tests/bin/uat_shaping_ops.rs` | Bridge binary for item 16 — calls the core functions behind Shape, Continue shaping, the dock's answers, Accept and Close Stage |
+| `packages/core/tests/bin/uat_roadmap_ops.rs` | Bridge binary for item 17 — calls the core functions behind Shape on a Milestone, Confirm Done and the roadmap Round |
 | `scripts/uat/fixtures/` | Frozen, real, zero-cost captures replayed offline by the sidecar tests and `lib/sidecar-harness.mjs` (e.g. the unauthenticated CLI first-turn stream) — read at module load, never retyped |
 | `scripts/uat/fixtures/live-opus5-unmodelled-shapes.json` | The frozen real capture (200-character prefixes) of the reasoning-only assistant message and the `rate_limit_event` line live run `01M3C48C3PV1NSGHERBZ587YB1` emitted and the adapter did not model, with mechanical anti-drift/anti-invention gates |
 | `scripts/uat/fixtures/live-opus5-ask-user-question.json` | Unlike its sibling fixture above, this one is FULL FIDELITY — read from Claude Code's own session log inside a preserved scratch root of live run `01M3DNC0G9CYAWSD8DYEGTRP8C`, not from a 200-character stderr prefix. References the committed capture artifact `planning-archive:.planning/phases/05-socratic-epic-authoring/05-ASK-USER-QUESTION-CAPTURE.json` in the phase directory, never an absolute scratch path |
