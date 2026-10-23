@@ -45,6 +45,7 @@ import { MilestoneHeader, useMilestoneProgress } from "./MilestoneHeader";
 import { EpicProgress } from "./EpicProgress";
 import { RoadmapStrip, useMilestoneSelection, useRoadmap } from "./RoadmapStrip";
 import { EpicShapingControl } from "./EpicShapingControl";
+import { SinceYouLastLooked } from "./SinceYouLastLooked";
 import { ConfirmExitTest, ConfirmExitTestOutcome, epicExitTestConfirmable } from "./ConfirmExitTest";
 import type { EpicProgressDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
@@ -73,6 +74,8 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
           <RoadmapStrip projectId={projectId} />
           <ConfirmExitTestOutcome />
           <MilestoneHeader projectId={projectId} milestoneId={selection.requested} />
+          {/* What changed since the last visit (#167), folded, just above the roster. */}
+          <SinceYouLastLooked projectId={projectId} />
           <StoryRoster projectId={projectId} selection={selection} scrollElement={scrollElement} />
         </div>
       </SurfaceBody>
