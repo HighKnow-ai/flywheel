@@ -15,7 +15,7 @@
 //! - **criteria x/y**: x counts the criteria the Developer accepted, or whose Check's current result
 //!   (its latest run since the Check's last edit, `domain::check::current_result`) passed and is not
 //!   stale. Stale is judged against the head the Story last handed off, its latest review's
-//!   `head_sha`, never against git: the roster reads no worktree (ADR 0010). With no review yet no
+//!   `head_sha`, never against git: the roster reads no worktree (ADR 0012). With no review yet no
 //!   head is known, and a result whose head can't be known is not stale (`CurrentResult::is_stale`).
 //! - **tasks x/y**: Tasks done out of every Task not Dropped. A Dropped Task is closed, not work.
 //! - **The diff size** of the Story's open review, while it is In review.

@@ -41,7 +41,7 @@ A checklist step inside a Story that the Story's agent writes, works through and
 _Avoid_: Subtask, todo
 
 **Acceptance criterion**:
-A testable statement a Story must satisfy, judged against the Story's diff at review. In shaping, an *accepted criterion* is one whose Proposal was accepted, which creates it; it is accepted against the diff (`accepted_by`) only at review. A criterion is *met*, as the roster's "criteria x/y" counts it, once accepted, or once its Check passed and is not stale against the head the Story last handed off (ADR 0010).
+A testable statement a Story must satisfy, judged against the Story's diff at review. In shaping, an *accepted criterion* is one whose Proposal was accepted, which creates it; it is accepted against the diff (`accepted_by`) only at review. A criterion is *met*, as the roster's "criteria x/y" counts it, once accepted, or once its Check passed and is not stale against the head the Story last handed off (ADR 0012).
 _Avoid_: Validation, requirement, AC
 
 **Check**:

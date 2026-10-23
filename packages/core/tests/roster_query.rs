@@ -8,7 +8,7 @@
 //!
 //! "criteria x/y" counts a criterion as met once the Developer accepted it, or once its Check's
 //! current result passed and is not stale: it ran against the head the Story last handed off (its
-//! latest review's `head_sha`), ADR 0010.
+//! latest review's `head_sha`), ADR 0012.
 
 mod common;
 

@@ -1163,12 +1163,12 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await shot("84-board-epic-shaping-marker");
   });
 
-  it("85 board at the window's minimum width: the roster rows (issue #159)", async () => {
+  it("87 board at the window's minimum width: the roster rows (issue #159)", async () => {
     await page.viewport(900, 900);
     try {
       await boardReady();
       await rosterRowInView("FLY-5");
-      await shot("85-board-roster-rows-min-width");
+      await shot("87-board-roster-rows-min-width");
     } finally {
       await page.viewport(1440, 900);
     }

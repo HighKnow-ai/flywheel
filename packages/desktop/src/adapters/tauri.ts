@@ -192,7 +192,7 @@ export interface RosterRowDto {
   /** The live session Answer and Open session open. */
   liveSessionId: string | null;
   doingTaskTitle: string | null;
-  /** Criteria accepted, or whose Check passed at the head last handed off (ADR 0010). */
+  /** Criteria accepted, or whose Check passed at the head last handed off (ADR 0012). */
   criteriaMet: number;
   criteriaTotal: number;
   tasksDone: number;
