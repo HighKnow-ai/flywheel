@@ -19,7 +19,7 @@ done
 
 if [ "$BUILD" = "1" ]; then
   printf '▸ Building prerequisites (pass --no-build to skip)\n'
-  cargo build -p core --bin uat_session_env --bin uat_fleet_ops --bin uat_roadmap_ops --bin uat_shaping_ops -p flywheel-shim 2>&1 | tail -2
+  cargo build -p core --bin uat_session_env --bin uat_fleet_ops --bin uat_roadmap_ops --bin uat_shaping_ops --bin uat_review_ops -p flywheel-shim 2>&1 | tail -2
   npm --prefix packages/sidecar run build >/dev/null 2>&1 || {
     printf '  ⚠ sidecar build failed — scripts needing it will skip\n'
   }
@@ -92,6 +92,8 @@ run_item "UAT 16 — a one-line Epic shaped to Ready Stories with criteria and C
   node scripts/uat/uat-16-epic-shaping.mjs
 run_item "UAT 17 — shape a Milestone exit test; confirming an Epic Done runs a roadmap Round that proposes or holds (issue #134, zero tokens)" \
   node scripts/uat/uat-17-roadmap-round.mjs
+run_item "UAT 18 — a running Story files Proposals, capped at 3, withdrawable, answered at once (issue #160, zero tokens)" \
+  node scripts/uat/uat-18-execution-proposals.mjs
 
 printf '\n\n┌─ UAT results ─────────────────────────────────────────────────────────────\n'
 FAILED=0
