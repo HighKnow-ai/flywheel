@@ -1,6 +1,7 @@
 //! `milestone_create` / `milestone_list` / `milestone_update` / `milestone_set_state` /
-//! `milestone_move` — the Roadmap's command surface. A project's Roadmap is its Milestones in rank order (`domain::milestone`). Every handler stamps the
-//! local human actor server-side (T-01-04) and emits `board:changed` after a successful mutation.
+//! `milestone_move` — the Roadmap's command surface. A project's Roadmap is its Milestones in rank
+//! order (`domain::milestone`). Every handler stamps the local human actor server-side (T-01-04)
+//! and emits `board:changed` after a successful mutation.
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
