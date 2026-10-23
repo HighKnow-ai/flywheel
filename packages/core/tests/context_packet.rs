@@ -16,7 +16,9 @@ use core::domain::epic::{create_epic, update_epic, EpicSpec};
 use core::domain::milestone::create_milestone;
 use core::domain::proposal::{accept_proposal, file_proposal, reject_proposal, NewProposal, ProposalTarget, ProposalVerb};
 use core::domain::round::{answer_round_question, post_round, AdrDraft, NewQuestion, NewRound, RoundAnswer};
-use core::domain::session::{start_session, start_shaping_session, ShapingSubject};
+use core::domain::session::{close_session, start_session, start_shaping_session, SessionStatus, ShapingSubject};
+use core::domain::story::stories_in_epic;
+use core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
 use core::domain::session_summary::create_summary;
 use core::domain::request_changes::request_changes;
 use core::domain::story::{create_story, set_story_state, write_story_by_hand, HandWrittenCriterion, Story, StoryState};
@@ -461,6 +463,61 @@ fn a_request_for_changes_puts_its_comments_in_section_seven() {
         assert!(section.contains("Resume note: Start with the empty file."), "{section}");
         assert!(packet.contains("the developer requested changes: before anything else, add one Task per review point"), "{packet}");
         assert_eq!(packet, build_context_packet(&f.conn, &f.story.id, "Start with the empty file.").unwrap(), "still deterministic");
+    });
+}
+
+/// One `propose` call on session `session_id`, as the core runs it; the Proposal's id.
+fn propose(conn: &mut Connection, session_id: &str, args: serde_json::Value) -> String {
+    let mut args = args;
+    args["why"] = serde_json::json!("found while working");
+    args["evidence"] = serde_json::json!("src/packet.rs:1");
+    let call = StoryProposalCall::parse("propose", &args).unwrap();
+    let answer = apply_story_proposal_call(conn, session_id, &call).unwrap().result;
+    answer["proposal_id"].as_str().unwrap().to_string()
+}
+
+/// Issue #165: the filing Story hears what became of its Proposals through its next packet, never a
+/// live push. Section 7 names each Proposal its sessions filed that was decided since its last session
+/// started: accepted, rejected with the reason, or closed as a duplicate. A pending or withdrawn one is
+/// not there, and once a later session has started, neither is a decision it already heard.
+#[test]
+fn the_next_packet_names_the_proposals_decided_since_the_last_session() {
+    with_scratch_worktree_root(|_| {
+        let mut f = fixture();
+        let first = start_session(&mut f.conn, &f.story.id, "acceptEdits", &f.actor_id).unwrap();
+        let sibling = stories_in_epic(&f.conn, &f.story.epic_id).unwrap().into_iter().find(|s| s.id != f.story.id).unwrap();
+        let recovery = propose(&mut f.conn, &first.id, serde_json::json!({ "kind": "new_story", "title": "Recovery" }));
+        let comments = propose(&mut f.conn, &first.id, serde_json::json!({ "kind": "new_story", "title": "Comments" }));
+        let duplicate = propose(&mut f.conn, &first.id, serde_json::json!({ "kind": "new_story", "title": "RECOVERY" }));
+        let withdrawn = propose(&mut f.conn, &first.id, serde_json::json!({ "kind": "retire_story", "story": sibling.key }));
+        let call = StoryProposalCall::parse("proposal_withdraw", &serde_json::json!({ "proposal_id": withdrawn })).unwrap();
+        apply_story_proposal_call(&mut f.conn, &first.id, &call).unwrap();
+        let pending = propose(&mut f.conn, &first.id, serde_json::json!({ "kind": "new_story", "title": "Still waiting" }));
+        assert_ne!(pending, duplicate);
+
+        // One decided while the session ran, one after it ended: neither reached the agent live.
+        reject_proposal(&mut f.conn, &f.actor_id, &comments, Some("Out of scope")).unwrap();
+        close_session(&mut f.conn, &first.id, SessionStatus::Completed, None, None, None).unwrap();
+        accept_proposal(&mut f.conn, &f.actor_id, &recovery).unwrap();
+
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        let section = review_section(&packet);
+        assert!(section.contains("Your Proposals decided since your last session:\n"), "{section}");
+        assert!(section.contains("- New Story \"Recovery\": accepted\n"), "{section}");
+        assert!(section.contains("- New Story \"Comments\": rejected: Out of scope\n"), "{section}");
+        assert!(section.contains("- New Story \"RECOVERY\": closed as a duplicate of Recovery\n"), "{section}");
+        assert!(!section.contains("Still waiting") && !section.contains(&sibling.title), "pending and withdrawn are not decisions: {section}");
+        assert!(!section.contains("None."), "{section}");
+        assert_eq!(packet, build_context_packet(&f.conn, &f.story.id, "").unwrap(), "still deterministic");
+
+        // The next session heard them: the one after it does not hear them again.
+        let second = start_session(&mut f.conn, &f.story.id, "acceptEdits", &f.actor_id).unwrap();
+        let during = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        assert!(review_section(&during).contains("- New Story \"Recovery\": accepted"), "the session just started still hears them");
+        close_session(&mut f.conn, &second.id, SessionStatus::Completed, None, None, None).unwrap();
+        let later = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        assert!(!later.contains("decided since your last session"), "{later}");
+        assert!(review_section(&later).contains("None."), "{later}");
     });
 }
 

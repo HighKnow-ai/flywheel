@@ -190,6 +190,9 @@ test("a Story session is listed propose and proposal_withdraw, and a shaping ses
     ["new_story", "amend_criterion", "amend_epic_spec", "reorder_story", "retire_story", "new_epic"],
   );
   assert.match(propose.description, /proposal_withdraw/);
+  // Issue #165: the agent learns a duplicate is flagged in the answer, and hears decisions through its next packet.
+  assert.match(propose.description, /flagged a duplicate in the answer and holds no slot/);
+  assert.match(propose.description, /next session's packet/);
 });
 
 test("a propose call is relayed to the core and the agent receives its answer", async () => {

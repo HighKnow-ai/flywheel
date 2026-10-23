@@ -5,7 +5,8 @@
 //!
 //! The packet is ten sections in a fixed order, stable parts first so prompt caching works:
 //! standing instructions; the Milestone and the Epic spec; the ADR index; sibling Stories; the
-//! Story with its criteria and Checks; the Task checklist; review feedback and the resume note;
+//! Story with its criteria and Checks; the Task checklist; review feedback, the Story's Proposals
+//! decided since its last session (issue #165) and the resume note;
 //! Session summaries; the diff so far; the closing instruction.
 //!
 //! Deterministic by construction: the same board state and the same worktree give a byte-identical
@@ -31,6 +32,7 @@ use crate::domain::acceptance_criterion::criteria_for_story;
 use crate::domain::check::{check_for_criterion, current_result, CheckResult};
 use crate::domain::epic::get_epic;
 use crate::domain::milestone::get_milestone;
+use crate::domain::proposal::{proposal_kind_words, proposal_title, proposals_decided_since_last_session};
 use crate::domain::review::latest_review;
 use crate::domain::session_summary::list_summaries_for_story;
 use crate::domain::story::{get_story, stories_in_epic};
@@ -90,7 +92,8 @@ there at once, and always when you finish or leave a Task. Each write replaces t
 is the only part of your work on a Task that outlives this session besides the worktree.
 - You write to the board only through Proposals (`propose`), which do nothing until the developer \
 accepts them. At most 3 open Proposals per session; `proposal_withdraw` takes one of yours back. A Proposal never pauses you; if you cannot go on without an \
-answer, ask a question instead.
+answer, ask a question instead. Section 7 names your Proposals decided since your last session: do not file \
+one again that was rejected or closed as a duplicate.
 - Decisions about the code live in the repo: ADRs in `docs/adr/` and terms in `GLOSSARY.md`. Before \
 writing an ADR, check the index below: either supersede a related ADR (open the new one with \
 `Supersedes ADR-NNNN` and add `Status: superseded by ADR-MMMM` to the old one) or do not write a new \
@@ -300,7 +303,17 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
              already there, then work them.\n",
         );
     }
-    match (feedback.is_some(), note.is_empty()) {
+    let decided = decided_proposals(conn, story_id)?;
+    if !decided.is_empty() {
+        if feedback.is_some() {
+            out.push('\n');
+        }
+        out.push_str("Your Proposals decided since your last session:\n");
+        for line in &decided {
+            writeln!(out, "- {line}")?;
+        }
+    }
+    match (feedback.is_some() || !decided.is_empty(), note.is_empty()) {
         (false, true) => out.push_str("None.\n"),
         (true, true) => {}
         (true, false) => writeln!(out, "\nResume note: {note}")?,
@@ -346,6 +359,25 @@ fn changes_requested(conn: &Connection, story_id: &str) -> anyhow::Result<Option
     Ok(latest_review(conn, story_id)?
         .filter(|r| r.outcome.as_deref() == Some("changes_requested"))
         .and_then(|r| non_blank(&r.comments).map(str::to_string)))
+}
+
+/// One line per Proposal the Story's sessions filed that was decided since its last session (issue
+/// #165): `New Story "Recovery": accepted`, `...: rejected: <reason>`, or `...: closed as a duplicate of
+/// <title>`.
+fn decided_proposals(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<String>> {
+    let mut lines = Vec::new();
+    for p in proposals_decided_since_last_session(conn, story_id)? {
+        let what = format!("{} \"{}\"", proposal_kind_words(&p), proposal_title(conn, &p)?);
+        let reason = non_blank(&p.rejection_reason);
+        let outcome = match (p.state.as_str(), reason) {
+            ("accepted", _) => "accepted".to_string(),
+            (_, Some(r)) if p.duplicate_of.is_some() && r.starts_with("duplicate of ") => format!("closed as a {r}"),
+            (_, Some(r)) => format!("rejected: {r}"),
+            (_, None) => "rejected, no reason given".to_string(),
+        };
+        lines.push(format!("{what}: {outcome}"));
+    }
+    Ok(lines)
 }
 
 pub(crate) fn section(out: &mut String, heading: &str) {
