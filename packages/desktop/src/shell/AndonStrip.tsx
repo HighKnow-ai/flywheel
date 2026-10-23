@@ -26,7 +26,7 @@ import { Activity, ChevronRight, CirclePause, Hand, LoaderCircle } from "lucide-
 import { storyStopped, type FleetRowDto, type WaitingRoundDto } from "../adapters/tauri";
 import { endingWords } from "../board/StoryControls";
 import { useFleet, useWaitingRounds } from "../fleet/useFleet";
-import { useOpenWaitingRound, usePlaceBoardId, waitingRoundWords } from "../fleet/waitingRound";
+import { isRoundHere, useOpenWaitingRound, usePlaceBoardId, usePlaceShapingId, waitingRoundWords } from "../fleet/waitingRound";
 import { formatAge } from "../legend/runStatus";
 import { prefersReducedMotion } from "../session/FeedRow";
 import { useUiStore } from "../state/uiStore";
@@ -171,6 +171,7 @@ export function RoundLamp({ round, current, now }: { round: WaitingRoundDto; cur
       type="button"
       data-lamp="waiting"
       data-epic-id={round.epicId ?? undefined}
+      data-milestone-id={round.milestoneId ?? undefined}
       data-roadmap-round={round.subject === "roadmap" ? round.projectId : undefined}
       aria-current={current ? "location" : undefined}
       aria-label={`Open ${words.record}, ${words.round} Waiting on you`}
@@ -257,7 +258,7 @@ export function AndonStrip() {
   const lamps = stripLamps(rows, rounds);
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
   const placeStoryId = useUiStore((state) => (state.activeSessionId ? state.activeSessionStoryId : state.currentStoryId));
-  const placeEpicId = useUiStore((state) => (state.activeSessionId ? null : state.currentEpicId));
+  const placeShapingId = usePlaceShapingId();
   // A roadmap Round's lamp is current on its project's board, with nothing open over it.
   const placeBoardId = usePlaceBoardId();
   const [laneRef, laneWidth] = useWidth<HTMLDivElement>();
@@ -290,11 +291,7 @@ export function AndonStrip() {
             {shown.map((lamp) => (
               <div role="listitem" key={lamp.id} className="shrink-0">
                 {lamp.kind === "round" ? (
-                  <RoundLamp round={lamp.round} current={
-                    lamp.round.subject === "roadmap"
-                      ? lamp.round.projectId === placeBoardId
-                      : lamp.round.epicId === placeEpicId
-                  } now={now} />
+                  <RoundLamp round={lamp.round} current={isRoundHere(lamp.round, placeBoardId, placeShapingId)} now={now} />
                 ) : (
                   <Lamp lamp={lamp.lamp} current={lamp.lamp.row.storyId === placeStoryId} now={now} />
                 )}

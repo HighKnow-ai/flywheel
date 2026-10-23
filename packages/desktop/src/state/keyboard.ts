@@ -532,7 +532,9 @@ export type UiSurface =
   // Issue #104: one Story of the current project, opened from its row. Never its session.
   | "story"
   // Issue #123: one Epic of the current project in its shaping view, with its Round dock.
-  | "epic";
+  | "epic"
+  // Issue #132: a Milestone's shaping view, its exit test beside the Round dock.
+  | "milestone";
 
 /** The booleans `activeSurface` decides from. Booleans, not the store's nullable ids, so the
  * resolver stays pure; the one caller (`App.tsx`) knows what "open" means for each store field. */
@@ -546,6 +548,7 @@ export interface SurfaceState {
   storyOpen?: boolean;
   /** Issue #123: an Epic of the current project is open in its shaping view. */
   epicOpen?: boolean;
+  milestoneOpen?: boolean;
 }
 
 /** The single surface showing, in the precedence order the content area has always encoded.
@@ -569,6 +572,7 @@ export function activeSurface(state: SurfaceState): UiSurface {
   if (state.projectUnreachable) return "project-unreachable";
   if (state.storyOpen) return "story";
   if (state.epicOpen) return "epic";
+  if (state.milestoneOpen) return "milestone";
   return "board";
 }
 

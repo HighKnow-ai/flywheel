@@ -65,7 +65,7 @@ import { cn } from "@/lib/utils";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
 import { lampsFromFleet } from "../shell/AndonStrip";
 import { useUiStore } from "../state/uiStore";
-import { useOpenWaitingRound, usePlaceBoardId, waitingRoundWords } from "../fleet/waitingRound";
+import { isRoundHere, useOpenWaitingRound, usePlaceBoardId, usePlaceShapingId, waitingRoundWords } from "../fleet/waitingRound";
 
 const SIDEBAR_WIDTH = "248px";
 const NOTICE_VISIBLE_MS = 4000;
@@ -166,7 +166,7 @@ function RunningSessions({
   const openStory = useUiStore((state) => state.openStory);
   const openRound = useOpenWaitingRound();
   const placeBoardId = usePlaceBoardId();
-  const placeEpicId = useUiStore((state) => (state.activeSessionId ? null : state.currentEpicId));
+  const placeShapingId = usePlaceShapingId();
   const activeSessionId = useUiStore((state) => state.activeSessionId);
   const placeStoryId = usePlaceStoryId();
   const extraStory =
@@ -185,10 +185,10 @@ function RunningSessions({
         return (
           <SidebarMenuSubItem key={round.roundId} className="flex">
             <StoryRowButton
-              story={{ id: round.epicId ?? round.roundId, key: words.key, title: words.title }}
+              story={{ id: round.epicId ?? round.milestoneId ?? round.roundId, key: words.key, title: words.title }}
               detail={`${words.shortRound} · Waiting on you`}
               tile={<StateBadge state="waiting_on_you" hideLabel className="size-5 justify-center p-0 [&>svg]:size-3.5" />}
-              here={round.subject === "roadmap" ? round.projectId === placeBoardId : round.epicId === placeEpicId}
+              here={isRoundHere(round, placeBoardId, placeShapingId)}
               ariaLabel={`Open ${words.record}, ${words.round} Waiting on you`}
               title={`${words.record}: ${words.round} waiting on you`}
               onClick={() => openRound(round)}
