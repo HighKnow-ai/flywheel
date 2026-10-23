@@ -489,14 +489,45 @@ fn review_checkout(conn: &Connection, story_id: &str, worktree: Option<&Path>) -
     Ok(repo.map(std::path::PathBuf::from).filter(|p| p.is_dir()))
 }
 
-/// One changed file's patch in the open review's diff (`base_sha...` the branch's head now), as
-/// `git diff` prints it. `old_path` is a rename's source. The range is read here, never taken from
-/// the caller.
-pub fn review_file_patch(conn: &Connection, story_id: &str, path: &str, old_path: Option<&str>) -> anyhow::Result<String> {
+/// Where one review's patches are read from, resolved from the board without running git: the
+/// open review's base, and the Story's worktree (or, without one on disk, the repository and the
+/// head recorded at hand-off). A caller holding a shared connection resolves this, lets go of the
+/// connection, then calls [`PatchSource::patch`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatchSource {
+    checkout: std::path::PathBuf,
+    base_sha: String,
+    /// `None`: read the worktree's head when the patch is read.
+    head_sha: Option<String>,
+}
+
+impl PatchSource {
+    /// One changed file's patch, `base_sha...` the branch's head now, as `git diff` prints it.
+    /// `old_path` is a rename's source.
+    pub fn patch(&self, path: &str, old_path: Option<&str>) -> anyhow::Result<String> {
+        let head = match &self.head_sha {
+            Some(sha) => sha.clone(),
+            None => check::worktree_head(&self.checkout)?,
+        };
+        crate::git::review_patch(&self.checkout, &self.base_sha, &head, path, old_path)
+    }
+}
+
+/// Resolve where the open review of `story_id` reads its patches from. Runs no git.
+pub fn review_patch_source(conn: &Connection, story_id: &str) -> anyhow::Result<PatchSource> {
     let review = open_review(conn, story_id)?.context("this Story has no open review")?;
     let worktree = worktree_for_story(conn, story_id)?;
     let on_disk = worktree.as_ref().map(|w| Path::new(&w.path)).filter(|p| p.is_dir());
-    let head = on_disk.map(check::worktree_head).transpose()?.unwrap_or_else(|| review.head_sha.clone());
     let checkout = review_checkout(conn, story_id, on_disk)?.context("neither the worktree nor the repository is on disk")?;
-    crate::git::review_patch(&checkout, &review.base_sha, &head, path, old_path)
+    Ok(PatchSource {
+        checkout,
+        base_sha: review.base_sha,
+        head_sha: if on_disk.is_some() { None } else { Some(review.head_sha) },
+    })
+}
+
+/// One changed file's patch in the open review's diff (`base_sha...` the branch's head now). The
+/// range is read here, never taken from the caller.
+pub fn review_file_patch(conn: &Connection, story_id: &str, path: &str, old_path: Option<&str>) -> anyhow::Result<String> {
+    review_patch_source(conn, story_id)?.patch(path, old_path)
 }

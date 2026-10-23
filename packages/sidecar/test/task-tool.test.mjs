@@ -247,6 +247,38 @@ test("a hand-off is held until the core answers, and the agent receives the core
   await session;
 });
 
+// Issue #157: the hand-off takes optional Check objections, each naming a criterion by its number in
+// the Story's list and why the agent thinks its Check is wrong. The core resolves and stores them.
+test("handoff offers optional check_objections, each a criterion number and a reason", () => {
+  const handoff = BOARD_TOOL_DEFINITIONS.find((tool) => tool.name === "handoff");
+  const objections = handoff.inputSchema.properties.check_objections;
+  assert.equal(objections.type, "array");
+  assert.equal(objections.items.properties.criterion.type, "integer");
+  assert.equal(objections.items.properties.criterion.minimum, 1);
+  assert.equal(objections.items.properties.why.type, "string");
+  assert.deepEqual(objections.items.required, ["criterion", "why"]);
+  assert.deepEqual(handoff.inputSchema.required, ["next_session_must_know", "decisions"], "objections stay optional");
+  assert.match(handoff.description, /check_objections/);
+});
+
+test("a hand-off's Check objections reach the core untouched", async () => {
+  const adapter = new ClaudeCodeAdapter();
+  const events = [];
+  const runId = "handoff-run-objections";
+  const args = {
+    next_session_must_know: "Checks pass but one.",
+    decisions: "",
+    check_objections: [{ criterion: 2, why: "It greps the old log format." }],
+  };
+  const session = startWithTaskCall(adapter, runId, events, { name: "handoff", arguments: args });
+  await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
+  const request = events.find((e) => e.type === "board_tool_request");
+  assert.deepEqual(request.args, args);
+  adapter.resolveBoardTool(runId, request.requestId, { story_state: "in_review" });
+  await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
+  await session;
+});
+
 // Issue #96: `task_update` takes an optional `note`, which replaces the Task's previous note. The
 // sidecar offers it in the schema and relays it untouched; the core saves it.
 test("task_update offers an optional note, and state is no longer required", () => {

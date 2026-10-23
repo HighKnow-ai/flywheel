@@ -114,12 +114,20 @@ mod tests {
                 &db,
                 &run_id,
                 "handoff",
-                &json!({ "next_session_must_know": "Half the parser.", "decisions": "" }),
+                &json!({
+                    "next_session_must_know": "Half the parser.",
+                    "decisions": "",
+                    "check_objections": [{ "criterion": 2, "why": "`false` can never pass." }],
+                }),
             );
             assert_eq!(changed.as_deref(), Some(project_id.as_str()), "{answer}");
             assert_eq!(answer["result"]["story_state"], "in_review");
             let conn = db.lock().unwrap();
             assert_eq!(check::current_result(&conn, &checks[1]).unwrap().result, check::CheckResult::Failed);
+            let story_id: String =
+                conn.query_row("SELECT story_id FROM sessions WHERE id = ?1", [&run_id], |r| r.get(0)).unwrap();
+            let review = flywheel_core::domain::review::open_review(&conn, &story_id).unwrap().unwrap();
+            assert_eq!(review.check_objections[0]["check_id"], checks[1].as_str(), "the objection reaches the review");
         });
     }
 

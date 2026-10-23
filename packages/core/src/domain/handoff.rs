@@ -329,19 +329,30 @@ fn story_has_live_session(conn: &Connection, story_id: &str) -> anyhow::Result<b
     .context("failed to read the Story's sessions")
 }
 
+/// A Re-run Checks refused before anything ran or was recorded, with a reason meant for the
+/// developer. Its text never carries a path or git's output, so a command may show it as is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewRunRefused(pub String);
+
+impl std::fmt::Display for ReviewRunRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ReviewRunRefused {}
+
 /// Refuse a Re-run Checks unless the Story is In review with no live session.
 fn ensure_rerunnable(conn: &Connection, story_id: &str) -> anyhow::Result<String> {
     let (state, project_id): (String, String) = conn
         .query_row("SELECT state, project_id FROM stories WHERE id = ?1", params![story_id], |r| Ok((r.get(0)?, r.get(1)?)))
         .with_context(|| format!("Story {story_id:?} not found"))?;
-    anyhow::ensure!(
-        state == StoryState::InReview.as_str(),
-        "Checks are re-run from review, and this Story is not In review"
-    );
-    anyhow::ensure!(
-        !story_has_live_session(conn, story_id)?,
-        "a session of this Story is live: stop it before re-running the Checks"
-    );
+    if state != StoryState::InReview.as_str() {
+        return Err(ReviewRunRefused("Checks are re-run from review, and this Story is not In review.".into()).into());
+    }
+    if story_has_live_session(conn, story_id)? {
+        return Err(ReviewRunRefused("A session of this Story is live: stop it before re-running the Checks.".into()).into());
+    }
     Ok(project_id)
 }
 

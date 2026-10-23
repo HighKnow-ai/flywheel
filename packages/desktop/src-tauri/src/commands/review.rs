@@ -1,23 +1,49 @@
-//! `story_review` / `story_merge`: the review card's read and its Merge (docs/mvp-spec.md §8, issue
-//! #155, ADR 0009). The read is `domain::review::review_for_story`; Merge is
-//! `domain::story_merge::merge_story`, human-only, stamped with the local human actor here.
+//! The review card's commands (docs/mvp-spec.md §8, issues #155 and #157, ADR 0009):
 //!
-//! Merge runs git (a merge may run the developer's commit hooks), so like `worktree_reclaim` it never
-//! holds the shared database mutex across a git call and never runs on the IPC thread: the mutex is
-//! taken only to resolve the actor, and the Merge runs on the blocking pool over a connection of its
-//! own (WAL plus `busy_timeout`). A refusal reaches the developer as written; any other failure
-//! crosses IPC only as its fixed category (`ipc_error`), since git's output carries paths.
+//! - `story_review`: the read, `domain::review::review_for_story`.
+//! - `review_file_patch`: one changed file's patch in the review's diff, read when the card shows it.
+//! - `story_checks_rerun`: Re-run Checks, `domain::handoff`'s review run, as the local human.
+//! - `story_merge`: Merge, `domain::story_merge::merge_story`, human-only, stamped with the local
+//!   human actor here.
+//!
+//! Each of them runs git (a merge may run the developer's commit hooks, a Check run takes minutes),
+//! so like `worktree_reclaim` none holds the shared database mutex across a git call or runs on the
+//! IPC thread. The read and Merge run on the blocking pool over a connection of their own (WAL plus
+//! `busy_timeout`); the patch takes the mutex only to resolve where to read from; Re-run Checks takes
+//! it to plan and to record, and never while a Check runs, as the hand-off does. A refusal reaches
+//! the developer as written; any other failure crosses IPC only as its fixed category
+//! (`ipc_error`), since git's output carries paths.
 
+use std::sync::Mutex;
+
+use flywheel_core::domain::handoff::{complete_review_run, plan_review_run, run_checks, ReviewRunOutcome, ReviewRunRefused};
 use flywheel_core::domain::proposal_apply::AdrBarLines;
-use flywheel_core::domain::review::{Review, ReviewCheck, ReviewCriterion, StoryReview};
+use flywheel_core::domain::review::{Review, ReviewCheck, ReviewCriterion, ReviewObjection, StoryReview};
 use flywheel_core::domain::review_decisions::{DecisionChange, NewAdr, RelatedAdr, ReviewDecisions};
+use flywheel_core::git::ReviewFile;
 use flywheel_core::domain::story_merge::{MergeOptions, MergeOutcome, MergeRefused};
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, State};
+use rusqlite::Connection;
+use tauri::{AppHandle, Manager, State};
 
 use super::{emit_board_changed, ipc_error};
 use crate::state::AppState;
+
+/// The handing-off agent's objection to a Check.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewObjectionDto {
+    pub why: String,
+    /// The Check's command when the agent objected; differs from the Check's once it was edited.
+    pub command: String,
+}
+
+impl From<ReviewObjection> for ReviewObjectionDto {
+    fn from(o: ReviewObjection) -> Self {
+        Self { why: o.why, command: o.command }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,6 +56,7 @@ pub struct ReviewCheckDto {
     pub stale: bool,
     pub commit_sha: Option<String>,
     pub output_tail: Option<String>,
+    pub objections: Vec<ReviewObjectionDto>,
 }
 
 impl From<ReviewCheck> for ReviewCheckDto {
@@ -42,6 +69,7 @@ impl From<ReviewCheck> for ReviewCheckDto {
             stale: k.stale,
             commit_sha: k.commit_sha,
             output_tail: k.output_tail,
+            objections: k.objections.into_iter().map(ReviewObjectionDto::from).collect(),
         }
     }
 }
@@ -194,6 +222,26 @@ impl From<DecisionChange> for DecisionChangeDto {
     }
 }
 
+/// One changed file of the review's diff.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewFileDto {
+    pub path: String,
+    /// A rename's or copy's source.
+    pub old_path: Option<String>,
+    /// git's status letter: `M`, `A`, `D`, `R`, `C` or `T`.
+    pub status: String,
+    pub added: Option<u32>,
+    pub removed: Option<u32>,
+    pub binary: bool,
+}
+
+impl From<ReviewFile> for ReviewFileDto {
+    fn from(f: ReviewFile) -> Self {
+        Self { path: f.path, old_path: f.old_path, status: f.status, added: f.added, removed: f.removed, binary: f.binary }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoryReviewDto {
@@ -210,6 +258,8 @@ pub struct StoryReviewDto {
     pub live_session: bool,
     /// Uncommitted paths in the Story's worktree, repository-relative.
     pub uncommitted: Vec<String>,
+    /// The changed files of the review's diff, against the branch's head now.
+    pub files: Vec<ReviewFileDto>,
     /// The Decisions section: `docs/adr/` changes by path, then `GLOSSARY.md` (issue #161).
     pub decisions: Vec<DecisionChangeDto>,
     /// Rebase needed (issue #158): the repository-relative paths a merge into the base branch would
@@ -242,6 +292,7 @@ impl From<StoryReview> for StoryReviewDto {
             decisions: Vec::new(),
             conflicts: r.conflicts,
             rebase_comment,
+            files: r.files.into_iter().map(ReviewFileDto::from).collect(),
         }
     }
 }
@@ -274,15 +325,126 @@ impl From<MergeOutcome> for MergeDto {
     }
 }
 
+/// A connection of its own on the shared database, for work that runs git off the shared mutex.
+fn own_connection() -> anyhow::Result<Connection> {
+    let conn = Connection::open(flywheel_core::db::default_db_path()?)?;
+    flywheel_core::db::apply_pragmas(&conn)?;
+    Ok(conn)
+}
+
 /// The review card of one Story: criteria with their Check chips and pre-ticks, the Tasks not done,
-/// the failing Checks, what would stop a Merge now, and the Decisions section. Read-only.
-#[tauri::command]
-pub fn story_review(state: State<AppState>, story_id: String) -> Result<StoryReviewDto, String> {
-    let conn = state.db.lock().map_err(|e| ipc_error("story_review:lock", e))?;
-    let review = flywheel_core::domain::review::review_for_story(&conn, &story_id).map_err(|e| ipc_error("story_review:read", e))?;
-    let decisions = flywheel_core::domain::review_decisions::review_decisions(&conn, &story_id)
-        .map_err(|e| ipc_error("story_review:decisions", e))?;
-    Ok(StoryReviewDto::new(review, decisions))
+/// the failing Checks with the agent's objections, the diff's files, what would stop a Merge now, and
+/// the Decisions section. Read-only; it reads git, so it runs on the blocking pool over a connection
+/// of its own.
+#[tauri::command(async)]
+pub async fn story_review(story_id: String) -> Result<StoryReviewDto, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<StoryReviewDto, String> {
+        let conn = own_connection().map_err(|e| ipc_error("story_review:open", e))?;
+        let review = flywheel_core::domain::review::review_for_story(&conn, &story_id)
+            .map_err(|e| ipc_error("story_review:read", e))?;
+        let decisions = flywheel_core::domain::review_decisions::review_decisions(&conn, &story_id)
+            .map_err(|e| ipc_error("story_review:decisions", e))?;
+        Ok(StoryReviewDto::new(review, decisions))
+    })
+    .await
+    .map_err(|e| ipc_error("story_review:join", e))?
+}
+
+/// The longest patch the card is sent, in bytes. A longer one is withheld, and the card says so.
+pub const MAX_PATCH_BYTES: usize = 512 * 1024;
+
+/// One changed file's patch, or the word that it is too large to show.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewPatchDto {
+    /// `git diff`'s text for the one file; empty when `too_large`.
+    pub patch: String,
+    pub too_large: bool,
+}
+
+fn patch_dto(patch: String) -> ReviewPatchDto {
+    if patch.len() > MAX_PATCH_BYTES {
+        ReviewPatchDto { patch: String::new(), too_large: true }
+    } else {
+        ReviewPatchDto { patch, too_large: false }
+    }
+}
+
+/// One changed file's patch in the open review's diff (`old_path`: a rename's source). The range is
+/// the core's, never the caller's; the mutex is held only to resolve it.
+#[tauri::command(async)]
+pub async fn review_file_patch(
+    state: State<'_, AppState>,
+    story_id: String,
+    path: String,
+    old_path: Option<String>,
+) -> Result<ReviewPatchDto, String> {
+    let source = {
+        let conn = state.db.lock().map_err(|e| ipc_error("review_file_patch:lock", e))?;
+        flywheel_core::domain::review::review_patch_source(&conn, &story_id)
+            .map_err(|e| ipc_error("review_file_patch:read", e))?
+    };
+    tauri::async_runtime::spawn_blocking(move || source.patch(&path, old_path.as_deref()))
+        .await
+        .map_err(|e| ipc_error("review_file_patch:join", e))?
+        .map(patch_dto)
+        .map_err(|e| ipc_error("review_file_patch:git", e))
+}
+
+/// What a Re-run Checks recorded.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChecksRerunDto {
+    pub commit_sha: String,
+    pub passed: usize,
+    pub failed: usize,
+    pub timed_out: usize,
+}
+
+impl From<&ReviewRunOutcome> for ChecksRerunDto {
+    fn from(o: &ReviewRunOutcome) -> Self {
+        use flywheel_core::domain::check::CheckResult;
+        let count = |result: CheckResult| o.batch.outcomes.iter().filter(|x| x.result == result).count();
+        Self {
+            commit_sha: o.batch.commit_sha.clone(),
+            passed: count(CheckResult::Passed),
+            failed: count(CheckResult::Failed),
+            timed_out: count(CheckResult::TimedOut),
+        }
+    }
+}
+
+/// Re-run every Check of an In review Story against `db`, as the local human: plan and record with
+/// the mutex, run without it.
+pub fn rerun_off_lock(db: &Mutex<Connection>, story_id: &str) -> anyhow::Result<ReviewRunOutcome> {
+    let lock = || db.lock().map_err(|_| anyhow::anyhow!("the board database is unavailable"));
+    let (actor, plan) = {
+        let conn = lock()?;
+        (flywheel_core::domain::actor::local_human_actor_id(&conn)?, plan_review_run(&conn, story_id)?)
+    };
+    let batch = run_checks(&plan)?;
+    complete_review_run(&mut *lock()?, &actor, &plan, batch)
+}
+
+/// A Re-run Checks failure as the renderer sees it: a refusal's own words, or a fixed category.
+fn rerun_error(e: anyhow::Error) -> String {
+    match e.downcast_ref::<ReviewRunRefused>() {
+        Some(refused) => refused.0.clone(),
+        None => ipc_error("story_checks_rerun:run", e),
+    }
+}
+
+/// The developer's Re-run Checks from the review card: every Check, in the worktree, with no
+/// session, each run recorded against the branch's head. Refused while a session is live.
+#[tauri::command(async)]
+pub async fn story_checks_rerun(app: AppHandle, story_id: String) -> Result<ChecksRerunDto, String> {
+    let worker = app.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || rerun_off_lock(&worker.state::<AppState>().db, &story_id))
+        .await
+        .map_err(|e| ipc_error("story_checks_rerun:join", e))?
+        .map_err(rerun_error)?;
+    emit_board_changed(&app, Some(&outcome.project_id), "story", Some(&outcome.story_id));
+    Ok(ChecksRerunDto::from(&outcome))
 }
 
 /// A Merge failure as the renderer sees it: a refusal's own words, or a fixed category.
@@ -308,12 +470,8 @@ pub async fn story_merge(
         drop(conn);
         actor?
     };
-    let db_path = flywheel_core::db::default_db_path().map_err(|e| ipc_error("story_merge:open", e))?;
-
     let outcome = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<MergeOutcome> {
-        let mut conn = rusqlite::Connection::open(&db_path)?;
-        flywheel_core::db::apply_pragmas(&conn)?;
-        flywheel_core::domain::story_merge::merge_story(&mut conn, &actor, &story_id, MergeOptions { with_failing_checks })
+        flywheel_core::domain::story_merge::merge_story(&mut own_connection()?, &actor, &story_id, MergeOptions { with_failing_checks })
     })
     .await
     .map_err(|e| ipc_error("story_merge:join", e))?
@@ -333,5 +491,22 @@ mod tests {
         assert_eq!(merge_error(refused), "Accept every criterion before merging.");
         let git = anyhow::anyhow!("git -C \"/Users/someone/repo\" [\"merge\"] failed");
         assert_eq!(merge_error(git), "failed:story_merge:git");
+    }
+
+    #[test]
+    fn a_rerun_refusal_crosses_as_written_and_any_other_failure_as_its_category() {
+        let refused = anyhow::Error::new(ReviewRunRefused("A session of this Story is live.".into()));
+        assert_eq!(rerun_error(refused), "A session of this Story is live.");
+        assert_eq!(rerun_error(anyhow::anyhow!("git -C /Users/x failed")), "failed:story_checks_rerun:run");
+    }
+
+    #[test]
+    fn a_patch_past_the_limit_is_withheld_and_said_so() {
+        let small = patch_dto("+one line\n".to_string());
+        assert!(!small.too_large);
+        assert_eq!(small.patch, "+one line\n");
+        let large = patch_dto("x".repeat(MAX_PATCH_BYTES + 1));
+        assert!(large.too_large);
+        assert!(large.patch.is_empty());
     }
 }
