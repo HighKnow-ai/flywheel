@@ -172,6 +172,8 @@ fn main() {
             commands::shaping::milestone_shaping_session,
             commands::shaping::milestone_shaping_rounds,
             commands::shaping::milestone_shaping_continue,
+            commands::roadmap_round::epic_confirm_done,
+            commands::roadmap_round::milestone_confirm_done,
             commands::story::story_create,
             commands::story::story_drop,
             commands::story::story_list,

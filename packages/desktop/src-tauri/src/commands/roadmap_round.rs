@@ -56,6 +56,9 @@ pub struct RoadmapRoundDto {
     pub closed_at: Option<String>,
     /// How many Proposals it filed: a closed Round with none is "Roadmap still holds".
     pub proposals_filed: i64,
+    /// Issue #134: the Done triggers that came while it was open, each as a label ("Epic FLY-4 done").
+    /// No Round of their own opened; the Round's next session reads them in its packet.
+    pub noted_triggers: Vec<String>,
 }
 
 /// A Roadmap Proposal of the open Round, with the change in one line as the board names its records.
@@ -99,7 +102,13 @@ fn round_dto(conn: &Connection, r: RoadmapRound) -> Result<RoadmapRoundDto, Stri
     let proposals_filed: i64 = conn
         .query_row("SELECT COUNT(*) FROM proposals WHERE round_id = ?1", [&r.id], |row| row.get(0))
         .map_err(|e| e.to_string())?;
+    let noted_triggers = flywheel_core::domain::roadmap_round::noted_triggers(conn, &r.id)
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|t| t.label(conn))
+        .collect();
     Ok(RoadmapRoundDto {
+        noted_triggers,
         trigger_label: r.trigger.label(conn),
         trigger_type: r.trigger.as_str().to_string(),
         id: r.id,
@@ -168,6 +177,96 @@ pub(crate) fn revisit_roadmap(
         Err(_) => why,
     })?;
     Ok(session.id)
+}
+
+/// What confirming an exit test did (issue #134).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmDoneDto {
+    /// `opened`: a roadmap Round opened on this trigger. `noted`: one was already open, and the
+    /// trigger is noted on it.
+    pub outcome: String,
+    pub round_number: i64,
+    /// The Round's session, when one started.
+    pub session_id: Option<String>,
+    /// Why the Round's session could not start (no `claude`, say): the record is Done all the same,
+    /// and the Round waits on the strip for Continue.
+    pub session_error: Option<String>,
+}
+
+/// What `epic_set_state` / `milestone_set_state` answer to `done`: confirming an exit test is its own
+/// command, so it can never skip the roadmap Round it triggers (issue #134).
+pub(crate) fn refuse_done_without_round(to: &str) -> Result<(), String> {
+    if to == "done" {
+        return Err("confirm the exit test instead (epic_confirm_done or milestone_confirm_done): confirming Done starts a roadmap Round".to_string());
+    }
+    Ok(())
+}
+
+/// Which exit test is confirmed.
+pub(crate) enum Confirm<'a> {
+    Epic(&'a str),
+    Milestone(&'a str),
+}
+
+/// Confirm an Epic's exit test (issue #134): the Epic moves to Done and a short roadmap Round on its
+/// Milestone starts, with its session, as Revisit roadmap starts one. Human-only.
+#[tauri::command]
+pub fn epic_confirm_done(state: State<AppState>, app: AppHandle, epic_id: String) -> Result<ConfirmDoneDto, String> {
+    confirm_command(&state, &app, Confirm::Epic(&epic_id))
+}
+
+/// Confirm a Milestone's exit test (issue #134): the Milestone moves to Done and a Roadmap Round
+/// starts, with its session. Human-only.
+#[tauri::command]
+pub fn milestone_confirm_done(state: State<AppState>, app: AppHandle, milestone_id: String) -> Result<ConfirmDoneDto, String> {
+    confirm_command(&state, &app, Confirm::Milestone(&milestone_id))
+}
+
+fn confirm_command(state: &State<AppState>, app: &AppHandle, which: Confirm) -> Result<ConfirmDoneDto, String> {
+    let (project_id, dto) = confirm_done(&state.db, which, flywheel_core::login_path::claude_bin, |repo_path, request| {
+        send_gated_spawn(state, repo_path, request)
+    })?;
+    emit_board_changed(app, Some(&project_id), "round", None);
+    Ok(dto)
+}
+
+/// [`epic_confirm_done`] / [`milestone_confirm_done`]'s body, driven without a Tauri app handle. The
+/// confirmation commits first (the record is Done, the Round open or the trigger noted); then, for an
+/// opened Round, its session starts through [`revisit_roadmap`], which takes the Round over. A launch
+/// that fails leaves the Round open with no session, waiting for Continue, and says why. Returns the
+/// project's id with the outcome.
+pub(crate) fn confirm_done(
+    db: &std::sync::Mutex<Connection>,
+    which: Confirm,
+    find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
+    send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
+) -> Result<(String, ConfirmDoneDto), String> {
+    use flywheel_core::domain::confirm_done::{confirm_epic_done, confirm_milestone_done, DoneTrigger};
+    let outcome = {
+        let mut conn = db.lock().map_err(|e| e.to_string())?;
+        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        match which {
+            Confirm::Epic(id) => confirm_epic_done(&mut conn, &human, id),
+            Confirm::Milestone(id) => confirm_milestone_done(&mut conn, &human, id),
+        }
+        .map_err(|e| format!("{e:#}"))?
+    };
+    let round = outcome.round();
+    let project_id = round.project_id.clone();
+    let mut dto = ConfirmDoneDto {
+        outcome: if matches!(outcome, DoneTrigger::Opened(_)) { "opened" } else { "noted" }.to_string(),
+        round_number: round.number,
+        session_id: None,
+        session_error: None,
+    };
+    if let DoneTrigger::Opened(_) = outcome {
+        match revisit_roadmap(db, &project_id, find_claude, send) {
+            Ok(session_id) => dto.session_id = Some(session_id),
+            Err(why) => dto.session_error = Some(why),
+        }
+    }
+    Ok((project_id, dto))
 }
 
 /// The open roadmap Round with its Proposals, or the latest one once none is open.
@@ -288,6 +387,62 @@ mod tests {
             assert!(open.session_live);
             assert!(!open.waiting_on_you, "the agent is working, not waiting");
             assert_eq!(view.last.is_none(), true);
+        });
+    }
+
+    /// An Epic in the project's Milestone, Ready, with one Story Merged: its exit test can be confirmed.
+    fn closed_epic(db: &std::sync::Mutex<Connection>, project_id: &str, title: &str) -> String {
+        use flywheel_core::domain::{epic, story};
+        let mut conn = db.lock().unwrap();
+        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+        let m = flywheel_core::domain::milestone::roadmap(&conn, project_id).unwrap().remove(0);
+        let e = epic::create_epic(&mut conn, &human, &m.id, title).unwrap();
+        let s = story::create_story(&mut conn, &human, &e.id, "Only story").unwrap();
+        for to in [story::StoryState::Ready, story::StoryState::Running, story::StoryState::InReview, story::StoryState::Merged] {
+            story::set_story_state(&mut conn, &human, &s.id, to).unwrap();
+        }
+        epic::set_epic_state(&mut conn, &human, &e.id, epic::EpicState::Ready).unwrap();
+        e.id
+    }
+
+    #[test]
+    fn confirming_an_epic_done_starts_the_rounds_session_and_a_second_is_noted_on_the_band() {
+        with_scratch(|| {
+            let (db, project_id, _checkout) = project();
+            let first = closed_epic(&db, &project_id, "Rounds");
+            let second = closed_epic(&db, &project_id, "Roadmap");
+            let mut sent = None;
+            let (pid, dto) = confirm_done(&db, Confirm::Epic(&first), found_claude, |_, request| {
+                sent = Some(request.clone());
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(pid, project_id);
+            assert_eq!((dto.outcome.as_str(), dto.round_number, dto.session_error.as_deref()), ("opened", 1, None));
+            let prompt = sent.expect("the Round's session starts")["prompt"].as_str().unwrap().to_string();
+            assert!(prompt.contains("This Round is short, and on one Milestone: \"Shaping\""), "{prompt}");
+
+            let (_, dto) = confirm_done(&db, Confirm::Epic(&second), found_claude, |_, _| panic!("no second session")).unwrap();
+            assert_eq!((dto.outcome.as_str(), dto.round_number, dto.session_id.as_deref()), ("noted", 1, None));
+            let view = read_roadmap_round(&db.lock().unwrap(), &project_id).unwrap();
+            assert_eq!(view.open.unwrap().noted_triggers, ["Epic FLY-3 done"]);
+        });
+    }
+
+    #[test]
+    fn a_confirmation_whose_session_cannot_start_is_done_and_the_round_waits() {
+        with_scratch(|| {
+            let (db, project_id, _checkout) = project();
+            let epic = closed_epic(&db, &project_id, "Rounds");
+            let (_, dto) = confirm_done(&db, Confirm::Epic(&epic), || Err("claude is not on PATH".to_string()), |_, _| Ok(())).unwrap();
+            assert_eq!(dto.outcome, "opened");
+            assert_eq!(dto.session_error.as_deref(), Some("claude is not on PATH"));
+            let view = read_roadmap_round(&db.lock().unwrap(), &project_id).unwrap();
+            let open = view.open.expect("the Round waits for Continue");
+            assert!(!open.session_live);
+            assert_eq!(open.trigger_type, "epic_done");
+            assert!(refuse_done_without_round("done").is_err());
+            assert!(refuse_done_without_round("shaping").is_ok());
         });
     }
 
