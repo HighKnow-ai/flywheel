@@ -25,6 +25,9 @@ vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
   return {
     ...actual,
+    // The board mounts the Needs-you column (#156), which reads its list and rides the fleet's subscription.
+    needsYouList: () => Promise.resolve([]),
+    subscribeAgentEvent: () => Promise.resolve(() => {}),
     milestoneList: (...args: unknown[]) => milestoneList(...args),
     epicList: (...args: unknown[]) => epicList(...args),
     storyListForProject: (...args: unknown[]) => storyListForProject(...args),
