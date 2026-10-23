@@ -204,6 +204,8 @@ pub struct EpicProgressDto {
     pub attention: Option<String>,
     /// Issue #159: where an Epic in Shaping has got to, its card's shaping marker; `null` out of Shaping.
     pub shaping: Option<ShapingMarkerDto>,
+    /// Its Proposals awaiting triage (issue #162): the roster's "n Proposals" marker.
+    pub proposals: i64,
 }
 
 /// An Epic in Shaping's open Stage and that Stage's latest Round (`core::query::progress::ShapingMarker`).
@@ -280,6 +282,7 @@ pub fn milestone_progress(
             counts: e.counts.into(),
             attention: e.attention,
             shaping: e.shaping.map(Into::into),
+            proposals: e.proposals,
         })
         .collect();
     Ok(Some(MilestoneProgressDto {

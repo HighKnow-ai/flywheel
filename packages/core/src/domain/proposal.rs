@@ -257,13 +257,103 @@ pub fn withdraw_proposal(conn: &mut Connection, actor_id: &str, session_id: &str
 }
 
 /// Every Proposal the sessions of Story `story_id` filed, whatever its state, oldest first (issue
-/// #160): what the Story view lists as "Proposals filed by this Story".
+/// #160).
 pub fn proposals_filed_by_story(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<Proposal>> {
     let mut stmt = conn.prepare(select_proposals!(
         "WHERE session_id IN (SELECT id FROM sessions WHERE story_id = ?1) ORDER BY created_at, id"
     ))?;
     let rows = stmt.query_map(params![story_id], row_to_proposal)?.collect::<Result<Vec<_>, _>>();
     rows.context("failed to read the Proposals the Story filed")
+}
+
+/// Where a Reorder moves its Story: the key of the Story it sits after now, and the key of the one it
+/// would sit after. `None` is the top of the Epic's order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReorderPlaces {
+    pub now_after: Option<String>,
+    pub proposed_after: Option<String>,
+}
+
+/// One card of the triage drawer (docs/mvp-spec.md §5, issue #162): a Proposal awaiting triage, with
+/// the Story whose session filed it and the record it lands on.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TriageProposal {
+    pub proposal: Proposal,
+    /// The Story whose session filed it.
+    pub story_id: String,
+    pub story_key: String,
+    pub story_title: String,
+    /// The Epic it lands on; `None` for a New Epic, which lands on the Roadmap.
+    pub epic_key: Option<String>,
+    pub epic_title: Option<String>,
+    /// A New Epic's Milestone: the one after the Current Milestone when it was filed.
+    pub milestone_title: Option<String>,
+    /// The Story a Reorder or a Retire names.
+    pub target_key: Option<String>,
+    pub target_title: Option<String>,
+    /// A Reorder's places in the Epic's order.
+    pub reorder: Option<ReorderPlaces>,
+}
+
+/// Every Proposal awaiting triage in `project_id` (`crate::query::awaits_triage`: pending, filed by a
+/// Story session, not a judged-on change), in the drawer's order: grouped by the Epic each lands on, in
+/// Roadmap order (its Milestone's rank, then its own), then the New Epics, which land on the Roadmap;
+/// oldest first within a group. The filing Story comes through `sessions`.
+pub fn proposals_for_triage(conn: &Connection, project_id: &str) -> anyhow::Result<Vec<TriageProposal>> {
+    const SQL: &str = concat!(
+        "SELECT p.id, p.project_id, p.session_id, p.epic_id, p.verb, p.target_type, p.target_id, p.payload, p.rationale, \
+            p.state, p.rejection_reason, p.decided_by, p.created_at, p.stage_id, p.round_id, p.evidence, \
+            fs.id, fs.key, fs.title, e.key, e.title, nm.title, ts.key, ts.title \
+         FROM proposals p \
+         JOIN sessions ss ON ss.id = p.session_id \
+         JOIN stories fs ON fs.id = ss.story_id \
+         LEFT JOIN epics e ON e.id = p.epic_id \
+         LEFT JOIN milestones em ON em.id = e.milestone_id \
+         LEFT JOIN stories ts ON ts.id = p.target_id AND p.target_type = 'story' \
+         LEFT JOIN milestones nm ON p.epic_id IS NULL AND p.verb = 'create' AND p.target_type = 'epic' \
+             AND nm.id = json_extract(p.payload, '$.milestone_id') \
+         WHERE p.project_id = ?1 AND ",
+        crate::query::awaits_triage!(),
+        " ORDER BY p.epic_id IS NULL, em.rank, em.id, e.rank, e.id, p.created_at, p.id"
+    );
+    let mut stmt = conn.prepare(SQL)?;
+    let mut rows = stmt
+        .query_map(params![project_id], |row| {
+            Ok(TriageProposal {
+                proposal: row_to_proposal(row)?,
+                story_id: row.get(16)?,
+                story_key: row.get(17)?,
+                story_title: row.get(18)?,
+                epic_key: row.get(19)?,
+                epic_title: row.get(20)?,
+                milestone_title: row.get(21)?,
+                target_key: row.get(22)?,
+                target_title: row.get(23)?,
+                reorder: None,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the Proposals awaiting triage")?;
+    for t in rows.iter_mut().filter(|t| t.proposal.verb == "reorder" && t.proposal.target_type == "story") {
+        let (Some(story_id), Some(rank)) = (t.proposal.target_id.as_deref(), t.proposal.payload.get("rank").and_then(|r| r.as_str()))
+        else {
+            continue;
+        };
+        t.reorder = Some(reorder_places(conn, story_id, rank)?);
+    }
+    Ok(rows)
+}
+
+/// A Reorder's places: which Story its Story sits after now, and which it would sit after at `rank`.
+/// Dropped Stories are left out of the order.
+fn reorder_places(conn: &Connection, story_id: &str, rank: &str) -> anyhow::Result<ReorderPlaces> {
+    const AFTER: &str = "SELECT o.key FROM stories o JOIN stories t ON t.id = ?1 \
+        WHERE o.epic_id = t.epic_id AND o.id != t.id AND o.state != 'dropped' \
+            AND (o.rank < ?2 OR (o.rank = ?2 AND o.id < t.id)) \
+        ORDER BY o.rank DESC, o.id DESC LIMIT 1";
+    let current: String = conn.query_row("SELECT rank FROM stories WHERE id = ?1", params![story_id], |r| r.get(0))?;
+    let after = |at: &str| conn.query_row(AFTER, params![story_id, at], |r| r.get::<_, String>(0)).optional();
+    Ok(ReorderPlaces { now_after: after(&current)?, proposed_after: after(rank)? })
 }
 
 /// [`file_proposal`]'s body inside the caller's transaction, returning the new Proposal's id. A

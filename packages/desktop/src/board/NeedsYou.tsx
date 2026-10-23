@@ -14,6 +14,7 @@
  * - a Stopped Story: Resume; one whose worktree is missing: Recreate worktree;
  * - a Story In review: Open review, which opens the Story view (the review card lives there);
  * - Confirm exit test: the same control and dialog as the Epic card and the Milestone header;
+ * - the Proposals row (issue #162): Triage, which opens the triage drawer;
  * - a Shaping Round: Answer (Decide for a roadmap Round) while a live session is held on it, else Continue
  *   shaping (Continue for a roadmap Round), which starts a fresh session and keeps you where you are.
  *
@@ -35,6 +36,7 @@ import {
   GitPullRequest,
   KeyRound,
   Layers,
+  Lightbulb,
   MessageCircleQuestionMark,
   RotateCcw,
   ShieldAlert,
@@ -65,6 +67,7 @@ import { ResumeControl, endingWords, errorText } from "./StoryControls";
 import { ConfirmExitTest, type ExitTestSubject } from "./ConfirmExitTest";
 import { ContinueShapingButton } from "./EpicShapingControl";
 import { ContinueMilestoneShapingButton } from "./MilestoneShapingControl";
+import { TriageButton } from "../proposals/ProposalDrawer";
 import { cn } from "@/lib/utils";
 
 /** Whether a live session is held on the item: the only Needs-you items drawn in yellow. */
@@ -81,6 +84,7 @@ const KIND: Record<NeedsYouKind, { word: string; icon: ReactNode }> = {
   stopped: { word: "Stopped", icon: <Box /> },
   review: { word: "Review", icon: <GitPullRequest /> },
   confirm_exit_test: { word: "Confirm exit test", icon: <CircleCheckBig /> },
+  proposals: { word: "Proposals", icon: <Lightbulb /> },
   shaping_round: { word: "Shaping Round", icon: <CircleDashed /> },
 };
 
@@ -103,6 +107,8 @@ export function detailOf(item: NeedsYouItemDto): string | null {
       return item.conflicts.length > 0
         ? `Merging would conflict in ${item.conflicts.join(", ")}: request a rebase from its review`
         : "Handed off: its diff and criteria wait for your review";
+    case "proposals":
+      return item.proposals ? landingWords(item.proposals) : null;
     case "confirm_exit_test":
       return item.exitTest ?? (item.record.kind === "epic" ? "Every Story is Merged or Dropped" : "Every Epic is Done");
     case "shaping_round": {
@@ -125,6 +131,17 @@ export function detailOf(item: NeedsYouItemDto): string | null {
   }
 }
 
+/** "n from m Stories": the Proposals row's record line (spec §5 "One row"). */
+export function proposalsWords(p: { count: number; stories: number }): string {
+  return `${p.count} from ${p.stories} ${p.stories === 1 ? "Story" : "Stories"}`;
+}
+
+/** Where the Proposals land: "On 2 Epics and the Roadmap". */
+function landingWords(p: { epics: number; roadmap: boolean }): string {
+  const epics = p.epics === 0 ? null : p.epics === 1 ? "1 Epic" : `${p.epics} Epics`;
+  return `On ${[epics, p.roadmap ? "the Roadmap" : null].filter(Boolean).join(" and ")}`;
+}
+
 /** Whether an item's action is one that may be the column's one filled primary (DESIGN.md "The One Filled
  * Action Rule"): Resume, Recreate worktree, Confirm exit test. */
 function takesPrimary(item: NeedsYouItemDto): boolean {
@@ -136,6 +153,7 @@ const keyOf = (item: NeedsYouItemDto) => `${item.kind}:${item.id}`;
 /** "FLY-5", "Epic FLY-8", "Milestone Shaping", "the Roadmap": how the live region names a record. */
 function recordWords(item: NeedsYouItemDto): string {
   const { record } = item;
+  if (item.kind === "proposals") return "Proposals";
   if (record.kind === "roadmap") return "the Roadmap";
   if (record.kind === "story") return record.key ?? record.title;
   if (record.kind === "epic") return `Epic ${record.key ?? record.title}`;
@@ -215,7 +233,7 @@ export function NeedsYouList({ projectId, className }: { projectId: string; clas
         {live}
         <span className="text-row font-semibold">Nothing needs you</span>
         <span className="text-small text-muted-foreground">
-          A request, a stopped agent, a Story to review or a Round to answer shows here, most urgent first.
+          A request, a stopped agent, a Story to review, a Proposal or a Round to answer shows here, most urgent first.
         </span>
       </div>
     );
@@ -333,6 +351,10 @@ function RecordButton({ projectId, item }: { projectId: string; item: NeedsYouIt
   const openEpic = useUiStore((s) => s.openEpic);
   const openMilestone = useUiStore((s) => s.openMilestone);
   const { record } = item;
+  if (item.kind === "proposals" && item.proposals) {
+    // Inert: the row opens nothing itself; Triage opens the drawer.
+    return <span className="text-row font-semibold tabular-nums">{proposalsWords(item.proposals)}</span>;
+  }
   if (record.kind === "roadmap" || !record.id) {
     return (
       <span className="flex min-w-0 items-center gap-1.5 text-row font-semibold">
@@ -582,6 +604,8 @@ function ItemAction({ projectId, item, filled }: { projectId: string; item: Need
           : { kind: "milestone", id: record.id, title: record.title, exitTest: item.exitTest, state: record.state ?? "ready" };
       return <ConfirmExitTest projectId={projectId} subject={subject} place="card" outline={!filled} className="justify-start" />;
     }
+    case "proposals":
+      return <TriageButton projectId={projectId} count={item.proposals?.count ?? 0} />;
     case "shaping_round":
       return <RoundAction projectId={projectId} item={item} />;
     default:

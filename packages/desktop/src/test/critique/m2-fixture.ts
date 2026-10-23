@@ -22,6 +22,7 @@ import type {
   MilestoneProgressDto,
   MilestoneShapingDto,
   NeedsYouItemDto,
+  TriageProposalDto,
   PendingPermissionRequestDto,
   RoadmapProposalDto,
   RoadmapRoundDto,
@@ -351,15 +352,15 @@ const PROGRESS: Record<string, MilestoneProgressDto> = {
     counts: counts({ merged: 1, inReview: 1, running: 1, waitingOnYou: 2, stopped: 1, ready: 1, shaping: 1, dropped: 1 }),
     epicsDone: 0, epicsTotal: 2,
     epics: [
-      { epicId: "e-97", key: "FLY-1", title: "Design system and a legible app", state: "in_progress", attention: null, counts: counts({ merged: 1, inReview: 1, running: 1, waitingOnYou: 2, stopped: 1 }) },
-      { epicId: "e-59", key: "FLY-8", title: "Epic shaping", state: "shaping", attention: "waiting_on_you", counts: counts({ ready: 1, shaping: 1, dropped: 1 }) },
+      { epicId: "e-97", key: "FLY-1", title: "Design system and a legible app", state: "in_progress", attention: null, counts: counts({ merged: 1, inReview: 1, running: 1, waitingOnYou: 2, stopped: 1 }), proposals: 0 },
+      { epicId: "e-59", key: "FLY-8", title: "Epic shaping", state: "shaping", attention: "waiting_on_you", counts: counts({ ready: 1, shaping: 1, dropped: 1 }), proposals: 0 },
     ],
   },
   "p-hkw": {
     milestoneId: "m-h1", title: "Waitlist live", state: "in_progress", current: true, nextMilestoneTitle: null,
     exitTest: "A visitor can join the waitlist and gets a confirmation email.",
     counts: counts({ waitingOnYou: 1, ready: 1 }), epicsDone: 0, epicsTotal: 1,
-    epics: [{ epicId: "e-h1", key: "HKW-1", title: "Waitlist", state: "in_progress", attention: null, counts: counts({ waitingOnYou: 1, ready: 1 }) }],
+    epics: [{ epicId: "e-h1", key: "HKW-1", title: "Waitlist", state: "in_progress", attention: null, counts: counts({ waitingOnYou: 1, ready: 1 }), proposals: 0 }],
   },
 };
 
@@ -712,14 +713,67 @@ export function setNeedsYouExtras(on: boolean): void {
   needsYouExtras = on;
 }
 
+/**
+ * Issue #162: Proposals running Stories filed, awaiting triage, off by default so every earlier screen keeps its
+ * shot. Three land on Epic FLY-1, one New Epic on the Roadmap.
+ */
+let triageOn = false;
+export function setTriageInFixture(on: boolean): void {
+  triageOn = on;
+}
+
+function triageProposal(
+  id: string, minutesAgo: number, verb: string, targetType: string, epicId: string | null, payload: Record<string, unknown>,
+  rationale: string, evidence: string, filer: string, extra: Partial<TriageProposalDto> = {},
+): TriageProposalDto {
+  const story = storyById(filer) as StoryDto;
+  const epic = epicId ? Object.values(EPICS).flat().find((e) => e.id === epicId) ?? null : null;
+  return {
+    proposal: {
+      id, projectId: "p-fly", sessionId: `ses-${filer}`, epicId, verb, targetType, targetId: null, payload, rationale,
+      state: "pending", createdAt: ago(minutesAgo * 60), rejectionReason: null, stageId: null, roundId: null, evidence,
+    },
+    storyId: story.id, storyKey: story.key, storyTitle: story.title,
+    epicKey: epic?.key ?? null, epicTitle: epic?.title ?? null, milestoneTitle: null,
+    targetKey: null, targetTitle: null, reorder: null, ...extra,
+  };
+}
+
+function triageList(): TriageProposalDto[] {
+  if (!triageOn) return [];
+  return [
+    triageProposal("tp-1", 95, "create", "story", "e-97",
+      { title: "Keyboard shortcuts for the roster's row actions", description: "Start, Resume and Open session reachable from the keyboard on a focused row, with the keys shown in their tooltips." },
+      "Every row action needs the mouse today; the click model asks for the keyboard as an accelerator.",
+      "src/board/StoryBoard.tsx:612 rows take no key; DESIGN.md \"The click model\"", "s-4"),
+    triageProposal("tp-2", 70, "reorder", "story", "e-97", { rank: "cm" },
+      "Restyling every screen depends on the shared components FLY-5 is building now.",
+      "FLY-7's first session imported Badge variants that do not exist yet", "s-5",
+      { targetKey: "FLY-7", targetTitle: "Restyle every screen of the M2 flow in the new world", reorder: { nowAfter: "FLY-6", proposedAfter: "FLY-5" } }),
+    triageProposal("tp-3", 40, "create", "story", "e-97",
+      { title: "Measure the board's first paint on a 40-Story project", description: null },
+      "The virtualised roster has never been timed against a large project.",
+      "no test under src/board/__tests__ seeds more than 12 Stories", "s-6"),
+    triageProposal("tp-4", 25, "create", "epic", null,
+      { milestone_id: "m-4", title: "Keyboard-first supervision", problem: "Answering, resuming and triaging all need the mouse; a developer supervising many agents lives on the keyboard." },
+      "Three Stories in this Milestone found the same gap; it is bigger than one Story.",
+      "FLY-4, FLY-5 and FLY-6 each filed a keyboard follow-up", "s-5", { milestoneTitle: "Board and review" }),
+  ];
+}
+
+/** An Epic row's "n Proposals" (issue #162), from the same list the drawer reads. */
+function triageMarker(epicId: string): number {
+  return triageList().filter((t) => t.proposal.epicId === epicId).length;
+}
+
 const NEEDS_YOU_RANK: Record<string, number> = {
-  gated_action: 1, permission_request: 1, question: 1, stopped: 2, review: 3, confirm_exit_test: 4, shaping_round: 6,
+  gated_action: 1, permission_request: 1, question: 1, stopped: 2, review: 3, confirm_exit_test: 4, proposals: 5, shaping_round: 6,
 };
 
 function needsYouItem(kind: NeedsYouItemDto["kind"], id: string, since: string, record: NeedsYouItemDto["record"], extra: Partial<NeedsYouItemDto> = {}): NeedsYouItemDto {
   return {
     kind, rank: NEEDS_YOU_RANK[kind], id, since, record, sessionId: null, request: null, endingReason: null,
-    missingWorktree: false, doingTaskTitle: null, exitTest: null, milestoneTitle: null, round: null, conflicts: [], ...extra,
+    missingWorktree: false, doingTaskTitle: null, exitTest: null, milestoneTitle: null, round: null, conflicts: [], proposals: null, ...extra,
   };
 }
 
@@ -748,6 +802,15 @@ function needsYouOf(projectId: string): NeedsYouItemDto[] {
       items.push(needsYouItem("confirm_exit_test", "e-60", ago(9000),
         { kind: "epic", id: "e-60", key: "FLY-12", title: "Milestone and Roadmap shaping", state: null },
         { exitTest: "Cyril shapes a Milestone's exit test and has a roadmap Round propose a change, all in Flywheel.", milestoneTitle: "Shaping" }));
+    }
+    const triage = triageList();
+    if (triage.length > 0) {
+      const stories = new Set(triage.map((t) => t.storyId)).size;
+      const epics = new Set(triage.map((t) => t.proposal.epicId).filter(Boolean)).size;
+      const oldest = triage.map((t) => t.proposal.createdAt).sort()[0];
+      items.push(needsYouItem("proposals", "p-fly", oldest, { kind: "project", id: "p-fly", key: null, title: "", state: null }, {
+        proposals: { count: triage.length, stories, epics, roadmap: triage.some((t) => t.proposal.epicId === null) },
+      }));
     }
     for (const round of waitingRounds().filter((r) => r.projectId === projectId)) {
       const record: NeedsYouItemDto["record"] = round.subject === "roadmap"
@@ -951,10 +1014,11 @@ export function answer(cmd: string, args: Args): unknown {
       if (!progress) return null;
       // The Epic's attention follows its shaping session (issue #124).
       const attention = shapingSessionLive ? "waiting_on_you" : "round_waiting";
+      // An Epic's "n Proposals" counts the drawer's own list (issue #162).
       return {
         ...progress,
         epics: progress.epics.map((e) => {
-          const marked = { ...e, shaping: e.state === "shaping" ? shapingMarkerOf(e.epicId) : null };
+          const marked = { ...e, shaping: e.state === "shaping" ? shapingMarkerOf(e.epicId) : null, proposals: triageMarker(e.epicId) };
           return e.epicId === "e-59" ? { ...marked, attention } : marked;
         }),
       };
@@ -1003,7 +1067,7 @@ export function answer(cmd: string, args: Args): unknown {
     case "worktree_inventory": return [];
     case "git_facts": return null;
     case "proposal_list_pending": return [];
-    case "proposal_list_for_story": return [];
+    case "proposal_list_for_triage": return arg(args, "projectId") === "p-fly" ? triageList() : [];
     case "criterion_list": return CRITERIA[arg(args, "storyId")] ?? [];
     case "story_review": return reviewOf(arg(args, "storyId"));
     case "epic_shaping_session": return arg(args, "epicId") === "e-59" && shapingSessionLive ? "ses-shape-8" : null;
@@ -1039,6 +1103,7 @@ const SINCE_LAST_LOOKED = {
 export function installFixtureBackend(): void {
   withAdrs = false;
   needsYouExtras = false;
+  triageOn = false;
   roadmapMode = "none";
   milestoneShaping = "off";
   adrsOnlyLeft = false;

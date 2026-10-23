@@ -174,6 +174,7 @@ describe("the Epic card's shaping control (issue #122)", () => {
           epicId: "e1",
           key: "FLY-1",
           title: "Epic shaping",
+          proposals: 0,
           state: "shaping",
           attention: null,
           counts: { shaping: 1, ready: 0, running: 0, inReview: 0, merged: 0, dropped: 0, waitingOnYou: 0, stopped: 0, storiesTotal: 1 },
@@ -261,7 +262,7 @@ describe("a shaping session killed mid-Round (issue #124)", () => {
       counts: COUNTS,
       epicsDone: 0,
       epicsTotal: 1,
-      epics: [{ epicId: "e1", key: "FLY-1", title: "Epic shaping", state: "shaping", attention, counts: COUNTS }],
+      epics: [{ epicId: "e1", key: "FLY-1", title: "Epic shaping", state: "shaping", attention, counts: COUNTS, proposals: 0 }],
     };
   }
 

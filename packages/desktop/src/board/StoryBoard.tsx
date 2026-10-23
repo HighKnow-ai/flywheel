@@ -18,7 +18,8 @@
  * Every read is keyed under the project so the one `board:changed` subscription keeps the board live;
  * the renderer never trusts its own write. The Roadmap strip (#131) heads the board; the Milestone picked on it
  * (the Current one until another is picked) is what the Milestone header (#106) and the roster below show, and
- * each of its Epics heads its card with its own bar and "n of m Stories merged", from the header's core read.
+ * each of its Epics heads its card with its own bar and "n of m Stories merged", from the header's core read, and
+ * "n Proposals" while Story sessions have Proposals on it awaiting triage (#162), which opens the triage drawer.
  */
 import { useLayoutEffect, useState, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -48,6 +49,7 @@ import { OpenReviewControl } from "../review/ReviewCard";
 import { WriteStoryDialog } from "./WriteStoryDialog";
 import { AddStoryToEpic } from "./AddRecordControls";
 import { NeedsYouColumn, NeedsYouSheetButton } from "./NeedsYou";
+import { ProposalDrawer, ProposalsMarker } from "../proposals/ProposalDrawer";
 import { MilestoneHeader, useMilestoneProgress } from "./MilestoneHeader";
 import { EpicProgress } from "./EpicProgress";
 import { RoadmapStrip, useMilestoneSelection, useRoadmap } from "./RoadmapStrip";
@@ -109,6 +111,8 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
           )}
         </div>
       </SurfaceBody>
+      {/* The triage drawer (#162), opened by Needs you's Triage and an Epic's "n Proposals". */}
+      <ProposalDrawer projectId={projectId} />
     </div>
   );
 }
@@ -500,6 +504,7 @@ function EpicCard({
           className={cn("flex items-center gap-3 border-border px-4 py-1.5", stories.length > 0 && "border-b")}
         >
           <EpicProgress epic={progress} headingId={headingId} className="min-w-0 flex-1" />
+          {epic && <ProposalsMarker projectId={projectId} epic={epic} count={progress.proposals ?? 0} />}
           {epic && <AddStoryToEpic projectId={projectId} epic={epic} />}
           {/* A fixed slot on every progress-headed card, so each Epic's bar still sits in one column; inset by
               the rows' chevron column, so Shape sits above the rows' own actions. */}

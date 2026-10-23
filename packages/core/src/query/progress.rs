@@ -74,6 +74,9 @@ pub struct EpicProgress {
     /// Where an Epic in Shaping has got to (issue #159, the roster's shaping marker); `None` once the
     /// Epic is out of Shaping.
     pub shaping: Option<ShapingMarker>,
+    /// Its Proposals awaiting triage (`crate::query::awaits_triage`, issue #162): the roster's
+    /// "n Proposals" marker.
+    pub proposals: i64,
 }
 
 /// An Epic in Shaping's open Stage and that Stage's latest Round. Every field is empty before shaping
@@ -185,6 +188,9 @@ pub const EPIC_PROGRESS_SQL: &str = concat!(
     latest_open_stage_round!(),
     "), (SELECT COUNT(*) FROM round_questions q WHERE q.round_id = ",
     latest_open_stage_round!(),
+    "), \
+        (SELECT COUNT(*) FROM proposals p WHERE p.epic_id = e.id AND ",
+    crate::query::awaits_triage!(),
     ") \
      FROM epics e LEFT JOIN marks m ON m.epic_id = e.id \
      WHERE e.milestone_id = ?1 GROUP BY e.id ORDER BY e.rank, e.id"
@@ -253,6 +259,7 @@ pub fn epic_progress(conn: &Connection, milestone_id: &str) -> anyhow::Result<Ve
                 } else {
                     None
                 },
+                proposals: row.get(21)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>();

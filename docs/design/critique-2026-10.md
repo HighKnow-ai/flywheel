@@ -185,6 +185,9 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 86 | Review card: the Decisions section at the window's 900px minimum width (#161) | ![](critique-2026-10/after/86-review-card-decisions-min-width-light.webp) | ![](critique-2026-10/after/86-review-card-decisions-min-width-dark.webp) |
 | 92 | Review card: Rebase needed names the conflicting files first, with Request rebase; Merge held (#158) | ![](critique-2026-10/after/92-review-card-rebase-needed-light.webp) | ![](critique-2026-10/after/92-review-card-rebase-needed-dark.webp) |
 | 93 | Review card: Request changes opens the composer in the footer, Send back to Running filled (#158) | ![](critique-2026-10/after/93-review-card-request-changes-light.webp) | ![](critique-2026-10/after/93-review-card-request-changes-dark.webp) |
+| 96 | Needs you: the Proposals row, "4 from 3 Stories" with Triage, and FLY-1's "3 Proposals" on the roster (#162) | ![](critique-2026-10/after/96-needs-you-proposals-row-light.webp) | ![](critique-2026-10/after/96-needs-you-proposals-row-dark.webp) |
+| 97 | Triage drawer: grouped by Epic, then the Roadmap; each card with its kind, change, why, evidence and filing Story (#162) | ![](critique-2026-10/after/97-triage-drawer-light.webp) | ![](critique-2026-10/after/97-triage-drawer-dark.webp) |
+| 98 | Triage drawer: Amend opens a New Story's title and description, its why kept in sight (#162) | ![](critique-2026-10/after/98-triage-drawer-amend-light.webp) | ![](critique-2026-10/after/98-triage-drawer-amend-dark.webp) |
 
 ## How the screens were rendered
 

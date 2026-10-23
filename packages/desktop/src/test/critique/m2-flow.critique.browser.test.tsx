@@ -15,12 +15,13 @@
  *   CRITIQUE_SCHEME=dark  npx vitest run --config vitest.critique.config.ts src/test/critique
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { page, userEvent } from "vitest/browser";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { queryClient } from "../../adapters/queryClient";
 import type { EpicShapingDto } from "../../adapters/tauri";
 import { resetUiState } from "../../state/uiStore";
+import { useTriageDrawer } from "../../proposals/triageStore";
 import App from "../../App";
 import {
   answer,
@@ -30,6 +31,7 @@ import {
   setNeedsYouExtras,
   setRoadmapRound,
   setShapingSessionLive,
+  setTriageInFixture,
   shapeMilestoneInFixture,
 } from "./m2-fixture";
 
@@ -920,6 +922,43 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     );
     (await screen.findByRole("button", { name: "Send FLY-3 back to Running" })).scrollIntoView({ block: "end" });
     await shot("93-review-card-request-changes");
+  });
+
+  it("96 Needs you: the Proposals row, 4 from 3 Stories, and FLY-1's 3 Proposals on the roster (issue #162)", async () => {
+    setTriageInFixture(true);
+    useTriageDrawer.getState().closeTriage();
+    await boardReady();
+    const row = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>('[data-kind="proposals"]');
+      if (!el) throw new Error("no Proposals row yet");
+      return el;
+    });
+    await screen.findByRole("button", { name: /^Triage 3 Proposals on/ });
+    const column = await screen.findByRole("region", { name: /^Needs you/ });
+    column.scrollIntoView({ block: "start" });
+    row.scrollIntoView({ block: "nearest" });
+    await shot("96-needs-you-proposals-row");
+  });
+
+  it("97 Triage drawer: grouped by Epic, then the Roadmap, each card with its change, why, evidence and filer (issue #162)", async () => {
+    setTriageInFixture(true);
+    useTriageDrawer.getState().closeTriage();
+    await boardReady();
+    await click("Triage 4 Proposals");
+    const drawer = await screen.findByRole("dialog", { name: /Triage Proposals/ });
+    await within(drawer).findByText("Keyboard-first supervision");
+    await shot("97-triage-drawer");
+  });
+
+  it("98 Triage drawer: Amend opens a New Story's title and description, the why kept in sight (issue #162)", async () => {
+    setTriageInFixture(true);
+    useTriageDrawer.getState().closeTriage();
+    await boardReady();
+    await click("Triage 4 Proposals");
+    const drawer = await screen.findByRole("dialog", { name: /Triage Proposals/ });
+    await userEvent.click(await within(drawer).findByRole("button", { name: /^Amend New Story “Keyboard shortcuts/ }));
+    await within(drawer).findByRole("textbox", { name: "Title" });
+    await shot("98-triage-drawer-amend");
   });
 
   it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {

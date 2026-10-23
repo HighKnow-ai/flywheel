@@ -14,7 +14,10 @@ mod common;
 use core::domain::acceptance_criterion::{create_criterion, get_criterion};
 use core::domain::epic::{self, get_epic};
 use core::domain::milestone;
-use core::domain::proposal::{accept_proposal, get_proposal, proposals_filed_by_story, OPEN_PROPOSALS_PER_SESSION};
+use core::domain::proposal::{
+    accept_proposal, accept_proposal_released, get_proposal, proposals_filed_by_story, proposals_for_triage, reject_proposal,
+    OPEN_PROPOSALS_PER_SESSION,
+};
 use core::domain::proposal_apply::Applied;
 use core::domain::session::{agent_actor_id, start_shaping_session, ShapingSubject};
 use core::domain::session_kind::{story_board_tools, SessionKind};
@@ -277,6 +280,82 @@ fn accepted_proposals_from_execution_land_while_the_session_keeps_running() {
 
     let status: String = f.conn.query_row("SELECT status FROM sessions WHERE id = ?1", [&f.session_id], |r| r.get(0)).unwrap();
     assert_eq!(status, "running", "deciding a Proposal never touches the session that filed it");
+}
+
+fn session_status(f: &Fixture) -> String {
+    f.conn.query_row("SELECT status FROM sessions WHERE id = ?1", [&f.session_id], |r| r.get(0)).unwrap()
+}
+
+/// Issue #162, the Epic's exit test: a Proposal filed by a running Story is triaged from the drawer
+/// (`proposals_for_triage`, grouped by the record it lands on: each Epic in Roadmap order, then the
+/// Roadmap for a New Epic) and its effect lands on the board, without pausing the agent. A judged-on
+/// change is not the drawer's (issue #163).
+#[test]
+fn a_proposal_filed_by_a_running_story_is_triaged_from_the_drawer_and_lands_without_pausing_the_agent() {
+    let mut f = fixture();
+    // Epic "Other" comes after "Execution" on the Roadmap; its Story files first, and still sorts after.
+    let other_epic = f.elsewhere.epic_id.clone();
+    move_story(&mut f.conn, &f.human, &f.elsewhere.id, &[StoryState::Ready, StoryState::Running]);
+    let other_session = story_session(&mut f.conn, &f.project_id, &f.elsewhere.id);
+    let elsewhere = proposal_id(&call(&mut f.conn, &other_session, "propose", json!({
+        "kind": "new_story", "title": "Elsewhere follow-up", "why": "w", "evidence": "e",
+    })).unwrap());
+
+    let (ready_key, lexer_key, own_key) = (f.ready.key.clone(), f.shaping.key.clone(), f.own.key.clone());
+    let new_story = proposal_id(&propose(&mut f, json!({ "kind": "new_story", "title": "Empty-line recovery" })).unwrap());
+    let reorder = proposal_id(&propose(&mut f, json!({ "kind": "reorder_story", "story": ready_key, "before": lexer_key })).unwrap());
+    let new_epic = proposal_id(&propose(&mut f, json!({ "kind": "new_epic", "title": "Error recovery" })).unwrap());
+    // A second session of the same Story files a retirement and a judged-on change.
+    let second = story_session(&mut f.conn, &f.project_id, &f.own.id);
+    let retire = proposal_id(&call(&mut f.conn, &second, "propose", json!({
+        "kind": "retire_story", "story": lexer_key, "why": "w", "evidence": "e",
+    })).unwrap());
+    let judged_on = proposal_id(&call(&mut f.conn, &second, "propose", json!({
+        "kind": "amend_epic_spec", "field": "scope", "text": "Parser only", "why": "w", "evidence": "e",
+    })).unwrap());
+
+    let drawer = proposals_for_triage(&f.conn, &f.project_id).unwrap();
+    let ids: Vec<&str> = drawer.iter().map(|t| t.proposal.id.as_str()).collect();
+    assert_eq!(ids, vec![new_story.as_str(), reorder.as_str(), retire.as_str(), elsewhere.as_str(), new_epic.as_str()]);
+    assert!(!ids.contains(&judged_on.as_str()), "a judged-on change is its own Needs-you item, not the drawer's");
+    for t in &drawer[..3] {
+        assert_eq!(t.story_key, own_key, "each card names the Story that filed it");
+        assert_eq!(t.epic_key.as_deref(), Some(get_epic(&f.conn, &f.epic_id).unwrap().unwrap().key.as_str()));
+        assert_eq!(t.epic_title.as_deref(), Some("Execution"));
+    }
+    assert_eq!(drawer[3].story_key, f.elsewhere.key);
+    assert_eq!((drawer[3].proposal.epic_id.as_deref(), drawer[3].epic_title.as_deref()), (Some(other_epic.as_str()), Some("Other")));
+    assert_eq!((drawer[4].epic_key.as_deref(), drawer[4].milestone_title.as_deref()), (None, Some("Relay")), "a New Epic lands after this Milestone");
+    let place = drawer[1].reorder.as_ref().expect("a Reorder carries its places");
+    assert_eq!((drawer[1].target_key.as_deref(), drawer[1].target_title.as_deref()), (Some(ready_key.as_str()), Some("Printer")));
+    assert_eq!((place.now_after.as_deref(), place.proposed_after.as_deref()), (Some(lexer_key.as_str()), Some(own_key.as_str())));
+    assert_eq!(drawer[2].target_title.as_deref(), Some("Lexer"));
+
+    // Amend the New Story's title, then accept the rest, in the drawer's order.
+    let amended = json!({ "title": "Recover from an empty line", "description": "Skip it and go on" });
+    let decided = accept_proposal_released(&mut f.conn, &f.human, &new_story, Some(&amended)).unwrap();
+    let Applied::StoryCreated { story_id } = decided.applied else { panic!("a New Story is created") };
+    assert_eq!(get_story(&f.conn, &story_id).unwrap().unwrap().title, "Recover from an empty line");
+    assert_eq!(session_status(&f), "running");
+
+    accept_proposal(&mut f.conn, &f.human, &reorder).unwrap();
+    let order: Vec<String> = stories_in_epic(&f.conn, &f.epic_id).unwrap().into_iter().map(|s| s.key).collect();
+    assert!(
+        order.iter().position(|k| *k == ready_key) < order.iter().position(|k| *k == lexer_key),
+        "the Reorder changed the execution order: {order:?}"
+    );
+    accept_proposal(&mut f.conn, &f.human, &retire).unwrap();
+    assert_eq!(get_story(&f.conn, &f.shaping.id).unwrap().unwrap().state, "dropped");
+    reject_proposal(&mut f.conn, &f.human, &elsewhere, Some("Not now")).unwrap();
+    let Applied::Roadmap { record_id } = accept_proposal(&mut f.conn, &f.human, &new_epic).unwrap() else { panic!("a New Epic") };
+    assert_eq!(get_epic(&f.conn, &record_id).unwrap().unwrap().milestone_id, f.next_milestone_id);
+
+    let left: Vec<String> = proposals_for_triage(&f.conn, &f.project_id).unwrap().into_iter().map(|t| t.proposal.id).collect();
+    assert!(left.is_empty(), "every decided Proposal leaves the drawer: {left:?}");
+    assert_eq!(session_status(&f), "running", "triage never pauses the agent that filed");
+    // The agent goes on: its slots are free again and it files the next one at once.
+    let next = propose(&mut f, json!({ "kind": "new_story", "title": "Next one" })).unwrap();
+    assert_eq!((next["state"].as_str(), next["open"].as_i64()), (Some("pending"), Some(1)));
 }
 
 #[test]

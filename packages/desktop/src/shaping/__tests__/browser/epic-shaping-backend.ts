@@ -250,7 +250,7 @@ export function installEpicShapingBackend() {
         if (!base || base.milestoneId !== MILESTONE_ID) return base;
         const open = rounds.find((r) => r.state === "open");
         const row: EpicProgressDto = {
-          epicId: EPIC_ID, key: epic.key, title: epic.title, state: epic.state,
+          epicId: EPIC_ID, key: epic.key, title: epic.title, state: epic.state, proposals: 0,
           counts: { shaping: 0, ready: 0, running: 0, waitingOnYou: 0, stopped: 0, inReview: 0, merged: 0, dropped: 0, storiesTotal: stories.length },
           attention: open ? (open.sessionId !== null && open.sessionId === liveSession ? "waiting_on_you" : "round_waiting") : null,
         };

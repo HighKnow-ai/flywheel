@@ -19,6 +19,20 @@ macro_rules! round_waiting_on_you {
 }
 pub(crate) use round_waiting_on_you;
 
+/// The one derivation of a Proposal awaiting triage (docs/mvp-spec.md §5, issue #162), as a literal
+/// SQL predicate over a `proposals` row aliased `p`: pending, filed by a Story session (so in no shaping
+/// Stage), and not a judged-on change. A judged-on change (an amended criterion, or an amended Epic spec
+/// from a Story session, issue #163) changes what a Story is judged on and is its own Needs-you item.
+/// The Needs-you Proposals row, the triage drawer and each Epic row's "n Proposals" count this one set.
+macro_rules! awaits_triage {
+    () => {
+        "(p.state = 'pending' AND p.stage_id IS NULL \
+            AND EXISTS (SELECT 1 FROM sessions ps WHERE ps.id = p.session_id AND ps.kind = 'story') \
+            AND NOT (p.verb = 'amend' AND p.target_type IN ('criterion', 'epic')))"
+    };
+}
+pub(crate) use awaits_triage;
+
 pub mod sessions;
 pub mod events;
 pub mod fleet;
