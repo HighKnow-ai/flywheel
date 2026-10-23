@@ -144,7 +144,7 @@ export function installEpicShapingBackend() {
     const p: ProposalDto = {
       id: id("pr"), projectId: PROJECT_ID, sessionId: liveSession, epicId: EPIC_ID, verb, targetType,
       targetId: targetType === "epic" ? EPIC_ID : null, payload, rationale, state: "pending", createdAt: now(),
-      rejectionReason: null, stageId: stage?.id ?? null, roundId: rounds.at(-1)?.id ?? null,
+      rejectionReason: null, stageId: stage?.id ?? null, roundId: rounds[rounds.length - 1]?.id ?? null,
     };
     proposals.push(p);
     return p;
