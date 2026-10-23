@@ -97,11 +97,13 @@ pub fn epic_update(
     Ok(())
 }
 
-/// The developer moves an Epic: `ready` closes shaping, `done` confirms the exit test, `shaping`
-/// reopens shaping (declining the exit test). The domain refuses the rest.
+/// The developer moves an Epic: `ready` closes shaping, `shaping` reopens shaping (declining the exit
+/// test). `done` is refused here: confirming the exit test is `epic_confirm_done`, which starts the
+/// roadmap Round (issue #134). The domain refuses the rest.
 #[tauri::command]
 pub fn epic_set_state(state: State<AppState>, app: AppHandle, epic_id: String, to: String) -> Result<(), String> {
     let to = flywheel_core::domain::epic::EpicState::parse(&to).map_err(|e| e.to_string())?;
+    super::roadmap_round::refuse_done_without_round(to.as_str())?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::epic::set_epic_state(&mut conn, &actor_id, &epic_id, to).map_err(|e| e.to_string())?;

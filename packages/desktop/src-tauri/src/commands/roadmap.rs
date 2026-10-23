@@ -21,6 +21,10 @@ pub struct MilestoneDto {
     /// Whether this is the Current Milestone (the first in Roadmap order not done or dropped).
     pub current: bool,
     pub rank: String,
+    /// Its Epics Done, and its Epics with a Dropped one left out (issue #134): the row offers Confirm
+    /// exit test once every Epic is Done, `epics_done == epics_total > 0`.
+    pub epics_done: i64,
+    pub epics_total: i64,
 }
 
 pub(crate) fn to_dto(
@@ -29,7 +33,16 @@ pub(crate) fn to_dto(
     current_id: Option<&str>,
 ) -> Result<MilestoneDto, String> {
     let state = flywheel_core::domain::milestone::milestone_state(conn, &m.id).map_err(|e| e.to_string())?;
+    let (epics_done, epics_total): (i64, i64) = conn
+        .query_row(
+            "SELECT COUNT(*) FILTER (WHERE state = 'done'), COUNT(*) FILTER (WHERE state != 'dropped') FROM epics WHERE milestone_id = ?1",
+            [&m.id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
     Ok(MilestoneDto {
+        epics_done,
+        epics_total,
         current: current_id == Some(m.id.as_str()),
         id: m.id,
         project_id: m.project_id,
@@ -77,8 +90,9 @@ pub fn milestone_list(state: State<AppState>, project_id: String) -> Result<Vec<
         .collect()
 }
 
-/// The developer moves a Milestone: `ready` closes shaping, `done` confirms the exit test,
-/// `dropped` retires it, `shaping` reopens shaping. The domain refuses the rest.
+/// The developer moves a Milestone: `ready` closes shaping, `dropped` retires it, `shaping` reopens
+/// shaping (declining the exit test). `done` is refused here: confirming the exit test is
+/// `milestone_confirm_done`, which starts the roadmap Round (issue #134). The domain refuses the rest.
 #[tauri::command]
 pub fn milestone_set_state(
     state: State<AppState>,
@@ -87,6 +101,7 @@ pub fn milestone_set_state(
     to: String,
 ) -> Result<(), String> {
     let to = flywheel_core::domain::milestone::MilestoneState::parse(&to).map_err(|e| e.to_string())?;
+    super::roadmap_round::refuse_done_without_round(to.as_str())?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::milestone::set_milestone_state(&mut conn, &actor_id, &milestone_id, to)

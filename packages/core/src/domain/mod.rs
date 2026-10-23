@@ -21,6 +21,7 @@ pub mod adr_link;
 pub mod session;
 pub mod session_kind;
 pub mod check;
+pub mod confirm_done;
 pub mod epic;
 pub mod event;
 pub mod handoff;

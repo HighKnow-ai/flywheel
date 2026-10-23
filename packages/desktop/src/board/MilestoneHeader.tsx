@@ -5,6 +5,7 @@ import { milestoneProgress, type MilestoneProgressDto } from "../adapters/tauri"
 import { Icon, type IconName } from "../components/Icon";
 import { StateBadge } from "../components/StateBadge";
 import { Skeleton } from "../components/ui/skeleton";
+import { ConfirmExitTest, milestoneExitTestConfirmable } from "./ConfirmExitTest";
 import { EPIC_STATE_WORDS } from "./EpicProgress";
 import { MilestoneShapingControl, useMilestoneAttention } from "./MilestoneShapingControl";
 import { BAR_SEGMENTS, StoryStateBar, type BarSegment } from "./StoryStateBar";
@@ -90,6 +91,7 @@ function MilestoneProgress({ projectId, progress }: { projectId: string; progres
   const headingId = `milestone-${progress.milestoneId}`;
   // Issue #132: a Round waiting on its exit test shows in place of the state word, as on the Milestone card.
   const attention = useMilestoneAttention(projectId, { id: progress.milestoneId, state: progress.state });
+  const confirmable = milestoneExitTestConfirmable(progress);
   return (
     <HeaderCard labelledBy={headingId}>
       <div className="flex flex-wrap items-start justify-between gap-x-7 gap-y-4">
@@ -103,12 +105,28 @@ function MilestoneProgress({ projectId, progress }: { projectId: string; progres
               state={attention ?? progress.state}
               label={attention ? undefined : EPIC_STATE_WORDS[progress.state]}
             />
-            {/* Issue #132: Shape (or Answer, Open session, Continue shaping) while the Milestone is in Shaping. */}
-            <MilestoneShapingControl
-              projectId={projectId}
-              milestone={{ id: progress.milestoneId, title: progress.title, state: progress.state }}
-              place="header"
-            />
+            {/* Issue #132: Shape (or Answer, Open session, Continue shaping) while the Milestone is in Shaping;
+                issue #134: Confirm exit test in the same place once every Epic is Done. */}
+            {!confirmable && (
+              <MilestoneShapingControl
+                projectId={projectId}
+                milestone={{ id: progress.milestoneId, title: progress.title, state: progress.state }}
+                place="header"
+              />
+            )}
+            {confirmable && (
+              <ConfirmExitTest
+                projectId={projectId}
+                place="header"
+                subject={{
+                  kind: "milestone",
+                  id: progress.milestoneId,
+                  title: progress.title,
+                  exitTest: progress.exitTest,
+                  state: progress.state,
+                }}
+              />
+            )}
           </div>
           <p className="max-w-[72ch] text-[14.5px] leading-[1.45]">
             <b className="font-bold">Exit test:</b>{" "}

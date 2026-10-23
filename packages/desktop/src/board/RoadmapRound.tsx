@@ -17,7 +17,20 @@
  */
 import { useId, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, CircleDashed, CircleMinus, Compass, Hand, LoaderCircle, PenLine, RotateCcw, SquareTerminal, X } from "lucide-react";
+import {
+  Ban,
+  Check,
+  CircleDashed,
+  CircleMinus,
+  Compass,
+  Hand,
+  ListPlus,
+  LoaderCircle,
+  PenLine,
+  RotateCcw,
+  SquareTerminal,
+  X,
+} from "lucide-react";
 import {
   proposalAccept,
   proposalAmend,
@@ -197,6 +210,7 @@ export function RoundBand({
   const pending = proposals.filter((p) => p.state === "pending").length;
   const decided = proposals.length - pending;
   const pulse = live && !waiting && !prefersReducedMotion();
+  const noted = round.notedTriggers ?? [];
 
   async function dismiss() {
     if (dismissing) return;
@@ -319,6 +333,22 @@ export function RoundBand({
           </>
         )}
       </span>
+      {/* Issue #134: a Done confirmed while this Round was open opened no Round of its own. */}
+      {noted.length > 0 && (
+        <p
+          data-slot="roadmap-noted-triggers"
+          className={cn(
+            "m-0 flex min-w-0 basis-full items-start gap-1.5 text-small",
+            waiting ? "text-attention-foreground" : "text-muted-foreground",
+          )}
+        >
+          <ListPlus aria-hidden="true" className="mt-px size-4" />
+          <span className="min-w-0">
+            <span className="font-semibold">Also noted: {noted.join(" · ")}.</span>{" "}
+            {`${live ? "The session at work started before; " : ""}${live ? "the" : "The"} Round's next session reads ${noted.length === 1 ? "it" : "them"}.`}
+          </span>
+        </p>
+      )}
       {(error ?? revisit.error) && (
         <p role="alert" className="m-0 basis-full text-small break-words text-destructive-text">
           {error ?? revisit.error}

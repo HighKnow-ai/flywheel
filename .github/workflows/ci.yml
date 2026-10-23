@@ -117,17 +117,18 @@ jobs:
       # packages/sidecar/dist.
       - run: npm --prefix packages/sidecar run build
 
-      # The uat_session_env and uat_fleet_ops harness binaries and flywheel-shim. Not the desktop
+      # The uat_session_env, uat_fleet_ops and uat_roadmap_ops harness binaries and flywheel-shim. Not the desktop
       # crate, so no externalBin staging is needed here.
       - run: cargo build -p core -p flywheel-shim
 
       # The offline UAT (docs/mvp-spec.md §9): zero tokens, no `claude` binary, no credentials. The
       # job holds no secret. A SKIP exits 3, so it fails this step rather than passing silently.
-      - name: Offline UAT (harness-supervision-gate, uat-12)
+      - name: Offline UAT (harness-supervision-gate, uat-12, uat-17)
         run: |
           node scripts/uat/harness-supervision-gate.mjs --mode=supervised
           node scripts/uat/harness-supervision-gate.mjs --mode=unsupervised
           node scripts/uat/uat-12-fleet-live-reads.mjs
+          node scripts/uat/uat-17-roadmap-round.mjs
 
   desktop:
     name: Desktop unit tests and build

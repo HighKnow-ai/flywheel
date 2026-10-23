@@ -117,7 +117,7 @@ Flywheel has one opinionated, built-in way of working, adapted from mattpocock/s
   - a Milestone confirmed Done: one Roadmap Round (is the next Milestone still right? reorder, amend, retire or add?)
   - the "Revisit roadmap" button
 
-  Nothing triggers a Round during execution.
+  Nothing triggers a Round during execution. **The two Done triggers shipped** ([#134](https://github.com/HighKnow-ai/flywheel/issues/134)): Confirm exit test, on an Epic card once every Story is Merged or Dropped and on a Milestone's row and header once every Epic is Done, asks first, then moves the record to Done and starts the Round, the click being the consent; Decline reopens shaping. The packet's standing instructions end on the trigger's own line. A Done confirmed while a Round is open opens no second one: it is noted on the open Round, whose band says so and whose next packet names it.
 - **A Round's output** is Proposals decided inline, or a "Roadmap still holds" line on the timeline.
 - **The Round's packet**, stable parts first: every Milestone in order with its state and exit test, the Epics under each with their state and exit test, the ADR index, the triggering event, and the Roadmap Proposals Cyril rejected, with their reasons. It reads no Story detail or diffs.
 - **Dismissing a Round** closes it with no change, until the next trigger.

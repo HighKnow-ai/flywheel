@@ -710,6 +710,120 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     }
   });
 
+  /**
+   * Issue #134: the exit test is the developer's to confirm. `epic`: every Story of FLY-1 is Merged, so its
+   * card offers Confirm exit test. `milestone`: FLY-1 and FLY-8 are both Done, so the Milestone's row and
+   * header offer it. `noted`: a roadmap Round opened on FLY-1's Done has no live session, and FLY-8's Done
+   * came while it was open, so it is noted on the band.
+   */
+  function exitTestScene(scene: "epic" | "milestone" | "noted") {
+    const allDone = scene !== "epic";
+    const FLY1_EXIT = "Every screen of the M2 flow is drawn in the Andon world, and Cyril tells what needs him at a glance.";
+    mockIPC(
+      (cmd, payload) => {
+        const args = payload as Record<string, unknown> | undefined;
+        const base = answer(cmd, args);
+        switch (cmd) {
+          case "story_list_for_project":
+            return (base as { epicId: string; state: string }[]).map((s) =>
+              s.epicId === "e-97" || (allDone && s.epicId === "e-59") ? { ...s, state: s.state === "dropped" ? "dropped" : "merged" } : s,
+            );
+          case "epic_list":
+            return (base as { id: string; state: string }[] | null)?.map((e) =>
+              e.id === "e-97" ? { ...e, exitTest: FLY1_EXIT, state: allDone ? "done" : "in_progress" } : e.id === "e-59" && allDone ? { ...e, state: "done" } : e,
+            );
+          case "milestone_list":
+            return (base as { id: string }[]).map((m) => (m.id === "m-3" ? { ...m, epicsDone: allDone ? 2 : 0, epicsTotal: 2 } : m));
+          case "milestone_progress": {
+            if (!base) return base;
+            const p = base as { milestoneId: string; epics: { epicId: string; counts: Record<string, number> }[]; counts: Record<string, number> };
+            if (p.milestoneId !== "m-3") return base;
+            const merged = allDone ? 7 : 6;
+            const zero = { shaping: 0, ready: 0, running: 0, waitingOnYou: 0, stopped: 0, inReview: 0 };
+            return {
+              ...p,
+              epicsDone: allDone ? 2 : 0,
+              counts: allDone ? { ...zero, merged, dropped: 1, storiesTotal: merged } : { ...p.counts, ...zero, ready: 1, shaping: 1, merged, storiesTotal: merged + 2 },
+              epics: p.epics.map((e) =>
+                e.epicId === "e-97"
+                  ? { ...e, state: allDone ? "done" : "in_progress", counts: { ...zero, merged: 6, dropped: 0, storiesTotal: 6 } }
+                  : allDone
+                    ? { ...e, state: "done", attention: null, counts: { ...zero, merged: 1, dropped: 1, storiesTotal: 1 } }
+                    : e,
+              ),
+            };
+          }
+          // Nothing runs and nothing waits: the scene is about closing work.
+          case "fleet_list": return { rows: [], totalRows: 0, visibleCostUsd: 0 };
+          case "fleet_blocked_queue": return [];
+          case "fleet_waiting_rounds": return [];
+          case "board_blocked_summary": return { blockedStoryIds: [], waitingEpicIds: [], roadmapWaiting: false, blockedCount: 0 };
+          case "epic_shaping_session": return null;
+          case "roadmap_round_read":
+            if (scene !== "noted" || args?.projectId !== "p-fly") return base;
+            return {
+              open: {
+                id: "rr-3", number: 3, state: "open", triggerType: "epic_done", triggerLabel: "Epic FLY-1 done",
+                waitingOnYou: false, sessionLive: false, sessionId: null, postedAt: new Date(Date.now() - 1_200_000).toISOString(),
+                closedAt: null, proposalsFiled: 0, notedTriggers: ["Epic FLY-8 done"],
+              },
+              proposals: [],
+              last: null,
+            };
+          default:
+            return base;
+        }
+      },
+      { shouldMockEvents: true },
+    );
+  }
+
+  it("58 Epic card: every Story Merged, Confirm exit test (issue #134)", async () => {
+    exitTestScene("epic");
+    await boardReady();
+    const confirm = await screen.findByRole("button", { name: "Confirm exit test of FLY-1 Design system and a legible app" });
+    confirm.closest("section")?.scrollIntoView({ block: "center" });
+    await shot("58-epic-confirm-exit-test");
+  });
+
+  it("59 Confirming an Epic's exit test: the dialog names the short roadmap Round it starts, and Not met (issue #134)", async () => {
+    exitTestScene("epic");
+    await boardReady();
+    await click("Confirm exit test of FLY-1 Design system and a legible app");
+    await screen.findByRole("alertdialog");
+    await shot("59-epic-confirm-exit-test-dialog");
+  });
+
+  it("60 Milestone header: every Epic Done, Confirm exit test (issue #134)", async () => {
+    exitTestScene("milestone");
+    await boardReady();
+    await screen.findByRole("button", { name: "Confirm exit test of Shaping" });
+    await roadmapStrip();
+    await shot("60-milestone-confirm-exit-test");
+  });
+
+  it("61 Roadmap strip: a Done confirmed while a Round was open is noted on its band (issue #134)", async () => {
+    exitTestScene("noted");
+    await boardReady();
+    await screen.findByText("Also noted: Epic FLY-8 done.");
+    await roadmapStrip();
+    await shot("61-roadmap-round-noted-trigger");
+  });
+
+  it("62 Another Milestone picked at the window's minimum width: Confirm exit test in Shaping's strip row (issue #134)", async () => {
+    exitTestScene("milestone");
+    await page.viewport(900, 900);
+    try {
+      await boardReady();
+      await click(/^Board and review,/);
+      await screen.findByRole("button", { name: "Confirm exit test of Shaping" });
+      await roadmapStrip();
+      await shot("62-milestone-row-confirm-exit-test-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
   it("16 navigation: picking a project while the fleet is open", async () => {
     await boardReady();
     await click("Open fleet");
