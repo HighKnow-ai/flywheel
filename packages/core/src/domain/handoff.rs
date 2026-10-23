@@ -4,16 +4,17 @@
 //!
 //! - `checks_run` runs the Story's Checks for the agent's feedback. Nothing is recorded, and it
 //!   takes no argument: it runs the Checks the developer wrote, never a command of the agent's.
-//! - `handoff` takes the Session summary (*next session must know*, *decisions*) and needs the Task
-//!   checklist to be current: written, with no Task left *doing*. Open Tasks are allowed; they only
+//! - `handoff` takes the Session summary (*next session must know*, *decisions*) and the bar lines
+//!   of each ADR the Story wrote (`adrs`, issue #161, ADR 0010), and needs the Task checklist to be
+//!   current: written, with no Task left *doing*. Open Tasks are allowed; they only
 //!   warn at review. Flywheel then runs every Check, records each result against the commit it ran
 //!   against with its output tail, and moves the Story to In review whatever the results.
 //!
 //! A run takes minutes, so it is split in three for a caller that must not hold the database while
 //! it runs: [`plan_handoff`] / [`plan_feedback_run`] read and refuse, [`run_checks`] runs without a
 //! connection, and [`complete_handoff`] writes the summary, every result, the state move and the
-//! Story's review (`domain::review`, issue #155: the diff's size and the Tasks left open) in one
-//! transaction. [`hand_off`] does all three in a row.
+//! Story's review (`domain::review`, issue #155: the diff's size, the Tasks left open and the ADR
+//! bar lines) in one transaction. [`hand_off`] does all three in a row.
 //!
 //! Identity comes from the session the call arrived on, never from an argument, and only a live
 //! session may call either tool. Neither tool can edit or delete a Check: [`check::set_check`] and
@@ -28,6 +29,7 @@ use serde_json::Value;
 
 use crate::check_runner::{run_shell_check, ShellOutcome};
 use crate::domain::check::{self, record_check_run_in_tx, CheckResult, CheckRunRecord};
+use crate::domain::proposal_apply::AdrBarLines;
 use crate::domain::review::{open_review_in_tx, read_review_diff, ReviewDiff};
 use crate::domain::session::agent_actor_id;
 use crate::domain::session_summary::create_summary_in_tx;
@@ -41,11 +43,20 @@ pub const HANDOFF_TOOL_NAMES: [&str; 2] = ["checks_run", "handoff"];
 /// The longest a Session summary field may be.
 pub const MAX_SUMMARY_FIELD_LEN: usize = 20_000;
 
+/// What a hand-off leaves: the Session summary's two fields, and the bar lines of each ADR the
+/// Story wrote, which the review shows beside it (ADR 0010).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct HandoffSummary {
+    pub next_session_must_know: String,
+    pub decisions: String,
+    pub adrs: Vec<AdrBarLines>,
+}
+
 /// One parsed call of either tool.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HandoffToolCall {
     ChecksRun,
-    Handoff { next_session_must_know: String, decisions: String },
+    Handoff(HandoffSummary),
 }
 
 impl HandoffToolCall {
@@ -79,11 +90,33 @@ impl HandoffToolCall {
                     !next_session_must_know.is_empty(),
                     "handoff needs `next_session_must_know`: what the next session must know"
                 );
-                Ok(HandoffToolCall::Handoff { next_session_must_know, decisions: field("decisions")? })
+                let decisions = field("decisions")?;
+                let adrs = parse_adrs(args.get("adrs"))?;
+                Ok(HandoffToolCall::Handoff(HandoffSummary { next_session_must_know, decisions, adrs }))
             }
             other => anyhow::bail!("{other:?} is not a hand-off tool"),
         }
     }
+}
+
+/// The hand-off's optional `adrs`: each ADR's path and bar lines, checked as an ADR draft's are,
+/// each path at most once.
+fn parse_adrs(value: Option<&Value>) -> anyhow::Result<Vec<AdrBarLines>> {
+    let Some(value) = value.filter(|v| !v.is_null()) else { return Ok(Vec::new()) };
+    let items = value
+        .as_array()
+        .context("`adrs` is a list: one entry per ADR you wrote, with its path and bar lines")?;
+    let mut adrs: Vec<AdrBarLines> = Vec::with_capacity(items.len());
+    for (i, item) in items.iter().enumerate() {
+        let lines = AdrBarLines::from_payload_at(item, &format!("adrs[{i}]."))?;
+        anyhow::ensure!(
+            !adrs.iter().any(|a| a.path == lines.path),
+            "adrs[{i}]: {} is listed twice; give each ADR's bar lines once",
+            lines.path
+        );
+        adrs.push(lines);
+    }
+    Ok(adrs)
 }
 
 /// One Check to run, as read off the board.
@@ -230,17 +263,16 @@ pub fn run_checks(plan: &CheckPlan) -> anyhow::Result<CheckBatch> {
 
 /// Write the hand-off in one transaction, as the agent: the Session summary, every Check result
 /// against the commit it ran against, the move to In review, whatever the results, and the review
-/// it opens.
+/// it opens, carrying the ADR bar lines.
 pub fn complete_handoff(
     conn: &mut Connection,
     plan: &CheckPlan,
-    next_session_must_know: &str,
-    decisions: &str,
+    handoff: &HandoffSummary,
     batch: CheckBatch,
 ) -> anyhow::Result<HandoffOutcome> {
     let agent = agent_actor_id(conn)?;
     let tx = conn.transaction()?;
-    let summary = create_summary_in_tx(&tx, &plan.session_id, next_session_must_know, decisions)?;
+    let summary = create_summary_in_tx(&tx, &plan.session_id, &handoff.next_session_must_know, &handoff.decisions)?;
     for outcome in &batch.outcomes {
         let still_there: bool =
             tx.query_row("SELECT EXISTS (SELECT 1 FROM checks WHERE id = ?1)", params![outcome.check_id], |r| r.get(0))?;
@@ -284,7 +316,8 @@ pub fn complete_handoff(
     let open_tasks: i64 =
         tx.query_row("SELECT COUNT(*) FROM tasks WHERE story_id = ?1 AND state = 'open'", params![plan.story_id], |r| r.get(0))?;
     let diff = batch.diff.as_ref().context("a hand-off's run reads the branch's diff; this one did not")?;
-    let review_id = open_review_in_tx(&tx, &plan.project_id, &plan.story_id, Some(&plan.session_id), diff)?;
+    let adr_notes = Value::Array(handoff.adrs.iter().map(AdrBarLines::to_payload).collect());
+    let review_id = open_review_in_tx(&tx, &plan.project_id, &plan.story_id, Some(&plan.session_id), diff, &adr_notes)?;
     tx.commit().context("failed to commit the hand-off")?;
     Ok(HandoffOutcome {
         project_id: plan.project_id.clone(),
@@ -298,15 +331,25 @@ pub fn complete_handoff(
 
 /// Hand off in one go: plan, run every Check, then record. For a caller that may hold the
 /// connection for the whole run.
+pub fn hand_off_with(conn: &mut Connection, session_id: &str, handoff: &HandoffSummary) -> anyhow::Result<HandoffOutcome> {
+    let plan = plan_handoff(conn, session_id)?;
+    let batch = run_checks(&plan)?;
+    complete_handoff(conn, &plan, handoff, batch)
+}
+
+/// [`hand_off_with`] a Session summary and no ADR.
 pub fn hand_off(
     conn: &mut Connection,
     session_id: &str,
     next_session_must_know: &str,
     decisions: &str,
 ) -> anyhow::Result<HandoffOutcome> {
-    let plan = plan_handoff(conn, session_id)?;
-    let batch = run_checks(&plan)?;
-    complete_handoff(conn, &plan, next_session_must_know, decisions, batch)
+    let handoff = HandoffSummary {
+        next_session_must_know: next_session_must_know.to_string(),
+        decisions: decisions.to_string(),
+        adrs: Vec::new(),
+    };
+    hand_off_with(conn, session_id, &handoff)
 }
 
 /// The Checks' results as the tools answer them to the agent.

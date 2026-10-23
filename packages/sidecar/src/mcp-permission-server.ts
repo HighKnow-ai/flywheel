@@ -167,12 +167,27 @@ export const BOARD_TOOL_DEFINITIONS = [
   {
     name: "handoff",
     description:
-      "Hand your Story off for review once its work is committed. Bring your Task checklist up to date first, with no Task left doing: the hand-off is refused otherwise. Flywheel then runs every Check, records each result against your branch's commit, and moves the Story to In review whatever the results. Leave a summary for the next session: what it must know, and what was decided (including any Check you think is wrong, and why). End your turn once it answers.",
+      "Hand your Story off for review once its work is committed. Bring your Task checklist up to date first, with no Task left doing: the hand-off is refused otherwise. Flywheel then runs every Check, records each result against your branch's commit, and moves the Story to In review whatever the results. Leave a summary for the next session: what it must know, and what was decided (including any Check you think is wrong, and why). For every ADR your branch adds under docs/adr/, give its bar lines in `adrs`: why it is hard to reverse, why it would surprise a reader, which alternative lost, and the ADRs it relates to. The developer sees them beside the ADR at review; they are never written into the file. End your turn once it answers.",
     inputSchema: {
       type: "object",
       properties: {
         next_session_must_know: { type: "string", minLength: 1 },
         decisions: { type: "string" },
+        adrs: {
+          type: "array",
+          description: "One entry per ADR your branch adds, with its bar lines. Without the first three it is not an ADR.",
+          items: {
+            type: "object",
+            properties: {
+              path: { type: "string", minLength: 1, maxLength: 1000, description: "docs/adr/NNNN-slug.md, as committed." },
+              hard_to_reverse: { type: "string", minLength: 1, maxLength: 1000, description: "Why the decision is hard to reverse." },
+              surprising: { type: "string", minLength: 1, maxLength: 1000, description: "Why it would surprise a reader." },
+              losing_alternative: { type: "string", minLength: 1, maxLength: 1000, description: "Which alternative lost." },
+              relates_to: { type: "string", maxLength: 1000, description: "The ADRs it relates to (ADR-NNNN…), or none." },
+            },
+            required: ["path", "hard_to_reverse", "surprising", "losing_alternative"],
+          },
+        },
       },
       required: ["next_session_must_know", "decisions"],
     },

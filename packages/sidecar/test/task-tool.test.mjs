@@ -160,6 +160,18 @@ test("the board server is flywheel-board and carries the hand-off and Check tool
   assert.ok(BOARD_TOOL_QUALIFIED_NAMES.includes("mcp__flywheel-board__checks_run"));
 });
 
+// Issue #161, ADR 0010: the hand-off carries each ADR's bar lines, which the review shows beside it.
+test("the hand-off offers optional ADR bar lines, the first three required in each", () => {
+  const handoff = BOARD_TOOL_DEFINITIONS.find((tool) => tool.name === "handoff");
+  assert.deepEqual([...handoff.inputSchema.required], ["next_session_must_know", "decisions"], "adrs is optional");
+  const adrs = handoff.inputSchema.properties.adrs;
+  assert.equal(adrs.type, "array");
+  assert.deepEqual([...adrs.items.required], ["path", "hard_to_reverse", "surprising", "losing_alternative"]);
+  assert.equal(adrs.items.properties.relates_to.type, "string");
+  assert.equal(adrs.items.properties.text, undefined, "the bar lines travel without the ADR's text");
+  assert.match(handoff.description, /never written into the file/);
+});
+
 // Issue #160: a running Story files and withdraws Proposals on the same server; a shaping session,
 // which has its own Proposal tools, never sees these two.
 test("a Story session is listed propose and proposal_withdraw, and a shaping session never is", () => {
@@ -205,7 +217,19 @@ test("a hand-off is held until the core answers, and the agent receives the core
   const adapter = new ClaudeCodeAdapter();
   const events = [];
   const runId = "handoff-run-ok";
-  const summary = { next_session_must_know: "Checks pass.", decisions: "Kept the old seam." };
+  const summary = {
+    next_session_must_know: "Checks pass.",
+    decisions: "Kept the old seam.",
+    adrs: [
+      {
+        path: "docs/adr/0010-reviews.md",
+        hard_to_reverse: "Every review reads it",
+        surprising: "Bar lines usually live in the file",
+        losing_alternative: "Parsing the ADR file",
+        relates_to: "ADR-0002",
+      },
+    ],
+  };
   const session = startWithTaskCall(adapter, runId, events, { name: "handoff", arguments: summary });
 
   await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
