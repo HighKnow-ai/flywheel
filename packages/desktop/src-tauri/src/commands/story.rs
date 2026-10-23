@@ -1,4 +1,4 @@
-//! `story_create` / `story_list` / `story_get` / `story_update` / `story_set_state`, plus
+//! `story_create` / `story_list` / `story_get` / `story_update` / `story_set_state` / `story_move`, plus
 //! `story_write_by_hand` and `story_list_for_project` for the hand-written Story form — the Story
 //! command surface. A Story sits in one Epic and is the unit an agent executes in its own worktree
 //! (`domain::story`). Every handler stamps the local human actor server-side (T-01-04), so every
@@ -219,6 +219,20 @@ pub fn story_write_by_hand(
     drop(conn);
     emit_board_changed(&app, Some(&story.project_id), "story", Some(&story.id));
     Ok(story.into())
+}
+
+/// The developer's Move to Epic (issue #168): the Story re-parents to another open Epic of its project,
+/// landing at the end of its order, with its key, criteria, Tasks, worktree and branch untouched. The
+/// core refuses an agent, a closed Story and a Done or Dropped Epic.
+#[tauri::command]
+pub fn story_move(state: State<AppState>, app: AppHandle, story_id: String, epic_id: String) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::story::move_story_to_epic(&mut conn, &actor_id, &story_id, &epic_id).map_err(|e| format!("{e:#}"))?;
+    let project_id = super::project_of(&conn, "stories", &story_id);
+    drop(conn);
+    emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
+    Ok(())
 }
 
 /// Every Story of a project, in Roadmap order (Milestone, then Epic, then Story).
