@@ -143,6 +143,25 @@ pub(crate) fn create_milestone_in_tx(
     })
 }
 
+/// The developer rewrites a Milestone's title and exit test by hand, on the Milestone card (issue
+/// #149): the Roadmap stays directly editable by its owner, as spec §3 says; an agent changes it
+/// only through a Proposal. Both are trimmed, and a blank exit test is cleared rather than stored as
+/// spaces. Recorded as `milestone.updated`. A pending exit-test Proposal stays pending: the edit
+/// decides nothing on the developer's behalf. Refused as [`update_milestone_in_tx`] refuses.
+pub fn update_milestone(
+    conn: &mut Connection,
+    actor_id: &str,
+    milestone_id: &str,
+    title: &str,
+    exit_test: Option<&str>,
+) -> anyhow::Result<()> {
+    let exit_test = exit_test.map(str::trim).filter(|t| !t.is_empty());
+    let tx = conn.transaction()?;
+    update_milestone_in_tx(&tx, actor_id, milestone_id, title, exit_test, serde_json::json!({}))?;
+    tx.commit().context("failed to commit update_milestone")?;
+    Ok(())
+}
+
 /// Rewrite a Milestone's title and exit test, inside the caller's transaction: what an accepted
 /// Amend Milestone Proposal writes (issue #133). Human-only. Refused for a Done Milestone (frozen:
 /// later changes go into a new Milestone) and a Dropped one. Amending an exit test after work started
