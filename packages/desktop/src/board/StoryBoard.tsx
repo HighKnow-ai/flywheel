@@ -42,6 +42,7 @@ import {
 } from "./StoryControls";
 import { OpenReviewControl } from "../review/ReviewCard";
 import { WriteStoryDialog } from "./WriteStoryDialog";
+import { AddStoryToEpic } from "./AddRecordControls";
 import { MilestoneHeader, useMilestoneProgress } from "./MilestoneHeader";
 import { EpicProgress } from "./EpicProgress";
 import { RoadmapStrip, useMilestoneSelection, useRoadmap } from "./RoadmapStrip";
@@ -92,7 +93,7 @@ interface EpicGroup {
 }
 
 /** Every Epic of the project, in Roadmap order, read per Milestone under the board's key. */
-function useProjectEpics(projectId: string) {
+export function useProjectEpics(projectId: string) {
   const milestones = useRoadmap(projectId).data ?? [];
   const epicQueries = useQueries({
     queries: milestones.map((milestone) => ({
@@ -449,6 +450,7 @@ function EpicCard({
           className={cn("flex items-center gap-3 border-border px-4 py-1.5", stories.length > 0 && "border-b")}
         >
           <EpicProgress epic={progress} headingId={headingId} className="min-w-0 flex-1" />
+          {epic && <AddStoryToEpic projectId={projectId} epic={epic} />}
           {/* A fixed slot on every progress-headed card, so each Epic's bar still sits in one column; inset by
               the rows' chevron column, so Shape sits above the rows' own actions. */}
           <span className="mr-7 flex max-w-[360px] min-w-[152px] flex-none justify-end">
@@ -478,6 +480,7 @@ function EpicCard({
         <span className="ml-auto shrink-0 text-small text-muted-foreground tabular-nums">
           {stories.length === 0 ? "No Stories yet" : stories.length === 1 ? "1 Story" : `${stories.length} Stories`}
         </span>
+        {epic && <AddStoryToEpic projectId={projectId} epic={epic} />}
         {epic && (
           <span className="mr-7 flex min-w-0 justify-end">
             <EpicHeadingAction projectId={projectId} group={group} />

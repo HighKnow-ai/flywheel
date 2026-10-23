@@ -7,6 +7,9 @@
  * refuses it anyway), and criteria exist only as rows of the Story being written: there is no control
  * that makes a criterion on its own. The board re-reads on `board:changed`; nothing here trusts its own
  * write. The dialog stays open after a Story is written, so several can be written in a row.
+ *
+ * The same dialog opens from where the record goes (issue #168, `AddRecordControls.tsx`): an Epic card's
+ * + Story with that Epic chosen, the Milestone header's + Epic with that Milestone chosen.
  */
 import { useState, type FormEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -69,28 +72,60 @@ export function WriteStoryDialog({ projectId }: { projectId: string }) {
         <Plus aria-hidden="true" />
         Story
       </Button>
-      <Dialog open={open !== null} onOpenChange={(next) => !next && setOpen(null)}>
-        <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] gap-0 p-0 sm:max-w-2xl">
-          <DialogHeader className="border-b border-border px-5 py-4">
-            <DialogTitle className="text-section font-semibold">{open === "epic" ? "Add an Epic" : "Write a Story"}</DialogTitle>
-            <DialogDescription>
-              {open === "epic"
-                ? "An Epic lives in a Milestone. Choose one, or add one, then name the Epic."
-                : "A Story lives in an Epic, and an Epic in a Milestone. Choose them, or add one, then write the Story."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="overflow-y-auto px-5 py-4">
-            <StoryForm projectId={projectId} withStory={open !== "epic"} />
-          </div>
-        </DialogContent>
-      </Dialog>
+      <StoryFormDialog projectId={projectId} mode={open} onClose={() => setOpen(null)} />
     </>
   );
 }
 
-export function StoryForm({ projectId, withStory = true }: { projectId: string; withStory?: boolean }) {
-  const [milestoneId, setMilestoneId] = useState("");
-  const [epicId, setEpicId] = useState("");
+/** Where the dialog opens: nothing chosen (the top bar), a Milestone (its header's + Epic, issue #168) or an
+ * Epic and its Milestone (an Epic card's + Story). The developer can still change either. */
+export interface StoryFormPreset {
+  milestoneId?: string;
+  epicId?: string;
+}
+
+/** The Write a Story / Add an Epic dialog, open while `mode` is set. Each opening starts from `preset`. */
+export function StoryFormDialog({
+  projectId,
+  mode,
+  preset,
+  onClose,
+}: {
+  projectId: string;
+  mode: "story" | "epic" | null;
+  preset?: StoryFormPreset;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={mode !== null} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-h-[85vh] grid-rows-[auto_minmax(0,1fr)] gap-0 p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b border-border px-5 py-4">
+          <DialogTitle className="text-section font-semibold">{mode === "epic" ? "Add an Epic" : "Write a Story"}</DialogTitle>
+          <DialogDescription>
+            {mode === "epic"
+              ? "An Epic lives in a Milestone. Choose one, or add one, then name the Epic."
+              : "A Story lives in an Epic, and an Epic in a Milestone. Choose them, or add one, then write the Story."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="overflow-y-auto px-5 py-4">
+          <StoryForm projectId={projectId} withStory={mode !== "epic"} preset={preset} />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function StoryForm({
+  projectId,
+  withStory = true,
+  preset,
+}: {
+  projectId: string;
+  withStory?: boolean;
+  preset?: StoryFormPreset;
+}) {
+  const [milestoneId, setMilestoneId] = useState(preset?.milestoneId ?? "");
+  const [epicId, setEpicId] = useState(preset?.epicId ?? "");
   const [error, setError] = useState<string | null>(null);
   const [written, setWritten] = useState<string | null>(null);
 

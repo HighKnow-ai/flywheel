@@ -34,6 +34,7 @@ import { TaskChecklist, useStoryTasks } from "./TaskChecklist";
 import { useBoardChangedSubscription, useSessionFeed } from "./useBoardQuery";
 import { WriteStoryDialog } from "./WriteStoryDialog";
 import { ReviewCard } from "../review/ReviewCard";
+import { MoveToEpicControl } from "./MoveToEpic";
 import { StateBadge } from "../components/StateBadge";
 import { formatAge } from "../legend/runStatus";
 import { prefersReducedMotion, ToolCallLine } from "../session/FeedRow";
@@ -327,6 +328,7 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
           <div className="flex shrink-0 items-center gap-2">
             {story.state === "ready" && <StartControl story={story} onError={setError} />}
             {stopped && <ResumeControl story={story} />}
+            {open && <MoveToEpicControl projectId={projectId} story={story} onError={setError} />}
             {open && <DropControl story={story} />}
           </div>
         </div>

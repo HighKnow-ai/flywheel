@@ -184,6 +184,7 @@ fn main() {
             commands::story::story_set_state,
             commands::story::story_write_by_hand,
             commands::story::story_list_for_project,
+            commands::story::story_move,
             commands::review::story_review,
             commands::review::story_merge,
             commands::criterion::criterion_create,
