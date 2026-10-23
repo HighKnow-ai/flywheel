@@ -22,8 +22,14 @@ import { queryClient } from "../../adapters/queryClient";
 import type { EpicShapingDto } from "../../adapters/tauri";
 import { resetUiState } from "../../state/uiStore";
 import App from "../../App";
-import { answer, installFixtureBackend, offerAdrsInShaping, setRoadmapRound, setShapingSessionLive } from "./m2-fixture";
-import { answer, installFixtureBackend, offerAdrsInShaping, setShapingSessionLive, shapeMilestoneInFixture } from "./m2-fixture";
+import {
+  answer,
+  installFixtureBackend,
+  offerAdrsInShaping,
+  setRoadmapRound,
+  setShapingSessionLive,
+  shapeMilestoneInFixture,
+} from "./m2-fixture";
 
 const SCHEME = import.meta.env.VITE_CRITIQUE_SCHEME as string | undefined;
 const OUT = "../../../../../target/critique-2026-10";
@@ -621,6 +627,11 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
       await screen.findByRole("group", { name: /^Proposed: New Milestone "Relay and mobile"/ });
       await roadmapStrip();
       await shot("49-roadmap-ghost-rows-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
   it("50 board: a Milestone in Shaping offers Shape on its strip row and in its header (issue #132)", async () => {
     await boardReady();
     await userEvent.click(await screen.findByRole("button", { name: /^Board and review, Shaping/ }));
