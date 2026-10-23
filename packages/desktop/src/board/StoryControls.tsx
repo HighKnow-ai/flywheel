@@ -9,12 +9,13 @@
  */
 import { useState, type FormEvent, type MouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MessageCircleQuestionMark, Play, RotateCcw, Square, Terminal, Trash2 } from "lucide-react";
+import { CircleCheck, MessageCircleQuestionMark, Play, RotateCcw, Square, Terminal, Trash2 } from "lucide-react";
 import {
   sessionSummariesForStory,
   sessionsForStory,
   storyContextPacketSize,
   storyDrop,
+  storyMakeReady,
   storyResume,
   storyStart,
   storyStopped,
@@ -274,6 +275,55 @@ export function StartControl({ story, onError }: { story: StoryDto; onError: (me
       <Play aria-hidden="true" />
       {starting ? "Starting…" : "Start"}
     </Button>
+  );
+}
+
+/**
+ * Make Ready (docs/mvp-spec.md §2, issue #166): moves a Shaping Story whose Epic's shaping is closed to Ready,
+ * such as a New Story a running Story proposed. Filled: it is the Story's one next action, as Start is once it
+ * is Ready. `refusal`, when the core holds it back (no criterion yet), disables it and is read as its
+ * description. It keeps you where you are; the row turns Ready and offers Start.
+ */
+export function MakeReadyControl({
+  story,
+  refusal = null,
+  onError,
+}: {
+  story: StoryDto;
+  refusal?: string | null;
+  onError: (message: string | null) => void;
+}) {
+  const [making, setMaking] = useState(false);
+  const refusalId = `make-ready-refusal-${story.id}`;
+
+  function handleMakeReady() {
+    if (making || refusal) return;
+    setMaking(true);
+    onError(null);
+    storyMakeReady(story.id)
+      .catch((err: unknown) => onError(errorText(err)))
+      .finally(() => setMaking(false));
+  }
+
+  return (
+    <>
+      <Button
+        size="sm"
+        aria-label={`Make ${story.key} Ready`}
+        aria-describedby={refusal ? refusalId : undefined}
+        title={refusal ?? undefined}
+        onClick={handleMakeReady}
+        disabled={making || Boolean(refusal)}
+      >
+        <CircleCheck aria-hidden="true" />
+        {making ? "Making Ready…" : "Make Ready"}
+      </Button>
+      {refusal && (
+        <span id={refusalId} className="sr-only">
+          {refusal}
+        </span>
+      )}
+    </>
   );
 }
 

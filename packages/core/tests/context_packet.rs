@@ -470,6 +470,10 @@ fn a_request_for_changes_puts_its_comments_in_section_seven() {
 /// One `propose` call on session `session_id`, as the core runs it; the Proposal's id.
 fn propose(conn: &mut Connection, session_id: &str, args: serde_json::Value) -> String {
     let mut args = args;
+    if args["kind"] == "new_story" && args.get("criteria").is_none() {
+        // Issue #166: a New Story carries at least one criterion.
+        args["criteria"] = serde_json::json!([{ "statement": "It holds" }]);
+    }
     args["why"] = serde_json::json!("found while working");
     args["evidence"] = serde_json::json!("src/packet.rs:1");
     let call = StoryProposalCall::parse("propose", &args).unwrap();

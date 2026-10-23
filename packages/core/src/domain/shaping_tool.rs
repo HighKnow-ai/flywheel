@@ -440,6 +440,8 @@ fn propose_story(conn: &mut Connection, session_id: &str, draft: &StoryDraft) ->
         description: Some(draft.description.clone()),
         rank: Some(rank),
         runs_after,
+        // Slicing writes the criteria in its own Stage (issue #128).
+        criteria: Vec::new(),
     };
     let agent = agent_actor_id(conn)?;
     let filed = file_proposal(

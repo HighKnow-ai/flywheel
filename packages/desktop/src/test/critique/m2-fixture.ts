@@ -766,7 +766,11 @@ function triageList(): TriageProposalDto[] {
 function triageListBase(): TriageProposalDto[] {
   return [
     triageProposal("tp-1", 95, "create", "story", "e-97",
-      { title: "Keyboard shortcuts for the roster's row actions", description: "Start, Resume and Open session reachable from the keyboard on a focused row, with the keys shown in their tooltips." },
+      { title: "Keyboard shortcuts for the roster's row actions", description: "Start, Resume and Open session reachable from the keyboard on a focused row, with the keys shown in their tooltips.",
+        criteria: [
+          { statement: "S, R and O on a focused row start, resume and open its session", check: "npm --prefix packages/desktop test -- story-board" },
+          { statement: "Each row action's tooltip names its key" },
+        ] },
       "Every row action needs the mouse today; the click model asks for the keyboard as an accelerator.",
       "src/board/StoryBoard.tsx:612 rows take no key; DESIGN.md \"The click model\"", "s-4"),
     triageProposal("tp-2", 70, "reorder", "story", "e-97", { rank: "cm" },
@@ -774,7 +778,8 @@ function triageListBase(): TriageProposalDto[] {
       "FLY-7's first session imported Badge variants that do not exist yet", "s-5",
       { targetKey: "FLY-7", targetTitle: "Restyle every screen of the M2 flow in the new world", reorder: { nowAfter: "FLY-6", proposedAfter: "FLY-5" } }),
     triageProposal("tp-3", 40, "create", "story", "e-97",
-      { title: "Measure the board's first paint on a 40-Story project", description: null },
+      { title: "Measure the board's first paint on a 40-Story project", description: null,
+        criteria: [{ statement: "The board paints a 40-Story project in under 200 ms", check: "npm --prefix packages/desktop test -- story-board-virtual" }] },
       "The virtualised roster has never been timed against a large project.",
       "no test under src/board/__tests__ seeds more than 12 Stories", "s-6"),
     triageProposal("tp-4", 25, "create", "epic", null,
@@ -783,6 +788,36 @@ function triageListBase(): TriageProposalDto[] {
       "FLY-4, FLY-5 and FLY-6 each filed a keyboard follow-up", "s-5", { milestoneTitle: "Board and review" }),
   ];
 }
+
+/**
+ * Issue #166: two New Stories from execution, accepted and in Shaping in FLY-1, whose shaping is closed. FLY-12
+ * carries its criteria, so it is offered Make Ready; FLY-13 has none yet, so Make Ready waits. Off by default so
+ * every earlier screen keeps its shot.
+ */
+const MADE_FROM_EXECUTION: StoryDto[] = [
+  story("s-12", "p-fly", "e-97", "FLY-12", "Keyboard shortcuts for the roster's row actions", "shaping", "g"),
+  story("s-13", "p-fly", "e-97", "FLY-13", "Measure the board's first paint on a 40-Story project", "shaping", "h"),
+];
+export function setMakeReadyInFixture(on: boolean): void {
+  for (const s of MADE_FROM_EXECUTION) {
+    const at = STORIES.findIndex((x) => x.id === s.id);
+    if (at >= 0) STORIES.splice(at, 1);
+  }
+  delete CRITERIA["s-12"];
+  if (!on) return;
+  STORIES.splice(STORIES.findIndex((x) => x.id === "s-9"), 0, ...MADE_FROM_EXECUTION.map((s) => ({ ...s })));
+  CRITIQUE_DESCRIPTIONS.forEach(([id, text]) => {
+    const s = STORIES.find((x) => x.id === id);
+    if (s) s.description = text;
+  });
+  CRITERIA["s-12"] = [
+    criterion("c-12a", "s-12", "S, R and O on a focused row start, resume and open its session", check("k-12a", "npm --prefix packages/desktop test -- story-board", "not_run"), "a"),
+    criterion("c-12b", "s-12", "Each row action's tooltip names its key", null, "b"),
+  ];
+}
+const CRITIQUE_DESCRIPTIONS: [string, string][] = [
+  ["s-12", "Start, Resume and Open session reachable from the keyboard on a focused row, with the keys shown in their tooltips."],
+];
 
 /** An Epic row's "n Proposals" (issue #162), from the same list the drawer reads. */
 function triageMarker(epicId: string): number {
@@ -1147,6 +1182,17 @@ function shapingMarkerOf(epicId: string) {
   };
 }
 
+/** Make Ready's offer (issue #166), as the core works it out: a Shaping Story of an Epic whose shaping is
+ * closed is offered it, held back while it has no criterion. */
+function makeReadyOffer(storyId: string): { offered: boolean; refusal: string | null } {
+  const s = STORIES.find((x) => x.id === storyId);
+  const epic = s ? Object.values(EPICS).flat().find((e) => e.id === s.epicId) : undefined;
+  const offered = s?.state === "shaping" && (epic?.state === "ready" || epic?.state === "in_progress");
+  if (!s || !offered) return { offered: false, refusal: null };
+  const refusal = (CRITERIA[s.id] ?? []).length === 0 ? `${s.key} has no Acceptance criterion yet; a Story needs one before it is Ready` : null;
+  return { offered: true, refusal };
+}
+
 /** The roster's one read (issue #159): every Story row of a Milestone, worked out from the same seeded
  * sessions, Tasks, criteria and review the Story view reads, so the board and the Story never disagree. */
 function rosterRowsOf(milestoneId: string) {
@@ -1169,6 +1215,7 @@ function rosterRowsOf(milestoneId: string) {
       tasksDone: tasks.filter((t) => t.state === "done").length,
       tasksTotal: tasks.filter((t) => t.state !== "dropped").length,
       review: review ? { files: review.files, added: review.added, removed: review.removed } : null,
+      canMakeReady: makeReadyOffer(s.id).offered && makeReadyOffer(s.id).refusal === null,
     };
   });
 }
@@ -1238,6 +1285,7 @@ export function answer(cmd: string, args: Args): unknown {
     case "worktree_inventory": return [];
     case "git_facts": return null;
     case "proposal_list_pending": return [];
+    case "story_make_ready_offer": return makeReadyOffer(arg(args, "storyId"));
     case "proposal_list_for_triage": return arg(args, "projectId") === "p-fly" ? triageList() : [];
     case "criterion_list": return CRITERIA[arg(args, "storyId")] ?? [];
     case "story_review": return reviewOf(arg(args, "storyId"));

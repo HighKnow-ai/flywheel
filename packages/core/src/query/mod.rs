@@ -50,6 +50,19 @@ macro_rules! awaits_triage {
 }
 pub(crate) use awaits_triage;
 
+/// The one derivation of a Story the developer can Make Ready (docs/mvp-spec.md §2, issue #166), as a
+/// literal SQL predicate over a `stories` row aliased `s` and its Epic aliased `e`: the Story is in
+/// Shaping, its Epic's shaping is closed (Ready or In progress: an Epic still in Shaping makes its
+/// Stories Ready when its criteria Stage closes), and it has at least one Acceptance criterion. The
+/// roster's Make Ready, the Story view's and `story::make_ready`'s refusals all read this one rule.
+macro_rules! can_make_ready {
+    () => {
+        "(s.state = 'shaping' AND e.state IN ('ready', 'in_progress') \
+            AND EXISTS (SELECT 1 FROM acceptance_criteria mc WHERE mc.story_id = s.id))"
+    };
+}
+pub(crate) use can_make_ready;
+
 pub mod sessions;
 pub mod events;
 pub mod fleet;

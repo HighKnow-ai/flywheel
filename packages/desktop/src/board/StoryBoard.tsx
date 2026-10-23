@@ -39,6 +39,7 @@ import {
   AnswerControl,
   OpenSessionControl,
   ResumeControl,
+  MakeReadyControl,
   StartControl,
   StoryStateWord,
   endingWords,
@@ -639,6 +640,7 @@ function StoryRow({
   else if (story.state === "running" && liveSessionId)
     action = <OpenSessionControl projectId={projectId} story={story} sessionId={liveSessionId} />;
   else if (story.state === "ready") action = <StartControl story={story} onError={setError} />;
+  else if (figures?.canMakeReady) action = <MakeReadyControl story={story} onError={setError} />;
   else if (story.state === "in_review") action = <OpenReviewControl projectId={projectId} story={story} />;
 
   return (

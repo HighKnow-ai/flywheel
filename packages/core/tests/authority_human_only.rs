@@ -35,7 +35,7 @@ use core::domain::proposal::{
 use core::domain::roadmap_round::{dismiss_roadmap_round, open_roadmap_round};
 use core::domain::round::{accept_all_recommended, answer_round_question, post_round, NewQuestion, NewRound, RoundAnswer};
 use core::domain::stage::close_stage;
-use core::domain::story::{move_story_to_epic, set_story_state, StoryState};
+use core::domain::story::{make_ready, move_story_to_epic, set_story_state, StoryState};
 use core::domain::request_changes::request_changes;
 use core::domain::story_merge::{merge_story, MergeOptions};
 use rusqlite::Connection;
@@ -321,6 +321,16 @@ fn run_move_story_to_epic(who: Who) -> Trial {
     trial(&mut conn, who, |c, actor| move_story_to_epic(c, actor, &story.id, &target.id))
 }
 
+/// Making one Story Ready is the developer's (issue #166): a Shaping Story with a criterion, in an Epic
+/// whose shaping is closed.
+fn run_make_ready(who: Who) -> Trial {
+    let (mut conn, human, project) = common::seeded_project();
+    let story = common::new_story(&mut conn, &project.id, &human, "A follow-up Story");
+    create_criterion(&mut conn, &human, &story.id, "It holds.").unwrap();
+    set_epic_state(&mut conn, &human, &story.epic_id, EpicState::Ready).unwrap();
+    trial(&mut conn, who, |c, actor| make_ready(c, actor, &story.id))
+}
+
 /// A live shaping session on an Epic with a two-question Round posted by its agent. Returns
 /// `(conn, round_id, first question id)`.
 fn posted_round() -> (Connection, String, String) {
@@ -378,7 +388,7 @@ fn run_close_stage(who: Who) -> Trial {
 
 /// The authority writers the source half guards, by function name. Adding one here without a case
 /// below (or the reverse) fails `every_authority_writer_has_a_refusal_and_a_not_blocked_case`.
-const AUTHORITY_WRITERS: [&str; 17] = [
+const AUTHORITY_WRITERS: [&str; 18] = [
     "accept_criterion",
     "unaccept_criterion",
     "set_check",
@@ -396,6 +406,7 @@ const AUTHORITY_WRITERS: [&str; 17] = [
     "merge_story",
     "move_story_to_epic",
     "request_changes",
+    "make_ready",
 ];
 
 /// Declares the case table AND, per transition, the labelled refusal / not-blocked pair — so the two
@@ -442,6 +453,7 @@ authority_cases! {
     close_stage => run_close_stage,
     update_milestone => run_update_milestone,
     move_story_to_epic => run_move_story_to_epic,
+    make_ready => run_make_ready,
     start_story => run_start_story,
     request_changes => run_request_changes,
     merge_story => run_merge_story,
@@ -467,7 +479,7 @@ fn every_authority_writer_has_a_refusal_and_a_not_blocked_case() {
     in_table.sort_unstable();
     declared.sort_unstable();
     assert_eq!(in_table, declared, "the case table must name every writer and every developer-only move");
-    assert_eq!(TRANSITIONS.len(), 22, "a transition was quietly dropped from coverage");
+    assert_eq!(TRANSITIONS.len(), 23, "a transition was quietly dropped from coverage");
 }
 
 /// The session's hand-off is the one Story move that is not the developer's: an agent may make it,
@@ -627,8 +639,8 @@ const ALLOWED_CALLERS: [AllowedCaller; 18] = [
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/review.rs", reason: "the human's Merge on the review card", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/milestone.rs", reason: "declares update_milestone", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/roadmap.rs", reason: "the human's in-place edit on the Milestone card", test_only: false },
-    AllowedCaller { suffix: "packages/core/src/domain/story.rs", reason: "declares move_story_to_epic", test_only: false },
-    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/story.rs", reason: "the human's Move to Epic in the Story view", test_only: false },
+    AllowedCaller { suffix: "packages/core/src/domain/story.rs", reason: "declares move_story_to_epic / make_ready", test_only: false },
+    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/story.rs", reason: "the human's Move to Epic and Make Ready in the Story view", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/roadmap_round.rs", reason: "declares dismiss_roadmap_round", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/roadmap_round.rs", reason: "the human's Dismiss on the Roadmap strip", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/acceptance_criterion.rs", reason: "declares accept_criterion / unaccept_criterion", test_only: false },

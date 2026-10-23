@@ -279,7 +279,7 @@ fn judged_on_is_an_amend_criterion_or_a_story_sessions_amend_epic_spec() {
     let mut f = fixture();
     let criterion = amend(&mut f, "Parses an empty line", None);
     let spec = propose(&mut f, json!({ "kind": "amend_epic_spec", "field": "scope", "text": "More" }));
-    let story = propose(&mut f, json!({ "kind": "new_story", "title": "Recovery" }));
+    let story = propose(&mut f, json!({ "kind": "new_story", "title": "Recovery", "criteria": [{ "statement": "It recovers" }] }));
     let judged = |f: &Fixture, id: &str| is_judged_on(&f.conn, &get_proposal(&f.conn, id).unwrap().unwrap()).unwrap();
     assert!(judged(&f, &criterion));
     assert!(judged(&f, &spec));

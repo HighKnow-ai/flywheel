@@ -212,7 +212,7 @@ export const BOARD_TOOL_DEFINITIONS = [
   {
     name: "propose",
     description:
-      "Propose a change to the board that you learned of while working your Story, with one line on why and one line of evidence (what you saw: a file and line, a failing command, a test). `kind` is one of: new_story (title; description: a follow-up Story in your Epic, at the end of its order), amend_criterion (criterion_id; the whole new statement; check_command, the shell command that proves it, if it changes), amend_epic_spec (field: problem, scope, out_of_scope or exit_test; the field's whole new text), reorder_story (story: a key such as FLY-12; `after` or `before` another Story's key, or neither for the end), retire_story (story: a Story of your Epic still in Shaping or Ready; a started Story is the developer's to drop) or new_epic (title; problem: it goes after the Current Milestone). Only your own Epic and its Stories. This call is answered at once with the Proposal's id: keep working, do not wait for the decision, and do not depend on it. You may hold at most 3 open Proposals: to file a 4th, withdraw one with proposal_withdraw; to merge two, withdraw both and file the combined one. A Proposal repeating one already pending (the same kind on the same target, or a New Story or New Epic with the same title) is flagged a duplicate in the answer and holds no slot; accepting the original closes it. Each decision reaches your next session's packet. Proposals never cover ADRs or glossary terms: write those in your diff.",
+      "Propose a change to the board that you learned of while working your Story, with one line on why and one line of evidence (what you saw: a file and line, a failing command, a test). `kind` is one of: new_story (title; description; criteria: at least one { statement, check? }, each an observable statement of what is true once it ships and, when a command can prove it, the shell command run from the worktree root that exits 0 once it holds: a follow-up Story in your Epic, at the end of its order, which the developer makes Ready once accepted), amend_criterion (criterion_id; the whole new statement; check_command, the shell command that proves it, if it changes), amend_epic_spec (field: problem, scope, out_of_scope or exit_test; the field's whole new text), reorder_story (story: a key such as FLY-12; `after` or `before` another Story's key, or neither for the end), retire_story (story: a Story of your Epic still in Shaping or Ready; a started Story is the developer's to drop) or new_epic (title; problem: it goes after the Current Milestone). Only your own Epic and its Stories. This call is answered at once with the Proposal's id: keep working, do not wait for the decision, and do not depend on it. You may hold at most 3 open Proposals: to file a 4th, withdraw one with proposal_withdraw; to merge two, withdraw both and file the combined one. A Proposal repeating one already pending (the same kind on the same target, or a New Story or New Epic with the same title) is flagged a duplicate in the answer and holds no slot; accepting the original closes it. Each decision reaches your next session's packet. Proposals never cover ADRs or glossary terms: write those in your diff.",
     inputSchema: {
       type: "object",
       properties: {
@@ -224,6 +224,25 @@ export const BOARD_TOOL_DEFINITIONS = [
         evidence: { type: "string", minLength: 1, maxLength: 1000, description: "One line: what you saw that shows it." },
         title: { type: "string", maxLength: 500, description: "new_story or new_epic: its title." },
         description: { type: "string", maxLength: 20000, description: "new_story: what it ships and how it is tested." },
+        criteria: {
+          type: "array",
+          minItems: 1,
+          maxItems: 20,
+          description: "new_story: its Acceptance criteria, at least one.",
+          items: {
+            type: "object",
+            properties: {
+              statement: { type: "string", minLength: 1, maxLength: 2000, description: "What is observably true once the Story ships." },
+              check: {
+                type: "string",
+                minLength: 1,
+                maxLength: 2000,
+                description: "The shell command that proves it, run from the worktree root; leave out when it is judged at review.",
+              },
+            },
+            required: ["statement"],
+          },
+        },
         problem: { type: "string", maxLength: 4000, description: "new_epic: the problem it solves." },
         criterion_id: { type: "string", description: "amend_criterion: the criterion's id, from your packet." },
         statement: { type: "string", maxLength: 2000, description: "amend_criterion: the criterion's whole new statement." },

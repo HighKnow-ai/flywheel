@@ -50,10 +50,16 @@ function card(id: string, verb: string, targetType: string, epicId: string | nul
   };
 }
 
+/** The criteria the New Story carries (issue #166): one proven by a Check, one judged at review. */
+const CRITERIA = [
+  { statement: "An empty line yields no token", check: "cargo test -p core --test lexer" },
+  { statement: "The error names the line" },
+];
+
 /** What the core returns, in its order: Epic A's Proposals, then Epic B's, then the New Epic. */
 function seed(): TriageProposalDto[] {
   return [
-    card("p-new", "create", "story", "A", { title: "Empty-line recovery", description: "Skip it and go on", rank: null }, ["FLY-2", "Parser"]),
+    card("p-new", "create", "story", "A", { title: "Empty-line recovery", description: "Skip it and go on", rank: null, criteria: CRITERIA }, ["FLY-2", "Parser"]),
     card("p-reorder", "reorder", "story", "A", { rank: "b" }, ["FLY-2", "Parser"], {
       targetKey: "FLY-4", targetTitle: "Printer", reorder: { nowAfter: "FLY-3", proposedAfter: "FLY-2" },
     }),
@@ -191,7 +197,7 @@ describe("Proposals in Needs you and the triage drawer", () => {
     fireEvent.change(within(story).getByRole("textbox", { name: "Description" }), { target: { value: "" } });
     fireEvent.click(within(story).getByRole("button", { name: "Accept edit to New Story “Empty-line recovery”" }));
     await waitFor(() =>
-      expect(proposalAmend).toHaveBeenCalledWith("p-new", { title: "Recover from an empty line", description: null, rank: null }),
+      expect(proposalAmend).toHaveBeenCalledWith("p-new", { title: "Recover from an empty line", description: null, rank: null, criteria: CRITERIA }),
     );
   });
 
@@ -257,5 +263,17 @@ describe("Proposals in Needs you and the triage drawer", () => {
   it("an Epic with no pending Proposal carries no marker", () => {
     renderBoardBits(<ProposalsMarker projectId="p1" epic={{ id: "C", title: "Epic C" }} count={0} />);
     expect(screen.queryByRole("button", { name: /Proposals? on Epic C/ })).toBeNull();
+  });
+
+  it("a New Story's card lists the criteria it carries, each with its Check or judged at review (issue #166)", async () => {
+    const drawer = await openDrawer();
+    const list = within(drawer).getByRole("list", { name: "Proposed Acceptance criteria" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items.map((li) => li.textContent)).toEqual([
+      "An empty line yields no tokenCheck: cargo test -p core --test lexer",
+      "The error names the lineJudged at review",
+    ]);
+    expect(within(cardOf("p-new")).getByText("2 Acceptance criteria")).toBeTruthy();
+    expect(within(cardOf("p-reorder")).queryByRole("list", { name: "Proposed Acceptance criteria" })).toBeNull();
   });
 });

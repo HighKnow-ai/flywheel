@@ -1,6 +1,7 @@
 //! `story_create` / `story_list` / `story_get` / `story_update` / `story_set_state` / `story_move`, plus
 //! `story_write_by_hand` and `story_list_for_project` for the hand-written Story form, and
-//! `story_request_changes` from the review card — the Story command surface. A Story sits in one Epic and is the unit an agent executes in its own worktree
+//! `story_request_changes` from the review card, and `story_make_ready` / `story_make_ready_offer` (issue
+//! #166) — the Story command surface. A Story sits in one Epic and is the unit an agent executes in its own worktree
 //! (`domain::story`). Every handler stamps the local human actor server-side (T-01-04), so every
 //! transition reached from here is the developer's act; the hand-off is the session's, never an IPC
 //! command's.
@@ -121,6 +122,7 @@ pub fn story_set_state(state: State<AppState>, app: AppHandle, story_id: String,
     refuse_bare_drop(to)?;
     refuse_bare_merge(to)?;
     refuse_bare_running(to)?;
+    refuse_bare_ready(to)?;
     let mut conn = state.db.lock().map_err(|e| e.to_string())?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     flywheel_core::domain::story::set_story_state(&mut conn, &actor_id, &story_id, to).map_err(|e| e.to_string())?;
@@ -147,6 +149,38 @@ fn refuse_bare_merge(to: flywheel_core::domain::story::StoryState) -> Result<(),
         return Err("merge a Story with story_merge, which writes the merge commit on its base branch".to_string());
     }
     Ok(())
+}
+
+/// Ready is reached by closing the Epic's criteria Stage or by [`story_make_ready`] (issue #166), which
+/// refuses a Story with no criterion or in an Epic still being shaped; a bare state write checks neither.
+fn refuse_bare_ready(to: flywheel_core::domain::story::StoryState) -> Result<(), String> {
+    if to == flywheel_core::domain::story::StoryState::Ready {
+        return Err("make a Story Ready with story_make_ready, which needs a criterion and its Epic's shaping closed".to_string());
+    }
+    Ok(())
+}
+
+/// The developer's Make Ready (docs/mvp-spec.md §2, issue #166): a Story in Shaping, with a criterion, in
+/// an Epic whose shaping is closed, moves to Ready. The core refuses anything else, an agent included.
+#[tauri::command]
+pub fn story_make_ready(state: State<AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::story::make_ready(&mut conn, &actor_id, &story_id).map_err(|e| format!("{e:#}"))?;
+    let project_id = super::project_of(&conn, "stories", &story_id);
+    drop(conn);
+    emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
+    Ok(())
+}
+
+/// Whether the Story view offers Make Ready on a Story, and what holds it back (issue #166).
+#[tauri::command]
+pub fn story_make_ready_offer(
+    state: State<AppState>,
+    story_id: String,
+) -> Result<flywheel_core::domain::story::MakeReadyOffer, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    flywheel_core::domain::story::make_ready_offer(&conn, &story_id).map_err(|e| format!("{e:#}"))
 }
 
 /// Running is reached only with a session: Start (`session::story_start`) from Ready, and
@@ -350,6 +384,13 @@ mod tests {
         use flywheel_core::domain::story::StoryState;
         assert!(refuse_bare_merge(StoryState::Merged).unwrap_err().contains("story_merge"));
         assert!(refuse_bare_merge(StoryState::Running).is_ok());
+    }
+
+    #[test]
+    fn a_bare_state_write_cannot_make_a_story_ready() {
+        use flywheel_core::domain::story::StoryState;
+        assert!(refuse_bare_ready(StoryState::Ready).unwrap_err().contains("story_make_ready"));
+        assert!(refuse_bare_ready(StoryState::InReview).is_ok());
     }
 
     #[test]

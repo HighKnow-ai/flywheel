@@ -27,6 +27,7 @@ import {
   answer,
   installFixtureBackend,
   offerAdrsInShaping,
+  setMakeReadyInFixture,
   setReviewInFixture,
   setNeedsYouExtras,
   setJudgedOnInFixture,
@@ -312,6 +313,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     setShapingSessionLive(true);
     offerAdrsInShaping(false);
     setReviewInFixture("judging");
+    setMakeReadyInFixture(false);
     installFixtureBackend();
   });
   afterEach(() => {
@@ -1049,6 +1051,45 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     } finally {
       await page.viewport(1440, 900);
     }
+  });
+
+  it("112 Triage drawer: a New Story's card lists the criteria it carries, each with its Check (issue #166)", async () => {
+    setTriageInFixture(true);
+    useTriageDrawer.getState().closeTriage();
+    await boardReady();
+    await click("Triage 4 Proposals");
+    const drawer = await screen.findByRole("dialog", { name: /Triage Proposals/ });
+    const list = (await within(drawer).findAllByRole("list", { name: "Proposed Acceptance criteria" }))[0];
+    list.scrollIntoView({ block: "center" });
+    await shot("112-triage-drawer-new-story-criteria");
+  });
+
+  it("113 board: an accepted New Story's row offers Make Ready (issue #166)", async () => {
+    setMakeReadyInFixture(true);
+    useTriageDrawer.getState().closeTriage();
+    await boardReady();
+    await rosterRowInView("FLY-12");
+    await screen.findAllByRole("button", { name: "Make FLY-12 Ready" });
+    await shot("113-board-make-ready-row");
+  });
+
+  it("114 Story view: Make Ready on a Shaping Story with its criteria (issue #166)", async () => {
+    setMakeReadyInFixture(true);
+    useTriageDrawer.getState().closeTriage();
+    await boardReady();
+    await openStory("FLY-12", "Keyboard shortcuts for the roster's row actions");
+    await screen.findByRole("heading", { name: /Keyboard shortcuts for the roster's row actions/ });
+    await screen.findAllByRole("button", { name: "Make FLY-12 Ready" });
+    await shot("114-story-view-make-ready");
+  });
+
+  it("115 Story view: Make Ready waits while the Story has no criterion (issue #166)", async () => {
+    setMakeReadyInFixture(true);
+    useTriageDrawer.getState().closeTriage();
+    await boardReady();
+    await openStory("FLY-13", "Measure the board's first paint on a 40-Story project");
+    await screen.findByText(/Make Ready waits/);
+    await shot("115-story-view-make-ready-waits");
   });
 
   it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {

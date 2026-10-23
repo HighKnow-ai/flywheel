@@ -20,6 +20,8 @@
 //!   run an accepted Amend criterion marked stale (`checks.stale_since`, ADR 0015) is stale too.
 //! - **tasks x/y**: Tasks done out of every Task not Dropped. A Dropped Task is closed, not work.
 //! - **The diff size** of the Story's open review, while it is In review.
+//! - **Make Ready** (issue #166): whether the developer can make the Story Ready from its row, by
+//!   `query::can_make_ready!`, the rule `story::make_ready` refuses by.
 //!
 //! Rows come back Epic by Epic in Roadmap order, Stories in rank order, ties broken by id.
 
@@ -51,9 +53,11 @@ pub struct RosterRow {
     pub tasks_total: i64,
     /// The open review's diff size, while the Story is In review.
     pub review: Option<ReviewDiffSize>,
+    /// Whether the developer can Make Ready the Story (issue #166).
+    pub can_make_ready: bool,
 }
 
-pub const ROSTER_ROWS_SQL: &str = "SELECT s.id, \
+pub const ROSTER_ROWS_SQL: &str = concat!("SELECT s.id, \
         CASE WHEN s.state <> 'running' THEN NULL \
              WHEN latest.status NOT IN ('running', 'blocked') THEN 'stopped' \
              WHEN EXISTS (SELECT 1 FROM sessions r WHERE r.story_id = s.id AND r.status IN ('running', 'blocked') \
@@ -74,8 +78,9 @@ pub const ROSTER_ROWS_SQL: &str = "SELECT s.id, \
         (SELECT COUNT(*) FROM acceptance_criteria c WHERE c.story_id = s.id), \
         (SELECT COUNT(*) FROM tasks t WHERE t.story_id = s.id AND t.state = 'done'), \
         (SELECT COUNT(*) FROM tasks t WHERE t.story_id = s.id AND t.state <> 'dropped'), \
-        open_review.files, open_review.added, open_review.removed \
-     FROM epics e JOIN stories s ON s.epic_id = e.id \
+        open_review.files, open_review.added, open_review.removed, ",
+    crate::query::can_make_ready!(),
+    " FROM epics e JOIN stories s ON s.epic_id = e.id \
      LEFT JOIN sessions latest ON latest.id = (SELECT id FROM sessions WHERE story_id = s.id \
         ORDER BY started_at DESC, id DESC LIMIT 1) \
      LEFT JOIN reviews handed_off ON handed_off.id = (SELECT id FROM reviews WHERE story_id = s.id \
@@ -83,7 +88,7 @@ pub const ROSTER_ROWS_SQL: &str = "SELECT s.id, \
      LEFT JOIN reviews open_review ON open_review.story_id = s.id AND open_review.outcome IS NULL \
         AND s.state = 'in_review' \
      WHERE e.milestone_id = ?1 \
-     ORDER BY e.rank, e.id, s.rank, s.id";
+     ORDER BY e.rank, e.id, s.rank, s.id");
 
 /// Every Story of `milestone_id` with its row's figures, in Roadmap order. One statement; an unknown
 /// Milestone has no rows.
@@ -107,6 +112,7 @@ pub fn roster_rows(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<
                 tasks_done: row.get(7)?,
                 tasks_total: row.get(8)?,
                 review,
+                can_make_ready: row.get(12)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>();

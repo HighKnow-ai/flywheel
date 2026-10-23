@@ -101,6 +101,10 @@ fn fixture() -> Fixture {
 
 fn propose_on(conn: &mut Connection, session_id: &str, args: Value) -> anyhow::Result<Value> {
     let mut args = args;
+    if args["kind"] == "new_story" && args.get("criteria").is_none() {
+        // Issue #166: a New Story carries at least one criterion.
+        args["criteria"] = json!([{ "statement": "It holds" }]);
+    }
     args["why"] = json!("found while working");
     args["evidence"] = json!("src/parser.rs:42");
     let parsed = StoryProposalCall::parse("propose", &args)?;
