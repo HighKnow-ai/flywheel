@@ -423,7 +423,7 @@ describe("Needs you: judged-on changes", () => {
     expect(statement).toHaveFocus();
     fireEvent.change(statement, { target: { value: "Parses an empty line as no token, and a blank one" } });
     fireEvent.change(within(card).getByRole("textbox", { name: "Its Check command" }), { target: { value: "cargo test blank" } });
-    fireEvent.click(within(card).getByRole("button", { name: "Accept edit" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Accept edit to the Amend criterion on FLY-p-1" }));
     await waitFor(() =>
       expect(proposalAmend).toHaveBeenCalledWith("p-1", {
         criterion_id: "c-1",
@@ -438,7 +438,7 @@ describe("Needs you: judged-on changes", () => {
     const card = cardOf("p-2");
     fireEvent.click(within(card).getByRole("button", { name: "Edit the Amend Epic spec on FLY-E2" }));
     fireEvent.change(within(card).getByRole("textbox", { name: "Your Scope" }), { target: { value: "Parse every line" } });
-    fireEvent.click(within(card).getByRole("button", { name: "Accept edit" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Accept edit to the Amend Epic spec on FLY-E2" }));
     await waitFor(() => expect(proposalAmend).toHaveBeenCalledWith("p-2", { field: "scope", text: "Parse every line" }));
   });
 
