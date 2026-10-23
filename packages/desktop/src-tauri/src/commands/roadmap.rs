@@ -202,6 +202,34 @@ pub struct EpicProgressDto {
     /// Issue #124: `waiting_on_you` while a live shaping session is held on an open Round of the Epic,
     /// `round_waiting` while a Round is open with no live shaping session, else `null`.
     pub attention: Option<String>,
+    /// Issue #159: where an Epic in Shaping has got to, its card's shaping marker; `null` out of Shaping.
+    pub shaping: Option<ShapingMarkerDto>,
+}
+
+/// An Epic in Shaping's open Stage and that Stage's latest Round (`core::query::progress::ShapingMarker`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShapingMarkerDto {
+    /// `challenge_spec`, `slice` or `criteria`; `null` before shaping opened a Stage.
+    pub stage_kind: Option<String>,
+    pub stage_rank: Option<i64>,
+    pub round_number: Option<i64>,
+    pub round_open: bool,
+    pub answered: i64,
+    pub questions: i64,
+}
+
+impl From<flywheel_core::query::progress::ShapingMarker> for ShapingMarkerDto {
+    fn from(m: flywheel_core::query::progress::ShapingMarker) -> Self {
+        ShapingMarkerDto {
+            stage_kind: m.stage_kind,
+            stage_rank: m.stage_rank,
+            round_number: m.round_number,
+            round_open: m.round_open,
+            answered: m.answered,
+            questions: m.questions,
+        }
+    }
 }
 
 /// The Milestone header (docs/mvp-spec.md §7): the Current Milestone, its exit test, the next
@@ -251,6 +279,7 @@ pub fn milestone_progress(
             state: e.state,
             counts: e.counts.into(),
             attention: e.attention,
+            shaping: e.shaping.map(Into::into),
         })
         .collect();
     Ok(Some(MilestoneProgressDto {
@@ -265,4 +294,56 @@ pub fn milestone_progress(
         epics_total: header.epics_total,
         epics,
     }))
+}
+
+/// The open review's diff size: files changed, lines added and removed.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewDiffSizeDto {
+    pub files: i64,
+    pub added: i64,
+    pub removed: i64,
+}
+
+/// One Story row's figures (`core::query::roster::RosterRow`, issue #159).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RosterRowDto {
+    pub story_id: String,
+    /// `stopped`, `waiting_on_you` or `null`.
+    pub attention: Option<String>,
+    /// Why a Stopped Story's session ended; `null` unless Stopped.
+    pub ending_reason: Option<String>,
+    /// The live session Answer and Open session open.
+    pub live_session_id: Option<String>,
+    pub doing_task_title: Option<String>,
+    pub criteria_met: i64,
+    pub criteria_total: i64,
+    pub tasks_done: i64,
+    pub tasks_total: i64,
+    /// The open review's diff size, while the Story is In review.
+    pub review: Option<ReviewDiffSizeDto>,
+}
+
+/// Every Story row of `milestone_id`'s roster, in Roadmap order (docs/mvp-spec.md §7). Read-only and
+/// one core statement, so the roster issues no read per row.
+#[tauri::command]
+pub fn roster_rows(state: State<AppState>, milestone_id: String) -> Result<Vec<RosterRowDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let rows = flywheel_core::query::roster::roster_rows(&conn, &milestone_id).map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|r| RosterRowDto {
+            story_id: r.story_id,
+            attention: r.attention,
+            ending_reason: r.ending_reason,
+            live_session_id: r.live_session_id,
+            doing_task_title: r.doing_task_title,
+            criteria_met: r.criteria_met,
+            criteria_total: r.criteria_total,
+            tasks_done: r.tasks_done,
+            tasks_total: r.tasks_total,
+            review: r.review.map(|d| ReviewDiffSizeDto { files: d.files, added: d.added, removed: d.removed }),
+        })
+        .collect())
 }

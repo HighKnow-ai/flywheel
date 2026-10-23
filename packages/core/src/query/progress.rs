@@ -71,6 +71,24 @@ pub struct EpicProgress {
     /// `waiting_on_you` (a live shaping session is held on an open Round of it), `round_waiting` (a
     /// Round is open with no live shaping session on the Epic) or `None`.
     pub attention: Option<String>,
+    /// Where an Epic in Shaping has got to (issue #159, the roster's shaping marker); `None` once the
+    /// Epic is out of Shaping.
+    pub shaping: Option<ShapingMarker>,
+}
+
+/// An Epic in Shaping's open Stage and that Stage's latest Round. Every field is empty before shaping
+/// has opened a Stage ("Not shaped yet"); the Round fields are empty while the open Stage has no Round.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShapingMarker {
+    /// `challenge_spec`, `slice` or `criteria`.
+    pub stage_kind: Option<String>,
+    /// The open Stage's place among the Epic's three: 1, 2 or 3.
+    pub stage_rank: Option<i64>,
+    pub round_number: Option<i64>,
+    /// Whether that Round still waits on answers.
+    pub round_open: bool,
+    pub answered: i64,
+    pub questions: i64,
 }
 
 /// The `marks` CTE body: one row per Story with its stored state and its attention (`stopped`,
@@ -91,6 +109,14 @@ macro_rules! story_marks {
              FROM stories s JOIN epics e ON e.id = s.epic_id ",
             $where
         )
+    };
+}
+
+/// The id of the latest Round of the open Stage of the Epic aliased `e`, as a scalar subquery.
+macro_rules! latest_open_stage_round {
+    () => {
+        "(SELECT r.id FROM rounds r JOIN stages st ON st.id = r.stage_id \
+            WHERE st.epic_id = e.id AND st.state = 'open' ORDER BY r.number DESC LIMIT 1)"
     };
 }
 
@@ -147,7 +173,19 @@ pub const EPIC_PROGRESS_SQL: &str = concat!(
                 WHERE st.epic_id = e.id AND r.state = 'open') \
             AND NOT EXISTS (SELECT 1 FROM sessions ss WHERE ss.epic_id = e.id AND ss.kind = 'shaping' \
                 AND ss.status IN ('running', 'blocked')) THEN 'round_waiting' \
-        END \
+        END, \
+        e.state = 'shaping', \
+        (SELECT st.kind FROM stages st WHERE st.epic_id = e.id AND st.state = 'open'), \
+        (SELECT st.rank FROM stages st WHERE st.epic_id = e.id AND st.state = 'open'), \
+        (SELECT r.number FROM rounds r WHERE r.id = ",
+    latest_open_stage_round!(),
+    "), COALESCE((SELECT r.state = 'open' FROM rounds r WHERE r.id = ",
+    latest_open_stage_round!(),
+    "), 0), (SELECT COUNT(q.answer) FROM round_questions q WHERE q.round_id = ",
+    latest_open_stage_round!(),
+    "), (SELECT COUNT(*) FROM round_questions q WHERE q.round_id = ",
+    latest_open_stage_round!(),
+    ") \
      FROM epics e LEFT JOIN marks m ON m.epic_id = e.id \
      WHERE e.milestone_id = ?1 GROUP BY e.id ORDER BY e.rank, e.id"
 );
@@ -203,6 +241,18 @@ pub fn epic_progress(conn: &Connection, milestone_id: &str) -> anyhow::Result<Ve
                 state: row.get(3)?,
                 counts: counts_at(row, 4)?,
                 attention: row.get(13)?,
+                shaping: if row.get::<_, bool>(14)? {
+                    Some(ShapingMarker {
+                        stage_kind: row.get(15)?,
+                        stage_rank: row.get(16)?,
+                        round_number: row.get(17)?,
+                        round_open: row.get(18)?,
+                        answered: row.get(19)?,
+                        questions: row.get(20)?,
+                    })
+                } else {
+                    None
+                },
             })
         })?
         .collect::<Result<Vec<_>, _>>();
