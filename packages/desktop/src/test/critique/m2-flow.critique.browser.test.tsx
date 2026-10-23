@@ -632,48 +632,48 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     }
   });
 
-  it("50 board: a Milestone in Shaping offers Shape on its strip row and in its header (issue #132)", async () => {
+  it("53 board: a Milestone in Shaping offers Shape on its strip row and in its header (issue #132)", async () => {
     await boardReady();
     await userEvent.click(await screen.findByRole("button", { name: /^Board and review, Shaping/ }));
     await screen.findByRole("heading", { name: "Board and review" });
-    await shot("50-board-milestone-shape");
+    await shot("53-board-milestone-shape");
   });
 
-  it("51 Milestone shaping: Round 1 of Exit test waiting on you beside the exit test and its ghost (issue #132)", async () => {
+  it("54 Milestone shaping: Round 1 of Exit test waiting on you beside the exit test and its ghost (issue #132)", async () => {
     shapeMilestoneInFixture("waiting");
     await boardReady();
     await click("Answer the Round on Board and review");
     await screen.findByRole("group", { name: "Proposed Exit test" });
-    await shot("51-milestone-shaping-waiting");
+    await shot("54-milestone-shaping-waiting");
   });
 
-  it("52 Milestone shaping: nothing open, closing Exit test makes the Milestone Ready (issue #132)", async () => {
+  it("55 Milestone shaping: nothing open, closing Exit test makes the Milestone Ready (issue #132)", async () => {
     shapeMilestoneInFixture("closable");
     await boardReady();
     await userEvent.click(await screen.findByRole("button", { name: /^Board and review, Shaping/ }));
     await click("Open the exit test of Board and review and its Rounds");
     await screen.findByText(/makes the Milestone Ready/);
-    await shot("52-milestone-shaping-closable");
+    await shot("55-milestone-shaping-closable");
   });
 
-  it("53 Milestone shaping: confirming Close Stage on Exit test (issue #132)", async () => {
+  it("56 Milestone shaping: confirming Close Stage on Exit test (issue #132)", async () => {
     shapeMilestoneInFixture("closable");
     await boardReady();
     await userEvent.click(await screen.findByRole("button", { name: /^Board and review, Shaping/ }));
     await click("Open the exit test of Board and review and its Rounds");
     await click("Close Stage");
     await screen.findByRole("alertdialog");
-    await shot("53-milestone-shaping-close-confirm");
+    await shot("56-milestone-shaping-close-confirm");
   });
 
-  it("54 Milestone shaping at the window's minimum width (issue #132)", async () => {
+  it("57 Milestone shaping at the window's minimum width (issue #132)", async () => {
     shapeMilestoneInFixture("waiting");
     await page.viewport(900, 900);
     try {
       await boardReady();
       await click("Answer the Round on Board and review");
       await screen.findByRole("group", { name: "Proposed Exit test" });
-      await shot("54-milestone-shaping-min-width");
+      await shot("57-milestone-shaping-min-width");
     } finally {
       await page.viewport(1440, 900);
     }

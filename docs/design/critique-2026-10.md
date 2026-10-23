@@ -155,11 +155,11 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 50 | Epic shaping: slicing, the Stories as columns in execution order, ghost columns for proposed Stories, a proposed move on its column and the runs-after brackets between the Stories they link (#127) | ![](critique-2026-10/after/50-epic-shaping-story-columns-light.webp) | ![](critique-2026-10/after/50-epic-shaping-story-columns-dark.webp) |
 | 51 | Epic shaping: Amend opens a proposed Story's title, description and runs-after reason in its ghost column (#127) | ![](critique-2026-10/after/51-epic-shaping-amend-story-light.webp) | ![](critique-2026-10/after/51-epic-shaping-amend-story-dark.webp) |
 | 52 | Epic shaping at the window's minimum width: the Story columns scroll sideways (#127) | ![](critique-2026-10/after/52-epic-shaping-story-columns-min-width-light.webp) | ![](critique-2026-10/after/52-epic-shaping-story-columns-min-width-dark.webp) |
-| 50 | Board: a Milestone in Shaping offers Shape on its strip row and in its header (#132) | ![](critique-2026-10/after/50-board-milestone-shape-light.webp) | ![](critique-2026-10/after/50-board-milestone-shape-dark.webp) |
-| 51 | Milestone shaping: Round 1 of Exit test waiting on you beside the exit test, its ghost and its neighbours (#132) | ![](critique-2026-10/after/51-milestone-shaping-waiting-light.webp) | ![](critique-2026-10/after/51-milestone-shaping-waiting-dark.webp) |
-| 52 | Milestone shaping: nothing open, closing Exit test makes the Milestone Ready (#132) | ![](critique-2026-10/after/52-milestone-shaping-closable-light.webp) | ![](critique-2026-10/after/52-milestone-shaping-closable-dark.webp) |
-| 53 | Milestone shaping: confirming Close Stage on Exit test (#132) | ![](critique-2026-10/after/53-milestone-shaping-close-confirm-light.webp) | ![](critique-2026-10/after/53-milestone-shaping-close-confirm-dark.webp) |
-| 54 | Milestone shaping at the window's minimum width: the dock first (#132) | ![](critique-2026-10/after/54-milestone-shaping-min-width-light.webp) | ![](critique-2026-10/after/54-milestone-shaping-min-width-dark.webp) |
+| 53 | Board: a Milestone in Shaping offers Shape on its strip row and in its header (#132) | ![](critique-2026-10/after/53-board-milestone-shape-light.webp) | ![](critique-2026-10/after/53-board-milestone-shape-dark.webp) |
+| 54 | Milestone shaping: Round 1 of Exit test waiting on you beside the exit test, its ghost and its neighbours (#132) | ![](critique-2026-10/after/54-milestone-shaping-waiting-light.webp) | ![](critique-2026-10/after/54-milestone-shaping-waiting-dark.webp) |
+| 55 | Milestone shaping: nothing open, closing Exit test makes the Milestone Ready (#132) | ![](critique-2026-10/after/55-milestone-shaping-closable-light.webp) | ![](critique-2026-10/after/55-milestone-shaping-closable-dark.webp) |
+| 56 | Milestone shaping: confirming Close Stage on Exit test (#132) | ![](critique-2026-10/after/56-milestone-shaping-close-confirm-light.webp) | ![](critique-2026-10/after/56-milestone-shaping-close-confirm-dark.webp) |
+| 57 | Milestone shaping at the window's minimum width: the dock first (#132) | ![](critique-2026-10/after/57-milestone-shaping-min-width-light.webp) | ![](critique-2026-10/after/57-milestone-shaping-min-width-dark.webp) |
 
 ## How the screens were rendered
 
