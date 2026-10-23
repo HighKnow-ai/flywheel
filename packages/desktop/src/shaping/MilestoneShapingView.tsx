@@ -69,6 +69,8 @@ export function MilestoneShapingView({ projectId, projectName, milestoneId, onBa
   const milestone = data?.milestone;
   const openStage = data?.stages.find((s) => s.state === "open");
   const sessionLive = Boolean(sessionQuery.data);
+  // Its one Stage closed, shaping is done: the dock waits for no Round (`RoundDock`'s `done`, issue #128).
+  const done = Boolean(data && data.stages.length > 0 && data.stages.every((s) => s.state === "closed"));
   // Attention in place of the state word, the same reading as the board's Milestone header (issue #124).
   const attention = useMilestoneAttention(projectId, { id: milestoneId, state: milestone?.state ?? "shaping" });
   const resume = milestone ? <ContinueMilestoneShapingButton projectId={projectId} milestone={milestone} /> : null;
@@ -112,6 +114,7 @@ export function MilestoneShapingView({ projectId, projectName, milestoneId, onBa
               subject="Milestone"
               queryKey={queryKey}
               show="current"
+              done={done}
               className="xl:col-start-2 xl:row-start-2"
             />
             <div className="min-w-0 self-stretch xl:col-start-1 xl:row-span-2 xl:row-start-2">

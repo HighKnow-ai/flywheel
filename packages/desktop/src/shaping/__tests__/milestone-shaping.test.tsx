@@ -237,6 +237,16 @@ describe("the Milestone's shaping view (issue #132)", () => {
     await waitFor(() => expect(proposalAccept).toHaveBeenCalledWith("pr1"));
   });
 
+  it("waits for no Round once the Exit test Stage is closed (issue #128's done dock)", async () => {
+    milestoneShapingRounds.mockResolvedValue(
+      view({ milestone: { ...SHAPING, state: "ready" }, stages: [{ ...EXIT_TEST_OPEN, state: "closed" }], openStageStatus: null }),
+    );
+    renderView();
+    await screen.findByRole("region", { name: "Shaping" });
+    expect(await screen.findByRole("region", { name: "Stages" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "No Round yet" })).not.toBeInTheDocument();
+  });
+
   it("closes Exit test with nothing open after confirming it makes the Milestone Ready", async () => {
     milestoneShapingRounds.mockResolvedValue(view());
     renderView();
