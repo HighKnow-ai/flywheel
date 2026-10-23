@@ -118,6 +118,7 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
               epic={epic}
               queryKey={queryKey}
               show="current"
+              done={data.stages.length === 3 && data.stages.every((s) => s.state === "closed")}
               className="xl:col-start-2 xl:row-start-2"
             />
             <div className="min-w-0 self-stretch xl:col-start-1 xl:row-start-2">

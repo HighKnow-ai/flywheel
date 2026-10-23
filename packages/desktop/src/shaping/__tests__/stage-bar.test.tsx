@@ -265,7 +265,7 @@ describe("the Stage bar (issue #126)", () => {
     fireEvent.click(within(region).getByRole("button", { name: "Close Stage" }));
     const dialog = await screen.findByRole("alertdialog", { name: "Close Write the Acceptance criteria?" });
     expect(within(dialog).getByText(/Flywheel moves the Epic and each of its Stories still in Shaping to Ready/)).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close and make them Ready" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close and make the Epic Ready" }));
     await waitFor(() => expect(stageClose).toHaveBeenCalledWith("s3"));
     expect(await screen.findByText("Write the Acceptance criteria is closed: the Epic and its 2 Stories are Ready.")).toBeTruthy();
     await waitFor(() =>
@@ -276,6 +276,10 @@ describe("the Stage bar (issue #126)", () => {
       ]),
     );
     expect(screen.queryByText(/session did not start/)).toBeNull();
+    expect(screen.getByText("Every Stage is closed: shaping is done.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Close Stage" })).toBeNull();
+    // No Round is to come: the dock waits for none.
+    expect(screen.queryByRole("heading", { name: /^No Round yet/ })).toBeNull();
   });
 
   it("is not drawn before shaping has opened a Stage", async () => {

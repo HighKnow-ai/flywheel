@@ -293,7 +293,7 @@ export function StageBar({
       )}
       {allClosed && (
         <p className="m-0 border-t border-border px-4 py-3 text-small text-muted-foreground">
-          Every Stage is closed: shaping is done{record === "Epic" ? " and the Epic's Stories are Ready to start" : ""}.
+          Every Stage is closed: shaping is done.
         </p>
       )}
       {/* Always mounted, so a notice that lands in it is announced. */}
@@ -326,7 +326,7 @@ export function StageBar({
             <AlertDialogCancel disabled={closing}>Keep it open</AlertDialogCancel>
             <Button disabled={closing} onClick={() => void close()}>
               <StepForward aria-hidden="true" />
-              {closing ? "Closing…" : finishes ? (record === "Epic" ? "Close and make them Ready" : "Close and make it Ready") : `Close and start ${next}`}
+              {closing ? "Closing…" : finishes ? (record === "Epic" ? "Close and make the Epic Ready" : "Close and make it Ready") : `Close and start ${next}`}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

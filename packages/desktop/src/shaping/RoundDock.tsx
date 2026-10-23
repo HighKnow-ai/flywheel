@@ -63,6 +63,8 @@ export interface RoundDockProps {
   queryKey: readonly unknown[];
   /** Which Rounds to draw: the current one, the earlier ones, or all of them (default). */
   show?: "current" | "earlier" | "all";
+  /** Every Stage of the record is closed (issue #128): shaping is done, and the dock waits for no Round. */
+  done?: boolean;
   className?: string;
 }
 
@@ -82,6 +84,7 @@ export function RoundDock({
   subject = "Epic",
   queryKey,
   show = "all",
+  done = false,
   className,
 }: RoundDockProps) {
   const queryClient = useQueryClient();
@@ -116,6 +119,8 @@ export function RoundDock({
     if (earlier.length === 0) return null;
     return <div className={cn("flex min-w-0 flex-col gap-4", className)}>{earlier.map(card)}</div>;
   }
+  // Issue #128: once every Stage is closed no Round is to come, so there is no current Round to wait for.
+  if (done && !current && show === "current") return null;
   const stageName = openStage && earlier.length > 0 ? ` in ${STAGE_LABELS[openStage.kind] ?? openStage.kind}` : "";
   return (
     <div className={cn("flex min-w-0 flex-col gap-4", className)}>

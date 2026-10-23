@@ -10,7 +10,7 @@
  */
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, X } from "lucide-react";
+import { Pencil, Plus, SquareTerminal, X } from "lucide-react";
 import { checkRemove, checkSet, criterionList, type AcceptanceCriterionDto, type CheckDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
 import { Button } from "@/components/ui/button";
@@ -150,21 +150,29 @@ function CriterionRow({
           {check ? (
             <>
               <CheckChip check={check} />
-              <code
-                title={check.command}
-                className={cn(
-                  "min-w-0 truncate font-mono text-muted-foreground",
-                  // In a narrow column the command takes its own line under the chip and the controls.
-                  compact ? "order-last basis-full text-meta" : "text-small",
-                )}
-              >
-                {check.command}
-              </code>
+              {compact ? (
+                // In a narrow column the command takes its own line first, as a proposed criterion's does, and the
+                // chip is followed by the controls that act on it.
+                <span className="order-first flex min-w-0 basis-full items-center gap-1.5 text-meta text-muted-foreground">
+                  <SquareTerminal aria-hidden="true" className="size-3.5 shrink-0" />
+                  <code title={check.command} className="min-w-0 truncate font-mono text-foreground">
+                    {check.command}
+                  </code>
+                </span>
+              ) : (
+                <code title={check.command} className="min-w-0 truncate font-mono text-small text-muted-foreground">
+                  {check.command}
+                </code>
+              )}
             </>
           ) : (
-            <StateBadge state="judged_at_review" label="No Check: judged at review" className="h-5.5 text-meta" />
+            <StateBadge
+              state="judged_at_review"
+              label={compact ? "Judged at review" : "No Check: judged at review"}
+              className="h-5.5 text-meta"
+            />
           )}
-          <span className="ml-auto flex gap-0.5">
+          <span className={cn("flex gap-0.5", !compact && "ml-auto")}>
             <Button
               variant="ghost"
               size="xs"

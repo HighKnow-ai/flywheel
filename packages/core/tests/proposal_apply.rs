@@ -736,13 +736,14 @@ fn criterion_proposals_read_as_what_they_do_in_the_stage_status() {
     propose_criterion(&mut f, &parser.key, "A malformed line is skipped", None).unwrap();
     let stage = open_stage(&f.conn, &ShapingSubject::Epic(f.epic_id.clone())).unwrap().unwrap();
     let labels: Vec<String> = stage_status(&f.conn, &stage.id).unwrap().open_items.iter().map(|i| i.label()).collect();
-    assert_eq!(
-        labels,
-        [
-            format!("A Proposal to add the criterion “A malformed line is skipped” to {} is undecided", parser.key),
-            format!("{} “Parser” has no Acceptance criterion", parser.key),
-        ]
-    );
+    // The Story is named once, through its Proposal: two items for one decision would read as two blockers.
+    assert_eq!(labels, [format!("A Proposal to add the criterion “A malformed line is skipped” to {} is undecided", parser.key)]);
+
+    // Rejected, the Proposal leaves the Story with no criterion, and the Story is listed again.
+    let pending = proposals_on_epic(&f.conn, &f.epic_id).unwrap().into_iter().find(|p| p.target_type == "criterion").unwrap();
+    reject_proposal(&mut f.conn, &f.human, &pending.id, None).unwrap();
+    let labels: Vec<String> = stage_status(&f.conn, &stage.id).unwrap().open_items.iter().map(|i| i.label()).collect();
+    assert_eq!(labels, [format!("{} “Parser” has no Acceptance criterion", parser.key)]);
 }
 
 #[test]

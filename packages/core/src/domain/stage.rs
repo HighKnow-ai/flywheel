@@ -352,7 +352,16 @@ pub fn stage_status(conn: &Connection, stage_id: &str) -> anyhow::Result<StageSt
             if open.is_empty() {
                 open_items.push(OpenItem::NoStory);
             }
-            for s in open.into_iter().filter(|s| s.state == "shaping") {
+            // A Story with an undecided criterion Proposal is already listed through that Proposal, which
+            // names it; it comes back here if the Proposal is rejected.
+            let proposed: Vec<String> = conn
+                .prepare("SELECT payload FROM proposals WHERE stage_id = ?1 AND state = 'pending' AND verb = 'create' AND target_type = 'criterion'")?
+                .query_map(params![stage_id], |r| r.get::<_, String>(0))?
+                .filter_map(|p| p.ok())
+                .filter_map(|p| NewCriterion::from_payload(&serde_json::from_str(&p).unwrap_or_default()).ok())
+                .map(|c| c.story_id)
+                .collect();
+            for s in open.into_iter().filter(|s| s.state == "shaping" && !proposed.contains(&s.id)) {
                 if criteria_for_story(conn, &s.id)?.is_empty() {
                     open_items.push(OpenItem::StoryWithoutCriterion { story_id: s.id, key: s.key, title: s.title });
                 }

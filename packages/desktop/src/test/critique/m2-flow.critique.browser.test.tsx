@@ -184,8 +184,8 @@ function slicingShaping() {
 /**
  * Issue #128: FLY-8 in its last Stage, Write the Acceptance criteria, with Challenge and Slice closed. FLY-9 has two
  * criteria (one with a Check, one judged at review); FLY-10 and FLY-12 have none yet, each with a pending criterion
- * Proposal under it, and a rejected one sits under the columns. `closable` gives every Story its criteria and
- * leaves nothing pending, so closing the Stage would make the Epic and its Stories Ready.
+ * Proposal under it, FLY-13 has neither, and a rejected one sits under the columns. `closable` gives every Story its
+ * criteria and leaves nothing pending, so closing the Stage makes the Epic and its Stories Ready.
  */
 function criteriaShaping({ closable = false } = {}) {
   closableShaping({ closed: true });
@@ -197,7 +197,10 @@ function criteriaShaping({ closable = false } = {}) {
     story("s-9", "FLY-9", "Answer a shaping Round in the dock", "a0", "The dock beside the Epic card: numbered questions with a pre-filled recommended answer, Accept, Answer differently and Accept all recommended."),
     story("s-10", "FLY-10", "Show Proposals in shaping as ghost cards", "a1", "A spec change the agent proposes shows under the field it would rewrite, decided there.", ["s-9", "the ghost card answers from the dock's Round"]),
     story("s-12", "FLY-12", "Resume a killed shaping session at the open Round", "a2", "A fresh session rebuilt from the board picks the open Round up with round_wait."),
+    story("s-13", "FLY-13", "Close the Epic to Ready", "a3", "Closing the criteria Stage makes every Story in Shaping and the Epic Ready."),
   ];
+  // Once the close lands (screen 68), every Stage is closed and the Epic and its Stories are Ready.
+  let closedNow = false;
   const check = (id: string, command: string) => ({ id, command, timeoutSecs: 600, result: "not_run", commitSha: null, stale: false, outputTail: null });
   const criterion = (id: string, storyId: string, statement: string, command: string | null, rank: string) => ({
     id, storyId, statement, accepted: false, acceptedAt: null, rank, check: command ? check(`k-${id}`, command) : null,
@@ -209,6 +212,7 @@ function criteriaShaping({ closable = false } = {}) {
     ],
     "s-10": closable ? [criterion("c-10a", "s-10", "A pending spec change shows under the field it would rewrite", "npm test -- ghost-card", "a")] : [],
     "s-12": closable ? [criterion("c-12a", "s-12", "A killed session's successor picks the open Round up with no answer lost", "cargo test -p core --test shaping_resume", "a")] : [],
+    "s-13": closable ? [criterion("c-13a", "s-13", "Closing the criteria Stage makes the Epic and its Stories Ready at once", "cargo test -p core --test stage_close", "a")] : [],
   };
   const proposal = (id: string, storyId: string, statement: string, command: string | null, extra: Record<string, unknown> = {}) => ({
     id, projectId: "p-fly", sessionId: "ses-shape-8", epicId: "e-59", verb: "create", targetType: "criterion", targetId: null,
@@ -228,20 +232,25 @@ function criteriaShaping({ closable = false } = {}) {
     : [
         { kind: "proposal", id: "pc-10", label: "", round: null, number: null, title: "add the criterion “A pending spec change shows under the field it would rewrite, decided there” to FLY-10" },
         { kind: "proposal", id: "pc-12", label: "", round: null, number: null, title: "add the criterion “A killed session's successor picks the open Round up with no answer lost” to FLY-12" },
-        { kind: "story_without_criterion", id: "s-10", label: "", round: null, number: null, title: "Show Proposals in shaping as ghost cards", storyKey: "FLY-10" },
-        { kind: "story_without_criterion", id: "s-12", label: "", round: null, number: null, title: "Resume a killed shaping session at the open Round", storyKey: "FLY-12" },
+        // FLY-10 and FLY-12 are named through their Proposals; FLY-13 has neither a criterion nor a Proposal.
+        { kind: "story_without_criterion", id: "s-13", label: "", round: null, number: null, title: "Close the Epic to Ready", storyKey: "FLY-13" },
       ];
   mockIPC(
     (cmd, payload) => {
+      if (cmd === "stage_close") {
+        closedNow = true;
+        return { closedStageId: "st-3", opened: null, madeReady: stories.map((s) => s.id), session: null, launchError: null, sidecarWarning: null };
+      }
       if (cmd === "epic_shaping_rounds") {
         const base = answer(cmd, payload as Record<string, unknown> | undefined) as EpicShapingDto | null;
         if (!base) return base;
         return {
           ...base,
+          ...(closedNow ? { epic: { ...base.epic, state: "ready" } } : {}),
           stages: [
             { ...base.stages[0], state: "closed" },
             { id: "st-2", kind: "slice", state: "closed", rank: 2 },
-            { id: "st-3", kind: "criteria", state: "open", rank: 3 },
+            { id: "st-3", kind: "criteria", state: closedNow ? "closed" : "open", rank: 3 },
           ],
           rounds: base.rounds.map((r) => ({
             ...r,
@@ -251,8 +260,10 @@ function criteriaShaping({ closable = false } = {}) {
             questions: r.questions.map((q) => ({ ...q, answer: q.answer ?? q.recommendedAnswer, answeredWith: q.answeredWith ?? "recommended", answeredAt: q.answeredAt ?? r.postedAt })),
           })),
           proposals: [...base.proposals.filter((p) => p.state !== "pending"), ...proposals],
-          stories,
-          openStageStatus: { stageId: "st-3", openItems, warnings: ["The Exit test is not written yet"], next: null, makesReady: true, closable },
+          stories: closedNow ? stories.map((s) => ({ ...s, state: "ready" })) : stories,
+          openStageStatus: closedNow
+            ? null
+            : { stageId: "st-3", openItems, warnings: ["The Exit test is not written yet"], next: null, makesReady: true, closable },
         };
       }
       if (cmd === "criterion_list") return criteria[(payload as { storyId: string }).storyId] ?? [];
@@ -951,6 +962,17 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await click("Close Stage");
     await screen.findByRole("alertdialog");
     await shot("66-epic-shaping-criteria-close-confirm");
+  });
+
+  it("68 Epic shaping: the last Stage closed, the Epic and its Stories Ready (issue #128)", async () => {
+    criteriaShaping({ closable: true });
+    await boardReady();
+    await click("Open FLY-8 Epic shaping and its Rounds");
+    await click("Close Stage");
+    await click("Close and make the Epic Ready");
+    await screen.findByText("Every Stage is closed: shaping is done.");
+    await screen.findByText(/the Epic and its 4 Stories are Ready/);
+    await shot("68-epic-shaping-criteria-closed");
   });
 
   it("67 Epic shaping at the window's minimum width: criteria under the Story columns (issue #128)", async () => {
