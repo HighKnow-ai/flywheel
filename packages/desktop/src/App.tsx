@@ -7,6 +7,7 @@ import { LaunchEnvironmentNotice } from "./board/LaunchEnvironmentNotice";
 import { StoryBoard } from "./board/StoryBoard";
 import { StoryView } from "./board/StoryView";
 import { EpicShapingView } from "./shaping/EpicShapingView";
+import { MilestoneShapingView } from "./shaping/MilestoneShapingView";
 import { useProjects } from "./board/useBoardQuery";
 import { useWatchedRun } from "./fleet/useWatchedRun";
 import { LaunchSheet } from "./launch-sheet/LaunchSheet";
@@ -47,6 +48,7 @@ function AppShell() {
   // Issue #104: the Story open in the Story view, and the one Back every surface uses.
   const currentStoryId = useUiStore((state) => state.currentStoryId);
   const currentEpicId = useUiStore((state) => state.currentEpicId);
+  const currentMilestoneId = useUiStore((state) => state.currentMilestoneId);
   const openStory = useUiStore((state) => state.openStory);
   const goBack = useUiStore((state) => state.goBack);
   // Phase 10 plan 10-01 (D-163): the fleet surface — opened from the project rail's Fleet row, the
@@ -174,6 +176,7 @@ function AppShell() {
     projectUnreachable: project.status === "unreachable",
     storyOpen: currentStoryId !== null,
     epicOpen: currentEpicId !== null,
+    milestoneOpen: currentMilestoneId !== null,
   });
   function renderSurface(): React.ReactNode {
     switch (surface) {
@@ -217,6 +220,17 @@ function AppShell() {
         // Issue #123: the Epic card beside its Round dock.
         return (
           <EpicShapingView projectId={project.id} projectName={project.name} epicId={currentEpicId} onBack={goBack} />
+        );
+      case "milestone":
+        if (!currentMilestoneId) return null;
+        // Issue #132: the Milestone's exit test beside its Round dock.
+        return (
+          <MilestoneShapingView
+            projectId={project.id}
+            projectName={project.name}
+            milestoneId={currentMilestoneId}
+            onBack={goBack}
+          />
         );
       case "board":
         // The bare board (issue #50): the Story list with Start, and the hand-written Story form.

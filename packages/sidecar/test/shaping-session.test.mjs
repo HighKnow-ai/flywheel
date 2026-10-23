@@ -140,6 +140,7 @@ test("round_post is listed to a shaping session with what each question carries"
     "roadmap_holds",
     "propose_story",
     "propose_story_order",
+    "propose_exit_test",
   ]);
   const post = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "round_post");
   assert.deepEqual(post.inputSchema.required, ["note", "questions"]);
@@ -381,4 +382,13 @@ test("propose_roadmap_change is relayed to the core and its answer reaches the a
   await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
   assert.deepEqual(JSON.parse(unknownLines(events, "task_tool_result")[0].text), answer);
   await session;
+});
+
+// Issue #132: a Milestone's shaping session proposes its exit test, answered at once the same way.
+test("propose_exit_test is listed to a shaping session with the new text and why", () => {
+  assert.ok(SHAPING_TOOL_NAMES.includes("propose_exit_test"));
+  const propose = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "propose_exit_test");
+  assert.deepEqual(propose.inputSchema.required, ["text", "why"]);
+  assert.match(propose.description, /answered at once/);
+  assert.match(propose.description, /propose_spec_change/);
 });

@@ -69,6 +69,9 @@ interface UiState {
   /** The Epic open in its shaping view (issue #123), with its Round dock, or `null`. A Story view and an
    * Epic view never show together: opening one closes the other. */
   currentEpicId: string | null;
+  /** The Milestone open in its shaping view (issue #132): its exit test beside the Round dock, or `null`.
+   * Like the Epic's view, opening it closes a Story or an Epic view. */
+  currentMilestoneId: string | null;
   /** The places visited before this one, oldest first (issue #104). Every opener below pushes the place
    * it leaves; `goBack` (the Back controls and ⌘[) pops it. Closing a surface pushes nothing. */
   navHistory: NavPlace[];
@@ -105,6 +108,8 @@ interface UiState {
   openStory: (projectId: string, storyId: string) => void;
   /** Opens an Epic's shaping view in its project (issue #123): the Epic card and its Round dock. */
   openEpic: (projectId: string, epicId: string) => void;
+  /** Opens a Milestone's shaping view in its project (issue #132): its exit test and its Round dock. */
+  openMilestone: (projectId: string, milestoneId: string) => void;
   /** Returns to the place before this one; with no history, to the current project's board. */
   goBack: () => void;
   setQuestionDraft: (requestId: string, draft: QuestionDraft[] | null) => void;
@@ -125,6 +130,7 @@ export type NavPlace = Pick<
   | "currentProjectId"
   | "currentStoryId"
   | "currentEpicId"
+  | "currentMilestoneId"
   | "activeSessionId"
   | "activeSessionStoryId"
   | "activeSessionInitialLogOffset"
@@ -153,6 +159,7 @@ function placeOf(state: NavPlace): NavPlace {
     currentProjectId: state.currentProjectId,
     currentStoryId: state.currentStoryId,
     currentEpicId: state.currentEpicId,
+    currentMilestoneId: state.currentMilestoneId,
     activeSessionId: state.activeSessionId,
     activeSessionStoryId: state.activeSessionStoryId,
     activeSessionInitialLogOffset: state.activeSessionInitialLogOffset,
@@ -168,6 +175,7 @@ function samePlace(a: NavPlace, b: NavPlace): boolean {
     a.currentProjectId === b.currentProjectId &&
     a.currentStoryId === b.currentStoryId &&
     a.currentEpicId === b.currentEpicId &&
+    a.currentMilestoneId === b.currentMilestoneId &&
     a.activeSessionId === b.activeSessionId &&
     a.activeSessionStoryId === b.activeSessionStoryId &&
     a.fleetSurface?.view === b.fleetSurface?.view &&
@@ -194,6 +202,7 @@ const INITIAL_STATE = {
   dismissedUpdateVersion: null,
   currentStoryId: null,
   currentEpicId: null,
+  currentMilestoneId: null,
   navHistory: [] as NavPlace[],
   questionDrafts: {} as Record<string, QuestionDraft[]>,
   selectedMilestoneByProject: {} as Record<string, string>,
@@ -219,7 +228,9 @@ export const useUiStore = create<UiState>((set, get) => {
   // Choosing a project shows its board: whatever surface was open closes, so the click is never
   // swallowed by a session or the fleet sitting on top (issue #104).
   setCurrentProjectId: (id) =>
-    id === null ? set({ currentProjectId: null, currentStoryId: null, currentEpicId: null }) : go({ currentProjectId: id, currentStoryId: null, currentEpicId: null, ...NO_SURFACE }),
+    id === null
+      ? set({ currentProjectId: null, currentStoryId: null, currentEpicId: null, currentMilestoneId: null })
+      : go({ currentProjectId: id, currentStoryId: null, currentEpicId: null, currentMilestoneId: null, ...NO_SURFACE }),
   setDetailItemId: (id) => set({ detailItemId: id }),
   setDeleteTarget: (target) => set({ deleteTarget: target }),
   setActivePicker: (picker) => set({ activePicker: picker }),
@@ -246,8 +257,12 @@ export const useUiStore = create<UiState>((set, get) => {
   setWorktreeInventoryOpen: (open) =>
     open ? go({ ...NO_SURFACE, worktreeInventoryOpen: true }) : set({ worktreeInventoryOpen: false }),
   setDismissedUpdateVersion: (version) => set({ dismissedUpdateVersion: version }),
-  openStory: (projectId, storyId) => go({ ...NO_SURFACE, currentProjectId: projectId, currentStoryId: storyId, currentEpicId: null }),
-  openEpic: (projectId, epicId) => go({ ...NO_SURFACE, currentProjectId: projectId, currentStoryId: null, currentEpicId: epicId }),
+  openStory: (projectId, storyId) =>
+    go({ ...NO_SURFACE, currentProjectId: projectId, currentStoryId: storyId, currentEpicId: null, currentMilestoneId: null }),
+  openEpic: (projectId, epicId) =>
+    go({ ...NO_SURFACE, currentProjectId: projectId, currentStoryId: null, currentEpicId: epicId, currentMilestoneId: null }),
+  openMilestone: (projectId, milestoneId) =>
+    go({ ...NO_SURFACE, currentProjectId: projectId, currentStoryId: null, currentEpicId: null, currentMilestoneId: milestoneId }),
   goBack: () => {
     const history = get().navHistory;
     const previous = history[history.length - 1];
@@ -256,7 +271,7 @@ export const useUiStore = create<UiState>((set, get) => {
       return;
     }
     // Nothing remembered (the app just opened on a surface): Back lands on the project's board.
-    set({ ...NO_SURFACE, currentStoryId: null, currentEpicId: null });
+    set({ ...NO_SURFACE, currentStoryId: null, currentEpicId: null, currentMilestoneId: null });
   },
   setQuestionDraft: (requestId, draft) => {
     const drafts = { ...get().questionDrafts };

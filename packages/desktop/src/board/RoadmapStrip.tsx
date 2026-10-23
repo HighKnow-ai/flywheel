@@ -14,6 +14,10 @@
  *   the existing `milestone_create`, then picks it.
  * - **Revisit roadmap** starts a roadmap Round (issue #133, `RoadmapRound.tsx`): its band sits under the
  *   header, and each change it proposes is a ghost row under the Milestone it lands on, decided in place.
+ * - **Shape** (issue #132): a Milestone in Shaping carries its shaping control at the end of its row
+ *   (`MilestoneShapingControl`): Shape, Answer, Open session or Continue shaping. The slot is there on
+ *   every row while any Milestone is in Shaping, so the columns still line up, and empty on the picked row,
+ *   whose Milestone header below carries the same control.
  *
  * Server data stays in React Query under the board's key (`board:changed` keeps it live), and the strip
  * never reorders its own copy: the new order is what the core says after the move.
@@ -29,6 +33,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/toolti
 import { useUiStore } from "../state/uiStore";
 import { EPIC_STATE_WORDS } from "./EpicProgress";
 import { GhostRow, LastRoundNote, RevisitRoadmapButton, RoundBand, useRoadmapRound } from "./RoadmapRound";
+import { MilestoneShapingControl } from "./MilestoneShapingControl";
 import { errorText } from "./StoryControls";
 import { cn } from "@/lib/utils";
 
@@ -135,6 +140,8 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
   }
 
   const draggedIndex = milestones.findIndex((m) => m.id === dragging);
+  // Issue #132: the shaping slot, on every row while any Milestone is in Shaping.
+  const shapingSlot = milestones.some((m) => m.state === "shaping");
 
   return (
     <section
@@ -314,6 +321,12 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                       )}
                     />
                   </button>
+                  {shapingSlot && (
+                    <span data-slot="roadmap-shaping" className="flex w-36 shrink-0 justify-end py-1 pr-2">
+                      {/* The picked Milestone's header, right below, carries its control: one per screen. */}
+                      {!selected && <MilestoneShapingControl projectId={projectId} milestone={milestone} place="strip" />}
+                    </span>
+                  )}
                 </div>
                 {/* Issue #133: the roadmap Round's proposed changes to this Milestone, a list of their own. */}
                 {ghosts.length > 0 && (

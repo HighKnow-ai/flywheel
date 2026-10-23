@@ -11,6 +11,9 @@
  * Closing is confirmed, because a closed Stage stays closed: the core closes it, opens the next Stage, ends
  * the session that worked the closed one, and starts the next Stage's shaping session from a fresh packet
  * that names it. The Epic's last Stage closes with the Stories made Ready, which is not built yet.
+ *
+ * A Milestone (issue #132) has one Stage, Exit test, so its bar is the one-step variant (`stages={MILESTONE_STAGES}`,
+ * `record="Milestone"`): closing Exit test opens nothing and starts no session; it makes the Milestone Ready.
  */
 import { useEffect, useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -31,7 +34,10 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /** An Epic's Stages, in order. */
-const EPIC_STAGES = ["challenge_spec", "slice", "criteria"] as const;
+export const EPIC_STAGES = ["challenge_spec", "slice", "criteria"] as const;
+
+/** A Milestone's one Stage (issue #132). */
+export const MILESTONE_STAGES = ["exit_test"] as const;
 
 export interface StageBarProps {
   /** The Epic's Stages so far, in order: closed ones, then the open one. */
@@ -42,6 +48,10 @@ export interface StageBarProps {
   projectId: string;
   /** Whether a shaping session is live on the Epic: a notice that the session did not start clears once one is. */
   sessionLive: boolean;
+  /** The record's Stages in order: an Epic's three (default), or a Milestone's one (issue #132). */
+  order?: readonly string[];
+  /** The record being shaped. Closing a Milestone's last Stage makes it Ready (issue #132). */
+  record?: "Epic" | "Milestone";
   className?: string;
 }
 
@@ -54,7 +64,15 @@ function plural(n: number, one: string, many: string) {
 }
 
 
-export function StageBar({ stages, status, projectId, sessionLive, className }: StageBarProps) {
+export function StageBar({
+  stages,
+  status,
+  projectId,
+  sessionLive,
+  order = EPIC_STAGES,
+  record = "Epic",
+  className,
+}: StageBarProps) {
   const queryClient = useQueryClient();
   const headingId = useId();
   const openListId = useId();
@@ -75,6 +93,12 @@ export function StageBar({ stages, status, projectId, sessionLive, className }: 
   const questions = items.filter((i) => i.kind === "question");
   const proposals = items.filter((i) => i.kind === "proposal");
   const closable = Boolean(status?.closable) && !closing;
+  // Issue #132: the Milestone's one Stage closes to Ready instead of opening a next one.
+  const finishes = record === "Milestone" && !next;
+  // A Milestone's Stage is named after the field it shapes, so it is called a Stage outright: "the Exit test
+  // Stage is open" never reads as the exit test itself.
+  const stageRef = record === "Milestone" && current ? `the ${current} Stage` : current;
+  const StageRef = stageRef ? stageRef.charAt(0).toUpperCase() + stageRef.slice(1) : stageRef;
 
   async function close() {
     if (!status || closing) return;
@@ -83,9 +107,10 @@ export function StageBar({ stages, status, projectId, sessionLive, className }: 
     try {
       const done = await stageClose(status.stageId);
       const notes: string[] = [];
-      if (done.launchError) {
+      if (done.launchError && done.opened) {
         notes.push(`The ${stageLabel(done.opened.kind)} session did not start: ${done.launchError}. Shape starts it.`);
       }
+      if (!done.opened && finishes) notes.push(`${StageRef} is closed: the ${record} is Ready.`);
       if (done.sidecarWarning) notes.push(done.sidecarWarning);
       setNotice(notes);
       setConfirming(false);
@@ -110,7 +135,7 @@ export function StageBar({ stages, status, projectId, sessionLive, className }: 
             is drawn as a neutral chip (inset ground, 1px edge), never as a button: nothing here but Close Stage
             acts. */}
         <ol className="m-0 flex flex-none items-center gap-2 p-0">
-          {EPIC_STAGES.map((kind, i) => {
+          {order.map((kind, i) => {
             const isOpen = open?.kind === kind;
             const isClosed = closedKinds.has(kind);
             const Icon = isClosed ? CircleCheck : isOpen ? CircleDot : Circle;
@@ -132,7 +157,7 @@ export function StageBar({ stages, status, projectId, sessionLive, className }: 
                   <Icon aria-hidden="true" />
                   <span>{stageLabel(kind)}</span>
                   <span className="sr-only">
-                    {isClosed ? ", closed" : isOpen ? `, open, Stage ${i + 1} of 3` : ", not started"}
+                    {isClosed ? ", closed" : isOpen ? `, open, Stage ${i + 1} of ${order.length}` : ", not started"}
                   </span>
                 </span>
               </li>
@@ -163,7 +188,7 @@ export function StageBar({ stages, status, projectId, sessionLive, className }: 
             {items.length > 0 ? (
               <>
                 <p className="m-0 text-small font-semibold">
-                  {current} stays open while{" "}
+                  {StageRef} stays open while{" "}
                   {[
                     questions.length > 0 && plural(questions.length, "question", "questions"),
                     proposals.length > 0 && plural(proposals.length, "Proposal", "Proposals"),
@@ -205,6 +230,13 @@ export function StageBar({ stages, status, projectId, sessionLive, className }: 
                   Closing it settles its answers and starts {next} in a fresh shaping session.
                 </span>
               </p>
+            ) : finishes ? (
+              <p className="m-0 text-small">
+                <span className="font-semibold">Nothing in {stageRef} is open.</span>{" "}
+                <span className="text-muted-foreground">
+                  It is the {record}'s only Stage: closing it settles its answers and makes the {record} Ready.
+                </span>
+              </p>
             ) : (
               <p className="m-0 text-small text-muted-foreground">
                 {current} is the last Stage. Closing it makes the Epic's Stories Ready, which is not built yet.
@@ -231,10 +263,11 @@ export function StageBar({ stages, status, projectId, sessionLive, className }: 
       <AlertDialog open={confirming} onOpenChange={(nextOpen) => !closing && setConfirming(nextOpen)}>
         <AlertDialogContent className="data-[size=default]:sm:max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-section font-semibold">{`Close ${current}?`}</AlertDialogTitle>
+            <AlertDialogTitle className="text-section font-semibold">{`Close ${stageRef}?`}</AlertDialogTitle>
             <AlertDialogDescription>
-              A closed Stage stays closed: its answers are settled. Flywheel opens {next} and starts its shaping
-              session from a fresh packet; a session still working {current} ends.
+              {finishes
+                ? `A closed Stage stays closed: its answers are settled. Flywheel moves the ${record} to Ready; a session still working ${stageRef} ends.`
+                : `A closed Stage stays closed: its answers are settled. Flywheel opens ${next} and starts its shaping session from a fresh packet; a session still working ${current} ends.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {error && (
@@ -246,7 +279,7 @@ export function StageBar({ stages, status, projectId, sessionLive, className }: 
             <AlertDialogCancel disabled={closing}>Keep it open</AlertDialogCancel>
             <Button disabled={closing} onClick={() => void close()}>
               <StepForward aria-hidden="true" />
-              {closing ? "Closing…" : `Close and start ${next}`}
+              {closing ? "Closing…" : finishes ? `Close and make it Ready` : `Close and start ${next}`}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

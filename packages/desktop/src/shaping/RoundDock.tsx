@@ -19,6 +19,9 @@
  * never yellow: it is not Waiting on you, though the dock still takes every answer. With no shaping session
  * live, the band carries Continue shaping, which starts a fresh session that picks this Round up; while a
  * fresh session is reading, before its `round_wait` takes the Round over, the band says so instead.
+ *
+ * The same dock shapes a Milestone's exit test (issue #132): the view passes its own Continue shaping as
+ * `resume` and names its record with `subject`.
  */
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -50,7 +53,12 @@ export interface RoundDockProps {
   sessionLive: boolean;
   /** The project and the Epic being shaped, for Continue shaping on an open Round with no live session. */
   projectId: string;
-  epic: Pick<EpicDto, "id" | "key" | "title">;
+  /** The Epic being shaped; left out when `resume` is given (a Milestone, issue #132). */
+  epic?: Pick<EpicDto, "id" | "key" | "title">;
+  /** Continue shaping for the band of an open Round with no live session; the Epic's by default. */
+  resume?: React.ReactNode;
+  /** The record being shaped, as the empty dock names it. */
+  subject?: "Epic" | "Milestone";
   /** The query to refetch once an answer is stored. */
   queryKey: readonly unknown[];
   /** Which Rounds to draw: the current one, the earlier ones, or all of them (default). */
@@ -70,6 +78,8 @@ export function RoundDock({
   sessionLive,
   projectId,
   epic,
+  resume,
+  subject = "Epic",
   queryKey,
   show = "all",
   className,
@@ -94,7 +104,7 @@ export function RoundDock({
       key={round.id}
       round={round}
       sessionLive={sessionLive}
-      resume={<ContinueShapingButton projectId={projectId} epic={epic} />}
+      resume={resume ?? (epic ? <ContinueShapingButton projectId={projectId} epic={epic} /> : null)}
       stageShown={closedStage(round)}
       onAccept={accept}
       onAnswer={answer}
@@ -119,10 +129,12 @@ export function RoundDock({
           <h2 className="m-0 text-section font-semibold">No Round yet{stageName}</h2>
           <p className="m-0 max-w-[60ch] text-body text-muted-foreground">
             {sessionLive
-              ? "The agent is reading the Epic and the code it touches. Its first Round lands here."
+              ? subject === "Milestone"
+                ? "The agent is reading the Milestone, the Roadmap around it and the code they touch. Its first Round lands here."
+                : "The agent is reading the Epic and the code it touches. Its first Round lands here."
               : earlier.length > 0
                 ? "No session is working this Stage. Continue shaping starts one; its first Round lands here."
-                : "Shape this Epic to start a shaping session. The agent's first Round lands here."}
+                : `Shape this ${subject} to start a shaping session. The agent's first Round lands here.`}
           </p>
         </section>
       )}

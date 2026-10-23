@@ -10,6 +10,12 @@
 //! (issue #124: a killed session's successor picks up at the open Round); the closing instruction,
 //! which says to wait on the open Round with `round_wait`, or to post the next Round.
 //!
+//! Issue #132: [`build_milestone_shaping_packet`] is the Milestone's variant, for its one Stage, Exit
+//! test: the standing instructions for challenging an exit test; the Roadmap, every Milestone in order
+//! with its state and exit test; the Epics under this Milestone, each with its state and exit test;
+//! the ADR index and the glossary path; the Rounds so far; the closing instruction. It reads no Story
+//! detail and no diff.
+//!
 //! Deterministic by construction: the same board state and the same checkout give a byte-identical
 //! packet. Every list is read in a fixed order (rank then id, file name, creation time then id) and
 //! nothing reads the clock.
@@ -30,11 +36,11 @@ use rusqlite::{params, Connection};
 use crate::context_packet::{live_adrs, non_blank, rejected_proposals, section};
 use crate::domain::adr_link::{adr_links_for_project, AdrLinkTarget};
 use crate::domain::epic::get_epic;
-use crate::domain::milestone::get_milestone;
+use crate::domain::milestone::{get_milestone, milestone_state, roadmap, MilestoneState};
 use crate::domain::proposal::proposals_on_epic;
 use crate::domain::proposal_apply::{NewStory, RunsAfter};
 use crate::domain::story::stories_in_epic;
-use crate::domain::round::{rounds_for_epic, Round};
+use crate::domain::round::{rounds_for_epic, rounds_for_milestone, Round};
 use crate::domain::session::ShapingSubject;
 use crate::domain::stage::{open_stage, StageKind};
 
@@ -224,7 +230,7 @@ pub fn build_epic_shaping_packet(conn: &Connection, epic_id: &str) -> anyhow::Re
     // 6. Rounds so far, Stage by Stage, oldest first, each with its answers (issue #124)
     section(&mut out, "Rounds");
     let rounds = rounds_for_epic(conn, &epic.id)?;
-    write_rounds(&mut out, &rounds)?;
+    write_rounds(&mut out, &rounds, "Epic")?;
 
     // 7. Closing instruction: wait on the open Round, post the next one, or post the first
     section(&mut out, "Closing instruction");
@@ -248,13 +254,16 @@ fn answered_count(round: &Round) -> usize {
 
 /// Every Round, grouped under its Stage's name, each question with its grounding, the recommendation
 /// and the answer given so far, and whose answer it is.
-fn write_rounds(out: &mut String, rounds: &[Round]) -> anyhow::Result<()> {
+fn write_rounds(out: &mut String, rounds: &[Round], subject: &str) -> anyhow::Result<()> {
     if rounds.is_empty() {
-        out.push_str("No Round has been posted on this Epic yet.\n");
+        writeln!(out, "No Round has been posted on this {subject} yet.")?;
         return Ok(());
     }
-    out.push_str("Every Round posted on this Epic so far, oldest first, with the developer's answers. Each \
-answer is settled once its Round is answered; an open Round's missing answers are still to come.\n");
+    writeln!(
+        out,
+        "Every Round posted on this {subject} so far, oldest first, with the developer's answers. Each \
+answer is settled once its Round is answered; an open Round's missing answers are still to come."
+    )?;
     let mut stage = None;
     for round in rounds {
         if stage != Some(round.stage_kind) {
@@ -360,4 +369,217 @@ fn sibling_epics(conn: &Connection, milestone_id: &str, epic_id: &str) -> anyhow
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the sibling Epics")?;
     Ok(rows)
+}
+
+// --- Issue #132: the Milestone variant ---
+
+/// The standing shaping instructions for a Milestone's one Stage, Exit test: the same grilling, aimed
+/// at the exit test, with `propose_exit_test` in place of the Epic's spec change.
+const MILESTONE_STANDING_INSTRUCTIONS: &str = "\
+You are shaping one Milestone on a Flywheel board with the developer: its exit test, the prose \
+statement that tells you the Milestone is done. This packet is everything you start from: it is \
+rebuilt from the board for every session, so nothing from an earlier session's conversation reaches \
+you except what is written here.
+
+Shaping is read-only. You may read the repository (Read, Glob, Grep) and you change nothing in it. \
+Anything that would change the board, an ADR or the glossary is a Proposal, which does nothing until \
+the developer accepts it. Shaping never produces Tasks or Stories.
+
+Grill the developer about this Milestone's exit test until you reach a shared understanding. Map it \
+as a design tree: every decision branches into the decisions that hang off it.
+
+Work the tree in Rounds. The frontier is every decision whose prerequisites are already settled: the \
+questions you can ask now without guessing at answers you have not heard yet. Ask the whole frontier \
+in one Round, then wait for the developer's answers before the next Round. A Round is a one-paragraph \
+note on what it settles, then the numbered questions. Each question carries a short title, a grounding \
+line (what you read that raised it), your recommended answer and a one-line reason for it. Word each \
+question so \"yes\" accepts your recommended answer.
+
+Post each Round with the `round_post` tool. The developer answers it on the board, question by \
+question, accepting your recommendation or writing their own, and every answer is saved as it is \
+given. The call waits until the developer has answered every question, however long that takes, then \
+answers with every answer in order. Never ask a Round's questions in your reply: a question asked \
+there reaches nobody.
+
+Each Round the developer answers reshapes the tree: settled decisions push the frontier outward and \
+unblock the questions that hung on them. Recompute the frontier and ask the next Round. A question \
+whose answer depends on another question still open in this Round belongs to a later Round.
+
+Finding facts is your job, never the developer's. When a question needs a fact from the code, the \
+ADRs in `docs/adr/`, the glossary or the Roadmap below, read it yourself; never ask the developer for \
+anything you could look up. The decisions are the developer's: put each to them and wait.
+
+Once answers settle how the exit test should read, propose its whole new text with \
+`propose_exit_test`: the text and one line on why. It is answered at once and shows over the exit \
+test as a Proposal the developer accepts, amends or rejects; nothing changes until they decide, so \
+keep shaping without waiting for it. Propose no Epic, Story or Roadmap change here.
+
+A Milestone is shaped in one Stage, {stage}: {purpose} The developer closes it, which makes the \
+Milestone Ready; nothing advances on its own.
+
+The Stage is done when its frontier is empty: every branch of the tree visited, nothing left silently \
+assumed. Say so, and leave closing the Stage to the developer.
+";
+
+/// The closing instruction for a Milestone's Stage with no Round yet.
+const MILESTONE_CLOSING_FIRST_ROUND: &str = "\
+Read the Milestone, the Roadmap around it and its Epics above, then whatever in the repository, the \
+ADRs and the glossary they touch. Then post the first Round of the {stage} Stage with `round_post`.
+";
+
+/// The closing instruction once the Milestone's Rounds are all answered.
+const MILESTONE_CLOSING_NEXT_ROUND: &str = "\
+Read the Milestone and the Rounds above, then whatever in the repository, the ADRs and the glossary \
+they touch. The developer's answers are settled: recompute the frontier from them and post the next \
+Round of the {stage} Stage with `round_post`, or, when the frontier is empty, say so and leave closing \
+the Stage to the developer.
+";
+
+/// The words for a Milestone state (GLOSSARY.md "Milestone"), In progress derived.
+fn milestone_state_words(state: MilestoneState) -> &'static str {
+    match state {
+        MilestoneState::Shaping => "Shaping",
+        MilestoneState::Ready => "Ready",
+        MilestoneState::InProgress => "In progress",
+        MilestoneState::Done => "Done",
+        MilestoneState::Dropped => "Dropped",
+    }
+}
+
+/// Build the packet a shaping session on `milestone_id` starts from (issue #132).
+pub fn build_milestone_shaping_packet(conn: &Connection, milestone_id: &str) -> anyhow::Result<String> {
+    let milestone =
+        get_milestone(conn, milestone_id)?.with_context(|| format!("Milestone {milestone_id:?} not found"))?;
+    let repo_path: String =
+        conn.query_row("SELECT repo_path FROM projects WHERE id = ?1", params![milestone.project_id], |r| r.get(0))?;
+    let checkout = PathBuf::from(repo_path);
+    let subject = ShapingSubject::Milestone(milestone.id.clone());
+    let stage = open_stage(conn, &subject)?;
+    let stage_kind = StageKind::ExitTest;
+
+    let mut out = String::new();
+    writeln!(out, "# Shaping packet: Milestone {}", milestone.title)?;
+
+    // 1. Standing instructions
+    section(&mut out, "Standing instructions");
+    out.push_str(
+        &MILESTONE_STANDING_INSTRUCTIONS.replace("{stage}", stage_kind.label()).replace("{purpose}", stage_kind.purpose()),
+    );
+
+    // 2. The Roadmap: every Milestone in order with its state and exit test, this one marked, then
+    // the exit-test Proposals rejected on this Milestone.
+    section(&mut out, "Roadmap");
+    out.push_str("Every Milestone in Roadmap order, with its state and exit test:\n");
+    for (i, m) in roadmap(conn, &milestone.project_id)?.iter().enumerate() {
+        let state = milestone_state_words(milestone_state(conn, &m.id)?);
+        let this = if m.id == milestone.id { ", the Milestone you are shaping" } else { "" };
+        let exit = non_blank(&m.exit_test).unwrap_or("none written");
+        writeln!(out, "{}. {} ({state}){this}. Exit test: {exit}", i + 1, m.title)?;
+    }
+    let rejected = rejected_exit_tests(conn, &milestone.id)?;
+    if !rejected.is_empty() {
+        out.push_str("\nRejected Proposals on this Milestone (do not propose these again without new evidence):\n");
+        for line in rejected {
+            writeln!(out, "- {line}")?;
+        }
+    }
+
+    // 3. The Epics under this Milestone, each with its state and exit test.
+    section(&mut out, "Epics under this Milestone");
+    let epics = milestone_epics(conn, &milestone.id)?;
+    if epics.is_empty() {
+        out.push_str("None yet: no Epic is filed under this Milestone.\n");
+    }
+    for (key, title, state, exit_test) in epics {
+        let exit = non_blank(&exit_test).unwrap_or("none written");
+        writeln!(out, "- {key} {title} ({}). Exit test: {exit}", epic_state_words(&state))?;
+    }
+
+    // 4. ADRs and the glossary, from the project's checkout
+    section(&mut out, "ADRs");
+    let adrs = live_adrs(&checkout.join("docs").join("adr"));
+    let links = adr_links_for_project(conn, &milestone.project_id)?;
+    if adrs.is_empty() {
+        out.push_str("No live ADRs in `docs/adr/`.\n");
+    } else {
+        out.push_str("Every live ADR in the project, superseded ones left out:\n");
+        for adr in &adrs {
+            let linked = links
+                .iter()
+                .any(|l| l.path == adr.path && matches!(&l.target, AdrLinkTarget::Milestone(id) if *id == milestone.id));
+            if linked {
+                writeln!(out, "- {}: {} (linked to this Milestone)", adr.path, adr.title)?;
+            } else {
+                writeln!(out, "- {}: {}", adr.path, adr.title)?;
+            }
+        }
+    }
+    if checkout.join("GLOSSARY.md").is_file() {
+        out.push_str("\nGlossary: `GLOSSARY.md`\n");
+    } else {
+        out.push_str("\nGlossary: no `GLOSSARY.md` yet.\n");
+    }
+
+    // 5. Rounds so far, oldest first, each with its answers
+    section(&mut out, "Rounds");
+    let rounds = rounds_for_milestone(conn, &milestone.id)?;
+    write_rounds(&mut out, &rounds, "Milestone")?;
+
+    // 6. Closing instruction: wait on the open Round, post the next one, or post the first
+    section(&mut out, "Closing instruction");
+    let in_stage: Vec<&Round> =
+        rounds.iter().filter(|r| stage.as_ref().is_some_and(|s| s.id == r.stage_id)).collect();
+    let closing = match in_stage.iter().find(|r| r.state == "open") {
+        Some(open) => CLOSING_OPEN_ROUND
+            .replace("the Epic and the Rounds above", "the Milestone and the Rounds above")
+            .replace("{round}", &open.number.to_string())
+            .replace("{answered}", &answered_count(open).to_string())
+            .replace("{total}", &open.questions.len().to_string()),
+        None if !in_stage.is_empty() => MILESTONE_CLOSING_NEXT_ROUND.to_string(),
+        None => MILESTONE_CLOSING_FIRST_ROUND.to_string(),
+    };
+    out.push_str(&closing.replace("{stage}", stage_kind.label()));
+    Ok(out)
+}
+
+/// The packet a shaping session on `subject` starts from: the Epic's, the Milestone's or the Roadmap's.
+pub fn build_shaping_packet(conn: &Connection, subject: &ShapingSubject) -> anyhow::Result<String> {
+    match subject {
+        ShapingSubject::Epic(id) => build_epic_shaping_packet(conn, id),
+        ShapingSubject::Milestone(id) => build_milestone_shaping_packet(conn, id),
+        ShapingSubject::Roadmap(project_id) => crate::roadmap_packet::build_roadmap_packet(conn, project_id),
+    }
+}
+
+/// `(key, title, state, exit_test)` of every Epic in `milestone_id`, by rank then id, In progress
+/// derived as the board derives it (query/progress.rs).
+fn milestone_epics(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<(String, String, String, Option<String>)>> {
+    let mut stmt = conn.prepare(
+        "SELECT e.key, e.title,
+            CASE WHEN e.state = 'ready' AND EXISTS (SELECT 1 FROM stories s WHERE s.epic_id = e.id
+                    AND s.state IN ('running', 'in_review', 'merged'))
+                 THEN 'in_progress' ELSE e.state END,
+            e.exit_test
+         FROM epics e WHERE e.milestone_id = ?1 ORDER BY e.rank, e.id",
+    )?;
+    let rows = stmt
+        .query_map(params![milestone_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the Milestone's Epics")?;
+    Ok(rows)
+}
+
+/// Every exit test proposed on the Milestone and rejected, oldest first, as a line with the
+/// developer's reason.
+fn rejected_exit_tests(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<String>> {
+    let rejected = crate::domain::proposal::proposals_on_milestone(conn, milestone_id)?;
+    Ok(rejected
+        .into_iter()
+        .filter(|p| p.state == "rejected")
+        .map(|p| {
+            let text = p.payload.get("text").and_then(|t| t.as_str()).unwrap_or_default().to_string();
+            let reason = p.rejection_reason.unwrap_or_else(|| "no reason given".to_string());
+            format!("amend Exit test: \"{text}\"; rejected: {reason}")
+        })
+        .collect())
 }

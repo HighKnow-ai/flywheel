@@ -6,6 +6,7 @@ import { Icon, type IconName } from "../components/Icon";
 import { StateBadge } from "../components/StateBadge";
 import { Skeleton } from "../components/ui/skeleton";
 import { EPIC_STATE_WORDS } from "./EpicProgress";
+import { MilestoneShapingControl, useMilestoneAttention } from "./MilestoneShapingControl";
 import { BAR_SEGMENTS, StoryStateBar, type BarSegment } from "./StoryStateBar";
 import { cn } from "@/lib/utils";
 
@@ -57,7 +58,7 @@ export function MilestoneHeader({ projectId, milestoneId = null }: { projectId: 
       </HeaderCard>
     );
   }
-  return <MilestoneProgress progress={progress} />;
+  return <MilestoneProgress projectId={projectId} progress={progress} />;
 }
 
 /**
@@ -84,9 +85,11 @@ function HeaderCard({ children, labelledBy }: { children: ReactNode; labelledBy?
   );
 }
 
-function MilestoneProgress({ progress }: { progress: MilestoneProgressDto }) {
+function MilestoneProgress({ projectId, progress }: { projectId: string; progress: MilestoneProgressDto }) {
   const { counts } = progress;
   const headingId = `milestone-${progress.milestoneId}`;
+  // Issue #132: a Round waiting on its exit test shows in place of the state word, as on the Milestone card.
+  const attention = useMilestoneAttention(projectId, { id: progress.milestoneId, state: progress.state });
   return (
     <HeaderCard labelledBy={headingId}>
       <div className="flex flex-wrap items-start justify-between gap-x-7 gap-y-4">
@@ -96,7 +99,16 @@ function MilestoneProgress({ progress }: { progress: MilestoneProgressDto }) {
             <h2 id={headingId} className="text-milestone font-bold tracking-[-0.015em]">
               {progress.title}
             </h2>
-            <StateBadge state={progress.state} label={EPIC_STATE_WORDS[progress.state]} />
+            <StateBadge
+              state={attention ?? progress.state}
+              label={attention ? undefined : EPIC_STATE_WORDS[progress.state]}
+            />
+            {/* Issue #132: Shape (or Answer, Open session, Continue shaping) while the Milestone is in Shaping. */}
+            <MilestoneShapingControl
+              projectId={projectId}
+              milestone={{ id: progress.milestoneId, title: progress.title, state: progress.state }}
+              place="header"
+            />
           </div>
           <p className="max-w-[72ch] text-[14.5px] leading-[1.45]">
             <b className="font-bold">Exit test:</b>{" "}

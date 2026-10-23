@@ -283,6 +283,16 @@ pub fn proposals_on_epic(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec
     rows.context("failed to read the Epic's Proposals")
 }
 
+/// Every Proposal that amends a Milestone, whatever its state, oldest first (issue #132): what the
+/// Milestone's shaping view draws as a ghost over its exit test (pending) and struck-through lines
+/// (rejected).
+pub fn proposals_on_milestone(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<Proposal>> {
+    let mut stmt =
+        conn.prepare(select_proposals!("WHERE target_type = 'milestone' AND target_id = ?1 ORDER BY created_at, id"))?;
+    let rows = stmt.query_map(params![milestone_id], row_to_proposal)?.collect::<Result<Vec<_>, _>>();
+    rows.context("failed to read the Milestone's Proposals")
+}
+
 /// How many Proposals filed in Stage `stage_id` are still undecided (pending). A Stage is closable
 /// only at zero (docs/mvp-spec.md §3 "Closing a Stage"); the Stage close (#126) reads this.
 pub fn count_undecided_proposals_in_stage(conn: &Connection, stage_id: &str) -> anyhow::Result<i64> {

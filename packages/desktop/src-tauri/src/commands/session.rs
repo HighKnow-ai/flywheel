@@ -1309,10 +1309,12 @@ pub struct BlockedSummaryDto {
     pub blocked_story_ids: Vec<String>,
     /// Issue #124: the Epics a live shaping session waits on, held on an open Round.
     pub waiting_epic_ids: Vec<String>,
+    /// Issue #132: the Milestones a live shaping session waits on, held on an open Round.
+    pub waiting_milestone_ids: Vec<String>,
     /// Issue #133: a live roadmap session is held on the project's open roadmap Round.
     pub roadmap_waiting: bool,
-    /// The project's Needs-you count of what is Waiting on you: these Stories, these Epics and the
-    /// Roadmap.
+    /// The project's Needs-you count of what is Waiting on you: these Stories, these Epics, these
+    /// Milestones and the Roadmap.
     pub blocked_count: i64,
 }
 
@@ -1325,11 +1327,13 @@ pub fn board_blocked_summary(state: State<AppState>, project_id: String) -> Resu
         .map_err(|e| e.to_string())?;
     let waiting_epic_ids = flywheel_core::query::permissions::waiting_epic_ids_for_project(&conn, &project_id)
         .map_err(|e| e.to_string())?;
+    let waiting_milestone_ids = flywheel_core::query::permissions::waiting_milestone_ids_for_project(&conn, &project_id)
+        .map_err(|e| e.to_string())?;
     let roadmap_waiting = flywheel_core::query::permissions::roadmap_waiting_for_project(&conn, &project_id)
         .map_err(|e| e.to_string())?;
     let blocked_count = flywheel_core::query::permissions::blocked_count_for_project(&conn, &project_id)
         .map_err(|e| e.to_string())?;
-    Ok(BlockedSummaryDto { blocked_story_ids, waiting_epic_ids, roadmap_waiting, blocked_count })
+    Ok(BlockedSummaryDto { blocked_story_ids, waiting_epic_ids, waiting_milestone_ids, roadmap_waiting, blocked_count })
 }
 
 /// D-46's board-visible "recovery needed" signal for one project (plan 03-11): a Story's worktree
@@ -2164,7 +2168,8 @@ mod tests {
                 "mcp__flywheel-board__propose_roadmap_change",
                 "mcp__flywheel-board__roadmap_holds",
                 "mcp__flywheel-board__propose_story",
-                "mcp__flywheel-board__propose_story_order"
+                "mcp__flywheel-board__propose_story_order",
+                "mcp__flywheel-board__propose_exit_test"
             ])
         );
         let denied: Vec<String> = serde_json::from_value(request["disallowedTools"].clone()).unwrap();

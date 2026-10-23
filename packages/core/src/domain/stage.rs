@@ -12,12 +12,16 @@
 //! opens the next one (Challenge the spec, then Slice into Stories, then Write the Acceptance
 //! criteria) and ends the subject's live shaping session, all in one transaction, so the next Stage
 //! starts from a fresh packet that names it. Nothing advances on its own.
+//!
+//! Issue #132: a Milestone's one Stage, Exit test, has no next Stage. Closing it moves the Milestone
+//! from Shaping to Ready (`milestone::set_milestone_state_in_tx`) in the close's own transaction.
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::domain::actor::assert_human_actor_in_tx;
 use crate::domain::proposal::count_undecided_proposals_in_stage;
+use crate::domain::milestone::{set_milestone_state_in_tx, MilestoneState};
 use crate::domain::proposal_apply::{NewStory, SpecChange};
 use crate::domain::story::get_story;
 use crate::domain::session::{interrupt_session_in_tx, live_shaping_session, ShapingSubject};
@@ -71,7 +75,7 @@ impl StageKind {
     }
 
     /// The Stage that closing this one opens, or `None` for a subject's last Stage. Closing the last
-    /// Stage makes the record Ready (issues #128 and #132), so it is not built here.
+    /// Stage makes the record Ready (issues #128 and #132) instead.
     pub fn next(self) -> Option<StageKind> {
         match self {
             StageKind::ChallengeSpec => Some(StageKind::Slice),
@@ -174,6 +178,13 @@ pub fn stages_for_epic(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<S
     rows.context("failed to read the Epic's Stages")
 }
 
+/// Every Stage of a Milestone, in order: at most its one Exit test (issue #132).
+pub fn stages_for_milestone(conn: &Connection, milestone_id: &str) -> anyhow::Result<Vec<Stage>> {
+    let mut stmt = conn.prepare(&format!("SELECT {STAGE_COLUMNS} FROM stages WHERE milestone_id = ?1 ORDER BY rank, id"))?;
+    let rows = stmt.query_map(params![milestone_id], stage_from_row)?.collect::<Result<Vec<_>, _>>();
+    rows.context("failed to read the Milestone's Stages")
+}
+
 /// One `stages` row, or `None`.
 pub fn get_stage(conn: &Connection, stage_id: &str) -> anyhow::Result<Option<Stage>> {
     conn.query_row(&format!("SELECT {STAGE_COLUMNS} FROM stages WHERE id = ?1"), params![stage_id], stage_from_row)
@@ -222,7 +233,13 @@ impl StageStatus {
     /// Whether the developer may close the Stage now: it is open, nothing in it is open, and a next
     /// Stage follows it.
     pub fn closable(&self) -> bool {
-        self.stage.state == "open" && self.open_items.is_empty() && self.next.is_some()
+        self.stage.state == "open" && self.open_items.is_empty() && (self.next.is_some() || self.closes_the_record())
+    }
+
+    /// Whether closing this Stage finishes shaping its record and makes it Ready: a Milestone's Exit
+    /// test (issue #132).
+    pub fn closes_the_record(&self) -> bool {
+        self.stage.kind == StageKind::ExitTest
     }
 }
 
@@ -250,6 +267,11 @@ fn proposal_summary(conn: &Connection, verb: &str, target_type: &str, target_id:
                 _ => {}
             }
         }
+    }
+    // Issue #132: an exit test proposed in a Milestone's shaping (an Amend Milestone with only it set).
+    if verb == "amend" && target_type == "milestone" && payload.get("exit_test").is_some_and(|t| t.is_string()) {
+        let title = payload.get("title").and_then(|t| t.as_str());
+        return if title.is_some() { "change the title and the exit test".to_string() } else { "change the exit test".to_string() };
     }
     format!("{verb} a {}", target_type.replace('_', " "))
 }
@@ -322,8 +344,9 @@ pub fn stage_status(conn: &Connection, stage_id: &str) -> anyhow::Result<StageSt
 pub struct StageClosed {
     /// The Stage, now closed.
     pub closed: Stage,
-    /// The next Stage, now open.
-    pub opened: Stage,
+    /// The next Stage, now open; `None` when the closed Stage was its record's last and made it Ready
+    /// (a Milestone's Exit test, issue #132).
+    pub opened: Option<Stage>,
     /// The live shaping session the close ended, if one was live: it worked the closed Stage.
     pub ended_session: Option<String>,
 }
@@ -331,7 +354,8 @@ pub struct StageClosed {
 /// Close Stage `stage_id` as the developer (issue #126) and open the next one, in one transaction.
 /// Refused for any actor but a human, a Stage that is not open, a Stage with anything still open
 /// (the refusal names each item), and an Epic's last Stage, whose close makes the Stories Ready
-/// (issue #128). The subject's live shaping session worked the closed Stage, so it ends here too:
+/// (issue #128). Closing a Milestone's Exit test opens no Stage: it moves the Milestone from Shaping
+/// to Ready in the same transaction (issue #132). The subject's live shaping session worked the closed Stage, so it ends here too:
 /// the next Stage starts from a fresh session and packet. No held `round_post` call is left behind:
 /// a call is held only on an open Round, and an open Round always has an unanswered question.
 pub fn close_stage(conn: &mut Connection, actor_id: &str, stage_id: &str) -> anyhow::Result<StageClosed> {
@@ -345,9 +369,9 @@ pub fn close_stage(conn: &mut Connection, actor_id: &str, stage_id: &str) -> any
         let items: Vec<String> = status.open_items.iter().map(|i| format!("- {}", i.label())).collect();
         anyhow::bail!("the {} Stage still has open items:\n{}", stage.kind.label(), items.join("\n"));
     }
-    let Some(next) = status.next else {
+    if status.next.is_none() && !status.closes_the_record() {
         anyhow::bail!("the {} Stage is the last one; closing it is not available yet", stage.kind.label());
-    };
+    }
 
     tx.execute(
         "UPDATE stages SET state = 'closed', closed_at = ?1, closed_by = ?2 WHERE id = ?3 AND state = 'open'",
@@ -372,31 +396,21 @@ pub fn close_stage(conn: &mut Connection, actor_id: &str, stage_id: &str) -> any
         &at,
     )?;
 
-    // The next Stage takes the next rank: unique per (subject, kind), one open per subject.
-    let opened_id = new_id();
-    tx.execute(
-        "INSERT INTO stages (id, project_id, epic_id, milestone_id, kind, state, rank, opened_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'open', ?6, ?7)",
-        params![opened_id, stage.project_id, stage.epic_id, stage.milestone_id, next.as_str(), stage.rank + 1, at],
-    )
-    .context("failed to open the next Stage")?;
-    record_event(
-        &tx,
-        &stage.project_id,
-        "stage",
-        &opened_id,
-        EventScope { story_id: None, epic_id: stage.epic_id.as_deref() },
-        actor_id,
-        "stage.opened",
-        &serde_json::json!({
-            "field": "state",
-            "before": null,
-            "after": "open",
-            "kind": next.as_str(),
-            "label": format!("Opened the {} Stage", next.label()),
-        }),
-        &at,
-    )?;
+    let opened_id = match status.next {
+        Some(next) => Some(open_next_stage_in_tx(&tx, stage, next, actor_id, &at)?),
+        None => {
+            // Issue #132: the Milestone's Exit test was its only Stage, so its shaping is done.
+            let milestone_id = stage.milestone_id.as_deref().context("the Exit test Stage shapes a Milestone")?;
+            set_milestone_state_in_tx(
+                &tx,
+                actor_id,
+                milestone_id,
+                MilestoneState::Ready,
+                serde_json::json!({ "label": "Closed the Exit test Stage: the Milestone is Ready", "stage_id": stage_id }),
+            )?;
+            None
+        }
+    };
 
     let subject = match (&stage.epic_id, &stage.milestone_id) {
         (Some(id), _) => ShapingSubject::Epic(id.clone()),
@@ -409,9 +423,42 @@ pub fn close_stage(conn: &mut Connection, actor_id: &str, stage_id: &str) -> any
     }
 
     let closed = get_stage(&tx, stage_id)?.context("the Stage just closed")?;
-    let opened = get_stage(&tx, &opened_id)?.context("the Stage just opened")?;
+    let opened = match &opened_id {
+        Some(id) => Some(get_stage(&tx, id)?.context("the Stage just opened")?),
+        None => None,
+    };
     tx.commit().context("failed to commit close_stage")?;
     Ok(StageClosed { closed, opened, ended_session })
+}
+
+/// Open `next`, the Stage after `closed`, at the next rank, and append `stage.opened`. Returns its id.
+fn open_next_stage_in_tx(tx: &Transaction, closed: &Stage, next: StageKind, actor_id: &str, at: &str) -> anyhow::Result<String> {
+    // The next Stage takes the next rank: unique per (subject, kind), one open per subject.
+    let opened_id = new_id();
+    tx.execute(
+        "INSERT INTO stages (id, project_id, epic_id, milestone_id, kind, state, rank, opened_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'open', ?6, ?7)",
+        params![opened_id, closed.project_id, closed.epic_id, closed.milestone_id, next.as_str(), closed.rank + 1, at],
+    )
+    .context("failed to open the next Stage")?;
+    record_event(
+        tx,
+        &closed.project_id,
+        "stage",
+        &opened_id,
+        EventScope { story_id: None, epic_id: closed.epic_id.as_deref() },
+        actor_id,
+        "stage.opened",
+        &serde_json::json!({
+            "field": "state",
+            "before": null,
+            "after": "open",
+            "kind": next.as_str(),
+            "label": format!("Opened the {} Stage", next.label()),
+        }),
+        at,
+    )?;
+    Ok(opened_id)
 }
 
 /// The open Stage of `subject` inside the caller's transaction, opening its first Stage when it has

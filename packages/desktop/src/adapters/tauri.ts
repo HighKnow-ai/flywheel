@@ -428,7 +428,9 @@ export interface StageStatusDto {
 /** What Close Stage did — mirrors `commands/shaping.rs`'s `StageCloseDto`. */
 export interface StageCloseDto {
   closedStageId: string;
-  opened: StageDto;
+  /** The Stage the close opened; `null` when the closed Stage was its record's last and made it Ready (a
+   * Milestone's Exit test, issue #132). */
+  opened: StageDto | null;
   /** The next Stage's shaping session, or `null` when it could not start (`launchError` says why). */
   session: ShapingSessionDto | null;
   launchError: string | null;
@@ -443,6 +445,46 @@ export interface StageCloseDto {
  */
 export async function stageClose(stageId: string): Promise<StageCloseDto> {
   return invokeCommand<StageCloseDto>("stage_close", { stageId });
+}
+
+/** A Milestone's shaping session as Shape returns it (issue #132) — mirrors `MilestoneShapingSessionDto`. */
+export interface MilestoneShapingSessionDto {
+  id: string;
+  milestoneId: string;
+  status: string;
+  permissionMode: string;
+}
+
+/** Shape a Milestone in Shaping (issue #132): start a read-only shaping session on its exit test. */
+export async function milestoneShape(milestoneId: string): Promise<MilestoneShapingSessionDto> {
+  return invokeCommand<MilestoneShapingSessionDto>("milestone_shape", { milestoneId });
+}
+
+/** Continue shaping a Milestone whose Rounds outlived the session that posted them (issue #132). */
+export async function milestoneShapingContinue(milestoneId: string): Promise<MilestoneShapingSessionDto> {
+  return invokeCommand<MilestoneShapingSessionDto>("milestone_shaping_continue", { milestoneId });
+}
+
+/** The Milestone's live shaping session id, or `null` when none is live (issue #132). */
+export async function milestoneShapingSession(milestoneId: string): Promise<string | null> {
+  return invokeCommand<string | null>("milestone_shaping_session", { milestoneId });
+}
+
+/** A Milestone with its one Stage, its Rounds and its exit-test Proposals — mirrors `MilestoneShapingDto`. */
+export interface MilestoneShapingDto {
+  milestone: MilestoneDto;
+  stages: StageDto[];
+  rounds: RoundDto[];
+  /** The undecided and rejected exit-test Proposals, oldest first: a ghost over the exit test and
+   * struck-through lines. An accepted one is already in the exit test. */
+  proposals: ProposalDto[];
+  /** What is still open in the open Stage, or `null` before shaping opened it and once it is closed. */
+  openStageStatus: StageStatusDto | null;
+}
+
+/** The Milestone's Stage, Rounds and Proposals (issue #132): what its dock shows. Read-only. */
+export async function milestoneShapingRounds(milestoneId: string): Promise<MilestoneShapingDto> {
+  return invokeCommand<MilestoneShapingDto>("milestone_shaping_rounds", { milestoneId });
 }
 
 /** The Epic's Stages and Rounds (issue #123): what the Round dock shows. Read-only. */
@@ -1172,9 +1214,12 @@ export interface BlockedSummaryDto {
   blockedStoryIds: string[];
   /** Issue #124: the Epics a live shaping session waits on, held on an open Round. */
   waitingEpicIds: string[];
+  /** Issue #132: the Milestones a live shaping session waits on, held on an open Round. Optional for older
+   * fixtures. */
+  waitingMilestoneIds?: string[];
   /** Issue #133: a live roadmap session is held on the project's open roadmap Round. */
   roadmapWaiting?: boolean;
-  /** The project's count of what is Waiting on you: these Stories, these Epics and the Roadmap. */
+  /** The project's count of what is Waiting on you: these Stories, Epics and Milestones, and the Roadmap. */
   blockedCount: number;
 }
 
@@ -1378,18 +1423,22 @@ export async function fleetBlockedQueue(): Promise<BlockedQueueEntryDto[]> {
 export interface WaitingRoundDto {
   roundId: string;
   roundNumber: number;
-  /** Issue #133: `epic` for an Epic's Round, `roadmap` for a roadmap Round. */
-  subject: "epic" | "roadmap";
+  /** Issue #133: `epic` for an Epic's Round, `roadmap` for a roadmap Round; issue #132: `milestone` for a
+   * Milestone's. */
+  subject: "epic" | "milestone" | "roadmap";
   /** The Stage's kind; `null` for a roadmap Round, which has no Stage. */
   stageKind: string | null;
   sessionId: string;
   projectId: string;
   projectName: string;
   projectKeyPrefix: string;
-  /** The Epic an Epic's Round shapes; `null` for a roadmap Round. */
+  /** The Epic an Epic's Round shapes; `null` for a Milestone's or a roadmap Round. */
   epicId: string | null;
   epicKey: string | null;
   epicTitle: string | null;
+  /** The Milestone a Milestone's Round shapes (issue #132); `null` (or absent in older fixtures) otherwise. */
+  milestoneId?: string | null;
+  milestoneTitle?: string | null;
   /** When the Round was posted: it has waited on the developer since. */
   waitingSince: string;
   /** An Epic's Round: questions answered of those asked. A roadmap Round: Proposals decided of those filed. */

@@ -276,6 +276,7 @@ mod shaping {
         assert_eq!(lamp.epic_id.as_deref(), Some(s.epic_id.as_str()));
         assert_eq!(lamp.epic_title.as_deref(), Some("Epic shaping"));
         assert_eq!((lamp.subject.as_str(), lamp.stage_kind.as_deref()), ("epic", Some("challenge_spec")));
+        assert_eq!(lamp.milestone_id, None);
         assert_eq!((lamp.round_number, lamp.answered, lamp.questions), (1, 0, 2));
         assert_eq!(lamp.waiting_since, posted.posted_at);
 

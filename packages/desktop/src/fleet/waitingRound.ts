@@ -2,7 +2,8 @@
  * How a waiting Round reads wherever Waiting on you shows it (the andon lamp, the sidebar and the Waiting
  * on you queue). An Epic's Round (issue #124) names its Epic and opens the Epic's shaping view; a roadmap
  * Round (issue #133) names the project's Roadmap and opens the project's board, where its ghost rows sit
- * on the Roadmap strip.
+ * on the Roadmap strip. A Milestone's Round (issue #132) names the Milestone by its title (it has no key)
+ * and opens the Milestone's shaping view.
  */
 import type { WaitingRoundDto } from "../adapters/tauri";
 import { useUiStore } from "../state/uiStore";
@@ -45,6 +46,21 @@ export function waitingRoundWords(round: WaitingRoundDto): WaitingRoundWords {
       action: "Decide",
     };
   }
+  if (round.subject === "milestone") {
+    const title = round.milestoneTitle ?? "";
+    return {
+      key: "",
+      title,
+      lampTitle: title,
+      record: `Milestone ${title}`,
+      round: `Round ${round.roundNumber}`,
+      shortRound: `Round ${round.roundNumber}`,
+      progress: `${round.answered} of ${round.questions} answered`,
+      hint: "The agent goes on once every question is answered.",
+      kind: "Shaping question",
+      action: "Answer",
+    };
+  }
   const key = round.epicKey ?? "";
   const title = round.epicTitle ?? "";
   return {
@@ -65,18 +81,33 @@ export function waitingRoundWords(round: WaitingRoundDto): WaitingRoundWords {
  * Round's lamp and sidebar row are marked current. */
 export function usePlaceBoardId(): string | null {
   return useUiStore((state) =>
-    state.activeSessionId || state.currentStoryId || state.currentEpicId || state.fleetSurface || state.worktreeInventoryOpen || state.settingsOpen
+    state.activeSessionId || state.currentStoryId || state.currentEpicId || state.currentMilestoneId || state.fleetSurface || state.worktreeInventoryOpen || state.settingsOpen
       ? null
       : state.currentProjectId,
   );
 }
 
-/** Opens what a waiting Round is about: its Epic's shaping view, or its project's board. */
+/** The Epic or Milestone whose shaping view is the current place, with no session over it, or `null`. */
+export function usePlaceShapingId(): string | null {
+  return useUiStore((state) => (state.activeSessionId ? null : (state.currentEpicId ?? state.currentMilestoneId)));
+}
+
+/** Whether a waiting Round's lamp or row marks the current place: its project's board for a roadmap Round,
+ * else its Epic's or Milestone's shaping view. */
+export function isRoundHere(round: WaitingRoundDto, placeBoardId: string | null, placeShapingId: string | null): boolean {
+  if (round.subject === "roadmap") return round.projectId === placeBoardId;
+  const id = round.subject === "milestone" ? round.milestoneId : round.epicId;
+  return id != null && id === placeShapingId;
+}
+
+/** Opens what a waiting Round is about: its Epic's or Milestone's shaping view, or its project's board. */
 export function useOpenWaitingRound(): (round: WaitingRoundDto) => void {
   const openEpic = useUiStore((state) => state.openEpic);
+  const openMilestone = useUiStore((state) => state.openMilestone);
   const openProject = useUiStore((state) => state.setCurrentProjectId);
   return (round) => {
-    if (round.subject === "roadmap" || round.epicId === null) openProject(round.projectId);
+    if (round.subject === "milestone" && round.milestoneId) openMilestone(round.projectId, round.milestoneId);
+    else if (round.subject === "roadmap" || round.epicId === null) openProject(round.projectId);
     else openEpic(round.projectId, round.epicId);
   };
 }

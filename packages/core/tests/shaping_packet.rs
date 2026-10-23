@@ -198,3 +198,106 @@ fn an_unknown_epic_is_an_error() {
     let f = fixture();
     assert!(build_epic_shaping_packet(&f.conn, "01ZZZZZZZZZZZZZZZZZZZZZZZZ").is_err());
 }
+
+// --- Issue #132: the Milestone variant ---
+
+mod milestone_packet {
+    use super::*;
+    use core::domain::adr_link::{link_adr, AdrLinkTarget};
+    use core::domain::milestone::{move_milestone, set_milestone_state, MilestoneState};
+    use core::shaping_packet::build_milestone_shaping_packet;
+
+    const MILESTONE_HEADINGS: [&str; 6] = [
+        "## Standing instructions",
+        "## Roadmap",
+        "## Epics under this Milestone",
+        "## ADRs",
+        "## Rounds",
+        "## Closing instruction",
+    ];
+
+    /// The fixture's Roadmap with two more Milestones around it: one Done before it and one with no
+    /// exit test after it. The Milestone under shaping is the fixture's own, "Shaping".
+    fn roadmap() -> (Fixture, String) {
+        let mut f = fixture();
+        let (project_id, shaping): (String, String) = f
+            .conn
+            .query_row("SELECT project_id, milestone_id FROM epics WHERE id = ?1", [&f.epic_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        let done = create_milestone(&mut f.conn, &project_id, &f.actor_id, "Board model", Some("The board holds the work")).unwrap();
+        move_milestone(&mut f.conn, &f.actor_id, &done.id, Some(&shaping)).unwrap();
+        set_milestone_state(&mut f.conn, &f.actor_id, &done.id, MilestoneState::Done).unwrap();
+        create_milestone(&mut f.conn, &project_id, &f.actor_id, "Roadmap", None).unwrap();
+        link_adr(&mut f.conn, &f.actor_id, &project_id, "docs/adr/0002-store-in-sqlite.md", &AdrLinkTarget::Milestone(shaping.clone()))
+            .unwrap();
+        (f, shaping)
+    }
+
+    #[test]
+    fn the_milestone_packet_is_byte_identical_and_its_sections_come_in_order() {
+        let (f, id) = roadmap();
+        let packet = build_milestone_shaping_packet(&f.conn, &id).unwrap();
+        assert_eq!(packet, build_milestone_shaping_packet(&f.conn, &id).unwrap());
+        assert!(packet.starts_with("# Shaping packet: Milestone Shaping\n"), "{packet}");
+        let positions: Vec<usize> =
+            MILESTONE_HEADINGS.iter().map(|h| packet.find(h).unwrap_or_else(|| panic!("missing {h}:\n{packet}"))).collect();
+        assert!(positions.windows(2).all(|w| w[0] < w[1]), "out of order:\n{packet}");
+    }
+
+    #[test]
+    fn the_milestone_packet_lists_every_milestone_in_order_with_its_state_and_exit_test() {
+        let (f, id) = roadmap();
+        let packet = build_milestone_shaping_packet(&f.conn, &id).unwrap();
+        let roadmap = &packet[packet.find("## Roadmap").unwrap()..packet.find("## Epics under this Milestone").unwrap()];
+        assert!(
+            roadmap.contains(
+                "1. Board model (Done). Exit test: The board holds the work\n\
+                 2. Shaping (Shaping), the Milestone you are shaping. Exit test: An idea becomes Ready Stories\n\
+                 3. Roadmap (Shaping). Exit test: none written\n"
+            ),
+            "{roadmap}"
+        );
+    }
+
+    #[test]
+    fn the_milestone_packet_lists_the_epics_under_this_milestone_with_state_and_exit_test() {
+        let (f, id) = roadmap();
+        let packet = build_milestone_shaping_packet(&f.conn, &id).unwrap();
+        let epics = &packet[packet.find("## Epics under this Milestone").unwrap()..packet.find("## ADRs").unwrap()];
+        assert!(
+            epics.contains(
+                "- FLY-1 Board model (Ready). Exit test: none written\n\
+                 - FLY-2 Epic shaping (Shaping). Exit test: A one-line idea becomes an Epic with Ready Stories.\n\
+                 - FLY-3 Roadmap shaping (Shaping). Exit test: none written\n"
+            ),
+            "{epics}"
+        );
+    }
+
+    #[test]
+    fn the_milestone_packet_carries_the_adr_index_and_the_exit_test_instructions() {
+        let (f, id) = roadmap();
+        let packet = build_milestone_shaping_packet(&f.conn, &id).unwrap();
+        assert!(
+            packet.contains("- docs/adr/0002-store-in-sqlite.md: Store the board in SQLite (linked to this Milestone)\n"),
+            "{packet}"
+        );
+        assert!(!packet.contains("0001-store-in-json"), "{packet}");
+        for line in [
+            "You are shaping one Milestone",
+            "`round_post`",
+            "`propose_exit_test`",
+            "observable, has no date and can be told apart from its neighbouring Milestones",
+            "post the first Round of the Exit test Stage with `round_post`",
+        ] {
+            assert!(packet.contains(line), "missing {line:?}:\n{packet}");
+        }
+        assert!(!packet.contains("propose_spec_change"), "an Epic's tool is not offered:\n{packet}");
+    }
+
+    #[test]
+    fn an_unknown_milestone_is_an_error() {
+        let f = fixture();
+        assert!(build_milestone_shaping_packet(&f.conn, "01ZZZZZZZZZZZZZZZZZZZZZZZZ").is_err());
+    }
+}

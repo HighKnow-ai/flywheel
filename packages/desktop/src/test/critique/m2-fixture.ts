@@ -20,6 +20,7 @@ import type {
   FleetRowDto,
   MilestoneDto,
   MilestoneProgressDto,
+  MilestoneShapingDto,
   PendingPermissionRequestDto,
   RoadmapProposalDto,
   RoadmapRoundDto,
@@ -443,22 +444,105 @@ function roadmapView(): RoadmapRoundViewDto {
 }
 
 /** Round 2 of Epic #59 while its session is held on it: the lamp and the queue entry (issue #124). With
- * the roadmap Round waiting, its lamp and queue entry too (issue #133). */
+ * the roadmap Round waiting, its lamp and queue entry too (issue #133), and with the Milestone "Board and
+ * review" shaped and waiting, its Round 1 (issue #132). */
 function waitingRounds(): WaitingRoundDto[] {
-  const roadmap: WaitingRoundDto[] = roadmapMode === "waiting"
-    ? [{
-        roundId: "rr-2", roundNumber: 2, subject: "roadmap", stageKind: null, sessionId: "ses-roadmap-2",
-        projectId: "p-fly", projectName: "flywheel", projectKeyPrefix: "FLY", epicId: null, epicKey: null, epicTitle: null,
-        waitingSince: ago(1500), answered: 1, questions: 4,
-      }]
-    : [];
-  if (!shapingSessionLive) return roadmap;
-  return [...roadmap, {
-    roundId: "r-2", roundNumber: 2, subject: "epic", stageKind: "challenge_spec", sessionId: "ses-shape-8",
-    projectId: "p-fly", projectName: "flywheel", projectKeyPrefix: "FLY",
-    epicId: "e-59", epicKey: "FLY-8", epicTitle: "Epic shaping",
-    waitingSince: ago(1800), answered: 1, questions: 4,
-  }];
+  const rounds: WaitingRoundDto[] = [];
+  if (roadmapMode === "waiting") {
+    rounds.push({
+      roundId: "rr-2", roundNumber: 2, subject: "roadmap", stageKind: null, sessionId: "ses-roadmap-2",
+      projectId: "p-fly", projectName: "flywheel", projectKeyPrefix: "FLY", epicId: null, epicKey: null, epicTitle: null,
+      waitingSince: ago(1500), answered: 1, questions: 4,
+    });
+  }
+  if (shapingSessionLive) {
+    rounds.push({
+      roundId: "r-2", roundNumber: 2, subject: "epic", stageKind: "challenge_spec", sessionId: "ses-shape-8",
+      projectId: "p-fly", projectName: "flywheel", projectKeyPrefix: "FLY",
+      epicId: "e-59", epicKey: "FLY-8", epicTitle: "Epic shaping",
+      waitingSince: ago(1800), answered: 1, questions: 4,
+    });
+  }
+  if (milestoneShaping === "waiting") {
+    rounds.push({
+      roundId: "r-m4", roundNumber: 1, subject: "milestone", stageKind: "exit_test", sessionId: "ses-shape-m4",
+      projectId: "p-fly", projectName: "flywheel", projectKeyPrefix: "FLY",
+      epicId: null, epicKey: null, epicTitle: null, milestoneId: "m-4", milestoneTitle: "Board and review",
+      waitingSince: ago(600), answered: 1, questions: 3,
+    });
+  }
+  return rounds;
+}
+
+/**
+ * Issue #132: how far the Milestone "Board and review" (m-4) is shaped. `off` (the default, so the earlier
+ * screens keep their shots): no session, no Stage. `waiting`: its shaping session is held on Round 1 of Exit
+ * test, one question answered, with a proposed exit test pending and an earlier one rejected. `closable`: the
+ * Round answered, the proposed exit test accepted, so nothing keeps Exit test open.
+ */
+let milestoneShaping: "off" | "waiting" | "closable" = "off";
+export function shapeMilestoneInFixture(mode: "off" | "waiting" | "closable"): void {
+  milestoneShaping = mode;
+}
+
+function milestoneShapingOf(milestoneId: string): MilestoneShapingDto | null {
+  const milestone = Object.values(MILESTONES).flat().find((m) => m.id === milestoneId);
+  if (!milestone) return null;
+  if (milestoneId !== "m-4" || milestoneShaping === "off") {
+    return { milestone, stages: [], rounds: [], proposals: [], openStageStatus: null };
+  }
+  const waiting = milestoneShaping === "waiting";
+  const proposedText =
+    "Cyril reviews a Story In review against its criteria and Checks and merges it, from Ready to Merged, without leaving Flywheel.";
+  const q = (id: string, number: number, title: string, question: string, grounding: string, recommendedAnswer: string, because: string, answered: boolean) => ({
+    id, number, title, question, grounding, recommendedAnswer, because,
+    answer: answered ? recommendedAnswer : null, answeredWith: answered ? "recommended" : null, answeredAt: answered ? ago(420) : null,
+  });
+  const questions = [
+    q("mq-1", 1, "Observed in the app", "Is the exit test observed in Flywheel alone, with no terminal and no GitHub tab open?",
+      "Read docs/mvp-spec.md §5 (Review) and the Milestone's current exit test", "Yes",
+      "\"In Flywheel alone\" is what makes it observable; a merge done on GitHub would pass it too", true),
+    q("mq-2", 2, "Review, not only merge", "Should the exit test name the review against criteria and Checks, not just the merge?",
+      "Read GLOSSARY.md, Acceptance criterion and Check", "Yes, name the review",
+      "A merge alone is already possible in Supervised execution; the review is what this Milestone adds", !waiting),
+    q("mq-3", 3, "Told apart from One-week", "Does the One-week exit test stay the only one that measures a whole week of work?",
+      "Read the One-week exit test Milestone, after this one on the Roadmap", "Yes",
+      "This Milestone proves one Story end to end; the week proves the loop", !waiting),
+  ];
+  const proposal = (id: string, text: string, rationale: string, minutes: number, rejectionReason: string | null) => ({
+    id, projectId: "p-fly", sessionId: "ses-shape-m4", epicId: null, verb: "amend", targetType: "milestone", targetId: "m-4",
+    payload: { title: null, exit_test: text }, rationale, state: rejectionReason ? "rejected" : "pending", createdAt: ago(minutes * 60),
+    rejectionReason, decidedBy: null, stageId: "st-m4", roundId: "r-m4",
+  });
+  return {
+    milestone: waiting ? milestone : { ...milestone, exitTest: proposedText },
+    stages: [{ id: "st-m4", kind: "exit_test", state: "open", rank: 1 }],
+    rounds: [{
+      id: "r-m4", stageId: "st-m4", stageKind: "exit_test", number: 1,
+      note: "This Round settles what \"Ready to Merged in Flywheel alone\" observes, and how it differs from the One-week exit test after it.",
+      state: waiting ? "open" : "answered", waitingOnYou: waiting, postedAt: ago(600), answeredAt: waiting ? null : ago(300),
+      questions,
+    }],
+    proposals: (waiting
+      ? [
+          proposal("pr-m4-1", "A Story is merged in Flywheel.", "The first Round's notes read \"merge\" as the whole Milestone.", 9, "Too thin: a merge alone already works"),
+          proposal("pr-m4-2", proposedText, "Question 1 settled \"in Flywheel alone\"; the review is what this Milestone adds.", 4, null),
+        ]
+      : [proposal("pr-m4-1", "A Story is merged in Flywheel.", "The first Round's notes read \"merge\" as the whole Milestone.", 9, "Too thin: a merge alone already works")]) as MilestoneShapingDto["proposals"],
+    openStageStatus: waiting
+      ? {
+          stageId: "st-m4",
+          openItems: [
+            { kind: "question", id: "mq-2", label: "Question 2 of Round 1 is unanswered: Review, not only merge", round: 1, number: 2, title: "Review, not only merge" },
+            { kind: "question", id: "mq-3", label: "Question 3 of Round 1 is unanswered: Told apart from One-week", round: 1, number: 3, title: "Told apart from One-week" },
+            { kind: "proposal", id: "pr-m4-2", label: "A Proposal to change the exit test is undecided", round: null, number: null, title: "change the exit test" },
+          ],
+          warnings: [],
+          next: null,
+          closable: false,
+        }
+      : { stageId: "st-m4", openItems: [], warnings: [], next: null, closable: true },
+  };
 }
 
 
@@ -650,7 +734,14 @@ export function answer(cmd: string, args: Args): unknown {
       const ids = fly ? ["s-5", "s-6"] : ["s-h2"];
       const epics = fly && shapingSessionLive ? ["e-59"] : [];
       const roadmapWaiting = fly && roadmapMode === "waiting";
-      return { blockedStoryIds: ids, waitingEpicIds: epics, roadmapWaiting, blockedCount: ids.length + epics.length + (roadmapWaiting ? 1 : 0) };
+      const milestones = fly && milestoneShaping === "waiting" ? ["m-4"] : [];
+      return {
+        blockedStoryIds: ids,
+        waitingEpicIds: epics,
+        waitingMilestoneIds: milestones,
+        roadmapWaiting,
+        blockedCount: ids.length + epics.length + milestones.length + (roadmapWaiting ? 1 : 0),
+      };
     }
     case "board_recovery_summary": return { recoveryStoryIds: [], recoveryCount: 0 };
     case "fleet_list": return { rows: FLEET_ROWS, totalRows: FLEET_ROWS.length, visibleCostUsd: 9.3 };
@@ -671,6 +762,9 @@ export function answer(cmd: string, args: Args): unknown {
     case "epic_shaping_session": return arg(args, "epicId") === "e-59" && shapingSessionLive ? "ses-shape-8" : null;
     case "epic_shaping_rounds": return shapingOf(arg(args, "epicId"));
     case "roadmap_round_read": return arg(args, "projectId") === "p-fly" ? roadmapView() : { open: null, proposals: [], last: null };
+    case "milestone_shaping_session":
+      return arg(args, "milestoneId") === "m-4" && milestoneShaping !== "off" ? "ses-shape-m4" : null;
+    case "milestone_shaping_rounds": return milestoneShapingOf(arg(args, "milestoneId"));
     default: return null;
   }
 }
@@ -679,6 +773,7 @@ export function answer(cmd: string, args: Args): unknown {
 export function installFixtureBackend(): void {
   withAdrs = false;
   roadmapMode = "none";
+  milestoneShaping = "off";
   adrsOnlyLeft = false;
   mockIPC((cmd, payload) => answer(cmd, payload as Args), { shouldMockEvents: true });
 }

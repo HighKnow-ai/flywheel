@@ -17,6 +17,11 @@
 //! Rounds outlived the session that posted them. Its packet carries every Round with its answers and
 //! tells the agent to call `round_wait`, which takes the open Round over and is held like a
 //! `round_post`, or is answered at once when the Round is already complete.
+//!
+//! Milestones (issue #132): [`milestone_shape`], [`milestone_shaping_session`],
+//! [`milestone_shaping_rounds`] and [`milestone_shaping_continue`] are the Epic's commands for a
+//! Milestone's one Stage, Exit test, with the Milestone's packet. [`stage_close`] closes it too, which
+//! makes the Milestone Ready and starts no further session.
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -441,7 +446,9 @@ pub(crate) fn continue_epic(
 #[serde(rename_all = "camelCase")]
 pub struct StageCloseDto {
     pub closed_stage_id: String,
-    pub opened: StageDto,
+    /// The Stage the close opened; `None` when the closed Stage was its record's last and made it
+    /// Ready (a Milestone's Exit test, issue #132).
+    pub opened: Option<StageDto>,
     /// The next Stage's shaping session, started from a fresh packet; `None` when it could not start.
     pub session: Option<ShapingSessionDto>,
     /// Why the next Stage's session did not start, when it did not. The Stage is closed regardless;
@@ -493,13 +500,13 @@ pub(crate) fn close_stage_and_shape(
     let sidecar_warning = closed.ended_session.as_deref().and_then(|id| interrupt(id).err()).map(|e| {
         format!("Flywheel recorded the last Stage's session as ended, but could not confirm its agent process stopped: {e}")
     });
-    let opened = StageDto {
-        id: closed.opened.id.clone(),
-        kind: closed.opened.kind.as_str().to_string(),
-        state: closed.opened.state.clone(),
-        rank: closed.opened.rank,
-    };
-    let (session, launch_error) = match &closed.opened.epic_id {
+    let opened = closed.opened.as_ref().map(|s| StageDto {
+        id: s.id.clone(),
+        kind: s.kind.as_str().to_string(),
+        state: s.state.clone(),
+        rank: s.rank,
+    });
+    let (session, launch_error) = match closed.opened.as_ref().and_then(|s| s.epic_id.as_ref()) {
         Some(epic_id) => match shape_epic(db, epic_id, find_claude, send) {
             Ok(id) => (
                 Some(ShapingSessionDto {
@@ -528,15 +535,45 @@ pub(crate) fn shape_epic(
     find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<String, String> {
+    shape_subject(db, &ShapingSubject::Epic(epic_id.to_string()), find_claude, send)
+}
+
+/// [`milestone_shape`]'s body (issue #132): [`shape_epic`] for a Milestone, whose session opens its
+/// one Stage, Exit test, and starts from the Milestone's packet.
+pub(crate) fn shape_milestone(
+    db: &std::sync::Mutex<Connection>,
+    milestone_id: &str,
+    find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
+    send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
+) -> Result<String, String> {
+    shape_subject(db, &ShapingSubject::Milestone(milestone_id.to_string()), find_claude, send)
+}
+
+/// Start a shaping session on `subject`: [`shape_epic`]'s and [`shape_milestone`]'s shared body.
+fn shape_subject(
+    db: &std::sync::Mutex<Connection>,
+    subject: &ShapingSubject,
+    find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
+    send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
+) -> Result<String, String> {
     let mut conn = db.lock().map_err(|e| e.to_string())?;
     let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    let (project_id, repo_path): (String, String) = conn
-        .query_row(
+    let (sql, id, noun) = match subject {
+        ShapingSubject::Epic(id) => (
             "SELECT e.project_id, p.repo_path FROM epics e JOIN projects p ON p.id = e.project_id WHERE e.id = ?1",
-            rusqlite::params![epic_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(|_| format!("Epic {epic_id:?} not found"))?;
+            id,
+            "Epic",
+        ),
+        ShapingSubject::Milestone(id) => (
+            "SELECT m.project_id, p.repo_path FROM milestones m JOIN projects p ON p.id = m.project_id WHERE m.id = ?1",
+            id,
+            "Milestone",
+        ),
+        ShapingSubject::Roadmap(_) => return Err("the Roadmap is shaped through Revisit roadmap".to_string()),
+    };
+    let (project_id, repo_path): (String, String) = conn
+        .query_row(sql, rusqlite::params![id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|_| format!("{noun} {id:?} not found"))?;
     find_claude()?;
     // Resolved before the row exists: a missing API key must not leave a `running` row behind.
     let env = crate::sidecar::resolved_env_for_run(&conn, &project_id).map_err(|e| e.to_string())?;
@@ -544,12 +581,12 @@ pub(crate) fn shape_epic(
     let kind = SessionKind::Shaping;
     let session = flywheel_core::domain::session::start_shaping_session(
         &mut conn,
-        &ShapingSubject::Epic(epic_id.to_string()),
+        subject,
         kind.launch_policy().permission_mode,
         &human,
     )
     .map_err(|e| e.to_string())?;
-    let prompt = match flywheel_core::shaping_packet::build_epic_shaping_packet(&conn, epic_id) {
+    let prompt = match flywheel_core::shaping_packet::build_shaping_packet(&conn, subject) {
         Ok(prompt) => prompt,
         Err(e) => return Err(fail_launch(&mut conn, &session.id, e.to_string())),
     };
@@ -561,6 +598,141 @@ pub(crate) fn shape_epic(
         Err(_) => why,
     })?;
     Ok(session.id)
+}
+
+/// A Milestone's shaping session as Shape returns it (issue #132).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MilestoneShapingSessionDto {
+    pub id: String,
+    pub milestone_id: String,
+    pub status: String,
+    pub permission_mode: String,
+}
+
+impl MilestoneShapingSessionDto {
+    fn running(id: String, milestone_id: String) -> Self {
+        Self {
+            id,
+            milestone_id,
+            status: "running".to_string(),
+            permission_mode: SessionKind::Shaping.launch_policy().permission_mode.to_string(),
+        }
+    }
+}
+
+/// Shape on a Milestone in Shaping (issue #132): start a shaping session on its exit test.
+#[tauri::command]
+pub fn milestone_shape(state: State<AppState>, app: AppHandle, milestone_id: String) -> Result<MilestoneShapingSessionDto, String> {
+    let run_id = shape_milestone(&state.db, &milestone_id, flywheel_core::login_path::claude_bin, |repo_path, request| {
+        send_gated_spawn(&state, repo_path, request)
+    })?;
+    let project_id = project_of_locked(&state.db, "milestones", &milestone_id);
+    emit_board_changed(&app, project_id.as_deref(), "session", Some(&run_id));
+    Ok(MilestoneShapingSessionDto::running(run_id, milestone_id))
+}
+
+/// The Milestone's live shaping session, if any (issue #132).
+#[tauri::command]
+pub fn milestone_shaping_session(state: State<AppState>, milestone_id: String) -> Result<Option<String>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    flywheel_core::domain::session::live_shaping_session(&conn, &ShapingSubject::Milestone(milestone_id))
+        .map_err(|e| e.to_string())
+}
+
+/// Continue shaping a Milestone (issue #132): [`shaping_continue`] for a Milestone whose Rounds
+/// outlived the session that posted them.
+#[tauri::command]
+pub fn milestone_shaping_continue(
+    state: State<AppState>,
+    app: AppHandle,
+    milestone_id: String,
+) -> Result<MilestoneShapingSessionDto, String> {
+    let run_id = continue_milestone(&state.db, &milestone_id, flywheel_core::login_path::claude_bin, |repo_path, request| {
+        send_gated_spawn(&state, repo_path, request)
+    })?;
+    let project_id = project_of_locked(&state.db, "milestones", &milestone_id);
+    emit_board_changed(&app, project_id.as_deref(), "session", Some(&run_id));
+    Ok(MilestoneShapingSessionDto::running(run_id, milestone_id))
+}
+
+/// [`milestone_shaping_continue`]'s body: [`shape_milestone`] once the Milestone has a Round to continue.
+pub(crate) fn continue_milestone(
+    db: &std::sync::Mutex<Connection>,
+    milestone_id: &str,
+    find_claude: impl FnOnce() -> Result<std::path::PathBuf, String>,
+    send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
+) -> Result<String, String> {
+    {
+        let conn = db.lock().map_err(|e| e.to_string())?;
+        let rounds = flywheel_core::domain::round::rounds_for_milestone(&conn, milestone_id).map_err(|e| e.to_string())?;
+        if rounds.is_empty() {
+            return Err("this Milestone has no Round to continue from; Shape it to start its first Round".to_string());
+        }
+    }
+    shape_milestone(db, milestone_id, find_claude, send)
+}
+
+/// What a Milestone's shaping view reads (issue #132): the Milestone, its one Stage, every Round,
+/// its exit-test Proposals and what is still open in the Stage.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MilestoneShapingDto {
+    pub milestone: super::roadmap::MilestoneDto,
+    pub stages: Vec<StageDto>,
+    pub rounds: Vec<RoundDto>,
+    /// The Milestone's undecided and rejected exit-test Proposals, oldest first: a ghost over the exit
+    /// test and struck-through lines. An accepted one is in the exit test it rewrote.
+    pub proposals: Vec<super::proposal::ProposalDto>,
+    /// What is still open in the open Stage: what the Close Stage button lists. `None` before shaping
+    /// has opened the Stage, and once it is closed.
+    pub open_stage_status: Option<StageStatusDto>,
+}
+
+/// The Milestone's Stage, Rounds and Proposals (issue #132): what its dock shows.
+#[tauri::command]
+pub fn milestone_shaping_rounds(state: State<AppState>, milestone_id: String) -> Result<MilestoneShapingDto, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    read_milestone_shaping(&conn, &milestone_id)
+}
+
+pub(crate) fn read_milestone_shaping(conn: &Connection, milestone_id: &str) -> Result<MilestoneShapingDto, String> {
+    let milestone = flywheel_core::domain::milestone::get_milestone(conn, milestone_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Milestone {milestone_id:?} not found"))?;
+    let current = flywheel_core::domain::milestone::current_milestone(conn, &milestone.project_id).map_err(|e| e.to_string())?;
+    let milestone = super::roadmap::to_dto(conn, milestone, current.as_ref().map(|c| c.id.as_str()))?;
+    let stages = flywheel_core::domain::stage::stages_for_milestone(conn, milestone_id).map_err(|e| e.to_string())?;
+    let rounds = flywheel_core::domain::round::rounds_for_milestone(conn, milestone_id).map_err(|e| e.to_string())?;
+    let proposals =
+        flywheel_core::domain::proposal::proposals_on_milestone(conn, milestone_id).map_err(|e| e.to_string())?;
+    let open_stage_status = match stages.iter().find(|s| s.state == "open") {
+        Some(open) => Some(flywheel_core::domain::stage::stage_status(conn, &open.id).map_err(|e| e.to_string())?.into()),
+        None => None,
+    };
+    Ok(MilestoneShapingDto {
+        milestone,
+        stages: stages
+            .into_iter()
+            .map(|s| StageDto { id: s.id, kind: s.kind.as_str().to_string(), state: s.state, rank: s.rank })
+            .collect(),
+        rounds: rounds.into_iter().map(RoundDto::from).collect(),
+        // Only exit-test changes ghost over the exit test: an Amend Milestone with only `exit_test` set
+        // (`propose_exit_test`). A roadmap Round's other Milestone changes are its strip's ghost rows.
+        proposals: proposals
+            .into_iter()
+            .filter(|p| p.state != "accepted" && is_exit_test_change(p))
+            .map(Into::into)
+            .collect(),
+        open_stage_status,
+    })
+}
+
+/// Whether a Proposal on a Milestone changes its exit test alone (issue #132).
+fn is_exit_test_change(p: &flywheel_core::domain::proposal::Proposal) -> bool {
+    p.verb == "amend"
+        && p.payload.get("exit_test").is_some_and(|t| t.is_string())
+        && p.payload.get("title").is_none_or(|t| t.is_null())
 }
 
 #[cfg(test)]
@@ -1001,7 +1173,8 @@ mod tests {
             .expect("Close Stage");
 
             assert_eq!(interrupted, Some((first.clone(), "interrupted".to_string())), "recorded first, then interrupted");
-            assert_eq!((dto.opened.kind.as_str(), dto.opened.rank), ("slice", 2));
+            let opened = dto.opened.as_ref().expect("Slice opens");
+            assert_eq!((opened.kind.as_str(), opened.rank), ("slice", 2));
             assert_eq!(dto.launch_error, None);
             assert_eq!(dto.sidecar_warning, None);
             let next = dto.session.expect("the next Stage's session started");
@@ -1029,6 +1202,90 @@ mod tests {
             assert!(dto.launch_error.as_deref().is_some_and(|e| e.contains("spawn boom")), "{:?}", dto.launch_error);
             assert!(dto.sidecar_warning.as_deref().is_some_and(|w| w.contains("sidecar gone")), "{:?}", dto.sidecar_warning);
             assert_eq!(open_status(&db, &epic_id).next.as_deref(), Some("criteria"), "the Slice Stage is open");
+        });
+    }
+
+    /// A Milestone in Shaping with a first-draft exit test, in a project whose checkout is a plain directory.
+    fn shaping_milestone() -> (std::sync::Mutex<Connection>, String, tempfile::TempDir) {
+        let (db, epic_id, checkout) = shaping_epic();
+        let milestone_id: String =
+            db.lock().unwrap().query_row("SELECT milestone_id FROM epics WHERE id = ?1", [&epic_id], |r| r.get(0)).unwrap();
+        (db, milestone_id, checkout)
+    }
+
+    /// Issue #132: Shape on a Milestone starts a session from the Milestone's packet, which opens its one
+    /// Stage, Exit test; its view reads the Stage, the Round and the ghost, and Close Stage makes it Ready.
+    #[test]
+    fn shape_on_a_milestone_opens_exit_test_and_close_stage_makes_it_ready() {
+        with_scratch(|| {
+            let (db, milestone_id, _checkout) = shaping_milestone();
+            let err = continue_milestone(&db, &milestone_id, found_claude, |_, _| panic!("nothing to continue")).unwrap_err();
+            assert!(err.contains("no Round to continue"), "{err}");
+
+            let mut sent = None;
+            let run_id = shape_milestone(&db, &milestone_id, found_claude, |_, request| {
+                sent = Some(request.clone());
+                Ok(())
+            })
+            .expect("Shape starts a session");
+            let prompt = sent.unwrap()["prompt"].as_str().unwrap().to_string();
+            assert!(prompt.starts_with("# Shaping packet: Milestone Shaping\n"), "{prompt}");
+
+            let view = read_milestone_shaping(&db.lock().unwrap(), &milestone_id).unwrap();
+            assert_eq!(view.milestone.state, "shaping");
+            let stages: Vec<(&str, &str)> = view.stages.iter().map(|s| (s.kind.as_str(), s.state.as_str())).collect();
+            assert_eq!(stages, [("exit_test", "open")]);
+            let status = view.open_stage_status.expect("the open Stage's status");
+            assert!(status.closable, "nothing is open yet");
+            assert_eq!(status.next, None);
+
+            answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-1", "round_post", &round_args());
+            let args = serde_json::json!({ "text": "A one-line idea becomes Ready Stories.", "why": "Round 1" });
+            let (answer, changed) =
+                answer_shaping_tool_call(&mut db.lock().unwrap(), &run_id, "req-2", "propose_exit_test", &args);
+            assert_eq!(answer.expect("answered at once")["result"]["state"], "pending");
+            assert!(changed.is_some());
+            let view = read_milestone_shaping(&db.lock().unwrap(), &milestone_id).unwrap();
+            assert!(view.rounds[0].waiting_on_you);
+            assert_eq!(view.proposals.len(), 1, "the ghost over the exit test");
+            let status = view.open_stage_status.unwrap();
+            assert!(!status.closable);
+            assert_eq!(status.open_items.len(), 3, "two questions and the Proposal");
+
+            {
+                let mut conn = db.lock().unwrap();
+                let human = flywheel_core::domain::actor::local_human_actor_id(&conn).unwrap();
+                flywheel_core::domain::round::accept_all_recommended(&mut conn, &human, &view.rounds[0].id).unwrap();
+                flywheel_core::domain::proposal::accept_proposal(&mut conn, &human, &view.proposals[0].id).unwrap();
+            }
+            let view = read_milestone_shaping(&db.lock().unwrap(), &milestone_id).unwrap();
+            assert!(view.proposals.is_empty(), "an accepted Proposal is in the exit test it rewrote");
+            assert_eq!(view.milestone.exit_test.as_deref(), Some("A one-line idea becomes Ready Stories."));
+
+            let stage_id = view.open_stage_status.unwrap().stage_id;
+            let mut interrupted = None;
+            let dto = close_stage_and_shape(
+                &db,
+                &stage_id,
+                |session| {
+                    interrupted = Some(session.to_string());
+                    Ok(())
+                },
+                found_claude,
+                |_, _| panic!("no Stage follows Exit test, so no session starts"),
+            )
+            .expect("Close Stage");
+            assert_eq!(interrupted, Some(run_id));
+            assert!(dto.opened.is_none());
+            assert!(dto.session.is_none());
+            assert_eq!(dto.launch_error, None);
+            let view = read_milestone_shaping(&db.lock().unwrap(), &milestone_id).unwrap();
+            assert_eq!(view.milestone.state, "ready");
+            assert!(view.open_stage_status.is_none());
+            assert_eq!(
+                flywheel_core::domain::session::live_shaping_session(&db.lock().unwrap(), &ShapingSubject::Milestone(milestone_id)).unwrap(),
+                None
+            );
         });
     }
 }

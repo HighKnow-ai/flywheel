@@ -51,7 +51,7 @@ export function PageHeader({ crumbs, onBack, actions, className }: PageHeaderPro
         <BreadcrumbList className="flex-nowrap text-body">
           {crumbs.map((crumb, index) => {
             const last = index === crumbs.length - 1;
-            const text = <span className={cn("truncate", crumb.mono && "font-mono text-small")}>{crumb.label}</span>;
+            const text = <span className={cn("block truncate", crumb.mono && "font-mono text-small")}>{crumb.label}</span>;
             return (
               <BreadcrumbItem key={index} className={cn("min-w-0", last ? "shrink" : "shrink-0")}>
                 {index > 0 && (
@@ -60,7 +60,7 @@ export function PageHeader({ crumbs, onBack, actions, className }: PageHeaderPro
                   </BreadcrumbSeparator>
                 )}
                 {last || !crumb.onSelect ? (
-                  <BreadcrumbPage className={cn("min-w-0", last ? "font-semibold" : "text-muted-foreground")}>
+                  <BreadcrumbPage className={cn("block min-w-0 truncate", last ? "font-semibold" : "text-muted-foreground")}>
                     {text}
                   </BreadcrumbPage>
                 ) : (

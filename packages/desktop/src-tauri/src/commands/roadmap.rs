@@ -23,7 +23,7 @@ pub struct MilestoneDto {
     pub rank: String,
 }
 
-fn to_dto(
+pub(crate) fn to_dto(
     conn: &rusqlite::Connection,
     m: flywheel_core::domain::milestone::Milestone,
     current_id: Option<&str>,

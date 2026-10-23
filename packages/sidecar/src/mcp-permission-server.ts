@@ -82,6 +82,7 @@ export const BOARD_TOOL_NAMES = [...TASK_TOOL_NAMES, ...HANDOFF_TOOL_NAMES] as c
  * (issue #125) files a Proposal on the Epic and is answered at once: a Proposal never holds the agent.
  * `propose_roadmap_change` and `roadmap_holds` (issue #133) are a roadmap Round's: the first files one
  * Roadmap change and is answered at once, the second closes the Round with "Roadmap still holds".
+ * `propose_exit_test` (issue #132) is `propose_spec_change`'s Milestone sibling, answered at once the same way.
  * `propose_story` and `propose_story_order` (issue #127) slice the Epic into Stories, answered at once too. */
 export const SHAPING_TOOL_NAMES = [
   "round_post",
@@ -91,6 +92,7 @@ export const SHAPING_TOOL_NAMES = [
   "roadmap_holds",
   "propose_story",
   "propose_story_order",
+  "propose_exit_test",
 ] as const;
 
 export type ShapingToolName = (typeof SHAPING_TOOL_NAMES)[number];
@@ -306,6 +308,19 @@ export const SHAPING_TOOL_DEFINITIONS = [
         why: { type: "string", minLength: 1, description: "One line: why it moves or goes." },
       },
       required: ["story", "action", "why"],
+    },
+  },
+  {
+    name: "propose_exit_test",
+    description:
+      "Propose new text for the exit test of the Milestone you are shaping: the prose statement that tells you the Milestone is done, observable, with no date and told apart from its neighbouring Milestones. Give the whole new text, not a diff, and one line on why. The change is filed as a Proposal over the exit test, where the developer accepts it, amends it or rejects it with a reason; nothing on the Milestone changes until they do. This call is answered at once with the Proposal's id: keep shaping, do not wait for the decision. Refused in a session shaping an Epic: use propose_spec_change there.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string", minLength: 1, maxLength: 4000, description: "The exit test's whole new text." },
+        why: { type: "string", minLength: 1, description: "One line: what in the Rounds or the Roadmap makes this the better exit test." },
+      },
+      required: ["text", "why"],
     },
   },
 ] as const;

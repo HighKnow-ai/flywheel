@@ -1,5 +1,6 @@
 /**
- * A spec-change Proposal on the Epic card (docs/mvp-spec.md §3 "Proposals in shaping", issue #125).
+ * A spec-change Proposal on the Epic card (docs/mvp-spec.md §3 "Proposals in shaping", issue #125), or an
+ * exit-test change over a Milestone's exit test (issue #132), drawn and decided the same way.
  *
  * Pending, it is a ghost of the field it would rewrite, drawn right under that field's text: a dashed edge
  * in the brand hue on the running tint, the shape of something not yet on the record. It reads "Proposed
@@ -27,12 +28,24 @@ const MAX_SPEC_LEN = 20_000;
 /** The longest rejection reason `proposal_reject` accepts. */
 const MAX_REASON_LEN = 500;
 
-/** A spec change's payload, or null for any other Proposal. */
+/** A spec change's payload, or a Milestone exit-test change's as the same `{field, text}` (issue #132: an
+ * Amend Milestone carrying only `exit_test`), or null for any other Proposal. */
 export function specChangeOf(proposal: ProposalDto): { field: string; text: string } | null {
-  if (proposal.verb !== "amend" || proposal.targetType !== "epic") return null;
+  if (proposal.verb !== "amend") return null;
+  if (proposal.targetType === "milestone") {
+    const payload = proposal.payload as { title?: unknown; exit_test?: unknown } | null;
+    if (typeof payload?.exit_test !== "string" || (payload.title !== undefined && payload.title !== null)) return null;
+    return { field: "exit_test", text: payload.exit_test };
+  }
+  if (proposal.targetType !== "epic") return null;
   const payload = proposal.payload as { field?: unknown; text?: unknown } | null;
   if (typeof payload?.field !== "string" || typeof payload.text !== "string") return null;
   return { field: payload.field, text: payload.text };
+}
+
+/** The payload an Amend sends: the developer's text, in the Proposal's own shape. */
+function amendedPayload(proposal: ProposalDto, field: string, text: string): Record<string, unknown> {
+  return proposal.targetType === "milestone" ? { title: null, exit_test: text } : { field, text };
 }
 
 function reason(err: unknown): string {
@@ -113,7 +126,9 @@ function PendingGhost({
     setBusy(true);
     setError(null);
     // Once decided the ghost unmounts; the keyboard stays on the field, at its Edit button.
-    const fieldEdit = rootRef.current?.closest("dd")?.previousElementSibling?.querySelector("button") ?? null;
+    // A field with no Edit (a Milestone's exit test, issue #132) takes the focus itself: its `dd` is focusable.
+    const field = rootRef.current?.closest("dd") ?? null;
+    const fieldEdit = field?.previousElementSibling?.querySelector("button") ?? (field?.hasAttribute("tabindex") ? field : null);
     try {
       await write();
       await queryClient.invalidateQueries({ queryKey });
@@ -128,7 +143,7 @@ function PendingGhost({
     event.preventDefault();
     const edited = draft.trim();
     if (!edited) return;
-    void decide(() => proposalAmend(proposal.id, { field, text: edited }));
+    void decide(() => proposalAmend(proposal.id, amendedPayload(proposal, field, edited)));
   }
 
   function submitReject(event: FormEvent) {
