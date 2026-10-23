@@ -5,6 +5,9 @@
  * Story, Recreate worktree on a missing one, Open review, Confirm exit test, Answer on a held Round and
  * Continue shaping on one no session works. Yellow is Waiting on you only. On the board it is a column beside
  * the roster.
+ *
+ * Issue #163: a judged-on change (an Amend criterion, or a Story session's Amend Epic spec) is its own item,
+ * ranked with Review, showing its before and after, and decided in place: Accept, Edit, Reject.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -19,6 +22,9 @@ const storyResume = vi.fn();
 const worktreeRecreate = vi.fn();
 const shapingContinue = vi.fn();
 const epicConfirmDone = vi.fn();
+const proposalAccept = vi.fn();
+const proposalAmend = vi.fn();
+const proposalReject = vi.fn();
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -31,6 +37,9 @@ vi.mock("../../adapters/tauri", async () => {
     worktreeRecreate: (...args: unknown[]) => worktreeRecreate(...args),
     shapingContinue: (...args: unknown[]) => shapingContinue(...args),
     epicConfirmDone: (...args: unknown[]) => epicConfirmDone(...args),
+    proposalAccept: (...args: unknown[]) => proposalAccept(...args),
+    proposalAmend: (...args: unknown[]) => proposalAmend(...args),
+    proposalReject: (...args: unknown[]) => proposalReject(...args),
     roadmapRoundRead: () => Promise.resolve({ open: null, last: null, proposals: [] }),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
     subscribeAgentEvent: () => Promise.resolve(() => {}),
@@ -54,6 +63,7 @@ function item(kind: NeedsYouItemDto["kind"], id: string, extra: Partial<NeedsYou
     round: null,
     conflicts: [],
     proposals: null,
+    judgedOn: null,
     ...extra,
   };
 }
@@ -118,6 +128,10 @@ beforeEach(() => {
   shapingContinue.mockReset();
   shapingContinue.mockResolvedValue({});
   epicConfirmDone.mockReset();
+  for (const write of [proposalAccept, proposalAmend, proposalReject]) {
+    write.mockReset();
+    write.mockResolvedValue(undefined);
+  }
 });
 
 afterEach(() => {
@@ -305,5 +319,152 @@ describe("Needs you below 1280px", () => {
     fireEvent.click(button);
     const sheet = await screen.findByRole("dialog");
     expect(within(sheet).getByRole("list", { name: "Needs you, most urgent first" })).toBeInTheDocument();
+  });
+});
+
+const AMEND_CRITERION = item("judged_on", "p-1", {
+  rank: 3,
+  judgedOn: {
+    proposalId: "p-1",
+    change: "amend_criterion",
+    criterionId: "c-1",
+    field: null,
+    before: "Parses a line",
+    after: "Parses an empty line as no token",
+    checkBefore: "cargo test parser",
+    checkAfter: "cargo test parser::empty_line",
+    payload: { criterion_id: "c-1", statement: "Parses an empty line as no token", check_command: "cargo test parser::empty_line" },
+    rationale: "The criterion misses the empty line",
+    evidence: "src/parser.rs:42 panics on an empty line",
+    filedBy: "FLY-p-1",
+  },
+});
+
+const AMEND_SPEC = item("judged_on", "p-2", {
+  rank: 3,
+  record: { kind: "epic", id: "e-2", key: "FLY-E2", title: "Execution", state: null },
+  judgedOn: {
+    proposalId: "p-2",
+    change: "amend_epic_spec",
+    criterionId: null,
+    field: "scope",
+    before: "Parse a line",
+    after: "Parse every line, empty ones included",
+    checkBefore: null,
+    checkAfter: null,
+    payload: { field: "scope", text: "Parse every line, empty ones included" },
+    rationale: "Empty lines reach the parser",
+    evidence: "fixtures/empty.txt",
+    filedBy: "FLY-9",
+  },
+});
+
+describe("Needs you: judged-on changes", () => {
+  beforeEach(() => {
+    needsYouList.mockResolvedValue([item("review", "5", { rank: 3 }), AMEND_CRITERION, AMEND_SPEC]);
+  });
+
+  it("draws each judged-on change as its own card, named by its kind, ranked with Review", async () => {
+    const list = await cards();
+    expect(list.map((li) => li.getAttribute("data-kind"))).toEqual(["review", "judged_on", "judged_on"]);
+    expect(within(cardOf("p-1")).getByText("Amend criterion")).toBeInTheDocument();
+    expect(within(cardOf("p-2")).getByText("Amend Epic spec")).toBeInTheDocument();
+    expect(within(cardOf("p-2")).getByRole("button", { name: "Open Epic FLY-E2 Execution" })).toBeInTheDocument();
+    expect(cardOf("p-1")).not.toHaveAttribute("data-attention");
+  });
+
+  it("shows the before and after of a criterion and its Check, with the agent's why and evidence", async () => {
+    await cards();
+    const card = cardOf("p-1");
+    const diff = within(card).getByRole("group", { name: "Criterion, before and after" });
+    expect(within(diff).getByText("Parses a line").closest("del")).not.toBeNull();
+    expect(within(diff).getByText("Parses an empty line as no token").closest("ins")).not.toBeNull();
+    const check = within(card).getByRole("group", { name: "Check, before and after" });
+    expect(within(check).getByText("cargo test parser").closest("del")).not.toBeNull();
+    expect(within(check).getByText("cargo test parser::empty_line").closest("ins")).not.toBeNull();
+    expect(within(card).getByText("Accepting clears its acceptance; the new Check reads not run")).toBeInTheDocument();
+    expect(within(card).getByText("The criterion misses the empty line")).toBeInTheDocument();
+    expect(within(card).getByText("src/parser.rs:42 panics on an empty line")).toBeInTheDocument();
+    expect(within(card).getByText("Filed by FLY-p-1's session")).toBeInTheDocument();
+  });
+
+  it("names the Epic spec field it rewrites and what accepting does", async () => {
+    await cards();
+    const card = cardOf("p-2");
+    const diff = within(card).getByRole("group", { name: "Scope, before and after" });
+    expect(within(diff).getByText("Parse a line").closest("del")).not.toBeNull();
+    expect(within(diff).getByText("Parse every line, empty ones included").closest("ins")).not.toBeNull();
+    expect(within(card).getByText("Accepting reaches every Story of the Epic from its next session")).toBeInTheDocument();
+  });
+
+  it("says the Check is kept and its last run goes stale when no new command is proposed", async () => {
+    needsYouList.mockResolvedValue([
+      { ...AMEND_CRITERION, judgedOn: { ...AMEND_CRITERION.judgedOn!, checkAfter: null } },
+    ]);
+    await cards();
+    const card = cardOf("p-1");
+    expect(within(card).queryByRole("group", { name: "Check, before and after" })).toBeNull();
+    expect(within(card).getByText("Accepting clears its acceptance and marks its Check's last run stale")).toBeInTheDocument();
+  });
+
+  it("accepts in place and refetches", async () => {
+    await cards();
+    fireEvent.click(within(cardOf("p-1")).getByRole("button", { name: "Accept the Amend criterion on FLY-p-1" }));
+    await waitFor(() => expect(proposalAccept).toHaveBeenCalledWith("p-1"));
+    await waitFor(() => expect(needsYouList).toHaveBeenCalledTimes(2));
+  });
+
+  it("Edit opens the proposed text and Check to edit; accepting the edit is one act", async () => {
+    await cards();
+    const card = cardOf("p-1");
+    fireEvent.click(within(card).getByRole("button", { name: "Edit the Amend criterion on FLY-p-1" }));
+    const statement = within(card).getByRole("textbox", { name: "Your criterion" });
+    expect(statement).toHaveValue("Parses an empty line as no token");
+    expect(statement).toHaveFocus();
+    fireEvent.change(statement, { target: { value: "Parses an empty line as no token, and a blank one" } });
+    fireEvent.change(within(card).getByRole("textbox", { name: "Its Check command" }), { target: { value: "cargo test blank" } });
+    fireEvent.click(within(card).getByRole("button", { name: "Accept edit" }));
+    await waitFor(() =>
+      expect(proposalAmend).toHaveBeenCalledWith("p-1", {
+        criterion_id: "c-1",
+        statement: "Parses an empty line as no token, and a blank one",
+        check_command: "cargo test blank",
+      }),
+    );
+  });
+
+  it("Edit on a spec change sends the field it keeps and the developer's text", async () => {
+    await cards();
+    const card = cardOf("p-2");
+    fireEvent.click(within(card).getByRole("button", { name: "Edit the Amend Epic spec on FLY-E2" }));
+    fireEvent.change(within(card).getByRole("textbox", { name: "Your Scope" }), { target: { value: "Parse every line" } });
+    fireEvent.click(within(card).getByRole("button", { name: "Accept edit" }));
+    await waitFor(() => expect(proposalAmend).toHaveBeenCalledWith("p-2", { field: "scope", text: "Parse every line" }));
+  });
+
+  it("Cancel leaves Edit without deciding and returns the keyboard to Edit", async () => {
+    await cards();
+    const card = cardOf("p-2");
+    const edit = within(card).getByRole("button", { name: "Edit the Amend Epic spec on FLY-E2" });
+    fireEvent.click(edit);
+    fireEvent.click(within(card).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(within(card).getByRole("button", { name: "Edit the Amend Epic spec on FLY-E2" })).toHaveFocus());
+    expect(proposalAmend).not.toHaveBeenCalled();
+  });
+
+  it("Reject asks for an optional reason and rejects in place", async () => {
+    await cards();
+    const card = cardOf("p-2");
+    fireEvent.click(within(card).getByRole("button", { name: "Reject the Amend Epic spec on FLY-E2" }));
+    fireEvent.change(within(card).getByRole("textbox", { name: "Why not? (optional)" }), { target: { value: "Out of scope" } });
+    fireEvent.click(within(card).getByRole("button", { name: "Reject" }));
+    await waitFor(() => expect(proposalReject).toHaveBeenCalledWith("p-2", "Out of scope"));
+  });
+
+  it("says why when a decision is refused, and keeps the card", async () => {
+    proposalAccept.mockRejectedValue("FLY-p-1 is merged; a closed Story's criteria stay as they are");
+    await cards();
+    fireEvent.click(within(cardOf("p-1")).getByRole("button", { name: "Accept the Amend criterion on FLY-p-1" }));
+    expect(await within(cardOf("p-1")).findByRole("alert")).toHaveTextContent("a closed Story's criteria stay as they are");
   });
 });
