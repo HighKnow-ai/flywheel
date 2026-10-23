@@ -18,6 +18,7 @@ pub mod git_identity;
 pub mod git_truth;
 pub mod handoff;
 pub mod menu;
+pub mod needs_you;
 pub mod project;
 pub mod proposal;
 pub mod review;
