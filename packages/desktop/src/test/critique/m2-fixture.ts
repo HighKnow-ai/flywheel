@@ -851,8 +851,16 @@ function window_(entries: Record<string, unknown>[], offset: number, limit: numb
  * conflicts with main in two files, so it reads Rebase needed.
  */
 let reviewMode: "judging" | "override" | "ready" | "decisions" | "rebase" = "judging";
-export function setReviewInFixture(mode: "judging" | "override" | "ready" | "decisions" | "rebase"): void {
+/** Issue #157: FLY-3 handed off with its last Task still open, so the review card warns "1 Task not done". */
+let reviewTaskOpen = false;
+export function setReviewInFixture(mode: "judging" | "override" | "ready" | "decisions" | "rebase", { taskOpen = false } = {}): void {
   reviewMode = mode;
+  reviewTaskOpen = taskOpen;
+}
+
+function tasksOf(storyId: string): TaskDto[] {
+  const tasks = TASKS[storyId] ?? [];
+  return reviewTaskOpen && storyId === "s-3" ? tasks.map((t) => (t.id === "t-3c" ? { ...t, state: "open" } : t)) : tasks;
 }
 
 const REVIEW_DECISIONS: DecisionChangeDto[] = [
@@ -990,14 +998,14 @@ function reviewOf(storyId: string): StoryReviewDto {
     headSha: "9f3c2ab",
     review: {
       id: "r-3", openedAt: ago(3000), baseSha: "41d07e2", headSha: "9f3c2ab",
-      files: 3, added: 9, removed: 3, openTasks: 1, checkObjections: [], adrNotes: [],
+      files: 3, added: 9, removed: 3, openTasks: reviewTaskOpen ? 1 : 0, checkObjections: [], adrNotes: [],
     },
     criteria: [
       { id: "c-3a", statement: "Each of the three directions is rendered from code over the M3 backlog, light and dark", accepted, acceptedAt: accepted ? ago(60) : null, preTicked: true, check: renders },
       { id: "c-3b", statement: "Every text role measures at least 4.5:1 in both schemes", accepted: true, acceptedAt: ago(120), preTicked: ready, check: contrast },
       { id: "c-3c", statement: "The pick and its two changes are recorded in direction.md", accepted, acceptedAt: accepted ? ago(30) : null, preTicked: false, check: null },
     ],
-    openTasks: ready ? 0 : 1,
+    openTasks: reviewTaskOpen ? 1 : 0,
     failingChecks: ready ? [] : [contrast],
     liveSession: false,
     uncommitted: [],
@@ -1082,7 +1090,7 @@ export function answer(cmd: string, args: Args): unknown {
     }
     case "story_stopped":
       return arg(args, "storyId") === "s-7" ? { sessionId: "ses-7b", endingReason: "usage_limit", endedAt: ago(4200) } : null;
-    case "task_list": return TASKS[arg(args, "storyId")] ?? [];
+    case "task_list": return tasksOf(arg(args, "storyId"));
     case "sessions_for_story": return RUNS[arg(args, "storyId")] ?? [];
     case "session_get": return Object.values(RUNS).flat().find((r) => r.id === arg(args, "sessionId")) ?? null;
     case "story_session_summaries": return SUMMARIES[arg(args, "storyId")] ?? [];

@@ -856,22 +856,23 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     }
   });
 
-  it("79 review card: the warnings and each changed file's diff (issue #157)", async () => {
+  it("87 review card: the warnings and each changed file's diff (issue #157)", async () => {
+    setReviewInFixture("judging", { taskOpen: true });
     await boardReady();
     await click("Open review of FLY-3");
     const files = await screen.findByRole("region", { name: "3 changed files" });
     await screen.findByRole("group", { name: "Diff of packages/desktop/src/theme/tokens.ts" });
     (await screen.findByRole("region", { name: "Warnings" })).scrollIntoView({ block: "start" });
     expect(files).toBeTruthy();
-    await shot("79-review-card-files");
+    await shot("87-review-card-files");
   });
 
-  it("80 review card: Re-run Checks says what the run recorded (issue #157)", async () => {
+  it("88 review card: Re-run Checks says what the run recorded (issue #157)", async () => {
     await boardReady();
     await click("Open review of FLY-3");
     await click("Re-run Checks");
     await screen.findByText("Ran 2 Checks at 9f3c2ab: 1 passed, 1 failed.");
-    await shot("80-review-card-rerun-checks");
+    await shot("88-review-card-rerun-checks");
   });
 
   it("74 board: an In review Story's row offers Open review (issue #155)", async () => {
