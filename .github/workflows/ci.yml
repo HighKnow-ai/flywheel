@@ -108,6 +108,10 @@ jobs:
           cache: npm
           cache-dependency-path: packages/sidecar/package-lock.json
 
+      # The exit-test script (docs/mvp-spec.md §1, #176): plain Node over committed fixtures, no build.
+      - name: Exit-test script tests
+        run: node --test scripts/exit-test/test/*.test.mjs
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
