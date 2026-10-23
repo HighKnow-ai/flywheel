@@ -1038,6 +1038,41 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     }
   });
 
+  it("70 board: + Story on an Epic card opens Write a Story with that Epic chosen (issue #168)", async () => {
+    await boardReady();
+    await userEvent.click((await screen.findAllByRole("button", { name: /^Add a Story to / }))[0]);
+    await screen.findByRole("dialog", { name: "Write a Story" });
+    await shot("70-board-add-story-on-epic-card");
+  });
+
+  it("71 board: + Epic in the Milestone header opens Add an Epic on that Milestone (issue #168)", async () => {
+    await boardReady();
+    await click(/^Add an Epic to /);
+    await screen.findByRole("dialog", { name: "Add an Epic" });
+    await shot("71-board-add-epic-in-milestone-header");
+  });
+
+  it("72 Story view: Move to Epic lists the other open Epics under their Milestones (issue #168)", async () => {
+    await boardReady();
+    await openStory("FLY-4", "Make clicking and navigation predictable");
+    await click("Move FLY-4 to another Epic");
+    await screen.findByRole("menu");
+    await shot("72-story-move-to-epic");
+  });
+
+  it("73 Story view at the window's minimum width: Move to Epic beside Drop (issue #168)", async () => {
+    await page.viewport(900, 900);
+    try {
+      await boardReady();
+      await openStory("FLY-4", "Make clicking and navigation predictable");
+      await click("Move FLY-4 to another Epic");
+      await screen.findByRole("menu");
+      await shot("73-story-move-to-epic-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
   it("16 navigation: picking a project while the fleet is open", async () => {
     await boardReady();
     await click("Open fleet");
