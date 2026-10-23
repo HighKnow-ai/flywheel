@@ -165,6 +165,11 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 60 | Every Epic Done: Confirm exit test in the picked Milestone's header, its strip row's slot left empty (#134) | ![](critique-2026-10/after/60-milestone-confirm-exit-test-light.webp) | ![](critique-2026-10/after/60-milestone-confirm-exit-test-dark.webp) |
 | 61 | Roadmap strip: a Round opened on an Epic's Done, with another Done noted on its band (#134) | ![](critique-2026-10/after/61-roadmap-round-noted-trigger-light.webp) | ![](critique-2026-10/after/61-roadmap-round-noted-trigger-dark.webp) |
 | 62 | Another Milestone picked at the window's minimum width: Confirm exit test in Shaping's strip row (#134) | ![](critique-2026-10/after/62-milestone-row-confirm-exit-test-min-width-light.webp) | ![](critique-2026-10/after/62-milestone-row-confirm-exit-test-min-width-dark.webp) |
+| 63 | Epic shaping: the criteria Stage, each Story's criteria under its column with the Check chip or judged at review, a proposed criterion as a ghost card under its Story and a rejected one struck through (#128) | ![](critique-2026-10/after/63-epic-shaping-criteria-light.webp) | ![](critique-2026-10/after/63-epic-shaping-criteria-dark.webp) |
+| 64 | Epic shaping: the Stage bar keeps the criteria Stage open while a Proposal is undecided and each Story with no criterion is named (#128) | ![](critique-2026-10/after/64-epic-shaping-criteria-stage-open-light.webp) | ![](critique-2026-10/after/64-epic-shaping-criteria-stage-open-dark.webp) |
+| 65 | Epic shaping: Amend opens a proposed criterion's statement and Check command under its Story (#128) | ![](critique-2026-10/after/65-epic-shaping-amend-criterion-light.webp) | ![](critique-2026-10/after/65-epic-shaping-amend-criterion-dark.webp) |
+| 66 | Epic shaping: confirming the last Stage's close, which makes the Epic and its Stories Ready (#128) | ![](critique-2026-10/after/66-epic-shaping-criteria-close-confirm-light.webp) | ![](critique-2026-10/after/66-epic-shaping-criteria-close-confirm-dark.webp) |
+| 67 | Epic shaping at the window's minimum width: criteria under the Story columns (#128) | ![](critique-2026-10/after/67-epic-shaping-criteria-min-width-light.webp) | ![](critique-2026-10/after/67-epic-shaping-criteria-min-width-dark.webp) |
 
 ## How the screens were rendered
 
