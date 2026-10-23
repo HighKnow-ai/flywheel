@@ -55,7 +55,7 @@ The MVP is the whole model at minimum depth: every record type exists, each with
 | Ready → Running | Cyril starts the Story |
 | Running → In review | the agent hands off (summary plus an up-to-date Task checklist). Flywheel runs the Checks, and the Story moves to In review **whatever the results are** |
 | In review → Running | Cyril requests changes. A new session starts in the same worktree with the review comments |
-| In review → Merged | Cyril clicks Merge and Flywheel merges. Merged means the merge commit is on the base branch and the worktree is removed. A conflict keeps the Story In review with a "rebase needed" item, handled as a request for changes |
+| In review → Merged | Cyril clicks Merge and Flywheel merges. Merged means the merge commit is on the local base branch and the worktree is removed; Flywheel never pushes (ADR 0009). A conflict keeps the Story In review with a "rebase needed" item, handled as a request for changes |
 | any → Dropped | Cyril ends it on purpose. The record stays readable, the worktree and branch are removed, and it counts as closed for its Epic |
 
 Changing criteria after Shaping is done through a Proposal, and the Story keeps its state.
@@ -288,7 +288,7 @@ The sidebar shows each project's Needs-you count and the running sessions in eve
 - **Actions:**
   - **Request changes** sends the Story back to Running with the comments.
   - **Re-run Checks** reruns them all.
-  - **Merge** merges into the base branch, removes the worktree, links new ADRs to the Story by path and marks superseded ones. A failing or timed-out Check needs "Merge with failing Check", recorded on the Story. Merge is Cyril's action, not an agent Gated action.
+  - **Merge** merges into the base branch, removes the worktree, links new ADRs to the Story by path and marks superseded ones. It needs every criterion accepted by Cyril, no live session and a clean worktree. A Check that is failed, timed out, not run or stale (run against an older commit) counts as failing, and needs "Merge with failing Check", recorded on the review and on the `story.merged` event. Merge is Cyril's action, not an agent Gated action. How the merge commit is written to the local base branch is ADR 0009. **Shipped** ([#155](https://github.com/HighKnow-ai/flywheel/issues/155)) without the ADR linking, which comes with the Decisions section.
 
 ## 9. Codebase plan
 
