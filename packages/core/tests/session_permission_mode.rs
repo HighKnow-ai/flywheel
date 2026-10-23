@@ -17,6 +17,8 @@ fn a_story_session_accepts_edits_and_allows_every_bash_command_without_asking() 
             "mcp__flywheel-board__task_update",
             "mcp__flywheel-board__checks_run",
             "mcp__flywheel-board__handoff",
+            "mcp__flywheel-board__propose",
+            "mcp__flywheel-board__proposal_withdraw",
         ],
         "the broad Bash allow is the whole tool, plus the Story agent's board tools"
     );
@@ -151,6 +153,11 @@ fn every_allowed_board_tool_is_one_the_board_server_registers() {
     );
     let (_, story) = board_server_registration(SessionKind::Story);
     assert!(!story.iter().any(|t| t == "round_post"), "a Story session never sees round_post: {story:?}");
+    // Issue #160: a Story session files and withdraws its own Proposals; a shaping session never sees either.
+    for tool in ["propose", "proposal_withdraw"] {
+        assert!(story.iter().any(|t| t == tool), "a Story session sees {tool}: {story:?}");
+        assert!(!shaping.iter().any(|t| t == tool), "a shaping session never sees {tool}: {shaping:?}");
+    }
 }
 
 /// Issue #92: a permission request is an MCP tool call that blocks until the developer answers, and
