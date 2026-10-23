@@ -48,6 +48,14 @@ _Avoid_: Validation, requirement, AC
 An executable test or command attached to an Acceptance criterion that must pass. Run by Flywheel at hand-off; its result belongs to the commit it ran against.
 _Avoid_: Validation, gate
 
+**Review**:
+The developer's judgement of a Story In review, opened by its hand-off and closed by Merge or a request for changes. It records the diff's size and the Tasks not done at hand-off, and, at Merge, any failing Check the developer overrode. A Story has at most one open review.
+_Avoid_: PR, code review (for the record)
+
+**Merge**:
+The developer's act that ends a review: Flywheel writes a merge commit on the project's local base branch, removes the worktree and the branch, and moves the Story to Merged. It needs every criterion accepted, and a Check failed, timed out, not run or stale needs "Merge with failing Check". Flywheel never pushes (ADR 0009).
+_Avoid_: Ship, land
+
 **Exit test**:
 The prose statement that tells you a Milestone or Epic is done.
 _Avoid_: Definition of done, success criteria

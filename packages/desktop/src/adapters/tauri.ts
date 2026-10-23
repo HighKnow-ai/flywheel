@@ -895,6 +895,86 @@ export async function storyDrop(storyId: string): Promise<void> {
   return invokeCommand<void>("story_drop", { storyId });
 }
 
+/** A Check as the review card shows it — mirrors `commands/review.rs`'s `ReviewCheckDto`. */
+export interface ReviewCheckDto {
+  checkId: string;
+  criterionId: string;
+  command: string;
+  /** `not_run`, `passed`, `failed` or `timed_out`. */
+  result: string;
+  /** The branch moved since this result ran. */
+  stale: boolean;
+  commitSha: string | null;
+  outputTail: string | null;
+}
+
+/** A criterion on the review card — mirrors `commands/review.rs`'s `ReviewCriterionDto`. */
+export interface ReviewCriterionDto {
+  id: string;
+  statement: string;
+  accepted: boolean;
+  acceptedAt: string | null;
+  /** Its Check passed at the branch's head: the card suggests accepting it. Never an acceptance. */
+  preTicked: boolean;
+  check: ReviewCheckDto | null;
+}
+
+/** The open review the hand-off recorded — mirrors `commands/review.rs`'s `ReviewDto`. */
+export interface ReviewDto {
+  id: string;
+  openedAt: string;
+  baseSha: string;
+  headSha: string;
+  files: number;
+  added: number;
+  removed: number;
+  openTasks: number;
+  checkObjections: unknown[];
+  adrNotes: unknown[];
+}
+
+/** The review card's read model — mirrors `commands/review.rs`'s `StoryReviewDto`. */
+export interface StoryReviewDto {
+  storyId: string;
+  storyKey: string;
+  storyState: string;
+  headSha: string | null;
+  review: ReviewDto | null;
+  criteria: ReviewCriterionDto[];
+  /** Tasks open or doing now. */
+  openTasks: number;
+  /** The Checks Merge needs "Merge with failing Check" for: failed, timed out, not run or stale. */
+  failingChecks: ReviewCheckDto[];
+  liveSession: boolean;
+  /** Uncommitted paths in the Story's worktree. */
+  uncommitted: string[];
+}
+
+/** What a Merge did — mirrors `commands/review.rs`'s `MergeDto`. */
+export interface MergeDto {
+  mergeCommit: string;
+  baseBranch: string;
+  /** `checkout` or `plumbing` (ADR 0009). */
+  method: string;
+  failingChecksOverridden: number;
+  /** The worktree or branch Merge could not remove after the commit landed. */
+  cleanupWarning: string | null;
+}
+
+/** The review card of one Story. Read-only. */
+export async function storyReview(storyId: string): Promise<StoryReviewDto> {
+  return invokeCommand<StoryReviewDto>("story_review", { storyId });
+}
+
+/**
+ * The developer's Merge of an In review Story into its local base branch (ADR 0009). The core refuses,
+ * in words meant for the developer, until every criterion is accepted, no session is live and the
+ * worktree is clean, and, without `withFailingChecks`, while a Check has not passed at the branch's head.
+ */
+export async function storyMerge(storyId: string, withFailingChecks: boolean): Promise<MergeDto> {
+  return invokeCommand<MergeDto>("story_merge", { storyId, withFailingChecks });
+}
+
 export async function storyResume(storyId: string, note?: string): Promise<SessionDto> {
   return invokeCommand<SessionDto>("story_resume", { storyId, note: note ?? null });
 }

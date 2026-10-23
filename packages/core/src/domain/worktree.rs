@@ -320,7 +320,21 @@ pub(crate) fn record_worktree_removed(
 ) -> anyhow::Result<()> {
     let now = Utc::now().to_rfc3339();
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    record_worktree_removed_in_tx(&tx, worktree, story_id, story_key, actor_id, &now)?;
+    tx.commit().context("failed to commit remove_worktree_for_story transaction")?;
+    Ok(())
+}
 
+/// [`record_worktree_removed`] inside the caller's transaction: Merge records the removal in the
+/// one transaction that moves the Story to Merged.
+pub(crate) fn record_worktree_removed_in_tx(
+    tx: &rusqlite::Transaction,
+    worktree: &Worktree,
+    story_id: &str,
+    story_key: &str,
+    actor_id: &str,
+    now: &str,
+) -> anyhow::Result<()> {
     // `sessions.worktree_id` is a NULLABLE `REFERENCES worktrees(id)` (unlike `sessions.story_id`,
     // which is NOT NULL) — a session's history belongs to its Story forever, but its worktree is
     // this function's own to reclaim. Decouple any session that pointed at this worktree BEFORE
@@ -335,7 +349,7 @@ pub(crate) fn record_worktree_removed(
     tx.execute("DELETE FROM worktrees WHERE id = ?1", params![worktree.id])
         .context("failed to delete worktree row")?;
 
-    let sequence = next_sequence(&tx, &worktree.project_id, "local")?;
+    let sequence = next_sequence(tx, &worktree.project_id, "local")?;
     let payload = serde_json::json!({
         "field": "worktree",
         "before": worktree.branch,
@@ -343,7 +357,7 @@ pub(crate) fn record_worktree_removed(
         "label": format!("Removed worktree for {story_key}"),
     });
     append_event(
-        &tx,
+        tx,
         &worktree.project_id,
         "local",
         sequence,
@@ -354,10 +368,8 @@ pub(crate) fn record_worktree_removed(
         actor_id,
         "worktree.removed",
         &payload,
-        &now,
+        now,
     )?;
-
-    tx.commit().context("failed to commit remove_worktree_for_story transaction")?;
     Ok(())
 }
 

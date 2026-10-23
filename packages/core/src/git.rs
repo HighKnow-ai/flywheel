@@ -558,6 +558,96 @@ pub fn merge_abort_if_in_progress(worktree: &Path) -> anyhow::Result<bool> {
     Ok(in_progress)
 }
 
+/// The commit `rev` names in `repo_path`, as a full oid. `--verify --end-of-options` so a ref name
+/// that looks like an option is never read as one, and anything that is not one commit is an error.
+pub fn rev_parse_commit(repo_path: &Path, rev: &str) -> anyhow::Result<String> {
+    let spec = format!("{rev}^{{commit}}");
+    let out = git_at(repo_path, &["rev-parse", "--verify", "--end-of-options", &spec])?;
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The checkout that has `branch` checked out, if any: the main working tree or a linked worktree,
+/// read from `git worktree list --porcelain` (ADR 0009). A bare entry or a detached HEAD never
+/// matches. `None` when no working tree has the branch checked out.
+pub fn checkout_of_branch(repo_path: &Path, branch: &str) -> anyhow::Result<Option<std::path::PathBuf>> {
+    let out = git_at(repo_path, &["worktree", "list", "--porcelain", "-z"])?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let wanted = format!("branch refs/heads/{branch}");
+    let mut current: Option<&str> = None;
+    for field in text.split('\0') {
+        if let Some(path) = field.strip_prefix("worktree ") {
+            current = Some(path);
+        } else if field == wanted {
+            return Ok(current.map(std::path::PathBuf::from));
+        }
+    }
+    Ok(None)
+}
+
+/// The tracked files with uncommitted changes in the checkout at `path`, staged or not
+/// (`status --porcelain --untracked-files=no`). Untracked files are left out: they are the
+/// developer's own, and a merge that would overwrite one refuses by itself.
+pub fn tracked_changes(path: &Path) -> anyhow::Result<Vec<String>> {
+    let out = git_at(path, &["status", "--porcelain", "-z", "--untracked-files=no"])?;
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .split('\0')
+        .filter(|f| f.len() > 3)
+        .map(|f| f[3..].to_string())
+        .collect())
+}
+
+/// Build the `--no-ff` merge of `source` into `refs/heads/<target>` without a checkout (ADR 0009):
+/// `merge-tree --write-tree` writes the merged tree, `commit-tree` the two-parent commit (the
+/// target's tip first, then `source`), and `update-ref` moves the branch only if it still points
+/// at the tip the commit was built on, so a commit that lands on the branch meanwhile is never
+/// lost. Writes no index and no working tree, and runs no hook. Returns the merge commit.
+///
+/// A conflict is an error naming the paths; nothing but unreachable objects is written then.
+pub fn merge_without_checkout(repo_path: &Path, target: &str, source: &str, message: &str) -> anyhow::Result<String> {
+    let target_ref = format!("refs/heads/{target}");
+    let old_tip = rev_parse_commit(repo_path, &target_ref)?;
+    let source_sha = rev_parse_commit(repo_path, source)?;
+    let out = git_output_at(repo_path, &["merge-tree", "--write-tree", "-z", "--no-messages", &old_tip, &source_sha])?;
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let mut fields = stdout.split('\0');
+    let tree = fields.next().unwrap_or("").trim().to_string();
+    match out.status.code() {
+        Some(0) if !tree.is_empty() => {}
+        Some(1) if !tree.is_empty() => {
+            // `-z` without `--name-only`: each conflicted entry is `<mode> <oid> <stage>\t<path>`.
+            let mut paths: Vec<String> = fields
+                .take_while(|f| !f.is_empty())
+                .filter_map(|f| f.split_once('\t').map(|(_, p)| p.to_string()))
+                .collect();
+            paths.sort();
+            paths.dedup();
+            bail!("merging {source:?} into {target:?} conflicts in {}", paths.join(", "));
+        }
+        code => bail!(
+            "merge of {source:?} into {target:?} failed (exit {code:?}): {}",
+            String::from_utf8_lossy(&out.stderr)
+        ),
+    }
+    let commit = git_at(repo_path, &["commit-tree", &tree, "-p", &old_tip, "-p", &source_sha, "-m", message])?;
+    let commit = String::from_utf8_lossy(&commit.stdout).trim().to_string();
+    git_at(repo_path, &["update-ref", "-m", message, &target_ref, &commit, &old_tip])
+        .with_context(|| format!("{target:?} moved while the merge was built; nothing was merged"))?;
+    Ok(commit)
+}
+
+/// Delete `refs/heads/<branch>` after a merge, the way `git branch -d` would refuse to lose work:
+/// only when its tip is `expected` and `expected` is contained in `into`. `branch -d` itself is not
+/// usable here: it checks against the main checkout's HEAD, which after a merge without a checkout
+/// is not the base branch (ADR 0009). The delete is a compare-and-swap on `expected`.
+pub fn delete_merged_branch(repo_path: &Path, branch: &str, expected: &str, into: &str) -> anyhow::Result<()> {
+    let merged = spawn_git(repo_path, &["merge-base", "--is-ancestor", expected, into])?;
+    if !merged.status.success() {
+        bail!("{branch:?} is not contained in {into:?}; it was kept");
+    }
+    git_at(repo_path, &["update-ref", "-d", &format!("refs/heads/{branch}"), expected])?;
+    Ok(())
+}
+
 /// Check out an already-existing `branch` into a new worktree at `worktree_path`. Copies
 /// [`worktree_add`]'s three refusals; [`worktree_add`] itself cannot be reused because it always
 /// creates a branch and refuses one that exists. Prunes first so a stale registration (directory

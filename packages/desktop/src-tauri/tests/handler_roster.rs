@@ -61,6 +61,8 @@ const ROSTER: &[&str] = &[
     "proposal::proposal_amend",
     "proposal::proposal_list_pending",
     "proposal::proposal_reject",
+    "review::story_merge",
+    "review::story_review",
     "roadmap::milestone_create",
     "roadmap::milestone_list",
     "roadmap::milestone_move",

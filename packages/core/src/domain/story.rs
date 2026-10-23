@@ -291,6 +291,11 @@ pub(crate) fn set_story_state_in_tx(tx: &Transaction, actor_id: &str, story_id: 
 
     tx.execute("UPDATE stories SET state = ?1, updated_at = ?2 WHERE id = ?3", params![to.as_str(), now, story_id])
         .context("failed to write the Story state")?;
+    if (from, to) == (StoryState::InReview, StoryState::Running) {
+        // In review -> Running is the developer's request for changes: it closes the open review, so
+        // the next hand-off opens a fresh one.
+        crate::domain::review::close_review_in_tx(tx, story_id, actor_id, "changes_requested", None)?;
+    }
     record_event(
         tx,
         &project_id,

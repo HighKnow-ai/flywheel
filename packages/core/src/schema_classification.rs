@@ -68,6 +68,9 @@ pub const TABLE_CLASSES: &[(&str, TableClass)] = &[
     // One row per agent session, a Story session or a shaping one; the core writes it as it starts,
     // ends and abandons sessions.
     ("sessions", TableClass::Runtime),
+    // A Story's review: opened by the core at hand-off with what the review is judged on, closed by
+    // the developer's Merge or request for changes (`story_merge::merge_story` is human-only).
+    ("reviews", TableClass::Runtime),
     // Application settings.
     ("settings", TableClass::Infrastructure),
     // The steps of shaping an Epic or a Milestone; opened by the core when shaping starts, closed

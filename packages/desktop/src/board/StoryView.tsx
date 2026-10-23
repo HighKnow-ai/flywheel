@@ -32,6 +32,7 @@ import {
 import { TaskChecklist, useStoryTasks } from "./TaskChecklist";
 import { useBoardChangedSubscription, useSessionFeed } from "./useBoardQuery";
 import { WriteStoryDialog } from "./WriteStoryDialog";
+import { ReviewCard } from "../review/ReviewCard";
 import { StateBadge } from "../components/StateBadge";
 import { formatAge } from "../legend/runStatus";
 import { prefersReducedMotion, ToolCallLine } from "../session/FeedRow";
@@ -305,6 +306,8 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
   const liveTasks = tasks.filter((task) => task.state !== "dropped");
   const doneTasks = liveTasks.filter((task) => task.state === "done").length;
   const passing = criteria.filter(checkPasses).length;
+  // In review, the review card holds the criteria (issue #155): they are accepted there, not listed twice.
+  const inReview = story.state === "in_review";
 
   return (
     <>
@@ -357,15 +360,25 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
 
       <AgentStation projectId={projectId} story={story} waitingOnYou={waitingOnYou} />
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-        <Panel
-          id="story-criteria-heading"
-          title="Acceptance criteria"
-          icon={<CircleCheck />}
-          count={<Count done={passing} total={criteria.length} label="criteria passing their Check" />}
-        >
-          <CriteriaList projectId={projectId} storyId={story.id} storyKey={story.key} />
-        </Panel>
+      {inReview && (
+        <ReviewCard
+          projectId={projectId}
+          story={story}
+          onMerged={(outcome) => setError(outcome.cleanupWarning)}
+        />
+      )}
+
+      <div className={cn("grid grid-cols-1 items-start gap-4", !inReview && "lg:grid-cols-2")}>
+        {!inReview && (
+          <Panel
+            id="story-criteria-heading"
+            title="Acceptance criteria"
+            icon={<CircleCheck />}
+            count={<Count done={passing} total={criteria.length} label="criteria passing their Check" />}
+          >
+            <CriteriaList projectId={projectId} storyId={story.id} storyKey={story.key} />
+          </Panel>
+        )}
         <Panel
           id="story-tasks-heading"
           title="Tasks"

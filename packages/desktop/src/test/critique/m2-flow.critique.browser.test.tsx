@@ -26,6 +26,7 @@ import {
   answer,
   installFixtureBackend,
   offerAdrsInShaping,
+  setReviewInFixture,
   setRoadmapRound,
   setShapingSessionLive,
   shapeMilestoneInFixture,
@@ -303,6 +304,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     queryClient.clear();
     setShapingSessionLive(true);
     offerAdrsInShaping(false);
+    setReviewInFixture("judging");
     installFixtureBackend();
   });
   afterEach(() => {
@@ -797,6 +799,36 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await click(/7 events since you last looked/);
     await screen.findByRole("list", { name: "Since you last looked" });
     await shot("70-since-you-last-looked");
+  });
+
+  it("71 review card: the failing Check first with its output, a pre-ticked criterion still to accept (issue #155)", async () => {
+    await boardReady();
+    await click("Open review of FLY-3");
+    await screen.findByRole("region", { name: "1 Check not passing" });
+    await shot("71-review-card-judging");
+  });
+
+  it("72 review card: Merge with failing Check confirms, naming the Check (issue #155)", async () => {
+    setReviewInFixture("override");
+    await boardReady();
+    await click("Open review of FLY-3");
+    await click("Merge FLY-3 with failing Check");
+    await screen.findByRole("alertdialog");
+    await shot("72-review-card-merge-with-failing-check");
+  });
+
+  it("73 review card: every criterion accepted, every Check passed, Merge filled (issue #155)", async () => {
+    setReviewInFixture("ready");
+    await boardReady();
+    await click("Open review of FLY-3");
+    await screen.findByRole("button", { name: "Merge FLY-3" });
+    await shot("73-review-card-ready");
+  });
+
+  it("74 board: an In review Story's row offers Open review (issue #155)", async () => {
+    await boardReady();
+    (await screen.findByRole("button", { name: "Open review of FLY-3" })).scrollIntoView({ block: "center" });
+    await shot("74-board-open-review");
   });
 
   it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {
