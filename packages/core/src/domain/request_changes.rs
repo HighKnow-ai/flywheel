@@ -60,7 +60,7 @@ pub fn request_changes(conn: &mut Connection, actor_id: &str, story_id: &str, co
     let now = now();
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     if let Some(diff) = &diff {
-        open_review_in_tx(&tx, &story.project_id, story_id, None, diff, &serde_json::Value::Array(Vec::new()))?;
+        open_review_in_tx(&tx, &story.project_id, story_id, None, diff, &serde_json::Value::Array(Vec::new()), &serde_json::Value::Array(Vec::new()))?;
     }
     let review_id: String = tx
         .query_row("SELECT id FROM reviews WHERE story_id = ?1 AND outcome IS NULL", params![story_id], |r| r.get(0))

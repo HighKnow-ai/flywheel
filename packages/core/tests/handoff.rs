@@ -16,7 +16,9 @@ use std::time::{Duration, Instant};
 use common::with_scratch_worktree_root;
 use core::domain::acceptance_criterion::create_criterion;
 use core::domain::check::{branch_head, current_result, remove_check, set_check, Check, CheckResult};
-use core::domain::handoff::{hand_off, hand_off_with, plan_feedback_run, run_checks, HandoffSummary, HandoffToolCall};
+use core::domain::handoff::{
+    hand_off, hand_off_with, plan_feedback_run, plan_handoff, run_checks, CheckObjection, HandoffSummary, HandoffToolCall,
+};
 use core::domain::proposal_apply::AdrBarLines;
 use core::domain::review::{open_review, reviews_for_story};
 use core::domain::session::{agent_actor_id, close_session, start_session, Session, SessionStatus};
@@ -259,7 +261,7 @@ fn the_hand_off_needs_a_current_checklist_a_summary_and_a_live_session() {
             HandoffToolCall::Handoff(HandoffSummary {
                 next_session_must_know: "Know this.".into(),
                 decisions: String::new(),
-                adrs: Vec::new(),
+                ..Default::default()
             })
         );
 
@@ -330,7 +332,7 @@ fn the_hand_off_takes_each_adrs_bar_lines_and_refuses_one_without_them() {
     assert_eq!(parsed.adrs[0].relates_to, None, "\"none\" relates to nothing");
 
     let without_adrs = HandoffToolCall::parse("handoff", &json!({ "next_session_must_know": "Done.", "decisions": "" })).unwrap();
-    assert_eq!(without_adrs, HandoffToolCall::Handoff(HandoffSummary { next_session_must_know: "Done.".into(), decisions: String::new(), adrs: vec![] }));
+    assert_eq!(without_adrs, HandoffToolCall::Handoff(HandoffSummary { next_session_must_know: "Done.".into(), ..Default::default() }));
 
     let mut missing = bar_lines("docs/adr/0010-reviews.md");
     missing.as_object_mut().unwrap().remove("surprising");
@@ -353,10 +355,55 @@ fn a_hand_off_stores_the_adr_bar_lines_on_the_review_it_opens() {
     with_scratch_worktree_root(|_| {
         let mut f = running_story(&[("true", None)]);
         let lines = AdrBarLines::from_payload(&bar_lines("docs/adr/0010-reviews.md")).unwrap();
-        let summary = HandoffSummary { next_session_must_know: "Done.".into(), decisions: String::new(), adrs: vec![lines.clone()] };
+        let summary = HandoffSummary { next_session_must_know: "Done.".into(), adrs: vec![lines.clone()], ..Default::default() };
         hand_off_with(&mut f.conn, &f.session.id, &summary).unwrap();
 
         let review = open_review(&f.conn, &f.story.id).unwrap().expect("the hand-off opened a review");
         assert_eq!(review.adr_notes, json!([lines.to_payload()]));
+    });
+}
+
+#[test]
+fn the_hand_off_takes_optional_check_objections_and_refuses_malformed_ones() {
+    let base = json!({ "next_session_must_know": "Know this.", "decisions": "" });
+    let with = |objections: serde_json::Value| {
+        let mut args = base.clone();
+        args["check_objections"] = objections;
+        HandoffToolCall::parse("handoff", &args)
+    };
+    assert_eq!(
+        with(json!([{ "criterion": 2, "why": "  It greps the old log format. " }])).unwrap(),
+        HandoffToolCall::Handoff(HandoffSummary {
+            next_session_must_know: "Know this.".into(),
+            check_objections: vec![CheckObjection { criterion: 2, why: "It greps the old log format.".into() }],
+            ..Default::default()
+        })
+    );
+    assert_eq!(with(json!([])).unwrap(), HandoffToolCall::parse("handoff", &base).unwrap(), "an empty list is no objection");
+    for bad in [
+        json!("criterion 2 is wrong"),
+        json!([{ "criterion": 0, "why": "x" }]),
+        json!([{ "criterion": -1, "why": "x" }]),
+        json!([{ "criterion": "2", "why": "x" }]),
+        json!([{ "criterion": 2 }]),
+        json!([{ "criterion": 2, "why": "   " }]),
+        json!([{ "criterion": 2, "why": "x".repeat(4001) }]),
+    ] {
+        assert!(with(bad.clone()).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn an_objection_to_a_criterion_without_a_check_or_past_the_last_criterion_refuses_the_hand_off_before_anything_runs() {
+    with_scratch_worktree_root(|_| {
+        let mut f = running_story(&[("true", None)]);
+        create_criterion(&mut f.conn, &f.human, &f.story.id, "Judged by eye").unwrap();
+        for (criterion, words) in [(2, "no Check"), (3, "no criterion 3")] {
+            let objections = [CheckObjection { criterion, why: "Wrong.".into() }];
+            let err = plan_handoff(&f.conn, &f.session.id, &objections).unwrap_err();
+            assert!(err.to_string().contains(words), "{err}");
+        }
+        assert_eq!(recorded_runs(&f.conn), 0);
+        assert_eq!(state_of(&f.conn, &f.story.id), "running");
     });
 }

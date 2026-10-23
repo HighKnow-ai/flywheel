@@ -38,7 +38,7 @@ fn run_call(db: &Mutex<Connection>, run_id: &str, tool: &str, args: &Value) -> a
             Ok((json!({ "result": result }), None))
         }
         HandoffToolCall::Handoff(summary) => {
-            let plan = plan_handoff(&*lock()?, run_id)?;
+            let plan = plan_handoff(&*lock()?, run_id, &summary.check_objections)?;
             let batch = run_checks(&plan)?;
             let outcome = complete_handoff(&mut *lock()?, &plan, &summary, batch)?;
             Ok((json!({ "result": handoff_as_tool_result(&outcome) }), Some(outcome.project_id)))

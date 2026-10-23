@@ -1,9 +1,13 @@
 //! The review card's read (docs/mvp-spec.md §2 "In review → Merged", §8, issue #158): a branch that
 //! would conflict with its base branch reads Rebase needed, naming the conflicting paths, and the card
-//! offers a request for changes whose comment names them. Every test runs against temporary
-//! repositories only.
+//! offers a request for changes whose comment names them. Issue #157's tests (failing Checks first,
+//! Check objections, the diff's files and Re-run Checks) are in `review_card/checks.rs`. Every test
+//! runs against temporary repositories only.
 
 mod common;
+/// Issue #157: failing Checks first, Check objections, the diff's files and Re-run Checks.
+#[path = "review_card/checks.rs"]
+mod checks;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

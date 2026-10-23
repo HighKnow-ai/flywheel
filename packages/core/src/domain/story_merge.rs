@@ -227,7 +227,7 @@ pub fn merge_story(conn: &mut Connection, actor_id: &str, story_id: &str, option
     let now = now();
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     if let Some(diff) = &diff {
-        open_review_in_tx(&tx, &story.project_id, story_id, None, diff, &Value::Array(Vec::new()))?;
+        open_review_in_tx(&tx, &story.project_id, story_id, None, diff, &Value::Array(Vec::new()), &Value::Array(Vec::new()))?;
     }
     if removed {
         record_worktree_removed_in_tx(&tx, &worktree, story_id, &story.key, actor_id, &now)?;
