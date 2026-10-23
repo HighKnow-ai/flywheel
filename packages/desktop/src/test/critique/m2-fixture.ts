@@ -765,9 +765,28 @@ export function answer(cmd: string, args: Args): unknown {
     case "milestone_shaping_session":
       return arg(args, "milestoneId") === "m-4" && milestoneShaping !== "off" ? "ses-shape-m4" : null;
     case "milestone_shaping_rounds": return milestoneShapingOf(arg(args, "milestoneId"));
+    case "board_visit": return arg(args, "projectId") === "p-fly" ? SINCE_LAST_LOOKED : { total: 0, events: [] };
     default: return null;
   }
 }
+
+/** What changed on flywheel since the last visit to its board (issue #167), oldest first. */
+const looked = (n: number, secondsAgo: number, eventType: string, description: string, subjectKey: string | null, subjectTitle: string | null) => ({
+  id: `ev-${n}`, projectId: "p-fly", origin: "local", sequence: 100 + n, actorId: "a-dev", eventType, description,
+  occurredAt: ago(secondsAgo), subjectKey, subjectTitle,
+});
+const SINCE_LAST_LOOKED = {
+  total: 7,
+  events: [
+    looked(1, 4 * 3600 + 720, "story.state_changed", "Moved Story from in_review to merged", "FLY-2", "Refresh PRODUCT.md and critique the built app"),
+    looked(2, 3 * 3600 + 1500, "story.handed_off", "Handed off for review: 4 Checks passed, 0 failed, 0 timed out", "FLY-3", "Pick Flywheel's new visual world from three rendered directions"),
+    looked(3, 2 * 3600 + 240, "proposal.filed", "Proposed to create a story", "FLY-1", "Design system and a legible app"),
+    looked(4, 2 * 3600 + 60, "proposal.accepted", "Accepted a Proposal", "FLY-1", "Design system and a legible app"),
+    looked(5, 3600 + 900, "round.posted", "Posted Round 2: 4 questions", "FLY-8", "Epic shaping"),
+    looked(6, 2700, "story.state_changed", "Moved Story from ready to running", "FLY-7", "Restyle every screen of the M2 flow in the new world"),
+    looked(7, 600, "round.opened", "Opened roadmap Round 1: Epic FLY-1 done", null, null),
+  ],
+};
 
 /** Route every `invoke`/`listen` in the app to the seeded data. Call before the first render. */
 export function installFixtureBackend(): void {

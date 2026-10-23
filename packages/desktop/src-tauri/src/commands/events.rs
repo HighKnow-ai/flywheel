@@ -110,3 +110,45 @@ pub fn events_since_cursor(
         .map_err(|e| e.to_string())?;
     Ok(rows.into_iter().map(EventDto::from).collect())
 }
+
+/// How many events "Since you last looked" lists at most: the newest ones, while its count still
+/// says how many there are in all.
+const SINCE_LAST_LOOKED_LIMIT: i64 = 200;
+
+/// One event of "Since you last looked", with the record it is about (a Story's or Epic's key and
+/// title, a Milestone's title with no key, or neither for a roadmap Round).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LookedEventDto {
+    #[serde(flatten)]
+    pub event: EventDto,
+    pub subject_key: Option<String>,
+    pub subject_title: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SinceLastLookedDto {
+    pub total: i64,
+    pub events: Vec<LookedEventDto>,
+}
+
+/// The Developer opened a project's board (issue #167): what changed since the last visit, oldest
+/// first, and the project's cursor moved past it. Called once per opening of the board; events that
+/// land while it is open are seen live and are not listed. The actor is resolved server-side. Emits
+/// no `board:changed`: looking changes nothing on the board.
+#[tauri::command]
+pub fn board_visit(state: State<AppState>, project_id: String) -> Result<SinceLastLookedDto, String> {
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    let seen = flywheel_core::domain::settings::board_visit(&mut conn, &actor_id, &project_id, SINCE_LAST_LOOKED_LIMIT)
+        .map_err(|e| e.to_string())?;
+    Ok(SinceLastLookedDto {
+        total: seen.total,
+        events: seen
+            .events
+            .into_iter()
+            .map(|e| LookedEventDto { event: e.event.into(), subject_key: e.subject_key, subject_title: e.subject_title })
+            .collect(),
+    })
+}

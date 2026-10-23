@@ -172,6 +172,7 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 67 | Epic shaping at the window's minimum width: criteria under the Story columns (#128) | ![](critique-2026-10/after/67-epic-shaping-criteria-min-width-light.webp) | ![](critique-2026-10/after/67-epic-shaping-criteria-min-width-dark.webp) |
 | 68 | Epic shaping: the last Stage closed, the Epic and its Stories Ready, the dock waiting for no Round (#128) | ![](critique-2026-10/after/68-epic-shaping-criteria-closed-light.webp) | ![](critique-2026-10/after/68-epic-shaping-criteria-closed-dark.webp) |
 | 69 | Milestone shaping: the exit test edited by hand in place, Edit on the title too, the pending ghost still under the field (#149) | ![](critique-2026-10/after/69-milestone-shaping-edit-exit-test-light.webp) | ![](critique-2026-10/after/69-milestone-shaping-edit-exit-test-dark.webp) |
+| 70 | Project board: Since you last looked unfolded above the roster, seven events oldest first, each naming its record (#167) | ![](critique-2026-10/after/70-since-you-last-looked-light.webp) | ![](critique-2026-10/after/70-since-you-last-looked-dark.webp) |
 
 ## How the screens were rendered
 

@@ -792,6 +792,13 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     await shot("69-milestone-shaping-edit-exit-test");
   });
 
+  it("70 project board: Since you last looked, unfolded above the roster (issue #167)", async () => {
+    await boardReady();
+    await click(/7 events since you last looked/);
+    await screen.findByRole("list", { name: "Since you last looked" });
+    await shot("70-since-you-last-looked");
+  });
+
   it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {
     slicingShaping();
     await boardReady();

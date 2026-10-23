@@ -807,6 +807,25 @@ export async function eventsActivityTrail(
   return invokeCommand<EventDto[]>("events_activity_trail", { parentKind, parentId, limit, offset });
 }
 
+/** One event of "Since you last looked" — mirrors `commands/events.rs`'s `LookedEventDto`: the event and
+ * the record it is about (a Story's or Epic's key and title, a Milestone's title, or neither). */
+export interface LookedEventDto extends EventDto {
+  subjectKey: string | null;
+  subjectTitle: string | null;
+}
+
+/** What changed since the last visit: the newest events, oldest first, and how many there are in all. */
+export interface SinceLastLookedDto {
+  total: number;
+  events: LookedEventDto[];
+}
+
+/** The project's board was opened (issue #167): what changed since the last visit, with the cursor moved
+ * past it. Not a read: call it once per opening of the board. */
+export async function boardVisit(projectId: string): Promise<SinceLastLookedDto> {
+  return invokeCommand<SinceLastLookedDto>("board_visit", { projectId });
+}
+
 // ---------------------------------------------------------------------------------------------
 // Agent sessions on a Story.
 // ---------------------------------------------------------------------------------------------

@@ -53,19 +53,33 @@ describe("the Roadmap strip in WebKit", () => {
     clearMocks();
   });
 
-  it("keeps the virtualised roster below the Milestone header, with the strip above both", async () => {
+  it("keeps the virtualised roster below the Milestone header and Since you last looked, with the strip above them", async () => {
     const strip = await boardReady();
     await within(strip).findByRole("list", { name: "Milestones in Roadmap order" });
     const header = await screen.findByRole("region", { name: "Shaping" });
+    const since = await screen.findByRole("region", { name: "Since you last looked" });
     const firstCard = await screen.findByRole("region", { name: "Design system and a legible app" });
     await waitFor(() => {
       const stripBox = strip.getBoundingClientRect();
       const headerBox = header.getBoundingClientRect();
+      const sinceBox = since.getBoundingClientRect();
       const cardBox = firstCard.getBoundingClientRect();
       expect(headerBox.top).toBeGreaterThanOrEqual(stripBox.bottom);
-      expect(cardBox.top).toBeGreaterThanOrEqual(headerBox.bottom);
+      expect(sinceBox.top).toBeGreaterThanOrEqual(headerBox.bottom);
+      expect(cardBox.top).toBeGreaterThanOrEqual(sinceBox.bottom);
       // The gap-4 between regions, not an overlap or a hole left by a stale scroll margin.
-      expect(cardBox.top - headerBox.bottom).toBeLessThan(24);
+      expect(sinceBox.top - headerBox.bottom).toBeLessThan(24);
+      expect(cardBox.top - sinceBox.bottom).toBeLessThan(24);
+    });
+    // Unfolding the timeline pushes the roster down rather than sliding under it.
+    since.querySelector("button")?.click();
+    await within(since).findByRole("list", { name: "Since you last looked" });
+    await waitFor(() => {
+      const sinceBox = since.getBoundingClientRect();
+      const cardBox = firstCard.getBoundingClientRect();
+      expect(sinceBox.height).toBeGreaterThan(100);
+      expect(cardBox.top).toBeGreaterThanOrEqual(sinceBox.bottom);
+      expect(cardBox.top - sinceBox.bottom).toBeLessThan(24);
     });
   });
 
