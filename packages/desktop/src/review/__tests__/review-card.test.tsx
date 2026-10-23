@@ -15,6 +15,7 @@ import type { DecisionChangeDto, ReviewCheckDto, StoryDto, StoryReviewDto } from
 
 const storyReview = vi.fn();
 const storyMerge = vi.fn();
+const storyRequestChanges = vi.fn();
 const criterionAccept = vi.fn(() => Promise.resolve());
 const criterionUnaccept = vi.fn(() => Promise.resolve());
 
@@ -24,6 +25,7 @@ vi.mock("../../adapters/tauri", async () => {
     ...actual,
     storyReview: (...args: unknown[]) => storyReview(...args),
     storyMerge: (...args: unknown[]) => storyMerge(...args),
+    storyRequestChanges: (...args: unknown[]) => storyRequestChanges(...args),
     criterionAccept: (...args: unknown[]) => criterionAccept(...(args as [])),
     criterionUnaccept: (...args: unknown[]) => criterionUnaccept(...(args as [])),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
@@ -74,6 +76,8 @@ function review(overrides: Partial<StoryReviewDto> = {}): StoryReviewDto {
     liveSession: false,
     uncommitted: [],
     decisions: [],
+    conflicts: [],
+    rebaseComment: null,
     ...overrides,
   };
 }
@@ -266,6 +270,81 @@ describe("the Decisions section", () => {
     renderCard();
     await screen.findByRole("list", { name: "FLY-7 criteria to accept" });
     expect(screen.queryByRole("region", { name: /Decisions/ })).toBeNull();
+  });
+});
+
+describe("Request changes", () => {
+  it("sends the Story back to Running with the comments typed in the footer", async () => {
+    storyReview.mockResolvedValue(review());
+    storyRequestChanges.mockResolvedValue({ id: "run2", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Request changes on FLY-7" }));
+    const comments = screen.getByRole("textbox", { name: "What should change?" });
+    expect(comments).toHaveFocus();
+    const send = screen.getByRole("button", { name: "Send FLY-7 back to Running" });
+    fireEvent.click(send);
+    expect(storyRequestChanges).not.toHaveBeenCalled();
+    expect(screen.getByText("Write at least one review point.")).toBeInTheDocument();
+
+    fireEvent.change(comments, { target: { value: "Name the line in each error.\nCover an empty file." } });
+    fireEvent.click(send);
+    await waitFor(() =>
+      expect(storyRequestChanges).toHaveBeenCalledWith("s1", "Name the line in each error.\nCover an empty file."),
+    );
+  });
+
+  it("closes the composer on Cancel without sending, and keeps Merge the one filled action", async () => {
+    storyReview.mockResolvedValue(review());
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Request changes on FLY-7" }));
+    expect(screen.queryByRole("button", { name: "Merge FLY-7" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("textbox", { name: "What should change?" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Merge FLY-7" })).toBeInTheDocument();
+    expect(storyRequestChanges).not.toHaveBeenCalled();
+  });
+
+  it("shows a refused or failed request as the core wrote it", async () => {
+    storyReview.mockResolvedValue(review());
+    storyRequestChanges.mockRejectedValue("FLY-7 has a live session. Stop it before requesting changes.");
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Request changes on FLY-7" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "What should change?" }), { target: { value: "Cover it." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send FLY-7 back to Running" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("has a live session");
+  });
+});
+
+describe("Rebase needed", () => {
+  const rebaseComment =
+    "Rebase needed: merging into main would conflict in README.md, src/config.rs. Rebase this branch on main, resolve those conflicts, and re-run the Checks before handing off.";
+
+  it("names the conflicting paths first and holds Merge", async () => {
+    storyReview.mockResolvedValue(
+      review({
+        criteria: review().criteria.map((c) => ({ ...c, accepted: true })),
+        conflicts: ["README.md", "src/config.rs"],
+        rebaseComment,
+      }),
+    );
+    renderCard();
+    const rebase = await screen.findByRole("region", { name: "Rebase needed" });
+    expect(within(rebase).getByText("README.md")).toBeInTheDocument();
+    expect(within(rebase).getByText("src/config.rs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Merge FLY-7" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText(/Rebase needed: merging would conflict in 2 files/)).toBeInTheDocument();
+  });
+
+  it("sends the Story back with the paths in a pre-filled comment", async () => {
+    storyReview.mockResolvedValue(review({ conflicts: ["README.md", "src/config.rs"], rebaseComment }));
+    storyRequestChanges.mockResolvedValue({ id: "run2", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
+    renderCard();
+    const rebase = await screen.findByRole("region", { name: "Rebase needed" });
+    fireEvent.click(within(rebase).getByRole("button", { name: "Request a rebase of FLY-7" }));
+    expect(screen.getByRole("textbox", { name: "What should change?" })).toHaveValue(rebaseComment);
+    fireEvent.click(screen.getByRole("button", { name: "Send FLY-7 back to Running" }));
+    await waitFor(() => expect(storyRequestChanges).toHaveBeenCalledWith("s1", rebaseComment));
   });
 });
 

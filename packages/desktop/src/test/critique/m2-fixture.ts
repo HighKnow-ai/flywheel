@@ -783,10 +783,11 @@ function window_(entries: Record<string, unknown>[], offset: number, limit: numb
  * not accepted yet, one accepted. `override`: every criterion accepted, the Check still failing. `ready`:
  * every criterion accepted and every Check passed. `decisions` (issue #161): `ready`, with the branch's ADR
  * and glossary changes: a new ADR with its hand-off bar lines and a related live ADR, one accepted in shaping,
- * one without bar lines, an edited ADR and the glossary.
+ * one without bar lines, an edited ADR and the glossary. `rebase` (issue #158): `ready`, but the branch
+ * conflicts with main in two files, so it reads Rebase needed.
  */
-let reviewMode: "judging" | "override" | "ready" | "decisions" = "judging";
-export function setReviewInFixture(mode: "judging" | "override" | "ready" | "decisions"): void {
+let reviewMode: "judging" | "override" | "ready" | "decisions" | "rebase" = "judging";
+export function setReviewInFixture(mode: "judging" | "override" | "ready" | "decisions" | "rebase"): void {
   reviewMode = mode;
 }
 
@@ -852,7 +853,8 @@ const CONTRAST_TAIL = [
 ].join("\n");
 
 function reviewOf(storyId: string): StoryReviewDto {
-  const ready = reviewMode === "ready" || reviewMode === "decisions";
+  const ready = reviewMode === "ready" || reviewMode === "decisions" || reviewMode === "rebase";
+  const conflicts = reviewMode === "rebase" ? ["DESIGN.md", "packages/desktop/src/theme/tokens.css"] : [];
   const accepted = reviewMode !== "judging";
   const renders = reviewCheck("k-3a", "c-3a", "test -f docs/design/directions/andon.html", "passed");
   const contrast = ready
@@ -883,6 +885,10 @@ function reviewOf(storyId: string): StoryReviewDto {
     liveSession: false,
     uncommitted: [],
     decisions: reviewMode === "decisions" ? REVIEW_DECISIONS : [],
+    conflicts,
+    rebaseComment: conflicts.length
+      ? `Rebase needed: merging into main would conflict in ${conflicts.join(", ")}. Rebase this branch on main, resolve those conflicts, and re-run the Checks before handing off.`
+      : null,
   };
 }
 
