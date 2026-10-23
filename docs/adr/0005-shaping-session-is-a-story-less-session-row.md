@@ -1,0 +1,13 @@
+# A shaping session is a Story-less session row, read-only in the project checkout
+
+Decided in [Start a read-only shaping session on an Epic from its card](https://github.com/HighKnow-ai/flywheel/issues/122) (PR [#137](https://github.com/HighKnow-ai/flywheel/pull/137)), extended to the Roadmap in PR [#146](https://github.com/HighKnow-ai/flywheel/pull/146). A shaping session lives in the same `sessions` table as a Story session. Migration `0005_shaping_sessions.sql` rebuilds the table with `kind` (`story | shaping`), makes `story_id` nullable, and adds `epic_id` and `milestone_id` as the shaping subject. With both NULL, the subject is the project's Roadmap, which is how a roadmap Round's session is stored (migration `0009_roadmap_rounds.sql`). CHECKs make the shapes exclusive: a Story session has a Story and only a Story session does, the subject is at most one record, and a shaping session never has a worktree. The session runs in the project's checkout (`repo_path`) with `--permission-mode dontAsk`, the board MCP server and no permission-prompt tool, and it writes no Session summary or stub.
+
+We rejected a separate `shaping_sessions` table. Every path that ends a session (close, Stop, abandon, the launch reconciler, ending reasons, the termination-atomicity gates) and the adapter spawn would have needed a second copy, or a union over two tables, and a missed copy leaves a session `running` forever. One table keeps one session lifecycle. We also rejected giving shaping a worktree. A worktree is owned by a Story and outlives its sessions, but shaping has no Story yet, writes nothing to the repo (anything that would write becomes a Proposal, see ADR-0001 and ADR-0002), and would only ever read a copy of the checkout.
+
+## Consequences
+
+- Every read that inner-joined `stories` on `sessions` now LEFT JOINs it (`session_subject()` in `domain/session.rs`), and reads that only mean Story sessions (recovery, a Story's Waiting on you) filter on `kind = 'story'`. A new session read must decide which kind it means.
+- `write_stub_if_missing` writes a stub only for a Story session. A shaping session's record is its Rounds, answers and Proposals on the board, and the next shaping packet (`shaping_packet.rs`) is rebuilt from them, so there is no summary to lose.
+- A shaping session reads the developer's checkout as it stands, uncommitted changes and current branch included. It is not pinned to the base branch.
+- Story-only board tools and permission requests refuse a shaping session by name, and the MCP server lists each kind only its own tools.
+- `RunSummaryDto.storyId` and `PendingOrphanDto.storyId` are nullable on the wire.
