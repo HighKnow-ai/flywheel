@@ -120,6 +120,24 @@ fn accepting_amend_criterion_rewrites_it_clears_its_acceptance_and_marks_the_las
     assert!(packet.contains("passed at abc123 (stale: the criterion changed since)"), "{packet}");
 }
 
+/// The roster's "criteria x/y" reads the same staleness (ADR 0012's SQL, issue #163).
+#[test]
+fn the_roster_stops_counting_the_amended_criterion() {
+    let mut f = fixture();
+    let milestone_id: String =
+        f.conn.query_row("SELECT milestone_id FROM epics WHERE id = ?1", [&f.epic_id], |r| r.get(0)).unwrap();
+    let met = |f: &Fixture| {
+        let rows = core::query::roster::roster_rows(&f.conn, &milestone_id).unwrap();
+        rows.into_iter().find(|r| r.story_id == f.story.id).unwrap().criteria_met
+    };
+    let human = f.human.clone();
+    core::domain::acceptance_criterion::unaccept_criterion(&mut f.conn, &human, &f.criterion_id).unwrap();
+    assert_eq!(met(&f), 1, "its Check passed");
+    let id = amend(&mut f, "Parses an empty line", None);
+    accept_proposal(&mut f.conn, &f.human, &id).unwrap();
+    assert_eq!(met(&f), 0, "its passed run is stale and its acceptance is cleared");
+}
+
 #[test]
 fn a_run_after_the_change_is_current_again() {
     let mut f = fixture();

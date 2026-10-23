@@ -89,7 +89,7 @@ Deciding the Proposals running Stories filed, each accepted, amended or rejected
 _Avoid_: Inbox, backlog grooming
 
 **Judged-on change**:
-A Proposal that changes what a Story is judged on: an Amend criterion, or an Amend Epic spec filed by a Story session. It is its own Needs-you item at once, ranked with Review, never in the Proposals row. Accepting an Amend criterion clears the criterion's acceptance, and either replaces its Check (which then reads not run) or marks the Check's last run stale (ADR 0011).
+A Proposal that changes what a Story is judged on: an Amend criterion, or an Amend Epic spec filed by a Story session. It is its own Needs-you item at once, ranked with Review, never in the Proposals row. Accepting an Amend criterion clears the criterion's acceptance, and either replaces its Check (which then reads not run) or marks the Check's last run stale (ADR 0015).
 _Avoid_: Spec change (that is any Amend Epic spec, shaping's included), criterion edit
 
 ## Shaping
