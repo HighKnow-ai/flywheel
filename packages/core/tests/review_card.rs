@@ -119,6 +119,25 @@ fn only_a_story_in_review_is_checked_for_conflicts() {
     });
 }
 
+/// Needs you labels the Review item of a conflicting branch Rebase needed, with its paths.
+#[test]
+fn needs_you_carries_the_conflicting_paths_on_the_review_item() {
+    with_scratch_worktree_root(|_| {
+        let f = in_review();
+        let review_item = |f: &Fixture| {
+            core::query::needs_you::needs_you(&f.conn, &f.story.project_id)
+                .unwrap()
+                .into_iter()
+                .find(|i| i.kind == core::query::needs_you::NeedsYouKind::Review)
+                .expect("a Review item")
+        };
+        assert!(review_item(&f).conflicts.is_empty(), "a clean branch is a plain Review");
+
+        commit_file(f.repo.path(), "README.md", "main's readme\n");
+        assert_eq!(review_item(&f).conflicts, vec!["README.md".to_string()]);
+    });
+}
+
 #[test]
 fn the_pre_filled_comment_names_the_base_branch_and_every_path() {
     let comment = rebase_comment("main", &["a.rs".to_string(), "b/c.rs".to_string()]);

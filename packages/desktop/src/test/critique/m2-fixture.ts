@@ -719,7 +719,7 @@ const NEEDS_YOU_RANK: Record<string, number> = {
 function needsYouItem(kind: NeedsYouItemDto["kind"], id: string, since: string, record: NeedsYouItemDto["record"], extra: Partial<NeedsYouItemDto> = {}): NeedsYouItemDto {
   return {
     kind, rank: NEEDS_YOU_RANK[kind], id, since, record, sessionId: null, request: null, endingReason: null,
-    missingWorktree: false, doingTaskTitle: null, exitTest: null, milestoneTitle: null, round: null, ...extra,
+    missingWorktree: false, doingTaskTitle: null, exitTest: null, milestoneTitle: null, round: null, conflicts: [], ...extra,
   };
 }
 
@@ -742,7 +742,7 @@ function needsYouOf(projectId: string): NeedsYouItemDto[] {
     items.push(needsYouItem("stopped", "s-7", ago(4200), storyRecord("s-7"), {
       sessionId: "ses-7b", endingReason: "usage_limit", doingTaskTitle: "Restyle the board's Story rows",
     }));
-    items.push(needsYouItem("review", "s-3", ago(3600), storyRecord("s-3")));
+    items.push(needsYouItem("review", "s-3", ago(3600), storyRecord("s-3"), { conflicts: reviewConflicts() }));
     if (needsYouExtras) {
       items.push(needsYouItem("stopped", "s-6", ago(5000), storyRecord("s-6"), { missingWorktree: true }));
       items.push(needsYouItem("confirm_exit_test", "e-60", ago(9000),
@@ -833,6 +833,11 @@ const REVIEW_DECISIONS: DecisionChangeDto[] = [
   { kind: "glossary", path: "GLOSSARY.md", oldPath: null, status: "M", added: 6, removed: 0, newAdr: null },
 ];
 
+/** `rebase`: the two files FLY-3's branch conflicts with main in. */
+function reviewConflicts(): string[] {
+  return reviewMode === "rebase" ? ["DESIGN.md", "packages/desktop/src/theme/tokens.css"] : [];
+}
+
 function reviewCheck(id: string, criterionId: string, command: string, result: string, outputTail: string | null = null): ReviewCheckDto {
   return { checkId: id, criterionId, command, result, stale: false, commitSha: "9f3c2ab", outputTail };
 }
@@ -854,7 +859,7 @@ const CONTRAST_TAIL = [
 
 function reviewOf(storyId: string): StoryReviewDto {
   const ready = reviewMode === "ready" || reviewMode === "decisions" || reviewMode === "rebase";
-  const conflicts = reviewMode === "rebase" ? ["DESIGN.md", "packages/desktop/src/theme/tokens.css"] : [];
+  const conflicts = reviewConflicts();
   const accepted = reviewMode !== "judging";
   const renders = reviewCheck("k-3a", "c-3a", "test -f docs/design/directions/andon.html", "passed");
   const contrast = ready

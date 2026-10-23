@@ -31,6 +31,7 @@ import {
   CircleDashed,
   Compass,
   Flag,
+  GitMergeConflict,
   GitPullRequest,
   KeyRound,
   Layers,
@@ -99,7 +100,9 @@ export function detailOf(item: NeedsYouItemDto): string | null {
       return `Stopped: ${endingWords(item.endingReason)}${doing}`;
     }
     case "review":
-      return "Handed off: its diff and criteria wait for your review";
+      return item.conflicts.length > 0
+        ? `Merging would conflict in ${item.conflicts.join(", ")}: request a rebase from its review`
+        : "Handed off: its diff and criteria wait for your review";
     case "confirm_exit_test":
       return item.exitTest ?? (item.record.kind === "epic" ? "Every Story is Merged or Dropped" : "Every Epic is Done");
     case "shaping_round": {
@@ -392,7 +395,19 @@ function LeadPill({ item }: { item: NeedsYouItemDto }) {
       </>
     );
   }
-  if (item.kind === "review") return <StateBadge state="in_review" className="h-5.5 text-meta" />;
+  if (item.kind === "review") {
+    return (
+      <>
+        <StateBadge state="in_review" className="h-5.5 text-meta" />
+        {item.conflicts.length > 0 && (
+          <span className="inline-flex min-w-0 items-center gap-1.5 text-meta font-semibold text-muted-foreground [&_svg]:size-[15px] [&_svg]:shrink-0">
+            <GitMergeConflict aria-hidden="true" />
+            <span className="truncate">Rebase needed</span>
+          </span>
+        )}
+      </>
+    );
+  }
   if (item.kind === "shaping_round") return <StateBadge state="round_waiting" className="h-5.5 text-meta" />;
   return (
     <Badge variant="outline" className="h-5.5 text-meta">

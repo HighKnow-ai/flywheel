@@ -1498,6 +1498,8 @@ export interface NeedsYouItemDto {
     answered: number;
     questions: number;
   } | null;
+  /** A Review item's Rebase needed (issue #158): the paths a merge into the base branch would conflict in. */
+  conflicts: string[];
 }
 
 export async function needsYouList(projectId: string): Promise<NeedsYouItemDto[]> {

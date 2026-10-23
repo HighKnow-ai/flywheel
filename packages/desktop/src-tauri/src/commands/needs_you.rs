@@ -62,6 +62,8 @@ pub struct NeedsYouItemDto {
     pub exit_test: Option<String>,
     pub milestone_title: Option<String>,
     pub round: Option<NeedsYouRoundDto>,
+    /// A Review item's Rebase needed (issue #158): the paths a merge would conflict in.
+    pub conflicts: Vec<String>,
 }
 
 impl From<flywheel_core::query::needs_you::NeedsYouItem> for NeedsYouItemDto {
@@ -99,6 +101,7 @@ impl From<flywheel_core::query::needs_you::NeedsYouItem> for NeedsYouItemDto {
                 answered: r.answered,
                 questions: r.questions,
             }),
+            conflicts: item.conflicts,
         }
     }
 }

@@ -301,6 +301,26 @@ pub fn rebase_comment(base_branch: &str, conflicts: &[String]) -> String {
     )
 }
 
+fn repo_path(conn: &Connection, project_id: &str) -> anyhow::Result<String> {
+    conn.query_row("SELECT repo_path FROM projects WHERE id = ?1", params![project_id], |r| r.get(0))
+        .context("failed to read the project's repository")
+}
+
+/// Rebase needed for `story_id`, without the rest of the card: the paths a merge of its branch's head
+/// into its base branch would conflict in. Empty for a Story not In review or without a worktree on
+/// disk. What Needs you labels a Review item by.
+pub fn conflicts_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<String>> {
+    let Some(story) = get_story(conn, story_id)? else { return Ok(Vec::new()) };
+    if story.state != "in_review" {
+        return Ok(Vec::new());
+    }
+    let Some(worktree) = worktree_for_story(conn, story_id)?.filter(|w| Path::new(&w.path).is_dir()) else {
+        return Ok(Vec::new());
+    };
+    let head = check::worktree_head(Path::new(&worktree.path))?;
+    Ok(merge_conflicts(Path::new(&repo_path(conn, &story.project_id)?), &worktree.base_branch, &head))
+}
+
 /// The paths merging `head` into the base branch would conflict in, read with `git merge-tree` in the
 /// project's repository (nothing is written). Best-effort: the card must still open when git cannot
 /// answer, so a failure reads as no conflict and Merge's own check refuses later.
@@ -369,11 +389,7 @@ pub fn review_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Sto
 
     let base_branch = worktree.as_ref().map(|w| w.base_branch.clone());
     let conflicts = match (story.state == "in_review", &base_branch, &head_sha) {
-        (true, Some(base), Some(head)) => {
-            let repo: String =
-                conn.query_row("SELECT repo_path FROM projects WHERE id = ?1", params![story.project_id], |r| r.get(0))?;
-            merge_conflicts(Path::new(&repo), base, head)
-        }
+        (true, Some(base), Some(head)) => merge_conflicts(Path::new(&repo_path(conn, &story.project_id)?), base, head),
         _ => Vec::new(),
     };
 
