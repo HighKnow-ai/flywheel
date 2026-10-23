@@ -922,7 +922,9 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     );
     (await screen.findByRole("button", { name: "Send FLY-3 back to Running" })).scrollIntoView({ block: "end" });
     await shot("93-review-card-request-changes");
-  it("87 Needs you: the Proposals row, 4 from 3 Stories, and FLY-1's 3 Proposals on the roster (issue #162)", async () => {
+  });
+
+  it("96 Needs you: the Proposals row, 4 from 3 Stories, and FLY-1's 3 Proposals on the roster (issue #162)", async () => {
     setTriageInFixture(true);
     useTriageDrawer.getState().closeTriage();
     await boardReady();
@@ -935,20 +937,20 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     const column = await screen.findByRole("region", { name: /^Needs you/ });
     column.scrollIntoView({ block: "start" });
     row.scrollIntoView({ block: "nearest" });
-    await shot("87-needs-you-proposals-row");
+    await shot("96-needs-you-proposals-row");
   });
 
-  it("88 Triage drawer: grouped by Epic, then the Roadmap, each card with its change, why, evidence and filer (issue #162)", async () => {
+  it("97 Triage drawer: grouped by Epic, then the Roadmap, each card with its change, why, evidence and filer (issue #162)", async () => {
     setTriageInFixture(true);
     useTriageDrawer.getState().closeTriage();
     await boardReady();
     await click("Triage 4 Proposals");
     const drawer = await screen.findByRole("dialog", { name: /Triage Proposals/ });
     await within(drawer).findByText("Keyboard-first supervision");
-    await shot("88-triage-drawer");
+    await shot("97-triage-drawer");
   });
 
-  it("89 Triage drawer: Amend opens a New Story's title and description, the why kept in sight (issue #162)", async () => {
+  it("98 Triage drawer: Amend opens a New Story's title and description, the why kept in sight (issue #162)", async () => {
     setTriageInFixture(true);
     useTriageDrawer.getState().closeTriage();
     await boardReady();
@@ -956,7 +958,7 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     const drawer = await screen.findByRole("dialog", { name: /Triage Proposals/ });
     await userEvent.click(await within(drawer).findByRole("button", { name: /^Amend New Story “Keyboard shortcuts/ }));
     await within(drawer).findByRole("textbox", { name: "Title" });
-    await shot("89-triage-drawer-amend");
+    await shot("98-triage-drawer-amend");
   });
 
   it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {

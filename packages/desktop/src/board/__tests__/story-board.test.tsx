@@ -10,6 +10,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useTriageDrawer } from "../../proposals/triageStore";
 import { StoryBoard } from "../StoryBoard";
 import { PacketSize } from "../StoryControls";
 import { resetUiState, useUiStore } from "../../state/uiStore";
@@ -504,6 +505,9 @@ describe("StoryBoard: an Epic row's Proposals (issue #162)", () => {
   const counts = {
     shaping: 0, ready: 0, running: 1, waitingOnYou: 0, stopped: 0, inReview: 0, merged: 0, dropped: 0, storiesTotal: 1,
   };
+  // The drawer's open state lives in its own store, which outlives a render.
+  beforeEach(() => useTriageDrawer.getState().closeTriage());
+
   function seedProgress(proposals: number) {
     seedRoster([story("s1", "FLY-2", "Running one", "running")], [row("s1")]);
     const progress: EpicProgressDto = { epicId: "e1", key: "FLY-1", title: "E1", state: "in_progress", counts, attention: null, proposals };

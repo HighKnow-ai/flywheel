@@ -504,7 +504,7 @@ function EpicCard({
           className={cn("flex items-center gap-3 border-border px-4 py-1.5", stories.length > 0 && "border-b")}
         >
           <EpicProgress epic={progress} headingId={headingId} className="min-w-0 flex-1" />
-          {epic && <ProposalsMarker projectId={projectId} epic={epic} count={progress.proposals} />}
+          {epic && <ProposalsMarker projectId={projectId} epic={epic} count={progress.proposals ?? 0} />}
           {epic && <AddStoryToEpic projectId={projectId} epic={epic} />}
           {/* A fixed slot on every progress-headed card, so each Epic's bar still sits in one column; inset by
               the rows' chevron column, so Shape sits above the rows' own actions. */}
