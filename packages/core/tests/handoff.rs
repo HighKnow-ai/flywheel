@@ -17,6 +17,7 @@ use common::with_scratch_worktree_root;
 use core::domain::acceptance_criterion::create_criterion;
 use core::domain::check::{branch_head, current_result, remove_check, set_check, Check, CheckResult};
 use core::domain::handoff::{hand_off, plan_feedback_run, run_checks, HandoffToolCall};
+use core::domain::review::{open_review, reviews_for_story};
 use core::domain::session::{agent_actor_id, close_session, start_session, Session, SessionStatus};
 use core::domain::session_summary::list_summaries_for_story;
 use core::domain::story::{get_story, set_story_state, Story, StoryState};
@@ -97,6 +98,40 @@ fn a_hand_off_moves_the_story_to_in_review_even_when_a_check_fails() {
 
         let err = hand_off(&mut f.conn, &f.session.id, "again", "").unwrap_err();
         assert!(err.to_string().contains("Running"), "a Story hands off once: {err}");
+    });
+}
+
+#[test]
+fn a_hand_off_opens_a_review_with_the_diff_stats_and_the_tasks_not_done() {
+    with_scratch_worktree_root(|_| {
+        let mut f = running_story(&[("true", None)]);
+        let base = git(&f.worktree, &["rev-parse", "main"]);
+        std::fs::write(f.worktree.join("parser.rs"), "fn parse() {}\nfn more() {}\n").unwrap();
+        std::fs::write(f.worktree.join("README.md"), "rewritten\n").unwrap();
+        git(&f.worktree, &["add", "parser.rs", "README.md"]);
+        git(&f.worktree, &["-c", "user.name=T", "-c", "user.email=t@flywheel.test", "commit", "-m", "parser"]);
+        let head = git(&f.worktree, &["rev-parse", "HEAD"]);
+        let agent = agent_actor_id(&f.conn).unwrap();
+        add_task(&mut f.conn, &agent, &f.story.id, "Left for later").unwrap();
+        add_task(&mut f.conn, &agent, &f.story.id, "Also left").unwrap();
+
+        let outcome = hand_off(&mut f.conn, &f.session.id, "Done.", "").unwrap();
+
+        let review = open_review(&f.conn, &f.story.id).unwrap().expect("the hand-off opens a review");
+        assert_eq!(review.id, outcome.review_id);
+        assert_eq!(review.session_id.as_deref(), Some(f.session.id.as_str()));
+        assert_eq!((review.base_sha.as_str(), review.head_sha.as_str()), (base.as_str(), head.as_str()));
+        assert_eq!((review.files, review.added, review.removed), (2, 3, 1), "parser.rs +2, README.md +1 -1");
+        assert_eq!(review.open_tasks, 2, "the Tasks not done warn at review");
+        assert_eq!(review.outcome, None);
+        assert_eq!(review.check_objections, json!([]));
+
+        // Requesting changes closes it; the next hand-off opens a new one.
+        set_story_state(&mut f.conn, &f.human, &f.story.id, StoryState::Running).unwrap();
+        assert!(open_review(&f.conn, &f.story.id).unwrap().is_none());
+        let reviews = reviews_for_story(&f.conn, &f.story.id).unwrap();
+        assert_eq!(reviews[0].outcome.as_deref(), Some("changes_requested"));
+        assert_eq!(reviews[0].decided_by.as_deref(), Some(f.human.as_str()));
     });
 }
 

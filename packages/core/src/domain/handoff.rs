@@ -11,7 +11,8 @@
 //!
 //! A run takes minutes, so it is split in three for a caller that must not hold the database while
 //! it runs: [`plan_handoff`] / [`plan_feedback_run`] read and refuse, [`run_checks`] runs without a
-//! connection, and [`complete_handoff`] writes the summary, every result and the state move in one
+//! connection, and [`complete_handoff`] writes the summary, every result, the state move and the
+//! Story's review (`domain::review`, issue #155: the diff's size and the Tasks left open) in one
 //! transaction. [`hand_off`] does all three in a row.
 //!
 //! Identity comes from the session the call arrived on, never from an argument, and only a live
@@ -27,6 +28,7 @@ use serde_json::Value;
 
 use crate::check_runner::{run_shell_check, ShellOutcome};
 use crate::domain::check::{self, record_check_run_in_tx, CheckResult, CheckRunRecord};
+use crate::domain::review::{open_review_in_tx, read_review_diff, ReviewDiff};
 use crate::domain::session::agent_actor_id;
 use crate::domain::session_summary::create_summary_in_tx;
 use crate::domain::story::{set_story_state_in_tx, StoryState};
@@ -100,6 +102,9 @@ pub struct CheckPlan {
     pub story_id: String,
     pub worktree_path: PathBuf,
     pub checks: Vec<PlannedCheck>,
+    /// A hand-off's base branch, whose diff against the branch the review records; `None` for a
+    /// feedback run, which records nothing.
+    pub review_base: Option<String>,
 }
 
 /// One Check's run.
@@ -119,6 +124,8 @@ pub struct CheckOutcome {
 pub struct CheckBatch {
     pub commit_sha: String,
     pub outcomes: Vec<CheckOutcome>,
+    /// The diff `base...commit_sha` a hand-off's review records; `None` for a feedback run.
+    pub diff: Option<ReviewDiff>,
 }
 
 /// What a hand-off left behind.
@@ -130,6 +137,8 @@ pub struct HandoffOutcome {
     pub batch: CheckBatch,
     /// Tasks still open at hand-off, which warn at review.
     pub open_tasks: i64,
+    /// The review the hand-off opened.
+    pub review_id: String,
 }
 
 /// The session's Story, project and status; refused unless the session is live.
@@ -139,7 +148,7 @@ fn live_session(conn: &Connection, session_id: &str) -> anyhow::Result<(String, 
     Ok((story_id, project_id))
 }
 
-fn plan(conn: &Connection, session_id: &str, story_id: String, project_id: String) -> anyhow::Result<CheckPlan> {
+fn plan(conn: &Connection, session_id: &str, story_id: String, project_id: String, for_review: bool) -> anyhow::Result<CheckPlan> {
     let worktree = crate::domain::worktree::worktree_for_story(conn, &story_id)?
         .context("this Story has no worktree to run its Checks in")?;
     let worktree_path = PathBuf::from(worktree.path);
@@ -148,13 +157,14 @@ fn plan(conn: &Connection, session_id: &str, story_id: String, project_id: Strin
         .into_iter()
         .map(|c| PlannedCheck { check_id: c.id, command: c.command, timeout_secs: c.timeout_secs })
         .collect();
-    Ok(CheckPlan { session_id: session_id.to_string(), project_id, story_id, worktree_path, checks })
+    let review_base = for_review.then(|| worktree.base_branch.clone());
+    Ok(CheckPlan { session_id: session_id.to_string(), project_id, story_id, worktree_path, checks, review_base })
 }
 
 /// Plan a feedback run for session `session_id`: its Story's Checks and worktree.
 pub fn plan_feedback_run(conn: &Connection, session_id: &str) -> anyhow::Result<CheckPlan> {
     let (story_id, project_id) = live_session(conn, session_id)?;
-    plan(conn, session_id, story_id, project_id)
+    plan(conn, session_id, story_id, project_id, false)
 }
 
 /// Plan a hand-off for session `session_id`, refusing it unless the Story is Running and its Task
@@ -176,14 +186,20 @@ pub fn plan_handoff(conn: &Connection, session_id: &str) -> anyhow::Result<Check
         doing == 0,
         "a Task is still doing: mark it done, open or dropped with task_update so the checklist is current, then hand off"
     );
-    plan(conn, session_id, story_id, project_id)
+    plan(conn, session_id, story_id, project_id, true)
 }
 
 /// Run every planned Check from the worktree root, one at a time, each to the end: a failure or a
 /// timeout never stops the rest. Holds no database connection. The commit is read once, before
-/// the first Check runs.
+/// the first Check runs, and so is a hand-off's diff against its base branch.
 pub fn run_checks(plan: &CheckPlan) -> anyhow::Result<CheckBatch> {
     let commit_sha = check::worktree_head(&plan.worktree_path).context("could not read the branch's commit")?;
+    let diff = plan
+        .review_base
+        .as_deref()
+        .map(|base| read_review_diff(&plan.worktree_path, base, &commit_sha))
+        .transpose()
+        .context("could not read the branch's diff against its base branch")?;
     let outcomes = plan
         .checks
         .iter()
@@ -209,11 +225,12 @@ pub fn run_checks(plan: &CheckPlan) -> anyhow::Result<CheckBatch> {
             }
         })
         .collect();
-    Ok(CheckBatch { commit_sha, outcomes })
+    Ok(CheckBatch { commit_sha, outcomes, diff })
 }
 
 /// Write the hand-off in one transaction, as the agent: the Session summary, every Check result
-/// against the commit it ran against, and the move to In review, whatever the results.
+/// against the commit it ran against, the move to In review, whatever the results, and the review
+/// it opens.
 pub fn complete_handoff(
     conn: &mut Connection,
     plan: &CheckPlan,
@@ -266,6 +283,8 @@ pub fn complete_handoff(
     )?;
     let open_tasks: i64 =
         tx.query_row("SELECT COUNT(*) FROM tasks WHERE story_id = ?1 AND state = 'open'", params![plan.story_id], |r| r.get(0))?;
+    let diff = batch.diff.as_ref().context("a hand-off's run reads the branch's diff; this one did not")?;
+    let review_id = open_review_in_tx(&tx, &plan.project_id, &plan.story_id, Some(&plan.session_id), diff)?;
     tx.commit().context("failed to commit the hand-off")?;
     Ok(HandoffOutcome {
         project_id: plan.project_id.clone(),
@@ -273,6 +292,7 @@ pub fn complete_handoff(
         summary_id: summary.id,
         batch,
         open_tasks,
+        review_id,
     })
 }
 
