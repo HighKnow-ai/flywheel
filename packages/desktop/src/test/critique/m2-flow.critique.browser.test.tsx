@@ -1038,36 +1038,36 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     }
   });
 
-  it("71 board: + Story on an Epic card opens Write a Story with that Epic chosen (issue #168)", async () => {
+  it("75 board: + Story on an Epic card opens Write a Story with that Epic chosen (issue #168)", async () => {
     await boardReady();
     await userEvent.click((await screen.findAllByRole("button", { name: /^Add a Story to / }))[0]);
     await screen.findByRole("dialog", { name: "Write a Story" });
-    await shot("71-board-add-story-on-epic-card");
+    await shot("75-board-add-story-on-epic-card");
   });
 
-  it("72 board: + Epic in the Milestone header opens Add an Epic on that Milestone (issue #168)", async () => {
+  it("76 board: + Epic in the Milestone header opens Add an Epic on that Milestone (issue #168)", async () => {
     await boardReady();
     await click(/^Add an Epic to /);
     await screen.findByRole("dialog", { name: "Add an Epic" });
-    await shot("72-board-add-epic-in-milestone-header");
+    await shot("76-board-add-epic-in-milestone-header");
   });
 
-  it("73 Story view: Move to Epic lists the other open Epics under their Milestones (issue #168)", async () => {
+  it("77 Story view: Move to Epic lists the other open Epics under their Milestones (issue #168)", async () => {
     await boardReady();
     await openStory("FLY-4", "Make clicking and navigation predictable");
     await click("Move FLY-4 to another Epic");
     await screen.findByRole("menu");
-    await shot("73-story-move-to-epic");
+    await shot("77-story-move-to-epic");
   });
 
-  it("74 Story view at the window's minimum width: Move to Epic beside Drop (issue #168)", async () => {
+  it("78 Story view at the window's minimum width: Move to Epic beside Drop (issue #168)", async () => {
     await page.viewport(900, 900);
     try {
       await boardReady();
       await openStory("FLY-4", "Make clicking and navigation predictable");
       await click("Move FLY-4 to another Epic");
       await screen.findByRole("menu");
-      await shot("74-story-move-to-epic-min-width");
+      await shot("78-story-move-to-epic-min-width");
     } finally {
       await page.viewport(1440, 900);
     }
