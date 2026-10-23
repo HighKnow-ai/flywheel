@@ -189,6 +189,8 @@ fn main() {
             commands::story::story_request_changes,
             commands::review::story_review,
             commands::review::story_merge,
+            commands::review::review_file_patch,
+            commands::review::story_checks_rerun,
             commands::criterion::criterion_create,
             commands::criterion::criterion_list,
             commands::criterion::criterion_amend,

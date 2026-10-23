@@ -982,6 +982,43 @@ export interface ReviewCheckDto {
   stale: boolean;
   commitSha: string | null;
   outputTail: string | null;
+  /** The handing-off agent's objections to this Check, in the order it gave them. */
+  objections: ReviewObjectionDto[];
+}
+
+/** The handing-off agent's objection to a Check — mirrors `commands/review.rs`'s `ReviewObjectionDto`. */
+export interface ReviewObjectionDto {
+  why: string;
+  /** The Check's command when the agent objected; differs from the Check's own once it was edited. */
+  command: string;
+}
+
+/** One changed file of the review's diff — mirrors `commands/review.rs`'s `ReviewFileDto`. */
+export interface ReviewFileDto {
+  path: string;
+  /** A rename's or copy's source. */
+  oldPath: string | null;
+  /** git's status letter: `M`, `A`, `D`, `R`, `C` or `T`. */
+  status: string;
+  /** `null` for a binary file. */
+  added: number | null;
+  removed: number | null;
+  binary: boolean;
+}
+
+/** One changed file's patch — mirrors `commands/review.rs`'s `ReviewPatchDto`. */
+export interface ReviewPatchDto {
+  /** `git diff`'s text for the one file; empty when `tooLarge`. */
+  patch: string;
+  tooLarge: boolean;
+}
+
+/** What a Re-run Checks recorded — mirrors `commands/review.rs`'s `ChecksRerunDto`. */
+export interface ChecksRerunDto {
+  commitSha: string;
+  passed: number;
+  failed: number;
+  timedOut: number;
 }
 
 /** A criterion on the review card — mirrors `commands/review.rs`'s `ReviewCriterionDto`. */
@@ -1070,6 +1107,8 @@ export interface StoryReviewDto {
   conflicts: string[];
   /** The request for changes Rebase needed pre-fills, naming the base branch and those paths. */
   rebaseComment: string | null;
+  /** The changed files of the review's diff, against the branch's head now. */
+  files: ReviewFileDto[];
 }
 
 /** What a Merge did — mirrors `commands/review.rs`'s `MergeDto`. */
@@ -1088,6 +1127,19 @@ export interface MergeDto {
 /** The review card of one Story. Read-only. */
 export async function storyReview(storyId: string): Promise<StoryReviewDto> {
   return invokeCommand<StoryReviewDto>("story_review", { storyId });
+}
+
+/** One changed file's patch in the open review's diff (`oldPath`: a rename's source). Read-only. */
+export async function reviewFilePatch(storyId: string, path: string, oldPath: string | null): Promise<ReviewPatchDto> {
+  return invokeCommand<ReviewPatchDto>("review_file_patch", { storyId, path, oldPath });
+}
+
+/**
+ * The developer's Re-run Checks: every Check of an In review Story runs again in its worktree with no
+ * session, each run recorded against the branch's head. The core refuses while a session is live.
+ */
+export async function storyChecksRerun(storyId: string): Promise<ChecksRerunDto> {
+  return invokeCommand<ChecksRerunDto>("story_checks_rerun", { storyId });
 }
 
 /**

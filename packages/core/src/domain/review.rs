@@ -15,6 +15,11 @@
 //! as failing at Merge. A branch that would conflict with its base branch reads **Rebase needed**
 //! ([`StoryReview::conflicts`], issue #158): Merge refuses it, and the card offers a request for
 //! changes pre-filled with [`rebase_comment`].
+//!
+//! Issue #157 adds, in the spec's order: the failing Checks sorted failed and timed out first, each
+//! Check carrying the handing-off agent's objections to it, and the changed files of the review's
+//! diff (`base_sha...` the branch's head now), whose patches [`review_file_patch`] reads one file at
+//! a time.
 
 use std::path::Path;
 
@@ -26,6 +31,7 @@ use crate::domain::acceptance_criterion::criteria_for_story;
 use crate::domain::check::{self, CheckResult};
 use crate::domain::story::get_story;
 use crate::domain::worktree::{porcelain_entries, worktree_for_story};
+use crate::git::ReviewFile;
 use crate::domain::now;
 use crate::ids::new_id;
 
@@ -151,24 +157,27 @@ pub(crate) fn tasks_not_done(conn: &Connection, story_id: &str) -> anyhow::Resul
     .context("failed to count the Story's open Tasks")
 }
 
-/// Open a review of `story_id` inside the caller's transaction, with the hand-off's ADR bar lines
-/// (`adr_notes`, a JSON array, ADR 0010). Refused while one is open: a review closes before the next
-/// one opens.
+/// Open a review of `story_id` inside the caller's transaction, with the hand-off's Check
+/// objections (`check_objections`, issue #157) and ADR bar lines (`adr_notes`, ADR 0010), each a
+/// JSON array. Refused while one is open: a review closes before the next one opens.
 pub(crate) fn open_review_in_tx(
     tx: &Transaction,
     project_id: &str,
     story_id: &str,
     session_id: Option<&str>,
     diff: &ReviewDiff,
+    check_objections: &Value,
     adr_notes: &Value,
 ) -> anyhow::Result<String> {
     let open_tasks = tasks_not_done(tx, story_id)?;
     let id = new_id();
     tx.execute(
-        "INSERT INTO reviews (id, project_id, story_id, session_id, opened_at, base_sha, head_sha, files, added, removed, open_tasks, adr_notes)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        "INSERT INTO reviews (id, project_id, story_id, session_id, opened_at, base_sha, head_sha, files, added, removed, open_tasks,
+                              check_objections, adr_notes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             id, project_id, story_id, session_id, now(), diff.base_sha, diff.head_sha, diff.files, diff.added, diff.removed, open_tasks,
+            check_objections.to_string(),
             adr_notes.to_string()
         ],
     )
@@ -196,6 +205,15 @@ pub(crate) fn close_review_in_tx(
     Ok(())
 }
 
+/// The handing-off agent's objection to a Check, as the review card shows it beside that Check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewObjection {
+    pub why: String,
+    /// The Check's command when the agent objected; it differs from the Check's own once the
+    /// developer has edited the Check since.
+    pub command: String,
+}
+
 /// A Check as the review card shows it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReviewCheck {
@@ -207,12 +225,25 @@ pub struct ReviewCheck {
     pub stale: bool,
     pub commit_sha: Option<String>,
     pub output_tail: Option<String>,
+    /// The open review's objections to this Check, in the order the agent gave them.
+    pub objections: Vec<ReviewObjection>,
 }
 
 impl ReviewCheck {
     /// Whether this Check passed at the branch's current head.
     pub fn passes(&self) -> bool {
         self.result == CheckResult::Passed && !self.stale
+    }
+
+    /// Where a failing Check sits on the card: failed and timed out first (their output tail is the
+    /// news), then stale, then not run. Passed sorts last.
+    fn failing_rank(&self) -> u8 {
+        match (self.result, self.stale) {
+            (CheckResult::Failed | CheckResult::TimedOut, false) => 0,
+            (_, true) => 1,
+            (CheckResult::NotRun, false) => 2,
+            (CheckResult::Passed, false) => 3,
+        }
     }
 
     /// The Check's state in words, as a refusal names it: `failed`, `timed out`, `not run`, `stale`.
@@ -263,7 +294,8 @@ pub struct StoryReview {
     pub criteria: Vec<ReviewCriterion>,
     /// Tasks open or doing now.
     pub open_tasks: i64,
-    /// The Checks that need "Merge with failing Check", in criteria order.
+    /// The Checks that need "Merge with failing Check": failed and timed out first, then stale, then
+    /// not run, each group in criteria order.
     pub failing_checks: Vec<ReviewCheck>,
     /// A session of the Story is running or blocked.
     pub live_session: bool,
@@ -274,6 +306,9 @@ pub struct StoryReview {
     /// The paths a merge into the base branch would conflict in, sorted: Rebase needed when not
     /// empty. Only an In review Story is checked.
     pub conflicts: Vec<String>,
+    /// The changed files of the review's diff, `base_sha...` the branch's head now; empty without an
+    /// open review.
+    pub files: Vec<ReviewFile>,
 }
 
 impl StoryReview {
@@ -350,6 +385,9 @@ pub fn review_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Sto
         None => Vec::new(),
     };
 
+    let review = open_review(conn, story_id)?;
+    let objections = review.as_ref().map(|r| objections_by_criterion(&r.check_objections)).unwrap_or_default();
+
     let mut criteria = Vec::new();
     let mut failing_checks = Vec::new();
     for c in criteria_for_story(conn, story_id)? {
@@ -364,6 +402,7 @@ pub fn review_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Sto
                     stale: current.is_stale(head_sha.as_deref()),
                     commit_sha: current.commit_sha,
                     output_tail: current.output_tail,
+                    objections: objections.iter().filter(|(id, _)| *id == c.id).map(|(_, o)| o.clone()).collect(),
                 })
             }
             None => None,
@@ -380,6 +419,15 @@ pub fn review_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Sto
             check,
         });
     }
+
+    failing_checks.sort_by_key(ReviewCheck::failing_rank);
+
+    let files = match (&review, review_checkout(conn, story_id, on_disk)?) {
+        (Some(r), Some(path)) => {
+            crate::git::review_files(&path, &r.base_sha, head_sha.as_deref().unwrap_or(&r.head_sha))?
+        }
+        _ => Vec::new(),
+    };
 
     let live_session: bool = conn.query_row(
         "SELECT EXISTS (SELECT 1 FROM sessions WHERE story_id = ?1 AND status IN ('running', 'blocked'))",
@@ -398,7 +446,7 @@ pub fn review_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Sto
         story_key: story.key,
         story_state: story.state,
         head_sha,
-        review: open_review(conn, story_id)?,
+        review,
         criteria,
         open_tasks: tasks_not_done(conn, story_id)?,
         failing_checks,
@@ -406,5 +454,80 @@ pub fn review_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Sto
         uncommitted,
         base_branch,
         conflicts,
+        files,
     })
+}
+
+/// The stored objections as `(criterion_id, objection)` pairs. An entry that does not parse is
+/// skipped: the review card shows what it can.
+fn objections_by_criterion(stored: &Value) -> Vec<(String, ReviewObjection)> {
+    stored
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|o| {
+            let text = |key: &str| o.get(key).and_then(Value::as_str).map(str::to_string);
+            Some((text("criterion_id")?, ReviewObjection { why: text("why")?, command: text("command").unwrap_or_default() }))
+        })
+        .collect()
+}
+
+/// Where the review's diff is read from: the Story's worktree when it is on disk, else the
+/// project's repository, which shares its refs.
+fn review_checkout(conn: &Connection, story_id: &str, worktree: Option<&Path>) -> anyhow::Result<Option<std::path::PathBuf>> {
+    if let Some(path) = worktree {
+        return Ok(Some(path.to_path_buf()));
+    }
+    let repo: Option<String> = conn
+        .query_row(
+            "SELECT p.repo_path FROM projects p JOIN stories s ON s.project_id = p.id WHERE s.id = ?1",
+            params![story_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(repo.map(std::path::PathBuf::from).filter(|p| p.is_dir()))
+}
+
+/// Where one review's patches are read from, resolved from the board without running git: the
+/// open review's base, and the Story's worktree (or, without one on disk, the repository and the
+/// head recorded at hand-off). A caller holding a shared connection resolves this, lets go of the
+/// connection, then calls [`PatchSource::patch`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatchSource {
+    checkout: std::path::PathBuf,
+    base_sha: String,
+    /// `None`: read the worktree's head when the patch is read.
+    head_sha: Option<String>,
+}
+
+impl PatchSource {
+    /// One changed file's patch, `base_sha...` the branch's head now, as `git diff` prints it.
+    /// `old_path` is a rename's source.
+    pub fn patch(&self, path: &str, old_path: Option<&str>) -> anyhow::Result<String> {
+        let head = match &self.head_sha {
+            Some(sha) => sha.clone(),
+            None => check::worktree_head(&self.checkout)?,
+        };
+        crate::git::review_patch(&self.checkout, &self.base_sha, &head, path, old_path)
+    }
+}
+
+/// Resolve where the open review of `story_id` reads its patches from. Runs no git.
+pub fn review_patch_source(conn: &Connection, story_id: &str) -> anyhow::Result<PatchSource> {
+    let review = open_review(conn, story_id)?.context("this Story has no open review")?;
+    let worktree = worktree_for_story(conn, story_id)?;
+    let on_disk = worktree.as_ref().map(|w| Path::new(&w.path)).filter(|p| p.is_dir());
+    let checkout = review_checkout(conn, story_id, on_disk)?.context("neither the worktree nor the repository is on disk")?;
+    Ok(PatchSource {
+        checkout,
+        base_sha: review.base_sha,
+        head_sha: if on_disk.is_some() { None } else { Some(review.head_sha) },
+    })
+}
+
+/// One changed file's patch in the open review's diff (`base_sha...` the branch's head now). The
+/// range is read here, never taken from the caller.
+pub fn review_file_patch(conn: &Connection, story_id: &str, path: &str, old_path: Option<&str>) -> anyhow::Result<String> {
+    review_patch_source(conn, story_id)?.patch(path, old_path)
 }

@@ -167,7 +167,7 @@ export const BOARD_TOOL_DEFINITIONS = [
   {
     name: "handoff",
     description:
-      "Hand your Story off for review once its work is committed. Bring your Task checklist up to date first, with no Task left doing: the hand-off is refused otherwise. Flywheel then runs every Check, records each result against your branch's commit, and moves the Story to In review whatever the results. Leave a summary for the next session: what it must know, and what was decided (including any Check you think is wrong, and why). For every ADR your branch adds under docs/adr/, give its bar lines in `adrs`: why it is hard to reverse, why it would surprise a reader, which alternative lost, and the ADRs it relates to. The developer sees them beside the ADR at review; they are never written into the file. End your turn once it answers.",
+      "Hand your Story off for review once its work is committed. Bring your Task checklist up to date first, with no Task left doing: the hand-off is refused otherwise. Flywheel then runs every Check, records each result against your branch's commit, and moves the Story to In review whatever the results. Leave a summary for the next session: what it must know, and what was decided. If you think a Check is wrong, say so in check_objections, naming its criterion by its number in your Story's list and why: the developer reads each objection beside that Check at review. Only a criterion with a Check can be objected to. For every ADR your branch adds under docs/adr/, give its bar lines in `adrs`: why it is hard to reverse, why it would surprise a reader, which alternative lost, and the ADRs it relates to. The developer sees them beside the ADR at review; they are never written into the file. End your turn once it answers.",
     inputSchema: {
       type: "object",
       properties: {
@@ -186,6 +186,23 @@ export const BOARD_TOOL_DEFINITIONS = [
               relates_to: { type: "string", maxLength: 1000, description: "The ADRs it relates to (ADR-NNNN…), or none." },
             },
             required: ["path", "hard_to_reverse", "surprising", "losing_alternative"],
+          },
+        },
+        check_objections: {
+          type: "array",
+          maxItems: 50,
+          description: "Optional. Your objections to Checks you think are wrong, one per Check.",
+          items: {
+            type: "object",
+            properties: {
+              criterion: {
+                type: "integer",
+                minimum: 1,
+                description: "The criterion's number in your Story's list of Acceptance criteria, from 1.",
+              },
+              why: { type: "string", minLength: 1, maxLength: 4000, description: "Why you think its Check is wrong." },
+            },
+            required: ["criterion", "why"],
           },
         },
       },

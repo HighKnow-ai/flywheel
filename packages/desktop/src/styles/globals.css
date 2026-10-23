@@ -73,6 +73,8 @@
   --strip-foreground: #f2f3f5;
   --strip-muted-foreground: #a4a9b3;
   --lamp: #25282f;
+  --diff-insert: #e3f4e7;
+  --diff-delete: #fce6e4;
   --chart-1: #111318;
   --chart-2: #7d838f;
   --chart-3: #3c64dd;
@@ -142,6 +144,8 @@
   --strip-foreground: #f2f3f5;
   --strip-muted-foreground: #9aa0aa;
   --lamp: #1a1c20;
+  --diff-insert: #142a1b;
+  --diff-delete: #351816;
   --chart-1: #eceef1;
   --chart-2: #7d838f;
   --chart-3: #3c64dd;
@@ -197,6 +201,8 @@
   --color-strip-foreground: var(--strip-foreground);
   --color-strip-muted-foreground: var(--strip-muted-foreground);
   --color-lamp: var(--lamp);
+  --color-diff-insert: var(--diff-insert);
+  --color-diff-delete: var(--diff-delete);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -348,6 +354,73 @@
 
 .agent-pulse {
   animation: agent-pulse 1.6s var(--ease) infinite;
+}
+
+/*
+ * The review card's diff (issue #157), drawn by react-diff-view: the code face at meta size on the card, an
+ * added line on --diff-insert and a removed one on --diff-delete, each also marked + or − in its own column
+ * so the change never rests on colour alone. Line numbers are muted and tabular; the hunk header is a muted
+ * band. Selecting lines does nothing, so the gutter keeps the default cursor.
+ */
+.review-diff {
+  --diff-background-color: var(--card);
+  --diff-text-color: var(--foreground);
+  --diff-font-family: var(--font-code);
+  --diff-selection-background-color: var(--primary);
+  --diff-selection-text-color: var(--primary-foreground);
+  --diff-gutter-insert-background-color: var(--diff-insert);
+  --diff-gutter-delete-background-color: var(--diff-delete);
+  --diff-code-insert-background-color: var(--diff-insert);
+  --diff-code-delete-background-color: var(--diff-delete);
+  --diff-code-insert-edit-background-color: var(--diff-insert);
+  --diff-code-delete-edit-background-color: var(--diff-delete);
+  --diff-gutter-selected-background-color: var(--running-muted);
+  --diff-code-selected-background-color: var(--running-muted);
+  --diff-omit-gutter-line-color: var(--border);
+  font-size: 12px;
+}
+
+.review-diff .diff-line {
+  line-height: 1.6;
+}
+
+.review-diff .diff-gutter {
+  cursor: default;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-diff .diff-gutter-col {
+  width: 5ch;
+}
+
+.review-diff .diff-code {
+  padding-left: 0;
+}
+
+.review-diff .diff-code::before {
+  display: inline-block;
+  width: 2.5ch;
+  text-align: center;
+  color: var(--muted-foreground);
+  content: " ";
+  user-select: none;
+}
+
+.review-diff .diff-code-insert::before {
+  content: "+";
+  color: var(--foreground);
+}
+
+.review-diff .diff-code-delete::before {
+  content: "−";
+  color: var(--foreground);
+}
+
+.review-diff .diff-decoration-content {
+  padding: 2px 10px;
+  background: var(--muted);
+  color: var(--muted-foreground);
 }
 
 @media (prefers-reduced-motion: reduce) {

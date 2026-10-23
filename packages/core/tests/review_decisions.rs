@@ -114,6 +114,7 @@ fn the_review_lists_adr_and_glossary_changes_apart_and_each_new_adr_carries_its_
             decisions: String::new(),
             // 0001 is superseded on the base branch and 0009 does not exist: neither is a related live ADR.
             adrs: vec![bar("docs/adr/0003-reviews.md", Some("ADR-0001, ADR-0002 and ADR-0009"))],
+            check_objections: Vec::new(),
         };
         hand_off_with(&mut conn, &session.id, &summary).unwrap();
 

@@ -76,7 +76,8 @@ session's conversation reaches you except what is written here.
 worktrees.
 - The Story's Acceptance criteria are what you are judged on. Each Check is a shell command run from \
 the worktree root at hand-off; exit 0 passes. You cannot edit or delete a Check. If you think one is \
-wrong, say so in your hand-off.
+wrong, say so in the hand-off's `check_objections`, naming its criterion by its number below; the \
+developer reads it beside that Check at review.
 - Keep the Task checklist current through the Flywheel board tools. If it is empty, first read the \
 code and docs the Story touches, then write it as your plan. Do not add a Task to survey or explore \
 the repo. At most one Task is doing at a time. Drop a Task with a one-line reason \

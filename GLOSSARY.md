@@ -49,8 +49,16 @@ An executable test or command attached to an Acceptance criterion that must pass
 _Avoid_: Validation, gate
 
 **Review**:
-The developer's judgement of a Story In review, opened by its hand-off and closed by Merge or a request for changes. It records the diff's size, the Tasks not done and the bar lines of each ADR the Story wrote, at hand-off, and, at Merge, any failing Check the developer overrode. A Story has at most one open review (ADR 0010).
+The developer's judgement of a Story In review, opened by its hand-off and closed by Merge or a request for changes. It records the diff's size, the Tasks not done, the agent's Check objections and the bar lines of each ADR the Story wrote, at hand-off, and, at Merge, any failing Check the developer overrode. A Story has at most one open review (ADR 0010).
 _Avoid_: PR, code review (for the record)
+
+**Check objection**:
+The handing-off agent's statement that a Check is wrong, naming the criterion it is on and why. Kept on the review and shown beside that Check; it never changes the Check's result, and only the developer can edit or override the Check.
+_Avoid_: Dispute, waiver
+
+**Re-run Checks**:
+The developer's act, from the review card, of running every Check of an In review Story again in its worktree without a session, each run recorded against the branch's head. Refused while a session of the Story is live.
+_Avoid_: Retest, rerun (for an agent's own `checks_run`)
 
 **Merge**:
 The developer's act that ends a review: Flywheel writes a merge commit on the project's local base branch, removes the worktree and the branch, links each new ADR to the Story by path, and moves the Story to Merged. It needs every criterion accepted, and a Check failed, timed out, not run or stale needs "Merge with failing Check". Flywheel never pushes (ADR 0009).
