@@ -1016,6 +1016,41 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     setTriageDuplicateInFixture(false);
   });
 
+  it("104 review card: the Decisions section's flags, and Not an ADR and Wrong decision beside Keep (issue #164)", async () => {
+    setReviewInFixture("adr_flags");
+    await boardReady();
+    await click("Open review of FLY-3");
+    const section = await screen.findByRole("region", { name: "Decisions, 5 changes" });
+    await screen.findByText("Wording or supersede?");
+    section.scrollIntoView({ block: "start" });
+    await shot("104-review-card-adr-flags");
+  });
+
+  it("105 review card: a marked ADR holds Merge, and the composer lists the ADR review points it sends (issue #164)", async () => {
+    setReviewInFixture("adr_flags");
+    await boardReady();
+    await click("Open review of FLY-3");
+    await click("Request changes on FLY-3");
+    await screen.findByRole("list", { name: "Also sent: 4 ADR review points" });
+    (await screen.findByRole("button", { name: "Send FLY-3 back to Running" })).scrollIntoView({ block: "end" });
+    await shot("105-review-card-adr-review-points");
+  });
+
+  it("106 review card: the flags and the three choices at the window's minimum width (issue #164)", async () => {
+    setReviewInFixture("adr_flags");
+    await page.viewport(900, 900);
+    try {
+      await boardReady();
+      await click("Open review of FLY-3");
+      const section = await screen.findByRole("region", { name: "Decisions, 5 changes" });
+      await screen.findByText("Wording or supersede?");
+      section.scrollIntoView({ block: "start" });
+      await shot("106-review-card-adr-flags-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
   it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {
     slicingShaping();
     await boardReady();

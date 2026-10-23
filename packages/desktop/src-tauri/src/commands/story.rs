@@ -171,7 +171,10 @@ pub fn story_request_changes(
     story_id: String,
     comments: String,
 ) -> Result<super::session::SessionDto, String> {
-    validate_text("comments", &comments, MAX_PROSE_LEN)?;
+    // Blank comments are the core's to judge: the review's ADR review points may be enough (issue #164).
+    if !comments.trim().is_empty() {
+        validate_text("comments", &comments, MAX_PROSE_LEN)?;
+    }
     let result = request_changes_and_launch(
         &state.db,
         &story_id,

@@ -64,6 +64,7 @@ const ROSTER: &[&str] = &[
     "proposal::proposal_list_pending",
     "proposal::proposal_reject",
     "review::review_file_patch",
+    "review::story_adr_decide",
     "review::story_checks_rerun",
     "review::story_merge",
     "review::story_review",

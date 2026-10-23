@@ -61,11 +61,11 @@ The developer's act, from the review card, of running every Check of an In revie
 _Avoid_: Retest, rerun (for an agent's own `checks_run`)
 
 **Merge**:
-The developer's act that ends a review: Flywheel writes a merge commit on the project's local base branch, removes the worktree and the branch, links each new ADR to the Story by path, and moves the Story to Merged. It needs every criterion accepted, and a Check failed, timed out, not run or stale needs "Merge with failing Check". Flywheel never pushes (ADR 0009).
+The developer's act that ends a review: Flywheel writes a merge commit on the project's local base branch, removes the worktree and the branch, links each new ADR to the Story by path, and moves the Story to Merged. It needs every criterion accepted and no new ADR marked Not an ADR or Wrong decision, and a Check failed, timed out, not run or stale needs "Merge with failing Check". Flywheel never pushes (ADR 0009).
 _Avoid_: Ship, land
 
 **Request changes**:
-The developer's act that ends a review without merging: the review closes with the developer's comments, the Story moves back to Running, and a fresh session starts in the same worktree from a Context packet that carries the comments. The Task checklist is kept, and the agent adds one Task per review point before going on. A launch that fails leaves the Story Stopped, with Resume.
+The developer's act that ends a review without merging: the review closes with the developer's comments, the Story moves back to Running, and a fresh session starts in the same worktree from a Context packet that carries the comments. The Task checklist is kept, and the agent adds one Task per review point before going on. The review's ADR decisions and its Renumber and Supersession line missing flags go with the comments as "ADR review points", so the comments may be left empty when there are any. A launch that fails leaves the Story Stopped, with Resume.
 _Avoid_: Reject, send back (as a name), reopen
 
 **Rebase needed**:
@@ -85,8 +85,16 @@ The four lines an ADR is offered with, shown beside it and never written into th
 _Avoid_: ADR metadata, front matter
 
 **Decisions section**:
-The part of a review that lists the Story's `docs/adr/` and `GLOSSARY.md` changes apart from its code, with a count. Each new ADR shows its bar lines, the live ADRs it relates to, and Keep.
+The part of a review that lists the Story's `docs/adr/` and `GLOSSARY.md` changes apart from its code, with a count. Each new ADR shows its bar lines, the live ADRs it relates to, and its ADR decision. Each change also shows its ADR flags.
 _Avoid_: Knowledge diff
+
+**ADR decision**:
+The developer's verdict on an ADR a Story adds, taken at review: **Keep** (the default), **Not an ADR** (the agent deletes the file and keeps the decision out of `docs/adr/`) or **Wrong decision** (what is wrong and what it should be, a review point on both the code and the ADR). Not an ADR and Wrong decision are stored on the review and hold Merge; neither sends the Story back by itself. A request for changes carries them as review points (ADR 0016).
+_Avoid_: ADR approval, ADR rejection
+
+**ADR flag**:
+What the Decisions section raises on an ADR change, read from git and never stored: **Wording or supersede?** (an existing ADR with a changed line other than `Status:`), **Renumber** (a new ADR whose number another file holds on the base branch's tip) and **Supersession line missing** (a new ADR supersedes one whose file has no `Status: superseded by` line). A flag never holds Merge; a request for changes carries Renumber and Supersession line missing as review points (ADR 0016).
+_Avoid_: ADR warning, lint
 
 **Proposal**:
 A change suggested by an agent to any board record, ADR or glossary term (create, amend, reorder or retire it) that has no effect until the developer accepts it.

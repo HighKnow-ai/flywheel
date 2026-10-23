@@ -3,7 +3,8 @@
 //! the worktree is removed. Merge never pushes.
 //!
 //! [`merge_story`] is human-only, and refuses (writing nothing, in git or on the board) unless:
-//! the Story is In review, no session is live, every criterion is accepted, the worktree is clean,
+//! the Story is In review, no session is live, every criterion is accepted, no new ADR is marked Not
+//! an ADR or Wrong decision (issue #164), the worktree is clean,
 //! and every Check passed at the branch's current head. A failed, timed out, not run or stale Check
 //! needs [`MergeOptions::with_failing_checks`], which is recorded on the review and in the
 //! `story.merged` event. A merge that would conflict refuses, naming the paths.
@@ -29,7 +30,7 @@ use serde_json::Value;
 
 use crate::domain::actor::assert_human_actor;
 use crate::domain::adr_link::{is_linked, link_adr_in_tx, AdrLinkTarget};
-use crate::domain::review_decisions::{accepted_epic_adrs, new_adr_paths};
+use crate::domain::review_decisions::{accepted_epic_adrs, new_adr_paths, stored_adr_decisions};
 use crate::domain::review::{close_review_in_tx, open_review_in_tx, read_review_diff, review_for_story, StoryReview};
 use crate::domain::story::{get_story, set_story_state_in_tx, StoryState};
 use crate::domain::worktree::{record_worktree_removed_in_tx, worktree_for_story, Worktree};
@@ -105,6 +106,21 @@ fn refusal(key: &str, review: &StoryReview, options: MergeOptions) -> Option<Str
         return Some(format!(
             "Accept every criterion before merging. Not accepted yet: {}.",
             unaccepted.join(", ")
+        ));
+    }
+    let held: Vec<String> = review
+        .review
+        .as_ref()
+        .map(|r| stored_adr_decisions(&r.adr_decisions))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|d| d.decision.holds_merge())
+        .map(|d| format!("{} ({})", d.path, d.decision.words()))
+        .collect();
+    if !held.is_empty() {
+        return Some(format!(
+            "An ADR is marked for the agent to change: {}. Request changes to send it back, or set it to Keep.",
+            held.join(", ")
         ));
     }
     if !review.uncommitted.is_empty() {

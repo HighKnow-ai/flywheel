@@ -191,6 +191,7 @@ fn main() {
             commands::review::story_merge,
             commands::review::review_file_patch,
             commands::review::story_checks_rerun,
+            commands::review::story_adr_decide,
             commands::criterion::criterion_create,
             commands::criterion::criterion_list,
             commands::criterion::criterion_amend,

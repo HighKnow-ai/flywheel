@@ -19,7 +19,9 @@ use std::sync::Mutex;
 use flywheel_core::domain::handoff::{complete_review_run, plan_review_run, run_checks, ReviewRunOutcome, ReviewRunRefused};
 use flywheel_core::domain::proposal_apply::AdrBarLines;
 use flywheel_core::domain::review::{Review, ReviewCheck, ReviewCriterion, ReviewObjection, StoryReview};
-use flywheel_core::domain::review_decisions::{DecisionChange, NewAdr, RelatedAdr, ReviewDecisions};
+use flywheel_core::domain::review_decisions::{
+    AdrDecision, DecisionChange, DecisionFlag, NewAdr, RelatedAdr, ReviewDecisions,
+};
 use flywheel_core::git::ReviewFile;
 use flywheel_core::domain::story_merge::{MergeOptions, MergeOutcome, MergeRefused};
 use serde::Serialize;
@@ -27,7 +29,7 @@ use serde_json::Value;
 use rusqlite::Connection;
 use tauri::{AppHandle, Manager, State};
 
-use super::{emit_board_changed, ipc_error};
+use super::{emit_board_changed, ipc_error, validate_text, MAX_PROSE_LEN};
 use crate::state::AppState;
 
 /// The handing-off agent's objection to a Check.
@@ -166,6 +168,60 @@ impl From<RelatedAdr> for RelatedAdrDto {
     }
 }
 
+/// The developer's decision on a new ADR (issue #164).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdrDecisionDto {
+    /// `keep`, `not_an_adr` or `wrong_decision`.
+    pub kind: String,
+    /// Set for `wrong_decision`.
+    pub what_is_wrong: Option<String>,
+    pub should_be: Option<String>,
+}
+
+impl From<AdrDecision> for AdrDecisionDto {
+    fn from(d: AdrDecision) -> Self {
+        let kind = d.as_str().to_string();
+        match d {
+            AdrDecision::WrongDecision { what_is_wrong, should_be } => {
+                Self { kind, what_is_wrong: Some(what_is_wrong), should_be: Some(should_be) }
+            }
+            _ => Self { kind, what_is_wrong: None, should_be: None },
+        }
+    }
+}
+
+/// What the Decisions section flags on an ADR change (issue #164).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecisionFlagDto {
+    /// `wording_or_supersede`, `renumber` or `supersession_line_missing`.
+    pub kind: String,
+    /// Renumber: the number taken. Supersession line missing: the superseded ADR's number.
+    pub number: Option<u32>,
+    /// Renumber: the file holding the number on the base branch, and that branch.
+    pub taken_by: Option<String>,
+    pub base_branch: Option<String>,
+    /// Supersession line missing: the ADR file without its `Status: superseded by` line.
+    pub superseded: Option<String>,
+}
+
+impl From<DecisionFlag> for DecisionFlagDto {
+    fn from(f: DecisionFlag) -> Self {
+        let kind = f.as_str().to_string();
+        let empty = Self { kind, number: None, taken_by: None, base_branch: None, superseded: None };
+        match f {
+            DecisionFlag::WordingOrSupersede => empty,
+            DecisionFlag::Renumber { number, taken_by, base_branch } => {
+                Self { number: Some(number), taken_by: Some(taken_by), base_branch: Some(base_branch), ..empty }
+            }
+            DecisionFlag::SupersessionLineMissing { superseded, number } => {
+                Self { number: Some(number), superseded: Some(superseded), ..empty }
+            }
+        }
+    }
+}
+
 /// A new ADR's card in the Decisions section.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -178,6 +234,8 @@ pub struct NewAdrDto {
     pub related: Vec<RelatedAdrDto>,
     /// The ADR Proposal accepted on the Epic in shaping at this path.
     pub proposal_id: Option<String>,
+    /// Keep, Not an ADR or Wrong decision, as stored on the open review.
+    pub decision: AdrDecisionDto,
 }
 
 impl From<NewAdr> for NewAdrDto {
@@ -188,6 +246,7 @@ impl From<NewAdr> for NewAdrDto {
             bar_lines_from: a.bar_lines_from.map(|s| s.as_str().to_string()),
             related: a.related.into_iter().map(RelatedAdrDto::from).collect(),
             proposal_id: a.proposal_id,
+            decision: a.decision.into(),
         }
     }
 }
@@ -206,6 +265,8 @@ pub struct DecisionChangeDto {
     pub removed: Option<u32>,
     /// Set for an ADR the branch adds.
     pub new_adr: Option<NewAdrDto>,
+    /// Wording or supersede?, Renumber, Supersession line missing.
+    pub flags: Vec<DecisionFlagDto>,
 }
 
 impl From<DecisionChange> for DecisionChangeDto {
@@ -218,6 +279,7 @@ impl From<DecisionChange> for DecisionChangeDto {
             added: c.added,
             removed: c.removed,
             new_adr: c.new_adr.map(NewAdrDto::from),
+            flags: c.flags.into_iter().map(DecisionFlagDto::from).collect(),
         }
     }
 }
@@ -267,11 +329,19 @@ pub struct StoryReviewDto {
     pub conflicts: Vec<String>,
     /// The request for changes Rebase needed pre-fills, naming the base branch and those paths.
     pub rebase_comment: Option<String>,
+    /// The ADR review points a request for changes carries after the comments (issue #164): each
+    /// Not an ADR and Wrong decision, and each renumber and missing supersession line.
+    pub adr_review_points: Vec<String>,
 }
 
 impl StoryReviewDto {
     fn new(r: StoryReview, decisions: ReviewDecisions) -> Self {
-        Self { decisions: decisions.changes.into_iter().map(DecisionChangeDto::from).collect(), ..Self::from(r) }
+        let adr_review_points = decisions.review_points();
+        Self {
+            decisions: decisions.changes.into_iter().map(DecisionChangeDto::from).collect(),
+            adr_review_points,
+            ..Self::from(r)
+        }
     }
 }
 
@@ -293,6 +363,7 @@ impl From<StoryReview> for StoryReviewDto {
             conflicts: r.conflicts,
             rebase_comment,
             files: r.files.into_iter().map(ReviewFileDto::from).collect(),
+            adr_review_points: Vec::new(),
         }
     }
 }
@@ -445,6 +516,41 @@ pub async fn story_checks_rerun(app: AppHandle, story_id: String) -> Result<Chec
         .map_err(rerun_error)?;
     emit_board_changed(&app, Some(&outcome.project_id), "story", Some(&outcome.story_id));
     Ok(ChecksRerunDto::from(&outcome))
+}
+
+/// The developer's decision on a new ADR in the Decisions section (issue #164): `keep`, `not_an_adr`,
+/// or `wrong_decision` with what is wrong and what it should be. Stored on the open review; it holds
+/// Merge until set back to Keep, and Request changes carries it to the agent.
+#[tauri::command]
+pub fn story_adr_decide(
+    state: State<AppState>,
+    app: AppHandle,
+    story_id: String,
+    path: String,
+    decision: String,
+    what_is_wrong: Option<String>,
+    should_be: Option<String>,
+) -> Result<(), String> {
+    let decision = match decision.as_str() {
+        "keep" => AdrDecision::Keep,
+        "not_an_adr" => AdrDecision::NotAnAdr,
+        "wrong_decision" => {
+            let what_is_wrong = what_is_wrong.unwrap_or_default();
+            let should_be = should_be.unwrap_or_default();
+            validate_text("what is wrong", &what_is_wrong, MAX_PROSE_LEN)?;
+            validate_text("what it should be", &should_be, MAX_PROSE_LEN)?;
+            AdrDecision::WrongDecision { what_is_wrong, should_be }
+        }
+        other => return Err(format!("unknown ADR decision {other:?}")),
+    };
+    let mut conn = state.db.lock().map_err(|e| ipc_error("story_adr_decide:lock", e))?;
+    let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| ipc_error("story_adr_decide:actor", e))?;
+    flywheel_core::domain::review_decisions::set_adr_decision(&mut conn, &human, &story_id, &path, &decision)
+        .map_err(|e| format!("{e:#}"))?;
+    let project_id = super::project_of(&conn, "stories", &story_id);
+    drop(conn);
+    emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
+    Ok(())
 }
 
 /// A Merge failure as the renderer sees it: a refusal's own words, or a fixed category.

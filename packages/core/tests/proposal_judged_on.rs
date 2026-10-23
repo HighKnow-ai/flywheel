@@ -309,11 +309,11 @@ fn judged_on_is_an_amend_criterion_or_a_story_sessions_amend_epic_spec() {
 #[test]
 fn a_fresh_database_migrates_through_0013() {
     let sources = core::db::migration_sources();
-    assert_eq!(sources.len(), 13, "0001 through 0013, none missing");
-    assert!(sources[12].contains("stale_since"), "0013 is the last migration");
+    assert!(sources.len() >= 13, "0001 through 0013, none missing");
+    assert!(sources[12].contains("stale_since"), "0013 is the thirteenth migration");
     let f = fixture();
     let version: i64 = f.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 13);
+    assert_eq!(version, sources.len() as i64, "every migration ran");
     let stale: Option<String> = f.conn.query_row("SELECT stale_since FROM checks WHERE id = ?1", [&f.check_id], |r| r.get(0)).unwrap();
     assert_eq!(stale, None);
 }

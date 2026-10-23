@@ -21,6 +21,7 @@ use core::domain::story::stories_in_epic;
 use core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
 use core::domain::session_summary::create_summary;
 use core::domain::request_changes::request_changes;
+use core::domain::review_decisions::{set_adr_decision, AdrDecision};
 use core::domain::story::{create_story, set_story_state, write_story_by_hand, HandWrittenCriterion, Story, StoryState};
 use core::domain::task::{add_task, set_task_note, set_task_state, TaskState};
 use core::domain::worktree::ensure_worktree;
@@ -519,6 +520,34 @@ fn the_next_packet_names_the_proposals_decided_since_the_last_session() {
         assert!(!review_section(&later).contains("Your Proposals decided"), "{later}");
         assert!(later.contains("Section 7 names your Proposals decided since your last session"), "the agent is told where to look");
         assert!(review_section(&later).contains("None."), "{later}");
+    });
+}
+
+/// Issue #164: an ADR marked Not an ADR or Wrong decision at review reaches section 7 as a review
+/// point after the developer's comments, under "ADR review points:", so the agent adds a Task for it.
+#[test]
+fn adr_decisions_at_review_reach_section_seven_as_review_points() {
+    with_scratch_worktree_root(|_| {
+        let mut f = fixture();
+        set_story_state(&mut f.conn, &f.actor_id, &f.story.id, StoryState::Running).unwrap();
+        set_story_state(&mut f.conn, &f.actor_id, &f.story.id, StoryState::InReview).unwrap();
+        set_adr_decision(&mut f.conn, &f.actor_id, &f.story.id, "docs/adr/0006-other.md", &AdrDecision::NotAnAdr).unwrap();
+        let wrong = AdrDecision::WrongDecision { what_is_wrong: "SQLite cannot hold the fleet".into(), should_be: "Keep SQLite, with WAL".into() };
+        set_adr_decision(&mut f.conn, &f.actor_id, &f.story.id, "docs/adr/0003-third.md", &wrong).unwrap();
+        request_changes(&mut f.conn, &f.actor_id, &f.story.id, "Cover an empty file.").unwrap();
+
+        let packet = build_context_packet(&f.conn, &f.story.id, "").unwrap();
+        let section = review_section(&packet);
+        assert!(
+            section.contains(
+                "The developer requested changes at review:\n\nCover an empty file.\n\nADR review points:\n\
+                 - Wrong decision in `docs/adr/0003-third.md`: SQLite cannot hold the fleet. It should be: Keep SQLite, with WAL. \
+                 Change the code and the ADR.\n\
+                 - Delete `docs/adr/0006-other.md`; keep the decision out of docs/adr.\n"
+            ),
+            "{section}"
+        );
+        assert!(section.contains("add one Task per review point"), "{section}");
     });
 }
 

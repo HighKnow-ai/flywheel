@@ -11,11 +11,12 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReviewCard, OpenReviewControl } from "../ReviewCard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import type { DecisionChangeDto, ReviewCheckDto, StoryDto, StoryReviewDto } from "../../adapters/tauri";
+import type { AdrDecisionDto, DecisionChangeDto, ReviewCheckDto, StoryDto, StoryReviewDto } from "../../adapters/tauri";
 
 const storyReview = vi.fn();
 const storyMerge = vi.fn();
 const storyRequestChanges = vi.fn();
+const storyAdrDecide = vi.fn(() => Promise.resolve());
 const criterionAccept = vi.fn(() => Promise.resolve());
 const criterionUnaccept = vi.fn(() => Promise.resolve());
 const reviewFilePatch = vi.fn();
@@ -28,6 +29,7 @@ vi.mock("../../adapters/tauri", async () => {
     storyReview: (...args: unknown[]) => storyReview(...args),
     storyMerge: (...args: unknown[]) => storyMerge(...args),
     storyRequestChanges: (...args: unknown[]) => storyRequestChanges(...args),
+    storyAdrDecide: (...args: unknown[]) => storyAdrDecide(...(args as [])),
     criterionAccept: (...args: unknown[]) => criterionAccept(...(args as [])),
     criterionUnaccept: (...args: unknown[]) => criterionUnaccept(...(args as [])),
     reviewFilePatch: (...args: unknown[]) => reviewFilePatch(...args),
@@ -83,6 +85,7 @@ function review(overrides: Partial<StoryReviewDto> = {}): StoryReviewDto {
     conflicts: [],
     rebaseComment: null,
     files: [],
+    adrReviewPoints: [],
     ...overrides,
   };
 }
@@ -201,6 +204,8 @@ describe("the review card", () => {
   });
 });
 
+const KEEP: AdrDecisionDto = { kind: "keep", whatIsWrong: null, shouldBe: null };
+
 /** Issue #161: the Decisions section, ADR and glossary changes apart from the code. */
 const DECISIONS: DecisionChangeDto[] = [
   {
@@ -211,6 +216,7 @@ const DECISIONS: DecisionChangeDto[] = [
     added: 2,
     removed: 0,
     newAdr: null,
+    flags: [],
   },
   {
     kind: "adr",
@@ -230,7 +236,9 @@ const DECISIONS: DecisionChangeDto[] = [
       barLinesFrom: "handoff",
       related: [{ path: "docs/adr/0002-repo-holds-knowledge.md", title: "The repo holds knowledge" }],
       proposalId: null,
+      decision: KEEP,
     },
+    flags: [],
   },
   {
     kind: "adr",
@@ -239,9 +247,10 @@ const DECISIONS: DecisionChangeDto[] = [
     status: "A",
     added: 4,
     removed: 0,
-    newAdr: { title: "Written bare", barLines: null, barLinesFrom: null, related: [], proposalId: null },
+    newAdr: { title: "Written bare", barLines: null, barLinesFrom: null, related: [], proposalId: null, decision: KEEP },
+    flags: [],
   },
-  { kind: "glossary", path: "GLOSSARY.md", oldPath: null, status: "M", added: 3, removed: 1, newAdr: null },
+  { kind: "glossary", path: "GLOSSARY.md", oldPath: null, status: "M", added: 3, removed: 1, newAdr: null, flags: [] },
 ];
 
 describe("the Decisions section", () => {
@@ -275,6 +284,140 @@ describe("the Decisions section", () => {
     renderCard();
     await screen.findByRole("list", { name: "FLY-7 criteria to accept" });
     expect(screen.queryByRole("region", { name: /Decisions/ })).toBeNull();
+  });
+});
+
+/** Issue #164: the flags, and Not an ADR and Wrong decision beside Keep. */
+const FLAGGED: DecisionChangeDto[] = [
+  {
+    ...DECISIONS[0],
+    flags: [{ kind: "wording_or_supersede", number: null, takenBy: null, baseBranch: null, superseded: null }],
+  },
+  {
+    ...DECISIONS[1],
+    flags: [
+      { kind: "renumber", number: 10, takenBy: "docs/adr/0010-landed-meanwhile.md", baseBranch: "main", superseded: null },
+      { kind: "supersession_line_missing", number: 2, takenBy: null, baseBranch: null, superseded: "docs/adr/0002-repo-holds-knowledge.md" },
+    ],
+  },
+  DECISIONS[2],
+];
+
+function withDecision(change: DecisionChangeDto, decision: AdrDecisionDto): DecisionChangeDto {
+  return { ...change, newAdr: change.newAdr && { ...change.newAdr, decision } };
+}
+
+describe("ADR flags and decisions", () => {
+  it("shows the wording, renumber and supersession flags on their changes, and the three choices on a new ADR", async () => {
+    storyReview.mockResolvedValue(review({ decisions: FLAGGED }));
+    renderCard();
+
+    const section = await screen.findByRole("region", { name: "Decisions, 3 changes" });
+    const edited = within(section).getByText("docs/adr/0002-repo-holds-knowledge.md", { selector: "li > div > code" }).closest("li")!;
+    expect(within(edited).getByText("Wording or supersede?")).toBeInTheDocument();
+    expect(within(edited).getByText(/A line other than Status: changed/)).toBeInTheDocument();
+
+    const card = within(section).getByRole("group", { name: /Reviews are a board record/ });
+    const flags = within(card).getByRole("list", { name: "Flags" });
+    expect(within(flags).getByText("Renumber")).toBeInTheDocument();
+    expect(within(flags).getByText(/ADR-0010 is already taken on main by/)).toBeInTheDocument();
+    expect(within(flags).getByText("docs/adr/0010-landed-meanwhile.md")).toBeInTheDocument();
+    expect(within(flags).getByText("Supersession line missing")).toBeInTheDocument();
+
+    const choices = within(card).getByRole("radiogroup", { name: "Decision on Reviews are a board record" });
+    expect(within(choices).getByRole("radio", { name: "Keep" })).toBeChecked();
+    expect(within(choices).getByRole("radio", { name: "Not an ADR" })).not.toBeChecked();
+    expect(within(choices).getByRole("radio", { name: "Wrong decision" })).not.toBeChecked();
+
+    const bare = within(section).getByRole("group", { name: /Written bare/ });
+    expect(within(bare).queryByRole("list", { name: "Flags" })).toBeNull();
+  });
+
+  it("stores Not an ADR on the pick, and Wrong decision only once both fields are filled", async () => {
+    storyReview.mockResolvedValue(review({ decisions: FLAGGED }));
+    renderCard();
+    const card = await screen.findByRole("group", { name: /Reviews are a board record/ });
+
+    fireEvent.click(within(card).getByRole("radio", { name: "Not an ADR" }));
+    await waitFor(() =>
+      expect(storyAdrDecide).toHaveBeenCalledWith("s1", "docs/adr/0010-reviews-are-a-board-record.md", "not_an_adr", null, null),
+    );
+
+    fireEvent.click(within(card).getByRole("radio", { name: "Wrong decision" }));
+    const wrong = within(card).getByRole("textbox", { name: "What is wrong?" });
+    const should = within(card).getByRole("textbox", { name: "What should it be?" });
+    fireEvent.click(within(card).getByRole("button", { name: "Record Wrong decision" }));
+    expect(within(card).getByText("Say both what is wrong and what it should be.")).toBeInTheDocument();
+    expect(storyAdrDecide).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(wrong, { target: { value: "It keeps the lock across the git call" } });
+    fireEvent.change(should, { target: { value: "Release the lock first" } });
+    fireEvent.click(within(card).getByRole("button", { name: "Record Wrong decision" }));
+    await waitFor(() =>
+      expect(storyAdrDecide).toHaveBeenLastCalledWith(
+        "s1",
+        "docs/adr/0010-reviews-are-a-board-record.md",
+        "wrong_decision",
+        "It keeps the lock across the git call",
+        "Release the lock first",
+      ),
+    );
+  });
+
+  it("holds Merge while an ADR is marked, and the composer sends the ADR review points even with no comment", async () => {
+    const points = [
+      "Delete `docs/adr/0010-reviews-are-a-board-record.md`; keep the decision out of docs/adr.",
+      "Add a `Status: superseded by ADR-0010` line to `docs/adr/0002-repo-holds-knowledge.md`, which `docs/adr/0010-reviews-are-a-board-record.md` supersedes.",
+    ];
+    storyReview.mockResolvedValue(
+      review({
+        criteria: review().criteria.map((c) => ({ ...c, accepted: true })),
+        decisions: [withDecision(FLAGGED[1], { kind: "not_an_adr", whatIsWrong: null, shouldBe: null })],
+        adrReviewPoints: points,
+      }),
+    );
+    storyRequestChanges.mockResolvedValue({ id: "run2", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
+    renderCard();
+
+    const card = await screen.findByRole("group", { name: /Reviews are a board record/ });
+    expect(within(card).getByRole("radio", { name: "Not an ADR" })).toBeChecked();
+    expect(within(card).getByText(/Merge waits\. Request changes asks the agent to delete the file/)).toBeInTheDocument();
+    const merge = screen.getByRole("button", { name: "Merge FLY-7" });
+    expect(merge).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByText("docs/adr/0010-reviews-are-a-board-record.md is marked Not an ADR: request changes, or set it back to Keep."),
+    ).toBeInTheDocument();
+    fireEvent.click(merge);
+    expect(storyMerge).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Request changes on FLY-7" }));
+    const also = screen.getByRole("list", { name: "Also sent: 2 ADR review points" });
+    expect(within(also).getByText(points[0])).toBeInTheDocument();
+    expect(within(also).getByText(points[1])).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Send FLY-7 back to Running" }));
+    await waitFor(() => expect(storyRequestChanges).toHaveBeenCalledWith("s1", ""));
+  });
+
+  it("shows a recorded Wrong decision's answers, and Keep clears it", async () => {
+    storyReview.mockResolvedValue(
+      review({
+        decisions: [
+          withDecision(DECISIONS[1], { kind: "wrong_decision", whatIsWrong: "It keeps the lock", shouldBe: "Release it first" }),
+        ],
+      }),
+    );
+    renderCard();
+    const card = await screen.findByRole("group", { name: /Reviews are a board record/ });
+    expect(within(card).getByRole("radio", { name: "Wrong decision" })).toBeChecked();
+    expect(within(card).getByRole("textbox", { name: "What is wrong?" })).toHaveValue("It keeps the lock");
+    expect(within(card).getByRole("textbox", { name: "What should it be?" })).toHaveValue("Release it first");
+    expect(within(card).queryByRole("button", { name: "Record Wrong decision" })).toBeNull();
+    expect(within(card).getByText(/sends both answers as one review point on the code and the ADR/)).toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole("radio", { name: "Keep" }));
+    await waitFor(() =>
+      expect(storyAdrDecide).toHaveBeenCalledWith("s1", "docs/adr/0010-reviews-are-a-board-record.md", "keep", null, null),
+    );
   });
 });
 
