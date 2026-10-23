@@ -11,7 +11,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReviewCard, OpenReviewControl } from "../ReviewCard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import type { ReviewCheckDto, StoryDto, StoryReviewDto } from "../../adapters/tauri";
+import type { DecisionChangeDto, ReviewCheckDto, StoryDto, StoryReviewDto } from "../../adapters/tauri";
 
 const storyReview = vi.fn();
 const storyMerge = vi.fn();
@@ -73,6 +73,7 @@ function review(overrides: Partial<StoryReviewDto> = {}): StoryReviewDto {
     failingChecks: [],
     liveSession: false,
     uncommitted: [],
+    decisions: [],
     ...overrides,
   };
 }
@@ -188,6 +189,83 @@ describe("the review card", () => {
     expect(await screen.findByText(/A session is live/)).toBeInTheDocument();
     expect(screen.getByText(/scratch.txt/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Merge FLY-7" })).toHaveAttribute("aria-disabled", "true");
+  });
+});
+
+/** Issue #161: the Decisions section, ADR and glossary changes apart from the code. */
+const DECISIONS: DecisionChangeDto[] = [
+  {
+    kind: "adr",
+    path: "docs/adr/0002-repo-holds-knowledge.md",
+    oldPath: null,
+    status: "M",
+    added: 2,
+    removed: 0,
+    newAdr: null,
+  },
+  {
+    kind: "adr",
+    path: "docs/adr/0010-reviews-are-a-board-record.md",
+    oldPath: null,
+    status: "A",
+    added: 30,
+    removed: 0,
+    newAdr: {
+      title: "Reviews are a board record",
+      barLines: {
+        hardToReverse: "Every review reads it",
+        surprising: "Bar lines usually live in the file",
+        losingAlternative: "Parsing the ADR file",
+        relatesTo: "ADR-0002",
+      },
+      barLinesFrom: "handoff",
+      related: [{ path: "docs/adr/0002-repo-holds-knowledge.md", title: "The repo holds knowledge" }],
+      proposalId: null,
+    },
+  },
+  {
+    kind: "adr",
+    path: "docs/adr/0011-bare.md",
+    oldPath: null,
+    status: "A",
+    added: 4,
+    removed: 0,
+    newAdr: { title: "Written bare", barLines: null, barLinesFrom: null, related: [], proposalId: null },
+  },
+  { kind: "glossary", path: "GLOSSARY.md", oldPath: null, status: "M", added: 3, removed: 1, newAdr: null },
+];
+
+describe("the Decisions section", () => {
+  it("lists ADR and glossary changes apart with a count, each new ADR with its bar lines, related ADRs and Keep selected", async () => {
+    storyReview.mockResolvedValue(review({ decisions: DECISIONS }));
+    renderCard();
+
+    const section = await screen.findByRole("region", { name: "Decisions, 4 changes" });
+    const card = within(section).getByRole("group", { name: /Reviews are a board record/ });
+    expect(within(card).getByText("docs/adr/0010-reviews-are-a-board-record.md")).toBeInTheDocument();
+    const bar = within(card).getByRole("list", { name: "Bar lines" });
+    expect(within(bar).getByText("Every review reads it")).toBeInTheDocument();
+    expect(within(bar).getByText("Bar lines usually live in the file")).toBeInTheDocument();
+    expect(within(bar).getByText("Parsing the ADR file")).toBeInTheDocument();
+    expect(within(card).getByText(/from the hand-off/)).toBeInTheDocument();
+    const related = within(card).getByRole("list", { name: "Related live ADRs" });
+    expect(within(related).getByText("The repo holds knowledge")).toBeInTheDocument();
+    expect(within(card).getByRole("radio", { name: "Keep" })).toBeChecked();
+
+    const bare = within(section).getByRole("group", { name: /Written bare/ });
+    expect(within(bare).getByText("No bar lines")).toBeInTheDocument();
+    expect(within(bare).getByRole("radio", { name: "Keep" })).toBeChecked();
+
+    expect(within(section).getByText("docs/adr/0002-repo-holds-knowledge.md")).toBeInTheDocument();
+    expect(within(section).getByText("GLOSSARY.md")).toBeInTheDocument();
+    expect(within(section).queryByRole("group", { name: /GLOSSARY/ })).toBeNull();
+  });
+
+  it("is left out when the Story changes no ADR and no glossary term", async () => {
+    storyReview.mockResolvedValue(review());
+    renderCard();
+    await screen.findByRole("list", { name: "FLY-7 criteria to accept" });
+    expect(screen.queryByRole("region", { name: /Decisions/ })).toBeNull();
   });
 });
 

@@ -8,7 +8,9 @@
  *    acceptance (`criterion_accept`); unticking withdraws it. A Check that passed at this commit pre-ticks
  *    its criterion only as a suggestion: the box wears the dashed "not on the record yet" edge until the
  *    developer ticks it.
- * 3. The footer: what still holds Merge, then Merge (the region's one filled primary), or, while a Check is
+ * 3. The Decisions section (issue #161, `DecisionsSection.tsx`): `docs/adr/` and `GLOSSARY.md` changes apart
+ *    from the code, each new ADR with its bar lines, its related live ADRs and Keep.
+ * 4. The footer: what still holds Merge, then Merge (the region's one filled primary), or, while a Check is
  *    failing, "Merge with failing Check", which confirms in an AlertDialog naming those Checks.
  *
  * Every write is a core command; the card re-reads on `board:changed` and never trusts its own edit. A
@@ -29,6 +31,7 @@ import {
   type StoryReviewDto,
 } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
+import { DecisionsSection } from "./DecisionsSection";
 import { useUiStore } from "../state/uiStore";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -359,6 +362,7 @@ export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
       <div className="flex flex-col gap-4 px-4 pb-4">
         {reviewQuery.isError && <p className="m-0 text-small text-destructive-text">{errorText(reviewQuery.error)}</p>}
         {review && review.failingChecks.length > 0 && <FailingChecks checks={review.failingChecks} />}
+        {review && <DecisionsSection decisions={review.decisions} />}
         {review && review.criteria.length === 0 && (
           <p className="m-0 text-body text-muted-foreground">This Story has no Acceptance criteria to accept.</p>
         )}
