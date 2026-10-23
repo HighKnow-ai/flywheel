@@ -27,6 +27,10 @@ path = "tests/bin/uat_fleet_ops.rs"
 name = "uat_roadmap_ops"
 path = "tests/bin/uat_roadmap_ops.rs"
 
+[[bin]]
+name = "uat_shaping_ops"
+path = "tests/bin/uat_shaping_ops.rs"
+
 [dependencies]
 rusqlite = { version = "0.40", features = ["bundled", "serde_json", "chrono"] }
 rusqlite_migration = "2.6"

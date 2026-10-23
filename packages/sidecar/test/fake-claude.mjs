@@ -158,8 +158,11 @@ async function callTaskToolOnce(toolCall) {
  * holds the script until the core answers it. A step runs only when its `when` regex matches the
  * packet and its `unless` regex does not, so one script can answer differently to different packets.
  * In any string argument, `{{prompt:<regex>}}` is replaced by that regex's first capture group in the
- * packet (a step whose placeholder does not match fails loudly as `board_call_unresolved`). Each call
- * prints a `board_call_result` line `{name, isError, text}`; a skipped step prints `board_call_skipped`.
+ * packet (a step whose placeholder does not match fails loudly as `board_call_unresolved`), and
+ * `{{result:<tool>:<field>}}` by that field of the JSON the latest successful call to `<tool>` in this
+ * session answered with (issue #130: the second `propose_story` names the first one's `proposal_id` in
+ * `runs_after`, as an agent reads it off the first call's answer). Each call prints a `board_call_result`
+ * line `{name, isError, text}`; a skipped step prints `board_call_skipped`.
  */
 async function runBoardScript(steps) {
   const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
@@ -171,13 +174,21 @@ async function runBoardScript(steps) {
   const transport = new StdioClientTransport({ command: serverConfig.command, args: serverConfig.args });
   const client = new Client({ name: "fake-claude", version: "0.1.0" });
   await client.connect(transport);
+  /** The latest successful answer of each tool, parsed. */
+  const answers = new Map();
   const resolve = (value) => {
     if (typeof value === "string") {
-      return value.replace(/\{\{prompt:(.+?)\}\}/g, (_, source) => {
-        const match = prompt.match(new RegExp(source));
-        if (!match) throw new Error(`no match for ${source}`);
-        return match[1];
-      });
+      return value
+        .replace(/\{\{prompt:(.+?)\}\}/g, (_, source) => {
+          const match = prompt.match(new RegExp(source));
+          if (!match) throw new Error(`no match for ${source}`);
+          return match[1];
+        })
+        .replace(/\{\{result:([a-z_]+):([a-z_]+)\}\}/g, (_, tool, field) => {
+          const found = answers.get(tool)?.[field];
+          if (typeof found !== "string") throw new Error(`no ${field} in an answer to ${tool}`);
+          return found;
+        });
     }
     if (Array.isArray(value)) return value.map(resolve);
     if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolve(v)]));
@@ -198,7 +209,15 @@ async function runBoardScript(steps) {
       }
       // A held call waits on the developer: no client-side deadline cuts it short.
       const result = await client.callTool({ name: step.name, arguments: args }, undefined, { timeout: 600_000 });
-      printLine({ type: "board_call_result", name: step.name, isError: result.isError === true, text: result.content?.[0]?.text ?? "" });
+      const text = result.content?.[0]?.text ?? "";
+      if (result.isError !== true) {
+        try {
+          answers.set(step.name, JSON.parse(text));
+        } catch {
+          // A plain-text answer names nothing a later step can read.
+        }
+      }
+      printLine({ type: "board_call_result", name: step.name, isError: result.isError === true, text });
     }
   } finally {
     await client.close();

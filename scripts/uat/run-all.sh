@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Run every scriptable UAT item and print a result table. The offline, zero-token items (the
-# supervision gate, 11's self-test and 12) also run in CI; items 1, 3, 5, 6a, 6b and 7 are the
+# supervision gate, 11's self-test, 12, 16 and 17) also run in CI; items 1, 3, 5, 6a, 6b and 7 are the
 # manual pre-release ones (docs/mvp-spec.md section 9). Live arms that need extra arguments are
 # listed in the table as MANUAL with their command.
 #
@@ -19,7 +19,7 @@ done
 
 if [ "$BUILD" = "1" ]; then
   printf '▸ Building prerequisites (pass --no-build to skip)\n'
-  cargo build -p core --bin uat_session_env --bin uat_fleet_ops --bin uat_roadmap_ops -p flywheel-shim 2>&1 | tail -2
+  cargo build -p core --bin uat_session_env --bin uat_fleet_ops --bin uat_roadmap_ops --bin uat_shaping_ops -p flywheel-shim 2>&1 | tail -2
   npm --prefix packages/sidecar run build >/dev/null 2>&1 || {
     printf '  ⚠ sidecar build failed — scripts needing it will skip\n'
   }
@@ -88,6 +88,8 @@ run_item "UAT 11 — env-file-ordering verdict functions, self-test only (zero t
   node scripts/uat/uat-11-env-file-ordering.mjs --selftest
 run_item "UAT 12 — fleet live reads: log tail, dismiss, blocked queue, reclaim (D-REV-48/49/50/55, zero tokens)" \
   node scripts/uat/uat-12-fleet-live-reads.mjs
+run_item "UAT 16 — a one-line Epic shaped to Ready Stories with criteria and Checks, through a killed session (issue #130, zero tokens)" \
+  node scripts/uat/uat-16-epic-shaping.mjs
 run_item "UAT 17 — shape a Milestone exit test; confirming an Epic Done runs a roadmap Round that proposes or holds (issue #134, zero tokens)" \
   node scripts/uat/uat-17-roadmap-round.mjs
 

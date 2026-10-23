@@ -192,11 +192,23 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
             }
         }
     }
+    // ADR 0002: an ADR accepted in shaping is written by the Epic's first Story, the first in execution order
+    // that is not Dropped. Only its packet carries the text; a later Story's names the file and who writes it.
+    let writer = stories_in_epic(conn, &epic.id)?.into_iter().find(|s| s.state != "dropped");
     for (path, text) in unmerged_epic_adrs(conn, &epic.id, &docs_root)? {
-        writeln!(out, "\nAccepted for this Epic but not in the repo yet; write it verbatim at `{path}`:\n")?;
-        out.push_str("~~~markdown\n");
-        out.push_str(text.trim_end());
-        out.push_str("\n~~~\n");
+        match writer.as_ref().filter(|w| w.id != story.id) {
+            Some(first) => writeln!(
+                out,
+                "\nAccepted for this Epic but not in the repo yet: `{path}`. {} writes it, the Epic's first Story; do not write it here.",
+                first.key
+            )?,
+            None => {
+                writeln!(out, "\nAccepted for this Epic but not in the repo yet; write it verbatim at `{path}`:\n")?;
+                out.push_str("~~~markdown\n");
+                out.push_str(text.trim_end());
+                out.push_str("\n~~~\n");
+            }
+        }
     }
     if docs_root.join("GLOSSARY.md").is_file() {
         out.push_str("\nGlossary: `GLOSSARY.md`\n");
