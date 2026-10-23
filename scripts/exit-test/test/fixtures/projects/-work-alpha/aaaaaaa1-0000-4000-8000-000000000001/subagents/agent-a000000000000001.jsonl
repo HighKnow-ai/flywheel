@@ -1,0 +1,1 @@
+{"parentUuid":null,"isSidechain":true,"type":"user","message":{"role":"user","content":"fixture"},"uuid":"00000000-0000-4000-8000-000000000004","timestamp":"2026-10-14T09:00:30.000Z","userType":"external","entrypoint":"cli","cwd":"/work/alpha","sessionId":"aaaaaaa1-0000-4000-8000-000000000001","version":"2.1.0","gitBranch":"main"}
