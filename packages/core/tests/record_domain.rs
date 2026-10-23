@@ -225,7 +225,7 @@ fn a_session_holds_at_most_three_open_proposals() {
         file_proposal(&mut conn, &agent, &proposal(n)).unwrap();
     }
     let err = file_proposal(&mut conn, &agent, &proposal(9)).unwrap_err();
-    assert!(format!("{err:#}").contains("merge or withdraw"), "{err:#}");
+    assert!(format!("{err:#}").contains("proposal_withdraw"), "{err:#}");
     assert_eq!(events(&conn, "proposal.filed"), 3);
 }
 

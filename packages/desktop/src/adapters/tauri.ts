@@ -761,11 +761,18 @@ export interface ProposalDto {
   /** The shaping Stage and Round it was filed in (issue #125); null for a Story session's. */
   stageId: string | null;
   roundId: string | null;
+  /** The agent's evidence line beside its why (issue #160); null for a shaping session's. */
+  evidence?: string | null;
 }
 
 /** A project's pending Proposals, oldest first. Read-only. */
 export async function proposalListPending(projectId: string): Promise<ProposalDto[]> {
   return invokeCommand<ProposalDto[]>("proposal_list_pending", { projectId });
+}
+
+/** Every Proposal a Story's sessions filed, whatever its state, oldest first (issue #160). Read-only. */
+export async function proposalListForStory(storyId: string): Promise<ProposalDto[]> {
+  return invokeCommand<ProposalDto[]>("proposal_list_for_story", { storyId });
 }
 
 /** Accept a pending Proposal, applying it in the same transaction. Human-only. */

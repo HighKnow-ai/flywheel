@@ -131,7 +131,7 @@ fn optional_text(value: &Value, name: &str) -> Option<String> {
 }
 
 /// `after` or `before`, at most one; neither is the end of the order.
-fn place_of(args: &Value, tool: &str) -> anyhow::Result<Place> {
+pub(crate) fn place_of(args: &Value, tool: &str) -> anyhow::Result<Place> {
     Ok(match (optional_text(args, "after"), optional_text(args, "before")) {
         (Some(_), Some(_)) => anyhow::bail!("{tool}: give `after` or `before`, not both"),
         (Some(r), None) => Place::After(r),
@@ -141,7 +141,7 @@ fn place_of(args: &Value, tool: &str) -> anyhow::Result<Place> {
 }
 
 /// A required one-line argument of at most `max` characters.
-fn one_line(args: &Value, name: &str, tool: &str, max: usize) -> anyhow::Result<String> {
+pub(crate) fn one_line(args: &Value, name: &str, tool: &str, max: usize) -> anyhow::Result<String> {
     let text = optional_text(args, name).with_context(|| format!("{tool}: `{name}` is missing or empty"))?;
     anyhow::ensure!(!text.contains('\n'), "{tool}: `{name}` is one line");
     anyhow::ensure!(text.chars().count() <= max, "{tool}: `{name}` is at most {max} characters");
@@ -149,7 +149,7 @@ fn one_line(args: &Value, name: &str, tool: &str, max: usize) -> anyhow::Result<
 }
 
 /// A tool's one-line `why`, trimmed: present, not blank, at most a Round text long.
-fn why_field(args: &Value, tool: &str) -> anyhow::Result<String> {
+pub(crate) fn why_field(args: &Value, tool: &str) -> anyhow::Result<String> {
     let why = string_field(args, "why", &format!("{tool}: "))?;
     anyhow::ensure!(!why.trim().is_empty(), "{tool}: `why` is empty");
     anyhow::ensure!(
@@ -334,15 +334,15 @@ fn shaping_epic(conn: &Connection, session_id: &str, tool: &str, does: &str) -> 
 /// One place in an Epic's execution order (issue #127): a Story, or a pending New Story Proposal at
 /// the rank it proposed.
 #[derive(Debug, Clone)]
-struct OrderItem {
-    rank: String,
+pub(crate) struct OrderItem {
+    pub(crate) rank: String,
     /// A Story's id or a Proposal's id.
-    id: String,
+    pub(crate) id: String,
 }
 
 /// The Epic's execution order: every Story (closed ones too, so a new rank never collides with
 /// theirs) and every pending New Story Proposal with a rank, by rank then id.
-fn epic_order(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<OrderItem>> {
+pub(crate) fn epic_order(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<OrderItem>> {
     let mut items: Vec<OrderItem> = stories_in_epic(conn, epic_id)?
         .into_iter()
         .map(|s| OrderItem { rank: s.rank, id: s.id })
@@ -361,12 +361,12 @@ fn epic_order(conn: &Connection, epic_id: &str) -> anyhow::Result<Vec<OrderItem>
 
 /// What a reference names in the Epic: a Story (by key, or by id) or a New Story Proposal (by id).
 /// An accepted New Story Proposal names the Story it created.
-enum Named {
+pub(crate) enum Named {
     Story { id: String, key: String, state: String },
     Proposal { id: String },
 }
 
-fn resolve(conn: &Connection, epic_id: &str, reference: &str, tool: &str) -> anyhow::Result<Named> {
+pub(crate) fn resolve(conn: &Connection, epic_id: &str, reference: &str, tool: &str) -> anyhow::Result<Named> {
     if let Some(s) = stories_in_epic(conn, epic_id)?.into_iter().find(|s| s.key.eq_ignore_ascii_case(reference) || s.id == reference) {
         return Ok(Named::Story { id: s.id, key: s.key, state: s.state });
     }
@@ -387,7 +387,7 @@ fn resolve(conn: &Connection, epic_id: &str, reference: &str, tool: &str) -> any
 }
 
 /// The rank `place` gives in `order`, which leaves out whatever is being placed.
-fn rank_for(conn: &Connection, epic_id: &str, order: &[OrderItem], place: &Place, tool: &str) -> anyhow::Result<String> {
+pub(crate) fn rank_for(conn: &Connection, epic_id: &str, order: &[OrderItem], place: &Place, tool: &str) -> anyhow::Result<String> {
     let anchor = |reference: &str| -> anyhow::Result<usize> {
         let id = match resolve(conn, epic_id, reference, tool)? {
             Named::Story { id, .. } | Named::Proposal { id } => id,

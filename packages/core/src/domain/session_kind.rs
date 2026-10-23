@@ -28,11 +28,13 @@ pub fn proposal_tools() -> Vec<String> {
 }
 
 /// The Story agent's board tools in `--allowedTools` syntax: the Task tools (issue #52), then the
-/// Check run and the hand-off (issue #53), so none of them ever waits on a permission card.
+/// Check run and the hand-off (issue #53), then `propose` and `proposal_withdraw` (issue #160), so
+/// none of them ever waits on a permission card.
 pub fn story_board_tools() -> Vec<String> {
     crate::domain::task_tool::TASK_TOOL_NAMES
         .iter()
         .chain(crate::domain::handoff::HANDOFF_TOOL_NAMES.iter())
+        .chain(crate::domain::story_proposal_tool::STORY_PROPOSAL_TOOL_NAMES.iter())
         .map(|name| board_tool(name))
         .collect()
 }

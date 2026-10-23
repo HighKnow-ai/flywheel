@@ -29,6 +29,7 @@ import {
   useLiveSession,
   useStopped,
 } from "./StoryControls";
+import { StoryProposals } from "./StoryProposals";
 import { TaskChecklist, useStoryTasks } from "./TaskChecklist";
 import { useBoardChangedSubscription, useSessionFeed } from "./useBoardQuery";
 import { WriteStoryDialog } from "./WriteStoryDialog";
@@ -388,6 +389,8 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
           <TaskChecklist storyKey={story.key} storyId={story.id} tasks={tasks} />
         </Panel>
       </div>
+
+      <StoryProposals projectId={projectId} storyId={story.id} />
 
       {story.state !== "shaping" && story.state !== "ready" && (
         <Panel id="story-sessions-heading" title="Sessions" icon={<Terminal />}>

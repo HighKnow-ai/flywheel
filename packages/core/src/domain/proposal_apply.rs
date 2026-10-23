@@ -582,6 +582,9 @@ pub fn validate_payload(verb: ProposalVerb, target: ProposalTarget, payload: &Va
     if is_new_criterion(verb, target) {
         NewCriterion::from_payload(payload)?;
     }
+    if is_amend_criterion(verb, target) {
+        AmendCriterion::from_payload(payload)?;
+    }
     Ok(())
 }
 
@@ -636,9 +639,12 @@ pub(crate) fn apply_in_tx(tx: &Transaction, actor_id: &str, accepted: &Accepted,
         (ProposalVerb::Retire, ProposalTarget::Story) => {
             let story_id = accepted.target_id.context("a retirement names the Story it retires")?;
             let (key, state) = story_in_epic(tx, story_id, accepted.epic_id)?;
-            // Retiring is for a Story still being shaped: it has no worktree to wipe. A Story already
-            // started is dropped by the developer, through Drop.
-            anyhow::ensure!(state == "shaping", "{key} is {state}; only a Story still in Shaping is retired by a Proposal: drop it instead");
+            // Retiring is for a Story not started yet, in Shaping or Ready (issue #160): it has no
+            // worktree to wipe. A Story already started is dropped by the developer, through Drop.
+            anyhow::ensure!(
+                state == "shaping" || state == "ready",
+                "{key} is {state}; only a Story not started yet (Shaping or Ready) is retired by a Proposal: drop it instead"
+            );
             set_story_state_in_tx(tx, actor_id, story_id, StoryState::Dropped)?;
             return Ok(Applied::StoryRetired { story_id: story_id.to_string() });
         }
@@ -860,4 +866,42 @@ fn apply_new_criterion(tx: &Transaction, actor_id: &str, accepted: &Accepted, pa
     tx.execute("UPDATE proposals SET target_id = ?1 WHERE id = ?2", params![created.id, accepted.id])
         .context("failed to record the criterion the Proposal created")?;
     Ok(Applied::CriterionCreated { criterion_id: created.id, story_id: criterion.story_id })
+}
+
+/// An Amend criterion Proposal's payload (`amend` on `criterion`, issue #160): the criterion it
+/// rewrites, its whole new statement, and the Check command that proves it, or none to keep the Check
+/// as it is. A Story session files it on a criterion of its own Epic. Accepted, it is recorded only
+/// ([`Applied::RecordedOnly`]) until the Story that gives it its effect (issue #163) adds the branch.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AmendCriterion {
+    pub criterion_id: String,
+    pub statement: String,
+    pub check_command: Option<String>,
+}
+
+impl AmendCriterion {
+    /// Read and check a payload `{ "criterion_id", "statement", "check_command"? }`: a criterion, a
+    /// statement, and a command that is not blank when one is given, held to [`NewCriterion`]'s limits.
+    pub fn from_payload(payload: &Value) -> anyhow::Result<Self> {
+        let criterion_id = required_id(payload, "criterion_id", "criterion to amend")?;
+        let checked = NewCriterion::from_payload(&json!({
+            "story_id": criterion_id,
+            "statement": payload.get("statement").cloned().unwrap_or(Value::Null),
+            "check_command": payload.get("check_command").cloned().unwrap_or(Value::Null),
+        }))?;
+        Ok(AmendCriterion { criterion_id, statement: checked.statement, check_command: checked.check_command })
+    }
+
+    pub fn to_payload(&self) -> Value {
+        let mut payload = json!({ "criterion_id": self.criterion_id, "statement": self.statement });
+        if let Some(command) = &self.check_command {
+            payload["check_command"] = json!(command);
+        }
+        payload
+    }
+}
+
+/// Whether a Proposal of `verb` on `target` amends an Acceptance criterion.
+pub fn is_amend_criterion(verb: ProposalVerb, target: ProposalTarget) -> bool {
+    verb == ProposalVerb::Amend && target == ProposalTarget::Criterion
 }

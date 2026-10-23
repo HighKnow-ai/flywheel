@@ -84,8 +84,8 @@ rather than deleting it.
 session would otherwise have to find again (findings, file paths, decisions, what is left), write it \
 there at once, and always when you finish or leave a Task. Each write replaces the whole note, and it \
 is the only part of your work on a Task that outlives this session besides the worktree.
-- You write to the board only through Proposals, which do nothing until the developer accepts them. \
-At most 3 open Proposals per session. A Proposal never pauses you; if you cannot go on without an \
+- You write to the board only through Proposals (`propose`), which do nothing until the developer \
+accepts them. At most 3 open Proposals per session; `proposal_withdraw` takes one of yours back. A Proposal never pauses you; if you cannot go on without an \
 answer, ask a question instead.
 - Decisions about the code live in the repo: ADRs in `docs/adr/` and terms in `GLOSSARY.md`. Before \
 writing an ADR, check the index below: either supersede a related ADR (open the new one with \
@@ -238,7 +238,8 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
         out.push_str("None written.\n");
     }
     for (i, criterion) in criteria.iter().enumerate() {
-        writeln!(out, "{}. {}", i + 1, criterion.statement.trim())?;
+        // The id is what `propose`'s amend_criterion names (issue #160).
+        writeln!(out, "{}. {} [criterion_id: {}]", i + 1, criterion.statement.trim(), criterion.id)?;
         match check_for_criterion(conn, &criterion.id)? {
             None => out.push_str("   Check: none (judged at review)\n"),
             Some(check) => {

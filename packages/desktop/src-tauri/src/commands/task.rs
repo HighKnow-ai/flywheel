@@ -170,6 +170,19 @@ pub fn handle_inbound_board_tool_request(app: &AppHandle, event: &serde_json::Va
         super::handoff::spawn_handoff_tool_call(app.clone(), run_id.to_string(), request_id.to_string(), tool.to_string(), args);
         return;
     }
+    // Issue #160: a running Story's `propose` and `proposal_withdraw`, answered at once.
+    if flywheel_core::domain::story_proposal_tool::STORY_PROPOSAL_TOOL_NAMES.contains(&tool) {
+        let Some(state) = tauri::Manager::try_state::<AppState>(app) else { return };
+        let (answer, changed) = {
+            let Ok(mut conn) = state.db.lock() else { return };
+            super::proposal::answer_story_proposal_tool_call(&mut conn, run_id, tool, &args)
+        };
+        send_board_tool_answer(app, run_id, request_id, &answer);
+        if let Some(project_id) = changed {
+            emit_board_changed(app, Some(&project_id), "proposal", None);
+        }
+        return;
+    }
     // Issue #123: a shaping session's `round_post` is held until its Round is answered.
     if flywheel_core::domain::shaping_tool::SHAPING_TOOL_NAMES.contains(&tool) {
         super::shaping::handle_shaping_tool_request(app, run_id, request_id, tool, &args);

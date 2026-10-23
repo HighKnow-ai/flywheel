@@ -823,6 +823,7 @@ export function answer(cmd: string, args: Args): unknown {
     case "worktree_inventory": return [];
     case "git_facts": return null;
     case "proposal_list_pending": return [];
+    case "proposal_list_for_story": return [];
     case "criterion_list": return CRITERIA[arg(args, "storyId")] ?? [];
     case "story_review": return reviewOf(arg(args, "storyId"));
     case "epic_shaping_session": return arg(args, "epicId") === "e-59" && shapingSessionLive ? "ses-shape-8" : null;

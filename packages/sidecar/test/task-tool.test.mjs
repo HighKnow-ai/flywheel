@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 
 import { buildClaudeArgv, ClaudeCodeAdapter } from "../dist/claude-code-adapter.js";
-import { BOARD_TOOL_DEFINITIONS, BOARD_TOOL_NAMES,BOARD_TOOL_QUALIFIED_NAMES, HANDOFF_TOOL_NAMES, TASK_TOOL_NAMES, TASK_TOOL_QUALIFIED_NAMES, MCP_SERVER_NAME } from "../dist/mcp-permission-server.js";
+import { BOARD_TOOL_DEFINITIONS, BOARD_TOOL_NAMES,BOARD_TOOL_QUALIFIED_NAMES, HANDOFF_TOOL_NAMES, STORY_PROPOSAL_TOOL_NAMES, TASK_TOOL_NAMES, TASK_TOOL_QUALIFIED_NAMES, MCP_SERVER_NAME, toolsFor } from "../dist/mcp-permission-server.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.env.FLYWHEEL_CLAUDE_BIN = path.join(__dirname, "fake-claude.mjs");
@@ -155,9 +155,50 @@ test("resolveBoardTool rejects a run this sidecar never spawned", () => {
 test("the board server is flywheel-board and carries the hand-off and Check tools, all pre-approved", () => {
   assert.equal(MCP_SERVER_NAME, "flywheel-board");
   assert.deepEqual([...HANDOFF_TOOL_NAMES], ["checks_run", "handoff"]);
-  assert.deepEqual([...BOARD_TOOL_NAMES], [...TASK_TOOL_NAMES, ...HANDOFF_TOOL_NAMES]);
+  assert.deepEqual([...BOARD_TOOL_NAMES], [...TASK_TOOL_NAMES, ...HANDOFF_TOOL_NAMES, ...STORY_PROPOSAL_TOOL_NAMES]);
   assert.ok(BOARD_TOOL_QUALIFIED_NAMES.includes("mcp__flywheel-board__handoff"));
   assert.ok(BOARD_TOOL_QUALIFIED_NAMES.includes("mcp__flywheel-board__checks_run"));
+});
+
+// Issue #160: a running Story files and withdraws Proposals on the same server; a shaping session,
+// which has its own Proposal tools, never sees these two.
+test("a Story session is listed propose and proposal_withdraw, and a shaping session never is", () => {
+  assert.deepEqual([...STORY_PROPOSAL_TOOL_NAMES], ["propose", "proposal_withdraw"]);
+  const story = toolsFor("story").map((tool) => tool.name);
+  const shaping = toolsFor("shaping").map((tool) => tool.name);
+  for (const name of STORY_PROPOSAL_TOOL_NAMES) {
+    assert.ok(story.includes(name), `a Story session sees ${name}: ${story}`);
+    assert.ok(!shaping.includes(name), `a shaping session never sees ${name}: ${shaping}`);
+    assert.ok(BOARD_TOOL_QUALIFIED_NAMES.includes(`mcp__flywheel-board__${name}`), `${name} is pre-approved`);
+  }
+  const propose = BOARD_TOOL_DEFINITIONS.find((tool) => tool.name === "propose");
+  assert.deepEqual([...propose.inputSchema.required], ["kind", "why", "evidence"]);
+  assert.deepEqual(
+    [...propose.inputSchema.properties.kind.enum],
+    ["new_story", "amend_criterion", "amend_epic_spec", "reorder_story", "retire_story", "new_epic"],
+  );
+  assert.match(propose.description, /proposal_withdraw/);
+});
+
+test("a propose call is relayed to the core and the agent receives its answer", async () => {
+  const adapter = new ClaudeCodeAdapter();
+  const events = [];
+  const runId = "propose-run-ok";
+  const args = { kind: "new_story", title: "Empty-line recovery", why: "The parser stops", evidence: "src/parser.rs:42" };
+  const session = startWithTaskCall(adapter, runId, events, { name: "propose", arguments: args });
+
+  await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
+  const request = events.find((e) => e.type === "board_tool_request");
+  assert.equal(request.tool, "propose");
+  assert.deepEqual(request.args, args);
+  const answer = { proposal_id: "p1", kind: "new_story", state: "pending", open: 1, cap: 3 };
+  adapter.resolveBoardTool(runId, request.requestId, answer);
+
+  await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
+  const result = unknownLines(events, "task_tool_result")[0];
+  assert.equal(result.isError, false);
+  assert.deepEqual(JSON.parse(result.text), answer);
+  await session;
 });
 
 test("a hand-off is held until the core answers, and the agent receives the core's answer", async () => {

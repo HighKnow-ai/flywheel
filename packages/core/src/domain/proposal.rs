@@ -24,8 +24,9 @@ use crate::domain::{now, record_event, EventScope};
 use crate::ids::new_id;
 
 /// The soft cap: open Proposals one Story session may hold at once. The board tool refuses the
-/// next one and tells the agent to merge or withdraw one. A shaping session is exempt: shaping is
-/// made of Proposals, and the Stage cannot close while any is undecided.
+/// next one and tells the agent to withdraw one with `proposal_withdraw` (issue #160: there is no
+/// merge verb; to merge two, withdraw both and file the combined one). A shaping session is exempt:
+/// shaping is made of Proposals, and the Stage cannot close while any is undecided.
 pub const OPEN_PROPOSALS_PER_SESSION: i64 = 3;
 
 /// What a Proposal does to its target.
@@ -116,6 +117,9 @@ pub struct Proposal {
     pub stage_id: Option<String>,
     /// The Round of that Stage it follows; `None` before the Stage's first Round.
     pub round_id: Option<String>,
+    /// What the agent saw that made it file, beside its why (`rationale`): a Story session's
+    /// Proposal carries one (issue #160); a shaping session's has none.
+    pub evidence: Option<String>,
 }
 
 fn row_to_proposal(row: &Row) -> rusqlite::Result<Proposal> {
@@ -136,6 +140,7 @@ fn row_to_proposal(row: &Row) -> rusqlite::Result<Proposal> {
         created_at: row.get(12)?,
         stage_id: row.get(13)?,
         round_id: row.get(14)?,
+        evidence: row.get(15)?,
     })
 }
 
@@ -144,7 +149,7 @@ macro_rules! select_proposals {
     ($tail:literal) => {
         concat!(
             "SELECT id, project_id, session_id, epic_id, verb, target_type, target_id, payload, rationale, state, \
-             rejection_reason, decided_by, created_at, stage_id, round_id FROM proposals ",
+             rejection_reason, decided_by, created_at, stage_id, round_id, evidence FROM proposals ",
             $tail
         )
     };
@@ -194,10 +199,71 @@ fn shaping_place(tx: &Transaction, session_id: &str) -> anyhow::Result<Option<(O
 /// Proposals is refused; a shaping session is not capped, and its Proposal records the Stage and
 /// Round it was filed in. A payload malformed for its kind is refused.
 pub fn file_proposal(conn: &mut Connection, actor_id: &str, new: &NewProposal) -> anyhow::Result<Proposal> {
+    file_proposal_with_evidence(conn, actor_id, new, None)
+}
+
+/// [`file_proposal`] with the agent's evidence line kept beside its why (issue #160), in the same
+/// transaction as the filing.
+pub fn file_proposal_with_evidence(
+    conn: &mut Connection,
+    actor_id: &str,
+    new: &NewProposal,
+    evidence: Option<&str>,
+) -> anyhow::Result<Proposal> {
     let tx = conn.transaction()?;
     let id = file_proposal_in_tx(&tx, actor_id, new, &now())?;
+    if evidence.is_some() {
+        tx.execute("UPDATE proposals SET evidence = ?1 WHERE id = ?2", params![evidence, id])
+            .context("failed to keep the Proposal's evidence")?;
+    }
     tx.commit()?;
     get_proposal(conn, &id)?.context("the filed Proposal could not be read back")
+}
+
+/// How many Proposals session `session_id` holds open (pending): what the soft cap counts.
+pub fn open_proposals_in_session(conn: &Connection, session_id: &str) -> anyhow::Result<i64> {
+    conn.query_row("SELECT COUNT(*) FROM proposals WHERE session_id = ?1 AND state = 'pending'", params![session_id], |r| r.get(0))
+        .context("failed to count the session's open Proposals")
+}
+
+/// Withdraw a pending Proposal (issue #160): the filing session takes it back, which frees a slot
+/// under the soft cap. Only the session that filed it may, and only while it is pending: a decided
+/// Proposal stays decided. A withdrawal decides nothing, so it names no decider; its event names the
+/// actor who withdrew it.
+pub fn withdraw_proposal(conn: &mut Connection, actor_id: &str, session_id: &str, proposal_id: &str) -> anyhow::Result<Proposal> {
+    let at = now();
+    let tx = conn.transaction()?;
+    let p = get_proposal(&tx, proposal_id)?.with_context(|| format!("Proposal {proposal_id:?} not found"))?;
+    anyhow::ensure!(
+        p.session_id.as_deref() == Some(session_id),
+        "Proposal {proposal_id:?} was filed by another session; a session withdraws only its own Proposals"
+    );
+    anyhow::ensure!(p.state == "pending", "Proposal {proposal_id:?} was already {}; only a pending Proposal is withdrawn", p.state);
+    tx.execute("UPDATE proposals SET state = 'withdrawn', withdrawn_at = ?1 WHERE id = ?2", params![at, proposal_id])
+        .context("failed to withdraw the Proposal")?;
+    record_event(
+        &tx,
+        &p.project_id,
+        "proposal",
+        proposal_id,
+        EventScope { story_id: None, epic_id: p.epic_id.as_deref() },
+        actor_id,
+        "proposal.withdrawn",
+        &serde_json::json!({ "field": "state", "before": "pending", "after": "withdrawn", "label": "Withdrew a Proposal" }),
+        &at,
+    )?;
+    tx.commit()?;
+    get_proposal(conn, proposal_id)?.context("the withdrawn Proposal could not be read back")
+}
+
+/// Every Proposal the sessions of Story `story_id` filed, whatever its state, oldest first (issue
+/// #160): what the Story view lists as "Proposals filed by this Story".
+pub fn proposals_filed_by_story(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<Proposal>> {
+    let mut stmt = conn.prepare(select_proposals!(
+        "WHERE session_id IN (SELECT id FROM sessions WHERE story_id = ?1) ORDER BY created_at, id"
+    ))?;
+    let rows = stmt.query_map(params![story_id], row_to_proposal)?.collect::<Result<Vec<_>, _>>();
+    rows.context("failed to read the Proposals the Story filed")
 }
 
 /// [`file_proposal`]'s body inside the caller's transaction, returning the new Proposal's id. A
@@ -210,14 +276,11 @@ pub(crate) fn file_proposal_in_tx(tx: &Transaction, actor_id: &str, new: &NewPro
         Some(session_id) => match shaping_place(tx, session_id)? {
             Some(place) => place,
             None => {
-                let open: i64 = tx.query_row(
-                    "SELECT COUNT(*) FROM proposals WHERE session_id = ?1 AND state = 'pending'",
-                    params![session_id],
-                    |r| r.get(0),
-                )?;
+                let open = open_proposals_in_session(tx, session_id)?;
                 anyhow::ensure!(
                     open < OPEN_PROPOSALS_PER_SESSION,
-                    "this session already has {open} open Proposals; merge or withdraw one before filing another"
+                    "this session already has {open} open Proposals, the most it may hold; withdraw one with \
+                     proposal_withdraw before filing another (to merge two, withdraw both and file the combined one)"
                 );
                 (None, None)
             }
@@ -486,6 +549,13 @@ fn same_kind_of_change(
         use crate::domain::proposal_apply::NewCriterion;
         let (before, after) = (NewCriterion::from_payload(original)?, NewCriterion::from_payload(amended)?);
         anyhow::ensure!(before.story_id == after.story_id, "an amendment keeps the Story the criterion is anchored to");
+        return Ok(());
+    }
+    if crate::domain::proposal_apply::is_amend_criterion(verb, target) {
+        // Issue #160: the developer edits the new statement and Check, never which criterion they land on.
+        use crate::domain::proposal_apply::AmendCriterion;
+        let (before, after) = (AmendCriterion::from_payload(original)?, AmendCriterion::from_payload(amended)?);
+        anyhow::ensure!(before.criterion_id == after.criterion_id, "an amendment keeps the criterion the Proposal rewrites");
         return Ok(());
     }
     for key in ["milestone_id", "before_milestone_id"] {

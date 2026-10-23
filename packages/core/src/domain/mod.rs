@@ -43,6 +43,7 @@ pub mod stage;
 pub mod story;
 pub mod story_drop;
 pub mod story_merge;
+pub mod story_proposal_tool;
 pub mod task;
 pub mod task_tool;
 pub mod worktree;

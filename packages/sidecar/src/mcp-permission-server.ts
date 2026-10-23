@@ -71,8 +71,13 @@ export const TASK_TOOL_NAMES = ["task_list", "task_add", "task_update"] as const
  * `packages/core/src/domain/handoff.rs`, which is what parses and runs each call. */
 export const HANDOFF_TOOL_NAMES = ["checks_run", "handoff"] as const;
 
+/** Issue #160 (docs/mvp-spec.md §5): a running Story's Proposal tools, hosted on the same server and
+ * relayed the same way, each answered at once. Mirrors `STORY_PROPOSAL_TOOL_NAMES` in
+ * `packages/core/src/domain/story_proposal_tool.rs`, which is what parses and runs each call. */
+export const STORY_PROPOSAL_TOOL_NAMES = ["propose", "proposal_withdraw"] as const;
+
 /** Every board tool the Story agent has: held calls the Rust core answers. */
-export const BOARD_TOOL_NAMES = [...TASK_TOOL_NAMES, ...HANDOFF_TOOL_NAMES] as const;
+export const BOARD_TOOL_NAMES = [...TASK_TOOL_NAMES, ...HANDOFF_TOOL_NAMES, ...STORY_PROPOSAL_TOOL_NAMES] as const;
 
 /** Issue #123 (docs/mvp-spec.md §3): the shaping session's board tools, hosted on the same server
  * and relayed the same way. Mirrors `SHAPING_TOOL_NAMES` in `packages/core/src/domain/shaping_tool.rs`,
@@ -170,6 +175,44 @@ export const BOARD_TOOL_DEFINITIONS = [
         decisions: { type: "string" },
       },
       required: ["next_session_must_know", "decisions"],
+    },
+  },
+  {
+    name: "propose",
+    description:
+      "Propose a change to the board that you learned of while working your Story, with one line on why and one line of evidence (what you saw: a file and line, a failing command, a test). `kind` is one of: new_story (title; description: a follow-up Story in your Epic, at the end of its order), amend_criterion (criterion_id; the whole new statement; check_command, the shell command that proves it, if it changes), amend_epic_spec (field: problem, scope, out_of_scope or exit_test; the field's whole new text), reorder_story (story: a key such as FLY-12; `after` or `before` another Story's key, or neither for the end), retire_story (story: a Story of your Epic still in Shaping or Ready; a started Story is the developer's to drop) or new_epic (title; problem: it goes after the Current Milestone). Only your own Epic and its Stories. This call is answered at once with the Proposal's id: keep working, do not wait for the decision, and do not depend on it. You may hold at most 3 open Proposals: to file a 4th, withdraw one with proposal_withdraw; to merge two, withdraw both and file the combined one. Proposals never cover ADRs or glossary terms: write those in your diff.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["new_story", "amend_criterion", "amend_epic_spec", "reorder_story", "retire_story", "new_epic"],
+        },
+        why: { type: "string", minLength: 1, description: "One line: why the board should change." },
+        evidence: { type: "string", minLength: 1, maxLength: 1000, description: "One line: what you saw that shows it." },
+        title: { type: "string", maxLength: 500, description: "new_story or new_epic: its title." },
+        description: { type: "string", maxLength: 20000, description: "new_story: what it ships and how it is tested." },
+        problem: { type: "string", maxLength: 4000, description: "new_epic: the problem it solves." },
+        criterion_id: { type: "string", description: "amend_criterion: the criterion's id, from your packet." },
+        statement: { type: "string", maxLength: 2000, description: "amend_criterion: the criterion's whole new statement." },
+        check_command: { type: "string", maxLength: 2000, description: "amend_criterion: the new Check command, if it changes." },
+        field: { type: "string", enum: ["problem", "scope", "out_of_scope", "exit_test"], description: "amend_epic_spec: the field." },
+        text: { type: "string", maxLength: 20000, description: "amend_epic_spec: the field's whole new text." },
+        story: { type: "string", description: "reorder_story or retire_story: the Story's key, such as FLY-12." },
+        after: { type: "string", description: "reorder_story: the Story key it comes right after." },
+        before: { type: "string", description: "reorder_story: the Story key it comes right before." },
+      },
+      required: ["kind", "why", "evidence"],
+    },
+  },
+  {
+    name: "proposal_withdraw",
+    description:
+      "Withdraw one of your own pending Proposals, freeing its slot under the cap of 3 open Proposals. A decided Proposal stays decided. Answered at once with how many you hold open.",
+    inputSchema: {
+      type: "object",
+      properties: { proposal_id: { type: "string", minLength: 1 } },
+      required: ["proposal_id"],
     },
   },
 ] as const;

@@ -31,6 +31,8 @@ pub struct ProposalDto {
     /// The shaping Stage and Round it was filed in (issue #125); `None` for a Story session's.
     pub stage_id: Option<String>,
     pub round_id: Option<String>,
+    /// The agent's evidence line, beside its why (issue #160); `None` for a shaping session's.
+    pub evidence: Option<String>,
 }
 
 impl From<flywheel_core::domain::proposal::Proposal> for ProposalDto {
@@ -50,7 +52,33 @@ impl From<flywheel_core::domain::proposal::Proposal> for ProposalDto {
             rejection_reason: p.rejection_reason,
             stage_id: p.stage_id,
             round_id: p.round_id,
+            evidence: p.evidence,
         }
+    }
+}
+
+/// Every Proposal the sessions of a Story filed, oldest first (issue #160): the Story view's interim
+/// "Proposals filed by this Story" list, until the triage drawer (#162) takes it over.
+#[tauri::command]
+pub fn proposal_list_for_story(state: State<AppState>, story_id: String) -> Result<Vec<ProposalDto>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let rows = flywheel_core::domain::proposal::proposals_filed_by_story(&conn, &story_id).map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().map(ProposalDto::from).collect())
+}
+
+/// The core's answer to one `propose` or `proposal_withdraw` call (issue #160), as the sidecar's
+/// `board_tool_answer` op carries it: `{result}`, or `{error}` with the reason the core refused, which
+/// goes to the agent so it can correct its call. Also returns the project whose board changed.
+pub fn answer_story_proposal_tool_call(
+    conn: &mut rusqlite::Connection,
+    run_id: &str,
+    tool: &str,
+    args: &serde_json::Value,
+) -> (serde_json::Value, Option<String>) {
+    use flywheel_core::domain::story_proposal_tool::{apply_story_proposal_call, StoryProposalCall};
+    match StoryProposalCall::parse(tool, args).and_then(|call| apply_story_proposal_call(conn, run_id, &call)) {
+        Ok(outcome) => (serde_json::json!({ "result": outcome.result }), Some(outcome.project_id)),
+        Err(e) => (serde_json::json!({ "error": format!("{e:#}") }), None),
     }
 }
 

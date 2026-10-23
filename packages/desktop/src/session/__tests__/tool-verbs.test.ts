@@ -243,6 +243,36 @@ describe("describeToolCall: board tools by their meaning", () => {
     );
   });
 
+  // Issue #160: a running Story files a Proposal of a kind, answered at once, and can withdraw one.
+  it("reads propose as Proposed with its kind and what it names, and proposal_withdraw as Withdrew Proposal", () => {
+    const cases: [Record<string, unknown>, string][] = [
+      [{ kind: "new_story", title: "Empty-line recovery" }, "New Story: Empty-line recovery"],
+      [{ kind: "amend_criterion", statement: "Parses an empty line" }, "Amend criterion: Parses an empty line"],
+      [{ kind: "amend_epic_spec", field: "out_of_scope", text: "Recovery" }, "Amend Epic spec: Out of scope"],
+      [{ kind: "reorder_story", story: "FLY-4", before: "FLY-2" }, "Reorder: FLY-4 before FLY-2"],
+      [{ kind: "retire_story", story: "FLY-5" }, "Retire Story: FLY-5"],
+      [{ kind: "new_epic", title: "Error recovery" }, "New Epic: Error recovery"],
+    ];
+    for (const [input, target] of cases) {
+      expect(describeToolCall({ toolName: `${BOARD}propose`, input })).toMatchObject({
+        kind: "board",
+        verb: "Proposed",
+        liveVerb: "Proposing",
+        target,
+      });
+    }
+    const answered = describeToolCall({
+      toolName: `${BOARD}propose`,
+      input: { kind: "new_story", title: "T" },
+      output: JSON.stringify({ proposal_id: "p", open: 2, cap: 3 }),
+    });
+    expect(answered.metrics).toEqual([{ text: "2 of 3 open", tone: "neutral" }]);
+    expect(describeToolCall({ toolName: `${BOARD}proposal_withdraw`, input: { proposal_id: "p" } })).toMatchObject({
+      verb: "Withdrew Proposal",
+      liveVerb: "Withdrawing Proposal",
+    });
+  });
+
   // Issue #124: a later session picks the open Round up and waits on it like round_post did.
   it("reads round_wait as Resumed Round, waiting on your answers, then the Round it came back with", () => {
     expect(describeToolCall({ toolName: `${BOARD}round_wait`, input: {} })).toMatchObject({
