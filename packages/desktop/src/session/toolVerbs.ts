@@ -158,6 +158,16 @@ const ROADMAP_CHANGE_WORDS: Record<string, string> = {
   drop_epic: "Drop Epic",
 };
 
+/** A Story's Proposal kind as the triage card names it, by the `kind` `propose` gives it (issue #160). */
+export const STORY_PROPOSAL_KIND_WORDS: Record<string, string> = {
+  new_story: "New Story",
+  amend_criterion: "Amend criterion",
+  amend_epic_spec: "Amend Epic spec",
+  reorder_story: "Reorder",
+  retire_story: "Retire Story",
+  new_epic: "New Epic",
+};
+
 function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescription {
   const input = record(call.input);
   const answer = outputJson(call.output);
@@ -275,6 +285,26 @@ function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescripti
       const check = str(input.check) ? " · with a Check" : " · judged at review";
       return { ...base, verb: "Proposed", liveVerb: "Proposing", target: `Criterion on ${str(input.story)}: ${str(input.statement)}${check}` };
     }
+    case "propose": {
+      // Issue #160: a running Story's Proposal, answered at once; the agent keeps working.
+      const kind = str(input.kind);
+      const place = str(input.after) ? ` after ${str(input.after)}` : str(input.before) ? ` before ${str(input.before)}` : "";
+      const named: Record<string, string> = {
+        new_story: str(input.title),
+        amend_criterion: str(input.statement),
+        amend_epic_spec: SPEC_FIELD_LABELS[str(input.field)] ?? words(str(input.field)),
+        reorder_story: `${str(input.story)}${place}`,
+        retire_story: str(input.story),
+        new_epic: str(input.title),
+      };
+      const what = STORY_PROPOSAL_KIND_WORDS[kind] ?? words(kind);
+      const open = typeof answer.open === "number" && typeof answer.cap === "number" ? answer.open : null;
+      const metrics =
+        base.metrics.length > 0 || open === null ? base.metrics : [{ text: `${open} of ${String(answer.cap)} open`, tone: "neutral" as const }];
+      return { ...base, verb: "Proposed", liveVerb: "Proposing", target: [what, named[kind] ?? ""].filter(Boolean).join(": "), metrics };
+    }
+    case "proposal_withdraw":
+      return { ...base, verb: "Withdrew Proposal", liveVerb: "Withdrawing Proposal", target: "" };
     default:
       return {
         ...base,
