@@ -265,7 +265,7 @@ fn a_story_session_is_still_capped_at_three() {
         assert_eq!((p.stage_id, p.round_id), (None, None), "a Story session's Proposal hangs off no Stage");
     }
     let err = file_proposal(&mut conn, &agent, &proposal(9)).unwrap_err();
-    assert!(format!("{err:#}").contains("merge or withdraw"), "{err:#}");
+    assert!(format!("{err:#}").contains("proposal_withdraw"), "{err:#}");
 }
 
 #[test]
