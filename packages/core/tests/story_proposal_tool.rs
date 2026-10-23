@@ -359,14 +359,18 @@ fn a_proposal_filed_by_a_running_story_is_triaged_from_the_drawer_and_lands_with
 }
 
 #[test]
-fn an_amend_criterion_is_checked_and_recorded_only_until_its_effect_lands() {
+fn an_amend_criterion_is_checked_and_applied_when_accepted() {
     let mut f = fixture();
     let criterion = create_criterion(&mut f.conn, &f.human, &f.own.id, "Parses a line").unwrap();
     let blank = propose(&mut f, json!({ "kind": "amend_criterion", "criterion_id": criterion.id, "statement": "  " })).unwrap_err();
     assert!(format!("{blank:#}").contains("statement"), "{blank:#}");
     let id = proposal_id(&propose(&mut f, json!({ "kind": "amend_criterion", "criterion_id": criterion.id, "statement": "Parses an empty line" })).unwrap());
-    assert_eq!(accept_proposal(&mut f.conn, &f.human, &id).unwrap(), Applied::RecordedOnly);
-    assert_eq!(get_criterion(&f.conn, &criterion.id).unwrap().unwrap().statement, "Parses a line");
+    // Issue #163 gives it its effect; `proposal_judged_on.rs` covers the rest.
+    assert_eq!(
+        accept_proposal(&mut f.conn, &f.human, &id).unwrap(),
+        Applied::CriterionAmended { criterion_id: criterion.id.clone(), story_id: f.own.id.clone() }
+    );
+    assert_eq!(get_criterion(&f.conn, &criterion.id).unwrap().unwrap().statement, "Parses an empty line");
 }
 
 /// A fresh database migrates through 0011 (`reviews`, #155) and then 0012, in file order.
@@ -374,11 +378,11 @@ fn an_amend_criterion_is_checked_and_recorded_only_until_its_effect_lands() {
 fn a_fresh_database_migrates_through_0011_then_0012() {
     let sources = core::db::migration_sources();
     let at = |needle: &str| sources.iter().position(|s| s.contains(needle)).unwrap_or_else(|| panic!("{needle} is a migration"));
-    assert_eq!(sources.len(), 12, "0001 through 0012, none missing");
-    assert!(at("CREATE TABLE proposals_new") == 11, "0012 is the last migration");
+    assert!(sources.len() >= 12, "0001 through 0012, none missing");
+    assert!(at("CREATE TABLE reviews") == 10 && at("CREATE TABLE proposals_new") == 11, "0011, then 0012");
     let f = fixture();
     let version: i64 = f.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 12);
+    assert_eq!(version, sources.len() as i64);
     let reviews: i64 = f.conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'reviews'", [], |r| r.get(0)).unwrap();
     assert_eq!(reviews, 1, "0011's table is there beside the rebuilt proposals");
     let fk_violations: i64 = f.conn.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r.get(0)).unwrap();

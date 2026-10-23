@@ -37,13 +37,20 @@
 //! the board beyond its acceptance: accepted, it is attached to its Epic, and the Epic's Story
 //! packet carries it as full text until the repo holds the file (ADR 0002: Flywheel never writes
 //! the repo outside a worktree).
+//!
+//! Judged-on changes (issue #163) are the Proposals that change what a Story is judged on
+//! ([`is_judged_on`]): an Amend criterion, or an Amend Epic spec a Story session filed. Needs you lists
+//! each as its own item, ranked with Review. An accepted Amend criterion (`amend` on `criterion`,
+//! [`AmendCriterion`]) rewrites the statement and clears the criterion's acceptance; with a new Check
+//! command the Check is replaced and reads not run, otherwise its last run is marked stale. It is
+//! allowed while the Story is In review, and refused once the Story is closed.
 
 use anyhow::Context;
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 
-use crate::domain::acceptance_criterion::create_criterion_in_tx;
-use crate::domain::check::set_check_in_tx;
+use crate::domain::acceptance_criterion::{amend_criterion_in_tx, create_criterion_in_tx};
+use crate::domain::check::{check_for_criterion, mark_last_run_stale_in_tx, set_check_in_tx};
 use crate::domain::epic::{create_epic_in_tx, get_epic, set_epic_state_in_tx, update_epic_in_tx, EpicSpec, EpicState};
 use crate::domain::milestone::{
     create_milestone_in_tx, get_milestone, move_milestone_in_tx, set_milestone_state_in_tx, update_milestone_in_tx,
@@ -664,6 +671,9 @@ pub enum Applied {
     StoryRetired { story_id: String },
     /// A criterion was created on its Story, with its Check when it carried one (issue #128).
     CriterionCreated { criterion_id: String, story_id: String },
+    /// A criterion's statement was rewritten and its acceptance cleared; its Check was replaced, or its
+    /// last run marked stale (issue #163).
+    CriterionAmended { criterion_id: String, story_id: String },
     /// No effect for this kind yet: the decision alone was recorded.
     RecordedOnly,
 }
@@ -690,6 +700,7 @@ pub(crate) fn apply_in_tx(tx: &Transaction, actor_id: &str, accepted: &Accepted,
     match (accepted.verb, accepted.target) {
         (ProposalVerb::Create, ProposalTarget::Story) => return apply_new_story(tx, actor_id, accepted, payload),
         (ProposalVerb::Create, ProposalTarget::Criterion) => return apply_new_criterion(tx, actor_id, accepted, payload),
+        (ProposalVerb::Amend, ProposalTarget::Criterion) => return apply_amend_criterion(tx, actor_id, accepted, payload),
         (ProposalVerb::Reorder, ProposalTarget::Story) => {
             let story_id = accepted.target_id.context("a reorder names the Story it moves")?;
             story_in_epic(tx, story_id, accepted.epic_id)?;
@@ -930,8 +941,8 @@ fn apply_new_criterion(tx: &Transaction, actor_id: &str, accepted: &Accepted, pa
 
 /// An Amend criterion Proposal's payload (`amend` on `criterion`, issue #160): the criterion it
 /// rewrites, its whole new statement, and the Check command that proves it, or none to keep the Check
-/// as it is. A Story session files it on a criterion of its own Epic. Accepted, it is recorded only
-/// ([`Applied::RecordedOnly`]) until the Story that gives it its effect (issue #163) adds the branch.
+/// as it is. A Story session files it on a criterion of its own Epic. Accepted, it is applied by
+/// [`apply_amend_criterion`] (issue #163).
 #[derive(Debug, Clone, PartialEq)]
 pub struct AmendCriterion {
     pub criterion_id: String,
@@ -964,4 +975,55 @@ impl AmendCriterion {
 /// Whether a Proposal of `verb` on `target` amends an Acceptance criterion.
 pub fn is_amend_criterion(verb: ProposalVerb, target: ProposalTarget) -> bool {
     verb == ProposalVerb::Amend && target == ProposalTarget::Criterion
+}
+
+/// Whether `proposal` changes what a Story is judged on (docs/mvp-spec.md §5, issue #163): an amend to
+/// a criterion, or an amend to an Epic's spec filed by a Story session. Shaping files Epic spec changes
+/// in a Round, where they are decided. Needs you lists each judged-on Proposal as its own item, ranked
+/// with Review, and leaves it out of the Proposals row. Mirrors `query::judged_on_proposal!`.
+pub fn is_judged_on(conn: &rusqlite::Connection, proposal: &crate::domain::proposal::Proposal) -> anyhow::Result<bool> {
+    let verb = ProposalVerb::parse(&proposal.verb)?;
+    let target = ProposalTarget::parse(&proposal.target_type)?;
+    if is_amend_criterion(verb, target) {
+        return Ok(true);
+    }
+    if !is_spec_change(verb, target) || proposal.stage_id.is_some() {
+        return Ok(false);
+    }
+    let Some(session_id) = &proposal.session_id else { return Ok(false) };
+    let kind: Option<String> =
+        conn.query_row("SELECT kind FROM sessions WHERE id = ?1", params![session_id], |r| r.get(0)).optional()?;
+    Ok(kind.as_deref() == Some("story"))
+}
+
+/// Apply an accepted Amend criterion (issue #163): rewrite the statement, which clears the criterion's
+/// acceptance; then, with a Check command that is not the Check's own, replace the Check, which resets
+/// it to not run; otherwise mark the Check's last run stale. Runs are never deleted. The criterion must
+/// sit in the Proposal's Epic, on a Story not closed: accepted while the Story is In review is allowed,
+/// and Merge then holds until the criterion is judged again.
+fn apply_amend_criterion(tx: &Transaction, actor_id: &str, accepted: &Accepted, payload: &Value) -> anyhow::Result<Applied> {
+    let change = AmendCriterion::from_payload(payload)?;
+    let story_id: String = tx
+        .query_row("SELECT story_id FROM acceptance_criteria WHERE id = ?1", params![change.criterion_id], |r| r.get(0))
+        .optional()?
+        .with_context(|| format!("criterion {:?} not found", change.criterion_id))?;
+    let (key, state) = story_in_epic(tx, &story_id, accepted.epic_id)?;
+    anyhow::ensure!(!StoryState::parse(&state)?.is_closed(), "{key} is {state}; a closed Story's criteria stay as they are");
+    amend_criterion_in_tx(
+        tx,
+        actor_id,
+        &change.criterion_id,
+        &change.statement,
+        json!({ "label": "Accepted a Proposal: amended a criterion", "proposal_id": accepted.id }),
+    )?;
+    let current = check_for_criterion(tx, &change.criterion_id)?;
+    match &change.check_command {
+        Some(command) if current.as_ref().map(|c| c.command.as_str()) != Some(command.as_str()) => {
+            set_check_in_tx(tx, actor_id, &change.criterion_id, command, current.map(|c| c.timeout_secs))?;
+        }
+        _ => {
+            mark_last_run_stale_in_tx(tx, actor_id, &change.criterion_id, accepted.id)?;
+        }
+    }
+    Ok(Applied::CriterionAmended { criterion_id: change.criterion_id, story_id })
 }

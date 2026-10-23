@@ -254,6 +254,8 @@ pub fn build_context_packet(conn: &Connection, story_id: &str, resume_note: &str
                         let short = &sha[..sha.len().min(12)];
                         let stale = match head.as_deref() {
                             Some(head) if head != sha => " (stale: the branch has moved since)",
+                            // Issue #163: an accepted Amend criterion marks the last run stale.
+                            _ if current.is_stale(head.as_deref()) => " (stale: the criterion changed since)",
                             _ => "",
                         };
                         format!("{} at {short}{stale}", result.as_str().replace('_', " "))
