@@ -33,6 +33,7 @@ import { useUiStore } from "../state/uiStore";
 import { GhostCard, specChangeOf } from "./GhostCard";
 import { RoundDock } from "./RoundDock";
 import { StageBar } from "./StageBar";
+import { StoryColumns } from "./StoryColumns";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -66,6 +67,13 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
   // Attention in place of the state word, as the board's Epic card shows it (issue #124): the core's
   // `waitingOnYou`, or an open Round with no live shaping session.
   const rounds = data?.rounds ?? [];
+  // Issue #127: the Story columns hang off the Epic once it has a Story or a Story Proposal, or once slicing
+  // has started.
+  const stories = data?.stories ?? [];
+  const showStories =
+    stories.length > 0 ||
+    (data?.proposals ?? []).some((p) => p.targetType === "story") ||
+    (data?.stages ?? []).some((s) => s.kind === "slice" || s.kind === "criteria");
   const attention = rounds.some((r) => r.waitingOnYou)
     ? "waiting_on_you"
     : rounds.some((r) => r.state === "open") && sessionQuery.isSuccess && !sessionQuery.data
@@ -91,7 +99,8 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
           // Stacked (under 1280px) in reading order: the current Round, the Epic it shapes, then the earlier
           // Rounds. From 1280px the Epic card holds the left column and both Round parts the right one.
           // The Stage bar heads both (issue #126): where shaping stands, and the one control that advances it.
-          <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 content-start items-start gap-5 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] xl:grid-rows-[auto_auto_1fr]">
+          // The Story columns (issue #127) take the whole width under both, before the earlier Rounds.
+          <div className="mx-auto grid w-full max-w-[1240px] grid-cols-1 content-start items-start gap-5 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] xl:grid-rows-[auto_auto_auto_1fr]">
             {data.stages.length > 0 && (
               <StageBar
                 stages={data.stages}
@@ -111,7 +120,7 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
               show="current"
               className="xl:col-start-2 xl:row-start-2"
             />
-            <div className="min-w-0 self-stretch xl:col-start-1 xl:row-span-2 xl:row-start-2">
+            <div className="min-w-0 self-stretch xl:col-start-1 xl:row-start-2">
               <EpicCard
                 epic={epic}
                 attention={attention}
@@ -120,6 +129,14 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
                 queryKey={queryKey}
               />
             </div>
+            {showStories && (
+              <StoryColumns
+                stories={stories}
+                proposals={data.proposals ?? []}
+                queryKey={queryKey}
+                className="xl:col-span-2 xl:row-start-3"
+              />
+            )}
             <RoundDock
               rounds={data.rounds}
               openStage={openStage ?? null}
@@ -128,7 +145,7 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
               epic={epic}
               queryKey={queryKey}
               show="earlier"
-              className="xl:col-start-2 xl:row-start-3"
+              className="xl:col-start-2 xl:row-start-4"
             />
           </div>
         )}

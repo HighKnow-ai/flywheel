@@ -98,6 +98,87 @@ function closableShaping({ closed = false } = {}) {
   );
 }
 
+/**
+ * Issue #127: FLY-8 in its Slice Stage. Two Stories are on the Epic, FLY-10 running after FLY-9; the agent has
+ * proposed two more, the first after FLY-10 and the second after the first, and a move of FLY-12; one New Story
+ * was rejected. The Challenge Rounds are answered.
+ */
+function slicingShaping() {
+  closableShaping({ closed: true });
+  const story = (id: string, key: string, title: string, rank: string, description: string, runsAfter: [string, string] | null = null) => ({
+    id, projectId: "p-fly", epicId: "e-59", key, title, description, state: "shaping", rank,
+    runsAfterStoryId: runsAfter?.[0] ?? null, runsAfterReason: runsAfter?.[1] ?? null,
+  });
+  const proposal = (id: string, verb: string, payload: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+    id, projectId: "p-fly", sessionId: "ses-shape-8", epicId: "e-59", verb, targetType: "story", targetId: null, payload,
+    rationale: null, state: "pending", createdAt: new Date().toISOString(), rejectionReason: null, stageId: "st-2", roundId: null,
+    ...extra,
+  });
+  const newStory = (id: string, title: string, rank: string, description: string, after: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) =>
+    proposal(id, "create", { title, description, rank, runs_after_story_id: null, runs_after_proposal_id: null, runs_after_reason: null, ...after }, extra);
+  const stories = [
+    story("s-9", "FLY-9", "Answer a shaping Round in the dock", "a0", "The dock beside the Epic card: numbered questions with a pre-filled recommended answer, Accept, Answer differently and Accept all recommended. Tested in round-dock.test.tsx."),
+    story("s-10", "FLY-10", "Show Proposals in shaping as ghost cards", "a1", "A spec change the agent proposes shows under the field it would rewrite, decided there with Accept, Amend or Reject.", ["s-9", "the ghost card answers from the dock's Round"]),
+    story("s-12", "FLY-12", "Resume a killed shaping session at the open Round", "a2", "A fresh session rebuilt from the board picks the open Round up with round_wait; no answer is lost."),
+  ];
+  const proposals = [
+    newStory("pr-s1", "Slice an Epic into Stories as ghost columns", "a3", "propose_story and propose_story_order; accepting creates the Story in Shaping at its rank with its runs-after marker. Tested in proposal_apply.rs and story-columns.test.tsx.", { runs_after_story_id: "s-10", runs_after_reason: "reuses GhostCard.tsx's decisions" }),
+    newStory("pr-s2", "Write the criteria and close the Epic to Ready", "a4", "The criteria Stage: one accepted criterion per Story with its Check, then closing the last Stage makes every Story Ready.", { runs_after_proposal_id: "pr-s1", runs_after_reason: "criteria stack under the Story columns" }),
+    proposal("pr-m1", "reorder", { rank: "a35" }, { targetId: "s-12", rationale: "Resuming needs the slicing tools in the packet first" }),
+    newStory("pr-s0", "Prototype the dock as a modal sheet", "a5", "", {}, { state: "rejected", rejectionReason: "The dock stays beside the Epic card" }),
+  ];
+  mockIPC(
+    (cmd, payload) => {
+      if (cmd === "epic_shaping_rounds") {
+        const base = answer(cmd, payload as Record<string, unknown> | undefined) as EpicShapingDto | null;
+        if (!base) return base;
+        const stages = [
+          { ...base.stages[0], state: "closed" },
+          { id: "st-2", kind: "slice", state: "open", rank: 2 },
+        ];
+        const openItems = [
+          { kind: "proposal", id: "pr-s1", label: "", round: null, number: null, title: "add the Story “Slice an Epic into Stories as ghost columns”" },
+          { kind: "proposal", id: "pr-s2", label: "", round: null, number: null, title: "add the Story “Write the criteria and close the Epic to Ready”" },
+          { kind: "proposal", id: "pr-m1", label: "", round: null, number: null, title: "move FLY-12 “Resume a killed shaping session at the open Round” in the order" },
+        ];
+        return {
+          ...base,
+          stages,
+          rounds: base.rounds.map((r) => ({
+            ...r,
+            state: "answered",
+            waitingOnYou: false,
+            answeredAt: r.answeredAt ?? r.postedAt,
+            questions: r.questions.map((q) => ({ ...q, answer: q.answer ?? q.recommendedAnswer, answeredWith: q.answeredWith ?? "recommended", answeredAt: q.answeredAt ?? r.postedAt })),
+          })),
+          proposals: [...base.proposals.filter((p) => p.state !== "pending"), ...proposals],
+          stories,
+          openStageStatus: { stageId: "st-2", openItems, warnings: ["The Exit test is not written yet"], next: "criteria", closable: false },
+        };
+      }
+      // Everything else as in the closed-Challenge fixture: FLY-8 waits on no one.
+      const base = answer(cmd, payload as Record<string, unknown> | undefined);
+      if (cmd === "epic_shaping_session") return null;
+      if (cmd === "fleet_waiting_rounds") return [];
+      if (cmd === "board_blocked_summary" && base) {
+        const summary = base as { blockedStoryIds: string[]; waitingEpicIds: string[] };
+        return { ...summary, waitingEpicIds: [], blockedCount: summary.blockedStoryIds.length };
+      }
+      if (cmd === "milestone_progress" && base) {
+        const progress = base as { epics: { epicId: string; attention: string | null }[] };
+        return { ...progress, epics: progress.epics.map((e) => (e.epicId === "e-59" ? { ...e, attention: null } : e)) };
+      }
+      return base;
+    },
+    { shouldMockEvents: true },
+  );
+}
+
+async function storyColumnsInView() {
+  const heading = await screen.findByRole("heading", { name: "Stories" });
+  heading.scrollIntoView({ block: "start" });
+}
+
 async function click(label: string | RegExp) {
   await userEvent.click(await screen.findByRole("button", { name: label }));
 }
@@ -539,6 +620,37 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
       await screen.findByRole("group", { name: /^Proposed: New Milestone "Relay and mobile"/ });
       await roadmapStrip();
       await shot("49-roadmap-ghost-rows-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
+  it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {
+    slicingShaping();
+    await boardReady();
+    await click("Open FLY-8 Epic shaping and its Rounds");
+    await storyColumnsInView();
+    await shot("50-epic-shaping-story-columns");
+  });
+
+  it("51 Epic shaping: amending a proposed Story in its ghost column (issue #127)", async () => {
+    slicingShaping();
+    await boardReady();
+    await click("Open FLY-8 Epic shaping and its Rounds");
+    await click("Amend the proposed Story Slice an Epic into Stories as ghost columns");
+    await screen.findByRole("textbox", { name: "Title" });
+    await storyColumnsInView();
+    await shot("51-epic-shaping-amend-story");
+  });
+
+  it("52 Epic shaping at the window's minimum width: the Story columns scroll sideways (issue #127)", async () => {
+    slicingShaping();
+    await page.viewport(900, 900);
+    try {
+      await boardReady();
+      await click("Open FLY-8 Epic shaping and its Rounds");
+      await storyColumnsInView();
+      await shot("52-epic-shaping-story-columns-min-width");
     } finally {
       await page.viewport(1440, 900);
     }

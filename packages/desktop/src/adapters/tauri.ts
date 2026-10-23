@@ -394,6 +394,8 @@ export interface EpicShapingDto {
   acceptedKnowledge?: ProposalDto[];
   /** What is still open in the open Stage (issue #126), or `null` before shaping has opened one. */
   openStageStatus?: StageStatusDto | null;
+  /** The Epic's Stories in execution order (issue #127): its Story columns. Optional for older fixtures. */
+  stories?: StoryDto[];
 }
 
 /** One thing that keeps a Stage open — mirrors `commands/shaping.rs`'s `OpenItemDto`. */
@@ -474,6 +476,8 @@ export interface StoryDto {
   /** `shaping`, `ready`, `running`, `in_review`, `merged` or `dropped`. */
   state: string;
   runsAfterStoryId: string | null;
+  /** The one-line constraint behind the runs-after marker (issue #127). Optional for older fixtures. */
+  runsAfterReason?: string | null;
   rank: string;
 }
 

@@ -41,6 +41,13 @@ impl ReorderDirection {
     }
 }
 
+/// Refuse anything that is not a rank this module could have written: a rank carried in a payload
+/// (an accepted New Story or reorder Proposal, issue #127) is checked before it is stored.
+pub fn check_rank(raw: &str) -> anyhow::Result<()> {
+    FractionalIndex::from_string(raw).with_context(|| format!("{raw:?} is not a rank"))?;
+    Ok(())
+}
+
 /// Compute a rank that sorts after `prev`, or the very first rank in an empty band if `prev` is
 /// `None`. Used when appending a new item to the tail of a status band.
 pub fn rank_after(prev: Option<&str>) -> anyhow::Result<String> {

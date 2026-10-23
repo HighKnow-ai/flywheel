@@ -258,6 +258,18 @@ function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescripti
     }
     case "roadmap_holds":
       return { ...base, verb: "Said the Roadmap still holds", liveVerb: "Closing the roadmap Round", target: str(input.why) };
+    case "propose_story": {
+      // Issue #127: a New Story, waiting as a ghost column; the agent keeps slicing.
+      const after = str(input.runs_after);
+      const target = `Story: ${str(input.title)}${after ? ` · runs after ${after}` : ""}`;
+      return { ...base, verb: "Proposed", liveVerb: "Proposing", target };
+    }
+    case "propose_story_order": {
+      const story = str(input.story);
+      const place = str(input.after) ? `after ${str(input.after)}` : str(input.before) ? `before ${str(input.before)}` : "to the end";
+      const target = input.action === "retire" ? `Retire ${story}` : `Move ${story} ${place}`;
+      return { ...base, verb: "Proposed", liveVerb: "Proposing", target };
+    }
     default:
       return {
         ...base,

@@ -202,6 +202,32 @@ describe("describeToolCall: board tools by their meaning", () => {
     });
   });
 
+  // Issue #127: slicing reads as the Story Proposals it files.
+  it("reads propose_story as Proposed with the Story's title and what it runs after", () => {
+    const input = { title: "Feed row", description: "Ships the row.", runs_after: "FLY-3", runs_after_reason: "shares FeedRow.tsx" };
+    expect(describeToolCall({ toolName: `${BOARD}propose_story`, input })).toMatchObject({
+      kind: "board",
+      verb: "Proposed",
+      liveVerb: "Proposing",
+      target: "Story: Feed row · runs after FLY-3",
+    });
+    expect(describeToolCall({ toolName: `${BOARD}propose_story`, input: { title: "Schema" } }).target).toBe("Story: Schema");
+  });
+
+  it("reads propose_story_order as Proposed with the move or the retirement", () => {
+    const move = { story: "FLY-3", action: "move", after: "FLY-5", why: "y" };
+    expect(describeToolCall({ toolName: `${BOARD}propose_story_order`, input: move })).toMatchObject({
+      verb: "Proposed",
+      target: "Move FLY-3 after FLY-5",
+    });
+    const front = { story: "FLY-3", action: "move", before: "FLY-1", why: "y" };
+    expect(describeToolCall({ toolName: `${BOARD}propose_story_order`, input: front }).target).toBe("Move FLY-3 before FLY-1");
+    const end = { story: "FLY-3", action: "move", why: "y" };
+    expect(describeToolCall({ toolName: `${BOARD}propose_story_order`, input: end }).target).toBe("Move FLY-3 to the end");
+    const retire = { story: "FLY-3", action: "retire", why: "y" };
+    expect(describeToolCall({ toolName: `${BOARD}propose_story_order`, input: retire }).target).toBe("Retire FLY-3");
+  });
+
   // Issue #124: a later session picks the open Round up and waits on it like round_post did.
   it("reads round_wait as Resumed Round, waiting on your answers, then the Round it came back with", () => {
     expect(describeToolCall({ toolName: `${BOARD}round_wait`, input: {} })).toMatchObject({

@@ -25,6 +25,8 @@ pub struct StoryDto {
     /// `shaping`, `ready`, `running`, `in_review`, `merged` or `dropped`.
     pub state: String,
     pub runs_after_story_id: Option<String>,
+    /// The one-line constraint behind the runs-after marker (issue #127).
+    pub runs_after_reason: Option<String>,
     pub rank: String,
 }
 
@@ -39,6 +41,7 @@ impl From<flywheel_core::domain::story::Story> for StoryDto {
             description: s.description,
             state: s.state,
             runs_after_story_id: s.runs_after_story_id,
+            runs_after_reason: s.runs_after_reason,
             rank: s.rank,
         }
     }

@@ -138,6 +138,8 @@ test("round_post is listed to a shaping session with what each question carries"
     "propose_spec_change",
     "propose_roadmap_change",
     "roadmap_holds",
+    "propose_story",
+    "propose_story_order",
   ]);
   const post = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "round_post");
   assert.deepEqual(post.inputSchema.required, ["note", "questions"]);
@@ -264,6 +266,48 @@ test("propose_spec_change is listed to a shaping session with the field, its new
   assert.deepEqual(propose.inputSchema.required, ["field", "text", "why"]);
   assert.deepEqual(propose.inputSchema.properties.field.enum, ["problem", "scope", "out_of_scope", "exit_test"]);
   assert.match(propose.description, /answered at once/);
+});
+
+// Issue #127: slicing the Epic into Stories. Both tools are answered at once, like every Proposal tool.
+test("propose_story and propose_story_order are listed with their place in the order and the constraint", () => {
+  const story = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "propose_story");
+  assert.deepEqual(story.inputSchema.required, ["title", "description"]);
+  for (const key of ["after", "before", "runs_after", "runs_after_reason"]) {
+    assert.ok(key in story.inputSchema.properties, key);
+  }
+  assert.match(story.description, /never blocks/);
+  assert.match(story.description, /answered at once/);
+  const order = SHAPING_TOOL_DEFINITIONS.find((tool) => tool.name === "propose_story_order");
+  assert.deepEqual(order.inputSchema.required, ["story", "action", "why"]);
+  assert.deepEqual(order.inputSchema.properties.action.enum, ["move", "retire"]);
+  assert.match(order.description, /answered at once/);
+});
+
+test("propose_story is relayed to the core and its answer reaches the agent", async () => {
+  const adapter = new ClaudeCodeAdapter();
+  const events = [];
+  const runId = "shaping-run-story";
+  const args = { title: "Feed row", description: "Ships the row.", runs_after: "FLY-3", runs_after_reason: "shares `FeedRow.tsx`" };
+  const session = adapter.startSession({
+    runId,
+    worktreePath: process.cwd(),
+    prompt: "slice the Epic",
+    permissionMode: "dontAsk",
+    allowedTools: ["Read", "Glob", "Grep", `mcp__${MCP_SERVER_NAME}__propose_story`],
+    permissionPrompt: false,
+    sessionKind: "shaping",
+    env: { FLYWHEEL_FAKE_CALL_TASK_TOOL: JSON.stringify({ name: "propose_story", arguments: args }) },
+    onEvent: (event) => events.push(event),
+  });
+  await waitForCondition(() => events.some((e) => e.type === "board_tool_request"));
+  const request = events.find((e) => e.type === "board_tool_request");
+  assert.equal(request.tool, "propose_story");
+  assert.deepEqual(request.args, args);
+  const answer = { proposal_id: "01STORY", state: "pending" };
+  adapter.resolveBoardTool(runId, request.requestId, answer);
+  await waitForCondition(() => unknownLines(events, "task_tool_result").length === 1);
+  assert.deepEqual(JSON.parse(unknownLines(events, "task_tool_result")[0].text), answer);
+  await session;
 });
 
 test("propose_spec_change is relayed to the core and its answer reaches the agent", async () => {

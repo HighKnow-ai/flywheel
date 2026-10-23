@@ -149,6 +149,9 @@ pub struct EpicShapingDto {
     /// What is still open in the open Stage (issue #126): what the Close Stage button lists. `None`
     /// before shaping has opened a Stage.
     pub open_stage_status: Option<StageStatusDto>,
+    /// The Epic's Stories in execution order (issue #127): its Story columns, beside the ghost
+    /// columns of its pending New Story Proposals.
+    pub stories: Vec<super::story::StoryDto>,
 }
 
 /// One item that keeps a Stage open.
@@ -281,8 +284,10 @@ pub(crate) fn read_epic_shaping(conn: &Connection, epic_id: &str) -> Result<Epic
         .filter(|l| matches!(&l.target, flywheel_core::domain::adr_link::AdrLinkTarget::Epic(id) if id == epic_id))
         .map(|l| l.path)
         .collect();
+    let stories = flywheel_core::domain::story::stories_in_epic(conn, epic_id).map_err(|e| e.to_string())?;
     Ok(EpicShapingDto {
         open_stage_status,
+        stories: stories.into_iter().map(Into::into).collect(),
         proposals: proposals.into_iter().map(Into::into).collect(),
         adr_links,
         accepted_knowledge: accepted

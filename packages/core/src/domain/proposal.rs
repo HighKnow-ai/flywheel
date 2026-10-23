@@ -413,13 +413,20 @@ pub(crate) fn decide_in_tx(tx: &Transaction, actor_id: &str, proposal_id: &str, 
             let payload = amended.unwrap_or(&p.payload);
             if amended.is_some() {
                 validate_payload(verb, target, payload)?;
-                same_kind_of_change(&p.payload, payload)?;
+                same_kind_of_change(verb, target, &p.payload, payload)?;
             }
             tx.execute(
                 "UPDATE proposals SET state = 'accepted', payload = ?1, decided_by = ?2, decided_at = ?3 WHERE id = ?4",
                 params![payload.to_string(), actor_id, now, proposal_id],
             )?;
-            let accepted = Accepted { id: proposal_id, project_id: &p.project_id, verb, target, target_id: p.target_id.as_deref() };
+            let accepted = Accepted {
+                id: proposal_id,
+                project_id: &p.project_id,
+                verb,
+                target,
+                target_id: p.target_id.as_deref(),
+                epic_id: p.epic_id.as_deref(),
+            };
             let applied = apply_in_tx(tx, actor_id, &accepted, payload)?;
             record_event(
                 tx,
@@ -444,9 +451,25 @@ pub(crate) fn decide_in_tx(tx: &Transaction, actor_id: &str, proposal_id: &str, 
     Ok(applied)
 }
 
-/// An amendment edits what a Proposal says, never what it lands on: a spec change keeps its field, and
-/// a new Epic its Milestone and a move its anchor (issue #133).
-fn same_kind_of_change(original: &serde_json::Value, amended: &serde_json::Value) -> anyhow::Result<()> {
+/// An amendment edits what a Proposal says, never what it lands on: a spec change keeps its field, a
+/// new Epic its Milestone and a move its anchor (issue #133), and a New Story its place in the order
+/// and what it runs after (issue #127), its title, description and reason being the developer's to edit.
+fn same_kind_of_change(
+    verb: ProposalVerb,
+    target: ProposalTarget,
+    original: &serde_json::Value,
+    amended: &serde_json::Value,
+) -> anyhow::Result<()> {
+    if crate::domain::proposal_apply::is_new_story(verb, target) {
+        use crate::domain::proposal_apply::NewStory;
+        let (before, after) = (NewStory::from_payload(original)?, NewStory::from_payload(amended)?);
+        anyhow::ensure!(before.rank == after.rank, "an amendment keeps the New Story's place in the order");
+        anyhow::ensure!(
+            before.runs_after.as_ref().map(|(a, _)| a) == after.runs_after.as_ref().map(|(a, _)| a),
+            "an amendment keeps what the New Story runs after; edit only its reason"
+        );
+        return Ok(());
+    }
     for key in ["milestone_id", "before_milestone_id"] {
         if let Some(kept) = original.get(key) {
             anyhow::ensure!(

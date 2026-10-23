@@ -3,9 +3,10 @@
 //! Context packet (`context_packet.rs`) and shares its helpers: a shaping session is rebuilt from
 //! the record it shapes, so ending one loses nothing.
 //!
-//! Six sections in a fixed order, stable parts first so prompt caching works: the standing shaping
+//! Seven sections in a fixed order, stable parts first so prompt caching works: the standing shaping
 //! instructions; the Milestone line and the Epic spec in full, with the Proposals rejected on it;
-//! the ADR index and the glossary path; the sibling Epics; the Rounds so far, each with its answers
+//! the ADR index and the glossary path; the sibling Epics; the Epic's Stories in execution order
+//! with their pending Story Proposals (issue #127); the Rounds so far, each with its answers
 //! (issue #124: a killed session's successor picks up at the open Round); the closing instruction,
 //! which says to wait on the open Round with `round_wait`, or to post the next Round.
 //!
@@ -30,6 +31,9 @@ use crate::context_packet::{live_adrs, non_blank, rejected_proposals, section};
 use crate::domain::adr_link::{adr_links_for_project, AdrLinkTarget};
 use crate::domain::epic::get_epic;
 use crate::domain::milestone::get_milestone;
+use crate::domain::proposal::proposals_on_epic;
+use crate::domain::proposal_apply::{NewStory, RunsAfter};
+use crate::domain::story::stories_in_epic;
 use crate::domain::round::{rounds_for_epic, Round};
 use crate::domain::session::ShapingSubject;
 use crate::domain::stage::{open_stage, StageKind};
@@ -212,12 +216,17 @@ pub fn build_epic_shaping_packet(conn: &Connection, epic_id: &str) -> anyhow::Re
         writeln!(out, "- {key} {title} ({})", epic_state_words(&state))?;
     }
 
-    // 5. Rounds so far, Stage by Stage, oldest first, each with its answers (issue #124)
+    // 5. The Epic's Stories in execution order and its pending Story Proposals (issue #127): what a
+    // slicing session names in `after`, `before` and `runs_after`.
+    section(&mut out, "Stories");
+    write_stories(&mut out, conn, &epic.id)?;
+
+    // 6. Rounds so far, Stage by Stage, oldest first, each with its answers (issue #124)
     section(&mut out, "Rounds");
     let rounds = rounds_for_epic(conn, &epic.id)?;
     write_rounds(&mut out, &rounds)?;
 
-    // 6. Closing instruction: wait on the open Round, post the next one, or post the first
+    // 7. Closing instruction: wait on the open Round, post the next one, or post the first
     section(&mut out, "Closing instruction");
     let in_stage: Vec<&Round> =
         rounds.iter().filter(|r| stage.as_ref().is_some_and(|s| s.id == r.stage_id)).collect();
@@ -267,6 +276,71 @@ answer is settled once its Round is answered; an open Round's missing answers ar
                 (Some(answer), _) => writeln!(out, "   Answer (the developer's own words): {answer}")?,
                 (None, _) => out.push_str("   Answer: not answered yet\n"),
             }
+        }
+    }
+    Ok(())
+}
+
+/// The words for a Story state (GLOSSARY.md "Story state").
+fn story_state_words(state: &str) -> &str {
+    match state {
+        "shaping" => "Shaping",
+        "ready" => "Ready",
+        "running" => "Running",
+        "in_review" => "In review",
+        "merged" => "Merged",
+        "dropped" => "Dropped",
+        other => other,
+    }
+}
+
+/// The Epic's Stories in execution order, each with its key, state and runs-after marker, then its
+/// pending Story Proposals: each New Story with the proposal_id that names it until it is accepted,
+/// and each move or retirement (issue #127).
+fn write_stories(out: &mut String, conn: &Connection, epic_id: &str) -> anyhow::Result<()> {
+    let stories = stories_in_epic(conn, epic_id)?;
+    let key_of = |id: &str| stories.iter().find(|s| s.id == id).map_or(id.to_string(), |s| s.key.clone());
+    if stories.is_empty() {
+        out.push_str("No Story on this Epic yet.\n");
+    } else {
+        out.push_str("The Epic's Stories in execution order:\n");
+        for s in &stories {
+            write!(out, "- {} {} ({})", s.key, s.title, story_state_words(&s.state))?;
+            if let Some(after) = &s.runs_after_story_id {
+                write!(out, "; runs after {}", key_of(after))?;
+                if let Some(reason) = &s.runs_after_reason {
+                    write!(out, ": {reason}")?;
+                }
+            }
+            out.push('\n');
+        }
+    }
+    let pending: Vec<_> = proposals_on_epic(conn, epic_id)?
+        .into_iter()
+        .filter(|p| p.state == "pending" && p.target_type == "story")
+        .collect();
+    if pending.is_empty() {
+        return Ok(());
+    }
+    out.push_str("\nStory Proposals waiting on the developer, oldest first:\n");
+    for p in pending {
+        match p.verb.as_str() {
+            "create" => {
+                let Ok(story) = NewStory::from_payload(&p.payload) else { continue };
+                write!(out, "- New Story \"{}\" (proposal_id {})", story.title, p.id)?;
+                match &story.runs_after {
+                    Some((RunsAfter::Story(id), reason)) => write!(out, "; runs after {}: {reason}", key_of(id))?,
+                    Some((RunsAfter::Proposal(id), reason)) => write!(out, "; runs after the New Story {id}: {reason}")?,
+                    None => {}
+                }
+                out.push('\n');
+            }
+            verb @ ("reorder" | "retire") => {
+                let key = p.target_id.as_deref().map(key_of).unwrap_or_default();
+                let what = if verb == "reorder" { "Move" } else { "Retire" };
+                writeln!(out, "- {what} {key}: {}", p.rationale.as_deref().unwrap_or("no reason given"))?;
+            }
+            _ => {}
         }
     }
     Ok(())
