@@ -1,7 +1,8 @@
 import { useEffect } from "react";
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   fleetBlockedQueue,
+  needsYouList,
   fleetList,
   fleetWaitingRounds,
   subscribeAgentEvent,
@@ -27,6 +28,12 @@ export function blockedQueueQueryKey() {
 /** The waiting shaping Rounds' query key (issue #124). Also app-wide: no project id. */
 export function waitingRoundsQueryKey() {
   return ["fleet-waiting-rounds"] as const;
+}
+
+/** One project's Needs-you list (issue #156), or every project's under the bare prefix. The board's column and
+ * the sidebar's project figure share it, so the figure is always the list's length. */
+export function needsYouQueryKey(projectId?: string) {
+  return projectId === undefined ? (["needs-you"] as const) : (["needs-you", projectId] as const);
 }
 
 /** The worktree inventory's query key (plan 10-08). Also app-wide: no project id. */
@@ -82,6 +89,31 @@ export function useWaitingRounds() {
 }
 
 /**
+ * One project's Needs you (docs/mvp-spec.md §2, issue #156): everything waiting on the developer, ranked by
+ * the core. Rides the fleet's one shared subscription, because a request, a stop or a hand-off in any project
+ * changes it and the sidebar shows every project's figure.
+ */
+export function useNeedsYou(projectId: string | undefined) {
+  useFleetInvalidation();
+  return useQuery({
+    queryKey: needsYouQueryKey(projectId ?? ""),
+    queryFn: () => needsYouList(projectId as string),
+    enabled: Boolean(projectId),
+  });
+}
+
+/** Every listed project's Needs-you list, under the same keys as {@link useNeedsYou}: the sidebar's figures. */
+export function useNeedsYouLists(projectIds: string[]) {
+  useFleetInvalidation();
+  return useQueries({
+    queries: projectIds.map((projectId) => ({
+      queryKey: needsYouQueryKey(projectId),
+      queryFn: () => needsYouList(projectId),
+    })),
+  });
+}
+
+/**
  * Every Story worktree across every registered project with its cached size and a named disposition
  * (WORK-07, plan 10-08). Rides the shared subscription like the other two reads, but only
  * `board:changed` invalidates it: a run starting or a Story being merged changes a row's
@@ -114,6 +146,9 @@ function startInvalidation(queryClient: QueryClient): () => void {
     invalidate();
     // A Round is posted, taken over and answered by board writes, each emitting board:changed.
     void queryClient.invalidateQueries({ queryKey: waitingRoundsQueryKey() });
+    // Every Needs-you item changes through a board write (a request raised or answered, a session ending,
+    // a hand-off, a Round), each emitting board:changed; an agent's tool calls never change one.
+    void queryClient.invalidateQueries({ queryKey: needsYouQueryKey() });
     void queryClient.invalidateQueries({ queryKey: worktreeInventoryQueryKey() });
   };
   let cancelled = false;

@@ -319,7 +319,7 @@ export function StoryStateWord({
  * one-line note, asked in a dialog. The core starts a fresh session in the same worktree from the Context
  * packet. Like Start, Resume stays where it is: the new session opens only from its own control.
  */
-export function ResumeControl({ story }: { story: StoryDto }) {
+export function ResumeControl({ story }: { story: Pick<StoryDto, "id" | "key"> }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);

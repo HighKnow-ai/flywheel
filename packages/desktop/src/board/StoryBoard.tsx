@@ -43,6 +43,7 @@ import {
 import { OpenReviewControl } from "../review/ReviewCard";
 import { WriteStoryDialog } from "./WriteStoryDialog";
 import { AddStoryToEpic } from "./AddRecordControls";
+import { NeedsYouColumn, NeedsYouSheetButton } from "./NeedsYou";
 import { MilestoneHeader, useMilestoneProgress } from "./MilestoneHeader";
 import { EpicProgress } from "./EpicProgress";
 import { RoadmapStrip, useMilestoneSelection, useRoadmap } from "./RoadmapStrip";
@@ -66,23 +67,64 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
   // virtualizer picks it up on the render after it mounts.
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   const selection = useMilestoneSelection(projectId);
+  // Needs you (#156) is a column beside the roster from a content width of 1280px, a Sheet below that.
+  const wide = useWideContent(scrollElement);
   return (
     <div className="board-shell flex h-full min-h-0 flex-col">
-      <PageHeader crumbs={[{ label: projectName }]} actions={<WriteStoryDialog projectId={projectId} />} />
+      <PageHeader
+        crumbs={[{ label: projectName }]}
+        actions={
+          <>
+            {!wide && <NeedsYouSheetButton projectId={projectId} />}
+            <WriteStoryDialog projectId={projectId} />
+          </>
+        }
+      />
       <SurfaceBody ref={setScrollElement} data-board-scroll="">
-        <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4">
+        <div className={cn("mx-auto flex w-full flex-col gap-4", wide ? "max-w-[1660px]" : "max-w-[1240px]")}>
           {/* The Roadmap (#131); the Milestone picked on it heads the board with its progress (#106), above
               the roster of its Epics. */}
           <RoadmapStrip projectId={projectId} />
           <ConfirmExitTestOutcome />
           <MilestoneHeader projectId={projectId} milestoneId={selection.requested} />
-          {/* What changed since the last visit (#167), folded, just above the roster. */}
-          <SinceYouLastLooked projectId={projectId} />
-          <StoryRoster projectId={projectId} selection={selection} scrollElement={scrollElement} />
+          {wide ? (
+            <div className="grid grid-cols-[400px_minmax(0,1fr)] items-start gap-5">
+              <NeedsYouColumn projectId={projectId} />
+              {/* Since you last looked (#167) sits between Needs you and the roster: atop the roster's column. */}
+              <div className="flex min-w-0 flex-col gap-4">
+                <SinceYouLastLooked projectId={projectId} />
+                <StoryRoster projectId={projectId} selection={selection} scrollElement={scrollElement} />
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* What changed since the last visit (#167), folded, just above the roster. */}
+              <SinceYouLastLooked projectId={projectId} />
+              <StoryRoster projectId={projectId} selection={selection} scrollElement={scrollElement} />
+            </>
+          )}
         </div>
       </SurfaceBody>
     </div>
   );
+}
+
+/** The content width at which Needs you sits beside the roster (direction.md "First viewport"). */
+export const NEEDS_YOU_COLUMN_MIN_WIDTH = 1280;
+
+/** Whether the board's content area is at least 1280px wide. Before it is measured (and in jsdom, which has
+ * no layout) it counts as wide, so the column is what renders first. */
+function useWideContent(element: HTMLElement | null): boolean {
+  const [width, setWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (!element) return;
+    const update = () => setWidth(element.getBoundingClientRect().width);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element]);
+  return width === null || width === 0 || width >= NEEDS_YOU_COLUMN_MIN_WIDTH;
 }
 
 /** An Epic with the Milestone it sits in, in Roadmap order. */

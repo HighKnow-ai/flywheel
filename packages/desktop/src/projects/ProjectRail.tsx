@@ -15,7 +15,9 @@
  * the queue's own read (one entry per waiting request, plus one per shaping Round a live session is held
  * on, issue #124), so the figure and the list cannot disagree; the
  * live sessions are the fleet's own read, so the sidebar, the andon strip and All agents cannot either.
- * Needs decision (D-46: a past session left something to decide) is a separate figure, never summed in.
+ * A project's figure is its Needs-you item count (issue #156), read under the board column's own key, so the
+ * two never disagree; it is yellow only while one of those items is Waiting on you, neutral otherwise. A
+ * missing worktree is one of those items now, so the separate "Needs decision" figure is gone.
  *
  * An unreachable project (D-16) carries a warning glyph AND the word "Unreachable", never a colour alone;
  * `App.tsx` decides that selecting it opens `ProjectUnreachable`.
@@ -33,12 +35,12 @@ import { Activity, BellRing, Folder, FolderMinus, Plus, Settings, SquareStack, T
 import { projectHide, storyGet, type FleetRowDto, type StoryDto, type WaitingRoundDto } from "../adapters/tauri";
 import glyphUrl from "../assets/logo-glyph.svg";
 import type { Project } from "../board/useBoardQuery";
-import { useRecoverySummary } from "../board/useBoardQuery";
 import {
   blockedQueueQueryKey,
   fleetQueryKey,
   useBlockedQueue,
   useFleet,
+  useNeedsYouLists,
   useWaitingRounds,
   worktreeInventoryQueryKey,
 } from "../fleet/useFleet";
@@ -65,6 +67,7 @@ import { cn } from "@/lib/utils";
 import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./RegisterProjectFlow";
 import { lampsFromFleet } from "../shell/AndonStrip";
 import { useUiStore } from "../state/uiStore";
+import { isWaitingOnYou } from "../board/NeedsYou";
 import { isRoundHere, useOpenWaitingRound, usePlaceBoardId, usePlaceShapingId, waitingRoundWords } from "../fleet/waitingRound";
 
 const SIDEBAR_WIDTH = "248px";
@@ -353,7 +356,8 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   const queue = useBlockedQueue().data ?? [];
   const waitingRounds = useWaitingRounds().data ?? [];
   const waitingCount = queue.length + waitingRounds.length;
-  const recoveryCount = useRecoverySummary(currentProjectId).data?.recoveryCount ?? 0;
+  // Every project's Needs-you list, the same read the board's column makes (issue #156).
+  const needsYouLists = useNeedsYouLists(projects.map((project) => project.id));
   const fleetRows = useFleet().data?.rows ?? [];
   const liveSessions = fleetRows.filter(isLiveSession);
   // The strip's own rule for Stopped, so the sidebar and the lamps agree.
@@ -469,33 +473,12 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
               </SidebarMenuItem>
             </Section>
 
-            {recoveryCount > 0 && (
-              <Section id="rail-review-queue" label="Review queue">
-                {/* Never merged with the waiting count (D-46): a different urgency, so a different row. It
-                    opens All agents, not the queue: the queue holds requests waiting on you only. */}
-                <SidebarMenuItem>
-                  <SidebarMenuButton aria-label="Open decisions" onClick={() => setFleetSurface({ view: "fleet" })} className={rowClass}>
-                    <TriangleAlert aria-hidden="true" />
-                    <span className="flex-1">Needs decision</span>
-                    <span
-                      data-count="needs-decision"
-                      title={recoveryCount === 1 ? "1 task needs a decision." : `${recoveryCount} tasks need a decision.`}
-                      className="text-small font-semibold text-destructive-text tabular-nums"
-                    >
-                      {recoveryCount}
-                    </span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </Section>
-            )}
-
             <Section id="rail-projects" label="Projects" visibleLabel>
-              {projects.map((project) => {
+              {projects.map((project, index) => {
                 const isCurrent = project.id === currentProjectId;
                 const isUnreachable = project.status === "unreachable";
-                const projectWaiting =
-                  queue.filter((entry) => entry.projectId === project.id).length +
-                  waitingRounds.filter((round) => round.projectId === project.id).length;
+                const needsYou = needsYouLists[index]?.data ?? [];
+                const anyWaiting = needsYou.some(isWaitingOnYou);
                 return (
                   <SidebarMenuItem key={project.id}>
                     <SidebarMenuButton
@@ -520,13 +503,18 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                           </span>
                         )}
                       </span>
-                      {projectWaiting > 0 && (
+                      {needsYou.length > 0 && (
                         <Badge
-                          variant="attention"
-                          title={`${projectWaiting} waiting on you in ${project.name}`}
+                          variant={anyWaiting ? "attention" : "secondary"}
+                          data-count="needs-you"
+                          title={
+                            needsYou.length === 1
+                              ? `1 item needs you in ${project.name}`
+                              : `${needsYou.length} items need you in ${project.name}`
+                          }
                           className="h-5 min-w-5 rounded-md px-1.5 text-meta tabular-nums"
                         >
-                          {projectWaiting}
+                          {needsYou.length}
                         </Badge>
                       )}
                     </SidebarMenuButton>

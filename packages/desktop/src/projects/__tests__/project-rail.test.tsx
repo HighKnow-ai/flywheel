@@ -26,6 +26,7 @@ const fleetBlockedQueueMock = vi.fn(() => Promise.resolve<unknown[]>([]));
 const fleetWaitingRoundsMock = vi.fn(() => Promise.resolve<unknown[]>([]));
 const fleetListMock = vi.fn(() => Promise.resolve<FleetListDto>({ rows: [], totalRows: 0, visibleCostUsd: null }));
 const storyGetMock = vi.fn((_storyId: string) => Promise.resolve<unknown>(null));
+const needsYouListMock = vi.fn((_projectId: string) => Promise.resolve<unknown[]>([]));
 
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
@@ -40,6 +41,7 @@ vi.mock("../../adapters/tauri", () => ({
   openFolderDialog: () => Promise.resolve(null),
   projectHide: (projectId: string) => invokeCommandMock("project_hide", { projectId }),
   storyGet: (storyId: string) => storyGetMock(storyId),
+  needsYouList: (projectId: string) => needsYouListMock(projectId),
 }));
 
 function project(overrides: Partial<Project>): Project {
@@ -70,6 +72,8 @@ beforeEach(() => {
   fleetWaitingRoundsMock.mockResolvedValue([]);
   storyGetMock.mockReset();
   storyGetMock.mockResolvedValue(null);
+  needsYouListMock.mockReset();
+  needsYouListMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -198,7 +202,6 @@ describe("ProjectRail's Waiting on you row (#57, docs/mvp-spec.md §4.1)", () =>
     );
     const row = await screen.findByRole("button", { name: "Open Waiting on you, 2 waiting" });
     expect(row.querySelector('[data-count="waiting"]')).toHaveTextContent("2");
-    expect(await screen.findByTitle("1 waiting on you in Other")).toHaveTextContent("1");
     // The badge and the rows under the project agree: the Round has its row, which opens its Epic.
     fireEvent.click(await screen.findByRole("button", { name: "Open Epic OTH-8 Epic shaping, Round 2 Waiting on you" }));
     expect(useUiStore.getState().currentEpicId).toBe("e-8");
@@ -212,23 +215,61 @@ describe("ProjectRail's Waiting on you row (#57, docs/mvp-spec.md §4.1)", () =>
     expect(document.querySelector('[data-count="waiting"]')).toBeNull();
   });
 
-  it("keeps the waiting count and the needs-decision count as separate figures, and Needs decision opens the fleet list", async () => {
-    invokeCommandMock.mockImplementation((command: string) =>
-      command === "board_recovery_summary"
-        ? Promise.resolve({ recoveryTaskIds: [], recoveryCount: 4 })
-        : Promise.resolve(undefined),
+});
+
+/** One Needs-you item, as `needs_you_list` returns it (issue #156). */
+function needsYouItem(kind: string, id: string, extra: Record<string, unknown> = {}) {
+  return {
+    kind, rank: 1, id, since: "2026-10-20T10:00:00Z",
+    record: { kind: "story", id: `s-${id}`, key: `FLY-${id}`, title: `Story ${id}`, state: null },
+    sessionId: null, request: null, endingReason: null, missingWorktree: false, doingTaskTitle: null,
+    exitTest: null, milestoneTitle: null, round: null, ...extra,
+  };
+}
+
+describe("ProjectRail's per-project figure is the Needs-you item count (issue #156)", () => {
+  const two = [project({}), project({ id: "proj-2", name: "Other", keyPrefix: "OTH" })];
+
+  it("shows each project's Needs-you count, read from that project's own list", async () => {
+    needsYouListMock.mockImplementation((projectId: string) =>
+      Promise.resolve(
+        projectId === "proj-1"
+          ? [needsYouItem("stopped", "1"), needsYouItem("review", "2"), needsYouItem("confirm_exit_test", "3")]
+          : [needsYouItem("gated_action", "9")],
+      ),
     );
-    fleetBlockedQueueMock.mockResolvedValue([{ requestId: "r1" }, { requestId: "r2" }]);
-    renderWithClient(
-      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
+    renderWithClient(<ProjectRail projects={two} currentProjectId="proj-1" onSelect={() => {}} />);
+    expect(await screen.findByTitle("3 items need you in Flywheel")).toHaveTextContent("3");
+    expect(await screen.findByTitle("1 item needs you in Other")).toHaveTextContent("1");
+    expect(needsYouListMock).toHaveBeenCalledWith("proj-1");
+    expect(needsYouListMock).toHaveBeenCalledWith("proj-2");
+  });
+
+  it("is yellow only while an item in it is Waiting on you", async () => {
+    needsYouListMock.mockImplementation((projectId: string) =>
+      Promise.resolve(
+        projectId === "proj-1"
+          ? [needsYouItem("review", "2")]
+          : [
+              needsYouItem("shaping_round", "r", {
+                round: { roundId: "r", roundNumber: 1, subject: "epic", waitingOnYou: true, answered: 0, questions: 2 },
+              }),
+            ],
+      ),
     );
-    const waiting = await screen.findByRole("button", { name: /Open Waiting on you/ });
-    const decision = await screen.findByRole("button", { name: "Open decisions" });
-    expect(waiting.querySelector('[data-count="waiting"]')).toHaveTextContent("2");
-    expect(decision.querySelector('[data-count="needs-decision"]')).toHaveTextContent("4");
-    expect(screen.queryByText("6")).not.toBeInTheDocument();
-    fireEvent.click(decision);
-    expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
+    renderWithClient(<ProjectRail projects={two} currentProjectId="proj-1" onSelect={() => {}} />);
+    const quiet = await screen.findByTitle("1 item needs you in Flywheel");
+    const lit = await screen.findByTitle("1 item needs you in Other");
+    expect(quiet).toHaveAttribute("data-variant", "secondary");
+    expect(lit).toHaveAttribute("data-variant", "attention");
+  });
+
+  it("shows no figure for a project nothing needs, and no separate Needs decision figure", async () => {
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
+    await waitFor(() => expect(needsYouListMock).toHaveBeenCalled());
+    expect(document.querySelector('[data-count="needs-you"]')).toBeNull();
+    expect(screen.queryByText("Needs decision")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open decisions" })).toBeNull();
   });
 });
 
