@@ -2,9 +2,10 @@
 //! human-only").
 //!
 //! An "authority transition" is a sign-off the developer owns: accepting (or withdrawing) an
-//! Acceptance criterion, editing a Check, deciding a Proposal, and editing a Milestone by hand (an
-//! agent changes the Roadmap only through a Proposal). Each is enforced in two places at once: the
-//! writer reads `actors.type` inside its own write transaction and refuses anything but `'human'`
+//! Acceptance criterion, editing a Check, deciding a Proposal, editing a Milestone by hand (an
+//! agent changes the Roadmap only through a Proposal), and moving a Story to another Epic. Each is
+//! enforced in two places at once: the writer reads `actors.type` inside its own write transaction
+//! and refuses anything but `'human'`
 //! (the behaviour half below), and no agent-reachable module may call the writer at all
 //! (the source half below). The developer-only Story, Epic and Milestone moves (starting a Story,
 //! requesting changes, merging, dropping, closing shaping, confirming an exit test, reordering the
@@ -34,7 +35,7 @@ use core::domain::proposal::{
 use core::domain::roadmap_round::{dismiss_roadmap_round, open_roadmap_round};
 use core::domain::round::{accept_all_recommended, answer_round_question, post_round, NewQuestion, NewRound, RoundAnswer};
 use core::domain::stage::close_stage;
-use core::domain::story::{set_story_state, StoryState};
+use core::domain::story::{move_story_to_epic, set_story_state, StoryState};
 use core::domain::story_merge::{merge_story, MergeOptions};
 use rusqlite::Connection;
 
@@ -295,6 +296,16 @@ fn run_update_milestone(who: Who) -> Trial {
     trial(&mut conn, who, |c, actor| update_milestone(c, actor, &m.id, "Ship it well", Some("it ships and holds")))
 }
 
+/// Moving a Story to another Epic is the developer's (issue #168): an agent re-parents nothing.
+fn run_move_story_to_epic(who: Who) -> Trial {
+    let (mut conn, human, project) = common::seeded_project();
+    let story = common::new_story(&mut conn, &project.id, &human, "Wire up the focus trap");
+    let milestone: String =
+        conn.query_row("SELECT milestone_id FROM epics WHERE id = ?1", [&story.epic_id], |r| r.get(0)).unwrap();
+    let target = core::domain::epic::create_epic(&mut conn, &human, &milestone, "Another Epic").unwrap();
+    trial(&mut conn, who, |c, actor| move_story_to_epic(c, actor, &story.id, &target.id))
+}
+
 /// A live shaping session on an Epic with a two-question Round posted by its agent. Returns
 /// `(conn, round_id, first question id)`.
 fn posted_round() -> (Connection, String, String) {
@@ -352,7 +363,7 @@ fn run_close_stage(who: Who) -> Trial {
 
 /// The authority writers the source half guards, by function name. Adding one here without a case
 /// below (or the reverse) fails `every_authority_writer_has_a_refusal_and_a_not_blocked_case`.
-const AUTHORITY_WRITERS: [&str; 15] = [
+const AUTHORITY_WRITERS: [&str; 16] = [
     "accept_criterion",
     "unaccept_criterion",
     "set_check",
@@ -368,6 +379,7 @@ const AUTHORITY_WRITERS: [&str; 15] = [
     "close_stage",
     "update_milestone",
     "merge_story",
+    "move_story_to_epic",
 ];
 
 /// Declares the case table AND, per transition, the labelled refusal / not-blocked pair — so the two
@@ -413,6 +425,7 @@ authority_cases! {
     accept_all_recommended => run_accept_all_recommended,
     close_stage => run_close_stage,
     update_milestone => run_update_milestone,
+    move_story_to_epic => run_move_story_to_epic,
     start_story => run_start_story,
     request_changes => run_request_changes,
     merge_story => run_merge_story,
@@ -439,7 +452,7 @@ fn every_authority_writer_has_a_refusal_and_a_not_blocked_case() {
     in_table.sort_unstable();
     declared.sort_unstable();
     assert_eq!(in_table, declared, "the case table must name every writer and every developer-only move");
-    assert_eq!(TRANSITIONS.len(), 21, "a transition was quietly dropped from coverage");
+    assert_eq!(TRANSITIONS.len(), 22, "a transition was quietly dropped from coverage");
 }
 
 /// The session's hand-off is the one Story move that is not the developer's: an agent may make it,
@@ -593,11 +606,13 @@ struct AllowedCaller {
 /// The declaring domain modules and the Tauri command modules that put the act under the human's
 /// own control (each resolves the actor server-side with `local_human_actor_id`). Nothing under
 /// `packages/sidecar/src` — the process that drives an agent session — is, or may ever be, listed.
-const ALLOWED_CALLERS: [AllowedCaller; 15] = [
+const ALLOWED_CALLERS: [AllowedCaller; 17] = [
     AllowedCaller { suffix: "packages/core/src/domain/story_merge.rs", reason: "declares merge_story", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/review.rs", reason: "the human's Merge on the review card", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/milestone.rs", reason: "declares update_milestone", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/roadmap.rs", reason: "the human's in-place edit on the Milestone card", test_only: false },
+    AllowedCaller { suffix: "packages/core/src/domain/story.rs", reason: "declares move_story_to_epic", test_only: false },
+    AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/story.rs", reason: "the human's Move to Epic in the Story view", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/roadmap_round.rs", reason: "declares dismiss_roadmap_round", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/roadmap_round.rs", reason: "the human's Dismiss on the Roadmap strip", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/acceptance_criterion.rs", reason: "declares accept_criterion / unaccept_criterion", test_only: false },

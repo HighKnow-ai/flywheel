@@ -313,6 +313,68 @@ pub(crate) fn set_story_state_in_tx(tx: &Transaction, actor_id: &str, story_id: 
     Ok(())
 }
 
+/// Move Story `story_id` into Epic `epic_id` of the same project (issue #168, docs/mvp-spec.md §7): the
+/// developer's re-parenting. The Story lands at the end of the target Epic's order and keeps its key,
+/// state, criteria, Tasks, worktree and branch. A runs-after marker names a Story of the same Epic, so
+/// every marker the move would carry across Epics (the Story's own, and any pointing at it) is cleared.
+///
+/// Human-only. Refused for a Merged or Dropped Story (it stays where it closed), for a Done or Dropped
+/// Epic (it takes no new Story), for an Epic of another project, and for the Story's own Epic.
+pub fn move_story_to_epic(conn: &mut Connection, actor_id: &str, story_id: &str, epic_id: &str) -> anyhow::Result<()> {
+    let tx = conn.transaction()?;
+    assert_human_actor_in_tx(&tx, actor_id)?;
+    let now = now();
+    let (project_id, from_epic, key, state): (String, String, String, String) = tx
+        .query_row("SELECT project_id, epic_id, key, state FROM stories WHERE id = ?1", params![story_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })
+        .with_context(|| format!("Story {story_id:?} not found"))?;
+    anyhow::ensure!(!StoryState::parse(&state)?.is_closed(), "{key} is {state}; a closed Story stays in the Epic it closed in");
+    let (epic_project, epic_key, epic_title, epic_state): (String, String, String, String) = tx
+        .query_row("SELECT project_id, key, title, state FROM epics WHERE id = ?1", params![epic_id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })
+        .with_context(|| format!("Epic {epic_id:?} not found"))?;
+    anyhow::ensure!(epic_project == project_id, "{epic_key} is in another project; a Story moves only within its project");
+    anyhow::ensure!(epic_id != from_epic, "{key} is already in {epic_key}");
+    anyhow::ensure!(
+        epic_state != "done" && epic_state != "dropped",
+        "{epic_key} is {epic_state}; a Story moves only into an open Epic"
+    );
+
+    let last_rank: Option<String> = tx
+        .query_row("SELECT rank FROM stories WHERE epic_id = ?1 ORDER BY rank DESC LIMIT 1", params![epic_id], |r| r.get(0))
+        .optional()?;
+    let rank = rank_after(last_rank.as_deref())?;
+    tx.execute(
+        "UPDATE stories SET epic_id = ?1, rank = ?2, runs_after_story_id = NULL, runs_after_reason = NULL, updated_at = ?3
+         WHERE id = ?4",
+        params![epic_id, rank, now, story_id],
+    )
+    .context("failed to move the Story")?;
+    tx.execute(
+        "UPDATE stories SET runs_after_story_id = NULL, runs_after_reason = NULL, updated_at = ?1 WHERE runs_after_story_id = ?2",
+        params![now, story_id],
+    )
+    .context("failed to clear the runs-after markers on the moved Story")?;
+    record_event(
+        &tx,
+        &project_id,
+        "story",
+        story_id,
+        EventScope { story_id: Some(story_id), epic_id: Some(epic_id) },
+        actor_id,
+        "story.moved",
+        &serde_json::json!({
+            "field": "epic_id", "before": from_epic, "after": epic_id,
+            "label": format!("Moved {key} to {epic_key} \"{epic_title}\""),
+        }),
+        &now,
+    )?;
+    tx.commit().context("failed to commit move_story_to_epic")?;
+    Ok(())
+}
+
 /// Set or clear Story `story_id`'s runs-after marker and the one-line constraint behind it (issue
 /// #127), inside the caller's transaction. The Story it runs after must be another Story of the same
 /// Epic; the marker is informational and never blocks a start. `proposal_id` names the accepted
