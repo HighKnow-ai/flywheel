@@ -33,6 +33,7 @@ import {
   setRoadmapRound,
   setShapingSessionLive,
   setTriageInFixture,
+  setTriageDuplicateInFixture,
   shapeMilestoneInFixture,
 } from "./m2-fixture";
 
@@ -996,6 +997,23 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     const field = await screen.findByRole("textbox", { name: "Your criterion" });
     field.closest("li")?.scrollIntoView({ block: "center" });
     await shot("101-needs-you-judged-on-edit");
+  });
+
+  it("108 Triage drawer: a duplicate New Story names what it repeats and who filed it (issue #165)", async () => {
+    setTriageInFixture(true);
+    setTriageDuplicateInFixture(true);
+    useTriageDrawer.getState().closeTriage();
+    await boardReady();
+    await click("Triage 5 Proposals");
+    const drawer = await screen.findByRole("dialog", { name: /Triage Proposals/ });
+    const flag = await waitFor(() => {
+      const el = drawer.querySelector<HTMLElement>("[data-duplicate-of]");
+      if (!el) throw new Error("no duplicate flag yet");
+      return el;
+    });
+    flag.closest("li")?.scrollIntoView({ block: "center" });
+    await shot("108-triage-drawer-duplicate");
+    setTriageDuplicateInFixture(false);
   });
 
   it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {

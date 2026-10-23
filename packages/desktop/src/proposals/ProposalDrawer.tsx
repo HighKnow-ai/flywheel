@@ -9,11 +9,14 @@
  * with its age. Accept, Amend and Reject are the shaping ghost's own controls (`ProposalDecision`), on the same
  * commands, so a decision here is the same decision. Deciding never touches the session that filed it.
  *
+ * A duplicate (issue #165) is flagged under what it names: what it repeats and the Story that filed that one, since
+ * accepting the original closes it in the core.
+ *
  * A judged-on change (an amended criterion or Epic spec) is not here: it is its own Needs-you item (issue #163).
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpDown, CircleMinus, Compass, FilePlus2, Layers, Lightbulb, ListChecks, ScanSearch } from "lucide-react";
+import { ArrowUpDown, CircleMinus, Compass, Copy, FilePlus2, Layers, Lightbulb, ListChecks, ScanSearch } from "lucide-react";
 import { proposalListForTriage, type ProposalDto, type TriageProposalDto } from "../adapters/tauri";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -364,6 +367,24 @@ function CardBody({ t }: { t: TriageProposalDto }) {
   }
 }
 
+/** A duplicate's flag (issue #165): what it repeats, who filed that one, and that accepting it closes this one. */
+function DuplicateFlag({ duplicate }: { duplicate: NonNullable<TriageProposalDto["duplicate"]> }) {
+  return (
+    <p data-duplicate-of={duplicate.proposalId} className="m-0 flex min-w-0 items-start gap-1.5 rounded-md bg-secondary px-3 py-2 text-small text-muted-foreground">
+      <Copy aria-hidden="true" size={15} className="mt-0.5 shrink-0" />
+      <span className="min-w-0 break-words">
+        <span className="font-semibold text-foreground">Duplicate of “{duplicate.title}”</span>
+        {duplicate.storyKey && (
+          <>
+            , filed by <span className="font-mono text-meta">{duplicate.storyKey}</span>
+          </>
+        )}
+        . Accepting that one closes this one.
+      </span>
+    </p>
+  );
+}
+
 function TriageCard({ card: t, now, afterDecide }: { card: TriageProposalDto; now: number; afterDecide: () => Promise<void> }) {
   const p = t.proposal;
   const kind = kindOf(p);
@@ -372,6 +393,7 @@ function TriageCard({ card: t, now, afterDecide }: { card: TriageProposalDto; no
     <li
       data-proposal-card={p.id}
       data-kind={kind ?? undefined}
+      data-duplicate={t.duplicate?.proposalId}
       className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card px-4 pt-3 pb-3.5 shadow-card"
     >
       <div className="flex min-w-0 items-center gap-2">
@@ -391,6 +413,7 @@ function TriageCard({ card: t, now, afterDecide }: { card: TriageProposalDto; no
           )}
           <span className="min-w-0 line-clamp-2 break-words">{title}</span>
         </p>
+        {t.duplicate && <DuplicateFlag duplicate={t.duplicate} />}
         <CardBody t={t} />
         {p.rationale && <p className="m-0 max-w-[68ch] text-small break-words">Why: {p.rationale}</p>}
         {p.evidence && (
