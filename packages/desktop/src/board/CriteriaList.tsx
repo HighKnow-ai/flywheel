@@ -15,6 +15,7 @@ import { checkRemove, checkSet, criterionList, type AcceptanceCriterionDto, type
 import { StateBadge } from "../components/StateBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -49,19 +50,32 @@ export function CheckChip({ check }: { check: CheckDto }) {
   );
 }
 
-export function CriteriaList({ projectId, storyId, storyKey }: { projectId: string; storyId: string; storyKey: string }) {
+export interface CriteriaListProps {
+  projectId: string;
+  storyId: string;
+  storyKey: string;
+  /**
+   * The narrow variant a shaping Story column stacks (issue #127's 17.5rem columns, issue #128): the statement at
+   * small size, the Check's chip and its controls on one line, the command on its own line under them.
+   */
+  compact?: boolean;
+  /** What an empty list says; `null` says nothing (a pending criterion is already drawn under it). */
+  emptyText?: string | null;
+}
+
+export function CriteriaList({ projectId, storyId, storyKey, compact = false, emptyText = "No Acceptance criteria." }: CriteriaListProps) {
   const criteriaQuery = useCriteria(projectId, storyId);
   const criteria = criteriaQuery.data ?? [];
 
   return (
     <div className="flex flex-col">
       {criteriaQuery.isError && <p className="m-0 text-small text-destructive-text">{errorText(criteriaQuery.error)}</p>}
-      {criteriaQuery.isSuccess && criteria.length === 0 && (
-        <p className="m-0 text-body text-muted-foreground">No Acceptance criteria.</p>
+      {criteriaQuery.isSuccess && criteria.length === 0 && emptyText && (
+        <p className={cn("m-0 text-muted-foreground", compact ? "text-small" : "text-body")}>{emptyText}</p>
       )}
-      <ol aria-label={`${storyKey} Acceptance criteria`} className="m-0 list-none p-0">
+      <ol aria-label={`${storyKey} Acceptance criteria`} className="m-0 list-none p-0 empty:hidden">
         {criteria.map((criterion, index) => (
-          <CriterionRow key={criterion.id} projectId={projectId} criterion={criterion} number={index + 1} />
+          <CriterionRow key={criterion.id} projectId={projectId} criterion={criterion} number={index + 1} compact={compact} />
         ))}
       </ol>
     </div>
@@ -72,10 +86,12 @@ function CriterionRow({
   projectId,
   criterion,
   number,
+  compact,
 }: {
   projectId: string;
   criterion: AcceptanceCriterionDto;
   number: number;
+  compact: boolean;
 }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -103,8 +119,13 @@ function CriterionRow({
   }
 
   return (
-    <li className="group/criterion flex flex-col gap-2 border-t border-border py-3 first:border-t-0 first:pt-0">
-      <span className="text-body font-semibold">{criterion.statement}</span>
+    <li
+      className={cn(
+        "group/criterion flex min-w-0 flex-col border-t border-border first:border-t-0 first:pt-0",
+        compact ? "gap-1.5 py-2" : "gap-2 py-3",
+      )}
+    >
+      <span className={cn("font-semibold break-words", compact ? "text-small" : "text-body")}>{criterion.statement}</span>
       {editing ? (
         <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
           <label className="flex min-w-56 flex-1 flex-col gap-1.5 text-small text-muted-foreground">
@@ -129,7 +150,16 @@ function CriterionRow({
           {check ? (
             <>
               <CheckChip check={check} />
-              <code className="min-w-0 truncate font-mono text-small text-muted-foreground">{check.command}</code>
+              <code
+                title={check.command}
+                className={cn(
+                  "min-w-0 truncate font-mono text-muted-foreground",
+                  // In a narrow column the command takes its own line under the chip and the controls.
+                  compact ? "order-last basis-full text-meta" : "text-small",
+                )}
+              >
+                {check.command}
+              </code>
             </>
           ) : (
             <StateBadge state="judged_at_review" label="No Check: judged at review" className="h-5.5 text-meta" />

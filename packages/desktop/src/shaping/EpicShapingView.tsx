@@ -131,6 +131,8 @@ export function EpicShapingView({ projectId, projectName, epicId, onBack }: Epic
             </div>
             {showStories && (
               <StoryColumns
+                projectId={projectId}
+                criteria={(data?.stages ?? []).some((s) => s.kind === "criteria")}
                 stories={stories}
                 proposals={data.proposals ?? []}
                 queryKey={queryKey}

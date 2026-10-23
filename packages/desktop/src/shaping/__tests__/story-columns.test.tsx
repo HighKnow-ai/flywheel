@@ -9,11 +9,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryColumns } from "../StoryColumns";
-import type { ProposalDto, StoryDto } from "../../adapters/tauri";
+import type { AcceptanceCriterionDto, ProposalDto, StoryDto } from "../../adapters/tauri";
 
 const proposalAccept = vi.fn();
 const proposalAmend = vi.fn();
 const proposalReject = vi.fn();
+const criterionList = vi.fn();
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -22,6 +23,7 @@ vi.mock("../../adapters/tauri", async () => {
     proposalAccept: (...args: unknown[]) => proposalAccept(...args),
     proposalAmend: (...args: unknown[]) => proposalAmend(...args),
     proposalReject: (...args: unknown[]) => proposalReject(...args),
+    criterionList: (...args: unknown[]) => criterionList(...args),
   };
 });
 
@@ -70,11 +72,17 @@ function newStory(id: string, title: string, rank: string, extra: Record<string,
   );
 }
 
-function renderColumns(stories: StoryDto[], proposals: ProposalDto[]) {
+function renderColumns(stories: StoryDto[], proposals: ProposalDto[], options: { criteria?: boolean } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <StoryColumns stories={stories} proposals={proposals} queryKey={["board", "p1", "shaping-rounds", "e1"]} />
+      <StoryColumns
+        projectId="p1"
+        stories={stories}
+        proposals={proposals}
+        queryKey={["board", "p1", "shaping-rounds", "e1"]}
+        criteria={options.criteria ?? false}
+      />
     </QueryClientProvider>,
   );
 }
@@ -94,6 +102,7 @@ beforeEach(() => {
   proposalAccept.mockReset().mockResolvedValue(undefined);
   proposalAmend.mockReset().mockResolvedValue(undefined);
   proposalReject.mockReset().mockResolvedValue(undefined);
+  criterionList.mockReset().mockResolvedValue([]);
 });
 
 describe("StoryColumns", () => {
@@ -206,5 +215,109 @@ describe("StoryColumns", () => {
   it("says what slicing will show before any Story is proposed", () => {
     renderColumns([], []);
     expect(screen.getByText(/No Story yet/)).toBeInTheDocument();
+  });
+});
+
+// Issue #128: writing the Acceptance criteria. Each Story column stacks its criteria under its description, each
+// with its Check as a chip or "judged at review"; a pending criterion Proposal is a ghost card under its Story,
+// decided there.
+function criterion(id: string, storyId: string, statement: string, command: string | null): AcceptanceCriterionDto {
+  return {
+    id,
+    storyId,
+    statement,
+    accepted: false,
+    acceptedAt: null,
+    rank: id,
+    check: command
+      ? { id: `k-${id}`, command, timeoutSecs: 600, result: "not_run", commitSha: null, stale: false, outputTail: null }
+      : null,
+  };
+}
+
+function criterionProposal(id: string, storyId: string, statement: string, check: string | null, extra: Partial<ProposalDto> = {}) {
+  return storyProposal(
+    id,
+    "create",
+    { story_id: storyId, statement, ...(check ? { check_command: check } : {}) },
+    { targetType: "criterion", stageId: "s3", ...extra },
+  );
+}
+
+function column(name: string) {
+  return screen.getByRole("listitem", { name });
+}
+
+describe("StoryColumns: criteria (issue #128)", () => {
+  it("stacks each Story's criteria under its column, with the Check as a chip or judged at review", async () => {
+    criterionList.mockImplementation(async (storyId: string) =>
+      storyId === "s1"
+        ? [criterion("c1", "s1", "A malformed line is skipped", "cargo test -p core --test parser"), criterion("c2", "s1", "The error reads plainly", null)]
+        : [],
+    );
+    renderColumns([PARSER, FEED], [], { criteria: true });
+    const parser = column("1. FLY-11 Parser");
+    const list = await within(parser).findByRole("list", { name: "FLY-11 Acceptance criteria" });
+    const rows = await within(list).findAllByRole("listitem");
+    expect(rows.map((r) => r.querySelector("span")?.textContent)).toEqual(["A malformed line is skipped", "The error reads plainly"]);
+    expect(within(rows[0]).getByText("Not run")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("cargo test -p core --test parser")).toBeInTheDocument();
+    expect(within(rows[1]).getByText(/judged at review/i)).toBeInTheDocument();
+    // A Story with no criterion yet says so where its criteria will go.
+    expect(await within(column("2. FLY-12 Feed row")).findByText("No criterion yet")).toBeInTheDocument();
+  });
+
+  it("leaves the criteria out while slicing", () => {
+    renderColumns([PARSER], []);
+    expect(within(column("1. FLY-11 Parser")).queryByRole("list", { name: "FLY-11 Acceptance criteria" })).toBeNull();
+    expect(criterionList).not.toHaveBeenCalled();
+  });
+
+  it("draws a pending criterion as a ghost card under its Story and accepts it there", async () => {
+    criterionList.mockResolvedValue([]);
+    renderColumns([PARSER, FEED], [criterionProposal("pc1", "s2", "The row shows the live verb", "npm test -- feed-row"), criterionProposal("pc2", "s2", "It reads calmly", null)], {
+      criteria: true,
+    });
+    const feed = column("2. FLY-12 Feed row");
+    const ghost = within(feed).getByRole("group", { name: "Proposed criterion: The row shows the live verb" });
+    expect(ghost).toHaveAttribute("data-state", "pending");
+    expect(within(ghost).getByText("npm test -- feed-row")).toBeInTheDocument();
+    expect(within(within(feed).getByRole("group", { name: "Proposed criterion: It reads calmly" })).getByText(/judged at review/i)).toBeInTheDocument();
+    expect(within(column("1. FLY-11 Parser")).queryByRole("group", { name: /Proposed criterion/ })).toBeNull();
+
+    fireEvent.click(within(ghost).getByRole("button", { name: "Accept the proposed criterion The row shows the live verb" }));
+    await waitFor(() => expect(proposalAccept).toHaveBeenCalledWith("pc1"));
+  });
+
+  it("amends a pending criterion's statement and Check, never its Story", async () => {
+    criterionList.mockResolvedValue([]);
+    renderColumns([PARSER], [criterionProposal("pc1", "s1", "It parses", "cargo test")], { criteria: true });
+    const ghost = within(column("1. FLY-11 Parser")).getByRole("group", { name: "Proposed criterion: It parses" });
+    fireEvent.click(within(ghost).getByRole("button", { name: "Amend the proposed criterion It parses" }));
+    fireEvent.change(within(ghost).getByLabelText("Criterion"), { target: { value: "A malformed line is skipped" } });
+    fireEvent.change(within(ghost).getByLabelText("Check command (blank: judged at review)"), { target: { value: "  " } });
+    fireEvent.click(within(ghost).getByRole("button", { name: "Accept edit to the proposed criterion It parses" }));
+    await waitFor(() =>
+      expect(proposalAmend).toHaveBeenCalledWith("pc1", { story_id: "s1", statement: "A malformed line is skipped", check_command: null }),
+    );
+  });
+
+  it("rejects a pending criterion with an optional reason, and shows it struck through", async () => {
+    criterionList.mockResolvedValue([]);
+    renderColumns([PARSER], [criterionProposal("pc1", "s1", "It parses", null)], { criteria: true });
+    const ghost = within(column("1. FLY-11 Parser")).getByRole("group", { name: "Proposed criterion: It parses" });
+    fireEvent.click(within(ghost).getByRole("button", { name: "Reject the proposed criterion It parses" }));
+    fireEvent.change(within(ghost).getByPlaceholderText("Why not? (optional)"), { target: { value: "Not observable" } });
+    fireEvent.click(within(ghost).getByRole("button", { name: "Reject" }));
+    await waitFor(() => expect(proposalReject).toHaveBeenCalledWith("pc1", "Not observable"));
+  });
+
+  it("shrinks a rejected criterion to a struck-through line with its reason", () => {
+    renderColumns([PARSER], [criterionProposal("pc1", "s1", "It is pretty", null, { state: "rejected", rejectionReason: "Not observable" })], {
+      criteria: true,
+    });
+    const rejected = screen.getByRole("group", { name: "Rejected criterion on FLY-11: It is pretty" });
+    expect(within(rejected).getByText("It is pretty").tagName).toBe("DEL");
+    expect(rejected).toHaveTextContent("Your reason: Not observable");
   });
 });
