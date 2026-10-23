@@ -12,7 +12,7 @@ use crate::state::AppState;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NeedsYouRecordDto {
-    /// `story`, `epic`, `milestone` or `roadmap`.
+    /// `story`, `epic`, `milestone`, `roadmap`, or `project` for the Proposals row.
     pub kind: String,
     pub id: Option<String>,
     pub key: Option<String>,
@@ -44,8 +44,18 @@ pub struct NeedsYouRoundDto {
     pub questions: i64,
 }
 
+/// The Proposals row's counts (issue #162): "n from m Stories", and where they land.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeedsYouProposalsDto {
+    pub count: i64,
+    pub stories: i64,
+    pub epics: i64,
+    pub roadmap: bool,
+}
+
 /// One item. `kind` is `gated_action`, `permission_request`, `question`, `stopped`, `review`,
-/// `confirm_exit_test` or `shaping_round`; `rank` is its place in spec §2's order.
+/// `confirm_exit_test`, `proposals` or `shaping_round`; `rank` is its place in spec §2's order.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NeedsYouItemDto {
@@ -64,6 +74,7 @@ pub struct NeedsYouItemDto {
     pub round: Option<NeedsYouRoundDto>,
     /// A Review item's Rebase needed (issue #158): the paths a merge would conflict in.
     pub conflicts: Vec<String>,
+    pub proposals: Option<NeedsYouProposalsDto>,
 }
 
 impl From<flywheel_core::query::needs_you::NeedsYouItem> for NeedsYouItemDto {
@@ -102,6 +113,12 @@ impl From<flywheel_core::query::needs_you::NeedsYouItem> for NeedsYouItemDto {
                 questions: r.questions,
             }),
             conflicts: item.conflicts,
+            proposals: item.proposals.map(|p| NeedsYouProposalsDto {
+                count: p.count,
+                stories: p.stories,
+                epics: p.epics,
+                roadmap: p.roadmap,
+            }),
         }
     }
 }

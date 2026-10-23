@@ -53,6 +53,7 @@ function item(kind: NeedsYouItemDto["kind"], id: string, extra: Partial<NeedsYou
     milestoneTitle: null,
     round: null,
     conflicts: [],
+    proposals: null,
     ...extra,
   };
 }

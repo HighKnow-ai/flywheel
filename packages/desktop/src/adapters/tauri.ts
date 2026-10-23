@@ -160,6 +160,8 @@ export interface EpicProgressDto {
   attention: string | null;
   /** Issue #159: where an Epic in Shaping has got to, its card's shaping marker; `null` out of Shaping. */
   shaping?: ShapingMarkerDto | null;
+  /** Its Proposals awaiting triage (issue #162): the roster's "n Proposals" marker. */
+  proposals?: number;
 }
 
 /** An Epic in Shaping's open Stage and that Stage's latest Round — mirrors `commands/roadmap.rs`'s
@@ -817,9 +819,29 @@ export async function proposalListPending(projectId: string): Promise<ProposalDt
   return invokeCommand<ProposalDto[]>("proposal_list_pending", { projectId });
 }
 
-/** Every Proposal a Story's sessions filed, whatever its state, oldest first (issue #160). Read-only. */
-export async function proposalListForStory(storyId: string): Promise<ProposalDto[]> {
-  return invokeCommand<ProposalDto[]>("proposal_list_for_story", { storyId });
+/** One card of the triage drawer (issue #162) — mirrors `commands/proposal.rs`'s `TriageProposalDto`. */
+export interface TriageProposalDto {
+  proposal: ProposalDto;
+  /** The Story whose session filed it. */
+  storyId: string;
+  storyKey: string;
+  storyTitle: string;
+  /** The Epic it lands on; null for a New Epic, which lands on the Roadmap. */
+  epicKey: string | null;
+  epicTitle: string | null;
+  /** A New Epic's Milestone. */
+  milestoneTitle: string | null;
+  /** The Story a Reorder or a Retire names. */
+  targetKey: string | null;
+  targetTitle: string | null;
+  /** A Reorder's places: the key of the Story it sits after now and would sit after; null is the top. */
+  reorder: { nowAfter: string | null; proposedAfter: string | null } | null;
+}
+
+/** The project's Proposals awaiting triage, in the drawer's order: by Epic in Roadmap order, then the New Epics;
+ * oldest first within each (issue #162). Read-only. */
+export async function proposalListForTriage(projectId: string): Promise<TriageProposalDto[]> {
+  return invokeCommand<TriageProposalDto[]>("proposal_list_for_triage", { projectId });
 }
 
 /** Accept a pending Proposal, applying it in the same transaction. Human-only. */
@@ -1495,8 +1517,8 @@ export async function boardRecoverySummary(projectId: string): Promise<RecoveryS
   return invokeCommand<RecoverySummaryDto>("board_recovery_summary", { projectId });
 }
 
-/** What a Needs-you item waits on the developer for (docs/mvp-spec.md §2, issue #156). The Proposals row
- * (#162) and a Proposal that changes what a Story is judged on (#163) join this union. */
+/** What a Needs-you item waits on the developer for (docs/mvp-spec.md §2, issues #156 and #162). A Proposal that
+ * changes what a Story is judged on (#163) joins this union. */
 export type NeedsYouKind =
   | "gated_action"
   | "permission_request"
@@ -1504,6 +1526,7 @@ export type NeedsYouKind =
   | "stopped"
   | "review"
   | "confirm_exit_test"
+  | "proposals"
   | "shaping_round";
 
 /** One Needs-you item — mirrors `commands/needs_you.rs`'s `NeedsYouItemDto`. Ranked by the core. */
@@ -1515,7 +1538,8 @@ export interface NeedsYouItemDto {
   /** Since when it has waited (RFC 3339). */
   since: string;
   record: {
-    kind: "story" | "epic" | "milestone" | "roadmap";
+    /** `project` for the Proposals row. */
+    kind: "story" | "epic" | "milestone" | "roadmap" | "project";
     id: string | null;
     key: string | null;
     title: string;
@@ -1547,6 +1571,8 @@ export interface NeedsYouItemDto {
   } | null;
   /** A Review item's Rebase needed (issue #158): the paths a merge into the base branch would conflict in. */
   conflicts: string[];
+  /** The Proposals row (issue #162): "n from m Stories", and where they land. */
+  proposals: { count: number; stories: number; epics: number; roadmap: boolean } | null;
 }
 
 export async function needsYouList(projectId: string): Promise<NeedsYouItemDto[]> {

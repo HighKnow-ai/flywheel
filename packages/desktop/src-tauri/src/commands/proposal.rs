@@ -57,13 +57,56 @@ impl From<flywheel_core::domain::proposal::Proposal> for ProposalDto {
     }
 }
 
-/// Every Proposal the sessions of a Story filed, oldest first (issue #160): the Story view's interim
-/// "Proposals filed by this Story" list, until the triage drawer (#162) takes it over.
+/// A Reorder's places in its Epic's order: the key of the Story it sits after now and of the one it
+/// would sit after; `None` is the top.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderPlacesDto {
+    pub now_after: Option<String>,
+    pub proposed_after: Option<String>,
+}
+
+/// One card of the triage drawer (issue #162): the Proposal, the Story whose session filed it, and the
+/// record it lands on.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TriageProposalDto {
+    pub proposal: ProposalDto,
+    pub story_id: String,
+    pub story_key: String,
+    pub story_title: String,
+    /// The Epic it lands on; `None` for a New Epic, which lands on the Roadmap.
+    pub epic_key: Option<String>,
+    pub epic_title: Option<String>,
+    /// A New Epic's Milestone.
+    pub milestone_title: Option<String>,
+    /// The Story a Reorder or a Retire names.
+    pub target_key: Option<String>,
+    pub target_title: Option<String>,
+    pub reorder: Option<ReorderPlacesDto>,
+}
+
+/// The project's Proposals awaiting triage, in the drawer's order (issue #162): grouped by the Epic
+/// each lands on in Roadmap order, then the New Epics; oldest first within a group. Read-only.
 #[tauri::command]
-pub fn proposal_list_for_story(state: State<AppState>, story_id: String) -> Result<Vec<ProposalDto>, String> {
+pub fn proposal_list_for_triage(state: State<AppState>, project_id: String) -> Result<Vec<TriageProposalDto>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let rows = flywheel_core::domain::proposal::proposals_filed_by_story(&conn, &story_id).map_err(|e| e.to_string())?;
-    Ok(rows.into_iter().map(ProposalDto::from).collect())
+    let rows = flywheel_core::domain::proposal::proposals_for_triage(&conn, &project_id).map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|t| TriageProposalDto {
+            proposal: t.proposal.into(),
+            story_id: t.story_id,
+            story_key: t.story_key,
+            story_title: t.story_title,
+            epic_key: t.epic_key,
+            epic_title: t.epic_title,
+            milestone_title: t.milestone_title,
+            target_key: t.target_key,
+            target_title: t.target_title,
+            reorder: t.reorder.map(|r| ReorderPlacesDto { now_after: r.now_after, proposed_after: r.proposed_after }),
+        })
+        .collect())
 }
 
 /// The core's answer to one `propose` or `proposal_withdraw` call (issue #160), as the sidecar's

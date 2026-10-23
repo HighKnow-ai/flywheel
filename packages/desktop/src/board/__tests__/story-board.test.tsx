@@ -18,6 +18,7 @@ import type { EpicDto, EpicProgressDto, MilestoneDto, RosterRowDto, StoryDto } f
 const milestoneList = vi.fn();
 const milestoneCreate = vi.fn();
 const milestoneProgress = vi.fn();
+const proposalListForTriage = vi.fn();
 const epicList = vi.fn();
 const epicCreate = vi.fn();
 const storyListForProject = vi.fn();
@@ -46,6 +47,7 @@ vi.mock("../../adapters/tauri", async () => {
     storyWriteByHand: (...args: unknown[]) => storyWriteByHand(...args),
     storyStart: (...args: unknown[]) => storyStart(...args),
     milestoneProgress: (...args: unknown[]) => milestoneProgress(...args),
+    proposalListForTriage: (...args: unknown[]) => proposalListForTriage(...args),
     rosterRows: (...args: unknown[]) => rosterRows(...args),
     taskList: (...args: unknown[]) => taskList(...args),
     storyStopped: (...args: unknown[]) => storyStopped(...args),
@@ -151,6 +153,7 @@ beforeEach(() => {
   storyStart.mockReset().mockResolvedValue({ id: "run-1", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
   storyContextPacketSize.mockReset().mockResolvedValue({ bytes: 4000, approxTokens: 1000, overSoftLimit: false });
   milestoneProgress.mockReset().mockResolvedValue(null);
+  proposalListForTriage.mockReset().mockResolvedValue([]);
   rosterRows.mockReset().mockResolvedValue([]);
   taskList.mockReset().mockResolvedValue([]);
   storyStopped.mockReset().mockResolvedValue(null);
@@ -494,5 +497,37 @@ describe("StoryBoard: rows from the roster's one core read (issue #159)", () => 
     expect(
       await within(card).findByText("Stage 2 of 3, Slice into Stories · Round 3 · 2 of 5 answered"),
     ).toBeInTheDocument();
+  });
+});
+
+describe("StoryBoard: an Epic row's Proposals (issue #162)", () => {
+  const counts = {
+    shaping: 0, ready: 0, running: 1, waitingOnYou: 0, stopped: 0, inReview: 0, merged: 0, dropped: 0, storiesTotal: 1,
+  };
+  function seedProgress(proposals: number) {
+    seedRoster([story("s1", "FLY-2", "Running one", "running")], [row("s1")]);
+    const progress: EpicProgressDto = { epicId: "e1", key: "FLY-1", title: "E1", state: "in_progress", counts, attention: null, proposals };
+    milestoneProgress.mockResolvedValue({
+      milestoneId: "m1", title: "M1", exitTest: null, state: "in_progress", current: true, nextMilestoneTitle: null,
+      counts, epicsDone: 0, epicsTotal: 1, epics: [progress],
+    });
+  }
+
+  it("shows n Proposals on the Epic row while it has pending ones, and it opens the triage drawer", async () => {
+    seedProgress(2);
+    renderBoard();
+    const marker = await screen.findByRole("button", { name: "Triage 2 Proposals on E1" });
+    expect(marker).toHaveTextContent("2 Proposals");
+    fireEvent.click(marker);
+    expect(await screen.findByRole("dialog", { name: /Triage Proposals/ })).toBeInTheDocument();
+    await waitFor(() => expect(proposalListForTriage).toHaveBeenCalledWith("p1"));
+  });
+
+  it("carries no marker once none is pending", async () => {
+    seedProgress(0);
+    renderBoard();
+    await screen.findByRole("list", { name: "E1 Stories" });
+    await waitFor(() => expect(document.querySelector("[data-epic-id=e1]")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: /Proposals? on E1/ })).toBeNull();
   });
 });
