@@ -65,6 +65,7 @@ const ROSTER: &[&str] = &[
     "roadmap::milestone_move",
     "roadmap::milestone_progress",
     "roadmap::milestone_set_state",
+    "roadmap::milestone_update",
     "roadmap_round::epic_confirm_done",
     "roadmap_round::milestone_confirm_done",
     "roadmap_round::roadmap_revisit",

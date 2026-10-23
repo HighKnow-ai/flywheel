@@ -352,3 +352,60 @@ fn a_milestone_round_a_live_session_is_held_on_is_waiting_on_you() {
     assert_eq!(blocked_count_for_project(&f.conn, &f.project_id).unwrap(), 0);
     assert!(waiting_rounds(&f.conn, 50).unwrap().is_empty());
 }
+
+/// Issue #149: the developer edits the Roadmap directly (spec §3), so the title and exit test are
+/// rewritten by hand through `update_milestone`, recorded as `milestone.updated`, and a pending
+/// exit-test Proposal stays pending: the edit decides nothing on the developer's behalf.
+#[test]
+fn the_developer_edits_a_milestones_title_and_exit_test_by_hand() {
+    let mut f = shaping();
+    let id = f.propose("A one-line idea becomes Ready Stories.")["proposal_id"].as_str().unwrap().to_string();
+
+    milestone::update_milestone(&mut f.conn, &f.human, &f.milestone_id, "  Shaping a Milestone ", Some(" Cyril shapes an exit test. "))
+        .unwrap();
+
+    let m = get_milestone(&f.conn, &f.milestone_id).unwrap().unwrap();
+    assert_eq!(m.title, "Shaping a Milestone");
+    assert_eq!(m.exit_test.as_deref(), Some("Cyril shapes an exit test."));
+    assert_eq!(m.state, "shaping", "an edit moves nothing");
+    let changed = f.events("milestone.updated");
+    assert_eq!(changed.len(), 1);
+    assert_eq!(changed[0]["before"], json!({ "title": "Shaping", "exit_test": "Shaping works" }));
+    assert_eq!(changed[0]["after"], json!({ "title": "Shaping a Milestone", "exit_test": "Cyril shapes an exit test." }));
+    assert_eq!(changed[0]["label"], json!("Edited Milestone \"Shaping a Milestone\""));
+    assert_eq!(get_proposal(&f.conn, &id).unwrap().unwrap().state, "pending", "the pending ghost is left to decide");
+}
+
+#[test]
+fn an_exit_test_edited_to_blank_is_cleared_and_a_blank_title_is_refused() {
+    let mut f = shaping();
+    milestone::update_milestone(&mut f.conn, &f.human, &f.milestone_id, "Shaping", Some("   ")).unwrap();
+    assert_eq!(f.exit_test(), None, "a blank exit test reads Not written yet, never as spaces");
+
+    let err = milestone::update_milestone(&mut f.conn, &f.human, &f.milestone_id, "  ", Some("Back")).unwrap_err();
+    assert!(format!("{err:#}").contains("title"), "{err:#}");
+    assert_eq!(f.exit_test(), None, "the refusal writes nothing");
+}
+
+#[test]
+fn a_done_or_dropped_milestone_is_not_edited_by_hand() {
+    for (to, word) in [(MilestoneState::Done, "frozen"), (MilestoneState::Dropped, "Dropped")] {
+        let (mut conn, human, project) = common::seeded_project();
+        let m = milestone::create_milestone(&mut conn, &project.id, &human, "Closed", Some("It closed")).unwrap();
+        set_milestone_state(&mut conn, &human, &m.id, to).unwrap();
+        let err = milestone::update_milestone(&mut conn, &human, &m.id, "Reopened", Some("Something else")).unwrap_err();
+        assert!(format!("{err:#}").contains(word), "{to:?}: {err:#}");
+        let after = get_milestone(&conn, &m.id).unwrap().unwrap();
+        assert_eq!((after.title.as_str(), after.exit_test.as_deref()), ("Closed", Some("It closed")));
+    }
+}
+
+#[test]
+fn an_agent_cannot_edit_a_milestone_by_hand() {
+    let mut f = shaping();
+    let agent = agent_actor_id(&f.conn).unwrap();
+    let err = milestone::update_milestone(&mut f.conn, &agent, &f.milestone_id, "Agent's title", Some("Agent's test")).unwrap_err();
+    assert!(format!("{err:#}").contains("agent"), "{err:#}");
+    assert_eq!(f.exit_test().as_deref(), Some("Shaping works"));
+    assert!(f.events("milestone.updated").is_empty());
+}

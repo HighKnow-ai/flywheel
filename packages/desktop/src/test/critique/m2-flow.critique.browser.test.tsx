@@ -782,6 +782,16 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     }
   });
 
+  it("69 Milestone shaping: the exit test edited by hand, its pending ghost still under it (issue #149)", async () => {
+    shapeMilestoneInFixture("waiting");
+    await boardReady();
+    await click("Answer the Round on Board and review");
+    await screen.findByRole("group", { name: "Proposed Exit test" });
+    await click("Edit Exit test");
+    await screen.findByRole("textbox", { name: "Exit test" });
+    await shot("69-milestone-shaping-edit-exit-test");
+  });
+
   it("50 Epic shaping: slicing, the Stories as columns with ghost columns and their constraints (issue #127)", async () => {
     slicingShaping();
     await boardReady();

@@ -1,7 +1,7 @@
-//! `milestone_create` / `milestone_list` / `milestone_set_state` / `milestone_move` — the Roadmap's
-//! command surface. A
-//! project's Roadmap is its Milestones in rank order (`domain::milestone`). Every handler stamps the
-//! local human actor server-side (T-01-04) and emits `board:changed` after a successful mutation.
+//! `milestone_create` / `milestone_list` / `milestone_update` / `milestone_set_state` /
+//! `milestone_move` — the Roadmap's command surface. A project's Roadmap is its Milestones in rank
+//! order (`domain::milestone`). Every handler stamps the local human actor server-side (T-01-04)
+//! and emits `board:changed` after a successful mutation.
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -88,6 +88,31 @@ pub fn milestone_list(state: State<AppState>, project_id: String) -> Result<Vec<
         .into_iter()
         .map(|m| to_dto(&conn, m, current_id))
         .collect()
+}
+
+/// The developer rewrites a Milestone's title and exit test by hand, on the Milestone card (issue
+/// #149). Human-only: the domain re-reads the actor's type in its write transaction and refuses a
+/// Done or Dropped Milestone. A blank exit test clears it.
+#[tauri::command]
+pub fn milestone_update(
+    state: State<AppState>,
+    app: AppHandle,
+    milestone_id: String,
+    title: String,
+    exit_test: Option<String>,
+) -> Result<(), String> {
+    validate_text("title", &title, MAX_TITLE_LEN)?;
+    if let Some(exit_test) = &exit_test {
+        validate_text("exitTest", exit_test, MAX_PROSE_LEN)?;
+    }
+    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+    flywheel_core::domain::milestone::update_milestone(&mut conn, &actor_id, &milestone_id, &title, exit_test.as_deref())
+        .map_err(|e| e.to_string())?;
+    let project_id = super::project_of(&conn, "milestones", &milestone_id);
+    drop(conn);
+    emit_board_changed(&app, project_id.as_deref(), "milestone", Some(&milestone_id));
+    Ok(())
 }
 
 /// The developer moves a Milestone: `ready` closes shaping, `dropped` retires it, `shaping` reopens

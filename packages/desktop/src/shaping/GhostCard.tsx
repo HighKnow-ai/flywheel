@@ -126,7 +126,8 @@ function PendingGhost({
     setBusy(true);
     setError(null);
     // Once decided the ghost unmounts; the keyboard stays on the field, at its Edit button.
-    // A field with no Edit (a Milestone's exit test, issue #132) takes the focus itself: its `dd` is focusable.
+    // A field with no Edit (a Done or Dropped Milestone's exit test, issues #132 and #149) takes the focus
+    // itself: its `dd` is focusable.
     const field = rootRef.current?.closest("dd") ?? null;
     const fieldEdit = field?.previousElementSibling?.querySelector("button") ?? (field?.hasAttribute("tabindex") ? field : null);
     try {
