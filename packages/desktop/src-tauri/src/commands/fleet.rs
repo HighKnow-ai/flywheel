@@ -211,7 +211,8 @@ pub fn fleet_blocked_queue(state: State<'_, AppState>) -> Result<Vec<BlockedQueu
 const WAITING_ROUNDS_CAP: usize = 200;
 
 /// Mirrors `flywheel_core::query::fleet::WaitingRound` field-for-field (issue #124): a shaping Round
-/// a live session is held on, with the Epic it shapes and how far it is answered.
+/// a live session is held on, with the Epic or the Milestone (issue #132) it shapes and how far it is
+/// answered.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WaitingRoundDto {
@@ -225,10 +226,13 @@ pub struct WaitingRoundDto {
     pub project_id: String,
     pub project_name: String,
     pub project_key_prefix: String,
-    /// The Epic an Epic's Round shapes; `None` for a roadmap Round.
+    /// The Epic an Epic's Round shapes; `None` for a Milestone's or a roadmap Round.
     pub epic_id: Option<String>,
     pub epic_key: Option<String>,
     pub epic_title: Option<String>,
+    /// The Milestone a Milestone's Round shapes (issue #132); `None` for any other Round.
+    pub milestone_id: Option<String>,
+    pub milestone_title: Option<String>,
     pub waiting_since: String,
     pub answered: i64,
     pub questions: i64,
@@ -248,6 +252,8 @@ impl From<flywheel_core::query::fleet::WaitingRound> for WaitingRoundDto {
             epic_id: r.epic_id,
             epic_key: r.epic_key,
             epic_title: r.epic_title,
+            milestone_id: r.milestone_id,
+            milestone_title: r.milestone_title,
             waiting_since: r.waiting_since,
             answered: r.answered,
             questions: r.questions,
