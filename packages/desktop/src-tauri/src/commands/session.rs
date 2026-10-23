@@ -2129,7 +2129,9 @@ mod tests {
                 "mcp__flywheel-board__task_add",
                 "mcp__flywheel-board__task_update",
                 "mcp__flywheel-board__checks_run",
-                "mcp__flywheel-board__handoff"
+                "mcp__flywheel-board__handoff",
+                "mcp__flywheel-board__propose",
+                "mcp__flywheel-board__proposal_withdraw"
             ])
         );
         assert_eq!(request["disallowedTools"], serde_json::json!([]));
