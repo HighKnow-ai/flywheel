@@ -886,9 +886,52 @@ function reviewOf(storyId: string): StoryReviewDto {
   };
 }
 
+/** An Epic in Shaping's marker (issue #159): its open Stage and that Stage's latest Round, from its shaping. */
+function shapingMarkerOf(epicId: string) {
+  const shaping = shapingOf(epicId);
+  const stage = shaping?.stages.find((s) => s.state === "open");
+  if (!stage) return { stageKind: null, stageRank: null, roundNumber: null, roundOpen: false, answered: 0, questions: 0 };
+  const round = shaping?.rounds.filter((r) => r.stageId === stage.id).sort((a, b) => b.number - a.number)[0];
+  return {
+    stageKind: stage.kind,
+    stageRank: stage.rank,
+    roundNumber: round?.number ?? null,
+    roundOpen: round?.state === "open",
+    answered: round?.questions.filter((q) => q.answer !== null).length ?? 0,
+    questions: round?.questions.length ?? 0,
+  };
+}
+
+/** The roster's one read (issue #159): every Story row of a Milestone, worked out from the same seeded
+ * sessions, Tasks, criteria and review the Story view reads, so the board and the Story never disagree. */
+function rosterRowsOf(milestoneId: string) {
+  const epicIds = new Set((EPICS[milestoneId] ?? []).map((e) => e.id));
+  const waiting = new Set(["s-5", "s-6", "s-h2"]);
+  return STORIES.filter((s) => epicIds.has(s.epicId)).map((s) => {
+    const stopped = answer("story_stopped", { storyId: s.id }) as { endingReason: string } | null;
+    const tasks = TASKS[s.id] ?? [];
+    const criteria = CRITERIA[s.id] ?? [];
+    const live = s.state === "running" ? (RUNS[s.id] ?? []).find((r) => r.endedAt === null) : undefined;
+    const review = s.state === "in_review" ? reviewOf(s.id).review : null;
+    return {
+      storyId: s.id,
+      attention: stopped ? "stopped" : live && waiting.has(s.id) ? "waiting_on_you" : null,
+      endingReason: stopped?.endingReason ?? null,
+      liveSessionId: live?.id ?? null,
+      doingTaskTitle: tasks.find((t) => t.state === "doing")?.title ?? null,
+      criteriaMet: criteria.filter((c) => c.accepted || (c.check?.result === "passed" && !c.check.stale)).length,
+      criteriaTotal: criteria.length,
+      tasksDone: tasks.filter((t) => t.state === "done").length,
+      tasksTotal: tasks.filter((t) => t.state !== "dropped").length,
+      review: review ? { files: review.files, added: review.added, removed: review.removed } : null,
+    };
+  });
+}
+
 /** Answer one IPC command from the seeded data. Writes are accepted and change nothing. */
 export function answer(cmd: string, args: Args): unknown {
   switch (cmd) {
+    case "roster_rows": return rosterRowsOf(arg(args, "milestoneId"));
     case "project_list": return PROJECTS;
     case "milestone_list": return MILESTONES[arg(args, "projectId")] ?? [];
     case "epic_list": return EPICS[arg(args, "milestoneId")] ?? [];
@@ -897,7 +940,13 @@ export function answer(cmd: string, args: Args): unknown {
       if (!progress) return null;
       // The Epic's attention follows its shaping session (issue #124).
       const attention = shapingSessionLive ? "waiting_on_you" : "round_waiting";
-      return { ...progress, epics: progress.epics.map((e) => (e.epicId === "e-59" ? { ...e, attention } : e)) };
+      return {
+        ...progress,
+        epics: progress.epics.map((e) => {
+          const marked = { ...e, shaping: e.state === "shaping" ? shapingMarkerOf(e.epicId) : null };
+          return e.epicId === "e-59" ? { ...marked, attention } : marked;
+        }),
+      };
     }
     case "story_list_for_project": return STORIES.filter((s) => s.projectId === arg(args, "projectId"));
     case "story_list": return STORIES.filter((s) => s.epicId === arg(args, "epicId"));

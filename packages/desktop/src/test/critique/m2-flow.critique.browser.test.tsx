@@ -1140,6 +1140,32 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     }
   });
 
+  it("83 board: roster rows from one core read, the rows that need you tinted with a word (issue #159)", async () => {
+    await boardReady();
+    (await screen.findByRole("button", { name: "Open Story FLY-5 Build the new world's tokens, icons and shared components" }))
+      .scrollIntoView({ block: "center" });
+    await shot("83-board-roster-rows");
+  });
+
+  it("84 board: an Epic in Shaping carries its shaping marker (issue #159)", async () => {
+    await boardReady();
+    (await screen.findByRole("button", { name: "Open Story FLY-10 Show Proposals in shaping as ghost cards" }))
+      .scrollIntoView({ block: "center" });
+    await shot("84-board-epic-shaping-marker");
+  });
+
+  it("85 board at the window's minimum width: the roster rows (issue #159)", async () => {
+    await page.viewport(900, 900);
+    try {
+      await boardReady();
+      (await screen.findByRole("button", { name: "Open Story FLY-5 Build the new world's tokens, icons and shared components" }))
+        .scrollIntoView({ block: "center" });
+      await shot("85-board-roster-rows-min-width");
+    } finally {
+      await page.viewport(1440, 900);
+    }
+  });
+
   it("16 navigation: picking a project while the fleet is open", async () => {
     await boardReady();
     await click("Open fleet");

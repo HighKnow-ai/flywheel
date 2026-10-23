@@ -20,12 +20,34 @@ const sessionsForStory = vi.fn();
 const sessionSummariesForStory = vi.fn();
 const storyGet = vi.fn();
 const blockedSummary = vi.fn(() => Promise.resolve({ blockedStoryIds: [] as string[], blockedCount: 0 }));
+// The roster's one read (#159) carries the row's Stopped attention; here it says what `storyStopped` says.
+const rosterRows = vi.fn(async () => {
+  const stopped = await storyStopped("s1");
+  return [
+    {
+      storyId: "s1",
+      attention: stopped ? "stopped" : null,
+      endingReason: stopped?.endingReason ?? null,
+      liveSessionId: stopped ? null : "01JSESSIONLIVE",
+      doingTaskTitle: null,
+      criteriaMet: 0,
+      criteriaTotal: 0,
+      tasksDone: 0,
+      tasksTotal: 0,
+      review: null,
+    },
+  ];
+});
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
   return {
     ...actual,
-    milestoneList: () => Promise.resolve([]),
+    milestoneList: () =>
+      Promise.resolve([{ id: "m1", projectId: "p1", title: "M1", exitTest: null, state: "ready", current: true, rank: "a" }]),
+    epicList: () => Promise.resolve([]),
+    milestoneProgress: () => Promise.resolve(null),
+    rosterRows: (...args: unknown[]) => rosterRows(...(args as [])),
     storyListForProject: (...args: unknown[]) => storyListForProject(...args),
     storyStopped: (...args: unknown[]) => storyStopped(...args),
     storyResume: (...args: unknown[]) => storyResume(...args),
@@ -106,16 +128,16 @@ describe("StoryBoard: a Stopped Story (issue #54)", () => {
     const row = await storyRow();
     expect(await within(row).findByText("Stopped: crash")).toBeInTheDocument();
     expect(within(row).queryByText("Running")).toBeNull();
-    expect(storyStopped).toHaveBeenCalledWith("s1");
+    expect(rosterRows).toHaveBeenCalledWith("m1");
   });
 
-  it("never shows Waiting on you on a Stopped Story, even if a stale read still lists it (#57)", async () => {
-    blockedSummary.mockResolvedValue({ blockedStoryIds: ["s1"], blockedCount: 1 });
+  it("never shows Waiting on you on a Stopped Story: the core gives a row one attention (#57, #159)", async () => {
     renderBoard();
     const row = await storyRow();
     expect(await within(row).findByText("Stopped: crash")).toBeInTheDocument();
-    await waitFor(() => expect(blockedSummary).toHaveBeenCalled());
     expect(within(row).queryByText("Waiting on you")).toBeNull();
+    expect(within(row).queryByRole("button", { name: /Answer/ })).toBeNull();
+    expect(blockedSummary).not.toHaveBeenCalled();
   });
 
   it("reads a clean exit without a hand-off as such", async () => {

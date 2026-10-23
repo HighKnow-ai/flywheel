@@ -20,6 +20,24 @@ const taskMove = vi.fn();
 const taskSetState = vi.fn();
 const taskSetNote = vi.fn();
 let boardChanged: ((payload: { projectId: string }) => void) | null = null;
+// The board row's doing Task comes from the roster's one read (#159); here it says what the checklist says.
+const rosterRows = vi.fn(async () => {
+  const tasks: TaskDto[] = await taskList("s1");
+  return [
+    {
+      storyId: "s1",
+      attention: null,
+      endingReason: null,
+      liveSessionId: null,
+      doingTaskTitle: tasks.find((t) => t.state === "doing")?.title ?? null,
+      criteriaMet: 0,
+      criteriaTotal: 0,
+      tasksDone: tasks.filter((t) => t.state === "done").length,
+      tasksTotal: tasks.filter((t) => t.state !== "dropped").length,
+      review: null,
+    },
+  ];
+});
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -28,8 +46,11 @@ vi.mock("../../adapters/tauri", async () => {
     // The board mounts the Needs-you column (#156), which reads its list and rides the fleet's subscription.
     needsYouList: () => Promise.resolve([]),
     subscribeAgentEvent: () => Promise.resolve(() => {}),
-    milestoneList: () => Promise.resolve([]),
+    milestoneList: () =>
+      Promise.resolve([{ id: "m1", projectId: "p1", title: "M1", exitTest: null, state: "ready", current: true, rank: "a" }]),
     epicList: () => Promise.resolve([]),
+    milestoneProgress: () => Promise.resolve(null),
+    rosterRows: () => rosterRows(),
     storyListForProject: (...args: unknown[]) => storyListForProject(...args),
     taskList: (...args: unknown[]) => taskList(...args),
     taskAdd: (...args: unknown[]) => taskAdd(...args),
@@ -75,7 +96,9 @@ function renderBoard() {
 /** The checklist lives in the Story view: open the Story from its row. */
 async function openChecklist() {
   fireEvent.click(await screen.findByRole("button", { name: "Open Story FLY-2 Story FLY-2" }));
-  return screen.findByRole("list", { name: "FLY-2 Tasks" });
+  const list = await screen.findByRole("list", { name: "FLY-2 Tasks" });
+  await within(list).findAllByRole("listitem");
+  return list;
 }
 
 beforeEach(() => {
@@ -94,9 +117,9 @@ describe("A Story's Task checklist", () => {
   it("shows the doing Task on the Story and the checklist in order", async () => {
     renderBoard();
     expect(await screen.findByLabelText("FLY-2 is doing")).toHaveTextContent("Doing: Make it pass");
-    expect(taskList).toHaveBeenCalledWith("s1");
 
     const list = await openChecklist();
+    expect(taskList).toHaveBeenCalledWith("s1");
     const rows = within(list).getAllByRole("listitem");
     expect(rows.map((r) => r.textContent)).toEqual([
       expect.stringContaining("Write the failing test"),

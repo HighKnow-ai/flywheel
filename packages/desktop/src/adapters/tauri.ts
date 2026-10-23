@@ -158,6 +158,53 @@ export interface EpicProgressDto {
    * open Round of the Epic, `round_waiting` while a Round is open with no live shaping session, else `null`.
    */
   attention: string | null;
+  /** Issue #159: where an Epic in Shaping has got to, its card's shaping marker; `null` out of Shaping. */
+  shaping?: ShapingMarkerDto | null;
+}
+
+/** An Epic in Shaping's open Stage and that Stage's latest Round — mirrors `commands/roadmap.rs`'s
+ * `ShapingMarkerDto`. Every field is empty before shaping has opened a Stage. */
+export interface ShapingMarkerDto {
+  /** `challenge_spec`, `slice` or `criteria`. */
+  stageKind: string | null;
+  stageRank: number | null;
+  roundNumber: number | null;
+  /** Whether that Round still waits on answers. */
+  roundOpen: boolean;
+  answered: number;
+  questions: number;
+}
+
+/** The open review's diff size — mirrors `commands/roadmap.rs`'s `ReviewDiffSizeDto`. */
+export interface ReviewDiffSizeDto {
+  files: number;
+  added: number;
+  removed: number;
+}
+
+/** One Story row's figures on the roster (issue #159) — mirrors `commands/roadmap.rs`'s `RosterRowDto`. */
+export interface RosterRowDto {
+  storyId: string;
+  /** `stopped`, `waiting_on_you` or `null`: shown in place of the state word. */
+  attention: "stopped" | "waiting_on_you" | null;
+  /** Why a Stopped Story's session ended; `null` unless Stopped. */
+  endingReason: EndingReason | null;
+  /** The live session Answer and Open session open. */
+  liveSessionId: string | null;
+  doingTaskTitle: string | null;
+  /** Criteria accepted, or whose Check passed at the head last handed off (ADR 0010). */
+  criteriaMet: number;
+  criteriaTotal: number;
+  tasksDone: number;
+  /** Every Task not Dropped. */
+  tasksTotal: number;
+  /** The open review's diff size, while the Story is In review. */
+  review: ReviewDiffSizeDto | null;
+}
+
+/** Every Story row of a Milestone's roster, in Roadmap order: one core read for the whole roster. */
+export async function rosterRows(milestoneId: string): Promise<RosterRowDto[]> {
+  return invokeCommand<RosterRowDto[]>("roster_rows", { milestoneId });
 }
 
 /** The Milestone header's numbers — mirrors `commands/roadmap.rs`'s `MilestoneProgressDto`. */

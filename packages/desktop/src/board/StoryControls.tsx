@@ -82,18 +82,21 @@ export function useStopped(projectId: string, story: StoryDto): StoppedDto | nul
 
 /** The Story's live session, if one is running: the newest of its sessions with no end. Read under the
  * same key as the session list, so `board:changed` keeps both current. */
-export function useLiveSession(projectId: string, story: StoryDto) {
+export function useLiveSession(projectId: string, story: StoryDto, enabled = true) {
   const sessionsQuery = useQuery({
     queryKey: ["board", projectId, "sessions", story.id],
     queryFn: () => sessionsForStory(story.id),
-    enabled: story.state === "running",
+    enabled: enabled && story.state === "running",
   });
   if (story.state !== "running") return null;
   return (sessionsQuery.data ?? []).find((session) => session.endedAt === null) ?? null;
 }
 
-export function useLiveSessionId(projectId: string, story: StoryDto): string | null {
-  return useLiveSession(projectId, story)?.id ?? null;
+/** The Story's live session id: `known` when the caller already read it (the roster's one read, #159), so
+ * nothing is read per row; otherwise read from the Story's sessions. */
+export function useLiveSessionId(projectId: string, story: StoryDto, known?: string | null): string | null {
+  const read = useLiveSession(projectId, story, known === undefined)?.id ?? null;
+  return known === undefined ? read : known;
 }
 
 /** The one explicit way to the live agent (issue #104): a control labelled as the session. Renders
@@ -101,15 +104,18 @@ export function useLiveSessionId(projectId: string, story: StoryDto): string | n
 export function OpenSessionControl({
   projectId,
   story,
+  sessionId,
   variant = "outline",
   className,
 }: {
   projectId: string;
   story: StoryDto;
+  /** The live session, when the caller already knows it (the roster); left out, it is read. */
+  sessionId?: string | null;
   variant?: "outline" | "default";
   className?: string;
 }) {
-  const liveSessionId = useLiveSessionId(projectId, story);
+  const liveSessionId = useLiveSessionId(projectId, story, sessionId);
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
   if (!liveSessionId) return null;
   return (
@@ -127,8 +133,17 @@ export function OpenSessionControl({
 }
 
 /** Answer what a Story's live session waits on: opens the feed, which scrolls to the open request. */
-export function AnswerControl({ projectId, story }: { projectId: string; story: StoryDto }) {
-  const liveSessionId = useLiveSessionId(projectId, story);
+export function AnswerControl({
+  projectId,
+  story,
+  sessionId,
+}: {
+  projectId: string;
+  story: StoryDto;
+  /** The live session, when the caller already knows it (the roster); left out, it is read. */
+  sessionId?: string | null;
+}) {
+  const liveSessionId = useLiveSessionId(projectId, story, sessionId);
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
   if (!liveSessionId) return null;
   return (
@@ -293,7 +308,8 @@ export function StoryStateWord({
   className,
 }: {
   story: StoryDto;
-  stopped: StoppedDto | null;
+  /** Set when the Story is Stopped: why its session ended. */
+  stopped: Pick<StoppedDto, "endingReason"> | null;
   waitingOnYou: boolean;
   /** Print the ending reason in the pill ("Stopped: crash"), where nothing beside it says it. */
   withReason?: boolean;
