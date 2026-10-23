@@ -4,14 +4,17 @@
 //! A `reviews` row is opened by the hand-off, in the transaction that moves the Story to In review
 //! ([`open_review_in_tx`], called by `handoff::complete_handoff`), with the diff's size and the
 //! Tasks left open. It is closed by the developer: Merge (`story_merge::merge_story`) or a request
-//! for changes (the In review → Running move in `story::set_story_state_in_tx`). A Story has at
-//! most one open review.
+//! for changes (`request_changes::request_changes`, which keeps the comments; a bare In review →
+//! Running move in `story::set_story_state_in_tx` closes it without any). A Story has at most one
+//! open review.
 //!
 //! [`review_for_story`] is the review card's read model. Each criterion carries its Check chip and
 //! whether it is **pre-ticked** (its Check passed at the branch's current head); a pre-tick only
 //! suggests, and Merge still needs every criterion accepted by the developer. A Check **needs the
 //! override** unless it passed at the current head: failed, timed out, not run and stale all count
-//! as failing at Merge.
+//! as failing at Merge. A branch that would conflict with its base branch reads **Rebase needed**
+//! ([`StoryReview::conflicts`], issue #158): Merge refuses it, and the card offers a request for
+//! changes pre-filled with [`rebase_comment`].
 
 use std::path::Path;
 
@@ -95,6 +98,18 @@ pub fn open_review(conn: &Connection, story_id: &str) -> anyhow::Result<Option<R
         .context("failed to read the Story's open review")
 }
 
+/// The Story's most recent review, open or closed: what section 7 of the Context packet reads the
+/// latest request for changes from.
+pub fn latest_review(conn: &Connection, story_id: &str) -> anyhow::Result<Option<Review>> {
+    conn.query_row(
+        &format!("{SELECT_REVIEWS} WHERE story_id = ?1 ORDER BY opened_at DESC, id DESC LIMIT 1"),
+        params![story_id],
+        row_to_review,
+    )
+    .optional()
+    .context("failed to read the Story's latest review")
+}
+
 /// Every review of a Story, oldest first: its review history.
 pub fn reviews_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Vec<Review>> {
     let mut stmt = conn.prepare(&format!("{SELECT_REVIEWS} WHERE story_id = ?1 ORDER BY opened_at, id"))?;
@@ -161,19 +176,21 @@ pub(crate) fn open_review_in_tx(
     Ok(id)
 }
 
-/// Close the Story's open review with `outcome`, as `actor_id`, inside the caller's transaction. A
-/// Story with no open review (handed off before reviews existed) has nothing to close.
+/// Close the Story's open review with `outcome` and the developer's `comments`, as `actor_id`, inside
+/// the caller's transaction. A Story with no open review (handed off before reviews existed) has
+/// nothing to close.
 pub(crate) fn close_review_in_tx(
     tx: &Transaction,
     story_id: &str,
     actor_id: &str,
     outcome: &str,
     failing_checks_overridden: Option<&Value>,
+    comments: Option<&str>,
 ) -> anyhow::Result<()> {
     tx.execute(
-        "UPDATE reviews SET outcome = ?1, decided_by = ?2, decided_at = ?3, failing_checks_overridden = ?4
-         WHERE story_id = ?5 AND outcome IS NULL",
-        params![outcome, actor_id, now(), failing_checks_overridden.map(Value::to_string), story_id],
+        "UPDATE reviews SET outcome = ?1, decided_by = ?2, decided_at = ?3, failing_checks_overridden = ?4, comments = ?5
+         WHERE story_id = ?6 AND outcome IS NULL",
+        params![outcome, actor_id, now(), failing_checks_overridden.map(Value::to_string), comments, story_id],
     )
     .context("failed to close the review")?;
     Ok(())
@@ -252,12 +269,51 @@ pub struct StoryReview {
     pub live_session: bool,
     /// Uncommitted paths in the Story's worktree, as `git status --porcelain` names them.
     pub uncommitted: Vec<String>,
+    /// The base branch the Story merges into; `None` without a worktree.
+    pub base_branch: Option<String>,
+    /// The paths a merge into the base branch would conflict in, sorted: Rebase needed when not
+    /// empty. Only an In review Story is checked.
+    pub conflicts: Vec<String>,
 }
 
 impl StoryReview {
     /// The criteria the developer has not accepted yet.
     pub fn unaccepted(&self) -> impl Iterator<Item = &ReviewCriterion> {
         self.criteria.iter().filter(|c| !c.accepted)
+    }
+
+    /// The request for changes Rebase needed pre-fills, or `None` when the branch merges cleanly.
+    pub fn rebase_comment(&self) -> Option<String> {
+        match (&self.base_branch, self.conflicts.is_empty()) {
+            (Some(base), false) => Some(rebase_comment(base, &self.conflicts)),
+            _ => None,
+        }
+    }
+}
+
+/// The comment a Rebase needed request for changes starts from, naming the base branch and every
+/// conflicting path.
+pub fn rebase_comment(base_branch: &str, conflicts: &[String]) -> String {
+    format!(
+        "Rebase needed: merging into {base_branch} would conflict in {}. Rebase this branch on {base_branch}, resolve \
+         those conflicts, and re-run the Checks before handing off.",
+        conflicts.join(", ")
+    )
+}
+
+/// The paths merging `head` into the base branch would conflict in, read with `git merge-tree` in the
+/// project's repository (nothing is written). Best-effort: the card must still open when git cannot
+/// answer, so a failure reads as no conflict and Merge's own check refuses later.
+fn merge_conflicts(repo: &Path, base_branch: &str, head: &str) -> Vec<String> {
+    let check = crate::git::rev_parse_commit(repo, &format!("refs/heads/{base_branch}"))
+        .and_then(|base_tip| crate::git::merge_tree_check(repo, &base_tip, head));
+    match check {
+        Ok(crate::git::MergePrecheck::Conflicts(paths)) => paths,
+        Ok(_) => Vec::new(),
+        Err(e) => {
+            eprintln!("review card: could not check {head} against {base_branch} for conflicts: {e:#}");
+            Vec::new()
+        }
     }
 }
 
@@ -311,6 +367,16 @@ pub fn review_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Sto
         |r| r.get(0),
     )?;
 
+    let base_branch = worktree.as_ref().map(|w| w.base_branch.clone());
+    let conflicts = match (story.state == "in_review", &base_branch, &head_sha) {
+        (true, Some(base), Some(head)) => {
+            let repo: String =
+                conn.query_row("SELECT repo_path FROM projects WHERE id = ?1", params![story.project_id], |r| r.get(0))?;
+            merge_conflicts(Path::new(&repo), base, head)
+        }
+        _ => Vec::new(),
+    };
+
     Ok(StoryReview {
         story_id: story.id,
         story_key: story.key,
@@ -322,5 +388,7 @@ pub fn review_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Sto
         failing_checks,
         live_session,
         uncommitted,
+        base_branch,
+        conflicts,
     })
 }

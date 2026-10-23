@@ -36,6 +36,7 @@ use core::domain::roadmap_round::{dismiss_roadmap_round, open_roadmap_round};
 use core::domain::round::{accept_all_recommended, answer_round_question, post_round, NewQuestion, NewRound, RoundAnswer};
 use core::domain::stage::close_stage;
 use core::domain::story::{move_story_to_epic, set_story_state, StoryState};
+use core::domain::request_changes::request_changes;
 use core::domain::story_merge::{merge_story, MergeOptions};
 use rusqlite::Connection;
 
@@ -227,36 +228,50 @@ fn run_start_story(who: Who) -> Trial {
     run_story_move(StoryState::Ready, StoryState::Running, who)
 }
 
+/// An In review Story in a real repository, handed off with one commit and its session ended: its one
+/// criterion's Check passed at the branch's head. Returns `(conn, human, story_id, criterion_id, repo)`.
+fn git_story_in_review() -> (Connection, String, String, String, tempfile::TempDir) {
+    let (mut conn, human, project, repo) = common::seeded_git_project();
+    let story = common::new_story(&mut conn, &project.id, &human, "A Story");
+    let criterion = create_criterion(&mut conn, &human, &story.id, "It merges.").unwrap();
+    set_check(&mut conn, &human, &criterion.id, "true", None).unwrap();
+    set_story_state(&mut conn, &human, &story.id, StoryState::Ready).unwrap();
+    set_story_state(&mut conn, &human, &story.id, StoryState::Running).unwrap();
+    let worktree = core::domain::worktree::ensure_worktree(&mut conn, &story.id, &human).unwrap();
+    let session = core::domain::session::start_session(&mut conn, &story.id, "acceptEdits", &human).unwrap();
+    let agent = agent_actor_id(&conn).unwrap();
+    let task = core::domain::task::add_task(&mut conn, &agent, &story.id, "Work").unwrap();
+    core::domain::task::set_task_state(&mut conn, &agent, &task.id, core::domain::task::TaskState::Done, None).unwrap();
+    let path = Path::new(&worktree.path);
+    std::fs::write(path.join("work.txt"), "work\n").unwrap();
+    for args in [&["add", "work.txt"][..], &["-c", "user.name=T", "-c", "user.email=t@flywheel.test", "commit", "-qm", "work"][..]] {
+        assert!(std::process::Command::new("git").arg("-C").arg(path).args(args).status().unwrap().success());
+    }
+    core::domain::handoff::hand_off(&mut conn, &session.id, "Done.", "").unwrap();
+    core::domain::session::close_session(&mut conn, &session.id, core::domain::session::SessionStatus::Completed, None, None, None)
+        .unwrap();
+    (conn, human, story.id, criterion.id, repo)
+}
+
+/// Request changes (issue #158) is `request_changes::request_changes`, never a bare state write: it
+/// closes the review with the comments.
 fn run_request_changes(who: Who) -> Trial {
-    run_story_move(StoryState::InReview, StoryState::Running, who)
+    common::with_scratch_worktree_root(|_| {
+        let (mut conn, _human, story_id, _criterion, repo) = git_story_in_review();
+        let t = trial(&mut conn, who, |c, actor| request_changes(c, actor, &story_id, "Cover an empty file."));
+        drop(repo);
+        t
+    })
 }
 
 /// Merge (issue #155) is `story_merge::merge_story`, never a bare state write: an In review Story in a
 /// real repository, its one criterion accepted, its Check passed at the branch's head.
 fn run_merge_story(who: Who) -> Trial {
     common::with_scratch_worktree_root(|_| {
-        let (mut conn, human, project, repo) = common::seeded_git_project();
-        let story = common::new_story(&mut conn, &project.id, &human, "A Story");
-        let criterion = create_criterion(&mut conn, &human, &story.id, "It merges.").unwrap();
-        set_check(&mut conn, &human, &criterion.id, "true", None).unwrap();
-        set_story_state(&mut conn, &human, &story.id, StoryState::Ready).unwrap();
-        set_story_state(&mut conn, &human, &story.id, StoryState::Running).unwrap();
-        let worktree = core::domain::worktree::ensure_worktree(&mut conn, &story.id, &human).unwrap();
-        let session = core::domain::session::start_session(&mut conn, &story.id, "acceptEdits", &human).unwrap();
-        let agent = agent_actor_id(&conn).unwrap();
-        let task = core::domain::task::add_task(&mut conn, &agent, &story.id, "Work").unwrap();
-        core::domain::task::set_task_state(&mut conn, &agent, &task.id, core::domain::task::TaskState::Done, None).unwrap();
-        let path = Path::new(&worktree.path);
-        std::fs::write(path.join("work.txt"), "work\n").unwrap();
-        for args in [&["add", "work.txt"][..], &["-c", "user.name=T", "-c", "user.email=t@flywheel.test", "commit", "-qm", "work"][..]] {
-            assert!(std::process::Command::new("git").arg("-C").arg(path).args(args).status().unwrap().success());
-        }
-        core::domain::handoff::hand_off(&mut conn, &session.id, "Done.", "").unwrap();
-        core::domain::session::close_session(&mut conn, &session.id, core::domain::session::SessionStatus::Completed, None, None, None)
-            .unwrap();
-        accept_criterion(&mut conn, &human, &criterion.id).unwrap();
+        let (mut conn, human, story_id, criterion_id, repo) = git_story_in_review();
+        accept_criterion(&mut conn, &human, &criterion_id).unwrap();
         let t = trial(&mut conn, who, |c, actor| {
-            merge_story(c, actor, &story.id, MergeOptions::default()).map(|_| ())
+            merge_story(c, actor, &story_id, MergeOptions::default()).map(|_| ())
         });
         drop(repo);
         t
@@ -363,7 +378,7 @@ fn run_close_stage(who: Who) -> Trial {
 
 /// The authority writers the source half guards, by function name. Adding one here without a case
 /// below (or the reverse) fails `every_authority_writer_has_a_refusal_and_a_not_blocked_case`.
-const AUTHORITY_WRITERS: [&str; 16] = [
+const AUTHORITY_WRITERS: [&str; 17] = [
     "accept_criterion",
     "unaccept_criterion",
     "set_check",
@@ -380,6 +395,7 @@ const AUTHORITY_WRITERS: [&str; 16] = [
     "update_milestone",
     "merge_story",
     "move_story_to_epic",
+    "request_changes",
 ];
 
 /// Declares the case table AND, per transition, the labelled refusal / not-blocked pair — so the two
@@ -435,10 +451,9 @@ authority_cases! {
     move_milestone => run_move_milestone,
 }
 
-/// The table names every writer in AUTHORITY_WRITERS, plus the six developer-only moves.
-const STATE_MOVES: [&str; 6] = [
+/// The table names every writer in AUTHORITY_WRITERS, plus the five developer-only moves.
+const STATE_MOVES: [&str; 5] = [
     "start_story",
-    "request_changes",
     "drop_story",
     "close_epic_shaping",
     "confirm_milestone",
@@ -606,7 +621,8 @@ struct AllowedCaller {
 /// The declaring domain modules and the Tauri command modules that put the act under the human's
 /// own control (each resolves the actor server-side with `local_human_actor_id`). Nothing under
 /// `packages/sidecar/src` — the process that drives an agent session — is, or may ever be, listed.
-const ALLOWED_CALLERS: [AllowedCaller; 17] = [
+const ALLOWED_CALLERS: [AllowedCaller; 18] = [
+    AllowedCaller { suffix: "packages/core/src/domain/request_changes.rs", reason: "declares request_changes", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/story_merge.rs", reason: "declares merge_story", test_only: false },
     AllowedCaller { suffix: "packages/desktop/src-tauri/src/commands/review.rs", reason: "the human's Merge on the review card", test_only: false },
     AllowedCaller { suffix: "packages/core/src/domain/milestone.rs", reason: "declares update_milestone", test_only: false },
