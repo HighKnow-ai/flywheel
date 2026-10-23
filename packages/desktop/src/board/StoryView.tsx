@@ -368,7 +368,7 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
         />
       )}
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+      <div className={cn("grid grid-cols-1 items-start gap-4", !inReview && "lg:grid-cols-2")}>
         {!inReview && (
           <Panel
             id="story-criteria-heading"

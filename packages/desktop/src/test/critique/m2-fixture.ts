@@ -31,6 +31,8 @@ import type {
   StoryStateCountsDto,
   TaskDto,
   WaitingRoundDto,
+  ReviewCheckDto,
+  StoryReviewDto,
 } from "../../adapters/tauri";
 import type { Project } from "../../board/useBoardQuery";
 
@@ -702,6 +704,54 @@ function window_(entries: Record<string, unknown>[], offset: number, limit: numb
   return { entries: entries.slice(offset, offset + limit), offset, limit, total: entries.length };
 }
 
+/**
+ * FLY-3's review card (issue #155). `judging`: one Check failed and its output tail, a pre-ticked criterion
+ * not accepted yet, one accepted. `override`: every criterion accepted, the Check still failing. `ready`:
+ * every criterion accepted and every Check passed.
+ */
+let reviewMode: "judging" | "override" | "ready" = "judging";
+export function setReviewInFixture(mode: "judging" | "override" | "ready"): void {
+  reviewMode = mode;
+}
+
+function reviewCheck(id: string, criterionId: string, command: string, result: string, outputTail: string | null = null): ReviewCheckDto {
+  return { checkId: id, criterionId, command, result, stale: false, commitSha: "9f3c2ab", outputTail };
+}
+
+function reviewOf(storyId: string): StoryReviewDto {
+  const ready = reviewMode === "ready";
+  const accepted = reviewMode !== "judging";
+  const renders = reviewCheck("k-3a", "c-3a", "test -f docs/design/directions/andon.html", "passed");
+  const contrast = ready
+    ? reviewCheck("k-3b", "c-3b", "npm test -- contrast", "passed")
+    : reviewCheck(
+        "k-3b",
+        "c-3b",
+        "npm test -- contrast",
+        "failed",
+        " FAIL  src/theme/__tests__/contrast.test.ts > dark > subtle-foreground on card\n   expected 4.31 to be greater than or equal to 4.5\n\n Test Files  1 failed | 37 passed (38)\n      Tests  1 failed | 912 passed (913)",
+      );
+  return {
+    storyId,
+    storyKey: "FLY-3",
+    storyState: "in_review",
+    headSha: "9f3c2ab",
+    review: {
+      id: "r-3", openedAt: ago(3000), baseSha: "41d07e2", headSha: "9f3c2ab",
+      files: 14, added: 1286, removed: 212, openTasks: 0, checkObjections: [], adrNotes: [],
+    },
+    criteria: [
+      { id: "c-3a", statement: "Each of the three directions is rendered from code over the M3 backlog, light and dark", accepted, acceptedAt: accepted ? ago(60) : null, preTicked: true, check: renders },
+      { id: "c-3b", statement: "Every text role measures at least 4.5:1 in both schemes", accepted: true, acceptedAt: ago(120), preTicked: ready, check: contrast },
+      { id: "c-3c", statement: "The pick and its two changes are recorded in direction.md", accepted, acceptedAt: accepted ? ago(30) : null, preTicked: false, check: null },
+    ],
+    openTasks: 0,
+    failingChecks: ready ? [] : [contrast],
+    liveSession: false,
+    uncommitted: [],
+  };
+}
+
 /** Answer one IPC command from the seeded data. Writes are accepted and change nothing. */
 export function answer(cmd: string, args: Args): unknown {
   switch (cmd) {
@@ -759,6 +809,7 @@ export function answer(cmd: string, args: Args): unknown {
     case "git_facts": return null;
     case "proposal_list_pending": return [];
     case "criterion_list": return CRITERIA[arg(args, "storyId")] ?? [];
+    case "story_review": return reviewOf(arg(args, "storyId"));
     case "epic_shaping_session": return arg(args, "epicId") === "e-59" && shapingSessionLive ? "ses-shape-8" : null;
     case "epic_shaping_rounds": return shapingOf(arg(args, "epicId"));
     case "roadmap_round_read": return arg(args, "projectId") === "p-fly" ? roadmapView() : { open: null, proposals: [], last: null };
