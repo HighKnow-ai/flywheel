@@ -171,6 +171,7 @@ and "n of m Stories merged" (each Epic appears once). See 01 above and 17 below.
 | 66 | Epic shaping: confirming the last Stage's close, which makes the Epic and its Stories Ready (#128) | ![](critique-2026-10/after/66-epic-shaping-criteria-close-confirm-light.webp) | ![](critique-2026-10/after/66-epic-shaping-criteria-close-confirm-dark.webp) |
 | 67 | Epic shaping at the window's minimum width: criteria under the Story columns (#128) | ![](critique-2026-10/after/67-epic-shaping-criteria-min-width-light.webp) | ![](critique-2026-10/after/67-epic-shaping-criteria-min-width-dark.webp) |
 | 68 | Epic shaping: the last Stage closed, the Epic and its Stories Ready, the dock waiting for no Round (#128) | ![](critique-2026-10/after/68-epic-shaping-criteria-closed-light.webp) | ![](critique-2026-10/after/68-epic-shaping-criteria-closed-dark.webp) |
+| 69 | Milestone shaping: the exit test edited by hand in place, Edit on the title too, the pending ghost still under the field (#149) | ![](critique-2026-10/after/69-milestone-shaping-edit-exit-test-light.webp) | ![](critique-2026-10/after/69-milestone-shaping-edit-exit-test-dark.webp) |
 
 ## How the screens were rendered
 

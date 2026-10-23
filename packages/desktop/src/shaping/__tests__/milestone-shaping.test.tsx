@@ -34,6 +34,7 @@ const milestoneShapingSession = vi.fn();
 const milestoneShapingRounds = vi.fn();
 const milestoneShapingContinue = vi.fn();
 const proposalAccept = vi.fn();
+const milestoneUpdate = vi.fn();
 const stageClose = vi.fn();
 
 vi.mock("../../adapters/tauri", async () => {
@@ -47,6 +48,7 @@ vi.mock("../../adapters/tauri", async () => {
     milestoneShapingRounds: (...args: unknown[]) => milestoneShapingRounds(...args),
     milestoneShapingContinue: (...args: unknown[]) => milestoneShapingContinue(...args),
     proposalAccept: (...args: unknown[]) => proposalAccept(...args),
+    milestoneUpdate: (...args: unknown[]) => milestoneUpdate(...args),
     stageClose: (...args: unknown[]) => stageClose(...args),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
   };
@@ -129,6 +131,7 @@ beforeEach(() => {
   milestoneShapingRounds.mockReset().mockResolvedValue(view({ stages: [], openStageStatus: null }));
   milestoneShapingContinue.mockReset().mockResolvedValue({ id: "run-2", milestoneId: "m1", status: "running", permissionMode: "dontAsk" });
   proposalAccept.mockReset().mockResolvedValue(undefined);
+  milestoneUpdate.mockReset().mockResolvedValue(undefined);
   stageClose.mockReset().mockResolvedValue({ closedStageId: "s1", opened: null, session: null, launchError: null, sidecarWarning: null });
 });
 
@@ -244,6 +247,86 @@ describe("the Milestone's shaping view (issue #132)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Close and make it Ready" }));
     await waitFor(() => expect(stageClose).toHaveBeenCalledWith("s1"));
     expect(await within(stages).findByText("The Exit test Stage is closed: the Milestone is Ready.")).toBeInTheDocument();
+  });
+});
+
+describe("editing a Milestone by hand on its card (issue #149)", () => {
+  function renderView() {
+    return wrap(<MilestoneShapingView projectId="p1" projectName="Threadfin" milestoneId="m1" onBack={() => {}} />);
+  }
+
+  it("edits the exit test in place through milestone_update, the pending ghost still under it", async () => {
+    milestoneShapingRounds.mockResolvedValue(view({ proposals: [GHOST] }));
+    renderView();
+    const card = await screen.findByRole("region", { name: "Shaping" });
+    fireEvent.click(within(card).getByRole("button", { name: "Edit Exit test" }));
+    const field = within(card).getByRole("textbox", { name: "Exit test" });
+    expect(field).toHaveValue("Shaping works");
+    expect(within(card).getByRole("group", { name: "Proposed Exit test" })).toBeInTheDocument();
+
+    fireEvent.change(field, { target: { value: "  Cyril shapes an exit test.  " } });
+    fireEvent.click(within(card).getByRole("button", { name: "Save Exit test" }));
+    await waitFor(() => expect(milestoneUpdate).toHaveBeenCalledWith("m1", "Shaping", "Cyril shapes an exit test."));
+    await waitFor(() => expect(within(card).queryByRole("textbox", { name: "Exit test" })).not.toBeInTheDocument());
+    expect(within(card).getByRole("group", { name: "Proposed Exit test" })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Edit Exit test" })).toHaveFocus();
+  });
+
+  it("clears a blanked exit test, and Escape leaves it as it was", async () => {
+    milestoneShapingRounds.mockResolvedValue(view());
+    renderView();
+    const card = await screen.findByRole("region", { name: "Shaping" });
+    fireEvent.click(within(card).getByRole("button", { name: "Edit Exit test" }));
+    fireEvent.keyDown(within(card).getByRole("textbox", { name: "Exit test" }), { key: "Escape" });
+    expect(within(card).queryByRole("textbox", { name: "Exit test" })).not.toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Edit Exit test" })).toHaveFocus();
+    expect(milestoneUpdate).not.toHaveBeenCalled();
+
+    fireEvent.click(within(card).getByRole("button", { name: "Edit Exit test" }));
+    fireEvent.change(within(card).getByRole("textbox", { name: "Exit test" }), { target: { value: "   " } });
+    fireEvent.click(within(card).getByRole("button", { name: "Save Exit test" }));
+    await waitFor(() => expect(milestoneUpdate).toHaveBeenCalledWith("m1", "Shaping", null));
+  });
+
+  it("edits the title in place, Enter saving it, and keeps a blank title open with the reason", async () => {
+    milestoneShapingRounds.mockResolvedValue(view({ proposals: [GHOST] }));
+    renderView();
+    const card = await screen.findByRole("region", { name: "Shaping" });
+    fireEvent.click(within(card).getByRole("button", { name: "Edit title" }));
+    const title = within(card).getByRole("textbox", { name: "Title" });
+    expect(title).toHaveValue("Shaping");
+    expect(within(card).getByRole("group", { name: "Proposed Exit test" })).toBeInTheDocument();
+
+    fireEvent.change(title, { target: { value: " " } });
+    fireEvent.submit(title);
+    expect(await within(card).findByRole("alert")).toHaveTextContent("A Milestone needs a title");
+    expect(milestoneUpdate).not.toHaveBeenCalled();
+
+    fireEvent.change(title, { target: { value: "Shaping a Milestone" } });
+    fireEvent.submit(title);
+    await waitFor(() => expect(milestoneUpdate).toHaveBeenCalledWith("m1", "Shaping a Milestone", "Shaping works"));
+  });
+
+  it("says why a save was refused and keeps the draft", async () => {
+    milestoneUpdate.mockRejectedValue("a Done Milestone is frozen; put later changes in a new Milestone");
+    milestoneShapingRounds.mockResolvedValue(view());
+    renderView();
+    const card = await screen.findByRole("region", { name: "Shaping" });
+    fireEvent.click(within(card).getByRole("button", { name: "Edit Exit test" }));
+    fireEvent.change(within(card).getByRole("textbox", { name: "Exit test" }), { target: { value: "Something else" } });
+    fireEvent.click(within(card).getByRole("button", { name: "Save Exit test" }));
+    expect(await within(card).findByRole("alert")).toHaveTextContent("Could not save Exit test: a Done Milestone is frozen");
+    expect(within(card).getByRole("textbox", { name: "Exit test" })).toHaveValue("Something else");
+  });
+
+  it("offers no Edit on a Done or Dropped Milestone", async () => {
+    for (const state of ["done", "dropped"]) {
+      milestoneShapingRounds.mockResolvedValue(view({ milestone: { ...SHAPING, state } }));
+      const { unmount } = renderView();
+      const card = await screen.findByRole("region", { name: "Shaping" });
+      expect(within(card).queryByRole("button", { name: /^Edit/ })).not.toBeInTheDocument();
+      unmount();
+    }
   });
 });
 

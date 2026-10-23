@@ -118,6 +118,11 @@ export async function milestoneMove(milestoneId: string, beforeId: string | null
   await invokeCommand<void>("milestone_move", { milestoneId, beforeId });
 }
 
+/** Rewrite a Milestone's title and exit test by hand (issue #149); `null` clears the exit test. */
+export async function milestoneUpdate(milestoneId: string, title: string, exitTest: string | null): Promise<void> {
+  await invokeCommand<void>("milestone_update", { milestoneId, title, exitTest });
+}
+
 /** Move a Milestone (`shaping`, `ready` or `dropped`); `done` is `milestoneConfirmDone`'s. */
 export async function milestoneSetState(milestoneId: string, to: string): Promise<void> {
   await invokeCommand<void>("milestone_set_state", { milestoneId, to });
