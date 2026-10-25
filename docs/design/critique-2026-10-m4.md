@@ -369,7 +369,10 @@ A separate read of the source, outside `components/ui/`:
   - Their waits were Testing Library's 1s default, spent on mocked IPC and React commits, so they measured how busy the machine was. They now wait up to 5s, under a 15s test timeout.
   - A state that arrives still ends the wait at once, and nothing in these suites asserts speed.
   - Four concurrent full runs beside a WebKit run all passed, before and after.
-- **The Milestone 4 review-and-Merge walk** is one test of about 5.5s. It timed out once at the browser arm's 15s default under load, and has a 45s budget of its own now.
+- **The Milestone 4 review-and-Merge walk** (`review-merge-flow.browser.test.tsx`) failed about one run in four under reduced motion (`test:browser:motion`), as a 15s timeout or a 30s locator timeout.
+  - Cause: after a decision, the decided card stays in the list, inert, while it collapses out (`board/leaving.tsx`). The walk then typed into the next card. The browser locator is a path by list position, so it went stale when the leaving card was removed mid-step.
+  - Fix: the walk waits until no `[data-leaving]` card is left, in Needs you and in the triage drawer, before it acts on the next one. It keeps the default timeout.
+  - Result: with the Needs-you guard alone, 1 of 14 motion runs still failed, and its log was not kept. After the drawer guard was added, 5 consecutive motion runs and a full `test:browser` run passed.
 - **Formatting.** `prettier --check` on `packages/desktop/src` is a CI step (Prettier 3.9.10, 120 columns, `components/ui/` left in the shadcn CLI's style). The tree was formatted in a commit of its own.
 
 ### Stories filed
