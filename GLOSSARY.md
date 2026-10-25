@@ -132,6 +132,10 @@ _Avoid_: Turn, interview, questionnaire
 
 ## Agent work
 
+**Agent**:
+A live session: one that is running or Waiting on you, whether it carries out a Story or shapes a record. Every count of agents (the andon strip's, the sidebar's, All agents') is the number of live sessions; a Stopped Story or a session that has ended is not an agent.
+_Avoid_: Run, lamp, worker (as a count)
+
 **Waiting on you**:
 A session that is live but can't go on until the developer answers it: a Gated action, a permission request, a question the agent asked, or an open shaping question.
 _Avoid_: Blocked, paused

@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { FleetRowDto, WaitingRoundDto } from "../../adapters/tauri";
-import { AndonStrip, lampCapacity, lampsFromFleet, stripLamps } from "../AndonStrip";
+import { agentCount, AndonStrip, lampCapacity, lampsFromFleet, stripLamps } from "../AndonStrip";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 
 const fleetList = vi.fn();
@@ -99,7 +99,9 @@ describe("a shaping Round waiting on you (issue #124)", () => {
     const lamp = await screen.findByRole("button", { name: "Open Epic FLY-8 Epic shaping, Round 2 Waiting on you" });
     expect(lamp).toHaveAttribute("data-lamp", "waiting");
     expect(lamp).toHaveTextContent("Round 2 · Waiting on you");
-    expect(lamp).toHaveAttribute("title", expect.stringContaining("1 of 4 answered"));
+    expect(lamp).not.toHaveAttribute("title");
+    fireEvent.focus(lamp);
+    expect((await screen.findByRole("tooltip")).textContent).toContain("1 of 4 answered");
     fireEvent.click(lamp);
     expect(useUiStore.getState().currentEpicId).toBe("e-59");
     expect(useUiStore.getState().currentProjectId).toBe("p1");
@@ -121,7 +123,8 @@ describe("a shaping Round waiting on you (issue #124)", () => {
     );
     const lamp = await screen.findByRole("button", { name: "Open the Flywheel Roadmap, Roadmap Round 1 Waiting on you" });
     expect(lamp).toHaveTextContent("Round 1 · Waiting on you");
-    expect(lamp).toHaveAttribute("title", expect.stringContaining("1 of 3 decided"));
+    fireEvent.focus(lamp);
+    expect((await screen.findByRole("tooltip")).textContent).toContain("1 of 3 decided");
     fireEvent.click(lamp);
     expect(useUiStore.getState().currentProjectId).toBe("p1");
     expect(useUiStore.getState().currentEpicId).toBeNull();
@@ -146,6 +149,29 @@ describe("lampsFromFleet", () => {
   });
 });
 
+describe("the agent count (GLOSSARY.md: an agent is a live session)", () => {
+  it("counts the live sessions: running and Waiting on you, never a Stopped Story or a handed-off one", () => {
+    expect(agentCount([RUNNING, DONE, DEAD, WAITING], [])).toBe(2);
+  });
+
+  it("counts a shaping session held on a Round as one agent, once", () => {
+    expect(agentCount([RUNNING, WAITING], [ROUND])).toBe(3);
+    expect(agentCount([RUNNING, { ...WAITING, sessionId: ROUND.sessionId }], [ROUND])).toBe(2);
+  });
+
+  it("is the figure the strip shows under Agents, whatever lamps it lights", async () => {
+    fleetWaitingRounds.mockResolvedValue([ROUND]);
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AndonStrip />
+      </QueryClientProvider>,
+    );
+    // Four lamps (a Round, Waiting, Running, Stopped), three agents: the Stopped Story has no live session.
+    await screen.findByRole("button", { name: /Open Epic FLY-8/ });
+    expect(await screen.findByLabelText("3 agents")).toHaveTextContent("3");
+  });
+});
+
 describe("lampCapacity", () => {
   it("shows every lamp that fits, and keeps room for the +n more lamp when some do not", () => {
     expect(lampCapacity(2000, 3)).toBe(3);
@@ -166,7 +192,12 @@ describe("AndonStrip", () => {
     renderStrip();
     const lamps = within(await screen.findByRole("list", { name: "Live sessions" }));
     expect(await lamps.findByRole("button", { name: "Open Story FLY-6 Waiting one, Waiting on you" })).toHaveAttribute("data-lamp", "waiting");
-    expect(lamps.getByRole("button", { name: "Open Story FLY-4 Running one, Running" })).toHaveTextContent("Doing: Write the parser");
+    const running = lamps.getByRole("button", { name: "Open Story FLY-4 Running one, Running" });
+    expect(running).toHaveTextContent("Doing: Write the parser");
+    // Its details are a Tooltip, never a title attribute (critique F58).
+    expect(running).not.toHaveAttribute("title");
+    fireEvent.focus(running);
+    expect((await screen.findByRole("tooltip")).textContent).toContain("FLY-4 Running one");
     expect(await lamps.findByText(/Stopped: usage limit/)).toBeInTheDocument();
   });
 
