@@ -3,51 +3,54 @@ name: Flywheel
 description: An Agentic Development Environment drawn as a production line's visual management, the Andon world.
 colors:
   background: "#e6e8ec"
-  foreground: "#111318"
+  foreground: "#12151c"
   card: "#ffffff"
   primary: "#3c64dd"
   primary-foreground: "#ffffff"
-  running: "#2a50c6"
-  running-muted: "#e8edfc"
+  running: "#22409c"
+  running-muted: "#eef1fd"
+  running-border: "#c8d2f7"
   attention: "#ffd400"
   attention-foreground: "#14120a"
   attention-muted: "#fff7cc"
-  destructive: "#d42c1f"
+  destructive: "#c0223a"
   destructive-foreground: "#ffffff"
-  destructive-text: "#b42318"
+  destructive-text: "#c0223a"
   secondary: "#f4f5f7"
-  muted-foreground: "#525866"
+  muted-foreground: "#4a5261"
   subtle-foreground: "#676d79"
   accent: "#eef0f3"
-  border: "#d9dce1"
-  input: "#858b96"
+  border: "#cdd2dd"
+  input: "#8792a6"
   ring: "#3c64dd"
   sidebar: "#f8f9fa"
   sidebar-primary: "#ffffff"
   sidebar-accent: "#e9ebef"
+  sidebar-border: "#e4e7ee"
   strip: "#17191e"
   strip-foreground: "#f2f3f5"
   strip-muted-foreground: "#a4a9b3"
   lamp: "#25282f"
   diff-insert: "#e3f4e7"
   diff-delete: "#fce6e4"
-  chart-1: "#111318"
+  chart-1: "#12151c"
   chart-2: "#7d838f"
   chart-3: "#3c64dd"
   chart-4: "#c3c7ce"
   dark-background: "#0b0c0e"
   dark-foreground: "#eceef1"
   dark-card: "#1a1c20"
-  dark-running: "#8ea8ff"
+  dark-running: "#7d99ff"
   dark-running-muted: "#19213a"
+  dark-running-border: "#2c3a6b"
   dark-attention-muted: "#352d00"
-  dark-destructive-text: "#ff8a7f"
+  dark-destructive-text: "#ff6b82"
   dark-secondary: "#23262b"
   dark-muted-foreground: "#a0a6b1"
   dark-subtle-foreground: "#80868f"
   dark-border: "#2c2f36"
   dark-input: "#6e7480"
-  dark-ring: "#8ea8ff"
+  dark-ring: "#7d99ff"
   dark-sidebar: "#121316"
   dark-sidebar-accent: "#1e2025"
   dark-strip: "#000000"
@@ -59,48 +62,48 @@ colors:
   dark-chart-4: "#4a4f58"
 typography:
   lead:
-    fontFamily: "Barlow, system-ui, sans-serif"
+    fontFamily: "Public Sans Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "52px"
     lineHeight: 1
     fontFeature: "\"tnum\", \"lnum\""
   count:
-    fontFamily: "Barlow, system-ui, sans-serif"
+    fontFamily: "Public Sans Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "34px"
     lineHeight: 1
     fontFeature: "\"tnum\", \"lnum\""
   milestone:
-    fontFamily: "Barlow, system-ui, sans-serif"
+    fontFamily: "Public Sans Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "26px"
     lineHeight: 1.15
   title:
-    fontFamily: "Barlow, system-ui, sans-serif"
+    fontFamily: "Public Sans Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "24px"
     lineHeight: 1.2
   section:
-    fontFamily: "Barlow, system-ui, sans-serif"
+    fontFamily: "Public Sans Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "17px"
     fontWeight: 600
     lineHeight: 1.3
   row:
-    fontFamily: "Barlow, system-ui, sans-serif"
+    fontFamily: "Public Sans Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "15px"
     lineHeight: 1.35
   body:
-    fontFamily: "Barlow, system-ui, sans-serif"
+    fontFamily: "Public Sans Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.45
   small:
-    fontFamily: "Barlow, system-ui, sans-serif"
+    fontFamily: "Public Sans Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "13px"
     lineHeight: 1.4
   meta:
-    fontFamily: "Barlow, system-ui, sans-serif"
+    fontFamily: "Public Sans Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "12px"
     fontWeight: 500
     lineHeight: 1.35
   condensed-label:
-    fontFamily: "Barlow Semi Condensed, Barlow, sans-serif"
+    fontFamily: "Public Sans Variable, ui-sans-serif, system-ui, sans-serif"
     fontSize: "12px"
     fontWeight: 600
     letterSpacing: "0.06em"
@@ -223,7 +226,8 @@ The system is built on shadcn/ui and Tailwind v4: every colour is a CSS custom p
 - Four tones, one meaning each: attention, running, destructive, neutral.
 - Every state is an icon plus a word plus a tone, drawn by one component.
 - Grey floor, white cards, a 1px border edge and a whisper of shadow; in dark the edge carries everything.
-- Barlow for reading, Barlow Semi Condensed only for count and group labels, JetBrains Mono for keys, branches and commands.
+- Public Sans (HighKnow's face) for reading, its condensed uppercase role only for count and group labels, JetBrains Mono for keys, branches and commands.
+- HighKnow's tokens where they fit (ADR 0021): the ink, rules, brand text and error come from `docs/design/highknow-tokens.json`; the grounds, the dark scheme, yellow, graphite, the lamps and the Diff Tints are Flywheel's own.
 - One curve for all motion; nothing animates under reduced motion.
 
 ## Colors
@@ -231,9 +235,10 @@ The system is built on shadcn/ui and Tailwind v4: every colour is a CSS custom p
 A neutral grey ramp with three signal hues and one hardware graphite; every token carries exactly one meaning, and contrast is asserted per role by a test, not by this file.
 
 ### Primary
-- **Brand Blue** (`primary`, the same fill in both schemes): the HighKnow hue, pinned by the product. Filled primary buttons, the Running fill, a lit blue lamp, the checked checkbox, the text selection ground.
-- **Running Ink** (`running`; lifted to `dark-running` on dark grounds): Running text and icons, the doing Task, links, the text caret. The pin is on the hue, so on near-black the same hue is lifted until it reads.
-- **Running Tint** (`running-muted` / `dark-running-muted`): the Running pill's ground and the selected row.
+- **Brand Blue** (`primary`, the same fill in both schemes): the HighKnow hue, pinned by the product, and the tile of the mark (below). Filled primary buttons, the Running fill, a lit blue lamp, the checked checkbox, the text selection ground.
+- **Running Ink** (`running`, HighKnow's brand ink; lifted to `dark-running`, HighKnow's brand lift, on dark grounds): Running text and icons, the doing Task, links, the text caret. The pin is on the hue, so on near-black the same hue is lifted until it reads.
+- **Running Tint** (`running-muted`, HighKnow's brand wash / `dark-running-muted`): the Running pill's ground and the selected row.
+- **Running Hair** (`running-border`, HighKnow's brand hair / `dark-running-border`): a hairline in the brand hue on a running-tint surface. No consumer yet (#196 added it for the Stories after the design audit).
 - **Focus Ring** (`ring` / `dark-ring`): the 2px focus outline at a 2px offset everywhere.
 
 ### Secondary
@@ -241,8 +246,8 @@ A neutral grey ramp with three signal hues and one hardware graphite; every toke
 - **Yellow Tint** (`attention-muted` / `dark-attention-muted`): the ground of a row or card that needs you. On the roster that is every Story row Waiting on you, Stopped or In review (#159), its state pill saying which; in the Needs-you list, where every card needs you, only a card Waiting on you.
 
 ### Tertiary
-- **Signal Red** (`destructive`, identical in both schemes) with white ink: Stopped and failed fills.
-- **Red Ink** (`destructive-text` / `dark-destructive-text`): Drop and other destructive text buttons.
+- **Signal Red** (`destructive`, HighKnow's error, identical in both schemes) with white ink: Stopped and failed fills.
+- **Red Ink** (`destructive-text`, HighKnow's error / `dark-destructive-text`, HighKnow's dark error): Drop and other destructive text buttons.
 
 ### Neutral
 - **Floor** (`background` / `dark-background`): the ground the cards sit on.
@@ -252,9 +257,9 @@ A neutral grey ramp with three signal hues and one hardware graphite; every toke
 - **Hover** (`accent`; in dark it equals `dark-secondary`): the hover ground for ghost buttons, menus and rows.
 - **Secondary Ink** (`muted-foreground` / `dark-muted-foreground`): secondary text, quiet states (Shaping, Merged, Dropped, Stale).
 - **Meta Ink** (`subtle-foreground` / `dark-subtle-foreground`): meta, timestamps, chevrons, placeholders.
-- **Edge** (`border` / `dark-border`): card edges, row rules, region edges, scrollbar thumbs.
-- **Control Edge** (`input` / `dark-input`): the boundary of inputs, outline buttons, checkboxes and radios, held at 3:1 against the card.
-- **Sidebar** (`sidebar`, `sidebar-primary` for the current item as a raised card, `sidebar-accent` for hover; dark siblings).
+- **Edge** (`border`, HighKnow's rule-strong / `dark-border`): card edges, row rules, region edges, scrollbar thumbs.
+- **Control Edge** (`input`, HighKnow's rule-control / `dark-input`): the boundary of inputs, outline buttons, checkboxes and radios, held at 3:1 against the card. It measures under 3:1 on the sidebar and the floor, so a control sits on a card.
+- **Sidebar** (`sidebar`, `sidebar-primary` for the current item as a raised card, `sidebar-accent` for hover, `sidebar-border` for the rail's edge, HighKnow's rule; dark siblings).
 - **Strip Graphite** (`strip` / `dark-strip`), **Strip Ink** (`strip-foreground`), **Strip Meta** (`strip-muted-foreground`), **Unlit Lamp** (`lamp` / `dark-lamp`): the andon strip's hardware (`shell/AndonStrip.tsx`).
 - **Bar Greys** (`chart-1` to `chart-4`): the stacked bar's segments for Merged, In review, Running (the brand fill) and Ready. Drawn by the Milestone header and each Epic's bar.
 - **Diff Tints** (`diff-insert` / `dark-diff-insert`, `diff-delete` / `dark-diff-delete`): the grounds of a line a diff adds (pale green) and removes (pale red), inside the review card's diff and nowhere else (ADR 0011). Each line also carries its `+` or `−`, so the change never rests on the tint.
@@ -264,16 +269,18 @@ A neutral grey ramp with three signal hues and one hardware graphite; every toke
 
 **The Four Tones Rule.** Every state maps to exactly one tone: `attention`, `running`, `destructive` or `neutral`. Every neutral state is the same grey and is told apart by its icon and word. A screen never chooses a state colour itself.
 
+**The Mark Rule.** Wherever Flywheel shows a logo (the rail and first run), it is the HighKnow mark in its real colours: the brand-blue tile with the white glyph, `assets/logo.svg` drawn as an image, the same in both schemes. It is identity, not a state, and no scheme recolours it.
+
 **The Measured Floor Rule.** Text roles clear 4.5:1 and non-text roles (focus ring, control edge, lit lamp) clear 3:1 in both schemes; region steps may not shrink below their measured value. A token moves only while its role still passes the contrast test.
 
 ## Typography
 
-**Display Font:** Barlow (with system-ui, sans-serif)
-**Body Font:** Barlow (with system-ui, sans-serif)
-**Label Font:** Barlow Semi Condensed (with Barlow)
+**Display Font:** Public Sans Variable (with ui-sans-serif, system-ui, sans-serif)
+**Body Font:** Public Sans Variable
+**Label Font:** Public Sans Variable, uppercase and tracked
 **Mono Font:** JetBrains Mono (with ui-monospace, monospace)
 
-**Character:** Barlow descends from the DIN road-sign lettering: plain, legible at a glance, at home on a factory board. All three families are SIL OFL 1.1 and self-hosted through `@fontsource` (Barlow 400, 400 italic, 500, 600, 700; Barlow Semi Condensed 600; JetBrains Mono 400), so a render on one machine matches another.
+**Character:** Public Sans is HighKnow's face (ADR 0021), a plain workhorse UI sans that carries tabular figures. One family, told apart by size and weight. Both families are SIL OFL 1.1 and self-hosted through `@fontsource` (`@fontsource-variable/public-sans` roman and italic, every weight in one variable file; JetBrains Mono 400), so a render on one machine matches another. Barlow was the face until #196.
 
 ### Hierarchy
 - **Lead** (52px, line-height 1, tabular): the one lead count in the Milestone header. Drawn by the Milestone header.
@@ -285,7 +292,7 @@ A neutral grey ramp with three signal hues and one hardware graphite; every toke
 - **Body** (400, 14px, 1.45): body text, rows and buttons; the document default.
 - **Small** (13px, 1.4): secondary text and pill words (pills set it at 600).
 - **Meta** (500, 12px, 1.35): meta and labels.
-- **Condensed Label** (Barlow Semi Condensed 600, uppercase, 0.06em tracking): count labels, strip labels and sidebar group names only.
+- **Condensed Label** (Public Sans 600, uppercase, 0.06em tracking): count labels, strip labels and sidebar group names only.
 - **Code** (JetBrains Mono 400): Story keys, branches, paths and commands; also every `code`, `kbd`, `pre` and `samp`.
 
 ### Named Rules
@@ -426,7 +433,7 @@ A tool call is one line (`session/FeedRow.tsx`, worded by `session/toolVerbs.ts`
 Lucide (`lucide-react`, ISC), drawn at a 2px stroke: 16px by default, 15px inside pills, 18px in navigation. Every icon sits next to its word and is decorative; an icon alone needs a tooltip and an accessible label. Glyphs are imported by name, never the whole set.
 
 ### Motion
-One curve, `cubic-bezier(0.16, 1, 0.3, 1)`: 160ms for a state change, 240ms for a lamp lighting. Overlays fade and scale in from 95% on the state duration. The live pulse is the only continuous motion. Under `prefers-reduced-motion` both durations go to zero and every animation and transition stops.
+One curve, HighKnow's `ease-out-quint` `cubic-bezier(0.16, 1, 0.3, 1)` (`--ease-out-quint`, aliased as `--ease`): 160ms for a state change, 240ms for a lamp lighting. Overlays fade and scale in from 95% on the state duration. The live pulse is the only continuous motion. Under `prefers-reduced-motion` both durations go to zero and every animation and transition stops.
 
 ### Browser Surfaces
 Selection is brand blue with white text; the caret is running ink; the focus outline is the 2px ring; scrollbars are thin, 8px, with an edge-coloured thumb on a transparent track; color-scheme follows the active scheme.
@@ -448,6 +455,7 @@ Selection is brand blue with white text; the caret is running ink; the focus out
 - **Don't** let a colour carry meaning alone; every state has an icon and a word.
 - **Don't** put more than one filled primary in a region.
 - **Don't** glow anything but a lit lamp.
+- **Don't** recolour the mark: no ink silhouette, no scheme-dependent fill.
 - **Don't** set the condensed uppercase label above a heading as an eyebrow.
 - **Don't** draw an icon without its word unless it has a tooltip and an accessible label.
 - **Don't** animate when reduced motion is requested.

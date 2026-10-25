@@ -10,7 +10,7 @@
  */
 import { useState } from "react";
 import { openFolderDialog } from "../adapters/tauri";
-import glyphUrl from "../assets/logo-glyph.svg";
+import logoUrl from "../assets/logo.svg";
 import { useRegisterProject } from "./useBoardQuery";
 import "../styles/states-and-confirms.css";
 
@@ -106,15 +106,10 @@ export function FirstRun() {
 
   return (
     <div className="first-run state-surface">
-      {/* A-08(c): the mark is drawn in ink, not the 64px brand-filled tile. A CSS mask over a glyph-only asset, so
-          `--foreground` colours it in both schemes (an image element cannot read the page's tokens). Still a
-          reference to a static file, never inline markup (T-08.1-05). */}
-      <span
-        role="img"
-        aria-label="Flywheel by HighKnow"
-        className="first-run-mark"
-        style={{ maskImage: `url(${glyphUrl})`, WebkitMaskImage: `url(${glyphUrl})` }}
-      />
+      {/* The HighKnow mark in its real colours (issue #196): the #3c64dd tile with the white glyph, the same in
+          both schemes, as HighKnow's Wordmark draws it. An image cannot read the page's tokens, which is the
+          point. A reference to a static file, never inline markup (T-08.1-05). */}
+      <img src={logoUrl} alt="Flywheel by HighKnow" className="first-run-mark" />
       <h1 className="state-heading">No projects yet</h1>
       <p className="type-body state-body">
         Register a local git repository to see its board. Flywheel never touches board content in

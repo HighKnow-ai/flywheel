@@ -185,8 +185,9 @@ describe("the mandatory 1px edge", () => {
 });
 
 describe("motion", () => {
-  it("globals.css declares the one curve and the two durations theme/tokens.ts records", () => {
+  it("globals.css declares the one curve (HighKnow's ease-out-quint) and the two durations theme/tokens.ts records", () => {
     const root = BLOCKS.light;
+    expect(root["--ease-out-quint"]).toBe(MOTION.easeOutQuint);
     expect(root["--ease"]).toBe(MOTION.ease);
     expect(root["--duration-state"]).toBe(MOTION.durationState);
     expect(root["--duration-lamp"]).toBe(MOTION.durationLamp);

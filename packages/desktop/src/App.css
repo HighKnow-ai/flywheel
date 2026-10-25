@@ -36,17 +36,10 @@
     border-color: var(--foreground);
   }
 
-  /* The sidebar's identity mark is ink, masked from the HighKnow glyph. */
+  /* The sidebar's identity mark: the full-colour HighKnow tile, the same in both schemes. */
   .rail-mark {
-    background-color: var(--foreground);
     display: block;
     height: 28px;
     width: 28px;
-    mask-position: center;
-    mask-repeat: no-repeat;
-    mask-size: contain;
-    -webkit-mask-position: center;
-    -webkit-mask-repeat: no-repeat;
-    -webkit-mask-size: contain;
   }
 }

@@ -3,8 +3,8 @@
  *
  * Every colour is a token here, under the variable name shadcn/ui uses, so its generated components in
  * components/ui/ theme without edits. Flywheel adds its own roles beside them: `attention` (Waiting on you),
- * `running` (an agent at work, or your next action), `strip` and `lamp` (the andon strip's hardware),
- * `subtle-foreground` (meta) and `destructive-text`. `:root` holds light, `.dark` holds dark (set on <html>
+ * `running` (an agent at work, or your next action) with its `running-muted` wash and `running-border` hair,
+ * `strip` and `lamp` (the andon strip's hardware), `subtle-foreground` (meta) and `destructive-text`. `:root` holds light, `.dark` holds dark (set on <html>
  * by theme/colorScheme.ts from `prefers-color-scheme`), and `@theme inline` maps each to a Tailwind colour
  * (`--color-attention: var(--attention)`, so `bg-attention` works).
  *
@@ -17,57 +17,63 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-/* Self-hosted type (SIL OFL 1.1, through @fontsource): a render on one machine matches another. */
-@import "@fontsource/barlow/latin-400.css";
-@import "@fontsource/barlow/latin-400-italic.css";
-@import "@fontsource/barlow/latin-500.css";
-@import "@fontsource/barlow/latin-600.css";
-@import "@fontsource/barlow/latin-700.css";
-@import "@fontsource/barlow-semi-condensed/latin-600.css";
+/*
+ * Self-hosted type (SIL OFL 1.1, through @fontsource): a render on one machine matches another. Public Sans
+ * Variable is HighKnow's face (ADR 0021): one variable file per style covers every weight, and the browser
+ * fetches only the unicode-range subsets a page uses.
+ */
+@import "@fontsource-variable/public-sans/wght.css";
+@import "@fontsource-variable/public-sans/wght-italic.css";
 @import "@fontsource/jetbrains-mono/latin-400.css";
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Light. The ink, secondary ink, rules, control boundary, brand text, brand wash, brand hair and error are
+ * HighKnow's values (docs/design/highknow-tokens.json; theme/__tests__/brand-tokens.test.ts holds them equal).
+ * The grounds, safety yellow, graphite, the lamps and the Diff Tints are Flywheel's own.
+ */
 :root {
   color-scheme: light;
 
-  --font-ui: "Barlow", system-ui, sans-serif;
-  --font-ui-condensed: "Barlow Semi Condensed", "Barlow", sans-serif;
+  --font-ui: "Public Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-ui-condensed: var(--font-ui);
   --font-code: "JetBrains Mono", ui-monospace, monospace;
 
   --background: #e6e8ec;
-  --foreground: #111318;
+  --foreground: #12151c;
   --card: #ffffff;
-  --card-foreground: #111318;
+  --card-foreground: #12151c;
   --popover: #ffffff;
-  --popover-foreground: #111318;
+  --popover-foreground: #12151c;
   --primary: #3c64dd;
   --primary-foreground: #ffffff;
-  --running: #2a50c6;
-  --running-muted: #e8edfc;
+  --running: #22409c;
+  --running-muted: #eef1fd;
+  --running-border: #c8d2f7;
   --attention: #ffd400;
   --attention-foreground: #14120a;
   --attention-muted: #fff7cc;
-  --destructive: #d42c1f;
+  --destructive: #c0223a;
   --destructive-foreground: #ffffff;
-  --destructive-text: #b42318;
+  --destructive-text: #c0223a;
   --secondary: #f4f5f7;
-  --secondary-foreground: #111318;
+  --secondary-foreground: #12151c;
   --muted: #f4f5f7;
-  --muted-foreground: #525866;
+  --muted-foreground: #4a5261;
   --subtle-foreground: #676d79;
   --accent: #eef0f3;
-  --accent-foreground: #111318;
-  --border: #d9dce1;
-  --input: #858b96;
+  --accent-foreground: #12151c;
+  --border: #cdd2dd;
+  --input: #8792a6;
   --ring: #3c64dd;
   --sidebar: #f8f9fa;
-  --sidebar-foreground: #111318;
+  --sidebar-foreground: #12151c;
   --sidebar-primary: #ffffff;
-  --sidebar-primary-foreground: #111318;
+  --sidebar-primary-foreground: #12151c;
   --sidebar-accent: #e9ebef;
-  --sidebar-accent-foreground: #111318;
-  --sidebar-border: #d9dce1;
+  --sidebar-accent-foreground: #12151c;
+  --sidebar-border: #e4e7ee;
   --sidebar-ring: #3c64dd;
   --strip: #17191e;
   --strip-foreground: #f2f3f5;
@@ -75,7 +81,7 @@
   --lamp: #25282f;
   --diff-insert: #e3f4e7;
   --diff-delete: #fce6e4;
-  --chart-1: #111318;
+  --chart-1: #12151c;
   --chart-2: #7d838f;
   --chart-3: #3c64dd;
   --chart-4: #c3c7ce;
@@ -97,12 +103,18 @@
   --space-xl: 32px;
   --space-2xl: 48px;
 
-  /* Motion (direction rule 7): one curve, 160ms for a state change, 240ms for a lamp lighting. */
-  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Motion (direction rule 7): one curve, HighKnow's ease-out-quint, 160ms for a state change, 240ms for a
+     lamp lighting. `--ease` stays the name the screens use; `--ease-out-quint` is the shared token. */
+  --ease-out-quint: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease: var(--ease-out-quint);
   --duration-state: 160ms;
   --duration-lamp: 240ms;
 }
 
+/*
+ * Dark is Flywheel's own scheme. Only the lifted brand text and ring (#7d99ff) and the error text (#ff6b82)
+ * are HighKnow's dark values; the brand and error fills are the same in both schemes.
+ */
 .dark {
   color-scheme: dark;
 
@@ -114,14 +126,15 @@
   --popover-foreground: #eceef1;
   --primary: #3c64dd;
   --primary-foreground: #ffffff;
-  --running: #8ea8ff;
+  --running: #7d99ff;
   --running-muted: #19213a;
+  --running-border: #2c3a6b;
   --attention: #ffd400;
   --attention-foreground: #14120a;
   --attention-muted: #352d00;
-  --destructive: #d42c1f;
+  --destructive: #c0223a;
   --destructive-foreground: #ffffff;
-  --destructive-text: #ff8a7f;
+  --destructive-text: #ff6b82;
   --secondary: #23262b;
   --secondary-foreground: #eceef1;
   --muted: #23262b;
@@ -131,7 +144,7 @@
   --accent-foreground: #eceef1;
   --border: #2c2f36;
   --input: #6e7480;
-  --ring: #8ea8ff;
+  --ring: #7d99ff;
   --sidebar: #121316;
   --sidebar-foreground: #eceef1;
   --sidebar-primary: #1a1c20;
@@ -139,7 +152,7 @@
   --sidebar-accent: #1e2025;
   --sidebar-accent-foreground: #eceef1;
   --sidebar-border: #2c2f36;
-  --sidebar-ring: #8ea8ff;
+  --sidebar-ring: #7d99ff;
   --strip: #000000;
   --strip-foreground: #f2f3f5;
   --strip-muted-foreground: #9aa0aa;
@@ -173,6 +186,7 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-running: var(--running);
   --color-running-muted: var(--running-muted);
+  --color-running-border: var(--running-border);
   --color-attention: var(--attention);
   --color-attention-foreground: var(--attention-foreground);
   --color-attention-muted: var(--attention-muted);
@@ -306,7 +320,7 @@
 }
 
 /*
- * Type roles the screens still name as classes until #107 moves them to utilities. Body is Barlow at 14,
+ * Type roles the screens still name as classes until #107 moves them to utilities. Body is Public Sans at 14,
  * labels 12, headings 17; numerals are tabular wherever they count.
  */
 @layer components {
@@ -328,7 +342,7 @@
     font-weight: 600;
   }
 
-  /* Barlow Semi Condensed, uppercase and tracked: count labels, strip labels, sidebar group names only. */
+  /* Public Sans, uppercase and tracked: count labels, strip labels, sidebar group names only. */
   .type-condensed {
     font-family: var(--font-ui-condensed);
     font-weight: 600;
