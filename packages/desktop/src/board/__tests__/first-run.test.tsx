@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FirstRun, deriveKeyPrefix } from "../FirstRun";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { ProjectRail } from "../../projects/ProjectRail";
 
 const openFolderMock = vi.fn(() => Promise.resolve<string | null>(null));
@@ -25,7 +26,12 @@ vi.mock("../../adapters/tauri", () => ({
 afterEach(cleanup);
 
 function withClient(node: React.ReactElement) {
-  return render(<QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>);
+  // The rail is the shell's Sidebar, so it renders inside the shell's SidebarProvider, as in `App.tsx`.
+  return render(
+    <QueryClientProvider client={new QueryClient()}>
+      <SidebarProvider>{node}</SidebarProvider>
+    </QueryClientProvider>,
+  );
 }
 
 /** Mirrors `core::domain::project::validate_key_prefix` exactly, so this test proves the same

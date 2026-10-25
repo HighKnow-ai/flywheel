@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "../../App";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { ProjectRail } from "../ProjectRail";
 import { ProjectUnreachable } from "../ProjectUnreachable";
 import type { Project } from "../../board/useBoardQuery";
@@ -58,7 +59,12 @@ function project(overrides: Partial<Project>): Project {
 
 function renderWithClient(node: React.ReactElement) {
   const queryClient = new QueryClient();
-  return render(<QueryClientProvider client={queryClient}>{node}</QueryClientProvider>);
+  // The rail is the shell's Sidebar, so it renders inside the shell's SidebarProvider, as in `App.tsx`.
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <SidebarProvider>{node}</SidebarProvider>
+    </QueryClientProvider>,
+  );
 }
 
 beforeEach(() => {

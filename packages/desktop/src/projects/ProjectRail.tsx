@@ -60,7 +60,6 @@ import {
   SidebarMenuItem,
   SidebarMenuSub,
   SidebarMenuSubItem,
-  SidebarProvider,
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -394,227 +393,227 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   }
 
   return (
-    <SidebarProvider
+    // The `SidebarProvider` is the app shell in `App.tsx`, with the main pane as its `SidebarInset` (issue #191).
+    <Sidebar
+      collapsible="none"
       style={{ "--sidebar-width": SIDEBAR_WIDTH } as React.CSSProperties}
-      className="h-full min-h-0 w-auto shrink-0"
+      className="shrink-0 border-r border-sidebar-border"
     >
-      <Sidebar collapsible="none" className="border-r border-sidebar-border">
-        <nav aria-label="Projects" className="flex min-h-0 flex-1 flex-col">
-          <SidebarHeader className="flex-row items-center gap-2.5 px-4 pt-4 pb-2">
-            {/* The HighKnow mark in ink (PRODUCT.md: the sidebar is one of the few surfaces that render a logo).
-                Not on a brand tile: brand blue means an agent at work or your next action, nothing else. A CSS
-                mask over the glyph-only asset lets the ink token colour it; it stays a static file reference. */}
-            <span
-              role="img"
-              aria-label="Flywheel by HighKnow"
-              className="rail-mark shrink-0"
-              style={{ maskImage: `url(${glyphUrl})`, WebkitMaskImage: `url(${glyphUrl})` }}
-            />
-            <span aria-hidden="true" className="text-section font-bold">
-              Flywheel
-            </span>
-          </SidebarHeader>
+      <nav aria-label="Projects" className="flex min-h-0 flex-1 flex-col">
+        <SidebarHeader className="flex-row items-center gap-2.5 px-4 pt-4 pb-2">
+          {/* The HighKnow mark in ink (PRODUCT.md: the sidebar is one of the few surfaces that render a logo).
+              Not on a brand tile: brand blue means an agent at work or your next action, nothing else. A CSS
+              mask over the glyph-only asset lets the ink token colour it; it stays a static file reference. */}
+          <span
+            role="img"
+            aria-label="Flywheel by HighKnow"
+            className="rail-mark shrink-0"
+            style={{ maskImage: `url(${glyphUrl})`, WebkitMaskImage: `url(${glyphUrl})` }}
+          />
+          <span aria-hidden="true" className="text-section font-bold">
+            Flywheel
+          </span>
+        </SidebarHeader>
 
-          <SidebarContent className="gap-0">
-            <Section id="rail-waiting" label="Waiting on you">
-              {/* At the very top (docs/mvp-spec.md §4.1): what a live agent can't go on without, across
-                  every project, outranks everything below it. */}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  aria-label={waitingCount > 0 ? `Open Waiting on you, ${waitingCount} waiting` : "Open Waiting on you"}
-                  title="Every Gated action, permission request, question and shaping Round waiting on you, across every project"
-                  aria-current={fleetSurface?.view === "queue" ? "page" : undefined}
-                  onClick={() => setFleetSurface({ view: "queue" })}
-                  className={cn(rowClass, fleetSurface?.view === "queue" && currentClass)}
-                >
-                  <BellRing aria-hidden="true" />
-                  <span className="flex-1">Waiting on you</span>
-                  {waitingCount > 0 && (
-                    <Badge
-                      variant="attention"
-                      data-count="waiting"
-                      title={waitingCount === 1 ? "1 waiting on you" : `${waitingCount} waiting on you`}
-                      className="h-5 min-w-5 rounded-md px-1.5 text-meta tabular-nums"
-                    >
-                      {waitingCount}
-                    </Badge>
-                  )}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </Section>
+        <SidebarContent className="gap-0">
+          <Section id="rail-waiting" label="Waiting on you">
+            {/* At the very top (docs/mvp-spec.md §4.1): what a live agent can't go on without, across
+                every project, outranks everything below it. */}
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                aria-label={waitingCount > 0 ? `Open Waiting on you, ${waitingCount} waiting` : "Open Waiting on you"}
+                title="Every Gated action, permission request, question and shaping Round waiting on you, across every project"
+                aria-current={fleetSurface?.view === "queue" ? "page" : undefined}
+                onClick={() => setFleetSurface({ view: "queue" })}
+                className={cn(rowClass, fleetSurface?.view === "queue" && currentClass)}
+              >
+                <BellRing aria-hidden="true" />
+                <span className="flex-1">Waiting on you</span>
+                {waitingCount > 0 && (
+                  <Badge
+                    variant="attention"
+                    data-count="waiting"
+                    title={waitingCount === 1 ? "1 waiting on you" : `${waitingCount} waiting on you`}
+                    className="h-5 min-w-5 rounded-md px-1.5 text-meta tabular-nums"
+                  >
+                    {waitingCount}
+                  </Badge>
+                )}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </Section>
 
-            <Section id="rail-fleet" label="Fleet">
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  aria-label="Open fleet"
-                  title="Every agent across every project"
-                  aria-current={fleetSurface?.view === "fleet" ? "page" : undefined}
-                  onClick={() => setFleetSurface({ view: "fleet" })}
-                  className={cn(rowClass, fleetSurface?.view === "fleet" && currentClass)}
-                >
-                  <Activity aria-hidden="true" />
-                  <span className="flex-1">All agents</span>
-                  {liveSessions.length > 0 && (
-                    <span className="text-small font-semibold text-muted-foreground tabular-nums">{liveSessions.length}</span>
-                  )}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  aria-label="Open worktree inventory"
-                  title="Every Story worktree across every project, with its disk usage"
-                  aria-current={worktreeInventoryOpen ? "page" : undefined}
-                  onClick={() => setWorktreeInventoryOpen(true)}
-                  className={cn(rowClass, worktreeInventoryOpen && currentClass)}
-                >
-                  <SquareStack aria-hidden="true" />
-                  <span>Worktrees</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </Section>
+          <Section id="rail-fleet" label="Fleet">
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                aria-label="Open fleet"
+                title="Every agent across every project"
+                aria-current={fleetSurface?.view === "fleet" ? "page" : undefined}
+                onClick={() => setFleetSurface({ view: "fleet" })}
+                className={cn(rowClass, fleetSurface?.view === "fleet" && currentClass)}
+              >
+                <Activity aria-hidden="true" />
+                <span className="flex-1">All agents</span>
+                {liveSessions.length > 0 && (
+                  <span className="text-small font-semibold text-muted-foreground tabular-nums">{liveSessions.length}</span>
+                )}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                aria-label="Open worktree inventory"
+                title="Every Story worktree across every project, with its disk usage"
+                aria-current={worktreeInventoryOpen ? "page" : undefined}
+                onClick={() => setWorktreeInventoryOpen(true)}
+                className={cn(rowClass, worktreeInventoryOpen && currentClass)}
+              >
+                <SquareStack aria-hidden="true" />
+                <span>Worktrees</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </Section>
 
-            <Section id="rail-projects" label="Projects" visibleLabel>
-              {projects.map((project, index) => {
-                const isCurrent = project.id === currentProjectId;
-                const isUnreachable = project.status === "unreachable";
-                const needsYou = needsYouLists[index]?.data ?? [];
-                const anyWaiting = needsYou.some(isWaitingOnYou);
-                return (
-                  <SidebarMenuItem key={project.id}>
-                    <SidebarMenuButton
-                      title={project.name}
-                      aria-label={isUnreachable ? `${project.name}, Unreachable` : project.name}
-                      aria-current={isCurrent ? "true" : undefined}
-                      onClick={() => onSelect(project)}
-                      className={cn(rowClass, "h-auto min-h-9 py-1.5", isCurrent && currentClass, isUnreachable && "text-muted-foreground")}
-                    >
-                      <Folder aria-hidden="true" className="self-start mt-0.5" />
-                      <span className="flex min-w-0 flex-1 flex-col items-start">
-                        <span className="flex max-w-full min-w-0 items-baseline gap-1.5">
-                          <span className="truncate">{project.name}</span>
-                          <span className="shrink-0 font-mono text-meta font-normal text-subtle-foreground">{project.keyPrefix}</span>
-                        </span>
-                        {isUnreachable && (
-                          // The word AND a glyph, never a colour change alone; its own line, so the name is
-                          // never truncated to make room for it.
-                          <span className="inline-flex items-center gap-1 text-meta font-semibold text-destructive-text [&_svg]:size-3!">
-                            <TriangleAlert aria-hidden="true" />
-                            Unreachable
-                          </span>
-                        )}
+          <Section id="rail-projects" label="Projects" visibleLabel>
+            {projects.map((project, index) => {
+              const isCurrent = project.id === currentProjectId;
+              const isUnreachable = project.status === "unreachable";
+              const needsYou = needsYouLists[index]?.data ?? [];
+              const anyWaiting = needsYou.some(isWaitingOnYou);
+              return (
+                <SidebarMenuItem key={project.id}>
+                  <SidebarMenuButton
+                    title={project.name}
+                    aria-label={isUnreachable ? `${project.name}, Unreachable` : project.name}
+                    aria-current={isCurrent ? "true" : undefined}
+                    onClick={() => onSelect(project)}
+                    className={cn(rowClass, "h-auto min-h-9 py-1.5", isCurrent && currentClass, isUnreachable && "text-muted-foreground")}
+                  >
+                    <Folder aria-hidden="true" className="self-start mt-0.5" />
+                    <span className="flex min-w-0 flex-1 flex-col items-start">
+                      <span className="flex max-w-full min-w-0 items-baseline gap-1.5">
+                        <span className="truncate">{project.name}</span>
+                        <span className="shrink-0 font-mono text-meta font-normal text-subtle-foreground">{project.keyPrefix}</span>
                       </span>
-                      {needsYou.length > 0 && (
-                        <Badge
-                          variant={anyWaiting ? "attention" : "secondary"}
-                          data-count="needs-you"
-                          title={
-                            needsYou.length === 1
-                              ? `1 item needs you in ${project.name}`
-                              : `${needsYou.length} items need you in ${project.name}`
-                          }
-                          className="h-5 min-w-5 rounded-md px-1.5 text-meta tabular-nums"
-                        >
-                          {needsYou.length}
-                        </Badge>
+                      {isUnreachable && (
+                        // The word AND a glyph, never a colour change alone; its own line, so the name is
+                        // never truncated to make room for it.
+                        <span className="inline-flex items-center gap-1 text-meta font-semibold text-destructive-text [&_svg]:size-3!">
+                          <TriangleAlert aria-hidden="true" />
+                          Unreachable
+                        </span>
                       )}
-                    </SidebarMenuButton>
-                    <RunningSessions
-                      projectId={project.id}
-                      projectName={project.name}
-                      sessions={liveSessions.filter((session) => session.projectId === project.id)}
-                      stopped={stoppedRows.filter((row) => row.projectId === project.id)}
-                      rounds={waitingRounds.filter((round) => round.projectId === project.id)}
-                      currentStory={currentStory}
-                    />
-                  </SidebarMenuItem>
-                );
-              })}
-            </Section>
-          </SidebarContent>
+                    </span>
+                    {needsYou.length > 0 && (
+                      <Badge
+                        variant={anyWaiting ? "attention" : "secondary"}
+                        data-count="needs-you"
+                        title={
+                          needsYou.length === 1
+                            ? `1 item needs you in ${project.name}`
+                            : `${needsYou.length} items need you in ${project.name}`
+                        }
+                        className="h-5 min-w-5 rounded-md px-1.5 text-meta tabular-nums"
+                      >
+                        {needsYou.length}
+                      </Badge>
+                    )}
+                  </SidebarMenuButton>
+                  <RunningSessions
+                    projectId={project.id}
+                    projectName={project.name}
+                    sessions={liveSessions.filter((session) => session.projectId === project.id)}
+                    stopped={stoppedRows.filter((row) => row.projectId === project.id)}
+                    rounds={waitingRounds.filter((round) => round.projectId === project.id)}
+                    currentStory={currentStory}
+                  />
+                </SidebarMenuItem>
+              );
+            })}
+          </Section>
+        </SidebarContent>
 
-          <SidebarFooter className="gap-0.5 border-t border-sidebar-border px-2 py-2">
-            <SidebarMenu className="gap-0.5">
+        <SidebarFooter className="gap-0.5 border-t border-sidebar-border px-2 py-2">
+          <SidebarMenu className="gap-0.5">
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                aria-label="Register Project…"
+                title="Register a git repository as a project"
+                onClick={() => void registerProjectFlow()}
+                className={cn(rowClass, "text-muted-foreground")}
+              >
+                <Plus aria-hidden="true" />
+                <span>Register project…</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            {currentProject && confirmingRemoveId !== currentProject.id && (
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  aria-label="Register Project…"
-                  title="Register a git repository as a project"
-                  onClick={() => void registerProjectFlow()}
+                  aria-label="Remove from Flywheel…"
+                  title="Hide this project. Nothing is deleted."
+                  onClick={() => setConfirmingRemoveId(currentProject.id)}
                   className={cn(rowClass, "text-muted-foreground")}
                 >
-                  <Plus aria-hidden="true" />
-                  <span>Register project…</span>
+                  <FolderMinus aria-hidden="true" />
+                  <span>Remove from Flywheel…</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              {currentProject && confirmingRemoveId !== currentProject.id && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    aria-label="Remove from Flywheel…"
-                    title="Hide this project. Nothing is deleted."
-                    onClick={() => setConfirmingRemoveId(currentProject.id)}
-                    className={cn(rowClass, "text-muted-foreground")}
-                  >
-                    <FolderMinus aria-hidden="true" />
-                    <span>Remove from Flywheel…</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  aria-label="Open Settings"
-                  aria-current={settingsOpen ? "page" : undefined}
-                  onClick={() => setSettingsOpen(true)}
-                  className={cn(rowClass, "text-muted-foreground", settingsOpen && currentClass)}
-                >
-                  <Settings aria-hidden="true" />
-                  <span>Settings</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-            {currentProject && confirmingRemoveId === currentProject.id && (
-              <div
-                role="group"
-                aria-label={`Remove ${currentProject.name} from Flywheel`}
-                className="mt-1 flex flex-col gap-2 rounded-lg border border-border bg-card p-3 shadow-card"
+            )}
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                aria-label="Open Settings"
+                aria-current={settingsOpen ? "page" : undefined}
+                onClick={() => setSettingsOpen(true)}
+                className={cn(rowClass, "text-muted-foreground", settingsOpen && currentClass)}
               >
-                <p className="m-0 text-small">
-                  Remove {currentProject.name} from Flywheel? Its board, worktrees, runs and activity trail are all
-                  kept, and nothing is deleted. Register the repository again to bring it back.
+                <Settings aria-hidden="true" />
+                <span>Settings</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+          {currentProject && confirmingRemoveId === currentProject.id && (
+            <div
+              role="group"
+              aria-label={`Remove ${currentProject.name} from Flywheel`}
+              className="mt-1 flex flex-col gap-2 rounded-lg border border-border bg-card p-3 shadow-card"
+            >
+              <p className="m-0 text-small">
+                Remove {currentProject.name} from Flywheel? Its board, worktrees, runs and activity trail are all
+                kept, and nothing is deleted. Register the repository again to bring it back.
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" variant="neutral" onClick={() => void removeCurrentProject()}>
+                  Remove from Flywheel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setConfirmingRemoveId(null);
+                    setRemoveError(null);
+                  }}
+                >
+                  Keep it
+                </Button>
+              </div>
+              {removeError && (
+                <p role="alert" className="m-0 text-meta text-destructive-text">
+                  Couldn&rsquo;t remove it: {removeError}
                 </p>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="neutral" onClick={() => void removeCurrentProject()}>
-                    Remove from Flywheel
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setConfirmingRemoveId(null);
-                      setRemoveError(null);
-                    }}
-                  >
-                    Keep it
-                  </Button>
-                </div>
-                {removeError && (
-                  <p role="alert" className="m-0 text-meta text-destructive-text">
-                    Couldn&rsquo;t remove it: {removeError}
-                  </p>
-                )}
-              </div>
-            )}
-            {notice && (
-              <div role="status" className="px-2.5 text-meta text-muted-foreground">
-                {notice}
-              </div>
-            )}
-            {registrationErrorNotice && (
-              <div role="status" className="px-2.5 text-meta text-destructive-text">
-                {registrationErrorNotice}
-              </div>
-            )}
-          </SidebarFooter>
-        </nav>
-      </Sidebar>
-    </SidebarProvider>
+              )}
+            </div>
+          )}
+          {notice && (
+            <div role="status" className="px-2.5 text-meta text-muted-foreground">
+              {notice}
+            </div>
+          )}
+          {registrationErrorNotice && (
+            <div role="status" className="px-2.5 text-meta text-destructive-text">
+              {registrationErrorNotice}
+            </div>
+          )}
+        </SidebarFooter>
+      </nav>
+    </Sidebar>
   );
 }
