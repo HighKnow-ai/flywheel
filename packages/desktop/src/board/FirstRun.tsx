@@ -54,7 +54,11 @@ export function FirstRun() {
           </Button>
         </EmptyContent>
       </Empty>
-      <RegisterProjectDialog pending={pending} onOpenChange={(open) => !open && setPending(null)} />
+      <RegisterProjectDialog
+        pending={pending}
+        onOpenChange={(open) => !open && setPending(null)}
+        onChooseAnother={() => void handlePickFolder()}
+      />
     </div>
   );
 }

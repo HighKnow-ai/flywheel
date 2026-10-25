@@ -166,4 +166,29 @@ describe("the register dialog", () => {
     expect(detail.textContent).toContain("--show-toplevel");
     expect(detail.className).toMatch(/font-variant-ligatures:none/);
   });
+
+  it("blames the folder, not the key, when the folder is not a git checkout, and offers another folder", async () => {
+    invokeCommandMock.mockImplementation((command: string) =>
+      command === "project_register"
+        ? Promise.reject("/Users/dev/repos/threadfin is not a git repository")
+        : Promise.resolve(undefined),
+    );
+    const dialog = await reachRegisterStep();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Register project" }));
+    await within(dialog).findByRole("alert");
+    expect(within(dialog).getByRole("textbox", { name: "Project key" })).not.toHaveAttribute("aria-invalid");
+    expect(within(dialog).queryByRole("button", { name: "Register project" })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Choose another folder…" })).toBeInTheDocument();
+  });
+
+  it("marks the key field when the key is what was refused", async () => {
+    invokeCommandMock.mockImplementation((command: string) =>
+      command === "project_register" ? Promise.reject("invalid key prefix 'x'") : Promise.resolve(undefined),
+    );
+    const dialog = await reachRegisterStep();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Register project" }));
+    await within(dialog).findByRole("alert");
+    expect(within(dialog).getByRole("textbox", { name: "Project key" })).toHaveAttribute("aria-invalid", "true");
+    expect(within(dialog).getByRole("button", { name: "Register project" })).toBeInTheDocument();
+  });
 });
