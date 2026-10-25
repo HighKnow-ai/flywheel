@@ -89,7 +89,9 @@ function HeaderCard({ children, labelledBy }: { children: ReactNode; labelledBy?
       aria-labelledby={labelledBy}
       aria-label={labelledBy ? undefined : "Current Milestone"}
       data-slot="milestone-header"
-      className="flex flex-col gap-4 rounded-lg border border-border bg-card px-5 py-4 text-card-foreground shadow-card"
+      // A size container: on a narrow card (the 900px window) the count boxes tighten their padding and their
+      // labels' tracking, so a two-word label such as "In review" stays on one line.
+      className="@container/counts flex flex-col gap-4 rounded-lg border border-border bg-card px-5 py-4 text-card-foreground shadow-card"
     >
       {children}
     </section>
@@ -288,7 +290,7 @@ function CountBox({
       aria-label={of === undefined ? `${count} ${label}` : `${count} of ${of} ${label}`}
       data-lit={lit || undefined}
       className={cn(
-        "relative flex flex-col gap-0.5 overflow-hidden rounded-md px-3 pt-2.5 pb-1.5",
+        "relative flex flex-col gap-0.5 overflow-hidden rounded-md px-3 pt-2.5 pb-1.5 @max-[48rem]/counts:px-2",
         lit ? "bg-attention text-attention-foreground" : "border border-border bg-secondary text-foreground",
       )}
     >
@@ -303,7 +305,7 @@ function CountBox({
       </span>
       <span
         className={cn(
-          "type-condensed flex items-start gap-1.5 text-meta leading-tight [&>svg]:mt-px [&>svg]:shrink-0",
+          "type-condensed flex items-start gap-1.5 text-meta leading-tight @max-[48rem]/counts:gap-1 @max-[48rem]/counts:tracking-[0.02em] [&>svg]:mt-px [&>svg]:shrink-0",
           lit ? "text-attention-foreground" : "text-muted-foreground",
         )}
       >
