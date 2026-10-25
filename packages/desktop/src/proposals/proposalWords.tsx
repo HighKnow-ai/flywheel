@@ -107,13 +107,25 @@ export function worktreeRelative(path: string, storyKey: string | null): string 
   return at >= 0 ? path.slice(at + marker.length) : path;
 }
 
-/** "packages/review/src/…/ReviewQueue.tsx:214": the head and the file name, the middle elided. */
+/**
+ * "packages/…/queue/ReviewQueue.tsx:214": the first directory, then as many trailing ones as fit before the file
+ * name, the middle elided. A home directory reads as `~`. A name too long on its own keeps its end.
+ */
 export function middleTruncate(path: string, max = PATH_MAX): string {
-  if (path.length <= max) return path;
-  const slash = path.lastIndexOf("/");
-  const tail = slash >= 0 ? path.slice(slash) : path.slice(-Math.floor(max / 2));
-  const room = Math.max(max - tail.length - 1, 8);
-  return `${path.slice(0, room)}…${tail}`;
+  const short = path.replace(/^\/(?:Users|home)\/[^/]+(?=\/)/, "~");
+  if (short.length <= max) return short;
+  const parts = short.split("/");
+  const file = parts.pop() ?? "";
+  const head = parts.shift() ?? "";
+  const lead = head === "" ? `/${parts.shift() ?? ""}` : head;
+  let tail = `/${file}`;
+  if (lead.length + 2 + tail.length > max) return `…${short.slice(-(max - 1))}`;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const next = `/${parts[i]}${tail}`;
+    if (lead.length + 2 + next.length > max) break;
+    tail = next;
+  }
+  return `${lead}/…${tail}`;
 }
 
 const PATHLIKE = /^[~./]?[\w@.~-]*\/[\w@.~/-]+(?::\d+(?::\d+)?)?[),.;]?$/;

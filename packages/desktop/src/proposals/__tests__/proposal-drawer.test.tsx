@@ -354,7 +354,7 @@ describe("Proposal kinds, decisions and states (issue #203)", () => {
     expect(path).not.toBeNull();
     expect(path!.dataset.path).toBe(long);
     expect(path!.textContent).not.toContain("/Users/");
-    expect(path!.textContent).toMatch(/^packages\/review\/.*…\/ReviewQueue\.tsx:214$/);
+    expect(path!.textContent).toBe("packages/…/very/deep/ReviewQueue.tsx:214");
     expect(within(cardOf("p-new")).getByText(/^see/, { exact: false })).toBeInTheDocument();
   });
 
@@ -366,6 +366,12 @@ describe("Proposal kinds, decisions and states (issue #203)", () => {
     const cut = middleTruncate("packages/review/src/queue/internal/very/deep/ReviewQueue.tsx");
     expect(cut.length).toBeLessThanOrEqual(44);
     expect(cut.endsWith("/ReviewQueue.tsx")).toBe(true);
+    expect(cut.startsWith("packages/…/")).toBe(true);
+    // Outside the worktree: the home directory reads as ~, and the tail is kept over the head.
+    expect(middleTruncate("/Users/cyril/clients/acme/technical-presales-knowledge-platform-monorepo/packages/review/src/queue/ReviewQueue.tsx:214")).toBe(
+      "~/…/review/src/queue/ReviewQueue.tsx:214",
+    );
+    expect(middleTruncate("/Users/cyril/a.ts")).toBe("~/a.ts");
   });
 
   it("shows Skeleton while the drawer's read is under way", async () => {
