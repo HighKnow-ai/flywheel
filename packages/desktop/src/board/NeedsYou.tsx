@@ -546,8 +546,8 @@ function NeedsYouCard({
           <time
             dateTime={item.since}
             title={item.since.replace("T", " ").slice(0, 16)}
-            // Secondary ink on the attention tint: subtle ink on it misses 4.5:1 in dark (critique F50).
-            className={cn("ml-auto shrink-0 text-meta tabular-nums", waiting ? "text-muted-foreground" : "text-subtle-foreground")}
+            // The meta role on the attention tint too: #223's dark subtle-foreground clears 4.5:1 on it (critique F50).
+            className="ml-auto shrink-0 text-meta text-subtle-foreground tabular-nums"
           >
             <span className="sr-only">Waiting </span>
             {age}

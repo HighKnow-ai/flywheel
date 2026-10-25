@@ -548,9 +548,9 @@ describe("Needs you: loading, empty, failed, and what an action did (issue #203)
     await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith("Rejected the Amend Epic spec on FLY-E2", expect.anything()));
   });
 
-  it("a waiting card's age reads in secondary ink on the attention tint", async () => {
+  it("every card's age reads in the meta role, the attention tint included (critique F50, settled by #223)", async () => {
     await cards();
-    expect(cardOf("1").querySelector("time")).toHaveClass("text-muted-foreground");
+    expect(cardOf("1").querySelector("time")).toHaveClass("text-subtle-foreground");
     expect(cardOf("3").querySelector("time")).toHaveClass("text-subtle-foreground");
   });
 });
