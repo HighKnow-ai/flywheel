@@ -1331,3 +1331,9 @@ export function installFixtureBackend(): void {
   adrsOnlyLeft = false;
   mockIPC((cmd, payload) => answer(cmd, payload as Args), { shouldMockEvents: true });
 }
+
+/**
+ * The seeded records themselves, for `stress-fixture.ts` to add its stress projects to (issue #192). Every read
+ * above works from these, so a project pushed in here is answered by the same rules as flywheel's.
+ */
+export const SEED = { PROJECTS, MILESTONES, EPICS, STORIES, TASKS, RUNS, SUMMARIES, LOGS, PENDING, FLEET_ROWS, QUEUE, CRITERIA, PACKET, PROGRESS, counts, reviewOf };

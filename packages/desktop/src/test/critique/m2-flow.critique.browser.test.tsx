@@ -1,20 +1,21 @@
 /// <reference types="vite/client" />
 /**
- * Screenshots of every screen of the M2 flow, for the design critique (issue #102).
+ * Every screen of the Milestone 2 to 4 walk, for the design critique (issues #102, #192).
  *
  * Renders the real `<App />` in WebKit (the engine closest to the shipped WKWebView) over the seeded
- * fake backend in `m2-fixture.ts`, walks the M2 flow by clicking the real controls, and writes one PNG
- * per screen into the git-ignored `target/critique-2026-10/` at the repo root (the committed copies in
- * `docs/design/critique-2026-10/` are those PNGs converted with `cwebp -q 78`). It asserts nothing about
- * the design: it exists so the screens can be looked at, and re-shot after the redesign to compare.
+ * fake backend in `m2-fixture.ts`, walks the flow by clicking the real controls, and at each screen calls
+ * `capture()` (`capture.ts`): the screen at 900 × 600, 1280 × 800, 1440 × 900 and 1920 × 1200, each run through
+ * the layout-defect check and, in the critique run, shot into the git-ignored `target/critique-2026-10-m4/`.
+ * A screen whose name ends in `-min-width` is a state the walk reaches at the window's minimum width (a Sheet
+ * that only opens there), so it is captured at 900 × 600 only. The stress data, the screens outside this walk and
+ * the error and empty states are in `stress.critique.browser.test.tsx`.
  *
- * Runs only under `vitest.critique.config.ts` (it is skipped in the ordinary browser arm, so that arm
- * never overwrites the screenshots):
+ * Runs only under `vitest.critique.config.ts` (it is skipped in the ordinary browser arm):
  *
- *   CRITIQUE_SCHEME=light npx vitest run --config vitest.critique.config.ts src/test/critique
- *   CRITIQUE_SCHEME=dark  npx vitest run --config vitest.critique.config.ts src/test/critique
+ *   npm run test:critique          # both schemes, with screenshots
+ *   npm run test:layout-defects    # light, the defect check only (CI)
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { page, userEvent } from "vitest/browser";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
@@ -37,18 +38,11 @@ import {
   setTriageDuplicateInFixture,
   shapeMilestoneInFixture,
 } from "./m2-fixture";
-
-const SCHEME = import.meta.env.VITE_CRITIQUE_SCHEME as string | undefined;
-const OUT = "../../../../../target/critique-2026-10";
-
-async function settle(ms = 600) {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-  await document.fonts.ready;
-}
+import { capture, CRITIQUE_RUN, settle, writeDefectReport } from "./capture";
 
 async function shot(name: string) {
   await settle();
-  await page.screenshot({ path: `${OUT}/${name}-${SCHEME}.png` });
+  await capture(name, name.endsWith("-min-width") ? { sizes: [{ width: 900, height: 600 }] } : {});
 }
 
 async function boardReady() {
@@ -306,7 +300,8 @@ async function openStory(key: string, title: string | RegExp) {
   await userEvent.click((await screen.findAllByRole("button", { name: new RegExp(`^Open Story ${key} ${typeof title === "string" ? title : title.source}$`) }))[0]);
 }
 
-describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
+describe.runIf(CRITIQUE_RUN)("M2 to M4 flow screens", () => {
+  afterAll(() => writeDefectReport("m2-flow"));
   beforeEach(() => {
     resetUiState();
     queryClient.clear();
@@ -314,6 +309,8 @@ describe.runIf(Boolean(SCHEME))("M2 flow screens", () => {
     offerAdrsInShaping(false);
     setReviewInFixture("judging");
     setMakeReadyInFixture(false);
+    // The triage drawer's store outlives a test; a drawer left open by one would cover the next screen.
+    useTriageDrawer.getState().closeTriage();
     installFixtureBackend();
   });
   afterEach(() => {
