@@ -127,3 +127,78 @@ describe("the project rail spans the window (issue #191)", () => {
     });
   }
 });
+
+/**
+ * ⌘B folds the rail to icons and back (issue #200), and folded it still spans the window at every size the
+ * critique checks; each icon row names itself in a Tooltip, and a project shows its full name in one.
+ */
+describe("⌘B folds the rail to icons (issue #200)", () => {
+  const FOUR_SIZES = [
+    [900, 600],
+    [1280, 800],
+    [1440, 900],
+    [1920, 1200],
+  ] as const;
+
+  beforeEach(() => {
+    resetUiState();
+    queryClient.clear();
+    installFixtureBackend();
+  });
+  afterEach(async () => {
+    cleanup();
+    clearMocks();
+    window.scrollTo(0, 0);
+    await page.viewport(1440, 900);
+  });
+
+  async function toggle() {
+    await userEvent.keyboard("{Meta>}b{/Meta}");
+    // The width change runs on the state duration; wait it out.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+
+  function railWidth(): number {
+    return rail().querySelector<HTMLElement>("[data-slot=sidebar-container]")!.getBoundingClientRect().width;
+  }
+
+  for (const [width, height] of FOUR_SIZES) {
+    it(`folds and unfolds at ${width} × ${height}, filling the window's height both ways`, async () => {
+      await page.viewport(width, height);
+      await renderApp();
+      await settle();
+      expect(railWidth(), "open, the rail is 248px").toBe(248);
+      expectRailFillsWindow(`${width}×${height} open`);
+
+      await toggle();
+      expect(rail()).toHaveAttribute("data-state", "collapsed");
+      expect(railWidth(), "folded, the rail is a 56px column").toBe(56);
+      expectRailFillsWindow(`${width}×${height} folded`);
+      expectWindowCannotScroll(`${width}×${height} folded`);
+      // The main pane takes the room the rail gave up.
+      const inset = document.querySelector<HTMLElement>("[data-slot=sidebar-inset]")!.getBoundingClientRect();
+      expect(inset.left).toBe(56);
+      expect(inset.right).toBe(width);
+      // Every row still fits the column: nothing spills past its edge.
+      for (const button of rail().querySelectorAll<HTMLElement>("[data-slot=sidebar-menu-button]")) {
+        expect(button.getBoundingClientRect().right, button.getAttribute("aria-label") ?? "").toBeLessThanOrEqual(56);
+      }
+
+      await toggle();
+      expect(rail()).toHaveAttribute("data-state", "expanded");
+      expect(railWidth()).toBe(248);
+    });
+  }
+
+  it("names every folded row in a Tooltip, and a project by its full name", async () => {
+    await renderApp();
+    await settle();
+    await toggle();
+    const settings = screen.getByRole("button", { name: "Open Settings" });
+    await userEvent.hover(settings);
+    await expect.poll(() => screen.queryByRole("tooltip")?.textContent ?? "").toContain("Settings");
+    await userEvent.unhover(settings);
+    await userEvent.hover(screen.getByRole("button", { name: "highknow-web" }));
+    await expect.poll(() => screen.queryByRole("tooltip")?.textContent ?? "").toContain("highknow-web");
+  });
+});
