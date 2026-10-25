@@ -110,9 +110,24 @@ describe("Milestone 4's exit test in WebKit: roster, Needs you, the triage drawe
     await press(within(decision).getByRole("radio", { name: "Keep" }));
     await waitFor(() => expect(within(card).getByRole("button", { name: "Merge FLY-3" })).not.toHaveAttribute("aria-disabled"));
 
-    // Merge: FLY-3 is Merged, its review card is gone, and so is its Review item in Needs you.
-    await press(within(card).getByRole("button", { name: "Merge FLY-3" }));
+    // Merge stays in reach (issue #207): 26 files start folded under a file index, and with every diff open the
+    // footer still holds Merge inside the window while the Developer reads from the top of the card.
+    const files = within(card).getByRole("region", { name: "26 changed files" });
+    expect(within(files).getAllByRole("link")).toHaveLength(26);
+    expect(within(files).queryAllByRole("button", { expanded: true })).toHaveLength(0);
+    await press(within(files).getByRole("button", { name: "Expand all" }));
+    await waitFor(() => expect(within(files).getAllByRole("group", { name: /^Diff of / }).length).toBeGreaterThan(20));
+    within(card).getByRole("heading", { name: "Review" }).scrollIntoView({ block: "start" });
+    const inReach = within(card).getByRole("button", { name: "Merge FLY-3" }).getBoundingClientRect();
+    expect(card.getBoundingClientRect().bottom).toBeGreaterThan(window.innerHeight * 3);
+    expect(inReach.top).toBeGreaterThanOrEqual(0);
+    expect(inReach.bottom).toBeLessThanOrEqual(window.innerHeight);
+
+    // Merge: FLY-3 is Merged, a toast says it landed, its review card is gone, and so is its Review item in Needs you.
+    await userEvent.click(within(card).getByRole("button", { name: "Merge FLY-3" }));
     await waitFor(() => expect(backend.merged).not.toBeNull());
+    expect(await screen.findByText("FLY-3 merged into main")).toBeInTheDocument();
+    expect(screen.getByText("Worktree cleaned.")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("region", { name: "Review" })).toBeNull());
     const writes = backend.writes.map((w) => w.cmd);
     expect(writes).toEqual([
@@ -127,7 +142,7 @@ describe("Milestone 4's exit test in WebKit: roster, Needs you, the triage drawe
     ]);
     expect(backend.writes.find((w) => w.cmd === "story_adr_decide")?.args).toMatchObject({ storyId: "s-3", path: HELD_ADR, decision: "keep" });
     expect(backend.writes[backend.writes.length - 1]?.args).toEqual({ storyId: "s-3", withFailingChecks: false });
-    await press(screen.getByRole("button", { name: "Back" }));
+    await userEvent.click(screen.getByRole("button", { name: "Open board" }));
     column = await needsYou();
     await within(column).findByRole("button", { name: "Triage 2 Proposals" });
     expect(within(column).queryByRole("button", { name: /^Open review of FLY-3 / })).toBeNull();

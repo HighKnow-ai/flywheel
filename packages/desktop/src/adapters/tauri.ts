@@ -1187,6 +1187,18 @@ export async function storyChecksRerun(storyId: string): Promise<ChecksRerunDto>
   return invokeCommand<ChecksRerunDto>("story_checks_rerun", { storyId });
 }
 
+/** How far a Re-run Checks has got: `done` of the Story's `total` Checks have ended. */
+export interface ChecksProgressPayload {
+  storyId: string;
+  done: number;
+  total: number;
+}
+
+/** Subscribe to `checks:progress`, which `story_checks_rerun` emits before the first Check and after each one. */
+export async function subscribeChecksProgress(handler: (payload: ChecksProgressPayload) => void): Promise<UnlistenFn> {
+  return listen<ChecksProgressPayload>("checks:progress", (event) => handler(event.payload));
+}
+
 /**
  * The developer's Merge of an In review Story into its local base branch (ADR 0009). The core refuses,
  * in words meant for the developer, until every criterion is accepted, no session is live and the

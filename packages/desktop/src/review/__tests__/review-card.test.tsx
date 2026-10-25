@@ -7,7 +7,7 @@
  * those Checks. The board's row action for an In review Story is Open review.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReviewCard, OpenReviewControl } from "../ReviewCard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
@@ -21,6 +21,12 @@ const criterionAccept = vi.fn(() => Promise.resolve());
 const criterionUnaccept = vi.fn(() => Promise.resolve());
 const reviewFilePatch = vi.fn();
 const storyChecksRerun = vi.fn();
+let checksProgress: ((payload: { storyId: string; done: number; total: number }) => void) | null = null;
+const notifySuccess = vi.fn();
+
+vi.mock("../../lib/notify", () => ({
+  notify: { success: (...args: unknown[]) => notifySuccess(...args), error: vi.fn(), dismiss: vi.fn() },
+}));
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -35,6 +41,12 @@ vi.mock("../../adapters/tauri", async () => {
     reviewFilePatch: (...args: unknown[]) => reviewFilePatch(...args),
     storyChecksRerun: (...args: unknown[]) => storyChecksRerun(...args),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
+    subscribeChecksProgress: (handler: typeof checksProgress) => {
+      checksProgress = handler;
+      return Promise.resolve(() => {
+        checksProgress = null;
+      });
+    },
   };
 });
 
@@ -135,7 +147,8 @@ describe("the review card", () => {
     renderCard();
     const merge = await screen.findByRole("button", { name: "Merge FLY-7" });
     expect(merge).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByText("Accept 1 more criterion to merge.")).toBeInTheDocument();
+    const held = screen.getByRole("region", { name: "What holds Merge" });
+    expect(within(held).getByText("Accept 1 more criterion to merge.")).toBeInTheDocument();
     fireEvent.click(merge);
     expect(storyMerge).not.toHaveBeenCalled();
   });
@@ -198,8 +211,9 @@ describe("the review card", () => {
       review({ criteria: review().criteria.map((c) => ({ ...c, accepted: true })), liveSession: true, uncommitted: ["scratch.txt"] }),
     );
     renderCard();
-    expect(await screen.findByText(/A session is live/)).toBeInTheDocument();
-    expect(screen.getByText(/scratch.txt/)).toBeInTheDocument();
+    const held = await screen.findByRole("region", { name: "What holds Merge" });
+    expect(within(held).getByText(/A session is live/)).toBeInTheDocument();
+    expect(within(held).getByText(/scratch.txt/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Merge FLY-7" })).toHaveAttribute("aria-disabled", "true");
   });
 });
@@ -385,7 +399,9 @@ describe("ADR flags and decisions", () => {
     const merge = screen.getByRole("button", { name: "Merge FLY-7" });
     expect(merge).toHaveAttribute("aria-disabled", "true");
     expect(
-      screen.getByText("docs/adr/0010-reviews-are-a-board-record.md is marked Not an ADR: request changes, or set it back to Keep."),
+      within(screen.getByRole("region", { name: "What holds Merge" })).getByText(
+        "docs/adr/0010-reviews-are-a-board-record.md is marked Not an ADR: request changes, or set it back to Keep.",
+      ),
     ).toBeInTheDocument();
     fireEvent.click(merge);
     expect(storyMerge).not.toHaveBeenCalled();
@@ -481,7 +497,7 @@ describe("Rebase needed", () => {
     expect(within(rebase).getByText("README.md")).toBeInTheDocument();
     expect(within(rebase).getByText("src/config.rs")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Merge FLY-7" })).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByText(/Rebase needed: merging would conflict in 2 files/)).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "What holds Merge" })).getByText(/Rebase needed: merging would conflict in 2 files/)).toBeInTheDocument();
   });
 
   it("sends the Story back with the paths in a pre-filled comment", async () => {
@@ -624,6 +640,142 @@ describe("the review card's order, objections, files and Re-run Checks (issue #1
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Re-run Checks" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("stop it before re-running its Checks");
+  });
+});
+
+/** A promise the test settles by hand, to look at a control while its action runs. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+function changedFiles(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    path: `src/file-${i + 1}.rs`,
+    oldPath: null,
+    status: "M",
+    added: i + 1,
+    removed: 0,
+    binary: false,
+  }));
+}
+
+describe("Merge in reach, pending, and saying it landed (issue #207)", () => {
+  const accepted = () => review({ criteria: review().criteria.map((c) => ({ ...c, accepted: true })) });
+
+  it("shows Merge pending while it runs, then toasts that it landed with Open board", async () => {
+    storyReview.mockResolvedValue(accepted());
+    const merging = deferred<unknown>();
+    storyMerge.mockReturnValue(merging.promise);
+    useUiStore.getState().openStory("p1", "s1");
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Merge FLY-7" }));
+    const merge = screen.getByRole("button", { name: "Merge FLY-7" });
+    expect(merge).toHaveAttribute("aria-busy", "true");
+    expect(merge).toHaveTextContent(/^Merge$/);
+    expect(screen.getByText("Merging FLY-7: writing the merge commit, then removing the worktree.")).toBeInTheDocument();
+    fireEvent.click(merge);
+    expect(storyMerge).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      merging.resolve({ mergeCommit: "def", baseBranch: "main", method: "checkout", failingChecksOverridden: 0, cleanupWarning: null, adrsLinked: [] });
+    });
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalledTimes(1));
+    const [title, options] = notifySuccess.mock.calls[0] as [string, { description: string; action: { label: string; onClick: () => void } }];
+    expect(title).toBe("FLY-7 merged into main");
+    expect(options.description).toBe("Worktree cleaned.");
+    expect(options.action.label).toBe("Open board");
+    options.action.onClick();
+    expect(useUiStore.getState().currentStoryId).toBeNull();
+    expect(useUiStore.getState().currentProjectId).toBe("p1");
+  });
+
+  it("says in the toast when Merge landed but could not clean the worktree", async () => {
+    storyReview.mockResolvedValue(accepted());
+    storyMerge.mockResolvedValue({
+      mergeCommit: "def",
+      baseBranch: "trunk",
+      method: "plumbing",
+      failingChecksOverridden: 0,
+      cleanupWarning: "The worktree at /tmp/x could not be removed.",
+      adrsLinked: [],
+    });
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Merge FLY-7" }));
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalled());
+    expect(notifySuccess.mock.calls[0]?.[0]).toBe("FLY-7 merged into trunk");
+    expect((notifySuccess.mock.calls[0]?.[1] as { description: string }).description).toBe("The worktree at /tmp/x could not be removed.");
+  });
+
+  it("shows Re-run Checks pending with its step and a Progress bar as each Check ends", async () => {
+    storyReview.mockResolvedValue(fullReview());
+    reviewFilePatch.mockResolvedValue({ patch: PATCH, tooLarge: false });
+    const running = deferred<unknown>();
+    storyChecksRerun.mockReturnValue(running.promise);
+    renderCard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Re-run Checks" }));
+    expect(screen.getByRole("button", { name: "Re-run Checks" })).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByText("Running 2 Checks")).toBeInTheDocument();
+    await waitFor(() => expect(checksProgress).not.toBeNull());
+    act(() => checksProgress?.({ storyId: "s1", done: 1, total: 2 }));
+    expect(screen.getByText("Running 2 Checks · 1/2")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Checks run" })).toHaveAttribute("aria-valuenow", "1");
+    act(() => checksProgress?.({ storyId: "other", done: 2, total: 9 }));
+    expect(screen.getByText("Running 2 Checks · 1/2")).toBeInTheDocument();
+
+    await act(async () => running.resolve({ commitSha: "9f3c2ab0d1", passed: 2, failed: 0, timedOut: 0 }));
+    expect(await screen.findByText("Ran 2 Checks at 9f3c2ab: 2 passed, 0 failed.")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Re-run Checks" })).not.toHaveAttribute("aria-busy");
+  });
+
+  it("folds every diff past a few files, and its file index opens the one it names", async () => {
+    storyReview.mockResolvedValue(review({ files: changedFiles(8) }));
+    reviewFilePatch.mockResolvedValue({ patch: PATCH, tooLarge: false });
+    renderCard();
+
+    const files = await screen.findByRole("region", { name: "8 changed files" });
+    expect(reviewFilePatch).not.toHaveBeenCalled();
+    const index = within(files).getByRole("navigation", { name: "File index" });
+    expect(within(index).getAllByRole("link")).toHaveLength(8);
+    fireEvent.click(within(index).getByRole("link", { name: /src\/file-3\.rs/ }));
+    await waitFor(() => expect(reviewFilePatch).toHaveBeenCalledWith("s1", "src/file-3.rs", null));
+    expect(within(files).getByRole("button", { name: /^src\/file-3\.rs/ })).toHaveAttribute("aria-expanded", "true");
+    expect(within(files).getByRole("button", { name: /^src\/file-4\.rs/ })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("opens every diff of a short review, and Collapse all folds them", async () => {
+    storyReview.mockResolvedValue(review({ files: changedFiles(3) }));
+    reviewFilePatch.mockResolvedValue({ patch: PATCH, tooLarge: false });
+    renderCard();
+    const files = await screen.findByRole("region", { name: "3 changed files" });
+    await waitFor(() => expect(reviewFilePatch).toHaveBeenCalledTimes(3));
+    fireEvent.click(within(files).getByRole("button", { name: "Collapse all" }));
+    for (const row of within(files).getAllByRole("button", { name: /^src\/file-/ })) {
+      expect(row).toHaveAttribute("aria-expanded", "false");
+    }
+    fireEvent.click(within(files).getByRole("button", { name: "Expand all" }));
+    for (const row of within(files).getAllByRole("button", { name: /^src\/file-/ })) {
+      expect(row).toHaveAttribute("aria-expanded", "true");
+    }
+  });
+
+  it("names what holds Merge in an Alert, and keeps a one-line summary beside Merge", async () => {
+    storyReview.mockResolvedValue(review({ liveSession: true }));
+    renderCard();
+    const held = await screen.findByRole("region", { name: "What holds Merge" });
+    expect(within(held).getByText("A session is live: stop it before merging.")).toBeInTheDocument();
+    expect(within(held).getByText("Accept 1 more criterion to merge.")).toBeInTheDocument();
+    const merge = screen.getByRole("button", { name: "Merge FLY-7" });
+    expect(merge).toHaveAccessibleDescription(/A session is live/);
+    const footer = merge.closest("footer")!;
+    expect(within(footer).getByText("A session is live: stop it before merging.")).toBeInTheDocument();
+    expect(within(footer).getByText("+1 more")).toBeInTheDocument();
   });
 });
 

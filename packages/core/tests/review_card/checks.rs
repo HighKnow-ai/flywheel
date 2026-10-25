@@ -18,7 +18,7 @@ use common::with_scratch_worktree_root;
 use core::domain::acceptance_criterion::create_criterion;
 use core::domain::check::{current_result, set_check, Check, CheckResult};
 use core::domain::handoff::{
-    complete_handoff, complete_review_run, plan_handoff, plan_review_run, rerun_checks, run_checks, CheckObjection, HandoffSummary,
+    complete_handoff, complete_review_run, plan_handoff, plan_review_run, rerun_checks, run_checks, run_checks_reporting, CheckObjection, HandoffSummary,
 };
 use core::domain::review::{open_review, review_file_patch, review_for_story};
 use core::domain::session::{agent_actor_id, close_session, start_session, Session, SessionStatus};
@@ -241,6 +241,22 @@ fn re_run_checks_records_a_run_per_check_against_the_current_head_without_a_sess
             )
             .unwrap();
         assert_eq!(rerun, 1, "the re-run is on the record as the developer's");
+    });
+}
+
+#[test]
+fn a_re_run_reports_how_many_checks_have_ended_as_it_goes() {
+    with_scratch_worktree_root(|_| {
+        let mut f = running(&[("true", None), ("false", None), ("echo fine", None)]);
+        f.hand_off(&[]);
+        f.end_session();
+        let plan = plan_review_run(&f.conn, &f.story.id).unwrap();
+        let mut heard = Vec::new();
+
+        let batch = run_checks_reporting(&plan, |done, total| heard.push((done, total))).unwrap();
+
+        assert_eq!(heard, vec![(0, 3), (1, 3), (2, 3), (3, 3)], "once before the first Check, then after each");
+        assert_eq!(batch.outcomes.len(), 3, "a failing Check never stops the rest");
     });
 }
 

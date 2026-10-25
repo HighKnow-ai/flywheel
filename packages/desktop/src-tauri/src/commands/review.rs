@@ -16,7 +16,7 @@
 
 use std::sync::Mutex;
 
-use flywheel_core::domain::handoff::{complete_review_run, plan_review_run, run_checks, ReviewRunOutcome, ReviewRunRefused};
+use flywheel_core::domain::handoff::{complete_review_run, plan_review_run, run_checks_reporting, ReviewRunOutcome, ReviewRunRefused};
 use flywheel_core::domain::proposal_apply::AdrBarLines;
 use flywheel_core::domain::review::{Review, ReviewCheck, ReviewCriterion, ReviewObjection, StoryReview};
 use flywheel_core::domain::review_decisions::{
@@ -486,14 +486,18 @@ impl From<&ReviewRunOutcome> for ChecksRerunDto {
 }
 
 /// Re-run every Check of an In review Story against `db`, as the local human: plan and record with
-/// the mutex, run without it.
-pub fn rerun_off_lock(db: &Mutex<Connection>, story_id: &str) -> anyhow::Result<ReviewRunOutcome> {
+/// the mutex, run without it. `on_progress` hears `(done, total)` as the Checks run.
+pub fn rerun_off_lock(
+    db: &Mutex<Connection>,
+    story_id: &str,
+    on_progress: impl FnMut(usize, usize),
+) -> anyhow::Result<ReviewRunOutcome> {
     let lock = || db.lock().map_err(|_| anyhow::anyhow!("the board database is unavailable"));
     let (actor, plan) = {
         let conn = lock()?;
         (flywheel_core::domain::actor::local_human_actor_id(&conn)?, plan_review_run(&conn, story_id)?)
     };
-    let batch = run_checks(&plan)?;
+    let batch = run_checks_reporting(&plan, on_progress)?;
     complete_review_run(&mut *lock()?, &actor, &plan, batch)
 }
 
@@ -506,14 +510,22 @@ fn rerun_error(e: anyhow::Error) -> String {
 }
 
 /// The developer's Re-run Checks from the review card: every Check, in the worktree, with no
-/// session, each run recorded against the branch's head. Refused while a session is live.
+/// session, each run recorded against the branch's head. Refused while a session is live. While it
+/// runs, `checks:progress` says how many of the Checks have ended (`{ storyId, done, total }`).
 #[tauri::command(async)]
 pub async fn story_checks_rerun(app: AppHandle, story_id: String) -> Result<ChecksRerunDto, String> {
     let worker = app.clone();
-    let outcome = tauri::async_runtime::spawn_blocking(move || rerun_off_lock(&worker.state::<AppState>().db, &story_id))
-        .await
-        .map_err(|e| ipc_error("story_checks_rerun:join", e))?
-        .map_err(rerun_error)?;
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        let progress = |done: usize, total: usize| {
+            use tauri::Emitter;
+            let payload = serde_json::json!({ "storyId": story_id, "done": done, "total": total });
+            worker.emit("checks:progress", payload).ok();
+        };
+        rerun_off_lock(&worker.state::<AppState>().db, &story_id, progress)
+    })
+    .await
+    .map_err(|e| ipc_error("story_checks_rerun:join", e))?
+    .map_err(rerun_error)?;
     emit_board_changed(&app, Some(&outcome.project_id), "story", Some(&outcome.story_id));
     Ok(ChecksRerunDto::from(&outcome))
 }

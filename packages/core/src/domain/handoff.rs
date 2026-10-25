@@ -449,6 +449,14 @@ fn tally(batch: &CheckBatch) -> (usize, usize, usize) {
 /// timeout never stops the rest. Holds no database connection. The commit is read once, before
 /// the first Check runs, and so is a hand-off's diff against its base branch.
 pub fn run_checks(plan: &CheckPlan) -> anyhow::Result<CheckBatch> {
+    run_checks_reporting(plan, |_, _| {})
+}
+
+/// [`run_checks`], telling `on_progress` how far it is: `(0, total)` once the commit is read and
+/// before the first Check starts, then `(done, total)` after each Check ends. The review card draws
+/// it as "Running 8 Checks · 3/8".
+pub fn run_checks_reporting(plan: &CheckPlan, mut on_progress: impl FnMut(usize, usize)) -> anyhow::Result<CheckBatch> {
+    let total = plan.checks.len();
     let commit_sha = check::worktree_head(&plan.worktree_path).context("could not read the branch's commit")?;
     let diff = plan
         .review_base
@@ -456,10 +464,12 @@ pub fn run_checks(plan: &CheckPlan) -> anyhow::Result<CheckBatch> {
         .map(|base| read_review_diff(&plan.worktree_path, base, &commit_sha))
         .transpose()
         .context("could not read the branch's diff against its base branch")?;
+    on_progress(0, total);
     let outcomes = plan
         .checks
         .iter()
-        .map(|c| {
+        .enumerate()
+        .map(|(index, c)| {
             let started_at = now();
             let timeout = Duration::from_secs(u64::try_from(c.timeout_secs).unwrap_or(1).max(1));
             let (result, exit_code, output_tail) = match run_shell_check(&plan.worktree_path, &c.command, timeout) {
@@ -470,7 +480,7 @@ pub fn run_checks(plan: &CheckPlan) -> anyhow::Result<CheckBatch> {
                 },
                 Err(e) => (CheckResult::Failed, None, format!("Flywheel could not start the shell: {e}")),
             };
-            CheckOutcome {
+            let outcome = CheckOutcome {
                 check_id: c.check_id.clone(),
                 command: c.command.clone(),
                 result,
@@ -478,7 +488,9 @@ pub fn run_checks(plan: &CheckPlan) -> anyhow::Result<CheckBatch> {
                 output_tail,
                 started_at,
                 ended_at: now(),
-            }
+            };
+            on_progress(index + 1, total);
+            outcome
         })
         .collect();
     Ok(CheckBatch { commit_sha, outcomes, diff })

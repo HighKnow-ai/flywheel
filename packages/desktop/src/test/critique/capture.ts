@@ -50,8 +50,6 @@ interface KnownDefect {
 }
 
 export const KNOWN_DEFECTS: KnownDefect[] = [
-  // The Merge-with-failing-Check confirm is pushed past the window by a long Check command.
-  { issue: 207, kind: "horizontal-overflow", screen: /^s18-stress-merge-confirm$/ },
 ];
 
 export interface CaptureRecord {

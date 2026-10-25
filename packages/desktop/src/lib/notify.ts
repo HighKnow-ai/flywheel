@@ -21,6 +21,8 @@ export interface NotifyOptions {
   description?: string;
   /** Offers Undo; called once if the Developer takes it. */
   undo?: () => void;
+  /** A next step that is not Undo ("Open board"); ignored when `undo` is given. */
+  action?: { label: string; onClick: () => void };
   /** Replaces a toast already up (by the id an earlier call returned) instead of stacking another. */
   id?: string | number;
 }
@@ -42,12 +44,16 @@ function errorLine(error: unknown): string | undefined {
 export const notify = {
   /** An action finished: "Story moved to E-3". With `undo`, the toast offers Undo for eight seconds. */
   success(title: string, options: NotifyOptions = {}): string | number {
-    const { description, undo, id } = options;
+    const { description, undo, action, id } = options;
     return toast.success(title, {
       id,
       description,
-      duration: undo ? UNDO_MS : SUCCESS_MS,
-      action: undo ? { label: "Undo", onClick: () => undo() } : undefined,
+      duration: undo || action ? UNDO_MS : SUCCESS_MS,
+      action: undo
+        ? { label: "Undo", onClick: () => undo() }
+        : action
+          ? { label: action.label, onClick: () => action.onClick() }
+          : undefined,
     });
   },
 
