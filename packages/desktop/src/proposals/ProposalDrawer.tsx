@@ -13,21 +13,44 @@
  * A duplicate (issue #165) is flagged under what it names: what it repeats and the Story that filed that one, since
  * accepting the original closes it in the core.
  *
+ * Issue #203: every card is a Card; its kind is worded from one map (`proposalWords.tsx`); a decision says what
+ * happened in a toast, and the decided card collapses out (`board/leaving.tsx`) as the next takes the keyboard.
+ * The drawer shows Skeleton on its first read, Empty with nothing in it and ReadError when the read fails.
+ *
  * A judged-on change (an amended criterion or Epic spec) is not here: it is its own Needs-you item (issue #163).
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpDown, CircleCheck, CircleMinus, Compass, FilePlus2, Layers, Lightbulb, ListChecks, ScanSearch, SquareTerminal } from "lucide-react";
+import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  ArrowUpDown,
+  BookText,
+  CircleCheck,
+  CircleMinus,
+  Compass,
+  FilePen,
+  FilePlus2,
+  Flag,
+  Inbox,
+  Layers,
+  Lightbulb,
+  ListChecks,
+  ScanSearch,
+  SquareTerminal,
+} from "lucide-react";
 import { proposalListForTriage, type ProposalDto, type TriageProposalDto } from "../adapters/tauri";
 import { DuplicateFlag } from "./DuplicateFlag";
+import { EvidenceLine, notifyDecided, proposalKindWords, useDecisionIntent } from "./proposalWords";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ReadError } from "@/components/ReadError";
 import { ProposalDecision, type AmendField } from "../shaping/GhostCard";
-import { STORY_PROPOSAL_KIND_WORDS } from "../session/toolVerbs";
 import { formatAge } from "../legend/runStatus";
 import { needsYouQueryKey } from "../fleet/useFleet";
-import { errorText } from "../board/StoryControls";
+import { LeavingItem, useLeavingItems } from "../board/leaving";
 import { useTriageDrawer } from "./triageStore";
 
 /** The drawer's read, under the board's key so `board:changed` keeps it live. */
@@ -68,14 +91,25 @@ export function kindOf(p: ProposalDto): Kind | null {
   }
 }
 
-const KIND_ICON: Record<Kind, ReactNode> = {
-  new_story: <FilePlus2 />,
-  reorder_story: <ArrowUpDown />,
-  retire_story: <CircleMinus />,
-  new_epic: <Layers />,
-  amend_criterion: <ListChecks />,
-  amend_epic_spec: <Layers />,
-};
+/** A kind's icon: by its verb (New, Reorder, Retire), with `layers` for a New Epic and the record's own icon for
+ * an amendment. */
+function kindIcon(p: ProposalDto): ReactNode {
+  switch (p.verb) {
+    case "create":
+      return p.targetType === "epic" ? <Layers /> : p.targetType === "milestone" ? <Flag /> : <FilePlus2 />;
+    case "reorder":
+      return <ArrowUpDown />;
+    case "retire":
+      return <CircleMinus />;
+    case "amend":
+      if (p.targetType === "criterion") return <ListChecks />;
+      if (p.targetType === "epic") return <Layers />;
+      if (p.targetType === "adr") return <BookText />;
+      return <FilePen />;
+    default:
+      return <Lightbulb />;
+  }
+}
 
 /** The card's title: what the Proposal names. */
 function titleOf(t: TriageProposalDto): string {
@@ -87,7 +121,7 @@ function titleOf(t: TriageProposalDto): string {
 /** How the controls and the live region name a card: "New Story “Empty-line recovery”". */
 function subjectOf(t: TriageProposalDto): string {
   const kind = kindOf(t.proposal);
-  const words = kind ? STORY_PROPOSAL_KIND_WORDS[kind] : `${t.proposal.verb} ${t.proposal.targetType}`;
+  const words = proposalKindWords(t.proposal.verb, t.proposal.targetType);
   const named = kind === "reorder_story" || kind === "retire_story" ? [t.targetKey, t.targetTitle].filter(Boolean).join(" ") : titleOf(t);
   return named ? `${words} “${named}”` : words;
 }
@@ -250,33 +284,53 @@ export function ProposalDrawer({ projectId }: { projectId: string }) {
             Filed by running Stories, grouped by where each lands. Deciding never pauses an agent.
           </SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {open && <TriageList projectId={projectId} rows={rows} loaded={query.isSuccess} error={query.error} epicId={epicId} />}
-        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">{open && <TriageList projectId={projectId} query={query} epicId={epicId} />}</div>
       </SheetContent>
     </Sheet>
   );
 }
 
-function TriageList({
-  projectId,
-  rows,
-  loaded,
-  error,
-  epicId,
-}: {
-  projectId: string;
-  rows: TriageProposalDto[];
-  loaded: boolean;
-  error: unknown;
-  epicId: string | null;
-}) {
+const NO_ROWS: TriageProposalDto[] = [];
+const proposalKey = (t: TriageProposalDto) => t.proposal.id;
+
+/** The drawer's first read: a group heading over two cards, in their shape. */
+function TriageSkeleton() {
+  return (
+    <div data-slot="triage-skeleton" aria-busy="true" aria-label="Loading the Proposals" className="flex flex-col gap-2.5">
+      <Skeleton className="h-5 w-48" />
+      {[0, 1].map((i) => (
+        <Card key={i} className="gap-2.5 px-4 pt-3 pb-3.5">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-5.5 w-24" />
+            <Skeleton className="ml-auto h-3.5 w-10" />
+          </div>
+          <Skeleton className="h-4.5 w-3/4" />
+          <Skeleton className="h-3.5 w-full" />
+          <Skeleton className="h-3.5 w-2/3" />
+          <div className="flex gap-2">
+            <Skeleton className="h-8 w-20" />
+            <Skeleton className="h-8 w-18" />
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function TriageList({ projectId, query, epicId }: { projectId: string; query: UseQueryResult<TriageProposalDto[]>; epicId: string | null }) {
   const queryClient = useQueryClient();
   const listRef = useRef<HTMLDivElement>(null);
   const emptyRef = useRef<HTMLDivElement>(null);
+  /** The last card was decided while it still collapses: the keyboard lands on the empty state once it shows. */
+  const focusEmpty = useRef(false);
   const [announcement, setAnnouncement] = useState("");
   const now = Date.now();
-  const groups = groupsOf(rows);
+  const rows = query.data ?? NO_ROWS;
+  const loaded = query.isSuccess;
+  const { shown, done } = useLeavingItems(rows, proposalKey);
+  const groups = groupsOf(shown.map((s) => s.item));
+  const leavingIds = new Set(shown.filter((s) => s.leaving).map((s) => s.key));
+  const empty = loaded && shown.length === 0;
 
   // Opened from an Epic's marker: that Epic's group comes into view, its heading holding the keyboard.
   const landed = useRef(false);
@@ -288,25 +342,40 @@ function TriageList({
     heading?.focus({ preventScroll: true });
   }, [loaded, epicId]);
 
-  if (error) return <p className="m-0 text-small text-destructive-text">{`Could not read the Proposals: ${errorText(error)}`}</p>;
-  if (loaded && rows.length === 0) {
+  useEffect(() => {
+    if (!empty || !focusEmpty.current) return;
+    focusEmpty.current = false;
+    emptyRef.current?.focus();
+  }, [empty]);
+
+  if (query.isError) return <ReadError title="Couldn't load the Proposals" query={query} />;
+  if (!loaded && shown.length === 0) return <TriageSkeleton />;
+  if (empty) {
     return (
-      <div ref={emptyRef} tabIndex={-1} className="flex flex-col gap-1 rounded-lg border border-border bg-card px-4 py-4 shadow-card">
+      <Empty
+        ref={emptyRef}
+        tabIndex={-1}
+        data-slot="triage-empty"
+        className="border border-dashed border-border bg-card outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      >
         <span role="status" className="sr-only">
           {announcement}
         </span>
-        <span className="text-row font-semibold">Nothing to triage</span>
-        <span className="text-small text-muted-foreground">
-          A Proposal a running Story files shows here, under the Epic it lands on.
-        </span>
-      </div>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <Inbox aria-hidden="true" />
+          </EmptyMedia>
+          <EmptyTitle className="text-row font-semibold">Nothing to triage</EmptyTitle>
+          <EmptyDescription className="text-small">A Proposal a running Story files shows here, under the Epic it lands on.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
   /** Once a card is decided: the keyboard lands on the card now in its place, and the region says what is left. */
   function afterDecide(id: string): () => Promise<void> {
     return async () => {
-      const cards = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-proposal-card]") ?? [])];
+      const cards = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-proposal-card]:not([data-leaving])") ?? [])];
       const index = cards.findIndex((c) => c.dataset.proposalCard === id);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: triageQueryKey(projectId) }),
@@ -316,10 +385,12 @@ function TriageList({
       const left = (queryClient.getQueryData<TriageProposalDto[]>(triageQueryKey(projectId)) ?? []).length;
       setAnnouncement(left === 0 ? "Decided. Nothing left to triage." : `Decided. ${countWords(left)} left to triage.`);
       requestAnimationFrame(() => {
-        const now = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-proposal-card]") ?? [])];
+        const now = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-proposal-card]:not([data-leaving])") ?? [])];
         const card = now[Math.min(Math.max(index, 0), now.length - 1)];
-        const target = card?.querySelector<HTMLElement>("[data-decision=accept]") ?? emptyRef.current;
-        target?.focus();
+        const target = card?.querySelector<HTMLElement>("[data-decision=accept]");
+        if (target) target.focus();
+        else if (emptyRef.current) emptyRef.current.focus();
+        else focusEmpty.current = true;
       });
     };
   }
@@ -331,10 +402,17 @@ function TriageList({
       </span>
       {groups.map((group) => (
         <section key={group.key} data-group={group.epicId ?? "roadmap"} aria-labelledby={`triage-${group.key}`} className="flex flex-col gap-2.5">
-          <GroupHeading id={`triage-${group.key}`} first={group.cards[0]} count={group.cards.length} />
+          <GroupHeading id={`triage-${group.key}`} first={group.cards[0]} count={group.cards.filter((t) => !leavingIds.has(t.proposal.id)).length} />
           <ol aria-labelledby={`triage-${group.key}`} className="m-0 flex list-none flex-col gap-2.5 p-0">
             {group.cards.map((t) => (
-              <TriageCard key={t.proposal.id} card={t} now={now} afterDecide={afterDecide(t.proposal.id)} />
+              <TriageCard
+                key={t.proposal.id}
+                card={t}
+                now={now}
+                leaving={leavingIds.has(t.proposal.id)}
+                onLeft={() => done(t.proposal.id)}
+                afterDecide={afterDecide(t.proposal.id)}
+              />
             ))}
           </ol>
         </section>
@@ -418,52 +496,82 @@ function CardBody({ t }: { t: TriageProposalDto }) {
   }
 }
 
-function TriageCard({ card: t, now, afterDecide }: { card: TriageProposalDto; now: number; afterDecide: () => Promise<void> }) {
+function TriageCard({
+  card: t,
+  now,
+  leaving,
+  onLeft,
+  afterDecide,
+}: {
+  card: TriageProposalDto;
+  now: number;
+  leaving: boolean;
+  onLeft: () => void;
+  afterDecide: () => Promise<void>;
+}) {
   const p = t.proposal;
   const kind = kindOf(p);
   const title = titleOf(t);
+  const subject = subjectOf(t);
+  const intent = useDecisionIntent();
   return (
-    <li
+    <LeavingItem
+      leaving={leaving}
+      onLeft={onLeft}
       data-proposal-card={p.id}
-      data-kind={kind ?? undefined}
+      data-kind={kind ?? `${p.verb}_${p.targetType}`}
       data-duplicate={t.duplicate?.proposalId}
-      className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card px-4 pt-3 pb-3.5 shadow-card"
+      className="min-w-0"
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <Badge variant="outline" className="h-5.5 text-meta [&_svg]:size-[15px]">
-          {kind && KIND_ICON[kind]}
-          {kind ? STORY_PROPOSAL_KIND_WORDS[kind] : `${p.verb} ${p.targetType}`}
-        </Badge>
-        <time dateTime={p.createdAt} title={p.createdAt.replace("T", " ").slice(0, 16)} className="ml-auto shrink-0 text-meta text-subtle-foreground tabular-nums">
-          <span className="sr-only">Filed </span>
-          {formatAge(p.createdAt, now)}
-        </time>
-      </div>
-      <ProposalDecision proposal={p} subject={subjectOf(t)} amend={amendOf(t)} afterDecide={afterDecide}>
-        <p className="m-0 flex min-w-0 items-baseline gap-2 text-row font-semibold">
-          {(kind === "reorder_story" || kind === "retire_story") && t.targetKey && (
-            <span className="shrink-0 font-mono text-meta font-normal text-muted-foreground">{t.targetKey}</span>
-          )}
-          <span className="min-w-0 line-clamp-2 break-words">{title}</span>
-        </p>
-        {t.duplicate && <DuplicateFlag duplicate={t.duplicate} />}
-        <CardBody t={t} />
-        {p.rationale && <p className="m-0 max-w-[68ch] text-small break-words">Why: {p.rationale}</p>}
-        {p.evidence && (
-          <p className="m-0 flex min-w-0 items-start gap-1.5 text-small text-muted-foreground">
-            <ScanSearch aria-hidden="true" size={15} className="mt-0.5 shrink-0 text-subtle-foreground" />
-            <span className="sr-only">Evidence: </span>
-            <span className="min-w-0 font-mono text-meta break-words">{p.evidence}</span>
-          </p>
+      <Card className="min-w-0 gap-2 px-4 pt-3 pb-3.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <Badge variant="outline" data-field="kind" className="h-5.5 text-meta [&_svg]:size-[15px]">
+            {kindIcon(p)}
+            {proposalKindWords(p.verb, p.targetType)}
+          </Badge>
+          <time dateTime={p.createdAt} title={p.createdAt.replace("T", " ").slice(0, 16)} className="ml-auto shrink-0 text-meta text-subtle-foreground tabular-nums">
+            <span className="sr-only">Filed </span>
+            {formatAge(p.createdAt, now)}
+          </time>
+        </div>
+        {intent.wrap(
+          <ProposalDecision
+            proposal={p}
+            subject={subject}
+            amend={amendOf(t)}
+            afterDecide={async () => {
+              notifyDecided(intent.current(), subject, `Filed by ${t.storyKey}`);
+              await afterDecide();
+            }}
+          >
+            <p className="m-0 flex min-w-0 items-baseline gap-2 text-row font-semibold">
+              {(kind === "reorder_story" || kind === "retire_story") && t.targetKey && (
+                <span className="shrink-0 font-mono text-meta font-normal text-muted-foreground">{t.targetKey}</span>
+              )}
+              <span className="min-w-0 line-clamp-2 break-words">{title}</span>
+            </p>
+            {t.duplicate && <DuplicateFlag duplicate={t.duplicate} />}
+            <CardBody t={t} />
+            {p.rationale && <p className="m-0 max-w-[68ch] text-small break-words">Why: {p.rationale}</p>}
+            {p.evidence && (
+              <p data-field="evidence" className="m-0 flex min-w-0 items-start gap-1.5 text-small text-muted-foreground">
+                <ScanSearch aria-hidden="true" size={15} className="mt-0.5 shrink-0 text-subtle-foreground" />
+                <span className="sr-only">Evidence: </span>
+                <span className="min-w-0 font-mono text-meta break-words">
+                  <EvidenceLine evidence={p.evidence} storyKey={t.storyKey} />
+                </span>
+              </p>
+            )}
+            <p className="m-0 flex min-w-0 items-baseline gap-1.5 text-meta text-subtle-foreground">
+              <span className="shrink-0">Filed by</span>
+              <span className="shrink-0 font-mono">{t.storyKey}</span>
+              <span className="min-w-0 truncate text-muted-foreground" title={t.storyTitle}>
+                {t.storyTitle}
+              </span>
+            </p>
+          </ProposalDecision>,
         )}
-        <p className="m-0 flex min-w-0 items-baseline gap-1.5 text-meta text-subtle-foreground">
-          <span className="shrink-0">Filed by</span>
-          <span className="shrink-0 font-mono">{t.storyKey}</span>
-          <span className="min-w-0 truncate text-muted-foreground" title={t.storyTitle}>
-            {t.storyTitle}
-          </span>
-        </p>
-      </ProposalDecision>
-    </li>
+      </Card>
+    </LeavingItem>
   );
 }

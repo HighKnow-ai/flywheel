@@ -16,6 +16,12 @@ import { ProposalDrawer, ProposalsMarker } from "../ProposalDrawer";
 import { useTriageDrawer } from "../triageStore";
 import { resetUiState } from "../../state/uiStore";
 import type { NeedsYouItemDto, TriageProposalDto } from "../../adapters/tauri";
+import { PROPOSAL_KIND_WORDS, middleTruncate, proposalKindWords, worktreeRelative } from "../proposalWords";
+
+const notifySuccess = vi.fn();
+vi.mock("@/lib/notify", () => ({
+  notify: { success: (...args: unknown[]) => notifySuccess(...args), error: vi.fn(), dismiss: vi.fn() },
+}));
 
 const proposalAccept = vi.fn();
 const proposalAmend = vi.fn();
@@ -126,6 +132,7 @@ beforeEach(() => {
   proposalAccept.mockReset().mockImplementation(decided);
   proposalAmend.mockReset().mockImplementation(decided);
   proposalReject.mockReset().mockImplementation(decided);
+  notifySuccess.mockReset();
 });
 
 afterEach(() => {
@@ -275,5 +282,118 @@ describe("Proposals in Needs you and the triage drawer", () => {
     ]);
     expect(within(cardOf("p-new")).getByText("2 Acceptance criteria")).toBeTruthy();
     expect(within(cardOf("p-reorder")).queryByRole("list", { name: "Proposed Acceptance criteria" })).toBeNull();
+  });
+});
+
+describe("Proposal kinds, decisions and states (issue #203)", () => {
+  it("words every verb and target the core knows, the way the core names the six execution kinds", () => {
+    expect(Object.keys(PROPOSAL_KIND_WORDS)).toHaveLength(4 * 6);
+    for (const words of Object.values(PROPOSAL_KIND_WORDS)) expect(words).toMatch(/^[A-Z]/);
+    expect(proposalKindWords("create", "story")).toBe("New Story");
+    expect(proposalKindWords("amend", "criterion")).toBe("Amend criterion");
+    expect(proposalKindWords("amend", "epic")).toBe("Amend Epic spec");
+    expect(proposalKindWords("reorder", "story")).toBe("Reorder");
+    expect(proposalKindWords("retire", "story")).toBe("Retire Story");
+    expect(proposalKindWords("create", "epic")).toBe("New Epic");
+    expect(proposalKindWords("amend", "story")).toBe("Amend Story");
+    expect(proposalKindWords("merge", "glossary_term")).toBe("Merge glossary term");
+  });
+
+  it("an amend story Proposal reads Amend Story in the drawer, beside its siblings' New Story", async () => {
+    pending = [...seed(), card("p-amend", "amend", "story", "A", { title: "Parser" }, ["FLY-2", "Parser"])];
+    renderBoardBits();
+    fireEvent.click(await screen.findByRole("button", { name: "Triage 5 Proposals" }));
+    await screen.findByRole("dialog", { name: /Triage Proposals/ });
+    const kinds = await waitFor(() => {
+      const found = [...document.querySelectorAll('[data-proposal-card] [data-field="kind"]')].map((b) => b.textContent);
+      expect(found).toHaveLength(5);
+      return found;
+    });
+    expect(kinds).toContain("Amend Story");
+    expect(kinds).toContain("New Story");
+    for (const k of kinds) expect(k).toMatch(/^[A-Z]/);
+  });
+
+  it("Accept says what happened in a toast", async () => {
+    await openDrawer();
+    fireEvent.click(within(cardOf("p-new")).getByRole("button", { name: "Accept New Story “Empty-line recovery”" }));
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith("Accepted New Story “Empty-line recovery”", { description: "Filed by FLY-2" }));
+  });
+
+  it("Reject says what happened in a toast", async () => {
+    await openDrawer();
+    const retire = cardOf("p-retire");
+    fireEvent.click(within(retire).getByRole("button", { name: "Reject Retire Story “FLY-6 Old lexer”" }));
+    fireEvent.click(within(retire).getByRole("button", { name: "Reject" }));
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith("Rejected Retire Story “FLY-6 Old lexer”", { description: "Filed by FLY-5" }));
+  });
+
+  it("an accepted edit says so in its toast", async () => {
+    await openDrawer();
+    const story = cardOf("p-new");
+    fireEvent.click(within(story).getByRole("button", { name: "Amend New Story “Empty-line recovery”" }));
+    fireEvent.click(within(story).getByRole("button", { name: "Accept edit to New Story “Empty-line recovery”" }));
+    await waitFor(() =>
+      expect(notifySuccess).toHaveBeenCalledWith("Accepted your edit to New Story “Empty-line recovery”", { description: "Filed by FLY-2" }),
+    );
+  });
+
+  it("a refused decision raises no toast and keeps the card", async () => {
+    proposalAccept.mockImplementation(() => Promise.reject(new Error("the Epic is Done")));
+    await openDrawer();
+    fireEvent.click(within(cardOf("p-new")).getByRole("button", { name: "Accept New Story “Empty-line recovery”" }));
+    expect(await within(cardOf("p-new")).findByRole("alert")).toHaveTextContent("the Epic is Done");
+    expect(notifySuccess).not.toHaveBeenCalled();
+  });
+
+  it("draws evidence paths relative to the filing Story's worktree, middle-truncated, the whole path kept", async () => {
+    const long = "/Users/cyril/Flywheel/FLY/FLY-2/packages/review/src/queue/internal/very/deep/ReviewQueue.tsx:214";
+    pending = seed().map((t) => (t.proposal.id === "p-new" ? { ...t, proposal: { ...t.proposal, evidence: `see ${long} for it` } } : t));
+    await openDrawer();
+    const path = cardOf("p-new").querySelector<HTMLElement>("[data-path]");
+    expect(path).not.toBeNull();
+    expect(path!.dataset.path).toBe(long);
+    expect(path!.textContent).not.toContain("/Users/");
+    expect(path!.textContent).toMatch(/^packages\/review\/.*…\/ReviewQueue\.tsx:214$/);
+    expect(within(cardOf("p-new")).getByText(/^see/, { exact: false })).toBeInTheDocument();
+  });
+
+  it("relativises and truncates paths on their own", () => {
+    expect(worktreeRelative("/Users/c/Flywheel/FLY/FLY-2/src/a.ts", "FLY-2")).toBe("src/a.ts");
+    expect(worktreeRelative("/elsewhere/src/a.ts", "FLY-2")).toBe("/elsewhere/src/a.ts");
+    expect(worktreeRelative("src/a.ts", "FLY-2")).toBe("src/a.ts");
+    expect(middleTruncate("src/a.ts")).toBe("src/a.ts");
+    const cut = middleTruncate("packages/review/src/queue/internal/very/deep/ReviewQueue.tsx");
+    expect(cut.length).toBeLessThanOrEqual(44);
+    expect(cut.endsWith("/ReviewQueue.tsx")).toBe(true);
+  });
+
+  it("shows Skeleton while the drawer's read is under way", async () => {
+    proposalListForTriage.mockImplementation(() => new Promise(() => {}));
+    renderBoardBits();
+    fireEvent.click(await screen.findByRole("button", { name: "Triage 4 Proposals" }));
+    const drawer = await screen.findByRole("dialog", { name: /Triage Proposals/ });
+    expect(drawer.querySelector('[data-slot="triage-skeleton"]')).toHaveAttribute("aria-busy", "true");
+    expect(drawer.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+  });
+
+  it("shows ReadError when the drawer's read fails, and Try again reads again", async () => {
+    proposalListForTriage.mockImplementation(() => Promise.reject(new Error("core restarting")));
+    renderBoardBits();
+    fireEvent.click(await screen.findByRole("button", { name: "Triage 4 Proposals" }));
+    const drawer = await screen.findByRole("dialog", { name: /Triage Proposals/ });
+    expect(await within(drawer).findByText("Couldn't load the Proposals")).toBeInTheDocument();
+    proposalListForTriage.mockImplementation(() => Promise.resolve(pending));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Try again" }));
+    expect(await within(drawer).findByText("Empty-line recovery")).toBeInTheDocument();
+  });
+
+  it("shows Empty when nothing is left to triage", async () => {
+    pending = [];
+    renderBoardBits();
+    useTriageDrawer.getState().openTriage("p1");
+    const drawer = await screen.findByRole("dialog", { name: /Triage Proposals/ });
+    await within(drawer).findByText("Nothing to triage");
+    expect(drawer.querySelector('[data-slot="triage-empty"]')).not.toBeNull();
   });
 });
