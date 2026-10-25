@@ -1,4 +1,5 @@
 import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Flag } from "lucide-react";
 import { milestoneProgress, type MilestoneProgressDto } from "../adapters/tauri";
@@ -114,13 +115,14 @@ function MilestoneProgress({ projectId, progress }: { projectId: string; progres
                 aria-hidden="true"
                 className="mt-[0.3em] shrink-0 text-muted-foreground"
               />
-              <h2
-                id={headingId}
-                title={progress.title}
-                className="line-clamp-2 min-w-0 text-milestone font-bold tracking-[-0.015em] break-words"
-              >
-                {progress.title}
-              </h2>
+              <TruncateTip text={progress.title}>
+                <h2
+                  id={headingId}
+                  className="line-clamp-2 min-w-0 text-milestone font-bold tracking-[-0.015em] break-words"
+                >
+                  {progress.title}
+                </h2>
+              </TruncateTip>
             </div>
             <StateBadge
               state={attention ?? progress.state}

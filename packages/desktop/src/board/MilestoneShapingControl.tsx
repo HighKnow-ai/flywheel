@@ -17,6 +17,7 @@
  * Shaping offers none of these.
  */
 import { useId, useState } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, MessageCircleQuestionMark, MessagesSquare, RotateCcw, Terminal } from "lucide-react";
 import {
@@ -99,9 +100,11 @@ function useStart(
 function StartError({ error }: { error: string | null }) {
   if (!error) return null;
   return (
-    <span role="alert" title={error} className="min-w-0 truncate text-small text-destructive-text">
-      {error}
-    </span>
+    <TruncateTip text={error}>
+      <span role="alert" className="min-w-0 truncate text-small text-destructive-text">
+        {error}
+      </span>
+    </TruncateTip>
   );
 }
 

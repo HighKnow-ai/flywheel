@@ -13,6 +13,7 @@
  * limit say so instead of drawing.
  */
 import { useId, useMemo, useState } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Decoration, Diff, Hunk, parseDiff } from "react-diff-view";
 import "react-diff-view/style/index.css";
@@ -133,13 +134,13 @@ function FileRow({
   const status = STATUS_WORDS[file.status] ?? file.status;
   const header = (
     <>
-      <code className="min-w-0 truncate font-mono text-meta text-foreground" title={file.path}>
-        {file.path}
-      </code>
+      <TruncateTip text={file.path} mono>
+        <code className="min-w-0 truncate font-mono text-meta text-foreground">{file.path}</code>
+      </TruncateTip>
       {file.oldPath && (
-        <span className="min-w-0 truncate text-meta text-muted-foreground" title={file.oldPath}>
-          {`from ${file.oldPath}`}
-        </span>
+        <TruncateTip text={file.oldPath}>
+          <span className="min-w-0 truncate text-meta text-muted-foreground">{`from ${file.oldPath}`}</span>
+        </TruncateTip>
       )}
       <span className="ml-auto shrink-0 text-meta text-muted-foreground">{status}</span>
     </>
@@ -204,9 +205,9 @@ function FileIndex({
               }}
               className="flex min-w-0 items-center gap-2 rounded-sm px-2 py-1 text-meta transition-colors hover:bg-accent"
             >
-              <code title={file.path} className="min-w-0 flex-1 truncate font-mono text-foreground">
-                {file.path}
-              </code>
+              <TruncateTip text={file.path} mono>
+                <code className="min-w-0 flex-1 truncate font-mono text-foreground">{file.path}</code>
+              </TruncateTip>
               {file.binary ? (
                 <span className="shrink-0 text-meta text-muted-foreground">Binary</span>
               ) : (

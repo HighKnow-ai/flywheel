@@ -20,6 +20,9 @@
  * A judged-on change (an amended criterion or Epic spec) is not here: it is its own Needs-you item (issue #163).
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { formatAbsoluteTime } from "@/lib/format";
+import { Tip } from "@/components/Tip";
+import { TruncateTip } from "@/components/TruncateTip";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import {
   ArrowUpDown,
@@ -513,9 +516,9 @@ function GroupHeading({ id, first, count }: { id: string; first: TriageProposalD
           {first.epicKey && (
             <span className="shrink-0 font-mono text-meta font-normal text-muted-foreground">{first.epicKey}</span>
           )}
-          <span className="min-w-0 truncate" title={first.epicTitle ?? undefined}>
-            {first.epicTitle}
-          </span>
+          <TruncateTip text={first.epicTitle ?? undefined}>
+            <span className="min-w-0 truncate">{first.epicTitle}</span>
+          </TruncateTip>
         </>
       )}
       <span className="ml-auto shrink-0 text-meta font-medium text-subtle-foreground tabular-nums">{count}</span>
@@ -619,14 +622,12 @@ function TriageCard({
             {kindIcon(p)}
             {proposalKindWords(p.verb, p.targetType)}
           </Badge>
-          <time
-            dateTime={p.createdAt}
-            title={p.createdAt.replace("T", " ").slice(0, 16)}
-            className="ml-auto shrink-0 text-meta text-subtle-foreground tabular-nums"
-          >
-            <span className="sr-only">Filed </span>
-            {formatAge(p.createdAt, now)}
-          </time>
+          <Tip content={formatAbsoluteTime(p.createdAt)}>
+            <time dateTime={p.createdAt} className="ml-auto shrink-0 text-meta text-subtle-foreground tabular-nums">
+              <span className="sr-only">Filed </span>
+              {formatAge(p.createdAt, now)}
+            </time>
+          </Tip>
         </div>
         <ProposalDecision
           proposal={p}
@@ -658,9 +659,9 @@ function TriageCard({
           <p className="m-0 flex min-w-0 items-baseline gap-1.5 text-meta text-subtle-foreground">
             <span className="shrink-0">Filed by</span>
             <span className="shrink-0 font-mono">{t.storyKey}</span>
-            <span className="min-w-0 truncate text-muted-foreground" title={t.storyTitle}>
-              {t.storyTitle}
-            </span>
+            <TruncateTip text={t.storyTitle}>
+              <span className="min-w-0 truncate text-muted-foreground">{t.storyTitle}</span>
+            </TruncateTip>
           </p>
         </ProposalDecision>
       </Card>

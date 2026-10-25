@@ -34,6 +34,7 @@
  * refused Merge shows the core's reason as written.
  */
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
 import { Label } from "@/components/ui/label";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -159,12 +160,11 @@ function CheckCommand({ command, wrap = false }: { command: string; wrap?: boole
       )}
     >
       <SquareTerminal aria-hidden="true" className={cn("size-3.5 shrink-0", wrap && "mt-0.5")} />
-      <code
-        title={wrap ? undefined : command}
-        className={cn("min-w-0 font-mono text-foreground", wrap ? "break-all whitespace-pre-wrap" : "truncate")}
-      >
-        {command}
-      </code>
+      <TruncateTip text={wrap ? undefined : command} mono>
+        <code className={cn("min-w-0 font-mono text-foreground", wrap ? "break-all whitespace-pre-wrap" : "truncate")}>
+          {command}
+        </code>
+      </TruncateTip>
     </span>
   );
 }
@@ -279,9 +279,9 @@ function RebaseNeeded({
       <ul aria-label="Conflicting files" className="col-start-2 m-0 flex min-w-0 list-none flex-col gap-1 p-0">
         {conflicts.map((path) => (
           <li key={path} className="min-w-0">
-            <code title={path} className="block truncate font-mono text-meta text-foreground">
-              {path}
-            </code>
+            <TruncateTip text={path} mono>
+              <code className="block truncate font-mono text-meta text-foreground">{path}</code>
+            </TruncateTip>
           </li>
         ))}
       </ul>
@@ -852,9 +852,9 @@ export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
                 <span className="line-clamp-2 min-w-0 text-muted-foreground">{`Merging ${story.key}: writing the merge commit, then removing the worktree.`}</span>
               ) : blockers.length > 0 ? (
                 <>
-                  <span title={blockers[0]} className="min-w-0 truncate text-foreground">
-                    {blockers[0]}
-                  </span>
+                  <TruncateTip text={blockers[0]}>
+                    <span className="min-w-0 truncate text-foreground">{blockers[0]}</span>
+                  </TruncateTip>
                   {blockers.length > 1 && (
                     <span className="shrink-0 text-muted-foreground tabular-nums">{`+${blockers.length - 1} more`}</span>
                   )}

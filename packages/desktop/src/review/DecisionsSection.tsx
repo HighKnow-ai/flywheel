@@ -15,6 +15,8 @@
  * is left out when there is nothing in it.
  */
 import { useEffect, useId, useState, type ReactNode } from "react";
+import { Tip } from "@/components/Tip";
+import { TruncateTip } from "@/components/TruncateTip";
 import { BookA, BookMarked, CircleAlert, FilePen, FilePlus, FileX, ScrollText } from "lucide-react";
 import {
   storyAdrDecide,
@@ -392,9 +394,9 @@ function NewAdrCard({
             {adr.related.map((related) => (
               <li key={related.path} className="flex min-w-0 items-baseline gap-2 text-small">
                 <BookMarked aria-hidden="true" className="size-3.5 shrink-0 translate-y-0.5 text-muted-foreground" />
-                <code title={related.path} className="shrink-0 font-mono text-meta text-muted-foreground">
-                  {adrLabel(related.path)}
-                </code>
+                <Tip content={<span className="font-mono">{related.path}</span>}>
+                  <code className="shrink-0 font-mono text-meta text-muted-foreground">{adrLabel(related.path)}</code>
+                </Tip>
                 <span className="min-w-0 break-words text-foreground">{related.title}</span>
               </li>
             ))}
@@ -411,9 +413,9 @@ function ChangeRow({ change }: { change: DecisionChangeDto }) {
     <li className="flex min-w-0 flex-col border-t border-border py-1.5 first:border-t-0 first:pt-0 last:pb-0">
       <div className="flex min-h-9 min-w-0 items-center gap-2">
         <StatusIcon change={change} />
-        <code className="min-w-0 truncate font-mono text-small text-foreground" title={change.path}>
-          {change.path}
-        </code>
+        <TruncateTip text={change.path} mono>
+          <code className="min-w-0 truncate font-mono text-small text-foreground">{change.path}</code>
+        </TruncateTip>
         <span className="min-w-0 truncate text-small text-muted-foreground">{statusWords(change)}</span>
         <span className="flex-1" />
         <LineCounts change={change} />

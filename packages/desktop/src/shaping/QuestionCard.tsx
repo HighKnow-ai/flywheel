@@ -16,6 +16,8 @@
  * it, answered Yes or No, and final once answered.
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { Tip } from "@/components/Tip";
+import { TruncateTip } from "@/components/TruncateTip";
 import { Label } from "@/components/ui/label";
 import { Ban, Check, CircleCheck, FileText, PenLine, ScrollText, Send, X } from "lucide-react";
 import type { AdrDraftDto, RoundQuestionDto } from "../adapters/tauri";
@@ -102,12 +104,12 @@ function PlainQuestionCard({ question: q, open, onAccept, onAnswer }: QuestionCa
       >
         <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
         <NumberChip number={q.number} answered />
-        <span className="max-w-[40%] shrink-0 truncate text-body font-semibold" title={q.title}>
-          {q.title}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-body text-muted-foreground" title={q.answer ?? undefined}>
-          {q.answer}
-        </span>
+        <TruncateTip text={q.title}>
+          <span className="max-w-[40%] shrink-0 truncate text-body font-semibold">{q.title}</span>
+        </TruncateTip>
+        <TruncateTip text={q.answer ?? undefined}>
+          <span className="min-w-0 flex-1 truncate text-body text-muted-foreground">{q.answer}</span>
+        </TruncateTip>
         <span className="shrink-0 text-meta text-subtle-foreground">{own ? "Your answer" : "Recommended"}</span>
         {open && (
           <Button
@@ -299,16 +301,18 @@ function AdrQuestionCard({ question: q, open, onAnswer, adr }: QuestionCardProps
       >
         <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
         <NumberChip number={q.number} answered />
-        <span className="max-w-[40%] shrink-0 truncate text-body font-semibold" title={q.title}>
-          {q.title}
-        </span>
+        <TruncateTip text={q.title}>
+          <span className="max-w-[40%] shrink-0 truncate text-body font-semibold">{q.title}</span>
+        </TruncateTip>
         {yes ? (
           <span className="flex min-w-0 flex-1 items-baseline gap-1.5 text-body text-muted-foreground">
             <span className="shrink-0">Yes. Accepted on the Epic:</span>
-            <span className="min-w-0 truncate font-mono text-small" title={adr.path}>
-              <span className="sr-only">{adr.path.slice(0, adr.path.length - fileName(adr.path).length)}</span>
-              {fileName(adr.path)}
-            </span>
+            <Tip content={<span className="font-mono">{adr.path}</span>}>
+              <span className="min-w-0 truncate font-mono text-small">
+                <span className="sr-only">{adr.path.slice(0, adr.path.length - fileName(adr.path).length)}</span>
+                {fileName(adr.path)}
+              </span>
+            </Tip>
           </span>
         ) : (
           <span className="min-w-0 flex-1 truncate text-body text-muted-foreground">

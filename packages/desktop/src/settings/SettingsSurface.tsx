@@ -22,6 +22,8 @@
  * configured and when.
  */
 import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Tip } from "@/components/Tip";
+import { TruncateTip } from "@/components/TruncateTip";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Info, KeyRound, ShieldAlert } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -219,9 +221,9 @@ function ApiKeyField({ settings }: { settings: SettingsDto }) {
       : "";
     return (
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-body" title={formatAbsoluteTime(settings.apiKeyConfiguredAt)}>
-          {`API key configured on ${configuredDate}.`}
-        </span>
+        <Tip content={formatAbsoluteTime(settings.apiKeyConfiguredAt)}>
+          <span className="text-body">{`API key configured on ${configuredDate}.`}</span>
+        </Tip>
         <Button
           variant="outline"
           size="sm"
@@ -378,9 +380,9 @@ function ProjectOverrides({ settings }: { settings: SettingsDto }) {
           return (
             <TableRow key={override.projectId}>
               <TableCell className="pl-0">
-                <span className="block truncate" title={override.projectName}>
-                  {override.projectName}
-                </span>
+                <TruncateTip text={override.projectName}>
+                  <span className="block truncate">{override.projectName}</span>
+                </TruncateTip>
               </TableCell>
               <TableCell className="pr-0">
                 <Select

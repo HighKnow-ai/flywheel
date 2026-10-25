@@ -28,6 +28,7 @@
  * ConfirmDestructive.
  */
 import { useState } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
 import { useQueryClient } from "@tanstack/react-query";
 import { Activity, Check, Lock, Recycle, RefreshCw, Trash2, X } from "lucide-react";
 import {
@@ -278,11 +279,13 @@ function Row({
           />
         )}
       </TableCell>
-      <TableCell data-field="story" title={`${row.storyKey} ${row.storyTitle}`} className="truncate">
-        <StoryKey value={row.storyKey} />
-        {row.storyTitle ? " " : ""}
-        {row.storyTitle && <span className="text-body font-semibold">{row.storyTitle}</span>}
-      </TableCell>
+      <TruncateTip text={`${row.storyKey} ${row.storyTitle}`}>
+        <TableCell data-field="story" className="truncate">
+          <StoryKey value={row.storyKey} />
+          {row.storyTitle ? " " : ""}
+          {row.storyTitle && <span className="text-body font-semibold">{row.storyTitle}</span>}
+        </TableCell>
+      </TruncateTip>
       <TableCell data-field="size" className="text-right tabular-nums">
         {row.sizeBytes == null ? "" : <span className="block text-small">{formatBytes(row.sizeBytes)}</span>}
         {row.sizeBytes != null && row.sizeMeasuredAt != null && (
@@ -457,13 +460,11 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
                     <TableRow className="border-border bg-muted hover:bg-muted">
                       <TableHead scope="rowgroup" colSpan={4} className="h-9 px-4">
                         <span className="flex min-w-0 items-baseline gap-2">
-                          <span
-                            data-field="project"
-                            title={group.projectName}
-                            className="truncate text-small font-semibold"
-                          >
-                            {group.projectName}
-                          </span>
+                          <TruncateTip text={group.projectName}>
+                            <span data-field="project" className="truncate text-small font-semibold">
+                              {group.projectName}
+                            </span>
+                          </TruncateTip>
                           <span className="shrink-0 text-meta font-normal text-muted-foreground tabular-nums">
                             {worktreesWord(group.rows.length)}
                           </span>

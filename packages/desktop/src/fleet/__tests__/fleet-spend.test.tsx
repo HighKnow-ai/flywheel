@@ -147,7 +147,8 @@ describe("spend cell", () => {
     await screen.findByText("Dismiss");
     const tokens = spendOf(container, "tok").lastElementChild as HTMLElement;
     expect(tokens.textContent).toBe("1.23M in · 890 out");
-    expect(tokens.getAttribute("title")).toMatch(/include cache reads/);
+    fireEvent.focus(tokens);
+    expect((await screen.findByRole("tooltip")).textContent).toMatch(/include cache reads/);
   });
 });
 

@@ -25,6 +25,9 @@
  * Its record (the key and title, with the trailing chevron) opens the Story, the Epic or the Milestone.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { formatAbsoluteTime } from "@/lib/format";
+import { Tip } from "@/components/Tip";
+import { TruncateTip } from "@/components/TruncateTip";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   BellRing,
@@ -443,7 +446,6 @@ function RecordButton({ projectId, item }: { projectId: string; item: NeedsYouIt
         type="button"
         data-record=""
         aria-label={`Open ${noun} ${[record.key, record.title].filter(Boolean).join(" ")}`}
-        title={`Open ${noun} ${[record.key, record.title].filter(Boolean).join(" ")}`}
         onClick={open}
       >
         {record.kind === "epic" && (
@@ -556,28 +558,30 @@ function NeedsYouCard({
         >
           <div className="flex min-w-0 items-center gap-2">
             <LeadPill item={item} />
-            <time
-              dateTime={item.since}
-              title={item.since.replace("T", " ").slice(0, 16)}
-              // The meta role on the attention tint too: #223's dark subtle-foreground clears 4.5:1 on it (critique F50).
-              className="ml-auto shrink-0 text-meta text-subtle-foreground tabular-nums"
-            >
-              <span className="sr-only">Waiting </span>
-              {age}
-            </time>
+            <Tip content={formatAbsoluteTime(item.since)}>
+              <time
+                dateTime={item.since}
+                // The meta role on the attention tint too: #223's dark subtle-foreground clears 4.5:1 on it (critique F50).
+                className="ml-auto shrink-0 text-meta text-subtle-foreground tabular-nums"
+              >
+                <span className="sr-only">Waiting </span>
+                {age}
+              </time>
+            </Tip>
           </div>
           <RecordButton projectId={projectId} item={item} />
           {detail && (
-            <p
-              data-field="detail"
-              title={detail}
-              className={cn(
-                "m-0 truncate text-small text-muted-foreground",
-                item.kind === "confirm_exit_test" && "line-clamp-2 whitespace-normal",
-              )}
-            >
-              {detail}
-            </p>
+            <TruncateTip text={detail}>
+              <p
+                data-field="detail"
+                className={cn(
+                  "m-0 truncate text-small text-muted-foreground",
+                  item.kind === "confirm_exit_test" && "line-clamp-2 whitespace-normal",
+                )}
+              >
+                {detail}
+              </p>
+            </TruncateTip>
           )}
           {item.kind === "judged_on" && item.judgedOn && (
             <div className="mt-1 min-w-0">

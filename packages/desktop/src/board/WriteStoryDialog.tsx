@@ -20,6 +20,7 @@
  * chosen. The top bar carries only + Story (issue #201): the header's + Epic is the one Epic add.
  */
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Tip } from "@/components/Tip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronsUpDown, Plus, X } from "lucide-react";
 import {
@@ -464,16 +465,17 @@ function CriteriaRows({
               />
             </Field>
             {criteria.length > 1 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={`Remove criterion ${index + 1}`}
-                title="Remove this criterion"
-                onClick={() => onRemove(index)}
-              >
-                <X aria-hidden="true" />
-              </Button>
+              <Tip content="Remove this criterion">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Remove criterion ${index + 1}`}
+                  onClick={() => onRemove(index)}
+                >
+                  <X aria-hidden="true" />
+                </Button>
+              </Tip>
             )}
           </li>
         ))}

@@ -23,6 +23,7 @@
  * since each is a card of its own.
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
 import { Label } from "@/components/ui/label";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -607,12 +608,11 @@ function StoryColumn({
       </div>
       <h3 className="m-0 text-row font-semibold break-words">{story.title}</h3>
       {story.description ? (
-        <p
-          className="m-0 line-clamp-6 text-small whitespace-pre-wrap break-words text-muted-foreground"
-          title={story.description}
-        >
-          {story.description}
-        </p>
+        <TruncateTip text={story.description}>
+          <p className="m-0 line-clamp-6 text-small whitespace-pre-wrap break-words text-muted-foreground">
+            {story.description}
+          </p>
+        </TruncateTip>
       ) : (
         <p className="m-0 text-small text-subtle-foreground">No description yet</p>
       )}
@@ -650,9 +650,9 @@ function Landing({ proposal, story, columns }: { proposal: ProposalDto; story: S
       ) : (
         <OrderChip number={number} tone="ghost" />
       )}
-      <span className="min-w-0 truncate" title={title}>
-        {title}
-      </span>
+      <TruncateTip text={title}>
+        <span className="min-w-0 truncate">{title}</span>
+      </TruncateTip>
     </span>
   );
 }
@@ -939,9 +939,9 @@ function ProposedCheck({ command }: { command: string | null }) {
     <span className="flex min-w-0 items-center gap-1.5 text-meta text-muted-foreground">
       <SquareTerminal aria-hidden="true" className="size-3.5 shrink-0" />
       <span className="sr-only">Check: </span>
-      <code className="min-w-0 truncate font-mono text-foreground" title={command}>
-        {command}
-      </code>
+      <TruncateTip text={command} mono>
+        <code className="min-w-0 truncate font-mono text-foreground">{command}</code>
+      </TruncateTip>
     </span>
   );
 }

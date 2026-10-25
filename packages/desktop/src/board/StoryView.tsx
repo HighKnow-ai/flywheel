@@ -9,6 +9,7 @@
  * opens its session: the live agent opens only from that control; past sessions open from "Open feed".
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Tip } from "@/components/Tip";
 import { useQuery } from "@tanstack/react-query";
 import { Bot, CircleCheck, ListChecks, Terminal } from "lucide-react";
 import { blockedSummary, storyGet, storyMakeReadyOffer, worktreeSummary, type StoryDto } from "../adapters/tauri";
@@ -319,16 +320,21 @@ function LiveStation({
           <span className="text-row font-semibold">
             {doing ? doing.title : "Reading the Story and the code it touches"}
           </span>
-          <span
-            className={cn(
-              "flex flex-wrap items-center gap-2 text-small tabular-nums",
-              waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground",
-            )}
-            title={`Started ${formatWhen(startedAt)}`}
-          >
-            <StateBadge state={waitingOnYou ? "waiting_on_you" : "running"} pulse={pulse} className="h-5.5 text-meta" />
-            {pace}
-          </span>
+          <Tip content={`Started ${formatWhen(startedAt)}`}>
+            <span
+              className={cn(
+                "flex flex-wrap items-center gap-2 text-small tabular-nums",
+                waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground",
+              )}
+            >
+              <StateBadge
+                state={waitingOnYou ? "waiting_on_you" : "running"}
+                pulse={pulse}
+                className="h-5.5 text-meta"
+              />
+              {pace}
+            </span>
+          </Tip>
         </div>
         <span className="flex shrink-0 items-center gap-2">
           {waitingOnYou ? (

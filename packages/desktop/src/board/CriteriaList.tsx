@@ -14,6 +14,7 @@
  * says so (ReadError); the empty state shows only once the read succeeded with nothing in it.
  */
 import { useState, type FormEvent } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
 import { Label } from "@/components/ui/label";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, SquareTerminal, X } from "lucide-react";
@@ -207,14 +208,14 @@ function CriterionRow({
                 // chip is followed by the controls that act on it.
                 <span className="order-first flex min-w-0 basis-full items-center gap-1.5 text-meta text-muted-foreground">
                   <SquareTerminal aria-hidden="true" className="size-3.5 shrink-0" />
-                  <code title={check.command} className="min-w-0 truncate font-mono text-foreground">
-                    {check.command}
-                  </code>
+                  <TruncateTip text={check.command} mono>
+                    <code className="min-w-0 truncate font-mono text-foreground">{check.command}</code>
+                  </TruncateTip>
                 </span>
               ) : (
-                <code title={check.command} className="min-w-0 truncate font-mono text-small text-muted-foreground">
-                  {check.command}
-                </code>
+                <TruncateTip text={check.command} mono>
+                  <code className="min-w-0 truncate font-mono text-small text-muted-foreground">{check.command}</code>
+                </TruncateTip>
               )}
             </>
           ) : (

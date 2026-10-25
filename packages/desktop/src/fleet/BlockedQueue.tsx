@@ -30,6 +30,7 @@
  * question in its dock, so its Answer opens the Epic's shaping view, as the Epic card's Answer does.
  */
 import { useQueryClient } from "@tanstack/react-query";
+import { TruncateTip } from "@/components/TruncateTip";
 import {
   answerPermissionRequest,
   answerQuestion,
@@ -125,13 +126,16 @@ export function BlockedQueue({ entries, rounds = [], now }: BlockedQueueProps) {
                     type="button"
                     data-field="subject"
                     aria-label={`Open Story ${subject.key}`}
-                    title={`Open Story ${subject.key}`}
                     onClick={() => openStory(entry.projectId, entry.storyId)}
                     className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent"
                   >
                     <span className="shrink-0 font-mono text-meta text-muted-foreground">{subject.key}</span>
                     {subject.detail ? " " : null}
-                    {subject.detail ? <span className="truncate text-body font-semibold">{subject.detail}</span> : null}
+                    {subject.detail ? (
+                      <TruncateTip text={subject.detail}>
+                        <span className="truncate text-body font-semibold">{subject.detail}</span>
+                      </TruncateTip>
+                    ) : null}
                     <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-subtle-foreground" />
                   </button>
                   <Button
@@ -213,14 +217,13 @@ function WaitingRoundItem({ round, now }: { round: WaitingRoundDto; now: number 
           type="button"
           data-field="subject"
           aria-label={round.subject === "roadmap" ? `Open ${words.record}` : `Open Epic ${words.key}`}
-          title={
-            round.subject === "roadmap" ? `Open ${words.record} on the board` : `Open Epic ${words.key} and its Rounds`
-          }
           onClick={() => open(round)}
           className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent"
         >
           {words.key && <span className="shrink-0 font-mono text-meta text-muted-foreground">{words.key}</span>}{" "}
-          <span className="truncate text-body font-semibold">{words.title}</span>
+          <TruncateTip text={words.title}>
+            <span className="truncate text-body font-semibold">{words.title}</span>
+          </TruncateTip>
           <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-subtle-foreground" />
         </button>
         <span

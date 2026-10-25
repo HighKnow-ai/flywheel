@@ -30,6 +30,7 @@
  * never reorders its own copy: the new order is what the core says after the move.
  */
 import { useEffect, useId, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
 import { useQuery } from "@tanstack/react-query";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -384,29 +385,31 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                         onKeyDown={(event) => onRowKeyDown(event, index, false)}
                         className="grid min-h-9 min-w-0 flex-1 grid-cols-[minmax(8rem,14rem)_7.5rem_minmax(0,1fr)_4.5rem_16px] items-center gap-x-3 rounded-sm py-1 pr-3 text-left"
                       >
-                        <span
-                          title={milestone.title}
-                          className={cn(
-                            "truncate text-row",
-                            closed ? "font-normal text-muted-foreground" : "font-semibold",
-                          )}
-                        >
-                          {milestone.title}
-                        </span>
+                        <TruncateTip text={milestone.title}>
+                          <span
+                            className={cn(
+                              "truncate text-row",
+                              closed ? "font-normal text-muted-foreground" : "font-semibold",
+                            )}
+                          >
+                            {milestone.title}
+                          </span>
+                        </TruncateTip>
                         <span className="flex">
                           <StateBadge state={milestone.state} label={stateWord} className="h-5.5 text-meta" />
                         </span>
-                        <span
-                          id={exitTestId}
-                          title={milestone.exitTest ?? undefined}
-                          className={cn(
-                            "truncate text-small",
-                            closed ? "text-subtle-foreground" : "text-muted-foreground",
-                            milestone.exitTest === null && "text-subtle-foreground",
-                          )}
-                        >
-                          {milestone.exitTest ?? "Exit test not written yet"}
-                        </span>
+                        <TruncateTip text={milestone.exitTest ?? undefined}>
+                          <span
+                            id={exitTestId}
+                            className={cn(
+                              "truncate text-small",
+                              closed ? "text-subtle-foreground" : "text-muted-foreground",
+                              milestone.exitTest === null && "text-subtle-foreground",
+                            )}
+                          >
+                            {milestone.exitTest ?? "Exit test not written yet"}
+                          </span>
+                        </TruncateTip>
                         <span className="flex justify-end">
                           {milestone.current && (
                             <span className="inline-flex items-center gap-1 text-meta font-semibold text-foreground">

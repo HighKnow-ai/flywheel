@@ -13,6 +13,7 @@
  * Which log entries become which rows is `feedRows.ts`; this module is presentational only.
  */
 import { useEffect, useState, type ReactNode } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
 import {
   Bot,
   ChevronRight,
@@ -381,15 +382,16 @@ export function ToolCallLine({
         size={16}
         className={cn("shrink-0", onStrip ? "text-strip-muted-foreground" : "text-muted-foreground")}
       />
-      <span
-        className={cn(
-          "feed-call-verb w-27 shrink-0 truncate text-small font-semibold",
-          onStrip ? "text-strip-foreground" : "text-foreground",
-        )}
-        title={verb}
-      >
-        {verb}
-      </span>
+      <TruncateTip text={verb}>
+        <span
+          className={cn(
+            "feed-call-verb w-27 shrink-0 truncate text-small font-semibold",
+            onStrip ? "text-strip-foreground" : "text-foreground",
+          )}
+        >
+          {verb}
+        </span>
+      </TruncateTip>
       <CallTarget described={described} onStrip={onStrip} />
       {live ? (
         // The live mark leads the clock, as the mockup's live dot does, so the clock right-aligns with the

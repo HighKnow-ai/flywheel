@@ -14,6 +14,7 @@
  * - `useSettle`: the short running-tint cross-fade on a field whose text an accepted Proposal just rewrote.
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
 import { Label } from "@/components/ui/label";
 import { Ban, Check, CircleDashed, PenLine, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -236,13 +237,15 @@ export function RejectedLine({
     <div role="group" aria-label={label} data-state="rejected" className="flex min-w-0 flex-col gap-1">
       <span className="flex min-w-0 items-center gap-2 text-small text-muted-foreground">
         <RejectedBadge />
-        <del className="min-w-0 truncate decoration-1" title={struck}>
-          {struck}
-        </del>
+        <TruncateTip text={struck}>
+          <del className="min-w-0 truncate decoration-1">{struck}</del>
+        </TruncateTip>
       </span>
-      <span className="truncate text-meta text-subtle-foreground" title={reason ?? undefined}>
-        {reason ? `Your reason: ${reason}` : "No reason given"}
-      </span>
+      <TruncateTip text={reason ?? undefined}>
+        <span className="truncate text-meta text-subtle-foreground">
+          {reason ? `Your reason: ${reason}` : "No reason given"}
+        </span>
+      </TruncateTip>
     </div>
   );
   // In a list the item stays a list item, with the named group inside it.
