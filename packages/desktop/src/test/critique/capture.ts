@@ -18,6 +18,7 @@
 import { expect } from "vitest";
 import { commands, page } from "vitest/browser";
 import { findLayoutDefects, type LayoutDefect, type LayoutDefectKind } from "./layout-defects";
+import { loadEveryFont } from "../fonts";
 
 export const SCHEME = (import.meta.env.VITE_CRITIQUE_SCHEME as string | undefined) ?? "light";
 /** Whether this run writes screenshots (the critique run) or only checks the layout (CI). */
@@ -61,7 +62,7 @@ const records: CaptureRecord[] = [];
 
 export async function settle(ms = 600) {
   await new Promise((resolve) => setTimeout(resolve, ms));
-  await document.fonts.ready;
+  await loadEveryFont();
   // Two frames, so a ResizeObserver (the virtualised feed, the Needs-you breakpoint) has measured and re-rendered.
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 }

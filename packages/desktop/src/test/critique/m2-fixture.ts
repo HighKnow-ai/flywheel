@@ -2614,6 +2614,7 @@ export function installFixtureBackend(): void {
   withAdrs = false;
   needsYouExtras = false;
   triageOn = false;
+  duplicateOn = false;
   judgedOn = false;
   roadmapMode = "none";
   milestoneShaping = "off";

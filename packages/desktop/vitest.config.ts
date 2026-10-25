@@ -14,5 +14,8 @@ export default defineConfig({
     exclude: ["**/node_modules/**", "**/dist/**", "src/**/*.browser.test.tsx"],
     setupFiles: ["./src/test/setup.ts"],
     globals: false,
+    // Above the 5 s a Testing Library wait may take (src/test/setup.ts), so a slow wait fails as that wait,
+    // naming what it waited for, rather than as an anonymous test timeout.
+    testTimeout: 15000,
   },
 });

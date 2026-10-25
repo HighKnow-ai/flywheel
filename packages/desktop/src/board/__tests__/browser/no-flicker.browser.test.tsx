@@ -124,6 +124,11 @@ async function burst({ sessionId }: { sessionId?: string } = {}) {
 }
 
 async function measure(target: HTMLElement, run: () => Promise<void>): Promise<FlickerReport> {
+  // A face still loading would land mid-burst and re-lay out every line set in it: a shift the refetch did not
+  // cause (the CI flake of #208). The setup loads every face first; this says so if that ever stops holding.
+  expect(
+    Array.from(document.fonts, (face) => `${face.family} ${face.status}`).filter((f) => !f.endsWith(" loaded")),
+  ).toEqual([]);
   const recorder = recordFlicker(target);
   await run();
   await quiet();
