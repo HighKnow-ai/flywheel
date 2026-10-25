@@ -7,7 +7,7 @@
  * the critique's seeded fixture backend with its keys and titles stretched.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { page, userEvent } from "vitest/browser";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import "../../../styles/globals.css";
@@ -137,7 +137,9 @@ describe("the roster reads at a glance (issue #202)", () => {
     fold.scrollIntoView({ block: "center" });
     await userEvent.click(fold);
     const done = await screen.findByRole("list", { name: "Ship the first board Stories" });
-    expect(await within(done).findByText("Finished work 2")).toBeVisible();
+    const finished = await within(done).findByText("Finished work 2");
+    // Visible once the disclosure has grown (or, under reduced motion, faded) in.
+    await waitFor(() => expect(finished).toBeVisible());
     await settle();
     expectKeysOnOneLine("Done Epics open");
   });
