@@ -8,14 +8,15 @@
  * session and what it is doing, with Open session (or Answer, while it waits on you). Opening a Story never
  * opens its session: the live agent opens only from that control; past sessions open from "Open feed".
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bot, CircleCheck, ListChecks, Terminal } from "lucide-react";
-import { blockedSummary, sessionsForStory, storyGet, storyMakeReadyOffer, type StoryDto } from "../adapters/tauri";
+import { blockedSummary, storyGet, storyMakeReadyOffer, type StoryDto } from "../adapters/tauri";
 import { CriteriaList, checkPasses, useCriteria } from "./CriteriaList";
 import {
   AnswerControl,
   DropControl,
+  ListSkeleton,
   MakeReadyControl,
   OpenSessionControl,
   PacketSize,
@@ -25,17 +26,21 @@ import {
   StopControl,
   StoryStateWord,
   endingWords,
-  errorText,
   formatWhen,
   useLiveSession,
   useStopped,
+  useStorySessions,
 } from "./StoryControls";
 import { TaskChecklist, useStoryTasks } from "./TaskChecklist";
 import { useBoardChangedSubscription, useSessionFeed } from "./useBoardQuery";
 import { WriteStoryDialog } from "./WriteStoryDialog";
 import { ReviewCard } from "../review/ReviewCard";
 import { MoveToEpicControl } from "./MoveToEpic";
+import { ReadError } from "../components/ReadError";
 import { StateBadge } from "../components/StateBadge";
+import { StoryKey } from "../components/StoryKey";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { formatAge } from "../legend/runStatus";
 import { prefersReducedMotion, ToolCallLine } from "../session/FeedRow";
 import { buildFeedRows, findLiveCallKey, type FeedRowData } from "../session/feedRows";
@@ -76,8 +81,10 @@ export function StoryView({ projectId, projectName, storyId, onBack }: StoryView
         actions={<WriteStoryDialog projectId={projectId} />}
       />
       <SurfaceBody>
+        {/* One width for every surface of cards (DESIGN.md § Layout): up to 1240px, centred. */}
         <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4">
-          {storyQuery.isError && <p className="m-0 text-body text-destructive-text">{errorText(storyQuery.error)}</p>}
+          {storyQuery.isError && <ReadError title="Couldn't load this Story" query={storyQuery} />}
+          {storyQuery.isPending && <TitleCardSkeleton />}
           {storyQuery.isSuccess && !story && (
             <p className="m-0 text-body text-muted-foreground">This Story no longer exists.</p>
           )}
@@ -228,10 +235,7 @@ function LiveStation({
 }) {
   const tasks = useStoryTasks(projectId, story.id).data ?? [];
   // The same read as the session list, so the ordinal matches what it shows (newest first).
-  const sessions = useQuery({
-    queryKey: ["board", projectId, "sessions", story.id],
-    queryFn: () => sessionsForStory(story.id),
-  }).data ?? [];
+  const sessions = useStorySessions(projectId, story.id).data ?? [];
   const feedQuery = useSessionFeed(sessionId);
   const entries = useMemo(() => feedQuery.data?.pages.flatMap((page) => page.entries) ?? [], [feedQuery.data]);
   const rows = useMemo(() => buildFeedRows(entries), [entries]);
@@ -293,10 +297,72 @@ function LiveStation({
   );
 }
 
+/** The title card while the Story's first read is under way: bars in its shape, never "Loading…". */
+function TitleCardSkeleton() {
+  return (
+    <div role="status" aria-label="Loading the Story" className="flex flex-col gap-3 rounded-lg border border-border bg-card px-5 py-4 shadow-card">
+      <Skeleton className="h-6 w-2/3" />
+      <Skeleton className="h-4 w-1/3" />
+    </div>
+  );
+}
+
+/**
+ * The Story's title, clamped to three lines with the key before it (issue #204: a 200-character title must
+ * not push the station off a 900 × 600 window). When the clamp hides part of it, "Show full title" unclamps it
+ * in place and "Show less" clamps it again; the heading's accessible name is always the whole title.
+ */
+function StoryTitle({ story }: { story: StoryDto }) {
+  const ref = useRef<HTMLHeadingElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [clamped, setClamped] = useState(false);
+
+  useLayoutEffect(() => {
+    const heading = ref.current;
+    if (!heading || expanded) return;
+    const measure = () => setClamped(heading.scrollHeight > heading.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(heading);
+    return () => observer.disconnect();
+  }, [expanded, story.title]);
+
+  return (
+    <div className="flex min-w-0 flex-1 basis-80 flex-col items-start gap-1">
+      <h1
+        ref={ref}
+        id="story-heading"
+        data-slot="story-title"
+        className={cn(
+          "m-0 min-w-0 self-stretch text-title font-semibold text-pretty break-words",
+          !expanded && "line-clamp-3",
+        )}
+      >
+        <StoryKey value={story.key} size="small" className="mr-1.5 align-[3px]" />{" "}
+        {story.title}
+      </h1>
+      {(clamped || expanded) && (
+        <Button
+          variant="link"
+          size="xs"
+          aria-expanded={expanded}
+          aria-controls="story-heading"
+          onClick={() => setExpanded((open) => !open)}
+          className="h-auto px-0 text-small"
+        >
+          {expanded ? "Show less" : "Show full title"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function StoryBody({ projectId, story }: { projectId: string; story: StoryDto }) {
   const [error, setError] = useState<string | null>(null);
-  const tasks = useStoryTasks(projectId, story.id).data ?? [];
-  const criteria = useCriteria(projectId, story.id).data ?? [];
+  const tasksQuery = useStoryTasks(projectId, story.id);
+  const criteriaQuery = useCriteria(projectId, story.id);
+  const tasks = tasksQuery.data ?? [];
+  const criteria = criteriaQuery.data ?? [];
   const stopped = useStopped(projectId, story);
   // The same read the board's rows use, so the two never disagree on Waiting on you.
   const waitingQuery = useQuery({
@@ -327,15 +393,15 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
           waitingOnYou && "border-attention",
         )}
       >
-        <div className="flex items-start gap-3">
-          <h1 id="story-heading" className="m-0 min-w-0 flex-1 text-title font-semibold text-balance">
-            <span className="mr-2.5 align-[3px] font-mono text-small font-normal text-muted-foreground">{story.key}</span>
-            {story.title}
-          </h1>
-          <div className="flex shrink-0 items-center gap-2">
-            {story.state === "ready" && <StartControl story={story} onError={setError} />}
-            {makeReadyOffered && <MakeReadyControl story={story} refusal={makeReady?.refusal ?? null} onError={setError} />}
-            {stopped && <ResumeControl story={story} />}
+        <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+          <StoryTitle story={story} />
+          {/* The title card's one next action is its one filled primary; Move is outline and Drop is text. */}
+          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {story.state === "ready" && <StartControl story={story} onError={setError} variant="default" />}
+            {makeReadyOffered && (
+              <MakeReadyControl story={story} refusal={makeReady?.refusal ?? null} onError={setError} variant="default" />
+            )}
+            {stopped && <ResumeControl story={story} variant="default" />}
             {open && <MoveToEpicControl projectId={projectId} story={story} onError={setError} />}
             {open && <DropControl story={story} />}
           </div>
@@ -366,7 +432,11 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
         {makeReadyOffered && makeReady?.refusal && (
           <p className="m-0 text-small text-muted-foreground">{`Make Ready waits: ${makeReady.refusal}.`}</p>
         )}
-        {error && <p className="m-0 text-small text-destructive-text">{error}</p>}
+        {error && (
+          <p role="alert" className="m-0 text-small text-destructive-text">
+            {error}
+          </p>
+        )}
         {story.description && (
           <p className="m-0 max-w-[75ch] text-body whitespace-pre-wrap">{story.description}</p>
         )}
@@ -399,10 +469,16 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
           icon={<ListChecks />}
           count={<Count done={doneTasks} total={liveTasks.length} label="Tasks done" />}
         >
-          <TaskChecklist storyKey={story.key} storyId={story.id} tasks={tasks} />
+          {/* The empty checklist shows only once the read succeeded: a failed read is never "No Tasks yet". */}
+          {tasksQuery.isError ? (
+            <ReadError title="Couldn't load the Tasks" query={tasksQuery} />
+          ) : tasksQuery.isPending ? (
+            <ListSkeleton rows={3} label="Loading the Tasks" />
+          ) : (
+            <TaskChecklist storyKey={story.key} storyId={story.id} tasks={tasks} />
+          )}
         </Panel>
       </div>
-
 
       {story.state !== "shaping" && story.state !== "ready" && (
         <Panel id="story-sessions-heading" title="Sessions" icon={<Terminal />}>

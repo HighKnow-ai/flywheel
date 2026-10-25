@@ -5,6 +5,9 @@
  * criterion it is held, saying why. A Story whose Epic is still being shaped, or past Shaping, is not offered it.
  * On the board, the row of such a Story offers Make Ready as its one next action (`canMakeReady` from the roster's
  * one read).
+ *
+ * Issue #204: a Story whose reads fail shows ReadError in each panel, never an empty state ("No Tasks yet") that
+ * claims the Story has nothing; the title card holds the one filled primary.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -22,6 +25,9 @@ const milestoneList = vi.fn();
 const epicList = vi.fn();
 const storyListForProject = vi.fn();
 const rosterRows = vi.fn();
+const taskList = vi.fn();
+const sessionsForStory = vi.fn();
+const sessionSummariesForStory = vi.fn();
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -41,8 +47,9 @@ vi.mock("../../adapters/tauri", async () => {
     epicShapingSession: () => Promise.resolve(null),
     milestoneShapingSession: () => Promise.resolve(null),
     needsYouList: () => Promise.resolve([]),
-    taskList: () => Promise.resolve([]),
-    sessionsForStory: () => Promise.resolve([]),
+    taskList: (...args: unknown[]) => taskList(...args),
+    sessionsForStory: (...args: unknown[]) => sessionsForStory(...args),
+    sessionSummariesForStory: (...args: unknown[]) => sessionSummariesForStory(...args),
     storyStopped: () => Promise.resolve(null),
     storyContextPacketSize: () => Promise.resolve({ bytes: 4000, approxTokens: 1000, overSoftLimit: false }),
     blockedSummary: () => Promise.resolve({ blockedStoryIds: [], blockedCount: 0 }),
@@ -87,6 +94,84 @@ beforeEach(() => {
   epicList.mockReset();
   storyListForProject.mockReset();
   rosterRows.mockReset();
+  taskList.mockReset().mockResolvedValue([]);
+  sessionsForStory.mockReset().mockResolvedValue([]);
+  sessionSummariesForStory.mockReset().mockResolvedValue([]);
+});
+
+describe("A Story whose reads fail (issue #204)", () => {
+  const dead = () => Promise.reject(new Error("the core did not answer"));
+
+  it("shows ReadError in each panel and no empty state", async () => {
+    storyGet.mockResolvedValue(story("running"));
+    taskList.mockImplementation(dead);
+    criterionList.mockImplementation(dead);
+    sessionsForStory.mockImplementation(dead);
+    renderView();
+
+    const tasks = await screen.findByRole("region", { name: "Tasks" });
+    const criteria = screen.getByRole("region", { name: "Acceptance criteria" });
+    const sessions = screen.getByRole("region", { name: "Sessions" });
+    expect(await within(tasks).findByText("Couldn't load the Tasks")).toBeTruthy();
+    expect(await within(criteria).findByText("Couldn't load the Acceptance criteria")).toBeTruthy();
+    expect(await within(sessions).findByText("Couldn't load the sessions")).toBeTruthy();
+    for (const panel of [tasks, criteria, sessions]) {
+      expect(within(panel).getByRole("button", { name: "Try again" })).toBeTruthy();
+      expect(panel.querySelector("[data-slot=empty]")).toBeNull();
+    }
+    expect(screen.queryByText(/No Tasks yet/)).toBeNull();
+    expect(screen.queryByText(/No Acceptance criteria/)).toBeNull();
+    expect(screen.queryByText(/No sessions yet/)).toBeNull();
+  });
+
+  it("tries the read again from the panel, and shows the list once it answers", async () => {
+    storyGet.mockResolvedValue(story("running"));
+    taskList.mockImplementationOnce(dead);
+    renderView();
+    const tasks = await screen.findByRole("region", { name: "Tasks" });
+    taskList.mockResolvedValue([{ id: "t1", storyId: "s12", title: "Write the parser", state: "open", droppedReason: null, rank: "a", note: null }]);
+    fireEvent.click(await within(tasks).findByRole("button", { name: "Try again" }));
+    expect(await within(tasks).findByText("Write the parser")).toBeTruthy();
+    expect(within(tasks).queryByText("Couldn't load the Tasks")).toBeNull();
+  });
+
+  it("shows the empty states only once the reads succeeded with nothing in them", async () => {
+    storyGet.mockResolvedValue(story("running"));
+    criterionList.mockResolvedValue([]);
+    renderView();
+    const tasks = await screen.findByRole("region", { name: "Tasks" });
+    expect(await within(tasks).findByText("No Tasks yet")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Acceptance criteria" })).getByText("No Acceptance criteria yet")).toBeTruthy();
+    expect(await within(screen.getByRole("region", { name: "Sessions" })).findByText("No sessions yet")).toBeTruthy();
+  });
+
+  it("says it couldn't load the Story when the Story itself fails to read", async () => {
+    storyGet.mockImplementation(dead);
+    renderView();
+    expect(await screen.findByText("Couldn't load this Story")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+});
+
+describe("The title card", () => {
+  it("holds one filled primary: Start, beside an outline Move and a text Drop", async () => {
+    storyGet.mockResolvedValue(story("ready"));
+    renderView();
+    const start = await screen.findByRole("button", { name: "Start FLY-12" });
+    expect(start).toHaveAttribute("data-variant", "default");
+    const card = start.closest("section") as HTMLElement;
+    const filled = within(card)
+      .getAllByRole("button")
+      .filter((b) => b.getAttribute("data-variant") === "default");
+    expect(filled).toEqual([start]);
+  });
+
+  it("names the whole title in the heading, however long", async () => {
+    const long = "A".repeat(80) + " " + "B".repeat(119);
+    storyGet.mockResolvedValue({ ...story("ready"), title: long });
+    renderView();
+    expect(await screen.findByRole("heading", { level: 1, name: `FLY-12 ${long}` })).toBeTruthy();
+  });
 });
 
 describe("Make Ready in the Story view", () => {

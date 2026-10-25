@@ -4,12 +4,19 @@
  * The click model (issue #104, spec §7): the live agent opens only from a control labelled as the
  * session ("Open session", "Open feed", or "Answer" on a Story Waiting on you, which opens the feed at the
  * open request). Start and Resume start a session and stay where they are. Drop is the destructive text
- * button, set apart from the primary, and always confirms in an AlertDialog; Resume takes its optional
- * note in a Dialog (direction.md § Components).
+ * button, set apart from the primary, and always confirms in ConfirmDestructive, as Stop does; Resume takes
+ * its optional note in a Dialog (direction.md § Components).
+ *
+ * Feedback (DESIGN.md § Feedback, issue #204): every action that can be pending shows it on its own Button
+ * (`loading`), and says what it did in a toast. A refusal from the core shows inline, where the action was.
+ *
+ * The One Filled Action Rule: Start, Make Ready and Resume are outline by default, as they sit on a roster row
+ * beside other rows' actions; the Story view, where each is the title card's one next action, asks for them
+ * filled (`variant="default"`).
  */
 import { useState, type FormEvent, type MouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CircleCheck, MessageCircleQuestionMark, Play, RotateCcw, Square, Terminal, Trash2 } from "lucide-react";
+import { CircleCheck, MessageCircleQuestionMark, Play, RotateCcw, Square, Terminal, Trash2, TriangleAlert } from "lucide-react";
 import {
   sessionSummariesForStory,
   sessionsForStory,
@@ -24,20 +31,18 @@ import {
   type StoppedDto,
   type StoryDto,
 } from "../adapters/tauri";
+import { ConfirmDestructive } from "../components/ConfirmDestructive";
+import { ReadError } from "../components/ReadError";
+import { RelativeTime } from "../components/RelativeTime";
 import { StateBadge } from "../components/StateBadge";
 import { useUiStore } from "../state/uiStore";
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { Label } from "@/components/ui/label";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -46,6 +51,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { formatDuration, formatSessionName, formatTokens } from "@/lib/format";
+import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
 /** The words for each Story state (GLOSSARY.md "Story state"). */
@@ -81,14 +88,19 @@ export function useStopped(projectId: string, story: StoryDto): StoppedDto | nul
   return story.state === "running" ? (stoppedQuery.data ?? null) : null;
 }
 
+/** The read of a Story's sessions, newest first, under the key `board:changed` keeps current. */
+export function useStorySessions(projectId: string, storyId: string, enabled = true) {
+  return useQuery({
+    queryKey: ["board", projectId, "sessions", storyId],
+    queryFn: () => sessionsForStory(storyId),
+    enabled,
+  });
+}
+
 /** The Story's live session, if one is running: the newest of its sessions with no end. Read under the
  * same key as the session list, so `board:changed` keeps both current. */
 export function useLiveSession(projectId: string, story: StoryDto, enabled = true) {
-  const sessionsQuery = useQuery({
-    queryKey: ["board", projectId, "sessions", story.id],
-    queryFn: () => sessionsForStory(story.id),
-    enabled: enabled && story.state === "running",
-  });
+  const sessionsQuery = useStorySessions(projectId, story.id, enabled && story.state === "running");
   if (story.state !== "running") return null;
   return (sessionsQuery.data ?? []).find((session) => session.endedAt === null) ?? null;
 }
@@ -161,10 +173,10 @@ export function AnswerControl({
 }
 
 /**
- * Stop a Story's live session (Story #118), from its agent station. Confirmed in an AlertDialog, as
- * direction.md asks of Stop and Drop. Stop stays where it is: `board:changed` turns the Story Stopped
- * and takes the station down, and Resume starts a fresh session from the Context packet. If the sidecar
- * could not confirm the process ended, the dialog stays open and says so.
+ * Stop a Story's live session (Story #118), from its agent station, confirmed in ConfirmDestructive. Stop
+ * stays where it is: `board:changed` turns the Story Stopped and takes the station down, a toast says so, and
+ * Resume starts a fresh session from the Context packet. If the sidecar could not confirm the process ended,
+ * the dialog stays open and says so.
  */
 export function StopControl({
   story,
@@ -176,89 +188,53 @@ export function StopControl({
   /** Drawn on the graphite station: a light edge and light ink, never a card-coloured ground. */
   onStrip?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
-
-  function handleStop() {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    stopSession(sessionId)
-      .then((result) => {
-        if (result.sidecarWarning) setWarning(result.sidecarWarning);
-        else setOpen(false);
-      })
-      .catch((err: unknown) => setError(errorText(err)))
-      .finally(() => setBusy(false));
+  async function stop() {
+    const result = await stopSession(sessionId);
+    if (result.sidecarWarning) {
+      throw new Error(`Flywheel could not confirm the agent process actually stopped: ${result.sidecarWarning}`);
+    }
+    notify.success(`Stopped ${story.key}'s agent`, {
+      description: "Its worktree stays as the agent left it. Resume starts a fresh session.",
+    });
   }
 
   return (
-    <>
-      <Button
-        variant="outline"
-        size="sm"
-        aria-label={`Stop ${story.key}`}
-        onClick={() => {
-          setError(null);
-          setWarning(null);
-          setOpen(true);
-        }}
-        className={cn(
-          onStrip &&
-            "border-white/35 bg-transparent text-strip-foreground hover:border-strip-foreground hover:bg-white/10 focus-visible:outline-strip-foreground",
-        )}
-      >
-        <Square aria-hidden="true" />
-        Stop
-      </Button>
-      <AlertDialog open={open} onOpenChange={(next) => !busy && setOpen(next)}>
-        <AlertDialogContent className="sm:max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-section font-semibold">{`Stop ${story.key}'s agent?`}</AlertDialogTitle>
-            <AlertDialogDescription>
-              The session ends now. Its worktree stays exactly as the agent left it, and Resume starts a fresh
-              session from the Context packet.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {warning && (
-            <div role="alert" className="flex flex-col gap-1 rounded-md border border-border bg-muted px-3 py-2">
-              <p className="m-0 text-small">Flywheel could not confirm the agent process actually stopped.</p>
-              <p className="m-0 font-mono text-meta text-muted-foreground">{warning}</p>
-            </div>
+    <ConfirmDestructive
+      trigger={
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label={`Stop ${story.key}`}
+          className={cn(
+            onStrip &&
+              "border-white/35 bg-transparent text-strip-foreground hover:border-strip-foreground hover:bg-white/10 focus-visible:outline-strip-foreground",
           )}
-          {error && (
-            <p role="alert" className="m-0 text-small text-destructive-text">
-              {error}
-            </p>
-          )}
-          <AlertDialogFooter>
-            {warning ? (
-              <AlertDialogCancel>Close</AlertDialogCancel>
-            ) : (
-              <>
-                <AlertDialogCancel disabled={busy}>Keep running</AlertDialogCancel>
-                <Button
-                  variant="destructive"
-                  aria-label={`Confirm stop of ${story.key}`}
-                  onClick={handleStop}
-                  disabled={busy}
-                >
-                  <Square aria-hidden="true" />
-                  {busy ? "Stopping…" : "Stop the session"}
-                </Button>
-              </>
-            )}
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+        >
+          <Square aria-hidden="true" />
+          Stop
+        </Button>
+      }
+      title={`Stop ${story.key}'s agent?`}
+      description="The session ends now. Its worktree stays exactly as the agent left it, and Resume starts a fresh session from the Context packet."
+      cancelLabel="Keep running"
+      confirmLabel="Stop the session"
+      icon={<Square aria-hidden="true" />}
+      onConfirm={stop}
+    />
   );
 }
 
 /** Start a Ready Story. The session starts in the background: Start never opens it (issue #104). */
-export function StartControl({ story, onError }: { story: StoryDto; onError: (message: string | null) => void }) {
+export function StartControl({
+  story,
+  onError,
+  variant = "outline",
+}: {
+  story: StoryDto;
+  onError: (message: string | null) => void;
+  /** Filled where Start is the region's one next action (the Story view's title card). */
+  variant?: "default" | "outline";
+}) {
   const [starting, setStarting] = useState(false);
 
   function handleStart() {
@@ -266,32 +242,38 @@ export function StartControl({ story, onError }: { story: StoryDto; onError: (me
     setStarting(true);
     onError(null);
     storyStart(story.id)
+      .then(() =>
+        notify.success(`Started ${story.key}`, { description: "Its agent is reading the Story. Open session follows it." }),
+      )
       .catch((err: unknown) => onError(errorText(err)))
       .finally(() => setStarting(false));
   }
 
   return (
-    <Button size="sm" aria-label={`Start ${story.key}`} onClick={handleStart} disabled={starting}>
+    <Button variant={variant} size="sm" aria-label={`Start ${story.key}`} onClick={handleStart} loading={starting}>
       <Play aria-hidden="true" />
-      {starting ? "Starting…" : "Start"}
+      Start
     </Button>
   );
 }
 
 /**
  * Make Ready (docs/mvp-spec.md §2, issue #166): moves a Shaping Story whose Epic's shaping is closed to Ready,
- * such as a New Story a running Story proposed. Filled: it is the Story's one next action, as Start is once it
- * is Ready. `refusal`, when the core holds it back (no criterion yet), disables it and is read as its
+ * such as a New Story a running Story proposed. It is the Story's one next action, as Start is once it is
+ * Ready. `refusal`, when the core holds it back (no criterion yet), disables it and is read as its
  * description. It keeps you where you are; the row turns Ready and offers Start.
  */
 export function MakeReadyControl({
   story,
   refusal = null,
   onError,
+  variant = "outline",
 }: {
   story: StoryDto;
   refusal?: string | null;
   onError: (message: string | null) => void;
+  /** Filled where Make Ready is the region's one next action (the Story view's title card). */
+  variant?: "default" | "outline";
 }) {
   const [making, setMaking] = useState(false);
   const refusalId = `make-ready-refusal-${story.id}`;
@@ -301,6 +283,7 @@ export function MakeReadyControl({
     setMaking(true);
     onError(null);
     storyMakeReady(story.id)
+      .then(() => notify.success(`${story.key} is Ready`, { description: "Start sends an agent to it." }))
       .catch((err: unknown) => onError(errorText(err)))
       .finally(() => setMaking(false));
   }
@@ -308,15 +291,17 @@ export function MakeReadyControl({
   return (
     <>
       <Button
+        variant={variant}
         size="sm"
         aria-label={`Make ${story.key} Ready`}
         aria-describedby={refusal ? refusalId : undefined}
         title={refusal ?? undefined}
         onClick={handleMakeReady}
-        disabled={making || Boolean(refusal)}
+        loading={making}
+        disabled={Boolean(refusal)}
       >
         <CircleCheck aria-hidden="true" />
-        {making ? "Making Ready…" : "Make Ready"}
+        Make Ready
       </Button>
       {refusal && (
         <span id={refusalId} className="sr-only">
@@ -342,6 +327,34 @@ const ENDING_WORDS: Record<EndingReason, string> = {
 
 export function endingWords(reason: EndingReason | null): string {
   return reason ? (ENDING_WORDS[reason] ?? reason) : "unknown";
+}
+
+/**
+ * How a session ended, as a StateBadge (issue #204): a hand-off completed; a crash, an API error or a refusal
+ * failed (red: something went wrong that the Developer should look at); a usage limit holds; anything else was
+ * an interruption. The word is sentence-cased, never the raw enum.
+ */
+export function endingBadge(reason: EndingReason | null): { state: string; label: string } {
+  switch (reason) {
+    case "handed_off":
+      return { state: "completed", label: "Handed off" };
+    case "crash":
+      return { state: "failed", label: "Crashed" };
+    case "api_error":
+      return { state: "failed", label: "API error" };
+    case "refusal":
+      return { state: "failed", label: "Refused" };
+    case "usage_limit":
+      return { state: "held_by_limit", label: "Usage limit" };
+    case "app_quit":
+      return { state: "interrupted", label: "App quit" };
+    case "stopped_by_developer":
+      return { state: "interrupted", label: "Stopped by you" };
+    case "ended_without_hand_off":
+      return { state: "interrupted", label: "Ended without hand-off" };
+    default:
+      return { state: "interrupted", label: "Ending unknown" };
+  }
 }
 
 /** An RFC 3339 timestamp as the session list shows it: `2026-10-19 10:00`. */
@@ -387,10 +400,10 @@ export function StoryStateWord({
  */
 export function ResumeControl({
   story,
-  variant = "default",
+  variant = "outline",
 }: {
   story: Pick<StoryDto, "id" | "key">;
-  /** Outline where another action is the region's one filled primary (a Needs-you card below the first). */
+  /** Filled where Resume is the region's one filled primary (the Story view, the first Needs-you card). */
   variant?: "default" | "outline";
 }) {
   const [open, setOpen] = useState(false);
@@ -408,6 +421,7 @@ export function ResumeControl({
       .then(() => {
         setOpen(false);
         setNote("");
+        notify.success(`Resumed ${story.key}`, { description: "A fresh session started from the Context packet." });
       })
       .catch((err: unknown) => setError(errorText(err)))
       .finally(() => setBusy(false));
@@ -419,6 +433,7 @@ export function ResumeControl({
         variant={variant}
         size="sm"
         aria-label={`Resume ${story.key}`}
+        aria-haspopup="dialog"
         onClick={() => {
           setError(null);
           setOpen(true);
@@ -457,9 +472,9 @@ export function ResumeControl({
               <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
                 Cancel
               </Button>
-              <Button type="submit" aria-label={`Start the new session for ${story.key}`} disabled={busy}>
+              <Button type="submit" aria-label={`Start the new session for ${story.key}`} loading={busy}>
                 <RotateCcw aria-hidden="true" />
-                {busy ? "Resuming…" : "Start the new session"}
+                Start the new session
               </Button>
             </DialogFooter>
           </form>
@@ -470,149 +485,148 @@ export function ResumeControl({
 }
 
 /**
- * Drop (docs/mvp-spec.md §2): the developer ends the Story on purpose. Confirmed in an AlertDialog,
+ * Drop (docs/mvp-spec.md §2): the developer ends the Story on purpose. Confirmed in ConfirmDestructive,
  * because it removes the worktree and branch with any uncommitted work. The core refuses while a session
- * is live; its reason is shown as is. `board:changed` refreshes the Story.
+ * is live; its reason is shown as is, in the dialog. `board:changed` refreshes the Story; a toast says so.
  */
 export function DropControl({ story }: { story: StoryDto }) {
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  function handleDrop() {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    storyDrop(story.id)
-      .then(() => setOpen(false))
-      .catch((err: unknown) => setError(errorText(err)))
-      .finally(() => setBusy(false));
+  async function drop() {
+    await storyDrop(story.id);
+    notify.success(`Dropped ${story.key}`, { description: "Its worktree and branch are gone; the record stays readable." });
   }
 
   return (
-    <>
-      <Button
-        variant="destructive"
-        size="sm"
-        aria-label={`Drop ${story.key}`}
-        onClick={() => {
-          setError(null);
-          setOpen(true);
-        }}
-      >
-        <Trash2 aria-hidden="true" />
-        Drop…
-      </Button>
-      <AlertDialog open={open} onOpenChange={(next) => !busy && setOpen(next)}>
-        <AlertDialogContent className="sm:max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-section font-semibold">{`Drop ${story.key}?`}</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes its worktree and branch, uncommitted work included. The Story&apos;s record stays readable.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {error && (
-            <p role="alert" className="m-0 text-small text-destructive-text">
-              {error}
-            </p>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel aria-label={`Keep ${story.key}`} disabled={busy}>
-              Keep
-            </AlertDialogCancel>
-            <Button
-              variant="destructive"
-              aria-label={`Confirm drop of ${story.key}`}
-              onClick={handleDrop}
-              disabled={busy}
-            >
-              <Trash2 aria-hidden="true" />
-              {busy ? "Dropping…" : "Drop"}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+    <ConfirmDestructive
+      trigger={
+        <Button variant="destructive" size="sm" aria-label={`Drop ${story.key}`}>
+          <Trash2 aria-hidden="true" />
+          Drop…
+        </Button>
+      }
+      title={`Drop ${story.key}?`}
+      description="This removes its worktree and branch, uncommitted work included. The Story's record stays readable."
+      cancelLabel="Keep"
+      confirmLabel="Drop the Story"
+      icon={<Trash2 aria-hidden="true" />}
+      onConfirm={drop}
+    />
   );
 }
 
+/** How long a session ran, as a clock reading, or since it started while it is live. */
+function sessionDuration(startedAt: string, endedAt: string | null, now: number): string {
+  const start = Date.parse(startedAt);
+  const end = endedAt ? Date.parse(endedAt) : now;
+  return formatDuration(Number.isNaN(start) || Number.isNaN(end) ? null : (end - start) / 1000);
+}
+
 /**
- * The Story's sessions, newest first (docs/mvp-spec.md §4.5): ID, start and end, ending reason and
- * summary. Each opens its feed, which stays readable after the session dies.
+ * The Story's sessions, newest first (docs/mvp-spec.md §4.5): each as an Item, named by its ordinal, with
+ * how it ended as a StateBadge, when it started and how long it ran, and the summary it left. Each opens its
+ * feed, which stays readable after the session dies. A failed read says so; the empty state shows only once
+ * the read succeeded with nothing in it.
  */
 export function SessionList({ projectId, story }: { projectId: string; story: StoryDto }) {
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
-  const sessionsQuery = useQuery({
-    queryKey: ["board", projectId, "sessions", story.id],
-    queryFn: () => sessionsForStory(story.id),
-  });
+  const sessionsQuery = useStorySessions(projectId, story.id);
   const summariesQuery = useQuery({
     queryKey: ["board", projectId, "session-summaries", story.id],
     queryFn: () => sessionSummariesForStory(story.id),
   });
-  const sessions = sessionsQuery.data ?? [];
+  const now = Date.now();
+
+  if (sessionsQuery.isError) return <ReadError title="Couldn't load the sessions" query={sessionsQuery} />;
+  if (sessionsQuery.isPending) return <ListSkeleton rows={2} label="Loading the sessions" />;
+  const sessions = sessionsQuery.data;
+  if (sessions.length === 0) {
+    return (
+      <Empty className="p-4">
+        <EmptyHeader>
+          <EmptyTitle className="text-body font-semibold">No sessions yet</EmptyTitle>
+          <EmptyDescription className="text-small">
+            Each session an agent runs on this Story is listed here, with the summary it leaves.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
   const summaries = summariesQuery.data ?? [];
 
   return (
-    <div className="flex flex-col">
-      {sessionsQuery.isError && <p className="m-0 text-small text-destructive-text">{errorText(sessionsQuery.error)}</p>}
-      {sessionsQuery.isSuccess && sessions.length === 0 && (
-        <p className="m-0 text-body text-muted-foreground">No sessions yet.</p>
-      )}
-      <ul aria-label={`Sessions of ${story.key}`} className="m-0 flex list-none flex-col p-0">
+    <div className="flex flex-col gap-2">
+      {summariesQuery.isError && <ReadError title="Couldn't load the session summaries" query={summariesQuery} />}
+      <ItemGroup aria-label={`Sessions of ${story.key}`} role="list" className="gap-0">
         {sessions.map((session, index) => {
           // Summaries arrive oldest first; a session's latest one is the one it left.
           const summary = summaries.filter((s) => s.sessionId === session.id).pop();
           const live = !session.endedAt;
+          const ending = live ? { state: "running", label: "Live" } : endingBadge(session.endingReason);
           return (
-            <li key={session.id} className={cn("flex flex-col gap-1.5 py-3", index > 0 && "border-t border-border")}>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                {/* A handed-off session ended as planned; any other ending is an interruption. */}
-                <StateBadge
-                  state={live ? "running" : session.endingReason === "handed_off" ? "completed" : "interrupted"}
-                  variant="inline"
-                  label={live ? "live" : endingWords(session.endingReason)}
-                />
-                <span className="font-mono text-meta text-muted-foreground">{session.id}</span>
-                <span className="text-meta text-subtle-foreground tabular-nums">
-                  {session.endedAt
-                    ? `${formatWhen(session.startedAt)} to ${formatWhen(session.endedAt)}`
-                    : `since ${formatWhen(session.startedAt)}`}
-                </span>
+            <Item
+              key={session.id}
+              role="listitem"
+              size="sm"
+              className={cn("items-start rounded-none px-0", index > 0 && "border-t-border")}
+            >
+              <ItemContent className="min-w-0 gap-1">
+                <ItemTitle className="flex w-full flex-wrap items-center gap-x-2.5 gap-y-1 text-body font-semibold">
+                  {formatSessionName(sessions.length - index)}
+                  <StateBadge state={ending.state} label={ending.label} className="h-5.5 text-meta" />
+                </ItemTitle>
+                <ItemDescription className="m-0 flex flex-wrap items-center gap-x-1.5 text-meta text-muted-foreground tabular-nums">
+                  <span>Started</span>
+                  <RelativeTime at={session.startedAt} now={now} />
+                  <span aria-hidden="true">·</span>
+                  <span>{`${live ? "running" : "ran"} ${sessionDuration(session.startedAt, session.endedAt, now)}`}</span>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-mono text-subtle-foreground">{session.id}</span>
+                </ItemDescription>
+                {summary && (
+                  <div className="mt-1 flex flex-col gap-0.5 text-small text-muted-foreground">
+                    <span className="font-semibold text-foreground">
+                      {summary.isStub ? "Summary written by Flywheel (the agent left none)" : "Summary"}
+                    </span>
+                    <span className="whitespace-pre-wrap">{summary.nextSessionMustKnow}</span>
+                    {summary.decisions.trim() !== "" && (
+                      <span className="whitespace-pre-wrap">{`Decisions: ${summary.decisions}`}</span>
+                    )}
+                  </div>
+                )}
+              </ItemContent>
+              <ItemActions>
                 <Button
                   variant="outline"
-                  size="xs"
+                  size="sm"
                   aria-label={`Open feed of session ${session.id}`}
                   onClick={() => setActiveSessionId(session.id, story.id)}
-                  className="ml-auto"
                 >
                   <Terminal aria-hidden="true" />
                   Open feed
                 </Button>
-              </div>
-              {summary && (
-                <div className="text-small whitespace-pre-wrap text-muted-foreground">
-                  <span className="font-semibold text-foreground">{summary.isStub ? "Stub summary" : "Summary"}</span>
-                  {`\n${summary.nextSessionMustKnow}`}
-                  {summary.decisions.trim() !== "" && `\nDecisions: ${summary.decisions}`}
-                </div>
-              )}
-            </li>
+              </ItemActions>
+            </Item>
           );
         })}
-      </ul>
+      </ItemGroup>
     </div>
   );
 }
 
-/** A token count as the Story shows it: thousands as `12.3K`. */
-function formatTokens(tokens: number): string {
-  return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}K` : String(tokens);
+/** A list region still loading its first data: bars in the shape of its rows (DESIGN.md § Feedback). */
+export function ListSkeleton({ rows, label }: { rows: number; label: string }) {
+  return (
+    <div role="status" aria-label={label} className="flex flex-col gap-2.5 py-1">
+      {Array.from({ length: rows }, (_, index) => (
+        <Skeleton key={index} className={cn("h-4", index % 2 === 0 ? "w-3/4" : "w-1/2")} />
+      ))}
+    </div>
+  );
 }
 
 /**
  * The size of the Context packet the Story's next session starts from, with a soft warning above
- * about 20K tokens. Keyed under the project so `board:changed` keeps it current.
+ * about 20K tokens: an icon and the words, and a Tooltip saying what to do. Keyed under the project so
+ * `board:changed` keeps it current.
  */
 export function PacketSize({ story, className }: { story: StoryDto; className?: string }) {
   const sizeQuery = useQuery({
@@ -622,12 +636,21 @@ export function PacketSize({ story, className }: { story: StoryDto; className?: 
   if (!sizeQuery.data) return null;
   const { approxTokens, overSoftLimit } = sizeQuery.data;
   const text = `Context packet ~${formatTokens(approxTokens)} tokens`;
+  if (!overSoftLimit) {
+    return <span className={cn("text-subtle-foreground tabular-nums", className)}>{text}</span>;
+  }
   return (
-    <span
-      title={overSoftLimit ? "Above the soft limit of about 20K tokens: trim the Epic spec or the summaries" : undefined}
-      className={cn("tabular-nums", overSoftLimit ? "font-semibold text-foreground" : "text-subtle-foreground", className)}
-    >
-      {overSoftLimit ? `${text}, above the ~20K soft limit` : text}
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className={cn("inline-flex items-center gap-1.5 rounded-sm font-semibold text-foreground tabular-nums", className)}
+        >
+          <TriangleAlert aria-hidden="true" size={16} />
+          {`${text}, above the ~20K soft limit`}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>Trim the Epic spec or the session summaries: every session starts by reading all of it.</TooltipContent>
+    </Tooltip>
   );
 }
