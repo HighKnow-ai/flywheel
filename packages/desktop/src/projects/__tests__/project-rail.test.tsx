@@ -233,6 +233,12 @@ function needsYouItem(kind: string, id: string, extra: Record<string, unknown> =
   };
 }
 
+/** A project's Needs-you figure: the count beside its row, inside the row's own menu item. */
+function needsYouFigure(projectName: string): HTMLElement | null {
+  const row = screen.getByRole("button", { name: new RegExp(`^${projectName}`) });
+  return row.closest("li")!.querySelector<HTMLElement>('[data-count="needs-you"]');
+}
+
 describe("ProjectRail's per-project figure is the Needs-you item count (issue #156)", () => {
   const two = [project({}), project({ id: "proj-2", name: "Other", keyPrefix: "OTH" })];
 
@@ -245,13 +251,13 @@ describe("ProjectRail's per-project figure is the Needs-you item count (issue #1
       ),
     );
     renderWithClient(<ProjectRail projects={two} currentProjectId="proj-1" onSelect={() => {}} />);
-    expect(await screen.findByTitle("3 items need you in Flywheel")).toHaveTextContent("3");
-    expect(await screen.findByTitle("1 item needs you in Other")).toHaveTextContent("1");
+    await waitFor(() => expect(needsYouFigure("Flywheel")).toHaveTextContent("3"));
+    await waitFor(() => expect(needsYouFigure("Other")).toHaveTextContent("1"));
     expect(needsYouListMock).toHaveBeenCalledWith("proj-1");
     expect(needsYouListMock).toHaveBeenCalledWith("proj-2");
   });
 
-  it("is yellow only while an item in it is Waiting on you", async () => {
+  it("is never the attention Badge: yellow is Waiting on you's own count (issue #200)", async () => {
     needsYouListMock.mockImplementation((projectId: string) =>
       Promise.resolve(
         projectId === "proj-1"
@@ -264,10 +270,10 @@ describe("ProjectRail's per-project figure is the Needs-you item count (issue #1
       ),
     );
     renderWithClient(<ProjectRail projects={two} currentProjectId="proj-1" onSelect={() => {}} />);
-    const quiet = await screen.findByTitle("1 item needs you in Flywheel");
-    const lit = await screen.findByTitle("1 item needs you in Other");
-    expect(quiet).toHaveAttribute("data-variant", "secondary");
-    expect(lit).toHaveAttribute("data-variant", "attention");
+    await waitFor(() => expect(needsYouFigure("Other")).toHaveTextContent("1"));
+    expect(needsYouFigure("Flywheel")).toHaveAttribute("data-variant", "secondary");
+    expect(needsYouFigure("Other")).toHaveAttribute("data-variant", "secondary");
+    expect(document.querySelectorAll('[data-variant="attention"]')).toHaveLength(0);
   });
 
   it("shows no figure for a project nothing needs, and no separate Needs decision figure", async () => {
@@ -346,22 +352,33 @@ describe("project switching via the keyboard (⌘1-⌘9)", () => {
   });
 });
 
-describe("ProjectRail's Remove from Flywheel (D-200, closes D-REV-29)", () => {
+describe("ProjectRail's Remove from Flywheel (D-200, closes D-REV-29; issue #200)", () => {
   const alpha = project({ id: "p1", name: "Alpha", keyPrefix: "ALP" });
   const dupe = project({ id: "p2", name: "Alpha", keyPrefix: "ALP", status: "unreachable" });
+  const beta = project({ id: "p3", name: "Beta", keyPrefix: "BET" });
 
-  function openConfirmation() {
-    fireEvent.click(screen.getByRole("button", { name: "Remove from Flywheel…" }));
+  /** Opens the project's own menu and picks Remove from Flywheel… in it. */
+  async function openConfirmation(rowName: string) {
+    const trigger = screen.getByRole("button", { name: `Project actions for ${rowName}` });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from Flywheel…" }));
+    return screen.findByRole("alertdialog");
   }
+
+  it("is not in the footer: it lives in each project's own menu", () => {
+    renderWithClient(<ProjectRail projects={[alpha, beta]} currentProjectId="p1" onSelect={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Remove from Flywheel…" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Project actions for Alpha" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Project actions for Beta" })).toBeInTheDocument();
+  });
 
   it("asks first, naming what is kept, and calls project_hide only after the confirmation", async () => {
     invokeCommandMock.mockResolvedValue(undefined);
-    const onSelect = vi.fn();
-    renderWithClient(<ProjectRail projects={[alpha, dupe]} currentProjectId="p2" onSelect={onSelect} />);
+    renderWithClient(<ProjectRail projects={[alpha, dupe]} currentProjectId="p2" onSelect={() => {}} />);
 
-    openConfirmation();
+    const confirmation = await openConfirmation("Alpha, Unreachable");
     expect(invokeCommandMock).not.toHaveBeenCalledWith("project_hide", expect.anything());
-    const confirmation = screen.getByRole("group", { name: "Remove Alpha from Flywheel" });
+    expect(within(confirmation).getByRole("heading", { name: "Remove Alpha from Flywheel?" })).toBeInTheDocument();
     for (const kept of ["board", "worktrees", "runs", "activity trail"]) {
       expect(confirmation).toHaveTextContent(kept);
     }
@@ -372,33 +389,44 @@ describe("ProjectRail's Remove from Flywheel (D-200, closes D-REV-29)", () => {
     expect(invokeCommandMock.mock.calls.filter(([command]) => command === "project_hide")).toHaveLength(1);
   });
 
-  it("selects another project afterwards rather than rendering an empty surface", async () => {
+  it("removes any project from its own row, not only the current one", async () => {
+    invokeCommandMock.mockResolvedValue(undefined);
+    const onSelect = vi.fn();
+    renderWithClient(<ProjectRail projects={[alpha, beta]} currentProjectId="p1" onSelect={onSelect} />);
+    const confirmation = await openConfirmation("Beta");
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Remove from Flywheel" }));
+    await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("project_hide", { projectId: "p3" }));
+    // Removing a project that is not the one on screen leaves the developer where they are.
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("selects another project afterwards when the removed one was current", async () => {
     invokeCommandMock.mockResolvedValue(undefined);
     const onSelect = vi.fn();
     renderWithClient(<ProjectRail projects={[alpha, dupe]} currentProjectId="p2" onSelect={onSelect} />);
 
-    openConfirmation();
-    fireEvent.click(screen.getByRole("button", { name: "Remove from Flywheel" }));
+    const confirmation = await openConfirmation("Alpha, Unreachable");
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Remove from Flywheel" }));
 
     await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1));
     expect(onSelect).toHaveBeenCalledWith(alpha);
   });
 
-  it("calls nothing when the confirmation is declined", () => {
+  it("calls nothing when the confirmation is cancelled", async () => {
     renderWithClient(<ProjectRail projects={[alpha, dupe]} currentProjectId="p2" onSelect={() => {}} />);
-    openConfirmation();
-    fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
+    const confirmation = await openConfirmation("Alpha, Unreachable");
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Cancel" }));
     expect(invokeCommandMock).not.toHaveBeenCalledWith("project_hide", expect.anything());
-    expect(screen.queryByRole("group", { name: /Remove Alpha from Flywheel/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
 
   it("keeps the project and says why when the hide fails", async () => {
     invokeCommandMock.mockRejectedValue(new Error("project not found"));
     const onSelect = vi.fn();
     renderWithClient(<ProjectRail projects={[alpha, dupe]} currentProjectId="p2" onSelect={onSelect} />);
-    openConfirmation();
-    fireEvent.click(screen.getByRole("button", { name: "Remove from Flywheel" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("project not found");
+    const confirmation = await openConfirmation("Alpha, Unreachable");
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Remove from Flywheel" }));
+    expect(await within(confirmation).findByRole("alert")).toHaveTextContent("project not found");
     expect(onSelect).not.toHaveBeenCalled();
   });
 
@@ -569,5 +597,91 @@ describe("the sidebar's click model and current place (issue #104)", () => {
     useUiStore.setState({ currentProjectId: "proj-1", currentStoryId: "s-9" });
     renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
     expect(await screen.findByRole("button", { name: "Open Story FLY-9 Quiet" })).toHaveAttribute("aria-current", "location");
+  });
+});
+
+describe("the rail raises where the developer is, whichever project that is (issue #200)", () => {
+  const two = [project({}), project({ id: "proj-2", name: "Threadfin", keyPrefix: "THF" })];
+
+  it("with another project's live session open, raises that project and that Story", async () => {
+    fleetListMock.mockResolvedValue({
+      rows: [fleetRow({ sessionId: "r-2", projectId: "proj-2", storyId: "s-2", storyKey: "THF-2", storyTitle: "Second" })],
+      totalRows: 1,
+      visibleCostUsd: null,
+    });
+    // The board behind is still Flywheel's; the session on screen is Threadfin's.
+    useUiStore.setState({ currentProjectId: "proj-1", activeSessionId: "r-2", activeSessionStoryId: "s-2" });
+    renderWithClient(<ProjectRail projects={two} currentProjectId="proj-1" onSelect={() => {}} />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Threadfin" })).toHaveAttribute("aria-current", "true"),
+    );
+    expect(screen.getByRole("button", { name: "Flywheel" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("button", { name: "Open Story THF-2 Second" })).toHaveAttribute("aria-current", "location");
+  });
+
+  it("with another project's finished session open, raises that project and lists its Story", async () => {
+    fleetListMock.mockResolvedValue({
+      rows: [
+        fleetRow({
+          sessionId: "r-9",
+          projectId: "proj-2",
+          storyId: "s-9",
+          storyKey: "THF-9",
+          storyTitle: "Done already",
+          storyState: "in_review",
+          runStatus: "completed",
+          fleetState: "awaiting_review",
+          endedAt: new Date().toISOString(),
+        }),
+      ],
+      totalRows: 1,
+      visibleCostUsd: null,
+    });
+    useUiStore.setState({ currentProjectId: "proj-1", activeSessionId: "r-9", activeSessionStoryId: "s-9" });
+    renderWithClient(<ProjectRail projects={two} currentProjectId="proj-1" onSelect={() => {}} />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Threadfin" })).toHaveAttribute("aria-current", "true"),
+    );
+    const list = screen.getByRole("list", { name: "Threadfin running sessions" });
+    expect(within(list).getByRole("button", { name: "Open Story THF-9 Done already" })).toHaveAttribute(
+      "aria-current",
+      "location",
+    );
+  });
+
+  it("with another project's Story open, raises that project and that Story", async () => {
+    storyGetMock.mockResolvedValue({
+      id: "s-5", projectId: "proj-2", epicId: "e1", key: "THF-5", title: "Quiet",
+      description: null, state: "ready", runsAfterStoryId: null, rank: "a",
+    });
+    useUiStore.getState().openStory("proj-2", "s-5");
+    renderWithClient(<ProjectRail projects={two} currentProjectId="proj-2" onSelect={() => {}} />);
+    expect(screen.getByRole("button", { name: "Threadfin" })).toHaveAttribute("aria-current", "true");
+    expect(await screen.findByRole("button", { name: "Open Story THF-5 Quiet" })).toHaveAttribute("aria-current", "location");
+  });
+});
+
+describe("the rail collapses to icons (issue #200)", () => {
+  it("⌘B collapses it and expands it again", async () => {
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
+    const sidebar = screen.getByRole("navigation", { name: "Projects" }).closest("[data-slot=sidebar]")!;
+    expect(sidebar).toHaveAttribute("data-state", "expanded");
+    fireEvent.keyDown(window, { key: "b", metaKey: true });
+    await waitFor(() => expect(sidebar).toHaveAttribute("data-state", "collapsed"));
+    expect(sidebar).toHaveAttribute("data-collapsible", "icon");
+    fireEvent.keyDown(window, { key: "b", metaKey: true });
+    await waitFor(() => expect(sidebar).toHaveAttribute("data-state", "expanded"));
+  });
+
+  it("carries no native title tooltips: every hint is a Tooltip", () => {
+    renderWithClient(
+      <ProjectRail
+        projects={[project({}), project({ id: "proj-2", name: "Threadfin", keyPrefix: "THF", status: "unreachable" })]}
+        currentProjectId="proj-1"
+        onSelect={() => {}}
+      />,
+    );
+    const sidebar = screen.getByRole("navigation", { name: "Projects" });
+    expect(sidebar.querySelectorAll("[title]")).toHaveLength(0);
   });
 });
