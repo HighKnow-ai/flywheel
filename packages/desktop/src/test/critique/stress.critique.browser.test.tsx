@@ -12,7 +12,7 @@
  * Screens are named `s<nn>-…` so they sort after the walk's numbered ones.
  */
 import { Component, type ReactNode } from "react";
-import { afterAll, afterEach, beforeEach, describe, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { page, userEvent } from "vitest/browser";
 import { clearMocks } from "@tauri-apps/api/mocks";
@@ -22,7 +22,7 @@ import { useTriageDrawer } from "../../proposals/triageStore";
 import App from "../../App";
 import { setReviewInFixture } from "./m2-fixture";
 import { BIG, installStressBackend, setBigReviewMergeable, STRESS, type StressOptions } from "./stress-fixture";
-import { capture, CRITIQUE_RUN, settle, writeDefectReport } from "./capture";
+import { capture, CRITIQUE_RUN, settle, SIZES, writeDefectReport } from "./capture";
 
 const { LONG_STORY, REVIEW_STORY } = STRESS;
 
@@ -299,6 +299,15 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
     await renderApp({ claudeMissing: true });
     await screen.findAllByText(/was not found on PATH/);
     await capture("s29-claude-missing");
+    // #210 (critique F6): the Alert sits in the flow under the andon strip at every size, never over a lamp.
+    for (const size of SIZES) {
+      await page.viewport(size.width, size.height);
+      await settle(250);
+      const strip = screen.getByRole("region", { name: "Agents" }).getBoundingClientRect();
+      const alert = screen.getByRole("alert", { name: "Launch environment" }).getBoundingClientRect();
+      expect.soft(alert.top, `${size.width}x${size.height}: the Alert's top against the strip's bottom`).toBeGreaterThanOrEqual(strip.bottom);
+    }
+    await page.viewport(1440, 900);
   });
 
   it("s30 the board when its reads fail", async () => {
