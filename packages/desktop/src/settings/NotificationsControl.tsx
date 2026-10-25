@@ -1,29 +1,37 @@
+import { useId } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Switch } from "@/components/ui/switch";
+import { notify } from "@/lib/notify";
 import { settingsSetNotificationsEnabled, type SettingsDto } from "../adapters/tauri";
-import "../styles/admin-surfaces.css";
 
 /**
- * The one global OS-notification switch (FLEET-05, D-176): a single checkbox covering an agent that
- * blocks, finishes or fails. Controlled by the stored value, so a refused set snaps back. There is
- * deliberately no per-project control here.
+ * The one global OS-notification switch (FLEET-05, D-176), covering an agent that blocks, finishes or fails.
+ * It shows the stored value, or the value being saved while the write is in flight, so a refused set snaps
+ * back. There is deliberately no per-project control here.
  */
 export function NotificationsControl({ settings, onChanged }: { settings: SettingsDto; onChanged: () => void }) {
+  const id = useId();
   const mutation = useMutation({
     mutationFn: (value: boolean) => settingsSetNotificationsEnabled(value),
+    onSuccess: (_data, value) => notify.success(value ? "Notifications turned on" : "Notifications turned off"),
+    onError: (error) => notify.error("Couldn't change notifications", { error }),
     onSettled: onChanged,
   });
+  const checked = mutation.isPending ? (mutation.variables ?? settings.notificationsEnabled) : settings.notificationsEnabled;
   return (
-    <label className="type-body" style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
-      <input
-        type="checkbox"
+    <Field orientation="horizontal">
+      <FieldContent>
+        <FieldLabel htmlFor={id}>Notify when an agent blocks, finishes or fails</FieldLabel>
+        <FieldDescription>A macOS notification, for every project.</FieldDescription>
+      </FieldContent>
+      <Switch
+        id={id}
         data-testid="notifications-switch"
-        className="admin-check"
-        style={{ marginTop: 0 }}
-        checked={settings.notificationsEnabled}
+        checked={checked}
         disabled={mutation.isPending}
-        onChange={(event) => mutation.mutate(event.target.checked)}
+        onCheckedChange={(value) => mutation.mutate(value)}
       />
-      Notify when an agent blocks, finishes or fails
-    </label>
+    </Field>
   );
 }

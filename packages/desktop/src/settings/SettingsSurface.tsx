@@ -1,38 +1,48 @@
 /**
- * The Settings surface (D-39, 02-UI-SPEC.md "Settings surface" — the product's first Settings
- * surface). Same shell pattern as `session/SessionSurface.tsx`: a full surface that replaces the
- * board's content area, the project rail stays visible, a `← Back` back affordance returns —
- * never a modal, because this holds a form the user may want to leave open and return to
- * (02-UI-SPEC.md Open Decision #1: no unsaved-state warning, because every field here commits on
- * interaction, so there is nothing to lose by navigating away).
+ * The Settings surface (D-39): a full surface that replaces the board's content area, the project rail still
+ * visible, Back returning. Never a modal, because this holds a form the user may want to leave open and return
+ * to, and there is no unsaved-state warning, because every field here commits on interaction (and says so with
+ * a toast, #209), so there is nothing to lose by navigating away.
  *
- * Reached from exactly three places (plan 02-10 Task 3): the app menu's "Settings…" item, `⌘,`,
- * and the command palette — never an inline settings-adjacent affordance on the board or the
- * launch sheet.
+ * Reached from exactly three places: the app menu's "Settings…" item, `⌘,`, and the command palette.
  *
- * Five sections, top to bottom:
- * 1. **Credential path** — a global two-value segmented control (`Local Claude Code Credentials`
- *    default / `API Key`), the write-only Keychain-backed key field (only revealed while the
- *    global mode is `api_key`), and the non-blocking backend-unavailable notice.
- * 2. **Per-project override** — one row per registered project (`useBoardQuery.ts`'s
- *    `useProjects`), each carrying the same segmented control plus a third `Use global default`
- *    option. Absent entirely at zero registered projects (E7 zero-one-many) — an override table
- *    with no rows would be noise, and the global control alone is the honest surface.
- * 3. **Worktree open commands** (D-130, LINK-11, plan 07-04 Task 3) — the two command templates
- *    `item-detail/WorktreeSummary.tsx`'s "Open in editor"/"Open in terminal" actions run,
- *    pre-filled with their current (stored-or-default) value and saved on blur/Enter, following
- *    this file's own "every field commits on interaction" discipline. A rejected save (an empty
- *    or whitespace-only template) surfaces the core's own rejection text rather than storing it.
- * 4. **Notifications** (D-176) — the one global OS-notification switch.
- * 5. **Permission rules** (D-38) — `PermissionRulesTable.tsx`, mounted by plan 02-10 Task 2.
+ * Five Card sections, top to bottom (#209 rebuilt them on `components/ui/`):
+ * 1. **Credentials**: a Radio Group of the two global paths (local Claude Code credentials, the default, or an
+ *    API key), the write-only Keychain-backed key field (only while the global path is the API key), and the
+ *    non-blocking backend-unavailable notice.
+ * 2. **Per-project credentials**: a Table with one row per registered project and a Select per row carrying the
+ *    same two paths plus "Use the default". Absent at zero registered projects (E7 zero-one-many).
+ * 3. **Notifications** (D-176): the one global OS-notification Switch.
+ * 4. **Open commands** (D-130, LINK-11): the two templates the worktree's "Open in editor" and "Open in
+ *    terminal" run, saved on blur or Return. A rejected save surfaces the core's own rejection text.
+ * 5. **Permission rules** (D-38): `PermissionRulesTable.tsx`.
  *
- * `T-02-40`'s mitigation lives here structurally: the API key input is always `type="password"`,
- * there is no unmask affordance anywhere in this file (Task 1's own structural `<verify>` grep
- * gate), and `settings_get`/`SettingsDto` never carries the key value itself — only whether one is
+ * T-02-40's mitigation lives here structurally: the API key input is always `type="password"`, there is no
+ * unmask affordance anywhere in this file, and `SettingsDto` never carries the key itself, only whether one is
  * configured and when.
  */
-import { useState, type KeyboardEvent } from "react";
+import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Info, KeyRound, ShieldAlert } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  FieldTitle,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ReadError } from "@/components/ReadError";
+import { formatAbsoluteTime } from "@/lib/format";
+import { notify } from "@/lib/notify";
 import {
   backendCapabilityProbe,
   getSettings,
@@ -46,48 +56,48 @@ import {
 import { useProjects } from "../board/useBoardQuery";
 import { NotificationsControl } from "./NotificationsControl";
 import { PermissionRulesTable } from "./PermissionRulesTable";
-import "../styles/admin-surfaces.css";
 import { PageHeader } from "../shell/PageHeader";
 
-/** The two credential-mode values the schema/commands accept (`commands/settings.rs`'s
- * `validate_mode`) — the exact labels 02-UI-SPEC.md's Copywriting Contract specifies. */
+/** The two credential-mode values the core accepts (`commands/settings.rs`'s `validate_mode`). */
 type CredentialMode = "local" | "api_key";
 
-const CREDENTIAL_OPTIONS: readonly { value: CredentialMode; label: string }[] = [
-  { value: "local", label: "Local Claude Code Credentials" },
-  { value: "api_key", label: "API Key" },
+const CREDENTIAL_OPTIONS: readonly { value: CredentialMode; label: string; description: string }[] = [
+  {
+    value: "local",
+    label: "Local Claude Code credentials",
+    description: "The claude CLI's own sign-in, as you use it in a terminal.",
+  },
+  {
+    value: "api_key",
+    label: "API key",
+    description: "An Anthropic API key, kept in the macOS Keychain and billed per token.",
+  },
 ];
 
-/** The per-project row's third option — `"default"` is a renderer-only value (never sent to the
- * command surface as-is); selecting it sends `mode: null`, which `set_project_credential_mode`
- * treats as clearing the override back to "use the global default." */
+/** The per-project row's third option. `"default"` is renderer-only: choosing it sends `mode: null`, which
+ * `set_project_credential_mode` treats as clearing the override back to the global default. */
 type ProjectOptionValue = CredentialMode | "default";
 
-const PROJECT_CREDENTIAL_OPTIONS: readonly { value: ProjectOptionValue; label: string }[] = [
-  ...CREDENTIAL_OPTIONS,
-  { value: "default", label: "Use global default" },
-];
+const PROJECT_DEFAULT_LABEL = "Use the default";
+
+/** A path as it reads inside a sentence ("Set Acme to the API key"). */
+const MODE_PHRASE: Record<CredentialMode, string> = {
+  local: "local Claude Code credentials",
+  api_key: "the API key",
+};
 
 const SETTINGS_QUERY_KEY = ["settings"] as const;
 const BACKEND_CAPABILITY_QUERY_KEY = ["backend-capability"] as const;
 
-/** The exact copy from 02-UI-SPEC.md's Copywriting Contract ("Settings — CLI not detected
- * notice") — never a hard error, since the API-key path remains fully usable regardless. */
-/** T-02-42 clause 1 (D-39). The threat's declared mitigation is conjoined: the API-key override
- * assumption (A1) is measured and its outcome recorded, AND "if the override cannot be confirmed
- * the Settings surface carries a notice rather than the product assuming it worked."
+/** T-02-42 clause 1 (D-39). The threat's declared mitigation is conjoined: the API-key override assumption (A1)
+ * is measured and its outcome recorded, AND "if the override cannot be confirmed the Settings surface carries a
+ * notice rather than the product assuming it worked."
  *
- * A1 was never confirmed — measuring it needs a spend-authorized key alongside a live subscription
- * session, which no environment available to this project has had (02-09-SUMMARY.md "What could
- * NOT be measured"; 02-UAT.md test 3's open_question). The conditional therefore fired, and this
- * string is its consequence.
- *
- * Why it is not cosmetic: clause 2 (error rather than silent fallback, credentials.rs) only covers
- * api_key mode with NO key stored. The harm this threat names is the opposite configuration —
- * BOTH credentials present — where resolve_credential succeeds, ANTHROPIC_API_KEY is set, and the
- * control reads "API Key". If the environment variable does not in fact win over a live
- * `claude login` session, Flywheel bills the subscription while displaying API Key. Saying so is
- * the mitigation; silence is the threat.
+ * A1 was never confirmed: measuring it needs a spend-authorized key alongside a live subscription session, which
+ * no environment available to this project has had (02-09-SUMMARY.md). The conditional therefore fired, and this
+ * string is its consequence. With BOTH credentials present, if the environment variable does not in fact win over
+ * a live `claude login` session, Flywheel bills the subscription while displaying API key. Saying so is the
+ * mitigation; silence is the threat.
  *
  * Delete this only when precedence has been MEASURED, not when it is assumed. */
 const API_KEY_PRECEDENCE_NOTICE =
@@ -98,89 +108,111 @@ const API_KEY_PRECEDENCE_NOTICE =
 const BACKEND_UNAVAILABLE_NOTICE =
   "Local credentials require the claude CLI, which wasn't found. The API key path still works.";
 
-/** A row-shaped placeholder for the near-instant window between this surface mounting and its
- * reads resolving (E7 loading) — the same minimal, self-contained pattern
- * `launch-sheet/LaunchSheet.tsx`'s `PreviewSkeleton` already established (this codebase has no
- * shared skeleton-row component yet): muted bars, never an empty page and never a spinner. */
-function SectionSkeleton() {
-  const barStyle = {
-    height: 12,
-    borderRadius: "var(--radius-control)",
-    background: "var(--border)",
-  };
+/** One Settings section: a Card with its heading and one line on what it governs. */
+function Section({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: ReactNode;
+  children: ReactNode;
+}) {
+  const headingId = useId();
   return (
-    <div
-      aria-hidden="true"
-      data-testid="settings-skeleton"
-      style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}
-    >
-      <div style={{ ...barStyle, width: "60%" }} />
-      <div style={{ ...barStyle, width: "40%" }} />
+    <Card role="region" aria-labelledby={headingId}>
+      <CardHeader>
+        <CardTitle id={headingId} role="heading" aria-level={2}>
+          {title}
+        </CardTitle>
+        {description && <CardDescription className="text-body">{description}</CardDescription>}
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">{children}</CardContent>
+    </Card>
+  );
+}
+
+/** The Credentials section's shape while the settings read is in flight (E7 loading). */
+function CredentialsSkeleton() {
+  return (
+    <div aria-hidden="true" data-testid="settings-skeleton" className="grid gap-3 md:grid-cols-2">
+      {[0, 1].map((card) => (
+        <div key={card} className="flex flex-col gap-2 rounded-lg border border-border p-3">
+          <Skeleton className="h-4 w-1/2" />
+          <Skeleton className="h-3.5 w-4/5" />
+        </div>
+      ))}
     </div>
   );
 }
 
-/** The one segmented-control implementation both the global row and every per-project row reuse
- * (the action text's own "literally the same control reused per row, not a second design") —
- * mirrors `launch-sheet/LaunchSheet.tsx`'s permission-mode `role="radiogroup"`/`role="radio"`
- * pattern exactly. Every selection commits immediately via the caller's `onSelect` — there is no
- * local draft state here, which is what makes "no Save button, nothing to lose" true by
- * construction rather than by convention. */
-function SegmentedControl<T extends string>({
-  ariaLabel,
-  options,
+/** The global credential path: two choice cards in a Radio Group. Every choice commits immediately; there is no
+ * draft state, which is what makes "nothing to lose" true by construction. */
+function CredentialChoice({
   value,
+  disabled,
   onSelect,
 }: {
-  ariaLabel: string;
-  options: readonly { value: T; label: string }[];
-  value: T;
-  onSelect: (value: T) => void;
+  value: CredentialMode;
+  disabled: boolean;
+  onSelect: (mode: CredentialMode) => void;
 }) {
+  const baseId = useId();
   return (
-    <div role="radiogroup" aria-label={ariaLabel} style={{ display: "flex", gap: "var(--space-xs)" }}>
-      {options.map((option) => {
-        const selected = option.value === value;
+    <RadioGroup
+      aria-label="Credential path"
+      value={value}
+      onValueChange={(next) => onSelect(next as CredentialMode)}
+      disabled={disabled}
+      className="grid gap-3 md:grid-cols-2"
+    >
+      {CREDENTIAL_OPTIONS.map((option) => {
+        const id = `${baseId}-${option.value}`;
         return (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            onClick={() => onSelect(option.value)}
-            className="type-label control-edge admin-choice"
-          >
-            {option.label}
-          </button>
+          <FieldLabel key={option.value} htmlFor={id}>
+            <Field orientation="horizontal">
+              <FieldContent>
+                <FieldTitle id={`${id}-title`} className="text-body">
+                  {option.label}
+                </FieldTitle>
+                <FieldDescription id={`${id}-description`}>{option.description}</FieldDescription>
+              </FieldContent>
+              <RadioGroupItem
+                id={id}
+                value={option.value}
+                aria-labelledby={`${id}-title`}
+                aria-describedby={`${id}-description`}
+              />
+            </Field>
+          </FieldLabel>
         );
       })}
-    </div>
+    </RadioGroup>
   );
 }
 
 /**
- * The write-only API key field (T-02-40): a masked input with no reveal toggle. Saving clears the
- * input and replaces it with `API key configured on {date}.` and a `Replace` action that returns
- * to the masked input — the previously stored value is never rendered, matching D-39's "never in
- * SQLite, never in a config file" discipline extended to "never re-rendered either."
+ * The write-only API key field (T-02-40): a masked input with no reveal toggle. Saving clears the input and
+ * replaces it with "API key configured on {date}." and Replace, which returns to the masked input. The stored
+ * value is never rendered.
  *
- * Commits on blur or Enter (mirrors `item-detail/ItemDetailPanel.tsx`'s inline-editable title
- * convention: `onBlur={commit}`, Enter blurs to trigger the same commit) rather than a dedicated
- * "Save" button — a typed-but-uncommitted key is the one piece of real draft state this surface
- * has, and committing it on the same interaction that would otherwise abandon it (blur/Enter)
- * keeps "every field commits on interaction" true without a page-level Save affordance.
+ * Commits on blur or Return rather than with a Save button: a typed-but-uncommitted key is the one piece of real
+ * draft state this surface has, and committing it on the interaction that would otherwise abandon it keeps
+ * "every field commits on interaction" true.
  */
 function ApiKeyField({ settings }: { settings: SettingsDto }) {
   const queryClient = useQueryClient();
+  const inputId = useId();
   const [draft, setDraft] = useState("");
   const [replacing, setReplacing] = useState(false);
 
   const saveMutation = useMutation({
     mutationFn: (value: string) => storeApiKey(value),
-    onSuccess: () => {
+    onSuccess: async () => {
       setDraft("");
       setReplacing(false);
-      queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
+      await queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
+      notify.success("Saved the API key", { description: "It's in the macOS Keychain and won't be shown again." });
     },
   });
 
@@ -191,9 +223,7 @@ function ApiKeyField({ settings }: { settings: SettingsDto }) {
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Enter") {
-      event.currentTarget.blur();
-    }
+    if (event.key === "Enter") event.currentTarget.blur();
   }
 
   const showConfigured = settings.apiKeyConfigured && !replacing && !saveMutation.isError;
@@ -203,117 +233,200 @@ function ApiKeyField({ settings }: { settings: SettingsDto }) {
       ? new Date(settings.apiKeyConfiguredAt).toLocaleDateString()
       : "";
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}>
-        <span className="type-body">{`API key configured on ${configuredDate}.`}</span>
-        <button
-          type="button"
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-body" title={formatAbsoluteTime(settings.apiKeyConfiguredAt)}>
+          {`API key configured on ${configuredDate}.`}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => {
             saveMutation.reset();
             setReplacing(true);
           }}
-          className="type-label control-edge admin-action"
         >
+          <KeyRound aria-hidden="true" />
           Replace
-        </button>
+        </Button>
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", maxWidth: 320 }}>
-      <input
+    <Field data-invalid={saveMutation.isError || undefined} className="max-w-sm">
+      <FieldLabel htmlFor={inputId}>Anthropic API key</FieldLabel>
+      <Input
+        id={inputId}
         type="password"
-        aria-label="API key"
         value={draft}
         disabled={saveMutation.isPending}
+        aria-invalid={saveMutation.isError || undefined}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
         onKeyDown={handleKeyDown}
         placeholder="sk-ant-…"
-        className="type-body control-edge admin-field"
+        autoComplete="off"
+        spellCheck={false}
       />
-      {saveMutation.isError && (
-        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text)" }}>
-          {saveMutation.error instanceof Error ? saveMutation.error.message : "Could not save the API key."}
-        </p>
+      {saveMutation.isError ? (
+        <FieldError>
+          {saveMutation.error instanceof Error ? saveMutation.error.message : "Couldn't save the API key."}
+        </FieldError>
+      ) : (
+        <FieldDescription>Saved when you leave the field or press Return.</FieldDescription>
       )}
-    </div>
+    </Field>
   );
 }
-
-/** `item-detail/WorktreeSummary.tsx`'s open-command template helper text — stated once here
- * rather than per-field, since both fields carry the identical mechanism. */
-const OPEN_COMMAND_HELP_TEXT =
-  "Split into arguments and run directly — {worktree_path} is substituted, no shell is involved.";
 
 function openCommandTemplateQueryKey(surface: WorktreeOpenSurface) {
   return ["open-command-template", surface] as const;
 }
 
 /**
- * One of the two D-130 worktree-open command template fields (editor/terminal). Reads the
- * current (stored-or-default) value on mount via `openCommandTemplate`, commits an edit on
- * blur/Enter — mirroring `ApiKeyField`'s own commit-on-interaction convention above — and renders
- * the core's own rejection text (`set_open_command_template`'s empty/whitespace-only refusal)
- * inline rather than storing it.
+ * One of the two D-130 worktree-open command templates (editor, terminal). Reads the current stored-or-default
+ * value, commits an edit on blur or Return, and shows the core's own rejection (an empty or whitespace-only
+ * template) under the field rather than storing it.
  */
-function OpenCommandTemplateField({ surface, label }: { surface: WorktreeOpenSurface; label: string }) {
+function OpenCommandTemplateField({
+  surface,
+  label,
+  noun,
+}: {
+  surface: WorktreeOpenSurface;
+  label: string;
+  noun: string;
+}) {
   const queryClient = useQueryClient();
+  const inputId = useId();
   const queryKey = openCommandTemplateQueryKey(surface);
   const templateQuery = useQuery({ queryKey, queryFn: () => openCommandTemplate(surface) });
   const [draft, setDraft] = useState<string | null>(null);
 
   const saveMutation = useMutation({
     mutationFn: (value: string) => setOpenCommandTemplate(surface, value),
-    onSuccess: () => {
+    onSuccess: async () => {
       setDraft(null);
-      queryClient.invalidateQueries({ queryKey });
+      await queryClient.invalidateQueries({ queryKey });
+      notify.success(`Saved the ${noun} command`);
     },
   });
 
   function commit() {
     if (saveMutation.isPending || draft === null) return;
+    // Leaving the field untouched is not a save, and says nothing.
+    if (draft === templateQuery.data) {
+      setDraft(null);
+      return;
+    }
     saveMutation.mutate(draft);
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Enter") {
-      event.currentTarget.blur();
-    }
+    if (event.key === "Enter") event.currentTarget.blur();
   }
 
-  // E7 loading: render nothing while the read is in flight — this is a near-instant local read,
-  // not worth a dedicated skeleton (and `SectionSkeleton`'s shared `data-testid` would otherwise
-  // collide with the Credential Path section's own skeleton above).
-  if (templateQuery.isPending) return null;
+  return (
+    <Field data-invalid={saveMutation.isError || undefined}>
+      <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
+      {templateQuery.isPending ? (
+        <Skeleton aria-hidden="true" className="h-8.5 w-full" />
+      ) : (
+        <Input
+          id={inputId}
+          type="text"
+          value={draft ?? templateQuery.data ?? ""}
+          disabled={saveMutation.isPending}
+          aria-invalid={saveMutation.isError || undefined}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={handleKeyDown}
+          spellCheck={false}
+          autoComplete="off"
+          className="font-mono text-small"
+        />
+      )}
+      {saveMutation.isError && (
+        <FieldError>
+          {saveMutation.error instanceof Error ? saveMutation.error.message : "Couldn't save this command."}
+        </FieldError>
+      )}
+    </Field>
+  );
+}
 
-  const value = draft ?? templateQuery.data ?? "";
+/** The per-project override: a Table with a Select per row. Each choice commits at once; while it is in flight
+ * the row shows the value being saved, and a refused save snaps back to what is stored. */
+function ProjectOverrides({ settings }: { settings: SettingsDto }) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: (input: { projectId: string; projectName: string; mode: CredentialMode | null }) =>
+      setCredentialMode("project", input.mode, input.projectId),
+    onSuccess: async (_data, input) => {
+      await queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
+      notify.success(
+        input.mode === null
+          ? `Set ${input.projectName} to the default credentials`
+          : `Set ${input.projectName} to ${MODE_PHRASE[input.mode]}`,
+      );
+    },
+    onError: (error, input) => notify.error(`Couldn't change ${input.projectName}'s credentials`, { error }),
+  });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-xs)", maxWidth: 420 }}>
-      <label className="type-label" style={{ color: "var(--muted-foreground)" }}>
-        {label}
-      </label>
-      <input
-        type="text"
-        aria-label={label}
-        value={value}
-        disabled={saveMutation.isPending}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={handleKeyDown}
-        className="type-body control-edge admin-field"
-        style={{ fontFamily: 'var(--font-code)' }}
-      />
-      <p className="type-label" style={{ margin: 0, color: "var(--muted-foreground)" }}>
-        {OPEN_COMMAND_HELP_TEXT}
-      </p>
-      {saveMutation.isError && (
-        <p role="alert" className="type-label" style={{ margin: 0, color: "var(--destructive-text)" }}>
-          {saveMutation.error instanceof Error ? saveMutation.error.message : "Could not save this template."}
-        </p>
-      )}
-    </div>
+    <Table aria-label="Per-project credentials" className="table-fixed text-body">
+      <colgroup>
+        <col />
+        <col className="w-72" />
+      </colgroup>
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          <TableHead className="pl-0 text-small text-muted-foreground">Project</TableHead>
+          <TableHead className="pr-0 text-small text-muted-foreground">Credentials</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {settings.projectOverrides.map((override) => {
+          const pending = mutation.isPending && mutation.variables?.projectId === override.projectId;
+          const stored = (override.credentialMode ?? "default") as ProjectOptionValue;
+          const value: ProjectOptionValue = pending ? (mutation.variables?.mode ?? "default") : stored;
+          return (
+            <TableRow key={override.projectId}>
+              <TableCell className="pl-0">
+                <span className="block truncate" title={override.projectName}>
+                  {override.projectName}
+                </span>
+              </TableCell>
+              <TableCell className="pr-0">
+                <Select
+                  value={value}
+                  disabled={pending}
+                  onValueChange={(next) =>
+                    mutation.mutate({
+                      projectId: override.projectId,
+                      projectName: override.projectName,
+                      mode: next === "default" ? null : (next as CredentialMode),
+                    })
+                  }
+                >
+                  <SelectTrigger aria-label={`Credentials for ${override.projectName}`} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">{PROJECT_DEFAULT_LABEL}</SelectItem>
+                    {CREDENTIAL_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -330,122 +443,102 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
   });
   const projectsQuery = useProjects();
 
-  const setModeMutation = useMutation({
-    mutationFn: (input: { scope: "global" | "project"; mode: CredentialMode | null; projectId?: string }) =>
-      setCredentialMode(input.scope, input.mode, input.projectId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY }),
+  const globalMutation = useMutation({
+    mutationFn: (mode: CredentialMode) => setCredentialMode("global", mode, undefined),
+    onSuccess: async (_data, mode) => {
+      await queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
+      notify.success(`Switched to ${MODE_PHRASE[mode]}`);
+    },
+    onError: (error) => notify.error("Couldn't change the credential path", { error }),
   });
 
-  const loading = settingsQuery.isPending;
   const settings = settingsQuery.data;
+  const loading = settingsQuery.isPending;
   const projects = projectsQuery.data ?? [];
   const backendUnavailable = backendQuery.data ? !backendQuery.data.available : false;
+  const globalMode = (
+    globalMutation.isPending ? globalMutation.variables : settings?.globalCredentialMode
+  ) as CredentialMode | undefined;
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--foreground)" }}>
+    <div className="flex h-full flex-col text-foreground">
       <PageHeader onBack={onBack} crumbs={[{ label: "Settings" }]} />
 
-      <div className="admin-body">
-        <section className="admin-section">
-          <span className="type-body admin-section-label">
-            Credential Path
-          </span>
-          {loading || !settings ? (
-            <SectionSkeleton />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-5 pt-1 pb-10">
+          {settingsQuery.isError ? (
+            <ReadError title="Couldn't load your settings" query={settingsQuery} />
           ) : (
             <>
-              <SegmentedControl
-                ariaLabel="Credential path"
-                options={CREDENTIAL_OPTIONS}
-                value={settings.globalCredentialMode as CredentialMode}
-                onSelect={(mode) => setModeMutation.mutate({ scope: "global", mode })}
-              />
-              {backendUnavailable && (
-                <p role="status" className="type-label" style={{ margin: 0, color: "var(--muted-foreground)" }}>
-                  {BACKEND_UNAVAILABLE_NOTICE}
-                </p>
-              )}
-              {settings.globalCredentialMode === "api_key" && (
-                <p
-                  role="status"
-                  data-testid="api-key-precedence-notice"
-                  className="type-label"
-                  style={{ margin: 0, color: "var(--muted-foreground)" }}
+              <Section title="Credentials" description="What Flywheel's agents sign in with, unless a project says otherwise.">
+                {loading || !settings || !globalMode ? (
+                  <CredentialsSkeleton />
+                ) : (
+                  <>
+                    <CredentialChoice
+                      value={globalMode}
+                      disabled={globalMutation.isPending}
+                      onSelect={(mode) => globalMutation.mutate(mode)}
+                    />
+                    {backendUnavailable && (
+                      <Alert role="status">
+                        <Info aria-hidden="true" />
+                        <AlertDescription className="text-foreground">{BACKEND_UNAVAILABLE_NOTICE}</AlertDescription>
+                      </Alert>
+                    )}
+                    {globalMode === "api_key" && (
+                      <>
+                        <Alert role="status" data-testid="api-key-precedence-notice">
+                          <ShieldAlert aria-hidden="true" />
+                          <AlertDescription className="text-foreground">{API_KEY_PRECEDENCE_NOTICE}</AlertDescription>
+                        </Alert>
+                        <ApiKeyField settings={settings} />
+                      </>
+                    )}
+                  </>
+                )}
+              </Section>
+
+              {!loading && settings && projects.length > 0 && (
+                <Section
+                  title="Per-project credentials"
+                  description="A project can sign in differently from the default above."
                 >
-                  {API_KEY_PRECEDENCE_NOTICE}
-                </p>
+                  <ProjectOverrides settings={settings} />
+                </Section>
               )}
-              {settings.globalCredentialMode === "api_key" && <ApiKeyField settings={settings} />}
+
+              {!loading && settings && (
+                <Section title="Notifications">
+                  <NotificationsControl
+                    settings={settings}
+                    onChanged={() => queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY })}
+                  />
+                </Section>
+              )}
             </>
           )}
-        </section>
 
-        {!loading && settings && projects.length > 0 && (
-          <section className="admin-section">
-            <span className="type-body admin-section-label">
-              Per-Project Override
-            </span>
-            <div
-              style={{ display: "flex", flexDirection: "column", maxHeight: 240, overflowY: "auto" }}
-            >
-              {settings.projectOverrides.map((override) => (
-                <div key={override.projectId} className="admin-row">
-                  <span
-                    className="type-body"
-                    style={{
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      flexShrink: 1,
-                      minWidth: 0,
-                    }}
-                  >
-                    {override.projectName}
-                  </span>
-                  <SegmentedControl
-                    ariaLabel={`Credential path for ${override.projectName}`}
-                    options={PROJECT_CREDENTIAL_OPTIONS}
-                    value={(override.credentialMode ?? "default") as ProjectOptionValue}
-                    onSelect={(value) =>
-                      setModeMutation.mutate({
-                        scope: "project",
-                        mode: value === "default" ? null : value,
-                        projectId: override.projectId,
-                      })
-                    }
-                  />
-                </div>
-              ))}
+          <Section
+            title="Open commands"
+            description={
+              <>
+                What a worktree's Open in editor and Open in terminal run. Each is split into arguments and run
+                directly, with <code className="font-mono text-small text-foreground">{"{worktree_path}"}</code>{" "}
+                substituted; no shell is involved.
+              </>
+            }
+          >
+            <div className="grid gap-4 md:grid-cols-2">
+              <OpenCommandTemplateField surface="editor" label="Open in editor" noun="editor" />
+              <OpenCommandTemplateField surface="terminal" label="Open in terminal" noun="terminal" />
             </div>
-          </section>
-        )}
+          </Section>
 
-        {!loading && settings && (
-          <section className="admin-section">
-            <span className="type-body admin-section-label">
-              Notifications
-            </span>
-            <NotificationsControl
-              settings={settings}
-              onChanged={() => queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY })}
-            />
-          </section>
-        )}
-
-        <section className="admin-section" style={{ gap: "var(--space-md)" }}>
-          <span className="type-body admin-section-label">
-            Worktree Open Commands
-          </span>
-          <OpenCommandTemplateField surface="editor" label="Open in editor" />
-          <OpenCommandTemplateField surface="terminal" label="Open in terminal" />
-        </section>
-
-        <section className="admin-section">
-          <span className="type-body admin-section-label">
-            Permission Rules
-          </span>
-          <PermissionRulesTable projects={projects} loadingProjects={projectsQuery.isPending} />
-        </section>
+          <Section title="Permission rules" description="Patterns you chose to always allow. Revoke one and its next request asks you again.">
+            <PermissionRulesTable projects={projects} loadingProjects={projectsQuery.isPending} />
+          </Section>
+        </div>
       </div>
     </div>
   );
