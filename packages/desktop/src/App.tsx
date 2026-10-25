@@ -13,12 +13,22 @@ import { useWatchedRun } from "./fleet/useWatchedRun";
 import { LaunchSheet } from "./launch-sheet/LaunchSheet";
 import { ProjectRail } from "./projects/ProjectRail";
 import { ProjectUnreachable } from "./projects/ProjectUnreachable";
-import { useRegisterProjectFlow, useRegistrationErrorNotice } from "./projects/RegisterProjectFlow";
+import { useRegisterProjectFlow, useRegistrationErrorToast } from "./projects/RegisterProjectFlow";
 import { OrphanRecoveryModal } from "./recovery/OrphanRecoveryModal";
 import { SessionSurface } from "./session/SessionSurface";
 import { SettingsSurface } from "./settings/SettingsSurface";
 import { AndonStrip } from "./shell/AndonStrip";
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuSkeleton,
+  SidebarProvider,
+} from "@/components/ui/sidebar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { CommandPalette } from "./shell/CommandPalette";
 import { activeSurface, dispatchAction, useGlobalBindings, type ActionId } from "./state/keyboard";
 import { useMenuLayerSync } from "./state/menuSync";
@@ -68,22 +78,11 @@ function AppShell() {
   const settingsOpen = useUiStore((state) => state.settingsOpen);
   const setSettingsOpen = useUiStore((state) => state.setSettingsOpen);
   // `⌘⇧O`'s actual effect — the SAME registration flow the rail's `+` button and the palette's
-  // "Register Project…" command use (`projects/RegisterProjectFlow.tsx`), never a re-derived
-  // copy (01-UI-SPEC.md "Project switcher"). `isError`/`error` are surfaced below (CR-02) —
-  // this was previously the one entry point that discarded them entirely, leaving the folder
-  // picker closing with zero feedback on a rejected registration.
+  // "Register project…" command use (`projects/RegisterProjectFlow.tsx`). This entry point has no
+  // surface of its own, so a failure is an error toast (DESIGN.md § Feedback, issue #210), visible
+  // whichever branch below is drawn (CR-02).
   const { registerProjectFlow, isError: registerIsError, error: registerError } = useRegisterProjectFlow();
-  const registerNotice = useRegistrationErrorNotice(registerIsError, registerError);
-  // A fixed-position toast so a `⌘⇧O` failure is visible regardless of which of the three
-  // return branches below is currently active (boot, zero-project FirstRun, or the sidebar+board) (CR-02).
-  const registerNoticeNode = registerNotice ? (
-    <div
-      role="status"
-      className="fixed bottom-6 left-1/2 z-[1400] max-w-[80vw] -translate-x-1/2 rounded-md border border-border bg-card px-4 py-2 text-small text-destructive-text shadow-overlay"
-    >
-      {registerNotice}
-    </div>
-  ) : null;
+  useRegistrationErrorToast(registerIsError, registerError);
 
   // `⌘⇧O` and `⌘1`-`⌘9` (01-UI-SPEC.md Keyboard Map, Global) — held here because this is where
   // the registered-project list and the "which project is current" state both live.
@@ -138,15 +137,13 @@ function AppShell() {
   // withhold the one banner for the session being watched. Before the early returns below (hooks).
   useWatchedRun();
 
-  // Loading: no copy, no spinner mid-content (01-UI-SPEC.md State Inventory) — the rack ground
-  // alone is the boot state until the first project list resolves.
+  // Boot (critique F47, issue #210): the shell in its own shape, the rail and the board drawn as
+  // Skeletons, until the first project list resolves. No copy and no spinner (DESIGN.md § Feedback).
   if (!projectsQuery.data) {
     return (
       <>
-        <div id="app-root" className="h-full bg-background" />
+        <BootShell />
         <OrphanRecoveryModal />
-        {registerNoticeNode}
-        <LaunchEnvironmentNotice />
       </>
     );
   }
@@ -155,11 +152,10 @@ function AppShell() {
     return (
       <>
         <div id="app-root" className="h-full bg-background text-foreground">
-          <FirstRun />
+          {/* Settings is reachable before any project exists: first run's missing-claude Alert offers it. */}
+          {settingsOpen ? <SettingsSurface onBack={() => setSettingsOpen(false)} /> : <FirstRun />}
         </div>
         <OrphanRecoveryModal />
-        {registerNoticeNode}
-        <LaunchEnvironmentNotice />
       </>
     );
   }
@@ -211,7 +207,7 @@ function AppShell() {
           </Suspense>
         );
       case "project-unreachable":
-        return <ProjectUnreachable project={project} />;
+        return <ProjectUnreachable project={project} projects={projectsQuery.data} />;
       case "story":
         if (!currentStoryId) return null;
         return (
@@ -260,6 +256,9 @@ function AppShell() {
         <SidebarInset className="min-h-0 min-w-0">
           {/* The andon strip: one lamp per live session, on every screen (direction.md). */}
           <AndonStrip />
+          {/* The reserved slot for what Flywheel found at launch (a missing `claude`): in the flow under the
+              strip, so it pushes the surface down and never covers a lamp (critique F6). Empty when all is well. */}
+          <LaunchEnvironmentNotice />
           <div className="flex min-h-0 flex-1 flex-col">{renderSurface()}</div>
         </SidebarInset>
       </SidebarProvider>
@@ -277,9 +276,48 @@ function AppShell() {
           if (storyId && projectId) openStory(projectId, storyId);
         }}
       />
-      {registerNoticeNode}
-      <LaunchEnvironmentNotice />
     </>
+  );
+}
+
+/** The boot state: the shell's own shape, so the window never shows a blank floor before the rail and
+ * the board arrive (critique F47). */
+function BootShell() {
+  return (
+    <SidebarProvider id="app-root" className="relative h-full min-h-0 overflow-clip bg-background text-foreground">
+      <Sidebar
+        collapsible="none"
+        style={{ "--sidebar-width": "248px" } as React.CSSProperties}
+        className="shrink-0 border-r border-sidebar-border"
+      >
+        <SidebarHeader className="flex-row items-center gap-2.5 px-4 pt-4 pb-2">
+          <Skeleton className="size-7 rounded-md" />
+          <Skeleton className="h-4 w-20" />
+        </SidebarHeader>
+        <SidebarContent className="px-2 pt-2">
+          <SidebarMenu>
+            {Array.from({ length: 6 }, (_, index) => (
+              <SidebarMenuItem key={index}>
+                <SidebarMenuSkeleton showIcon />
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarContent>
+      </Sidebar>
+      <SidebarInset data-slot="boot" className="min-h-0 min-w-0" aria-busy="true" aria-label="Loading your projects">
+        <div className="flex h-14 shrink-0 items-center gap-3 px-5">
+          <Skeleton className="h-5 w-40" />
+          <span className="flex-1" />
+          <Skeleton className="h-8.5 w-52" />
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-5 pb-5">
+          <Skeleton className="h-24 w-full shrink-0 rounded-[10px]" />
+          {Array.from({ length: 5 }, (_, index) => (
+            <Skeleton key={index} className="h-14 w-full shrink-0 rounded-[10px]" />
+          ))}
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
 

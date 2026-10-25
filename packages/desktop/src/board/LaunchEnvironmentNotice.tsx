@@ -1,48 +1,53 @@
 /**
- * Issue #88: what Flywheel found when it read the login shell's PATH at startup. Shown on every
- * surface, only when something is wrong: the login shell's PATH could not be read (the inherited
- * one was kept), or `claude` is not on the PATH a session will search. Each message names the PATH.
+ * Issue #88: what Flywheel found when it read the login shell's PATH at startup. Shown only when something is
+ * wrong: the login shell's PATH could not be read (the inherited one was kept), or `claude` is not on the
+ * PATH a session will search. Each message names the PATH.
+ *
+ * Issue #210 (critique F6): an Alert in the layout's own flow, in a slot the shell reserves under the andon
+ * strip (`App.tsx`) and above first run's floor (`FirstRun.tsx`). It is never fixed over the strip, so no
+ * lamp is ever covered, and it offers the one thing to do about it: Open Settings, where the credential path
+ * says what the missing `claude` means for sessions.
  */
 import { useQuery } from "@tanstack/react-query";
+import { Settings, TriangleAlert } from "lucide-react";
 import { invokeCommand, type LaunchEnvironmentDto } from "../adapters/tauri";
+import { useUiStore } from "../state/uiStore";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export const LAUNCH_ENVIRONMENT_QUERY_KEY = ["launch_environment"] as const;
 
-export function LaunchEnvironmentNotice() {
+export function LaunchEnvironmentNotice({ className }: { className?: string }) {
+  const setSettingsOpen = useUiStore((state) => state.setSettingsOpen);
   // Through `invokeCommand` itself, so a test that stubs only `invokeCommand` still renders.
   const query = useQuery({
     queryKey: LAUNCH_ENVIRONMENT_QUERY_KEY,
     queryFn: () => invokeCommand<LaunchEnvironmentDto | undefined>("launch_environment"),
   });
-  const messages = [query.data?.pathWarning, query.data?.claudeError].filter(
-    (message): message is string => typeof message === "string" && message.length > 0,
-  );
-  if (messages.length === 0) return null;
+  const claudeError = query.data?.claudeError || null;
+  const pathWarning = query.data?.pathWarning || null;
+  if (!claudeError && !pathWarning) return null;
+  const title = claudeError ? "Flywheel can’t find claude" : "Flywheel couldn’t read your login shell’s PATH";
   return (
-    <div
-      role="alert"
-      aria-label="Launch environment"
-      className="type-label"
-      style={{
-        position: "fixed",
-        top: "var(--space-md)",
-        left: "50%",
-        transform: "translateX(-50%)",
-        zIndex: 1400,
-        color: "var(--destructive-text)",
-        background: "var(--muted)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-control)",
-        padding: "var(--space-sm) var(--space-md)",
-        maxWidth: "80vw",
-        overflowWrap: "anywhere",
-      }}
-    >
-      {messages.map((message) => (
-        <p key={message} style={{ margin: 0 }}>
-          {message}
-        </p>
-      ))}
+    <div data-slot="launch-environment-slot" className={cn("shrink-0 px-5 pt-3", className)}>
+      <Alert variant="destructive" aria-label="Launch environment" className="gap-y-1 py-2.5">
+        <TriangleAlert aria-hidden="true" />
+        <AlertTitle className="text-body font-semibold">{title}</AlertTitle>
+        <AlertDescription className="flex min-w-0 flex-col items-start gap-1.5 text-small text-muted-foreground [overflow-wrap:anywhere] [&_p:not(:last-child)]:mb-0">
+          {[claudeError, pathWarning]
+            .filter((message): message is string => Boolean(message))
+            .map((message) => (
+              <p key={message} className="m-0">
+                {message}
+              </p>
+            ))}
+          <Button size="sm" variant="outline" onClick={() => setSettingsOpen(true)}>
+            <Settings aria-hidden="true" />
+            Open Settings
+          </Button>
+        </AlertDescription>
+      </Alert>
     </div>
   );
 }

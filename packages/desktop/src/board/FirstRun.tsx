@@ -1,127 +1,64 @@
 /**
- * The zero-projects empty state (01-UI-SPEC.md "State Inventory", "Copywriting Contract").
+ * The zero-projects empty state (01-UI-SPEC.md "State Inventory"; critique F4, issue #210): Empty on the
+ * floor, with the HighKnow mark, one line, and Register project… as the filled primary.
  *
- * Registration is two steps: pick a folder via the native picker, then confirm a project key
- * prefix — pre-filled with a default derived from the repository directory name, editable before
- * the first item exists (01-UI-SPEC.md Open Decisions #11). Once the project is registered and
- * has allocated its first item key, the prefix becomes immutable
- * (`packages/core::domain::project::update_key_prefix` enforces this; no rename affordance ships
- * in Phase 1).
+ * Registration is two steps: pick a folder via the native picker, then confirm a project key prefix in
+ * `RegisterProjectDialog`, pre-filled with a default derived from the folder's name and editable before the
+ * first item exists (01-UI-SPEC.md Open Decisions #11). Once the project has allocated its first item key,
+ * the prefix becomes immutable (`packages/core::domain::project::update_key_prefix` enforces this).
  */
 import { useState } from "react";
+import { FolderPlus } from "lucide-react";
 import { openFolderDialog } from "../adapters/tauri";
 import logoUrl from "../assets/logo.svg";
-import { useRegisterProject } from "./useBoardQuery";
-import "../styles/states-and-confirms.css";
+import {
+  RegisterProjectDialog,
+  folderName,
+  type PendingRegistration,
+} from "../projects/RegisterProjectFlow";
+import { Button } from "@/components/ui/button";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { LaunchEnvironmentNotice } from "./LaunchEnvironmentNotice";
 
-/** A short, uppercase, greppable default derived from a repo path's directory name (D-10).
- * Always emits a prefix `domain/project.rs::validate_key_prefix` accepts (2-10 uppercase
- * letters/digits, starting with a letter) — a directory name like `2024-app` or a single-
- * character name used to derive a prefix that failed validation (CR-02/IN-01), leaving three of
- * the four registration entry points (which register immediately, with no confirmation step to
- * edit the prefix the way this component's own two-step flow allows) with nothing to show for a
- * rejected registration. Pad short results and force a leading letter rather than relying on
- * every caller to handle the rejection. */
-export function deriveKeyPrefix(pathOrName: string): string {
-  const base = pathOrName.split(/[\\/]/).filter(Boolean).pop() ?? "";
-  const alnum = base.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-  const candidate = alnum.slice(0, 4);
-  const startsWithLetter = /^[A-Z]/.test(candidate);
-  const prefixed = startsWithLetter ? candidate : `P${candidate}`.slice(0, 4);
-  return prefixed.length >= 2 ? prefixed : "PRJ";
-}
+export { deriveKeyPrefix } from "../projects/RegisterProjectFlow";
 
 export function FirstRun() {
-  const [pending, setPending] = useState<{ repoPath: string; name: string } | null>(null);
-  const [keyPrefix, setKeyPrefix] = useState("");
-  const registerProject = useRegisterProject();
+  const [pending, setPending] = useState<PendingRegistration | null>(null);
 
   async function handlePickFolder() {
     const repoPath = await openFolderDialog();
     if (!repoPath) return;
-    const name = repoPath.split(/[\\/]/).filter(Boolean).pop() ?? repoPath;
-    setPending({ repoPath, name });
-    setKeyPrefix(deriveKeyPrefix(name));
-  }
-
-  function handleConfirm() {
-    if (!pending) return;
-    const prefix = keyPrefix.trim().toUpperCase();
-    if (!prefix) return;
-    registerProject.mutate({ name: pending.name, repoPath: pending.repoPath, keyPrefix: prefix });
-  }
-
-  if (pending) {
-    return (
-      <div className="first-run state-surface">
-        <h1 className="state-heading">Register {pending.name}</h1>
-        {/* The folder the key is for: the screen asks for a permanent key, so it says which folder that is. */}
-        <p className="type-label state-path">{pending.repoPath}</p>
-        <p className="type-body state-body">
-          Confirm the project key — it becomes permanent once the first item is created.
-        </p>
-        <div className="state-field-group">
-          <label htmlFor="first-run-project-key" className="type-label">
-            Project key
-          </label>
-          <input
-            id="first-run-project-key"
-            className="type-body tabular-nums control-edge state-field"
-            value={keyPrefix}
-            onChange={(event) => setKeyPrefix(event.target.value.toUpperCase())}
-            maxLength={10}
-            aria-label="Project key prefix"
-          />
-        </div>
-        <div className="state-actions">
-          {/* Back is the plain edge: it changes the folder, it registers nothing. */}
-          <button
-            type="button"
-            className="type-body control-edge state-action"
-            onClick={() => {
-              registerProject.reset();
-              setPending(null);
-            }}
-            disabled={registerProject.isPending}
-          >
-            Back
-          </button>
-          <button
-            type="button"
-            className="type-body control-edge state-action state-action-lead"
-            onClick={handleConfirm}
-            disabled={registerProject.isPending}
-          >
-            Register Project
-          </button>
-        </div>
-        {registerProject.isError && (
-          <p role="alert" className="type-label state-error">
-            Couldn't register this project — {(registerProject.error as Error).message}
-          </p>
-        )}
-      </div>
-    );
+    setPending({ repoPath, name: folderName(repoPath) });
   }
 
   return (
-    <div className="first-run state-surface">
-      {/* The HighKnow mark in its real colours (issue #196): the #3c64dd tile with the white glyph, the same in
-          both schemes, as HighKnow's Wordmark draws it. An image cannot read the page's tokens, which is the
-          point. A reference to a static file, never inline markup (T-08.1-05). */}
-      <img src={logoUrl} alt="Flywheel by HighKnow" className="first-run-mark" />
-      <h1 className="state-heading">No projects yet</h1>
-      <p className="type-body state-body">
-        Register a local git repository to see its board. Flywheel never touches board content in
-        the repo itself — only a small marker file.
-      </p>
-      <button
-        type="button"
-        className="type-body control-edge state-action state-action-lead"
-        onClick={handlePickFolder}
-      >
-        Register Project…
-      </button>
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      {/* A missing `claude` is said here too, in the flow above the floor, never over it (critique F6). */}
+      <LaunchEnvironmentNotice />
+      <Empty className="min-h-0">
+        <EmptyHeader className="max-w-md gap-3">
+          <EmptyMedia>
+            {/* The HighKnow mark in its real colours (issue #196): the #3c64dd tile with the white glyph, the
+                same in both schemes, as HighKnow's Wordmark draws it. An image cannot read the page's tokens,
+                which is the point. A reference to a static file, never inline markup (T-08.1-05). */}
+            <img src={logoUrl} alt="Flywheel by HighKnow" className="first-run-mark size-16" />
+          </EmptyMedia>
+          <EmptyTitle>
+            <h1 className="m-0 text-title font-semibold tracking-tight">No projects yet</h1>
+          </EmptyTitle>
+          <EmptyDescription className="text-body">
+            Register a local git repository to see its board. Flywheel keeps the board in its own database and
+            writes only a small marker file into the repository.
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button size="lg" onClick={() => void handlePickFolder()}>
+            <FolderPlus aria-hidden="true" />
+            Register project…
+          </Button>
+        </EmptyContent>
+      </Empty>
+      <RegisterProjectDialog pending={pending} onOpenChange={(open) => !open && setPending(null)} />
     </div>
   );
 }

@@ -3,7 +3,8 @@
  * a healthy environment shows nothing.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useUiStore } from "../../state/uiStore";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LaunchEnvironmentNotice } from "../LaunchEnvironmentNotice";
 
@@ -52,5 +53,31 @@ describe("LaunchEnvironmentNotice", () => {
     renderNotice();
     await waitFor(() => expect(invokeCommandMock).toHaveBeenCalled());
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("LaunchEnvironmentNotice — the reserved slot (issue #210, critique F6)", () => {
+  it("is an Alert in the layout's flow, never fixed over the andon strip", async () => {
+    invokeCommandMock.mockResolvedValue({
+      path: "/usr/bin",
+      pathWarning: null,
+      claudeError: "claude was not found on the PATH Flywheel searched: /usr/bin.",
+    });
+    renderNotice();
+    const alert = await screen.findByRole("alert", { name: "Launch environment" });
+    expect(alert).toHaveAttribute("data-slot", "alert");
+    for (let node: HTMLElement | null = alert; node; node = node.parentElement) {
+      expect(node.style.position).not.toBe("fixed");
+      expect(node.className).not.toMatch(/\bfixed\b|\babsolute\b/);
+    }
+    expect(screen.getByText("Flywheel can’t find claude")).toBeInTheDocument();
+  });
+
+  it("offers Open Settings, which opens Settings", async () => {
+    useUiStore.getState().setSettingsOpen(false);
+    invokeCommandMock.mockResolvedValue({ path: "/usr/bin", pathWarning: null, claudeError: "claude was not found." });
+    renderNotice();
+    fireEvent.click(await screen.findByRole("button", { name: "Open Settings" }));
+    expect(useUiStore.getState().settingsOpen).toBe(true);
   });
 });

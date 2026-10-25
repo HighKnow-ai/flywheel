@@ -1,45 +1,49 @@
 /**
- * The blocking launch-time orphan recovery modal (PROC-04, D-46, 03-UI-SPEC.md "Orphan recovery
- * modal") — the surface that stands between a crashed session's still-spending process and the
- * board. Reuses `board/DeleteConfirm.tsx`'s exact Radix overlay shape (`createPortal`,
- * `<FocusScope trapped loop>`, `role="alertdialog"`, centered scrim, `--surface-secondary` panel,
- * `--radius-chrome`) at a wider fixed width (560px, mirroring the launch sheet's own precedent of
- * widening the same base pattern for denser content) — with ONE deliberate divergence: this
- * component does NOT compose the dismissable-layer primitive at all. D-46: "the modal is not dismissible while
- * any row is unresolved" — Escape-to-dismiss and click-outside-to-dismiss are properties of that
- * component, so the cleanest way to guarantee this overlay has neither is to never mount it, not
- * to mount it with no-op handlers. `session/PermissionRequestCard.tsx` already establishes the
- * exact same precedent for the exact same reason: a surface whose dismissal would hide an
- * unresolved state does not get a dismiss path.
+ * The blocking launch-time orphan recovery dialog (PROC-04, D-46, 03-UI-SPEC.md "Orphan recovery modal") —
+ * the surface that stands between a crashed session's still-spending process and the board.
  *
- * The row set is local component state, seeded ONCE from `usePendingOrphans()` — after that it is
- * owned entirely by this component. A kill invalidates the `["pending-orphans"]` query so the
- * backend list and any other reader stay in agreement, but this component never re-seeds its own
- * rows from a later read: a re-seed would resurrect a row the user already resolved.
+ * Issue #210 (critique F5): an AlertDialog, so it arrives and leaves with the shared overlay motion, with one
+ * Item row per agent (its running mark, its Story's key and title, when it started), `destructive` Stop
+ * buttons, and two answers in the footer: Leave running and Stop n agents. No raw run or session id is shown:
+ * the Story names the agent.
  *
- * Per-row state mirrors `PermissionRequestCard.tsx`'s `RowState` shape, with the one divergence
- * the UI-SPEC calls out explicitly: a permission card's failed answer clears back to answerable,
- * but a failed kill row stays mounted with PERMANENT failure copy — there is no retry affordance,
- * because a process Flywheel could not kill needs a human at a terminal, not a second press of the
- * same button (03-UI-SPEC.md "in-flight and failure, per row").
+ * D-46: the dialog cannot be dismissed WITHOUT ANSWERING. Escape and a click outside are refused, there is no
+ * close button, and focus is trapped. It closes itself when its rows run out, which happens two ways: every
+ * agent stopped, or the one explicit Leave running press (A-08(b): "keep these" is an answer, not an escape
+ * route). Leave running dismisses the rows for this launch only; the launch classification re-runs on the next
+ * launch, so a still-running orphan is offered again then.
  *
- * A-08(b) (08.1-AMENDMENTS.md): the modal gained a second KIND of answer, `Leave them running`. Before it,
- * killing was the only answer on offer, so a developer who wanted to keep three live sessions had no way out
- * of the application. D-46 is untouched: its contract is that the overlay cannot be dismissed WITHOUT
- * ANSWERING, and "keep these" is an answer. It is one explicit button press and nothing else — still no
- * Escape binding, no scrim click, no close button, and the focus trap is unchanged. It dismisses the rows for
- * this session only; the launch classification re-runs on the next launch, so a still-running orphan is
- * offered again then. Recording the choice would need a new table and a decision about when it expires.
+ * The dialog is itself the confirmation: its title asks the question and its description names the cost, so a
+ * row's Stop and the footer's Stop n agents each act on one press. Initial focus is the title, never a Stop,
+ * so one errant Enter stops nothing.
+ *
+ * The row set is local component state, seeded ONCE from `usePendingOrphans()` — after that it is owned
+ * entirely by this component. A stop invalidates the `["pending-orphans"]` query so the backend list and any
+ * other reader stay in agreement, but this component never re-seeds its own rows from a later read: a re-seed
+ * would resurrect a row the user already resolved.
+ *
+ * A failed stop leaves its row mounted with PERMANENT failure copy and no retry: a process Flywheel could not
+ * kill needs a human at a terminal, not a second press of the same button (03-UI-SPEC.md "in-flight and
+ * failure, per row").
  */
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { FocusScope } from "@radix-ui/react-focus-scope";
 import { useQueryClient } from "@tanstack/react-query";
 import { OctagonX } from "lucide-react";
 import { orphanKill, type PendingOrphanDto } from "../adapters/tauri";
 import { pendingOrphansQueryKey, usePendingOrphans } from "../board/useBoardQuery";
-import { StateBadge } from "../components/StateBadge";
-import "../styles/states-and-confirms.css";
+import { RelativeTime } from "@/components/RelativeTime";
+import { StateBadge } from "@/components/StateBadge";
+import { StoryKey } from "@/components/StoryKey";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
@@ -50,288 +54,194 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** A relative "Xm/Xh/Xd ago" label, the absolute timestamp carried in the row's own `title`
- * attribute — mirrors `item-detail/RunsSection.tsx`'s own `relativeTime`, duplicated locally per
- * this codebase's own established per-file convention for this small building block. */
-function relativeTime(iso: string): string {
-  const deltaSeconds = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (deltaSeconds < 60) return "just now";
-  const minutes = Math.round(deltaSeconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
-}
-
-/** One row's own kill state (`PermissionRequestCard.tsx`'s `RowState` pattern) — `failed` is
- * PERMANENT once set (never cleared back to answerable), which is this modal's one deliberate
- * divergence from that pattern. */
+/** One row's own stop state — `failed` is PERMANENT once set (never cleared back to answerable). */
 interface OrphanRowState {
   orphan: PendingOrphanDto;
-  killing: boolean;
+  stopping: boolean;
   failed: boolean;
   detail: string | null;
 }
 
 function seedRows(orphans: PendingOrphanDto[]): OrphanRowState[] {
-  return orphans.map((orphan) => ({ orphan, killing: false, failed: false, detail: null }));
+  return orphans.map((orphan) => ({ orphan, stopping: false, failed: false, detail: null }));
+}
+
+function agents(count: number): string {
+  return `${count} agent${count === 1 ? "" : "s"}`;
 }
 
 export function OrphanRecoveryModal() {
   const query = usePendingOrphans();
   const queryClient = useQueryClient();
   const [rows, setRows] = useState<OrphanRowState[] | null>(null);
-  // Initial focus is the heading, never a Kill: this modal blocks the board and cannot be dismissed, so a button
-  // that kills a running agent must not be the thing one errant Enter lands on (`board/DeleteConfirm.tsx` focuses
-  // Cancel for the same reason; this dialog has no safe button, so the title takes it).
-  const headingRef = useRef<HTMLHeadingElement>(null);
-  // The run ids currently in flight for a kill. A row's `killing` flag alone is not a sufficient
-  // guard against two activations in one synchronous tick — React has not necessarily flushed the
-  // re-render that replaces the Kill button with the "Killing…" label before a second `.click()`
-  // fires — and a ref reads and writes synchronously with no such window (mirrors
-  // `item-detail/RunsSection.tsx`'s `ackActingRef` / `session/PermissionRequestCard.tsx`'s
-  // `answeringRef`). Row state stays the source of truth for what renders; this ref only guards
-  // dispatch. A SET rather than a single boolean because this modal kills several runs
-  // concurrently by design — Kill All dispatches one call per row, and a single boolean would let
-  // the first dispatch suppress every sibling.
-  const killingRef = useRef<Set<string>>(new Set());
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  // The run ids currently in flight for a stop. A row's `stopping` flag alone is not a sufficient guard
+  // against two activations in one synchronous tick — React has not necessarily flushed the re-render before a
+  // second `.click()` fires — and a ref reads and writes synchronously with no such window. A SET, because this
+  // dialog stops several runs concurrently by design.
+  const stoppingRef = useRef<Set<string>>(new Set());
+  // The rows last drawn, so the dialog keeps its words while it fades out after its last row resolves.
+  const lastShown = useRef<OrphanRowState[]>([]);
 
-  // Seed exactly once, from the first list this component ever observes — never re-seed from a
-  // later read (a re-seed would resurrect a row the user already resolved via a kill).
+  // Seed exactly once, from the first list this component ever observes — never re-seed from a later read.
   useEffect(() => {
     if (rows === null && query.data) {
       setRows(seedRows(query.data));
     }
   }, [query.data, rows]);
 
-  async function killOne(runId: string) {
+  async function stopOne(runId: string) {
     try {
       const outcome = await orphanKill(runId);
       queryClient.invalidateQueries({ queryKey: pendingOrphansQueryKey() });
       if (outcome.killed) {
-        // The row is removed here — it can never be re-activated, so the guard entry is left in
-        // place deliberately (deleting would reopen the exact window this guard closes, for the
-        // brief span between the resolved promise and the row's removal from `rows`).
+        // The row is removed — it can never be re-activated, so the guard entry is left in place deliberately.
         setRows((prev) => (prev ?? []).filter((row) => row.orphan.runId !== runId));
       } else {
-        // The call is over and the row did not disappear (permanent failure) — release the guard
-        // entry, mirroring `RunsSection.tsx`'s `acknowledge()` catch-path reset. There is no retry
-        // affordance for a failed row, but the guard must not outlive the call it protected.
-        killingRef.current.delete(runId);
+        // The call is over and the row did not disappear (permanent failure): release the guard entry.
+        stoppingRef.current.delete(runId);
         setRows((prev) =>
           (prev ?? []).map((row) =>
-            row.orphan.runId === runId
-              ? { ...row, killing: false, failed: true, detail: outcome.detail }
-              : row,
+            row.orphan.runId === runId ? { ...row, stopping: false, failed: true, detail: outcome.detail } : row,
           ),
         );
       }
     } catch {
-      killingRef.current.delete(runId);
+      stoppingRef.current.delete(runId);
       setRows((prev) =>
         (prev ?? []).map((row) =>
-          row.orphan.runId === runId ? { ...row, killing: false, failed: true, detail: null } : row,
+          row.orphan.runId === runId ? { ...row, stopping: false, failed: true, detail: null } : row,
         ),
       );
     }
   }
 
-  function handleKill(runId: string) {
-    // A second activation while the ref already holds this run id invokes nothing — the
-    // synchronous-tick guard.
-    if (killingRef.current.has(runId)) return;
-    killingRef.current.add(runId);
-    setRows((prev) => (prev ?? []).map((row) => (row.orphan.runId === runId ? { ...row, killing: true } : row)));
-    void killOne(runId);
+  function handleStop(runId: string) {
+    // A second activation while the ref already holds this run id invokes nothing — the synchronous-tick guard.
+    if (stoppingRef.current.has(runId)) return;
+    stoppingRef.current.add(runId);
+    setRows((prev) => (prev ?? []).map((row) => (row.orphan.runId === runId ? { ...row, stopping: true } : row)));
+    void stopOne(runId);
   }
 
-  // A-08(b): the non-destructive answer. Emptying the rows unmounts the modal through the same early return a
-  // finished set of kills uses, and `rows` is never re-seeded, so it stays gone for this session. Kills already
-  // in flight finish in the background (`killOne` maps over an empty list harmlessly).
+  // A-08(b): the non-destructive answer. Emptying the rows closes the dialog, and `rows` is never re-seeded, so
+  // it stays gone for this launch. Stops already in flight finish in the background.
   function handleLeave() {
     setRows([]);
   }
 
-  function handleKillAll() {
-    const targets = (rows ?? []).filter((row) => !row.killing && !row.failed && !killingRef.current.has(row.orphan.runId));
-    for (const target of targets) {
-      killingRef.current.add(target.orphan.runId);
-    }
-    setRows((prev) =>
-      (prev ?? []).map((row) => (targets.some((t) => t.orphan.runId === row.orphan.runId) ? { ...row, killing: true } : row)),
+  function handleStopAll() {
+    const targets = (rows ?? []).filter(
+      (row) => !row.stopping && !row.failed && !stoppingRef.current.has(row.orphan.runId),
     );
-    for (const target of targets) {
-      void killOne(target.orphan.runId);
-    }
+    for (const target of targets) stoppingRef.current.add(target.orphan.runId);
+    setRows((prev) =>
+      (prev ?? []).map((row) =>
+        targets.some((t) => t.orphan.runId === row.orphan.runId) ? { ...row, stopping: true } : row,
+      ),
+    );
+    for (const target of targets) void stopOne(target.orphan.runId);
   }
 
-  if (!rows || rows.length === 0) return null;
+  const open = Boolean(rows && rows.length > 0);
+  if (open) lastShown.current = rows as OrphanRowState[];
+  const shown = open ? (rows as OrphanRowState[]) : lastShown.current;
+  // Never seen a row: nothing to draw and nothing to fade out.
+  if (shown.length === 0) return null;
 
-  const count = rows.length;
-  const heading = `Flywheel found ${count} agent process${count === 1 ? "" : "es"} still running from a previous session.`;
+  const count = shown.length;
   const pulsing = !prefersReducedMotion();
-  const anyUnresolved = rows.some((row) => !row.failed);
+  const stoppable = shown.filter((row) => !row.failed);
+  const anyStopping = shown.some((row) => row.stopping);
+  const idle = stoppable.filter((row) => !row.stopping);
+  const title = `${agents(count)} still running from a previous session`;
 
-  return createPortal(
-    <FocusScope
-      trapped
-      loop
-      asChild
-      onMountAutoFocus={(event) => {
-        event.preventDefault();
-        headingRef.current?.focus();
-      }}
-    >
-      {/*
-        D-46, T-03-10-01: no dismissable-layer primitive here, deliberately (see file doc comment above) —
-        this overlay has no Escape binding, no click-outside dismissal and no close button. It
-        closes itself the instant its own row list becomes empty (the `!rows || rows.length === 0`
-        early return above), and never before — even when every remaining row is a permanently
-        failed kill (`anyUnresolved` stays true, matching `PermissionRequestCard.tsx`'s own
-        "cannot be dismissed without answering" precedent).
-        A-08(b): "empty" is now reached two ways — every row killed, or the one explicit `Leave them running`
-        press. That adds a second ANSWER, not a dismissal route: D-46's "not dismissible without answering"
-        still holds, and no Escape, scrim click or close button was added.
-      */}
-      <div role="alertdialog" aria-label={heading} className="confirm-scrim">
-        <div className="confirm-dialog confirm-dialog-wide">
-          <h2 ref={headingRef} tabIndex={-1} className="type-heading confirm-heading">
-            {heading}
-          </h2>
+  return (
+    <AlertDialog open={open}>
+      <AlertDialogContent
+        className="gap-5 sm:max-w-xl"
+        onEscapeKeyDown={(event) => event.preventDefault()}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          titleRef.current?.focus();
+        }}
+      >
+        <AlertDialogHeader>
+          <AlertDialogTitle ref={titleRef} tabIndex={-1} className="text-section font-semibold outline-none">
+            {title}
+          </AlertDialogTitle>
+          <AlertDialogDescription className="text-body">
+            {count === 1 ? "It is" : "Each is"} spending tokens now, and Flywheel didn&rsquo;t start{" "}
+            {count === 1 ? "it" : "them"} this time. Stop {count === 1 ? "it" : "them"}, or leave{" "}
+            {count === 1 ? "it" : "them"} running until you next open Flywheel.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
 
-          <div
-            role="list"
-            aria-label="Orphaned agent processes"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--space-md)",
-              maxHeight: 400,
-              overflowY: "auto",
-              minWidth: 0,
-            }}
-          >
-            {rows.map((row, index) => {
-              const { orphan } = row;
-              const hasStory = isNonEmptyString(orphan.storyKey) || isNonEmptyString(orphan.storyTitle);
-              // A run with no session id has nothing to say here: the bare word "Run" dangled with no
-              // separator and no id after it, so the line is not printed at all.
-              const identityLine = orphan.externalSessionId ? `Run · session ${orphan.externalSessionId}` : null;
-              const absolute = new Date(orphan.startedAt).toLocaleString();
-
-              return (
-                <div
-                  key={orphan.runId}
-                  role="listitem"
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "var(--space-xs)",
-                    minWidth: 0,
-                    // A hairline between runs, so each reads as its own: the list is the whole point of the dialog.
-                    borderBottom: index < rows.length - 1 ? "1px solid var(--border)" : undefined,
-                    paddingBottom: index < rows.length - 1 ? "var(--space-md)" : undefined,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
-                    {/* The glyph is the running class's mark, named "Running" for a screen reader; the sentence beside it is the visible word. */}
-                    <span style={{ flexShrink: 0, display: "inline-flex" }}>
-                      <StateBadge state="running" variant="inline" hideLabel pulse={pulsing} />
-                    </span>
-                    <span className="type-label" style={{ color: "var(--foreground)" }}>
-                      Running (from a previous session)
-                    </span>
-                  </div>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
+        <ItemGroup aria-label="Agents still running" className="max-h-[min(400px,50vh)] gap-2 overflow-y-auto">
+          {shown.map((row) => {
+            const { orphan } = row;
+            const hasStory = isNonEmptyString(orphan.storyKey) || isNonEmptyString(orphan.storyTitle);
+            const who = isNonEmptyString(orphan.storyKey) ? `${orphan.storyKey}’s agent` : "this agent";
+            return (
+              <Item key={orphan.runId} role="listitem" variant="outline" size="sm" className="flex-nowrap">
+                <ItemMedia>
+                  <StateBadge state="running" variant="inline" hideLabel pulse={pulsing} />
+                </ItemMedia>
+                <ItemContent className="min-w-0">
+                  <ItemTitle className="flex w-full min-w-0 items-baseline gap-2 text-body font-semibold">
                     {hasStory ? (
                       <>
-                        <span
-                          className="type-body"
-                          style={{ fontFamily: 'var(--font-code)', flexShrink: 0 }}
-                        >
-                          {orphan.storyKey}
-                        </span>
-                        <span className="type-body" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {orphan.storyTitle}
-                        </span>
+                        {isNonEmptyString(orphan.storyKey) && <StoryKey value={orphan.storyKey} size="small" />}
+                        <span className="min-w-0 line-clamp-2">{orphan.storyTitle}</span>
                       </>
                     ) : (
-                      <span className="type-body" style={{ color: "var(--muted-foreground)" }}>
-                        an unresolvable Story
-                      </span>
+                      <span className="font-normal text-muted-foreground">An unresolvable Story</span>
                     )}
-                  </div>
+                  </ItemTitle>
+                  {row.failed ? (
+                    <p role="alert" className="m-0 text-small text-destructive-text">
+                      Couldn&rsquo;t stop it (PID {orphan.pid}). It&rsquo;s still running: stop it from a terminal,
+                      then reopen Flywheel.
+                    </p>
+                  ) : (
+                    <ItemDescription className="text-small">
+                      Started <RelativeTime at={orphan.startedAt} />
+                    </ItemDescription>
+                  )}
+                </ItemContent>
+                {!row.failed && (
+                  <ItemActions>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      loading={row.stopping}
+                      aria-label={`Stop ${who}`}
+                      onClick={() => handleStop(orphan.runId)}
+                    >
+                      Stop
+                    </Button>
+                  </ItemActions>
+                )}
+              </Item>
+            );
+          })}
+        </ItemGroup>
 
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-sm)", minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)", minWidth: 0 }}>
-                      {identityLine && (
-                        <span
-                          className="type-label"
-                          style={{ fontFamily: 'var(--font-code)', color: "var(--muted-foreground)" }}
-                        >
-                          {identityLine}
-                        </span>
-                      )}
-                      <time
-                        className="type-label"
-                        dateTime={orphan.startedAt}
-                        title={absolute}
-                        style={{ color: "var(--muted-foreground)" }}
-                      >
-                        Started {relativeTime(orphan.startedAt)}
-                      </time>
-                    </div>
-
-                    {row.failed ? (
-                      <span role="alert" className="type-label" style={{ color: "var(--destructive-text)" }}>
-                        Couldn&apos;t kill this process (PID {orphan.pid}). It&apos;s still running. Kill it from
-                        a terminal, then reopen Flywheel.
-                      </span>
-                    ) : row.killing ? (
-                      <span className="type-body" style={{ color: "var(--muted-foreground)" }}>
-                        Killing…
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleKill(orphan.runId)}
-                        className="type-body control-edge confirm-action"
-                      >
-                        Kill
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* The reason is read before the choice it bears on (11-17 finish review, group six): it sits above the
-              answers, not under them. */}
-          <p className="type-label" style={{ color: "var(--muted-foreground)" }}>
-            Every process above is spending tokens right now — Flywheel didn&apos;t start any of
-            them this time.
-          </p>
-
-          <div className="confirm-actions">
-            <button type="button" onClick={handleLeave} className="type-body control-edge confirm-action">
-              Leave them running
-            </button>
-            <button
-              type="button"
-              disabled={!anyUnresolved}
-              onClick={handleKillAll}
-              className="type-body control-edge confirm-action confirm-action-destructive"
-            >
-              <OctagonX size={14} strokeWidth={2} aria-hidden="true" />
-              Kill All
-            </button>
-          </div>
-        </div>
-      </div>
-    </FocusScope>,
-    document.body,
+        <AlertDialogFooter>
+          <Button variant="outline" onClick={handleLeave}>
+            Leave running
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={idle.length === 0 && !anyStopping}
+            loading={anyStopping && idle.length === 0}
+            onClick={handleStopAll}
+          >
+            <OctagonX aria-hidden="true" />
+            {stoppable.length > 0 ? `Stop ${agents(stoppable.length)}` : "Stop agents"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
