@@ -53,8 +53,16 @@ import {
   type NeedsYouKind,
 } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
+import { StoryKey } from "../components/StoryKey";
+import { ReadError } from "../components/ReadError";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Item } from "@/components/ui/item";
+import { Skeleton } from "@/components/ui/skeleton";
+import { notify } from "@/lib/notify";
+import { LeavingItem, useLeavingItems } from "./leaving";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { formatAge } from "../legend/runStatus";
 import {
@@ -187,15 +195,25 @@ function useNow(): number {
  */
 export function NeedsYouList({ projectId, className }: { projectId: string; className?: string }) {
   const query = useNeedsYou(projectId);
-  const items = query.data ?? [];
+  const items = query.data ?? NO_ITEMS;
   const now = useNow();
   const listRef = useRef<HTMLOListElement>(null);
   const emptyRef = useRef<HTMLDivElement>(null);
   /** The card holding the keyboard, by key and place, so it can be replaced once it leaves the list. */
   const focused = useRef<{ key: string; index: number } | null>(null);
+  /** The last card left while it still collapses: the keyboard lands on the empty state once it shows. */
+  const focusEmpty = useRef(false);
   const previous = useRef<NeedsYouItemDto[] | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const keys = items.map(keyOf).join("|");
+  const { shown, done } = useLeavingItems(items, keyOf);
+  const empty = query.isSuccess && shown.length === 0;
+
+  useEffect(() => {
+    if (!empty || !focusEmpty.current) return;
+    focusEmpty.current = false;
+    emptyRef.current?.focus();
+  }, [empty]);
 
   useEffect(() => {
     if (!query.isSuccess) return;
@@ -208,13 +226,16 @@ export function NeedsYouList({ projectId, className }: { projectId: string; clas
     setAnnouncement(`${gone.map(recordWords).join(", ")} off the list. ${countWords(items.length)}`);
     const was = focused.current;
     const active = document.activeElement;
-    const lost = !active || active === document.body;
+    // Lost with its card: on the page's body, or still inside the card now collapsing out (inert).
+    const lost = !active || active === document.body || active.closest("[data-leaving]") !== null;
     if (!was || !lost || !gone.some((item) => keyOf(item) === was.key)) return;
     requestAnimationFrame(() => {
-      const cards = listRef.current?.querySelectorAll<HTMLElement>(":scope > li") ?? [];
+      // A card still collapsing out is inert: the keyboard goes to the one now in its place.
+      const cards = listRef.current?.querySelectorAll<HTMLElement>(":scope > li:not([data-leaving])") ?? [];
       const card = cards[Math.min(was.index, cards.length - 1)];
       const target = card?.querySelector<HTMLElement>("[data-record], button") ?? emptyRef.current;
-      target?.focus({ preventScroll: false });
+      if (target) target.focus({ preventScroll: false });
+      else focusEmpty.current = true;
     });
     // `keys` stands for `items`: the effect runs when the list's membership changes, not on every refetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -226,25 +247,36 @@ export function NeedsYouList({ projectId, className }: { projectId: string; clas
     </span>
   );
   if (query.isError) {
-    return <p className="m-0 text-small text-destructive-text">{`Could not read Needs you: ${errorText(query.error)}`}</p>;
+    return <ReadError title="Couldn't load Needs you" query={query} className={className} />;
   }
-  if (query.isSuccess && items.length === 0) {
+  if (!query.isSuccess && shown.length === 0) return <NeedsYouSkeleton className={className} />;
+  if (empty) {
     return (
-      <div
+      <Empty
         ref={emptyRef}
         tabIndex={-1}
-        className={cn("flex flex-col gap-1 rounded-lg border border-border bg-card px-4 py-4 shadow-card", className)}
+        data-slot="needs-you-empty"
+        className={cn(
+          "flex-none border border-dashed border-border bg-card p-6 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+          className,
+        )}
       >
         {live}
-        <span className="text-row font-semibold">Nothing needs you</span>
-        <span className="text-small text-muted-foreground">
-          A request, a stopped agent, a Story to review, a change to what a Story is judged on, a Proposal or a Round to
-          answer shows here, most urgent first.
-        </span>
-      </div>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <CircleCheckBig aria-hidden="true" />
+          </EmptyMedia>
+          <EmptyTitle className="text-row font-semibold">Nothing needs you</EmptyTitle>
+          <EmptyDescription className="text-small">
+            A request, a stopped agent, a Story to review, a change to what a Story is judged on, a Proposal or a Round to
+            answer shows here, most urgent first.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
   const filled = items.findIndex((item) => !isWaitingOnYou(item) && takesPrimary(item));
+  const filledKey = filled >= 0 ? keyOf(items[filled]) : null;
   return (
     <>
       {live}
@@ -253,20 +285,43 @@ export function NeedsYouList({ projectId, className }: { projectId: string; clas
         aria-label="Needs you, most urgent first"
         className={cn("m-0 flex list-none flex-col gap-2.5 p-0", className)}
       >
-        {items.map((item, index) => (
+        {shown.map(({ item, key, leaving }) => (
           <NeedsYouCard
-            key={keyOf(item)}
+            key={key}
             projectId={projectId}
             item={item}
             now={now}
-            filled={index === filled}
+            filled={key === filledKey}
+            leaving={leaving}
+            onLeft={() => done(key)}
             onFocusCard={() => {
-              focused.current = { key: keyOf(item), index };
+              focused.current = { key, index: items.findIndex((i) => keyOf(i) === key) };
             }}
           />
         ))}
       </ol>
     </>
+  );
+}
+
+const NO_ITEMS: NeedsYouItemDto[] = [];
+
+/** The column's first read: three cards in the shape of the real ones (lead line, record, detail, action). */
+function NeedsYouSkeleton({ className }: { className?: string }) {
+  return (
+    <div data-slot="needs-you-skeleton" aria-busy="true" aria-label="Loading Needs you" className={cn("flex flex-col gap-2.5", className)}>
+      {[0, 1, 2].map((i) => (
+        <Card key={i} className="gap-2 px-4 pt-3 pb-3.5">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-5.5 w-28" />
+            <Skeleton className="ml-auto h-3.5 w-8" />
+          </div>
+          <Skeleton className="h-4.5 w-4/5" />
+          <Skeleton className="h-3.5 w-3/5" />
+          <Skeleton className="mt-1 h-8 w-24" />
+        </Card>
+      ))}
+    </div>
   );
 }
 
@@ -376,25 +431,31 @@ function RecordButton({ projectId, item }: { projectId: string; item: NeedsYouIt
     else if (record.kind === "epic") openEpic(projectId, id);
     else openMilestone(projectId, id);
   };
+  // An Item, as a row that opens a record is everywhere: its hover, its focus outline, its corner.
   return (
-    <button
-      type="button"
-      data-record=""
-      aria-label={`Open ${noun} ${[record.key, record.title].filter(Boolean).join(" ")}`}
-      title={`Open ${noun} ${[record.key, record.title].filter(Boolean).join(" ")}`}
-      onClick={open}
-      className="group/record -mx-1.5 flex min-w-0 items-baseline gap-2 rounded-md px-1.5 py-0.5 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent"
+    <Item
+      asChild
+      size="xs"
+      className="group/record -mx-1.5 w-auto flex-nowrap items-baseline gap-2 rounded-md px-1.5 py-0.5 text-left hover:bg-accent"
     >
-      {record.kind === "epic" && <Layers aria-hidden="true" size={15} className="shrink-0 self-center text-muted-foreground" />}
-      {record.kind === "milestone" && <Flag aria-hidden="true" size={15} className="shrink-0 self-center text-muted-foreground" />}
-      {record.key && <span className="shrink-0 font-mono text-meta text-muted-foreground">{record.key}</span>}
-      <span className="min-w-0 flex-1 line-clamp-2 text-row font-semibold">{record.title}</span>
-      <ChevronRight
-        aria-hidden="true"
-        size={16}
-        className="shrink-0 self-center text-subtle-foreground transition-colors group-hover/record:text-foreground"
-      />
-    </button>
+      <button
+        type="button"
+        data-record=""
+        aria-label={`Open ${noun} ${[record.key, record.title].filter(Boolean).join(" ")}`}
+        title={`Open ${noun} ${[record.key, record.title].filter(Boolean).join(" ")}`}
+        onClick={open}
+      >
+        {record.kind === "epic" && <Layers aria-hidden="true" size={15} className="shrink-0 self-center text-muted-foreground" />}
+        {record.kind === "milestone" && <Flag aria-hidden="true" size={15} className="shrink-0 self-center text-muted-foreground" />}
+        {record.key && <StoryKey value={record.key} />}
+        <span className="min-w-0 flex-1 line-clamp-2 text-row font-semibold">{record.title}</span>
+        <ChevronRight
+          aria-hidden="true"
+          size={16}
+          className="shrink-0 self-center text-subtle-foreground transition-colors group-hover/record:text-foreground"
+        />
+      </button>
+    </Item>
   );
 }
 
@@ -450,6 +511,8 @@ function NeedsYouCard({
   item,
   now,
   filled,
+  leaving,
+  onLeft,
   onFocusCard,
 }: {
   projectId: string;
@@ -457,6 +520,9 @@ function NeedsYouCard({
   now: number;
   /** This card's action is the column's one filled primary. */
   filled: boolean;
+  /** Off the list: drawn only while it collapses out. */
+  leaving: boolean;
+  onLeft: () => void;
   onFocusCard: () => void;
 }) {
   const waiting = isWaitingOnYou(item);
@@ -464,23 +530,24 @@ function NeedsYouCard({
   const age = formatAge(item.since, now);
   const request = item.request;
   return (
-    <li
+    <LeavingItem
+      leaving={leaving}
+      onLeft={onLeft}
       data-kind={item.kind}
       data-item-id={item.id}
       data-attention={waiting ? "waiting" : item.kind === "stopped" ? "stopped" : undefined}
       onFocus={onFocusCard}
-      className={cn(
-        "flex min-w-0 flex-col overflow-hidden rounded-lg border bg-card shadow-card",
-        waiting ? "border-2 border-attention" : "border-border",
-      )}
+      className="min-w-0"
     >
+      <Card className={cn("min-w-0 gap-0 py-0", waiting && "border-2 border-attention")}>
       <div className={cn("flex min-w-0 flex-col gap-1.5 px-4 pt-3", waiting && "bg-attention-muted", request ? "pb-3" : "pb-3.5")}>
         <div className="flex min-w-0 items-center gap-2">
           <LeadPill item={item} />
           <time
             dateTime={item.since}
             title={item.since.replace("T", " ").slice(0, 16)}
-            className="ml-auto shrink-0 text-meta text-subtle-foreground tabular-nums"
+            // Secondary ink on the attention tint: subtle ink on it misses 4.5:1 in dark (critique F50).
+            className={cn("ml-auto shrink-0 text-meta tabular-nums", waiting ? "text-muted-foreground" : "text-subtle-foreground")}
           >
             <span className="sr-only">Waiting </span>
             {age}
@@ -508,7 +575,8 @@ function NeedsYouCard({
         )}
       </div>
       {request && <RequestBand item={item} />}
-    </li>
+      </Card>
+    </LeavingItem>
   );
 }
 
@@ -670,7 +738,7 @@ function ContinueRoadmapRound({ projectId }: { projectId: string }) {
         variant="outline"
         size="sm"
         aria-label="Continue the roadmap Round"
-        disabled={starting}
+        loading={starting}
         onClick={() => {
           setStarting(true);
           setError(null);
@@ -681,7 +749,7 @@ function ContinueRoadmapRound({ projectId }: { projectId: string }) {
         }}
       >
         <RotateCcw aria-hidden="true" />
-        {starting ? "Starting…" : "Continue"}
+        Continue
       </Button>
       {error && (
         <p role="alert" className="m-0 basis-full text-small break-words text-destructive-text">
@@ -702,17 +770,18 @@ function RecreateWorktree({ storyId, storyKey, filled }: { storyId: string; stor
         variant={filled ? "default" : "outline"}
         size="sm"
         aria-label={`Recreate the worktree of ${storyKey}`}
-        disabled={busy}
+        loading={busy}
         onClick={() => {
           setBusy(true);
           setError(null);
           worktreeRecreate(storyId)
+            .then(() => notify.success(`Recreated ${storyKey}'s worktree`, { description: "Resume starts its next session there" }))
             .catch((err: unknown) => setError(`Could not recreate the worktree: ${errorText(err)}`))
             .finally(() => setBusy(false));
         }}
       >
         <Box aria-hidden="true" />
-        {busy ? "Recreating…" : "Recreate worktree"}
+        Recreate worktree
       </Button>
       {error && (
         <p role="alert" className="m-0 basis-full text-small break-words text-destructive-text">
