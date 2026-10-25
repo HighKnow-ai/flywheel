@@ -55,8 +55,6 @@ export const KNOWN_DEFECTS: KnownDefect[] = [
   { issue: 199, kind: "text-overlap", screen: /^s\d+-/, where: /Search, ⌘K|data-slot=kbd|aria-label="Add an Epic"|aria-label="Write a Story"/ },
   // The Merge-with-failing-Check confirm is pushed past the window by a long Check command.
   { issue: 207, kind: "horizontal-overflow", screen: /^s18-stress-merge-confirm$/ },
-  // At 1920 × 1200 a long permission pattern is drawn over its date column.
-  { issue: 209, kind: "text-overlap", screen: /^s20-stress-settings$/, where: /role=cell/ },
 ];
 
 export interface CaptureRecord {
