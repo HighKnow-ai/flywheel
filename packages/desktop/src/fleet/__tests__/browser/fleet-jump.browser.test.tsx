@@ -159,3 +159,29 @@ describe("AppShell in WebKit: where a fleet row takes you, with real key presses
     expect(useUiStore.getState().activeSessionId).toBeNull();
   });
 });
+
+describe("AppShell in WebKit: the fleet's view switch is Tabs (#208)", () => {
+  it("moves between All agents and Waiting on you with the arrow keys, and j still moves the row selection", async () => {
+    await mountOnFleet();
+    const tab = (name: RegExp) =>
+      Array.from(document.querySelectorAll<HTMLElement>('[role="tab"]')).find((t) => name.test(t.textContent ?? "")) as HTMLElement;
+    expect(document.querySelector('[role="tablist"]')?.getAttribute("aria-label")).toBe("Fleet views");
+    expect(tab(/^All agents$/).getAttribute("aria-selected")).toBe("true");
+
+    tab(/^All agents$/).focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await waitFor(() => expect(useUiStore.getState().fleetSurface).toEqual({ view: "queue" }));
+    expect(document.activeElement, "the focus follows the selected tab").toBe(tab(/^Waiting on you/));
+    expect(tab(/^Waiting on you/).getAttribute("aria-selected")).toBe("true");
+    await waitFor(() => expect(document.body.textContent).toContain("Nothing is waiting on you"));
+
+    await userEvent.keyboard("{ArrowLeft}");
+    await waitFor(() => expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" }));
+    await waitFor(() => expect(fleetRows().length).toBe(1));
+
+    // The tabs own the arrows; the fleet's own keys still reach the list.
+    (document.activeElement as HTMLElement | null)?.blur();
+    await userEvent.keyboard("j");
+    await waitFor(() => expect(document.querySelector("[data-selected='true']")?.getAttribute("data-run-id")).toBe("run-b"));
+  });
+});

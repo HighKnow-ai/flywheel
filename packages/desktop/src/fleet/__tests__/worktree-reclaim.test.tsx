@@ -3,8 +3,11 @@
  * - Only reclaimable rows carry a checkbox; an in-use and a keep row carry none.
  * - Selecting rows renders a bar with the count and the sum of their sizes in the rows' own format.
  * - Confirming calls the reclaim wrapper once with exactly the selected ids; cancelling calls nothing.
- * - No control selects every reclaimable row or submits without a selection.
- * - A mixed result shows both outcomes with the refused row's reason and claims no overall success.
+ * - #208: the header's select-all Checkbox selects every reclaimable row and nothing else, any row can still
+ *   be cleared before the one confirmation (ConfirmDestructive), and nothing submits without a selection.
+ * - A mixed result shows both outcomes with the refused row's reason and claims no overall success; a
+ *   reclaim that removed everything says so in a toast. A call that fails outright keeps the
+ *   confirmation open with the failure.
  * - The inventory is refetched after the call, and the selection keeps refused ids and drops removed ones.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +18,9 @@ import { resetUiState } from "../../state/uiStore";
 import { RECLAIM_REASON_WORDS, WorktreeInventory } from "../WorktreeInventory";
 
 const inventoryMock = vi.fn<() => Promise<WorktreeInventoryRowDto[]>>();
+const notifyMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), dismiss: vi.fn() }));
+
+vi.mock("@/lib/notify", () => ({ notify: notifyMock }));
 const reclaimMock = vi.fn<(ids: string[]) => Promise<ReclaimOutcomeDto[]>>();
 
 vi.mock("../../adapters/tauri", async () => {
@@ -67,18 +73,21 @@ function renderInventory() {
   );
 }
 
-const box = (label: string) => screen.getByRole("checkbox", { name: new RegExp(label) }) as HTMLInputElement;
+const box = (label: string) => screen.getByRole("checkbox", { name: new RegExp(`${label} for reclaim`) });
+const checked = (el: HTMLElement) => el.getAttribute("aria-checked") === "true";
+const selectAll = () => screen.getByRole("checkbox", { name: /^Select every worktree that can be reclaimed/ });
 
 async function selectAndConfirm(...keys: string[]) {
   for (const k of keys) fireEvent.click(box(k));
   fireEvent.click(screen.getByRole("button", { name: "Reclaim" }));
-  fireEvent.click(await screen.findByRole("button", { name: /^Remove \d+ worktrees?$/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /^Reclaim \d+ worktrees?$/ }));
 }
 
 beforeEach(() => {
   resetUiState();
   inventoryMock.mockReset();
   reclaimMock.mockReset();
+  notifyMock.success.mockReset();
   inventoryMock.mockResolvedValue(ROWS);
 });
 afterEach(cleanup);
@@ -87,9 +96,9 @@ describe("selection", () => {
   it("renders a checkbox on reclaimable rows only", async () => {
     renderInventory();
     await screen.findByText("ALP-1");
-    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+    expect(document.querySelectorAll("[data-worktree-row] [role='checkbox']")).toHaveLength(2);
     for (const id of ["c", "d"]) {
-      expect(document.querySelector(`[data-worktree-row='${id}'] input`)).toBeNull();
+      expect(document.querySelector(`[data-worktree-row='${id}'] [role='checkbox']`)).toBeNull();
     }
   });
 
@@ -115,13 +124,32 @@ describe("selection", () => {
     );
   });
 
-  it("has no control that selects every reclaimable row or submits without a selection", async () => {
+  it("offers no Reclaim without a selection", async () => {
     renderInventory();
     await screen.findByText("ALP-1");
-    expect(screen.queryByRole("button", { name: /all|every/i })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reclaim" })).toBeNull();
-    // The only checkboxes are the per-row ones: one per reclaimable row, none in a header.
-    expect(document.querySelectorAll("input[type=checkbox]")).toHaveLength(2);
+    expect(document.querySelector("[data-reclaim-bar]")).toBeNull();
+  });
+
+  it("selects every reclaimable row from the header, and lets one be kept before confirming", async () => {
+    renderInventory();
+    await screen.findByText("ALP-1");
+    expect(selectAll()).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(selectAll());
+    expect(checked(box("ALP-1"))).toBe(true);
+    expect(checked(box("ALP-2"))).toBe(true);
+    expect((document.querySelector("[data-field='selection']") as HTMLElement).textContent).toContain("2 worktrees");
+    // Keep one: the header shows a partial selection, and nothing has been submitted.
+    fireEvent.click(box("ALP-2"));
+    expect(selectAll()).toHaveAttribute("aria-checked", "mixed");
+    expect((document.querySelector("[data-field='selection']") as HTMLElement).textContent).toContain("1 worktree");
+    expect(reclaimMock).not.toHaveBeenCalled();
+    // A second press of a partial select-all selects them all again; a third clears them.
+    fireEvent.click(selectAll());
+    expect(checked(box("ALP-2"))).toBe(true);
+    fireEvent.click(selectAll());
+    expect(checked(box("ALP-1"))).toBe(false);
+    expect(document.querySelector("[data-reclaim-bar]")).toBeNull();
   });
 });
 
@@ -137,10 +165,10 @@ describe("confirmation", () => {
     fireEvent.click(box("ALP-2"));
     fireEvent.click(screen.getByRole("button", { name: "Reclaim" }));
     const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent("Remove 2 worktrees?");
+    expect(dialog).toHaveTextContent("Reclaim 2 worktrees?");
     expect(dialog).toHaveTextContent("1.5 GiB");
     expect(reclaimMock).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Remove 2 worktrees" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reclaim 2 worktrees" }));
     await waitFor(() => expect(reclaimMock).toHaveBeenCalledTimes(1));
     expect(reclaimMock.mock.calls[0][0]).toEqual(["a", "b"]);
   });
@@ -153,7 +181,7 @@ describe("confirmation", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(reclaimMock).not.toHaveBeenCalled();
-    expect(box("ALP-1").checked).toBe(true);
+    expect(checked(box("ALP-1"))).toBe(true);
   });
 });
 
@@ -188,8 +216,8 @@ describe("results", () => {
     const before = inventoryMock.mock.calls.length;
     await selectAndConfirm("ALP-1", "ALP-2");
     await waitFor(() => expect(inventoryMock.mock.calls.length).toBeGreaterThan(before));
-    await waitFor(() => expect(box("ALP-2").checked).toBe(true));
-    expect(box("ALP-1").checked).toBe(false);
+    await waitFor(() => expect(checked(box("ALP-2"))).toBe(true));
+    expect(checked(box("ALP-1"))).toBe(false);
     // The server's current list is what stays on screen: the "removed" row is still listed here
     // because the mock still returns it; nothing was deleted from the view locally.
     expect(screen.getByText("ALP-1")).toBeInTheDocument();
@@ -203,13 +231,33 @@ describe("results", () => {
     expect(await screen.findByText("refused: worktree is locked")).toBeInTheDocument();
   });
 
-  it("reports a call that failed outright as such and removes nothing from the view", async () => {
+  it("reports a call that failed outright in the confirmation and removes nothing from the view", async () => {
     reclaimMock.mockRejectedValue(new Error("boom"));
     renderInventory();
     await screen.findByText("ALP-1");
     await selectAndConfirm("ALP-1");
-    expect(await screen.findByRole("status")).toHaveTextContent("Could not reclaim the worktrees");
+    const dialog = await screen.findByRole("alertdialog");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("boom");
     expect(document.querySelector("[data-reclaim-result]")).toBeNull();
-    expect(box("ALP-1").checked).toBe(true);
+    expect(notifyMock.success).not.toHaveBeenCalled();
+    // The dialog hides the page from assistive tech while it is open; the selection behind it is kept.
+    expect(checked(screen.getByRole("checkbox", { name: /ALP-1 for reclaim/, hidden: true }))).toBe(true);
+  });
+
+  it("says in a toast what a reclaim that removed everything freed, and closes the confirmation", async () => {
+    reclaimMock.mockResolvedValue([
+      { storyId: "a", removed: true, reason: "merged", error: null },
+      { storyId: "b", removed: true, reason: "merged", error: null },
+    ]);
+    renderInventory();
+    await screen.findByText("ALP-1");
+    await selectAndConfirm("ALP-1", "ALP-2");
+    await waitFor(() =>
+      expect(notifyMock.success).toHaveBeenCalledWith("Reclaimed 2 worktrees", {
+        description: "1.5 GiB freed. Branches and commits are kept.",
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(document.querySelector("[data-reclaim-result]")).toBeNull();
   });
 });

@@ -11,8 +11,9 @@
  * multi-second worktree walk leaves the window responsive (D-REV-54: needs the installed app).
  *
  * Widths. 1200 is the stage left after the project rail at the 1440 viewport; 900 is a deliberately
- * narrower stage. The row grid's minimum widths, gaps and padding sum to about 842px, so both are expected to
- * fit, and every cell (the subject above all) must still be painted at 900.
+ * narrower stage; 652 is what a 900px window leaves beside the rail, where the fleet table drops its Project
+ * and Doing columns (#208). The tables are `table-fixed`, so the Story column takes what the others leave
+ * and every cell (the subject above all) must still be painted at 652.
  *
  * Provenance. Every row below is a SYNTHETIC fixture (the same shape the jsdom suites use), chosen to put
  * the longest text each column can carry into the row: it is a stress input, not a capture of a real fleet.
@@ -43,7 +44,7 @@ vi.mock(import("../../../adapters/tauri"), async (importOriginal) => ({
 
 afterEach(cleanup);
 
-const WIDTHS = [1200, 900] as const;
+const WIDTHS = [1200, 900, 652] as const;
 const TOL = 0.5;
 
 // ---------------------------------------------------------------------------------------------
@@ -100,6 +101,7 @@ function stressRows(): FleetRowDto[] {
   ];
 }
 
+
 // ---------------------------------------------------------------------------------------------
 // Measurement helpers.
 // ---------------------------------------------------------------------------------------------
@@ -137,33 +139,35 @@ function expectEllipsisWhenCut(cell: HTMLElement, what: string) {
   expect(style.whiteSpace, `${what} is cut, so it must not wrap`).toBe("nowrap");
 }
 
-const fieldsOf = (row: Element) => Array.from(row.querySelectorAll<HTMLElement>(":scope > [data-field]"));
-const fieldOf = (row: Element, name: string) => row.querySelector<HTMLElement>(`:scope > [data-field="${name}"]`) as HTMLElement;
+/** Whether a cell is drawn at this width (a narrow card leaves the Project and Doing columns out). */
+const shown = (el: Element | null): el is HTMLElement => el !== null && getComputedStyle(el).display !== "none";
+const fieldOf = (row: Element, name: string) => row.querySelector<HTMLElement>(`[data-field="${name}"]`) as HTMLElement;
+const visibleCells = (row: Element) => Array.from(row.querySelectorAll<HTMLElement>(":scope > td")).filter(shown);
 
 // ---------------------------------------------------------------------------------------------
 // Mounting.
 // ---------------------------------------------------------------------------------------------
 
-async function mountFleet(rows: FleetRowDto[], width: number) {
+async function mountFleet(rows: FleetRowDto[], width: number, height = 1000) {
   served.fleet = { rows, totalRows: rows.length, visibleCostUsd: 14.6821 } satisfies FleetListDto;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const utils = render(
     <QueryClientProvider client={queryClient}>
-      <div data-stage style={{ width, height: 1000 }}>
+      <div data-stage style={{ width, height }}>
         <FleetSurface onClose={() => {}} />
       </div>
     </QueryClientProvider>,
   );
-  await waitFor(() => expect(utils.container.querySelectorAll('[role="listitem"]')).toHaveLength(rows.length));
+  await waitFor(() => expect(utils.container.querySelectorAll("tr[data-run-id]")).toHaveLength(rows.length));
   return utils.container;
 }
 
-async function mountInventory(rows: WorktreeInventoryRowDto[], width: number) {
+async function mountInventory(rows: WorktreeInventoryRowDto[], width: number, height = 1000) {
   served.inventory = rows;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const utils = render(
     <QueryClientProvider client={queryClient}>
-      <div data-stage style={{ width, height: 1000 }}>
+      <div data-stage style={{ width, height }}>
         <WorktreeInventory onClose={() => {}} />
       </div>
     </QueryClientProvider>,
@@ -182,42 +186,43 @@ describe("the engine is in the scheme this run claims to measure", () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// D-REV-47: the fleet surface.
+// D-REV-47, #208: the fleet surface's table.
 // ---------------------------------------------------------------------------------------------
 
-describe.each(WIDTHS)("the fleet surface at %ipx", (width) => {
-  it("keeps every cell of every row inside its row, with no two cells overlapping", async () => {
+describe.each(WIDTHS)("the fleet table at %ipx", (width) => {
+  it("draws a header cell over every column it shows, and every row carries one cell per column", async () => {
     const container = await mountFleet(stressRows(), width);
-    const rows = Array.from(container.querySelectorAll<HTMLElement>('[role="listitem"]'));
-    expect(rows).toHaveLength(9);
-    for (const row of rows) {
-      const name = `${row.dataset.fleetState} row ${row.dataset.runId}`;
-      const cells = fieldsOf(row);
-      expect(cells.length, `${name} carries its eight cells`).toBe(8);
-      for (const cell of cells) expectInside(cell, row, `${name}, ${cell.dataset.field}`);
-      const ordered = [...cells].sort((a, b) => rect(a).left - rect(b).left);
-      for (let i = 1; i < ordered.length; i += 1) {
-        expect(
-          rect(ordered[i - 1]).right,
-          `${name}: ${ordered[i - 1].dataset.field} runs into ${ordered[i].dataset.field}`,
-        ).toBeLessThanOrEqual(rect(ordered[i]).left + TOL);
-      }
+    const headers = Array.from(container.querySelectorAll<HTMLElement>("thead th")).filter(shown);
+    const words = headers.map((h) => h.textContent?.trim());
+    expect(words.slice(0, 1)).toEqual(["State"]);
+    expect(words).toContain("Story");
+    expect(words).toContain("Age");
+    for (const row of Array.from(container.querySelectorAll<HTMLElement>("tr[data-run-id]"))) {
+      expect(visibleCells(row), `row ${row.dataset.runId}`).toHaveLength(headers.length);
     }
+    // The Story column takes whatever width is left, so it is the widest at every width.
+    const story = headers.find((h) => h.textContent === "Story") as HTMLElement;
+    for (const header of headers) expect(rect(story).width, `Story is wider than ${header.textContent}`).toBeGreaterThanOrEqual(rect(header).width - TOL);
   });
 
   it("cuts only what may be cut, and cuts it with an ellipsis; the state, age and dismiss cells are never cut", async () => {
     const container = await mountFleet(stressRows(), width);
-    for (const row of Array.from(container.querySelectorAll<HTMLElement>('[role="listitem"]'))) {
+    for (const row of Array.from(container.querySelectorAll<HTMLElement>("tr[data-run-id]"))) {
       const name = `${row.dataset.fleetState} row ${row.dataset.runId}`;
       for (const field of ["state", "age", "dismiss"]) expectNotCut(fieldOf(row, field), `${name}, ${field}`);
-      for (const field of ["project", "subject", "doing-task", "activity", "spend"]) expectEllipsisWhenCut(fieldOf(row, field), `${name}, ${field}`);
+      for (const field of ["project", "subject", "doing-task", "activity"]) {
+        const cell = fieldOf(row, field);
+        if (shown(cell) && cell.offsetParent !== null && !cell.classList.contains("sr-only")) expectEllipsisWhenCut(cell, `${name}, ${field}`);
+      }
+      const spend = fieldOf(row, "spend");
+      if (spend) for (const line of Array.from(spend.children)) expectNotCut(line, `${name}, spend`);
     }
   });
 
   it("shows the glyph and the word of every state inside the state cell", async () => {
     const container = await mountFleet(stressRows(), width);
     const states = new Set<string>();
-    for (const row of Array.from(container.querySelectorAll<HTMLElement>('[role="listitem"]'))) {
+    for (const row of Array.from(container.querySelectorAll<HTMLElement>("tr[data-run-id]"))) {
       const cell = fieldOf(row, "state");
       const name = `${row.dataset.fleetState} state cell`;
       states.add(row.dataset.fleetState ?? "");
@@ -232,43 +237,31 @@ describe.each(WIDTHS)("the fleet surface at %ipx", (width) => {
     expect(states.size, "the fixture draws seven different states").toBe(7);
   });
 
-  it("keeps a long project name to one line and leaves the age column inside the row", async () => {
+  it("keeps a long project name and a long title to one line, so their row is no taller than another", async () => {
     const container = await mountFleet(stressRows(), width);
     const byId = (id: string) => container.querySelector<HTMLElement>(`[data-run-id="${id}"]`) as HTMLElement;
     const long = byId("106");
-    const short = byId("104");
+    const short = byId("107");
+    expect(rect(long).height, "a long project name or title must not make its row taller").toBeCloseTo(rect(short).height, 0);
+    const subject = fieldOf(long, "subject");
+    expect(getComputedStyle(subject).textOverflow, "a long title is cut with an ellipsis").toBe("ellipsis");
     const project = fieldOf(long, "project");
-    expect(getComputedStyle(project).textOverflow, "a long project name must be cut with an ellipsis").toBe("ellipsis");
-    // The same shape of row with a short name is the control: a wrapped long name would make it taller.
-    expect(rect(long).height, "a long project name must not make its row taller").toBeCloseTo(rect(short).height, 0);
-    expect(project.scrollWidth, "the fixture really is longer than the column (else this proves nothing)").toBeGreaterThan(
-      project.clientWidth + 1,
-    );
+    if (shown(project)) {
+      expect(getComputedStyle(project).textOverflow, "a long project name must be cut with an ellipsis").toBe("ellipsis");
+      expect(project.scrollWidth, "the fixture really is longer than the column (else this proves nothing)").toBeGreaterThan(project.clientWidth + 1);
+    }
     const age = fieldOf(long, "age");
     expectInside(age, long, "age cell of the long-name row");
     expect(textRect(age).right, "the age text stays inside the row").toBeLessThanOrEqual(rect(long).right + TOL);
-    expect(textRect(age).left, "the age text stays right of the project column").toBeGreaterThan(rect(project).right);
   });
 
-  it("lines the columns up down the whole list", async () => {
+  it("heads each band with its name and count on one line, with Dismiss finished inside the done band's header", async () => {
     const container = await mountFleet(stressRows(), width);
-    const rows = Array.from(container.querySelectorAll<HTMLElement>('[role="listitem"]'));
-    for (const field of ["state", "project", "age"]) {
-      const lefts = rows.map((r) => rect(fieldOf(r, field)).left);
-      const rights = rows.map((r) => rect(fieldOf(r, field)).right);
-      expect(Math.max(...lefts) - Math.min(...lefts), `${field} column: left edges differ between rows`).toBeLessThanOrEqual(TOL);
-      expect(Math.max(...rights) - Math.min(...rights), `${field} column: right edges differ between rows`).toBeLessThanOrEqual(TOL);
-    }
-  });
-
-  it("holds the three band headers inside their bands, on one line, with Dismiss finished inside the bar", async () => {
-    const container = await mountFleet(stressRows(), width);
-    const bands = Array.from(container.querySelectorAll<HTMLElement>("section[data-band]"));
+    const bands = Array.from(container.querySelectorAll<HTMLElement>("tbody[data-band]"));
     expect(bands.map((b) => b.dataset.band)).toEqual(["needs-you", "running", "done-failed"]);
     const words = bands.map((band) => {
       const heading = band.querySelector("h2") as HTMLElement;
-      const bar = heading.parentElement as HTMLElement;
-      expectInside(heading, band, `${band.dataset.band} header`);
+      const bar = band.querySelector("th") as HTMLElement;
       expectInside(heading, bar, `${band.dataset.band} header within its bar`);
       expectNotCut(heading, `${band.dataset.band} header`);
       const lineHeight = parseFloat(getComputedStyle(heading).lineHeight);
@@ -285,20 +278,36 @@ describe.each(WIDTHS)("the fleet surface at %ipx", (width) => {
     expect(words).toEqual(["NEEDS YOU", "RUNNING", "DONE / FAILED"]);
   });
 
-  it("holds the header count and the estimate footer inside the surface", async () => {
+  it("holds the top bar, the count and the estimate footer inside the surface, with no sideways scroll", async () => {
     const container = await mountFleet(stressRows(), width);
     const stage = container.querySelector("[data-stage]") as HTMLElement;
     const header = container.querySelector("header") as HTMLElement;
     for (const child of Array.from(header.children)) expectInside(child, header, `header child "${child.textContent}"`);
+    expectInside(container.querySelector("[data-fleet-count]") as HTMLElement, stage, "agent count");
     const footer = container.querySelector("[data-fleet-footer]") as HTMLElement;
     expectInside(footer, stage, "estimate footer");
     expectNotCut(footer, "estimate footer");
     expect(stage.scrollWidth, "the surface does not scroll sideways").toBeLessThanOrEqual(stage.clientWidth + 1);
+    const scroller = container.querySelector("[data-fleet-table] > [data-slot='table-container']") as HTMLElement;
+    expect(scroller.scrollWidth, "the table does not scroll sideways").toBeLessThanOrEqual(scroller.clientWidth + 1);
+  });
+
+  it("keeps the column headers in view while the rows scroll under them", async () => {
+    const rows = Array.from({ length: 40 }, (_, i) => fleetRow(`${200 + i}`));
+    const container = await mountFleet(rows, width, 600);
+    const scroller = container.querySelector("[data-fleet-table] > [data-slot='table-container']") as HTMLElement;
+    expect(scroller.scrollHeight, "the fixture overflows the card").toBeGreaterThan(scroller.clientHeight);
+    scroller.scrollTop = scroller.scrollHeight;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const head = container.querySelector("thead") as HTMLElement;
+    expect(Math.abs(rect(head).top - rect(scroller).top), "the header row sticks to the top of the card").toBeLessThanOrEqual(1);
+    const stage = container.querySelector("[data-stage]") as HTMLElement;
+    expect(rect(scroller).bottom, "the card ends inside the window").toBeLessThanOrEqual(rect(stage).bottom + TOL);
   });
 });
 
 // ---------------------------------------------------------------------------------------------
-// D-REV-54: the worktree inventory.
+// D-REV-54, #208: the worktree inventory's table.
 // ---------------------------------------------------------------------------------------------
 
 const DISPOSITION_OF: Record<InventoryReason, WorktreeInventoryRowDto["disposition"]> = {
@@ -331,18 +340,19 @@ function inventoryRow(id: string, reason: InventoryReason, overrides: Partial<Wo
 }
 
 /** Every reason the core can return, so every chip word is the widest of its kind once; plus the
- * stress rows: a long project, the widest size, a never-measured size and a measurement a month old. */
+ * stress rows: a long project and title, the widest size, a never-measured size and a measurement a month
+ * old. */
 function inventoryRows(): WorktreeInventoryRowDto[] {
   return [
     ...RECLAIM_REASONS.map((reason, i) => inventoryRow(`${i + 1}`, reason)),
-    inventoryRow("20", "merged", { projectName: LONG_PROJECT }),
+    inventoryRow("20", "merged", { projectId: "proj-2", projectName: LONG_PROJECT, storyTitle: LONG_TITLE }),
     inventoryRow("21", "merged", { sizeBytes: 1023.9 * 1024 ** 4, sizeMeasuredAt: new Date(Date.now() - 40 * 86_400_000).toISOString() }),
     inventoryRow("22", "uncommitted_changes", { sizeBytes: null, sizeMeasuredAt: null }),
   ];
 }
 
-describe.each(WIDTHS)("the worktree inventory at %ipx", (width) => {
-  it("renders a chip and a reason for every row, inside the row, with no two cells overlapping", async () => {
+describe.each(WIDTHS)("the worktree table at %ipx", (width) => {
+  it("renders a chip and a reason for every row inside its cell, and a checkbox only where a row can be reclaimed", async () => {
     const rows = inventoryRows();
     const container = await mountInventory(rows, width);
     const items = Array.from(container.querySelectorAll<HTMLElement>("[data-worktree-row]"));
@@ -352,25 +362,13 @@ describe.each(WIDTHS)("the worktree inventory at %ipx", (width) => {
       const name = `worktree row ${item.dataset.worktreeRow}`;
       const chip = item.querySelector<HTMLElement>('[data-field="disposition"]') as HTMLElement;
       const reason = chip.querySelector<HTMLElement>('[data-field="reason"]') as HTMLElement;
-      expect(chip, `${name} has its chip`).not.toBeNull();
       expect(reason.textContent?.trim().length, `${name} has its reason`).toBeGreaterThan(0);
       reasonsSeen.add(reason.textContent ?? "");
       expect(chip.querySelector("svg"), `${name}: the chip carries its glyph, never colour alone`).not.toBeNull();
-      expectInside(chip, item, `${name}, chip`);
-      expectInside(reason, item, `${name}, reason`);
-      expectNotCut(chip, `${name}, chip`);
-      expect(textRect(reason).right, `${name}: the reason text ends inside the row`).toBeLessThanOrEqual(rect(item).right + TOL);
-
-      const cells = Array.from(item.querySelectorAll<HTMLElement>(':scope > [data-field]'));
-      for (const cell of cells) expectInside(cell, item, `${name}, ${cell.dataset.field}`);
-      const ordered = [...cells].sort((a, b) => rect(a).left - rect(b).left);
-      for (let i = 1; i < ordered.length; i += 1) {
-        expect(
-          rect(ordered[i - 1]).right,
-          `${name}: ${ordered[i - 1].dataset.field} runs into ${ordered[i].dataset.field}`,
-        ).toBeLessThanOrEqual(rect(ordered[i]).left + TOL);
-      }
-      const box = item.querySelector<HTMLInputElement>('input[type="checkbox"]');
+      const cell = chip.closest("td") as HTMLElement;
+      expectInside(chip.firstElementChild as Element, cell, `${name}, chip`);
+      expectInside(reason, cell, `${name}, reason`);
+      const box = item.querySelector<HTMLElement>('[role="checkbox"]');
       if (item.querySelector('[data-disposition="reclaimable"]')) {
         expect(box, `${name} is reclaimable, so it has a checkbox`).not.toBeNull();
         expectInside(box as Element, item, `${name}, checkbox`);
@@ -388,35 +386,38 @@ describe.each(WIDTHS)("the worktree inventory at %ipx", (width) => {
     }
     const widest = container.querySelector('[data-worktree-row="21"] [data-field="size"]') as HTMLElement;
     expect(widest.textContent).toContain("1023.9 TiB");
-    expect(widest.textContent).toContain("measured 40d ago");
+    expect(widest.textContent).toContain("measured ");
   });
 
-  it("keeps a long project name to one line, so the row is no taller than a short-name row", async () => {
+  it("names a long project once, on one line, and cuts a long title instead of growing its row", async () => {
     const container = await mountInventory(inventoryRows(), width);
+    const group = container.querySelector('tbody[data-project="proj-2"]') as HTMLElement;
+    const project = group.querySelector<HTMLElement>('[data-field="project"]') as HTMLElement;
+    expectEllipsisWhenCut(project, "a long project name");
+    expect(rect(project).height, "the project's name is one line").toBeLessThanOrEqual(parseFloat(getComputedStyle(project).lineHeight) + 1);
     const long = container.querySelector('[data-worktree-row="20"]') as HTMLElement;
     const short = container.querySelector('[data-worktree-row="1"]') as HTMLElement;
-    const project = long.querySelector<HTMLElement>('[data-field="project"]') as HTMLElement;
-    expect(getComputedStyle(project).textOverflow, "a long project name must be cut with an ellipsis").toBe("ellipsis");
-    expect(rect(long).height, "a long project name must not make its row taller").toBeCloseTo(rect(short).height, 0);
-    expect(project.scrollWidth, "the fixture really is longer than the column").toBeGreaterThan(project.clientWidth + 1);
+    expect(rect(long).height, "a long title must not make its row taller").toBeCloseTo(rect(short).height, 0);
   });
 
-  it("lays the columns out the same in every row, and does not scroll sideways", async () => {
+  it("does not scroll sideways", async () => {
     const container = await mountInventory(inventoryRows(), width);
-    const items = Array.from(container.querySelectorAll<HTMLElement>("[data-worktree-row]"));
-    for (const field of ["project", "story", "size", "disposition"]) {
-      const lefts = items.map((r) => rect(r.querySelector(`[data-field="${field}"]`) as Element).left);
-      expect(Math.max(...lefts) - Math.min(...lefts), `${field} column: left edges differ between rows`).toBeLessThanOrEqual(TOL);
-    }
-    const scroller = items[0].closest("ul")?.parentElement as HTMLElement;
-    expect(scroller.scrollWidth, "the list does not scroll sideways").toBeLessThanOrEqual(scroller.clientWidth + 1);
+    const scroller = container.querySelector("[data-worktree-table] > [data-slot='table-container']") as HTMLElement;
+    expect(scroller.scrollWidth, "the table does not scroll sideways").toBeLessThanOrEqual(scroller.clientWidth + 1);
   });
 
-  it("renders a never-measured size as an empty cell that still holds its column", async () => {
-    const container = await mountInventory(inventoryRows(), width);
-    const unmeasured = container.querySelector('[data-worktree-row="22"] [data-field="size"]') as HTMLElement;
-    const measured = container.querySelector('[data-worktree-row="1"] [data-field="size"]') as HTMLElement;
-    expect(unmeasured.textContent).toBe("");
-    expect(rect(unmeasured).width, "the empty cell keeps its width, so the chip column does not slide").toBeCloseTo(rect(measured).width, 0);
+  it("keeps the header and the Reclaim bar in view while the rows scroll between them", async () => {
+    const rows = Array.from({ length: 40 }, (_, i) => inventoryRow(`${100 + i}`, "merged"));
+    const container = await mountInventory(rows, width, 600);
+    (container.querySelector('[data-worktree-row="100"] [role="checkbox"]') as HTMLElement).click();
+    await waitFor(() => expect(container.querySelector("[data-reclaim-bar]")).not.toBeNull());
+    const scroller = container.querySelector("[data-worktree-table] > [data-slot='table-container']") as HTMLElement;
+    expect(scroller.scrollHeight, "the fixture overflows the card").toBeGreaterThan(scroller.clientHeight);
+    scroller.scrollTop = scroller.scrollHeight;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const stage = container.querySelector("[data-stage]") as HTMLElement;
+    const bar = container.querySelector("[data-reclaim-bar]") as HTMLElement;
+    expectInside(bar, stage, "the Reclaim bar");
+    expect(Math.abs(rect(container.querySelector("thead") as HTMLElement).top - rect(scroller).top)).toBeLessThanOrEqual(1);
   });
 });

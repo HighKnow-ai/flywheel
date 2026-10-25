@@ -1,7 +1,8 @@
 /**
  * Behavior under test (Phase 10 plan 10-04, AGNT-08 / FLEET-01, D-165/D-180):
  * - A live row's spend cell is empty text — not `$0.00`, not a dash. A finished row whose cost never
- *   arrived is empty too. A failed row keeps the cost it incurred.
+ *   arrived is empty too. A failed row keeps the cost it incurred. With no row to show a spend for, the
+ *   Spend column is left out (#208). Money reads through `lib/format.ts`, to two decimals.
  * - Tokens are labelled so `tokensIn` (which includes cache reads) cannot be read as the prompt size.
  * - The footer shows the total the core read computed, labelled as an estimate; with none, no total.
  * - A terminal row has a Dismiss control and a live row does not; "Dismiss finished" sends the ids of
@@ -11,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { FleetListDto, FleetRowDto } from "../../adapters/tauri";
-import { formatCostUsd } from "../../legend/runStatus";
+import { formatMoney } from "@/lib/format";
 import { resetUiState } from "../../state/uiStore";
 import { FleetSurface } from "../FleetSurface";
 
@@ -93,38 +94,46 @@ afterEach(() => {
 
 describe("spend cell", () => {
   it("is empty text for a running row, never $0.00", async () => {
-    fleetListMock.mockResolvedValue(list([row({ sessionId: "live", costUsd: null })]));
+    fleetListMock.mockResolvedValue(list([row({ sessionId: "live", costUsd: null }), completed("done", { costUsd: 1.25 })]));
     const { container } = renderFleet();
-    await screen.findByText("Wire the thing");
+    await screen.findByText("Dismiss");
     expect(spendOf(container, "live").textContent).toBe("");
     expect(container.textContent).not.toContain("$0.00");
   });
 
-  it("is empty even if a live row somehow carried a cost", async () => {
-    fleetListMock.mockResolvedValue(list([row({ sessionId: "live", costUsd: 0.5 })]));
+  it("leaves the Spend column out when no row has a spend to show", async () => {
+    fleetListMock.mockResolvedValue(list([row({ sessionId: "live", costUsd: null })]));
     const { container } = renderFleet();
     await screen.findByText("Wire the thing");
+    expect(screen.queryByRole("columnheader", { name: "Spend" })).toBeNull();
+    expect(spendOf(container, "live")).toBeNull();
+  });
+
+  it("is empty even if a live row somehow carried a cost", async () => {
+    fleetListMock.mockResolvedValue(list([row({ sessionId: "live", costUsd: 0.5 }), completed("done", { costUsd: 1.25 })]));
+    const { container } = renderFleet();
+    await screen.findByText("Dismiss");
     expect(spendOf(container, "live").textContent).toBe("");
   });
 
-  it("shows a completed row's recorded cost through formatCostUsd", async () => {
+  it("shows a completed row's recorded cost through formatMoney", async () => {
     fleetListMock.mockResolvedValue(list([completed("done", { costUsd: 1.25 })]));
     const { container } = renderFleet();
     await screen.findByText("Dismiss");
-    expect(spendOf(container, "done").textContent).toBe(formatCostUsd(1.25));
+    expect(spendOf(container, "done").textContent).toBe(formatMoney(1.25));
   });
 
   it("shows a failed row's cost: it keeps what it spent before it failed", async () => {
     fleetListMock.mockResolvedValue(list([failed("bad", { costUsd: 0.42 })]));
     const { container } = renderFleet();
     await screen.findByText("Dismiss");
-    expect(spendOf(container, "bad").textContent).toBe(formatCostUsd(0.42));
+    expect(spendOf(container, "bad").textContent).toBe(formatMoney(0.42));
   });
 
   it("is empty text for a completed row whose cost was never recorded", async () => {
-    fleetListMock.mockResolvedValue(list([completed("quiet", { costUsd: null })]));
+    fleetListMock.mockResolvedValue(list([completed("quiet", { costUsd: null }), completed("paid", { costUsd: 0.3 })]));
     const { container } = renderFleet();
-    await screen.findByText("Dismiss");
+    await screen.findAllByText("Dismiss");
     expect(spendOf(container, "quiet").textContent).toBe("");
   });
 
@@ -132,9 +141,9 @@ describe("spend cell", () => {
     fleetListMock.mockResolvedValue(list([completed("tok", { costUsd: 0.1, tokensIn: 1234567, tokensOut: 890 })]));
     const { container } = renderFleet();
     await screen.findByText("Dismiss");
-    const text = spendOf(container, "tok").textContent ?? "";
-    expect(text).toContain("incl. cache");
-    expect(text).toContain("out");
+    const tokens = spendOf(container, "tok").lastElementChild as HTMLElement;
+    expect(tokens.textContent).toBe("1.23M in · 890 out");
+    expect(tokens.getAttribute("title")).toMatch(/include cache reads/);
   });
 });
 
@@ -147,7 +156,7 @@ describe("footer total", () => {
       expect(el).not.toBeNull();
       return el as HTMLElement;
     });
-    expect(footer.textContent).toContain(formatCostUsd(1.75));
+    expect(footer.textContent).toContain(formatMoney(1.75));
     expect(footer.textContent).toMatch(/estimate/i);
     expect(footer.textContent).toMatch(/not a billed amount/i);
   });

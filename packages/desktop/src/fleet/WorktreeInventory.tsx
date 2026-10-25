@@ -6,9 +6,10 @@
  *
  * Plan 10-09 (WORK-07, D-179) adds the reclaim: a checkbox on RECLAIMABLE rows only (an in-use or keep
  * row renders none, not a disabled one), a bar naming the count and the total bytes of the selection,
- * one confirmation, and a per-row result list. There is deliberately no select-all and no
- * reclaim-everything action: D-179 rejected it by name, because there would be no way to keep one. The
- * selection is ADVISORY. The core re-derives every row's eligibility when it acts, so a row an agent
+ * one confirmation, and a per-row result list. D-179 rejected a reclaim-everything action, because there
+ * would be no way to keep one. #208 adds a select-all Checkbox in the table header, which is not that
+ * action: it only selects, every row can still be cleared before the one confirmation, and it selects
+ * reclaimable rows only. The selection is ADVISORY. The core re-derives every row's eligibility when it acts, so a row an agent
  * started in since the list was read comes back refused and the view shows exactly that; the list is
  * refetched afterwards rather than edited locally, so what stays on screen is the server's current truth.
  *
@@ -20,13 +21,15 @@
  * blocks and `du` reports them the same way.
  *
  * The inventory lists Story worktrees only: every `worktrees` row is owned by exactly one Story.
+ *
+ * #208 draws it as the fleet's table card: a Table with a sticky header (Story · Size · Status), the rows
+ * grouped under their project's name in the core's order, a select-all Checkbox, and a bar at the card's
+ * foot that stays in view while the rows scroll ("Reclaim 13 worktrees · 21.4 GiB"), confirmed in
+ * ConfirmDestructive.
  */
-import { useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Icon } from "../components/Icon";
-import { FocusScope } from "@radix-ui/react-focus-scope";
-import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Activity, Check, Lock, Recycle, RefreshCw, Trash2, X } from "lucide-react";
 import {
   worktreeMeasure,
   worktreeReclaim,
@@ -34,13 +37,21 @@ import {
   type ReclaimOutcomeDto,
   type WorktreeInventoryRowDto,
 } from "../adapters/tauri";
-import { formatAge } from "../legend/runStatus";
+import { ConfirmDestructive } from "../components/ConfirmDestructive";
+import { ReadError } from "../components/ReadError";
+import { StoryKey } from "../components/StoryKey";
+import { PageHeader, SurfaceBody } from "../shell/PageHeader";
+import { STICKY_HEADER, TABLE_CARD, useWidth } from "./FleetSurface";
 import { useWorktreeInventory, worktreeInventoryQueryKey } from "./useFleet";
-import "../styles/admin-surfaces.css";
-import { Activity, Lock, Recycle, RefreshCw } from "lucide-react";
-import { PageHeader } from "../shell/PageHeader";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import "../styles/states-and-confirms.css";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { formatRelativeTime } from "@/lib/format";
+import { notify } from "@/lib/notify";
+import { cn } from "@/lib/utils";
 
 /** Every reason the core's `ReclaimReason` can return, so a test can prove each one has a word. */
 export const RECLAIM_REASONS: readonly InventoryReason[] = [
@@ -86,9 +97,9 @@ export function formatBytes(bytes: number): string {
   return unit === 0 ? `${bytes} B` : `${value.toFixed(1)} ${UNITS[unit]}`;
 }
 
-/** The age of a measurement: `measured 3m ago`, via the fleet's own compact age. */
+/** The age of a measurement in the app's one relative-time vocabulary: `measured 3m ago`. */
 export function formatMeasuredAge(measuredAtIso: string, nowMs: number): string {
-  return `measured ${formatAge(measuredAtIso, nowMs)} ago`;
+  return `measured ${formatRelativeTime(measuredAtIso, nowMs)}`;
 }
 
 /** The most worktrees one reclaim call may carry. The core refuses a longer list as a whole. */
@@ -101,14 +112,14 @@ interface ResultLine {
   outcome: ReclaimOutcomeDto;
 }
 
-/** The sum of the measured sizes, and how many selected rows have no measurement. An unmeasured size
- * is absent, never zero, so the total says how many it leaves out. */
-function selectionTotal(rows: WorktreeInventoryRowDto[]): { bytes: number; unmeasured: number } {
+/** The sum of the measured sizes, and how many have no measurement. An unmeasured size is absent, never
+ * zero, so the total says how many it leaves out. */
+function sizeTotal(sizes: (number | null)[]): { bytes: number; unmeasured: number } {
   let bytes = 0;
   let unmeasured = 0;
-  for (const r of rows) {
-    if (r.sizeBytes == null) unmeasured += 1;
-    else bytes += r.sizeBytes;
+  for (const size of sizes) {
+    if (size == null) unmeasured += 1;
+    else bytes += size;
   }
   return { bytes, unmeasured };
 }
@@ -128,122 +139,81 @@ function outcomeWords(o: ReclaimOutcomeDto): string {
   return `refused: ${o.error ?? "not removed"}`;
 }
 
-/** The one confirmation (Dialog tier of the Overlay Rule: scrim, centred, asks for a decision). Cancel
- * holds the first focus and Escape or a click outside cancels, so a stray Enter cannot remove anything. */
-function ReclaimConfirm({
-  count,
-  total,
-  onConfirm,
-  onCancel,
-}: {
-  count: number;
-  total: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  return createPortal(
-    <FocusScope
-      trapped
-      loop
-      asChild
-      onMountAutoFocus={(event) => {
-        event.preventDefault();
-        cancelRef.current?.focus();
-      }}
-    >
-      <DismissableLayer
-        onEscapeKeyDown={(event) => {
-          event.preventDefault();
-          onCancel();
-        }}
-        onPointerDownOutside={onCancel}
-        asChild
-      >
-        <div role="alertdialog" aria-label={`Remove ${worktreesWord(count)}?`} className="confirm-scrim">
-          <div className="type-body confirm-dialog">
-            <h2 className="type-heading">Remove {worktreesWord(count)}?</h2>
-            <p className="type-body">
-              {total}. Their directories are removed from disk. Branches and commits are kept. A worktree with
-              uncommitted changes, or one an agent has started in since the list was read, is refused and left
-              alone.
-            </p>
-            <div className="confirm-actions">
-              <button ref={cancelRef} type="button" autoFocus className="type-body control-edge confirm-action" onClick={onCancel}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="type-body control-edge confirm-action confirm-action-destructive"
-                onClick={onConfirm}
-              >
-                <Icon name="Trash2" />
-                Remove {worktreesWord(count)}
-              </button>
-            </div>
-          </div>
-        </div>
-      </DismissableLayer>
-    </FocusScope>,
-    document.body,
-  );
-}
-
+/** The bar at the card's foot while anything is selected: what the reclaim would take, Clear, and the one
+ * action, confirmed in ConfirmDestructive. It sits outside the table's scroller, so it stays in view. */
 function ReclaimBar({
   rows,
-  busy,
+  onClear,
   onReclaim,
 }: {
   rows: WorktreeInventoryRowDto[];
-  busy: boolean;
-  onReclaim: () => void;
+  onClear: () => void;
+  onReclaim: () => Promise<void>;
 }) {
   const over = rows.length > RECLAIM_BATCH_CAP;
+  const total = totalWords(sizeTotal(rows.map((r) => r.sizeBytes)), rows.length);
   return (
-    <div
-      data-reclaim-bar
-      className="type-body"
-      style={{ display: "flex", gap: "var(--space-md)", alignItems: "center", padding: "var(--space-xs) var(--space-md)", borderBottom: "1px solid var(--border)" }}
-    >
-      <span data-field="selection" className="tabular-nums">
-        {`Reclaim ${worktreesWord(rows.length)} · ${totalWords(selectionTotal(rows), rows.length)}`}
+    <div data-reclaim-bar className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border bg-muted px-4 py-2.5">
+      <span data-field="selection" className="text-small font-semibold tabular-nums">
+        {`Reclaim ${worktreesWord(rows.length)} · ${total}`}
       </span>
       {over && (
-        <span role="status" className="type-label" style={{ color: "var(--muted-foreground)" }}>
+        <span role="status" className="text-meta text-muted-foreground">
           {`At most ${RECLAIM_BATCH_CAP} at a time.`}
         </span>
       )}
-      <button type="button" className="type-label control-edge" disabled={busy || over} onClick={onReclaim}>
-        {busy ? "Removing…" : "Reclaim"}
-      </button>
+      <span className="ml-auto flex items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={onClear}>
+          Clear
+        </Button>
+        <ConfirmDestructive
+          trigger={
+            <Button variant="destructive" size="sm" disabled={over}>
+              <Trash2 aria-hidden="true" />
+              Reclaim
+            </Button>
+          }
+          title={`Reclaim ${worktreesWord(rows.length)}?`}
+          description={`${total}. Their directories are removed from disk; branches and commits are kept. A worktree with uncommitted changes, or one an agent has started in since the list was read, is refused and left alone.`}
+          confirmLabel={`Reclaim ${worktreesWord(rows.length)}`}
+          icon={<Trash2 aria-hidden="true" />}
+          onConfirm={onReclaim}
+        />
+      </span>
     </div>
   );
 }
 
-function ReclaimResultList({ lines }: { lines: ResultLine[] }) {
+/** What a reclaim that left something behind did, row by row. A reclaim that removed everything says so in
+ * a toast instead: the rows leaving the table already show it. */
+function ReclaimResultList({ lines, onClose }: { lines: ResultLine[]; onClose: () => void }) {
   const removed = lines.filter((l) => l.outcome.removed).length;
   return (
-    <section data-reclaim-result style={{ padding: "var(--space-xs) var(--space-md)", borderBottom: "1px solid var(--border)" }}>
-      <h3 className="type-label" style={{ color: "var(--muted-foreground)" }}>
-        {`Result · ${removed} of ${lines.length} removed`}
-      </h3>
-      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-        {lines.map(({ label, outcome }) => (
-          <li
-            key={outcome.storyId}
-            data-reclaim-outcome={outcome.removed ? "removed" : "refused"}
-            data-story-id={outcome.storyId}
-            className="type-body"
-            style={{ display: "flex", gap: "var(--space-xs)", alignItems: "center" }}
-          >
-            <Icon name={outcome.removed ? "Check" : "X"} />
-            <span>{label}</span>
-            {" "}
-            <span>{outcomeWords(outcome)}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
+    <Alert data-reclaim-result role="status" className="mx-auto max-w-[1240px] shrink-0 pr-12">
+      <AlertTitle className="text-body font-semibold tabular-nums">{`Result · ${removed} of ${lines.length} removed`}</AlertTitle>
+      <AlertDescription>
+        <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+          {lines.map(({ label, outcome }) => (
+            <li
+              key={outcome.storyId}
+              data-reclaim-outcome={outcome.removed ? "removed" : "refused"}
+              data-story-id={outcome.storyId}
+              className="flex items-center gap-1.5 text-small"
+            >
+              {outcome.removed ? (
+                <Check aria-hidden="true" size={15} className="shrink-0 text-muted-foreground" />
+              ) : (
+                <X aria-hidden="true" size={15} className="shrink-0 text-destructive-text" />
+              )}
+              <span>{label}</span> <span className={outcome.removed ? "text-muted-foreground" : undefined}>{outcomeWords(outcome)}</span>
+            </li>
+          ))}
+        </ul>
+      </AlertDescription>
+      <Button variant="ghost" size="icon-sm" aria-label="Close the result" onClick={onClose} className="absolute top-1.5 right-1.5">
+        <X aria-hidden="true" />
+      </Button>
+    </Alert>
   );
 }
 
@@ -251,12 +221,12 @@ function Chip({ row }: { row: WorktreeInventoryRowDto }) {
   const chip = DISPOSITION_CHIPS[row.disposition];
   const ChipIcon = chip.icon;
   return (
-    <span data-field="disposition" data-disposition={row.disposition} style={{ display: "inline-flex", gap: "var(--space-xs)", alignItems: "center" }}>
-      <span className="type-label" style={{ display: "inline-flex", gap: "var(--space-xs)", alignItems: "center" }}>
-        <ChipIcon size={16} strokeWidth={2} aria-hidden="true" />
+    <span data-field="disposition" data-disposition={row.disposition} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      <Badge variant={row.disposition === "reclaimable" ? "outline" : "secondary"}>
+        <ChipIcon aria-hidden="true" />
         {chip.label}
-      </span>
-      <span data-field="reason" className="type-label" style={{ color: "var(--muted-foreground)" }}>
+      </Badge>
+      <span data-field="reason" className="text-small whitespace-nowrap text-muted-foreground">
         {RECLAIM_REASON_WORDS[row.reason]}
       </span>
     </span>
@@ -274,63 +244,80 @@ function Row({
   selected: boolean;
   onToggle: () => void;
 }) {
+  const reclaimable = row.disposition === "reclaimable";
   return (
-    <li
+    <TableRow
       data-worktree-row={row.storyId}
-      style={{
-        display: "grid",
-        gridTemplateColumns: "20px minmax(120px, 1fr) minmax(80px, 100px) minmax(160px, 1.4fr) minmax(280px, 2fr)",
-        gap: "var(--space-md)",
-        alignItems: "center",
-        padding: "var(--space-xs) var(--space-md)",
-        borderBottom: "1px solid var(--border)",
-      }}
+      data-state={selected ? "selected" : undefined}
+      onClick={reclaimable ? onToggle : undefined}
+      className={cn("h-13 border-border", reclaimable && "cursor-pointer", "data-[state=selected]:bg-running-muted")}
     >
-      {/* Only a reclaimable row can be selected. An in-use or keep row renders no checkbox at all: an
-          affordance that looks live and is not is worse than its absence. */}
-      {row.disposition === "reclaimable" ? (
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggle}
-          aria-label={`Select ${row.projectName} ${row.storyKey} for reclaim`}
-        />
-      ) : (
-        <span aria-hidden="true" />
-      )}
-      <span data-field="project" className="type-body" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {row.projectName}
-      </span>
-      <span data-field="story" className="type-label tabular-nums" title={row.storyTitle}>
-        {row.storyKey}
-      </span>
-      <span data-field="size" className="type-body tabular-nums">
-        {row.sizeBytes == null ? "" : formatBytes(row.sizeBytes)}
+      <TableCell className="pl-4">
+        {/* Only a reclaimable row can be selected. An in-use or keep row renders no checkbox at all: an
+            affordance that looks live and is not is worse than its absence. */}
+        {reclaimable && (
+          <Checkbox
+            checked={selected}
+            onCheckedChange={onToggle}
+            onClick={(event) => event.stopPropagation()}
+            aria-label={`Select ${row.projectName} ${row.storyKey} for reclaim`}
+          />
+        )}
+      </TableCell>
+      <TableCell data-field="story" title={`${row.storyKey} ${row.storyTitle}`} className="truncate">
+        <StoryKey value={row.storyKey} />
+        {row.storyTitle ? " " : ""}
+        {row.storyTitle && <span className="text-body font-semibold">{row.storyTitle}</span>}
+      </TableCell>
+      <TableCell data-field="size" className="text-right tabular-nums">
+        {row.sizeBytes == null ? "" : <span className="block text-small">{formatBytes(row.sizeBytes)}</span>}
         {row.sizeBytes != null && row.sizeMeasuredAt != null && (
-          <span data-field="measured" className="type-label" style={{ marginLeft: "var(--space-xs)", color: "var(--muted-foreground)" }}>
+          <span data-field="measured" className="block text-meta text-muted-foreground">
             {formatMeasuredAge(row.sizeMeasuredAt, now)}
           </span>
         )}
-      </span>
-      <Chip row={row} />
-    </li>
+      </TableCell>
+      <TableCell className="pr-4 whitespace-normal">
+        <Chip row={row} />
+      </TableCell>
+    </TableRow>
   );
+}
+
+interface ProjectGroup {
+  projectId: string;
+  projectName: string;
+  rows: WorktreeInventoryRowDto[];
+}
+
+/** The rows grouped under their project, the groups in the order the core's list first names them (largest
+ * worktree first), the rows in the core's order inside each. */
+function byProject(rows: WorktreeInventoryRowDto[]): ProjectGroup[] {
+  const groups = new Map<string, ProjectGroup>();
+  for (const row of rows) {
+    const group = groups.get(row.projectId);
+    if (group) group.rows.push(row);
+    else groups.set(row.projectId, { projectId: row.projectId, projectName: row.projectName, rows: [row] });
+  }
+  return [...groups.values()];
 }
 
 export function WorktreeInventory({ onClose }: { onClose: () => void }) {
   const inventory = useWorktreeInventory();
   const queryClient = useQueryClient();
   const [measuring, setMeasuring] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [confirming, setConfirming] = useState(false);
-  const [reclaiming, setReclaiming] = useState(false);
   const [results, setResults] = useState<ResultLine[] | null>(null);
   const rows = inventory.data ?? [];
   const now = Date.now();
+  const reclaimable = rows.filter((r) => r.disposition === "reclaimable");
   // The selection can only ever name rows that are reclaimable in the CURRENT list, so a row that
   // came back in use after a refusal drops out of it instead of sitting selected and unselectable.
-  const selectedRows = rows.filter((r) => r.disposition === "reclaimable" && selected.has(r.storyId));
+  const selectedRows = reclaimable.filter((r) => selected.has(r.storyId));
+  const allSelected = reclaimable.length > 0 && selectedRows.length === reclaimable.length;
+  // A narrow card gives the Status column less room; its reason then wraps under the chip.
+  const [cardRef, cardWidth] = useWidth<HTMLDivElement>();
+  const wide = cardWidth === null || cardWidth >= 672;
 
   const toggle = (storyId: string) =>
     setSelected((prev) => {
@@ -340,102 +327,131 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
       return next;
     });
 
+  // Throws when the call fails outright, so the confirmation stays open with the failure and nothing is
+  // reported as removed.
   const reclaim = async () => {
-    setConfirming(false);
-    setReclaiming(true);
-    setNotice(null);
-    const submitted = selectedRows.map((r) => ({ id: r.storyId, label: `${r.projectName} ${r.storyKey}` }));
+    const submitted = selectedRows.map((r) => ({ id: r.storyId, label: `${r.projectName} ${r.storyKey}`, bytes: r.sizeBytes }));
     try {
       const outcomes = await worktreeReclaim(submitted.map((r) => r.id));
       const labels = new Map(submitted.map((r) => [r.id, r.label]));
-      setResults(outcomes.map((outcome) => ({ label: labels.get(outcome.storyId) ?? outcome.storyId, outcome })));
       // Removed rows leave the selection; refused rows stay in it so a retry costs no re-selection.
       const gone = new Set(outcomes.filter((o) => o.removed).map((o) => o.storyId));
       setSelected((prev) => new Set([...prev].filter((id) => !gone.has(id))));
-    } catch {
-      setNotice("Could not reclaim the worktrees. Nothing is reported as removed; the list below is current.");
+      if (outcomes.length > 0 && gone.size === outcomes.length) {
+        setResults(null);
+        const freed = submitted.filter((r) => gone.has(r.id)).map((r) => r.bytes);
+        notify.success(`Reclaimed ${worktreesWord(gone.size)}`, {
+          description: `${totalWords(sizeTotal(freed), freed.length)} freed. Branches and commits are kept.`,
+        });
+      } else {
+        setResults(outcomes.map((outcome) => ({ label: labels.get(outcome.storyId) ?? outcome.storyId, outcome })));
+      }
     } finally {
-      setReclaiming(false);
       // Refetch rather than edit the list: a refused row reappears with its real disposition.
-      await queryClient.invalidateQueries({ queryKey: worktreeInventoryQueryKey() });
+      void queryClient.invalidateQueries({ queryKey: worktreeInventoryQueryKey() });
     }
   };
 
   const remeasure = async () => {
     setMeasuring(true);
-    setNotice(null);
     try {
-      const results = await worktreeMeasure();
-      const incomplete = results.filter((r) => r.bounded || r.error !== null).length;
+      const measured = await worktreeMeasure();
+      const incomplete = measured.filter((r) => r.bounded || r.error !== null).length;
       if (incomplete > 0) {
-        setNotice(
-          `${incomplete} ${incomplete === 1 ? "worktree" : "worktrees"} could not be measured completely and ${
-            incomplete === 1 ? "keeps" : "keep"
-          } no size.`,
-        );
+        notify.error(`${worktreesWord(incomplete)} could not be measured completely`, {
+          description: `${incomplete === 1 ? "It keeps" : "They keep"} no size.`,
+        });
+      } else {
+        notify.success(`Measured ${worktreesWord(measured.length)}`);
       }
       await queryClient.invalidateQueries({ queryKey: worktreeInventoryQueryKey() });
-    } catch {
-      setNotice("Could not measure the worktrees.");
+    } catch (error) {
+      notify.error("Couldn't measure the worktrees", { error });
     } finally {
       setMeasuring(false);
     }
   };
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", color: "var(--foreground)" }}>
+    <div className="flex h-full min-h-0 flex-col text-foreground">
       <PageHeader
         onBack={onClose}
         crumbs={[{ label: "Worktrees" }]}
         actions={
           <>
-            <span aria-live="polite" className="text-small text-muted-foreground tabular-nums">
-              {`${rows.length} ${rows.length === 1 ? "worktree" : "worktrees"}`}
+            <span aria-live="polite" className="shrink-0 text-small whitespace-nowrap text-muted-foreground tabular-nums">
+              {worktreesWord(rows.length)}
             </span>
-            <Button variant="outline" disabled={measuring} onClick={() => void remeasure()}>
+            <Button variant="outline" loading={measuring} onClick={() => void remeasure()}>
               <RefreshCw aria-hidden="true" />
-              {measuring ? "Measuring…" : "Re-measure sizes"}
+              Re-measure sizes
             </Button>
           </>
         }
       />
-      {notice !== null && (
-        <p role="status" className="type-label" style={{ padding: "var(--space-xs) var(--space-md)", color: "var(--muted-foreground)" }}>
-          {notice}
-        </p>
-      )}
-      {selectedRows.length > 0 && (
-        <ReclaimBar rows={selectedRows} busy={reclaiming} onReclaim={() => setConfirming(true)} />
-      )}
-      {results !== null && results.length > 0 && <ReclaimResultList lines={results} />}
-      {confirming && selectedRows.length > 0 && (
-        <ReclaimConfirm
-          count={selectedRows.length}
-          total={totalWords(selectionTotal(selectedRows), selectedRows.length)}
-          onConfirm={() => void reclaim()}
-          onCancel={() => setConfirming(false)}
-        />
-      )}
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+      <SurfaceBody className="flex flex-col gap-3 overflow-hidden">
+        {results !== null && results.length > 0 && <ReclaimResultList lines={results} onClose={() => setResults(null)} />}
         {inventory.isError ? (
-          <p role="alert" className="type-body" style={{ padding: "var(--space-lg)", color: "var(--destructive-text)" }}>
-            Could not load the worktrees. It will retry on the next change.
-          </p>
+          <ReadError title="Couldn't load the worktrees" query={inventory} className="mx-auto max-w-[1240px]" />
         ) : inventory.isSuccess && rows.length === 0 ? (
-          <div style={{ padding: "var(--space-lg)", display: "flex", flexDirection: "column", gap: "var(--space-xs)" }}>
-            <span className="type-heading">No worktrees</span>
-            <span className="type-body" style={{ color: "var(--muted-foreground)" }}>
-              A Story gets a worktree when work starts on it, and it appears here.
-            </span>
-          </div>
+          <Empty className="mx-auto max-w-[1240px] flex-none rounded-lg border border-solid border-border bg-card shadow-card">
+            <EmptyHeader>
+              <EmptyTitle className="text-section font-semibold">No worktrees</EmptyTitle>
+              <EmptyDescription>A Story gets a worktree when work starts on it, and it appears here.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {rows.map((row) => (
-              <Row key={row.storyId} row={row} now={now} selected={selected.has(row.storyId)} onToggle={() => toggle(row.storyId)} />
-            ))}
-          </ul>
+          rows.length > 0 && (
+            <div ref={cardRef} data-worktree-table className={TABLE_CARD}>
+              <Table className="table-fixed">
+                <TableHeader className={STICKY_HEADER}>
+                  <TableRow>
+                    <TableHead className="w-11 pl-4">
+                      {reclaimable.length > 0 && (
+                        <Checkbox
+                          checked={allSelected ? true : selectedRows.length > 0 ? "indeterminate" : false}
+                          // A partial selection reads as a dash, not the tick the shared indicator draws.
+                          className="data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary data-[state=indeterminate]:before:h-0.5 data-[state=indeterminate]:before:w-2 data-[state=indeterminate]:before:rounded-full data-[state=indeterminate]:before:bg-primary-foreground data-[state=indeterminate]:[&_svg]:hidden"
+                          onCheckedChange={() => setSelected(allSelected ? new Set() : new Set(reclaimable.map((r) => r.storyId)))}
+                          aria-label={`Select every worktree that can be reclaimed (${reclaimable.length})`}
+                        />
+                      )}
+                    </TableHead>
+                    <TableHead>Story</TableHead>
+                    <TableHead className="w-36 text-right">Size</TableHead>
+                    <TableHead className={cn("pr-4", wide ? "w-72" : "w-44")}>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                {byProject(rows).map((group) => (
+                  <TableBody
+                    key={group.projectId}
+                    data-project={group.projectId}
+                    aria-label={group.projectName}
+                    className="[&_tr:last-child]:border-b"
+                  >
+                    <TableRow className="border-border bg-muted hover:bg-muted">
+                      <TableHead scope="rowgroup" colSpan={4} className="h-9 px-4">
+                        <span className="flex min-w-0 items-baseline gap-2">
+                          <span data-field="project" title={group.projectName} className="truncate text-small font-semibold">
+                            {group.projectName}
+                          </span>
+                          <span className="shrink-0 text-meta font-normal text-muted-foreground tabular-nums">
+                            {worktreesWord(group.rows.length)}
+                          </span>
+                        </span>
+                      </TableHead>
+                    </TableRow>
+                    {group.rows.map((row) => (
+                      <Row key={row.storyId} row={row} now={now} selected={selected.has(row.storyId)} onToggle={() => toggle(row.storyId)} />
+                    ))}
+                  </TableBody>
+                ))}
+              </Table>
+              {selectedRows.length > 0 && <ReclaimBar rows={selectedRows} onClear={() => setSelected(new Set())} onReclaim={reclaim} />}
+            </div>
+          )
         )}
-      </div>
+      </SurfaceBody>
     </div>
   );
 }

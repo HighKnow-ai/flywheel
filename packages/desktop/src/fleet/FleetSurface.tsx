@@ -25,30 +25,33 @@
  *
  * #58 adds the *doing* Task (`DoingTaskCell`): what each row's agent is doing now, read by the core from
  * the Story's Task checklist, and empty while no Task is doing.
+ *
+ * #208 puts the list on Table with column headers (State · Project · Story · Doing · Spend · Age), one card
+ * whose header sticks while the rows scroll, each band a row group headed by its name and count. The doing
+ * Task and the activity line share the Doing column (the Task above, the activity under it), a column no row
+ * fills is left out, and the Story column takes whatever width is left. Money and ages go through
+ * `lib/format.ts`. The header counts agents as GLOSSARY.md defines them (a live session) and labels the
+ * list's length as runs, so the two figures never read as one disagreeing count. The view switch is Tabs.
  */
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useState, type MouseEvent } from "react";
 import { acknowledgeSession, sessionAcknowledgeMany, type FleetActivityDto, type FleetRowDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
-import {
-  FLEET_BANDS,
-  bandForState,
-  formatAge,
-  formatCostUsd,
-  formatCount,
-  isFleetState,
-  isRunStatus,
-  type FleetBandId,
-  type FleetState,
-} from "../legend/runStatus";
+import { ReadError } from "../components/ReadError";
+import { StoryKey } from "../components/StoryKey";
+import { FLEET_BANDS, bandForState, isFleetState, isRunStatus, type FleetBandId, type FleetState } from "../legend/runStatus";
 import { feedRowText } from "../session/FeedRow";
 import { buildFeedRows } from "../session/SessionSurface";
 import { nextSelectionId, useRegionBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
 import { BlockedQueue } from "./BlockedQueue";
-import { useBlockedQueue, useFleet, useWaitingRounds } from "./useFleet";
+import { ageText, useBlockedQueue, useFleet, useWaitingRounds } from "./useFleet";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
 import { lampsFromFleet } from "../shell/AndonStrip";
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatMoney, formatTokens } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 function prefersReducedMotion(): boolean {
@@ -67,22 +70,9 @@ function useNowTick(enabled: boolean): number {
   return now;
 }
 
-/** Grid shared by the header-less rows so the columns line up down the whole list.
- *
- * The subject (the Story's key and title, the row's identity) has a real floor. A `minmax(0, …)` subject let it
- * collapse to 0px on the 900px stage: the grid grows the capped state and project tracks to their maxima before
- * any `fr` track gets space, and the other tracks' floors left nothing over. The doing-Task, activity and spend
- * floors give way instead; all three are cut with an ellipsis. Floors plus gaps and padding stay under the
- * 900px stage `fleet-group.browser.test.tsx` measures. */
-const ROW_COLUMNS =
-  "minmax(150px, 172px) minmax(80px, 120px) minmax(96px, 1.4fr) minmax(64px, 1fr) minmax(96px, 1.2fr) minmax(80px, 0.8fr) 56px 76px";
-
 /** The activity line's width in characters, ellipsis at the TAIL — the start of a line (the tool, the
  * first clause) is what says what the agent is doing. Applied to every row kind alike. */
 export const ACTIVITY_MAX_CHARS = 80;
-
-/** The mark for a value that could not be read — the same dash `formatAge` and `formatCostUsd` use. */
-const ABSENT = "\u2014";
 
 /** The first clause of narration: up to the first sentence or clause break, or the first line. */
 function firstClause(text: string): string {
@@ -92,7 +82,7 @@ function firstClause(text: string): string {
 }
 
 function clip(text: string): string {
-  return text.length > ACTIVITY_MAX_CHARS ? `${text.slice(0, ACTIVITY_MAX_CHARS - 1)}\u2026` : text;
+  return text.length > ACTIVITY_MAX_CHARS ? `${text.slice(0, ACTIVITY_MAX_CHARS - 1)}…` : text;
 }
 
 /** One tail line as the entry the feed expects: its parsed JSON, or the same `unknown` fallback
@@ -119,17 +109,22 @@ export function activityLine(activity: FleetActivityDto): string | null {
   return line.trim() === "" ? null : clip(line);
 }
 
-/** A live row's activity, or an explicit dash when it cannot be read — never the line it used to have:
- * the text is derived from this render's tail alone. A terminal row renders nothing. */
-function ActivityCell({ row }: { row: FleetRowDto }) {
-  if (row.runStatus !== "running" && row.runStatus !== "blocked") return <span data-field="activity" />;
+function isLiveRun(row: FleetRowDto): boolean {
+  return row.runStatus === "running" || row.runStatus === "blocked";
+}
+
+/** A live row's activity, under its doing Task. One that cannot be read is said to assistive tech and
+ * draws nothing: a column of dashes reads as a column of data (#208). The text is derived from this
+ * render's tail alone, never the line it used to have. A terminal row renders nothing. */
+function ActivityLine({ row }: { row: FleetRowDto }) {
+  if (!isLiveRun(row)) return null;
   const line = activityLine(row.activity);
   return line === null ? (
-    <span data-field="activity" data-absent="true" title="No activity could be read" className="text-subtle-foreground">
-      {ABSENT}
+    <span data-field="activity" data-absent="true" className="sr-only">
+      No activity could be read
     </span>
   ) : (
-    <span data-field="activity" title={line} className="truncate text-small text-muted-foreground">
+    <span data-field="activity" title={line} className="block truncate text-meta text-muted-foreground">
       {line}
     </span>
   );
@@ -141,7 +136,7 @@ function ActivityCell({ row }: { row: FleetRowDto }) {
 export function DoingTaskCell({ row }: { row: FleetRowDto }) {
   const title = row.doingTaskTitle;
   return (
-    <span data-field="doing-task" title={title ? `Doing: ${title}` : undefined} className="truncate text-small">
+    <span data-field="doing-task" title={title ? `Doing: ${title}` : undefined} className="block truncate text-small empty:hidden">
       {title ?? ""}
     </span>
   );
@@ -149,28 +144,41 @@ export function DoingTaskCell({ row }: { row: FleetRowDto }) {
 
 /** A run that has ended: the only kind that can be dismissed. A live run can be stopped, not cleared. */
 function isTerminalRun(row: FleetRowDto): boolean {
-  return row.runStatus !== "running" && row.runStatus !== "blocked";
+  return !isLiveRun(row);
 }
 
-/** What a finished run cost. Blank — an empty span, no text — for a live run and for a figure that
- * never arrived: an honest absence, never `$0.00` and never the dash `formatAge` uses for "no time".
- * A failed run keeps what it spent before it failed. `tokensIn` is a sum that includes cache reads
- * (Finding 11), so it is labelled as such and reads larger than the prompt. */
+/** Whether the Spend column has anything to show for this row. */
+function hasSpend(row: FleetRowDto): boolean {
+  return isTerminalRun(row) && (row.costUsd != null || row.tokensIn != null || row.tokensOut != null);
+}
+
+/** Whether the Doing column has anything to show for this row. */
+function hasDoing(row: FleetRowDto): boolean {
+  return row.doingTaskTitle != null || isLiveRun(row);
+}
+
+/** What a finished run cost: the estimate in dollars, and under it the tokens. Blank — no text — for a
+ * live run and for a figure that never arrived: an honest absence, never `$0.00`. A failed run keeps what
+ * it spent before it failed. `tokensIn` is a sum that includes cache reads (Finding 11), so it is
+ * labelled as such and reads larger than the prompt. */
 export function SpendCell({ row }: { row: FleetRowDto }) {
   if (!isTerminalRun(row)) return <span data-field="spend" />;
   const tokens =
     row.tokensIn == null && row.tokensOut == null
       ? null
       : [
-          row.tokensIn == null ? null : `${formatCount(row.tokensIn)} in incl. cache`,
-          row.tokensOut == null ? null : `${formatCount(row.tokensOut)} out`,
+          row.tokensIn == null ? null : `${formatTokens(row.tokensIn)} in`,
+          row.tokensOut == null ? null : `${formatTokens(row.tokensOut)} out`,
         ]
           .filter((part) => part !== null)
-          .join(" \u00b7 ");
+          .join(" · ");
   return (
-    <span data-field="spend" className="truncate text-small tabular-nums">
-      {row.costUsd != null && <span title="Estimated cost, not a billed amount">{formatCostUsd(row.costUsd)}</span>}
-      {row.costUsd != null && tokens ? " " : ""}
+    <span data-field="spend" className="flex flex-col items-end tabular-nums">
+      {row.costUsd != null && (
+        <span title="Estimated cost, not a billed amount" className="text-small">
+          {formatMoney(row.costUsd)}
+        </span>
+      )}
       {tokens && (
         <span title="Input tokens include cache reads, so this is larger than the prompt size" className="text-meta text-muted-foreground">
           {tokens}
@@ -185,8 +193,8 @@ export function SpendCell({ row }: { row: FleetRowDto }) {
 export function FleetFooter({ visibleCostUsd }: { visibleCostUsd: number | null }) {
   if (visibleCostUsd == null) return null;
   return (
-    <footer data-fleet-footer className="shrink-0 px-5 pb-3 text-right text-meta text-muted-foreground tabular-nums">
-      Estimated spend, this fleet: {formatCostUsd(visibleCostUsd)} (Flywheel's own estimate from a bundled price
+    <footer data-fleet-footer className="shrink-0 text-right text-meta text-muted-foreground tabular-nums">
+      Estimated spend, this fleet: {formatMoney(visibleCostUsd)} (Flywheel's own estimate from a bundled price
       table, not a billed amount)
     </footer>
   );
@@ -217,18 +225,12 @@ export function subjectTargetId(row: FleetRowDto): string | null {
 /** The row's secondary target (D-166, FLEET-03): the subject key as a button of its own, reaching the
  * board item. Its click is stopped here so it never also opens the session; the key `b` reaches the same
  * place from the selected row. Rendered only when the row has a board subject. */
-export function SubjectTarget({
-  label,
-  onOpen,
-}: {
-  label: string;
-  onOpen: () => void;
-}) {
+export function SubjectTarget({ label, onOpen }: { label: string; onOpen: () => void }) {
   return (
     <button
       type="button"
       data-subject-target
-      className="rounded-sm font-mono text-meta font-semibold text-running underline-offset-4 hover:underline"
+      className="rounded-sm font-mono text-meta whitespace-nowrap text-running tabular-nums underline-offset-4 hover:underline"
       aria-label={`Open Story ${label}`}
       title={`Open Story ${label}`}
       onClick={(event: MouseEvent) => {
@@ -258,9 +260,63 @@ function sessionOpenerArgs(row: FleetRowDto): Parameters<UiOpener> {
 
 type UiOpener = ReturnType<typeof useUiStore.getState>["setActiveSessionId"];
 
+/** Which optional columns the table draws (#208): a column no row fills is left out, and so is one the card
+ * is too narrow for. */
+export interface FleetColumns {
+  project: boolean;
+  doing: boolean;
+  spend: boolean;
+}
+
+/* The card widths below which a column gives way, Project first, then Doing, then Spend (whose total stays
+ * in the footer). A 900px window leaves the card about 610px wide. The Story column has no width of its own
+ * and takes what the others leave, so it stays the widest column at every width. Measured, not a container
+ * query: a column hidden by CSS still counts toward a band header's `colSpan`, which then draws a phantom
+ * column that takes the Story's width. */
+const PROJECT_MIN_WIDTH = 896;
+const DOING_MIN_WIDTH = 768;
+const SPEND_MIN_WIDTH = 672;
+
+/** The columns for these rows at this card width; an unmeasured card (no layout yet) shows every column. */
+export function fleetColumns(rows: FleetRowDto[], cardWidth: number | null = null): FleetColumns {
+  const fits = (min: number) => cardWidth === null || cardWidth >= min;
+  return {
+    project: fits(PROJECT_MIN_WIDTH),
+    doing: rows.some(hasDoing) && fits(DOING_MIN_WIDTH),
+    spend: rows.some(hasSpend) && fits(SPEND_MIN_WIDTH),
+  };
+}
+
+/** The number of columns a row spans, for the band headers. */
+function columnCount(columns: FleetColumns): number {
+  return 4 + (columns.project ? 1 : 0) + (columns.doing ? 1 : 0) + (columns.spend ? 1 : 0);
+}
+
+const ALL_COLUMNS: FleetColumns = { project: true, doing: true, spend: true };
+
+/** The width of the element `ref` is put on, kept current as it resizes; `null` until it has a layout. */
+export function useWidth<T extends HTMLElement>(): [(node: T | null) => void, number | null] {
+  const [node, setNode] = useState<T | null>(null);
+  const [width, setWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (!node) return undefined;
+    const measure = () => {
+      const next = node.getBoundingClientRect().width;
+      setWidth(next > 0 ? next : null);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [node]);
+  return [setNode, width];
+}
+
 export function FleetRowView({
   row,
   now,
+  columns = ALL_COLUMNS,
   selected = false,
   stopped = false,
   onOpenSession,
@@ -268,6 +324,7 @@ export function FleetRowView({
 }: {
   row: FleetRowDto;
   now: number;
+  columns?: FleetColumns;
   selected?: boolean;
   /** This run is the newest of a Running Story with no live session: its Story is Stopped, so the row
    * says so in red, as the board, the sidebar and the strip do. */
@@ -278,33 +335,35 @@ export function FleetRowView({
   const state: FleetState = isFleetState(row.fleetState) ? row.fleetState : "running";
   const pulsing = state === "running" && !prefersReducedMotion();
   const subject = subjectLabel(row);
-  const age = formatAge(ageSince(row, state), now);
+  const age = ageText(ageSince(row, state), now);
   const [dismissFailed, setDismissFailed] = useState(false);
 
   return (
-    <div
-      role="listitem"
+    <TableRow
       data-fleet-state={state}
       data-run-id={row.sessionId}
       data-selected={selected ? "true" : undefined}
       aria-current={selected ? "true" : undefined}
       onClick={() => onOpenSession?.(row)}
       className={cn(
-        "grid min-h-11 items-center gap-x-4 border-t border-border px-4 py-1.5 text-body transition-colors duration-(--duration-state) ease-(--ease) first:border-t-0",
-        onOpenSession && "cursor-pointer hover:bg-accent",
+        "h-13 border-border text-body hover:bg-accent",
+        onOpenSession && "cursor-pointer",
         // The selected row takes the running tint (direction.md rule 4), never colour on the text alone.
         selected && "bg-running-muted hover:bg-running-muted",
         state === "blocked" && !selected && "bg-attention-muted hover:bg-attention-muted",
       )}
-      style={{ gridTemplateColumns: ROW_COLUMNS }}
     >
-      <span data-field="state" style={{ display: "inline-flex" }}>
-        {stopped ? <StateBadge state="stopped" /> : <StateBadge state={state} pulse={pulsing} />}
-      </span>
-      <span data-field="project" className="truncate text-small text-muted-foreground">
-        {row.projectName}
-      </span>
-      <span
+      <TableCell data-field="state" className="pl-4">
+        <span className="inline-flex">
+          {stopped ? <StateBadge state="stopped" /> : <StateBadge state={state} pulse={pulsing} />}
+        </span>
+      </TableCell>
+      {columns.project && (
+        <TableCell data-field="project" title={row.projectName} className="truncate text-small text-muted-foreground">
+          {row.projectName}
+        </TableCell>
+      )}
+      <TableCell
         data-field="subject"
         title={subject.detail ? `${subject.key} ${subject.detail}`.trim() : subject.key}
         className="truncate"
@@ -312,29 +371,38 @@ export function FleetRowView({
         {subjectTargetId(row) !== null && onOpenSubject ? (
           <SubjectTarget label={subject.key || "Story"} onOpen={() => onOpenSubject(row)} />
         ) : (
-          subject.key && <span className="font-mono text-meta">{subject.key}</span>
+          subject.key && <StoryKey value={subject.key} />
         )}
         {subject.key && subject.detail ? " " : ""}
         {subject.detail && <span className="font-semibold">{subject.detail}</span>}
-      </span>
-      <DoingTaskCell row={row} />
-      <ActivityCell row={row} />
-      <SpendCell row={row} />
-      <span data-field="age" aria-label={`In this state for ${age}`} className="text-right text-small text-subtle-foreground tabular-nums">
+      </TableCell>
+      {columns.doing && (
+        <TableCell data-field="doing">
+          <DoingTaskCell row={row} />
+          <ActivityLine row={row} />
+        </TableCell>
+      )}
+      {columns.spend && (
+        <TableCell className="text-right">
+          <SpendCell row={row} />
+        </TableCell>
+      )}
+      <TableCell data-field="age" aria-label={`In this state for ${age}`} className="text-right text-small text-muted-foreground tabular-nums">
         {age}
-      </span>
-      <span data-field="dismiss" className="text-right">
+      </TableCell>
+      <TableCell data-field="dismiss" className="pr-4 text-right">
         {dismissFailed && (
-          <span role="status" className="text-meta text-muted-foreground">
-            Could not dismiss.{" "}
+          <span role="status" className="sr-only">
+            Could not dismiss.
           </span>
         )}
         {isTerminalRun(row) && (
           <Button
             variant="ghost"
-            size="xs"
-            className="text-muted-foreground"
+            size="sm"
+            className={cn("text-muted-foreground", dismissFailed && "text-destructive-text")}
             aria-label={`Dismiss ${subject.key || "run"}`}
+            title={dismissFailed ? "Could not dismiss. Try again." : undefined}
             onClick={(event: MouseEvent) => {
               // Its own act: a click here must not also bubble into the row and open the session.
               event.stopPropagation();
@@ -345,15 +413,17 @@ export function FleetRowView({
             Dismiss
           </Button>
         )}
-      </span>
-    </div>
+      </TableCell>
+    </TableRow>
   );
 }
 
+/** One band of the table: a row group headed by the band's name and count, then its rows. */
 export function FleetBand({
   band,
   rows,
   now,
+  columns = ALL_COLUMNS,
   selectedRunId = null,
   stoppedRunIds,
   onOpenSession,
@@ -362,60 +432,138 @@ export function FleetBand({
   band: { id: FleetBandId; header: string };
   rows: FleetRowDto[];
   now: number;
+  columns?: FleetColumns;
   selectedRunId?: string | null;
   stoppedRunIds?: Set<string>;
   onOpenSession?: (row: FleetRowDto) => void;
   onOpenSubject?: (row: FleetRowDto) => void;
 }) {
   const [dismissNotice, setDismissNotice] = useState<string | null>(null);
+  const [dismissing, setDismissing] = useState(false);
   return (
-    <section data-band={band.id} aria-label={band.header} className="overflow-hidden rounded-lg border border-border bg-card shadow-card">
-      <div className="flex min-h-10 items-center gap-2 border-b border-border px-4">
-        <h2 className="m-0 text-small font-semibold tracking-[0.02em] text-muted-foreground">{band.header}</h2>
-        <span className="mr-auto text-small text-muted-foreground tabular-nums">{rows.length}</span>
-        {band.id === "done-failed" && (
-          <span className="flex items-center gap-2">
-            {dismissNotice && (
-              <span role="status" className="text-meta text-muted-foreground">
-                {dismissNotice}
+    <TableBody data-band={band.id} aria-label={band.header} className="[&_tr:last-child]:border-b">
+      <TableRow data-band-header className="border-border bg-muted hover:bg-muted">
+        <TableHead scope="rowgroup" colSpan={columnCount(columns)} className="h-10 px-4">
+          <div className="flex items-center gap-2">
+            <h2 className="m-0 text-small font-semibold tracking-[0.02em] text-muted-foreground">{band.header}</h2>
+            <span className="mr-auto text-small font-normal text-muted-foreground tabular-nums">{rows.length}</span>
+            {band.id === "done-failed" && (
+              <span className="flex items-center gap-2">
+                {dismissNotice && (
+                  <span role="status" className="text-meta font-normal text-destructive-text">
+                    {dismissNotice}
+                  </span>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  loading={dismissing}
+                  className="text-muted-foreground"
+                  onClick={() => {
+                    setDismissNotice(null);
+                    setDismissing(true);
+                    void sessionAcknowledgeMany(rows.filter(isTerminalRun).map((r) => r.sessionId))
+                      .then((results) => {
+                        // A write that failed is not "nothing to dismiss": only an `error` is reported.
+                        const failed = results.filter((r) => r.error).length;
+                        if (failed > 0) setDismissNotice(`Could not dismiss ${failed} of ${results.length} runs.`);
+                      })
+                      .catch(() => setDismissNotice("Could not dismiss the finished runs."))
+                      .finally(() => setDismissing(false));
+                  }}
+                >
+                  Dismiss finished
+                </Button>
               </span>
             )}
-            <Button
-              variant="ghost"
-              size="xs"
-              className="text-muted-foreground"
-              onClick={() => {
-                setDismissNotice(null);
-                void sessionAcknowledgeMany(rows.filter(isTerminalRun).map((r) => r.sessionId))
-                  .then((results) => {
-                    // A write that failed is not "nothing to dismiss": only an `error` is reported.
-                    const failed = results.filter((r) => r.error).length;
-                    if (failed > 0) setDismissNotice(`Could not dismiss ${failed} of ${results.length} runs.`);
-                  })
-                  .catch(() => setDismissNotice("Could not dismiss the finished runs."));
-              }}
-            >
-              Dismiss finished
-            </Button>
-          </span>
-        )}
-      </div>
-      <div role="list">
-        {rows.map((row) => (
-          <FleetRowView
-            key={row.sessionId}
-            row={row}
+          </div>
+        </TableHead>
+      </TableRow>
+      {rows.map((row) => (
+        <FleetRowView
+          key={row.sessionId}
+          row={row}
+          now={now}
+          columns={columns}
+          selected={row.sessionId === selectedRunId}
+          stopped={stoppedRunIds?.has(row.sessionId) ?? false}
+          onOpenSession={onOpenSession}
+          onOpenSubject={onOpenSubject}
+        />
+      ))}
+    </TableBody>
+  );
+}
+
+/** The card a fleet-wide table sits in: it fills the height it is given and no more, and its table scrolls
+ * inside it under a header that stays put. Shared by All agents and Worktrees. */
+export const TABLE_CARD =
+  "mx-auto flex min-h-0 w-full max-w-[1240px] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-card [&>[data-slot=table-container]]:min-h-0 [&>[data-slot=table-container]]:flex-1 [&>[data-slot=table-container]]:overflow-auto";
+
+/** The header row's look: sticky over the scrolling rows, on the card ground, ruled by a shadow so the rule
+ * travels with it (a collapsed border would stay behind). */
+export const STICKY_HEADER =
+  "sticky top-0 z-10 bg-card shadow-[inset_0_-1px_0_var(--border)] [&_tr]:border-0 [&_th]:text-meta [&_th]:font-semibold [&_th]:text-muted-foreground";
+
+function FleetTable({
+  byBand,
+  now,
+  selectedRunId,
+  stoppedRunIds,
+  onOpenSession,
+  onOpenSubject,
+}: {
+  byBand: Map<FleetBandId, FleetRowDto[]>;
+  now: number;
+  selectedRunId: string | null;
+  stoppedRunIds: Set<string>;
+  onOpenSession: (row: FleetRowDto) => void;
+  onOpenSubject: (row: FleetRowDto) => void;
+}) {
+  const [cardRef, cardWidth] = useWidth<HTMLDivElement>();
+  const columns = fleetColumns([...byBand.values()].flat(), cardWidth);
+  return (
+    <div ref={cardRef} data-fleet-table className={TABLE_CARD}>
+      <Table className="table-fixed">
+        <TableHeader className={STICKY_HEADER}>
+          <TableRow>
+            <TableHead className="w-44 pl-4">State</TableHead>
+            {columns.project && <TableHead className="w-32">Project</TableHead>}
+            <TableHead>Story</TableHead>
+            {columns.doing && <TableHead className="w-[20%]">Doing</TableHead>}
+            {columns.spend && <TableHead className="w-30 text-right">Spend</TableHead>}
+            <TableHead className="w-20 text-right">Age</TableHead>
+            <TableHead className="w-24 pr-4">
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        {FLEET_BANDS.filter((band) => byBand.has(band.id)).map((band) => (
+          <FleetBand
+            key={band.id}
+            band={band}
+            rows={byBand.get(band.id) ?? []}
             now={now}
-            selected={row.sessionId === selectedRunId}
-            stopped={stoppedRunIds?.has(row.sessionId) ?? false}
+            columns={columns}
+            selectedRunId={selectedRunId}
+            stoppedRunIds={stoppedRunIds}
             onOpenSession={onOpenSession}
             onOpenSubject={onOpenSubject}
           />
         ))}
-      </div>
-    </section>
+      </Table>
+    </div>
   );
 }
+
+/** The header's count: agents as GLOSSARY.md counts them (a live session), then the list's length labelled
+ * as runs, so it never reads as a second, disagreeing agent count. */
+export function fleetCountText(liveAgents: number, runs: number): string {
+  const agents = `${liveAgents} live ${liveAgents === 1 ? "agent" : "agents"}`;
+  return runs === 0 ? agents : `${agents} · ${runs} ${runs === 1 ? "run" : "runs"}`;
+}
+
+type FleetView = "fleet" | "queue";
 
 export interface FleetSurfaceProps {
   onClose: () => void;
@@ -426,7 +574,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
   const blocked = useBlockedQueue();
   // One surface, two views (plan 10-05): the banded list, or the queue of live blocks. A closed or
   // unset target reads as the fleet list.
-  const view = useUiStore((state) => state.fleetSurface?.view ?? "fleet");
+  const view: FleetView = useUiStore((state) => state.fleetSurface?.view ?? "fleet");
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
   const openStory = useUiStore((state) => state.openStory);
@@ -488,79 +636,78 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
         }
       : {},
   );
-  const needYou = byBand.get("needs-you")?.length ?? 0;
-  const countText =
-    `${total} ${total === 1 ? "agent" : "agents"}` + (needYou > 0 ? ` · ${needYou} need you` : "");
+  const liveAgents = rows.filter(isLiveRun).length;
+  const countText = fleetCountText(liveAgents, total);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <Tabs
+      value={view}
+      onValueChange={(next) => setFleetSurface({ view: next === "queue" ? "queue" : "fleet" })}
+      className="flex h-full min-h-0 flex-col gap-0"
+    >
       <PageHeader
         onBack={onClose}
         crumbs={[{ label: view === "queue" ? "Waiting on you" : "All agents" }]}
         actions={
-          <>
-            <span aria-live="polite" className="text-small text-muted-foreground tabular-nums">
-              {view === "queue" ? `${waitingTotal} waiting` : countText}
-            </span>
-            <div role="group" aria-label="Fleet views" className="flex rounded-md bg-secondary p-0.5">
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-pressed={view === "fleet"}
-                onClick={() => setFleetSurface({ view: "fleet" })}
-                className="h-7.5 aria-pressed:bg-card aria-pressed:shadow-card"
-              >
+          // The counts live with what they count (the tab's own figure, the table's summary line), so the top
+          // bar holds only the switch and fits a 900px window beside the rail.
+          <TabsList aria-label="Fleet views" className="h-8.5 shrink-0">
+              <TabsTrigger value="fleet" className="px-2.5">
                 All agents
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-pressed={view === "queue"}
-                onClick={() => setFleetSurface({ view: "queue" })}
-                className="h-7.5 tabular-nums aria-pressed:bg-card aria-pressed:shadow-card"
-              >
-                {`Waiting on you ${waitingTotal}`}
-              </Button>
-            </div>
-          </>
+              </TabsTrigger>
+              <TabsTrigger value="queue" className="px-2.5">
+                Waiting on you{" "}
+                <span className={cn("tabular-nums", waitingTotal > 0 ? "font-semibold text-foreground" : "text-muted-foreground")}>
+                  {waitingTotal}
+                </span>
+              </TabsTrigger>
+          </TabsList>
         }
       />
-      <SurfaceBody>
-        <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4">
-          {view === "queue" ? (
-            blocked.isError ? (
-              <p role="alert" className="m-0 text-body text-destructive-text">
-                Could not load what is waiting on you. It will retry on the next change.
-              </p>
-            ) : (
-              blocked.isSuccess && <BlockedQueue entries={queue} rounds={waitingRounds} now={now} />
-            )
-          ) : fleet.isError ? (
-            <p role="alert" className="m-0 text-body text-destructive-text">
-              Could not load the fleet. It will retry on the next change.
-            </p>
+      <TabsContent value="fleet" className="flex min-h-0 flex-1 flex-col">
+        <SurfaceBody className="flex flex-col gap-3 overflow-hidden">
+          {fleet.isError ? (
+            <ReadError title="Couldn't load the fleet" query={fleet} className="mx-auto max-w-[1240px]" />
           ) : fleet.isSuccess && rows.length === 0 ? (
-            <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-card px-5 py-6 shadow-card">
-              <span className="text-section font-semibold">No agents running</span>
-              <span className="text-body text-muted-foreground">When an agent starts in any project, it appears here.</span>
-            </div>
+            <Empty className="mx-auto max-w-[1240px] flex-none rounded-lg border border-solid border-border bg-card shadow-card">
+              <EmptyHeader>
+                <EmptyTitle className="text-section font-semibold">No agents running</EmptyTitle>
+                <EmptyDescription>When an agent starts in any project, it appears here.</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : (
-            FLEET_BANDS.filter((band) => byBand.has(band.id)).map((band) => (
-              <FleetBand
-                key={band.id}
-                band={band}
-                rows={byBand.get(band.id) ?? []}
+            rows.length > 0 && (
+              <FleetTable
+                byBand={byBand}
                 now={now}
                 selectedRunId={selectedRunId}
                 stoppedRunIds={stoppedRunIds}
                 onOpenSession={openSession}
                 onOpenSubject={openSubject}
               />
-            ))
+            )
           )}
-        </div>
-      </SurfaceBody>
-      {view === "fleet" && <FleetFooter visibleCostUsd={fleet.data?.visibleCostUsd ?? null} />}
-    </div>
+          {fleet.isSuccess && (
+            <div className="mx-auto flex w-full max-w-[1240px] shrink-0 flex-wrap items-baseline gap-x-6 gap-y-1">
+              <span aria-live="polite" data-fleet-count className="mr-auto text-small text-muted-foreground tabular-nums">
+                {countText}
+              </span>
+              <FleetFooter visibleCostUsd={fleet.data?.visibleCostUsd ?? null} />
+            </div>
+          )}
+        </SurfaceBody>
+      </TabsContent>
+      <TabsContent value="queue" className="flex min-h-0 flex-1 flex-col">
+        <SurfaceBody>
+          <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4">
+            {blocked.isError ? (
+              <ReadError title="Couldn't load what is waiting on you" query={blocked} />
+            ) : (
+              blocked.isSuccess && <BlockedQueue entries={queue} rounds={waitingRounds} now={now} />
+            )}
+          </div>
+        </SurfaceBody>
+      </TabsContent>
+    </Tabs>
   );
 }

@@ -6,6 +6,8 @@
  * - The project is a column on every row, never a grouping.
  * - A run with no Story is still a row (an authoring run, a planning run, a run with no subject).
  * - The empty state renders its copy, no band header and a zero count; one run renders one header.
+ * - #208: the list is a Table with column headers; the header counts live agents (GLOSSARY.md) and labels
+ *   the list's length as runs; the view switch is Tabs.
  * - The "Fleet" open path: the store keeps the fleet open under a session, so popping the session
  *   (`setActiveSessionId(null)`) lands back on the fleet, and `App.tsx` checks the fleet branch
  *   BELOW the session branch.
@@ -145,7 +147,7 @@ describe("FleetSurface bands", () => {
     const abandoned = document.querySelector('[data-fleet-state="abandoned"]') as HTMLElement;
     expect(interrupted.closest("[data-band]")?.getAttribute("data-band")).toBe("done-failed");
     expect(abandoned.closest("[data-band]")?.getAttribute("data-band")).toBe("needs-you");
-    const doneBandHeader = interrupted.closest("section")?.querySelector("h2")?.textContent;
+    const doneBandHeader = interrupted.closest("tbody")?.querySelector("h2")?.textContent;
     expect(doneBandHeader).toBe("DONE / FAILED");
     // Every state is drawn by the one component (components/StateBadge.tsx): `interrupted` is a normal
     // outcome and neutral, never red (D-169); an abandoned run lost its supervisor and is red.
@@ -197,7 +199,7 @@ describe("FleetSurface header and empty state", () => {
     renderFleet();
     expect(await screen.findByText("No agents running")).toBeInTheDocument();
     expect(screen.getByText("When an agent starts in any project, it appears here.")).toBeInTheDocument();
-    expect(screen.getByText("0 agents")).toBeInTheDocument();
+    expect(screen.getByText("0 live agents")).toBeInTheDocument();
     expect(screen.queryAllByRole("heading", { level: 2 })).toHaveLength(0);
   });
 
@@ -206,10 +208,10 @@ describe("FleetSurface header and empty state", () => {
     renderFleet();
     await screen.findByText("NEEDS YOU");
     expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(1);
-    expect(screen.getByText("1 agent · 1 need you")).toBeInTheDocument();
+    expect(screen.getByText("1 live agent · 1 run")).toBeInTheDocument();
   });
 
-  it("counts the agents and how many need the user", async () => {
+  it("counts live agents as GLOSSARY.md does, and labels the list's length as runs", async () => {
     fleetListMock.mockResolvedValue(
       list([
         row({ sessionId: "a", fleetState: "blocked", runStatus: "blocked" }),
@@ -218,7 +220,33 @@ describe("FleetSurface header and empty state", () => {
       ]),
     );
     renderFleet();
-    await waitFor(() => expect(screen.getByText("3 agents · 2 need you")).toBeInTheDocument());
+    // The awaiting-review run has ended: it is a run on the list, not an agent.
+    await waitFor(() => expect(screen.getByText("2 live agents · 3 runs")).toBeInTheDocument());
+  });
+
+  it("draws the list as a table with a header for every column it shows", async () => {
+    fleetListMock.mockResolvedValue(
+      list([
+        row({ sessionId: "a", doingTaskTitle: "Write the query" }),
+        row({ sessionId: "b", fleetState: "completed", runStatus: "completed", costUsd: 3.1, endedAt: new Date().toISOString() }),
+      ]),
+    );
+    renderFleet();
+    const table = await screen.findByRole("table");
+    const headers = within(table.querySelector("thead") as HTMLElement).getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers).toEqual(["State", "Project", "Story", "Doing", "Spend", "Age", "Actions"]);
+    // Money reads through lib/format.ts: two decimals, never "$3.1000".
+    expect(within(table).getByText("$3.10")).toBeInTheDocument();
+  });
+
+  it("leaves out a column no row fills", async () => {
+    fleetListMock.mockResolvedValue(
+      list([row({ sessionId: "b", fleetState: "completed", runStatus: "completed", endedAt: new Date().toISOString() })]),
+    );
+    renderFleet();
+    const table = await screen.findByRole("table");
+    const headers = within(table.querySelector("thead") as HTMLElement).getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers).toEqual(["State", "Project", "Story", "Age", "Actions"]);
   });
 });
 
@@ -262,14 +290,14 @@ describe("the activity column", () => {
       ]),
     );
     renderFleet();
-    // The first fleet row: every list item on the surface but the breadcrumb's.
+    // The first fleet row.
     const item = await waitFor(() => {
-      const row = screen.getAllByRole("listitem").find((el) => !el.closest("nav"));
+      const row = document.querySelector<HTMLElement>("[data-run-id]");
       if (!row) throw new Error("no fleet row yet");
       return row;
     });
     expect(within(item).queryByText("Still going.")).toBeNull();
-    expect(item.querySelector('[data-field="activity"]')?.textContent).toBe("");
+    expect(item.querySelector('[data-field="activity"]')).toBeNull();
   });
 });
 
@@ -337,12 +365,14 @@ describe("the fleet surface's two views (plan 10-05)", () => {
     useUiStore.getState().setFleetSurface({ view: "queue" });
     const { findByText, getByRole, findByRole } = renderFleet();
     expect(await findByText("Nothing is waiting on you")).toBeTruthy();
-    expect(getByRole("button", { name: "Waiting on you 0" })).toHaveAttribute("aria-pressed", "true");
+    expect(getByRole("tablist", { name: "Fleet views" })).toBeInTheDocument();
+    expect(getByRole("tab", { name: "Waiting on you 0" })).toHaveAttribute("aria-selected", "true");
 
-    fireEvent.click(getByRole("button", { name: "All agents" }));
+    // A Radix tab activates on the primary button's press.
+    fireEvent.mouseDown(getByRole("tab", { name: "All agents" }), { button: 0 });
     expect(useUiStore.getState().fleetSurface).toEqual({ view: "fleet" });
     expect(await findByText("No agents running")).toBeTruthy();
-    expect(await findByRole("button", { name: "Waiting on you 0" })).toHaveAttribute("aria-pressed", "false");
+    expect(await findByRole("tab", { name: "Waiting on you 0" })).toHaveAttribute("aria-selected", "false");
   });
 });
 
@@ -374,7 +404,8 @@ describe("every live Story session across projects (#58)", () => {
     expect(within(a).getByText("Wire the thing")).toBeInTheDocument();
     expect(within(a).getByText(RUN_STATUS_LABELS.running)).toBeInTheDocument();
     expect(a.querySelector('[data-field="doing-task"]')?.textContent).toBe("Write the fleet query");
-    expect(a.querySelector('[data-field="age"]')?.textContent).toBe("2m");
+    // A clock reading through lib/format.ts, ticking on the surface's one interval.
+    expect(a.querySelector('[data-field="age"]')?.textContent).toMatch(/^2m \d\ds$/);
 
     expect(within(b).getByText("Beta")).toBeInTheDocument();
     expect(within(b).getByText("BET-4")).toBeInTheDocument();
