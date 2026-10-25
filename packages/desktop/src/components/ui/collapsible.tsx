@@ -2,6 +2,12 @@
 
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
 
+/*
+ * Every disclosure (DESIGN.md § Motion). CollapsibleContent grows to the height Radix measures
+ * (`--radix-collapsible-content-height`) on the overlay duration and shrinks back on the faster exit, so
+ * every disclosure built on it opens and closes the same way; under reduced motion it cross-fades instead.
+ * The keyframes live in styles/globals.css, keyed on `data-slot="collapsible-content"`.
+ */
 function Collapsible({
   ...props
 }: React.ComponentProps<typeof CollapsiblePrimitive.Root>) {

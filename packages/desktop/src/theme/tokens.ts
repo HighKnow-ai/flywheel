@@ -182,12 +182,19 @@ export const DARK: Palette = {
 
 export const PALETTES: Record<Mode, Palette> = { light: LIGHT, dark: DARK };
 
-/** The one motion contract (direction.md rule 7): one curve, 160ms for a state change, 240ms for a lamp. */
+/**
+ * The one motion contract (DESIGN.md § Motion, direction.md rule 7): one curve and five durations. Feedback
+ * acknowledges a press, state changes a value in place, the lamp lighting is the one authored moment, and an
+ * overlay or a disclosure enters on the overlay duration and leaves faster on its exit.
+ */
 export const MOTION = {
   /** HighKnow's ease-out-quint, the shared easing token. */
   easeOutQuint: "cubic-bezier(0.16, 1, 0.3, 1)",
   /** The name the screens use: an alias of the shared token. */
   ease: "var(--ease-out-quint)",
+  durationFeedback: "120ms",
   durationState: "160ms",
   durationLamp: "240ms",
+  durationOverlay: "260ms",
+  durationOverlayExit: "180ms",
 } as const;

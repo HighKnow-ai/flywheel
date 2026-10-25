@@ -185,19 +185,33 @@ describe("the mandatory 1px edge", () => {
 });
 
 describe("motion", () => {
-  it("globals.css declares the one curve (HighKnow's ease-out-quint) and the two durations theme/tokens.ts records", () => {
+  it("globals.css declares the one curve (HighKnow's ease-out-quint) and the durations theme/tokens.ts records", () => {
     const root = BLOCKS.light;
     expect(root["--ease-out-quint"]).toBe(MOTION.easeOutQuint);
     expect(root["--ease"]).toBe(MOTION.ease);
+    expect(root["--duration-feedback"]).toBe(MOTION.durationFeedback);
     expect(root["--duration-state"]).toBe(MOTION.durationState);
     expect(root["--duration-lamp"]).toBe(MOTION.durationLamp);
+    expect(root["--duration-overlay"]).toBe(MOTION.durationOverlay);
+    expect(root["--duration-overlay-exit"]).toBe(MOTION.durationOverlayExit);
   });
 
-  it("zeroes both durations and every animation under prefers-reduced-motion", () => {
+  it("keeps each duration in its band, and an exit faster than its entrance", () => {
+    const ms = (value: string) => Number.parseInt(value, 10);
+    expect(ms(MOTION.durationFeedback)).toBeGreaterThanOrEqual(100);
+    expect(ms(MOTION.durationFeedback)).toBeLessThanOrEqual(150);
+    expect(ms(MOTION.durationState)).toBeGreaterThanOrEqual(160);
+    expect(ms(MOTION.durationLamp)).toBeLessThanOrEqual(240);
+    expect(ms(MOTION.durationOverlay)).toBeGreaterThanOrEqual(240);
+    expect(ms(MOTION.durationOverlay)).toBeLessThanOrEqual(320);
+    expect(ms(MOTION.durationOverlayExit)).toBeLessThan(ms(MOTION.durationOverlay));
+  });
+
+  it("under prefers-reduced-motion takes movement away but keeps the durations, so colour and opacity still cross-fade", () => {
     const reduced = GLOBALS.slice(GLOBALS.indexOf("@media (prefers-reduced-motion: reduce)"));
-    expect(reduced).toMatch(/--duration-state: 0s;/);
-    expect(reduced).toMatch(/--duration-lamp: 0s;/);
-    expect(reduced).toMatch(/animation-duration: 0s !important;/);
-    expect(reduced).toMatch(/transition-duration: 0s !important;/);
+    expect(reduced).not.toMatch(/--duration-state: 0s;/);
+    expect(reduced).not.toMatch(/transition-duration: 0s !important;/);
+    expect(reduced).toMatch(/--tw-enter-translate-y: 0 !important;/);
+    expect(reduced).toMatch(/--tw-enter-scale: 1 !important;/);
   });
 });
