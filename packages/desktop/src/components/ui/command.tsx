@@ -37,19 +37,18 @@ function CommandDialog({
   children,
   className,
   showCloseButton = false,
+  filter,
   ...props
 }: React.ComponentProps<typeof Dialog> & {
   title?: string
   description?: string
   className?: string
   showCloseButton?: boolean
+  /** cmdk's ranking: 0 hides an item, higher sorts it first. cmdk's own fuzzy match when omitted. */
+  filter?: React.ComponentProps<typeof CommandPrimitive>["filter"]
 }) {
   return (
     <Dialog {...props}>
-      <DialogHeader className="sr-only">
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
-      </DialogHeader>
       <DialogContent
         className={cn(
           "top-1/3 translate-y-0 overflow-hidden rounded-lg! p-0",
@@ -57,7 +56,13 @@ function CommandDialog({
         )}
         showCloseButton={showCloseButton}
       >
-        {children}
+        <DialogHeader className="sr-only">
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        {/* cmdk's Input, List and Item read their store from the <Command> root's context; without this root
+            they subscribe to `undefined` and throw (issue #197). */}
+        <Command filter={filter}>{children}</Command>
       </DialogContent>
     </Dialog>
   )
