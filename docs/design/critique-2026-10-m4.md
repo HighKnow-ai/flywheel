@@ -200,3 +200,186 @@ All under Epic #189, labelled `story` and `ready-for-agent`, milestone M5 One-we
 #197 is merged and #196 is merged. Once #198 lands, #199 to #211 run in parallel. #212 closes the Epic.
 
 Questions skipped: this run was delegated with the owner's product decisions (recorded in this session's instructions), so the findings were filed as Stories instead of asked.
+
+
+## Final critique (Re-critique, #212)
+
+Method: dual-agent. Assessment A, the design review, ran as isolated sub-agents with no sight of the detector. Assessment B, the detector, ran separately. A finished before B's findings entered this synthesis. A's first pass hit its image loader's request limit after about half the walk, and it saw no dark shot. Two more A passes then read every remaining screen from labelled 2 × 2 contact sheets: 1440 light, 900 × 600 light, 1440 dark and 1920 light. Between them, the three passes saw every screen at 1440 in both schemes, at 900 × 600, and at 1920 × 1200. The 1280 × 800 shots were checked only by the layout-defect test.
+
+Issue #212 closes Epic #189. Run on 2026-10-26 against `story/212-final`, branched from `main` at `a055fe0c` after every screen Story (#199 to #211) and #198, #215, #220 and #235 had merged. Each P0 and P1 candidate found was fixed on the branch, and so was every P2 cheap enough to fix there. The committed shots in [`critique-2026-10-m4/final/`](critique-2026-10-m4/final/) were re-taken after those fixes (`cwebp -q 78`). The M4 shots beside them are the "before".
+
+### The harness
+
+- `npm --prefix packages/desktop run test:critique`: 139 tests per scheme, every screen at 900 × 600, 1280 × 800, 1440 × 900 and 1920 × 1200, light and dark. It now loads every declared web font before it measures.
+- **The layout-defect check is clean at every size in both schemes: 0 defects, and no known-defect mark left in `capture.ts`.** That covers the Waiting-on-you queue and the feed's request cards, which #206 had checked only in a WebKit test. `npm run test:layout-defects` passes.
+- The walk passes in a shuffled order (`--sequence.shuffle --sequence.seed=212`). Screens 100 and 101 pass alone.
+- **Two gaps in the harness, found by this review:**
+  - The check does not catch a control that escapes its own card while staying inside the window. That is how the Story column's decision group running past its card (A2 below) got through.
+  - `capture()` resizes a state that was opened once. A state that does not survive the resize is shot without it: the Confirm-exit-test dialog opened from a Needs-you card at 900 × 600 (`59`), and the scroll position of `s02`, `s03` and `s05` at 900 × 600. Re-opening each state per size would close this. It is listed under P3.
+
+### Design health score
+
+| # | Heuristic | M4 | Final | Key issue now |
+|---|---|---|---|---|
+| 1 | Visibility of system status | 2 | 3 | The strip, the review card's sticky "what holds Merge" footer and the live-activity line work. Toasts cover Merge, Start, decisions and Settings, but not every write. |
+| 2 | Match with the real world | 3 | 3 | Glossary words throughout. A few phrases stay opaque: "No rule can cover it", "Bar lines from the hand-off", "Context packet ~11.8K tokens". |
+| 3 | User control and freedom | 2 | 3 | Back and ⌘[ work, every destructive action confirms, Cancel is everywhere. Accepting or rejecting a Proposal cannot be undone. |
+| 4 | Consistency and standards | 1 | 2 | One component vocabulary, no legacy screen left. Destructive and Stop styling still varies at the edges (orphan rows, Merge with a failing Check), and absolute times use three formats. |
+| 5 | Error prevention | 2 | 3 | Merge with a failing Check is its own red action behind a confirm that holds a long command. A disabled Merge says why. Stop, Drop, Discard, Kill and Dismiss Round confirm. |
+| 6 | Recognition over recall | 3 | 3 | Every state carries an icon and a word. The board shows one waiting item in four or five places. |
+| 7 | Flexibility and efficiency | 2 | 2 | ⌘K, ⌘[ and A/D in the queue. Roster rows, the review card and the triage drawer take no keys, and there is no shortcut sheet. |
+| 8 | Aesthetic and minimalist design | 2 | 3 | Strong hierarchy; the big board opens on what needs you. The shaping views leave floor empty beside the dock. |
+| 9 | Error recovery | 1 | 3 | One ReadError with Try again and Details. The missing-`claude` Alert opens Settings. The usage-limit Alert gives a human reset time. Register project now offers another folder. |
+| 10 | Help and documentation | 2 | 2 | Empty states teach. There is no help and no shortcut sheet, and Kbd hints show in one place. |
+| | **Total** | **20/40** | **27/40** | **Acceptable, top of the band.** |
+
+Cognitive load: 3 of 8 checks fail, against 4 at M4.
+- **Single focus** fails on the board: one Gated action shows as a lamp, a sidebar row, a Needs-you card, a roster row and a count.
+- **Minimal choices** fails on the ADR review: a three-way choice per ADR, up to five on a card, plus Merge and Request changes.
+- **One thing at a time** fails on Milestone shaping (`69`): a hand edit of the Exit test sits open beside its Proposal and a Round.
+
+### Design specificity
+
+**Assessment A.** Authored for Flywheel, not lifted from a category template. The things no other product could ship unchanged:
+- the graphite andon strip with its lit yellow lamps;
+- the production-board Milestone header;
+- yellow spent only on Waiting on you;
+- ghost Proposals decided in place;
+- the review card as a decision surface.
+
+The seven legacy screens of M4 are gone. Settings, All agents, Worktrees, first run, Register project, the unreachable project, orphan recovery and the missing-`claude` notice now draw on stock shadcn/ui on HighKnow's tokens. They are competent and quiet. They carry less of the Andon character than the board, which suits utility screens.
+
+**Assessment B, deterministic scan.**
+- **Source:** `impeccable detect --json packages/desktop/src` (engine 0.1.15) returns one finding, a `broken-image` false positive on the string `<img>` in a test's title (`theme/__tests__/brand-mark.test.tsx`). Leaving tests out, the scan is clean, as at M4.
+- **Page scan:** `critique.html` (the real app over the fixture backend) on six URLs (board, two Story views, a live feed, All agents, Waiting on you). It ran in **both schemes, in WebKit and in Chromium**, through the detector's overlay script, and the two engines agreed on all 12 page and scheme pairs. The CLI's own URL mode renders dark only, and its `--cdp` attach does not exist in this engine.
+  - **Fixed since M4:** the five `low-contrast` failures (dark `--subtle-foreground` on `--attention-muted`, 3.7:1). The pair is 4.62:1 now.
+  - **One new real defect, fixed here:** in dark, the empty Add a Task field filled grey (input-group's `dark:has-disabled:bg-input/80` beat the light override), so its placeholder read at 2.05:1.
+  - **`gray-on-color` ×5:** the Needs-you cards' ages and details on the attention tint, at 4.62:1 and 5.62:1. Both pass AA, and they are intended.
+  - **`dark-glow` ×2:** the lit lamp's glow, which DESIGN.md specifies. Intended.
+  - **`nested-cards` ×3:** the Milestone header's count boxes, F51. Intended.
+  - **`repeating-stripes-gradient` ×1:** the Shaping hatch. A false positive, as at M4.
+
+  Light has no contrast finding. The shipped Tauri window itself still cannot be scanned: WKWebView exposes no DevTools protocol.
+
+**Where they agree.** Dark mode is sound: A computed every text pair it could see on the tinted grounds, and all clear 4.5:1. What remains sits at the extremes of width (900 and 1920), not in the core world.
+
+### What works
+
+1. **The supervision loop reads in one look.**
+   - Across `01`, `75` and `83`:
+     - the strip;
+     - the Milestone header;
+     - Needs you;
+     - a roster with one next action per row.
+   - One agent count shows in all three places: 15 on the strip, 15 in the rail and "15 agents" on All agents (`s13`). That fixes F13.
+2. **The review card is a real decision surface.**
+   - A failing Check is quoted with the agent's objection.
+   - Criteria are ticked against their Checks.
+   - A sticky footer says what holds Merge.
+   - Merge with a failing Check is its own confirmed red action, and its dialog holds a 200-character command (`71` to `73`, `92`, `93`, `105`, `s18`).
+3. **Failure states are humane.**
+   - A ReadError per region (`s30`, `s31`).
+   - The missing-`claude` Alert in a reserved slot (`s29`).
+   - Orphan recovery as an AlertDialog with "Leave running" and "Stop 2 agents" (`s28`).
+   - The usage limit as an Alert with its reset time (`s11`).
+
+### Every finding left, ranked
+
+**P0: none. P1: none.** All three A passes and the detector agree. A finding on the P1 line is listed with what was done about it, so the reader can judge the call.
+
+**Fixed in this PR** (each found by this critique, then fixed on the branch and re-shot):
+
+| Finding | Was | Fix |
+|---|---|---|
+| A2 | A Story column's Accept, Amend and Reject ran past the dashed Proposal plate and the card (`63`, `65`) | DecisionGroup takes a size; the Story columns use the extra-small one, as DESIGN.md says for criterion plates |
+| L1 | Resizing across the board's 1280px breakpoint remounted the roster and closed its dialogs, losing a Write a Story draft (`05`, `116` at 900) | One tree in both layouts; the wrappers are `display: contents` when narrow |
+| L2 | Register project's error marked the key field for a folder that is not a git checkout, and offered only the same failing action (`s26`) | Only a refused key marks the key; a refused folder offers Choose another folder… |
+| D2 | The session feed ran the whole width at 1920, about 220 characters a line (`07` to `12`, `s08` to `s12`) | The feed takes the 1240px surface width |
+| B (dark) | The empty Add a Task field filled grey in dark, its placeholder at 2.05:1 | The field keeps the card ground |
+| L10 | Dismiss Round, which rejects every undecided change, was an outline (`47`) | Destructive red ink, like Drop and Remove |
+| L12 | "Start Work" in the launch sheet (`s32`) | "Start work" |
+| #201's leftover | "In review" and "Running" broke under their icon at 900 (`01`) | The header card is a size container; the boxes tighten below 48rem |
+
+**P2, remaining:**
+
+| ID | Screen and shot | Problem | Fix |
+|---|---|---|---|
+| A3, L11 | Orphan recovery `s28`; Merge with a failing Check `72`, `s18` | Destructive styling still varies at the edges. The orphan rows' Stop is red text, and "Stop 2 agents" uses `circle-x` where direction.md says `square`. | One Stop: `square`, and the session header's outline. |
+| A4, D1 | Epic shaping `39`, `37`, `40`, `28`, `63`, `68` | The earlier Rounds sit far below the current one, because both docks share the Epic card's grid row. Up to 390px of floor sits empty at 1920. | Render both dock parts in one right-hand column when there are no Story columns. |
+| A5 | Milestone shaping `69` | A hand edit of the Exit test and its Proposal are open together, with no word on which wins. | Fold the Proposal to one line while the hand edit is open. |
+| A6 | Board `75`, `83` | One waiting item shows in four or five yellow places; at five waiting items the yellow floods. | Tint only the pill on a roster row whose Needs-you card is on screen. |
+| A7 | All agents `s13` | Spend is blank on live rows, and Dismiss is a bare text action. In review sits under NEEDS YOU, and that stays: GLOSSARY.md's Needs you is "everything waiting on the developer", and only Waiting-on-you rows take the yellow tint (`fleet/FleetSurface.tsx`), so it keeps the roster's yellow-only rule. | Spend reads "—" while live; Dismiss is a ghost Button with an icon. |
+| A8 | Roster, review card, triage drawer | No keys outside the queue and ⌘K, and nothing shows that the keys there exist. | Kbd hints in row-action Tooltips, keys on focused roster rows, and a "?" shortcut sheet in a Dialog. |
+| A9 | Triage drawer `97`, `98`, `108`; judged-on changes `100` | Accept and Reject commit at once, with no Undo. | An Undo on the decision toast. |
+| A10 | Worktrees `s21` | The size column is blank on some rows, unexplained. | "Not measured" in muted ink. |
+| L3 | Epic shaping `42` | Close Stage is the filled primary on a Stage with no Round yet. Continue shaping is the real next step. | Fill Continue shaping and outline Close Stage while the Stage has no Round. |
+
+**P3, remaining:**
+
+- **A11.** Opaque micro-copy: "No rule can cover it", "Bar lines from the hand-off", "Interrupted" against "Stopped", and the Context packet's size with no Tooltip.
+- **A12.** Shape on a Roadmap row sits past the row's chevron (`01`, `61`).
+- **A13.** The Merge confirm wraps a command mid-token (`s18`).
+- **A14.** Zero-count boxes keep full weight (`61`).
+- **L4.** At 900, "Waiting on you" and "Epics done" still take two lines in their count boxes (`15`, `16`, `s01` to `s05`, `s23`, `s32`).
+- **L5.** At 900, a row shows under the sticky review footer, which stops 20px short of the window's foot (`85`, `86`, `s16`, `s18`).
+- **L6.** At 900, the footer's "what holds Merge" hint is cut to a few words (`71`, `88`, `89`, `s16`, `s17`).
+- **L7.** At 900, the Revisit-roadmap outcome is cut short (`43`).
+- **L8.** An empty project stacks three empty states (`s22`).
+- **L9.** At 900, a failed read shows a Skeleton while it retries, and the Needs-you Sheet button carries no failure mark (`s30`).
+- **L13.** Absolute times use three formats ("2026-10-25 16:33" in `04`, "26 Oct 21:00" in `s11`, relative times elsewhere), where `lib/format.ts` should give one.
+- **L14.** An ADR draft shows raw markdown in the proportional face, and its path breaks mid-word (`33`, `35` to `37`).
+- **L15.** On the Story columns, a connector label is cut at the edge (`50`), and at 900 the column being amended is off screen (`51`).
+- **L16.** The rail does not scroll the current project into view (`s22`, `s27`).
+- **D3.** Settings is `max-w-5xl` where every other surface is 1240px (`s20` at 1920).
+- **D4.** At 1920 the top bar spans the pane while the content is centred at 1240px.
+- **D5.** At 1920 the Story columns cut a column inside the 1240px cap.
+- **D6.** At 1920 the empty-state cards stretch to 1650px (`s22`).
+- **Harness.** The two harness gaps above. Also, the fixture of `58` to `61` empties the fleet but not Needs you.
+
+None of these blocks a task or would send the Developer to support. Each has a way on today. They are left for the week of real work to rank, not filed as Stories.
+
+### shadcn/ui inventory, redone
+
+A separate read of the source, outside `components/ui/`:
+
+- **Legacy styling:** none. `App.css`, `styles/admin-surfaces.css` and `styles/states-and-confirms.css` are deleted. So are the `.control-edge` and bare-`button` rules and the `type-label`, `type-body` and `type-heading` classes. The only stylesheets left are `styles/globals.css` and the agent turn's `session/markdown.css`.
+- **Installed and unused:** none. Separator, Spinner and Toggle are used inside Button Group, Field, Item, Sidebar, Button and Toggle Group.
+- **Raw `<label>`, `<input>`, `<select>`, `<textarea>`:** 0, against 21 raw labels at M4. The sixteen left after the screen Stories are the shadcn Label.
+- **Raw `<button>`:** 13, against 32 at M4.
+  - Eight are the `asChild` children of a shadcn trigger or row: an Item, a Sidebar menu button, a Tooltip trigger or a Breadcrumb crumb. That is shadcn's own pattern.
+  - Five are composite click targets that a Button would flatten: the lamps, the roster's key-and-title opener, the session header's title, the queue's subject openers and the Roadmap rows.
+  - None is a control a Button fits.
+- **Hand-rolled controls:** none found. M4's Tabs, Toggle Group, Table, Select and Combobox, Switch, Alert, Empty, Field, Button Group, Item, Spinner, Progress and Sonner cases have all moved onto the catalogue.
+- **`title=` tooltips:** 5 left, against about 87 at M4.
+  - Two new shared components replace the rest: `components/TruncateTip.tsx`, which shows the whole text only while it is cut short, and `components/Tip.tsx`, for a short explanation or exact value.
+  - The five left: the stacked bar's description, which is also its `aria-label`; the disabled Make Ready's refusal, which is also in its `aria-describedby`; All agents' "Could not dismiss"; a markdown link's target; and a runs-after bracket's reason, which is also in its screen-reader text.
+- **Primitive fixes:**
+  - Every overlay now enters on `--duration-overlay` and leaves on `--duration-overlay-exit`.
+  - The Hover Card wears the overlay edge and shadow.
+  - Reduced motion also covers an arbitrary `transition-[…]` (the gap ADR 0023 left), unless the element handles it with its own `motion-reduce:` class.
+  - ConfirmDestructive is the 448px it asked for, and its title wraps.
+  - Progress hands `value` to Radix, so RoundDock no longer passes `aria-valuenow` itself.
+
+### The tests, made trustworthy
+
+- **`no-flicker.browser.test.tsx`, "the board and Needs you".** It failed once in CI: every Story key shifted a pixel or two on frame 1.
+  - Cause: JetBrains Mono was still loading when the burst began. `document.fonts.ready` settles only for faces already requested.
+  - Fix: the browser setup loads every declared face before each test (`src/test/fonts.ts`), and the critique capture does the same. The flicker test now asserts that no face is loading before it records.
+- **The jsdom suites that timed out under load** (`confirm-exit-test`, `navigation`, `epic-shaping`, `story-move`, `agent-station`, `story-board`).
+  - Their waits were Testing Library's 1s default, spent on mocked IPC and React commits, so they measured how busy the machine was. They now wait up to 5s, under a 15s test timeout.
+  - A state that arrives still ends the wait at once, and nothing in these suites asserts speed.
+  - Four concurrent full runs beside a WebKit run all passed, before and after.
+- **The Milestone 4 review-and-Merge walk** is one test of about 5.5s. It timed out once at the browser arm's 15s default under load, and has a 45s budget of its own now.
+- **Formatting.** `prettier --check` on `packages/desktop/src` is a CI step (Prettier 3.9.10, 120 columns, `components/ui/` left in the shadcn CLI's style). The tree was formatted in a commit of its own.
+
+### Stories filed
+
+- #239 *A shaping agent working between Rounds counts as an agent everywhere the count shows*. The fleet read joins sessions to Stories, so a shaping session at work between Rounds is in no count. This is #199's leftover, confirmed in the source. Filed under #189, labelled `story` and `ready-for-agent`, milestone M5.
+
+No P0 or P1 needed a Story: each one found was fixed here.
+
+### The Epic's exit test
+
+"The critique harness runs in CI across every screen at every window size with no layout defect, and a final impeccable critique over its shots finds no P0 or P1 issue." The first half is met: `test:layout-defects` runs in CI at the four sizes and finds nothing. The second half is met as far as three isolated review passes and the detector can show: no P0 or P1 remains. The harness gaps above mean a few states at 900 × 600 were seen only at 1440, and the shipped WKWebView window could not be scanned directly.
+
+Questions skipped: this run was delegated with the owner's product decisions, so the remaining P2 and P3 findings are recorded here for the week of real work to rank, not asked.
