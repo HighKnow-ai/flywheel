@@ -106,7 +106,15 @@ describe("FleetSurface bands", () => {
   });
 
   it("renders one word beside its mark for each of the six states plus awaiting review", async () => {
-    const states = ["blocked", "awaiting_review", "abandoned", "running", "completed", "failed", "interrupted"] as const;
+    const states = [
+      "blocked",
+      "awaiting_review",
+      "abandoned",
+      "running",
+      "completed",
+      "failed",
+      "interrupted",
+    ] as const;
     fleetListMock.mockResolvedValue(
       list(
         states.map((state, i) =>
@@ -137,7 +145,13 @@ describe("FleetSurface bands", () => {
     fleetListMock.mockResolvedValue(
       list([
         // The Story moved on (In review), so this interrupted run is history, not a Stopped Story.
-        row({ sessionId: "r-int", storyState: "in_review", fleetState: "interrupted", runStatus: "interrupted", endedAt: new Date().toISOString() }),
+        row({
+          sessionId: "r-int",
+          storyState: "in_review",
+          fleetState: "interrupted",
+          runStatus: "interrupted",
+          endedAt: new Date().toISOString(),
+        }),
         row({ sessionId: "r-ab", fleetState: "abandoned", runStatus: "abandoned" }),
       ]),
     );
@@ -162,7 +176,13 @@ describe("FleetSurface bands", () => {
     fleetListMock.mockResolvedValue(
       list(
         states.map((state, i) =>
-          row({ sessionId: `r-${state}`, storyKey: `ALP-${i + 1}`, fleetState: state, runStatus: state, endedAt: new Date().toISOString() }),
+          row({
+            sessionId: `r-${state}`,
+            storyKey: `ALP-${i + 1}`,
+            fleetState: state,
+            runStatus: state,
+            endedAt: new Date().toISOString(),
+          }),
         ),
       ),
     );
@@ -228,12 +248,20 @@ describe("FleetSurface header and empty state", () => {
     fleetListMock.mockResolvedValue(
       list([
         row({ sessionId: "a", doingTaskTitle: "Write the query" }),
-        row({ sessionId: "b", fleetState: "completed", runStatus: "completed", costUsd: 3.1, endedAt: new Date().toISOString() }),
+        row({
+          sessionId: "b",
+          fleetState: "completed",
+          runStatus: "completed",
+          costUsd: 3.1,
+          endedAt: new Date().toISOString(),
+        }),
       ]),
     );
     renderFleet();
     const table = await screen.findByRole("table");
-    const headers = within(table.querySelector("thead") as HTMLElement).getAllByRole("columnheader").map((h) => h.textContent);
+    const headers = within(table.querySelector("thead") as HTMLElement)
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent);
     expect(headers).toEqual(["State", "Project", "Story", "Doing", "Spend", "Age", "Actions"]);
     // Money reads through lib/format.ts: two decimals, never "$3.1000".
     expect(within(table).getByText("$3.10")).toBeInTheDocument();
@@ -241,11 +269,15 @@ describe("FleetSurface header and empty state", () => {
 
   it("leaves out a column no row fills", async () => {
     fleetListMock.mockResolvedValue(
-      list([row({ sessionId: "b", fleetState: "completed", runStatus: "completed", endedAt: new Date().toISOString() })]),
+      list([
+        row({ sessionId: "b", fleetState: "completed", runStatus: "completed", endedAt: new Date().toISOString() }),
+      ]),
     );
     renderFleet();
     const table = await screen.findByRole("table");
-    const headers = within(table.querySelector("thead") as HTMLElement).getAllByRole("columnheader").map((h) => h.textContent);
+    const headers = within(table.querySelector("thead") as HTMLElement)
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent);
     expect(headers).toEqual(["State", "Project", "Story", "Age", "Actions"]);
   });
 });
@@ -312,7 +344,15 @@ describe("the vocabulary", () => {
 describe("a Stopped Story on the fleet", () => {
   it("reads Stopped, in red, on the newest ended run of a Running Story with no live session", async () => {
     fleetListMock.mockResolvedValue(
-      list([row({ sessionId: "r-dead", storyState: "running", fleetState: "interrupted", runStatus: "interrupted", endedAt: new Date().toISOString() })]),
+      list([
+        row({
+          sessionId: "r-dead",
+          storyState: "running",
+          fleetState: "interrupted",
+          runStatus: "interrupted",
+          endedAt: new Date().toISOString(),
+        }),
+      ]),
     );
     renderFleet();
     const dead = await waitFor(() => {
@@ -326,7 +366,9 @@ describe("a Stopped Story on the fleet", () => {
 
 describe("one vocabulary across the fleet and the session surface", () => {
   it("renders an abandoned run's word from the same map on both surfaces", async () => {
-    fleetListMock.mockResolvedValue(list([row({ sessionId: "r-ab", fleetState: "abandoned", runStatus: "abandoned" })]));
+    fleetListMock.mockResolvedValue(
+      list([row({ sessionId: "r-ab", fleetState: "abandoned", runStatus: "abandoned" })]),
+    );
     const fleet = renderFleet();
     const fleetRow = await waitFor(() => {
       const el = document.querySelector('[data-fleet-state="abandoned"]');
@@ -380,7 +422,12 @@ describe("every live Story session across projects (#58)", () => {
   it("shows two Stories running in two projects, each with its Story, state, doing Task and elapsed time", async () => {
     fleetListMock.mockResolvedValue(
       list([
-        row({ sessionId: "r-a", storyKey: "ALP-1", storyTitle: "Wire the thing", doingTaskTitle: "Write the fleet query" }),
+        row({
+          sessionId: "r-a",
+          storyKey: "ALP-1",
+          storyTitle: "Wire the thing",
+          doingTaskTitle: "Write the fleet query",
+        }),
         row({
           sessionId: "r-b",
           projectId: "proj-2",
@@ -416,7 +463,9 @@ describe("every live Story session across projects (#58)", () => {
 
   it("opens the clicked row's session feed", async () => {
     fleetListMock.mockResolvedValue(
-      list([row({ sessionId: "r-b", projectId: "proj-2", projectName: "Beta", storyId: "story-2", storyKey: "BET-4" })]),
+      list([
+        row({ sessionId: "r-b", projectId: "proj-2", projectName: "Beta", storyId: "story-2", storyKey: "BET-4" }),
+      ]),
     );
     renderFleet();
     fireEvent.click(await screen.findByText("Wire the thing"));

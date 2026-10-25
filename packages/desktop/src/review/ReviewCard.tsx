@@ -34,6 +34,8 @@
  * refused Merge shows the core's reason as written.
  */
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
+import { Label } from "@/components/ui/label";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
@@ -119,7 +121,8 @@ export function mergeBlockers(review: StoryReviewDto): string[] {
   }
   if (review.liveSession) blockers.push("A session is live: stop it before merging.");
   const unaccepted = review.criteria.filter((c) => !c.accepted).length;
-  if (unaccepted > 0) blockers.push(`Accept ${unaccepted} more ${unaccepted === 1 ? "criterion" : "criteria"} to merge.`);
+  if (unaccepted > 0)
+    blockers.push(`Accept ${unaccepted} more ${unaccepted === 1 ? "criterion" : "criteria"} to merge.`);
   for (const change of review.decisions) {
     const decision = change.newAdr?.decision.kind;
     if (decision && decision !== "keep") {
@@ -150,14 +153,18 @@ function ReviewCheckChip({ check }: { check: ReviewCheckDto }) {
  */
 function CheckCommand({ command, wrap = false }: { command: string; wrap?: boolean }) {
   return (
-    <span className={cn("flex min-w-0 gap-1.5 text-meta text-muted-foreground", wrap ? "basis-full items-start" : "items-center")}>
+    <span
+      className={cn(
+        "flex min-w-0 gap-1.5 text-meta text-muted-foreground",
+        wrap ? "basis-full items-start" : "items-center",
+      )}
+    >
       <SquareTerminal aria-hidden="true" className={cn("size-3.5 shrink-0", wrap && "mt-0.5")} />
-      <code
-        title={wrap ? undefined : command}
-        className={cn("min-w-0 font-mono text-foreground", wrap ? "break-all whitespace-pre-wrap" : "truncate")}
-      >
-        {command}
-      </code>
+      <TruncateTip text={wrap ? undefined : command} mono>
+        <code className={cn("min-w-0 font-mono text-foreground", wrap ? "break-all whitespace-pre-wrap" : "truncate")}>
+          {command}
+        </code>
+      </TruncateTip>
     </span>
   );
 }
@@ -187,7 +194,10 @@ function OutputTail({ text }: { text: string }) {
 function CheckObjections({ check, className }: { check: ReviewCheckDto; className?: string }) {
   if (check.objections.length === 0) return null;
   return (
-    <ul aria-label={`Agent's objections to ${check.command}`} className={cn("m-0 flex list-none flex-col gap-1.5 p-0", className)}>
+    <ul
+      aria-label={`Agent's objections to ${check.command}`}
+      className={cn("m-0 flex list-none flex-col gap-1.5 p-0", className)}
+    >
       {check.objections.map((objection: ReviewObjectionDto, index) => (
         <li key={index} className="flex min-w-0 items-start gap-1.5 text-small">
           <MessageSquareWarning aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
@@ -269,9 +279,9 @@ function RebaseNeeded({
       <ul aria-label="Conflicting files" className="col-start-2 m-0 flex min-w-0 list-none flex-col gap-1 p-0">
         {conflicts.map((path) => (
           <li key={path} className="min-w-0">
-            <code title={path} className="block truncate font-mono text-meta text-foreground">
-              {path}
-            </code>
+            <TruncateTip text={path} mono>
+              <code className="block truncate font-mono text-meta text-foreground">{path}</code>
+            </TruncateTip>
           </li>
         ))}
       </ul>
@@ -317,9 +327,9 @@ function RequestChangesComposer({
 
   return (
     <div className="flex w-full flex-col gap-2">
-      <label htmlFor={id} className="text-small font-semibold">
+      <Label htmlFor={id} className="text-small font-semibold">
         What should change?
-      </label>
+      </Label>
       <p id={`${id}-hint`} className="m-0 text-meta text-muted-foreground">
         One review point per line. The agent adds a Task for each, in the same worktree, before it goes on.
       </p>
@@ -450,9 +460,12 @@ function CriterionRow({
             <Check aria-hidden="true" className="pointer-events-none absolute inset-0 m-auto size-3.5 text-running" />
           )}
         </span>
-        <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer text-body font-semibold break-words">
+        <Label
+          htmlFor={id}
+          className="block min-w-0 flex-1 cursor-pointer text-body leading-(--text-body--line-height) font-semibold break-words"
+        >
           {criterion.statement}
-        </label>
+        </Label>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-2 pl-7">
         {criterion.check ? (
@@ -626,7 +639,15 @@ export function rerunSummary(run: ChecksRerunDto): string {
  * ("Running 8 Checks · 3/8") over a Progress bar fed by `checks:progress`; the card re-reads on
  * `board:changed`. Held while a session is live (the core refuses it too), and a refusal is shown as written.
  */
-function RerunChecksControl({ projectId, story, review }: { projectId: string; story: StoryDto; review: StoryReviewDto }) {
+function RerunChecksControl({
+  projectId,
+  story,
+  review,
+}: {
+  projectId: string;
+  story: StoryDto;
+  review: StoryReviewDto;
+}) {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<ChecksProgressPayload | null>(null);
@@ -658,14 +679,18 @@ function RerunChecksControl({ projectId, story, review }: { projectId: string; s
   }
 
   const total = progress?.total ?? checkCount;
-  const step = progress ? `Running ${plural(total, "Check")} · ${progress.done}/${total}` : `Running ${plural(total, "Check")}`;
+  const step = progress
+    ? `Running ${plural(total, "Check")} · ${progress.done}/${total}`
+    : `Running ${plural(total, "Check")}`;
   return (
     <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-1">
       <span className="flex min-w-0 flex-col items-end gap-1">
         <span aria-live="polite" className="text-meta text-muted-foreground tabular-nums">
           {busy ? step : last ? rerunSummary(last) : ""}
         </span>
-        {busy && <Progress aria-label="Checks run" value={progress?.done ?? 0} max={Math.max(total, 1)} className="w-32" />}
+        {busy && (
+          <Progress aria-label="Checks run" value={progress?.done ?? 0} max={Math.max(total, 1)} className="w-32" />
+        )}
       </span>
       <Button
         variant="outline"
@@ -738,7 +763,10 @@ export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
   const footerInner = "rounded-b-lg bg-muted/50 px-4 py-3";
 
   return (
-    <section aria-labelledby="review-heading" className="flex flex-col rounded-lg border border-border bg-card shadow-card">
+    <section
+      aria-labelledby="review-heading"
+      className="flex flex-col rounded-lg border border-border bg-card shadow-card"
+    >
       <header className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pt-3.5 pb-2.5">
         <span className="flex items-center gap-2">
           <span aria-hidden="true" className="text-muted-foreground [&_svg]:size-[18px]">
@@ -759,7 +787,11 @@ export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
       <div className="flex flex-col gap-4 px-4 pb-4">
         {reviewQuery.isError && <ReadError title={`Couldn't load the review of ${story.key}`} query={reviewQuery} />}
         {review && review.conflicts.length > 0 && (
-          <RebaseNeeded story={story} conflicts={review.conflicts} onRequestRebase={() => setComposing(review.rebaseComment ?? "")} />
+          <RebaseNeeded
+            story={story}
+            conflicts={review.conflicts}
+            onRequestRebase={() => setComposing(review.rebaseComment ?? "")}
+          />
         )}
         {review && review.failingChecks.length > 0 && <FailingChecks checks={review.failingChecks} />}
         {review && (
@@ -820,9 +852,9 @@ export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
                 <span className="line-clamp-2 min-w-0 text-muted-foreground">{`Merging ${story.key}: writing the merge commit, then removing the worktree.`}</span>
               ) : blockers.length > 0 ? (
                 <>
-                  <span title={blockers[0]} className="min-w-0 truncate text-foreground">
-                    {blockers[0]}
-                  </span>
+                  <TruncateTip text={blockers[0]}>
+                    <span className="min-w-0 truncate text-foreground">{blockers[0]}</span>
+                  </TruncateTip>
                   {blockers.length > 1 && (
                     <span className="shrink-0 text-muted-foreground tabular-nums">{`+${blockers.length - 1} more`}</span>
                   )}
@@ -855,7 +887,12 @@ export function ReviewCard({ projectId, story, onMerged }: ReviewCardProps) {
 export function OpenReviewControl({ projectId, story }: { projectId: string; story: StoryDto }) {
   const openStory = useUiStore((state) => state.openStory);
   return (
-    <Button variant="outline" size="sm" aria-label={`Open review of ${story.key}`} onClick={() => openStory(projectId, story.id)}>
+    <Button
+      variant="outline"
+      size="sm"
+      aria-label={`Open review of ${story.key}`}
+      onClick={() => openStory(projectId, story.id)}
+    >
       <GitPullRequest aria-hidden="true" />
       Open review
     </Button>

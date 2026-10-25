@@ -1,6 +1,7 @@
-import { afterEach } from "vitest";
+import { afterEach, beforeEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
+import { loadEveryFont } from "./fonts";
 
 /**
  * The browser arm's setup. Deliberately NOT `src/test/setup.ts`: that file stubs
@@ -14,4 +15,12 @@ import "@testing-library/jest-dom/vitest";
  */
 afterEach(() => {
   cleanup();
+});
+
+/**
+ * Every declared face is loaded before a test renders anything, so no test measures a web-font swap. The test
+ * file's stylesheet imports have run by now, so `document.fonts` holds every face it declares.
+ */
+beforeEach(async () => {
+  await loadEveryFont();
 });

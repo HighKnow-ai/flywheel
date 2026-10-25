@@ -34,11 +34,20 @@
  * list's length as runs, so the two figures never read as one disagreeing count. The view switch is Tabs.
  */
 import { useEffect, useLayoutEffect, useState, type MouseEvent } from "react";
+import { Tip } from "@/components/Tip";
+import { TruncateTip } from "@/components/TruncateTip";
 import { acknowledgeSession, sessionAcknowledgeMany, type FleetActivityDto, type FleetRowDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
 import { ReadError } from "../components/ReadError";
 import { StoryKey } from "../components/StoryKey";
-import { FLEET_BANDS, bandForState, isFleetState, isRunStatus, type FleetBandId, type FleetState } from "../legend/runStatus";
+import {
+  FLEET_BANDS,
+  bandForState,
+  isFleetState,
+  isRunStatus,
+  type FleetBandId,
+  type FleetState,
+} from "../legend/runStatus";
 import { feedRowText } from "../session/FeedRow";
 import { buildFeedRows } from "../session/SessionSurface";
 import { nextSelectionId, useRegionBindings } from "../state/keyboard";
@@ -124,9 +133,11 @@ function ActivityLine({ row }: { row: FleetRowDto }) {
       No activity could be read
     </span>
   ) : (
-    <span data-field="activity" title={line} className="block truncate text-meta text-muted-foreground">
-      {line}
-    </span>
+    <TruncateTip text={line}>
+      <span data-field="activity" className="block truncate text-meta text-muted-foreground">
+        {line}
+      </span>
+    </TruncateTip>
   );
 }
 
@@ -136,9 +147,11 @@ function ActivityLine({ row }: { row: FleetRowDto }) {
 export function DoingTaskCell({ row }: { row: FleetRowDto }) {
   const title = row.doingTaskTitle;
   return (
-    <span data-field="doing-task" title={title ? `Doing: ${title}` : undefined} className="block truncate text-small empty:hidden">
-      {title ?? ""}
-    </span>
+    <TruncateTip text={title ? `Doing: ${title}` : undefined}>
+      <span data-field="doing-task" className="block truncate text-small empty:hidden">
+        {title ?? ""}
+      </span>
+    </TruncateTip>
   );
 }
 
@@ -175,14 +188,14 @@ export function SpendCell({ row }: { row: FleetRowDto }) {
   return (
     <span data-field="spend" className="flex flex-col items-end tabular-nums">
       {row.costUsd != null && (
-        <span title="Estimated cost, not a billed amount" className="text-small">
-          {formatMoney(row.costUsd)}
-        </span>
+        <Tip content="Estimated cost, not a billed amount">
+          <span className="text-small">{formatMoney(row.costUsd)}</span>
+        </Tip>
       )}
       {tokens && (
-        <span title="Input tokens include cache reads, so this is larger than the prompt size" className="text-meta text-muted-foreground">
-          {tokens}
-        </span>
+        <Tip content="Input tokens include cache reads, so this is larger than the prompt size">
+          <span className="text-meta text-muted-foreground">{tokens}</span>
+        </Tip>
       )}
     </span>
   );
@@ -194,8 +207,8 @@ export function FleetFooter({ visibleCostUsd }: { visibleCostUsd: number | null 
   if (visibleCostUsd == null) return null;
   return (
     <footer data-fleet-footer className="shrink-0 text-right text-meta text-muted-foreground tabular-nums">
-      Estimated spend, this fleet: {formatMoney(visibleCostUsd)} (Flywheel's own estimate from a bundled price
-      table, not a billed amount)
+      Estimated spend, this fleet: {formatMoney(visibleCostUsd)} (Flywheel's own estimate from a bundled price table,
+      not a billed amount)
     </footer>
   );
 }
@@ -232,7 +245,6 @@ export function SubjectTarget({ label, onOpen }: { label: string; onOpen: () => 
       data-subject-target
       className="rounded-sm font-mono text-meta whitespace-nowrap text-running tabular-nums underline-offset-4 hover:underline"
       aria-label={`Open Story ${label}`}
-      title={`Open Story ${label}`}
       onClick={(event: MouseEvent) => {
         event.stopPropagation();
         onOpen();
@@ -359,23 +371,23 @@ export function FleetRowView({
         </span>
       </TableCell>
       {columns.project && (
-        <TableCell data-field="project" title={row.projectName} className="truncate text-small text-muted-foreground">
-          {row.projectName}
-        </TableCell>
+        <TruncateTip text={row.projectName}>
+          <TableCell data-field="project" className="truncate text-small text-muted-foreground">
+            {row.projectName}
+          </TableCell>
+        </TruncateTip>
       )}
-      <TableCell
-        data-field="subject"
-        title={subject.detail ? `${subject.key} ${subject.detail}`.trim() : subject.key}
-        className="truncate"
-      >
-        {subjectTargetId(row) !== null && onOpenSubject ? (
-          <SubjectTarget label={subject.key || "Story"} onOpen={() => onOpenSubject(row)} />
-        ) : (
-          subject.key && <StoryKey value={subject.key} />
-        )}
-        {subject.key && subject.detail ? " " : ""}
-        {subject.detail && <span className="font-semibold">{subject.detail}</span>}
-      </TableCell>
+      <TruncateTip text={subject.detail ? `${subject.key} ${subject.detail}`.trim() : subject.key}>
+        <TableCell data-field="subject" className="truncate">
+          {subjectTargetId(row) !== null && onOpenSubject ? (
+            <SubjectTarget label={subject.key || "Story"} onOpen={() => onOpenSubject(row)} />
+          ) : (
+            subject.key && <StoryKey value={subject.key} />
+          )}
+          {subject.key && subject.detail ? " " : ""}
+          {subject.detail && <span className="font-semibold">{subject.detail}</span>}
+        </TableCell>
+      </TruncateTip>
       {columns.doing && (
         <TableCell data-field="doing">
           <DoingTaskCell row={row} />
@@ -387,7 +399,11 @@ export function FleetRowView({
           <SpendCell row={row} />
         </TableCell>
       )}
-      <TableCell data-field="age" aria-label={`In this state for ${age}`} className="text-right text-small text-muted-foreground tabular-nums">
+      <TableCell
+        data-field="age"
+        aria-label={`In this state for ${age}`}
+        className="text-right text-small text-muted-foreground tabular-nums"
+      >
         {age}
       </TableCell>
       <TableCell data-field="dismiss" className="pr-4 text-right">
@@ -652,7 +668,11 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
           <>
             {/* The headline count, the strip's own figure. Waiting on you's count is its tab's. */}
             {view === "fleet" && fleet.isSuccess && (
-              <span aria-live="polite" data-fleet-count className="shrink-0 text-small whitespace-nowrap text-muted-foreground tabular-nums">
+              <span
+                aria-live="polite"
+                data-fleet-count
+                className="shrink-0 text-small whitespace-nowrap text-muted-foreground tabular-nums"
+              >
                 {countText}
               </span>
             )}
@@ -662,7 +682,12 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
               </TabsTrigger>
               <TabsTrigger value="queue" className="px-2.5">
                 Waiting on you{" "}
-                <span className={cn("tabular-nums", waitingTotal > 0 ? "font-semibold text-foreground" : "text-muted-foreground")}>
+                <span
+                  className={cn(
+                    "tabular-nums",
+                    waitingTotal > 0 ? "font-semibold text-foreground" : "text-muted-foreground",
+                  )}
+                >
                   {waitingTotal}
                 </span>
               </TabsTrigger>

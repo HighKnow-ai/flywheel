@@ -15,7 +15,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryView } from "../StoryView";
 import { StoryBoard } from "../StoryBoard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import type { AcceptanceCriterionDto, EpicDto, MakeReadyOfferDto, MilestoneDto, RosterRowDto, StoryDto } from "../../adapters/tauri";
+import type {
+  AcceptanceCriterionDto,
+  EpicDto,
+  MakeReadyOfferDto,
+  MilestoneDto,
+  RosterRowDto,
+  StoryDto,
+} from "../../adapters/tauri";
 
 const storyGet = vi.fn();
 const storyMakeReady = vi.fn();
@@ -60,13 +67,25 @@ vi.mock("../../adapters/tauri", async () => {
 
 function story(state: string, key = "FLY-12"): StoryDto {
   return {
-    id: "s12", projectId: "p1", epicId: "e1", key, title: "Empty-line recovery", description: "Skip an empty line",
-    state, runsAfterStoryId: null, rank: "z",
+    id: "s12",
+    projectId: "p1",
+    epicId: "e1",
+    key,
+    title: "Empty-line recovery",
+    description: "Skip an empty line",
+    state,
+    runsAfterStoryId: null,
+    rank: "z",
   };
 }
 
 const CRITERION: AcceptanceCriterionDto = {
-  id: "c1", storyId: "s12", statement: "An empty line yields no token", accepted: false, acceptedAt: null, rank: "a",
+  id: "c1",
+  storyId: "s12",
+  statement: "An empty line yields no token",
+  accepted: false,
+  acceptedAt: null,
+  rank: "a",
   check: null,
 };
 
@@ -129,7 +148,17 @@ describe("A Story whose reads fail (issue #204)", () => {
     taskList.mockImplementationOnce(dead);
     renderView();
     const tasks = await screen.findByRole("region", { name: "Tasks" });
-    taskList.mockResolvedValue([{ id: "t1", storyId: "s12", title: "Write the parser", state: "open", droppedReason: null, rank: "a", note: null }]);
+    taskList.mockResolvedValue([
+      {
+        id: "t1",
+        storyId: "s12",
+        title: "Write the parser",
+        state: "open",
+        droppedReason: null,
+        rank: "a",
+        note: null,
+      },
+    ]);
     fireEvent.click(await within(tasks).findByRole("button", { name: "Try again" }));
     expect(await within(tasks).findByText("Write the parser")).toBeTruthy();
     expect(within(tasks).queryByText("Couldn't load the Tasks")).toBeNull();
@@ -141,7 +170,9 @@ describe("A Story whose reads fail (issue #204)", () => {
     renderView();
     const tasks = await screen.findByRole("region", { name: "Tasks" });
     expect(await within(tasks).findByText("No Tasks yet")).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Acceptance criteria" })).getByText("No Acceptance criteria yet")).toBeTruthy();
+    expect(
+      within(screen.getByRole("region", { name: "Acceptance criteria" })).getByText("No Acceptance criteria yet"),
+    ).toBeTruthy();
     expect(await within(screen.getByRole("region", { name: "Sessions" })).findByText("No sessions yet")).toBeTruthy();
   });
 
@@ -199,7 +230,10 @@ describe("Make Ready in the Story view", () => {
   });
 
   it("is not offered while the Epic is still being shaped", async () => {
-    offer({ offered: false, refusal: "FLY-1 is still being shaped; closing its Write the Acceptance criteria Stage makes FLY-12 Ready" });
+    offer({
+      offered: false,
+      refusal: "FLY-1 is still being shaped; closing its Write the Acceptance criteria Stage makes FLY-12 Ready",
+    });
     renderView();
     await waitFor(() => expect(storyMakeReadyOffer).toHaveBeenCalled());
     await screen.findByText("An empty line yields no token");
@@ -224,15 +258,41 @@ describe("Make Ready in the Story view", () => {
 });
 
 describe("Make Ready on the board row", () => {
-  const milestone: MilestoneDto = { id: "m1", projectId: "p1", title: "M1", exitTest: null, state: "in_progress", current: true, rank: "a" };
+  const milestone: MilestoneDto = {
+    id: "m1",
+    projectId: "p1",
+    title: "M1",
+    exitTest: null,
+    state: "in_progress",
+    current: true,
+    rank: "a",
+  };
   const epic: EpicDto = {
-    id: "e1", projectId: "p1", milestoneId: "m1", key: "FLY-1", title: "E1", problem: null, scope: null, outOfScope: null,
-    exitTest: null, state: "ready", rank: "a",
+    id: "e1",
+    projectId: "p1",
+    milestoneId: "m1",
+    key: "FLY-1",
+    title: "E1",
+    problem: null,
+    scope: null,
+    outOfScope: null,
+    exitTest: null,
+    state: "ready",
+    rank: "a",
   };
   function row(storyId: string, canMakeReady: boolean): RosterRowDto {
     return {
-      storyId, attention: null, endingReason: null, liveSessionId: null, doingTaskTitle: null,
-      criteriaMet: 0, criteriaTotal: canMakeReady ? 1 : 0, tasksDone: 0, tasksTotal: 0, review: null, canMakeReady,
+      storyId,
+      attention: null,
+      endingReason: null,
+      liveSessionId: null,
+      doingTaskTitle: null,
+      criteriaMet: 0,
+      criteriaTotal: canMakeReady ? 1 : 0,
+      tasksDone: 0,
+      tasksTotal: 0,
+      review: null,
+      canMakeReady,
     };
   }
 

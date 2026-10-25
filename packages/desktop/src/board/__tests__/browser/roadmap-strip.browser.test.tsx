@@ -22,7 +22,8 @@ const moves: Record<string, unknown>[] = [];
 
 async function boardReady() {
   const root =
-    document.getElementById("root") ?? document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
+    document.getElementById("root") ??
+    document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
   render(<App />, { container: root });
   await screen.findAllByText("Make clicking and navigation predictable");
   return screen.findByRole("region", { name: "Roadmap" });
@@ -89,7 +90,9 @@ describe("the Roadmap strip in WebKit", () => {
     const transfer = new DataTransfer();
     row("One-week exit test").dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
     await waitFor(() => expect(row("One-week exit test").className).toContain("opacity-50"));
-    row("Shaping").dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    row("Shaping").dispatchEvent(
+      new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+    );
     await waitFor(() => expect(row("Shaping").dataset.drop).toBe("before"));
     row("Shaping").dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
     await waitFor(() => expect(moves).toEqual([{ milestoneId: "m-5", beforeId: "m-3" }]));

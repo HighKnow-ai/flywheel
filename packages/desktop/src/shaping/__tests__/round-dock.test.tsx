@@ -107,7 +107,9 @@ beforeEach(() => {
   roundAnswer.mockReset().mockResolvedValue(undefined);
   roundAcceptAll.mockReset().mockResolvedValue(undefined);
   epicUpdate.mockReset().mockResolvedValue(undefined);
-  shapingContinue.mockReset().mockResolvedValue({ id: "run-2", epicId: "e1", status: "running", permissionMode: "dontAsk" });
+  shapingContinue
+    .mockReset()
+    .mockResolvedValue({ id: "run-2", epicId: "e1", status: "running", permissionMode: "dontAsk" });
 });
 
 describe("the Round dock (issue #123)", () => {
@@ -337,7 +339,9 @@ describe("an ADR offered inside the Round (issue #129)", () => {
   });
 
   it("an answered ADR folds to one settled line, with no Change", async () => {
-    epicShapingRounds.mockResolvedValue(shaping([round([question(1), adrQuestion(2, { answer: "Yes", with: "recommended" })])]));
+    epicShapingRounds.mockResolvedValue(
+      shaping([round([question(1), adrQuestion(2, { answer: "Yes", with: "recommended" })])]),
+    );
     renderView();
     const adr = await card(2);
     expect(adr.getAttribute("data-answered")).toBe("true");
@@ -368,7 +372,9 @@ describe("an ADR offered inside the Round (issue #129)", () => {
     );
     renderView();
     const dock = await screen.findByRole("region", { name: /Round 1/ });
-    expect((within(dock).getByRole("button", { name: /Accept all recommended/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(dock).getByRole("button", { name: /Accept all recommended/ }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
     expect(within(dock).getByText("Only the ADR is left: answer it Yes or No.")).toBeTruthy();
   });
 });
@@ -418,7 +424,14 @@ describe("the Epic card's ADR and glossary chips (issue #129)", () => {
 describe("the dock's Round progress and its Accept all (issue #211)", () => {
   it("shows how much of the Round is answered as a progress bar beside the count", async () => {
     epicShapingRounds.mockResolvedValue(
-      shaping([round([question(1, { answer: "Yes, cover thing 1", with: "recommended" }), question(2), question(3), question(4)])]),
+      shaping([
+        round([
+          question(1, { answer: "Yes, cover thing 1", with: "recommended" }),
+          question(2),
+          question(3),
+          question(4),
+        ]),
+      ]),
     );
     renderView();
     const dock = await screen.findByRole("region", { name: /Round 1/ });
@@ -429,7 +442,10 @@ describe("the dock's Round progress and its Accept all (issue #211)", () => {
   it("makes Accept all the attention fill while the Round is Waiting on you", async () => {
     renderView();
     const dock = await screen.findByRole("region", { name: /Round 1/ });
-    expect(within(dock).getByRole("button", { name: /Accept all recommended/ })).toHaveAttribute("data-variant", "attention");
+    expect(within(dock).getByRole("button", { name: /Accept all recommended/ })).toHaveAttribute(
+      "data-variant",
+      "attention",
+    );
   });
 
   it("keeps Accept all the brand fill on an open Round no session waits on", async () => {
@@ -437,7 +453,10 @@ describe("the dock's Round progress and its Accept all (issue #211)", () => {
     epicShapingRounds.mockResolvedValue(shaping([round([question(1), question(2)], false)]));
     renderView();
     const dock = await screen.findByRole("region", { name: /Round 1/ });
-    expect(within(dock).getByRole("button", { name: /Accept all recommended/ })).toHaveAttribute("data-variant", "default");
+    expect(within(dock).getByRole("button", { name: /Accept all recommended/ })).toHaveAttribute(
+      "data-variant",
+      "default",
+    );
   });
 
   it("shows Accept all as loading while it lands, with its label kept", async () => {

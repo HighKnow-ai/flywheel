@@ -102,22 +102,17 @@ export function StoryBoard({ projectId, projectName }: StoryBoardProps) {
           <RoadmapStrip projectId={projectId} />
           <ConfirmExitTestOutcome />
           <MilestoneHeader projectId={projectId} milestoneId={selection.requested} />
-          {wide ? (
-            <div className="grid grid-cols-[400px_minmax(0,1fr)] items-start gap-5">
-              <NeedsYouColumn projectId={projectId} />
-              {/* Since you last looked (#167) sits between Needs you and the roster: atop the roster's column. */}
-              <div className="flex min-w-0 flex-col gap-4">
-                <SinceYouLastLooked projectId={projectId} />
-                <StoryRoster projectId={projectId} selection={selection} scrollElement={scrollElement} />
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* What changed since the last visit (#167), folded, just above the roster. */}
+          {/* One tree in both layouts, so crossing the breakpoint never remounts the roster and the dialogs it
+              owns (a Write a Story draft, a Resume note) survive a resize. Narrow, both wrappers are
+              display: contents and Since you last looked (#167) sits folded just above the roster; wide, it
+              sits between Needs you and the roster, atop the roster's column. */}
+          <div className={wide ? "grid grid-cols-[400px_minmax(0,1fr)] items-start gap-5" : "contents"}>
+            {wide && <NeedsYouColumn projectId={projectId} />}
+            <div className={wide ? "flex min-w-0 flex-col gap-4" : "contents"}>
               <SinceYouLastLooked projectId={projectId} />
               <StoryRoster projectId={projectId} selection={selection} scrollElement={scrollElement} />
-            </>
-          )}
+            </div>
+          </div>
         </div>
       </SurfaceBody>
       {/* The triage drawer (#162), opened by Needs you's Triage and an Epic's "n Proposals". */}
@@ -420,7 +415,9 @@ function useScrollMargin(roster: HTMLElement | null, scrollElement: HTMLElement 
   useLayoutEffect(() => {
     if (!roster || !scrollElement) return;
     const update = () =>
-      setMargin(roster.getBoundingClientRect().top - scrollElement.getBoundingClientRect().top + scrollElement.scrollTop);
+      setMargin(
+        roster.getBoundingClientRect().top - scrollElement.getBoundingClientRect().top + scrollElement.scrollTop,
+      );
     update();
     const observer = new ResizeObserver(update);
     observer.observe(roster.parentElement ?? roster);
@@ -663,9 +660,7 @@ function RowDetail({ story, figures }: { story: StoryDto; figures: RosterRowDto 
           {doing && <span className="truncate">{`· was doing “${doing}”`}</span>}
         </>
       )}
-      {!stopped && doing && (
-        <span aria-label={`${story.key} is doing`} className="truncate">{`Doing: ${doing}`}</span>
-      )}
+      {!stopped && doing && <span aria-label={`${story.key} is doing`} className="truncate">{`Doing: ${doing}`}</span>}
       {review && (
         <span className="inline-flex shrink-0 items-center gap-1 self-center text-muted-foreground tabular-nums">
           <FileDiff aria-hidden="true" size={13} className="shrink-0" />
@@ -802,7 +797,11 @@ function StoryRow({
           </span>
         </ItemContent>
         <ItemActions className="justify-end">{action ?? <RowCounts story={story} figures={figures} />}</ItemActions>
-        <ChevronRight aria-hidden="true" size={16} className="text-subtle-foreground transition-colors group-hover/row:text-foreground" />
+        <ChevronRight
+          aria-hidden="true"
+          size={16}
+          className="text-subtle-foreground transition-colors group-hover/row:text-foreground"
+        />
         {error && <p className="col-span-full m-0 pt-1 text-small text-destructive-text">{error}</p>}
       </li>
     </Item>

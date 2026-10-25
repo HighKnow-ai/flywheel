@@ -41,7 +41,12 @@ const width = (b: Box) => b.right - b.left;
 const height = (b: Box) => b.bottom - b.top;
 
 function intersect(a: Box, b: Box): Box {
-  return { left: Math.max(a.left, b.left), top: Math.max(a.top, b.top), right: Math.min(a.right, b.right), bottom: Math.min(a.bottom, b.bottom) };
+  return {
+    left: Math.max(a.left, b.left),
+    top: Math.max(a.top, b.top),
+    right: Math.min(a.right, b.right),
+    bottom: Math.min(a.bottom, b.bottom),
+  };
 }
 
 function empty(b: Box): boolean {
@@ -83,7 +88,11 @@ function clips(s: CSSStyleDeclaration): { x: boolean; y: boolean } {
  */
 function clipped(el: Element, box: Box, includeSelf: boolean): Box {
   let out = box;
-  for (let e: Element | null = includeSelf ? el : el.parentElement; e && e !== document.documentElement; e = e.parentElement) {
+  for (
+    let e: Element | null = includeSelf ? el : el.parentElement;
+    e && e !== document.documentElement;
+    e = e.parentElement
+  ) {
     // The shell is exactly the window and clips (issue #191): content it cuts off at the window's edge is still
     // past the edge, so it is measured against the window, not hidden by the shell.
     if (e.id === "app-root") break;
@@ -142,7 +151,11 @@ function horizontalOverflow(defects: LayoutDefect[]) {
   const vw = window.innerWidth;
   const root = document.scrollingElement ?? document.documentElement;
   if (root.scrollWidth > vw + EPS) {
-    defects.push({ kind: "horizontal-overflow", detail: `the page scrolls sideways: ${root.scrollWidth}px wide in a ${vw}px window`, where: "document" });
+    defects.push({
+      kind: "horizontal-overflow",
+      detail: `the page scrolls sideways: ${root.scrollWidth}px wide in a ${vw}px window`,
+      where: "document",
+    });
   }
   const reported: Element[] = [];
   for (const el of Array.from(document.body.querySelectorAll("*"))) {
@@ -156,7 +169,10 @@ function horizontalOverflow(defects: LayoutDefect[]) {
     if (empty(seen)) continue;
     if (seen.right > vw + EPS || seen.left < -EPS) {
       reported.push(el);
-      const past = seen.right > vw + EPS ? `${Math.round(seen.right - vw)}px past the right edge` : `${Math.round(-seen.left)}px past the left edge`;
+      const past =
+        seen.right > vw + EPS
+          ? `${Math.round(seen.right - vw)}px past the right edge`
+          : `${Math.round(-seen.left)}px past the left edge`;
       defects.push({ kind: "horizontal-overflow", detail: `${past} of a ${vw}px window`, where: describeElement(el) });
     }
   }
@@ -178,7 +194,8 @@ function textLines(): TextLine[] {
   const vh = window.innerHeight;
   for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
     const owner = n.parentElement;
-    if (!owner || owner instanceof HTMLScriptElement || owner instanceof HTMLStyleElement || owner.closest("svg")) continue;
+    if (!owner || owner instanceof HTMLScriptElement || owner instanceof HTMLStyleElement || owner.closest("svg"))
+      continue;
     if (!visible(owner)) continue;
     range.selectNodeContents(n);
     const rects = Array.from(range.getClientRects()).filter((r) => r.width > EPS && r.height > EPS);
@@ -244,7 +261,11 @@ export function findLayoutDefects(): LayoutDefect[] {
   const defects: LayoutDefect[] = [];
   const root = document.scrollingElement ?? document.documentElement;
   if (root.scrollHeight > window.innerHeight + EPS) {
-    defects.push({ kind: "page-scroll", detail: `the window scrolls: ${root.scrollHeight}px tall in a ${window.innerHeight}px window`, where: "document" });
+    defects.push({
+      kind: "page-scroll",
+      detail: `the window scrolls: ${root.scrollHeight}px tall in a ${window.innerHeight}px window`,
+      where: "document",
+    });
   }
   horizontalOverflow(defects);
   textOverlap(defects);

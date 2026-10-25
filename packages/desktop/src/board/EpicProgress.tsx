@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
 import { Layers, MessagesSquare } from "lucide-react";
 import type { EpicProgressDto, ShapingMarkerDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
@@ -22,11 +23,14 @@ export function shapingMarkerWords(marker: ShapingMarkerDto): string {
 function ShapingMarker({ marker }: { marker: ShapingMarkerDto }) {
   const words = shapingMarkerWords(marker);
   return (
-    <span data-shaping-marker="" className="flex min-w-0 items-center gap-1.5 pl-6 text-meta text-muted-foreground tabular-nums">
+    <span
+      data-shaping-marker=""
+      className="flex min-w-0 items-center gap-1.5 pl-6 text-meta text-muted-foreground tabular-nums"
+    >
       <MessagesSquare aria-hidden="true" size={13} className="shrink-0" />
-      <span className="truncate" title={words}>
-        {words}
-      </span>
+      <TruncateTip text={words}>
+        <span className="truncate">{words}</span>
+      </TruncateTip>
     </span>
   );
 }
@@ -96,9 +100,11 @@ export function EpicProgress({
       <div className="flex min-w-0 flex-col gap-0.5 [grid-area:title]">
         <div className="flex min-w-0 items-center gap-2">
           <Layers size={16} strokeWidth={2} aria-hidden="true" className="shrink-0 text-muted-foreground" />
-          <Title id={headingId} className="m-0 truncate text-section font-semibold" title={epic.title}>
-            {epic.title}
-          </Title>
+          <TruncateTip text={epic.title}>
+            <Title id={headingId} className="m-0 truncate text-section font-semibold">
+              {epic.title}
+            </Title>
+          </TruncateTip>
           {/* Attention is shown in place of the state word (spec §2, issue #124). */}
           <StateBadge
             state={epic.attention ?? epic.state}
@@ -119,5 +125,7 @@ export function EpicProgress({
 
 /** The header grid's actions cell: right-aligned, in the order they are given. */
 export function EpicHeaderActions({ children }: { children?: ReactNode }) {
-  return <div className="flex min-w-0 items-center justify-end gap-1.5 [grid-area:actions] empty:hidden">{children}</div>;
+  return (
+    <div className="flex min-w-0 items-center justify-end gap-1.5 [grid-area:actions] empty:hidden">{children}</div>
+  );
 }

@@ -44,13 +44,21 @@ describe("ReadError", () => {
   }, 10_000);
 
   it("shows Try again as pending while a refetch runs", () => {
-    render(<ReadError title="Couldn't load the board" query={{ error: new Error("x"), refetch: () => {}, isFetching: true }} />);
+    render(
+      <ReadError
+        title="Couldn't load the board"
+        query={{ error: new Error("x"), refetch: () => {}, isFetching: true }}
+      />,
+    );
     expect(screen.getByRole("button", { name: "Try again" })).toHaveAttribute("aria-busy", "true");
   });
 
   it("reads a non-Error rejection (a core error object) as its message", () => {
     render(
-      <ReadError title="Couldn't load the board" query={{ error: { kind: "NotFound", message: "no such project" }, refetch: () => {} }} />,
+      <ReadError
+        title="Couldn't load the board"
+        query={{ error: { kind: "NotFound", message: "no such project" }, refetch: () => {} }}
+      />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Details" }));
     expect(screen.getByText("no such project")).toBeInTheDocument();

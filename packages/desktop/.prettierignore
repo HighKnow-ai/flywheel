@@ -1,0 +1,2 @@
+# Stock shadcn/ui source, kept in the CLI's own style so `shadcn diff` stays readable.
+src/components/ui/

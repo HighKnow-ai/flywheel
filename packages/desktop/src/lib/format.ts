@@ -30,9 +30,10 @@ export function formatRelativeTime(at: TimeInput, now: number = Date.now()): str
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
   const sameYear = new Date(ms).getFullYear() === new Date(now).getFullYear();
-  return new Intl.DateTimeFormat(undefined, sameYear ? { day: "numeric", month: "short" } : { dateStyle: "medium" }).format(
-    new Date(ms),
-  );
+  return new Intl.DateTimeFormat(
+    undefined,
+    sameYear ? { day: "numeric", month: "short" } : { dateStyle: "medium" },
+  ).format(new Date(ms));
 }
 
 /** The absolute date and time, for the Tooltip behind a relative time. */

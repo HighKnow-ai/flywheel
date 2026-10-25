@@ -27,7 +27,13 @@ type Override = (cmd: string, args: Args, base: unknown) => unknown;
 
 let override: Override | undefined;
 
-const GIT_BACKED = new Set(["story_review", "review_file_patch", "git_facts", "worktree_inventory", "story_checks_rerun"]);
+const GIT_BACKED = new Set([
+  "story_review",
+  "review_file_patch",
+  "git_facts",
+  "worktree_inventory",
+  "story_checks_rerun",
+]);
 
 /**
  * The fixture backend, answering after a few milliseconds as the real core does (an IPC hop and a SQLite
@@ -54,7 +60,8 @@ function installBackend() {
 
 /** The `seq` of every line the session feed has loaded, in order. */
 function loadedSeqs(): number[] {
-  const data = queryClient.getQueryData(["agent-run-log", "ses-4b"]) as { pages: { entries: { seq: number }[] }[] } | undefined;
+  const data = queryClient.getQueryData(["agent-run-log", "ses-4b"]) as
+    { pages: { entries: { seq: number }[] }[] } | undefined;
   return (data?.pages ?? []).flatMap((page) => page.entries.map((entry) => entry.seq));
 }
 
@@ -73,7 +80,10 @@ async function quiet() {
 }
 
 function root(): HTMLElement {
-  return document.getElementById("root") ?? document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
+  return (
+    document.getElementById("root") ??
+    document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }))
+  );
 }
 
 async function renderBoard() {
@@ -103,13 +113,22 @@ async function burst({ sessionId }: { sessionId?: string } = {}) {
       board("git_facts"),
       board("check", null),
       board("story", "p-hkw", "s-h2"),
-      ...(sessionId ? Array.from({ length: 6 }, (_, i) => emit("agent:event", { runId: sessionId, type: "assistant_text", seq: 1000 + round * 10 + i })) : []),
+      ...(sessionId
+        ? Array.from({ length: 6 }, (_, i) =>
+            emit("agent:event", { runId: sessionId, type: "assistant_text", seq: 1000 + round * 10 + i }),
+          )
+        : []),
     ]);
     await settle(120);
   }
 }
 
 async function measure(target: HTMLElement, run: () => Promise<void>): Promise<FlickerReport> {
+  // A face still loading would land mid-burst and re-lay out every line set in it: a shift the refetch did not
+  // cause (the CI flake of #208). The setup loads every face first; this says so if that ever stops holding.
+  expect(
+    Array.from(document.fonts, (face) => `${face.family} ${face.status}`).filter((f) => !f.endsWith(" loaded")),
+  ).toEqual([]);
   const recorder = recordFlicker(target);
   await run();
   await quiet();
@@ -193,7 +212,9 @@ describe("no-flicker: a refetch with unchanged data leaves the screen untouched"
  * the session's cost and tokens grow on every read, so each refetch brings back changed data.
  */
 function liveSession(sessionId: string) {
-  const all = (answer("session_log_window", { sessionId, offset: 0, limit: 100000 }) as { entries: Record<string, unknown>[] }).entries;
+  const all = (
+    answer("session_log_window", { sessionId, offset: 0, limit: 100000 }) as { entries: Record<string, unknown>[] }
+  ).entries;
   const log = [...all];
   let reads = 0;
   changeBackend((cmd, args, base) => {
@@ -203,7 +224,13 @@ function liveSession(sessionId: string) {
       return { entries: log.slice(offset, offset + limit), offset, limit, total: log.length };
     }
     const grow = (run: Record<string, unknown>) =>
-      run.id === sessionId ? { ...run, costUsd: Number(run.costUsd ?? 0) + reads * 0.01, outputTokens: Number(run.outputTokens ?? 0) + reads * 40 } : run;
+      run.id === sessionId
+        ? {
+            ...run,
+            costUsd: Number(run.costUsd ?? 0) + reads * 0.01,
+            outputTokens: Number(run.outputTokens ?? 0) + reads * 40,
+          }
+        : run;
     if ((cmd === "sessions_for_story" || cmd === "session_get") && base) {
       reads += 1;
       return Array.isArray(base) ? base.map(grow) : grow(base as Record<string, unknown>);
@@ -212,7 +239,13 @@ function liveSession(sessionId: string) {
   });
   return async (round: number, i: number) => {
     const seqNo = log.length;
-    log.push({ seq: seqNo, at: new Date().toISOString(), raw: "{}", type: "assistant_text", text: `Live line ${round}.${i}: checking the next file.` });
+    log.push({
+      seq: seqNo,
+      at: new Date().toISOString(),
+      raw: "{}",
+      type: "assistant_text",
+      text: `Live line ${round}.${i}: checking the next file.`,
+    });
     await emit("agent:event", { runId: sessionId, type: "assistant_text", seq: seqNo });
   };
 }
@@ -354,7 +387,9 @@ describe("no-flicker: a refetch with changed data updates in place", () => {
     const stop = watchFrames(() => (row.isConnected ? row : null));
     changeBackend((cmd, _args, base) =>
       cmd === "task_list" && Array.isArray(base)
-        ? (base as { id: string; title: string }[]).map((t) => (t.id === "t-4c" ? { ...t, title: "Open a Story's live session from its board row" } : t))
+        ? (base as { id: string; title: string }[]).map((t) =>
+            t.id === "t-4c" ? { ...t, title: "Open a Story's live session from its board row" } : t,
+          )
         : base,
     );
     const report = await measure(root(), () => burst({ sessionId: "ses-4b" }));
@@ -374,7 +409,9 @@ describe("no-flicker: a refetch with changed data updates in place", () => {
     const stop = watchFrames(() => (row.isConnected ? row : null));
     changeBackend((cmd, _args, base) =>
       cmd === "roster_rows" && Array.isArray(base)
-        ? (base as { storyId: string }[]).map((r) => (r.storyId === "s-4" ? { ...r, doingTaskTitle: "Open a Story's live session from its row on the board" } : r))
+        ? (base as { storyId: string }[]).map((r) =>
+            r.storyId === "s-4" ? { ...r, doingTaskTitle: "Open a Story's live session from its row on the board" } : r,
+          )
         : base,
     );
     const report = await measure(root(), () => burst());
@@ -402,7 +439,9 @@ describe("no-flicker: a refetch with changed data updates in place", () => {
     };
     requestAnimationFrame(tick);
     // The agent committed again: the review reports a new head, so every open file's patch is read again.
-    changeBackend((cmd, _args, base) => (cmd === "story_review" && base ? { ...(base as object), headSha: "a1b2c3d" } : base));
+    changeBackend((cmd, _args, base) =>
+      cmd === "story_review" && base ? { ...(base as object), headSha: "a1b2c3d" } : base,
+    );
     const report = await measure(root(), () => burst());
     running = false;
     expect(reading).toBe(0);

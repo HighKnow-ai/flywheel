@@ -106,7 +106,9 @@ export function MoveToEpicControl({
                         onSelect={() => move(epic.id, epic.key, story.epicId)}
                         className="text-body data-[disabled=true]:opacity-100 *:[svg:last-child]:text-running"
                       >
-                        <span className="w-14 shrink-0 font-mono text-meta text-muted-foreground tabular-nums">{epic.key}</span>{" "}
+                        <span className="w-14 shrink-0 font-mono text-meta text-muted-foreground tabular-nums">
+                          {epic.key}
+                        </span>{" "}
                         <span className="min-w-0 flex-1 truncate">{epic.title}</span>
                         {current && <span className="sr-only">(the Story's Epic now)</span>}
                       </CommandItem>

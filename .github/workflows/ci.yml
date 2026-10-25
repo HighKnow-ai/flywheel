@@ -152,6 +152,9 @@ jobs:
 
       - run: npm --prefix packages/desktop ci
 
+      - name: Format (Prettier)
+        run: npm --prefix packages/desktop run format:check
+
       - run: npm --prefix packages/desktop test
 
       - run: npm --prefix packages/desktop run build

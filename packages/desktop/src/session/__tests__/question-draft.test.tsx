@@ -34,7 +34,16 @@ const REQUEST = {
 
 /** The question first, then enough agent turns that scrolling to the end takes it out of the window. */
 const EVENTS: Record<string, unknown>[] = [
-  { runId: "run-1", seq: 0, at: "2026-01-01T00:00:00.000Z", raw: "q", type: "tool_call", toolName: "AskUserQuestion", toolUseId: "t1", input: { questions: QUESTIONS } },
+  {
+    runId: "run-1",
+    seq: 0,
+    at: "2026-01-01T00:00:00.000Z",
+    raw: "q",
+    type: "tool_call",
+    toolName: "AskUserQuestion",
+    toolUseId: "t1",
+    input: { questions: QUESTIONS },
+  },
   ...Array.from({ length: 400 }, (_, i) => ({
     runId: "run-1",
     seq: i + 1,

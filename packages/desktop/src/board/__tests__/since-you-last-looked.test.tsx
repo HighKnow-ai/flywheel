@@ -19,7 +19,12 @@ vi.mock("../../adapters/tauri", async () => {
 });
 
 let seq = 0;
-function event(eventType: string, description: string, subjectKey: string | null, subjectTitle: string | null): LookedEventDto {
+function event(
+  eventType: string,
+  description: string,
+  subjectKey: string | null,
+  subjectTitle: string | null,
+): LookedEventDto {
   seq += 1;
   return {
     id: `ev-${seq}`,
@@ -57,7 +62,12 @@ describe("SinceYouLastLooked", () => {
   it("renders folded with its count, then unfolds to the events in order, each naming its record", async () => {
     boardVisit.mockResolvedValue(
       seen([
-        event("story.handed_off", "Handed off for review: 3 Checks passed, 0 failed, 0 timed out", "FLY-12", "Make clicking predictable"),
+        event(
+          "story.handed_off",
+          "Handed off for review: 3 Checks passed, 0 failed, 0 timed out",
+          "FLY-12",
+          "Make clicking predictable",
+        ),
         event("story.state_changed", "Moved Story from in_review to merged", "FLY-12", "Make clicking predictable"),
         event("round.opened", "Opened roadmap Round 2: Epic FLY-3 done", null, null),
       ]),
@@ -114,7 +124,9 @@ describe("SinceYouLastLooked", () => {
   });
 
   it("past the cap, counts them all and says how many it shows", async () => {
-    boardVisit.mockResolvedValue(seen([event("story.state_changed", "Moved Story from ready to running", "FLY-4", "Feed")], 250));
+    boardVisit.mockResolvedValue(
+      seen([event("story.state_changed", "Moved Story from ready to running", "FLY-4", "Feed")], 250),
+    );
     renderTimeline();
     fireEvent.click(await screen.findByRole("button", { name: /250 events since you last looked/ }));
     expect(
@@ -134,7 +146,9 @@ describe("SinceYouLastLooked", () => {
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("data-state", "open");
-    const content = screen.getByRole("list", { name: "Since you last looked" }).closest("[data-slot=collapsible-content]");
+    const content = screen
+      .getByRole("list", { name: "Since you last looked" })
+      .closest("[data-slot=collapsible-content]");
     expect(content).not.toBeNull();
     expect(toggle).toHaveAttribute("aria-controls", content?.id);
 

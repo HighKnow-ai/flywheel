@@ -27,27 +27,67 @@ type Pair = [fg: Role, bg: Role];
 
 /** Every text role on every ground it is drawn on, per direction.md. */
 const TEXT_PAIRS: Record<string, Pair[]> = {
-  "body text": [["foreground", "card"], ["foreground", "background"], ["foreground", "muted"], ["foreground", "accent"], ["popoverForeground", "popover"]],
-  "secondary text": [["mutedForeground", "card"], ["mutedForeground", "background"], ["mutedForeground", "muted"]],
+  "body text": [
+    ["foreground", "card"],
+    ["foreground", "background"],
+    ["foreground", "muted"],
+    ["foreground", "accent"],
+    ["popoverForeground", "popover"],
+  ],
+  "secondary text": [
+    ["mutedForeground", "card"],
+    ["mutedForeground", "background"],
+    ["mutedForeground", "muted"],
+  ],
   "meta and chevrons": [["subtleForeground", "card"]],
   "primary button": [["primaryForeground", "primary"]],
   "running pill": [["running", "runningMuted"]],
   "link or running text": [["running", "card"]],
-  "Waiting on you": [["attentionForeground", "attention"], ["foreground", "attentionMuted"], ["mutedForeground", "attentionMuted"], ["subtleForeground", "attentionMuted"]],
+  "Waiting on you": [
+    ["attentionForeground", "attention"],
+    ["foreground", "attentionMuted"],
+    ["mutedForeground", "attentionMuted"],
+    ["subtleForeground", "attentionMuted"],
+  ],
   "Stopped or failed": [["destructiveForeground", "destructive"]],
   "destructive text": [["destructiveText", "card"]],
-  "neutral state pill": [["secondaryForeground", "secondary"], ["mutedForeground", "secondary"]],
-  "selected row": [["foreground", "runningMuted"], ["mutedForeground", "runningMuted"]],
-  "sidebar": [["sidebarForeground", "sidebar"], ["sidebarForeground", "sidebarAccent"], ["sidebarPrimaryForeground", "sidebarPrimary"]],
-  "strip text on a lamp": [["stripForeground", "lamp"], ["stripForeground", "strip"]],
-  "strip secondary text on a lamp": [["stripMutedForeground", "lamp"], ["stripMutedForeground", "strip"]],
-  "diff lines": [["foreground", "diffInsert"], ["foreground", "diffDelete"], ["mutedForeground", "diffInsert"], ["mutedForeground", "diffDelete"]],
+  "neutral state pill": [
+    ["secondaryForeground", "secondary"],
+    ["mutedForeground", "secondary"],
+  ],
+  "selected row": [
+    ["foreground", "runningMuted"],
+    ["mutedForeground", "runningMuted"],
+  ],
+  sidebar: [
+    ["sidebarForeground", "sidebar"],
+    ["sidebarForeground", "sidebarAccent"],
+    ["sidebarPrimaryForeground", "sidebarPrimary"],
+  ],
+  "strip text on a lamp": [
+    ["stripForeground", "lamp"],
+    ["stripForeground", "strip"],
+  ],
+  "strip secondary text on a lamp": [
+    ["stripMutedForeground", "lamp"],
+    ["stripMutedForeground", "strip"],
+  ],
+  "diff lines": [
+    ["foreground", "diffInsert"],
+    ["foreground", "diffDelete"],
+    ["mutedForeground", "diffInsert"],
+    ["mutedForeground", "diffDelete"],
+  ],
 };
 
 /** Non-text roles that must be seen against what they sit on (3:1). */
 const NON_TEXT_PAIRS: Record<string, Pair[]> = {
   "lit lamp on the strip": [["attention", "strip"]],
-  "focus ring": [["ring", "card"], ["ring", "background"], ["sidebarRing", "sidebar"]],
+  "focus ring": [
+    ["ring", "card"],
+    ["ring", "background"],
+    ["sidebarRing", "sidebar"],
+  ],
   "control boundary": [["input", "card"]],
 };
 
@@ -139,14 +179,17 @@ for (const mode of MODES) {
 }
 
 describe("one meaning per colour", () => {
-  it.each(MODES)("%s: yellow, blue and red are three distinct hues, and no state colour doubles as a ground", (mode) => {
-    const p = PALETTES[mode];
-    const fills = [p.attention, p.primary, p.destructive];
-    expect(new Set(fills).size).toBe(3);
-    for (const ground of [p.background, p.card, p.sidebar, p.secondary, p.accent]) {
-      expect(fills).not.toContain(ground);
-    }
-  });
+  it.each(MODES)(
+    "%s: yellow, blue and red are three distinct hues, and no state colour doubles as a ground",
+    (mode) => {
+      const p = PALETTES[mode];
+      const fills = [p.attention, p.primary, p.destructive];
+      expect(new Set(fills).size).toBe(3);
+      for (const ground of [p.background, p.card, p.sidebar, p.secondary, p.accent]) {
+        expect(fills).not.toContain(ground);
+      }
+    },
+  );
 
   it("keeps the pinned brand fill in both schemes and lifts only its text on dark (PRODUCT.md brand rule)", () => {
     expect(PALETTES.light.primary).toBe("#3c64dd");

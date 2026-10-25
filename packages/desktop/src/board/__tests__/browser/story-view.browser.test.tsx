@@ -23,10 +23,14 @@ const LONG_TITLE = (
 
 async function openLongStory() {
   const root =
-    document.getElementById("root") ?? document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
+    document.getElementById("root") ??
+    document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
   render(<App />, { container: root });
   act(() => useUiStore.getState().openStory("p-fly", "s-4"));
-  const heading = await screen.findByRole("heading", { level: 1, name: new RegExp(`^FLY-4 ${LONG_TITLE.slice(0, 40)}`) });
+  const heading = await screen.findByRole("heading", {
+    level: 1,
+    name: new RegExp(`^FLY-4 ${LONG_TITLE.slice(0, 40)}`),
+  });
   return heading;
 }
 

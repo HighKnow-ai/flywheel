@@ -39,19 +39,36 @@ vi.mock("../../adapters/tauri", async () => {
 });
 
 const STORY: StoryDto = {
-  id: "s1", projectId: "p1", epicId: "e1", key: "FLY-4", title: "Predictable clicks", description: null,
-  state: "running", runsAfterStoryId: null, rank: "a",
+  id: "s1",
+  projectId: "p1",
+  epicId: "e1",
+  key: "FLY-4",
+  title: "Predictable clicks",
+  description: null,
+  state: "running",
+  runsAfterStoryId: null,
+  rank: "a",
 };
 
 const LIVE: RunSummaryDto = {
-  id: "ses-live", storyId: "s1", status: "running", startedAt: "2026-10-19T09:00:00Z", endedAt: null,
-  costUsd: null, tokensIn: null, tokensOut: null, externalSessionId: null, acknowledgedAt: null,
-  abandonedReason: null, endingReason: null,
+  id: "ses-live",
+  storyId: "s1",
+  status: "running",
+  startedAt: "2026-10-19T09:00:00Z",
+  endedAt: null,
+  costUsd: null,
+  tokensIn: null,
+  tokensOut: null,
+  externalSessionId: null,
+  acknowledgedAt: null,
+  abandonedReason: null,
+  endingReason: null,
 };
 
 let seq = 0;
 const ev = (fields: Record<string, unknown>) => ({ seq: seq++, at: "2026-10-19T09:01:00Z", raw: "{}", ...fields });
-const call = (id: string, toolName: string, input: unknown) => ev({ type: "tool_call", toolName, input, toolUseId: id });
+const call = (id: string, toolName: string, input: unknown) =>
+  ev({ type: "tool_call", toolName, input, toolUseId: id });
 const result = (id: string, output: unknown) => ev({ type: "tool_result", toolUseId: id, output });
 
 const LOG = [

@@ -247,7 +247,7 @@ pub fn board_visit(
 fn human_mode_name(mode: &str) -> &'static str {
     match mode {
         "api_key" => "API key",
-        _ => "Local Claude Code Credentials",
+        _ => "Local Claude Code credentials",
     }
 }
 

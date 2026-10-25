@@ -48,12 +48,17 @@ describe("noise stays out of the feed", () => {
   });
 
   it("drops tool_progress heartbeats as rows of their own", () => {
-    expect(buildFeedRows([ev({ type: "tool_progress", toolUseId: "t", toolName: "Bash", elapsedSeconds: 30 })])).toEqual([]);
+    expect(
+      buildFeedRows([ev({ type: "tool_progress", toolUseId: "t", toolName: "Bash", elapsedSeconds: 30 })]),
+    ).toEqual([]);
   });
 
   it("drops read-only git calls and their results, keeping git calls that change something", () => {
     const status = bash("git status --short", "toolu_s");
-    const ls = bash("git -c core.hooksPath=/dev/null ls-files --error-unmatch -- .claude/settings.local.json", "toolu_l");
+    const ls = bash(
+      "git -c core.hooksPath=/dev/null ls-files --error-unmatch -- .claude/settings.local.json",
+      "toolu_l",
+    );
     const log = bash("git log --oneline -5 | head -3", "toolu_g");
     const commit = bash('git commit -m "feat: x"', "toolu_c");
     const rows = buildFeedRows([
@@ -131,7 +136,10 @@ describe("tool results pair with their call", () => {
   });
 
   it("carries a failed result's error flag onto its call", () => {
-    const rows = buildFeedRows([bash("npm test", "toolu_t"), ev({ type: "tool_result", output: "1 failed", toolUseId: "toolu_t", isError: true })]);
+    const rows = buildFeedRows([
+      bash("npm test", "toolu_t"),
+      ev({ type: "tool_result", output: "1 failed", toolUseId: "toolu_t", isError: true }),
+    ]);
     expect(rows[0]).toMatchObject({ kind: "tool_call", isError: true });
   });
 
@@ -179,7 +187,11 @@ describe("requests and Proposals are cards", () => {
       result("toolu_p", "Proposal P-12 filed"),
     ]);
     expect(rows).toEqual([
-      expect.objectContaining({ kind: "proposal", toolName: "mcp__flywheel__propose_story", output: "Proposal P-12 filed" }),
+      expect.objectContaining({
+        kind: "proposal",
+        toolName: "mcp__flywheel__propose_story",
+        output: "Proposal P-12 filed",
+      }),
     ]);
   });
 });

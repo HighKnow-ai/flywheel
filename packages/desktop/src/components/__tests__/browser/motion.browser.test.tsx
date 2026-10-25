@@ -47,36 +47,41 @@ describe(`motion foundation (${reduced ? "reduced motion" : "full motion"})`, ()
     expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(reduced);
   });
 
-  it(reduced ? "opens a Collapsible as a cross-fade, at full height from the first frame" : "opens a Collapsible by growing its height on the overlay duration", () => {
-    render(<Disclosure />);
-    fireEvent.click(screen.getByRole("button", { name: "Details" }));
-    const content = document.querySelector('[data-slot="collapsible-content"]') as HTMLElement;
-    expect(content).toHaveAttribute("data-state", "open");
+  it(
+    reduced
+      ? "opens a Collapsible as a cross-fade, at full height from the first frame"
+      : "opens a Collapsible by growing its height on the overlay duration",
+    () => {
+      render(<Disclosure />);
+      fireEvent.click(screen.getByRole("button", { name: "Details" }));
+      const content = document.querySelector('[data-slot="collapsible-content"]') as HTMLElement;
+      expect(content).toHaveAttribute("data-state", "open");
 
-    const opening = animationOf(content);
-    holdAtMidpoint(opening);
-    const midHeight = content.getBoundingClientRect().height;
-    const midOpacity = Number(getComputedStyle(content).opacity);
+      const opening = animationOf(content);
+      holdAtMidpoint(opening);
+      const midHeight = content.getBoundingClientRect().height;
+      const midOpacity = Number(getComputedStyle(content).opacity);
 
-    if (reduced) {
-      expect(opening.animationName).toBe("fade-in");
-      expect(getComputedStyle(content).animationDuration).toBe("0.16s");
-      expect(midHeight).toBe(120);
-      expect(midOpacity).toBeGreaterThan(0);
-      expect(midOpacity).toBeLessThan(1);
-    } else {
-      expect(opening.animationName).toBe("disclosure-open");
-      expect(getComputedStyle(content).animationDuration).toBe("0.26s");
-      expect(midHeight).toBeGreaterThan(0);
-      expect(midHeight).toBeLessThan(120);
-      // Clipped only while it moves.
-      expect(getComputedStyle(content).overflow).toBe("hidden");
-    }
+      if (reduced) {
+        expect(opening.animationName).toBe("fade-in");
+        expect(getComputedStyle(content).animationDuration).toBe("0.16s");
+        expect(midHeight).toBe(120);
+        expect(midOpacity).toBeGreaterThan(0);
+        expect(midOpacity).toBeLessThan(1);
+      } else {
+        expect(opening.animationName).toBe("disclosure-open");
+        expect(getComputedStyle(content).animationDuration).toBe("0.26s");
+        expect(midHeight).toBeGreaterThan(0);
+        expect(midHeight).toBeLessThan(120);
+        // Clipped only while it moves.
+        expect(getComputedStyle(content).overflow).toBe("hidden");
+      }
 
-    opening.finish();
-    expect(content.getBoundingClientRect().height).toBe(120);
-    expect(getComputedStyle(content).overflow).toBe("visible");
-  });
+      opening.finish();
+      expect(content.getBoundingClientRect().height).toBe(120);
+      expect(getComputedStyle(content).overflow).toBe("visible");
+    },
+  );
 
   it(reduced ? "closes a Collapsible as a fade" : "closes a Collapsible faster than it opened", () => {
     render(<Disclosure />);
@@ -101,17 +106,22 @@ describe(`motion foundation (${reduced ? "reduced motion" : "full motion"})`, ()
     expect(style.transitionDuration).toBe("0.16s");
   });
 
-  it(reduced ? "snaps a transform transition but still fades its colour" : "transitions a transform on the state duration", () => {
-    render(<span className="transition-transform rotate-90">›</span>);
-    const style = getComputedStyle(screen.getByText("›"));
-    expect(style.transitionDuration.split(",")[0].trim()).toBe("0.16s");
-    if (reduced) {
-      expect(style.transitionProperty).not.toMatch(/transform|rotate|translate|scale/);
-      expect(style.transitionProperty).toContain("opacity");
-    } else {
-      expect(style.transitionProperty).toMatch(/transform/);
-    }
-  });
+  it(
+    reduced
+      ? "snaps a transform transition but still fades its colour"
+      : "transitions a transform on the state duration",
+    () => {
+      render(<span className="transition-transform rotate-90">›</span>);
+      const style = getComputedStyle(screen.getByText("›"));
+      expect(style.transitionDuration.split(",")[0].trim()).toBe("0.16s");
+      if (reduced) {
+        expect(style.transitionProperty).not.toMatch(/transform|rotate|translate|scale/);
+        expect(style.transitionProperty).toContain("opacity");
+      } else {
+        expect(style.transitionProperty).toMatch(/transform/);
+      }
+    },
+  );
 
   it(reduced ? "takes the slide and zoom out of an overlay's entrance" : "lets an overlay zoom and slide in", () => {
     render(

@@ -24,9 +24,17 @@ vi.mock("../../adapters/tauri", async () => {
     proposalReject: (...args: unknown[]) => proposalReject(...args),
   };
 });
-vi.mock("@/lib/notify", () => ({ notify: { success: (...args: unknown[]) => notifySuccess(...args), error: vi.fn(), dismiss: vi.fn() } }));
+vi.mock("@/lib/notify", () => ({
+  notify: { success: (...args: unknown[]) => notifySuccess(...args), error: vi.fn(), dismiss: vi.fn() },
+}));
 
-function change(id: string, verb: string, targetType: string, summary: string, extra: Partial<RoadmapProposalDto> = {}): RoadmapProposalDto {
+function change(
+  id: string,
+  verb: string,
+  targetType: string,
+  summary: string,
+  extra: Partial<RoadmapProposalDto> = {},
+): RoadmapProposalDto {
   return {
     id,
     verb,
@@ -64,15 +72,23 @@ beforeEach(() => {
 describe("a Roadmap ghost row (issue #211)", () => {
   it("is decided through the one Button Group: Accept, Amend and Reject when the change carries text", () => {
     renderRows([change("p-new", "create", "milestone", 'New Milestone "Mobile"')]);
-    expectDecisionGroup(screen.getByRole("group", { name: 'Proposed: New Milestone "Mobile"' }), 'New Milestone "Mobile"', { separator: ": " });
+    expectDecisionGroup(
+      screen.getByRole("group", { name: 'Proposed: New Milestone "Mobile"' }),
+      'New Milestone "Mobile"',
+      { separator: ": " },
+    );
   });
 
   it("leaves Amend out of the group for a change with no text to edit", () => {
     renderRows([change("p-retire", "retire", "milestone", 'Retire Milestone "Board"')]);
-    expectDecisionGroup(screen.getByRole("group", { name: 'Proposed: Retire Milestone "Board"' }), 'Retire Milestone "Board"', {
-      amend: false,
-      separator: ": ",
-    });
+    expectDecisionGroup(
+      screen.getByRole("group", { name: 'Proposed: Retire Milestone "Board"' }),
+      'Retire Milestone "Board"',
+      {
+        amend: false,
+        separator: ": ",
+      },
+    );
   });
 
   it("shows Accept as loading until it lands, then says what it did", async () => {
@@ -89,7 +105,12 @@ describe("a Roadmap ghost row (issue #211)", () => {
   });
 
   it("a rejected change wears the Rejected pill, its summary struck through and the reason under it", () => {
-    renderRows([change("p-teams", "create", "milestone", 'New Milestone "Teams"', { state: "rejected", rejectionReason: "Not this year" })]);
+    renderRows([
+      change("p-teams", "create", "milestone", 'New Milestone "Teams"', {
+        state: "rejected",
+        rejectionReason: "Not this year",
+      }),
+    ]);
     const line = screen.getByRole("group", { name: 'Rejected: New Milestone "Teams"' });
     expect(within(line).getByText("Rejected").closest("[data-slot=badge]")).toBeTruthy();
     expect(within(line).getByText('New Milestone "Teams"').tagName).toBe("DEL");

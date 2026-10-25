@@ -17,6 +17,7 @@
  * Every read is keyed under the project, so the one `board:changed` subscription keeps it live.
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Label } from "@/components/ui/label";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check, Flag, PenLine, X } from "lucide-react";
 import {
@@ -85,7 +86,9 @@ export function MilestoneShapingView({ projectId, projectName, milestoneId, onBa
           { label: projectName, onSelect: () => setCurrentProjectId(projectId) },
           { label: milestone ? milestone.title : "Milestone" },
         ]}
-        actions={milestone ? <MilestoneShapingControl projectId={projectId} milestone={milestone} place="view" /> : null}
+        actions={
+          milestone ? <MilestoneShapingControl projectId={projectId} milestone={milestone} place="view" /> : null
+        }
       />
       <SurfaceBody>
         {shapingQuery.isError ? (
@@ -221,9 +224,9 @@ function MilestoneCard({
       <dl className="m-0 flex min-w-0 flex-col">
         <div className="flex min-w-0 flex-col gap-1.5 border-b border-border px-5 py-3.5">
           <dt className="flex min-h-6 items-center gap-2 text-meta font-semibold text-muted-foreground">
-            <label id={exitTestId} htmlFor={exitTestFieldId}>
+            <Label id={exitTestId} htmlFor={exitTestFieldId} className="text-meta font-semibold">
               Exit test
-            </label>
+            </Label>
             {editable && !exitTestEdit.editing && (
               <EditButton edit={exitTestEdit} value={milestone.exitTest ?? ""} label="Exit test" className="ml-auto" />
             )}
@@ -348,7 +351,17 @@ function useHandEdit(milestone: MilestoneDto, queryKey: readonly unknown[], labe
 type HandEdit = ReturnType<typeof useHandEdit>;
 
 /** The ghost Edit that opens a field in place, as on the Epic card (`SpecField`). */
-function EditButton({ edit, value, label, className }: { edit: HandEdit; value: string; label: string; className?: string }) {
+function EditButton({
+  edit,
+  value,
+  label,
+  className,
+}: {
+  edit: HandEdit;
+  value: string;
+  label: string;
+  className?: string;
+}) {
   return (
     <Button
       ref={edit.editRef}

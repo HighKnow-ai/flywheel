@@ -19,19 +19,15 @@ import { SessionSurface } from "../../SessionSurface";
 import { buildFeedRows } from "../../feedRows";
 import { resetUiState } from "../../../state/uiStore";
 import "../../../styles/globals.css";
-import {
-  SYNTHETIC_ENDED_ROW,
-  SYNTHETIC_RUN_ID,
-  logWindow,
-  syntheticSessionLog,
-} from "../fixtures/syntheticSessionLog";
+import { SYNTHETIC_ENDED_ROW, SYNTHETIC_RUN_ID, logWindow, syntheticSessionLog } from "../fixtures/syntheticSessionLog";
 
 const served = vi.hoisted(() => ({ entries: [] as Record<string, unknown>[], ended: true }));
 
 vi.mock(import("../../../adapters/tauri"), async (importOriginal) => ({
   ...(await importOriginal()),
   invokeCommand: (() => Promise.resolve(undefined)) as never,
-  sessionLogWindow: (_id: string, offset: number, limit: number) => Promise.resolve(logWindow(served.entries, offset, limit)) as never,
+  sessionLogWindow: (_id: string, offset: number, limit: number) =>
+    Promise.resolve(logWindow(served.entries, offset, limit)) as never,
   sessionGet: () => Promise.resolve(served.ended ? SYNTHETIC_ENDED_ROW : null) as never,
   storyGet: () => Promise.resolve(null),
   subscribeAgentEvent: () => Promise.resolve(() => {}),
@@ -39,7 +35,8 @@ vi.mock(import("../../../adapters/tauri"), async (importOriginal) => ({
   pendingPermissionRequests: () => Promise.resolve([]),
 }));
 
-const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+const nextFrame = () =>
+  new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
 function scroller(): HTMLElement {
   return document.querySelector("[data-testid='session-feed-scroll']") as HTMLElement;
@@ -63,7 +60,9 @@ function problemsInView(): string[] {
     const above = byTop[i - 1];
     const below = byTop[i];
     if (below.rect.top < above.rect.bottom - 1) {
-      problems.push(`${below.key} (top ${below.rect.top.toFixed(1)}) overlaps ${above.key} (bottom ${above.rect.bottom.toFixed(1)})`);
+      problems.push(
+        `${below.key} (top ${below.rect.top.toFixed(1)}) overlaps ${above.key} (bottom ${above.rect.bottom.toFixed(1)})`,
+      );
     }
   }
   return problems;
@@ -74,7 +73,11 @@ async function mount() {
   render(
     <QueryClientProvider client={client}>
       <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-        <SessionSurface sessionId={SYNTHETIC_RUN_ID} onBack={() => {}} initialStatus={served.ended ? "completed" : "running"} />
+        <SessionSurface
+          sessionId={SYNTHETIC_RUN_ID}
+          onBack={() => {}}
+          initialStatus={served.ended ? "completed" : "running"}
+        />
       </div>
     </QueryClientProvider>,
   );

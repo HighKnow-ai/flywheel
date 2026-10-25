@@ -15,6 +15,8 @@
  * is left out when there is nothing in it.
  */
 import { useEffect, useId, useState, type ReactNode } from "react";
+import { Tip } from "@/components/Tip";
+import { TruncateTip } from "@/components/TruncateTip";
 import { BookA, BookMarked, CircleAlert, FilePen, FilePlus, FileX, ScrollText } from "lucide-react";
 import {
   storyAdrDecide,
@@ -218,7 +220,9 @@ function useAdrDecision({
   // Wrong decision picked, or its answers edited, but not recorded yet.
   const unrecorded =
     choice === "wrong_decision" &&
-    (stored.kind !== "wrong_decision" || whatIsWrong !== (stored.whatIsWrong ?? "") || shouldBe !== (stored.shouldBe ?? ""));
+    (stored.kind !== "wrong_decision" ||
+      whatIsWrong !== (stored.whatIsWrong ?? "") ||
+      shouldBe !== (stored.shouldBe ?? ""));
 
   const group = (
     <RadioGroup
@@ -294,7 +298,9 @@ function useAdrDecision({
         <p className="m-0 flex items-start gap-1.5 pl-6 text-small text-muted-foreground">
           <FileX aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-foreground" />
           <span>
-            <span className="font-semibold text-foreground">{stored.kind === "not_an_adr" ? "Not an ADR" : "Wrong decision"}</span>
+            <span className="font-semibold text-foreground">
+              {stored.kind === "not_an_adr" ? "Not an ADR" : "Wrong decision"}
+            </span>
             {stored.kind === "not_an_adr"
               ? " · Merge waits. Request changes asks the agent to delete the file and keep the decision out of docs/adr."
               : " · Merge waits. Request changes sends both answers as one review point on the code and the ADR."}
@@ -354,7 +360,10 @@ function NewAdrCard({
 
       {adr.barLines ? (
         <div className="flex min-w-0 flex-col gap-1.5 pl-6">
-          <ul aria-label="Bar lines" className="m-0 grid min-w-0 list-none grid-cols-1 gap-x-4 gap-y-2 p-0 @lg:grid-cols-2">
+          <ul
+            aria-label="Bar lines"
+            className="m-0 grid min-w-0 list-none grid-cols-1 gap-x-4 gap-y-2 p-0 @lg:grid-cols-2"
+          >
             {BAR_LINES.map(({ key, label }) => {
               const value = adr.barLines?.[key] ?? null;
               return (
@@ -385,9 +394,9 @@ function NewAdrCard({
             {adr.related.map((related) => (
               <li key={related.path} className="flex min-w-0 items-baseline gap-2 text-small">
                 <BookMarked aria-hidden="true" className="size-3.5 shrink-0 translate-y-0.5 text-muted-foreground" />
-                <code title={related.path} className="shrink-0 font-mono text-meta text-muted-foreground">
-                  {adrLabel(related.path)}
-                </code>
+                <Tip content={<span className="font-mono">{related.path}</span>}>
+                  <code className="shrink-0 font-mono text-meta text-muted-foreground">{adrLabel(related.path)}</code>
+                </Tip>
                 <span className="min-w-0 break-words text-foreground">{related.title}</span>
               </li>
             ))}
@@ -404,9 +413,9 @@ function ChangeRow({ change }: { change: DecisionChangeDto }) {
     <li className="flex min-w-0 flex-col border-t border-border py-1.5 first:border-t-0 first:pt-0 last:pb-0">
       <div className="flex min-h-9 min-w-0 items-center gap-2">
         <StatusIcon change={change} />
-        <code className="min-w-0 truncate font-mono text-small text-foreground" title={change.path}>
-          {change.path}
-        </code>
+        <TruncateTip text={change.path} mono>
+          <code className="min-w-0 truncate font-mono text-small text-foreground">{change.path}</code>
+        </TruncateTip>
         <span className="min-w-0 truncate text-small text-muted-foreground">{statusWords(change)}</span>
         <span className="flex-1" />
         <LineCounts change={change} />

@@ -51,10 +51,41 @@ function row(overrides: Partial<FleetRowDto>): FleetRowDto {
   };
 }
 
-const RUNNING = row({ sessionId: "r-run", storyId: "s-run", storyKey: "FLY-4", storyTitle: "Running one", doingTaskTitle: "Write the parser" });
-const WAITING = row({ sessionId: "r-wait", storyId: "s-wait", storyKey: "FLY-6", storyTitle: "Waiting one", runStatus: "blocked", fleetState: "blocked", blockedSince: "2026-10-22T09:10:00Z" });
-const DEAD = row({ sessionId: "r-dead", storyId: "s-dead", storyKey: "FLY-7", storyTitle: "Stopped one", runStatus: "interrupted", fleetState: "interrupted", endedAt: "2026-10-22T08:00:00Z" });
-const DONE = row({ sessionId: "r-done", storyId: "s-done", storyKey: "FLY-3", storyTitle: "In review", storyState: "in_review", runStatus: "completed", fleetState: "awaiting_review", endedAt: "2026-10-22T07:00:00Z" });
+const RUNNING = row({
+  sessionId: "r-run",
+  storyId: "s-run",
+  storyKey: "FLY-4",
+  storyTitle: "Running one",
+  doingTaskTitle: "Write the parser",
+});
+const WAITING = row({
+  sessionId: "r-wait",
+  storyId: "s-wait",
+  storyKey: "FLY-6",
+  storyTitle: "Waiting one",
+  runStatus: "blocked",
+  fleetState: "blocked",
+  blockedSince: "2026-10-22T09:10:00Z",
+});
+const DEAD = row({
+  sessionId: "r-dead",
+  storyId: "s-dead",
+  storyKey: "FLY-7",
+  storyTitle: "Stopped one",
+  runStatus: "interrupted",
+  fleetState: "interrupted",
+  endedAt: "2026-10-22T08:00:00Z",
+});
+const DONE = row({
+  sessionId: "r-done",
+  storyId: "s-done",
+  storyKey: "FLY-3",
+  storyTitle: "In review",
+  storyState: "in_review",
+  runStatus: "completed",
+  fleetState: "awaiting_review",
+  endedAt: "2026-10-22T07:00:00Z",
+});
 
 beforeEach(() => {
   resetUiState();
@@ -112,8 +143,16 @@ describe("a shaping Round waiting on you (issue #124)", () => {
     resetUiState();
     useUiStore.setState({ currentProjectId: "p0", currentEpicId: "e-0" });
     const roadmap: WaitingRoundDto = {
-      ...ROUND, roundId: "rr-1", roundNumber: 1, subject: "roadmap", stageKind: null, epicId: null, epicKey: null, epicTitle: null,
-      answered: 1, questions: 3,
+      ...ROUND,
+      roundId: "rr-1",
+      roundNumber: 1,
+      subject: "roadmap",
+      stageKind: null,
+      epicId: null,
+      epicKey: null,
+      epicTitle: null,
+      answered: 1,
+      questions: 3,
     };
     fleetWaitingRounds.mockResolvedValue([roadmap]);
     render(
@@ -121,7 +160,9 @@ describe("a shaping Round waiting on you (issue #124)", () => {
         <AndonStrip />
       </QueryClientProvider>,
     );
-    const lamp = await screen.findByRole("button", { name: "Open the Flywheel Roadmap, Roadmap Round 1 Waiting on you" });
+    const lamp = await screen.findByRole("button", {
+      name: "Open the Flywheel Roadmap, Roadmap Round 1 Waiting on you",
+    });
     expect(lamp).toHaveTextContent("Round 1 · Waiting on you");
     fireEvent.focus(lamp);
     expect((await screen.findByRole("tooltip")).textContent).toContain("1 of 3 decided");
@@ -191,7 +232,10 @@ describe("AndonStrip", () => {
   it("names each lamp's Story and what it waits on, is doing, or why it stopped", async () => {
     renderStrip();
     const lamps = within(await screen.findByRole("list", { name: "Live sessions" }));
-    expect(await lamps.findByRole("button", { name: "Open Story FLY-6 Waiting one, Waiting on you" })).toHaveAttribute("data-lamp", "waiting");
+    expect(await lamps.findByRole("button", { name: "Open Story FLY-6 Waiting one, Waiting on you" })).toHaveAttribute(
+      "data-lamp",
+      "waiting",
+    );
     const running = lamps.getByRole("button", { name: "Open Story FLY-4 Running one, Running" });
     expect(running).toHaveTextContent("Doing: Write the parser");
     // Its details are a Tooltip, never a title attribute (critique F58).

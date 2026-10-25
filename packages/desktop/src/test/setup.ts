@@ -1,6 +1,17 @@
 import { afterEach } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
+
+/**
+ * How long a `findBy*` or `waitFor` waits for the UI to reach a state: 5 s, not Testing Library's 1 s.
+ *
+ * In jsdom that wait is for mocked IPC promises and React commits, so it measures how busy the machine is, not
+ * how fast Flywheel is: `confirm-exit-test`, `navigation`, `epic-shaping`, `story-move`, `agent-station` and
+ * `story-board` timed out at 1 s on a loaded laptop and passed alone (#202, #209, #210). A state that arrives
+ * still resolves the wait the moment it does, so a passing run is no slower; only a state that never comes takes
+ * longer to fail. Nothing here asserts speed: a budget belongs in a test of its own that names it.
+ */
+configure({ asyncUtilTimeout: 5000 });
 
 /**
  * `vitest.config.ts` sets `globals: false`, so Testing Library's auto-detection of a global

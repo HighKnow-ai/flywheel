@@ -162,7 +162,7 @@ export const BINDINGS: Binding[] = [
     key: "o",
     meta: true,
     shift: true,
-    label: "Register Project…",
+    label: "Register project…",
   },
   { id: "create-story", region: "global", key: "n", meta: true, label: "New Story" },
   { id: "create-epic", region: "global", key: "n", meta: true, shift: true, label: "New Epic" },
@@ -200,7 +200,7 @@ export const BINDINGS: Binding[] = [
   { id: "delete-item", region: "board-list", key: "Backspace", meta: true, label: "Delete" },
   // `w`/`l` — neither collides with the eight letters above (`j k o c s p a m`), verified at test
   // time from this table rather than restated (02-03-PLAN.md Task 3).
-  { id: "start-work", region: "board-list", key: "w", label: "Start Work" },
+  { id: "start-work", region: "board-list", key: "w", label: "Start work" },
   // D-133: `r` is taken, `v` is the free letter that reads as review. Deliberately NOT in
   // `REVIEW_SURFACE_ACTION_IDS` — it is dispatched from the board, so it must fall through to the
   // board clause of `bindingAllowedInLayer`.
@@ -351,10 +351,7 @@ function isActivationTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && target.closest("button, a, [role='button']") !== null;
 }
 
-function keyMatches(
-  event: Pick<KeyboardEvent, "key" | "metaKey" | "shiftKey">,
-  binding: Binding,
-): boolean {
+function keyMatches(event: Pick<KeyboardEvent, "key" | "metaKey" | "shiftKey">, binding: Binding): boolean {
   if (!binding.key || binding.key !== event.key) return false;
   if (Boolean(binding.meta) !== event.metaKey) return false;
   if (Boolean(binding.shift) !== event.shiftKey) return false;
@@ -802,10 +799,7 @@ export function nextSelectionId<T extends { id: string }>(
 }
 
 /** `Home`/`End` — jumps to the first/last item, or `null` for an empty list. */
-export function boundarySelectionId<T extends { id: string }>(
-  items: T[],
-  edge: "first" | "last",
-): string | null {
+export function boundarySelectionId<T extends { id: string }>(items: T[], edge: "first" | "last"): string | null {
   if (items.length === 0) return null;
   return edge === "first" ? items[0].id : items[items.length - 1].id;
 }

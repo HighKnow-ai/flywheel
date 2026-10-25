@@ -27,7 +27,11 @@ import { hexToRgb, linearize } from "./contrast";
 export type Deficiency = "protanopia" | "deuteranopia" | "tritanopia";
 export const DEFICIENCIES: readonly Deficiency[] = ["protanopia", "deuteranopia", "tritanopia"];
 
-type Matrix = readonly [readonly [number, number, number], readonly [number, number, number], readonly [number, number, number]];
+type Matrix = readonly [
+  readonly [number, number, number],
+  readonly [number, number, number],
+  readonly [number, number, number],
+];
 
 /** Machado 2009, severity 1.0, applied to linear RGB. */
 const MATRICES: Record<Deficiency, Matrix> = {
@@ -54,7 +58,8 @@ const encode = (linear: number): number => {
   return 255 * (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
 };
 
-const toHex = (channels: number[]): string => "#" + channels.map((c) => Math.round(c).toString(16).padStart(2, "0")).join("");
+const toHex = (channels: number[]): string =>
+  "#" + channels.map((c) => Math.round(c).toString(16).padStart(2, "0")).join("");
 
 /** `hex` as a person with `deficiency` sees it, as a lowercase `#rrggbb`. */
 export function simulate(hex: string, deficiency: Deficiency): string {
@@ -74,7 +79,7 @@ function lab(hex: string): [number, number, number] {
     0.2126729 * r + 0.7151522 * g + 0.072175 * b,
     (0.0193339 * r + 0.119192 * g + 0.9503041 * b) / 1.08883,
   ];
-  const f = (t: number): number => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+  const f = (t: number): number => (t > 216 / 24389 ? Math.cbrt(t) : ((24389 / 27) * t + 16) / 116);
   const [fx, fy, fz] = xyz.map(f);
   return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 }

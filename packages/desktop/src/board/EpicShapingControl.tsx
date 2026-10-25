@@ -23,6 +23,7 @@
  * subscription swaps the controls as the session starts, posts or picks up a Round and ends.
  */
 import { useState } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, MessageCircleQuestionMark, MessagesSquare, RotateCcw, Terminal } from "lucide-react";
 import { epicShape, epicShapingRounds, epicShapingSession, shapingContinue, type EpicDto } from "../adapters/tauri";
@@ -70,9 +71,11 @@ function useStartShaping(projectId: string, epicId: string, start: (epicId: stri
 function StartError({ error }: { error: string | null }) {
   if (!error) return null;
   return (
-    <span role="alert" title={error} className="min-w-0 truncate text-small text-destructive-text">
-      {error}
-    </span>
+    <TruncateTip text={error}>
+      <span role="alert" className="min-w-0 truncate text-small text-destructive-text">
+        {error}
+      </span>
+    </TruncateTip>
   );
 }
 
@@ -89,7 +92,12 @@ export function ContinueShapingButton({
   epic: Pick<EpicDto, "id" | "key" | "title">;
   className?: string;
 }) {
-  const { run, starting, error } = useStartShaping(projectId, epic.id, shapingContinue, `Continued shaping ${epic.key}`);
+  const { run, starting, error } = useStartShaping(
+    projectId,
+    epic.id,
+    shapingContinue,
+    `Continued shaping ${epic.key}`,
+  );
   return (
     <span className={cn("flex min-w-0 items-center gap-2", className)}>
       <StartError error={error} />

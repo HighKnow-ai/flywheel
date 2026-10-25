@@ -10,7 +10,14 @@ describe("StoryKey", () => {
     render(<StoryKey value="FLY-12" />);
     const key = screen.getByText("FLY-12");
     expect(key).toHaveAttribute("data-slot", "story-key");
-    expect(key).toHaveClass("font-mono", "whitespace-nowrap", "shrink-0", "tabular-nums", "text-meta", "text-muted-foreground");
+    expect(key).toHaveClass(
+      "font-mono",
+      "whitespace-nowrap",
+      "shrink-0",
+      "tabular-nums",
+      "text-meta",
+      "text-muted-foreground",
+    );
   });
 
   it("takes the size of the title beside it, and the surrounding ink on the strip", () => {

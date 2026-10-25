@@ -14,12 +14,25 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "../../App";
 import { queryClient as appQueryClient } from "../../adapters/queryClient";
-import type { AcceptanceCriterionDto, BlockedQueueEntryDto, RunSummaryDto, StoryDto, TaskDto } from "../../adapters/tauri";
+import type {
+  AcceptanceCriterionDto,
+  BlockedQueueEntryDto,
+  RunSummaryDto,
+  StoryDto,
+  TaskDto,
+} from "../../adapters/tauri";
 import { BlockedQueue } from "../../fleet/BlockedQueue";
 import { StoryView } from "../../board/StoryView";
 import { resetUiState, useUiStore } from "../uiStore";
 
-const PROJECT = { id: "p1", keyPrefix: "FLY", name: "Flywheel", repoPath: "/repo", defaultBranch: "main", status: "active" };
+const PROJECT = {
+  id: "p1",
+  keyPrefix: "FLY",
+  name: "Flywheel",
+  repoPath: "/repo",
+  defaultBranch: "main",
+  status: "active",
+};
 
 function story(id: string, key: string, title: string, state: string): StoryDto {
   return { id, projectId: "p1", epicId: "e1", key, title, description: null, state, runsAfterStoryId: null, rank: "a" };
@@ -45,7 +58,15 @@ function liveRun(id: string, storyId: string): RunSummaryDto {
   };
 }
 
-const DOING: TaskDto = { id: "t1", storyId: "s-run", title: "Write the parser", state: "doing", droppedReason: null, rank: "a", note: null };
+const DOING: TaskDto = {
+  id: "t1",
+  storyId: "s-run",
+  title: "Write the parser",
+  state: "doing",
+  droppedReason: null,
+  rank: "a",
+  note: null,
+};
 
 let boardChanged: ((payload: { projectId: string | null }) => void) | null = null;
 let agentEvent: ((event: Record<string, unknown>) => void) | null = null;
@@ -62,7 +83,8 @@ vi.mock("../../adapters/tauri", async () => {
     ...actual,
     invokeCommand: (command: string) => {
       if (command === "project_list") return Promise.resolve([PROJECT]);
-      if (command === "launch_environment") return Promise.resolve({ path: "/usr/bin", pathWarning: null, claudeError: null });
+      if (command === "launch_environment")
+        return Promise.resolve({ path: "/usr/bin", pathWarning: null, claudeError: null });
       return Promise.resolve([]);
     },
     subscribeBoardChanged: (handler: (payload: { projectId: string | null }) => void) => {
@@ -81,7 +103,9 @@ vi.mock("../../adapters/tauri", async () => {
     boardRecoverySummary: () => Promise.resolve({ recoveryCount: 0 }),
     pendingOrphans: () => Promise.resolve([]),
     milestoneList: () =>
-      Promise.resolve([{ id: "m1", projectId: "p1", title: "M1", exitTest: null, state: "ready", current: true, rank: "a" }]),
+      Promise.resolve([
+        { id: "m1", projectId: "p1", title: "M1", exitTest: null, state: "ready", current: true, rank: "a" },
+      ]),
     epicList: () => Promise.resolve([]),
     milestoneProgress: () => Promise.resolve(null),
     // The roster's one read (#159): the Running Story is doing a Task in its live session.
@@ -111,7 +135,8 @@ vi.mock("../../adapters/tauri", async () => {
     criterionList: (storyId: string) => criterionList(storyId),
     checkSet: (criterionId: string, command: string) => checkSet(criterionId, command),
     checkRemove: () => Promise.resolve(),
-    sessionLogWindow: (_id: string, offset: number, limit: number) => Promise.resolve({ entries: [], offset, limit, total: 0 }),
+    sessionLogWindow: (_id: string, offset: number, limit: number) =>
+      Promise.resolve({ entries: [], offset, limit, total: 0 }),
     pendingPermissionRequests: () => Promise.resolve([]),
     answerPermissionRequest: () => Promise.resolve(),
     answerQuestion: () => Promise.resolve(),
@@ -124,9 +149,13 @@ beforeEach(() => {
   boardChanged = null;
   agentEvent = null;
   storyListForProject.mockReset().mockResolvedValue([READY, RUNNING]);
-  storyStart.mockReset().mockResolvedValue({ id: "run-new", storyId: "s-ready", status: "running", permissionMode: "acceptEdits" });
+  storyStart
+    .mockReset()
+    .mockResolvedValue({ id: "run-new", storyId: "s-ready", status: "running", permissionMode: "acceptEdits" });
   storyGet.mockReset().mockImplementation((id) => Promise.resolve([READY, RUNNING].find((s) => s.id === id) ?? null));
-  startSession.mockReset().mockResolvedValue({ id: "run-relaunched", storyId: "s-run", status: "running", permissionMode: "acceptEdits" });
+  startSession
+    .mockReset()
+    .mockResolvedValue({ id: "run-relaunched", storyId: "s-run", status: "running", permissionMode: "acceptEdits" });
   checkSet.mockReset().mockResolvedValue(undefined);
   criterionList.mockReset().mockResolvedValue([]);
 });
@@ -193,7 +222,7 @@ describe("selecting or opening a Story never opens its session", () => {
   it("the launch sheet's Start lands on the Story, not on the new session", async () => {
     useUiStore.setState({ launchSheetStoryId: "s-run" });
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Start Work" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start work" }));
     await waitFor(() => expect(startSession).toHaveBeenCalledWith("s-run"));
     await waitFor(() => expect(useUiStore.getState().currentStoryId).toBe("s-run"));
     expect(useUiStore.getState().activeSessionId).toBeNull();
@@ -284,7 +313,15 @@ describe("Back and ⌘[", () => {
 
 describe("adding a Check to a criterion is a visible control on the Story", () => {
   function criterion(check: AcceptanceCriterionDto["check"]): AcceptanceCriterionDto {
-    return { id: "c1", storyId: "s-run", statement: "Parses the header", accepted: false, acceptedAt: null, rank: "a", check };
+    return {
+      id: "c1",
+      storyId: "s-run",
+      statement: "Parses the header",
+      accepted: false,
+      acceptedAt: null,
+      rank: "a",
+      check,
+    };
   }
 
   function renderStory() {
@@ -300,14 +337,24 @@ describe("adding a Check to a criterion is a visible control on the Story", () =
     renderStory();
     expect(await screen.findByText("No Check: judged at review")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add a Check to criterion 1" }));
-    fireEvent.change(screen.getByLabelText("Check command for criterion 1"), { target: { value: "npm test -- parser" } });
+    fireEvent.change(screen.getByLabelText("Check command for criterion 1"), {
+      target: { value: "npm test -- parser" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save Check" }));
     await waitFor(() => expect(checkSet).toHaveBeenCalledWith("c1", "npm test -- parser"));
   });
 
   it("shows an existing Check with its result, and offers to change or remove it", async () => {
     criterionList.mockResolvedValue([
-      criterion({ id: "k1", command: "cargo test", timeoutSecs: 600, result: "failed", commitSha: "abc", stale: false, outputTail: null }),
+      criterion({
+        id: "k1",
+        command: "cargo test",
+        timeoutSecs: 600,
+        result: "failed",
+        commitSha: "abc",
+        stale: false,
+        outputTail: null,
+      }),
     ]);
     renderStory();
     expect(await screen.findByText("cargo test")).toBeInTheDocument();

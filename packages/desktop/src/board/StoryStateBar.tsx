@@ -61,14 +61,21 @@ export function StoryStateBar({ counts, className }: { counts: StoryStateCountsD
       aria-label={description}
       title={description}
       data-slot="story-state-bar"
-      className={cn("flex h-3 w-full gap-0.5 overflow-hidden rounded-full", counts.storiesTotal === 0 && "bg-secondary shadow-[inset_0_0_0_1px_var(--border)]", className)}
+      className={cn(
+        "flex h-3 w-full gap-0.5 overflow-hidden rounded-full",
+        counts.storiesTotal === 0 && "bg-secondary shadow-[inset_0_0_0_1px_var(--border)]",
+        className,
+      )}
     >
       {BAR_SEGMENTS.map((segment) =>
         counts[segment.key] > 0 ? (
           <span
             key={segment.key}
             data-segment={segment.key}
-            className={cn("block h-full transition-[flex-grow] duration-(--duration-state) ease-(--ease)", segment.swatch)}
+            className={cn(
+              "block h-full transition-[flex-grow] duration-(--duration-state) ease-(--ease)",
+              segment.swatch,
+            )}
             style={{ flexGrow: counts[segment.key], flexBasis: 0, ...segment.style }}
           />
         ) : null,

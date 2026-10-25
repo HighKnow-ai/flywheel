@@ -25,6 +25,9 @@
  * Its record (the key and title, with the trailing chevron) opens the Story, the Epic or the Milestone.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { formatAbsoluteTime } from "@/lib/format";
+import { Tip } from "@/components/Tip";
+import { TruncateTip } from "@/components/TruncateTip";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   BellRing,
@@ -65,11 +68,7 @@ import { notify } from "@/lib/notify";
 import { LeavingItem, useLeavingItems } from "./leaving";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { formatAge } from "../legend/runStatus";
-import {
-  PermissionRequestCard,
-  RequestHeaderless,
-  type PermissionDecision,
-} from "../session/PermissionRequestCard";
+import { PermissionRequestCard, RequestHeaderless, type PermissionDecision } from "../session/PermissionRequestCard";
 import { questionsFromPayload } from "../session/feedRows";
 import { useUiStore } from "../state/uiStore";
 import { blockedQueueQueryKey, needsYouQueryKey, useNeedsYou } from "../fleet/useFleet";
@@ -268,8 +267,8 @@ export function NeedsYouList({ projectId, className }: { projectId: string; clas
           </EmptyMedia>
           <EmptyTitle className="text-row font-semibold">Nothing needs you</EmptyTitle>
           <EmptyDescription className="text-small">
-            A request, a stopped agent, a Story to review, a change to what a Story is judged on, a Proposal or a Round to
-            answer shows here, most urgent first.
+            A request, a stopped agent, a Story to review, a change to what a Story is judged on, a Proposal or a Round
+            to answer shows here, most urgent first.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -309,7 +308,12 @@ const NO_ITEMS: NeedsYouItemDto[] = [];
 /** The column's first read: three cards in the shape of the real ones (lead line, record, detail, action). */
 function NeedsYouSkeleton({ className }: { className?: string }) {
   return (
-    <div data-slot="needs-you-skeleton" aria-busy="true" aria-label="Loading Needs you" className={cn("flex flex-col gap-2.5", className)}>
+    <div
+      data-slot="needs-you-skeleton"
+      aria-busy="true"
+      aria-label="Loading Needs you"
+      className={cn("flex flex-col gap-2.5", className)}
+    >
       {[0, 1, 2].map((i) => (
         <Card key={i} className="gap-2 px-4 pt-3 pb-3.5">
           <div className="flex items-center gap-2">
@@ -442,11 +446,14 @@ function RecordButton({ projectId, item }: { projectId: string; item: NeedsYouIt
         type="button"
         data-record=""
         aria-label={`Open ${noun} ${[record.key, record.title].filter(Boolean).join(" ")}`}
-        title={`Open ${noun} ${[record.key, record.title].filter(Boolean).join(" ")}`}
         onClick={open}
       >
-        {record.kind === "epic" && <Layers aria-hidden="true" size={15} className="shrink-0 self-center text-muted-foreground" />}
-        {record.kind === "milestone" && <Flag aria-hidden="true" size={15} className="shrink-0 self-center text-muted-foreground" />}
+        {record.kind === "epic" && (
+          <Layers aria-hidden="true" size={15} className="shrink-0 self-center text-muted-foreground" />
+        )}
+        {record.kind === "milestone" && (
+          <Flag aria-hidden="true" size={15} className="shrink-0 self-center text-muted-foreground" />
+        )}
         {record.key && <StoryKey value={record.key} />}
         <span className="min-w-0 flex-1 line-clamp-2 text-row font-semibold">{record.title}</span>
         <ChevronRight
@@ -465,7 +472,9 @@ function LeadPill({ item }: { item: NeedsYouItemDto }) {
   const kindWord = (
     <span className="inline-flex min-w-0 items-center gap-1.5 text-meta font-semibold text-muted-foreground [&_svg]:size-[15px] [&_svg]:shrink-0">
       {kind.icon}
-      <span className="truncate">{item.kind === "stopped" && item.missingWorktree ? "Missing worktree" : kind.word}</span>
+      <span className="truncate">
+        {item.kind === "stopped" && item.missingWorktree ? "Missing worktree" : kind.word}
+      </span>
     </span>
   );
   if (isWaitingOnYou(item)) {
@@ -540,41 +549,52 @@ function NeedsYouCard({
       className="min-w-0"
     >
       <Card className={cn("min-w-0 gap-0 py-0", waiting && "border-2 border-attention")}>
-      <div className={cn("flex min-w-0 flex-col gap-1.5 px-4 pt-3", waiting && "bg-attention-muted", request ? "pb-3" : "pb-3.5")}>
-        <div className="flex min-w-0 items-center gap-2">
-          <LeadPill item={item} />
-          <time
-            dateTime={item.since}
-            title={item.since.replace("T", " ").slice(0, 16)}
-            // The meta role on the attention tint too: #223's dark subtle-foreground clears 4.5:1 on it (critique F50).
-            className="ml-auto shrink-0 text-meta text-subtle-foreground tabular-nums"
-          >
-            <span className="sr-only">Waiting </span>
-            {age}
-          </time>
+        <div
+          className={cn(
+            "flex min-w-0 flex-col gap-1.5 px-4 pt-3",
+            waiting && "bg-attention-muted",
+            request ? "pb-3" : "pb-3.5",
+          )}
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <LeadPill item={item} />
+            <Tip content={formatAbsoluteTime(item.since)}>
+              <time
+                dateTime={item.since}
+                // The meta role on the attention tint too: #223's dark subtle-foreground clears 4.5:1 on it (critique F50).
+                className="ml-auto shrink-0 text-meta text-subtle-foreground tabular-nums"
+              >
+                <span className="sr-only">Waiting </span>
+                {age}
+              </time>
+            </Tip>
+          </div>
+          <RecordButton projectId={projectId} item={item} />
+          {detail && (
+            <TruncateTip text={detail}>
+              <p
+                data-field="detail"
+                className={cn(
+                  "m-0 truncate text-small text-muted-foreground",
+                  item.kind === "confirm_exit_test" && "line-clamp-2 whitespace-normal",
+                )}
+              >
+                {detail}
+              </p>
+            </TruncateTip>
+          )}
+          {item.kind === "judged_on" && item.judgedOn && (
+            <div className="mt-1 min-w-0">
+              <JudgedOnChange item={item} />
+            </div>
+          )}
+          {!request && item.kind !== "judged_on" && (
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
+              <ItemAction projectId={projectId} item={item} filled={filled} />
+            </div>
+          )}
         </div>
-        <RecordButton projectId={projectId} item={item} />
-        {detail && (
-          <p
-            data-field="detail"
-            title={detail}
-            className={cn("m-0 truncate text-small text-muted-foreground", item.kind === "confirm_exit_test" && "line-clamp-2 whitespace-normal")}
-          >
-            {detail}
-          </p>
-        )}
-        {item.kind === "judged_on" && item.judgedOn && (
-          <div className="mt-1 min-w-0">
-            <JudgedOnChange item={item} />
-          </div>
-        )}
-        {!request && item.kind !== "judged_on" && (
-          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
-            <ItemAction projectId={projectId} item={item} filled={filled} />
-          </div>
-        )}
-      </div>
-      {request && <RequestBand item={item} />}
+        {request && <RequestBand item={item} />}
       </Card>
     </LeavingItem>
   );
@@ -595,7 +615,8 @@ function RequestBand({ item }: { item: NeedsYouItemDto }) {
   function refresh() {
     void queryClient.invalidateQueries({ queryKey: needsYouQueryKey() });
     void queryClient.invalidateQueries({ queryKey: blockedQueueQueryKey() });
-    if (item.sessionId) void queryClient.invalidateQueries({ queryKey: pendingPermissionRequestsQueryKey(item.sessionId) });
+    if (item.sessionId)
+      void queryClient.invalidateQueries({ queryKey: pendingPermissionRequestsQueryKey(item.sessionId) });
   }
   return (
     <div className="flex min-w-0 flex-col gap-3 border-t border-attention/60 px-4 pt-3 pb-4">
@@ -680,8 +701,22 @@ function ItemAction({ projectId, item, filled }: { projectId: string; item: Need
               exitTest: item.exitTest,
               milestoneTitle: item.milestoneTitle,
             }
-          : { kind: "milestone", id: record.id, title: record.title, exitTest: item.exitTest, state: record.state ?? "ready" };
-      return <ConfirmExitTest projectId={projectId} subject={subject} place="card" outline={!filled} className="justify-start" />;
+          : {
+              kind: "milestone",
+              id: record.id,
+              title: record.title,
+              exitTest: item.exitTest,
+              state: record.state ?? "ready",
+            };
+      return (
+        <ConfirmExitTest
+          projectId={projectId}
+          subject={subject}
+          place="card"
+          outline={!filled}
+          className="justify-start"
+        />
+      );
     }
     case "proposals":
       return <TriageButton projectId={projectId} count={item.proposals?.count ?? 0} />;
@@ -705,7 +740,11 @@ function RoundAction({ projectId, item }: { projectId: string; item: NeedsYouIte
       <Button
         variant="attention"
         size="sm"
-        aria-label={roadmap ? `Decide ${roundName(item)}` : `Answer ${roundName(item)} of ${[record.key, record.title].filter(Boolean).join(" ")}`}
+        aria-label={
+          roadmap
+            ? `Decide ${roundName(item)}`
+            : `Answer ${roundName(item)} of ${[record.key, record.title].filter(Boolean).join(" ")}`
+        }
         onClick={() => {
           if (roadmap) {
             // The roadmap Round is decided on the Roadmap strip, on this board.
@@ -723,8 +762,11 @@ function RoundAction({ projectId, item }: { projectId: string; item: NeedsYouIte
   }
   if (round.subject === "roadmap") return <ContinueRoadmapRound projectId={projectId} />;
   if (!record.id) return null;
-  if (record.kind === "milestone") return <ContinueMilestoneShapingButton projectId={projectId} milestone={{ id: record.id, title: record.title }} />;
-  return <ContinueShapingButton projectId={projectId} epic={{ id: record.id, key: record.key ?? "", title: record.title }} />;
+  if (record.kind === "milestone")
+    return <ContinueMilestoneShapingButton projectId={projectId} milestone={{ id: record.id, title: record.title }} />;
+  return (
+    <ContinueShapingButton projectId={projectId} epic={{ id: record.id, key: record.key ?? "", title: record.title }} />
+  );
 }
 
 /** Continue a roadmap Round no session works: `roadmap_revisit` picks the open Round up. */
@@ -775,7 +817,11 @@ function RecreateWorktree({ storyId, storyKey, filled }: { storyId: string; stor
           setBusy(true);
           setError(null);
           worktreeRecreate(storyId)
-            .then(() => notify.success(`Recreated ${storyKey}'s worktree`, { description: "Resume starts its next session there" }))
+            .then(() =>
+              notify.success(`Recreated ${storyKey}'s worktree`, {
+                description: "Resume starts its next session there",
+              }),
+            )
             .catch((err: unknown) => setError(`Could not recreate the worktree: ${errorText(err)}`))
             .finally(() => setBusy(false));
         }}

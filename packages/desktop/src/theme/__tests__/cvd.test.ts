@@ -112,10 +112,15 @@ describe("distinguishability", () => {
   ] as const)("a pair exactly at the %s floor passes and one 8-bit step below it fails", (_name, floor) => {
     const at = firstGreyAtFloor(floor);
     for (const d of DEFICIENCIES) {
-      expect(deltaE(grey(128), grey(at)), "the constructed pair is at or above the floor").toBeGreaterThanOrEqual(floor);
+      expect(deltaE(grey(128), grey(at)), "the constructed pair is at or above the floor").toBeGreaterThanOrEqual(
+        floor,
+      );
       expect(distinguishable(grey(128), grey(at), d, floor), `${d}: a pair at the ${floor} floor must pass`).toBe(true);
       expect(deltaE(grey(128), grey(at - 1)), "the next step down is below the floor").toBeLessThan(floor);
-      expect(distinguishable(grey(128), grey(at - 1), d, floor), `${d}: a pair one step below the ${floor} floor must fail`).toBe(false);
+      expect(
+        distinguishable(grey(128), grey(at - 1), d, floor),
+        `${d}: a pair one step below the ${floor} floor must fail`,
+      ).toBe(false);
     }
   });
 
@@ -153,7 +158,9 @@ describe("every pair of tones is distinguishable under every deficiency", () => 
             const ca = colourOf(p, a, part);
             const cb = colourOf(p, b, part);
             if (!distinguishable(ca, cb, deficiency, floor)) {
-              collisions.push(`${mode}: ${a} ${ca} vs ${b} ${cb} collide under ${deficiency}: separation ${separation(ca, cb, deficiency)} < ${floor}`);
+              collisions.push(
+                `${mode}: ${a} ${ca} vs ${b} ${cb} collide under ${deficiency}: separation ${separation(ca, cb, deficiency)} < ${floor}`,
+              );
             }
           }
           expect(collisions, collisions.join("\n")).toEqual([]);

@@ -1,4 +1,5 @@
 import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Flag } from "lucide-react";
 import { milestoneProgress, type MilestoneProgressDto } from "../adapters/tauri";
@@ -88,7 +89,9 @@ function HeaderCard({ children, labelledBy }: { children: ReactNode; labelledBy?
       aria-labelledby={labelledBy}
       aria-label={labelledBy ? undefined : "Current Milestone"}
       data-slot="milestone-header"
-      className="flex flex-col gap-4 rounded-lg border border-border bg-card px-5 py-4 text-card-foreground shadow-card"
+      // A size container: on a narrow card (the 900px window) the count boxes tighten their padding and their
+      // labels' tracking, so a two-word label such as "In review" stays on one line.
+      className="@container/counts flex flex-col gap-4 rounded-lg border border-border bg-card px-5 py-4 text-card-foreground shadow-card"
     >
       {children}
     </section>
@@ -108,14 +111,20 @@ function MilestoneProgress({ projectId, progress }: { projectId: string; progres
           <div className="flex flex-wrap items-center gap-2.5">
             {/* The flag stays beside the name however long it is; the pill and the controls wrap after it. */}
             <div className="flex min-w-0 items-start gap-2.5">
-              <Flag size={20} strokeWidth={2} aria-hidden="true" className="mt-[0.3em] shrink-0 text-muted-foreground" />
-              <h2
-                id={headingId}
-                title={progress.title}
-                className="line-clamp-2 min-w-0 text-milestone font-bold tracking-[-0.015em] break-words"
-              >
-                {progress.title}
-              </h2>
+              <Flag
+                size={20}
+                strokeWidth={2}
+                aria-hidden="true"
+                className="mt-[0.3em] shrink-0 text-muted-foreground"
+              />
+              <TruncateTip text={progress.title}>
+                <h2
+                  id={headingId}
+                  className="line-clamp-2 min-w-0 text-milestone font-bold tracking-[-0.015em] break-words"
+                >
+                  {progress.title}
+                </h2>
+              </TruncateTip>
             </div>
             <StateBadge
               state={attention ?? progress.state}
@@ -155,7 +164,11 @@ function MilestoneProgress({ projectId, progress }: { projectId: string; progres
           </p>
         </div>
 
-        <div className="grid min-w-0 grid-cols-[auto_repeat(4,minmax(0,auto))] gap-1.5" role="list" aria-label="Stories by state">
+        <div
+          className="grid min-w-0 grid-cols-[auto_repeat(4,minmax(0,auto))] gap-1.5"
+          role="list"
+          aria-label="Stories by state"
+        >
           <LeadBox merged={counts.merged} total={counts.storiesTotal} />
           {BOX_ORDER.map((key) => BAR_SEGMENTS.find((s) => s.key === key) as BarSegment).map((segment) => (
             <CountBox
@@ -277,18 +290,22 @@ function CountBox({
       aria-label={of === undefined ? `${count} ${label}` : `${count} of ${of} ${label}`}
       data-lit={lit || undefined}
       className={cn(
-        "relative flex flex-col gap-0.5 overflow-hidden rounded-md px-3 pt-2.5 pb-1.5",
+        "relative flex flex-col gap-0.5 overflow-hidden rounded-md px-3 pt-2.5 pb-1.5 @max-[48rem]/counts:px-2",
         lit ? "bg-attention text-attention-foreground" : "border border-border bg-secondary text-foreground",
       )}
     >
-      {swatch && !lit && <span aria-hidden="true" className={cn("absolute inset-x-0 top-0 h-1", swatch)} style={swatchStyle} />}
+      {swatch && !lit && (
+        <span aria-hidden="true" className={cn("absolute inset-x-0 top-0 h-1", swatch)} style={swatchStyle} />
+      )}
       <span className={cn("text-count font-bold tracking-[-0.02em] tabular-nums", quiet && "text-muted-foreground")}>
         {count}
-        {of !== undefined && <span className="text-[18px] font-semibold tracking-normal text-muted-foreground">/{of}</span>}
+        {of !== undefined && (
+          <span className="text-[18px] font-semibold tracking-normal text-muted-foreground">/{of}</span>
+        )}
       </span>
       <span
         className={cn(
-          "type-condensed flex items-start gap-1.5 text-meta leading-tight [&>svg]:mt-px [&>svg]:shrink-0",
+          "type-condensed flex items-start gap-1.5 text-meta leading-tight @max-[48rem]/counts:gap-1 @max-[48rem]/counts:tracking-[0.02em] [&>svg]:mt-px [&>svg]:shrink-0",
           lit ? "text-attention-foreground" : "text-muted-foreground",
         )}
       >

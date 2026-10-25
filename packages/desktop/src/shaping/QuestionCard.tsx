@@ -16,6 +16,9 @@
  * it, answered Yes or No, and final once answered.
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { Tip } from "@/components/Tip";
+import { TruncateTip } from "@/components/TruncateTip";
+import { Label } from "@/components/ui/label";
 import { Ban, Check, CircleCheck, FileText, PenLine, ScrollText, Send, X } from "lucide-react";
 import type { AdrDraftDto, RoundQuestionDto } from "../adapters/tauri";
 import { Button } from "@/components/ui/button";
@@ -48,7 +51,8 @@ function NumberChip({ number, answered }: { number: number; answered: boolean })
 }
 
 export function QuestionCard(props: QuestionCardProps) {
-  if (props.question.kind === "adr" && props.question.adr) return <AdrQuestionCard {...props} adr={props.question.adr} />;
+  if (props.question.kind === "adr" && props.question.adr)
+    return <AdrQuestionCard {...props} adr={props.question.adr} />;
   return <PlainQuestionCard {...props} />;
 }
 
@@ -100,15 +104,20 @@ function PlainQuestionCard({ question: q, open, onAccept, onAnswer }: QuestionCa
       >
         <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
         <NumberChip number={q.number} answered />
-        <span className="max-w-[40%] shrink-0 truncate text-body font-semibold" title={q.title}>
-          {q.title}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-body text-muted-foreground" title={q.answer ?? undefined}>
-          {q.answer}
-        </span>
+        <TruncateTip text={q.title}>
+          <span className="max-w-[40%] shrink-0 truncate text-body font-semibold">{q.title}</span>
+        </TruncateTip>
+        <TruncateTip text={q.answer ?? undefined}>
+          <span className="min-w-0 flex-1 truncate text-body text-muted-foreground">{q.answer}</span>
+        </TruncateTip>
         <span className="shrink-0 text-meta text-subtle-foreground">{own ? "Your answer" : "Recommended"}</span>
         {open && (
-          <Button variant="ghost" size="xs" onClick={startEditing} aria-label={`Change the answer to question ${q.number}`}>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={startEditing}
+            aria-label={`Change the answer to question ${q.number}`}
+          >
             <PenLine aria-hidden="true" />
             Change
           </Button>
@@ -149,9 +158,9 @@ function PlainQuestionCard({ question: q, open, onAccept, onAnswer }: QuestionCa
               <span className="text-muted-foreground"> · Because {lowerFirst(q.because)}</span>
             </span>
           </p>
-          <label htmlFor={fieldId} className="sr-only">
+          <Label htmlFor={fieldId} className="sr-only">
             Your answer to question {q.number}
-          </label>
+          </Label>
           <Textarea
             id={fieldId}
             value={draft}
@@ -229,7 +238,10 @@ function PlainQuestionCard({ question: q, open, onAccept, onAnswer }: QuestionCa
 }
 
 /** The four bar lines (docs/mvp-spec.md §6), in the order the spec gives them. */
-const BAR_LINES: { key: keyof Pick<AdrDraftDto, "hardToReverse" | "surprising" | "losingAlternative" | "relatesTo">; label: string }[] = [
+const BAR_LINES: {
+  key: keyof Pick<AdrDraftDto, "hardToReverse" | "surprising" | "losingAlternative" | "relatesTo">;
+  label: string;
+}[] = [
   { key: "hardToReverse", label: "Hard to reverse" },
   { key: "surprising", label: "Surprising" },
   { key: "losingAlternative", label: "Losing alternative" },
@@ -289,19 +301,23 @@ function AdrQuestionCard({ question: q, open, onAnswer, adr }: QuestionCardProps
       >
         <CircleCheck aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
         <NumberChip number={q.number} answered />
-        <span className="max-w-[40%] shrink-0 truncate text-body font-semibold" title={q.title}>
-          {q.title}
-        </span>
+        <TruncateTip text={q.title}>
+          <span className="max-w-[40%] shrink-0 truncate text-body font-semibold">{q.title}</span>
+        </TruncateTip>
         {yes ? (
           <span className="flex min-w-0 flex-1 items-baseline gap-1.5 text-body text-muted-foreground">
             <span className="shrink-0">Yes. Accepted on the Epic:</span>
-            <span className="min-w-0 truncate font-mono text-small" title={adr.path}>
-              <span className="sr-only">{adr.path.slice(0, adr.path.length - fileName(adr.path).length)}</span>
-              {fileName(adr.path)}
-            </span>
+            <Tip content={<span className="font-mono">{adr.path}</span>}>
+              <span className="min-w-0 truncate font-mono text-small">
+                <span className="sr-only">{adr.path.slice(0, adr.path.length - fileName(adr.path).length)}</span>
+                {fileName(adr.path)}
+              </span>
+            </Tip>
           </span>
         ) : (
-          <span className="min-w-0 flex-1 truncate text-body text-muted-foreground">No. Not recorded: no ADR is written</span>
+          <span className="min-w-0 flex-1 truncate text-body text-muted-foreground">
+            No. Not recorded: no ADR is written
+          </span>
         )}
         <span className="shrink-0 text-meta text-subtle-foreground">
           {q.answeredWith === "own" ? "Your answer" : "Recommended"}
@@ -352,7 +368,10 @@ function AdrQuestionCard({ question: q, open, onAnswer, adr }: QuestionCardProps
       </div>
 
       <div className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-3 @xl:grid-cols-[minmax(0,1fr)_minmax(0,15rem)]">
-        <figure aria-labelledby={draftId} className="m-0 flex min-w-0 flex-col self-start overflow-clip rounded-md border border-border bg-secondary">
+        <figure
+          aria-labelledby={draftId}
+          className="m-0 flex min-w-0 flex-col self-start overflow-clip rounded-md border border-border bg-secondary"
+        >
           <figcaption className="flex min-h-9 min-w-0 items-start gap-1.5 border-b border-border px-3 py-1.5 text-meta text-muted-foreground">
             <ScrollText aria-hidden="true" className="mt-px size-3.5 shrink-0" />
             <span className="shrink-0 font-semibold">ADR draft</span>
@@ -381,7 +400,9 @@ function AdrQuestionCard({ question: q, open, onAnswer, adr }: QuestionCardProps
           ))}
         </ul>
       </div>
-      <p className="-mt-1.5 mb-0 text-meta text-subtle-foreground">The bar lines are shown beside the ADR, never written into it.</p>
+      <p className="-mt-1.5 mb-0 text-meta text-subtle-foreground">
+        The bar lines are shown beside the ADR, never written into it.
+      </p>
 
       <div className="flex min-w-0 flex-col gap-1 rounded-md border border-primary bg-running-muted px-3 py-2.5">
         <span className="flex items-center gap-1.5 text-meta font-semibold text-running">

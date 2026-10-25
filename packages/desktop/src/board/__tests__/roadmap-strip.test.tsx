@@ -68,7 +68,16 @@ vi.mock("../../adapters/tauri", async () => {
 });
 
 function milestone(id: string, title: string, state: string, overrides: Partial<MilestoneDto> = {}): MilestoneDto {
-  return { id, projectId: "p1", title, exitTest: `${title} passes its exit test.`, state, current: false, rank: id, ...overrides };
+  return {
+    id,
+    projectId: "p1",
+    title,
+    exitTest: `${title} passes its exit test.`,
+    state,
+    current: false,
+    rank: id,
+    ...overrides,
+  };
 }
 
 const ROADMAP: MilestoneDto[] = [
@@ -81,20 +90,57 @@ const ROADMAP: MilestoneDto[] = [
 
 function epic(id: string, title: string, milestoneId: string): EpicDto {
   return {
-    id, projectId: "p1", milestoneId, key: id.toUpperCase(), title, problem: null, scope: null, outOfScope: null,
-    exitTest: null, state: "shaping", rank: "a",
+    id,
+    projectId: "p1",
+    milestoneId,
+    key: id.toUpperCase(),
+    title,
+    problem: null,
+    scope: null,
+    outOfScope: null,
+    exitTest: null,
+    state: "shaping",
+    rank: "a",
   };
 }
 
 function story(id: string, title: string, epicId: string): StoryDto {
-  return { id, projectId: "p1", epicId, key: id.toUpperCase(), title, description: null, state: "ready", runsAfterStoryId: null, rank: "a" };
+  return {
+    id,
+    projectId: "p1",
+    epicId,
+    key: id.toUpperCase(),
+    title,
+    description: null,
+    state: "ready",
+    runsAfterStoryId: null,
+    rank: "a",
+  };
 }
 
 function progress(m: MilestoneDto): MilestoneProgressDto {
-  const zero = { shaping: 0, ready: 0, running: 0, waitingOnYou: 0, stopped: 0, inReview: 0, merged: 0, dropped: 0, storiesTotal: 0 };
+  const zero = {
+    shaping: 0,
+    ready: 0,
+    running: 0,
+    waitingOnYou: 0,
+    stopped: 0,
+    inReview: 0,
+    merged: 0,
+    dropped: 0,
+    storiesTotal: 0,
+  };
   return {
-    milestoneId: m.id, title: m.title, exitTest: m.exitTest, state: m.state, current: m.current, nextMilestoneTitle: null,
-    counts: zero, epicsDone: 0, epicsTotal: 0, epics: [],
+    milestoneId: m.id,
+    title: m.title,
+    exitTest: m.exitTest,
+    state: m.state,
+    current: m.current,
+    nextMilestoneTitle: null,
+    counts: zero,
+    epicsDone: 0,
+    epicsTotal: 0,
+    epics: [],
   };
 }
 
@@ -128,14 +174,22 @@ beforeEach(() => {
     const m = id === null ? ROADMAP.find((x) => x.current) : ROADMAP.find((x) => x.id === id);
     return Promise.resolve(m ? progress(m) : null);
   });
-  epicList.mockReset().mockImplementation((milestoneId: string) =>
-    Promise.resolve(
-      milestoneId === "m3" ? [epic("e3", "Roadmap shaping", "m3")] : milestoneId === "m4" ? [epic("e4", "Review drawer", "m4")] : [],
-    ),
-  );
+  epicList
+    .mockReset()
+    .mockImplementation((milestoneId: string) =>
+      Promise.resolve(
+        milestoneId === "m3"
+          ? [epic("e3", "Roadmap shaping", "m3")]
+          : milestoneId === "m4"
+            ? [epic("e4", "Review drawer", "m4")]
+            : [],
+      ),
+    );
   storyListForProject.mockReset().mockResolvedValue([story("s3", "Ghost rows", "e3"), story("s4", "Diff view", "e4")]);
   roadmapRoundRead.mockReset().mockResolvedValue(NO_ROUND);
-  roadmapRevisit.mockReset().mockResolvedValue({ id: "ses-r", projectId: "p1", status: "running", permissionMode: "dontAsk" });
+  roadmapRevisit
+    .mockReset()
+    .mockResolvedValue({ id: "ses-r", projectId: "p1", status: "running", permissionMode: "dontAsk" });
   roadmapRoundDismiss.mockReset().mockResolvedValue(undefined);
   proposalAccept.mockReset().mockResolvedValue(undefined);
   proposalAmend.mockReset().mockResolvedValue(undefined);
@@ -146,30 +200,63 @@ const NO_ROUND: RoadmapRoundViewDto = { open: null, proposals: [], last: null };
 
 function round(overrides: Partial<RoadmapRoundDto> = {}): RoadmapRoundDto {
   return {
-    id: "rr1", number: 1, state: "open", triggerType: "revisit", triggerLabel: "Revisit roadmap", waitingOnYou: false,
-    sessionLive: true, sessionId: "ses-r", postedAt: "2026-10-22T09:00:00Z", closedAt: null, proposalsFiled: 0, ...overrides,
+    id: "rr1",
+    number: 1,
+    state: "open",
+    triggerType: "revisit",
+    triggerLabel: "Revisit roadmap",
+    waitingOnYou: false,
+    sessionLive: true,
+    sessionId: "ses-r",
+    postedAt: "2026-10-22T09:00:00Z",
+    closedAt: null,
+    proposalsFiled: 0,
+    ...overrides,
   };
 }
 
-function proposal(id: string, verb: string, targetType: string, summary: string, overrides: Partial<RoadmapProposalDto> = {}): RoadmapProposalDto {
+function proposal(
+  id: string,
+  verb: string,
+  targetType: string,
+  summary: string,
+  overrides: Partial<RoadmapProposalDto> = {},
+): RoadmapProposalDto {
   return {
-    id, projectId: "p1", sessionId: "ses-r", epicId: null, verb, targetType, targetId: null, payload: {}, rationale: "Asked twice",
-    state: "pending", createdAt: "2026-10-22T09:01:00Z", rejectionReason: null, stageId: null, roundId: "rr1", summary,
-    anchorMilestoneId: null, ...overrides,
+    id,
+    projectId: "p1",
+    sessionId: "ses-r",
+    epicId: null,
+    verb,
+    targetType,
+    targetId: null,
+    payload: {},
+    rationale: "Asked twice",
+    state: "pending",
+    createdAt: "2026-10-22T09:01:00Z",
+    rejectionReason: null,
+    stageId: null,
+    roundId: "rr1",
+    summary,
+    anchorMilestoneId: null,
+    ...overrides,
   };
 }
 
-const NEW_MILESTONE = proposal("p-new", "create", "milestone", "New Milestone \"Mobile\"", {
+const NEW_MILESTONE = proposal("p-new", "create", "milestone", 'New Milestone "Mobile"', {
   payload: { title: "Mobile", exit_test: null },
 });
-const RETIRE_BOARD = proposal("p-retire", "retire", "milestone", "Retire Milestone \"Board and review\"", {
-  targetId: "m4", anchorMilestoneId: "m4",
+const RETIRE_BOARD = proposal("p-retire", "retire", "milestone", 'Retire Milestone "Board and review"', {
+  targetId: "m4",
+  anchorMilestoneId: "m4",
 });
-const NEW_EPIC = proposal("p-epic", "create", "epic", "New Epic \"Ghost rows\" in Milestone \"Shaping\"", {
-  payload: { milestone_id: "m3", title: "Ghost rows", problem: null }, anchorMilestoneId: "m3",
+const NEW_EPIC = proposal("p-epic", "create", "epic", 'New Epic "Ghost rows" in Milestone "Shaping"', {
+  payload: { milestone_id: "m3", title: "Ghost rows", problem: null },
+  anchorMilestoneId: "m3",
 });
-const REJECTED = proposal("p-no", "create", "milestone", "New Milestone \"Teams\"", {
-  state: "rejected", rejectionReason: "Not before the one-week test",
+const REJECTED = proposal("p-no", "create", "milestone", 'New Milestone "Teams"', {
+  state: "rejected",
+  rejectionReason: "Not before the one-week test",
 });
 
 describe("RoadmapStrip: one row per Milestone", () => {
@@ -177,7 +264,9 @@ describe("RoadmapStrip: one row per Milestone", () => {
     renderBoard();
     const list = await within(await strip()).findByRole("list", { name: "Milestones in Roadmap order" });
     await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(5));
-    const titles = within(list).getAllByRole("listitem").map((li) => li.getAttribute("data-milestone-title"));
+    const titles = within(list)
+      .getAllByRole("listitem")
+      .map((li) => li.getAttribute("data-milestone-title"));
     expect(titles).toEqual(["Clean cut", "Supervised execution", "Shaping", "Board and review", "One-week exit test"]);
 
     const current = await rowOf("Shaping");
@@ -192,18 +281,20 @@ describe("RoadmapStrip: one row per Milestone", () => {
     renderBoard();
     const current = await rowOf("Shaping");
     expect(within(current).getByRole("button", { name: /^Shaping,/ })).toHaveAttribute("aria-current", "true");
-    expect(within(await rowOf("Board and review")).getByRole("button", { name: /^Board and review,/ })).not.toHaveAttribute(
-      "aria-current",
-    );
+    expect(
+      within(await rowOf("Board and review")).getByRole("button", { name: /^Board and review,/ }),
+    ).not.toHaveAttribute("aria-current");
   });
 });
 
 describe("RoadmapStrip: the fold (issue #201)", () => {
   function shownTitles(list: HTMLElement) {
-    return within(list).queryAllByRole("listitem").map((li) => li.getAttribute("data-milestone-title"));
+    return within(list)
+      .queryAllByRole("listitem")
+      .map((li) => li.getAttribute("data-milestone-title"));
   }
 
-  it("opens a Roadmap of more than five Milestones folded to the Current row, under a \"6 Milestones\" trigger", async () => {
+  it('opens a Roadmap of more than five Milestones folded to the Current row, under a "6 Milestones" trigger', async () => {
     useRoadmapFold.setState({ openByProject: {} });
     milestoneList.mockResolvedValue([...ROADMAP, milestone("m6", "Relay", "shaping")]);
     renderBoard();
@@ -221,7 +312,14 @@ describe("RoadmapStrip: the fold (issue #201)", () => {
 
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
-    expect(shownTitles(list)).toEqual(["Clean cut", "Supervised execution", "Shaping", "Board and review", "One-week exit test", "Relay"]);
+    expect(shownTitles(list)).toEqual([
+      "Clean cut",
+      "Supervised execution",
+      "Shaping",
+      "Board and review",
+      "One-week exit test",
+      "Relay",
+    ]);
     expect(useRoadmapFold.getState().openByProject).toEqual({ p1: true });
 
     fireEvent.click(trigger);
@@ -320,7 +418,10 @@ describe("RoadmapStrip: drag and the keyboard move call milestone_move", () => {
   it("moves with Alt and the arrow keys on a row, and with the arrow keys on its move handle", async () => {
     renderBoard();
     const row = await rowOf("Board and review");
-    fireEvent.keyDown(within(row).getByRole("button", { name: /^Board and review,/ }), { key: "ArrowUp", altKey: true });
+    fireEvent.keyDown(within(row).getByRole("button", { name: /^Board and review,/ }), {
+      key: "ArrowUp",
+      altKey: true,
+    });
     await waitFor(() => expect(milestoneMove).toHaveBeenCalledWith("m4", "m3"));
 
     milestoneMove.mockClear();
@@ -335,7 +436,10 @@ describe("RoadmapStrip: drag and the keyboard move call milestone_move", () => {
       const row = await rowOf(title);
       expect(row).toHaveAttribute("draggable", "false");
       expect(within(row).queryByRole("button", { name: `Move ${title}` })).toBeNull();
-      fireEvent.keyDown(within(row).getByRole("button", { name: new RegExp(`^${title},`) }), { key: "ArrowDown", altKey: true });
+      fireEvent.keyDown(within(row).getByRole("button", { name: new RegExp(`^${title},`) }), {
+        key: "ArrowDown",
+        altKey: true,
+      });
       fireEvent.dragStart(row, { dataTransfer: { setData: () => {}, effectAllowed: "" } });
       fireEvent.drop(await rowOf("One-week exit test"), { dataTransfer: {} });
     }
@@ -428,7 +532,11 @@ describe("RoadmapStrip: the roadmap Round (issue #133)", () => {
   });
 
   it("Accept, Amend and Reject decide a ghost row in place", async () => {
-    roadmapRoundRead.mockResolvedValue({ open: round({ waitingOnYou: true }), proposals: [NEW_MILESTONE, RETIRE_BOARD], last: null });
+    roadmapRoundRead.mockResolvedValue({
+      open: round({ waitingOnYou: true }),
+      proposals: [NEW_MILESTONE, RETIRE_BOARD],
+      last: null,
+    });
     renderBoard();
     const retire = await screen.findByRole("group", { name: 'Proposed: Retire Milestone "Board and review"' });
     expect(within(retire).queryByRole("button", { name: /^Amend/ })).toBeNull();
@@ -437,7 +545,9 @@ describe("RoadmapStrip: the roadmap Round (issue #133)", () => {
     // The keyboard moves on to the next undecided change, never onto a Milestone's move handle.
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        within(screen.getByRole("group", { name: 'Proposed: New Milestone "Mobile"' })).getByRole("button", { name: /^Accept/ }),
+        within(screen.getByRole("group", { name: 'Proposed: New Milestone "Mobile"' })).getByRole("button", {
+          name: /^Accept/,
+        }),
       ),
     );
 
@@ -446,14 +556,21 @@ describe("RoadmapStrip: the roadmap Round (issue #133)", () => {
     const outcome = within(created).getByRole("textbox", { name: "Outcome" });
     expect(outcome).toHaveValue("Mobile");
     fireEvent.change(outcome, { target: { value: "Mobile, read-only" } });
-    fireEvent.change(within(created).getByRole("textbox", { name: "Exit test (optional)" }), { target: { value: "A phone reads the board" } });
+    fireEvent.change(within(created).getByRole("textbox", { name: "Exit test (optional)" }), {
+      target: { value: "A phone reads the board" },
+    });
     fireEvent.click(within(created).getByRole("button", { name: 'Accept edit to New Milestone "Mobile"' }));
     await waitFor(() =>
-      expect(proposalAmend).toHaveBeenCalledWith("p-new", { title: "Mobile, read-only", exit_test: "A phone reads the board" }),
+      expect(proposalAmend).toHaveBeenCalledWith("p-new", {
+        title: "Mobile, read-only",
+        exit_test: "A phone reads the board",
+      }),
     );
 
     fireEvent.click(within(retire).getByRole("button", { name: 'Reject: Retire Milestone "Board and review"' }));
-    fireEvent.change(within(retire).getByRole("textbox", { name: "Why not? (optional)" }), { target: { value: "Still needed" } });
+    fireEvent.change(within(retire).getByRole("textbox", { name: "Why not? (optional)" }), {
+      target: { value: "Still needed" },
+    });
     fireEvent.click(within(retire).getByRole("button", { name: "Reject" }));
     await waitFor(() => expect(proposalReject).toHaveBeenCalledWith("p-retire", "Still needed"));
   });
@@ -461,7 +578,11 @@ describe("RoadmapStrip: the roadmap Round (issue #133)", () => {
   it("Dismiss closes the Round, asking first when it would reject undecided changes", async () => {
     roadmapRoundRead.mockResolvedValue({ open: round({ waitingOnYou: true }), proposals: [NEW_MILESTONE], last: null });
     renderBoard();
-    fireEvent.click(await within(await strip()).findByRole("button", { name: "Dismiss Roadmap Round 1, rejecting 1 undecided change" }));
+    fireEvent.click(
+      await within(await strip()).findByRole("button", {
+        name: "Dismiss Roadmap Round 1, rejecting 1 undecided change",
+      }),
+    );
     expect(roadmapRoundDismiss).not.toHaveBeenCalled();
     expect(within(await strip()).getByRole("alert")).toHaveTextContent("Dismissing rejects the undecided change.");
     const keep = within(await strip()).getByRole("button", { name: "Keep it" });
@@ -473,11 +594,17 @@ describe("RoadmapStrip: the roadmap Round (issue #133)", () => {
   it("offers Continue on a Round with no live session, and says when the Roadmap still holds", async () => {
     roadmapRoundRead.mockResolvedValue({ open: round({ sessionLive: false }), proposals: [], last: null });
     renderBoard();
-    expect(await within(await strip()).findByRole("status")).toHaveTextContent("No live session: your decisions are kept");
+    expect(await within(await strip()).findByRole("status")).toHaveTextContent(
+      "No live session: your decisions are kept",
+    );
     fireEvent.click(within(await strip()).getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(roadmapRevisit).toHaveBeenCalledWith("p1"));
 
-    roadmapRoundRead.mockResolvedValue({ open: null, proposals: [], last: round({ state: "closed", closedAt: new Date().toISOString() }) });
+    roadmapRoundRead.mockResolvedValue({
+      open: null,
+      proposals: [],
+      last: round({ state: "closed", closedAt: new Date().toISOString() }),
+    });
     cleanupAndRender();
     expect(await within(await strip()).findByText("Roadmap still holds")).toBeInTheDocument();
     expect(within(await strip()).getByRole("button", { name: "Revisit roadmap" })).toBeInTheDocument();

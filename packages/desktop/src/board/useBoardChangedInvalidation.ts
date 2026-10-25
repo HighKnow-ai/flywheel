@@ -26,11 +26,7 @@
  */
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
-import {
-  subscribeAgentEvent,
-  subscribeBoardChanged,
-  type BoardChangedPayload,
-} from "../adapters/tauri";
+import { subscribeAgentEvent, subscribeBoardChanged, type BoardChangedPayload } from "../adapters/tauri";
 import { useUiStore } from "../state/uiStore";
 
 /**
@@ -82,9 +78,7 @@ export function createInvalidationBatch(queryClient: QueryClient, windowMs = COA
 }
 
 export type BoardChangedScope =
-  | { kind: "project"; projectId: string | null | undefined }
-  | { kind: "viewed" }
-  | { kind: "account" };
+  { kind: "project"; projectId: string | null | undefined } | { kind: "viewed" } | { kind: "account" };
 
 export function useBoardChangedInvalidation(
   scope: BoardChangedScope,
@@ -93,8 +87,7 @@ export function useBoardChangedInvalidation(
 ): void {
   const queryClient = useQueryClient();
   const viewedProjectId = useUiStore((s) => s.currentProjectId);
-  const scopeProjectId =
-    scope.kind === "project" ? scope.projectId : scope.kind === "viewed" ? viewedProjectId : null;
+  const scopeProjectId = scope.kind === "project" ? scope.projectId : scope.kind === "viewed" ? viewedProjectId : null;
 
   // Read through refs so the effect resubscribes only when the key SET changes, not per render.
   const keysRef = useRef(keys);

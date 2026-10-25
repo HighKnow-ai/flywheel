@@ -20,7 +20,6 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "../../../styles/globals.css";
-import "../../../App.css";
 import type { FleetRowDto } from "../../../adapters/tauri";
 import { StateBadge } from "../../../components/StateBadge";
 import { Lamp, type LampData, type LampTone } from "../../AndonStrip";
@@ -175,7 +174,8 @@ describe(`the andon lamps and StateBadge under ${expectForced ? "forced colors" 
     expect(lamp.getAttribute("aria-label"), `${tone} lamp: the accessible name lost its word`).toContain(word);
     expect(lamp.textContent, `${tone} lamp: the Story is not named`).toContain("FLY-7");
     expectLegible(lamp, `${tone} lamp`);
-    for (const text of lamp.querySelectorAll(".truncate")) expectLegible(text, `${tone} lamp line "${text.textContent}"`);
+    for (const text of lamp.querySelectorAll(".truncate"))
+      expectLegible(text, `${tone} lamp line "${text.textContent}"`);
     const border = getComputedStyle(lamp);
     expect(border.borderTopStyle, `${tone} lamp: the boundary is gone`).toBe("solid");
     expect(border.borderTopWidth).toBe("1px");
@@ -184,7 +184,11 @@ describe(`the andon lamps and StateBadge under ${expectForced ? "forced colors" 
   it("the three lamp tones are told apart by bulb glyph and by detail word, whatever the colours did", () => {
     const seen = TONES.map(({ tone }) => {
       const lamp = renderLamp(tone);
-      const entry = { tone, glyph: lamp.querySelector("svg")!.innerHTML, detail: lamp.querySelectorAll(".truncate")[1]?.textContent ?? "" };
+      const entry = {
+        tone,
+        glyph: lamp.querySelector("svg")!.innerHTML,
+        detail: lamp.querySelectorAll(".truncate")[1]?.textContent ?? "",
+      };
       document.body.replaceChildren();
       return entry;
     });
@@ -194,17 +198,23 @@ describe(`the andon lamps and StateBadge under ${expectForced ? "forced colors" 
     expect(seen.find((s) => s.tone === "stopped")!.detail).toContain("Stopped");
   });
 
-  it.each(BADGES)("the $state badge keeps its glyph, its word and legible ink, as a pill and inline", ({ state, word }) => {
-    for (const variant of ["pill", "inline"] as const) {
-      const badge = renderBadge(state, variant);
-      expectDrawnGlyph(badge, `${state}/${variant}`);
-      expect(badge.textContent, `${state}/${variant}: the word is gone`).toContain(word);
-      expectLegible(badge, `${state}/${variant}`);
-      document.body.replaceChildren();
-    }
-    renderBadge(state, "pill", true);
-    expect(screen.getByRole("img", { name: word }), `${state}: the hidden word left the accessible name`).toBeTruthy();
-  });
+  it.each(BADGES)(
+    "the $state badge keeps its glyph, its word and legible ink, as a pill and inline",
+    ({ state, word }) => {
+      for (const variant of ["pill", "inline"] as const) {
+        const badge = renderBadge(state, variant);
+        expectDrawnGlyph(badge, `${state}/${variant}`);
+        expect(badge.textContent, `${state}/${variant}: the word is gone`).toContain(word);
+        expectLegible(badge, `${state}/${variant}`);
+        document.body.replaceChildren();
+      }
+      renderBadge(state, "pill", true);
+      expect(
+        screen.getByRole("img", { name: word }),
+        `${state}: the hidden word left the accessible name`,
+      ).toBeTruthy();
+    },
+  );
 
   it("every pair of badge states is told apart by glyph or word, whatever the colours did", () => {
     const seen = BADGES.map(({ state }) => {

@@ -56,28 +56,80 @@ vi.mock("../../adapters/tauri", async () => {
 });
 
 const MILESTONES: MilestoneDto[] = [
-  { id: "m3", projectId: "p1", title: "Board", exitTest: "Cyril reads the board at a glance.", state: "in_progress", current: true, rank: "a" },
+  {
+    id: "m3",
+    projectId: "p1",
+    title: "Board",
+    exitTest: "Cyril reads the board at a glance.",
+    state: "in_progress",
+    current: true,
+    rank: "a",
+  },
   { id: "m4", projectId: "p1", title: "Review", exitTest: null, state: "shaping", current: false, rank: "b" },
 ];
 
 function epic(id: string, milestoneId: string, key: string, title: string, state: string): EpicDto {
-  return { id, projectId: "p1", milestoneId, key, title, problem: null, scope: null, outOfScope: null, exitTest: null, state, rank: id };
+  return {
+    id,
+    projectId: "p1",
+    milestoneId,
+    key,
+    title,
+    problem: null,
+    scope: null,
+    outOfScope: null,
+    exitTest: null,
+    state,
+    rank: id,
+  };
 }
 
 const EPICS: Record<string, EpicDto[]> = {
-  m3: [epic("e1", "m3", "FLY-1", "Roster", "in_progress"), epic("e2", "m3", "FLY-2", "Needs you", "ready"), epic("e9", "m3", "FLY-9", "Old work", "done")],
+  m3: [
+    epic("e1", "m3", "FLY-1", "Roster", "in_progress"),
+    epic("e2", "m3", "FLY-2", "Needs you", "ready"),
+    epic("e9", "m3", "FLY-9", "Old work", "done"),
+  ],
   m4: [epic("e3", "m4", "FLY-3", "Merge", "shaping")],
 };
 
 function story(id: string, epicId: string, state: string): StoryDto {
-  return { id, projectId: "p1", epicId, key: `FLY-${id}`, title: `Story ${id}`, description: null, state, runsAfterStoryId: null, rank: id };
+  return {
+    id,
+    projectId: "p1",
+    epicId,
+    key: `FLY-${id}`,
+    title: `Story ${id}`,
+    description: null,
+    state,
+    runsAfterStoryId: null,
+    rank: id,
+  };
 }
 
 function progress(m: MilestoneDto): MilestoneProgressDto {
-  const zero = { shaping: 0, ready: 0, running: 0, waitingOnYou: 0, stopped: 0, inReview: 0, merged: 0, dropped: 0, storiesTotal: 0 };
+  const zero = {
+    shaping: 0,
+    ready: 0,
+    running: 0,
+    waitingOnYou: 0,
+    stopped: 0,
+    inReview: 0,
+    merged: 0,
+    dropped: 0,
+    storiesTotal: 0,
+  };
   return {
-    milestoneId: m.id, title: m.title, exitTest: m.exitTest, state: m.state, current: m.current, nextMilestoneTitle: null,
-    counts: zero, epicsDone: 0, epicsTotal: 2, epics: [],
+    milestoneId: m.id,
+    title: m.title,
+    exitTest: m.exitTest,
+    state: m.state,
+    current: m.current,
+    nextMilestoneTitle: null,
+    counts: zero,
+    epicsDone: 0,
+    epicsTotal: 2,
+    epics: [],
   };
 }
 
@@ -90,9 +142,11 @@ beforeEach(() => {
   resetUiState();
   useUiStore.setState({ currentProjectId: "p1" });
   milestoneList.mockReset().mockResolvedValue(MILESTONES);
-  milestoneProgress.mockReset().mockImplementation((_p: string, id: string | null) =>
-    Promise.resolve(progress(MILESTONES.find((m) => (id === null ? m.current : m.id === id)) ?? MILESTONES[0])),
-  );
+  milestoneProgress
+    .mockReset()
+    .mockImplementation((_p: string, id: string | null) =>
+      Promise.resolve(progress(MILESTONES.find((m) => (id === null ? m.current : m.id === id)) ?? MILESTONES[0])),
+    );
   epicList.mockReset().mockImplementation((milestoneId: string) => Promise.resolve(EPICS[milestoneId] ?? []));
   epicCreate.mockReset().mockResolvedValue(epic("e5", "m3", "FLY-5", "Since you last looked", "shaping"));
   storyListForProject.mockReset().mockResolvedValue([story("10", "e1", "running"), story("20", "e2", "ready")]);
@@ -106,7 +160,9 @@ describe("+ Story on an Epic card", () => {
     wrap(<StoryBoard projectId="p1" projectName="Threadfin" />);
     fireEvent.click(await screen.findByRole("button", { name: "Add a Story to FLY-2 Needs you" }));
     const dialog = await screen.findByRole("dialog", { name: "Write a Story" });
-    await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "Epic" })).toHaveTextContent("FLY-2 Needs you"));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("combobox", { name: "Epic" })).toHaveTextContent("FLY-2 Needs you"),
+    );
     expect(within(dialog).getByRole("combobox", { name: "Milestone" })).toHaveTextContent("Board");
   });
 

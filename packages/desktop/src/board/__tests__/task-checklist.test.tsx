@@ -48,7 +48,9 @@ vi.mock("../../adapters/tauri", async () => {
     needsYouList: () => Promise.resolve([]),
     subscribeAgentEvent: () => Promise.resolve(() => {}),
     milestoneList: () =>
-      Promise.resolve([{ id: "m1", projectId: "p1", title: "M1", exitTest: null, state: "ready", current: true, rank: "a" }]),
+      Promise.resolve([
+        { id: "m1", projectId: "p1", title: "M1", exitTest: null, state: "ready", current: true, rank: "a" },
+      ]),
     epicList: () => Promise.resolve([]),
     milestoneProgress: () => Promise.resolve(null),
     rosterRows: () => rosterRows(),
@@ -68,10 +70,26 @@ vi.mock("../../adapters/tauri", async () => {
 });
 
 function story(id: string, key: string, state: string): StoryDto {
-  return { id, projectId: "p1", epicId: "e1", key, title: `Story ${key}`, description: null, state, runsAfterStoryId: null, rank: "a" };
+  return {
+    id,
+    projectId: "p1",
+    epicId: "e1",
+    key,
+    title: `Story ${key}`,
+    description: null,
+    state,
+    runsAfterStoryId: null,
+    rank: "a",
+  };
 }
 
-function task(id: string, title: string, state = "open", droppedReason: string | null = null, note: string | null = null): TaskDto {
+function task(
+  id: string,
+  title: string,
+  state = "open",
+  droppedReason: string | null = null,
+  note: string | null = null,
+): TaskDto {
   return { id, storyId: "s1", title, state, droppedReason, rank: id, note };
 }
 
@@ -113,7 +131,13 @@ beforeEach(() => {
   boardChanged = null;
   useUiStore.setState({ currentProjectId: "p1", currentStoryId: null });
   storyListForProject.mockReset().mockResolvedValue([story("s1", "FLY-2", "running")]);
-  taskList.mockReset().mockResolvedValue([task("t1", "Write the failing test", "done"), task("t2", "Make it pass", "doing"), task("t3", "Refactor")]);
+  taskList
+    .mockReset()
+    .mockResolvedValue([
+      task("t1", "Write the failing test", "done"),
+      task("t2", "Make it pass", "doing"),
+      task("t3", "Refactor"),
+    ]);
   taskAdd.mockReset().mockResolvedValue(task("t4", "New"));
   taskRename.mockReset().mockResolvedValue(undefined);
   taskMove.mockReset().mockResolvedValue(undefined);
@@ -144,7 +168,11 @@ describe("A Story's Task checklist", () => {
     renderBoard();
     await screen.findByLabelText("FLY-2 is doing");
 
-    taskList.mockResolvedValue([task("t1", "Write the failing test", "done"), task("t2", "Make it pass", "done"), task("t3", "Refactor", "doing")]);
+    taskList.mockResolvedValue([
+      task("t1", "Write the failing test", "done"),
+      task("t2", "Make it pass", "done"),
+      task("t3", "Refactor", "doing"),
+    ]);
     await waitFor(() => expect(boardChanged).not.toBeNull());
     act(() => boardChanged?.({ projectId: "p1" }));
 
@@ -219,7 +247,10 @@ describe("A Story's Task checklist", () => {
     const region = screen.getByRole("region", { name: "Note of Survey the repo" });
     expect(region).toHaveTextContent("Board tools live in task_tool.rs.");
     expect(region).toHaveTextContent("Left: the UI.");
-    expect(screen.getByRole("button", { name: "Hide note of Survey the repo" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Hide note of Survey the repo" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
   });
 
   it("lets the developer edit a Task's note, written through the core", async () => {
@@ -236,7 +267,7 @@ describe("A Story's Task checklist", () => {
   });
 
   it("shows the core's refusal", async () => {
-    taskMove.mockRejectedValue(new Error("Task \"x\" is not a Task of this Story"));
+    taskMove.mockRejectedValue(new Error('Task "x" is not a Task of this Story'));
     renderBoard();
     await openChecklist();
     fireEvent.click(await pick("Refactor", "Move up"));

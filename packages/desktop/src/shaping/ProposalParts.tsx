@@ -14,6 +14,8 @@
  * - `useSettle`: the short running-tint cross-fade on a field whose text an accepted Proposal just rewrote.
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
+import { Label } from "@/components/ui/label";
 import { Ban, Check, CircleDashed, PenLine, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,6 +43,8 @@ export interface DecisionGroupProps {
   amendWord?: string;
   amendRef?: Ref<HTMLButtonElement>;
   rejectRef?: Ref<HTMLButtonElement>;
+  /** `xs` inside a 17.5rem Story column, where the small size runs past the card (#212); `sm` everywhere else. */
+  size?: "sm" | "xs";
   className?: string;
 }
 
@@ -54,6 +58,7 @@ export function DecisionGroup({
   amendWord = "Amend",
   amendRef,
   rejectRef,
+  size = "sm",
   className,
 }: DecisionGroupProps) {
   const off = (decision: Decision) => pending !== null && pending !== decision;
@@ -61,7 +66,7 @@ export function DecisionGroup({
     <ButtonGroup aria-label={name("Decide")} className={cn("shrink-0", className)}>
       <Button
         variant="outline"
-        size="sm"
+        size={size}
         data-decision="accept"
         loading={pending === "accept"}
         disabled={off("accept")}
@@ -75,7 +80,7 @@ export function DecisionGroup({
         <Button
           ref={amendRef}
           variant="outline"
-          size="sm"
+          size={size}
           data-decision="amend"
           disabled={pending !== null}
           aria-label={name(amendWord)}
@@ -88,7 +93,7 @@ export function DecisionGroup({
       <Button
         ref={rejectRef}
         variant="outline"
-        size="sm"
+        size={size}
         data-decision="reject"
         disabled={pending !== null}
         aria-label={name("Reject")}
@@ -115,7 +120,14 @@ export function AmendActions({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button type="submit" variant="outline" size="sm" loading={busy} disabled={!busy && !ready} aria-label={`Accept edit to ${subject}`}>
+      <Button
+        type="submit"
+        variant="outline"
+        size="sm"
+        loading={busy}
+        disabled={!busy && !ready}
+        aria-label={`Accept edit to ${subject}`}
+      >
         <Check aria-hidden="true" />
         Accept edit
       </Button>
@@ -156,9 +168,9 @@ export function RejectReasonForm({
         onReject(given === "" ? null : given);
       }}
     >
-      <label htmlFor={reasonId} className="sr-only">
+      <Label htmlFor={reasonId} className="sr-only">
         Why not? (optional)
-      </label>
+      </Label>
       <Input
         id={reasonId}
         value={why}
@@ -228,13 +240,15 @@ export function RejectedLine({
     <div role="group" aria-label={label} data-state="rejected" className="flex min-w-0 flex-col gap-1">
       <span className="flex min-w-0 items-center gap-2 text-small text-muted-foreground">
         <RejectedBadge />
-        <del className="min-w-0 truncate decoration-1" title={struck}>
-          {struck}
-        </del>
+        <TruncateTip text={struck}>
+          <del className="min-w-0 truncate decoration-1">{struck}</del>
+        </TruncateTip>
       </span>
-      <span className="truncate text-meta text-subtle-foreground" title={reason ?? undefined}>
-        {reason ? `Your reason: ${reason}` : "No reason given"}
-      </span>
+      <TruncateTip text={reason ?? undefined}>
+        <span className="truncate text-meta text-subtle-foreground">
+          {reason ? `Your reason: ${reason}` : "No reason given"}
+        </span>
+      </TruncateTip>
     </div>
   );
   // In a list the item stays a list item, with the named group inside it.
@@ -273,7 +287,12 @@ export function OrderChip({ number, tone = "ink" }: { number: number; tone?: "in
 
 /** What a decision did, as a toast: "Accepted the proposed Scope". */
 export function announceDecision(decision: Decision | "edit", subject: string) {
-  const words = { accept: "Accepted", amend: "Accepted your edit to", edit: "Accepted your edit to", reject: "Rejected" } as const;
+  const words = {
+    accept: "Accepted",
+    amend: "Accepted your edit to",
+    edit: "Accepted your edit to",
+    reject: "Rejected",
+  } as const;
   notify.success(`${words[decision]} ${subject}`);
 }
 

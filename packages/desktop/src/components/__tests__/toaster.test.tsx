@@ -53,7 +53,10 @@ describe("Toaster and notify", () => {
     const openBoard = vi.fn();
     render(<Toaster />);
     act(() => {
-      notify.success("FLY-3 merged into main", { description: "Worktree cleaned.", action: { label: "Open board", onClick: openBoard } });
+      notify.success("FLY-3 merged into main", {
+        description: "Worktree cleaned.",
+        action: { label: "Open board", onClick: openBoard },
+      });
     });
     fireEvent.click(await screen.findByRole("button", { name: "Open board" }));
     expect(openBoard).toHaveBeenCalledOnce();

@@ -18,6 +18,7 @@
 import { expect } from "vitest";
 import { commands, page } from "vitest/browser";
 import { findLayoutDefects, type LayoutDefect, type LayoutDefectKind } from "./layout-defects";
+import { loadEveryFont } from "../fonts";
 
 export const SCHEME = (import.meta.env.VITE_CRITIQUE_SCHEME as string | undefined) ?? "light";
 /** Whether this run writes screenshots (the critique run) or only checks the layout (CI). */
@@ -49,8 +50,7 @@ interface KnownDefect {
   where?: RegExp;
 }
 
-export const KNOWN_DEFECTS: KnownDefect[] = [
-];
+export const KNOWN_DEFECTS: KnownDefect[] = [];
 
 export interface CaptureRecord {
   screen: string;
@@ -62,13 +62,15 @@ const records: CaptureRecord[] = [];
 
 export async function settle(ms = 600) {
   await new Promise((resolve) => setTimeout(resolve, ms));
-  await document.fonts.ready;
+  await loadEveryFont();
   // Two frames, so a ResizeObserver (the virtualised feed, the Needs-you breakpoint) has measured and re-rendered.
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 }
 
 function knownIssue(screen: string, defect: LayoutDefect): number | null {
-  const hit = KNOWN_DEFECTS.find((k) => k.kind === defect.kind && k.screen.test(screen) && (!k.where || k.where.test(defect.where)));
+  const hit = KNOWN_DEFECTS.find(
+    (k) => k.kind === defect.kind && k.screen.test(screen) && (!k.where || k.where.test(defect.where)),
+  );
   return hit?.issue ?? null;
 }
 
@@ -78,7 +80,10 @@ function knownIssue(screen: string, defect: LayoutDefect): number | null {
  */
 export async function capture(
   screen: string,
-  { sizes = SIZES, restore = { width: 1440, height: 900 } }: { sizes?: readonly { width: number; height: number }[]; restore?: { width: number; height: number } } = {},
+  {
+    sizes = SIZES,
+    restore = { width: 1440, height: 900 },
+  }: { sizes?: readonly { width: number; height: number }[]; restore?: { width: number; height: number } } = {},
 ) {
   const unknown: string[] = [];
   try {

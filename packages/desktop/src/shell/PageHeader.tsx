@@ -11,7 +11,7 @@
  * Every crumb is `min-w-0` and truncates, so a long project name or Story key ends in an ellipsis instead of
  * sliding under Search and the add buttons.
  */
-import type { ComponentProps, ReactNode } from "react";
+import { useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { ArrowLeft, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -23,7 +23,12 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useUiStore } from "../state/uiStore";
@@ -47,7 +52,37 @@ export interface PageHeaderProps {
 }
 
 function CrumbText({ crumb }: { crumb: Crumb }) {
-  return <span className={cn("block truncate", crumb.mono && "font-mono text-small")}>{crumb.label}</span>;
+  return (
+    <span data-crumb-text="" className={cn("block truncate", crumb.mono && "font-mono text-small")}>
+      {crumb.label}
+    </span>
+  );
+}
+
+/**
+ * A crumb that ends in an ellipsis shows its whole text in a Tooltip; one that fits shows none, so hovering the
+ * breadcrumb never repeats what is already on screen. Truncation is measured when the Tooltip would open.
+ */
+function CrumbTip({ crumb, children }: { crumb: Crumb; children: ReactNode }) {
+  const trigger = useRef<HTMLElement | null>(null);
+  const [open, setOpen] = useState(false);
+  function truncated() {
+    const text = trigger.current?.querySelector<HTMLElement>("[data-crumb-text]");
+    return !!text && text.scrollWidth > text.clientWidth;
+  }
+  return (
+    <Tooltip open={open} onOpenChange={(next) => setOpen(next && truncated())}>
+      <TooltipTrigger
+        asChild
+        ref={(element) => {
+          trigger.current = element;
+        }}
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent className={cn("max-w-sm break-words", crumb.mono && "font-mono")}>{crumb.label}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 function Separator({ className }: { className?: string }) {
@@ -63,18 +98,22 @@ function CrumbItem({ crumb, last, className }: { crumb: Crumb; last: boolean; cl
     // A place before the page gives way first and never takes more than 14rem; the page itself keeps at least 6rem.
     <BreadcrumbItem className={cn(last ? "min-w-24 shrink" : "max-w-56 min-w-0 shrink-[4]", className)}>
       {last || !crumb.onSelect ? (
-        <BreadcrumbPage className={cn("block min-w-0 truncate", last ? "font-semibold" : "text-muted-foreground")}>
-          <CrumbText crumb={crumb} />
-        </BreadcrumbPage>
+        <CrumbTip crumb={crumb}>
+          <BreadcrumbPage className={cn("block min-w-0 truncate", last ? "font-semibold" : "text-muted-foreground")}>
+            <CrumbText crumb={crumb} />
+          </BreadcrumbPage>
+        </CrumbTip>
       ) : (
-        <button
-          type="button"
-          onClick={crumb.onSelect}
-          aria-label={crumb.ariaLabel}
-          className="block max-w-full min-w-0 rounded-sm text-left font-semibold text-foreground underline-offset-4 transition-colors duration-(--duration-feedback) ease-(--ease) hover:underline"
-        >
-          <CrumbText crumb={crumb} />
-        </button>
+        <CrumbTip crumb={crumb}>
+          <button
+            type="button"
+            onClick={crumb.onSelect}
+            aria-label={crumb.ariaLabel}
+            className="block max-w-full min-w-0 rounded-sm text-left font-semibold text-foreground underline-offset-4 transition-colors duration-(--duration-feedback) ease-(--ease) hover:underline"
+          >
+            <CrumbText crumb={crumb} />
+          </button>
+        </CrumbTip>
       )}
     </BreadcrumbItem>
   );

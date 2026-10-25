@@ -40,12 +40,32 @@ function milestone(id: string, title: string, overrides: Partial<MilestoneDto> =
 
 function epic(id: string, key: string, title: string, milestoneId: string, state = "shaping"): EpicDto {
   return {
-    id, projectId: "p1", milestoneId, key, title, problem: null, scope: null, outOfScope: null, exitTest: null, state, rank: id,
+    id,
+    projectId: "p1",
+    milestoneId,
+    key,
+    title,
+    problem: null,
+    scope: null,
+    outOfScope: null,
+    exitTest: null,
+    state,
+    rank: id,
   };
 }
 
 function story(key: string): StoryDto {
-  return { id: "s1", projectId: "p1", epicId: "e1", key, title: "S", description: null, state: "ready", runsAfterStoryId: null, rank: "a" };
+  return {
+    id: "s1",
+    projectId: "p1",
+    epicId: "e1",
+    key,
+    title: "S",
+    description: null,
+    state: "ready",
+    runsAfterStoryId: null,
+    rank: "a",
+  };
 }
 
 function wrap(node: React.ReactNode) {
@@ -68,15 +88,21 @@ async function pick(name: string, option: string | RegExp) {
 }
 
 beforeEach(() => {
-  milestoneList.mockReset().mockResolvedValue([
-    milestone("m1", "Clean cut", { state: "done" }),
-    milestone("m2", "Board and review", { current: true, state: "in_progress" }),
-    milestone("m3", "One-week exit test"),
-  ]);
+  milestoneList
+    .mockReset()
+    .mockResolvedValue([
+      milestone("m1", "Clean cut", { state: "done" }),
+      milestone("m2", "Board and review", { current: true, state: "in_progress" }),
+      milestone("m3", "One-week exit test"),
+    ]);
   milestoneCreate.mockReset().mockResolvedValue(milestone("m9", "Relay"));
-  epicList.mockReset().mockImplementation((milestoneId: string) =>
-    Promise.resolve(milestoneId === "m2" ? [epic("e1", "FLY-1", "Roster", "m2"), epic("e0", "FLY-0", "Old", "m2", "done")] : []),
-  );
+  epicList
+    .mockReset()
+    .mockImplementation((milestoneId: string) =>
+      Promise.resolve(
+        milestoneId === "m2" ? [epic("e1", "FLY-1", "Roster", "m2"), epic("e0", "FLY-0", "Old", "m2", "done")] : [],
+      ),
+    );
   epicCreate.mockReset().mockResolvedValue(epic("e9", "FLY-9", "Phones", "m9"));
   storyWriteByHand.mockReset().mockResolvedValue(story("FLY-12"));
   success.mockReset();
@@ -198,7 +224,11 @@ describe("Write a Story: New Milestone… and New Epic…", () => {
     fireEvent.change(within(dialog).getByLabelText("Criterion 1"), { target: { value: "It renders" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Write Story" }));
 
-    await waitFor(() => expect(storyWriteByHand).toHaveBeenCalledWith("e9", "Read-only board", null, [{ statement: "It renders", checkCommand: null }]));
+    await waitFor(() =>
+      expect(storyWriteByHand).toHaveBeenCalledWith("e9", "Read-only board", null, [
+        { statement: "It renders", checkCommand: null },
+      ]),
+    );
     expect(milestoneCreate).toHaveBeenCalledWith("p1", "Relay", "A phone reads the board");
     expect(epicCreate).toHaveBeenCalledWith("m9", "Phones");
     // What was written is now picked, so the next Story goes into the same Epic without writing it twice.
@@ -257,7 +287,9 @@ describe("Add an Epic", () => {
     const onClose = vi.fn();
     wrap(<StoryFormDialog projectId="p1" mode="epic" preset={{ milestoneId: "m2" }} onClose={onClose} />);
     const dialog = await screen.findByRole("dialog", { name: "Add an Epic" });
-    await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "Milestone" })).toHaveTextContent("Board and review"));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("combobox", { name: "Milestone" })).toHaveTextContent("Board and review"),
+    );
     expect(within(dialog).queryByRole("combobox", { name: "Epic" })).toBeNull();
     expect(within(dialog).queryByLabelText("Story title")).toBeNull();
 

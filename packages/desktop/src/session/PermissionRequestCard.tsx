@@ -38,6 +38,7 @@
  * hook, which ignores keys typed into the pattern field.
  */
 import { createContext, useContext, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Label } from "@/components/ui/label";
 import { Check, KeyRound, MessageCircleQuestionMark, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { useRegionBindings } from "../state/keyboard";
 import { Button } from "@/components/ui/button";
@@ -266,7 +267,9 @@ function PermissionRequestRow({
   const patternId = useId();
   const [editorOpen, setEditorOpen] = useState(false);
   const isGated = request.destructiveCategory !== null;
-  const consequenceCopy = isGated ? consequenceCopyFor(request.destructiveCategory as string, request.inputPayload) : null;
+  const consequenceCopy = isGated
+    ? consequenceCopyFor(request.destructiveCategory as string, request.inputPayload)
+    : null;
   // A Bash call shows the literal command it would run; any other tool shows its raw input.
   const literal = commandFromPayload(request.inputPayload) ?? request.inputPayload ?? "";
 
@@ -419,9 +422,9 @@ function PermissionRequestRow({
                   </PopoverDescription>
                 </PopoverHeader>
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor={patternId} className="text-small font-semibold text-muted-foreground">
+                  <Label htmlFor={patternId} className="text-small font-semibold text-muted-foreground">
                     Pattern
-                  </label>
+                  </Label>
                   <InputGroup className="h-8.5">
                     <InputGroupInput
                       id={patternId}
@@ -543,11 +546,17 @@ function QuestionRequestRow({
       ariaLabel="The agent has a question"
       card="question"
       icon={<MessageCircleQuestionMark />}
-      title={questions.length > 1 ? `The agent asks you ${questions.length} questions` : "The agent asks you a question"}
+      title={
+        questions.length > 1 ? `The agent asks you ${questions.length} questions` : "The agent asks you a question"
+      }
       aside="The session waits until you answer"
     >
       {onAnswerQuestion ? (
-        <QuestionForm questions={questions} onSubmit={(picks) => onAnswerQuestion(request.id, picks)} draftKey={request.id} />
+        <QuestionForm
+          questions={questions}
+          onSubmit={(picks) => onAnswerQuestion(request.id, picks)}
+          draftKey={request.id}
+        />
       ) : (
         questions.map((q, i) => (
           <p key={i} className="m-0 text-body break-words">

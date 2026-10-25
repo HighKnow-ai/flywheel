@@ -16,7 +16,7 @@
  * error toast (`useRegistrationErrorToast`) where there is none.
  */
 import { useEffect, useId, useState, type FormEvent } from "react";
-import { ChevronRight, OctagonX } from "lucide-react";
+import { ChevronRight, FolderOpen, OctagonX } from "lucide-react";
 import { useProjects, useRegisterProject, type Project } from "../board/useBoardQuery";
 import { openFolderDialog } from "../adapters/tauri";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -135,10 +135,13 @@ export interface PendingRegistration {
 export function RegisterProjectDialog({
   pending,
   onOpenChange,
+  onChooseAnother,
 }: {
   /** The folder being registered; `null` closes the dialog. */
   pending: PendingRegistration | null;
   onOpenChange: (open: boolean) => void;
+  /** Opens the folder picker again: offered when the folder itself is what failed. */
+  onChooseAnother?: () => void;
 }) {
   const registerProject = useRegisterProject();
   const { reset } = registerProject;
@@ -170,6 +173,11 @@ export function RegisterProjectDialog({
   }
 
   const example = keyPrefix.trim().toUpperCase() || "KEY";
+  // Only a refused key marks the key field; a folder that is not a git checkout is the folder's fault, and the
+  // way on is another folder, not another key.
+  const keyRefused =
+    registerProject.isError && failureMessage(registerProject.error).toLowerCase().includes("key prefix");
+  const folderRefused = registerProject.isError && !keyRefused;
   return (
     <Dialog open={pending !== null} onOpenChange={setOpen}>
       <DialogContent className="gap-5 sm:max-w-md" showCloseButton={false}>
@@ -189,7 +197,7 @@ export function RegisterProjectDialog({
               maxLength={10}
               autoComplete="off"
               spellCheck={false}
-              aria-invalid={registerProject.isError || undefined}
+              aria-invalid={keyRefused || undefined}
             />
             <FieldDescription>
               Every Story key starts with it, as in <span className="font-mono">{example}-1</span>. It can&rsquo;t
@@ -210,9 +218,21 @@ export function RegisterProjectDialog({
               Cancel
             </Button>
           </DialogClose>
-          <Button type="submit" form={`${keyId}-form`} loading={registerProject.isPending} disabled={!keyPrefix.trim()}>
-            Register project
-          </Button>
+          {folderRefused && onChooseAnother ? (
+            <Button type="button" onClick={onChooseAnother}>
+              <FolderOpen aria-hidden="true" />
+              Choose another folder…
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              form={`${keyId}-form`}
+              loading={registerProject.isPending}
+              disabled={!keyPrefix.trim()}
+            >
+              Register project
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

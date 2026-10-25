@@ -11,14 +11,12 @@ import { LaunchSheet } from "../LaunchSheet";
 const storyMock = vi.fn();
 const startMock = vi.fn();
 
-
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
   return {
     ...actual,
     storyGet: (storyId: string) => storyMock(storyId),
-    startSession: (storyId: string, ...rest: unknown[]) =>
-      startMock(storyId, ...rest),
+    startSession: (storyId: string, ...rest: unknown[]) => startMock(storyId, ...rest),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
   };
 });
@@ -56,7 +54,7 @@ describe("LaunchSheet", () => {
     startMock.mockReset();
     renderSheet();
 
-    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Start work on FLY-42")).toBeInTheDocument());
   });
 
   it("shows the free-text field's exact placeholder", async () => {
@@ -73,15 +71,17 @@ describe("LaunchSheet", () => {
 
   it("offers no permission-mode choice and sends none: the session kind decides it (ADR 0001)", async () => {
     storyMock.mockReset().mockResolvedValue(makeStory());
-    startMock.mockReset().mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
+    startMock
+      .mockReset()
+      .mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
-    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Start work on FLY-42")).toBeInTheDocument());
 
     expect(screen.queryByRole("radiogroup", { name: "Permission mode" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Start Work" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start work" }));
 
     await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
     expect(startMock).toHaveBeenCalledWith("story-1", "");
@@ -93,7 +93,7 @@ describe("LaunchSheet", () => {
     const onClose = vi.fn();
     renderSheet({ onClose });
 
-    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Start work on FLY-42")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
@@ -107,7 +107,7 @@ describe("LaunchSheet", () => {
     const onClose = vi.fn();
     renderSheet({ onClose });
 
-    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Start work on FLY-42")).toBeInTheDocument());
 
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
 
@@ -117,10 +117,12 @@ describe("LaunchSheet", () => {
 
   it("Enter with focus in the body submits", async () => {
     storyMock.mockReset().mockResolvedValue(makeStory());
-    startMock.mockReset().mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
+    startMock
+      .mockReset()
+      .mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
-    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Start work on FLY-42")).toBeInTheDocument());
 
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter" });
 
@@ -129,10 +131,12 @@ describe("LaunchSheet", () => {
 
   it("Enter with focus in the free-text field does not submit, but ⌘Enter does", async () => {
     storyMock.mockReset().mockResolvedValue(makeStory());
-    startMock.mockReset().mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
+    startMock
+      .mockReset()
+      .mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
-    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Start work on FLY-42")).toBeInTheDocument());
 
     const field = screen.getByLabelText("Instruction");
     fireEvent.keyDown(field, { key: "Enter" });
@@ -147,22 +151,24 @@ describe("LaunchSheet", () => {
     startMock.mockReset().mockRejectedValueOnce(new Error("story is not ready"));
     const { onStarted } = renderSheet();
 
-    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Start Work" }));
+    await waitFor(() => expect(screen.getByText("Start work on FLY-42")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Start work" }));
 
     expect(await screen.findByText("story is not ready")).toBeInTheDocument();
     expect(onStarted).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Start Work" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start work" })).not.toBeDisabled();
   });
 
   it("submitting with an empty instruction still calls the start command", async () => {
     storyMock.mockReset().mockResolvedValue(makeStory());
-    startMock.mockReset().mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
+    startMock
+      .mockReset()
+      .mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
-    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Start work on FLY-42")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "Start Work" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start work" }));
 
     await waitFor(() => expect(startMock).toHaveBeenCalledTimes(1));
     expect(startMock).toHaveBeenCalledWith("story-1", "");
@@ -177,14 +183,14 @@ describe("LaunchSheet", () => {
    * own established pattern for proving a synchronous-tick guard
    * (`session/SessionSurface.tsx`'s "clicking Stop three times in one synchronous tick" test).
    */
-  it("clicking Start Work three times in one synchronous tick calls the start command exactly once", async () => {
+  it("clicking Start work three times in one synchronous tick calls the start command exactly once", async () => {
     storyMock.mockReset().mockResolvedValue(makeStory());
     startMock.mockReset().mockReturnValue(new Promise(() => {})); // never resolves within the test
     renderSheet();
 
-    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Start work on FLY-42")).toBeInTheDocument());
 
-    const submitButton = screen.getByRole("button", { name: "Start Work" }) as HTMLButtonElement;
+    const submitButton = screen.getByRole("button", { name: "Start work" }) as HTMLButtonElement;
     submitButton.click();
     submitButton.click();
     submitButton.click();
@@ -197,7 +203,7 @@ describe("LaunchSheet", () => {
     startMock.mockReset().mockReturnValue(new Promise(() => {})); // never resolves within the test
     renderSheet();
 
-    await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Start work on FLY-42")).toBeInTheDocument());
 
     const dialog = screen.getByRole("dialog");
     dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
@@ -237,16 +243,16 @@ describe("LaunchSheet on Dialog (issue #210)", () => {
   it("is the shadcn Dialog, carrying the shared overlay motion in and out", async () => {
     storyMock.mockReset().mockResolvedValue(makeStory());
     renderSheet();
-    const dialog = await screen.findByRole("dialog", { name: "Start Work on FLY-42" });
+    const dialog = await screen.findByRole("dialog", { name: "Start work on FLY-42" });
     expect(dialog).toHaveAttribute("data-slot", "dialog-content");
     expect(dialog.className).toMatch(/data-open:animate-in/);
     expect(dialog.className).toMatch(/data-closed:animate-out/);
   });
 
-  it("shows the ⌘↩ shortcut on Start Work, as Kbd, out of the button's name", async () => {
+  it("shows the ⌘↩ shortcut on Start work, as Kbd, out of the button's name", async () => {
     storyMock.mockReset().mockResolvedValue(makeStory());
     renderSheet();
-    const start = await screen.findByRole("button", { name: "Start Work" });
+    const start = await screen.findByRole("button", { name: "Start work" });
     expect(start).toHaveAttribute("aria-keyshortcuts", "Meta+Enter");
     const keys = start.querySelectorAll("[data-slot=kbd]");
     expect(Array.from(keys).map((key) => key.textContent)).toEqual(["⌘", "↩"]);
@@ -261,9 +267,9 @@ describe("LaunchSheet on Dialog (issue #210)", () => {
       </QueryClientProvider>
     );
     const { rerender } = render(tree("story-1"));
-    await screen.findByText("Start Work on FLY-42");
+    await screen.findByText("Start work on FLY-42");
     rerender(tree(null));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(screen.queryByText(/^Start Work on\s*$/)).toBeNull();
+    expect(screen.queryByText(/^Start work on\s*$/)).toBeNull();
   });
 });

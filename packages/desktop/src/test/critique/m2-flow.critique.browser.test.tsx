@@ -46,8 +46,10 @@ async function shot(name: string) {
 }
 
 async function boardReady() {
-  // The shipped page mounts into `#root`, which App.css sizes to the window; render into the same node.
-  const root = document.getElementById("root") ?? document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
+  // The shipped page mounts into `#root`, which globals.css sizes to the window; render into the same node.
+  const root =
+    document.getElementById("root") ??
+    document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
   render(<App />, { container: root });
   await screen.findAllByText("Make clicking and navigation predictable");
   await settle();
@@ -98,7 +100,13 @@ function closableShaping({ closed = false } = {}) {
         })),
         proposals: shaping.proposals.filter((p) => p.state !== "pending"),
         openStageStatus: closed
-          ? { stageId: "st-2", openItems: [], warnings: ["The Exit test is not written yet"], next: "criteria", closable: true }
+          ? {
+              stageId: "st-2",
+              openItems: [],
+              warnings: ["The Exit test is not written yet"],
+              next: "criteria",
+              closable: true,
+            }
           : shaping.openStageStatus && { ...shaping.openStageStatus, openItems: [], closable: true },
       };
     },
@@ -113,27 +121,122 @@ function closableShaping({ closed = false } = {}) {
  */
 function slicingShaping() {
   closableShaping({ closed: true });
-  const story = (id: string, key: string, title: string, rank: string, description: string, runsAfter: [string, string] | null = null) => ({
-    id, projectId: "p-fly", epicId: "e-59", key, title, description, state: "shaping", rank,
-    runsAfterStoryId: runsAfter?.[0] ?? null, runsAfterReason: runsAfter?.[1] ?? null,
+  const story = (
+    id: string,
+    key: string,
+    title: string,
+    rank: string,
+    description: string,
+    runsAfter: [string, string] | null = null,
+  ) => ({
+    id,
+    projectId: "p-fly",
+    epicId: "e-59",
+    key,
+    title,
+    description,
+    state: "shaping",
+    rank,
+    runsAfterStoryId: runsAfter?.[0] ?? null,
+    runsAfterReason: runsAfter?.[1] ?? null,
   });
-  const proposal = (id: string, verb: string, payload: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
-    id, projectId: "p-fly", sessionId: "ses-shape-8", epicId: "e-59", verb, targetType: "story", targetId: null, payload,
-    rationale: null, state: "pending", createdAt: new Date().toISOString(), rejectionReason: null, stageId: "st-2", roundId: null,
+  const proposal = (
+    id: string,
+    verb: string,
+    payload: Record<string, unknown>,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    id,
+    projectId: "p-fly",
+    sessionId: "ses-shape-8",
+    epicId: "e-59",
+    verb,
+    targetType: "story",
+    targetId: null,
+    payload,
+    rationale: null,
+    state: "pending",
+    createdAt: new Date().toISOString(),
+    rejectionReason: null,
+    stageId: "st-2",
+    roundId: null,
     ...extra,
   });
-  const newStory = (id: string, title: string, rank: string, description: string, after: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) =>
-    proposal(id, "create", { title, description, rank, runs_after_story_id: null, runs_after_proposal_id: null, runs_after_reason: null, ...after }, extra);
+  const newStory = (
+    id: string,
+    title: string,
+    rank: string,
+    description: string,
+    after: Record<string, unknown> = {},
+    extra: Record<string, unknown> = {},
+  ) =>
+    proposal(
+      id,
+      "create",
+      {
+        title,
+        description,
+        rank,
+        runs_after_story_id: null,
+        runs_after_proposal_id: null,
+        runs_after_reason: null,
+        ...after,
+      },
+      extra,
+    );
   const stories = [
-    story("s-9", "FLY-9", "Answer a shaping Round in the dock", "a0", "The dock beside the Epic card: numbered questions with a pre-filled recommended answer, Accept, Answer differently and Accept all recommended. Tested in round-dock.test.tsx."),
-    story("s-10", "FLY-10", "Show Proposals in shaping as ghost cards", "a1", "A spec change the agent proposes shows under the field it would rewrite, decided there with Accept, Amend or Reject.", ["s-9", "the ghost card answers from the dock's Round"]),
-    story("s-12", "FLY-12", "Resume a killed shaping session at the open Round", "a2", "A fresh session rebuilt from the board picks the open Round up with round_wait; no answer is lost."),
+    story(
+      "s-9",
+      "FLY-9",
+      "Answer a shaping Round in the dock",
+      "a0",
+      "The dock beside the Epic card: numbered questions with a pre-filled recommended answer, Accept, Answer differently and Accept all recommended. Tested in round-dock.test.tsx.",
+    ),
+    story(
+      "s-10",
+      "FLY-10",
+      "Show Proposals in shaping as ghost cards",
+      "a1",
+      "A spec change the agent proposes shows under the field it would rewrite, decided there with Accept, Amend or Reject.",
+      ["s-9", "the ghost card answers from the dock's Round"],
+    ),
+    story(
+      "s-12",
+      "FLY-12",
+      "Resume a killed shaping session at the open Round",
+      "a2",
+      "A fresh session rebuilt from the board picks the open Round up with round_wait; no answer is lost.",
+    ),
   ];
   const proposals = [
-    newStory("pr-s1", "Slice an Epic into Stories as ghost columns", "a3", "propose_story and propose_story_order; accepting creates the Story in Shaping at its rank with its runs-after marker. Tested in proposal_apply.rs and story-columns.test.tsx.", { runs_after_story_id: "s-10", runs_after_reason: "reuses GhostCard.tsx's decisions" }),
-    newStory("pr-s2", "Write the criteria and close the Epic to Ready", "a4", "The criteria Stage: one accepted criterion per Story with its Check, then closing the last Stage makes every Story Ready.", { runs_after_proposal_id: "pr-s1", runs_after_reason: "criteria stack under the Story columns" }),
-    proposal("pr-m1", "reorder", { rank: "a35" }, { targetId: "s-12", rationale: "Resuming needs the slicing tools in the packet first" }),
-    newStory("pr-s0", "Prototype the dock as a modal sheet", "a5", "", {}, { state: "rejected", rejectionReason: "The dock stays beside the Epic card" }),
+    newStory(
+      "pr-s1",
+      "Slice an Epic into Stories as ghost columns",
+      "a3",
+      "propose_story and propose_story_order; accepting creates the Story in Shaping at its rank with its runs-after marker. Tested in proposal_apply.rs and story-columns.test.tsx.",
+      { runs_after_story_id: "s-10", runs_after_reason: "reuses GhostCard.tsx's decisions" },
+    ),
+    newStory(
+      "pr-s2",
+      "Write the criteria and close the Epic to Ready",
+      "a4",
+      "The criteria Stage: one accepted criterion per Story with its Check, then closing the last Stage makes every Story Ready.",
+      { runs_after_proposal_id: "pr-s1", runs_after_reason: "criteria stack under the Story columns" },
+    ),
+    proposal(
+      "pr-m1",
+      "reorder",
+      { rank: "a35" },
+      { targetId: "s-12", rationale: "Resuming needs the slicing tools in the packet first" },
+    ),
+    newStory(
+      "pr-s0",
+      "Prototype the dock as a modal sheet",
+      "a5",
+      "",
+      {},
+      { state: "rejected", rejectionReason: "The dock stays beside the Epic card" },
+    ),
   ];
   mockIPC(
     (cmd, payload) => {
@@ -145,9 +248,30 @@ function slicingShaping() {
           { id: "st-2", kind: "slice", state: "open", rank: 2 },
         ];
         const openItems = [
-          { kind: "proposal", id: "pr-s1", label: "", round: null, number: null, title: "add the Story “Slice an Epic into Stories as ghost columns”" },
-          { kind: "proposal", id: "pr-s2", label: "", round: null, number: null, title: "add the Story “Write the criteria and close the Epic to Ready”" },
-          { kind: "proposal", id: "pr-m1", label: "", round: null, number: null, title: "move FLY-12 “Resume a killed shaping session at the open Round” in the order" },
+          {
+            kind: "proposal",
+            id: "pr-s1",
+            label: "",
+            round: null,
+            number: null,
+            title: "add the Story “Slice an Epic into Stories as ghost columns”",
+          },
+          {
+            kind: "proposal",
+            id: "pr-s2",
+            label: "",
+            round: null,
+            number: null,
+            title: "add the Story “Write the criteria and close the Epic to Ready”",
+          },
+          {
+            kind: "proposal",
+            id: "pr-m1",
+            label: "",
+            round: null,
+            number: null,
+            title: "move FLY-12 “Resume a killed shaping session at the open Round” in the order",
+          },
         ];
         return {
           ...base,
@@ -157,11 +281,22 @@ function slicingShaping() {
             state: "answered",
             waitingOnYou: false,
             answeredAt: r.answeredAt ?? r.postedAt,
-            questions: r.questions.map((q) => ({ ...q, answer: q.answer ?? q.recommendedAnswer, answeredWith: q.answeredWith ?? "recommended", answeredAt: q.answeredAt ?? r.postedAt })),
+            questions: r.questions.map((q) => ({
+              ...q,
+              answer: q.answer ?? q.recommendedAnswer,
+              answeredWith: q.answeredWith ?? "recommended",
+              answeredAt: q.answeredAt ?? r.postedAt,
+            })),
           })),
           proposals: [...base.proposals.filter((p) => p.state !== "pending"), ...proposals],
           stories,
-          openStageStatus: { stageId: "st-2", openItems, warnings: ["The Exit test is not written yet"], next: "criteria", closable: false },
+          openStageStatus: {
+            stageId: "st-2",
+            openItems,
+            warnings: ["The Exit test is not written yet"],
+            next: "criteria",
+            closable: false,
+          },
         };
       }
       // Everything else as in the closed-Challenge fixture: FLY-8 waits on no one.
@@ -190,57 +325,203 @@ function slicingShaping() {
  */
 function criteriaShaping({ closable = false } = {}) {
   closableShaping({ closed: true });
-  const story = (id: string, key: string, title: string, rank: string, description: string, runsAfter: [string, string] | null = null) => ({
-    id, projectId: "p-fly", epicId: "e-59", key, title, description, state: "shaping", rank,
-    runsAfterStoryId: runsAfter?.[0] ?? null, runsAfterReason: runsAfter?.[1] ?? null,
+  const story = (
+    id: string,
+    key: string,
+    title: string,
+    rank: string,
+    description: string,
+    runsAfter: [string, string] | null = null,
+  ) => ({
+    id,
+    projectId: "p-fly",
+    epicId: "e-59",
+    key,
+    title,
+    description,
+    state: "shaping",
+    rank,
+    runsAfterStoryId: runsAfter?.[0] ?? null,
+    runsAfterReason: runsAfter?.[1] ?? null,
   });
   const stories = [
-    story("s-9", "FLY-9", "Answer a shaping Round in the dock", "a0", "The dock beside the Epic card: numbered questions with a pre-filled recommended answer, Accept, Answer differently and Accept all recommended."),
-    story("s-10", "FLY-10", "Show Proposals in shaping as ghost cards", "a1", "A spec change the agent proposes shows under the field it would rewrite, decided there.", ["s-9", "the ghost card answers from the dock's Round"]),
-    story("s-12", "FLY-12", "Resume a killed shaping session at the open Round", "a2", "A fresh session rebuilt from the board picks the open Round up with round_wait."),
-    story("s-13", "FLY-13", "Close the Epic to Ready", "a3", "Closing the criteria Stage makes every Story in Shaping and the Epic Ready."),
+    story(
+      "s-9",
+      "FLY-9",
+      "Answer a shaping Round in the dock",
+      "a0",
+      "The dock beside the Epic card: numbered questions with a pre-filled recommended answer, Accept, Answer differently and Accept all recommended.",
+    ),
+    story(
+      "s-10",
+      "FLY-10",
+      "Show Proposals in shaping as ghost cards",
+      "a1",
+      "A spec change the agent proposes shows under the field it would rewrite, decided there.",
+      ["s-9", "the ghost card answers from the dock's Round"],
+    ),
+    story(
+      "s-12",
+      "FLY-12",
+      "Resume a killed shaping session at the open Round",
+      "a2",
+      "A fresh session rebuilt from the board picks the open Round up with round_wait.",
+    ),
+    story(
+      "s-13",
+      "FLY-13",
+      "Close the Epic to Ready",
+      "a3",
+      "Closing the criteria Stage makes every Story in Shaping and the Epic Ready.",
+    ),
   ];
   // Once the close lands (screen 68), every Stage is closed and the Epic and its Stories are Ready.
   let closedNow = false;
-  const check = (id: string, command: string) => ({ id, command, timeoutSecs: 600, result: "not_run", commitSha: null, stale: false, outputTail: null });
+  const check = (id: string, command: string) => ({
+    id,
+    command,
+    timeoutSecs: 600,
+    result: "not_run",
+    commitSha: null,
+    stale: false,
+    outputTail: null,
+  });
   const criterion = (id: string, storyId: string, statement: string, command: string | null, rank: string) => ({
-    id, storyId, statement, accepted: false, acceptedAt: null, rank, check: command ? check(`k-${id}`, command) : null,
+    id,
+    storyId,
+    statement,
+    accepted: false,
+    acceptedAt: null,
+    rank,
+    check: command ? check(`k-${id}`, command) : null,
   });
   const criteria: Record<string, ReturnType<typeof criterion>[]> = {
     "s-9": [
-      criterion("c-9a", "s-9", "Accept all recommended answers every open question at once", "npm test -- round-dock", "a"),
+      criterion(
+        "c-9a",
+        "s-9",
+        "Accept all recommended answers every open question at once",
+        "npm test -- round-dock",
+        "a",
+      ),
       criterion("c-9b", "s-9", "A recommended answer reads as already filled in, never as a placeholder", null, "b"),
     ],
-    "s-10": closable ? [criterion("c-10a", "s-10", "A pending spec change shows under the field it would rewrite", "npm test -- ghost-card", "a")] : [],
-    "s-12": closable ? [criterion("c-12a", "s-12", "A killed session's successor picks the open Round up with no answer lost", "cargo test -p core --test shaping_resume", "a")] : [],
-    "s-13": closable ? [criterion("c-13a", "s-13", "Closing the criteria Stage makes the Epic and its Stories Ready at once", "cargo test -p core --test stage_close", "a")] : [],
+    "s-10": closable
+      ? [
+          criterion(
+            "c-10a",
+            "s-10",
+            "A pending spec change shows under the field it would rewrite",
+            "npm test -- ghost-card",
+            "a",
+          ),
+        ]
+      : [],
+    "s-12": closable
+      ? [
+          criterion(
+            "c-12a",
+            "s-12",
+            "A killed session's successor picks the open Round up with no answer lost",
+            "cargo test -p core --test shaping_resume",
+            "a",
+          ),
+        ]
+      : [],
+    "s-13": closable
+      ? [
+          criterion(
+            "c-13a",
+            "s-13",
+            "Closing the criteria Stage makes the Epic and its Stories Ready at once",
+            "cargo test -p core --test stage_close",
+            "a",
+          ),
+        ]
+      : [],
   };
-  const proposal = (id: string, storyId: string, statement: string, command: string | null, extra: Record<string, unknown> = {}) => ({
-    id, projectId: "p-fly", sessionId: "ses-shape-8", epicId: "e-59", verb: "create", targetType: "criterion", targetId: null,
+  const proposal = (
+    id: string,
+    storyId: string,
+    statement: string,
+    command: string | null,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    id,
+    projectId: "p-fly",
+    sessionId: "ses-shape-8",
+    epicId: "e-59",
+    verb: "create",
+    targetType: "criterion",
+    targetId: null,
     payload: { story_id: storyId, statement, ...(command ? { check_command: command } : {}) },
-    rationale: null, state: "pending", createdAt: new Date().toISOString(), rejectionReason: null, stageId: "st-3", roundId: null,
+    rationale: null,
+    state: "pending",
+    createdAt: new Date().toISOString(),
+    rejectionReason: null,
+    stageId: "st-3",
+    roundId: null,
     ...extra,
   });
   const proposals = closable
     ? []
     : [
-        proposal("pc-10", "s-10", "A pending spec change shows under the field it would rewrite, decided there", "npm test -- ghost-card"),
+        proposal(
+          "pc-10",
+          "s-10",
+          "A pending spec change shows under the field it would rewrite, decided there",
+          "npm test -- ghost-card",
+        ),
         proposal("pc-12", "s-12", "A killed session's successor picks the open Round up with no answer lost", null),
-        proposal("pc-x", "s-9", "The dock feels calm", null, { state: "rejected", rejectionReason: "Not observable: name what calm looks like" }),
+        proposal("pc-x", "s-9", "The dock feels calm", null, {
+          state: "rejected",
+          rejectionReason: "Not observable: name what calm looks like",
+        }),
       ];
   const openItems = closable
     ? []
     : [
-        { kind: "proposal", id: "pc-10", label: "", round: null, number: null, title: "add the criterion “A pending spec change shows under the field it would rewrite, decided there” to FLY-10" },
-        { kind: "proposal", id: "pc-12", label: "", round: null, number: null, title: "add the criterion “A killed session's successor picks the open Round up with no answer lost” to FLY-12" },
+        {
+          kind: "proposal",
+          id: "pc-10",
+          label: "",
+          round: null,
+          number: null,
+          title:
+            "add the criterion “A pending spec change shows under the field it would rewrite, decided there” to FLY-10",
+        },
+        {
+          kind: "proposal",
+          id: "pc-12",
+          label: "",
+          round: null,
+          number: null,
+          title:
+            "add the criterion “A killed session's successor picks the open Round up with no answer lost” to FLY-12",
+        },
         // FLY-10 and FLY-12 are named through their Proposals; FLY-13 has neither a criterion nor a Proposal.
-        { kind: "story_without_criterion", id: "s-13", label: "", round: null, number: null, title: "Close the Epic to Ready", storyKey: "FLY-13" },
+        {
+          kind: "story_without_criterion",
+          id: "s-13",
+          label: "",
+          round: null,
+          number: null,
+          title: "Close the Epic to Ready",
+          storyKey: "FLY-13",
+        },
       ];
   mockIPC(
     (cmd, payload) => {
       if (cmd === "stage_close") {
         closedNow = true;
-        return { closedStageId: "st-3", opened: null, madeReady: stories.map((s) => s.id), session: null, launchError: null, sidecarWarning: null };
+        return {
+          closedStageId: "st-3",
+          opened: null,
+          madeReady: stories.map((s) => s.id),
+          session: null,
+          launchError: null,
+          sidecarWarning: null,
+        };
       }
       if (cmd === "epic_shaping_rounds") {
         const base = answer(cmd, payload as Record<string, unknown> | undefined) as EpicShapingDto | null;
@@ -258,13 +539,25 @@ function criteriaShaping({ closable = false } = {}) {
             state: "answered",
             waitingOnYou: false,
             answeredAt: r.answeredAt ?? r.postedAt,
-            questions: r.questions.map((q) => ({ ...q, answer: q.answer ?? q.recommendedAnswer, answeredWith: q.answeredWith ?? "recommended", answeredAt: q.answeredAt ?? r.postedAt })),
+            questions: r.questions.map((q) => ({
+              ...q,
+              answer: q.answer ?? q.recommendedAnswer,
+              answeredWith: q.answeredWith ?? "recommended",
+              answeredAt: q.answeredAt ?? r.postedAt,
+            })),
           })),
           proposals: [...base.proposals.filter((p) => p.state !== "pending"), ...proposals],
           stories: closedNow ? stories.map((s) => ({ ...s, state: "ready" })) : stories,
           openStageStatus: closedNow
             ? null
-            : { stageId: "st-3", openItems, warnings: ["The Exit test is not written yet"], next: null, makesReady: true, closable },
+            : {
+                stageId: "st-3",
+                openItems,
+                warnings: ["The Exit test is not written yet"],
+                next: null,
+                makesReady: true,
+                closable,
+              },
         };
       }
       if (cmd === "criterion_list") return criteria[(payload as { storyId: string }).storyId] ?? [];
@@ -297,7 +590,13 @@ async function click(label: string | RegExp) {
 }
 
 async function openStory(key: string, title: string | RegExp) {
-  await userEvent.click((await screen.findAllByRole("button", { name: new RegExp(`^Open Story ${key} ${typeof title === "string" ? title : title.source}$`) }))[0]);
+  await userEvent.click(
+    (
+      await screen.findAllByRole("button", {
+        name: new RegExp(`^Open Story ${key} ${typeof title === "string" ? title : title.source}$`),
+      })
+    )[0],
+  );
 }
 
 describe.runIf(CRITIQUE_RUN)("M2 to M4 flow screens", () => {
@@ -463,7 +762,10 @@ describe.runIf(CRITIQUE_RUN)("M2 to M4 flow screens", () => {
   it("21 Roadmap strip: + Milestone takes a one-line outcome (issue #131)", async () => {
     await boardReady();
     await click("Add a Milestone");
-    await userEvent.type(await screen.findByRole("textbox", { name: "New Milestone's outcome" }), "Relay: the board on a phone");
+    await userEvent.type(
+      await screen.findByRole("textbox", { name: "New Milestone's outcome" }),
+      "Relay: the board on a phone",
+    );
     await shot("21-roadmap-add-milestone");
   });
 
@@ -474,7 +776,9 @@ describe.runIf(CRITIQUE_RUN)("M2 to M4 flow screens", () => {
     const transfer = new DataTransfer();
     row("One-week exit test").dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
     await settle(100);
-    row("Board and review").dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    row("Board and review").dispatchEvent(
+      new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+    );
     await screen.findByText("One-week exit test");
     await shot("22-roadmap-dragging");
     row("One-week exit test").dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
@@ -1128,7 +1432,8 @@ describe.runIf(CRITIQUE_RUN)("M2 to M4 flow screens", () => {
    */
   function exitTestScene(scene: "epic" | "milestone" | "noted") {
     const allDone = scene !== "epic";
-    const FLY1_EXIT = "Every screen of the M2 flow is drawn in the Andon world, and Cyril tells what needs him at a glance.";
+    const FLY1_EXIT =
+      "Every screen of the M2 flow is drawn in the Andon world, and Cyril tells what needs him at a glance.";
     mockIPC(
       (cmd, payload) => {
         const args = payload as Record<string, unknown> | undefined;
@@ -1136,46 +1441,83 @@ describe.runIf(CRITIQUE_RUN)("M2 to M4 flow screens", () => {
         switch (cmd) {
           case "story_list_for_project":
             return (base as { epicId: string; state: string }[]).map((s) =>
-              s.epicId === "e-97" || (allDone && s.epicId === "e-59") ? { ...s, state: s.state === "dropped" ? "dropped" : "merged" } : s,
+              s.epicId === "e-97" || (allDone && s.epicId === "e-59")
+                ? { ...s, state: s.state === "dropped" ? "dropped" : "merged" }
+                : s,
             );
           case "epic_list":
             return (base as { id: string; state: string }[] | null)?.map((e) =>
-              e.id === "e-97" ? { ...e, exitTest: FLY1_EXIT, state: allDone ? "done" : "in_progress" } : e.id === "e-59" && allDone ? { ...e, state: "done" } : e,
+              e.id === "e-97"
+                ? { ...e, exitTest: FLY1_EXIT, state: allDone ? "done" : "in_progress" }
+                : e.id === "e-59" && allDone
+                  ? { ...e, state: "done" }
+                  : e,
             );
           case "milestone_list":
-            return (base as { id: string }[]).map((m) => (m.id === "m-3" ? { ...m, epicsDone: allDone ? 2 : 0, epicsTotal: 2 } : m));
+            return (base as { id: string }[]).map((m) =>
+              m.id === "m-3" ? { ...m, epicsDone: allDone ? 2 : 0, epicsTotal: 2 } : m,
+            );
           case "milestone_progress": {
             if (!base) return base;
-            const p = base as { milestoneId: string; epics: { epicId: string; counts: Record<string, number> }[]; counts: Record<string, number> };
+            const p = base as {
+              milestoneId: string;
+              epics: { epicId: string; counts: Record<string, number> }[];
+              counts: Record<string, number>;
+            };
             if (p.milestoneId !== "m-3") return base;
             const merged = allDone ? 7 : 6;
             const zero = { shaping: 0, ready: 0, running: 0, waitingOnYou: 0, stopped: 0, inReview: 0 };
             return {
               ...p,
               epicsDone: allDone ? 2 : 0,
-              counts: allDone ? { ...zero, merged, dropped: 1, storiesTotal: merged } : { ...p.counts, ...zero, ready: 1, shaping: 1, merged, storiesTotal: merged + 2 },
+              counts: allDone
+                ? { ...zero, merged, dropped: 1, storiesTotal: merged }
+                : { ...p.counts, ...zero, ready: 1, shaping: 1, merged, storiesTotal: merged + 2 },
               epics: p.epics.map((e) =>
                 e.epicId === "e-97"
-                  ? { ...e, state: allDone ? "done" : "in_progress", counts: { ...zero, merged: 6, dropped: 0, storiesTotal: 6 } }
+                  ? {
+                      ...e,
+                      state: allDone ? "done" : "in_progress",
+                      counts: { ...zero, merged: 6, dropped: 0, storiesTotal: 6 },
+                    }
                   : allDone
-                    ? { ...e, state: "done", attention: null, counts: { ...zero, merged: 1, dropped: 1, storiesTotal: 1 } }
+                    ? {
+                        ...e,
+                        state: "done",
+                        attention: null,
+                        counts: { ...zero, merged: 1, dropped: 1, storiesTotal: 1 },
+                      }
                     : e,
               ),
             };
           }
           // Nothing runs and nothing waits: the scene is about closing work.
-          case "fleet_list": return { rows: [], totalRows: 0, visibleCostUsd: 0 };
-          case "fleet_blocked_queue": return [];
-          case "fleet_waiting_rounds": return [];
-          case "board_blocked_summary": return { blockedStoryIds: [], waitingEpicIds: [], roadmapWaiting: false, blockedCount: 0 };
-          case "epic_shaping_session": return null;
+          case "fleet_list":
+            return { rows: [], totalRows: 0, visibleCostUsd: 0 };
+          case "fleet_blocked_queue":
+            return [];
+          case "fleet_waiting_rounds":
+            return [];
+          case "board_blocked_summary":
+            return { blockedStoryIds: [], waitingEpicIds: [], roadmapWaiting: false, blockedCount: 0 };
+          case "epic_shaping_session":
+            return null;
           case "roadmap_round_read":
             if (scene !== "noted" || args?.projectId !== "p-fly") return base;
             return {
               open: {
-                id: "rr-3", number: 3, state: "open", triggerType: "epic_done", triggerLabel: "Epic FLY-1 done",
-                waitingOnYou: false, sessionLive: false, sessionId: null, postedAt: new Date(Date.now() - 1_200_000).toISOString(),
-                closedAt: null, proposalsFiled: 0, notedTriggers: ["Epic FLY-8 done"],
+                id: "rr-3",
+                number: 3,
+                state: "open",
+                triggerType: "epic_done",
+                triggerLabel: "Epic FLY-1 done",
+                waitingOnYou: false,
+                sessionLive: false,
+                sessionId: null,
+                postedAt: new Date(Date.now() - 1_200_000).toISOString(),
+                closedAt: null,
+                proposalsFiled: 0,
+                notedTriggers: ["Epic FLY-8 done"],
               },
               proposals: [],
               last: null,
@@ -1191,7 +1533,9 @@ describe.runIf(CRITIQUE_RUN)("M2 to M4 flow screens", () => {
   it("58 Epic card: every Story Merged, Confirm exit test (issue #134)", async () => {
     exitTestScene("epic");
     await boardReady();
-    const confirm = await screen.findByRole("button", { name: "Confirm exit test of FLY-1 Design system and a legible app" });
+    const confirm = await screen.findByRole("button", {
+      name: "Confirm exit test of FLY-1 Design system and a legible app",
+    });
     confirm.closest("section")?.scrollIntoView({ block: "center" });
     await shot("58-epic-confirm-exit-test");
   });

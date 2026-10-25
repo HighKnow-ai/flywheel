@@ -19,7 +19,16 @@
  */
 import { useEffect, useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Circle, CircleCheck, CircleDashed, CircleDot, Info, ListChecks, MessageCircleQuestionMark, StepForward } from "lucide-react";
+import {
+  Circle,
+  CircleCheck,
+  CircleDashed,
+  CircleDot,
+  Info,
+  ListChecks,
+  MessageCircleQuestionMark,
+  StepForward,
+} from "lucide-react";
 import { stageClose, type StageDto, type StageStatusDto } from "../adapters/tauri";
 import { errorText } from "../board/StoryControls";
 import { STAGE_LABELS } from "./RoundDock";
@@ -74,7 +83,10 @@ function openSentence(stage: string, questions: number, proposals: number, bare:
   const parts: string[] = [];
   const undecided = questions + proposals;
   if (undecided > 0) {
-    const what = [questions > 0 && plural(questions, "question", "questions"), proposals > 0 && plural(proposals, "Proposal", "Proposals")]
+    const what = [
+      questions > 0 && plural(questions, "question", "questions"),
+      proposals > 0 && plural(proposals, "Proposal", "Proposals"),
+    ]
       .filter(Boolean)
       .join(" and ");
     parts.push(`${what} ${undecided === 1 ? "is" : "are"} still open`);
@@ -83,7 +95,6 @@ function openSentence(stage: string, questions: number, proposals: number, bare:
   if (noStory) parts.push("the Epic has no Story to make Ready");
   return `${stage} stays open while ${parts.join(" and ")}${undecided + bare > 0 ? ":" : "."}`;
 }
-
 
 export function StageBar({
   stages,
@@ -176,11 +187,7 @@ export function StageBar({
             const isClosed = closedKinds.has(kind);
             const Icon = isClosed ? CircleCheck : isOpen ? CircleDot : Circle;
             return (
-              <li
-                key={kind}
-                aria-current={isOpen ? "step" : undefined}
-                className="flex list-none items-center gap-2"
-              >
+              <li key={kind} aria-current={isOpen ? "step" : undefined} className="flex list-none items-center gap-2">
                 {i > 0 && <span aria-hidden="true" className="h-px w-4 shrink-0 bg-input" />}
                 <span
                   className={cn(
@@ -223,7 +230,9 @@ export function StageBar({
           <div id={openListId} className="flex min-w-0 flex-col gap-2">
             {items.length > 0 ? (
               <>
-                <p className="m-0 text-small font-semibold">{openSentence(StageRef ?? "", questions.length, proposals.length, bare.length, noStory)}</p>
+                <p className="m-0 text-small font-semibold">
+                  {openSentence(StageRef ?? "", questions.length, proposals.length, bare.length, noStory)}
+                </p>
                 <ul aria-label="Still open" className="m-0 flex min-w-0 flex-col gap-1.5 p-0 empty:hidden">
                   {questions.length > 0 && (
                     <li className="flex min-w-0 list-none items-start gap-2 text-small [&_svg]:mt-0.5 [&_svg]:size-4 [&_svg]:shrink-0">
@@ -244,7 +253,10 @@ export function StageBar({
                       <CircleDashed aria-hidden="true" className="text-muted-foreground" />
                       <span className="min-w-0 break-words">
                         <span className="font-semibold">Proposal undecided</span>
-                        <span className="text-muted-foreground"> · {p.title.charAt(0).toUpperCase() + p.title.slice(1)}</span>
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · {p.title.charAt(0).toUpperCase() + p.title.slice(1)}
+                        </span>
                       </span>
                     </li>
                   ))}
@@ -274,8 +286,8 @@ export function StageBar({
               <p className="m-0 text-small">
                 <span className="font-semibold">Nothing in {stageRef} is open.</span>{" "}
                 <span className="text-muted-foreground">
-                  It is the Epic's last Stage: closing it settles its answers and makes the Epic and its Stories Ready, each
-                  with its criteria and Checks.
+                  It is the Epic's last Stage: closing it settles its answers and makes the Epic and its Stories Ready,
+                  each with its criteria and Checks.
                 </span>
               </p>
             ) : (
@@ -330,7 +342,11 @@ export function StageBar({
             <AlertDialogCancel disabled={closing}>Keep it open</AlertDialogCancel>
             <Button loading={closing} onClick={() => void close()}>
               <StepForward aria-hidden="true" />
-              {finishes ? (record === "Epic" ? "Close and make the Epic Ready" : "Close and make it Ready") : `Close and start ${next}`}
+              {finishes
+                ? record === "Epic"
+                  ? "Close and make the Epic Ready"
+                  : "Close and make it Ready"
+                : `Close and start ${next}`}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

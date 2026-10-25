@@ -25,8 +25,22 @@ vi.mock("../../adapters/tauri", () => ({
 }));
 
 const PROJECTS: Project[] = [
-  { id: "proj-1", keyPrefix: "FLY", name: "Flywheel", repoPath: "/repo/flywheel", defaultBranch: "main", status: "active" },
-  { id: "proj-2", keyPrefix: "GONE", name: "Gone", repoPath: "/repo/gone", defaultBranch: "main", status: "unreachable" },
+  {
+    id: "proj-1",
+    keyPrefix: "FLY",
+    name: "Flywheel",
+    repoPath: "/repo/flywheel",
+    defaultBranch: "main",
+    status: "active",
+  },
+  {
+    id: "proj-2",
+    keyPrefix: "GONE",
+    name: "Gone",
+    repoPath: "/repo/gone",
+    defaultBranch: "main",
+    status: "unreachable",
+  },
 ];
 
 beforeEach(() => {
@@ -36,7 +50,11 @@ beforeEach(() => {
     if (command === "actor_list") return Promise.resolve([]);
     if (command === "project_list") return Promise.resolve(PROJECTS);
     if (command === "board_list") {
-      return Promise.resolve({ items: [], issues: [], counts: { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 } });
+      return Promise.resolve({
+        items: [],
+        issues: [],
+        counts: { backlog: 0, todo: 0, inProgress: 0, inReview: 0, done: 0 },
+      });
     }
     return Promise.resolve(undefined);
   });
@@ -73,7 +91,10 @@ describe("the unreachable project inside the real app", () => {
     expect(within(surface).getByRole("button", { name: "Locate project…" })).toBeInTheDocument();
     // Above the heading is only its icon: no text restates it.
     const header = heading.closest("[data-slot=empty-header]") as HTMLElement;
-    const before = Array.from(header.children).slice(0, Array.from(header.children).indexOf(heading.parentElement as Element));
+    const before = Array.from(header.children).slice(
+      0,
+      Array.from(header.children).indexOf(heading.parentElement as Element),
+    );
     expect(before.map((node) => node.textContent).join("")).toBe("");
     expect(within(surface).queryByText("Unreachable")).toBeNull();
   });

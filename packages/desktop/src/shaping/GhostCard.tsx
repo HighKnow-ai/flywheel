@@ -15,6 +15,7 @@
  * card keeps what was turned down and why, without competing with the live field.
  */
 import { useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { Label } from "@/components/ui/label";
 import { useQueryClient } from "@tanstack/react-query";
 import { proposalAccept, proposalAmend, proposalReject, type ProposalDto } from "../adapters/tauri";
 import { Input } from "@/components/ui/input";
@@ -118,7 +119,14 @@ export interface ProposalDecisionProps {
  * edit in one act (`proposal_amend`), Reject asks for an optional reason (`proposal_reject`). While an edit is open
  * it replaces the Proposal's text, with the agent's why kept in sight.
  */
-export function ProposalDecision({ proposal, subject, amend, children, afterDecide, amendWord = "Amend" }: ProposalDecisionProps) {
+export function ProposalDecision({
+  proposal,
+  subject,
+  amend,
+  children,
+  afterDecide,
+  amendWord = "Amend",
+}: ProposalDecisionProps) {
   const fieldId = useId();
   const [mode, setMode] = useState<Mode>("idle");
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -187,13 +195,20 @@ export function ProposalDecision({ proposal, subject, amend, children, afterDeci
             };
             return (
               <div key={f.name} className="flex min-w-0 flex-col gap-1">
-                <label htmlFor={id} className={f.hideLabel ? "sr-only" : "text-meta font-semibold text-muted-foreground"}>
+                <Label
+                  htmlFor={id}
+                  className={f.hideLabel ? "sr-only" : "text-meta font-semibold text-muted-foreground"}
+                >
                   {f.label}
-                </label>
+                </Label>
                 {f.multiline ? (
                   <Textarea {...common} onChange={(e) => setDraft((d) => ({ ...d, [f.name]: e.target.value }))} />
                 ) : (
-                  <Input {...common} className={f.code ? "h-8 font-mono text-small" : "h-8"} onChange={(e) => setDraft((d) => ({ ...d, [f.name]: e.target.value }))} />
+                  <Input
+                    {...common}
+                    className={f.code ? "h-8 font-mono text-small" : "h-8"}
+                    onChange={(e) => setDraft((d) => ({ ...d, [f.name]: e.target.value }))}
+                  />
                 )}
               </div>
             );
@@ -246,7 +261,6 @@ export function ProposalDecision({ proposal, subject, amend, children, afterDeci
   );
 }
 
-
 function PendingGhost({
   proposal,
   field,
@@ -287,7 +301,17 @@ function PendingGhost({
         proposal={proposal}
         subject={`the proposed ${label}`}
         amend={{
-          fields: [{ name: "text", label: `Your ${label}`, value: text, multiline: true, maxLength: MAX_SPEC_LEN, required: true, hideLabel: true }],
+          fields: [
+            {
+              name: "text",
+              label: `Your ${label}`,
+              value: text,
+              multiline: true,
+              maxLength: MAX_SPEC_LEN,
+              required: true,
+              hideLabel: true,
+            },
+          ],
           payload: (values) => amendedPayload(proposal, field, values.text),
         }}
         afterDecide={afterDecide}

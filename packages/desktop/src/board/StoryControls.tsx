@@ -16,7 +16,16 @@
  */
 import { useState, type FormEvent, type MouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CircleCheck, MessageCircleQuestionMark, Play, RotateCcw, Square, Terminal, Trash2, TriangleAlert } from "lucide-react";
+import {
+  CircleCheck,
+  MessageCircleQuestionMark,
+  Play,
+  RotateCcw,
+  Square,
+  Terminal,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
 import {
   sessionSummariesForStory,
   sessionsForStory,
@@ -243,7 +252,9 @@ export function StartControl({
     onError(null);
     storyStart(story.id)
       .then(() =>
-        notify.success(`Started ${story.key}`, { description: "Its agent is reading the Story. Open session follows it." }),
+        notify.success(`Started ${story.key}`, {
+          description: "Its agent is reading the Story. Open session follows it.",
+        }),
       )
       .catch((err: unknown) => onError(errorText(err)))
       .finally(() => setStarting(false));
@@ -492,7 +503,9 @@ export function ResumeControl({
 export function DropControl({ story }: { story: StoryDto }) {
   async function drop() {
     await storyDrop(story.id);
-    notify.success(`Dropped ${story.key}`, { description: "Its worktree and branch are gone; the record stays readable." });
+    notify.success(`Dropped ${story.key}`, {
+      description: "Its worktree and branch are gone; the record stays readable.",
+    });
   }
 
   return (
@@ -644,13 +657,18 @@ export function PacketSize({ story, className }: { story: StoryDto; className?: 
       <TooltipTrigger asChild>
         <span
           tabIndex={0}
-          className={cn("inline-flex items-center gap-1.5 rounded-sm font-semibold text-foreground tabular-nums", className)}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-sm font-semibold text-foreground tabular-nums",
+            className,
+          )}
         >
           <TriangleAlert aria-hidden="true" size={16} />
           {`${text}, above the ~20K soft limit`}
         </span>
       </TooltipTrigger>
-      <TooltipContent>Trim the Epic spec or the session summaries: every session starts by reading all of it.</TooltipContent>
+      <TooltipContent>
+        Trim the Epic spec or the session summaries: every session starts by reading all of it.
+      </TooltipContent>
     </Tooltip>
   );
 }

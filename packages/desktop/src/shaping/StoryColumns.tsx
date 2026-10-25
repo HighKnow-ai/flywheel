@@ -23,8 +23,19 @@
  * since each is a card of its own.
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
+import { Label } from "@/components/ui/label";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowRightLeft, ChevronLeft, ChevronRight, CircleSlash, Columns3, ListChecks, SquareTerminal } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowRightLeft,
+  ChevronLeft,
+  ChevronRight,
+  CircleSlash,
+  Columns3,
+  ListChecks,
+  SquareTerminal,
+} from "lucide-react";
 import { proposalAccept, proposalAmend, proposalReject, type ProposalDto, type StoryDto } from "../adapters/tauri";
 import { CriteriaList, useCriteria } from "../board/CriteriaList";
 import { StateBadge } from "../components/StateBadge";
@@ -161,7 +172,14 @@ export interface StoryColumnsProps {
   className?: string;
 }
 
-export function StoryColumns({ projectId, stories, proposals, queryKey, criteria = false, className }: StoryColumnsProps) {
+export function StoryColumns({
+  projectId,
+  stories,
+  proposals,
+  queryKey,
+  criteria = false,
+  className,
+}: StoryColumnsProps) {
   const headingId = useId();
   const regionRef = useRef<HTMLDivElement>(null);
   const storyProposals = proposals.filter((p) => p.targetType === "story");
@@ -173,7 +191,9 @@ export function StoryColumns({ projectId, stories, proposals, queryKey, criteria
   const showCriteria = criteria || criterionProposals.length > 0;
 
   const columns: Column[] = [
-    ...stories.filter((s) => s.state !== "dropped").map((story) => ({ kind: "story" as const, id: story.id, rank: story.rank, story })),
+    ...stories
+      .filter((s) => s.state !== "dropped")
+      .map((story) => ({ kind: "story" as const, id: story.id, rank: story.rank, story })),
     ...pending.flatMap((proposal) => {
       const draft = newStoryOf(proposal);
       return draft ? [{ kind: "ghost" as const, id: proposal.id, rank: draft.rank ?? "￿", proposal, draft }] : [];
@@ -182,7 +202,10 @@ export function StoryColumns({ projectId, stories, proposals, queryKey, criteria
 
   const position = (id: string | null) => (id ? columns.findIndex((c) => c.id === id) + 1 : 0);
   const constraints: Constraint[] = columns.flatMap((column, index) => {
-    const after = column.kind === "story" ? column.story.runsAfterStoryId : (column.draft.runs_after_story_id ?? column.draft.runs_after_proposal_id);
+    const after =
+      column.kind === "story"
+        ? column.story.runsAfterStoryId
+        : (column.draft.runs_after_story_id ?? column.draft.runs_after_proposal_id);
     const why = column.kind === "story" ? column.story.runsAfterReason : column.draft.runs_after_reason;
     const from = position(after);
     if (!from || from === index + 1) return [];
@@ -226,7 +249,11 @@ export function StoryColumns({ projectId, stories, proposals, queryKey, criteria
         <span className="text-meta text-muted-foreground tabular-nums">
           {columns.length === 0
             ? "In execution order, left to right"
-            : [`${recorded} ${recorded === 1 ? "Story" : "Stories"}`, proposed > 0 ? `${proposed} proposed` : null, "in execution order, left to right"]
+            : [
+                `${recorded} ${recorded === 1 ? "Story" : "Stories"}`,
+                proposed > 0 ? `${proposed} proposed` : null,
+                "in execution order, left to right",
+              ]
                 .filter(Boolean)
                 .join(" · ")}
         </span>
@@ -271,7 +298,11 @@ export function StoryColumns({ projectId, stories, proposals, queryKey, criteria
                   ))}
                 </ul>
               )}
-              <ol aria-label="Stories in execution order" className="m-0 grid list-none items-start gap-x-3 p-0" style={grid}>
+              <ol
+                aria-label="Stories in execution order"
+                className="m-0 grid list-none items-start gap-x-3 p-0"
+                style={grid}
+              >
                 {columns.map((column, index) =>
                   column.kind === "story" ? (
                     <StoryColumn
@@ -280,8 +311,12 @@ export function StoryColumns({ projectId, stories, proposals, queryKey, criteria
                       number={index + 1}
                       story={column.story}
                       columns={columns}
-                      proposals={pending.filter((p) => p.targetId === column.id && (p.verb === "reorder" || p.verb === "retire"))}
-                      criteria={showCriteria ? pendingCriteria.filter((p) => newCriterionOf(p)?.story_id === column.id) : null}
+                      proposals={pending.filter(
+                        (p) => p.targetId === column.id && (p.verb === "reorder" || p.verb === "retire"),
+                      )}
+                      criteria={
+                        showCriteria ? pendingCriteria.filter((p) => newCriterionOf(p)?.story_id === column.id) : null
+                      }
                       queryKey={queryKey}
                       onSettled={settle}
                     />
@@ -366,7 +401,11 @@ function Bracket({ constraint, row, count }: { constraint: Constraint; row: numb
         <ArrowDown
           size={12}
           strokeWidth={2.5}
-          className={cn("absolute -bottom-0.5", provisional ? "text-running" : "text-muted-foreground", arrowOnRight ? "-right-[6.5px]" : "-left-[6.5px]")}
+          className={cn(
+            "absolute -bottom-0.5",
+            provisional ? "text-running" : "text-muted-foreground",
+            arrowOnRight ? "-right-[6.5px]" : "-left-[6.5px]",
+          )}
         />
       </span>
       <span
@@ -426,7 +465,10 @@ function OverflowChips({ regionRef, watch }: { regionRef: RefObject<HTMLDivEleme
         root.dataset.overflowAfter = String(next.after > 0);
       }
       setEdges((prev) =>
-        prev.before === next.before && prev.after === next.after && prev.pendingBefore === next.pendingBefore && prev.pendingAfter === next.pendingAfter
+        prev.before === next.before &&
+        prev.after === next.after &&
+        prev.pendingBefore === next.pendingBefore &&
+        prev.pendingAfter === next.pendingAfter
           ? prev
           : next,
       );
@@ -462,11 +504,25 @@ function OverflowChips({ regionRef, watch }: { regionRef: RefObject<HTMLDivEleme
     <>
       {(edges.before > 0 || edges.after > 0) && (
         <span className="ml-auto flex items-center gap-2 self-center">
-          <Button variant="outline" size="sm" disabled={edges.before === 0} className={cn(edges.before === 0 && "invisible")} onClick={() => scroll(-1)} aria-label={`Scroll to the earlier Stories: ${words(edges.before, edges.pendingBefore, "earlier")}`}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={edges.before === 0}
+            className={cn(edges.before === 0 && "invisible")}
+            onClick={() => scroll(-1)}
+            aria-label={`Scroll to the earlier Stories: ${words(edges.before, edges.pendingBefore, "earlier")}`}
+          >
             <ChevronLeft aria-hidden="true" />
             <span className="tabular-nums">{words(edges.before, edges.pendingBefore, "earlier")}</span>
           </Button>
-          <Button variant="outline" size="sm" disabled={edges.after === 0} className={cn(edges.after === 0 && "invisible")} onClick={() => scroll(1)} aria-label={`Scroll to the later Stories: ${words(edges.after, edges.pendingAfter, "more")}`}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={edges.after === 0}
+            className={cn(edges.after === 0 && "invisible")}
+            onClick={() => scroll(1)}
+            aria-label={`Scroll to the later Stories: ${words(edges.after, edges.pendingAfter, "more")}`}
+          >
             <span className="tabular-nums">{words(edges.after, edges.pendingAfter, "more")}</span>
             <ChevronRight aria-hidden="true" />
           </Button>
@@ -477,7 +533,11 @@ function OverflowChips({ regionRef, watch }: { regionRef: RefObject<HTMLDivEleme
 }
 
 function End({ end }: { end: ColumnRef }) {
-  return end.key ? <span className="font-mono text-small text-foreground">{end.key}</span> : <OrderChip number={end.number} tone="ghost" />;
+  return end.key ? (
+    <span className="font-mono text-small text-foreground">{end.key}</span>
+  ) : (
+    <OrderChip number={end.number} tone="ghost" />
+  );
 }
 
 /**
@@ -546,18 +606,24 @@ function StoryColumn({
         <span className="min-w-0 truncate font-mono text-small text-muted-foreground">{story.key}</span>
         <StateBadge state={story.state} className="ml-auto h-5.5 shrink-0 text-meta" />
       </div>
-      <h3 className="m-0 text-row font-semibold break-words">
-        {story.title}
-      </h3>
+      <h3 className="m-0 text-row font-semibold break-words">{story.title}</h3>
       {story.description ? (
-        <p className="m-0 line-clamp-6 text-small whitespace-pre-wrap break-words text-muted-foreground" title={story.description}>
-          {story.description}
-        </p>
+        <TruncateTip text={story.description}>
+          <p className="m-0 line-clamp-6 text-small whitespace-pre-wrap break-words text-muted-foreground">
+            {story.description}
+          </p>
+        </TruncateTip>
       ) : (
         <p className="m-0 text-small text-subtle-foreground">No description yet</p>
       )}
       {criteria && (
-        <StoryCriteria projectId={projectId} story={story} pending={criteria} queryKey={queryKey} onSettled={onSettled} />
+        <StoryCriteria
+          projectId={projectId}
+          story={story}
+          pending={criteria}
+          queryKey={queryKey}
+          onSettled={onSettled}
+        />
       )}
       {proposals.map((p) => (
         <OrderPlate key={p.id} proposal={p} story={story} columns={columns} queryKey={queryKey} onSettled={onSettled} />
@@ -584,9 +650,9 @@ function Landing({ proposal, story, columns }: { proposal: ProposalDto; story: S
       ) : (
         <OrderChip number={number} tone="ghost" />
       )}
-      <span className="min-w-0 truncate" title={title}>
-        {title}
-      </span>
+      <TruncateTip text={title}>
+        <span className="min-w-0 truncate">{title}</span>
+      </TruncateTip>
     </span>
   );
 }
@@ -622,7 +688,9 @@ function OrderPlate({
       <div className="m-0 min-w-0 text-small break-words text-foreground">
         {move ? <Landing proposal={proposal} story={story} columns={columns} /> : "Drops it from the Epic"}
       </div>
-      {proposal.rationale && <p className="m-0 text-small break-words text-muted-foreground">Why: {proposal.rationale}</p>}
+      {proposal.rationale && (
+        <p className="m-0 text-small break-words text-muted-foreground">Why: {proposal.rationale}</p>
+      )}
       {rejecting ? (
         <RejectReasonForm
           stacked
@@ -636,6 +704,7 @@ function OrderPlate({
         />
       ) : (
         <DecisionGroup
+          size="xs"
           name={(verb) => `${verb} the ${noun} of ${story.key}`}
           pending={pending}
           rejectRef={rejectRef}
@@ -724,9 +793,9 @@ function GhostColumn({
 
       {mode === "amending" ? (
         <form className="flex min-w-0 flex-col gap-2" onSubmit={submitAmend}>
-          <label htmlFor={titleId} className="text-meta font-semibold text-muted-foreground">
+          <Label htmlFor={titleId} className="text-meta font-semibold text-muted-foreground">
             Title
-          </label>
+          </Label>
           {/* The whole title in sight while it is edited: it grows with its words, and Enter never breaks it. */}
           <Textarea
             id={titleId}
@@ -742,9 +811,9 @@ function GhostColumn({
               onEditKey(e);
             }}
           />
-          <label htmlFor={descriptionId} className="text-meta font-semibold text-muted-foreground">
+          <Label htmlFor={descriptionId} className="text-meta font-semibold text-muted-foreground">
             Description
-          </label>
+          </Label>
           <Textarea
             id={descriptionId}
             className="resize-none"
@@ -756,27 +825,47 @@ function GhostColumn({
           />
           {runsAfterSomething && (
             <>
-              <label htmlFor={whyId} className="text-meta font-semibold text-muted-foreground">
+              <Label htmlFor={whyId} className="text-meta font-semibold text-muted-foreground">
                 Why it runs after {runsAfter ?? "the other Story"}
-              </label>
-              <Input id={whyId} value={why} maxLength={MAX_RUNS_AFTER_REASON_LEN} disabled={busy} onChange={(e) => setWhy(e.target.value)} onKeyDown={onEditKey} />
+              </Label>
+              <Input
+                id={whyId}
+                value={why}
+                maxLength={MAX_RUNS_AFTER_REASON_LEN}
+                disabled={busy}
+                onChange={(e) => setWhy(e.target.value)}
+                onKeyDown={onEditKey}
+              />
             </>
           )}
-          <AmendActions busy={busy} ready={Boolean(title.trim()) && !(runsAfterSomething && !why.trim())} subject={name} onCancel={cancel} />
+          <AmendActions
+            busy={busy}
+            ready={Boolean(title.trim()) && !(runsAfterSomething && !why.trim())}
+            subject={name}
+            onCancel={cancel}
+          />
         </form>
       ) : (
         <>
           <h3 className="m-0 text-row font-semibold break-words text-foreground">{draft.title}</h3>
-          {draft.description && <p className="m-0 text-small whitespace-pre-wrap break-words text-foreground">{draft.description}</p>}
+          {draft.description && (
+            <p className="m-0 text-small whitespace-pre-wrap break-words text-foreground">{draft.description}</p>
+          )}
         </>
       )}
 
       {mode === "rejecting" && (
-        <RejectReasonForm stacked busy={busy} onReject={(given) => void decide("reject", () => proposalReject(proposal.id, given))} onCancel={cancel} />
+        <RejectReasonForm
+          stacked
+          busy={busy}
+          onReject={(given) => void decide("reject", () => proposalReject(proposal.id, given))}
+          onCancel={cancel}
+        />
       )}
 
       {mode === "idle" && (
         <DecisionGroup
+          size="xs"
           name={(verb) => `${verb} ${name}`}
           pending={pending}
           amendRef={amendRef}
@@ -820,7 +909,9 @@ function StoryCriteria({
 }) {
   const headingId = useId();
   const recorded = useCriteria(projectId, story.id).data?.length ?? 0;
-  const count = [recorded > 0 ? String(recorded) : null, pending.length > 0 ? `${pending.length} proposed` : null].filter(Boolean).join(" · ");
+  const count = [recorded > 0 ? String(recorded) : null, pending.length > 0 ? `${pending.length} proposed` : null]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <section aria-labelledby={headingId} className="flex min-w-0 flex-col gap-2 border-t border-border pt-2.5">
       <h4 id={headingId} className="m-0 flex items-center gap-1.5 text-meta font-semibold text-muted-foreground">
@@ -844,20 +935,29 @@ function StoryCriteria({
 
 /** The Check a criterion would carry: its command, or judged at review. */
 function ProposedCheck({ command }: { command: string | null }) {
-  if (!command) return <StateBadge state="judged_at_review" label="Judged at review" className="h-5.5 self-start text-meta" />;
+  if (!command)
+    return <StateBadge state="judged_at_review" label="Judged at review" className="h-5.5 self-start text-meta" />;
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-meta text-muted-foreground">
       <SquareTerminal aria-hidden="true" className="size-3.5 shrink-0" />
       <span className="sr-only">Check: </span>
-      <code className="min-w-0 truncate font-mono text-foreground" title={command}>
-        {command}
-      </code>
+      <TruncateTip text={command} mono>
+        <code className="min-w-0 truncate font-mono text-foreground">{command}</code>
+      </TruncateTip>
     </span>
   );
 }
 
 /** A pending criterion under its Story: Accept, Amend (its statement and Check, never its Story) or Reject. */
-function GhostCriterion({ proposal, queryKey, onSettled }: { proposal: ProposalDto; queryKey: readonly unknown[]; onSettled: () => void }) {
+function GhostCriterion({
+  proposal,
+  queryKey,
+  onSettled,
+}: {
+  proposal: ProposalDto;
+  queryKey: readonly unknown[];
+  onSettled: () => void;
+}) {
   const draft = newCriterionOf(proposal) as NewCriterionPayload;
   const name = `the proposed criterion ${draft.statement}`;
   const { pending, busy, error, setError, decide } = useDecision(queryKey, name, onSettled);
@@ -879,7 +979,11 @@ function GhostCriterion({ proposal, queryKey, onSettled }: { proposal: ProposalD
   function submitAmend(event: FormEvent | KeyboardEvent) {
     event.preventDefault();
     if (!statement.trim()) return;
-    const edited = { story_id: draft.story_id, statement: statement.trim(), check_command: command.trim() === "" ? null : command.trim() };
+    const edited = {
+      story_id: draft.story_id,
+      statement: statement.trim(),
+      check_command: command.trim() === "" ? null : command.trim(),
+    };
     void decide("amend", () => proposalAmend(proposal.id, edited));
   }
 
@@ -902,9 +1006,9 @@ function GhostCriterion({ proposal, queryKey, onSettled }: { proposal: ProposalD
       <ProposedBadge>Proposed criterion</ProposedBadge>
       {mode === "amending" ? (
         <form className="flex min-w-0 flex-col gap-2" onSubmit={submitAmend}>
-          <label htmlFor={statementId} className="text-meta font-semibold text-muted-foreground">
+          <Label htmlFor={statementId} className="text-meta font-semibold text-muted-foreground">
             Criterion
-          </label>
+          </Label>
           <Textarea
             id={statementId}
             className="min-h-16 resize-none text-small"
@@ -915,9 +1019,9 @@ function GhostCriterion({ proposal, queryKey, onSettled }: { proposal: ProposalD
             onChange={(e) => setStatement(e.target.value)}
             onKeyDown={onEditKey}
           />
-          <label htmlFor={commandId} className="text-meta font-semibold text-muted-foreground">
+          <Label htmlFor={commandId} className="block text-meta font-semibold text-muted-foreground">
             Check command <span className="font-normal">(blank: judged at review)</span>
-          </label>
+          </Label>
           <Input
             id={commandId}
             value={command}
@@ -936,10 +1040,16 @@ function GhostCriterion({ proposal, queryKey, onSettled }: { proposal: ProposalD
         </>
       )}
       {mode === "rejecting" && (
-        <RejectReasonForm stacked busy={busy} onReject={(given) => void decide("reject", () => proposalReject(proposal.id, given))} onCancel={cancel} />
+        <RejectReasonForm
+          stacked
+          busy={busy}
+          onReject={(given) => void decide("reject", () => proposalReject(proposal.id, given))}
+          onCancel={cancel}
+        />
       )}
       {mode === "idle" && (
         <DecisionGroup
+          size="xs"
           name={(verb) => `${verb} ${name}`}
           pending={pending}
           amendRef={amendRef}

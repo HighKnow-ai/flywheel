@@ -114,7 +114,10 @@ describe("selection", () => {
   });
 
   it("says how many selected rows were never measured instead of counting them as zero", async () => {
-    inventoryMock.mockResolvedValue([ROWS[0], row({ storyId: "n", storyKey: "ALP-9", sizeBytes: null, sizeMeasuredAt: null })]);
+    inventoryMock.mockResolvedValue([
+      ROWS[0],
+      row({ storyId: "n", storyKey: "ALP-9", sizeBytes: null, sizeMeasuredAt: null }),
+    ]);
     renderInventory();
     await screen.findByText("ALP-1");
     fireEvent.click(box("ALP-1"));

@@ -56,13 +56,20 @@ export function proposalKindWords(verb: string, targetType: string): string {
 export type Decision = "accepted" | "amended" | "rejected";
 
 /** The past tense of a decision `ProposalDecision` hands its `afterDecide` (`shaping/ProposalParts.tsx`). */
-export const DECIDED = { accept: "accepted", amend: "amended", reject: "rejected" } as const satisfies Record<string, Decision>;
+export const DECIDED = { accept: "accepted", amend: "amended", reject: "rejected" } as const satisfies Record<
+  string,
+  Decision
+>;
 
 /** What a decision says once it lands: "Accepted New Story “Empty-line recovery”". The core keeps a decision
  * final (there is no command that takes one back), so no Undo is offered. */
 export function notifyDecided(decision: Decision, subject: string, description?: string): void {
   const title =
-    decision === "accepted" ? `Accepted ${subject}` : decision === "amended" ? `Accepted your edit to ${subject}` : `Rejected ${subject}`;
+    decision === "accepted"
+      ? `Accepted ${subject}`
+      : decision === "amended"
+        ? `Accepted your edit to ${subject}`
+        : `Rejected ${subject}`;
   notify.success(title, { description });
 }
 

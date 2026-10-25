@@ -20,6 +20,7 @@
  * chosen. The top bar carries only + Story (issue #201): the header's + Epic is the one Epic add.
  */
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Tip } from "@/components/Tip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronsUpDown, Plus, X } from "lucide-react";
 import {
@@ -113,14 +114,18 @@ export function StoryFormDialog({
     <Dialog open={mode !== null} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="flex max-h-[min(88vh,820px)] flex-col gap-0 p-0 sm:max-w-2xl">
         <DialogHeader className="shrink-0 border-b border-border px-5 py-4">
-          <DialogTitle className="text-section font-semibold">{mode === "epic" ? "Add an Epic" : "Write a Story"}</DialogTitle>
+          <DialogTitle className="text-section font-semibold">
+            {mode === "epic" ? "Add an Epic" : "Write a Story"}
+          </DialogTitle>
           <DialogDescription>
             {mode === "epic"
               ? "An Epic lives in a Milestone. Pick one, or add a new one, then name the Epic."
               : "A Story lives in an Epic, and an Epic in a Milestone. Pick them, or add new ones, then write the Story."}
           </DialogDescription>
         </DialogHeader>
-        {mode !== null && <StoryForm projectId={projectId} withStory={mode === "story"} preset={preset} onDone={onClose} />}
+        {mode !== null && (
+          <StoryForm projectId={projectId} withStory={mode === "story"} preset={preset} onDone={onClose} />
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -151,7 +156,15 @@ function StoryForm({
   // Records this dialog wrote, named until the board's re-read lists them.
   const [written, setWritten] = useState<Record<string, string>>({});
   const titleRef = useRef<HTMLInputElement>(null);
-  const ids = { milestone: useId(), milestoneTitle: useId(), exitTest: useId(), epic: useId(), epicTitle: useId(), title: useId(), description: useId() };
+  const ids = {
+    milestone: useId(),
+    milestoneTitle: useId(),
+    exitTest: useId(),
+    epic: useId(),
+    epicTitle: useId(),
+    title: useId(),
+    description: useId(),
+  };
 
   const milestonesQuery = useQuery({
     queryKey: ["board", projectId, "milestones"],
@@ -282,7 +295,10 @@ function StoryForm({
               />
             </Field>
             {milestoneChoice === NEW && (
-              <div data-slot="new-milestone" className="grid gap-4 rounded-md border border-border bg-muted/40 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+              <div
+                data-slot="new-milestone"
+                className="grid gap-4 rounded-md border border-border bg-muted/40 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]"
+              >
                 <Field>
                   <FieldLabel htmlFor={ids.milestoneTitle}>Milestone title</FieldLabel>
                   <Input
@@ -310,7 +326,13 @@ function StoryForm({
                 <RecordCombobox
                   id={ids.epic}
                   value={epic}
-                  display={epic === NEW ? "New Epic" : epicOf(epic) ? `${epicOf(epic)!.key} ${epicOf(epic)!.title}` : (written[epic] ?? "")}
+                  display={
+                    epic === NEW
+                      ? "New Epic"
+                      : epicOf(epic)
+                        ? `${epicOf(epic)!.key} ${epicOf(epic)!.title}`
+                        : (written[epic] ?? "")
+                  }
                   placeholder={milestoneChoice === "" ? "Pick a Milestone first" : "Pick an Epic"}
                   searchLabel="Search Epics"
                   emptyText="No open Epic by that name."
@@ -321,39 +343,59 @@ function StoryForm({
                     search: `${e.key} ${e.title}`,
                     content: (
                       <>
-                        <StoryKey value={e.key} />{" "}
-                        <span className="min-w-0 flex-1 truncate">{e.title}</span>
+                        <StoryKey value={e.key} /> <span className="min-w-0 flex-1 truncate">{e.title}</span>
                       </>
                     ),
                   }))}
                   onChange={setEpicChoice}
                 />
-                {milestoneChoice === NEW && <FieldDescription>A new Milestone starts with a new Epic.</FieldDescription>}
+                {milestoneChoice === NEW && (
+                  <FieldDescription>A new Milestone starts with a new Epic.</FieldDescription>
+                )}
               </Field>
             ) : null}
-            {epic === NEW && (withStory ? <div className="rounded-md border border-border bg-muted/40 p-3">{epicField}</div> : epicField)}
+            {epic === NEW &&
+              (withStory ? (
+                <div className="rounded-md border border-border bg-muted/40 p-3">{epicField}</div>
+              ) : (
+                epicField
+              ))}
           </FieldSet>
 
           {withStory && (
             <div className="border-t border-border pt-5">
-            <FieldSet className="gap-4">
-              <FieldLegend className="text-row font-semibold">The Story</FieldLegend>
-              <Field>
-                <FieldLabel htmlFor={ids.title}>Story title</FieldLabel>
-                <Input ref={titleRef} id={ids.title} value={title} onChange={(e) => setTitle(e.target.value)} />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor={ids.description}>Description</FieldLabel>
-                <Textarea id={ids.description} value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
-              </Field>
-              <CriteriaRows criteria={criteria} onChange={updateCriterion} onRemove={(index) => setCriteria((rows) => rows.filter((_, i) => i !== index))} />
-              <div>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setCriteria((rows) => [...rows, EMPTY_CRITERION])}>
-                  <Plus aria-hidden="true" />
-                  Add criterion
-                </Button>
-              </div>
-            </FieldSet>
+              <FieldSet className="gap-4">
+                <FieldLegend className="text-row font-semibold">The Story</FieldLegend>
+                <Field>
+                  <FieldLabel htmlFor={ids.title}>Story title</FieldLabel>
+                  <Input ref={titleRef} id={ids.title} value={title} onChange={(e) => setTitle(e.target.value)} />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor={ids.description}>Description</FieldLabel>
+                  <Textarea
+                    id={ids.description}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    rows={2}
+                  />
+                </Field>
+                <CriteriaRows
+                  criteria={criteria}
+                  onChange={updateCriterion}
+                  onRemove={(index) => setCriteria((rows) => rows.filter((_, i) => i !== index))}
+                />
+                <div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCriteria((rows) => [...rows, EMPTY_CRITERION])}
+                  >
+                    <Plus aria-hidden="true" />
+                    Add criterion
+                  </Button>
+                </div>
+              </FieldSet>
             </div>
           )}
         </FieldGroup>
@@ -398,7 +440,10 @@ function CriteriaRows({
           // Rows have no identity beyond their position until the Story is written.
           <li key={index} className="flex flex-wrap items-end gap-2">
             <Field className="min-w-56 flex-[2]">
-              <FieldLabel htmlFor={`${baseId}-c${index}`} className="font-normal text-muted-foreground">{`Criterion ${index + 1}`}</FieldLabel>
+              <FieldLabel
+                htmlFor={`${baseId}-c${index}`}
+                className="font-normal text-muted-foreground"
+              >{`Criterion ${index + 1}`}</FieldLabel>
               <Input
                 id={`${baseId}-c${index}`}
                 value={criterion.statement}
@@ -407,7 +452,10 @@ function CriteriaRows({
               />
             </Field>
             <Field className="min-w-40 flex-1">
-              <FieldLabel htmlFor={`${baseId}-k${index}`} className="font-normal text-muted-foreground">{`Check command ${index + 1}`}</FieldLabel>
+              <FieldLabel
+                htmlFor={`${baseId}-k${index}`}
+                className="font-normal text-muted-foreground"
+              >{`Check command ${index + 1}`}</FieldLabel>
               <Input
                 id={`${baseId}-k${index}`}
                 value={criterion.checkCommand}
@@ -417,16 +465,17 @@ function CriteriaRows({
               />
             </Field>
             {criteria.length > 1 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={`Remove criterion ${index + 1}`}
-                title="Remove this criterion"
-                onClick={() => onRemove(index)}
-              >
-                <X aria-hidden="true" />
-              </Button>
+              <Tip content="Remove this criterion">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Remove criterion ${index + 1}`}
+                  onClick={() => onRemove(index)}
+                >
+                  <X aria-hidden="true" />
+                </Button>
+              </Tip>
             )}
           </li>
         ))}
@@ -486,7 +535,9 @@ function RecordCombobox({
           disabled={disabled}
           className="w-full justify-between px-3 font-normal"
         >
-          <span className={cn("min-w-0 truncate", display === "" && "text-muted-foreground")}>{display || placeholder}</span>
+          <span className={cn("min-w-0 truncate", display === "" && "text-muted-foreground")}>
+            {display || placeholder}
+          </span>
           <ChevronsUpDown aria-hidden="true" className="text-muted-foreground" />
         </Button>
       </PopoverTrigger>

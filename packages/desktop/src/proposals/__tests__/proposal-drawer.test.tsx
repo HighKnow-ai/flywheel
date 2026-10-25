@@ -43,16 +43,43 @@ vi.mock("../../adapters/tauri", async () => {
   };
 });
 
-function card(id: string, verb: string, targetType: string, epicId: string | null, payload: Record<string, unknown>, filer: [string, string], extra: Partial<TriageProposalDto> = {}): TriageProposalDto {
+function card(
+  id: string,
+  verb: string,
+  targetType: string,
+  epicId: string | null,
+  payload: Record<string, unknown>,
+  filer: [string, string],
+  extra: Partial<TriageProposalDto> = {},
+): TriageProposalDto {
   return {
     proposal: {
-      id, projectId: "p1", sessionId: `ses-${filer[0]}`, epicId, verb, targetType, targetId: null, payload,
-      rationale: `why ${id}`, state: "pending", createdAt: "2026-10-23T08:00:00Z", rejectionReason: null,
-      stageId: null, roundId: null, evidence: `evidence ${id}`,
+      id,
+      projectId: "p1",
+      sessionId: `ses-${filer[0]}`,
+      epicId,
+      verb,
+      targetType,
+      targetId: null,
+      payload,
+      rationale: `why ${id}`,
+      state: "pending",
+      createdAt: "2026-10-23T08:00:00Z",
+      rejectionReason: null,
+      stageId: null,
+      roundId: null,
+      evidence: `evidence ${id}`,
     },
-    storyId: `s-${filer[0]}`, storyKey: filer[0], storyTitle: filer[1],
-    epicKey: epicId ? `FLY-${epicId}` : null, epicTitle: epicId ? `Epic ${epicId}` : null, milestoneTitle: null,
-    targetKey: null, targetTitle: null, reorder: null, ...extra,
+    storyId: `s-${filer[0]}`,
+    storyKey: filer[0],
+    storyTitle: filer[1],
+    epicKey: epicId ? `FLY-${epicId}` : null,
+    epicTitle: epicId ? `Epic ${epicId}` : null,
+    milestoneTitle: null,
+    targetKey: null,
+    targetTitle: null,
+    reorder: null,
+    ...extra,
   };
 }
 
@@ -65,14 +92,31 @@ const CRITERIA = [
 /** What the core returns, in its order: Epic A's Proposals, then Epic B's, then the New Epic. */
 function seed(): TriageProposalDto[] {
   return [
-    card("p-new", "create", "story", "A", { title: "Empty-line recovery", description: "Skip it and go on", rank: null, criteria: CRITERIA }, ["FLY-2", "Parser"]),
+    card(
+      "p-new",
+      "create",
+      "story",
+      "A",
+      { title: "Empty-line recovery", description: "Skip it and go on", rank: null, criteria: CRITERIA },
+      ["FLY-2", "Parser"],
+    ),
     card("p-reorder", "reorder", "story", "A", { rank: "b" }, ["FLY-2", "Parser"], {
-      targetKey: "FLY-4", targetTitle: "Printer", reorder: { nowAfter: "FLY-3", proposedAfter: "FLY-2" },
+      targetKey: "FLY-4",
+      targetTitle: "Printer",
+      reorder: { nowAfter: "FLY-3", proposedAfter: "FLY-2" },
     }),
     card("p-retire", "retire", "story", "B", {}, ["FLY-5", "Lexer"], { targetKey: "FLY-6", targetTitle: "Old lexer" }),
-    card("p-epic", "create", "epic", null, { milestone_id: "m-2", title: "Error recovery", problem: "One bad line stops the parse" }, ["FLY-5", "Lexer"], {
-      milestoneTitle: "Relay",
-    }),
+    card(
+      "p-epic",
+      "create",
+      "epic",
+      null,
+      { milestone_id: "m-2", title: "Error recovery", problem: "One bad line stops the parse" },
+      ["FLY-5", "Lexer"],
+      {
+        milestoneTitle: "Relay",
+      },
+    ),
   ];
 }
 
@@ -84,10 +128,21 @@ function needsYouOf(): NeedsYouItemDto[] {
   const epics = new Set(pending.map((t) => t.proposal.epicId).filter(Boolean)).size;
   return [
     {
-      kind: "proposals", rank: 5, id: "p1", since: "2026-10-23T08:00:00Z",
+      kind: "proposals",
+      rank: 5,
+      id: "p1",
+      since: "2026-10-23T08:00:00Z",
       record: { kind: "project", id: "p1", key: null, title: "", state: null },
-      sessionId: null, request: null, endingReason: null, missingWorktree: false, doingTaskTitle: null,
-      exitTest: null, milestoneTitle: null, round: null, conflicts: [], judgedOn: null,
+      sessionId: null,
+      request: null,
+      endingReason: null,
+      missingWorktree: false,
+      doingTaskTitle: null,
+      exitTest: null,
+      milestoneTitle: null,
+      round: null,
+      conflicts: [],
+      judgedOn: null,
       proposals: { count: pending.length, stories, epics, roadmap: pending.some((t) => t.proposal.epicId === null) },
     },
   ];
@@ -189,7 +244,9 @@ describe("Proposals in Needs you and the triage drawer", () => {
     fireEvent.click(within(cardOf("p-reorder")).getByRole("button", { name: "Accept Reorder “FLY-4 Printer”" }));
     await waitFor(() => expect(proposalAccept).toHaveBeenCalledWith("p-reorder"));
     await waitFor(() => expect(drawer.querySelector('[data-proposal-card="p-reorder"]')).toBeNull());
-    await waitFor(() => expect(document.activeElement).toBe(within(cardOf("p-retire")).getByRole("button", { name: /^Accept/ })));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(cardOf("p-retire")).getByRole("button", { name: /^Accept/ })),
+    );
     expect(within(drawer).getByRole("status")).toHaveTextContent("Decided. 3 Proposals left to triage.");
     await waitFor(() => expect(screen.getByText("3 from 2 Stories")).toBeInTheDocument());
   });
@@ -204,7 +261,12 @@ describe("Proposals in Needs you and the triage drawer", () => {
     fireEvent.change(within(story).getByRole("textbox", { name: "Description" }), { target: { value: "" } });
     fireEvent.click(within(story).getByRole("button", { name: "Accept edit to New Story “Empty-line recovery”" }));
     await waitFor(() =>
-      expect(proposalAmend).toHaveBeenCalledWith("p-new", { title: "Recover from an empty line", description: null, rank: null, criteria: CRITERIA }),
+      expect(proposalAmend).toHaveBeenCalledWith("p-new", {
+        title: "Recover from an empty line",
+        description: null,
+        rank: null,
+        criteria: CRITERIA,
+      }),
     );
   });
 
@@ -212,7 +274,9 @@ describe("Proposals in Needs you and the triage drawer", () => {
     await openDrawer();
     const retire = cardOf("p-retire");
     fireEvent.click(within(retire).getByRole("button", { name: "Reject Retire Story “FLY-6 Old lexer”" }));
-    fireEvent.change(within(retire).getByRole("textbox", { name: "Why not? (optional)" }), { target: { value: "Still needed" } });
+    fireEvent.change(within(retire).getByRole("textbox", { name: "Why not? (optional)" }), {
+      target: { value: "Still needed" },
+    });
     fireEvent.click(within(retire).getByRole("button", { name: "Reject" }));
     await waitFor(() => expect(proposalReject).toHaveBeenCalledWith("p-retire", "Still needed"));
   });
@@ -255,8 +319,12 @@ describe("Proposals in Needs you and the triage drawer", () => {
 
     const dup = cardOf("p-dup");
     expect(dup.dataset.duplicate).toBe("p-new");
-    const flag = within(dup).getByText(/^Duplicate of/).closest("[data-duplicate-of]") as HTMLElement;
-    expect(flag).toHaveTextContent("Duplicate of “Empty-line recovery”, filed by FLY-2. Accepting that one closes this one.");
+    const flag = within(dup)
+      .getByText(/^Duplicate of/)
+      .closest("[data-duplicate-of]") as HTMLElement;
+    expect(flag).toHaveTextContent(
+      "Duplicate of “Empty-line recovery”, filed by FLY-2. Accepting that one closes this one.",
+    );
     expect(cardOf("p-new").querySelector("[data-duplicate-of]")).toBeNull();
     expect(within(cardOf("p-new")).queryByText(/Duplicate of/)).toBeNull();
 
@@ -305,7 +373,9 @@ describe("Proposal kinds, decisions and states (issue #203)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Triage 5 Proposals" }));
     await screen.findByRole("dialog", { name: /Triage Proposals/ });
     const kinds = await waitFor(() => {
-      const found = [...document.querySelectorAll('[data-proposal-card] [data-field="kind"]')].map((b) => b.textContent);
+      const found = [...document.querySelectorAll('[data-proposal-card] [data-field="kind"]')].map(
+        (b) => b.textContent,
+      );
       expect(found).toHaveLength(5);
       return found;
     });
@@ -317,7 +387,11 @@ describe("Proposal kinds, decisions and states (issue #203)", () => {
   it("Accept says what happened in a toast", async () => {
     await openDrawer();
     fireEvent.click(within(cardOf("p-new")).getByRole("button", { name: "Accept New Story “Empty-line recovery”" }));
-    await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith("Accepted New Story “Empty-line recovery”", { description: "Filed by FLY-2" }));
+    await waitFor(() =>
+      expect(notifySuccess).toHaveBeenCalledWith("Accepted New Story “Empty-line recovery”", {
+        description: "Filed by FLY-2",
+      }),
+    );
   });
 
   it("Reject says what happened in a toast", async () => {
@@ -325,7 +399,11 @@ describe("Proposal kinds, decisions and states (issue #203)", () => {
     const retire = cardOf("p-retire");
     fireEvent.click(within(retire).getByRole("button", { name: "Reject Retire Story “FLY-6 Old lexer”" }));
     fireEvent.click(within(retire).getByRole("button", { name: "Reject" }));
-    await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith("Rejected Retire Story “FLY-6 Old lexer”", { description: "Filed by FLY-5" }));
+    await waitFor(() =>
+      expect(notifySuccess).toHaveBeenCalledWith("Rejected Retire Story “FLY-6 Old lexer”", {
+        description: "Filed by FLY-5",
+      }),
+    );
   });
 
   it("an accepted edit says so in its toast", async () => {
@@ -334,7 +412,9 @@ describe("Proposal kinds, decisions and states (issue #203)", () => {
     fireEvent.click(within(story).getByRole("button", { name: "Amend New Story “Empty-line recovery”" }));
     fireEvent.click(within(story).getByRole("button", { name: "Accept edit to New Story “Empty-line recovery”" }));
     await waitFor(() =>
-      expect(notifySuccess).toHaveBeenCalledWith("Accepted your edit to New Story “Empty-line recovery”", { description: "Filed by FLY-2" }),
+      expect(notifySuccess).toHaveBeenCalledWith("Accepted your edit to New Story “Empty-line recovery”", {
+        description: "Filed by FLY-2",
+      }),
     );
   });
 
@@ -348,7 +428,9 @@ describe("Proposal kinds, decisions and states (issue #203)", () => {
 
   it("draws evidence paths relative to the filing Story's worktree, middle-truncated, the whole path kept", async () => {
     const long = "/Users/cyril/Flywheel/FLY/FLY-2/packages/review/src/queue/internal/very/deep/ReviewQueue.tsx:214";
-    pending = seed().map((t) => (t.proposal.id === "p-new" ? { ...t, proposal: { ...t.proposal, evidence: `see ${long} for it` } } : t));
+    pending = seed().map((t) =>
+      t.proposal.id === "p-new" ? { ...t, proposal: { ...t.proposal, evidence: `see ${long} for it` } } : t,
+    );
     await openDrawer();
     const path = cardOf("p-new").querySelector<HTMLElement>("[data-path]");
     expect(path).not.toBeNull();
@@ -368,9 +450,11 @@ describe("Proposal kinds, decisions and states (issue #203)", () => {
     expect(cut.endsWith("/ReviewQueue.tsx")).toBe(true);
     expect(cut.startsWith("packages/…/")).toBe(true);
     // Outside the worktree: the home directory reads as ~, and the tail is kept over the head.
-    expect(middleTruncate("/Users/cyril/clients/acme/technical-presales-knowledge-platform-monorepo/packages/review/src/queue/ReviewQueue.tsx:214")).toBe(
-      "~/…/review/src/queue/ReviewQueue.tsx:214",
-    );
+    expect(
+      middleTruncate(
+        "/Users/cyril/clients/acme/technical-presales-knowledge-platform-monorepo/packages/review/src/queue/ReviewQueue.tsx:214",
+      ),
+    ).toBe("~/…/review/src/queue/ReviewQueue.tsx:214");
     expect(middleTruncate("/Users/cyril/a.ts")).toBe("~/a.ts");
   });
 

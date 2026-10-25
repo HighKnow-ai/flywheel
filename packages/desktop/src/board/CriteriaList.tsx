@@ -14,6 +14,8 @@
  * says so (ReadError); the empty state shows only once the read succeeded with nothing in it.
  */
 import { useState, type FormEvent } from "react";
+import { TruncateTip } from "@/components/TruncateTip";
+import { Label } from "@/components/ui/label";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, SquareTerminal, X } from "lucide-react";
 import { checkRemove, checkSet, criterionList, type AcceptanceCriterionDto, type CheckDto } from "../adapters/tauri";
@@ -52,9 +54,7 @@ export function CheckChip({ check }: { check: CheckDto }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <StateBadge state={check.result} className="h-5.5 text-meta" />
-      {check.stale && (
-        <StateBadge state="stale" label="Stale" className="h-5.5 text-meta" />
-      )}
+      {check.stale && <StateBadge state="stale" label="Stale" className="h-5.5 text-meta" />}
     </span>
   );
 }
@@ -72,7 +72,13 @@ export interface CriteriaListProps {
   emptyText?: string | null;
 }
 
-export function CriteriaList({ projectId, storyId, storyKey, compact = false, emptyText = "No Acceptance criteria yet" }: CriteriaListProps) {
+export function CriteriaList({
+  projectId,
+  storyId,
+  storyKey,
+  compact = false,
+  emptyText = "No Acceptance criteria yet",
+}: CriteriaListProps) {
   const criteriaQuery = useCriteria(projectId, storyId);
   const criteria = criteriaQuery.data ?? [];
 
@@ -100,7 +106,13 @@ export function CriteriaList({ projectId, storyId, storyKey, compact = false, em
       )}
       <ol aria-label={`${storyKey} Acceptance criteria`} className="m-0 list-none p-0 empty:hidden">
         {criteria.map((criterion, index) => (
-          <CriterionRow key={criterion.id} projectId={projectId} criterion={criterion} number={index + 1} compact={compact} />
+          <CriterionRow
+            key={criterion.id}
+            projectId={projectId}
+            criterion={criterion}
+            number={index + 1}
+            compact={compact}
+          />
         ))}
       </ol>
     </div>
@@ -163,10 +175,12 @@ function CriterionRow({
         compact ? "gap-1.5 py-2" : "gap-2 py-3",
       )}
     >
-      <span className={cn("font-semibold break-words", compact ? "text-small" : "text-body")}>{criterion.statement}</span>
+      <span className={cn("font-semibold break-words", compact ? "text-small" : "text-body")}>
+        {criterion.statement}
+      </span>
       {editing ? (
         <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
-          <label className="flex min-w-56 flex-1 flex-col gap-1.5 text-small text-muted-foreground">
+          <Label className="min-w-56 flex-1 flex-col items-stretch gap-1.5 text-small leading-(--text-small--line-height) font-normal text-muted-foreground">
             {`Check command for criterion ${number}`}
             <Input
               value={command}
@@ -175,7 +189,7 @@ function CriterionRow({
               className="font-mono text-small"
               autoFocus
             />
-          </label>
+          </Label>
           <Button type="submit" size="sm" loading={busy} disabled={command.trim() === ""}>
             <SquareTerminal aria-hidden="true" />
             Save Check
@@ -194,14 +208,14 @@ function CriterionRow({
                 // chip is followed by the controls that act on it.
                 <span className="order-first flex min-w-0 basis-full items-center gap-1.5 text-meta text-muted-foreground">
                   <SquareTerminal aria-hidden="true" className="size-3.5 shrink-0" />
-                  <code title={check.command} className="min-w-0 truncate font-mono text-foreground">
-                    {check.command}
-                  </code>
+                  <TruncateTip text={check.command} mono>
+                    <code className="min-w-0 truncate font-mono text-foreground">{check.command}</code>
+                  </TruncateTip>
                 </span>
               ) : (
-                <code title={check.command} className="min-w-0 truncate font-mono text-small text-muted-foreground">
-                  {check.command}
-                </code>
+                <TruncateTip text={check.command} mono>
+                  <code className="min-w-0 truncate font-mono text-small text-muted-foreground">{check.command}</code>
+                </TruncateTip>
               )}
             </>
           ) : (

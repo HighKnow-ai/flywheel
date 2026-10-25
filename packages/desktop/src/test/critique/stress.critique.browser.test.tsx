@@ -40,7 +40,9 @@ class CrashBoundary extends Component<{ children: ReactNode }, { crashed: boolea
 async function renderApp(options: StressOptions = {}, before?: () => void) {
   installStressBackend(options);
   before?.();
-  const root = document.getElementById("root") ?? document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
+  const root =
+    document.getElementById("root") ??
+    document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
   render(
     <CrashBoundary>
       <App />
@@ -116,7 +118,9 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
 
   it("s05 Since you last looked, thirty of sixty-four events", async () => {
     await bigBoard();
-    const fold = (await screen.findAllByRole("button", { name: /since you last looked/i })).find((b) => b.hasAttribute("aria-expanded")) as HTMLElement;
+    const fold = (await screen.findAllByRole("button", { name: /since you last looked/i })).find((b) =>
+      b.hasAttribute("aria-expanded"),
+    ) as HTMLElement;
     if (fold.getAttribute("aria-expanded") !== "true") await userEvent.click(fold);
     (await screen.findByRole("list", { name: "Since you last looked" })).scrollIntoView({ block: "center" });
     await capture("s05-stress-since-you-last-looked");
@@ -208,7 +212,9 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
   it("s17 review card scrolled to its files, two diffs open", async () => {
     await bigBoard(() => useUiStore.getState().openStory(BIG, REVIEW_STORY.id));
     const card = await screen.findByRole("region", { name: "Review" });
-    const toggles = await within(card).findAllByRole("button", { name: /patch-sheet-xml-in-place|shared-strings-index/ });
+    const toggles = await within(card).findAllByRole("button", {
+      name: /patch-sheet-xml-in-place|shared-strings-index/,
+    });
     for (const t of toggles.slice(0, 2)) await userEvent.click(t);
     toggles[0].scrollIntoView({ block: "start" });
     await capture("s17-stress-review-files");
@@ -218,7 +224,9 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
     setBigReviewMergeable(true);
     await bigBoard(() => useUiStore.getState().openStory(BIG, REVIEW_STORY.id));
     const card = await screen.findByRole("region", { name: "Review" });
-    await userEvent.click((await within(card).findAllByRole("button", { name: new RegExp(`^Merge ${REVIEW_STORY.key}`) }))[0]);
+    await userEvent.click(
+      (await within(card).findAllByRole("button", { name: new RegExp(`^Merge ${REVIEW_STORY.key}`) }))[0],
+    );
     const dialog = await screen.findByRole("alertdialog");
     await capture("s18-stress-merge-confirm");
     // Issue #207: once a known defect, now held. The failing Check's command runs past 150 characters, and at
@@ -277,7 +285,10 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
   });
 
   it("s25 Register project: the folder picked, its key prefix to confirm", async () => {
-    await renderApp({ noProjects: true, pickedFolder: "/Users/cymarechal/code/customer-demo-environments-for-the-q4-enterprise-roadshow" });
+    await renderApp({
+      noProjects: true,
+      pickedFolder: "/Users/cymarechal/code/customer-demo-environments-for-the-q4-enterprise-roadshow",
+    });
     await userEvent.click((await screen.findAllByRole("button", { name: /folder|register|add/i }))[0]);
     await settle();
     await capture("s25-register-project");
@@ -287,7 +298,8 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
     await renderApp({
       noProjects: true,
       pickedFolder: "/Users/cymarechal/Downloads/not-a-repo",
-      registerError: "/Users/cymarechal/Downloads/not-a-repo is not a git repository (git rev-parse --show-toplevel exited 128)",
+      registerError:
+        "/Users/cymarechal/Downloads/not-a-repo is not a git repository (git rev-parse --show-toplevel exited 128)",
     });
     await userEvent.click((await screen.findAllByRole("button", { name: /folder|register|add/i }))[0]);
     await settle();
@@ -319,19 +331,25 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
       await settle(250);
       const strip = screen.getByRole("region", { name: "Agents" }).getBoundingClientRect();
       const alert = screen.getByRole("alert", { name: "Launch environment" }).getBoundingClientRect();
-      expect.soft(alert.top, `${size.width}x${size.height}: the Alert's top against the strip's bottom`).toBeGreaterThanOrEqual(strip.bottom);
+      expect
+        .soft(alert.top, `${size.width}x${size.height}: the Alert's top against the strip's bottom`)
+        .toBeGreaterThanOrEqual(strip.bottom);
     }
     await page.viewport(1440, 900);
   });
 
   it("s30 the board when its reads fail", async () => {
-    await renderApp({ failing: ["roster_rows", "milestone_progress", "needs_you_list"] }, () => useUiStore.getState().setCurrentProjectId(BIG));
+    await renderApp({ failing: ["roster_rows", "milestone_progress", "needs_you_list"] }, () =>
+      useUiStore.getState().setCurrentProjectId(BIG),
+    );
     await settle(1500);
     await capture("s30-board-read-error");
   });
 
   it("s31 the Story view when its reads fail", async () => {
-    await renderApp({ failing: ["task_list", "criterion_list", "sessions_for_story"] }, () => useUiStore.getState().openStory(BIG, LONG_STORY.id));
+    await renderApp({ failing: ["task_list", "criterion_list", "sessions_for_story"] }, () =>
+      useUiStore.getState().openStory(BIG, LONG_STORY.id),
+    );
     await settle(1500);
     await capture("s31-story-read-error");
   });

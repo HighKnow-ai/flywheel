@@ -13,7 +13,9 @@ function renderMd(text: string) {
 
 describe("Markdown", () => {
   it("renders headings, emphasis, inline code and lists as elements, with no markup characters left", () => {
-    const root = renderMd("## The plan\n\nFirst **read** the `adapter`, then *decide*.\n\n- one\n- two\n\n1. alpha\n2. beta");
+    const root = renderMd(
+      "## The plan\n\nFirst **read** the `adapter`, then *decide*.\n\n- one\n- two\n\n1. alpha\n2. beta",
+    );
     expect(root.querySelector("h2")?.textContent).toBe("The plan");
     expect(root.querySelector("strong")?.textContent).toBe("read");
     expect(root.querySelector("code")?.textContent).toBe("adapter");

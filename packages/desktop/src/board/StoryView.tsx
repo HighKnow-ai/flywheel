@@ -9,6 +9,7 @@
  * opens its session: the live agent opens only from that control; past sessions open from "Open feed".
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Tip } from "@/components/Tip";
 import { useQuery } from "@tanstack/react-query";
 import { Bot, CircleCheck, ListChecks, Terminal } from "lucide-react";
 import { blockedSummary, storyGet, storyMakeReadyOffer, worktreeSummary, type StoryDto } from "../adapters/tauri";
@@ -75,7 +76,11 @@ export function StoryView({ projectId, projectName, storyId, onBack }: StoryView
       <PageHeader
         onBack={onBack}
         crumbs={[
-          { label: projectName, onSelect: () => setCurrentProjectId(projectId), ariaLabel: `Open the ${projectName} board` },
+          {
+            label: projectName,
+            onSelect: () => setCurrentProjectId(projectId),
+            ariaLabel: `Open the ${projectName} board`,
+          },
           ...(story ? [{ label: story.key, mono: true }] : []),
         ]}
         actions={<WriteStoryDialog projectId={projectId} />}
@@ -162,7 +167,10 @@ export function stationTail(rows: FeedRowData[], length = STATION_TAIL_LENGTH): 
 /** A turn as one plain line: its first non-empty line, with markdown's emphasis and code marks removed. */
 function turnLine(text: string): string {
   const line = text.split("\n").find((l) => l.trim() !== "") ?? "";
-  return line.replace(/[*_`]+/g, "").replace(/^\s*[-#>]+\s*/, "").trim();
+  return line
+    .replace(/[*_`]+/g, "")
+    .replace(/^\s*[-#>]+\s*/, "")
+    .trim();
 }
 
 /** Re-renders every second, for the station's "last activity" age. */
@@ -193,13 +201,26 @@ function LiveTail({ rows, waitingOnYou, root }: { rows: FeedRowData[]; waitingOn
     >
       {tail.map((row) =>
         row.kind === "tool_call" ? (
-          <li key={row.key} className="flex min-w-0 items-center gap-2.5 py-1" data-live={row.key === liveKey ? "true" : undefined}>
+          <li
+            key={row.key}
+            className="flex min-w-0 items-center gap-2.5 py-1"
+            data-live={row.key === liveKey ? "true" : undefined}
+          >
             <ToolCallLine row={row} live={row.key === liveKey} surface={waitingOnYou ? "card" : "strip"} root={root} />
           </li>
         ) : (
           <li key={row.key} className="flex min-w-0 items-center gap-2.5 py-1" data-turn="true">
-            <Bot aria-hidden="true" size={16} className={cn("shrink-0", waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground")} />
-            <span className={cn("min-w-0 flex-1 truncate text-small", waitingOnYou ? "text-foreground" : "text-strip-foreground")}>
+            <Bot
+              aria-hidden="true"
+              size={16}
+              className={cn("shrink-0", waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground")}
+            />
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-small",
+                waitingOnYou ? "text-foreground" : "text-strip-foreground",
+              )}
+            >
               {turnLine(row.text)}
             </span>
           </li>
@@ -214,10 +235,26 @@ function LiveTail({ rows, waitingOnYou, root }: { rows: FeedRowData[]; waitingOn
  * (session n · how long · last activity), the way into its session (Open session, or Answer while it waits
  * on you), Stop, and the live tail. Graphite while the agent works; the yellow tint while it waits on you.
  */
-function AgentStation({ projectId, story, waitingOnYou }: { projectId: string; story: StoryDto; waitingOnYou: boolean }) {
+function AgentStation({
+  projectId,
+  story,
+  waitingOnYou,
+}: {
+  projectId: string;
+  story: StoryDto;
+  waitingOnYou: boolean;
+}) {
   const live = useLiveSession(projectId, story);
   if (!live) return null;
-  return <LiveStation projectId={projectId} story={story} sessionId={live.id} startedAt={live.startedAt} waitingOnYou={waitingOnYou} />;
+  return (
+    <LiveStation
+      projectId={projectId}
+      story={story}
+      sessionId={live.id}
+      startedAt={live.startedAt}
+      waitingOnYou={waitingOnYou}
+    />
+  );
 }
 
 function LiveStation({
@@ -280,14 +317,24 @@ function LiveStation({
           <Bot size={20} />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="text-row font-semibold">{doing ? doing.title : "Reading the Story and the code it touches"}</span>
-          <span
-            className={cn("flex flex-wrap items-center gap-2 text-small tabular-nums", waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground")}
-            title={`Started ${formatWhen(startedAt)}`}
-          >
-            <StateBadge state={waitingOnYou ? "waiting_on_you" : "running"} pulse={pulse} className="h-5.5 text-meta" />
-            {pace}
+          <span className="text-row font-semibold">
+            {doing ? doing.title : "Reading the Story and the code it touches"}
           </span>
+          <Tip content={`Started ${formatWhen(startedAt)}`}>
+            <span
+              className={cn(
+                "flex flex-wrap items-center gap-2 text-small tabular-nums",
+                waitingOnYou ? "text-muted-foreground" : "text-strip-muted-foreground",
+              )}
+            >
+              <StateBadge
+                state={waitingOnYou ? "waiting_on_you" : "running"}
+                pulse={pulse}
+                className="h-5.5 text-meta"
+              />
+              {pace}
+            </span>
+          </Tip>
         </div>
         <span className="flex shrink-0 items-center gap-2">
           {waitingOnYou ? (
@@ -306,7 +353,11 @@ function LiveStation({
 /** The title card while the Story's first read is under way: bars in its shape, never "Loading…". */
 function TitleCardSkeleton() {
   return (
-    <div role="status" aria-label="Loading the Story" className="flex flex-col gap-3 rounded-lg border border-border bg-card px-5 py-4 shadow-card">
+    <div
+      role="status"
+      aria-label="Loading the Story"
+      className="flex flex-col gap-3 rounded-lg border border-border bg-card px-5 py-4 shadow-card"
+    >
       <Skeleton className="h-6 w-2/3" />
       <Skeleton className="h-4 w-1/3" />
     </div>
@@ -344,8 +395,7 @@ function StoryTitle({ story }: { story: StoryDto }) {
           !expanded && "line-clamp-3",
         )}
       >
-        <StoryKey value={story.key} size="small" className="mr-1.5 align-[3px]" />{" "}
-        {story.title}
+        <StoryKey value={story.key} size="small" className="mr-1.5 align-[3px]" /> {story.title}
       </h1>
       {(clamped || expanded) && (
         <Button
@@ -405,7 +455,12 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
           <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
             {story.state === "ready" && <StartControl story={story} onError={setError} variant="default" />}
             {makeReadyOffered && (
-              <MakeReadyControl story={story} refusal={makeReady?.refusal ?? null} onError={setError} variant="default" />
+              <MakeReadyControl
+                story={story}
+                refusal={makeReady?.refusal ?? null}
+                onError={setError}
+                variant="default"
+              />
             )}
             {stopped && <ResumeControl story={story} variant="default" />}
             {open && <MoveToEpicControl projectId={projectId} story={story} onError={setError} />}
@@ -443,19 +498,13 @@ function StoryBody({ projectId, story }: { projectId: string; story: StoryDto })
             {error}
           </p>
         )}
-        {story.description && (
-          <p className="m-0 max-w-[75ch] text-body whitespace-pre-wrap">{story.description}</p>
-        )}
+        {story.description && <p className="m-0 max-w-[75ch] text-body whitespace-pre-wrap">{story.description}</p>}
       </section>
 
       <AgentStation projectId={projectId} story={story} waitingOnYou={waitingOnYou} />
 
       {inReview && (
-        <ReviewCard
-          projectId={projectId}
-          story={story}
-          onMerged={(outcome) => setError(outcome.cleanupWarning)}
-        />
+        <ReviewCard projectId={projectId} story={story} onMerged={(outcome) => setError(outcome.cleanupWarning)} />
       )}
 
       <div className={cn("grid grid-cols-1 items-start gap-4", !inReview && "lg:grid-cols-2")}>

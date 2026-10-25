@@ -76,11 +76,23 @@ function item(kind: NeedsYouItemDto["kind"], id: string, extra: Partial<NeedsYou
 const RANKED: NeedsYouItemDto[] = [
   item("gated_action", "1", {
     sessionId: "ses-1",
-    request: { id: "req-1", toolName: "Bash", inputPayload: '{"command":"git push --force origin main"}', destructiveCategory: "force-push", suggestedRule: null },
+    request: {
+      id: "req-1",
+      toolName: "Bash",
+      inputPayload: '{"command":"git push --force origin main"}',
+      destructiveCategory: "force-push",
+      suggestedRule: null,
+    },
   }),
   item("permission_request", "2", {
     sessionId: "ses-2",
-    request: { id: "req-2", toolName: "Bash", inputPayload: '{"command":"npm test"}', destructiveCategory: null, suggestedRule: "Bash(npm test:*)" },
+    request: {
+      id: "req-2",
+      toolName: "Bash",
+      inputPayload: '{"command":"npm test"}',
+      destructiveCategory: null,
+      suggestedRule: "Bash(npm test:*)",
+    },
   }),
   item("stopped", "3", { rank: 2, sessionId: "ses-3", endingReason: "crash", doingTaskTitle: "Wire the parser" }),
   item("stopped", "4", { rank: 2, missingWorktree: true }),
@@ -181,7 +193,9 @@ describe("Needs you", () => {
 
   it("wears yellow only where a live session is held: the requests and the held Round", async () => {
     await cards();
-    const lit = Array.from(document.querySelectorAll("[data-attention=waiting]")).map((el) => el.getAttribute("data-item-id"));
+    const lit = Array.from(document.querySelectorAll("[data-attention=waiting]")).map((el) =>
+      el.getAttribute("data-item-id"),
+    );
     expect(lit).toEqual(["1", "2", "r-7"]);
     expect(cardOf("3")).toHaveAttribute("data-attention", "stopped");
   });
@@ -223,7 +237,9 @@ describe("Needs you", () => {
     await cards();
     const card = cardOf("5");
     expect(within(card).getByText("Rebase needed")).toBeInTheDocument();
-    expect(within(card).getByText("Merging would conflict in README.md, src/lib.rs: request a rebase from its review")).toBeInTheDocument();
+    expect(
+      within(card).getByText("Merging would conflict in README.md, src/lib.rs: request a rebase from its review"),
+    ).toBeInTheDocument();
     expect(within(card).getByRole("button", { name: "Open review of FLY-5 Story 5" })).toBeInTheDocument();
   });
 
@@ -264,8 +280,14 @@ describe("Needs you", () => {
     const filled = Array.from(document.querySelectorAll('[data-item-id] [data-slot="button"][data-variant="default"]'));
     expect(filled).toHaveLength(1);
     expect(filled[0]).toHaveAccessibleName("Resume FLY-3");
-    expect(within(cardOf("4")).getByRole("button", { name: "Recreate the worktree of FLY-4" })).toHaveAttribute("data-variant", "outline");
-    expect(within(cardOf("e-6")).getByRole("button", { name: "Confirm exit test of FLY-E6 Roster" })).toHaveAttribute("data-variant", "outline");
+    expect(within(cardOf("4")).getByRole("button", { name: "Recreate the worktree of FLY-4" })).toHaveAttribute(
+      "data-variant",
+      "outline",
+    );
+    expect(within(cardOf("e-6")).getByRole("button", { name: "Confirm exit test of FLY-E6 Roster" })).toHaveAttribute(
+      "data-variant",
+      "outline",
+    );
   });
 
   it("names a request's kind once: no yellow header inside the card", async () => {
@@ -281,7 +303,16 @@ describe("Needs you", () => {
         request: {
           id: "req-q",
           toolName: "AskUserQuestion",
-          inputPayload: JSON.stringify({ questions: [{ question: "Count Dropped Stories?", header: "Dropped", options: [{ label: "Yes", description: "" }], multiSelect: false }] }),
+          inputPayload: JSON.stringify({
+            questions: [
+              {
+                question: "Count Dropped Stories?",
+                header: "Dropped",
+                options: [{ label: "Yes", description: "" }],
+                multiSelect: false,
+              },
+            ],
+          }),
           destructiveCategory: null,
           suggestedRule: null,
         },
@@ -306,8 +337,14 @@ describe("Needs you", () => {
     needsYouList.mockResolvedValue(remaining);
     fireEvent.click(allow);
     await waitFor(() => expect(document.querySelector('[data-item-id="2"]')).toBeNull());
-    expect(await screen.findByRole("status")).toHaveTextContent(`FLY-2 off the list. ${remaining.length} items need you.`);
-    await waitFor(() => expect(document.activeElement).toBe(within(cardOf("3")).getByRole("button", { name: "Open Story FLY-3 Story 3" })));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      `FLY-2 off the list. ${remaining.length} items need you.`,
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(cardOf("3")).getByRole("button", { name: "Open Story FLY-3 Story 3" }),
+      ),
+    );
   });
 
   it("says so when nothing needs you", async () => {
@@ -339,7 +376,11 @@ const AMEND_CRITERION = item("judged_on", "p-1", {
     after: "Parses an empty line as no token",
     checkBefore: "cargo test parser",
     checkAfter: "cargo test parser::empty_line",
-    payload: { criterion_id: "c-1", statement: "Parses an empty line as no token", check_command: "cargo test parser::empty_line" },
+    payload: {
+      criterion_id: "c-1",
+      statement: "Parses an empty line as no token",
+      check_command: "cargo test parser::empty_line",
+    },
     rationale: "The criterion misses the empty line",
     evidence: "src/parser.rs:42 panics on an empty line",
     filedBy: "FLY-p-1",
@@ -400,7 +441,9 @@ describe("Needs you: judged-on changes", () => {
     const diff = within(card).getByRole("group", { name: "Scope, before and after" });
     expect(within(diff).getByText("Parse a line").closest("del")).not.toBeNull();
     expect(within(diff).getByText("Parse every line, empty ones included").closest("ins")).not.toBeNull();
-    expect(within(card).getByText("Accepting reaches every Story of the Epic from its next session")).toBeInTheDocument();
+    expect(
+      within(card).getByText("Accepting reaches every Story of the Epic from its next session"),
+    ).toBeInTheDocument();
   });
 
   it("says the Check is kept and its last run goes stale when no new command is proposed", async () => {
@@ -410,7 +453,9 @@ describe("Needs you: judged-on changes", () => {
     await cards();
     const card = cardOf("p-1");
     expect(within(card).queryByRole("group", { name: "Check, before and after" })).toBeNull();
-    expect(within(card).getByText("Accepting clears its acceptance and marks its Check's last run stale")).toBeInTheDocument();
+    expect(
+      within(card).getByText("Accepting clears its acceptance and marks its Check's last run stale"),
+    ).toBeInTheDocument();
   });
 
   it("flags a duplicate as the triage drawer does: what it repeats and who filed that one (issue #169)", async () => {
@@ -419,7 +464,11 @@ describe("Needs you: judged-on changes", () => {
       {
         ...AMEND_CRITERION,
         id: "p-3",
-        judgedOn: { ...AMEND_CRITERION.judgedOn!, proposalId: "p-3", duplicate: { proposalId: "p-1", title: "Parses a line", storyKey: "FLY-4" } },
+        judgedOn: {
+          ...AMEND_CRITERION.judgedOn!,
+          proposalId: "p-3",
+          duplicate: { proposalId: "p-1", title: "Parses a line", storyKey: "FLY-4" },
+        },
       },
     ]);
     await cards();
@@ -444,7 +493,9 @@ describe("Needs you: judged-on changes", () => {
     expect(statement).toHaveValue("Parses an empty line as no token");
     expect(statement).toHaveFocus();
     fireEvent.change(statement, { target: { value: "Parses an empty line as no token, and a blank one" } });
-    fireEvent.change(within(card).getByRole("textbox", { name: "Its Check command" }), { target: { value: "cargo test blank" } });
+    fireEvent.change(within(card).getByRole("textbox", { name: "Its Check command" }), {
+      target: { value: "cargo test blank" },
+    });
     fireEvent.click(within(card).getByRole("button", { name: "Accept edit to the Amend criterion on FLY-p-1" }));
     await waitFor(() =>
       expect(proposalAmend).toHaveBeenCalledWith("p-1", {
@@ -459,9 +510,13 @@ describe("Needs you: judged-on changes", () => {
     await cards();
     const card = cardOf("p-2");
     fireEvent.click(within(card).getByRole("button", { name: "Edit the Amend Epic spec on FLY-E2" }));
-    fireEvent.change(within(card).getByRole("textbox", { name: "Your Scope" }), { target: { value: "Parse every line" } });
+    fireEvent.change(within(card).getByRole("textbox", { name: "Your Scope" }), {
+      target: { value: "Parse every line" },
+    });
     fireEvent.click(within(card).getByRole("button", { name: "Accept edit to the Amend Epic spec on FLY-E2" }));
-    await waitFor(() => expect(proposalAmend).toHaveBeenCalledWith("p-2", { field: "scope", text: "Parse every line" }));
+    await waitFor(() =>
+      expect(proposalAmend).toHaveBeenCalledWith("p-2", { field: "scope", text: "Parse every line" }),
+    );
   });
 
   it("Cancel leaves Edit without deciding and returns the keyboard to Edit", async () => {
@@ -470,7 +525,9 @@ describe("Needs you: judged-on changes", () => {
     const edit = within(card).getByRole("button", { name: "Edit the Amend Epic spec on FLY-E2" });
     fireEvent.click(edit);
     fireEvent.click(within(card).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(within(card).getByRole("button", { name: "Edit the Amend Epic spec on FLY-E2" })).toHaveFocus());
+    await waitFor(() =>
+      expect(within(card).getByRole("button", { name: "Edit the Amend Epic spec on FLY-E2" })).toHaveFocus(),
+    );
     expect(proposalAmend).not.toHaveBeenCalled();
   });
 
@@ -478,7 +535,9 @@ describe("Needs you: judged-on changes", () => {
     await cards();
     const card = cardOf("p-2");
     fireEvent.click(within(card).getByRole("button", { name: "Reject the Amend Epic spec on FLY-E2" }));
-    fireEvent.change(within(card).getByRole("textbox", { name: "Why not? (optional)" }), { target: { value: "Out of scope" } });
+    fireEvent.change(within(card).getByRole("textbox", { name: "Why not? (optional)" }), {
+      target: { value: "Out of scope" },
+    });
     fireEvent.click(within(card).getByRole("button", { name: "Reject" }));
     await waitFor(() => expect(proposalReject).toHaveBeenCalledWith("p-2", "Out of scope"));
   });
@@ -487,7 +546,9 @@ describe("Needs you: judged-on changes", () => {
     proposalAccept.mockRejectedValue("FLY-p-1 is merged; a closed Story's criteria stay as they are");
     await cards();
     fireEvent.click(within(cardOf("p-1")).getByRole("button", { name: "Accept the Amend criterion on FLY-p-1" }));
-    expect(await within(cardOf("p-1")).findByRole("alert")).toHaveTextContent("a closed Story's criteria stay as they are");
+    expect(await within(cardOf("p-1")).findByRole("alert")).toHaveTextContent(
+      "a closed Story's criteria stay as they are",
+    );
   });
 });
 
@@ -526,7 +587,10 @@ describe("Needs you: loading, empty, failed, and what an action did (issue #203)
   it("draws each item on a Card, its record an Item", async () => {
     const list = await cards();
     for (const li of list) expect(li.querySelector(':scope > [data-slot="card"]')).not.toBeNull();
-    expect(within(cardOf("3")).getByRole("button", { name: "Open Story FLY-3 Story 3" })).toHaveAttribute("data-slot", "item");
+    expect(within(cardOf("3")).getByRole("button", { name: "Open Story FLY-3 Story 3" })).toHaveAttribute(
+      "data-slot",
+      "item",
+    );
   });
 
   it("says in a toast that a missing worktree was recreated", async () => {
@@ -540,12 +604,16 @@ describe("Needs you: loading, empty, failed, and what an action did (issue #203)
     await cards();
     fireEvent.click(within(cardOf("p-1")).getByRole("button", { name: "Accept the Amend criterion on FLY-p-1" }));
     await waitFor(() =>
-      expect(notifySuccess).toHaveBeenCalledWith("Accepted the Amend criterion on FLY-p-1", { description: "Filed by FLY-p-1's session" }),
+      expect(notifySuccess).toHaveBeenCalledWith("Accepted the Amend criterion on FLY-p-1", {
+        description: "Filed by FLY-p-1's session",
+      }),
     );
     const spec = cardOf("p-2");
     fireEvent.click(within(spec).getByRole("button", { name: "Reject the Amend Epic spec on FLY-E2" }));
     fireEvent.click(within(spec).getByRole("button", { name: "Reject" }));
-    await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith("Rejected the Amend Epic spec on FLY-E2", expect.anything()));
+    await waitFor(() =>
+      expect(notifySuccess).toHaveBeenCalledWith("Rejected the Amend Epic spec on FLY-E2", expect.anything()),
+    );
   });
 
   it("every card's age reads in the meta role, the attention tint included (critique F50, settled by #223)", async () => {

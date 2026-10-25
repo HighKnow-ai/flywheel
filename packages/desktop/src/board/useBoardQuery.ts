@@ -14,7 +14,13 @@ import {
   type LogWindowDto,
 } from "../adapters/tauri";
 import { useAgentEventInvalidation, useBoardChangedInvalidation } from "./useBoardChangedInvalidation";
-import { fetchFirstLogPage, nextLogPage, previousLogPage, useFollowLogTail, type LogPageParam } from "../session/logPaging";
+import {
+  fetchFirstLogPage,
+  nextLogPage,
+  previousLogPage,
+  useFollowLogTail,
+  type LogPageParam,
+} from "../session/logPaging";
 
 export interface Project {
   id: string;
@@ -74,7 +80,10 @@ export function useRegisterProject() {
 export function useBoardChangedSubscription(projectId?: string) {
   useBoardChangedInvalidation(
     { kind: "project", projectId },
-    [["board", projectId], ["epics", projectId]],
+    [
+      ["board", projectId],
+      ["epics", projectId],
+    ],
     { unroutableKeys: [["board"], ["epics"]] },
   );
 }
@@ -132,7 +141,6 @@ export function recoverySummaryQueryKey(projectId: string | undefined) {
  * yet).
  */
 export function useRecoverySummary(projectId: string | undefined) {
-
   useBoardChangedInvalidation({ kind: "project", projectId }, projectId ? [recoverySummaryQueryKey(projectId)] : []);
 
   return useQuery({

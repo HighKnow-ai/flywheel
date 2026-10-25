@@ -29,9 +29,7 @@ function makeRequest(overrides: Partial<PendingPermissionRequest> = {}): Pending
 
 describe("PermissionRequestCard (standalone)", () => {
   it("renders nothing at all with no pending request", () => {
-    const { container } = render(
-      <PermissionRequestCard variant="feed" requests={[]} onAnswer={vi.fn()} />,
-    );
+    const { container } = render(<PermissionRequestCard variant="feed" requests={[]} onAnswer={vi.fn()} />);
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -43,9 +41,7 @@ describe("PermissionRequestCard (standalone)", () => {
     expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
     openPatternEditor();
-    expect(
-      screen.getByRole("button", { name: "Always allow this pattern in this project" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Always allow this pattern in this project" })).toBeInTheDocument();
   });
 
   it("Escape never resolves the card — the answer spy sees zero calls and the card stays mounted", () => {
@@ -204,17 +200,13 @@ describe("destructive", () => {
     expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
     openPatternEditor();
-    expect(
-      screen.getByRole("button", { name: "Always allow this pattern in this project" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Always allow this pattern in this project" })).toBeInTheDocument();
     expect(screen.queryByText("Gated action — needs your OK every time")).not.toBeInTheDocument();
   });
 
   it("with a category renders the Gated-action shield, its heading and the consequence sentence above the payload", () => {
     const request = destructiveRequest("hard-reset", "git reset --hard");
-    const { container } = render(
-      <PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />,
-    );
+    const { container } = render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
 
     expect(screen.getByText("Gated action — needs your OK every time")).toBeInTheDocument();
     expect(screen.getByText("Bash wants to:")).toBeInTheDocument();
@@ -256,9 +248,7 @@ describe("destructive", () => {
   it("reverses the reflex: the lead on the destructive variant is Deny, the lead on the routine variant is Allow", () => {
     // No button here is filled any more (owner decision 2026-10-08): the lead is the one with the
     // 2px edge, and `finish.test.tsx` pins that class against the real stylesheet.
-    const { unmount } = render(
-      <PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={vi.fn()} />,
-    );
+    const { unmount } = render(<PermissionRequestCard variant="feed" requests={[makeRequest()]} onAnswer={vi.fn()} />);
     const routineLead = screen.getByRole("button", { name: "Allow once" });
     expect(routineLead).toHaveAttribute("data-variant", "attention");
     expect(screen.getByRole("button", { name: "Deny" })).toHaveAttribute("data-variant", "outline");
@@ -419,9 +409,7 @@ describe("destructive", () => {
 
   it("with an unrecognised category string still renders as a Gated action, with the generic sentence", () => {
     const request = destructiveRequest("made-up-category", "some-unrecognised-command --flag");
-    const { container } = render(
-      <PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />,
-    );
+    const { container } = render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
 
     expect(
       screen.getByText("This command can destroy work, and Flywheel doesn't recognise exactly what it would do."),
@@ -493,9 +481,7 @@ describe("destructive", () => {
     it("default-branch-push", () => {
       const request = destructiveRequest("default-branch-push", "git push origin main");
       render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
-      expect(
-        screen.getByText("This would push directly to main, the project's main branch."),
-      ).toBeInTheDocument();
+      expect(screen.getByText("This would push directly to main, the project's main branch.")).toBeInTheDocument();
     });
 
     it("hard-reset", () => {
@@ -523,9 +509,17 @@ describe("destructive", () => {
     });
 
     it.each([
-      ["git-push", "git push origin story/fly-1", "This would push story/fly-1 to the remote, where others can see it."],
+      [
+        "git-push",
+        "git push origin story/fly-1",
+        "This would push story/fly-1 to the remote, where others can see it.",
+      ],
       ["git-push", "git push", "This would push commits to the remote, where others can see them."],
-      ["git-push", "git -C ../repo push origin feature-x", "This would push feature-x to the remote, where others can see it."],
+      [
+        "git-push",
+        "git -C ../repo push origin feature-x",
+        "This would push feature-x to the remote, where others can see it.",
+      ],
       [
         "worktree-deletion",
         "git worktree remove ../other-story",
@@ -537,7 +531,9 @@ describe("destructive", () => {
       ["publish", "gh pr merge 12 --squash", "This would merge a pull request on GitHub."],
       ["publish", "gh release create v1.0.0", "This would change a release on GitHub, where others can see it."],
     ])("%s: %s", (category, command, sentence) => {
-      render(<PermissionRequestCard variant="feed" requests={[destructiveRequest(category, command)]} onAnswer={vi.fn()} />);
+      render(
+        <PermissionRequestCard variant="feed" requests={[destructiveRequest(category, command)]} onAnswer={vi.fn()} />,
+      );
       expect(screen.getByText(sentence)).toBeInTheDocument();
       // The literal command, never the JSON payload around it.
       expect(screen.getByText(command)).toBeInTheDocument();
@@ -592,7 +588,11 @@ describe("Always allow <pattern> in this project (issue #48)", () => {
 
   it("falls back to the whole tool when the caller has no suggested rule", () => {
     render(
-      <PermissionRequestCard variant="feed" requests={[npmTestRequest({ suggestedRule: undefined, toolName: "WebFetch" })]} onAnswer={vi.fn()} />,
+      <PermissionRequestCard
+        variant="feed"
+        requests={[npmTestRequest({ suggestedRule: undefined, toolName: "WebFetch" })]}
+        onAnswer={vi.fn()}
+      />,
     );
     openPatternEditor();
     expect(screen.getByRole("textbox", { name: "Pattern" })).toHaveValue("WebFetch");

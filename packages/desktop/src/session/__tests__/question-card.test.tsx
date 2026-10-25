@@ -70,7 +70,12 @@ describe("the question card", () => {
     const onAnswerQuestion = vi.fn().mockResolvedValue(undefined);
     const onAnswer = vi.fn();
     const { container } = render(
-      <PermissionRequestCard variant="feed" requests={[questionRequest()]} onAnswer={onAnswer} onAnswerQuestion={onAnswerQuestion} />,
+      <PermissionRequestCard
+        variant="feed"
+        requests={[questionRequest()]}
+        onAnswer={onAnswer}
+        onAnswerQuestion={onAnswerQuestion}
+      />,
     );
     expectNoPermissionControls(container);
     expect(screen.getByText("Which colour should the button be?")).toBeTruthy();
@@ -96,7 +101,14 @@ describe("the question card", () => {
 
   it("typing an answer to a single-choice question replaces the picked option", async () => {
     const onAnswerQuestion = vi.fn().mockResolvedValue(undefined);
-    render(<PermissionRequestCard variant="feed" requests={[questionRequest()]} onAnswer={vi.fn()} onAnswerQuestion={onAnswerQuestion} />);
+    render(
+      <PermissionRequestCard
+        variant="feed"
+        requests={[questionRequest()]}
+        onAnswer={vi.fn()}
+        onAnswerQuestion={onAnswerQuestion}
+      />,
+    );
     fireEvent.click(screen.getByLabelText(/Red/));
     fireEvent.change(screen.getByLabelText("Your own answer to: Which colour should the button be?"), {
       target: { value: "Teal" },
@@ -113,7 +125,14 @@ describe("the question card", () => {
   it("the a and d keys answer no question", () => {
     const onAnswer = vi.fn();
     const onAnswerQuestion = vi.fn();
-    render(<PermissionRequestCard variant="feed" requests={[questionRequest()]} onAnswer={onAnswer} onAnswerQuestion={onAnswerQuestion} />);
+    render(
+      <PermissionRequestCard
+        variant="feed"
+        requests={[questionRequest()]}
+        onAnswer={onAnswer}
+        onAnswerQuestion={onAnswerQuestion}
+      />,
+    );
     fireEvent.keyDown(window, { key: "a" });
     fireEvent.keyDown(window, { key: "d" });
     expect(onAnswer).not.toHaveBeenCalled();
@@ -121,7 +140,9 @@ describe("the question card", () => {
   });
 
   it("is answerable in the feed's own question card while its request is open", async () => {
-    const rows = buildFeedRows([{ type: "tool_call", toolName: "AskUserQuestion", toolUseId: "t1", input: { questions: QUESTIONS } }]);
+    const rows = buildFeedRows([
+      { type: "tool_call", toolName: "AskUserQuestion", toolUseId: "t1", input: { questions: QUESTIONS } },
+    ]);
     const open = openQuestionRows(rows, [questionRequest("q-9")]);
     expect([...open.values()]).toEqual(["q-9"]);
 

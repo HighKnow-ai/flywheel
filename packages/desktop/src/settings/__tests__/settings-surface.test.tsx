@@ -67,8 +67,7 @@ vi.mock("../../adapters/tauri", () => ({
   listPermissionRules: (projectId: string) => listPermissionRulesMock(projectId),
   revokePermissionRule: (ruleId: string) => revokePermissionRuleMock(ruleId),
   openCommandTemplate: (surface: string) => openCommandTemplateMock(surface),
-  setOpenCommandTemplate: (surface: string, template: string) =>
-    setOpenCommandTemplateMock(surface, template),
+  setOpenCommandTemplate: (surface: string, template: string) => setOpenCommandTemplateMock(surface, template),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
 }));
 
@@ -116,11 +115,14 @@ function mockProjects(projects: Project[]) {
 
 function renderSettings() {
   const queryClient = new QueryClient();
-  return { queryClient, ...render(
-    <QueryClientProvider client={queryClient}>
-      <SettingsSurface onBack={vi.fn()} />
-    </QueryClientProvider>,
-  ) };
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <SettingsSurface onBack={vi.fn()} />
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 beforeEach(() => {
@@ -208,11 +210,13 @@ describe("SettingsSurface — credential path (Task 1)", () => {
   });
 
   it("saving a key clears the input and shows the configured-on copy with a Replace action", async () => {
-    getSettingsMock
-      .mockResolvedValueOnce(settingsFixture({ globalCredentialMode: "api_key" }))
-      .mockResolvedValue(
-        settingsFixture({ globalCredentialMode: "api_key", apiKeyConfigured: true, apiKeyConfiguredAt: "2026-01-05T00:00:00.000Z" }),
-      );
+    getSettingsMock.mockResolvedValueOnce(settingsFixture({ globalCredentialMode: "api_key" })).mockResolvedValue(
+      settingsFixture({
+        globalCredentialMode: "api_key",
+        apiKeyConfigured: true,
+        apiKeyConfiguredAt: "2026-01-05T00:00:00.000Z",
+      }),
+    );
     renderSettings();
 
     const input = (await screen.findByLabelText("Anthropic API key")) as HTMLInputElement;
@@ -228,7 +232,11 @@ describe("SettingsSurface — credential path (Task 1)", () => {
 
   it("Replace returns to the masked input; the previously stored value is never rendered", async () => {
     getSettingsMock.mockResolvedValue(
-      settingsFixture({ globalCredentialMode: "api_key", apiKeyConfigured: true, apiKeyConfiguredAt: "2026-01-05T00:00:00.000Z" }),
+      settingsFixture({
+        globalCredentialMode: "api_key",
+        apiKeyConfigured: true,
+        apiKeyConfiguredAt: "2026-01-05T00:00:00.000Z",
+      }),
     );
     renderSettings();
 
@@ -279,7 +287,9 @@ describe("SettingsSurface — credential path (Task 1)", () => {
   it("choosing 'Use the default' clears the override (mode null) and says so", async () => {
     mockProjects([PROJECT_A]);
     getSettingsMock.mockResolvedValue(
-      settingsFixture({ projectOverrides: [{ projectId: "proj-a", projectName: "Flywheel", credentialMode: "api_key" }] }),
+      settingsFixture({
+        projectOverrides: [{ projectId: "proj-a", projectName: "Flywheel", credentialMode: "api_key" }],
+      }),
     );
     renderSettings();
 
@@ -307,7 +317,10 @@ describe("SettingsSurface — credential path (Task 1)", () => {
       expect(notifyErrorMock).toHaveBeenCalledWith("Couldn't change the credential path", expect.anything()),
     );
     await waitFor(() =>
-      expect(screen.getByRole("radio", { name: "Local Claude Code credentials" })).toHaveAttribute("aria-checked", "true"),
+      expect(screen.getByRole("radio", { name: "Local Claude Code credentials" })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      ),
     );
   });
 
@@ -513,11 +526,7 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
 
     await screen.findByText("Permission rules");
     expect(screen.getByTestId("permission-rules-skeleton")).toBeInTheDocument();
-    expect(
-      screen.queryByText(
-        EMPTY_DESCRIPTION,
-      ),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(EMPTY_DESCRIPTION)).not.toBeInTheDocument();
   });
 
   it("the Revoke action's copy is exactly 'Revoke'", async () => {

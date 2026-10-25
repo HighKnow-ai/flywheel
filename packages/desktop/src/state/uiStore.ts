@@ -222,69 +222,90 @@ export const useUiStore = create<UiState>((set, get) => {
   }
 
   return {
-  ...INITIAL_STATE,
+    ...INITIAL_STATE,
 
-  setPaletteOpen: (open) => set({ paletteOpen: open }),
-  // Choosing a project shows its board: whatever surface was open closes, so the click is never
-  // swallowed by a session or the fleet sitting on top (issue #104).
-  setCurrentProjectId: (id) =>
-    id === null
-      ? set({ currentProjectId: null, currentStoryId: null, currentEpicId: null, currentMilestoneId: null })
-      : go({ currentProjectId: id, currentStoryId: null, currentEpicId: null, currentMilestoneId: null, ...NO_SURFACE }),
-  setDetailItemId: (id) => set({ detailItemId: id }),
-  setDeleteTarget: (target) => set({ deleteTarget: target }),
-  setActivePicker: (picker) => set({ activePicker: picker }),
-  setQuickAddOpen: (open) => set({ quickAddOpen: open }),
-  setActiveSessionId: (sessionId, storyId = null, initialLogOffset = null, initialStatus = null) => {
-    const fields = {
-      activeSessionId: sessionId,
-      activeSessionStoryId: storyId,
-      activeSessionInitialLogOffset: initialLogOffset,
-      activeSessionInitialStatus: initialStatus,
-    };
-    // Opening is a move Back can undo; closing (`null`) is not a new place.
-    if (sessionId === null) set(fields);
-    else go({ ...fields, settingsOpen: false });
-  },
-  setLaunchSheetStoryId: (storyId) => set({ launchSheetStoryId: storyId }),
-  setSettingsOpen: (open) => (open ? go({ settingsOpen: true }) : set({ settingsOpen: false })),
-  // Opening the fleet or the inventory replaces whatever shows, a session included, so the click
-  // always lands where it says. The session stays one Back away.
-  setFleetSurface: (target) =>
-    target
-      ? go({ ...NO_SURFACE, fleetSurface: target })
-      : set({ fleetSurface: null }),
-  setWorktreeInventoryOpen: (open) =>
-    open ? go({ ...NO_SURFACE, worktreeInventoryOpen: true }) : set({ worktreeInventoryOpen: false }),
-  setDismissedUpdateVersion: (version) => set({ dismissedUpdateVersion: version }),
-  openStory: (projectId, storyId) =>
-    go({ ...NO_SURFACE, currentProjectId: projectId, currentStoryId: storyId, currentEpicId: null, currentMilestoneId: null }),
-  openEpic: (projectId, epicId) =>
-    go({ ...NO_SURFACE, currentProjectId: projectId, currentStoryId: null, currentEpicId: epicId, currentMilestoneId: null }),
-  openMilestone: (projectId, milestoneId) =>
-    go({ ...NO_SURFACE, currentProjectId: projectId, currentStoryId: null, currentEpicId: null, currentMilestoneId: milestoneId }),
-  goBack: () => {
-    const history = get().navHistory;
-    const previous = history[history.length - 1];
-    if (previous) {
-      set({ ...previous, navHistory: history.slice(0, -1) });
-      return;
-    }
-    // Nothing remembered (the app just opened on a surface): Back lands on the project's board.
-    set({ ...NO_SURFACE, currentStoryId: null, currentEpicId: null, currentMilestoneId: null });
-  },
-  setQuestionDraft: (requestId, draft) => {
-    const drafts = { ...get().questionDrafts };
-    if (draft === null) delete drafts[requestId];
-    else drafts[requestId] = draft;
-    set({ questionDrafts: drafts });
-  },
-  selectMilestone: (projectId, milestoneId) => {
-    const selected = { ...get().selectedMilestoneByProject };
-    if (milestoneId === null) delete selected[projectId];
-    else selected[projectId] = milestoneId;
-    set({ selectedMilestoneByProject: selected });
-  },
+    setPaletteOpen: (open) => set({ paletteOpen: open }),
+    // Choosing a project shows its board: whatever surface was open closes, so the click is never
+    // swallowed by a session or the fleet sitting on top (issue #104).
+    setCurrentProjectId: (id) =>
+      id === null
+        ? set({ currentProjectId: null, currentStoryId: null, currentEpicId: null, currentMilestoneId: null })
+        : go({
+            currentProjectId: id,
+            currentStoryId: null,
+            currentEpicId: null,
+            currentMilestoneId: null,
+            ...NO_SURFACE,
+          }),
+    setDetailItemId: (id) => set({ detailItemId: id }),
+    setDeleteTarget: (target) => set({ deleteTarget: target }),
+    setActivePicker: (picker) => set({ activePicker: picker }),
+    setQuickAddOpen: (open) => set({ quickAddOpen: open }),
+    setActiveSessionId: (sessionId, storyId = null, initialLogOffset = null, initialStatus = null) => {
+      const fields = {
+        activeSessionId: sessionId,
+        activeSessionStoryId: storyId,
+        activeSessionInitialLogOffset: initialLogOffset,
+        activeSessionInitialStatus: initialStatus,
+      };
+      // Opening is a move Back can undo; closing (`null`) is not a new place.
+      if (sessionId === null) set(fields);
+      else go({ ...fields, settingsOpen: false });
+    },
+    setLaunchSheetStoryId: (storyId) => set({ launchSheetStoryId: storyId }),
+    setSettingsOpen: (open) => (open ? go({ settingsOpen: true }) : set({ settingsOpen: false })),
+    // Opening the fleet or the inventory replaces whatever shows, a session included, so the click
+    // always lands where it says. The session stays one Back away.
+    setFleetSurface: (target) => (target ? go({ ...NO_SURFACE, fleetSurface: target }) : set({ fleetSurface: null })),
+    setWorktreeInventoryOpen: (open) =>
+      open ? go({ ...NO_SURFACE, worktreeInventoryOpen: true }) : set({ worktreeInventoryOpen: false }),
+    setDismissedUpdateVersion: (version) => set({ dismissedUpdateVersion: version }),
+    openStory: (projectId, storyId) =>
+      go({
+        ...NO_SURFACE,
+        currentProjectId: projectId,
+        currentStoryId: storyId,
+        currentEpicId: null,
+        currentMilestoneId: null,
+      }),
+    openEpic: (projectId, epicId) =>
+      go({
+        ...NO_SURFACE,
+        currentProjectId: projectId,
+        currentStoryId: null,
+        currentEpicId: epicId,
+        currentMilestoneId: null,
+      }),
+    openMilestone: (projectId, milestoneId) =>
+      go({
+        ...NO_SURFACE,
+        currentProjectId: projectId,
+        currentStoryId: null,
+        currentEpicId: null,
+        currentMilestoneId: milestoneId,
+      }),
+    goBack: () => {
+      const history = get().navHistory;
+      const previous = history[history.length - 1];
+      if (previous) {
+        set({ ...previous, navHistory: history.slice(0, -1) });
+        return;
+      }
+      // Nothing remembered (the app just opened on a surface): Back lands on the project's board.
+      set({ ...NO_SURFACE, currentStoryId: null, currentEpicId: null, currentMilestoneId: null });
+    },
+    setQuestionDraft: (requestId, draft) => {
+      const drafts = { ...get().questionDrafts };
+      if (draft === null) delete drafts[requestId];
+      else drafts[requestId] = draft;
+      set({ questionDrafts: drafts });
+    },
+    selectMilestone: (projectId, milestoneId) => {
+      const selected = { ...get().selectedMilestoneByProject };
+      if (milestoneId === null) delete selected[projectId];
+      else selected[projectId] = milestoneId;
+      set({ selectedMilestoneByProject: selected });
+    },
   };
 });
 

@@ -45,7 +45,11 @@ vi.mock("../../adapters/tauri", async () => {
     taskList: recorded("taskList", () => []),
     storyStopped: recorded("storyStopped", () => null),
     sessionsForStory: recorded("sessionsForStory", () => []),
-    storyContextPacketSize: recorded("storyContextPacketSize", () => ({ bytes: 4000, approxTokens: 1000, overSoftLimit: false })),
+    storyContextPacketSize: recorded("storyContextPacketSize", () => ({
+      bytes: 4000,
+      approxTokens: 1000,
+      overSoftLimit: false,
+    })),
     blockedSummary: recorded("blockedSummary", () => ({ blockedStoryIds: [], blockedCount: 0 })),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
   };
@@ -165,7 +169,9 @@ describe("StoryBoard: 1,000 Stories across 20 Epics (issue #116)", () => {
 
     scrollBoardTo(1_000_000);
 
-    expect(await screen.findByRole("button", { name: `Open Story FLY-${STORIES} Story ${STORIES}` })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: `Open Story FLY-${STORIES} Story ${STORIES}` }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Epic 20" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Story FLY-1 Story 1" })).not.toBeInTheDocument();
     expect(mountedRowIds().length).toBeLessThanOrEqual(ROW_BOUND);
@@ -176,7 +182,9 @@ describe("StoryBoard: 1,000 Stories across 20 Epics (issue #116)", () => {
     await screen.findByRole("button", { name: "Open Story FLY-1 Story 1" });
 
     scrollBoardTo(1_000_000);
-    const row = (await screen.findByRole("button", { name: `Open Story FLY-${STORIES} Story ${STORIES}` })).closest("li")!;
+    const row = (await screen.findByRole("button", { name: `Open Story FLY-${STORIES} Story ${STORIES}` })).closest(
+      "li",
+    )!;
     fireEvent.click(row);
 
     expect(useUiStore.getState().currentStoryId).toBe(`s${pad(STORIES, 4)}`);

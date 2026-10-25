@@ -9,14 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import {
-  DropControl,
-  MakeReadyControl,
-  ResumeControl,
-  StartControl,
-  StopControl,
-  endingBadge,
-} from "../StoryControls";
+import { DropControl, MakeReadyControl, ResumeControl, StartControl, StopControl, endingBadge } from "../StoryControls";
 import { stateToneOf } from "../../components/StateBadge";
 import type { StoryDto } from "../../adapters/tauri";
 
@@ -44,8 +37,15 @@ vi.mock("@/lib/notify", () => ({
 }));
 
 const STORY: StoryDto = {
-  id: "s12", projectId: "p1", epicId: "e1", key: "FLY-12", title: "Parser", description: null, state: "ready",
-  runsAfterStoryId: null, rank: "a",
+  id: "s12",
+  projectId: "p1",
+  epicId: "e1",
+  key: "FLY-12",
+  title: "Parser",
+  description: null,
+  state: "ready",
+  runsAfterStoryId: null,
+  rank: "a",
 };
 
 /** A promise the test settles by hand, so the pending state can be looked at. */
@@ -92,7 +92,10 @@ describe("Start, Resume and Make Ready: pending, then a toast", () => {
     expect(notifySuccess).not.toHaveBeenCalled();
     await act(async () => start.resolve());
     await waitFor(() => expect(button).not.toHaveAttribute("aria-busy"));
-    expect(notifySuccess).toHaveBeenCalledWith("Started FLY-12", expect.objectContaining({ description: expect.any(String) }));
+    expect(notifySuccess).toHaveBeenCalledWith(
+      "Started FLY-12",
+      expect.objectContaining({ description: expect.any(String) }),
+    );
   });
 
   it("Start says a refusal where it was clicked, and toasts nothing", async () => {
@@ -167,7 +170,11 @@ describe("Stop and Drop confirm in ConfirmDestructive", () => {
     wrap(<DropControl story={STORY} />);
     fireEvent.click(screen.getByRole("button", { name: "Drop FLY-12" }));
     const dialog = await screen.findByRole("alertdialog", { name: "Drop FLY-12?" });
-    expect(within(dialog).getAllByRole("button").map((b) => b.textContent)).toEqual(["Keep", "Drop the Story"]);
+    expect(
+      within(dialog)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Keep", "Drop the Story"]);
     fireEvent.click(within(dialog).getByRole("button", { name: "Keep" }));
     expect(storyDrop).not.toHaveBeenCalled();
 

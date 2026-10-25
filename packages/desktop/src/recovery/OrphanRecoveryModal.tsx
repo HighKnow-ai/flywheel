@@ -200,8 +200,8 @@ export function OrphanRecoveryModal() {
                   </ItemTitle>
                   {row.failed ? (
                     <p role="alert" className="m-0 text-small text-destructive-text">
-                      Couldn&rsquo;t stop it (PID {orphan.pid}). It&rsquo;s still running: stop it from a terminal,
-                      then reopen Flywheel.
+                      Couldn&rsquo;t stop it (PID {orphan.pid}). It&rsquo;s still running: stop it from a terminal, then
+                      reopen Flywheel.
                     </p>
                   ) : (
                     <ItemDescription className="text-small">

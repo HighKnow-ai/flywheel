@@ -55,7 +55,16 @@ vi.mock("../../adapters/tauri", async () => {
 });
 
 function milestone(id: string, title: string, state: string, overrides: Partial<MilestoneDto> = {}): MilestoneDto {
-  return { id, projectId: "p1", title, exitTest: `${title} passes its exit test.`, state, current: false, rank: id, ...overrides };
+  return {
+    id,
+    projectId: "p1",
+    title,
+    exitTest: `${title} passes its exit test.`,
+    state,
+    current: false,
+    rank: id,
+    ...overrides,
+  };
 }
 
 const BOARD = milestone("m0", "Board model", "done");
@@ -69,7 +78,14 @@ function status(overrides: Partial<StageStatusDto> = {}): StageStatusDto {
 }
 
 function view(overrides: Partial<MilestoneShapingDto> = {}): MilestoneShapingDto {
-  return { milestone: SHAPING, stages: [EXIT_TEST_OPEN], rounds: [], proposals: [], openStageStatus: status(), ...overrides };
+  return {
+    milestone: SHAPING,
+    stages: [EXIT_TEST_OPEN],
+    rounds: [],
+    proposals: [],
+    openStageStatus: status(),
+    ...overrides,
+  };
 }
 
 const OPEN_ROUND: RoundDto = {
@@ -126,13 +142,19 @@ beforeEach(() => {
   useUiStore.setState({ currentProjectId: "p1" });
   milestoneList.mockReset().mockResolvedValue([BOARD, SHAPING, ROADMAP]);
   milestoneProgress.mockReset().mockResolvedValue(null);
-  milestoneShape.mockReset().mockResolvedValue({ id: "run-m", milestoneId: "m1", status: "running", permissionMode: "dontAsk" });
+  milestoneShape
+    .mockReset()
+    .mockResolvedValue({ id: "run-m", milestoneId: "m1", status: "running", permissionMode: "dontAsk" });
   milestoneShapingSession.mockReset().mockResolvedValue(null);
   milestoneShapingRounds.mockReset().mockResolvedValue(view({ stages: [], openStageStatus: null }));
-  milestoneShapingContinue.mockReset().mockResolvedValue({ id: "run-2", milestoneId: "m1", status: "running", permissionMode: "dontAsk" });
+  milestoneShapingContinue
+    .mockReset()
+    .mockResolvedValue({ id: "run-2", milestoneId: "m1", status: "running", permissionMode: "dontAsk" });
   proposalAccept.mockReset().mockResolvedValue(undefined);
   milestoneUpdate.mockReset().mockResolvedValue(undefined);
-  stageClose.mockReset().mockResolvedValue({ closedStageId: "s1", opened: null, session: null, launchError: null, sidecarWarning: null });
+  stageClose
+    .mockReset()
+    .mockResolvedValue({ closedStageId: "s1", opened: null, session: null, launchError: null, sidecarWarning: null });
 });
 
 describe("Shape on a Milestone (issue #132)", () => {
@@ -158,7 +180,9 @@ describe("Shape on a Milestone (issue #132)", () => {
     wrap(<RoadmapStrip projectId="p1" />);
     fireEvent.click(await screen.findByRole("button", { name: "Shape the exit test of Shaping" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("claude is not on PATH");
-    expect(screen.getByRole("button", { name: "Shape the exit test of Shaping" })).toHaveAccessibleDescription(/claude is not on PATH/);
+    expect(screen.getByRole("button", { name: "Shape the exit test of Shaping" })).toHaveAccessibleDescription(
+      /claude is not on PATH/,
+    );
     expect(useUiStore.getState().currentMilestoneId).toBeNull();
   });
 
@@ -169,7 +193,16 @@ describe("Shape on a Milestone (issue #132)", () => {
     await waitFor(() => expect(useUiStore.getState().currentMilestoneId).toBe("m1"));
     const state = useUiStore.getState();
     expect(state.activeSessionId).toBeNull();
-    expect(activeSurface({ settingsOpen: false, sessionOpen: false, fleetOpen: false, worktreeInventoryOpen: false, projectUnreachable: false, milestoneOpen: true })).toBe("milestone");
+    expect(
+      activeSurface({
+        settingsOpen: false,
+        sessionOpen: false,
+        fleetOpen: false,
+        worktreeInventoryOpen: false,
+        projectUnreachable: false,
+        milestoneOpen: true,
+      }),
+    ).toBe("milestone");
     // Back returns to the board the Shape was pressed on.
     state.goBack();
     expect(useUiStore.getState().currentMilestoneId).toBeNull();
@@ -183,7 +216,17 @@ describe("Shape on a Milestone (issue #132)", () => {
       state: "shaping",
       current: true,
       nextMilestoneTitle: "Roadmap",
-      counts: { shaping: 0, ready: 0, running: 0, waitingOnYou: 0, stopped: 0, inReview: 0, merged: 0, dropped: 0, storiesTotal: 0 },
+      counts: {
+        shaping: 0,
+        ready: 0,
+        running: 0,
+        waitingOnYou: 0,
+        stopped: 0,
+        inReview: 0,
+        merged: 0,
+        dropped: 0,
+        storiesTotal: 0,
+      },
       epicsDone: 0,
       epicsTotal: 0,
       epics: [],
@@ -228,7 +271,9 @@ describe("the Milestone's shaping view (issue #132)", () => {
   });
 
   it("draws a proposed exit test as a ghost over the exit test and accepts it in place", async () => {
-    milestoneShapingRounds.mockResolvedValue(view({ proposals: [GHOST], openStageStatus: status({ closable: false }) }));
+    milestoneShapingRounds.mockResolvedValue(
+      view({ proposals: [GHOST], openStageStatus: status({ closable: false }) }),
+    );
     renderView();
     const ghost = await screen.findByRole("group", { name: "Proposed Exit test" });
     expect(within(ghost).getByText("Cyril shapes a Milestone's exit test in the dock.")).toBeInTheDocument();
@@ -239,7 +284,11 @@ describe("the Milestone's shaping view (issue #132)", () => {
 
   it("waits for no Round once the Exit test Stage is closed (issue #128's done dock)", async () => {
     milestoneShapingRounds.mockResolvedValue(
-      view({ milestone: { ...SHAPING, state: "ready" }, stages: [{ ...EXIT_TEST_OPEN, state: "closed" }], openStageStatus: null }),
+      view({
+        milestone: { ...SHAPING, state: "ready" },
+        stages: [{ ...EXIT_TEST_OPEN, state: "closed" }],
+        openStageStatus: null,
+      }),
     );
     renderView();
     await screen.findByRole("region", { name: "Shaping" });
@@ -256,7 +305,9 @@ describe("the Milestone's shaping view (issue #132)", () => {
     expect(await screen.findByRole("alertdialog", { name: "Close the Exit test Stage?" })).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "Close and make it Ready" }));
     await waitFor(() => expect(stageClose).toHaveBeenCalledWith("s1"));
-    expect(await within(stages).findByText("The Exit test Stage is closed: the Milestone is Ready.")).toBeInTheDocument();
+    expect(
+      await within(stages).findByText("The Exit test Stage is closed: the Milestone is Ready."),
+    ).toBeInTheDocument();
   });
 });
 
@@ -325,7 +376,9 @@ describe("editing a Milestone by hand on its card (issue #149)", () => {
     fireEvent.click(within(card).getByRole("button", { name: "Edit Exit test" }));
     fireEvent.change(within(card).getByRole("textbox", { name: "Exit test" }), { target: { value: "Something else" } });
     fireEvent.click(within(card).getByRole("button", { name: "Save Exit test" }));
-    expect(await within(card).findByRole("alert")).toHaveTextContent("Could not save Exit test: a Done Milestone is frozen");
+    expect(await within(card).findByRole("alert")).toHaveTextContent(
+      "Could not save Exit test: a Done Milestone is frozen",
+    );
     expect(within(card).getByRole("textbox", { name: "Exit test" })).toHaveValue("Something else");
   });
 

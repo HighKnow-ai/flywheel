@@ -131,9 +131,7 @@ describe("global additions", () => {
     const regions = ["board-list", "session-surface", "permission-card", "item-detail"] as const;
     for (const region of regions) {
       const binding = resolveBinding(fakeEvent(",", { meta: true }), region);
-      expect(binding?.id, `expected ⌘, to resolve to open-settings from region "${region}"`).toBe(
-        "open-settings",
-      );
+      expect(binding?.id, `expected ⌘, to resolve to open-settings from region "${region}"`).toBe("open-settings");
     }
   });
 });

@@ -112,7 +112,14 @@ const INLINE_INK: Record<StateTone, string> = {
   neutral: "text-foreground",
 };
 
-export function StateBadge({ state, variant = "pill", label, hideLabel = false, pulse = false, className }: StateBadgeProps) {
+export function StateBadge({
+  state,
+  variant = "pill",
+  label,
+  hideLabel = false,
+  pulse = false,
+  className,
+}: StateBadgeProps) {
   const entry = entryOf(state) ?? UNKNOWN;
   const word = label ?? stateWordOf(state);
   const filled = variant === "pill" || entry.tone === "attention" || entry.tone === "destructive";
@@ -126,7 +133,8 @@ export function StateBadge({ state, variant = "pill", label, hideLabel = false, 
       className={cn(
         entry.quiet && "text-muted-foreground",
         state === "shaping" && filled && "border-dashed border-input bg-transparent",
-        !filled && cn("h-auto gap-1 px-0 hover:bg-transparent", INLINE_INK[entry.tone], entry.quiet && "text-muted-foreground"),
+        !filled &&
+          cn("h-auto gap-1 px-0 hover:bg-transparent", INLINE_INK[entry.tone], entry.quiet && "text-muted-foreground"),
         hideLabel && filled && "px-1.5",
         className,
       )}

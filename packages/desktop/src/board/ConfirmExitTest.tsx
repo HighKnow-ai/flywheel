@@ -119,7 +119,10 @@ export function ConfirmExitTestOutcome() {
               {`Roadmap Round ${stalled?.roundNumber ?? ""} is open, but its session could not start. Continue it from the Roadmap strip once that is fixed.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <p role="alert" className="m-0 rounded-md border border-border bg-secondary px-3 py-2 font-mono text-meta break-words text-muted-foreground">
+          <p
+            role="alert"
+            className="m-0 rounded-md border border-border bg-secondary px-3 py-2 font-mono text-meta break-words text-muted-foreground"
+          >
             {stalled?.reason}
           </p>
           <AlertDialogFooter>
@@ -179,7 +182,9 @@ export function ConfirmExitTest({
             : `Roadmap Round ${done.roundNumber} started, on the Roadmap strip.`,
       });
       setOutcome({
-        stalled: done.sessionError ? { title: titleOf(subject), roundNumber: done.roundNumber, reason: done.sessionError } : null,
+        stalled: done.sessionError
+          ? { title: titleOf(subject), roundNumber: done.roundNumber, reason: done.sessionError }
+          : null,
       });
       setOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["board", projectId] });

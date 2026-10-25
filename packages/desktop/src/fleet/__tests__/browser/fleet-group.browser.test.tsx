@@ -25,7 +25,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "../../../styles/globals.css";
-import "../../../App.css";
 import type { FleetListDto, FleetRowDto, InventoryReason, WorktreeInventoryRowDto } from "../../../adapters/tauri";
 import { FleetSurface } from "../../FleetSurface";
 import { RECLAIM_REASONS, WorktreeInventory } from "../../WorktreeInventory";
@@ -89,18 +88,71 @@ const ended = new Date(Date.now() - 3 * 3_600_000).toISOString();
 /** One row per state the surface draws, plus the long-text stress rows. Core order: by band. */
 function stressRows(): FleetRowDto[] {
   return [
-    fleetRow("101", { fleetState: "blocked", runStatus: "blocked", blockedSince: new Date(Date.now() - 41 * 60_000).toISOString(), activity: { lines: [line({ type: "tool_call", seq: 1, toolName: "Bash", input: { command: "git push origin --delete feature/doomed" } })], truncated: false } }),
-    fleetRow("102", { fleetState: "awaiting_review", runStatus: "completed", endedAt: ended, costUsd: 1.2345, tokensIn: 12_345_678, tokensOut: 987_654 }),
+    fleetRow("101", {
+      fleetState: "blocked",
+      runStatus: "blocked",
+      blockedSince: new Date(Date.now() - 41 * 60_000).toISOString(),
+      activity: {
+        lines: [
+          line({
+            type: "tool_call",
+            seq: 1,
+            toolName: "Bash",
+            input: { command: "git push origin --delete feature/doomed" },
+          }),
+        ],
+        truncated: false,
+      },
+    }),
+    fleetRow("102", {
+      fleetState: "awaiting_review",
+      runStatus: "completed",
+      endedAt: ended,
+      costUsd: 1.2345,
+      tokensIn: 12_345_678,
+      tokensOut: 987_654,
+    }),
     fleetRow("103", { fleetState: "abandoned", runStatus: "abandoned", endedAt: ended }),
-    fleetRow("104", { doingTaskTitle: "Task 1: wire the thing", activity: { lines: [line({ type: "assistant_text", seq: 1, text: LONG_NARRATION })], truncated: false } }),
-    fleetRow("105", { storyTitle: LONG_TITLE, doingTaskTitle: LONG_TITLE, activity: { lines: [line({ type: "tool_call", seq: 1, toolName: "Read", input: { file_path: "packages/desktop/src-tauri/src/commands/some/deeply/nested/module/file.rs" } })], truncated: false } }),
+    fleetRow("104", {
+      doingTaskTitle: "Task 1: wire the thing",
+      activity: { lines: [line({ type: "assistant_text", seq: 1, text: LONG_NARRATION })], truncated: false },
+    }),
+    fleetRow("105", {
+      storyTitle: LONG_TITLE,
+      doingTaskTitle: LONG_TITLE,
+      activity: {
+        lines: [
+          line({
+            type: "tool_call",
+            seq: 1,
+            toolName: "Read",
+            input: { file_path: "packages/desktop/src-tauri/src/commands/some/deeply/nested/module/file.rs" },
+          }),
+        ],
+        truncated: false,
+      },
+    }),
     fleetRow("106", { projectName: LONG_PROJECT, storyTitle: LONG_TITLE }),
-    fleetRow("107", { fleetState: "completed", runStatus: "completed", endedAt: ended, costUsd: 0.0421, tokensIn: 1_234_567, tokensOut: 45_678 }),
-    fleetRow("108", { fleetState: "failed", runStatus: "failed", endedAt: ended, costUsd: 12.3456, tokensIn: 98_765_432, tokensOut: 8_765_432, projectName: LONG_PROJECT }),
+    fleetRow("107", {
+      fleetState: "completed",
+      runStatus: "completed",
+      endedAt: ended,
+      costUsd: 0.0421,
+      tokensIn: 1_234_567,
+      tokensOut: 45_678,
+    }),
+    fleetRow("108", {
+      fleetState: "failed",
+      runStatus: "failed",
+      endedAt: ended,
+      costUsd: 12.3456,
+      tokensIn: 98_765_432,
+      tokensOut: 8_765_432,
+      projectName: LONG_PROJECT,
+    }),
     fleetRow("109", { fleetState: "interrupted", runStatus: "interrupted", endedAt: ended }),
   ];
 }
-
 
 // ---------------------------------------------------------------------------------------------
 // Measurement helpers.
@@ -202,7 +254,10 @@ describe.each(WIDTHS)("the fleet table at %ipx", (width) => {
     }
     // The Story column takes whatever width is left, so it is the widest at every width.
     const story = headers.find((h) => h.textContent === "Story") as HTMLElement;
-    for (const header of headers) expect(rect(story).width, `Story is wider than ${header.textContent}`).toBeGreaterThanOrEqual(rect(header).width - TOL);
+    for (const header of headers)
+      expect(rect(story).width, `Story is wider than ${header.textContent}`).toBeGreaterThanOrEqual(
+        rect(header).width - TOL,
+      );
   });
 
   it("cuts only what may be cut, and cuts it with an ellipsis; the state, age and dismiss cells are never cut", async () => {
@@ -212,7 +267,8 @@ describe.each(WIDTHS)("the fleet table at %ipx", (width) => {
       for (const field of ["state", "age", "dismiss"]) expectNotCut(fieldOf(row, field), `${name}, ${field}`);
       for (const field of ["project", "subject", "doing-task", "activity"]) {
         const cell = fieldOf(row, field);
-        if (shown(cell) && cell.offsetParent !== null && !cell.classList.contains("sr-only")) expectEllipsisWhenCut(cell, `${name}, ${field}`);
+        if (shown(cell) && cell.offsetParent !== null && !cell.classList.contains("sr-only"))
+          expectEllipsisWhenCut(cell, `${name}, ${field}`);
       }
       const spend = fieldOf(row, "spend");
       if (spend) for (const line of Array.from(spend.children)) expectNotCut(line, `${name}, spend`);
@@ -242,13 +298,21 @@ describe.each(WIDTHS)("the fleet table at %ipx", (width) => {
     const byId = (id: string) => container.querySelector<HTMLElement>(`[data-run-id="${id}"]`) as HTMLElement;
     const long = byId("106");
     const short = byId("107");
-    expect(rect(long).height, "a long project name or title must not make its row taller").toBeCloseTo(rect(short).height, 0);
+    expect(rect(long).height, "a long project name or title must not make its row taller").toBeCloseTo(
+      rect(short).height,
+      0,
+    );
     const subject = fieldOf(long, "subject");
     expect(getComputedStyle(subject).textOverflow, "a long title is cut with an ellipsis").toBe("ellipsis");
     const project = fieldOf(long, "project");
     if (shown(project)) {
-      expect(getComputedStyle(project).textOverflow, "a long project name must be cut with an ellipsis").toBe("ellipsis");
-      expect(project.scrollWidth, "the fixture really is longer than the column (else this proves nothing)").toBeGreaterThan(project.clientWidth + 1);
+      expect(getComputedStyle(project).textOverflow, "a long project name must be cut with an ellipsis").toBe(
+        "ellipsis",
+      );
+      expect(
+        project.scrollWidth,
+        "the fixture really is longer than the column (else this proves nothing)",
+      ).toBeGreaterThan(project.clientWidth + 1);
     }
     const age = fieldOf(long, "age");
     expectInside(age, long, "age cell of the long-name row");
@@ -300,7 +364,10 @@ describe.each(WIDTHS)("the fleet table at %ipx", (width) => {
     scroller.scrollTop = scroller.scrollHeight;
     await new Promise((resolve) => requestAnimationFrame(resolve));
     const head = container.querySelector("thead") as HTMLElement;
-    expect(Math.abs(rect(head).top - rect(scroller).top), "the header row sticks to the top of the card").toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(rect(head).top - rect(scroller).top),
+      "the header row sticks to the top of the card",
+    ).toBeLessThanOrEqual(1);
     const stage = container.querySelector("[data-stage]") as HTMLElement;
     expect(rect(scroller).bottom, "the card ends inside the window").toBeLessThanOrEqual(rect(stage).bottom + TOL);
   });
@@ -321,7 +388,11 @@ const DISPOSITION_OF: Record<InventoryReason, WorktreeInventoryRowDto["dispositi
   story_open: "keep",
 };
 
-function inventoryRow(id: string, reason: InventoryReason, overrides: Partial<WorktreeInventoryRowDto> = {}): WorktreeInventoryRowDto {
+function inventoryRow(
+  id: string,
+  reason: InventoryReason,
+  overrides: Partial<WorktreeInventoryRowDto> = {},
+): WorktreeInventoryRowDto {
   return {
     storyId: id,
     storyKey: `ALP-${id}`,
@@ -346,7 +417,10 @@ function inventoryRows(): WorktreeInventoryRowDto[] {
   return [
     ...RECLAIM_REASONS.map((reason, i) => inventoryRow(`${i + 1}`, reason)),
     inventoryRow("20", "merged", { projectId: "proj-2", projectName: LONG_PROJECT, storyTitle: LONG_TITLE }),
-    inventoryRow("21", "merged", { sizeBytes: 1023.9 * 1024 ** 4, sizeMeasuredAt: new Date(Date.now() - 40 * 86_400_000).toISOString() }),
+    inventoryRow("21", "merged", {
+      sizeBytes: 1023.9 * 1024 ** 4,
+      sizeMeasuredAt: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+    }),
     inventoryRow("22", "uncommitted_changes", { sizeBytes: null, sizeMeasuredAt: null }),
   ];
 }
@@ -382,7 +456,10 @@ describe.each(WIDTHS)("the worktree table at %ipx", (width) => {
   it("never cuts the size cell, even for the widest size with a month-old measurement", async () => {
     const container = await mountInventory(inventoryRows(), width);
     for (const item of Array.from(container.querySelectorAll<HTMLElement>("[data-worktree-row]"))) {
-      expectNotCut(item.querySelector('[data-field="size"]') as HTMLElement, `size cell of row ${item.dataset.worktreeRow}`);
+      expectNotCut(
+        item.querySelector('[data-field="size"]') as HTMLElement,
+        `size cell of row ${item.dataset.worktreeRow}`,
+      );
     }
     const widest = container.querySelector('[data-worktree-row="21"] [data-field="size"]') as HTMLElement;
     expect(widest.textContent).toContain("1023.9 TiB");
@@ -394,7 +471,9 @@ describe.each(WIDTHS)("the worktree table at %ipx", (width) => {
     const group = container.querySelector('tbody[data-project="proj-2"]') as HTMLElement;
     const project = group.querySelector<HTMLElement>('[data-field="project"]') as HTMLElement;
     expectEllipsisWhenCut(project, "a long project name");
-    expect(rect(project).height, "the project's name is one line").toBeLessThanOrEqual(parseFloat(getComputedStyle(project).lineHeight) + 1);
+    expect(rect(project).height, "the project's name is one line").toBeLessThanOrEqual(
+      parseFloat(getComputedStyle(project).lineHeight) + 1,
+    );
     const long = container.querySelector('[data-worktree-row="20"]') as HTMLElement;
     const short = container.querySelector('[data-worktree-row="1"]') as HTMLElement;
     expect(rect(long).height, "a long title must not make its row taller").toBeCloseTo(rect(short).height, 0);
@@ -418,6 +497,8 @@ describe.each(WIDTHS)("the worktree table at %ipx", (width) => {
     const stage = container.querySelector("[data-stage]") as HTMLElement;
     const bar = container.querySelector("[data-reclaim-bar]") as HTMLElement;
     expectInside(bar, stage, "the Reclaim bar");
-    expect(Math.abs(rect(container.querySelector("thead") as HTMLElement).top - rect(scroller).top)).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(rect(container.querySelector("thead") as HTMLElement).top - rect(scroller).top),
+    ).toBeLessThanOrEqual(1);
   });
 });

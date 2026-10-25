@@ -66,7 +66,8 @@ export function recordFlicker(root: HTMLElement): FlickerRecorder {
       if (record.type === "attributes") {
         const el = record.target as Element;
         const now = el.getAttribute(record.attributeName ?? "");
-        if (now !== record.oldValue) attributesChanged.push(`${describe(el)} [${record.attributeName}] ${record.oldValue} -> ${now}`);
+        if (now !== record.oldValue)
+          attributesChanged.push(`${describe(el)} [${record.attributeName}] ${record.oldValue} -> ${now}`);
         continue;
       }
       if (record.type === "characterData") {
@@ -104,7 +105,8 @@ export function recordFlicker(root: HTMLElement): FlickerRecorder {
   if (typeof PerformanceObserver !== "undefined" && PerformanceObserver.supportedEntryTypes?.includes("layout-shift")) {
     layoutShiftScore = 0;
     perf = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) layoutShiftScore = (layoutShiftScore ?? 0) + ((entry as unknown as { value: number }).value ?? 0);
+      for (const entry of list.getEntries())
+        layoutShiftScore = (layoutShiftScore ?? 0) + ((entry as unknown as { value: number }).value ?? 0);
     });
     perf.observe({ type: "layout-shift", buffered: false });
   }
@@ -165,7 +167,17 @@ export function recordFlicker(root: HTMLElement): FlickerRecorder {
         if (kind === "-") gone.add(d);
         else if (gone.has(d)) recreated.push(d);
       }
-      return { removed, added, recreated, attributesChanged, textChanged, blankFrames, shifted: [...shifted.values()], layoutShiftScore, frames };
+      return {
+        removed,
+        added,
+        recreated,
+        attributesChanged,
+        textChanged,
+        blankFrames,
+        shifted: [...shifted.values()],
+        layoutShiftScore,
+        frames,
+      };
     },
   };
 }

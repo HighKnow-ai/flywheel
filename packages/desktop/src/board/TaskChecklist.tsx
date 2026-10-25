@@ -14,6 +14,7 @@
  * A new Task is typed into one Input Group with its Add button inside.
  */
 import { StateBadge } from "../components/StateBadge";
+import { Label } from "@/components/ui/label";
 import { useRef, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, ChevronRight, CircleSlash, Ellipsis, NotebookText, Pencil, Plus } from "lucide-react";
@@ -157,11 +158,7 @@ function TaskRow({
   const dropped = task.state === "dropped";
   const doing = task.state === "doing";
   return (
-    <Collapsible
-      asChild
-      open={noteOpen}
-      onOpenChange={setNoteOpen}
-    >
+    <Collapsible asChild open={noteOpen} onOpenChange={setNoteOpen}>
       <li className="group/task flex flex-col gap-1.5 border-t border-border py-2 first:border-t-0 first:pt-0">
         <div className="flex items-start gap-2.5">
           <StateBadge
@@ -232,7 +229,11 @@ function TaskRow({
                         variant="ghost"
                         size="icon-xs"
                         aria-label={`Actions for ${task.title}`}
-                        className={cn("text-subtle-foreground hover:text-foreground", ON_DEMAND, dropping && "opacity-100")}
+                        className={cn(
+                          "text-subtle-foreground hover:text-foreground",
+                          ON_DEMAND,
+                          dropping && "opacity-100",
+                        )}
                       >
                         <Ellipsis aria-hidden="true" />
                       </Button>
@@ -267,10 +268,13 @@ function TaskRow({
                     {!dropped && (
                       <>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem variant="destructive" onSelect={() => {
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => {
                             droppingNext.current = true;
                             setDropping(true);
-                          }}>
+                          }}
+                        >
                           <CircleSlash aria-hidden="true" />
                           Drop…
                         </DropdownMenuItem>
@@ -280,7 +284,10 @@ function TaskRow({
                 </DropdownMenu>
                 <PopoverContent align="end" className="w-80 p-3" aria-label={`Drop ${task.title}`}>
                   <form onSubmit={confirmDrop} className="flex flex-col gap-2">
-                    <label className="flex flex-col gap-1.5 text-small font-semibold" htmlFor={`drop-reason-${task.id}`}>
+                    <Label
+                      className="flex-col items-stretch gap-1.5 text-small leading-(--text-small--line-height) font-semibold"
+                      htmlFor={`drop-reason-${task.id}`}
+                    >
                       Why drop this Task?
                       <Input
                         id={`drop-reason-${task.id}`}
@@ -291,7 +298,7 @@ function TaskRow({
                         className="h-7.5 font-normal"
                         autoFocus
                       />
-                    </label>
+                    </Label>
                     <div className="flex justify-end gap-1.5">
                       <Button type="button" size="sm" variant="ghost" onClick={() => setDropping(false)}>
                         Cancel
@@ -341,7 +348,12 @@ function TaskRow({
               </form>
             ) : (
               <div className="flex items-start gap-2">
-                <p className={cn("m-0 min-w-0 flex-1 text-small whitespace-pre-wrap", !task.note && "text-muted-foreground")}>
+                <p
+                  className={cn(
+                    "m-0 min-w-0 flex-1 text-small whitespace-pre-wrap",
+                    !task.note && "text-muted-foreground",
+                  )}
+                >
                   {task.note ?? "No note yet. The agent writes here what it learns on this Task."}
                 </p>
                 <Button
@@ -379,7 +391,7 @@ function AddTask({ storyKey, onAdd }: { storyKey: string; onAdd: (title: string)
   return (
     <form onSubmit={handleSubmit} className="pt-1">
       {/* The empty field holds Add back without greying the whole group: only the button reads as disabled. */}
-      <InputGroup className="h-8.5 bg-card has-disabled:bg-card has-disabled:opacity-100">
+      <InputGroup className="h-8.5 bg-card has-disabled:bg-card has-disabled:opacity-100 dark:has-disabled:bg-card">
         <InputGroupInput
           aria-label={`New Task for ${storyKey}`}
           placeholder="Add a Task"

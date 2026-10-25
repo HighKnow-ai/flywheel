@@ -333,28 +333,10 @@
 }
 
 /*
- * Type roles the screens still name as classes until #107 moves them to utilities. Body is Public Sans at 14,
- * labels 12, headings 17; numerals are tabular wherever they count.
+ * The two type roles that are not a size on the scale (the sizes are `text-meta` to `text-lead` above): the
+ * condensed label and tabular figures, which count wherever numerals line up.
  */
 @layer components {
-  .type-label {
-    font-size: 12px;
-    line-height: 1.35;
-    font-weight: 500;
-  }
-
-  .type-body {
-    font-size: 14px;
-    line-height: 1.45;
-    font-weight: 400;
-  }
-
-  .type-heading {
-    font-size: 17px;
-    line-height: 1.3;
-    font-weight: 600;
-  }
-
   /* Public Sans, uppercase and tracked: count labels, strip labels, sidebar group names only. */
   .type-condensed {
     font-family: var(--font-ui-condensed);
@@ -534,11 +516,18 @@
     scroll-behavior: auto !important;
   }
 
+  /*
+   * An arbitrary `transition-[…]` names its own properties, and those are layout ones (height, flex-grow, width,
+   * padding, margin, grid rows) more often than not: it keeps only the same colour, opacity and shadow parts,
+   * so a segment, a rail or a row lands at its new size in one frame while any fade beside it still runs. An
+   * element that says what it does under reduced motion itself (a `motion-reduce:` class) is left to it.
+   */
   .transition,
   .transition-all,
-  .transition-transform {
-    transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill,
-      stroke, opacity, box-shadow !important;
+  .transition-transform,
+  [class*="transition-["]:not([class*="motion-reduce:"]) {
+    transition-property:
+      color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, opacity, box-shadow !important;
   }
 
   .animate-spin {

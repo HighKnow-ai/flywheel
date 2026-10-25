@@ -14,6 +14,7 @@
  * the agent posts a Round and the developer answers it.
  */
 import { useId, useState } from "react";
+import { Label } from "@/components/ui/label";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookA, Check, Layers, PenLine, ScrollText, X } from "lucide-react";
 import {
@@ -175,7 +176,13 @@ interface KnowledgeChip {
  * ADR already linked shown once. */
 function knowledgeChips(adrLinks: string[], accepted: ProposalDto[]): KnowledgeChip[] {
   const fileName = (path: string) => path.split("/").pop() || path;
-  const chips: KnowledgeChip[] = adrLinks.map((path) => ({ key: `link:${path}`, kind: "adr", name: fileName(path), title: path, pending: false }));
+  const chips: KnowledgeChip[] = adrLinks.map((path) => ({
+    key: `link:${path}`,
+    kind: "adr",
+    name: fileName(path),
+    title: path,
+    pending: false,
+  }));
   for (const p of accepted) {
     const payload = (p.payload ?? {}) as Record<string, unknown>;
     if (p.targetType === "adr") {
@@ -183,7 +190,9 @@ function knowledgeChips(adrLinks: string[], accepted: ProposalDto[]): KnowledgeC
       if (!path || adrLinks.includes(path)) continue;
       chips.push({ key: p.id, kind: "adr", name: fileName(path), title: path, pending: true });
     } else if (p.targetType === "glossary_term") {
-      const term = [payload.term, payload.name, payload.title].find((v): v is string => typeof v === "string" && v.trim() !== "");
+      const term = [payload.term, payload.name, payload.title].find(
+        (v): v is string => typeof v === "string" && v.trim() !== "",
+      );
       if (term) chips.push({ key: p.id, kind: "glossary", name: term, title: `GLOSSARY.md: ${term}`, pending: true });
     }
   }
@@ -208,7 +217,11 @@ function KnowledgeChips({ chips }: { chips: KnowledgeChip[] }) {
                 )}
               >
                 {chip.kind === "adr" ? <ScrollText aria-hidden="true" /> : <BookA aria-hidden="true" />}
-                <span className="sr-only">{chip.kind === "adr" ? `ADR ${chip.title.slice(0, chip.title.length - chip.name.length)}` : "Glossary term "}</span>
+                <span className="sr-only">
+                  {chip.kind === "adr"
+                    ? `ADR ${chip.title.slice(0, chip.title.length - chip.name.length)}`
+                    : "Glossary term "}
+                </span>
                 <span className={cn("min-w-0 truncate", chip.kind === "adr" && "font-mono")}>{chip.name}</span>
                 {chip.pending && (
                   <span className="shrink-0 text-meta text-muted-foreground">
@@ -219,7 +232,11 @@ function KnowledgeChips({ chips }: { chips: KnowledgeChip[] }) {
             </HoverCardTrigger>
             <HoverCardContent align="start" className="flex w-auto max-w-96 flex-col gap-1">
               <span className="flex min-w-0 items-center gap-1.5 text-meta font-semibold text-muted-foreground">
-                {chip.kind === "adr" ? <ScrollText aria-hidden="true" className="size-3.5 shrink-0" /> : <BookA aria-hidden="true" className="size-3.5 shrink-0" />}
+                {chip.kind === "adr" ? (
+                  <ScrollText aria-hidden="true" className="size-3.5 shrink-0" />
+                ) : (
+                  <BookA aria-hidden="true" className="size-3.5 shrink-0" />
+                )}
                 {chip.kind === "adr" ? "ADR" : "Glossary term"}
               </span>
               <span className={cn("text-small break-all text-foreground", chip.kind === "adr" && "font-mono")}>
@@ -348,7 +365,9 @@ function SpecField({
   return (
     <div className="flex min-w-0 flex-col gap-1.5 border-b border-border px-5 py-3.5 last:border-b-0">
       <dt className="flex min-h-6 items-center gap-2 text-meta font-semibold text-muted-foreground">
-        <label htmlFor={fieldId}>{label}</label>
+        <Label htmlFor={fieldId} className="text-meta font-semibold">
+          {label}
+        </Label>
         {!editing && (
           <Button
             variant="ghost"
@@ -401,7 +420,10 @@ function SpecField({
             </div>
           </form>
         ) : value ? (
-          <p data-settling={settle.settling || undefined} className={cn("m-0 max-w-[68ch] text-body whitespace-pre-wrap break-words", settle.className)}>
+          <p
+            data-settling={settle.settling || undefined}
+            className={cn("m-0 max-w-[68ch] text-body whitespace-pre-wrap break-words", settle.className)}
+          >
             {value}
           </p>
         ) : (

@@ -46,7 +46,11 @@ describe("a tool call", () => {
   };
 
   it("is one compact row: a plain verb, its target and its metrics, the output hidden until expanded", () => {
-    const { container } = renderRow({ ...call, startedAt: "2026-10-19T10:00:00.000Z", endedAt: "2026-10-19T10:00:41.000Z" });
+    const { container } = renderRow({
+      ...call,
+      startedAt: "2026-10-19T10:00:00.000Z",
+      endedAt: "2026-10-19T10:00:41.000Z",
+    });
     expect(screen.getByRole("button", { name: "Ran · npm test, done" })).toHaveAttribute("aria-expanded", "false");
     expect(container.querySelector(".feed-call-verb")?.textContent).toBe("Ran");
     const metrics = [...(container.querySelector(".feed-call-metrics")?.children ?? [])].map((el) => el.textContent);
@@ -111,7 +115,13 @@ describe("a tool call", () => {
 
   it("renders a structured output as fields too, never as JSON", () => {
     const { container } = renderRow(
-      { kind: "tool_call", key: "k", toolName: "mcp__flywheel__story_get", input: {}, output: { key: "FLY-3", criteria: ["a", "b"] } },
+      {
+        kind: "tool_call",
+        key: "k",
+        toolName: "mcp__flywheel__story_get",
+        input: {},
+        output: { key: "FLY-3", criteria: ["a", "b"] },
+      },
       { expanded: true },
     );
     expect(screen.getByText("FLY-3")).toBeInTheDocument();
@@ -141,7 +151,13 @@ describe("a tool call", () => {
   it("while live with no heartbeat yet, counts from when the call started", () => {
     const now = Date.parse("2026-10-19T10:00:12.000Z");
     renderRow(
-      { kind: "tool_call", key: "k", toolName: "Bash", input: { command: "sleep 30" }, startedAt: "2026-10-19T10:00:05.000Z" },
+      {
+        kind: "tool_call",
+        key: "k",
+        toolName: "Bash",
+        input: { command: "sleep 30" },
+        startedAt: "2026-10-19T10:00:05.000Z",
+      },
       { live: true, now },
     );
     expect(screen.getByText("running · 7s")).toBeInTheDocument();
@@ -160,7 +176,11 @@ describe("cards", () => {
       kind: "proposal",
       key: "k",
       toolName: "mcp__flywheel__propose_story",
-      input: { title: "Pair results by id", why: "FIFO by name mispairs concurrent calls", criteria: ["pairs by id", "falls back to name"] },
+      input: {
+        title: "Pair results by id",
+        why: "FIFO by name mispairs concurrent calls",
+        criteria: ["pairs by id", "falls back to name"],
+      },
       output: "Proposal P-12 filed",
     });
     const card = container.querySelector(".session-card");
@@ -181,10 +201,7 @@ describe("cards", () => {
         {
           question: "Which events notify?",
           header: "Triggers",
-          options: [
-            { label: "Blocked", description: "A run waits on you" },
-            { label: "Finished" },
-          ],
+          options: [{ label: "Blocked", description: "A run waits on you" }, { label: "Finished" }],
         },
       ],
       answer: "The user did not answer the questions.",
@@ -212,7 +229,8 @@ describe("git lock-retry transient row and the git-lock-exhaustion no-render cas
 });
 
 describe("worktree-relative paths (issue #205)", () => {
-  const ROOT = "/Users/cymarechal/cymarechal/clients/acme-enterprise-holdings/technical-presales-knowledge-platform-monorepo";
+  const ROOT =
+    "/Users/cymarechal/cymarechal/clients/acme-enterprise-holdings/technical-presales-knowledge-platform-monorepo";
   const read: FeedRowData = {
     kind: "tool_call",
     key: "k",
@@ -240,7 +258,13 @@ describe("worktree-relative paths (issue #205)", () => {
   it("make a command's mention of the worktree relative too", () => {
     const { container } = render(
       <FeedRow
-        row={{ kind: "tool_call", key: "k", toolName: "Bash", input: { command: `cd ${ROOT} && pnpm test ${ROOT}/packages/export` }, output: "ok" }}
+        row={{
+          kind: "tool_call",
+          key: "k",
+          toolName: "Bash",
+          input: { command: `cd ${ROOT} && pnpm test ${ROOT}/packages/export` },
+          output: "ok",
+        }}
         expanded={false}
         onToggleExpand={() => {}}
         root={ROOT}
@@ -255,13 +279,19 @@ describe("worktree-relative paths (issue #205)", () => {
     expect(a.container.querySelector(".feed-call-target")).toHaveTextContent("/etc/hosts");
     a.unmount();
     const b = render(<FeedRow row={read} expanded={false} onToggleExpand={() => {}} />);
-    expect(b.container.querySelector(".feed-call-target")).toHaveTextContent(`${ROOT}/packages/export/src/xlsx/merge-cells.ts`);
+    expect(b.container.querySelector(".feed-call-target")).toHaveTextContent(
+      `${ROOT}/packages/export/src/xlsx/merge-cells.ts`,
+    );
   });
 });
 
 describe("notices (issue #205)", () => {
   it("sit in the row grid with an icon: an API error a warning", () => {
-    renderRow({ kind: "system_notice", key: "k", text: "API Error: 529 Overloaded. Retrying in 4 seconds… (attempt 1 of 10)" });
+    renderRow({
+      kind: "system_notice",
+      key: "k",
+      text: "API Error: 529 Overloaded. Retrying in 4 seconds… (attempt 1 of 10)",
+    });
     const line = screen.getByText(/^API Error: 529/).closest("p") as HTMLElement;
     expect(line).toHaveClass("feed-notice");
     expect(line.querySelector("svg.lucide-triangle-alert")).not.toBeNull();
