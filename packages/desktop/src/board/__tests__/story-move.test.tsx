@@ -100,8 +100,8 @@ describe("+ Story on an Epic card", () => {
     wrap(<StoryBoard projectId="p1" projectName="Threadfin" />);
     fireEvent.click(await screen.findByRole("button", { name: "Add a Story to FLY-2 Needs you" }));
     const dialog = await screen.findByRole("dialog", { name: "Write a Story" });
-    await waitFor(() => expect((within(dialog).getByLabelText("Epic") as HTMLSelectElement).value).toBe("e2"));
-    expect((within(dialog).getByLabelText("Milestone") as HTMLSelectElement).value).toBe("m3");
+    await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "Epic" })).toHaveTextContent("FLY-2 Needs you"));
+    expect(within(dialog).getByRole("combobox", { name: "Milestone" })).toHaveTextContent("Board");
   });
 
   it("is on every open Epic's card", async () => {
@@ -116,7 +116,7 @@ describe("+ Epic in the Milestone header", () => {
     wrap(<StoryBoard projectId="p1" projectName="Threadfin" />);
     fireEvent.click(await screen.findByRole("button", { name: "Add an Epic to Board" }));
     const dialog = await screen.findByRole("dialog", { name: "Add an Epic" });
-    await waitFor(() => expect((within(dialog).getByLabelText("Milestone") as HTMLSelectElement).value).toBe("m3"));
+    await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "Milestone" })).toHaveTextContent("Board"));
     fireEvent.change(within(dialog).getByLabelText("Epic title"), { target: { value: "Since you last looked" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Add Epic" }));
     await waitFor(() => expect(epicCreate).toHaveBeenCalledWith("m3", "Since you last looked"));

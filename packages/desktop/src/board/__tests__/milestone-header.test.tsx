@@ -62,7 +62,7 @@ describe("MilestoneHeader", () => {
     const header = await screen.findByRole("region", { name: "Shaping" });
     expect(milestoneProgress).toHaveBeenCalledWith("p1", null);
     const heading = within(header).getByRole("heading", { name: "Shaping" });
-    expect(heading.parentElement?.textContent).toContain("In progress");
+    expect(heading.parentElement?.parentElement?.textContent).toContain("In progress");
     expect(within(header).getByText("A one-line idea becomes an Epic with Ready Stories.")).toBeTruthy();
     expect(within(header).getByText("Next: Board and review")).toBeTruthy();
   });
@@ -136,7 +136,8 @@ describe("MilestoneHeader", () => {
       throw new Error("database is locked");
     });
     renderHeader();
-    expect(await screen.findByText("The Milestone's progress could not be read: database is locked")).toBeTruthy();
+    expect(await screen.findByText("Couldn't load the Milestone's progress")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 });
 

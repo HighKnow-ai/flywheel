@@ -160,12 +160,12 @@ describe("the agent station (Story #118)", () => {
   });
 });
 
-describe("+ Epic beside + Story (Story #118)", () => {
-  it("the Story view's top bar offers both", async () => {
+describe("+ Story in the top bar (Story #118, issue #201)", () => {
+  it("the Story view's top bar offers + Story only: a new Epic comes from Write a Story or the Milestone header", async () => {
     renderStory();
     await screen.findByRole("heading", { name: /Predictable clicks/ });
     const bar = screen.getByRole("navigation", { name: "You are here" }).closest("header") as HTMLElement;
-    expect(within(bar).getByRole("button", { name: "Add an Epic" })).toBeInTheDocument();
+    expect(within(bar).queryByRole("button", { name: "Add an Epic" })).toBeNull();
     expect(within(bar).getByRole("button", { name: "Write a Story" })).toBeInTheDocument();
   });
 });

@@ -11,8 +11,11 @@
  *
  * Folded by default to one line, "n events since you last looked"; unfolding lists them oldest first, each a
  * line naming its record. Nothing here needs the Developer, so no signal colour is spent on it.
+ *
+ * The fold is a Collapsible (issue #201), so it grows and shrinks like every other disclosure. Past the core's
+ * cap the list says how many older changes it leaves out, and where they are: already on the board.
  */
-import { useId, useState } from "react";
+import { useState } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -30,6 +33,8 @@ import { boardVisit, type LookedEventDto, type SinceLastLookedDto } from "../ada
 import { formatAge } from "../legend/runStatus";
 import { errorText } from "./StoryControls";
 import { stateWordOf } from "../components/StateBadge";
+import { StoryKey } from "../components/StoryKey";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
 const KIND_ICON: Record<string, LucideIcon> = {
@@ -77,7 +82,6 @@ export function SinceYouLastLooked({ projectId }: { projectId: string }) {
 
 function Timeline({ visit }: { visit: UseQueryResult<SinceLastLookedDto> }) {
   const [open, setOpen] = useState(false);
-  const listId = useId();
 
   if (visit.isPending) return null;
   if (visit.isError) {
@@ -102,14 +106,12 @@ function Timeline({ visit }: { visit: UseQueryResult<SinceLastLookedDto> }) {
   }
 
   const now = Date.now();
+  const older = total - events.length;
   return (
+    <Collapsible asChild open={open} onOpenChange={setOpen}>
     <section aria-label="Since you last looked" className="rounded-lg border border-border bg-card shadow-card">
       <h2 className="m-0 text-body font-normal">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={listId}
-          onClick={() => setOpen((was) => !was)}
+        <CollapsibleTrigger
           className={cn(
             "group/fold flex min-h-11 w-full items-center gap-2.5 rounded-lg px-4 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent",
             open && "rounded-b-none",
@@ -118,10 +120,7 @@ function Timeline({ visit }: { visit: UseQueryResult<SinceLastLookedDto> }) {
           <ChevronRight
             aria-hidden="true"
             size={16}
-            className={cn(
-              "shrink-0 text-subtle-foreground transition-transform duration-(--duration-state) ease-(--ease) group-hover/fold:text-foreground",
-              open && "rotate-90",
-            )}
+            className="shrink-0 text-subtle-foreground transition-transform duration-(--duration-state) ease-(--ease) group-hover/fold:text-foreground group-data-[state=open]/fold:rotate-90"
           />
           <History aria-hidden="true" size={16} className="shrink-0 text-muted-foreground" />
           <span className="text-row">
@@ -133,12 +132,15 @@ function Timeline({ visit }: { visit: UseQueryResult<SinceLastLookedDto> }) {
               {`over the last ${formatAge(events[0].occurredAt, now)}`}
             </span>
           )}
-        </button>
+        </CollapsibleTrigger>
       </h2>
-      {open && (
-        <div id={listId} className="border-t border-border">
-          {events.length < total && (
-            <p className="m-0 px-4 pt-2 text-meta text-subtle-foreground tabular-nums">{`The newest ${events.length} of ${total}`}</p>
+      <CollapsibleContent>
+        <div className="border-t border-border">
+          {older > 0 && (
+            // The list is the newest slice, oldest first, so what it leaves out sits above it.
+            <p className="m-0 px-4 pt-2.5 text-meta text-muted-foreground tabular-nums">
+              {`The newest ${events.length} of ${total}. The ${older} older ${older === 1 ? "change is" : "changes are"} already on the board: open a Story or an Epic to see where it stands.`}
+            </p>
           )}
           <ol aria-label="Since you last looked" className="m-0 list-none py-1 pl-0">
             {events.map((event) => (
@@ -146,21 +148,22 @@ function Timeline({ visit }: { visit: UseQueryResult<SinceLastLookedDto> }) {
             ))}
           </ol>
         </div>
-      )}
+      </CollapsibleContent>
     </section>
+    </Collapsible>
   );
 }
 
 function TimelineRow({ event, now }: { event: LookedEventDto; now: number }) {
   const Icon = kindIcon(event.eventType);
   return (
-    <li className="grid min-h-9 grid-cols-[64px_16px_minmax(0,0.9fr)_minmax(0,1.1fr)] items-center gap-x-3 px-4">
-      <time dateTime={event.occurredAt} className="text-right text-meta text-subtle-foreground tabular-nums">
+    <li className="grid min-h-9 grid-cols-[80px_16px_minmax(0,0.9fr)_minmax(0,1.1fr)] items-center gap-x-3 px-4">
+      <time dateTime={event.occurredAt} className="text-right text-meta whitespace-nowrap text-subtle-foreground tabular-nums">
         {`${formatAge(event.occurredAt, now)} ago`}
       </time>
       <Icon aria-hidden="true" size={16} className="text-muted-foreground" />
       <span className="flex min-w-0 items-baseline gap-2">
-        {event.subjectKey && <span className="w-14 shrink-0 font-mono text-meta text-muted-foreground">{event.subjectKey}</span>}
+        {event.subjectKey && <StoryKey value={event.subjectKey} className="min-w-14" />}
         <span className="truncate text-body font-semibold">{event.subjectTitle ?? "Roadmap"}</span>
       </span>
       <span className="truncate text-small text-muted-foreground">{eventSentence(event.description)}</span>
