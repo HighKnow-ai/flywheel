@@ -11,9 +11,10 @@
  * pair on top of each other. A window now names its own length, so it ends exactly where the next one
  * starts.
  *
- * A refetch (any `agent:event` push invalidates the read) re-reads the first window by its own
- * parameter and every later one through `nextLogPage`, so every window loaded before the refetch is
- * still there after it, and a live log that grew past the last one is followed by `useFollowLogTail`.
+ * A refetch (the session's own `agent:event` pushes invalidate the read) re-reads the first window where
+ * it already is (`fetchFirstLogPage`, issue #195) and every later one through `nextLogPage`, so every
+ * window loaded before the refetch is still there after it, and a live log that grew past the last one
+ * is followed by `useFollowLogTail`.
  */
 import { useEffect } from "react";
 
@@ -39,6 +40,29 @@ export async function fetchLogPage<P extends LogPage>(read: ReadWindow<P>, param
   const probe = await read(0, LOG_PAGE_SIZE);
   if (probe.total <= LOG_PAGE_SIZE) return probe;
   return read(probe.total - LOG_PAGE_SIZE, LOG_PAGE_SIZE);
+}
+
+/** How far a live log may run past its pinned first window before a refetch resolves the tail again:
+ * ten windows, so a refetch re-reads at most eleven windows however long the session runs. */
+export const LOG_PIN_LIMIT = 10 * LOG_PAGE_SIZE;
+
+/**
+ * Reads the FIRST window of a paged read (issue #195). `pinned` is that window as it is already loaded,
+ * if it is. A `"tail"` window that is already loaded is read again where it is, not resolved against
+ * the log's new length: re-resolving it slid the loaded window forward by every new line, so on every
+ * agent event the oldest rows dropped out and every other row moved up one. The lines after it are
+ * read by the windows that follow (`nextLogPage`, `useFollowLogTail`). Once the log has run more than
+ * `LOG_PIN_LIMIT` lines past it the tail is resolved again, which keeps a long-running read bounded.
+ */
+export async function fetchFirstLogPage<P extends LogPage>(
+  read: ReadWindow<P>,
+  param: LogPageParam | number,
+  pinned: LogPage | undefined,
+): Promise<P> {
+  if (param !== "tail" || !pinned) return fetchLogPage(read, param);
+  const page = await read(pinned.offset, LOG_PAGE_SIZE);
+  if (page.total - pinned.offset > LOG_PIN_LIMIT) return fetchLogPage(read, "tail");
+  return page;
 }
 
 /** The window just before `first`, ending exactly where `first` starts. */

@@ -9,6 +9,7 @@ import {
   subscribeBoardChanged,
   worktreeInventory,
 } from "../adapters/tauri";
+import { createInvalidationBatch } from "../board/useBoardChangedInvalidation";
 
 /** How often a running agent's activity line may be re-read: `agent:event` fires per stream event, far
  * faster than a row needs to move. Trailing edge, so the last event of a burst is always picked up. */
@@ -142,14 +143,19 @@ function startInvalidation(queryClient: QueryClient): () => void {
     void queryClient.invalidateQueries({ queryKey: fleetQueryKey() });
     void queryClient.invalidateQueries({ queryKey: blockedQueueQueryKey() });
   };
+  // Coalesced like every routed reader (issue #195): a burst of board writes re-reads each key once.
+  const boardBatch = createInvalidationBatch(queryClient);
   const invalidateOnBoardChange = () => {
-    invalidate();
-    // A Round is posted, taken over and answered by board writes, each emitting board:changed.
-    void queryClient.invalidateQueries({ queryKey: waitingRoundsQueryKey() });
-    // Every Needs-you item changes through a board write (a request raised or answered, a session ending,
-    // a hand-off, a Round), each emitting board:changed; an agent's tool calls never change one.
-    void queryClient.invalidateQueries({ queryKey: needsYouQueryKey() });
-    void queryClient.invalidateQueries({ queryKey: worktreeInventoryQueryKey() });
+    boardBatch.add([
+      fleetQueryKey(),
+      blockedQueueQueryKey(),
+      // A Round is posted, taken over and answered by board writes, each emitting board:changed.
+      waitingRoundsQueryKey(),
+      // Every Needs-you item changes through a board write (a request raised or answered, a session ending,
+      // a hand-off, a Round), each emitting board:changed; an agent's tool calls never change one.
+      needsYouQueryKey(),
+      worktreeInventoryQueryKey(),
+    ]);
   };
   let cancelled = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -175,6 +181,7 @@ function startInvalidation(queryClient: QueryClient): () => void {
   return () => {
     cancelled = true;
     if (timer !== undefined) clearTimeout(timer);
+    boardBatch.cancel();
     unlistenBoard?.();
     unlistenAgent?.();
   };
