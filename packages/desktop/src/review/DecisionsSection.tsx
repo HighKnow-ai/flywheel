@@ -282,8 +282,9 @@ function useAdrDecision({
               <Button variant="ghost" size="sm" onClick={cancel} disabled={busy}>
                 Cancel
               </Button>
-              <Button variant="outline" size="sm" onClick={record} disabled={busy}>
-                {busy ? "Recording…" : "Record Wrong decision"}
+              <Button variant="outline" size="sm" onClick={record} loading={busy}>
+                <FilePen aria-hidden="true" />
+                Record Wrong decision
               </Button>
             </div>
           )}

@@ -49,6 +49,16 @@ describe("Toaster and notify", () => {
     expect(undo).toHaveBeenCalledOnce();
   });
 
+  it("offers a next step that is not Undo, named by its label", async () => {
+    const openBoard = vi.fn();
+    render(<Toaster />);
+    act(() => {
+      notify.success("FLY-3 merged into main", { description: "Worktree cleaned.", action: { label: "Open board", onClick: openBoard } });
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Open board" }));
+    expect(openBoard).toHaveBeenCalledOnce();
+  });
+
   it("reports a failure with its own message as the line beneath", async () => {
     render(<Toaster />);
     act(() => {

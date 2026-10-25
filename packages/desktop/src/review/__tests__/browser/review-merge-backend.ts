@@ -19,7 +19,7 @@
  */
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { MergeDto, NeedsYouItemDto, StoryReviewDto, TriageProposalDto } from "../../../adapters/tauri";
+import type { MergeDto, NeedsYouItemDto, ReviewFileDto, StoryReviewDto, TriageProposalDto } from "../../../adapters/tauri";
 import {
   STORIES,
   answer as m2,
@@ -33,6 +33,24 @@ export const PROJECT_ID = "p-fly";
 const STORY_ID = "s-3";
 /** The new ADR the walk finds marked Not an ADR and sets back to Keep. */
 export const HELD_ADR = "docs/adr/0012-direction-file.md";
+
+/**
+ * FLY-3's diff is a long one, 26 files as in the stress critique (`s16`, `s17`), so the walk proves Merge stays in
+ * reach past every diff (issue #207): the m2 world's three files, then 23 more, each with a 40-line patch.
+ */
+const EXTRA_FILES: ReviewFileDto[] = Array.from({ length: 23 }, (_, i) => ({
+  path: `packages/desktop/src/review/part-${String(i + 1).padStart(2, "0")}.ts`,
+  oldPath: null,
+  status: "A",
+  added: 40,
+  removed: 0,
+  binary: false,
+}));
+
+function extraPatch(path: string): string {
+  const lines = Array.from({ length: 40 }, (_, i) => `+export const line${i + 1} = ${i + 1};`);
+  return [`diff --git a/${path} b/${path}`, "new file mode 100644", "--- /dev/null", `+++ b/${path}`, "@@ -0,0 +1,40 @@", ...lines, ""].join("\n");
+}
 
 type Args = Record<string, unknown> | undefined;
 const arg = (args: Args, name: string) => (args?.[name] as string | undefined) ?? "";
@@ -80,6 +98,7 @@ export function installReviewMergeBackend() {
       review: merged ? null : base.review,
       criteria: base.criteria.map((c) => ({ ...c, accepted: accepted[c.id] ?? c.accepted, acceptedAt: accepted[c.id] ? new Date().toISOString() : null })),
       decisions,
+      files: [...base.files, ...EXTRA_FILES],
       adrReviewPoints: Object.entries(adrDecisions)
         .filter(([, d]) => d === "not_an_adr")
         .map(([path]) => `Delete \`${path}\`; keep the decision out of docs/adr.`),
@@ -131,6 +150,10 @@ export function installReviewMergeBackend() {
           return write("story", STORY_ID, () => void (adrDecisions[arg(args, "path")] = arg(args, "decision") as "keep" | "not_an_adr"));
         case "story_merge":
           return write("story", null, merge);
+        case "review_file_patch": {
+          const path = arg(args, "path");
+          return EXTRA_FILES.some((f) => f.path === path) ? { patch: extraPatch(path), tooLarge: false } : m2(cmd, args);
+        }
         default:
           return m2(cmd, args);
       }
