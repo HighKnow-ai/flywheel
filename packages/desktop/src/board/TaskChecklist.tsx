@@ -391,7 +391,7 @@ function AddTask({ storyKey, onAdd }: { storyKey: string; onAdd: (title: string)
   return (
     <form onSubmit={handleSubmit} className="pt-1">
       {/* The empty field holds Add back without greying the whole group: only the button reads as disabled. */}
-      <InputGroup className="h-8.5 bg-card has-disabled:bg-card has-disabled:opacity-100">
+      <InputGroup className="h-8.5 bg-card has-disabled:bg-card has-disabled:opacity-100 dark:has-disabled:bg-card">
         <InputGroupInput
           aria-label={`New Task for ${storyKey}`}
           placeholder="Add a Task"

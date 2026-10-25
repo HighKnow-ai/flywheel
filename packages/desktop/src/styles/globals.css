@@ -519,12 +519,13 @@
   /*
    * An arbitrary `transition-[…]` names its own properties, and those are layout ones (height, flex-grow, width,
    * padding, margin, grid rows) more often than not: it keeps only the same colour, opacity and shadow parts,
-   * so a segment, a rail or a row lands at its new size in one frame while any fade beside it still runs.
+   * so a segment, a rail or a row lands at its new size in one frame while any fade beside it still runs. An
+   * element that says what it does under reduced motion itself (a `motion-reduce:` class) is left to it.
    */
   .transition,
   .transition-all,
   .transition-transform,
-  [class*="transition-["] {
+  [class*="transition-["]:not([class*="motion-reduce:"]) {
     transition-property:
       color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, opacity, box-shadow !important;
   }
