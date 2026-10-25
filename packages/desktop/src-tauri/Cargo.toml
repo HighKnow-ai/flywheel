@@ -7,6 +7,12 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# The modules are a library so integration tests can drive the commands (issue #220); `main.rs`
+# builds the app. Named apart from the `desktop` binary, as `create-tauri-app` does.
+[lib]
+name = "desktop_lib"
+path = "src/lib.rs"
+
 [build-dependencies]
 tauri-build = { version = "=2.6.3", features = [] }
 
@@ -42,3 +48,5 @@ tokio-cron-scheduler = "0.15"
 
 [dev-dependencies]
 tempfile = "3"
+# Issue #220: `tauri::test::mock_app` gives a test the managed `AppState` a command takes as `State`.
+tauri = { version = "=2.11.5", features = ["test"] }

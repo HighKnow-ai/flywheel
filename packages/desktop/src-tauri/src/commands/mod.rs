@@ -124,12 +124,22 @@ pub(crate) fn project_of_locked(
 /// The board-wide mutex used to be what kept two such commands on one Story apart (two Starts, a
 /// Start and a Drop); hold [`story_work`] for that.
 pub(crate) fn side_connection(db: &std::sync::Mutex<rusqlite::Connection>) -> Result<rusqlite::Connection, String> {
-    let path = {
-        let conn = db.lock().map_err(|e| ipc_error("side_connection:lock", e))?;
-        conn.path().filter(|p| !p.is_empty()).map(std::path::PathBuf::from)
-    };
-    let path = path.ok_or_else(|| "the board database has no file to open a second connection on".to_string())?;
-    let conn = rusqlite::Connection::open(&path).map_err(|e| ipc_error("side_connection:open", e))?;
+    open_beside(&board_path(db)?)
+}
+
+/// The board database's file, read under the mutex: what a command takes onto the blocking pool
+/// to open its [`side_connection`] there with [`open_beside`] (issue #220).
+pub(crate) fn board_path(db: &std::sync::Mutex<rusqlite::Connection>) -> Result<std::path::PathBuf, String> {
+    let conn = db.lock().map_err(|e| ipc_error("side_connection:lock", e))?;
+    conn.path()
+        .filter(|p| !p.is_empty())
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| "the board database has no file to open a second connection on".to_string())
+}
+
+/// A [`side_connection`] on the database at `path`, from [`board_path`].
+pub(crate) fn open_beside(path: &std::path::Path) -> Result<rusqlite::Connection, String> {
+    let conn = rusqlite::Connection::open(path).map_err(|e| ipc_error("side_connection:open", e))?;
     flywheel_core::db::apply_pragmas(&conn).map_err(|e| ipc_error("side_connection:pragmas", e))?;
     Ok(conn)
 }
@@ -138,7 +148,7 @@ pub(crate) fn side_connection(db: &std::sync::Mutex<rusqlite::Connection>) -> Re
 /// Start against a second Start, a Resume, a Request changes, a Drop, a worktree Remove or
 /// Recreate), now that they run on a [`side_connection`] rather than under the board-wide mutex.
 /// It is per Story: work on one Story never waits for another's.
-pub(crate) fn story_work(story_id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
+pub fn story_work(story_id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, OnceLock};
     static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
@@ -148,7 +158,7 @@ pub(crate) fn story_work(story_id: &str) -> std::sync::Arc<std::sync::Mutex<()>>
 
 /// Run `work` holding `story_id`'s [`story_work`] lock. A panic that poisoned it left nothing half
 /// done that the lock guards, so a poisoned lock is taken as is.
-pub(crate) fn with_story_work<T>(story_id: &str, work: impl FnOnce() -> T) -> T {
+pub fn with_story_work<T>(story_id: &str, work: impl FnOnce() -> T) -> T {
     let lock = story_work(story_id);
     let _held = lock.lock().unwrap_or_else(|p| p.into_inner());
     work()

@@ -48,15 +48,26 @@ pub enum GitIdentityOutcomeDto {
 /// core's own resolver — this command delegates to it rather than re-implementing any part of
 /// its repository loop.
 #[tauri::command]
-pub fn git_identifier_resolve(state: State<AppState>, raw: String) -> Result<GitIdentityOutcomeDto, String> {
+pub async fn git_identifier_resolve(state: State<'_, AppState>, raw: String) -> Result<GitIdentityOutcomeDto, String> {
     let Some(identifier) = flywheel_core::git_identity::classify(&raw) else {
         return Ok(GitIdentityOutcomeDto::NotFound);
     };
 
-    // The resolver asks each registered repository's git: a side connection, not the board mutex.
-    let conn = super::side_connection(&state.db)?;
+    // The resolver asks each registered repository's git: a side connection, not the board mutex
+    // (issue #215), on the blocking pool, not the thread IPC dispatches on (issue #220).
+    let path = super::board_path(&state.db)?;
+    tauri::async_runtime::spawn_blocking(move || resolve_beside(&path, &identifier))
+        .await
+        .map_err(|e| super::ipc_error("git_identifier_resolve:join", e))?
+}
+
+fn resolve_beside(
+    path: &std::path::Path,
+    identifier: &flywheel_core::git_identity::GitIdentifier,
+) -> Result<GitIdentityOutcomeDto, String> {
+    let conn = super::open_beside(path)?;
     let outcome =
-        flywheel_core::git_identity::resolve_identifier(&conn, &identifier).map_err(|e| e.to_string())?;
+        flywheel_core::git_identity::resolve_identifier(&conn, identifier).map_err(|e| e.to_string())?;
 
     Ok(match outcome {
         flywheel_core::git_identity::ResolveOutcome::Resolved(resolution) => {

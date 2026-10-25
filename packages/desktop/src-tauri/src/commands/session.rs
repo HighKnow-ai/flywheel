@@ -92,7 +92,7 @@ pub struct SessionDto {
 /// everything [`session_start`] needs to finish the Tauri- and process-facing half (merge the shim
 /// env, send the spawn request, emit `board:changed`) without touching the database again.
 #[derive(Debug)]
-pub(crate) struct StartRunOutcome {
+pub struct StartRunOutcome {
     pub run_id: String,
     pub worktree_path: String,
     /// The Story's own branch, checked out in `worktree_path`.
@@ -158,14 +158,15 @@ pub(crate) fn fail_launch(conn: &mut Connection, run_id: &str, why: String) -> S
 /// delegates everything else to [`launch_run_for_story`]. It takes no permission mode: a Story
 /// session's mode is fixed by its kind (ADR 0001).
 #[tauri::command]
-pub fn session_start(
-    state: State<AppState>,
-    app: AppHandle,
-    story_id: String,
-    instruction: Option<String>,
-) -> Result<SessionDto, String> {
+pub async fn session_start(app: AppHandle, story_id: String, instruction: Option<String>) -> Result<SessionDto, String> {
     let instruction = validate_instruction(instruction.as_deref())?;
-    launch_run_for_story(&state, &app, &story_id, SessionKind::Story, &instruction)
+    // The launch runs git and waits out the spawn floor: on the blocking pool (issue #220).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        launch_run_for_story(&state, &app, &story_id, SessionKind::Story, &instruction)
+    })
+    .await
+    .map_err(|e| super::ipc_error("session_start:join", e))?
 }
 
 /// D-52/WORK-05: the ONLY place a spawn request leaves the app — it goes through
@@ -344,23 +345,26 @@ pub(crate) fn launch_run_for_story(
 /// The developer's Start (docs/mvp-spec.md §2, Ready → Running): refuse unless the Story is
 /// Ready, create its worktree and branch and launch a session there, then move it to Running.
 #[tauri::command]
-pub fn story_start(
-    state: State<AppState>,
-    app: AppHandle,
-    story_id: String,
-    instruction: Option<String>,
-) -> Result<SessionDto, String> {
+pub async fn story_start(app: AppHandle, story_id: String, instruction: Option<String>) -> Result<SessionDto, String> {
     let instruction = validate_instruction(instruction.as_deref())?;
+    // The launch runs git and waits out the spawn floor: on the blocking pool (issue #220).
+    tauri::async_runtime::spawn_blocking(move || story_start_blocking(&app, story_id, &instruction))
+        .await
+        .map_err(|e| super::ipc_error("story_start:join", e))?
+}
+
+fn story_start_blocking(app: &AppHandle, story_id: String, instruction: &str) -> Result<SessionDto, String> {
+    let state = app.state::<AppState>();
     let outcome = start_ready_story(
         &state.db,
         &story_id,
-        &instruction,
+        instruction,
         flywheel_core::login_path::claude_bin,
         crate::sidecar::merge_shim_env_for_run,
         |repo_path, request| send_gated_spawn(&state, repo_path, request),
     )?;
     let project_id = project_of_locked(&state.db, "stories", &story_id);
-    emit_board_changed(&app, project_id.as_deref(), "session", Some(&outcome.run_id));
+    emit_board_changed(app, project_id.as_deref(), "session", Some(&outcome.run_id));
     Ok(SessionDto {
         id: outcome.run_id,
         story_id,
@@ -380,7 +384,7 @@ pub fn story_start(
 /// the login-shell `PATH` the Start is refused with the sentence naming the `PATH` searched, and
 /// the Story stays Ready (issue #88). The sidecar's spawn is asynchronous, so a missing binary
 /// would otherwise surface only after the Story had moved to Running.
-pub(crate) fn start_ready_story(
+pub fn start_ready_story(
     db: &std::sync::Mutex<Connection>,
     story_id: &str,
     instruction: &str,
@@ -436,23 +440,26 @@ fn validate_resume_note(note: Option<&str>) -> Result<String, String> {
 /// Story's own worktree, started from the Context packet with the optional one-line note in its
 /// section 7. Never `claude --resume`: the old session's conversation is gone on purpose.
 #[tauri::command]
-pub fn story_resume(
-    state: State<AppState>,
-    app: AppHandle,
-    story_id: String,
-    note: Option<String>,
-) -> Result<SessionDto, String> {
+pub async fn story_resume(app: AppHandle, story_id: String, note: Option<String>) -> Result<SessionDto, String> {
     let note = validate_resume_note(note.as_deref())?;
+    // The launch runs git and waits out the spawn floor: on the blocking pool (issue #220).
+    tauri::async_runtime::spawn_blocking(move || story_resume_blocking(&app, story_id, &note))
+        .await
+        .map_err(|e| super::ipc_error("story_resume:join", e))?
+}
+
+fn story_resume_blocking(app: &AppHandle, story_id: String, note: &str) -> Result<SessionDto, String> {
+    let state = app.state::<AppState>();
     let outcome = resume_stopped_story(
         &state.db,
         &story_id,
-        &note,
+        note,
         flywheel_core::login_path::claude_bin,
         crate::sidecar::merge_shim_env_for_run,
         |repo_path, request| send_gated_spawn(&state, repo_path, request),
     )?;
     let project_id = project_of_locked(&state.db, "stories", &story_id);
-    emit_board_changed(&app, project_id.as_deref(), "session", Some(&outcome.run_id));
+    emit_board_changed(app, project_id.as_deref(), "session", Some(&outcome.run_id));
     Ok(SessionDto {
         id: outcome.run_id,
         story_id,
@@ -463,8 +470,8 @@ pub fn story_resume(
 
 /// [`story_resume`]'s body, driven without a Tauri app handle. The Stopped check and the launch
 /// share the Story's work lock ([`super::story_work`]), so two Resumes cannot both pass it (the
-/// second meets the first's live session). The Story stays Running throughout: Resume is not a state move. Like Start, it spawns with the
-/// login-shell `PATH` adopted at startup, and `find_claude` refuses it, naming that `PATH`, before
+/// second meets the first's live session). The Story stays Running throughout: Resume is not a
+/// state move. Like Start, it spawns with the login-shell `PATH` adopted at startup, and `find_claude` refuses it, naming that `PATH`, before
 /// anything is created when `claude` is missing (issue #88): the Story stays Stopped.
 pub(crate) fn resume_stopped_story(
     db: &std::sync::Mutex<Connection>,
@@ -1751,23 +1758,25 @@ pub struct WorktreeRemovalCheckDto {
 /// (`useWorktreeRemovalCheck`'s own `staleTime: 0`/`gcTime: 0`). Read-only: this command never
 /// removes anything and never mutates the database, so no actor resolution is needed here.
 #[tauri::command]
-pub fn worktree_remove_check(
-    state: State<AppState>,
+pub async fn worktree_remove_check(
+    state: State<'_, AppState>,
     story_id: String,
 ) -> Result<Option<WorktreeRemovalCheckDto>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let Some(summary) =
-        flywheel_core::query::sessions::worktree_summary_for_story(&conn, &story_id)
-            .map_err(|e| e.to_string())?
-    else {
+    let summary = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        flywheel_core::query::sessions::worktree_summary_for_story(&conn, &story_id).map_err(|e| e.to_string())?
+    };
+    let Some(summary) = summary else {
         return Ok(None);
     };
-    // Drop the lock before the git spawn below — the porcelain read never needs the connection.
-    drop(conn);
 
-    let entries = flywheel_core::domain::worktree::porcelain_entries(std::path::Path::new(
-        &summary.path,
-    ))
+    // The porcelain read is git, without the lock and on the blocking pool (issue #220).
+    let worktree_path = summary.path.clone();
+    let entries = tauri::async_runtime::spawn_blocking(move || {
+        flywheel_core::domain::worktree::porcelain_entries(std::path::Path::new(&worktree_path))
+    })
+    .await
+    .map_err(|e| super::ipc_error("worktree_remove_check:join", e))?
     .map_err(|e| e.to_string())?;
     let dirty_count = entries.len();
 
@@ -1787,24 +1796,23 @@ pub fn worktree_remove_check(
 /// with `{ entity: "worktree", id: story_id }` after a successful removal, the same shape every
 /// other state-changing command in this file uses (D-04).
 #[tauri::command]
-pub fn worktree_remove(
-    state: State<AppState>,
-    app: AppHandle,
-    story_id: String,
-) -> Result<(), String> {
+pub async fn worktree_remove(state: State<'_, AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
     // The porcelain re-read and `git worktree remove` are git: a side connection, under the Story's
-    // work lock, never the board mutex (issue #215).
-    let project_id = super::with_story_work(&story_id, || -> Result<Option<String>, String> {
-        let mut conn = super::side_connection(&state.db)?;
-        let actor_id =
-            flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-        flywheel_core::domain::worktree::remove_worktree_for_story(&mut conn, &story_id, &actor_id)
-            .map_err(|e| e.to_string())?;
-        Ok(project_of(&conn, "stories", &story_id))
-    })?;
-
+    // work lock, never the board mutex (issue #215), on the blocking pool (issue #220).
+    let db_path = super::board_path(&state.db)?;
+    let id = story_id.clone();
+    let project_id = tauri::async_runtime::spawn_blocking(move || {
+        super::with_story_work(&id, || -> Result<Option<String>, String> {
+            let mut conn = super::open_beside(&db_path)?;
+            let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+            flywheel_core::domain::worktree::remove_worktree_for_story(&mut conn, &id, &actor_id)
+                .map_err(|e| e.to_string())?;
+            Ok(project_of(&conn, "stories", &id))
+        })
+    })
+    .await
+    .map_err(|e| super::ipc_error("worktree_remove:join", e))??;
     emit_board_changed(&app, project_id.as_deref(), "worktree", Some(&story_id));
-
     Ok(())
 }
 
@@ -1819,17 +1827,21 @@ pub fn worktree_remove(
 /// `board:changed` with `{ entity: "worktree", id: story_id }` on success — `useWorktreeSummary`'s
 /// existing invalidation is what makes the banner disappear once the row reads `active` again.
 #[tauri::command]
-pub fn worktree_recreate(state: State<AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
-    let project_id = super::with_story_work(&story_id, || -> Result<Option<String>, String> {
-        let mut conn = super::side_connection(&state.db)?;
-        let actor_id =
-            flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-        flywheel_core::domain::worktree::recreate_worktree_for_story(&mut conn, &story_id, &actor_id)
-            .map_err(|e| e.to_string())?;
-        Ok(project_of(&conn, "stories", &story_id))
-    })?;
+pub async fn worktree_recreate(state: State<'_, AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
+    let db_path = super::board_path(&state.db)?;
+    let id = story_id.clone();
+    let project_id = tauri::async_runtime::spawn_blocking(move || {
+        super::with_story_work(&id, || -> Result<Option<String>, String> {
+            let mut conn = super::open_beside(&db_path)?;
+            let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+            flywheel_core::domain::worktree::recreate_worktree_for_story(&mut conn, &id, &actor_id)
+                .map_err(|e| e.to_string())?;
+            Ok(project_of(&conn, "stories", &id))
+        })
+    })
+    .await
+    .map_err(|e| super::ipc_error("worktree_recreate:join", e))??;
     emit_board_changed(&app, project_id.as_deref(), "worktree", Some(&story_id));
-
     Ok(())
 }
 

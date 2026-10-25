@@ -34,8 +34,8 @@ use crate::state::AppState;
 /// so a template pointing at a missing editor reports *which* program is missing rather than a
 /// generic failure (T-07-04-05); any other spawn error is mapped to its own text.
 #[tauri::command]
-pub fn worktree_open(
-    state: State<AppState>,
+pub async fn worktree_open(
+    state: State<'_, AppState>,
     story_id: String,
     surface: flywheel_core::domain::worktree::OpenSurface,
 ) -> Result<(), String> {
@@ -53,6 +53,14 @@ pub fn worktree_open(
         // The lock guard drops here, at the end of this block — before the spawn below.
     };
 
+    // The spawn runs on the blocking pool, never the thread IPC dispatches on (issue #220).
+    tauri::async_runtime::spawn_blocking(move || spawn_open(&argv, &worktree_path))
+        .await
+        .map_err(|e| super::ipc_error("worktree_open:join", e))?
+}
+
+/// Spawn the resolved `argv` in `worktree_path`, without waiting for it.
+fn spawn_open(argv: &[String], worktree_path: &str) -> Result<(), String> {
     let Some((program, args)) = argv.split_first() else {
         return Err("resolved an empty argv — nothing to spawn".to_string());
     };

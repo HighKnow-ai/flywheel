@@ -38,8 +38,8 @@ impl From<flywheel_core::domain::project::Project> for ProjectDto {
 /// Register a local git repository as a project. `actor_id` is resolved inside this handler
 /// (T-01-04) — the command signature accepts no actor argument from the renderer.
 #[tauri::command]
-pub fn project_register(
-    state: State<AppState>,
+pub async fn project_register(
+    state: State<'_, AppState>,
     name: String,
     repo_path: String,
     key_prefix: String,
@@ -64,8 +64,16 @@ pub fn project_register(
     }
 
     // Registering installs the repository's git hooks, which reads git's config: a side
-    // connection, never the board mutex (issue #215).
-    let mut conn = super::side_connection(&state.db)?;
+    // connection, never the board mutex (issue #215), on the blocking pool (issue #220).
+    let path = super::board_path(&state.db)?;
+    let (name, repo_path, key_prefix) = (name.to_string(), repo_path.to_string(), key_prefix.to_string());
+    tauri::async_runtime::spawn_blocking(move || register_beside(&path, &name, &repo_path, &key_prefix))
+        .await
+        .map_err(|e| super::ipc_error("project_register:join", e))?
+}
+
+fn register_beside(path: &Path, name: &str, repo_path: &str, key_prefix: &str) -> Result<ProjectDto, String> {
+    let mut conn = super::open_beside(path)?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     // T-01-13: the native folder picker returns an absolute path, but this handler is the trust
     // boundary — length/emptiness are validated above, and `register_project` (01-11-PLAN.md
@@ -118,8 +126,8 @@ pub fn project_reconcile(state: State<AppState>) -> Result<Vec<ProjectDto>, Stri
 /// ONLY recovery action `ProjectUnreachable.tsx` offers (never an auto-scan, never a silent
 /// rebind). Rejects a `new_repo_path` whose marker names a different project (T-01-29).
 #[tauri::command]
-pub fn project_relocate(
-    state: State<AppState>,
+pub async fn project_relocate(
+    state: State<'_, AppState>,
     project_id: String,
     new_repo_path: String,
 ) -> Result<ProjectDto, String> {
@@ -132,19 +140,25 @@ pub fn project_relocate(
         return Err("repository path is invalid".to_string());
     }
 
-    // Relocating reinstalls the git hooks at the new path: a side connection, not the board mutex.
-    let mut conn = super::side_connection(&state.db)?;
-    let actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    let project = flywheel_core::domain::project::relocate_project(
-        &mut conn,
-        &actor_id,
-        project_id,
-        Path::new(new_repo_path),
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(project.into())
+    // Relocating reinstalls the git hooks at the new path: a side connection, not the board mutex,
+    // on the blocking pool.
+    let path = super::board_path(&state.db)?;
+    let (project_id, new_repo_path) = (project_id.to_string(), new_repo_path.to_string());
+    tauri::async_runtime::spawn_blocking(move || -> Result<ProjectDto, String> {
+        let mut conn = super::open_beside(&path)?;
+        let actor_id =
+            flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        let project = flywheel_core::domain::project::relocate_project(
+            &mut conn,
+            &actor_id,
+            &project_id,
+            Path::new(&new_repo_path),
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(project.into())
+    })
+    .await
+    .map_err(|e| super::ipc_error("project_relocate:join", e))?
 }
 
 /// Remove a project from every list (D-200, closes D-REV-29) — a reversible soft-hide, never a

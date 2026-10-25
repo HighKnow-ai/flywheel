@@ -8,143 +8,24 @@
 //! through the same mutex must complete. The lint half ([`lint`]) reads the source and lists every
 //! call made with the board lock held that can reach a git or process spawn.
 
-#[path = "scheduler_lock/lint.rs"]
-mod lint;
+mod source_lint;
+use source_lint as lint;
+
+mod fixture;
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use flywheel_core::domain::actor::local_human_actor_id;
-use flywheel_core::domain::{epic, milestone, project, story};
+use fixture::{board, SlowGit};
 use flywheel_core::git_tick;
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 
 /// How long a board read may take while a tick is parked in git. Generous: an uncontended read is
 /// a millisecond; a read stuck behind the tick waits until the gate opens, which never happens
 /// before this has run out.
 const READ_DEADLINE: Duration = Duration::from_secs(3);
-
-/// How long the tick may take to reach the parked subcommand.
-const PARK_DEADLINE: Duration = Duration::from_secs(30);
-
-/// `PATH` is process-wide: the two behaviour tests take turns.
-static PATH_LOCK: Mutex<()> = Mutex::new(());
-
-fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git").arg("-C").arg(dir).args(args).output().expect("spawn git");
-    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
-}
-
-fn real_git() -> PathBuf {
-    let out = Command::new("sh").args(["-c", "command -v git"]).output().expect("find git");
-    PathBuf::from(String::from_utf8_lossy(&out.stdout).trim())
-}
-
-/// A stand-in `git`, first on `PATH`: every call is the real git's, except that a call whose
-/// subcommand is `park_on` writes `parked` and waits for `gate` to exist before running.
-struct SlowGit {
-    dir: tempfile::TempDir,
-    old_path: String,
-}
-
-impl SlowGit {
-    fn install(park_on: &str) -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let script = format!(
-            "#!/bin/sh\n\
-             # git -C <dir> <subcommand> ...\n\
-             if [ \"$3\" = \"{park_on}\" ]; then\n\
-               : > '{parked}'\n\
-               n=0\n\
-               while [ ! -e '{gate}' ] && [ $n -lt 600 ]; do sleep 0.05; n=$((n+1)); done\n\
-             fi\n\
-             exec '{real}' \"$@\"\n",
-            parked = dir.path().join("parked").display(),
-            gate = dir.path().join("gate").display(),
-            real = real_git().display(),
-        );
-        let bin = dir.path().join("git");
-        std::fs::write(&bin, script).unwrap();
-        Command::new("chmod").arg("+x").arg(&bin).status().unwrap();
-        let old_path = std::env::var("PATH").unwrap_or_default();
-        std::env::set_var("PATH", format!("{}:{old_path}", dir.path().display()));
-        SlowGit { dir, old_path }
-    }
-
-    fn wait_until_parked(&self, done: &mpsc::Receiver<()>) {
-        let start = Instant::now();
-        while !self.dir.path().join("parked").exists() {
-            assert!(done.try_recv().is_err(), "the tick finished without ever reaching the parked git call");
-            assert!(start.elapsed() < PARK_DEADLINE, "the tick never reached the parked git call");
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    }
-
-    fn open_gate(&self) {
-        std::fs::write(self.dir.path().join("gate"), "").unwrap();
-    }
-}
-
-impl Drop for SlowGit {
-    fn drop(&mut self) {
-        self.open_gate();
-        std::env::set_var("PATH", &self.old_path);
-    }
-}
-
-/// A board with one project (a real repository with a local bare `origin`) and `stories` Stories,
-/// each with a real worktree on its own branch, one commit made by hand, and a `worktrees` row.
-struct Board {
-    _root: tempfile::TempDir,
-    db: Arc<Mutex<Connection>>,
-    story_ids: Vec<String>,
-}
-
-fn board(stories: usize) -> Board {
-    let root = tempfile::tempdir().unwrap();
-    let origin = root.path().join("origin.git");
-    let repo = root.path().join("repo");
-    git(root.path(), &["init", "--bare", "--initial-branch", "main", origin.to_str().unwrap()]);
-    std::fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "--initial-branch", "main"]);
-    git(&repo, &["config", "user.email", "scheduler-lock@flywheel.invalid"]);
-    git(&repo, &["config", "user.name", "Scheduler Lock Test"]);
-    std::fs::write(repo.join("README.md"), "scheduler lock\n").unwrap();
-    git(&repo, &["add", "README.md"]);
-    git(&repo, &["commit", "-m", "initial commit"]);
-    git(&repo, &["remote", "add", "origin", origin.to_str().unwrap()]);
-    git(&repo, &["push", "-u", "origin", "main"]);
-
-    let mut conn =
-        flywheel_core::db::open_and_migrate(&root.path().join("flywheel.db"), &root.path().join("backups")).unwrap();
-    let actor = local_human_actor_id(&conn).unwrap();
-    let project =
-        project::create_project(&mut conn, &actor, "Lock", &repo.to_string_lossy(), "LCK", "main").unwrap();
-    let m = milestone::create_milestone(&mut conn, &project.id, &actor, "M", None).unwrap();
-    let e = epic::create_epic(&mut conn, &actor, &m.id, "E").unwrap();
-
-    let mut story_ids = Vec::new();
-    for n in 0..stories {
-        let s = story::create_story(&mut conn, &actor, &e.id, &format!("Story {n}")).unwrap();
-        let branch = format!("flywheel/lck-{n}");
-        let path = root.path().join(format!("wt-{n}"));
-        git(&repo, &["worktree", "add", path.to_str().unwrap(), "-b", &branch, "main"]);
-        std::fs::write(path.join(format!("hand-{n}.txt")), "by hand\n").unwrap();
-        git(&path, &["add", "."]);
-        git(&path, &["commit", "-m", "by hand"]);
-        conn.execute(
-            "INSERT INTO worktrees (id, story_id, project_id, path, branch, base_branch, status, created_by, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'main', 'active', ?6, '2026-01-01T00:00:00.000Z')",
-            params![flywheel_core::ids::new_id(), s.id, project.id, path.to_string_lossy(), branch, actor],
-        )
-        .unwrap();
-        story_ids.push(s.id);
-    }
-    Board { _root: root, db: Arc::new(Mutex::new(conn)), story_ids }
-}
 
 /// A board read the way an IPC command makes one: lock the shared connection, query, release.
 /// `Ok` with the elapsed time when it completes within [`READ_DEADLINE`].
@@ -168,15 +49,14 @@ fn read_while_parked<T: Send + 'static>(
     park_on: &str,
     tick: impl FnOnce() -> T + Send + 'static,
 ) -> (Result<Duration, String>, T) {
-    let _turn = PATH_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    let slow = SlowGit::install(park_on);
+    let slow = SlowGit::install(park_on, Duration::from_secs(30));
     let (done_tx, done_rx) = mpsc::channel();
     let handle = std::thread::spawn(move || {
         let out = tick();
         let _ = done_tx.send(());
         out
     });
-    slow.wait_until_parked(&done_rx);
+    slow.wait_until_parked(|| done_rx.try_recv().is_ok());
     let read = board_read(db);
     slow.open_gate();
     let out = handle.join().expect("the tick panicked");
@@ -230,6 +110,91 @@ fn a_board_read_completes_while_the_cold_tick_and_the_fetch_run_git() {
     let db = Arc::clone(&board.db);
     let (read, _) = read_while_parked(&board.db, "fetch", move || git_tick::fetch_tick(&db));
     read.expect("the read must not wait for the fetch");
+}
+
+/// How long a call blocked on a Story's work lock is watched to show that it waits.
+const STILL_WAITING: Duration = Duration::from_millis(500);
+
+/// How long a call may take once the lock is free.
+const RELEASED: Duration = Duration::from_secs(20);
+
+/// Run `work` on its own thread; its result arrives on the returned channel.
+fn on_a_thread<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> mpsc::Receiver<T> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(work());
+    });
+    rx
+}
+
+/// Issue #220: Merge and Reclaim take the Story's work lock, the one a Start, a Resume, a Request
+/// changes, a Drop and a worktree Remove or Recreate hold, so neither runs while another of them is
+/// in flight on that Story.
+#[test]
+fn merge_and_reclaim_wait_for_the_story_work_lock() {
+    let board = board(1);
+    let story_id = board.story_ids[0].clone();
+    let lock = desktop_lib::commands::story_work(&story_id);
+    let held = lock.lock().unwrap();
+
+    let (path, actor, id) = (board.db_path.clone(), board.actor_id.clone(), story_id.clone());
+    let merge = on_a_thread(move || {
+        desktop_lib::commands::review::merge_with_story_work(&path, &actor, &id, Default::default()).map(|_| ())
+    });
+    let (path, actor, id) = (board.db_path.clone(), board.actor_id.clone(), story_id.clone());
+    let reclaim = on_a_thread(move || {
+        desktop_lib::commands::fleet::reclaim_with_story_work(&path, &[id], &actor).map(|outcomes| outcomes.len())
+    });
+    assert!(merge.recv_timeout(STILL_WAITING).is_err(), "Merge ran while the Story's work lock was held");
+    assert!(reclaim.recv_timeout(STILL_WAITING).is_err(), "Reclaim ran while the Story's work lock was held");
+
+    drop(held);
+    let merged = merge.recv_timeout(RELEASED).expect("Merge ran once the lock was free");
+    assert!(merged.is_err(), "the Story is not In review, so Merge refuses");
+    let reclaimed = reclaim.recv_timeout(RELEASED).expect("Reclaim ran once the lock was free");
+    assert_eq!(reclaimed.expect("the reclaim batch ran"), 1, "one outcome for the one Story");
+}
+
+/// A Start and a Merge on one Story never interleave: a Merge sent while the Start is between its
+/// Ready check and its launch waits for the Start to finish.
+#[test]
+fn a_start_racing_a_merge_on_one_story_is_serialised() {
+    let board = board(1);
+    let story_id = board.story_ids[0].clone();
+    board.set_state(&story_id, "ready");
+
+    let (inside_tx, inside_rx) = mpsc::channel();
+    let (go_tx, go_rx) = mpsc::channel::<()>();
+    let (db, id) = (Arc::clone(&board.db), story_id.clone());
+    let start = on_a_thread(move || {
+        desktop_lib::commands::session::start_ready_story(
+            &db,
+            &id,
+            "",
+            move || {
+                // Past the Ready check, holding the Story's work lock: park until the test says go.
+                inside_tx.send(()).unwrap();
+                go_rx.recv().unwrap();
+                Err("stopped by the test".to_string())
+            },
+            |_, _| Ok(()),
+            |_, _| Ok(()),
+        )
+        .map(|_| ())
+    });
+    inside_rx.recv_timeout(RELEASED).expect("the Start reached its launch");
+
+    let (path, actor, id) = (board.db_path.clone(), board.actor_id.clone(), story_id.clone());
+    let merge = on_a_thread(move || {
+        desktop_lib::commands::review::merge_with_story_work(&path, &actor, &id, Default::default()).map(|_| ())
+    });
+    assert!(merge.recv_timeout(STILL_WAITING).is_err(), "Merge ran in the middle of a Start on the same Story");
+
+    go_tx.send(()).unwrap();
+    let started = start.recv_timeout(RELEASED).expect("the Start finished");
+    assert_eq!(started.unwrap_err(), "stopped by the test");
+    let merged = merge.recv_timeout(RELEASED).expect("Merge ran once the Start was done");
+    assert!(merged.is_err(), "the Story is not In review, so Merge refuses");
 }
 
 /// The source tree the lint reads: the desktop crate and the core crate, stripped.
