@@ -33,7 +33,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, BellRing, Folder, FolderMinus, Plus, Settings, SquareStack, Terminal, TriangleAlert } from "lucide-react";
 import { projectHide, storyGet, type FleetRowDto, type StoryDto, type WaitingRoundDto } from "../adapters/tauri";
-import glyphUrl from "../assets/logo-glyph.svg";
+import logoUrl from "../assets/logo.svg";
 import type { Project } from "../board/useBoardQuery";
 import {
   blockedQueueQueryKey,
@@ -401,15 +401,11 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
     >
       <nav aria-label="Projects" className="flex min-h-0 flex-1 flex-col">
         <SidebarHeader className="flex-row items-center gap-2.5 px-4 pt-4 pb-2">
-          {/* The HighKnow mark in ink (PRODUCT.md: the sidebar is one of the few surfaces that render a logo).
-              Not on a brand tile: brand blue means an agent at work or your next action, nothing else. A CSS
-              mask over the glyph-only asset lets the ink token colour it; it stays a static file reference. */}
-          <span
-            role="img"
-            aria-label="Flywheel by HighKnow"
-            className="rail-mark shrink-0"
-            style={{ maskImage: `url(${glyphUrl})`, WebkitMaskImage: `url(${glyphUrl})` }}
-          />
+          {/* The HighKnow mark in its real colours (PRODUCT.md: the sidebar is one of the few surfaces that render
+              a logo; issue #196): the #3c64dd tile with the white glyph, fixed in both schemes, as HighKnow's
+              Wordmark draws it. The mark is identity, not a state colour (direction.md § The mark). A static file
+              reference, never inline markup. */}
+          <img src={logoUrl} alt="Flywheel by HighKnow" className="rail-mark shrink-0" />
           <span aria-hidden="true" className="text-section font-bold">
             Flywheel
           </span>

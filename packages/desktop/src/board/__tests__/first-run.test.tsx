@@ -9,8 +9,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FirstRun, deriveKeyPrefix } from "../FirstRun";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { ProjectRail } from "../../projects/ProjectRail";
 
 const openFolderMock = vi.fn(() => Promise.resolve<string | null>(null));
 
@@ -26,13 +24,10 @@ vi.mock("../../adapters/tauri", () => ({
 afterEach(cleanup);
 
 function withClient(node: React.ReactElement) {
-  // The rail is the shell's Sidebar, so it renders inside the shell's SidebarProvider, as in `App.tsx`.
-  return render(
-    <QueryClientProvider client={new QueryClient()}>
-      <SidebarProvider>{node}</SidebarProvider>
-    </QueryClientProvider>,
-  );
+  return render(<QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>);
 }
+
+// The brand mark on this surface and the rail is asserted in theme/__tests__/brand-mark.test.tsx (issue #196).
 
 /** Mirrors `core::domain::project::validate_key_prefix` exactly, so this test proves the same
  * contract the backend enforces, not a looser JS-side approximation of it. */
@@ -108,68 +103,5 @@ describe("the register step (08.1 closure)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "No projects yet" })).toBeInTheDocument());
     expect(screen.queryByRole("textbox")).toBeNull();
-  });
-});
-
-/** SC2 / D-22: the brand mark is on screen in the two surfaces entitled to it, with an accessible name — never
- * injected as raw SVG markup (T-08.1-05). A-08(c): BOTH surfaces draw it in ink through a CSS mask (a
- * role="img" span). The owner declined a fifth permitted brand use for an identity mark, so the rail follows
- * first-run rather than keeping the brand-filled tile first-run dropped. */
-describe("the brand mark", () => {
-  it("renders on the first-run empty state as a named image, ahead of the heading", () => {
-    const { container } = withClient(<FirstRun />);
-    const mark = screen.getByRole("img", { name: /flywheel/i });
-    expect(mark.classList.contains("first-run-mark")).toBe(true);
-    expect(mark.getAttribute("aria-label")).toBeTruthy();
-    expect(mark.style.maskImage || mark.style.webkitMaskImage, "the glyph is referenced by URL").toMatch(/url\(/);
-    expect(container.querySelector("svg")).toBeNull();
-    const heading = screen.getByRole("heading", { name: "No projects yet" });
-    expect(mark.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("renders in the project rail as a named image", () => {
-    withClient(
-      <ProjectRail
-        projects={[
-          { id: "p1", keyPrefix: "FLY", name: "Flywheel", repoPath: "/r", defaultBranch: "main", status: "active" },
-        ]}
-        currentProjectId="p1"
-        onSelect={() => {}}
-      />,
-    );
-    const rail = screen.getByRole("navigation", { name: "Projects" });
-    const mark = screen.getByRole("img", { name: /flywheel/i });
-    expect(rail).toContainElement(mark);
-    // A-08(c): ink via a mask, not the brand-filled <img> tile. An <img> cannot read the page's tokens,
-    // which is exactly why the fill survived here after first-run dropped it.
-    expect(mark.classList.contains("rail-mark")).toBe(true);
-    expect(mark.style.maskImage || mark.style.webkitMaskImage, "the glyph is referenced by URL").toMatch(/url\(/);
-    expect(mark.tagName).not.toBe("IMG");
-  });
-
-  it("paints no brand fill in either surface", () => {
-    const { container: firstRun } = withClient(<FirstRun />);
-    expect(firstRun.innerHTML).not.toMatch(/--accent/);
-    cleanup();
-    const { container: railContainer } = withClient(
-      <ProjectRail
-        projects={[
-          { id: "p1", keyPrefix: "FLY", name: "Flywheel", repoPath: "/r", defaultBranch: "main", status: "active" },
-        ]}
-        currentProjectId="p1"
-        onSelect={() => {}}
-      />,
-    );
-    expect(railContainer.innerHTML).not.toMatch(/--accent/);
-    // Not a blanket no-<svg> check here: the rail legitimately renders lucide icons (Plus,
-    // TriangleAlert). The guarantee is that the MARK is carried by reference, never injected markup.
-    expect(railContainer.querySelector(".rail-mark svg")).toBeNull();
-  });
-
-  it("is not rendered through raw HTML injection in either surface", () => {
-    const { container } = withClient(<FirstRun />);
-    // The mark is carried by reference (a mask URL); injected markup would surface as an <svg> subtree.
-    expect(container.querySelector(".first-run-mark")).not.toBeNull();
-    expect(container.querySelector("svg")).toBeNull();
   });
 });

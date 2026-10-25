@@ -25,10 +25,12 @@ export interface Palette {
   /** Brand blue as a fill: the filled primary button, the Running fill, the lamp bulb. */
   primary: string;
   primaryForeground: string;
-  /** Brand blue as text and icons: Running, the doing Task, links. Lifted to #8ea8ff on dark. */
+  /** Brand blue as text and icons: Running, the doing Task, links. HighKnow's brand ink on light, its lift #7d99ff on dark. */
   running: string;
-  /** The Running pill ground and the selected row. */
+  /** The Running pill ground and the selected row: HighKnow's brand wash on light. */
   runningMuted: string;
+  /** A hairline in the brand hue, edging a running-muted surface: HighKnow's brand hair on light. */
+  runningBorder: string;
   /** Safety yellow: Waiting on you, and nothing else. */
   attention: string;
   attentionForeground: string;
@@ -84,38 +86,39 @@ export interface Palette {
 
 export const LIGHT: Palette = {
   background: "#e6e8ec",
-  foreground: "#111318",
+  foreground: "#12151c",
   card: "#ffffff",
-  cardForeground: "#111318",
+  cardForeground: "#12151c",
   popover: "#ffffff",
-  popoverForeground: "#111318",
+  popoverForeground: "#12151c",
   primary: "#3c64dd",
   primaryForeground: "#ffffff",
-  running: "#2a50c6",
-  runningMuted: "#e8edfc",
+  running: "#22409c",
+  runningMuted: "#eef1fd",
+  runningBorder: "#c8d2f7",
   attention: "#ffd400",
   attentionForeground: "#14120a",
   attentionMuted: "#fff7cc",
-  destructive: "#d42c1f",
+  destructive: "#c0223a",
   destructiveForeground: "#ffffff",
-  destructiveText: "#b42318",
+  destructiveText: "#c0223a",
   secondary: "#f4f5f7",
-  secondaryForeground: "#111318",
+  secondaryForeground: "#12151c",
   muted: "#f4f5f7",
-  mutedForeground: "#525866",
+  mutedForeground: "#4a5261",
   subtleForeground: "#676d79",
   accent: "#eef0f3",
-  accentForeground: "#111318",
-  border: "#d9dce1",
-  input: "#858b96",
+  accentForeground: "#12151c",
+  border: "#cdd2dd",
+  input: "#8792a6",
   ring: "#3c64dd",
   sidebar: "#f8f9fa",
-  sidebarForeground: "#111318",
+  sidebarForeground: "#12151c",
   sidebarPrimary: "#ffffff",
-  sidebarPrimaryForeground: "#111318",
+  sidebarPrimaryForeground: "#12151c",
   sidebarAccent: "#e9ebef",
-  sidebarAccentForeground: "#111318",
-  sidebarBorder: "#d9dce1",
+  sidebarAccentForeground: "#12151c",
+  sidebarBorder: "#e4e7ee",
   sidebarRing: "#3c64dd",
   strip: "#17191e",
   stripForeground: "#f2f3f5",
@@ -123,7 +126,7 @@ export const LIGHT: Palette = {
   lamp: "#25282f",
   diffInsert: "#e3f4e7",
   diffDelete: "#fce6e4",
-  chart1: "#111318",
+  chart1: "#12151c",
   chart2: "#7d838f",
   chart3: "#3c64dd",
   chart4: "#c3c7ce",
@@ -138,14 +141,15 @@ export const DARK: Palette = {
   popoverForeground: "#eceef1",
   primary: "#3c64dd",
   primaryForeground: "#ffffff",
-  running: "#8ea8ff",
+  running: "#7d99ff",
   runningMuted: "#19213a",
+  runningBorder: "#2c3a6b",
   attention: "#ffd400",
   attentionForeground: "#14120a",
   attentionMuted: "#352d00",
-  destructive: "#d42c1f",
+  destructive: "#c0223a",
   destructiveForeground: "#ffffff",
-  destructiveText: "#ff8a7f",
+  destructiveText: "#ff6b82",
   secondary: "#23262b",
   secondaryForeground: "#eceef1",
   muted: "#23262b",
@@ -155,7 +159,7 @@ export const DARK: Palette = {
   accentForeground: "#eceef1",
   border: "#2c2f36",
   input: "#6e7480",
-  ring: "#8ea8ff",
+  ring: "#7d99ff",
   sidebar: "#121316",
   sidebarForeground: "#eceef1",
   sidebarPrimary: "#1a1c20",
@@ -163,7 +167,7 @@ export const DARK: Palette = {
   sidebarAccent: "#1e2025",
   sidebarAccentForeground: "#eceef1",
   sidebarBorder: "#2c2f36",
-  sidebarRing: "#8ea8ff",
+  sidebarRing: "#7d99ff",
   strip: "#000000",
   stripForeground: "#f2f3f5",
   stripMutedForeground: "#9aa0aa",
@@ -180,7 +184,10 @@ export const PALETTES: Record<Mode, Palette> = { light: LIGHT, dark: DARK };
 
 /** The one motion contract (direction.md rule 7): one curve, 160ms for a state change, 240ms for a lamp. */
 export const MOTION = {
-  ease: "cubic-bezier(0.16, 1, 0.3, 1)",
+  /** HighKnow's ease-out-quint, the shared easing token. */
+  easeOutQuint: "cubic-bezier(0.16, 1, 0.3, 1)",
+  /** The name the screens use: an alias of the shared token. */
+  ease: "var(--ease-out-quint)",
   durationState: "160ms",
   durationLamp: "240ms",
 } as const;
