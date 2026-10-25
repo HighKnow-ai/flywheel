@@ -166,7 +166,8 @@ describe("Make Ready on the board row", () => {
     const list = await screen.findByRole("list", { name: "E1 Stories" });
     const button = await within(list).findByRole("button", { name: "Make FLY-12 Ready" });
     expect(within(list).queryByRole("button", { name: "Make FLY-13 Ready" })).toBeNull();
-    expect(within(list).getByText("criteria 0/0 · tasks 0/0")).toBeTruthy();
+    // With no criterion and no Task its counts say nothing, so the row shows none (#202).
+    expect(within(list).queryByText(/criteria|tasks/)).toBeNull();
     fireEvent.click(button);
     await waitFor(() => expect(storyMakeReady).toHaveBeenCalledWith("s12"));
   });
