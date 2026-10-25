@@ -154,7 +154,7 @@ export const DARK: Palette = {
   secondaryForeground: "#eceef1",
   muted: "#23262b",
   mutedForeground: "#a0a6b1",
-  subtleForeground: "#80868f",
+  subtleForeground: "#90969f",
   accent: "#23262b",
   accentForeground: "#eceef1",
   border: "#2c2f36",
