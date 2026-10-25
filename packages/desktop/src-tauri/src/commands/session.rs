@@ -642,11 +642,19 @@ pub(crate) fn stop_session_recording_first(
 /// silently regresses — there is no compiler error for it, only degraded behavior under exactly
 /// the failure mode CR-04 exists to make graceful.
 #[tauri::command]
-pub fn session_stop(
-    state: State<AppState>,
-    app: AppHandle,
-    session_id: String,
-) -> Result<SessionStopDto, String> {
+pub async fn session_stop(app: AppHandle, session_id: String) -> Result<SessionStopDto, String> {
+    // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
+    // pool, never the thread IPC dispatches on (issue #235).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        session_stop_blocking(&state, &app, session_id)
+    })
+    .await
+    .map_err(|e| super::ipc_error("session_stop:join", e))?
+}
+
+/// [`session_stop`]'s body, on the blocking pool.
+fn session_stop_blocking(state: &AppState, app: &AppHandle, session_id: String) -> Result<SessionStopDto, String> {
     // Resolve the interrupt outcome BEFORE touching `state.db` — see the CR-01 note above.
     let interrupt_result = match state.sidecar.as_ref() {
         Some(sidecar) => sidecar.interrupt_run(&session_id).map_err(|e| e.to_string()),
@@ -658,7 +666,7 @@ pub fn session_stop(
     let project_id = project_of(&conn, "sessions", &session_id);
     drop(conn);
 
-    emit_board_changed(&app, project_id.as_deref(), "session", Some(&session_id));
+    emit_board_changed(app, project_id.as_deref(), "session", Some(&session_id));
 
     Ok(dto)
 }
@@ -723,11 +731,19 @@ fn discard_poll_snapshot(conn: &Connection, session_id: &str) -> (bool, bool) {
 /// handling applies unchanged — the caller cannot tell, from the return shape alone, whether the
 /// summary that ended up recorded was agent-authored or the fallback synthesizer's.
 #[tauri::command]
-pub fn session_discard(
-    state: State<AppState>,
-    app: AppHandle,
-    session_id: String,
-) -> Result<SessionStopDto, String> {
+pub async fn session_discard(app: AppHandle, session_id: String) -> Result<SessionStopDto, String> {
+    // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
+    // pool, never the thread IPC dispatches on (issue #235).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        session_discard_blocking(&state, &app, session_id)
+    })
+    .await
+    .map_err(|e| super::ipc_error("session_discard:join", e))?
+}
+
+/// [`session_discard`]'s body, on the blocking pool.
+fn session_discard_blocking(state: &AppState, app: &AppHandle, session_id: String) -> Result<SessionStopDto, String> {
     let deadline =
         std::time::Instant::now() + std::time::Duration::from_millis(DISCARD_SUMMARY_WAIT_MS);
     loop {
@@ -759,7 +775,7 @@ pub fn session_discard(
     let project_id = project_of(&conn, "sessions", &session_id);
     drop(conn);
 
-    emit_board_changed(&app, project_id.as_deref(), "session", Some(&session_id));
+    emit_board_changed(app, project_id.as_deref(), "session", Some(&session_id));
 
     Ok(dto)
 }
@@ -1957,11 +1973,19 @@ fn retain_pending_orphan_unless_killed(
 /// run reaches `abandoned` in the database either way (`kill_orphan`'s own CR-04 shape), and the
 /// board must reflect that even when the process itself survived the signal.
 #[tauri::command]
-pub fn orphan_kill(
-    state: State<AppState>,
-    app: AppHandle,
-    session_id: String,
-) -> Result<OrphanKillDto, String> {
+pub async fn orphan_kill(app: AppHandle, session_id: String) -> Result<OrphanKillDto, String> {
+    // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
+    // pool, never the thread IPC dispatches on (issue #235).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        orphan_kill_blocking(&state, &app, session_id)
+    })
+    .await
+    .map_err(|e| super::ipc_error("orphan_kill:join", e))?
+}
+
+/// [`orphan_kill`]'s body, on the blocking pool.
+fn orphan_kill_blocking(state: &AppState, app: &AppHandle, session_id: String) -> Result<OrphanKillDto, String> {
     {
         let pending = state.pending_orphans.lock().map_err(|e| e.to_string())?;
         if !pending.iter().any(|orphan| orphan.run_id == session_id) {
@@ -1969,7 +1993,8 @@ pub fn orphan_kill(
         }
     }
 
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    // The kill waits to recheck the process: a side connection, never the board mutex (#235).
+    let mut conn = super::side_connection(&state.db)?;
     let actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let outcome = flywheel_core::domain::session::kill_orphan(&mut conn, &session_id, &actor_id)
@@ -1983,7 +2008,7 @@ pub fn orphan_kill(
         retain_pending_orphan_unless_killed(&mut pending, &session_id, outcome.killed);
     }
 
-    emit_board_changed(&app, project_id.as_deref(), "session", Some(&session_id));
+    emit_board_changed(app, project_id.as_deref(), "session", Some(&session_id));
 
     Ok(OrphanKillDto { killed: outcome.killed, pid: outcome.pid, detail: outcome.detail })
 }

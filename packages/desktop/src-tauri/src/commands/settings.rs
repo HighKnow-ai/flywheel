@@ -8,7 +8,7 @@
 //! module builds only the mechanism and its command surface.
 
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::state::AppState;
 
@@ -200,7 +200,19 @@ fn capability_dto_when_no_sidecar() -> BackendCapabilityDto {
 }
 
 #[tauri::command]
-pub fn backend_capability_probe(state: State<AppState>) -> Result<BackendCapabilityDto, String> {
+pub async fn backend_capability_probe(app: AppHandle) -> Result<BackendCapabilityDto, String> {
+    // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
+    // pool, never the thread IPC dispatches on (issue #235).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        backend_capability_probe_blocking(&state)
+    })
+    .await
+    .map_err(|e| super::ipc_error("backend_capability_probe:join", e))?
+}
+
+/// [`backend_capability_probe`]'s body, on the blocking pool.
+fn backend_capability_probe_blocking(state: &AppState) -> Result<BackendCapabilityDto, String> {
     let Some(sidecar) = state.sidecar.as_ref() else {
         return Ok(capability_dto_when_no_sidecar());
     };

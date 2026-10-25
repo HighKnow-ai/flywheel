@@ -13,7 +13,7 @@
 
 use rusqlite::Connection;
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use flywheel_core::domain::roadmap_round::{describe_proposal, RoadmapRound};
 use flywheel_core::domain::session::ShapingSubject;
@@ -125,11 +125,23 @@ fn round_dto(conn: &Connection, r: RoadmapRound) -> Result<RoadmapRoundDto, Stri
 
 /// Revisit roadmap (issue #133): start the roadmap Round's session.
 #[tauri::command]
-pub fn roadmap_revisit(state: State<AppState>, app: AppHandle, project_id: String) -> Result<RoadmapSessionDto, String> {
+pub async fn roadmap_revisit(app: AppHandle, project_id: String) -> Result<RoadmapSessionDto, String> {
+    // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
+    // pool, never the thread IPC dispatches on (issue #235).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        roadmap_revisit_blocking(&state, &app, project_id)
+    })
+    .await
+    .map_err(|e| super::ipc_error("roadmap_revisit:join", e))?
+}
+
+/// [`roadmap_revisit`]'s body, on the blocking pool.
+fn roadmap_revisit_blocking(state: &AppState, app: &AppHandle, project_id: String) -> Result<RoadmapSessionDto, String> {
     let run_id = revisit_roadmap(&state.db, &project_id, flywheel_core::login_path::claude_bin, |repo_path, request| {
-        send_gated_spawn(&state, repo_path, request)
+        send_gated_spawn(state, repo_path, request)
     })?;
-    emit_board_changed(&app, Some(&project_id), "session", Some(&run_id));
+    emit_board_changed(app, Some(&project_id), "session", Some(&run_id));
     Ok(RoadmapSessionDto {
         id: run_id,
         project_id,
@@ -212,18 +224,42 @@ pub(crate) enum Confirm<'a> {
 /// Confirm an Epic's exit test (issue #134): the Epic moves to Done and a short roadmap Round on its
 /// Milestone starts, with its session, as Revisit roadmap starts one. Human-only.
 #[tauri::command]
-pub fn epic_confirm_done(state: State<AppState>, app: AppHandle, epic_id: String) -> Result<ConfirmDoneDto, String> {
-    confirm_command(&state, &app, Confirm::Epic(&epic_id))
+pub async fn epic_confirm_done(app: AppHandle, epic_id: String) -> Result<ConfirmDoneDto, String> {
+    // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
+    // pool, never the thread IPC dispatches on (issue #235).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        epic_confirm_done_blocking(&state, &app, epic_id)
+    })
+    .await
+    .map_err(|e| super::ipc_error("epic_confirm_done:join", e))?
+}
+
+/// [`epic_confirm_done`]'s body, on the blocking pool.
+fn epic_confirm_done_blocking(state: &AppState, app: &AppHandle, epic_id: String) -> Result<ConfirmDoneDto, String> {
+    confirm_command(state, app, Confirm::Epic(&epic_id))
 }
 
 /// Confirm a Milestone's exit test (issue #134): the Milestone moves to Done and a Roadmap Round
 /// starts, with its session. Human-only.
 #[tauri::command]
-pub fn milestone_confirm_done(state: State<AppState>, app: AppHandle, milestone_id: String) -> Result<ConfirmDoneDto, String> {
-    confirm_command(&state, &app, Confirm::Milestone(&milestone_id))
+pub async fn milestone_confirm_done(app: AppHandle, milestone_id: String) -> Result<ConfirmDoneDto, String> {
+    // Waits on the sidecar (the spawn floor, an acknowledgement or a probe): on the blocking
+    // pool, never the thread IPC dispatches on (issue #235).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        milestone_confirm_done_blocking(&state, &app, milestone_id)
+    })
+    .await
+    .map_err(|e| super::ipc_error("milestone_confirm_done:join", e))?
 }
 
-fn confirm_command(state: &State<AppState>, app: &AppHandle, which: Confirm) -> Result<ConfirmDoneDto, String> {
+/// [`milestone_confirm_done`]'s body, on the blocking pool.
+fn milestone_confirm_done_blocking(state: &AppState, app: &AppHandle, milestone_id: String) -> Result<ConfirmDoneDto, String> {
+    confirm_command(state, app, Confirm::Milestone(&milestone_id))
+}
+
+fn confirm_command(state: &AppState, app: &AppHandle, which: Confirm) -> Result<ConfirmDoneDto, String> {
     let (project_id, dto) = confirm_done(&state.db, which, flywheel_core::login_path::claude_bin, |repo_path, request| {
         send_gated_spawn(state, repo_path, request)
     })?;
