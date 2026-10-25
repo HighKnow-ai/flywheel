@@ -83,13 +83,19 @@ pub fn story_get(state: State<AppState>, story_id: String) -> Result<Option<Stor
 /// The size of the Context packet the Story's next session starts from (docs/mvp-spec.md §4.2):
 /// bytes, an approximate token count, and whether it is above the soft warning threshold.
 #[tauri::command]
-pub fn story_context_packet_size(
-    state: State<AppState>,
+pub async fn story_context_packet_size(
+    state: State<'_, AppState>,
     story_id: String,
 ) -> Result<flywheel_core::context_packet::PacketSize, String> {
-    // The packet reads the worktree's diff through git: a side connection, not the board mutex.
-    let conn = super::side_connection(&state.db)?;
-    flywheel_core::context_packet::context_packet_size(&conn, &story_id).map_err(|e| e.to_string())
+    // The packet reads the worktree's diff through git: a side connection, not the board mutex
+    // (issue #215), on the blocking pool (issue #220).
+    let db_path = super::board_path(&state.db)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = super::open_beside(&db_path)?;
+        flywheel_core::context_packet::context_packet_size(&conn, &story_id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| super::ipc_error("story_context_packet_size:join", e))?
 }
 
 /// Rewrite a Story's title and description.
@@ -200,8 +206,7 @@ fn refuse_bare_running(to: flywheel_core::domain::story::StoryState) -> Result<(
 /// starts in its worktree from a Context packet that carries them. A launch that fails leaves the Story
 /// Stopped, with Resume; the board is told either way.
 #[tauri::command]
-pub fn story_request_changes(
-    state: State<AppState>,
+pub async fn story_request_changes(
     app: AppHandle,
     story_id: String,
     comments: String,
@@ -210,16 +215,28 @@ pub fn story_request_changes(
     if !comments.trim().is_empty() {
         validate_text("comments", &comments, MAX_PROSE_LEN)?;
     }
+    // The review's diff, the launch's git and the spawn floor: on the blocking pool (issue #220).
+    tauri::async_runtime::spawn_blocking(move || request_changes_blocking(&app, story_id, &comments))
+        .await
+        .map_err(|e| super::ipc_error("story_request_changes:join", e))?
+}
+
+fn request_changes_blocking(
+    app: &AppHandle,
+    story_id: String,
+    comments: &str,
+) -> Result<super::session::SessionDto, String> {
+    let state = tauri::Manager::state::<AppState>(app);
     let result = request_changes_and_launch(
         &state.db,
         &story_id,
-        &comments,
+        comments,
         flywheel_core::login_path::claude_bin,
         crate::sidecar::merge_shim_env_for_run,
         |repo_path, request| super::session::send_gated_spawn(&state, repo_path, request),
     );
     let project_id = super::project_of_locked(&state.db, "stories", &story_id);
-    emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
+    emit_board_changed(app, project_id.as_deref(), "story", Some(&story_id));
     let outcome = result?;
     Ok(super::session::SessionDto {
         id: outcome.run_id,
@@ -278,15 +295,21 @@ pub(crate) fn request_changes_and_launch(
 /// branch are removed, uncommitted work included; the record stays readable. Refused for a Merged
 /// Story and while a session is live. Not a Gated action: it raises no permission request.
 #[tauri::command]
-pub fn story_drop(state: State<AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
-    // Removing the worktree and the branch is git: a side connection, under the Story's work lock.
-    let project_id = super::with_story_work(&story_id, || -> Result<Option<String>, String> {
-        let mut conn = super::side_connection(&state.db)?;
-        let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-        flywheel_core::domain::story_drop::drop_story(&mut conn, &actor_id, &story_id)
-            .map_err(|e| format!("{e:#}"))?;
-        Ok(super::project_of(&conn, "stories", &story_id))
-    })?;
+pub async fn story_drop(state: State<'_, AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
+    // Removing the worktree and the branch is git: a side connection, under the Story's work lock
+    // (issue #215), on the blocking pool (issue #220).
+    let db_path = super::board_path(&state.db)?;
+    let id = story_id.clone();
+    let project_id = tauri::async_runtime::spawn_blocking(move || {
+        super::with_story_work(&id, || -> Result<Option<String>, String> {
+            let mut conn = super::open_beside(&db_path)?;
+            let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+            flywheel_core::domain::story_drop::drop_story(&mut conn, &actor_id, &id).map_err(|e| format!("{e:#}"))?;
+            Ok(super::project_of(&conn, "stories", &id))
+        })
+    })
+    .await
+    .map_err(|e| super::ipc_error("story_drop:join", e))??;
     emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
     Ok(())
 }

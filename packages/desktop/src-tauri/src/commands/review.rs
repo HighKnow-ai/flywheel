@@ -522,8 +522,8 @@ pub async fn story_checks_rerun(app: AppHandle, story_id: String) -> Result<Chec
 /// or `wrong_decision` with what is wrong and what it should be. Stored on the open review; it holds
 /// Merge until set back to Keep, and Request changes carries it to the agent.
 #[tauri::command]
-pub fn story_adr_decide(
-    state: State<AppState>,
+pub async fn story_adr_decide(
+    state: State<'_, AppState>,
     app: AppHandle,
     story_id: String,
     path: String,
@@ -544,15 +544,21 @@ pub fn story_adr_decide(
         other => return Err(format!("unknown ADR decision {other:?}")),
     };
     // The decision is checked against the review's ADRs, read from git: a side connection, under
-    // the Story's work lock, never the board mutex (issue #215).
-    let project_id = super::with_story_work(&story_id, || -> Result<Option<String>, String> {
-        let mut conn = super::side_connection(&state.db)?;
-        let human =
-            flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| ipc_error("story_adr_decide:actor", e))?;
-        flywheel_core::domain::review_decisions::set_adr_decision(&mut conn, &human, &story_id, &path, &decision)
-            .map_err(|e| format!("{e:#}"))?;
-        Ok(super::project_of(&conn, "stories", &story_id))
-    })?;
+    // the Story's work lock, never the board mutex (issue #215), on the blocking pool (issue #220).
+    let db_path = super::board_path(&state.db)?;
+    let id = story_id.clone();
+    let project_id = tauri::async_runtime::spawn_blocking(move || {
+        super::with_story_work(&id, || -> Result<Option<String>, String> {
+            let mut conn = super::open_beside(&db_path)?;
+            let human = flywheel_core::domain::actor::local_human_actor_id(&conn)
+                .map_err(|e| ipc_error("story_adr_decide:actor", e))?;
+            flywheel_core::domain::review_decisions::set_adr_decision(&mut conn, &human, &id, &path, &decision)
+                .map_err(|e| format!("{e:#}"))?;
+            Ok(super::project_of(&conn, "stories", &id))
+        })
+    })
+    .await
+    .map_err(|e| ipc_error("story_adr_decide:join", e))??;
     emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
     Ok(())
 }
@@ -580,8 +586,9 @@ pub async fn story_merge(
         drop(conn);
         actor?
     };
-    let outcome = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<MergeOutcome> {
-        flywheel_core::domain::story_merge::merge_story(&mut own_connection()?, &actor, &story_id, MergeOptions { with_failing_checks })
+    let db_path = super::board_path(&state.db)?;
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        merge_with_story_work(&db_path, &actor, &story_id, MergeOptions { with_failing_checks })
     })
     .await
     .map_err(|e| ipc_error("story_merge:join", e))?
@@ -589,6 +596,21 @@ pub async fn story_merge(
 
     emit_board_changed(&app, Some(&outcome.project_id), "story", None);
     Ok(outcome.into())
+}
+
+/// Merge `story_id` on a connection of its own on the database at `db_path`, holding the Story's
+/// work lock ([`super::story_work`], issue #220): a Merge never interleaves with a Start, a Drop or
+/// a Request changes on the same Story.
+pub fn merge_with_story_work(
+    db_path: &std::path::Path,
+    actor: &str,
+    story_id: &str,
+    options: MergeOptions,
+) -> anyhow::Result<MergeOutcome> {
+    super::with_story_work(story_id, || {
+        let mut conn = super::open_beside(db_path).map_err(anyhow::Error::msg)?;
+        flywheel_core::domain::story_merge::merge_story(&mut conn, actor, story_id, options)
+    })
 }
 
 #[cfg(test)]

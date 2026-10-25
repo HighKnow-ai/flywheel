@@ -384,7 +384,7 @@ mod no_escape_hatch {
         let desktop = code_lines("packages/desktop/src-tauri/src");
         let drop_sites: Vec<&(String, usize, String)> =
             desktop.iter().filter(|(_, _, l)| l.contains("drop_story(")).collect();
-        let command = item_range("packages/desktop/src-tauri/src/commands/story.rs", "pub fn story_drop(");
+        let command = item_range("packages/desktop/src-tauri/src/commands/story.rs", "pub async fn story_drop(");
         assert!(
             drop_sites.len() == 1
                 && drop_sites[0].0 == "packages/desktop/src-tauri/src/commands/story.rs"

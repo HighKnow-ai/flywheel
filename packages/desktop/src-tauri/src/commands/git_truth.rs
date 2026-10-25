@@ -70,10 +70,11 @@ impl From<flywheel_core::git_facts::GitFacts> for GitFactsDto {
 }
 
 /// `story_id`'s full git truth (LINK-02, LINK-09), or `null` when the Story has no worktree yet.
-/// Read-only. The lock is held only to plan the read; git runs without it (issue #215).
+/// Read-only. The lock is held only to plan the read (issue #215); git runs on the blocking pool,
+/// never the thread IPC dispatches on (issue #220).
 #[tauri::command]
-pub fn git_facts(
-    state: State<AppState>,
+pub async fn git_facts(
+    state: State<'_, AppState>,
     story_id: String,
 ) -> Result<Option<GitFactsDto>, String> {
     let plan = {
@@ -81,7 +82,10 @@ pub fn git_facts(
         flywheel_core::git_facts::plan_git_facts(&conn, &story_id).map_err(|e| e.to_string())?
     };
     let Some(plan) = plan else { return Ok(None) };
-    let facts = flywheel_core::git_facts::read_git_facts(&plan).map_err(|e| e.to_string())?;
+    let facts = tauri::async_runtime::spawn_blocking(move || flywheel_core::git_facts::read_git_facts(&plan))
+        .await
+        .map_err(|e| super::ipc_error("git_facts:join", e))?
+        .map_err(|e| e.to_string())?;
     Ok(Some(GitFactsDto::from(facts)))
 }
 

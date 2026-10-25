@@ -20,4 +20,18 @@ We rejected three alternatives:
 
 - A Request changes no longer hides the Story from readers between its move to Running and its new session row. A reader can see it Stopped for the few database statements in between. No git runs in that window, since In review means the worktree exists.
 - Writes on a side connection wait on SQLite's `busy_timeout` (5 s) instead of on the mutex. Because no write transaction is held across git, the wait is one statement long.
-- Synchronous commands still run on Tauri's main thread. A command that runs git there blocks IPC dispatch for as long as git runs, even though it no longer holds the lock. Moving those commands onto the blocking pool is a separate change.
+- ~~Synchronous commands still run on Tauri's main thread. A command that runs git there blocks IPC dispatch for as long as git runs, even though it no longer holds the lock. Moving those commands onto the blocking pool is a separate change.~~ Done in the amendment below.
+
+## Amendment: git runs on the blocking pool, and Merge and Reclaim take the Story's lock
+
+Decided by Claude under Cyril's delegation in [No IPC command runs git on the main thread, and Merge and Reclaim take the per-Story lock](https://github.com/HighKnow-ai/flywheel/issues/220).
+
+A sync `#[tauri::command]` runs on the main thread. An async command's body runs on whichever runtime thread polls it. Releasing the lock was not enough: a command that runs git in either place still holds up every other IPC call for as long as git runs. So every command that reaches git or a process is `async`, and that work runs inside `tauri::async_runtime::spawn_blocking(..)`. The command reads what it needs first: the board file's path (`commands::board_path`) or a plan read under the lock. The blocking half then opens its side connection there (`commands::open_beside`).
+
+Merge and Reclaim already ran on a side connection. Now they also take the Story's work lock (`review::merge_with_story_work`, `fleet::reclaim_with_story_work`), so neither can interleave with a Start, Drop or Request changes on the same Story. Reclaim takes one Story's lock at a time, so a batch never holds two and cannot deadlock against another command.
+
+`packages/desktop/src-tauri/tests/command_threads.rs` enforces the first rule. Its lint lists every command that reaches a spawn other than inside a `spawn_blocking(..)` argument. Its behaviour test drives `needs_you_list` and a second command on one thread while a stand-in `git` parks the first, and requires the second to complete. `scheduler_lock.rs` shows that Merge and Reclaim wait on the Story's lock, and that a Start racing a Merge on one Story is serialised.
+
+To make the commands reachable from integration tests, the desktop crate is now a library (`desktop_lib`) plus the `desktop` binary. `main.rs` still builds the app and owns `generate_handler!`.
+
+We rejected `#[tauri::command(async)]` on the unchanged sync functions. That moves the body off the main thread, but onto a runtime worker, so git there still starves the runtime that every async command shares.

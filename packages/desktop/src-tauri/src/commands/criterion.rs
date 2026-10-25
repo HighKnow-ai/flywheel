@@ -43,17 +43,21 @@ pub struct AcceptanceCriterionDto {
 }
 
 /// The head of `story_id`'s branch, read once per listing to tell stale results; `None` when it
-/// can't be read. The lock is held only to find the worktree: git reads its head without it
-/// (issue #215).
-fn branch_head(db: &std::sync::Mutex<rusqlite::Connection>, story_id: &str) -> Result<Option<String>, String> {
+/// can't be read. The lock is held only to find the worktree (issue #215), and git reads its head
+/// on the blocking pool, never the thread IPC dispatches on (issue #220).
+async fn head_of_story_branch(db: &std::sync::Mutex<rusqlite::Connection>, story_id: &str) -> Result<Option<String>, String> {
     let worktree_path = {
         let conn = db.lock().map_err(|e| e.to_string())?;
         flywheel_core::domain::worktree::worktree_for_story(&conn, story_id).ok().flatten().map(|w| w.path)
     };
-    Ok(worktree_path
-        .map(std::path::PathBuf::from)
-        .filter(|path| path.is_dir())
-        .and_then(|path| flywheel_core::domain::check::worktree_head(&path).ok()))
+    tauri::async_runtime::spawn_blocking(move || {
+        worktree_path
+            .map(std::path::PathBuf::from)
+            .filter(|path| path.is_dir())
+            .and_then(|path| flywheel_core::domain::check::worktree_head(&path).ok())
+    })
+    .await
+    .map_err(|e| super::ipc_error("criterion_list:join", e))
 }
 
 fn to_dto(
@@ -125,8 +129,8 @@ pub fn criterion_create(
 
 /// A Story's criteria, in order, each with its Check and current result.
 #[tauri::command]
-pub fn criterion_list(state: State<AppState>, story_id: String) -> Result<Vec<AcceptanceCriterionDto>, String> {
-    let head = branch_head(&state.db, &story_id)?;
+pub async fn criterion_list(state: State<'_, AppState>, story_id: String) -> Result<Vec<AcceptanceCriterionDto>, String> {
+    let head = head_of_story_branch(&state.db, &story_id).await?;
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     flywheel_core::domain::acceptance_criterion::criteria_for_story(&conn, &story_id)
         .map_err(|e| e.to_string())?

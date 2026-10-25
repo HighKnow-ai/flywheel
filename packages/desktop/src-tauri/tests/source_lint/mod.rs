@@ -1,12 +1,20 @@
-//! The lint half of issue #215: every place the shared board connection (`AppState.db`) is locked,
-//! read straight from the source, and every call made while that guard is alive. A call that can
-//! reach a git or process spawn is a lock holder: every IPC read waits behind it.
+//! The source lints shared by `scheduler_lock.rs` (issue #215) and `command_threads.rs` (#220).
+//!
+//! [`holders`]: every place the shared board connection (`AppState.db`) is locked, read straight
+//! from the source, and every call made while that guard is alive. A call that can reach a git or
+//! process spawn is a lock holder: every IPC read waits behind it.
+//!
+//! [`commands_on_the_ipc_thread`]: every `#[tauri::command]` that reaches a spawn other than inside
+//! a `spawn_blocking(..)` (or `thread::spawn(..)`) argument. A sync command runs on the main thread,
+//! and an async one's body on a runtime worker: either way git there stalls IPC dispatch.
 //!
 //! Text-level and deliberately simple, in the house style of `handler_roster.rs`:
 //! - comments, string and char literals, and `#[cfg(test)]` items are blanked first;
 //! - a function *reaches a spawn* when its body builds a `Command` (`Command::new(`), runs one
 //!   (`.spawn()`, `.output()`), or hands one to `output_with_timeout(`, or when it calls, by name,
-//!   a function that reaches a spawn (a fixpoint over `packages/core/src` and the desktop crate);
+//!   a function that reaches a spawn (a fixpoint over `packages/core/src` and the desktop crate).
+//!   Work inside a `spawn_blocking(..)` or `thread::spawn(..)` argument runs on another thread, so
+//!   it does not count: it neither blocks the caller nor runs under its guard;
 //! - a *lock span* opens at `let <guard> = <..>db.lock()..;` (or a call of a closure bound to one,
 //!   of a function returning the connection's `MutexGuard`, or a `MutexGuard` parameter) and
 //!   closes at `drop(<guard>)` or the end of the enclosing block; a lock taken as a temporary
@@ -17,6 +25,9 @@
 //! so work on it is not a span. Names are matched without paths, so a name shared by a spawning
 //! and a non-spawning function is over-approximated; [`NOT_A_SPAWN`] would list such collisions,
 //! each with its reason, and a test keeps every entry a real one.
+
+// Each test target uses its own half.
+#![allow(dead_code)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -297,8 +308,22 @@ pub fn spawning_names_skipping(files: &[(String, String)], skip: &[&str]) -> BTr
         .iter()
         .flat_map(|(_, text)| {
             functions(text).into_iter().map(move |f| {
-                let called = calls(text, f.body_open, f.body_close).into_iter().map(|(_, n)| n).collect();
-                let direct = spawns_directly(text, f.body_open, f.body_close);
+                // Work handed to `spawn_blocking(..)` or `thread::spawn(..)` runs on another
+                // thread: it neither blocks this function's caller nor runs under its guard (a
+                // `MutexGuard` cannot move there), so it does not make this function spawning.
+                let away = offloaded(text, f.body_open, f.body_close);
+                let inside = |at: usize| away.iter().any(|(s, e)| at > *s && at < *e);
+                let called = calls(text, f.body_open, f.body_close)
+                    .into_iter()
+                    .filter(|(at, _)| !inside(*at))
+                    .map(|(_, n)| n)
+                    .collect();
+                let mut body = text[f.body_open..f.body_close].to_string();
+                for (s, e) in &away {
+                    let blank = " ".repeat(e - s);
+                    body.replace_range(s - f.body_open..e - f.body_open, &blank);
+                }
+                let direct = spawns_directly(&body, 0, body.len());
                 (f, called, direct)
             })
         })
@@ -581,4 +606,77 @@ pub fn holders(files: &[(String, String)], spawning: &BTreeMap<String, Option<St
         seen.entry((h.file.clone(), h.line, h.callee.clone())).or_insert(h);
     }
     seen.into_values().collect()
+}
+
+/// One `#[tauri::command]` that reaches a spawn on the thread IPC dispatches it on.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct IpcThreadSpawn {
+    pub file: String,
+    pub line: usize,
+    pub command: String,
+    pub is_async: bool,
+    pub callee: String,
+}
+
+impl std::fmt::Display for IpcThreadSpawn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = if self.is_async { "async command" } else { "sync command (main thread)" };
+        write!(f, "{}:{} {} {} calls {} off the blocking pool", self.file, self.line, kind, self.command, self.callee)
+    }
+}
+
+/// The `(open, close)` paren offsets of every `spawn_blocking(..)` and `thread::spawn(..)` call in
+/// `text[from..to]`: work inside them runs off the dispatching thread.
+fn offloaded(text: &str, from: usize, to: usize) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    for needle in ["spawn_blocking(", "thread::spawn("] {
+        for (rel, _) in text[from..to].match_indices(needle) {
+            let open = from + rel + needle.len() - 1;
+            let mut depth = 0;
+            for (k, c) in text[open..to].char_indices() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            spans.push((open, open + k));
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    spans
+}
+
+/// Every `#[tauri::command]` in `files` (already stripped) that calls a spawning function, or
+/// spawns itself, outside a `spawn_blocking(..)` / `thread::spawn(..)` argument.
+pub fn commands_on_the_ipc_thread(
+    files: &[(String, String)],
+    spawning: &BTreeMap<String, Option<String>>,
+) -> Vec<IpcThreadSpawn> {
+    let mut out = BTreeSet::new();
+    for (file, text) in files {
+        let fns = functions(text);
+        for (attr, _) in text.match_indices("#[tauri::command") {
+            let Some(f) = fns.iter().filter(|f| f.sig_start > attr).min_by_key(|f| f.sig_start) else { continue };
+            let is_async = text[attr..f.sig_start].trim_end().ends_with("async");
+            let away = offloaded(text, f.body_open, f.body_close);
+            let inside = |at: usize| away.iter().any(|(s, e)| at > *s && at < *e);
+            for (at, callee) in calls(text, f.body_open, f.body_close) {
+                if inside(at) {
+                    continue;
+                }
+                let direct = callee == "new" && text[..at].ends_with("Command::")
+                    || (callee == "spawn" || callee == "output") && text[..at].ends_with('.');
+                if spawning.contains_key(&callee) || direct {
+                    let line = text[..at].matches('\n').count() + 1;
+                    out.insert(IpcThreadSpawn { file: file.clone(), line, command: f.name.clone(), is_async, callee });
+                }
+            }
+        }
+    }
+    out.into_iter().collect()
 }

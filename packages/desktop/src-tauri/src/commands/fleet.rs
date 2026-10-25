@@ -485,9 +485,10 @@ fn check_reclaim_batch(len: usize) -> Result<(), String> {
 /// then calls the unchanged `remove_worktree_for_story`, whose own `git status --porcelain` re-read
 /// remains the final guard. Results are per row; one refusal never fails the batch.
 ///
-/// Unlike the synchronous `worktree_remove`, this never holds the shared database mutex across a
-/// git call and never runs on the IPC thread: the mutex is taken only to resolve the actor, then
-/// the batch runs on the blocking pool over a connection of its own (WAL plus `busy_timeout`).
+/// Like `worktree_remove`, this never holds the shared database mutex across a git call and never
+/// runs git on the IPC thread: the mutex is taken only to resolve the actor, then
+/// the batch runs on the blocking pool over a connection of its own (WAL plus `busy_timeout`),
+/// each Story under its work lock ([`reclaim_with_story_work`]).
 #[tauri::command(async)]
 pub async fn worktree_reclaim(
     state: State<'_, AppState>,
@@ -504,20 +505,36 @@ pub async fn worktree_reclaim(
         drop(conn);
         actor?
     };
-    let db_path = flywheel_core::db::default_db_path().map_err(|e| ipc_error("worktree_reclaim:open", e))?;
+    let db_path = super::board_path(&state.db)?;
 
-    let outcomes = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<Vec<_>> {
-        let mut conn = rusqlite::Connection::open(&db_path)?;
-        flywheel_core::db::apply_pragmas(&conn)?;
-        Ok(flywheel_core::domain::worktree::reclaim_worktrees(&mut conn, &story_ids, &actor))
-    })
-    .await
-    .map_err(|e| ipc_error("worktree_reclaim:join", e))?
-    .map_err(|e| ipc_error("worktree_reclaim:git", e))?;
+    let outcomes = tauri::async_runtime::spawn_blocking(move || reclaim_with_story_work(&db_path, &story_ids, &actor))
+        .await
+        .map_err(|e| ipc_error("worktree_reclaim:join", e))?
+        .map_err(|e| ipc_error("worktree_reclaim:git", e))?;
 
     // A reclaim batch can span projects, and no single project is honest here: broadcast.
     emit_board_changed(&app, None, "worktree", None);
     Ok(outcomes.into_iter().map(ReclaimOutcomeDto::from).collect())
+}
+
+/// Reclaim each of `story_ids` on a connection of its own on the database at `db_path`, each one
+/// holding its Story's work lock ([`super::story_work`], issue #220), so a reclaim never interleaves
+/// with a Start, a Drop or a Merge on the same Story. One Story's lock at a time: a batch never
+/// holds two, so it cannot deadlock against another command.
+pub fn reclaim_with_story_work(
+    db_path: &std::path::Path,
+    story_ids: &[String],
+    actor: &str,
+) -> anyhow::Result<Vec<flywheel_core::domain::worktree::ReclaimOutcome>> {
+    let mut conn = super::open_beside(db_path).map_err(anyhow::Error::msg)?;
+    let mut seen = std::collections::HashSet::new();
+    let mut outcomes = Vec::new();
+    for story_id in story_ids.iter().filter(|id| seen.insert(id.as_str())) {
+        outcomes.extend(super::with_story_work(story_id, || {
+            flywheel_core::domain::worktree::reclaim_worktrees(&mut conn, std::slice::from_ref(story_id), actor)
+        }));
+    }
+    Ok(outcomes)
 }
 
 #[cfg(test)]
