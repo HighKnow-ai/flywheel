@@ -175,7 +175,8 @@ describe.runIf(CRITIQUE_RUN)("Stress screens", () => {
 
   it("s12 session feed, View raw", async () => {
     await bigBoard(() => useUiStore.getState().setActiveSessionId("ses-b1", LONG_STORY.id));
-    await click("View raw");
+    // Issue #205: Structured | Raw is a Toggle Group.
+    await userEvent.click(await screen.findByRole("radio", { name: "Raw" }));
     await screen.findAllByText(/raw stream-json/);
     await capture("s12-stress-feed-raw");
   });

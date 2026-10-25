@@ -12,8 +12,8 @@
 export type ToolKind = "read" | "edit" | "write" | "run" | "search" | "web" | "board" | "agent" | "question" | "other";
 
 /**
- * A metric's tone. `failed` is a call that reported failure: it stays neutral ink, told apart by its icon
- * and word. `failed-check` is a failed Check, the one failure that is red (direction.md § Colour). `ok` is a
+ * A metric's tone. `failed` is a call that reported failure: the feed draws it as the destructive StateBadge
+ * (issue #205). `failed-check` is a failed Check, in red ink (direction.md § Colour). `ok` is a
  * command that finished cleanly, set in ink like the mockup's "passed" (never green: there is none).
  */
 export type MetricTone = "neutral" | "ok" | "failed" | "failed-check";
@@ -29,10 +29,15 @@ export interface ToolCallDescription {
   verb: string;
   /** The same while the call is still running: "Running". */
   liveVerb: string;
-  /** What it acted on: a path, a command, a Task's title. Empty when there is nothing to name. */
+  /** What it acted on: a path, a command, a Task's title. Empty when there is nothing to name. A path or a
+   * command inside the worktree reads relative to it (issue #205), so the file name is never cut off. */
   target: string;
+  /** The target as the agent gave it, absolute paths and all: the Tooltip behind a shortened target. */
+  fullTarget: string;
   /** Whether the target is code (a path, a command, a pattern) and sets in the code face. */
   targetIsCode: boolean;
+  /** Whether the target is one file path, which truncates in the middle so its file name stays in view. */
+  targetIsPath: boolean;
   /** Known only once the call answered; a call still running has none. */
   metrics: ToolMetric[];
 }
@@ -42,6 +47,39 @@ export interface ToolCallInput {
   input: unknown;
   output?: unknown;
   isError?: boolean;
+}
+
+/** How to word a call: `root` is the session's worktree, against which paths and commands read relative. */
+export interface DescribeOptions {
+  root?: string | null;
+}
+
+function trimRoot(root: string | null | undefined): string | null {
+  if (!root) return null;
+  const trimmed = root.replace(/\/+$/, "");
+  return trimmed === "" ? null : trimmed;
+}
+
+/** A path relative to the worktree (`packages/export/src/zip.ts`); the root itself reads "."; a path outside
+ * it, or with no root known, stays as it is. */
+export function relativePath(path: string, root?: string | null): string {
+  const base = trimRoot(root);
+  if (!base || !path) return path;
+  if (path === base) return ".";
+  return path.startsWith(`${base}/`) ? path.slice(base.length + 1) : path;
+}
+
+/** A command with every mention of the worktree made relative: `cd /…/wt && npm test` reads `cd . && npm test`. */
+export function relativeCommand(command: string, root?: string | null): string {
+  const base = trimRoot(root);
+  if (!base || !command) return command;
+  return command.split(`${base}/`).join("").split(base).join(".");
+}
+
+/** A path split for middle truncation: the folders, which give way first, and the file name, which never does. */
+export function splitPath(path: string): { dir: string; base: string } {
+  const slash = path.lastIndexOf("/", path.length - 2);
+  return slash < 0 ? { dir: "", base: path } : { dir: path.slice(0, slash + 1), base: path.slice(slash + 1) };
 }
 
 /** The MCP server that carries the board tools (`BOARD_SERVER` in `packages/core/src/domain/session_kind.rs`). */
@@ -168,7 +206,7 @@ export const STORY_PROPOSAL_KIND_WORDS: Record<string, string> = {
   new_epic: "New Epic",
 };
 
-function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescription {
+function describeBoardTool(tool: string, call: ToolCallInput): Described {
   const input = record(call.input);
   const answer = outputJson(call.output);
   const base = { kind: "board" as const, targetIsCode: false, metrics: failureMetric(call) };
@@ -315,8 +353,23 @@ function describeBoardTool(tool: string, call: ToolCallInput): ToolCallDescripti
   }
 }
 
-/** Describe one tool call: its verb, its target, and (once it answered) its metrics. */
-export function describeToolCall(call: ToolCallInput): ToolCallDescription {
+type Described = Omit<ToolCallDescription, "fullTarget" | "targetIsPath"> & { targetIsPath?: boolean };
+
+/** Describe one tool call: its verb, its target, and (once it answered) its metrics. With the worktree as
+ * `root`, a path or a command reads relative to it; `fullTarget` keeps what the agent gave. */
+export function describeToolCall(call: ToolCallInput, options: DescribeOptions = {}): ToolCallDescription {
+  const described = describeCall(call);
+  const fullTarget = described.target;
+  const targetIsPath = described.targetIsPath ?? false;
+  const target = targetIsPath
+    ? relativePath(fullTarget, options.root)
+    : described.targetIsCode
+      ? relativeCommand(fullTarget, options.root)
+      : fullTarget;
+  return { ...described, target, fullTarget, targetIsPath };
+}
+
+function describeCall(call: ToolCallInput): Described {
   const input = record(call.input);
   const answered = call.output !== undefined;
   const text = outputText(call.output);
@@ -329,7 +382,7 @@ export function describeToolCall(call: ToolCallInput): ToolCallDescription {
     return { kind: "other", verb: "Called", liveVerb: "Calling", target, targetIsCode: false, metrics: failed };
   }
 
-  const code = (verb: string, liveVerb: string, kind: ToolKind, target: string, metrics: ToolMetric[]): ToolCallDescription => ({
+  const code = (verb: string, liveVerb: string, kind: ToolKind, target: string, metrics: ToolMetric[]): Described => ({
     kind,
     verb,
     liveVerb,
@@ -340,7 +393,10 @@ export function describeToolCall(call: ToolCallInput): ToolCallDescription {
 
   switch (call.toolName) {
     case "Read":
-      return code("Read", "Reading", "read", str(input.file_path) || str(input.path), [{ text: plural(lineCount(text), "line"), tone: "neutral" }]);
+      return {
+        ...code("Read", "Reading", "read", str(input.file_path) || str(input.path), [{ text: plural(lineCount(text), "line"), tone: "neutral" }]),
+        targetIsPath: true,
+      };
     case "Edit":
     case "MultiEdit":
     case "NotebookEdit": {
@@ -349,11 +405,16 @@ export function describeToolCall(call: ToolCallInput): ToolCallDescription {
       const removed = edits.reduce((n, e) => n + lineCount(str(e.old_string)), 0);
       const target = str(input.file_path) || str(input.notebook_path);
       // The lines an edit adds and removes are known from its input, before it answers.
-      return { ...code("Edited", "Editing", "edit", target, []), metrics: failed.length > 0 ? failed : [{ text: `+${added} −${removed}`, tone: "neutral" }] };
+      return {
+        ...code("Edited", "Editing", "edit", target, []),
+        targetIsPath: true,
+        metrics: failed.length > 0 ? failed : [{ text: `+${added} −${removed}`, tone: "neutral" }],
+      };
     }
     case "Write":
       return {
         ...code("Wrote", "Writing", "write", str(input.file_path), []),
+        targetIsPath: true,
         metrics: failed.length > 0 ? failed : [{ text: plural(lineCount(str(input.content)), "line"), tone: "neutral" }],
       };
     case "Bash":
@@ -365,7 +426,7 @@ export function describeToolCall(call: ToolCallInput): ToolCallDescription {
     case "KillBash":
       return code("Stopped command", "Stopping command", "run", str(input.shell_id) || str(input.bash_id), []);
     case "LS":
-      return code("Listed", "Listing", "read", str(input.path), []);
+      return { ...code("Listed", "Listing", "read", str(input.path), []), targetIsPath: true };
     case "Grep":
     case "Glob": {
       const lines = text.split("\n").filter((line) => line.trim() !== "");
@@ -407,12 +468,5 @@ export function toolCallSeconds(startedAt: string | undefined, endedAt: string |
   return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
 }
 
-/** A duration as a clock reading: "<1s", "9s", "1m 05s", "1h 02m". */
-export function formatDuration(seconds: number): string {
-  if (seconds < 1) return "<1s";
-  const s = Math.floor(seconds);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${String(s % 60).padStart(2, "0")}s`;
-  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
-}
+/** A duration as a clock reading, from the one vocabulary (`lib/format.ts`): "<1s", "9s", "1m 05s", "1h 02m". */
+export { formatDuration } from "@/lib/format";

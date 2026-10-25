@@ -400,7 +400,7 @@ describe.runIf(CRITIQUE_RUN)("M2 to M4 flow screens", () => {
     await click("Open feed of session ses-3a");
     await screen.findByText(/Rendering the three directions/);
     // Issue #110: a finished session says how it ended and offers no Stop.
-    await screen.findByText(/Ended: handed off/);
+    expect((await screen.findByTestId("session-ending")).textContent).toMatch(/· handed off$/);
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
     await shot("12-feed-handed-off");
   });

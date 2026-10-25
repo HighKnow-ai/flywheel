@@ -565,6 +565,9 @@ export function installStressBackend(options: StressOptions = {}) {
             WAITING.some((s) => s.id === r.storyId) ? { ...r, attention: "waiting_on_you" } : r.storyId === STOPPED.id ? { ...r, attention: "stopped", endingReason: "usage_limit", liveSessionId: null } : r,
           );
         }
+        // Issue #205: the long Story's worktree, so its feed reads paths relative to it.
+        case "worktree_summary":
+          return arg(args, "storyId") === LONG_STORY.id ? { branch: "story/presales-1014", path: BIG_PATH, status: "ok" } : m2(cmd, args);
         case "story_stopped": return arg(args, "storyId") === STOPPED.id ? { sessionId: "ses-bs", endingReason: "usage_limit", endedAt: ago(5400) } : m2(cmd, args);
         case "board_blocked_summary":
           if (pid === BIG) return { blockedStoryIds: WAITING.map((s) => s.id), waitingEpicIds: [], waitingMilestoneIds: [], roadmapWaiting: false, blockedCount: WAITING.length };

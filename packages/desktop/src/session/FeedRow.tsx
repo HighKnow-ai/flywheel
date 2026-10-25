@@ -20,17 +20,24 @@ import {
   FilePlus,
   FileText,
   Globe,
+  Hourglass,
+  Info,
   Kanban,
   LoaderCircle,
   MessageCircleQuestionMark,
   Pencil,
+  RotateCw,
   Search,
   Terminal,
+  TriangleAlert,
   UserRound,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { StateBadge } from "@/components/StateBadge";
 import { Markdown } from "./Markdown";
 import { QuestionForm, type QuestionPicks } from "./QuestionForm";
 import {
@@ -38,10 +45,19 @@ import {
   payloadText,
   proposalKind,
   toolCallLabel,
+  usageLimitText,
   type FeedRowData,
   type QuestionPrompt,
 } from "./feedRows";
-import { describeToolCall, formatDuration, toolCallSeconds, type ToolKind, type ToolMetric } from "./toolVerbs";
+import {
+  describeToolCall,
+  formatDuration,
+  splitPath,
+  toolCallSeconds,
+  type ToolCallDescription,
+  type ToolKind,
+  type ToolMetric,
+} from "./toolVerbs";
 
 export { feedRowText, toolCallLabel, toolCallTarget, type FeedRowData } from "./feedRows";
 
@@ -69,6 +85,8 @@ export interface FeedRowProps {
   onAnswerQuestion?: (picks: QuestionPicks) => Promise<void>;
   /** Issue #104: the open question's request id, under which its half-typed answer is kept. */
   questionDraftKey?: string;
+  /** Issue #205: the session's worktree. Paths and commands inside it read relative to it. */
+  root?: string | null;
 }
 
 /** Whether the OS reports a reduced-motion preference, checked once at mount. Guarded for an
@@ -245,8 +263,8 @@ const disclosureClass =
 type LineSurface = "card" | "strip";
 
 /** The right-hand metrics column: what the call returned (lines, exit status, Check results) and how
- * long it took. A failed call is neutral ink beside its icon; only a failed Check is red (direction.md
- * § Colour). */
+ * long it took. A failed call wears the destructive StateBadge, worded by what failed ("exit 1"), so it
+ * reads as the same failure every other screen draws (issue #205); a failed Check is red ink. */
 function CallMetrics({ metrics, seconds, surface }: { metrics: ToolMetric[]; seconds?: number; surface: LineSurface }) {
   const onStrip = surface === "strip";
   if (metrics.length === 0 && seconds === undefined) return null;
@@ -257,26 +275,63 @@ function CallMetrics({ metrics, seconds, surface }: { metrics: ToolMetric[]; sec
         onStrip ? "text-strip-muted-foreground" : "text-subtle-foreground",
       )}
     >
-      {metrics.map((metric) => (
+      {metrics.map((metric) =>
+        metric.tone === "failed" ? (
+          <StateBadge key={metric.text} state="failed" label={metric.text} className="h-5 px-2 text-meta" />
+        ) : (
         <span
           key={metric.text}
           data-tone={metric.tone}
           className={cn(
             "inline-flex items-center gap-1",
             metric.tone !== "neutral" && "font-semibold",
-            (metric.tone === "failed" || metric.tone === "ok") && (onStrip ? "text-strip-foreground" : "text-foreground"),
+            metric.tone === "ok" && (onStrip ? "text-strip-foreground" : "text-foreground"),
             // On the strip the line sits in a `dark` scope, so this is the red lifted for a dark ground.
             metric.tone === "failed-check" && "text-destructive-text",
           )}
         >
-          {(metric.tone === "failed" || metric.tone === "failed-check") && (
-            <CircleX aria-hidden="true" size={14} className={cn(metric.tone === "failed-check" && "text-destructive")} />
-          )}
+          {metric.tone === "failed-check" && <CircleX aria-hidden="true" size={14} className="text-destructive" />}
           {metric.text}
         </span>
-      ))}
+        ),
+      )}
       {seconds !== undefined && <span>{formatDuration(seconds)}</span>}
     </span>
+  );
+}
+
+/**
+ * What a call acted on. A file path truncates in the middle, the folders giving way before the file name
+ * (`packages/export/src/xl…/merge-cells.ts`), since the file name is the part a supervisor reads; anything
+ * else truncates at its end. Whatever is shortened (made relative or cut) carries the agent's own full
+ * target in a Tooltip (issue #205).
+ */
+function CallTarget({ described, onStrip }: { described: ToolCallDescription; onStrip: boolean }) {
+  const { target, fullTarget, targetIsCode, targetIsPath } = described;
+  const className = cn(
+    "feed-call-target min-w-0 flex-1",
+    targetIsCode ? "font-mono text-meta" : "text-small",
+    onStrip ? "text-strip-muted-foreground" : "text-muted-foreground",
+  );
+  if (!target) return <span className={className} />;
+  const { dir, base } = targetIsPath ? splitPath(target) : { dir: "", base: "" };
+  const text = targetIsPath ? (
+    <span className={cn(className, "flex overflow-hidden")} data-full-target={fullTarget}>
+      <span className="min-w-0 truncate">{dir}</span>
+      <span className="shrink-0 whitespace-pre">{base}</span>
+    </span>
+  ) : (
+    <span className={cn(className, "truncate")} data-full-target={fullTarget}>
+      {target}
+    </span>
+  );
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{text}</TooltipTrigger>
+      <TooltipContent side="bottom" align="start" className="max-w-[min(48rem,90vw)] font-mono break-all">
+        {fullTarget}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -289,13 +344,16 @@ export function ToolCallLine({
   live,
   now,
   surface = "card",
+  root,
 }: {
   row: Extract<FeedRowData, { kind: "tool_call" }>;
   live: boolean;
   now?: number;
   surface?: LineSurface;
+  /** The session's worktree: paths and commands inside it read relative to it (issue #205). */
+  root?: string | null;
 }) {
-  const described = describeToolCall(row);
+  const described = describeToolCall(row, { root });
   const KindIcon = KIND_ICONS[described.kind];
   const onStrip = surface === "strip";
   const verb = live ? described.liveVerb : described.verb;
@@ -308,16 +366,7 @@ export function ToolCallLine({
       >
         {verb}
       </span>
-      <span
-        className={cn(
-          "feed-call-target min-w-0 flex-1 truncate",
-          described.targetIsCode ? "font-mono text-meta" : "text-small",
-          onStrip ? "text-strip-muted-foreground" : "text-muted-foreground",
-        )}
-        title={described.target || undefined}
-      >
-        {described.target}
-      </span>
+      <CallTarget described={described} onStrip={onStrip} />
       {live ? (
         // The live mark leads the clock, as the mockup's live dot does, so the clock right-aligns with the
         // durations above it. Running ink: on the strip the line's `dark` scope lifts it to the dark blue.
@@ -334,10 +383,31 @@ export function ToolCallLine({
 }
 
 /** A tool call's accessible name: the visible words in reading order, so the faces inside never split it. */
-export function toolCallAccessibleName(row: Extract<FeedRowData, { kind: "tool_call" }>, live: boolean): string {
-  const label = toolCallLabel(row.toolName, row.input, { live, output: row.output });
+export function toolCallAccessibleName(
+  row: Extract<FeedRowData, { kind: "tool_call" }>,
+  live: boolean,
+  root?: string | null,
+): string {
+  const label = toolCallLabel(row.toolName, row.input, { live, output: row.output, root });
   const state = live ? "running" : describeToolCall(row).metrics.map((m) => m.text).join(", ");
   return [label, state].filter(Boolean).join(", ");
+}
+
+/** An expanded call's or result's payload block. A failed call's block takes the destructive edge, so the
+ * error reads as one with the failed badge on its line (issue #205). */
+function DetailBlock({ failed = false, children }: { failed?: boolean; children: ReactNode }) {
+  return (
+    <div
+      className={cn(
+        "feed-call-detail mt-1 mb-2 ml-6 overflow-y-auto rounded-md border bg-muted px-3 py-2 text-small break-words",
+        failed ? "border-destructive" : "border-border",
+      )}
+      data-failed={failed ? "true" : undefined}
+      style={{ maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT }}
+    >
+      {children}
+    </div>
+  );
 }
 
 function ToolCallRow({
@@ -346,46 +416,47 @@ function ToolCallRow({
   onToggleExpand,
   live,
   now,
+  root,
 }: {
   row: Extract<FeedRowData, { kind: "tool_call" }>;
   expanded: boolean;
   onToggleExpand: () => void;
   live: boolean;
   now?: number;
+  root?: string | null;
 }) {
   return (
-    <div role="listitem" className="feed-row">
-      <button
-        type="button"
-        onClick={onToggleExpand}
-        aria-expanded={expanded}
+    // Every disclosure is a Collapsible (DESIGN.md § Motion): the payload grows from its line and shrinks back.
+    <Collapsible open={expanded} onOpenChange={onToggleExpand} role="listitem" className="feed-row">
+      <CollapsibleTrigger
         className={disclosureClass}
         data-live={live ? "true" : undefined}
         data-failed={row.isError ? "true" : undefined}
-        aria-label={toolCallAccessibleName(row, live)}
+        aria-label={toolCallAccessibleName(row, live, root)}
       >
         <Chevron expanded={expanded} />
-        <ToolCallLine row={row} live={live} now={now} />
-      </button>
-
-      {expanded && (
-        <div
-          className="feed-call-detail mt-1 mb-2 ml-6 overflow-y-auto rounded-md border border-border bg-muted px-3 py-2 text-small break-words"
-          style={{ maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT }}
-        >
+        <ToolCallLine row={row} live={live} now={now} root={root} />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <DetailBlock failed={row.isError === true}>
           <div className="feed-detail-heading mb-1 text-meta font-semibold text-muted-foreground">Input</div>
           <Fields value={row.input} />
           {row.output !== undefined && (
             <>
-              <div className="feed-detail-heading mt-2 mb-1 text-meta font-semibold text-muted-foreground">
+              <div
+                className={cn(
+                  "feed-detail-heading mt-2 mb-1 text-meta font-semibold",
+                  row.isError ? "text-destructive-text" : "text-muted-foreground",
+                )}
+              >
                 {row.isError ? "Error" : "Output"}
               </div>
               <OutputView output={row.output} />
             </>
           )}
-        </div>
-      )}
-    </div>
+        </DetailBlock>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -402,25 +473,25 @@ function ToolResultRow({
   const text = payloadText(row.output);
   const expandable = isRowExpandable(row);
   const summary = `${row.isError ? "failed" : "result"} · ${firstLine(text).slice(0, FEED_ROW_TRUNCATION_THRESHOLD)}`;
-  return (
-    <div role="listitem" className="feed-row">
-      {expandable ? (
-        <button type="button" onClick={onToggleExpand} aria-expanded={expanded} className={disclosureClass}>
-          <Chevron expanded={expanded} />
-          <span className="feed-call-label min-w-0 truncate font-mono text-small text-muted-foreground">{summary}</span>
-        </button>
-      ) : (
+  if (!expandable) {
+    return (
+      <div role="listitem" className="feed-row">
         <span className="feed-call-label block truncate py-1 font-mono text-small text-muted-foreground">{summary}</span>
-      )}
-      {expandable && expanded && (
-        <div
-          className="feed-call-detail mt-1 mb-2 ml-6 overflow-y-auto rounded-md border border-border bg-muted px-3 py-2 text-small break-words"
-          style={{ maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT }}
-        >
+      </div>
+    );
+  }
+  return (
+    <Collapsible open={expanded} onOpenChange={onToggleExpand} role="listitem" className="feed-row">
+      <CollapsibleTrigger className={disclosureClass}>
+        <Chevron expanded={expanded} />
+        <span className="feed-call-label min-w-0 truncate font-mono text-small text-muted-foreground">{summary}</span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <DetailBlock failed={row.isError === true}>
           <OutputView output={row.output} />
-        </div>
-      )}
-    </div>
+        </DetailBlock>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -516,11 +587,26 @@ function QuestionCard({
   );
 }
 
-/** A one-line transient in the muted label role (a system notice, the git retry line). */
-function SystemLine({ text }: { text: string }) {
+/** The glyph a notice wears: a retry or an API error is a warning, a lock retry turns, the rest inform. */
+function noticeIcon(text: string): LucideIcon {
+  if (/^API Error|error|failed|overloaded/i.test(text)) return TriangleAlert;
+  if (/retrying/i.test(text)) return RotateCw;
+  return Info;
+}
+
+/**
+ * A one-line notice (a CLI or API notice, the git retry line, the usage limit) in the row grid (issue #205):
+ * the chevron's slot left empty, its glyph in the icon column and its words where a call's verb begins, so
+ * it lines up with the calls around it instead of hanging off the card's edge.
+ */
+function NoticeRow({ text, icon: NoticeIcon = noticeIcon(text), kind }: { text: string; icon?: LucideIcon; kind?: string }) {
   return (
     <div role="listitem" className="feed-row">
-      <p className="m-0 py-0.5 text-small break-words text-muted-foreground">{text}</p>
+      <p className="feed-notice -mx-2 my-0 flex min-w-0 items-start gap-2.5 px-2 py-1 text-small text-muted-foreground" data-notice={kind}>
+        <span aria-hidden="true" className="w-3.5 shrink-0" />
+        <NoticeIcon aria-hidden="true" size={16} className="mt-0.5 shrink-0" />
+        <span className="min-w-0 break-words">{text}</span>
+      </p>
     </div>
   );
 }
@@ -529,34 +615,34 @@ function SystemLine({ text }: { text: string }) {
  * form is cut before it reaches the DOM, so a multi-kilobyte line never sits behind a CSS clip. */
 function RawRow({ raw, expanded, onToggleExpand }: { raw: string; expanded: boolean; onToggleExpand: () => void }) {
   const expandable = raw.length > FEED_ROW_TRUNCATION_THRESHOLD;
-  const showExpanded = expandable && expanded;
+  const clipped = <span className="min-w-0 truncate font-mono text-small text-muted-foreground">{raw.slice(0, FEED_ROW_TRUNCATION_THRESHOLD)}</span>;
+  if (!expandable) {
+    return (
+      <div role="listitem" className="feed-row flex py-1">
+        {clipped}
+      </div>
+    );
+  }
+  const showExpanded = expanded;
   return (
-    <div role="listitem" className="feed-row flex items-start gap-1.5">
-      {expandable && (
-        <button
-          type="button"
-          onClick={onToggleExpand}
-          aria-expanded={showExpanded}
-          aria-label={showExpanded ? "Collapse full text" : "Expand full text"}
-          className="feed-disclosure mt-1 shrink-0 rounded-sm hover:bg-accent"
-        >
-          <Chevron expanded={showExpanded} />
-        </button>
-      )}
-      <span
-        className={cn(
-          "min-w-0 font-mono text-small text-muted-foreground",
-          showExpanded ? "overflow-y-auto break-words whitespace-pre-wrap" : "truncate",
-        )}
-        style={showExpanded ? { maxHeight: EXPANDED_SUBBLOCK_MAX_HEIGHT } : undefined}
+    <Collapsible open={showExpanded} onOpenChange={onToggleExpand} role="listitem" className="feed-row">
+      <CollapsibleTrigger
+        aria-label={showExpanded ? "Collapse full text" : "Expand full text"}
+        className={disclosureClass}
       >
-        {showExpanded ? raw : raw.slice(0, FEED_ROW_TRUNCATION_THRESHOLD)}
-      </span>
-    </div>
+        <Chevron expanded={showExpanded} />
+        {clipped}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <DetailBlock>
+          <pre className="m-0 font-mono text-small break-words whitespace-pre-wrap">{raw}</pre>
+        </DetailBlock>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
-export function FeedRow({ row, expanded, onToggleExpand, live = false, now, onAnswerQuestion, questionDraftKey }: FeedRowProps) {
+export function FeedRow({ row, expanded, onToggleExpand, live = false, now, onAnswerQuestion, questionDraftKey, root }: FeedRowProps) {
   switch (row.kind) {
     case "assistant_text":
       return (
@@ -574,15 +660,18 @@ export function FeedRow({ row, expanded, onToggleExpand, live = false, now, onAn
         </div>
       );
     case "system_notice":
-      return <SystemLine text={row.text} />;
-    // D-53: the retry line reuses the system/transient treatment, never a parallel one.
+      return <NoticeRow text={row.text} />;
+    // Issue #205: the limit as a time, never the CLI's raw epoch.
+    case "usage_limit":
+      return <NoticeRow text={usageLimitText(row.resetsAt, now)} icon={Hourglass} kind="usage-limit" />;
+    // D-53: the retry line reuses the notice treatment, never a parallel one.
     case "git_retry":
-      return <SystemLine text={gitRetryText(row.attempt, row.max)} />;
+      return <NoticeRow text={gitRetryText(row.attempt, row.max)} icon={RotateCw} />;
     // D-53: an explicit no-render case; exhaustion surfaces in the Activity Trail only.
     case "git_lock_exhausted":
       return null;
     case "tool_call":
-      return <ToolCallRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} live={live} now={now} />;
+      return <ToolCallRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} live={live} now={now} root={root} />;
     case "tool_result":
       return <ToolResultRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} />;
     case "proposal":

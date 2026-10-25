@@ -12,11 +12,26 @@
  *   call and the floor show the agent is still working.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionSurface } from "../SessionSurface";
 import { sessionFeedQueryKey } from "../../board/useBoardQuery";
 import { resetUiState, useUiStore } from "../../state/uiStore";
+
+/** Issue #205: Stop confirms in ConfirmDestructive. Opens it and returns its action button. */
+async function openStopConfirm(): Promise<HTMLElement> {
+  fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
+  const dialog = await screen.findByRole("alertdialog");
+  return within(dialog).getByRole("button", { name: "Stop the session" });
+}
+
+/** Issue #205: Discard waits in the ⋯ menu and confirms. Opens its confirmation and returns its action button. */
+async function openDiscardConfirm(): Promise<HTMLElement> {
+  fireEvent.keyDown(await screen.findByRole("button", { name: "More session actions" }), { key: "Enter" });
+  fireEvent.click(await screen.findByRole("menuitem", { name: /Discard and start fresh/ }));
+  const dialog = await screen.findByRole("alertdialog");
+  return within(dialog).getByRole("button", { name: "Discard the session" });
+}
 
 // Every test in this file shares the same module-level Zustand store — the Discard describe
 // block below is the first one in this file to write to it (`setLaunchSheetTaskId`), so it must
@@ -287,7 +302,7 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
     expect(stopButton).toBeEnabled();
   });
 
-  it("reads Stopping… and is disabled immediately after activation", async () => {
+  it("confirms before it stops anything, then shows the stop pending (issue #205)", async () => {
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
       if (command === "session_stop") return new Promise(() => {}); // never resolves within the test
@@ -300,11 +315,29 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
       </QueryClientProvider>,
     );
 
-    const stopButton = await screen.findByRole("button", { name: "Stop" });
-    stopButton.click();
+    const confirm = await openStopConfirm();
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("Stop this session?");
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(/worktree stays exactly as the agent left it/);
+    expect(invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "session_stop")).toHaveLength(0);
 
-    const stoppingButton = await screen.findByRole("button", { name: "Stopping…" });
-    expect(stoppingButton).toBeDisabled();
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(confirm).toHaveAttribute("aria-busy", "true"));
+    expect(invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "session_stop")).toHaveLength(1);
+  });
+
+  it("Cancel leaves the session running and sends nothing (issue #205)", async () => {
+    mockWindowReads(() => []);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="running" />
+      </QueryClientProvider>,
+    );
+    await openStopConfirm();
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+    expect(invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "session_stop")).toHaveLength(0);
   });
 
   it("leaves the stopping state from the command result when no session_closed push arrives", async () => {
@@ -326,14 +359,13 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
       </QueryClientProvider>,
     );
 
-    const stopButton = await screen.findByRole("button", { name: "Stop" });
-    stopButton.click();
+    fireEvent.click(await openStopConfirm());
 
     // No session_closed push ever arrives (subscribeAgentEvent's captured handler is never
     // invoked) — the surface must still leave its stopping state from the command's own result.
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Stopping…" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
     expect(screen.getByText("Interrupted")).toBeInTheDocument();
     expect(
@@ -354,8 +386,7 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
       </QueryClientProvider>,
     );
 
-    const stopButton = await screen.findByRole("button", { name: "Stop" });
-    stopButton.click();
+    fireEvent.click(await openStopConfirm());
 
     await waitFor(() => expect(screen.getByText("Interrupted")).toBeInTheDocument());
     expect(screen.queryByText(/could not confirm/)).not.toBeInTheDocument();
@@ -400,7 +431,7 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
    * whose first argument is the stop command name rather than asserted via a bare
    * `toHaveBeenCalledTimes` on the shared mock.
    */
-  it("clicking Stop three times in one synchronous tick sends exactly one session_stop command", async () => {
+  it("confirming Stop three times in one synchronous tick sends exactly one session_stop command", async () => {
     invokeCommandMock.mockImplementation((command: string) => {
       if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
       if (command === "session_stop") return new Promise(() => {}); // never resolves within the test
@@ -413,10 +444,10 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
       </QueryClientProvider>,
     );
 
-    const stopButton = await screen.findByRole("button", { name: "Stop" });
-    stopButton.click();
-    stopButton.click();
-    stopButton.click();
+    const confirm = await openStopConfirm();
+    confirm.click();
+    confirm.click();
+    confirm.click();
 
     await waitFor(() => {
       const stopCalls = invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "session_stop");
@@ -443,12 +474,14 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
       </QueryClientProvider>,
     );
 
-    const stopButton = await screen.findByRole("button", { name: "Stop" });
-    stopButton.click();
+    const confirm = await openStopConfirm();
+    fireEvent.click(confirm);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled());
+    // The dialog stays open with the failure's message, and its action is usable again.
+    await waitFor(() => expect(within(screen.getByRole("alertdialog")).getByRole("alert")).toHaveTextContent("ipc failure"));
+    await waitFor(() => expect(confirm).not.toHaveAttribute("aria-busy", "true"));
 
-    screen.getByRole("button", { name: "Stop" }).click();
+    fireEvent.click(confirm);
 
     await waitFor(() => {
       const stopCalls = invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "session_stop");
@@ -479,62 +512,51 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
     );
   }
 
-  it("renders neither Stop nor Discard for a terminal run", () => {
+  it("renders neither Stop nor the ⋯ menu for a terminal run", () => {
     renderDiscard("completed");
-    expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Discarding…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More session actions" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Stopping…" })).not.toBeInTheDocument();
   });
 
-  it("reads Discard and is enabled for a running run, beside Stop", async () => {
+  it("offers Discard in the ⋯ menu beside Stop for a running run, never as a bare button (issue #205)", async () => {
     renderDiscard("running");
-    const discardButton = await screen.findByRole("button", { name: "Discard" });
-    expect(discardButton).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "More session actions" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
   });
 
-  it(
-    "clicking Discard twice in one synchronous tick sends exactly one session_discard command, " +
-      "with no confirmation dialog appearing in between",
-    async () => {
-      renderDiscard("running", (command) => {
-        if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
-        if (command === "session_discard") return new Promise(() => {}); // never resolves within the test
-        return Promise.resolve(undefined);
-      });
-
-      const discardButton = await screen.findByRole("button", { name: "Discard" });
-      discardButton.click();
-      discardButton.click();
-
-      // No dialog role is present between the activation and the call — CTX-08's "single action"
-      // promise, asserted as an absence rather than only checking the end state (a test that only
-      // checks the end state would pass for a two-step confirm-then-discard flow too).
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-
-      await waitFor(() => {
-        const discardCalls = invokeCommandMock.mock.calls.filter(
-          (call: unknown[]) => call[0] === "session_discard",
-        );
-        expect(discardCalls).toHaveLength(1);
-      });
-    },
-  );
-
-  it("reads Discarding… and disables both Discard and Stop immediately after activation", async () => {
+  it("confirms what Discard does before it sends anything, and confirming twice in one tick sends one command", async () => {
     renderDiscard("running", (command) => {
       if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
       if (command === "session_discard") return new Promise(() => {}); // never resolves within the test
       return Promise.resolve(undefined);
     });
 
-    const discardButton = await screen.findByRole("button", { name: "Discard" });
-    discardButton.click();
+    const confirm = await openDiscardConfirm();
+    expect(screen.getByRole("alertdialog")).toHaveTextContent(/launch sheet opens for the same Story/);
+    expect(invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "session_discard")).toHaveLength(0);
 
-    const discardingButton = await screen.findByRole("button", { name: "Discarding…" });
-    expect(discardingButton).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Stop" })).toBeDisabled();
+    confirm.click();
+    confirm.click();
+
+    await waitFor(() => {
+      const discardCalls = invokeCommandMock.mock.calls.filter((call: unknown[]) => call[0] === "session_discard");
+      expect(discardCalls).toHaveLength(1);
+    });
+  });
+
+  it("shows the discard pending and disables Stop while it runs", async () => {
+    renderDiscard("running", (command) => {
+      if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
+      if (command === "session_discard") return new Promise(() => {}); // never resolves within the test
+      return Promise.resolve(undefined);
+    });
+
+    const confirm = await openDiscardConfirm();
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(confirm).toHaveAttribute("aria-busy", "true"));
+    expect(screen.getByRole("button", { name: "Stop", hidden: true })).toBeDisabled();
   });
 
   it("opens the launch sheet for this session's own Story once the discard resolves", async () => {
@@ -548,29 +570,28 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
 
     expect(useUiStore.getState().launchSheetStoryId).toBeNull();
 
-    const discardButton = await screen.findByRole("button", { name: "Discard" });
-    discardButton.click();
+    fireEvent.click(await openDiscardConfirm());
 
     await waitFor(() => expect(useUiStore.getState().launchSheetStoryId).toBe("story-1"));
   });
 
-  it("renders the muted warning notice and never opens the launch sheet when the discard call is rejected", async () => {
+  it("keeps the confirmation open with the failure and never opens the launch sheet when the discard call is rejected", async () => {
     renderDiscard("running", (command) => {
       if (command === "session_log_window") return Promise.resolve(windowFor([], 0, 50));
       if (command === "session_discard") return Promise.reject(new Error("ipc failure"));
       return Promise.resolve(undefined);
     });
 
-    const discardButton = await screen.findByRole("button", { name: "Discard" });
-    discardButton.click();
+    const confirm = await openDiscardConfirm();
+    fireEvent.click(confirm);
 
-    // Reuses the SAME muted notice `StopWarningNotice` renders for a rejected/unconfirmed Stop —
-    // no second notice component was introduced.
-    await screen.findByText(/could not confirm this discard completed/);
+    await waitFor(() =>
+      expect(within(screen.getByRole("alertdialog")).getByRole("alert")).toHaveTextContent(/could not confirm this discard completed/),
+    );
     expect(useUiStore.getState().launchSheetStoryId).toBeNull();
 
-    // A genuine failure must leave the control usable — the discard button re-enables.
-    await waitFor(() => expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled());
+    // A genuine failure must leave the control usable — the action can be tried again.
+    await waitFor(() => expect(confirm).not.toHaveAttribute("aria-busy", "true"));
   });
 });
 
@@ -689,7 +710,7 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     expect(screen.getByText("command")).toBeInTheDocument();
   });
 
-  it("renders a system notice as a single muted micro-role line", async () => {
+  it("renders a system notice as a muted line in the row grid, with its icon (issue #205)", async () => {
     const events = [
       { runId: "run-1", seq: 0, at: "2026-01-01T00:00:00.000Z", raw: "retrying", type: "system_notice", text: "Retrying request…" },
     ];
@@ -697,8 +718,9 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
 
     renderSurface();
 
-    const node = await screen.findByText("Retrying request…");
-    expect(node.className).toContain("text-muted-foreground");
+    const line = (await screen.findByText("Retrying request…")).closest("p") as HTMLElement;
+    expect(line).toHaveClass("feed-notice", "text-muted-foreground");
+    expect(line.querySelector("svg")).not.toBeNull();
   });
 
   it("renders an unrecognised event kind as a raw fallback line, never dropping it", async () => {
@@ -832,13 +854,13 @@ describe("SessionSurface raw view, status strip, and run-status badge (plan 02-0
 
     await screen.findByText("Event number 0");
 
-    screen.getByRole("button", { name: "View raw" }).click();
+    screen.getByRole("radio", { name: "Raw" }).click();
 
     await screen.findByRole("log", { name: "Raw session log" });
     expect(screen.queryByText("Event number 0")).not.toBeInTheDocument();
     await screen.findByText(rawLines[0]);
 
-    screen.getByRole("button", { name: "View structured" }).click();
+    screen.getByRole("radio", { name: "Structured" }).click();
 
     await screen.findByText("Event number 0");
     expect(screen.queryByRole("log", { name: "Raw session log" })).not.toBeInTheDocument();
@@ -850,7 +872,7 @@ describe("SessionSurface raw view, status strip, and run-status badge (plan 02-0
 
     renderSurface();
 
-    screen.getByRole("button", { name: "View raw" }).click();
+    screen.getByRole("radio", { name: "Raw" }).click();
     await screen.findByText("first line");
 
     expect(screen.getByText("second line")).toBeInTheDocument();
@@ -866,7 +888,7 @@ describe("SessionSurface raw view, status strip, and run-status badge (plan 02-0
 
     renderSurface();
 
-    screen.getByRole("button", { name: "View raw" }).click();
+    screen.getByRole("radio", { name: "Raw" }).click();
     // The tail page is offset 200..249 (total 250, page size 50) — its first line renders.
     await screen.findByText("raw line 200");
 
@@ -897,10 +919,27 @@ describe("SessionSurface raw view, status strip, and run-status badge (plan 02-0
     renderSurface();
 
     await screen.findByText("hi");
-    await waitFor(() => expect(screen.getByLabelText("Cost")).toHaveTextContent("$0.0123"));
+    // Money and tokens through lib/format.ts (issue #205): two decimals, three figures.
+    await waitFor(() => expect(screen.getByLabelText("Cost")).toHaveTextContent("$0.01"));
     expect(screen.getByLabelText("Tokens in")).toHaveTextContent("120 in");
     expect(screen.getByLabelText("Tokens out")).toHaveTextContent("45 out");
     expect(screen.getByLabelText("Elapsed time")).toBeInTheDocument();
+  });
+
+  it("labels the clock and reads it through lib/format.ts, never a bare h:mm:ss (issue #205)", async () => {
+    mockCombinedReads({
+      events: [
+        { runId: "run-1", seq: 0, at: "2026-01-01T00:00:00.000Z", raw: "hi", type: "assistant_text", text: "hi" },
+        makeSessionClosed(1, "completed"),
+      ],
+    });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="completed" />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("hi");
+    expect(screen.getByTestId("session-clock")).toHaveTextContent(/^Duration /);
   });
 
   it("renders the correct glyph-and-word pair for each of the five run statuses", () => {
@@ -995,7 +1034,7 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
     delete window.matchMedia;
   });
 
-  it("every state has a floor: waiting on the agent, waiting on the developer, the run's end", async () => {
+  it("the status bar is for live status only: it says what the agent is doing, and is gone once it waits or ends (issue #205)", async () => {
     mockCombinedReads({ events: [makeToolCall(0, "Bash", { command: "npm test" })] });
     const a = renderSurface();
     // The command sits in the code face inside the sentence, so the sentence is read as the status's text.
@@ -1004,13 +1043,27 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
     );
     a.unmount();
 
+    // Waiting on you: the request card says so; the bar does not repeat it.
     mockCombinedReads({});
+    const waiting = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="blocked" />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Waiting on you");
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByText(/answer the request above/)).toBeNull();
+    waiting.unmount();
+
+    // Ended: the header says so.
     render(
       <QueryClientProvider client={new QueryClient()}>
         <SessionSurface sessionId="run-1" onBack={() => {}} initialStatus="completed" />
       </QueryClientProvider>,
     );
-    expect(await screen.findByText(/This run has ended\./)).toBeInTheDocument();
+    await screen.findByText("Completed");
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByText(/This run has ended/)).toBeNull();
   });
 
   it("Story #56: a long call with heartbeats reads as still running, and its noise never becomes a row", async () => {
@@ -1033,14 +1086,14 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
     expect(screen.getByRole("status")).toHaveTextContent(/^The agent is working: Running · cargo test --workspace\. Last activity \d+s ago\.$/);
   });
 
-  it("while running, Stop leads and Discard sits on the plain edge", async () => {
+  it("while running, Stop leads and Discard waits in the ⋯ menu beside it", async () => {
     mockCombinedReads({});
     renderSurface();
     const stop = await screen.findByRole("button", { name: "Stop" });
-    const discard = screen.getByRole("button", { name: "Discard" });
-    // Stop is the outlined control; Discard is quieter still, a ghost beside it.
+    const more = screen.getByRole("button", { name: "More session actions" });
+    // Stop is the outlined control; the menu is quieter still, a ghost beside it.
     expect(stop).toHaveAttribute("data-variant", "outline");
-    expect(discard).toHaveAttribute("data-variant", "ghost");
+    expect(more).toHaveAttribute("data-variant", "ghost");
   });
 });
 
@@ -1059,7 +1112,10 @@ describe("the header names the Story the session serves (11-22, finish-review fo
 
   it("names the Story by key and title", async () => {
     renderHeader({ storyId: "story-1" }, { story_get: () => Promise.resolve({ key: "FLY-9", title: "Add push retry" }) });
-    expect(await screen.findByText("FLY-9 Add push retry")).toBeInTheDocument();
+    const story = await screen.findByRole("button", { name: "Open Story FLY-9 Add push retry" });
+    // The key is a StoryKey (issue #205), the title beside it.
+    expect(within(story).getByText("FLY-9")).toHaveAttribute("data-slot", "story-key");
+    expect(within(story).getByText("Add push retry")).toBeInTheDocument();
     expect(screen.queryByText("Session")).not.toBeInTheDocument();
   });
 
@@ -1134,12 +1190,14 @@ describe("SessionSurface status from the stored session row (issue #110)", () =>
     );
 
     const ending = await screen.findByTestId("session-ending");
-    expect(ending).toHaveTextContent("Ended: handed off · 2026-10-19 10:00 to 2026-10-19 10:40");
+    // How, then when: a relative time with the absolute one on its <time> and in a Tooltip (RelativeTime).
+    expect(ending).toHaveTextContent(/^Ended \S.* · handed off$/);
+    expect(ending.querySelector("time")).toHaveAttribute("datetime", "2026-10-19T10:40:00.000Z");
+    expect(screen.getByTestId("session-clock")).toHaveTextContent("Duration 40m 00s");
     expect(screen.getByText("Completed")).toBeInTheDocument();
     expect(screen.queryByText("Running")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Discard" })).not.toBeInTheDocument();
-    expect(screen.getByText(/This run has ended/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More session actions" })).not.toBeInTheDocument();
   });
 
   it("a session stopped by Cyril shows the stop, its times, and offers no Stop", async () => {
@@ -1148,7 +1206,8 @@ describe("SessionSurface status from the stored session row (issue #110)", () =>
     );
 
     const ending = await screen.findByTestId("session-ending");
-    expect(ending).toHaveTextContent("Ended: stopped by you · 2026-10-19 10:00 to 2026-10-19 10:15");
+    expect(ending).toHaveTextContent(/^Ended \S.* · stopped by you$/);
+    expect(screen.getByTestId("session-clock")).toHaveTextContent("Duration 15m 00s");
     expect(screen.getByText("Interrupted")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
   });
@@ -1161,7 +1220,7 @@ describe("SessionSurface status from the stored session row (issue #110)", () =>
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByTestId("session-ending")).toHaveTextContent("Ended: crash");
+    expect(await screen.findByTestId("session-ending")).toHaveTextContent(/· crash$/);
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
   });
 
@@ -1171,8 +1230,37 @@ describe("SessionSurface status from the stored session row (issue #110)", () =>
     await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("session_get", { sessionId: "run-1" }));
     expect(screen.getByText("Running")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More session actions" })).toBeInTheDocument();
     expect(screen.queryByTestId("session-ending")).not.toBeInTheDocument();
+  });
+
+  it("draws one header for a running, a waiting and an ended session (issue #205)", async () => {
+    /** The header's shape: its two lines and what each holds, by slot, never by the words inside. */
+    function headerShape() {
+      const header = screen.getByTestId("session-header");
+      const [titleLine, metaLine] = Array.from(header.children);
+      return {
+        lines: header.children.length,
+        badge: titleLine.querySelector('[data-slot="badge"]') !== null,
+        toggle: within(titleLine as HTMLElement).queryByRole("radiogroup", { name: "Feed view" }) !== null,
+        clock: within(metaLine as HTMLElement).queryByTestId("session-clock") !== null,
+      };
+    }
+    const shapes = [];
+    for (const row of [
+      storedRow({}),
+      storedRow({ status: "blocked" }),
+      storedRow({ status: "interrupted", endedAt: "2026-10-19T10:15:00Z", endingReason: "usage_limit" }),
+    ]) {
+      const { unmount } = renderOpenedFromStory(row);
+      await waitFor(() => expect(invokeCommandMock).toHaveBeenCalledWith("session_get", { sessionId: "run-1" }));
+      await waitFor(() => expect(screen.getByTestId("session-clock")).toBeInTheDocument());
+      shapes.push(headerShape());
+      unmount();
+    }
+    expect(shapes[0]).toEqual({ lines: 2, badge: true, toggle: true, clock: true });
+    expect(shapes[1]).toEqual(shapes[0]);
+    expect(shapes[2]).toEqual(shapes[0]);
   });
 
   it("another session's close does not end this one", async () => {

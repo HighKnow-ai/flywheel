@@ -10,12 +10,12 @@
  * `browser/session-feed.browser.test.tsx` measures the overlap itself, which jsdom cannot.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SessionSurface } from "../SessionSurface";
-import { buildFeedRows, feedRowText } from "../feedRows";
+import { SessionSurface, sessionSeconds } from "../SessionSurface";
+import { buildFeedRows, feedRowText, usageLimitText } from "../feedRows";
 import { sessionFeedQueryKey } from "../../board/useBoardQuery";
-import { formatElapsed } from "../../legend/runStatus";
+import { formatDuration } from "@/lib/format";
 import { resetUiState } from "../../state/uiStore";
 import {
   STDIN_WARNING,
@@ -32,6 +32,8 @@ type Entry = Record<string, unknown>;
 const served = vi.hoisted(() => ({
   entries: [] as Record<string, unknown>[],
   stored: null as unknown,
+  story: null as unknown,
+  stopped: null as unknown,
   logCalls: [] as { offset: number; limit: number }[],
   rawCalls: [] as { offset: number; limit: number }[],
   push: null as ((event: Record<string, unknown>) => void) | null,
@@ -50,7 +52,11 @@ vi.mock("../../adapters/tauri", async () => {
       return Promise.resolve(rawWindow(served.entries, offset, limit));
     },
     sessionGet: () => Promise.resolve(served.stored),
-    storyGet: () => Promise.resolve(null),
+    storyGet: () => Promise.resolve(served.story),
+    storyStopped: () => Promise.resolve(served.stopped),
+    sessionsForStory: () => Promise.resolve([]),
+    worktreeSummary: () => Promise.resolve(null),
+    projectsList: () => Promise.resolve([]),
     subscribeAgentEvent: (handler: (event: Record<string, unknown>) => void) => {
       const previous = served.push;
       served.push = (event) => {
@@ -67,6 +73,8 @@ vi.mock("../../adapters/tauri", async () => {
 beforeEach(() => {
   served.entries = syntheticSessionLog();
   served.stored = SYNTHETIC_ENDED_ROW;
+  served.story = null;
+  served.stopped = null;
   served.logCalls.length = 0;
   served.rawCalls.length = 0;
   served.push = null;
@@ -143,7 +151,7 @@ describe("the session feed over a long log (issue #190)", () => {
 describe("View raw over a long log (issue #190)", () => {
   it("shows every line once when every older window is paged in", async () => {
     renderSurface();
-    await act(async () => (await screen.findByRole("button", { name: "View raw" })).click());
+    await act(async () => (await screen.findByRole("radio", { name: "Raw" })).click());
     const log = await screen.findByRole("log", { name: "Raw session log" });
     for (let i = 0; i < 10 && log.children.length < served.entries.length; i += 1) {
       await act(async () => {
@@ -163,8 +171,9 @@ describe("the session's clock (issue #190)", () => {
     vi.setSystemTime(new Date("2026-10-25T18:00:00.000Z"));
     renderSurface();
 
-    // 09:40:35 to 09:43:36.
-    await waitFor(() => expect(screen.getByLabelText("Elapsed time")).toHaveTextContent(/^3:01$/));
+    // 09:40:35 to 09:43:36, labelled and read through lib/format.ts (issue #205).
+    await waitFor(() => expect(screen.getByLabelText("Elapsed time")).toHaveTextContent(/^3m 01s$/));
+    expect(screen.getByTestId("session-clock")).toHaveTextContent("Duration 3m 01s");
   });
 
   it("counts a live session up from its own start, not from the first line loaded", async () => {
@@ -174,13 +183,81 @@ describe("the session's clock (issue #190)", () => {
     served.entries = served.entries.slice(0, 40).map((entry) => ({ ...entry, at: new Date().toISOString() }));
     renderSurface();
 
-    await waitFor(() => expect(screen.getByLabelText("Elapsed time")).toHaveTextContent(/^2:0[5-9]$/));
+    await waitFor(() => expect(screen.getByLabelText("Elapsed time")).toHaveTextContent(/^2m 0[5-9]s$/));
   });
 
-  it("reads an hour or more as h:mm:ss", () => {
+  it("reads an hour or more as hours and minutes", () => {
     const start = "2026-10-19T09:00:00.000Z";
-    expect(formatElapsed(start, Date.parse(start) + 3_725_000)).toBe("1:02:05");
-    expect(formatElapsed(start, Date.parse(start) + 59 * 60_000 + 59_000)).toBe("59:59");
+    expect(formatDuration(sessionSeconds(start, Date.parse(start) + 3_725_000))).toBe("1h 02m");
+    expect(formatDuration(sessionSeconds(start, Date.parse(start) + 59 * 60_000 + 59_000))).toBe("59m 59s");
+  });
+});
+
+describe("a session the usage limit ended (issue #205)", () => {
+  // 2026-10-26 16:00 local, as Claude CLI reports it: the epoch in seconds after a bar.
+  const resets = new Date(2026, 9, 26, 16, 0, 0);
+  const epoch = Math.floor(resets.getTime() / 1000);
+  const USAGE_ENDED_ROW = {
+    ...SYNTHETIC_ENDED_ROW,
+    storyId: "story-1",
+    status: "interrupted",
+    endingReason: "usage_limit",
+  };
+
+  function usageLimitedLog(): Entry[] {
+    const entries = syntheticSessionLog().slice(0, 30);
+    const seq = entries.length;
+    entries.push({ runId: SYNTHETIC_RUN_ID, seq, at: SYNTHETIC_STARTED_AT, raw: "{}", type: "system_notice", text: `Claude AI usage limit reached|${epoch}` });
+    entries.push({ runId: SYNTHETIC_RUN_ID, seq: seq + 1, at: SYNTHETIC_STARTED_AT, raw: "{}", type: "session_closed", reason: "usage_limit" });
+    return entries;
+  }
+
+  function renderStorySurface() {
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SessionSurface sessionId={SYNTHETIC_RUN_ID} storyId="story-1" onBack={() => {}} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("parses the CLI's notice into a reset time, never printing the epoch", () => {
+    const rows = buildFeedRows(usageLimitedLog());
+    const row = rows.find((r) => r.kind === "usage_limit");
+    expect(row).toEqual({ kind: "usage_limit", key: expect.any(String), resetsAt: resets.toISOString() });
+    expect(rows.map(feedRowText).join("\n")).not.toContain(String(epoch));
+    expect(usageLimitText(resets.toISOString(), new Date(2026, 9, 26, 12, 0).getTime())).toBe("Usage limit reached · resets 16:00");
+    expect(usageLimitText(resets.toISOString(), new Date(2026, 9, 26, 17, 0).getTime())).toBe("Usage limit reached · reset at 16:00");
+    expect(usageLimitText(undefined)).toBe("Usage limit reached");
+  });
+
+  it("closes on an Alert that says when the limit resets and offers Resume and Open Story", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 9, 26, 12, 0, 0));
+    served.entries = usageLimitedLog();
+    served.stored = USAGE_ENDED_ROW;
+    served.story = { id: "story-1", key: "PRESALES-1014", title: "Write answers back", projectId: "p1" };
+    served.stopped = { sessionId: SYNTHETIC_RUN_ID, endingReason: "usage_limit", endedAt: SYNTHETIC_STARTED_AT };
+    renderStorySurface();
+
+    const alert = await screen.findByTestId("usage-limit-alert");
+    expect(alert).toHaveTextContent("Usage limit reached · resets 16:00");
+    expect(alert.textContent).not.toContain(String(epoch));
+    expect(await within(alert).findByRole("button", { name: "Resume PRESALES-1014" })).toBeInTheDocument();
+    expect(within(alert).getByRole("button", { name: "Open Story" })).toBeInTheDocument();
+    // The notice is the Alert now: it is not repeated as a feed row just above it.
+    expect(screen.getAllByText(/Usage limit reached/)).toHaveLength(1);
+  });
+
+  it("offers no Resume once the Story has moved on from this session", async () => {
+    served.entries = usageLimitedLog();
+    served.stored = USAGE_ENDED_ROW;
+    served.story = { id: "story-1", key: "PRESALES-1014", title: "Write answers back", projectId: "p1" };
+    served.stopped = null;
+    renderStorySurface();
+
+    const alert = await screen.findByTestId("usage-limit-alert");
+    expect(within(alert).getByRole("button", { name: "Open Story" })).toBeInTheDocument();
+    expect(within(alert).queryByRole("button", { name: /Resume/ })).toBeNull();
   });
 });
 
@@ -204,7 +281,7 @@ describe("CLI notices stay in View raw (issue #190)", () => {
     await screen.findByText(/Synthetic turn/);
     expect(screen.queryByText(STDIN_WARNING)).not.toBeInTheDocument();
 
-    await act(async () => screen.getByRole("button", { name: "View raw" }).click());
+    await act(async () => screen.getByRole("radio", { name: "Raw" }).click());
     await waitFor(() => expect(screen.getByRole("log", { name: "Raw session log" })).toHaveTextContent("no stdin data received"));
   });
 });
