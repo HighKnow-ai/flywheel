@@ -799,13 +799,15 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     const scrollContainer = screen.getByTestId("session-feed-scroll");
     scrollContainer.dispatchEvent(new Event("scroll", { bubbles: true }));
 
+    // The older window ends where the tail window starts (issue #190): lines 0..9, never 0..49 again.
     await waitFor(() =>
       expect(invokeCommandMock).toHaveBeenCalledWith(
         "session_log_window",
-        expect.objectContaining({ offset: 0, limit: 50 }),
+        expect.objectContaining({ offset: 0, limit: 10 }),
       ),
     );
     await screen.findByText("Event number 0");
+    expect(screen.getAllByText("Event number 10")).toHaveLength(1);
   });
 
   it("a multi-kilobyte agent turn renders in full, with no disclosure to open first", async () => {

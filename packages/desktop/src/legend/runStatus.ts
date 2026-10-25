@@ -68,15 +68,17 @@ export function bandForState(state: FleetState): FleetBandId {
   }
 }
 
-/** `m:ss` since `startIso` — the session status strip's elapsed readout. */
+/** `m:ss` from `startIso` to `nowMs`, or `h:mm:ss` from an hour on — the session status strip's
+ * elapsed readout. */
 export function formatElapsed(startIso: string | undefined, nowMs: number): string {
   if (!startIso) return "0:00";
   const startMs = new Date(startIso).getTime();
   if (Number.isNaN(startMs)) return "0:00";
   const deltaSeconds = Math.max(0, Math.floor((nowMs - startMs) / 1000));
-  const minutes = Math.floor(deltaSeconds / 60);
-  const seconds = deltaSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  const hours = Math.floor(deltaSeconds / 3600);
+  const minutes = Math.floor((deltaSeconds % 3600) / 60);
+  const seconds = String(deltaSeconds % 60).padStart(2, "0");
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`;
 }
 
 /** A compact whole-unit age ("45s", "12m", "3h 5m", "2d") for a fleet row, where a ticking `m:ss` would

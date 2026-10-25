@@ -145,12 +145,20 @@ function useNowTick(enabled: boolean, intervalMs = 1000): number {
 function StatusStrip({
   entries,
   running,
+  startedAt,
+  endedAt,
 }: {
   entries: Record<string, unknown>[];
   running: boolean;
+  /** The session's own start (its stored row). The first loaded line is only a fallback: once the feed
+   * pages from the tail, that line is wherever the loaded window begins (issue #190). */
+  startedAt: string | undefined;
+  /** When the session ended, or `undefined` while it runs. An ended session's clock is its duration,
+   * never the time since it started (issue #190: a three-minute run read `8813:39` six days later). */
+  endedAt: string | undefined;
 }) {
   const now = useNowTick(running);
-  const startedAt = typeof entries[0]?.at === "string" ? (entries[0].at as string) : undefined;
+  const clockEnd = endedAt !== undefined && !Number.isNaN(Date.parse(endedAt)) ? Date.parse(endedAt) : now;
   const tokensIn = latestNumericField(entries, ["tokensIn", "inputTokens", "tokens_in"]);
   const tokensOut = latestNumericField(entries, ["tokensOut", "outputTokens", "tokens_out"]);
   const costUsd = latestNumericField(entries, ["totalCostUsd", "cost_usd"]);
@@ -158,7 +166,7 @@ function StatusStrip({
   return (
     <div className="ml-auto flex items-center gap-4 text-small text-muted-foreground">
       <span className="tabular-nums" aria-label="Elapsed time">
-        {formatElapsed(startedAt, now)}
+        {formatElapsed(startedAt, clockEnd)}
       </span>
       {/* Figures or nothing. The backend reports totals once, on the terminal `result`, so for the whole
           of a running session there is nothing to print; three dashes beside two bare words read as
@@ -586,6 +594,9 @@ export function SessionSurface({
   // The newest entry of any kind, rows or not: a reasoning block or a heartbeat is not a row, but it is
   // the agent showing signs of life, which is what tells a working run from a stalled one.
   const lastActivityAt = [...entries].reverse().find((entry) => typeof entry.at === "string")?.at as string | undefined;
+  const firstLoadedAt = entries.find((entry) => typeof entry.at === "string")?.at as string | undefined;
+  // The clock runs while the session can still do work, and stops at its end otherwise.
+  const clockStopped = storedEnded || TERMINAL_STATUSES.includes(status);
 
   // Virtualized with measured rows (Story #56): a long Story session logs thousands of events, so only a
   // window of rows is mounted. Rows are variable height (markdown turns, cards, expanded calls), so each
@@ -607,12 +618,19 @@ export function SessionSurface({
   });
 
   function handleScroll(event: UIEvent<HTMLDivElement>) {
-    if (
-      event.currentTarget.scrollTop <= SCROLL_TOP_FETCH_THRESHOLD_PX &&
-      feedQuery.hasPreviousPage &&
-      !feedQuery.isFetchingPreviousPage
-    ) {
+    const el = event.currentTarget;
+    if (el.scrollTop <= SCROLL_TOP_FETCH_THRESHOLD_PX && feedQuery.hasPreviousPage && !feedQuery.isFetchingPreviousPage) {
       feedQuery.fetchPreviousPage();
+    }
+    // A feed opened at a turn (the triage jump) pages forward as the reader scrolls down; one opened at
+    // the tail already follows the log to its end (`useSessionFeed`).
+    if (
+      el.scrollHeight > 0 &&
+      el.scrollTop + el.clientHeight >= el.scrollHeight - SCROLL_TOP_FETCH_THRESHOLD_PX &&
+      feedQuery.hasNextPage &&
+      !feedQuery.isFetchingNextPage
+    ) {
+      feedQuery.fetchNextPage();
     }
   }
 
@@ -683,7 +701,12 @@ export function SessionSurface({
           </span>
         )}
 
-        <StatusStrip entries={entries} running={status === "running" || status === "blocked"} />
+        <StatusStrip
+          entries={entries}
+          running={!clockStopped}
+          startedAt={stored?.startedAt ?? firstLoadedAt}
+          endedAt={clockStopped ? (stored?.endedAt ?? lastActivityAt) : undefined}
+        />
 
         <Button variant="ghost" size="sm" onClick={() => setRawViewOpen((prev) => !prev)}>
           {rawViewOpen ? <ListTree aria-hidden="true" /> : <FileText aria-hidden="true" />}
@@ -738,6 +761,7 @@ export function SessionSurface({
                   key={row.key}
                   ref={rowVirtualizer.measureElement}
                   data-index={virtualRow.index}
+                  data-row-key={row.key}
                   data-testid="feed-row-slot"
                   // Positioned, never sized: the row's own content sets its height and the virtualizer
                   // measures it, so a long turn is never clipped and never paints over the next row.
