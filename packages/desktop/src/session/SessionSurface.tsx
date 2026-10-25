@@ -795,7 +795,8 @@ export function SessionSurface({
         ]}
         actions={itemHeader ? <WriteStoryDialog projectId={itemHeader.projectId} /> : undefined}
       />
-      <div className="flex min-h-0 flex-1 flex-col px-5 pb-5">
+      {/* One width for every surface of cards (DESIGN.md § Layout): up to 1240px, centred, so a feed line at 1920 stays readable. */}
+      <div className="mx-auto flex min-h-0 w-full max-w-[calc(1240px+2.5rem)] flex-1 flex-col px-5 pb-5">
         <section
           aria-label="Session"
           className={cn(
