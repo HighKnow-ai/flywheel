@@ -336,7 +336,23 @@ Gently rounded and consistent: cards, popovers and dialogs 10px (`lg`), buttons 
 
 ## Components
 
-Primitives are shadcn/ui source, copied into the app and rethemed on these tokens, on Radix: Button, Badge, Card, Sidebar, Breadcrumb, Command, Dialog, AlertDialog, Popover, Tooltip, DropdownMenu, Sheet, Collapsible, Checkbox, RadioGroup, Label, Input, InputGroup, Textarea, ScrollArea, Separator, Skeleton and Kbd. The screens draw Button, Badge (through StateBadge), Sidebar, Breadcrumb, Command, Dialog, AlertDialog, Tooltip, Input, Textarea, Label and Kbd; Card's look (the 10px corner, the edge and the card shadow) is drawn directly on sections, which carry their own headings.
+Primitives are shadcn/ui source, installed by the shadcn CLI into `components/ui/` and rethemed on these tokens, on Radix: Button, ButtonGroup, Badge, Card, Sidebar, Breadcrumb, Command, Dialog, AlertDialog, Popover, HoverCard, Tooltip, DropdownMenu, Select, Sheet, Collapsible, Tabs, ToggleGroup (on Toggle), Checkbox, RadioGroup, Switch, Field, Label, Input, InputGroup, Textarea, Table, Item, Alert, Empty, Progress, Spinner, Sonner, ScrollArea, Separator, Skeleton and Kbd. A Combobox is Popover plus Command. Each installed component keeps the one focus treatment (the 2px ring outline at a 2px offset, not shadcn's soft ring halo), draws error text in `destructive-text`, and puts an overlay on `border` plus the overlay shadow. A screen that needs a primitive not in this list installs it with the CLI, never hand-writes one.
+
+Flywheel's own shared components sit beside them in `components/`: StateBadge, StoryKey, RelativeTime, ReadError and ConfirmDestructive. Card's look (the 10px corner, the edge and the card shadow) is drawn directly on sections, which carry their own headings.
+
+**One component per pattern.** A screen does not invent its own version of any of these (§ Feedback has the rules):
+
+| Pattern | Component |
+|---|---|
+| Nothing here yet | `Empty` (`components/ui/empty.tsx`): a title, one line, at most one action |
+| A read failed | `ReadError` (`components/ReadError.tsx`) |
+| An action that cannot be taken back | `ConfirmDestructive` (`components/ConfirmDestructive.tsx`) |
+| What an action just did | a toast, through `notify` (`lib/notify.ts`), on Sonner |
+| An action under way | Button `loading` |
+| A region still loading | Skeleton in the region's own shape; Spinner only inside a control |
+| A record's key | `StoryKey` |
+| A time, a duration, money, tokens, a session's name | `lib/format.ts`, and `RelativeTime` for a time |
+| A disclosure | Collapsible |
 
 ### Buttons
 - **Shape:** 8px corners (6px at the extra-small size), 1px transparent border, semibold, icon (16px) and word with a 6px gap.
@@ -347,7 +363,8 @@ Primitives are shadcn/ui source, copied into the app and rethemed on these token
 - **Secondary:** the inset ground, hover to `accent`.
 - **Outline:** card ground with the control edge; hover and open darken the edge to ink.
 - **Ghost:** no ground; `accent` on hover and while open.
-- **Destructive:** red-ink text on no ground, `accent` on hover (Drop). Always confirmed in an AlertDialog.
+- **Destructive:** red-ink text on no ground, `accent` on hover (Drop). Always confirmed in ConfirmDestructive.
+- **Loading:** `loading` puts the Spinner in the leading icon's place at the icon's size, keeps the label and the width, sets `aria-busy`, and swallows presses while staying focusable. A button that can be pending carries an icon; the label does not change to "…ing".
 - **Link:** running ink, no padding, underline on hover.
 - **Focus / Disabled:** the 2px ring at a 2px offset; disabled at 50% with no pointer events. Colour transitions take the state duration on the one curve.
 
@@ -433,7 +450,31 @@ A tool call is one line (`session/FeedRow.tsx`, worded by `session/toolVerbs.ts`
 Lucide (`lucide-react`, ISC), drawn at a 2px stroke: 16px by default, 15px inside pills, 18px in navigation. Every icon sits next to its word and is decorative; an icon alone needs a tooltip and an accessible label. Glyphs are imported by name, never the whole set.
 
 ### Motion
-One curve, HighKnow's `ease-out-quint` `cubic-bezier(0.16, 1, 0.3, 1)` (`--ease-out-quint`, aliased as `--ease`): 160ms for a state change, 240ms for a lamp lighting. Overlays fade and scale in from 95% on the state duration. The live pulse is the only continuous motion. Under `prefers-reduced-motion` both durations go to zero and every animation and transition stops.
+**The thesis.** The lamp lighting is the one authored moment: an agent turning to Waiting on you is the event the whole product exists to surface, and it is the only motion that is there to be noticed. Everything else is feedback (a press was heard) and continuity (this panel came from that row, this disclosure grew from that line). Motion never decorates, never stages a page's arrival, and never makes the Developer wait.
+
+**One curve**, HighKnow's `ease-out-quint` `cubic-bezier(0.16, 1, 0.3, 1)` (`--ease-out-quint`, aliased as `--ease`), and one duration per job, all in `styles/globals.css` and mirrored in `theme/tokens.ts`:
+
+| Token | Duration | For |
+|---|---|---|
+| `--duration-feedback` | 120ms | acknowledgement: a hover, a press, a check ticking, a toggle (100–150ms) |
+| `--duration-state` | 160ms | a value changing in place: a pill, a row tint, a chevron turning (160–240ms) |
+| `--duration-lamp` | 240ms | a lamp lighting on the andon strip, the authored moment |
+| `--duration-overlay` | 260ms | an overlay arriving or a disclosure opening: layout and overlays (240–320ms) |
+| `--duration-overlay-exit` | 180ms | the same leaving: exits are faster than entrances |
+
+Every Tailwind `transition*` utility defaults to `--duration-state` on the curve, so a bare `transition-colors` is already right; name another token only when the job is another job (`duration-(--duration-feedback)`). A Collapsible grows to its measured height (`--radix-collapsible-content-height`) on the overlay duration and shrinks back on the exit, clipped only while it moves, so every disclosure opens and closes the same way. Overlays fade and scale in from 95%. A toast slides in from the bottom-right edge (Sonner's own motion). The Spinner turns; the live pulse is the only continuous motion besides it, and both run only while something is genuinely under way. No bounce, no elastic, no stagger on a list that is merely re-rendering, no entrance animation on a page or a row that was already there.
+
+**Reduced motion keeps meaning.** Under `prefers-reduced-motion: reduce`, spatial movement goes and short opacity and colour cross-fades stay: the durations are unchanged, so a hover tint, a pill changing state and an overlay fading in still read. What goes is every translate, scale, rotate and height change: overlays lose their slide and zoom and keep their fade; a `transition-transform` (a turning chevron) snaps while its colour still fades; a Collapsible cross-fades at full height instead of growing; the Spinner breathes (an opacity pulse) instead of turning; components omit the live pulse. `components/__tests__/browser/motion.browser.test.tsx` measures both worlds (`test:browser` and `test:browser:motion`).
+
+### Feedback
+Every screen answers the same four questions the same way: is it loading, did it fail, are you sure, and what just happened.
+
+- **Pending: Button `loading`.** The action's own button shows the Spinner in its icon's place, keeps its label and width, and sets `aria-busy`; nothing else on the screen changes until the result lands. A region still loading its first data shows Skeleton bars in its own shape, or nothing (the boot state is the bare rack ground); never a page-centred spinner, never "Loading…" copy. A refetch of data already on screen shows nothing at all.
+- **Failed read: ReadError.** A query that fails draws `ReadError` (on Alert) where its content would be: a title naming what could not be read ("Couldn't load this Story"), one human line, Try again (the query's own `refetch`, pending while it runs), and the raw message folded behind Details in the code face. Local IPC reads retry once (`retry: 1` in `adapters/queryClient.ts`), so a dead read reports in about a second, not seven. A failed action is not a read: it shows inline on the control that failed, or as an error toast when the control is gone.
+- **Confirm: ConfirmDestructive.** Stop, Discard, Kill, Drop, Remove and Reclaim confirm in `ConfirmDestructive` (on AlertDialog): the question as the title ("Stop FLY-12's agent?"), the consequence in one line, Cancel on the left as outline, the action on the right as `destructive`, named by verb and object ("Stop the session"). The action shows `loading` while it runs; the dialog closes on success and stays open with the failure's message on failure. Nothing reversible confirms: offer Undo instead.
+- **After an action: a toast.** One Sonner `<Toaster />` (mounted once in `App.tsx`, bottom-right, clear of the andon strip). Screens call `notify.success(title, { description, undo })` and `notify.error(title, { error })` from `lib/notify.ts`, never `sonner` directly. The title is the outcome in the past tense, naming the record ("Moved FLY-12 to E-3"); a reversible action offers Undo and stays up eight seconds; an error stays eight seconds with a close button. A toast never repeats state the board already shows, and never carries the only copy of an error the Developer must act on.
+- **Empty: Empty.** A region with nothing in it yet draws `Empty`: what will be here, one line on how it gets here, at most one action. Never a bare "No items".
+- **One vocabulary for ids and numbers.** A record's key is `StoryKey` (code face, muted, tabular, never wraps). Times, durations, money, token counts and session names go through `lib/format.ts`: a relative time with the absolute in a Tooltip (`RelativeTime`: "3m ago"), durations as a clock (`3h 07m`, `1m 05s`), money to two decimals (`$1.84`), token counts to three figures (`1.84M`), and a session by its ordinal ("Session 8"). A figure that is missing reads "—", never `0` or `NaN`.
 
 ### Browser Surfaces
 Selection is brand blue with white text; the caret is running ink; the focus outline is the 2px ring; scrollbars are thin, 8px, with an edge-coloured thumb on a transparent track; color-scheme follows the active scheme.
@@ -447,7 +488,7 @@ Selection is brand blue with white text; the caret is running ink; the focus out
 - **Do** give every card the 1px edge plus the card shadow; in dark the edge is mandatory.
 - **Do** lift the brand hue's text on dark grounds (running ink, ring) rather than changing the brand fill.
 - **Do** make anything that navigates a bounded object with a trailing chevron, an accent hover and the focus ring.
-- **Do** confirm Drop and Stop in an AlertDialog.
+- **Do** confirm Stop, Discard, Kill, Drop, Remove and Reclaim in ConfirmDestructive, and offer Undo instead for anything reversible.
 
 ### Don't:
 - **Don't** use yellow for anything but Waiting on you, or let blue or red stand for anything beyond their one meaning.
@@ -458,4 +499,4 @@ Selection is brand blue with white text; the caret is running ink; the focus out
 - **Don't** recolour the mark: no ink silhouette, no scheme-dependent fill.
 - **Don't** set the condensed uppercase label above a heading as an eyebrow.
 - **Don't** draw an icon without its word unless it has a tooltip and an accessible label.
-- **Don't** animate when reduced motion is requested.
+- **Don't** move anything when reduced motion is requested: no slide, zoom, turn or height change. Colour and opacity cross-fades stay.
