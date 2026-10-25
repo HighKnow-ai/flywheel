@@ -12,7 +12,9 @@
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:browser:dark": "vitest run --config vitest.browser.dark.config.ts",
     "test:browser:motion": "vitest run --config vitest.browser.motion.config.ts",
-    "test:browser:forced-colors": "vitest run --config vitest.browser.forced-colors.config.ts"
+    "test:browser:forced-colors": "vitest run --config vitest.browser.forced-colors.config.ts",
+    "test:critique": "CRITIQUE_SHOTS=1 CRITIQUE_SCHEME=light vitest run --config vitest.critique.config.ts && CRITIQUE_SHOTS=1 CRITIQUE_SCHEME=dark vitest run --config vitest.critique.config.ts",
+    "test:layout-defects": "CRITIQUE_SCHEME=light vitest run --config vitest.critique.config.ts"
   },
   "dependencies": {
     "@fontsource-variable/public-sans": "5.3.0",
