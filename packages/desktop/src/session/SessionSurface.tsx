@@ -25,30 +25,37 @@ import {
 } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { CirclePause, FileText, ListTree, Square, TriangleAlert, X } from "lucide-react";
+import { CirclePause, Ellipsis, FileText, Hourglass, ListTree, Square, SquareX, TriangleAlert, X } from "lucide-react";
 import {
   answerPermissionRequest,
   answerQuestion,
   discardSession,
   sessionGet,
+  sessionsForStory,
   stopSession,
   storyGet,
+  storyStopped,
   subscribeAgentEvent,
+  worktreeSummary,
 } from "../adapters/tauri";
 import { useSessionFeed, usePendingPermissionRequests } from "../board/useBoardQuery";
 import { WriteStoryDialog } from "../board/WriteStoryDialog";
 import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
-import { endingWords, formatWhen } from "../board/StoryControls";
+import { ResumeControl, endingWords } from "../board/StoryControls";
 import { StateBadge } from "../components/StateBadge";
+import { StoryKey } from "../components/StoryKey";
+import { RelativeTime } from "../components/RelativeTime";
+import { ConfirmDestructive } from "../components/ConfirmDestructive";
+import { RUN_STATUS_LABELS, TERMINAL_STATUSES, formatAge, isRunStatus } from "../legend/runStatus";
+import { formatDuration, formatMoney, formatSessionName, formatTokens } from "@/lib/format";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
-  RUN_STATUS_LABELS,
-  TERMINAL_STATUSES,
-  formatCostUsd,
-  formatCount,
-  formatAge,
-  formatElapsed,
-  isRunStatus,
-} from "../legend/runStatus";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { RunStatus } from "../legend/runStatus";
 import { useRegionBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
@@ -61,6 +68,7 @@ import {
   questionsFromPayload,
   sameQuestions,
   toolCallLabel,
+  usageLimitText,
   type FeedRowData,
 } from "./feedRows";
 import type { PendingPermissionRequest } from "./PermissionRequestCard";
@@ -140,13 +148,22 @@ function useNowTick(enabled: boolean, intervalMs = 1000): number {
   return now;
 }
 
-/** The right-aligned cost/token status strip (02-UI-SPEC.md "Cost/token status strip") — its own
- * component so the elapsed-time tick's re-render never reaches the header chrome or the feed. */
-function StatusStrip({
+/** How long a session has run, in seconds: from its start to its end, or to `now` while it runs. */
+export function sessionSeconds(startedAt: string | undefined, endAtMs: number): number | undefined {
+  const start = startedAt ? Date.parse(startedAt) : Number.NaN;
+  if (Number.isNaN(start)) return undefined;
+  return Math.max(0, (endAtMs - start) / 1000);
+}
+
+/** The header's meta line (issue #205): the clock with its label, how the session ended, then the token and
+ * cost figures, all through `lib/format.ts`. The same line for a running, a waiting and an ended session; its
+ * own component, so the clock's once-a-second tick re-renders this line and nothing else. */
+function SessionMeta({
   entries,
   running,
   startedAt,
   endedAt,
+  ending,
 }: {
   entries: Record<string, unknown>[];
   running: boolean;
@@ -156,37 +173,66 @@ function StatusStrip({
   /** When the session ended, or `undefined` while it runs. An ended session's clock is its duration,
    * never the time since it started (issue #190: a three-minute run read `8813:39` six days later). */
   endedAt: string | undefined;
+  /** How and when an ended session ended, from its stored row (docs/mvp-spec.md §4.5). */
+  ending: { reason: string; at: string | null } | null;
 }) {
   const now = useNowTick(running);
   const clockEnd = endedAt !== undefined && !Number.isNaN(Date.parse(endedAt)) ? Date.parse(endedAt) : now;
+  const seconds = sessionSeconds(startedAt, clockEnd);
   const tokensIn = latestNumericField(entries, ["tokensIn", "inputTokens", "tokens_in"]);
   const tokensOut = latestNumericField(entries, ["tokensOut", "outputTokens", "tokens_out"]);
   const costUsd = latestNumericField(entries, ["totalCostUsd", "cost_usd"]);
 
   return (
-    <div className="ml-auto flex items-center gap-4 text-small text-muted-foreground">
-      <span className="tabular-nums" aria-label="Elapsed time">
-        {formatElapsed(startedAt, clockEnd)}
-      </span>
-      {/* Figures or nothing. The backend reports totals once, on the terminal `result`, so for the whole
-          of a running session there is nothing to print; three dashes beside two bare words read as
-          broken data, not as absent data (08.1-17 closure). The meter grows when the figures exist. */}
-      {tokensIn !== undefined && (
-        <span className="tabular-nums" aria-label="Tokens in">
-          {formatCount(tokensIn)} in
+    <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 text-small text-muted-foreground" data-testid="session-meta">
+      <span className="whitespace-nowrap" data-testid="session-clock">
+        {running ? "Elapsed " : "Duration "}
+        <span className="font-semibold text-foreground tabular-nums" aria-label="Elapsed time">
+          {formatDuration(seconds)}
         </span>
+      </span>
+      {ending && (
+        <>
+          <span aria-hidden="true">·</span>
+          <span className="whitespace-nowrap" data-testid="session-ending">
+            {`Ended: ${ending.reason}`}
+            {ending.at && (
+              <>
+                {" "}
+                <RelativeTime at={ending.at} />
+              </>
+            )}
+          </span>
+        </>
+      )}
+      {/* Figures or nothing. The backend reports totals once, on the terminal `result`, so for the whole
+          of a running session there is nothing to print; dashes beside bare words read as broken data, not
+          as absent data (08.1-17 closure). The line grows when the figures exist. */}
+      {tokensIn !== undefined && (
+        <>
+          <span aria-hidden="true">·</span>
+          <span className="whitespace-nowrap tabular-nums" aria-label="Tokens in">
+            {formatTokens(tokensIn)} in
+          </span>
+        </>
       )}
       {tokensOut !== undefined && (
-        <span className="tabular-nums" aria-label="Tokens out">
-          {formatCount(tokensOut)} out
-        </span>
+        <>
+          <span aria-hidden="true">·</span>
+          <span className="whitespace-nowrap tabular-nums" aria-label="Tokens out">
+            {formatTokens(tokensOut)} out
+          </span>
+        </>
       )}
       {costUsd !== undefined && (
-        <span className="tabular-nums" aria-label="Cost">
-          {formatCostUsd(costUsd)}
-        </span>
+        <>
+          <span aria-hidden="true">·</span>
+          <span className="whitespace-nowrap tabular-nums" aria-label="Cost">
+            {formatMoney(costUsd)}
+          </span>
+        </>
       )}
-    </div>
+    </p>
   );
 }
 
@@ -330,55 +376,64 @@ function StartingSessionRow() {
   );
 }
 
-/** Every state has a floor, so the surface never ends in blank ground (08.1-17 closure). It states who
- * the run is waiting on; while the agent works it says what on and when it last showed life (Story
- * #56: a healthy run must not look stalled). Its own component, so its once-a-second tick re-renders
- * this line and nothing else. */
-function SessionFloor({
-  ended,
-  waitingOnYou,
-  running,
-  doing,
-  lastActivityAt,
-}: {
-  ended: boolean;
-  waitingOnYou: boolean;
-  running: boolean;
-  doing: string | null;
-  lastActivityAt: string | undefined;
-}) {
-  const working = running && !waitingOnYou && !ended;
-  const now = useNowTick(working);
-  let text: string;
-  // The call the agent is in, set in the code face: a command never renders in the reading face.
-  let doingNode: React.ReactNode = null;
-  if (ended) text = "This run has ended. Nothing more will be added to this transcript.";
-  else if (waitingOnYou) text = "Waiting on you: answer the request above.";
-  else if (working) {
-    const what = doing ? `The agent is working: ${doing}.` : "The agent is working.";
-    const since = lastActivityAt ? ` Last activity ${formatAge(lastActivityAt, now)} ago.` : "";
-    text = `${what}${since}`;
-    if (doing) {
-      doingNode = (
+/** The live status bar (issue #205: live status only). While the agent works it says what on and when it
+ * last showed life (Story #56: a healthy run must not look stalled). A run waiting on you has its request
+ * card, and an ended run its header and closing row, so neither repeats itself here. Its own component, so
+ * its once-a-second tick re-renders this line and nothing else. */
+function SessionFloor({ doing, lastActivityAt }: { doing: string | null; lastActivityAt: string | undefined }) {
+  const now = useNowTick(true);
+  const since = lastActivityAt ? ` Last activity ${formatAge(lastActivityAt, now)} ago.` : "";
+  return (
+    <p role="status" className="m-0 shrink-0 truncate border-t border-border px-5 py-2.5 text-small text-muted-foreground">
+      {doing ? (
         <>
           {"The agent is working: "}
+          {/* The call the agent is in, set in the code face: a command never renders in the reading face. */}
           <span className="font-mono">{doing}</span>
           {`.${since}`}
         </>
-      );
-    }
-  } else text = "Waiting on the agent.";
-  return (
-    <p
-      role="status"
-      title={text}
-      className={cn(
-        "m-0 shrink-0 truncate border-t border-border px-5 py-2.5 text-small",
-        waitingOnYou && !ended ? "bg-attention-muted font-semibold text-foreground" : "text-muted-foreground",
+      ) : (
+        `The agent is working.${since}`
       )}
-    >
-      {doingNode ?? text}
     </p>
+  );
+}
+
+/**
+ * A session Claude's usage limit ended (issue #205): when the limit resets, never the CLI's raw epoch, and the
+ * next step where Cyril is looking. Resume when the Story is Stopped on this very session (the core would
+ * refuse it otherwise), and Open Story.
+ */
+function UsageLimitAlert({
+  resetsAt,
+  story,
+  canResume,
+  onOpenStory,
+}: {
+  resetsAt: string | undefined;
+  story: { id: string; key: string } | null;
+  canResume: boolean;
+  onOpenStory: (() => void) | null;
+}) {
+  const resetPending = resetsAt !== undefined && Date.parse(resetsAt) > Date.now();
+  return (
+    <Alert role="status" className="mt-3 px-4 py-3" data-testid="usage-limit-alert">
+      <Hourglass aria-hidden="true" />
+      <AlertTitle className="text-body font-semibold">{usageLimitText(resetsAt)}</AlertTitle>
+      <AlertDescription className="text-small">
+        {`Claude's usage limit ended this session. Its worktree stays exactly as the agent left it, and Resume starts a fresh session from the Context packet${resetPending ? " once the limit resets" : ""}.`}
+      </AlertDescription>
+      {(onOpenStory || (canResume && story)) && (
+        <div className="col-start-2 mt-2.5 flex flex-wrap gap-2">
+          {canResume && story && <ResumeControl story={story} />}
+          {onOpenStory && (
+            <Button variant="outline" size="sm" onClick={onOpenStory}>
+              Open Story
+            </Button>
+          )}
+        </div>
+      )}
+    </Alert>
   );
 }
 
@@ -387,6 +442,12 @@ const SCROLL_TOP_FETCH_THRESHOLD_PX = 40;
 /** The title of a run whose board item cannot be resolved (read failed, item gone, or no id). A live run
  * still needs its surface, so an unresolvable item degrades to this and never blanks or throws. */
 const SESSION_FALLBACK_TITLE = "Session";
+
+const DISCARD_FAILED = "Flywheel could not confirm this discard completed. The session may still be live — try again.";
+
+/** Stop's consequence, the same words the Story view's Stop uses (`board/StoryControls.tsx`). */
+const STOP_CONSEQUENCE =
+  "The session ends now. Its worktree stays exactly as the agent left it, and Resume starts a fresh session from the Context packet.";
 
 export function SessionSurface({
   sessionId,
@@ -429,6 +490,31 @@ export function SessionSurface({
   });
   const headerText = itemHeader ? `${itemHeader.key} ${itemHeader.title}` : SESSION_FALLBACK_TITLE;
   const projectName = (useProjects().data ?? []).find((project) => project.id === itemHeader?.projectId)?.name ?? null;
+  // Issue #205: the Story's worktree, against which every path and command in the feed reads relative.
+  const { data: worktree } = useQuery({
+    queryKey: ["session-worktree", storyId],
+    queryFn: () => (storyId ? worktreeSummary(storyId) : Promise.resolve(null)).catch(() => null),
+    enabled: Boolean(storyId),
+    retry: false,
+  });
+  const root = worktree?.path ?? null;
+  // The session by its ordinal ("Session 8"), from the same read and key as the Story's session list.
+  const { data: storySessions } = useQuery({
+    queryKey: ["board", itemHeader?.projectId, "sessions", storyId],
+    queryFn: () => (storyId ? sessionsForStory(storyId) : Promise.resolve([])).catch(() => []),
+    enabled: Boolean(storyId && itemHeader),
+    retry: false,
+  });
+  const sessionIndex = (storySessions ?? []).findIndex((session) => session.id === sessionId);
+  const sessionOrdinal = sessionIndex >= 0 && storySessions ? storySessions.length - sessionIndex : null;
+  // Whether this very session left its Story Stopped, so Resume is the core's to accept (issue #205).
+  const { data: stoppedOn } = useQuery({
+    queryKey: ["board", itemHeader?.projectId, "stopped", storyId],
+    queryFn: () => (storyId ? storyStopped(storyId) : Promise.resolve(null)).catch(() => null),
+    enabled: Boolean(storyId && itemHeader),
+    retry: false,
+  });
+  const [discardOpen, setDiscardOpen] = useState(false);
   const setCurrentProjectId = useUiStore((state) => state.setCurrentProjectId);
   const [stopping, setStopping] = useState(false);
   // `stopping` alone is not a sufficient guard against two activations in one synchronous tick —
@@ -509,12 +595,15 @@ export function SessionSurface({
   // the source for what the agent process actually did and still wins if it arrives; this is an
   // ADDITIONAL source, guarded by `isRunStatus` so an unexpected string can never widen the
   // status union. `.catch` stays the genuine-failure path — the terminal write itself failed.
-  function handleStop() {
-    // A second activation while the ref is set invokes nothing — the synchronous-tick guard.
-    if (stoppingRef.current) return;
+  // Issue #205: Stop confirms in ConfirmDestructive, as it does on the Story view. The promise is the
+  // dialog's: pending while it runs, closed on success, open with the failure's message otherwise.
+  const stopPromiseRef = useRef<Promise<void> | null>(null);
+  function handleStop(): Promise<void> {
+    // A second activation while the ref is set sends nothing — the synchronous-tick guard.
+    if (stoppingRef.current && stopPromiseRef.current) return stopPromiseRef.current;
     stoppingRef.current = true;
     setStopping(true);
-    stopSession(sessionId)
+    const promise = stopSession(sessionId)
       .then((result) => {
         // Never cleared here: a successful stop drives `status` to a terminal value, `showStop`
         // goes false and the button unmounts — there is nothing left to guard.
@@ -523,13 +612,17 @@ export function SessionSurface({
         }
         setStopWarning(result.sidecarWarning);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         // Clear the ref before re-enabling — a genuine failure must leave the control usable,
         // which matters more here than on any other surface: the alternative is an agent that
         // keeps spending.
         stoppingRef.current = false;
+        stopPromiseRef.current = null;
         setStopping(false);
+        throw error;
       });
+    stopPromiseRef.current = promise;
+    return promise;
   }
 
   // D-66/D-67, CTX-08 (plan 04-13): the phase's flagship action. One activation ends the session
@@ -538,11 +631,12 @@ export function SessionSurface({
   // Copies `handleStop`'s own structure line for line, including the ref-based double-activation
   // guard: React has not necessarily flushed the disabling re-render before a second activation in
   // the same synchronous tick.
-  function handleDiscard() {
-    if (discardingRef.current) return;
+  const discardPromiseRef = useRef<Promise<void> | null>(null);
+  function handleDiscard(): Promise<void> {
+    if (discardingRef.current && discardPromiseRef.current) return discardPromiseRef.current;
     discardingRef.current = true;
     setDiscarding(true);
-    discardSession(sessionId)
+    const promise = discardSession(sessionId)
       .then((result) => {
         // Mirrors `handleStop`'s own resolution handling exactly — a real `session_closed` push
         // (the effect above) remains the source for what the agent process actually did and still
@@ -558,17 +652,17 @@ export function SessionSurface({
         }
       })
       .catch(() => {
-        // On rejection, reuse the SAME muted `StopWarningNotice` treatment `handleStop` never
-        // needed a rejection path for — the plan's own instruction: no second notice component.
-        // Clear the ref before re-enabling, matching `handleStop`'s own "a genuine failure must
-        // leave the control usable" reasoning — a surfaced contradiction must never stand between
-        // the developer and a fresh session.
+        // On rejection the confirmation stays open and says so (ConfirmDestructive shows the message).
+        // Clear the ref before re-enabling, matching `handleStop`'s own "a genuine failure must leave the
+        // control usable" reasoning — a surfaced contradiction must never stand between the developer and
+        // a fresh session.
         discardingRef.current = false;
+        discardPromiseRef.current = null;
         setDiscarding(false);
-        setStopWarning(
-          "Flywheel could not confirm this discard completed. The session may still be live — try again.",
-        );
+        throw new Error(DISCARD_FAILED);
       });
+    discardPromiseRef.current = promise;
+    return promise;
   }
 
   const showStop = !storedEnded && !TERMINAL_STATUSES.includes(status);
@@ -577,7 +671,15 @@ export function SessionSurface({
     () => feedQuery.data?.pages.flatMap((page) => page.entries) ?? [],
     [feedQuery.data],
   );
-  const feedRows = useMemo(() => buildFeedRows(entries), [entries]);
+  const allRows = useMemo(() => buildFeedRows(entries), [entries]);
+  // Issue #205: a session the usage limit ended closes on the usage-limit Alert, which says when the limit
+  // resets and offers the next step; the notice it came from is not repeated as a row just above it.
+  const usageLimitRow = useMemo(() => [...allRows].reverse().find((row) => row.kind === "usage_limit"), [allRows]);
+  const endedByUsageLimit = storedEnded && (stored?.endingReason === "usage_limit" || usageLimitRow !== undefined);
+  const feedRows = useMemo(
+    () => (endedByUsageLimit ? allRows.filter((row) => row.kind !== "usage_limit") : allRows),
+    [allRows, endedByUsageLimit],
+  );
   // Issue #100: an open question is answered in its own feed card; whatever has no card stays below.
   const questionRows = useMemo(() => openQuestionRows(feedRows, pendingRequests), [feedRows, pendingRequests]);
   const footerRequests = useMemo(() => {
@@ -661,7 +763,9 @@ export function SessionSurface({
           ...(itemHeader && storyId
             ? [{ label: itemHeader.key, mono: true, onSelect: () => openStory(itemHeader.projectId, storyId), ariaLabel: `Open Story ${itemHeader.key}` }]
             : []),
-          { label: sessionId, mono: true },
+          // The session by its ordinal, as the Story's session list names it (lib/format.ts); its id only
+          // while the ordinal is unknown.
+          sessionOrdinal ? { label: formatSessionName(sessionOrdinal) } : { label: sessionId, mono: true },
         ]}
         actions={itemHeader ? <WriteStoryDialog projectId={itemHeader.projectId} /> : undefined}
       />
@@ -669,65 +773,117 @@ export function SessionSurface({
       <section
         aria-label="Session"
         className={cn(
-          "flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-card",
+          // Sized to its content (issue #205), up to the pane's height, where the feed scrolls inside it: a
+          // short run or a waiting request is never a card stretched over a void.
+          "flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-card",
           showStop && pendingRequests.length > 0 && "border-attention",
         )}
       >
-      <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-5 py-3">
-        <RunStatusBadge status={status} />
-        {itemHeader && storyId ? (
-          // Where the developer is (issue #104): the session's Story, which is one click away.
-          <button
-            type="button"
-            title={`Open Story ${headerText}`}
-            aria-label={`Open Story ${headerText}`}
-            onClick={() => openStory(itemHeader.projectId, storyId)}
-            className="min-w-0 truncate rounded-sm text-left text-section font-semibold underline-offset-4 hover:underline"
-          >
-            {headerText}
-          </button>
-        ) : (
-          <span className="min-w-0 truncate text-section font-semibold" title={headerText}>
-            {headerText}
-          </span>
-        )}
-        {storedEnded && stored && (
-          // How and when an ended session ended (docs/mvp-spec.md §4.5), the same words the Story's
-          // session list uses.
-          <span className="text-small text-muted-foreground" data-testid="session-ending">
-            {`Ended: ${endingWords(stored.endingReason)} · ${formatWhen(stored.startedAt)}${
-              stored.endedAt ? ` to ${formatWhen(stored.endedAt)}` : ""
-            }`}
-          </span>
-        )}
+      {/* One header for every run state (issue #205): the state, the Story's key and title, the view toggle and
+          the live actions on one line; the clock, the ending and the figures on the line below. Running,
+          waiting and ended differ only in the words inside, never in the layout. */}
+      <header className="flex shrink-0 flex-col gap-1.5 border-b border-border px-5 py-3" data-testid="session-header">
+        <div className="flex min-w-0 items-center gap-3">
+          <RunStatusBadge status={status} />
+          {itemHeader && storyId ? (
+            // Where the developer is (issue #104): the session's Story, which is one click away.
+            <button
+              type="button"
+              aria-label={`Open Story ${headerText}`}
+              onClick={() => openStory(itemHeader.projectId, storyId)}
+              className="group flex min-w-0 flex-1 items-baseline gap-2 rounded-sm text-left"
+            >
+              <StoryKey value={itemHeader.key} size="small" />
+              <span className="min-w-0 truncate text-section font-semibold underline-offset-4 group-hover:underline">
+                {itemHeader.title}
+              </span>
+            </button>
+          ) : (
+            <span className="min-w-0 flex-1 truncate text-section font-semibold">{headerText}</span>
+          )}
 
-        <StatusStrip
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {/* Structured or Raw: a choice between two views, so a Toggle Group, never a label-swapping button. */}
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              size="sm"
+              spacing={0}
+              aria-label="Feed view"
+              value={rawViewOpen ? "raw" : "structured"}
+              onValueChange={(value) => {
+                if (value) setRawViewOpen(value === "raw");
+              }}
+            >
+              <ToggleGroupItem value="structured" aria-label="Structured">
+                <ListTree aria-hidden="true" />
+                Structured
+              </ToggleGroupItem>
+              <ToggleGroupItem value="raw" aria-label="Raw">
+                <FileText aria-hidden="true" />
+                Raw
+              </ToggleGroupItem>
+            </ToggleGroup>
+
+            {showStop && (
+              // While a run is live the lead is Stop, the one action a running session offers. Outline, not
+              // filled: the next action on this screen is the agent's, or the answer it waits on. It confirms,
+              // as the Story view's Stop does (DESIGN.md § Feedback).
+              <ConfirmDestructive
+                trigger={
+                  <Button variant="outline" size="sm" loading={stopping} disabled={discarding}>
+                    <Square aria-hidden="true" />
+                    Stop
+                  </Button>
+                }
+                title={itemHeader ? `Stop ${itemHeader.key}'s agent?` : "Stop this session?"}
+                description={STOP_CONSEQUENCE}
+                confirmLabel="Stop the session"
+                icon={<Square aria-hidden="true" />}
+                onConfirm={handleStop}
+              />
+            )}
+
+            {showStop && (
+              // D-67: Discard ends the session and opens the launch sheet for the same Story. Never beside Stop
+              // as a bare word: it waits in the ⋯ menu and confirms what it does.
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" aria-label="More session actions" disabled={stopping || discarding}>
+                    <Ellipsis aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-auto min-w-52">
+                  <DropdownMenuItem variant="destructive" onSelect={() => setDiscardOpen(true)}>
+                    <SquareX aria-hidden="true" />
+                    Discard and start fresh…
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <ConfirmDestructive
+              open={discardOpen}
+              onOpenChange={setDiscardOpen}
+              title={itemHeader ? `Discard ${itemHeader.key}'s session?` : "Discard this session?"}
+              description={
+                storyId
+                  ? "The session ends now and the launch sheet opens for the same Story, to start a fresh session from its Context packet. The worktree stays exactly as the agent left it."
+                  : "The session ends now. Nothing in the worktree is undone."
+              }
+              confirmLabel="Discard the session"
+              icon={<SquareX aria-hidden="true" />}
+              onConfirm={handleDiscard}
+            />
+          </div>
+        </div>
+
+        <SessionMeta
           entries={entries}
           running={!clockStopped}
           startedAt={stored?.startedAt ?? firstLoadedAt}
           endedAt={clockStopped ? (stored?.endedAt ?? lastActivityAt) : undefined}
+          ending={storedEnded && stored ? { reason: endingWords(stored.endingReason), at: stored.endedAt } : null}
         />
-
-        <Button variant="ghost" size="sm" onClick={() => setRawViewOpen((prev) => !prev)}>
-          {rawViewOpen ? <ListTree aria-hidden="true" /> : <FileText aria-hidden="true" />}
-          {rawViewOpen ? "View structured" : "View raw"}
-        </Button>
-
-        {showStop && (
-          // While a run is live the lead is Stop, the one action a running session offers. Outline, not
-          // filled: the next action on this screen is the agent's, or the answer it waits on.
-          <Button variant="outline" size="sm" onClick={handleStop} disabled={stopping || discarding}>
-            <Square aria-hidden="true" />
-            {stopping ? "Stopping…" : "Stop"}
-          </Button>
-        )}
-
-        {showStop && (
-          // D-67: ends the session and starts another for the same Story, beside Stop and never its lead.
-          <Button variant="ghost" size="sm" onClick={handleDiscard} disabled={stopping || discarding}>
-            {discarding ? "Discarding…" : "Discard"}
-          </Button>
-        )}
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col">
@@ -778,13 +934,23 @@ export function SessionSurface({
                         : undefined
                     }
                     questionDraftKey={questionRows.get(row.key)}
+                    root={root}
                   />
                 </div>
               );
             })}
           </div>
 
-          {terminalInfo && <TerminalRow info={terminalInfo} />}
+          {endedByUsageLimit ? (
+            <UsageLimitAlert
+              resetsAt={usageLimitRow?.kind === "usage_limit" ? usageLimitRow.resetsAt : undefined}
+              story={itemHeader && storyId ? { id: storyId, key: itemHeader.key } : null}
+              canResume={stoppedOn?.sessionId === sessionId}
+              onOpenStory={itemHeader && storyId ? () => openStory(itemHeader.projectId, storyId) : null}
+            />
+          ) : (
+            terminalInfo && <TerminalRow info={terminalInfo} />
+          )}
 
           {stopWarning && <StopWarningNotice warning={stopWarning} />}
 
@@ -804,13 +970,12 @@ export function SessionSurface({
           </RequestInCard.Provider>
         </div>
       )}
-      <SessionFloor
-        ended={!showStop}
-        waitingOnYou={pendingRequests.length > 0}
-        running={status === "running"}
-        doing={liveRow && liveRow.kind === "tool_call" ? toolCallLabel(liveRow.toolName, liveRow.input, { live: true }) : null}
-        lastActivityAt={lastActivityAt}
-      />
+      {showStop && status === "running" && pendingRequests.length === 0 && (
+        <SessionFloor
+          doing={liveRow && liveRow.kind === "tool_call" ? toolCallLabel(liveRow.toolName, liveRow.input, { live: true, root }) : null}
+          lastActivityAt={lastActivityAt}
+        />
+      )}
       </div>
       </section>
       </div>

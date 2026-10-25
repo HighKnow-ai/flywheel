@@ -8,7 +8,7 @@
  * - the git lock-retry line and the lock-exhaustion no-render case (D-53) are unchanged.
  */
 import { describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { FeedRow, FEED_ROW_TRUNCATION_THRESHOLD, isRowExpandable, type FeedRowData } from "../FeedRow";
 
 function renderRow(row: FeedRowData, opts: { expanded?: boolean; live?: boolean; now?: number } = {}) {
@@ -67,7 +67,7 @@ describe("a tool call", () => {
     expect(container.innerHTML).not.toContain("mcp__");
   });
 
-  it("draws a failed Check in red and a failed command in neutral ink", () => {
+  it("draws a failed Check in red ink and a failed command as the destructive StateBadge (issue #205)", () => {
     const { container } = renderRow({
       kind: "tool_call",
       key: "k",
@@ -78,9 +78,26 @@ describe("a tool call", () => {
     expect(container.querySelector('[data-tone="failed-check"]')).toHaveClass("text-destructive-text");
     cleanup();
     const failed = renderRow({ ...call, isError: true, output: "Exit code 1\nboom" });
-    const metric = failed.container.querySelector('[data-tone="failed"]');
-    expect(metric).toHaveTextContent("exit 1");
-    expect(metric).toHaveClass("text-foreground");
+    const badge = failed.container.querySelector('[data-slot="badge"][data-state="failed"]');
+    expect(badge).toHaveTextContent("exit 1");
+    expect(badge).toHaveAttribute("data-tone", "destructive");
+  });
+
+  it("expanded, a failed call's error block takes the destructive edge; a clean one keeps the plain edge", () => {
+    const failed = renderRow({ ...call, isError: true, output: "Exit code 1\nboom" }, { expanded: true });
+    const block = failed.container.querySelector(".feed-call-detail");
+    expect(block).toHaveClass("border-destructive");
+    expect(screen.getByText("Error")).toHaveClass("text-destructive-text");
+    failed.unmount();
+    const clean = renderRow(call, { expanded: true });
+    expect(clean.container.querySelector(".feed-call-detail")).toHaveClass("border-border");
+  });
+
+  it("discloses on a Collapsible, so it opens and closes like every other disclosure", () => {
+    const { container } = renderRow(call, { expanded: true });
+    expect(container.querySelector('[data-slot="collapsible"]')).toHaveAttribute("data-state", "open");
+    expect(container.querySelector('[data-slot="collapsible-content"]')).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Ran · npm test/ })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("expanded, shows its input as named fields and its output as text, with no JSON", () => {
@@ -182,15 +199,81 @@ describe("cards", () => {
 });
 
 describe("git lock-retry transient row and the git-lock-exhaustion no-render case (D-53)", () => {
-  it("renders the exact Copywriting Contract line in the muted role", () => {
+  it("renders the exact Copywriting Contract line in the muted role, as a notice in the row grid", () => {
     renderRow({ kind: "git_retry", key: "k", attempt: 2, max: 5 });
-    const node = screen.getByText("git: retrying after index lock (attempt 2/5)…");
-    expect(node.className).toContain("text-muted-foreground");
+    const line = screen.getByText("git: retrying after index lock (attempt 2/5)…").closest("p");
+    expect(line).toHaveClass("feed-notice", "text-muted-foreground");
   });
 
   it("a git_lock_exhausted row renders nothing", () => {
     const { container } = renderRow({ kind: "git_lock_exhausted", key: "k" });
     expect(container.textContent).toBe("");
+  });
+});
+
+describe("worktree-relative paths (issue #205)", () => {
+  const ROOT = "/Users/cymarechal/cymarechal/clients/acme-enterprise-holdings/technical-presales-knowledge-platform-monorepo";
+  const read: FeedRowData = {
+    kind: "tool_call",
+    key: "k",
+    toolName: "Read",
+    input: { file_path: `${ROOT}/packages/export/src/xlsx/merge-cells.ts` },
+    output: "a\nb",
+  };
+
+  it("show a Read relative to the worktree, its file name kept whole and the full path in a Tooltip", async () => {
+    const { container } = render(<FeedRow row={read} expanded={false} onToggleExpand={() => {}} root={ROOT} />);
+    const target = container.querySelector(".feed-call-target") as HTMLElement;
+    expect(target).toHaveTextContent(/^packages\/export\/src\/xlsx\/merge-cells\.ts$/);
+    expect(target.textContent).not.toContain("/Users/");
+    // Middle truncation: the folders give way first, the file name never does.
+    const [dir, base] = Array.from(target.children);
+    expect(dir).toHaveClass("truncate");
+    expect(base).toHaveTextContent("merge-cells.ts");
+    expect(base).toHaveClass("shrink-0");
+
+    fireEvent.pointerMove(target);
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent(`${ROOT}/packages/export/src/xlsx/merge-cells.ts`);
+  });
+
+  it("make a command's mention of the worktree relative too", () => {
+    const { container } = render(
+      <FeedRow
+        row={{ kind: "tool_call", key: "k", toolName: "Bash", input: { command: `cd ${ROOT} && pnpm test ${ROOT}/packages/export` }, output: "ok" }}
+        expanded={false}
+        onToggleExpand={() => {}}
+        root={ROOT}
+      />,
+    );
+    expect(container.querySelector(".feed-call-target")).toHaveTextContent(/^cd \. && pnpm test packages\/export$/);
+  });
+
+  it("leave a path outside the worktree, or with no worktree known, as it is", () => {
+    const outside: FeedRowData = { ...read, input: { file_path: "/etc/hosts" } };
+    const a = render(<FeedRow row={outside} expanded={false} onToggleExpand={() => {}} root={ROOT} />);
+    expect(a.container.querySelector(".feed-call-target")).toHaveTextContent("/etc/hosts");
+    a.unmount();
+    const b = render(<FeedRow row={read} expanded={false} onToggleExpand={() => {}} />);
+    expect(b.container.querySelector(".feed-call-target")).toHaveTextContent(`${ROOT}/packages/export/src/xlsx/merge-cells.ts`);
+  });
+});
+
+describe("notices (issue #205)", () => {
+  it("sit in the row grid with an icon: an API error a warning", () => {
+    renderRow({ kind: "system_notice", key: "k", text: "API Error: 529 Overloaded. Retrying in 4 seconds… (attempt 1 of 10)" });
+    const line = screen.getByText(/^API Error: 529/).closest("p") as HTMLElement;
+    expect(line).toHaveClass("feed-notice");
+    expect(line.querySelector("svg.lucide-triangle-alert")).not.toBeNull();
+  });
+
+  it("a usage limit reads when it resets, never the raw epoch", () => {
+    const resetsAt = new Date(Date.now() + 3 * 3600_000);
+    resetsAt.setMinutes(0, 0, 0);
+    const { container } = renderRow({ kind: "usage_limit", key: "k", resetsAt: resetsAt.toISOString() });
+    const hh = String(resetsAt.getHours()).padStart(2, "0");
+    expect(container).toHaveTextContent(new RegExp(`^Usage limit reached · resets (\\w+ )?${hh}:00$`));
+    expect(container.textContent).not.toMatch(/\d{10}/);
   });
 });
 

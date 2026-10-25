@@ -59,6 +59,8 @@ export type FeedRowData =
   /** An AskUserQuestion request and, once it came, its answer. */
   | { kind: "question"; key: string; questions: QuestionPrompt[]; answer?: unknown }
   | { kind: "system_notice"; key: string; text: string }
+  /** Issue #205: Claude's "usage limit reached|<epoch>" notice, with when the limit resets (ISO), if it said. */
+  | { kind: "usage_limit"; key: string; resetsAt?: string }
   // D-53: the shim's retry notice, in the system/transient treatment.
   | { kind: "git_retry"; key: string; attempt: number; max: number }
   // D-53: exhaustion is trail-only; the feed renders nothing for it.
@@ -84,8 +86,12 @@ export function toolCallTarget(input: unknown): string {
  * Task · Write the store test"), worded by `toolVerbs.ts`. Built in one place so the fleet's activity
  * cell, the status line and the feed row never word the same call differently. `live` words a call
  * still running ("Running · npm test"). */
-export function toolCallLabel(toolName: string, input: unknown, options: { live?: boolean; output?: unknown } = {}): string {
-  const described = describeToolCall({ toolName, input, output: options.output });
+export function toolCallLabel(
+  toolName: string,
+  input: unknown,
+  options: { live?: boolean; output?: unknown; root?: string | null } = {},
+): string {
+  const described = describeToolCall({ toolName, input, output: options.output }, { root: options.root });
   const verb = options.live ? described.liveVerb : described.verb;
   return described.target ? `${verb} · ${described.target}` : verb;
 }
@@ -137,6 +143,8 @@ export function feedRowText(row: FeedRowData): string {
     }
     case "question":
       return row.questions[0]?.question ?? "Question";
+    case "usage_limit":
+      return usageLimitText(row.resetsAt);
     case "git_retry":
       return gitRetryText(row.attempt, row.max);
     case "git_lock_exhausted":
@@ -148,6 +156,33 @@ export function feedRowText(row: FeedRowData): string {
       return exhaustive;
     }
   }
+}
+
+/** Claude CLI's usage-limit notice: `Claude AI usage limit reached|1761483600`, the epoch in seconds when the
+ * limit resets. The epoch is never printed (issue #205): it reads as a time. */
+const USAGE_LIMIT_NOTICE = /^Claude AI usage limit reached(?:\|(\d{9,11}))?/;
+
+/** When a usage-limit notice says the limit resets (ISO), `null` when it did not say, `undefined` when the
+ * text is not a usage-limit notice. */
+export function parseUsageLimit(text: string): string | null | undefined {
+  const match = USAGE_LIMIT_NOTICE.exec(text.trim());
+  if (!match) return undefined;
+  return match[1] ? new Date(Number(match[1]) * 1000).toISOString() : null;
+}
+
+/** When the limit resets, as a clock time: "16:00" today, "Mon 16:00" on another day. */
+export function formatResetTime(resetsAt: string, now: number = Date.now()): string {
+  const at = new Date(resetsAt);
+  const time = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
+  if (at.toDateString() === new Date(now).toDateString()) return time;
+  return `${new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(at)} ${time}`;
+}
+
+/** The usage-limit line: "Usage limit reached · resets 16:00", or "· reset at 16:00" once that time has passed. */
+export function usageLimitText(resetsAt: string | undefined, now: number = Date.now()): string {
+  if (!resetsAt) return "Usage limit reached";
+  const passed = Date.parse(resetsAt) <= now;
+  return `Usage limit reached · ${passed ? "reset at" : "resets"} ${formatResetTime(resetsAt, now)}`;
 }
 
 /** The Copywriting Contract's fixed retry line (03-UI-SPEC.md), the two integers interpolated. */
@@ -437,6 +472,11 @@ export function buildFeedRows(entries: Record<string, unknown>[]): FeedRowData[]
     if (type === "system_notice") {
       const text = typeof event.text === "string" ? event.text : "";
       if (isNoiseNotice(text)) return;
+      const resetsAt = parseUsageLimit(text);
+      if (resetsAt !== undefined) {
+        rows.push({ kind: "usage_limit", key, ...(resetsAt ? { resetsAt } : {}) });
+        return;
+      }
       rows.push({ kind: "system_notice", key, text });
       return;
     }
