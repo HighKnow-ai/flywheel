@@ -132,13 +132,24 @@ pub struct TrackedWorktree {
     pub branch: String,
 }
 
-/// A Story's full git truth (LINK-02, LINK-09), or `Ok(None)` when the Story has no `worktrees`
-/// row at all. Never errors on "nothing ahead" or "target not fetched locally" — those are honest
-/// empty/withheld values, not failures.
+/// Everything [`read_git_facts`] needs from the database for one Story, read in one short pass so
+/// the git reads that follow run with no connection in scope (issue #215): the worktree, its
+/// branch, the derived target ref and the Story's session windows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GitFactsPlan {
+    pub story_id: String,
+    pub worktree_path: String,
+    pub branch: String,
+    pub target_ref: String,
+    pub session_windows: Vec<(String, Option<String>)>,
+}
+
+/// The database half of [`git_facts_for_story`]: `Ok(None)` when the Story has no `worktrees` row.
+/// Runs no git.
 ///
 /// `target_ref` is derived, never stored or caller-supplied (D-26, D-116): `origin/` plus the
 /// project's `default_branch`, the base branch a Story merges into.
-pub fn git_facts_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Option<GitFacts>> {
+pub fn plan_git_facts(conn: &Connection, story_id: &str) -> anyhow::Result<Option<GitFactsPlan>> {
     let worktree_row: Option<(String, String)> = conn
         .query_row(
             "SELECT path, branch FROM worktrees WHERE story_id = ?1",
@@ -148,10 +159,9 @@ pub fn git_facts_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<
         .optional()
         .context("failed to look up the worktree for this Story")?;
 
-    let Some((worktree_path_str, branch)) = worktree_row else {
+    let Some((worktree_path, branch)) = worktree_row else {
         return Ok(None);
     };
-    let worktree_path = Path::new(&worktree_path_str);
 
     let default_branch: String = conn
         .query_row(
@@ -160,9 +170,37 @@ pub fn git_facts_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<
             |row| row.get(0),
         )
         .with_context(|| format!("Story {story_id:?} not found"))?;
-    let target_ref = format!("origin/{default_branch}");
 
-    let target_resolves = git::rev_parse_verify(worktree_path, &target_ref)?;
+    Ok(Some(GitFactsPlan {
+        story_id: story_id.to_string(),
+        worktree_path,
+        branch,
+        target_ref: format!("origin/{default_branch}"),
+        session_windows: session_windows(conn, story_id)?,
+    }))
+}
+
+/// A Story's full git truth (LINK-02, LINK-09), or `Ok(None)` when the Story has no `worktrees`
+/// row at all. Never errors on "nothing ahead" or "target not fetched locally" — those are honest
+/// empty/withheld values, not failures.
+///
+/// [`plan_git_facts`] then [`read_git_facts`] on one connection. A caller holding the shared board
+/// lock calls the two halves itself and releases the lock between them (issue #215).
+pub fn git_facts_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<Option<GitFacts>> {
+    match plan_git_facts(conn, story_id)? {
+        Some(plan) => read_git_facts(&plan).map(Some),
+        None => Ok(None),
+    }
+}
+
+/// The git half of [`git_facts_for_story`]: every figure read from git for `plan`. Takes no
+/// connection, so it can never run with the board lock held (issue #215).
+pub fn read_git_facts(plan: &GitFactsPlan) -> anyhow::Result<GitFacts> {
+    let worktree_path = Path::new(&plan.worktree_path);
+    let target_ref = plan.target_ref.as_str();
+    let branch = plan.branch.clone();
+
+    let target_resolves = git::rev_parse_verify(worktree_path, target_ref)?;
     let commit_range =
         if target_resolves { format!("{target_ref}..HEAD") } else { "HEAD".to_string() };
     let max_count = (COMMIT_WINDOW + 1).to_string();
@@ -186,9 +224,8 @@ pub fn git_facts_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<
         })
         .collect();
 
-    let run_windows = session_windows(conn, story_id)?;
     for commit in &mut commits {
-        commit.made_outside_flywheel = !is_covered_by_session(&commit.committed_at, &run_windows);
+        commit.made_outside_flywheel = !is_covered_by_session(&commit.committed_at, &plan.session_windows);
     }
 
     let commits_truncated = commits.len().saturating_sub(COMMIT_WINDOW);
@@ -196,23 +233,23 @@ pub fn git_facts_for_story(conn: &Connection, story_id: &str) -> anyhow::Result<
 
     let uncommitted = crate::domain::worktree::porcelain_entries(worktree_path)?;
 
-    let (ahead, behind) = match git::ahead_behind(worktree_path, &target_ref, &branch)? {
+    let (ahead, behind) = match git::ahead_behind(worktree_path, target_ref, &branch)? {
         Some((a, b)) => (Some(a), Some(b)),
         None => (None, None),
     };
     let last_fetch_at = git::last_fetch_at(worktree_path)?;
 
-    Ok(Some(GitFacts {
+    Ok(GitFacts {
         branch,
-        worktree_path: worktree_path_str,
-        target_ref,
+        worktree_path: plan.worktree_path.clone(),
+        target_ref: plan.target_ref.clone(),
         ahead,
         behind,
         last_fetch_at,
         commits,
         commits_truncated,
         uncommitted,
-    }))
+    })
 }
 
 /// Every `worktrees` row currently `status = 'active'` (D-113/D-114's scheduler tick candidate
@@ -263,7 +300,17 @@ pub fn record_outside_commits(conn: &mut Connection, story_id: &str, actor_id: &
     let Some(facts) = git_facts_for_story(conn, story_id)? else {
         return Ok(0);
     };
+    record_outside_commits_in(conn, story_id, &facts, actor_id)
+}
 
+/// The database half of [`record_outside_commits`], over facts already read from git: appends the
+/// events and runs no git, so a tick holds the board lock only for these writes (issue #215).
+pub fn record_outside_commits_in(
+    conn: &mut Connection,
+    story_id: &str,
+    facts: &GitFacts,
+    actor_id: &str,
+) -> anyhow::Result<usize> {
     let (project_id, epic_id): (String, String) = conn
         .query_row(
             "SELECT project_id, epic_id FROM stories WHERE id = ?1",

@@ -543,12 +543,16 @@ pub fn story_adr_decide(
         }
         other => return Err(format!("unknown ADR decision {other:?}")),
     };
-    let mut conn = state.db.lock().map_err(|e| ipc_error("story_adr_decide:lock", e))?;
-    let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| ipc_error("story_adr_decide:actor", e))?;
-    flywheel_core::domain::review_decisions::set_adr_decision(&mut conn, &human, &story_id, &path, &decision)
-        .map_err(|e| format!("{e:#}"))?;
-    let project_id = super::project_of(&conn, "stories", &story_id);
-    drop(conn);
+    // The decision is checked against the review's ADRs, read from git: a side connection, under
+    // the Story's work lock, never the board mutex (issue #215).
+    let project_id = super::with_story_work(&story_id, || -> Result<Option<String>, String> {
+        let mut conn = super::side_connection(&state.db)?;
+        let human =
+            flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| ipc_error("story_adr_decide:actor", e))?;
+        flywheel_core::domain::review_decisions::set_adr_decision(&mut conn, &human, &story_id, &path, &decision)
+            .map_err(|e| format!("{e:#}"))?;
+        Ok(super::project_of(&conn, "stories", &story_id))
+    })?;
     emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
     Ok(())
 }

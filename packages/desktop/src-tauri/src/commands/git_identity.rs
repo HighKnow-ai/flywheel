@@ -53,7 +53,8 @@ pub fn git_identifier_resolve(state: State<AppState>, raw: String) -> Result<Git
         return Ok(GitIdentityOutcomeDto::NotFound);
     };
 
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    // The resolver asks each registered repository's git: a side connection, not the board mutex.
+    let conn = super::side_connection(&state.db)?;
     let outcome =
         flywheel_core::git_identity::resolve_identifier(&conn, &identifier).map_err(|e| e.to_string())?;
 

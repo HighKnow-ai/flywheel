@@ -114,3 +114,42 @@ pub(crate) fn project_of_locked(
     let conn = db.lock().ok()?;
     project_of(&conn, table, id)
 }
+
+/// A connection of its own on the board database, for a command whose work runs git or a process
+/// between its reads and writes (issue #215, ADR 0024). The shared `AppState.db` mutex is held only
+/// to read the database file's path, so no other command waits behind that git. In WAL mode this
+/// connection's reads run beside the shared one's; its writes are the core's own short
+/// transactions, never one held across git.
+///
+/// The board-wide mutex used to be what kept two such commands on one Story apart (two Starts, a
+/// Start and a Drop); hold [`story_work`] for that.
+pub(crate) fn side_connection(db: &std::sync::Mutex<rusqlite::Connection>) -> Result<rusqlite::Connection, String> {
+    let path = {
+        let conn = db.lock().map_err(|e| ipc_error("side_connection:lock", e))?;
+        conn.path().filter(|p| !p.is_empty()).map(std::path::PathBuf::from)
+    };
+    let path = path.ok_or_else(|| "the board database has no file to open a second connection on".to_string())?;
+    let conn = rusqlite::Connection::open(&path).map_err(|e| ipc_error("side_connection:open", e))?;
+    flywheel_core::db::apply_pragmas(&conn).map_err(|e| ipc_error("side_connection:pragmas", e))?;
+    Ok(conn)
+}
+
+/// The lock that serialises the commands doing git work on one Story's worktree and records (a
+/// Start against a second Start, a Resume, a Request changes, a Drop, a worktree Remove or
+/// Recreate), now that they run on a [`side_connection`] rather than under the board-wide mutex.
+/// It is per Story: work on one Story never waits for another's.
+pub(crate) fn story_work(story_id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let mut locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|p| p.into_inner());
+    Arc::clone(locks.entry(story_id.to_string()).or_default())
+}
+
+/// Run `work` holding `story_id`'s [`story_work`] lock. A panic that poisoned it left nothing half
+/// done that the lock guards, so a poisoned lock is taken as is.
+pub(crate) fn with_story_work<T>(story_id: &str, work: impl FnOnce() -> T) -> T {
+    let lock = story_work(story_id);
+    let _held = lock.lock().unwrap_or_else(|p| p.into_inner());
+    work()
+}

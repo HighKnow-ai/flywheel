@@ -70,16 +70,19 @@ impl From<flywheel_core::git_facts::GitFacts> for GitFactsDto {
 }
 
 /// `story_id`'s full git truth (LINK-02, LINK-09), or `null` when the Story has no worktree yet.
-/// Read-only — delegates straight to `flywheel_core::git_facts::git_facts_for_story`.
+/// Read-only. The lock is held only to plan the read; git runs without it (issue #215).
 #[tauri::command]
 pub fn git_facts(
     state: State<AppState>,
     story_id: String,
 ) -> Result<Option<GitFactsDto>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let facts =
-        flywheel_core::git_facts::git_facts_for_story(&conn, &story_id).map_err(|e| e.to_string())?;
-    Ok(facts.map(GitFactsDto::from))
+    let plan = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        flywheel_core::git_facts::plan_git_facts(&conn, &story_id).map_err(|e| e.to_string())?
+    };
+    let Some(plan) = plan else { return Ok(None) };
+    let facts = flywheel_core::git_facts::read_git_facts(&plan).map_err(|e| e.to_string())?;
+    Ok(Some(GitFactsDto::from(facts)))
 }
 
 /// Declares which Story's item detail panel is currently open (D-114's hot-tier "open panel"
