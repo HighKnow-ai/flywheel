@@ -60,8 +60,8 @@ function Separator({ className }: { className?: string }) {
 
 function CrumbItem({ crumb, last, className }: { crumb: Crumb; last: boolean; className?: string }) {
   return (
-    // A place before the page gives way first and never takes more than 16rem, so the page itself stays legible.
-    <BreadcrumbItem className={cn("min-w-0", last ? "shrink" : "max-w-64 shrink-[2]", className)}>
+    // A place before the page gives way first and never takes more than 14rem; the page itself keeps at least 6rem.
+    <BreadcrumbItem className={cn(last ? "min-w-24 shrink" : "max-w-56 min-w-0 shrink-[4]", className)}>
       {last || !crumb.onSelect ? (
         <BreadcrumbPage className={cn("block min-w-0 truncate", last ? "font-semibold" : "text-muted-foreground")}>
           <CrumbText crumb={crumb} />
@@ -112,8 +112,8 @@ export function PageHeader({ crumbs, onBack, actions, className }: PageHeaderPro
     // A middle crumb (and the separator before it) is drawn only on a wide header; on a narrow one it is in the menu.
     const folded = index > 0 && !last ? "hidden @min-[52rem]/header:inline-flex" : undefined;
     if (last && middle.length > 0) {
-      items.push(<FoldedCrumbs key="folded" crumbs={middle} />);
       items.push(<Separator key="folded-sep" className="@min-[52rem]/header:hidden" />);
+      items.push(<FoldedCrumbs key="folded" crumbs={middle} />);
     }
     if (index > 0) items.push(<Separator key={`sep-${index}`} className={folded} />);
     items.push(<CrumbItem key={index} crumb={crumb} last={last} className={folded} />);

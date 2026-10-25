@@ -50,9 +50,6 @@ interface KnownDefect {
 }
 
 export const KNOWN_DEFECTS: KnownDefect[] = [
-  // At 900 × 600 a long project name or Story key in the breadcrumb is drawn under the top bar's Search, its ⌘K hint
-  // and the add buttons.
-  { issue: 199, kind: "text-overlap", screen: /^s\d+-/, where: /Search, ⌘K|data-slot=kbd|aria-label="Add an Epic"|aria-label="Write a Story"/ },
   // The Merge-with-failing-Check confirm is pushed past the window by a long Check command.
   { issue: 207, kind: "horizontal-overflow", screen: /^s18-stress-merge-confirm$/ },
   // At 1920 × 1200 a long permission pattern is drawn over its date column.
