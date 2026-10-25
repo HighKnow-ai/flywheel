@@ -11,9 +11,13 @@
  *
  * What a row draws besides the Story itself comes from the roster's one core read (`roster_rows`, issue #159):
  * its attention (Waiting on you, Stopped and why), the live session its Answer or Open session opens, the
- * *doing* Task, the open review's diff size, and "criteria x/y · tasks x/y", shown when the row has no action.
- * A row issues no read of its own. A row that needs the developer (Waiting on you, Stopped, In review) takes
- * the yellow tint, and its state word says which.
+ * *doing* Task, the open review's diff size, and "criteria x/y · tasks x/y", shown when the row has no action
+ * and the counts say something (#202). A row issues no read of its own. Only a row Waiting on you takes the
+ * yellow tint (#202, direction.md's one meaning per colour); a Stopped or In review row says so in its pill.
+ *
+ * Reading at a glance (#202): every key is a StoryKey in a column as wide as the project's longest key, so a
+ * key never wraps and every title starts in one column; live Epics come first and the Done ones fold into one
+ * disclosure at the end; the roster loads behind Skeleton rows and a failed read is a ReadError.
  *
  * Every read is keyed under the project so the one `board:changed` subscription keeps the board live;
  * the renderer never trusts its own write. The Roadmap strip (#131) heads the board; the Milestone picked on it
@@ -24,7 +28,7 @@
 import { useLayoutEffect, useState, type ReactNode } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { defaultRangeExtractor, useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
-import { ChevronRight, FileDiff, Flag, Layers } from "lucide-react";
+import { ChevronRight, CircleCheckBig, FileDiff, Flag, Layers } from "lucide-react";
 import {
   epicList,
   rosterRows,
@@ -43,7 +47,6 @@ import {
   StartControl,
   StoryStateWord,
   endingWords,
-  errorText,
   isOwnControl,
 } from "./StoryControls";
 import { OpenReviewControl } from "../review/ReviewCard";
@@ -52,13 +55,18 @@ import { AddStoryToEpic } from "./AddRecordControls";
 import { NeedsYouColumn, NeedsYouSheetButton } from "./NeedsYou";
 import { ProposalDrawer, ProposalsMarker } from "../proposals/ProposalDrawer";
 import { MilestoneHeader, useMilestoneProgress } from "./MilestoneHeader";
-import { EpicProgress } from "./EpicProgress";
+import { EPIC_HEADER_GRID, EpicHeaderActions, EpicProgress } from "./EpicProgress";
 import { RoadmapStrip, useMilestoneSelection, useRoadmap } from "./RoadmapStrip";
 import { EpicShapingControl } from "./EpicShapingControl";
 import { SinceYouLastLooked } from "./SinceYouLastLooked";
 import { ConfirmExitTest, ConfirmExitTestOutcome, epicExitTestConfirmable } from "./ConfirmExitTest";
 import type { EpicProgressDto } from "../adapters/tauri";
 import { StateBadge } from "../components/StateBadge";
+import { StoryKey } from "../components/StoryKey";
+import { ReadError } from "../components/ReadError";
+import { Item, ItemActions, ItemContent } from "@/components/ui/item";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { PageHeader, SurfaceBody } from "../shell/PageHeader";
 import { useUiStore } from "../state/uiStore";
 import { cn } from "@/lib/utils";
@@ -222,9 +230,18 @@ function StoryRoster({
   const progressQuery = useMilestoneProgress(projectId, selection.requested);
   const epicProgress = new Map((progressQuery.data?.epics ?? []).map((e) => [e.epicId, e]));
 
-  if (storiesQuery.isError) {
-    return <p className="m-0 text-body text-destructive-text">{errorText(storiesQuery.error)}</p>;
-  }
+  // A failed read is the one error state (DESIGN.md § Feedback). Without the Stories there is no roster, so the
+  // ReadError takes its place; without the roster's own read (`roster_rows`) the Stories still list, under a
+  // ReadError saying their attention and actions could not be read.
+  if (storiesQuery.isError) return <ReadError title="Couldn't load the roster" query={storiesQuery} />;
+  if (storiesQuery.isPending) return <RosterSkeleton />;
+  const rowsError = rowsQuery.isError && (
+    <ReadError
+      title="Couldn't load the roster"
+      description="The Stories are listed, but who is waiting on you and each row's next action could not be read from Flywheel's local core."
+      query={rowsQuery}
+    />
+  );
   // An Epic in Shaping with no Story yet still has its card (issue #122), so only an empty roster is empty.
   if (storiesQuery.isSuccess && stories.length === 0 && groups.length === 0) {
     return (
@@ -246,14 +263,89 @@ function StoryRoster({
       </section>
     );
   }
+  // Live Epics first, in Roadmap order; the Done ones fold into one disclosure at the end (#202).
+  const live = groups.filter((group) => group.epic?.state !== "done");
+  const done = groups.filter((group) => group.epic?.state === "done");
+  const keyWidth = `${longestKey(stories)}ch`;
+  const shared = { projectId, epicProgress, figures, scrollElement, keyWidth };
+  // A fragment, not a wrapper: the roster's scroll margin is re-read when the column holding it resizes.
   return (
-    <VirtualRoster
-      projectId={projectId}
-      groups={groups}
-      epicProgress={epicProgress}
-      figures={figures}
-      scrollElement={scrollElement}
-    />
+    <>
+      {rowsError}
+      {live.length > 0 && <VirtualRoster groups={live} {...shared} />}
+      {done.length > 0 && <DoneEpics groups={done} {...shared} />}
+    </>
+  );
+}
+
+/** The project's longest Story key, in characters: the key column's width in the code face, where every
+ * character is one `ch` wide. Read over the whole project, so the column does not jump between Milestones. */
+function longestKey(stories: StoryDto[]): number {
+  return stories.reduce((longest, story) => Math.max(longest, story.key.length), 5);
+}
+
+/** The Done Epics, folded into one disclosure at the end of the roster (#202): "2 Epics done", and the count
+ * of their Stories, which opens to their cards. Folded on every visit: finished work is there when asked for. */
+function DoneEpics({ groups, ...shared }: { groups: EpicGroup[] } & Omit<RosterProps, "groups">) {
+  const [open, setOpen] = useState(false);
+  const stories = groups.reduce((sum, group) => sum + group.stories.length, 0);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="flex flex-col">
+      <CollapsibleTrigger className="group/done flex min-h-11 w-full items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-2 text-left shadow-card transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent">
+        <ChevronRight
+          aria-hidden="true"
+          size={16}
+          className="shrink-0 text-muted-foreground transition-transform duration-(--duration-state) ease-(--ease) group-data-[state=open]/done:rotate-90"
+        />
+        <CircleCheckBig aria-hidden="true" size={16} className="shrink-0 text-muted-foreground" />
+        <span className="text-row font-semibold tabular-nums">
+          {groups.length === 1 ? "1 Epic done" : `${groups.length} Epics done`}
+        </span>
+        <span className="ml-auto text-meta text-muted-foreground tabular-nums">
+          {stories === 1 ? "1 Story" : `${stories} Stories`}
+        </span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="pt-4">
+          <VirtualRoster groups={groups} {...shared} />
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+/** The roster while its first read is in flight: one Epic card in its real shape, a header and four rows of
+ * the rows' own height (DESIGN.md § Feedback: Skeleton in the region's own shape, never "Loading…"). */
+function RosterSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading the roster"
+      aria-busy="true"
+      className="overflow-hidden rounded-lg border border-border bg-card shadow-card"
+    >
+      <div className="flex min-h-14 items-center gap-4 border-b border-border px-4">
+        <Skeleton className="h-4 w-56" />
+        <Skeleton className="ml-auto h-2.5 w-48" />
+        <Skeleton className="h-3.5 w-28" />
+      </div>
+      {[64, 48, 72, 40].map((width, index) => (
+        <div
+          key={width}
+          className={cn(
+            "grid min-h-13 grid-cols-[152px_minmax(0,1fr)_16px] items-center gap-x-3 py-1.5 pr-3 pl-4",
+            index > 0 && "border-t border-border",
+          )}
+        >
+          <Skeleton className="h-5.5 w-20 rounded-full" />
+          <span className="flex items-center gap-2">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-3.5" style={{ width: `${width}%` }} />
+          </span>
+          <span />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -270,7 +362,7 @@ function StoryRoster({
  */
 const EPIC_GAP = 16; // gap-4, the roster's gap between cards
 const CARD_BORDER = 1;
-const HEADING_ESTIMATE = 57; // min-h-14 and its bottom border
+const HEADING_ESTIMATE = 65; // the header grid's min-h-11 and its padding, and its bottom border
 const ROW_ESTIMATE = 53; // min-h-13 and the top border between rows
 const OVERSCAN = 8;
 
@@ -332,25 +424,27 @@ function useScrollMargin(roster: HTMLElement | null, scrollElement: HTMLElement 
     update();
     const observer = new ResizeObserver(update);
     observer.observe(roster.parentElement ?? roster);
+    // The Done Epics' roster sits below the live one, so it moves whenever anything above it changes height:
+    // the scroll container's content, which holds both, resizes with it.
+    const content = scrollElement.firstElementChild;
+    if (content && content !== roster.parentElement) observer.observe(content);
     return () => observer.disconnect();
   }, [roster, scrollElement]);
   return margin;
 }
 
-function VirtualRoster({
-  projectId,
-  groups,
-  epicProgress,
-  figures,
-  scrollElement,
-}: {
+interface RosterProps {
   projectId: string;
   groups: EpicGroup[];
   epicProgress: Map<string, EpicProgressDto>;
   /** Each Story's row figures from the roster's one read, by Story id; absent until it lands. */
   figures: Map<string, RosterRowDto>;
   scrollElement: HTMLElement | null;
-}) {
+  /** The key column's width: the project's longest key, in `ch` of the code face. */
+  keyWidth: string;
+}
+
+function VirtualRoster({ projectId, groups, epicProgress, figures, scrollElement, keyWidth }: RosterProps) {
   const { items, starts } = rosterItems(groups);
   const [roster, setRoster] = useState<HTMLDivElement | null>(null);
   const scrollMargin = useScrollMargin(roster, scrollElement);
@@ -431,6 +525,7 @@ function VirtualRoster({
                   first={item.first}
                   position={item.position + 1}
                   setSize={group.stories.length}
+                  keyWidth={keyWidth}
                   measure={virtualizer.measureElement}
                 />
               );
@@ -492,58 +587,56 @@ function EpicCard({
 }) {
   const { epic, milestone, stories } = group;
   const headingId = `epic-${epic?.id ?? "none"}`;
+  // The card's controls, right-aligned in the header grid's last column: n Proposals, + Story, then Shape or
+  // Confirm exit test.
+  const actions = epic && (
+    <>
+      {progress && <ProposalsMarker projectId={projectId} epic={epic} count={progress.proposals ?? 0} />}
+      <AddStoryToEpic projectId={projectId} epic={epic} />
+      <EpicHeadingAction projectId={projectId} group={group} />
+    </>
+  );
   return (
     <section
       aria-labelledby={headingId}
       style={{ top, height }}
-      className="absolute inset-x-0 overflow-hidden rounded-lg border border-border bg-card shadow-card"
+      className="@container/epic absolute inset-x-0 overflow-hidden rounded-lg border border-border bg-card shadow-card"
     >
-      {progress ? (
-        <header
-          ref={measure}
-          data-index={headingIndex}
-          className={cn("flex items-center gap-3 border-border px-4 py-1.5", stories.length > 0 && "border-b")}
-        >
-          <EpicProgress epic={progress} headingId={headingId} className="min-w-0 flex-1" />
-          {epic && <ProposalsMarker projectId={projectId} epic={epic} count={progress.proposals ?? 0} />}
-          {epic && <AddStoryToEpic projectId={projectId} epic={epic} />}
-          {/* A fixed slot on every progress-headed card, so each Epic's bar still sits in one column; inset by
-              the rows' chevron column, so Shape sits above the rows' own actions. */}
-          <span className="mr-7 flex max-w-[360px] min-w-[152px] flex-none justify-end">
-            {epic && <EpicHeadingAction projectId={projectId} group={group} />}
-          </span>
-        </header>
-      ) : (
+      {/* Inset on the right by the rows' chevron column, so the card's actions end where the rows' actions do. */}
       <header
         ref={measure}
         data-index={headingIndex}
-        className={cn("flex min-h-14 items-center gap-3 border-border px-4 py-2.5", stories.length > 0 && "border-b")}
+        className={cn("border-border py-1.5 pr-10 pl-4", stories.length > 0 && "border-b")}
       >
-        <Layers aria-hidden="true" size={18} className="shrink-0 text-muted-foreground" />
-        <h2 id={headingId} className="m-0 min-w-0 truncate text-section font-semibold">
-          {epic ? epic.title : "Stories"}
-        </h2>
-        {epic && <StateBadge state={epic.state} className="h-5.5 text-meta" />}
-        {milestone && (
-          <span className="inline-flex min-w-0 items-center gap-1 text-small text-subtle-foreground">
-            <Flag aria-hidden="true" size={14} className="shrink-0" />
-            <span className="truncate">
-              <span className="sr-only">Milestone </span>
-              {milestone.title}
+        {progress ? (
+          <EpicProgress epic={progress} headingId={headingId} actions={actions} />
+        ) : (
+          // An Epic outside the shown Milestone's read (or Stories whose Epic is not read yet): the same grid,
+          // with the Milestone where the bar would be.
+          <div className={cn(EPIC_HEADER_GRID, "min-h-11 py-1")}>
+            <div className="flex min-w-0 items-center gap-2 [grid-area:title]">
+              <Layers aria-hidden="true" size={16} className="shrink-0 text-muted-foreground" />
+              <h2 id={headingId} className="m-0 min-w-0 truncate text-section font-semibold">
+                {epic ? epic.title : "Stories"}
+              </h2>
+              {epic && <StateBadge state={epic.state} className="shrink-0" />}
+            </div>
+            {milestone && (
+              <span className="inline-flex min-w-0 items-center gap-1 text-small text-subtle-foreground [grid-area:bar]">
+                <Flag aria-hidden="true" size={14} className="shrink-0" />
+                <span className="truncate">
+                  <span className="sr-only">Milestone </span>
+                  {milestone.title}
+                </span>
+              </span>
+            )}
+            <span className="text-right text-small whitespace-nowrap text-muted-foreground tabular-nums [grid-area:count]">
+              {stories.length === 0 ? "No Stories yet" : stories.length === 1 ? "1 Story" : `${stories.length} Stories`}
             </span>
-          </span>
-        )}
-        <span className="ml-auto shrink-0 text-small text-muted-foreground tabular-nums">
-          {stories.length === 0 ? "No Stories yet" : stories.length === 1 ? "1 Story" : `${stories.length} Stories`}
-        </span>
-        {epic && <AddStoryToEpic projectId={projectId} epic={epic} />}
-        {epic && (
-          <span className="mr-7 flex min-w-0 justify-end">
-            <EpicHeadingAction projectId={projectId} group={group} />
-          </span>
+            <EpicHeaderActions>{actions}</EpicHeaderActions>
+          </div>
         )}
       </header>
-      )}
       {/* Only the rows near the viewport are mounted; each is placed against the card, not the list. */}
       <ul aria-label={epic ? `${epic.title} Stories` : "Stories"} className="m-0 list-none p-0">
         {children}
@@ -556,10 +649,6 @@ function EpicCard({
 export function diffSizeWords(diff: { files: number; added: number; removed: number }): string {
   return `+${diff.added} −${diff.removed} · ${diff.files === 1 ? "1 file" : `${diff.files} files`}`;
 }
-
-/** Why a row needs the developer, if it does (docs/mvp-spec.md §7 "rows that need Cyril tinted"): a session
- * Waiting on you, a Stopped Story, or a review to make. The state word beside the tint says which. */
-type NeedsYou = "waiting" | "stopped" | "review";
 
 /** The row's second line: why it stopped, what its agent is doing, or the size of the diff in review. */
 function RowDetail({ story, figures }: { story: StoryDto; figures: RosterRowDto | null }) {
@@ -589,14 +678,22 @@ function RowDetail({ story, figures }: { story: StoryDto; figures: RosterRowDto 
   );
 }
 
-/** "criteria x/y · tasks x/y", where a row has no action to offer: how far the Story is judged done. */
-function RowCounts({ figures }: { figures: RosterRowDto | null }) {
-  if (!figures) return null;
-  return (
-    <span className="text-meta whitespace-nowrap text-muted-foreground tabular-nums">
-      {`criteria ${figures.criteriaMet}/${figures.criteriaTotal} · tasks ${figures.tasksDone}/${figures.tasksTotal}`}
-    </span>
-  );
+/** "criteria x/y · tasks x/y", where a row has no action to offer: how far the Story is judged done. Only what
+ * says something (#202): nothing on a Merged or Dropped row, whose pill already says how it ended, and no
+ * count with nothing in it ("tasks 0/0"). `null` when nothing is left to say. */
+export function rowCountWords(story: Pick<StoryDto, "state">, figures: RosterRowDto | null): string | null {
+  if (!figures || story.state === "merged" || story.state === "dropped") return null;
+  const parts = [
+    figures.criteriaTotal > 0 ? `criteria ${figures.criteriaMet}/${figures.criteriaTotal}` : null,
+    figures.tasksTotal > 0 ? `tasks ${figures.tasksDone}/${figures.tasksTotal}` : null,
+  ].filter((part) => part !== null);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function RowCounts({ story, figures }: { story: StoryDto; figures: RosterRowDto | null }) {
+  const words = rowCountWords(story, figures);
+  if (!words) return null;
+  return <span className="text-meta whitespace-nowrap text-muted-foreground tabular-nums">{words}</span>;
 }
 
 function StoryRow({
@@ -608,6 +705,7 @@ function StoryRow({
   first,
   position,
   setSize,
+  keyWidth,
   measure,
 }: {
   projectId: string;
@@ -622,6 +720,8 @@ function StoryRow({
   /** Its place among the Epic's Stories, for assistive tech, which sees only the mounted rows. */
   position: number;
   setSize: number;
+  /** The key column's width, the same on every row of the project. */
+  keyWidth: string;
   measure: (element: Element | null) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -631,7 +731,6 @@ function StoryRow({
   const stopped = figures?.attention === "stopped" ? { endingReason: figures.endingReason } : null;
   const waiting = figures?.attention === "waiting_on_you";
   const liveSessionId = figures?.liveSessionId ?? null;
-  const needsYou: NeedsYou | null = waiting ? "waiting" : stopped ? "stopped" : story.state === "in_review" ? "review" : null;
 
   // The one next action, else the counts (docs/mvp-spec.md §7: "either an action button or criteria x/y · tasks x/y").
   let action: ReactNode = null;
@@ -644,42 +743,51 @@ function StoryRow({
   else if (story.state === "in_review") action = <OpenReviewControl projectId={projectId} story={story} />;
 
   return (
-    <li
-      ref={measure}
-      data-index={index}
-      data-story-id={story.id}
-      data-attention={waiting ? "waiting" : stopped ? "stopped" : undefined}
-      data-needs-you={needsYou ?? undefined}
-      aria-current={here ? "true" : undefined}
-      aria-posinset={position}
-      aria-setsize={setSize}
-      style={{ top }}
-      // Anywhere on the row that is not a control of its own opens the Story: the doing Task and the
-      // state word go there too. The key-and-title button is the same target for the keyboard.
-      onClick={(event) => {
-        if (!isOwnControl(event)) openStory(projectId, story.id);
-      }}
+    <Item
+      asChild
+      size="sm"
       className={cn(
-        "group/row absolute inset-x-0 cursor-pointer border-border transition-[background-color,box-shadow] duration-(--duration-state) ease-(--ease)",
+        // An Item row (DESIGN.md's pattern table), on the roster's own grid: the state column, the key and title
+        // over the detail, the action or counts, the chevron.
+        "group/row absolute inset-x-0 grid min-h-13 cursor-pointer grid-cols-[152px_minmax(0,1fr)_auto_16px] gap-x-3 gap-y-0 rounded-none border-0 border-border py-1.5 pr-3 pl-4 text-body",
+        "transition-[background-color,box-shadow] duration-(--duration-state) ease-(--ease)",
         !first && "border-t",
         "hover:bg-accent hover:shadow-[inset_0_0_0_1px_var(--input)]",
-        // A row that needs the developer takes the yellow tint (DESIGN.md); its state word says why.
-        needsYou && "bg-attention-muted hover:bg-attention-muted",
-        here && !needsYou && "bg-running-muted hover:bg-running-muted",
+        // Yellow is Waiting on you, and nothing else (direction.md, one meaning per colour; #202): a Stopped or
+        // In review row says what it is in its pill, on the card's own ground.
+        waiting && "bg-attention-muted hover:bg-attention-muted",
+        here && !waiting && "bg-running-muted hover:bg-running-muted",
       )}
     >
-      <div className="grid min-h-13 grid-cols-[152px_minmax(0,1fr)_auto_16px] items-center gap-x-3 py-1.5 pr-3 pl-4">
+      <li
+        ref={measure}
+        data-index={index}
+        data-story-id={story.id}
+        data-attention={waiting ? "waiting" : stopped ? "stopped" : undefined}
+        data-needs-you={waiting ? "waiting" : undefined}
+        aria-current={here ? "true" : undefined}
+        aria-posinset={position}
+        aria-setsize={setSize}
+        style={{ top }}
+        // Anywhere on the row that is not a control of its own opens the Story: the doing Task and the
+        // state word go there too. The key-and-title button is the same target for the keyboard.
+        onClick={(event) => {
+          if (!isOwnControl(event)) openStory(projectId, story.id);
+        }}
+      >
         <span className="flex">
           <StoryStateWord story={story} stopped={stopped} waitingOnYou={waiting} />
         </span>
-        <span className="flex min-w-0 flex-col gap-0.5">
+        {/* Two columns, the key's and the title's, shared by the button and the detail line under it, so the
+            detail starts under the title. The key column is as wide as the project's longest key. */}
+        <ItemContent className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5">
           <button
             type="button"
             aria-label={`Open Story ${story.key} ${story.title}`}
             onClick={() => openStory(projectId, story.id)}
-            className="flex min-w-0 items-baseline gap-2 rounded-sm text-left"
+            className="col-span-2 grid min-w-0 grid-cols-subgrid items-baseline rounded-sm text-left"
           >
-            <span className="w-14 shrink-0 font-mono text-meta text-muted-foreground">{story.key}</span>
+            <StoryKey value={story.key} style={{ minWidth: keyWidth }} />
             <span
               className={cn(
                 "truncate text-row font-semibold",
@@ -689,14 +797,14 @@ function StoryRow({
               {story.title}
             </span>
           </button>
-          <span className="pl-16 empty:hidden">
+          <span className="col-start-2 min-w-0 empty:hidden">
             <RowDetail story={story} figures={figures} />
           </span>
-        </span>
-        <span className="flex justify-end">{action ?? <RowCounts figures={figures} />}</span>
+        </ItemContent>
+        <ItemActions className="justify-end">{action ?? <RowCounts story={story} figures={figures} />}</ItemActions>
         <ChevronRight aria-hidden="true" size={16} className="text-subtle-foreground transition-colors group-hover/row:text-foreground" />
-      </div>
-      {error && <p className="m-0 px-4 pb-2 text-small text-destructive-text">{error}</p>}
-    </li>
+        {error && <p className="col-span-full m-0 pt-1 text-small text-destructive-text">{error}</p>}
+      </li>
+    </Item>
   );
 }

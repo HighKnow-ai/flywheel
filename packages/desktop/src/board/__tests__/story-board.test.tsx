@@ -65,7 +65,7 @@ function milestone(id: string, title: string): MilestoneDto {
   return { id, projectId: "p1", title, exitTest: null, state: "shaping", current: true, rank: "a" };
 }
 
-function epic(id: string, title: string, milestoneId = "m1"): EpicDto {
+function epic(id: string, title: string, milestoneId = "m1", state = "shaping"): EpicDto {
   return {
     id,
     projectId: "p1",
@@ -76,13 +76,13 @@ function epic(id: string, title: string, milestoneId = "m1"): EpicDto {
     scope: null,
     outOfScope: null,
     exitTest: null,
-    state: "shaping",
+    state,
     rank: "a",
   };
 }
 
-function story(id: string, key: string, title: string, state: string): StoryDto {
-  return { id, projectId: "p1", epicId: "e1", key, title, description: null, state, runsAfterStoryId: null, rank: "a" };
+function story(id: string, key: string, title: string, state: string, epicId = "e1"): StoryDto {
+  return { id, projectId: "p1", epicId, key, title, description: null, state, runsAfterStoryId: null, rank: "a" };
 }
 
 /** A row's figures as the core reads them, quiet unless overridden. */
@@ -360,7 +360,7 @@ describe("StoryBoard: the hand-written Story form", () => {
 });
 
 describe("StoryBoard: rows from the roster's one core read (issue #159)", () => {
-  it("shows an In review row's diff size and Open review, tinted and saying In review", async () => {
+  it("shows an In review row's diff size and Open review, saying In review, untinted (#202)", async () => {
     seedRoster(
       [story("s1", "FLY-2", "Under review", "in_review")],
       [row("s1", { criteriaMet: 2, criteriaTotal: 5, tasksDone: 1, tasksTotal: 1, review: { files: 3, added: 40, removed: 7 } })],
@@ -371,8 +371,8 @@ describe("StoryBoard: rows from the roster's one core read (issue #159)", () => 
     expect(await within(review).findByText("+40 −7 · 3 files")).toBeInTheDocument();
     expect(within(review).getByRole("button", { name: "Open review of FLY-2" })).toBeInTheDocument();
     expect(within(review).getByText("In review")).toBeInTheDocument();
-    expect(review).toHaveAttribute("data-needs-you", "review");
-    expect(review.className).toMatch(/bg-attention-muted/);
+    expect(review).not.toHaveAttribute("data-needs-you");
+    expect(review.className).not.toMatch(/bg-attention-muted/);
     // The row offers its action, not the counts.
     expect(within(review).queryByText(/criteria/)).toBeNull();
   });
@@ -393,7 +393,7 @@ describe("StoryBoard: rows from the roster's one core read (issue #159)", () => 
     expect(useUiStore.getState().activeSessionId).toBe("ses-1");
   });
 
-  it("offers Resume on a Stopped row, says why it stopped and what it was doing, tinted", async () => {
+  it("offers Resume on a Stopped row, says why it stopped and what it was doing, untinted (#202)", async () => {
     seedRoster(
       [story("s1", "FLY-2", "Stopped one", "running")],
       [row("s1", { attention: "stopped", endingReason: "crash", doingTaskTitle: "Half done" })],
@@ -405,8 +405,8 @@ describe("StoryBoard: rows from the roster's one core read (issue #159)", () => 
     expect(within(stopped).getByText("· was doing “Half done”")).toBeInTheDocument();
     expect(within(stopped).getByRole("button", { name: "Resume FLY-2" })).toBeInTheDocument();
     expect(within(stopped).getByText("Stopped")).toBeInTheDocument();
-    expect(stopped).toHaveAttribute("data-needs-you", "stopped");
-    expect(stopped.className).toMatch(/bg-attention-muted/);
+    expect(stopped).not.toHaveAttribute("data-needs-you");
+    expect(stopped.className).not.toMatch(/bg-attention-muted/);
   });
 
   it("opens a Running row's live session from the session the core named, untinted", async () => {
@@ -424,21 +424,41 @@ describe("StoryBoard: rows from the roster's one core read (issue #159)", () => 
     expect(useUiStore.getState().activeSessionId).toBe("ses-1");
   });
 
-  it("shows criteria x/y · tasks x/y on a row with no action", async () => {
+  it("shows criteria x/y · tasks x/y on a row with no action, leaving out a count with nothing in it (#202)", async () => {
     seedRoster(
-      [story("s1", "FLY-2", "Done one", "merged"), story("s2", "FLY-3", "Being shaped", "shaping")],
+      [story("s1", "FLY-2", "Being shaped", "shaping"), story("s2", "FLY-3", "Half way", "shaping")],
       [
-        row("s1", { criteriaMet: 4, criteriaTotal: 4, tasksDone: 3, tasksTotal: 3 }),
-        row("s2", { criteriaMet: 0, criteriaTotal: 2 }),
+        row("s1", { criteriaMet: 0, criteriaTotal: 2 }),
+        row("s2", { criteriaMet: 1, criteriaTotal: 3, tasksDone: 2, tasksTotal: 4 }),
       ],
     );
     renderBoard();
 
-    const [merged, shaping] = await rosterRowsOnScreen(2);
-    expect(await within(merged).findByText("criteria 4/4 · tasks 3/3")).toBeInTheDocument();
-    expect(within(shaping).getByText("criteria 0/2 · tasks 0/0")).toBeInTheDocument();
-    expect(within(merged).queryByRole("button", { name: /FLY-2$/ })).toBeNull();
-    expect(merged).not.toHaveAttribute("data-needs-you");
+    const [criteriaOnly, both] = await rosterRowsOnScreen(2);
+    expect(await within(criteriaOnly).findByText("criteria 0/2")).toBeInTheDocument();
+    expect(within(both).getByText("criteria 1/3 · tasks 2/4")).toBeInTheDocument();
+    expect(criteriaOnly).not.toHaveAttribute("data-needs-you");
+  });
+
+  it("shows no counts where they say nothing: a Merged or Dropped row, or one with no criterion and no Task (#202)", async () => {
+    seedRoster(
+      [
+        story("s1", "FLY-2", "Done one", "merged"),
+        story("s2", "FLY-3", "Gone one", "dropped"),
+        story("s3", "FLY-4", "Bare one", "shaping"),
+      ],
+      [
+        row("s1", { criteriaMet: 4, criteriaTotal: 4, tasksDone: 3, tasksTotal: 3 }),
+        row("s2", { criteriaMet: 0, criteriaTotal: 2 }),
+        row("s3"),
+      ],
+    );
+    renderBoard();
+
+    const rows = await rosterRowsOnScreen(3);
+    await waitFor(() => expect(rows[1]).toHaveTextContent("Dropped: kept readable, no worktree"));
+    for (const each of rows) expect(within(each).queryByText(/criteria|tasks/)).toBeNull();
+    expect(within(rows[0]).queryByRole("button", { name: /FLY-2$/ })).toBeNull();
   });
 
   it("issues no read per row: one roster read for the Milestone", async () => {
@@ -534,5 +554,109 @@ describe("StoryBoard: an Epic row's Proposals (issue #162)", () => {
     await screen.findByRole("list", { name: "E1 Stories" });
     await waitFor(() => expect(document.querySelector("[data-epic-id=e1]")).not.toBeNull());
     expect(screen.queryByRole("button", { name: /Proposals? on E1/ })).toBeNull();
+  });
+});
+
+describe("StoryBoard: the roster reads at a glance (issue #202)", () => {
+  it("tints only a row Waiting on you; Stopped and In review rows stay plain", async () => {
+    seedRoster(
+      [
+        story("s1", "FLY-2", "Waiting", "running"),
+        story("s2", "FLY-3", "Stopped", "running"),
+        story("s3", "FLY-4", "Review", "in_review"),
+        story("s4", "FLY-5", "Busy", "running"),
+      ],
+      [
+        row("s1", { attention: "waiting_on_you", liveSessionId: "ses-1" }),
+        row("s2", { attention: "stopped", endingReason: "crash" }),
+        row("s3", { review: { files: 1, added: 1, removed: 0 } }),
+        row("s4", { liveSessionId: "ses-4" }),
+      ],
+    );
+    renderBoard();
+
+    const rows = await rosterRowsOnScreen(4);
+    await screen.findByRole("button", { name: "Answer FLY-2" });
+    const tinted = rows.filter((each) => /bg-attention-muted/.test(each.className));
+    expect(tinted).toEqual([rows[0]]);
+    expect(rows[0]).toHaveAttribute("data-needs-you", "waiting");
+  });
+
+  it("lists live Epics first and folds the Done ones into one disclosure at the end, which opens on click", async () => {
+    milestoneList.mockResolvedValue([milestone("m1", "M1")]);
+    epicList.mockResolvedValue([epic("e1", "Shipped", "m1", "done"), epic("e2", "Live", "m1", "in_progress")]);
+    storyListForProject.mockResolvedValue([
+      story("s1", "FLY-2", "Old work", "merged", "e1"),
+      story("s2", "FLY-3", "New work", "running", "e2"),
+    ]);
+    rosterRows.mockResolvedValue([row("s1"), row("s2")]);
+    renderBoard();
+
+    const live = await screen.findByRole("list", { name: "Live Stories" });
+    const fold = await screen.findByRole("button", { name: /1 Epic done/ });
+    expect(fold).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("list", { name: "Shipped Stories" })).toBeNull();
+    expect(live.compareDocumentPosition(fold) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(fold);
+    expect(fold).toHaveAttribute("aria-expanded", "true");
+    const shipped = await screen.findByRole("list", { name: "Shipped Stories" });
+    expect(await within(shipped).findByText("Old work")).toBeInTheDocument();
+  });
+
+  it("shows no fold while no Epic is Done", async () => {
+    seedRoster([story("s1", "FLY-2", "One", "ready")], [row("s1")]);
+    renderBoard();
+    await rosterRowsOnScreen(1);
+    expect(screen.queryByRole("button", { name: /Epics? done/ })).toBeNull();
+  });
+
+  it("shows Skeleton rows while the roster loads", async () => {
+    milestoneList.mockResolvedValue([milestone("m1", "M1")]);
+    storyListForProject.mockReturnValue(new Promise(() => {}));
+    renderBoard();
+    const loading = await screen.findByLabelText("Loading the roster");
+    expect(loading.querySelectorAll("[data-slot=skeleton]").length).toBeGreaterThan(3);
+  });
+
+  it("shows ReadError with Try again when the Stories cannot be read, and Try again reads them again", async () => {
+    milestoneList.mockResolvedValue([milestone("m1", "M1")]);
+    storyListForProject.mockRejectedValue(new Error("core went away"));
+    renderBoard();
+
+    expect(await screen.findByText("Couldn't load the roster")).toBeInTheDocument();
+    const calls = storyListForProject.mock.calls.length;
+    storyListForProject.mockResolvedValue([story("s1", "FLY-2", "Back", "ready")]);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(storyListForProject.mock.calls.length).toBeGreaterThan(calls));
+    expect(await screen.findByText("Back")).toBeInTheDocument();
+  });
+
+  it("shows ReadError with Try again over the Stories when the roster's one read fails", async () => {
+    seedRoster([story("s1", "FLY-2", "One", "running")], []);
+    rosterRows.mockRejectedValue(new Error("roster_rows failed"));
+    renderBoard();
+
+    expect(await screen.findByText("Couldn't load the roster")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "E1 Stories" })).toBeInTheDocument();
+    const calls = rosterRows.mock.calls.length;
+    rosterRows.mockResolvedValue([row("s1", { attention: "waiting_on_you", liveSessionId: "ses-1" })]);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(rosterRows.mock.calls.length).toBeGreaterThan(calls));
+    expect(await screen.findByRole("button", { name: "Answer FLY-2" })).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't load the roster")).toBeNull();
+  });
+
+  it("draws every key with StoryKey, one width for the project's longest key", async () => {
+    seedRoster(
+      [story("s1", "PRESALES-1001", "Long key", "ready"), story("s2", "PRESALES-7", "Short key", "ready")],
+      [row("s1"), row("s2")],
+    );
+    renderBoard();
+    const [long, short] = await rosterRowsOnScreen(2);
+    const keyOf = (el: HTMLElement) => el.querySelector<HTMLElement>("[data-slot=story-key]")!;
+    expect(keyOf(long)).toHaveTextContent("PRESALES-1001");
+    expect(keyOf(long).style.minWidth).toBe("13ch");
+    expect(keyOf(short).style.minWidth).toBe("13ch");
   });
 });
