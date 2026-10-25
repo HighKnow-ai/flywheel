@@ -8,17 +8,24 @@
  * under "Other". Sending reports `{ [question text]: [picked labels and/or typed text] }`; the core
  * checks it and builds the answers Claude Code reads.
  *
+ * The choices are shadcn choice cards (Story #206): a single-choice question is a Radio Group, a `multiSelect` one a
+ * set of Checkboxes, each control inside its Field label, so the arrow keys move a single choice and Space toggles a
+ * multiple one. "Other" is one more choice card holding the free-text field; typing in it picks it.
+ *
  * The form waits for as long as it takes: nothing here times out, and it is never dismissible.
  *
  * A half-typed answer is a draft kept in UI state under the request id (issue #104), not in the form:
  * the feed is virtualised, so the row holding this form unmounts when it scrolls out of view, and the
  * same request is answerable from the feed and from Waiting on you. Sending clears the draft.
  */
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Send } from "lucide-react";
 import type { QuestionPrompt } from "./feedRows";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldContent, FieldDescription, FieldLabel, FieldLegend, FieldSet, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { useUiStore, type QuestionDraft } from "../state/uiStore";
 
@@ -36,6 +43,52 @@ export interface QuestionFormProps {
 type Choice = QuestionDraft;
 
 const EMPTY: Choice = { labels: [], other: false, otherText: "" };
+
+/** The Radio Group value of "Other"; an option is its index, so a label never collides with it. */
+const OTHER = "other";
+
+function optionValue(options: QuestionPrompt["options"], label: string | undefined): string | undefined {
+  if (label === undefined) return undefined;
+  const index = options.findIndex((o) => o.label === label);
+  return index < 0 ? undefined : String(index);
+}
+
+/** One choice: the stock shadcn choice card, a Field label wrapping the control (Radio Group item or Checkbox), its
+ * title and description. The whole card is the hit area; the control is named by the title alone and described by
+ * the description, so a screen reader hears "Red, radio button, Warm". `extra` sits under the title ("Other"'s
+ * free-text field), inside the card but never forwarding its clicks to the control. */
+function ChoiceCard({
+  id,
+  title,
+  description,
+  extra,
+  children,
+}: {
+  id: string;
+  title: string;
+  description?: string;
+  extra?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <FieldLabel htmlFor={id} className="cursor-pointer rounded-md transition-colors duration-(--duration-state) ease-(--ease)">
+      <Field orientation="horizontal" className="items-start">
+        {children}
+        <FieldContent className="min-w-0 gap-0.5">
+          <FieldTitle id={`${id}-title`} className="text-body font-semibold break-words">
+            {title}
+          </FieldTitle>
+          {description && (
+            <FieldDescription id={`${id}-desc`} className="text-small">
+              {description}
+            </FieldDescription>
+          )}
+          {extra && <div className="mt-1.5">{extra}</div>}
+        </FieldContent>
+      </Field>
+    </FieldLabel>
+  );
+}
 
 /** The values one question sends: the picked labels, then the typed text when "Other" is chosen. */
 export function picksFor(choice: Choice): string[] {
@@ -114,20 +167,29 @@ export function QuestionForm({ questions, onSubmit, draftKey }: QuestionFormProp
     }
   }
 
-  const optionClass =
-    "question-option flex cursor-pointer items-start gap-3 rounded-md border border-border px-3 py-2.5 text-body transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent has-[input:checked]:border-primary has-[input:checked]:bg-running-muted has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-ring";
-  const inputClass = "mt-0.5 size-4 shrink-0 accent-(--primary) focus-visible:outline-none";
-
   return (
-    <form className="question-form flex min-w-0 flex-col gap-4" onSubmit={(e) => void submit(e)} aria-label="Answer the agent's question">
-      <div className={cn("grid min-w-0 gap-x-6 gap-y-5", questions.length > 1 && "lg:grid-cols-2")}>
+    <form className="@container/question flex min-w-0 flex-col gap-4" onSubmit={(e) => void submit(e)} aria-label="Answer the agent's question">
+      {/* Two questions sit side by side when the card has the room, not when the window does: the same card is 400px
+          in the Waiting-on-you column and the feed's width in the session. */}
+      <div className={cn("grid min-w-0 gap-x-6 gap-y-5", questions.length > 1 && "@2xl/question:grid-cols-2")}>
         {questions.map((q, i) => {
           const multi = q.multiSelect === true;
           const choice = choices[i] ?? EMPTY;
-          const name = `${formId}-q${i}`;
+          const ids = `${formId}-q${i}`;
+          const otherInput = (
+            <Input
+              type="text"
+              aria-label={`Your own answer to: ${q.question}`}
+              placeholder="Type your own answer"
+              value={choice.otherText}
+              disabled={sending}
+              onChange={(e) => typeOther(i, e.target.value, multi)}
+              className="h-8"
+            />
+          );
           return (
-            <fieldset key={i} className="question-fieldset m-0 flex min-w-0 flex-col gap-2 border-0 p-0" disabled={sending}>
-              <legend className="question-legend mb-2 flex w-full flex-col gap-1 p-0 break-words">
+            <FieldSet key={i} className="m-0 min-w-0 gap-2 border-0 p-0" disabled={sending}>
+              <FieldLegend className="mb-2 flex w-full flex-col gap-1 p-0 break-words">
                 <span className="flex items-center gap-2 text-meta font-semibold text-muted-foreground">
                   {questions.length > 1 && (
                     <span className="flex size-5 items-center justify-center rounded-sm bg-foreground text-meta text-card tabular-nums">
@@ -137,51 +199,67 @@ export function QuestionForm({ questions, onSubmit, draftKey }: QuestionFormProp
                   {q.header ?? "Question"}
                   {multi ? " · pick any" : ""}
                 </span>
-                <span className="text-body font-semibold">{q.question}</span>
-              </legend>
-              {q.options.map((option, j) => (
-                <label key={j} className={optionClass}>
-                  <input
-                    type={multi ? "checkbox" : "radio"}
-                    name={name}
-                    checked={choice.labels.includes(option.label)}
-                    onChange={() => pickOption(i, option.label, multi)}
-                    className={inputClass}
-                  />
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="font-semibold">{option.label}</span>
-                    {option.description && <span className="text-small text-muted-foreground">{option.description}</span>}
-                  </span>
-                </label>
-              ))}
-              <div className={cn(optionClass, "flex-col items-stretch gap-2 hover:bg-transparent")}>
-                <label className="flex cursor-pointer items-center gap-3">
-                  <input
-                    type={multi ? "checkbox" : "radio"}
-                    name={name}
-                    checked={choice.other}
-                    onChange={() => pickOther(i, multi)}
-                    className={inputClass}
-                  />
-                  <span className="font-semibold">Other</span>
-                </label>
-                <Input
-                  type="text"
-                  aria-label={`Your own answer to: ${q.question}`}
-                  placeholder="Type your own answer"
-                  value={choice.otherText}
-                  onChange={(e) => typeOther(i, e.target.value, multi)}
-                  className="question-other h-8"
-                />
-              </div>
-            </fieldset>
+                <span id={`${ids}-text`} className="text-body font-semibold">
+                  {q.question}
+                </span>
+              </FieldLegend>
+              {multi ? (
+                <div role="group" aria-labelledby={`${ids}-text`} data-slot="checkbox-group" className="flex flex-col gap-2">
+                  {q.options.map((option, j) => (
+                    <ChoiceCard key={j} id={`${ids}-o${j}`} title={option.label} description={option.description}>
+                      <Checkbox
+                        id={`${ids}-o${j}`}
+                        aria-labelledby={`${ids}-o${j}-title`}
+                        aria-describedby={option.description ? `${ids}-o${j}-desc` : undefined}
+                        checked={choice.labels.includes(option.label)}
+                        onCheckedChange={() => pickOption(i, option.label, true)}
+                        disabled={sending}
+                      />
+                    </ChoiceCard>
+                  ))}
+                  <ChoiceCard id={`${ids}-other`} title="Other" extra={otherInput}>
+                    <Checkbox
+                      id={`${ids}-other`}
+                      aria-labelledby={`${ids}-other-title`}
+                      checked={choice.other}
+                      onCheckedChange={() => pickOther(i, true)}
+                      disabled={sending}
+                    />
+                  </ChoiceCard>
+                </div>
+              ) : (
+                <RadioGroup
+                  aria-labelledby={`${ids}-text`}
+                  value={choice.other ? OTHER : (optionValue(q.options, choice.labels[0]) ?? "")}
+                  onValueChange={(value) =>
+                    value === OTHER ? pickOther(i, false) : pickOption(i, q.options[Number(value)].label, false)
+                  }
+                  disabled={sending}
+                  className="gap-2"
+                >
+                  {q.options.map((option, j) => (
+                    <ChoiceCard key={j} id={`${ids}-o${j}`} title={option.label} description={option.description}>
+                      <RadioGroupItem
+                        id={`${ids}-o${j}`}
+                        value={String(j)}
+                        aria-labelledby={`${ids}-o${j}-title`}
+                        aria-describedby={option.description ? `${ids}-o${j}-desc` : undefined}
+                      />
+                    </ChoiceCard>
+                  ))}
+                  <ChoiceCard id={`${ids}-other`} title="Other" extra={otherInput}>
+                    <RadioGroupItem id={`${ids}-other`} value={OTHER} aria-labelledby={`${ids}-other-title`} />
+                  </ChoiceCard>
+                </RadioGroup>
+              )}
+            </FieldSet>
           );
         })}
       </div>
       <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
-        <Button type="submit" disabled={sending || !complete}>
+        <Button type="submit" loading={sending} disabled={!complete}>
           <Send aria-hidden="true" />
-          {sending ? "Sending…" : "Send answer"}
+          Send answer
         </Button>
         <span className="text-small text-muted-foreground">
           {sending

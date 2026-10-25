@@ -11,6 +11,11 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { PermissionRequestCard, type PendingPermissionRequest } from "../PermissionRequestCard";
 
+/** Story #206: the Always-allow pattern editor is a Popover; open it to reach the pattern field and its save. */
+function openPatternEditor() {
+  fireEvent.click(screen.getByRole("button", { name: "Always allow…" }));
+}
+
 function makeRequest(overrides: Partial<PendingPermissionRequest> = {}): PendingPermissionRequest {
   return {
     id: "req-1",
@@ -37,6 +42,7 @@ describe("PermissionRequestCard (standalone)", () => {
     expect(screen.getByText("rm -rf /tmp/scratch")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
+    openPatternEditor();
     expect(
       screen.getByRole("button", { name: "Always allow this pattern in this project" }),
     ).toBeInTheDocument();
@@ -197,6 +203,7 @@ describe("destructive", () => {
 
     expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
+    openPatternEditor();
     expect(
       screen.getByRole("button", { name: "Always allow this pattern in this project" }),
     ).toBeInTheDocument();
@@ -254,7 +261,7 @@ describe("destructive", () => {
     );
     const routineLead = screen.getByRole("button", { name: "Allow once" });
     expect(routineLead).toHaveAttribute("data-variant", "attention");
-    expect(screen.getByRole("button", { name: "Deny" })).toHaveAttribute("data-variant", "ghost");
+    expect(screen.getByRole("button", { name: "Deny" })).toHaveAttribute("data-variant", "outline");
     unmount();
 
     const request = destructiveRequest("hard-reset", "git reset --hard");
@@ -579,6 +586,7 @@ describe("Always allow <pattern> in this project (issue #48)", () => {
 
   it("pre-fills the pattern field with the suggested rule", () => {
     render(<PermissionRequestCard variant="feed" requests={[npmTestRequest()]} onAnswer={vi.fn()} />);
+    openPatternEditor();
     expect(screen.getByRole("textbox", { name: "Pattern" })).toHaveValue("Bash(npm test --watch)");
   });
 
@@ -586,12 +594,14 @@ describe("Always allow <pattern> in this project (issue #48)", () => {
     render(
       <PermissionRequestCard variant="feed" requests={[npmTestRequest({ suggestedRule: undefined, toolName: "WebFetch" })]} onAnswer={vi.fn()} />,
     );
+    openPatternEditor();
     expect(screen.getByRole("textbox", { name: "Pattern" })).toHaveValue("WebFetch");
   });
 
   it("saves the edited pattern with allow_always", async () => {
     const onAnswer = vi.fn().mockResolvedValue(undefined);
     render(<PermissionRequestCard variant="feed" requests={[npmTestRequest()]} onAnswer={onAnswer} />);
+    openPatternEditor();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Pattern" }), { target: { value: "  Bash(npm test:*) " } });
     fireEvent.click(screen.getByRole("button", { name: "Always allow this pattern in this project" }));
@@ -603,6 +613,7 @@ describe("Always allow <pattern> in this project (issue #48)", () => {
   it("pressing Enter in the pattern field saves the rule", async () => {
     const onAnswer = vi.fn().mockResolvedValue(undefined);
     render(<PermissionRequestCard variant="feed" requests={[npmTestRequest()]} onAnswer={onAnswer} />);
+    openPatternEditor();
 
     fireEvent.submit(screen.getByRole("textbox", { name: "Pattern" }));
 
@@ -614,6 +625,7 @@ describe("Always allow <pattern> in this project (issue #48)", () => {
       "a rule Bash(git:*) could match a Gated action, so Flywheel refuses to store it; Gated actions are asked every time";
     const onAnswer = vi.fn().mockRejectedValueOnce(reason).mockResolvedValueOnce(undefined);
     render(<PermissionRequestCard variant="feed" requests={[npmTestRequest()]} onAnswer={onAnswer} />);
+    openPatternEditor();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Pattern" }), { target: { value: "Bash(git:*)" } });
     fireEvent.click(screen.getByRole("button", { name: "Always allow this pattern in this project" }));
@@ -631,6 +643,7 @@ describe("Always allow <pattern> in this project (issue #48)", () => {
   it("an empty pattern is never sent", () => {
     const onAnswer = vi.fn().mockResolvedValue(undefined);
     render(<PermissionRequestCard variant="feed" requests={[npmTestRequest()]} onAnswer={onAnswer} />);
+    openPatternEditor();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Pattern" }), { target: { value: "   " } });
     fireEvent.click(screen.getByRole("button", { name: "Always allow this pattern in this project" }));
@@ -642,6 +655,7 @@ describe("Always allow <pattern> in this project (issue #48)", () => {
   it("typing a or d into the pattern field answers nothing", () => {
     const onAnswer = vi.fn().mockResolvedValue(undefined);
     render(<PermissionRequestCard variant="feed" requests={[npmTestRequest()]} onAnswer={onAnswer} />);
+    openPatternEditor();
 
     const field = screen.getByRole("textbox", { name: "Pattern" });
     fireEvent.keyDown(field, { key: "a" });
@@ -659,8 +673,10 @@ describe("Always allow <pattern> in this project (issue #48)", () => {
     });
     render(<PermissionRequestCard variant="feed" requests={[request]} onAnswer={vi.fn()} />);
 
-    const names = screen.getAllByRole("button").map((b) => b.textContent);
-    expect(names).toEqual(["Deny", "Allow once"]);
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]).toHaveAccessibleName("Deny");
+    expect(buttons[1]).toHaveAccessibleName("Allow once");
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.getByText("git push origin story/fly-1")).toBeInTheDocument();
   });

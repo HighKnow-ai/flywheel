@@ -368,7 +368,7 @@ Flywheel's own shared components sit beside them in `components/`: StateBadge, S
 - **Link:** running ink, no padding, underline on hover.
 - **Focus / Disabled:** the 2px ring at a 2px offset; disabled at 50% with no pointer events. Colour transitions take the state duration on the one curve.
 
-**The One Filled Action Rule.** One filled primary per region, brand blue. The only other filled action is attention, on a Waiting-on-you item. On a Gated action, Deny leads as the filled neutral (ink fill) and Allow once is outline.
+**The One Filled Action Rule.** One filled primary per region, brand blue. The only other filled action is attention, on a Waiting-on-you item. On a Gated action, Deny leads as the filled neutral (ink fill) and Allow once is outline. On every request card the two answers are one ButtonGroup with Deny in its first slot (#206): on a permission request Deny is outline and Allow once the attention fill, so the left button means the same thing all the way down the queue. The card that owns the keys draws them on the buttons in Kbd (D, A), tinted from the button's own ink; Always allow… is a ghost button beside the group, opening a Popover with the pattern in an InputGroup. The question card's choices are RadioGroup and Checkbox choice cards inside Field labels.
 
 ### Chips (state pills and badges)
 - **Style:** 24px tall, fully round, 10px sides, 13px semibold word, 15px icon, 6px gap.

@@ -10,11 +10,11 @@
  * Two variants, chosen by the request's `destructiveCategory`:
  *
  * - **A request** (no category) offers **Allow once** and **Always allow `<pattern>` in this
- *   project**. The pattern is pre-filled with the backend's suggested rule
+ *   project**, the second in a Popover beside the answers (Story #206). The pattern is pre-filled with the backend's suggested rule
  *   (`permission_pattern::suggested_rule`) and is editable, in Claude Code's syntax
  *   (`Bash(npm test:*)`). The backend may refuse the rule (one that could cover a Gated action);
  *   its reason is shown and the request stays pending. Deny stays available as the quiet answer.
- * - **A Gated action** (a category) offers only **Allow once** and **Deny**, with Deny leading. It
+ * - **A Gated action** (a category) offers only **Allow once** and **Deny**, Deny filled. It
  *   shows a plain-language sentence for its category and the literal command. No rule can ever
  *   cover a Gated action, so this variant renders no pattern field and no Always allow action at
  *   all — absent, never disabled.
@@ -24,9 +24,11 @@
  *   no keyboard shortcut, and is answered through `onAnswerQuestion`.
  *
  * **Drawn as Waiting on you** (direction.md § Colour): every request card wears the safety-yellow header,
- * because each one holds a live agent until the developer answers. A request's Allow once is the attention
- * button; on a Gated action Deny leads as the filled neutral (ink) and Allow once is outline, so
- * approve-by-muscle-memory lands on the safe answer.
+ * because each one holds a live agent until the developer answers. Both answers sit in one Button Group, and Deny
+ * is always its first slot (Story #206, critique F20): answering down the queue, the left button never changes
+ * meaning. The tones stay the card's own: a request's Allow once is the attention fill and its Deny outline; on a
+ * Gated action Deny is the filled neutral (ink) and Allow once outline, so approve-by-muscle-memory lands on the
+ * safe answer. The row that owns the keys draws them (D, A) with Kbd on the buttons.
  *
  * **Not dismissible — deliberately, and this is the one place in the whole product that departs
  * from the shared Escape ladder** (`state/keyboard.ts`'s own doc comment on `EscapeLayer`,
@@ -39,7 +41,17 @@ import { createContext, useContext, useId, useRef, useState, type FormEvent, typ
 import { Check, KeyRound, MessageCircleQuestionMark, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { useRegionBindings } from "../state/keyboard";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { ButtonGroup } from "@/components/ui/button-group";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
+import { Kbd } from "@/components/ui/kbd";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { ASK_USER_QUESTION_TOOL, questionsFromPayload } from "./feedRows";
 import { QuestionForm, type QuestionPicks } from "./QuestionForm";
@@ -218,10 +230,23 @@ function rejectionReason(err: unknown): string {
   return String(err);
 }
 
-/** One request row's own answering/error state — independent per request id. */
+/** One request row's own answering/error state — independent per request id. `decision` is the answer in flight
+ * (or the one that failed), so only its button shows the spinner and a refused rule marks the pattern field. */
 interface RowState {
   answering: boolean;
   error: string | null;
+  decision?: PermissionDecision;
+}
+
+/** An answer key drawn on its button (Story #206, P3 Kbd). It tints from the button's own text colour, so it reads
+ * on the attention fill, the ink fill and an outline alike, and it stays out of the accessible name: the button
+ * carries `aria-keyshortcuts` instead. */
+function AnswerKey({ children }: { children: ReactNode }) {
+  return (
+    <Kbd aria-hidden="true" className="-mr-1 ml-0.5 bg-current/12 text-inherit opacity-80">
+      {children}
+    </Kbd>
+  );
 }
 
 function PermissionRequestRow({
@@ -239,6 +264,7 @@ function PermissionRequestRow({
   const [state, setState] = useState<RowState>({ answering: false, error: null });
   const [pattern, setPattern] = useState<string>(request.suggestedRule ?? request.toolName);
   const patternId = useId();
+  const [editorOpen, setEditorOpen] = useState(false);
   const isGated = request.destructiveCategory !== null;
   const consequenceCopy = isGated ? consequenceCopyFor(request.destructiveCategory as string, request.inputPayload) : null;
   // A Bash call shows the literal command it would run; any other tool shows its raw input.
@@ -253,11 +279,11 @@ function PermissionRequestRow({
     if (answeringRef.current) return;
     const rule = decision === "allow_always" ? pattern.trim() : undefined;
     if (decision === "allow_always" && !rule) {
-      setState({ answering: false, error: "Enter a pattern to always allow, such as Bash(npm test:*)." });
+      setState({ answering: false, error: "Enter a pattern to always allow, such as Bash(npm test:*).", decision });
       return;
     }
     answeringRef.current = true;
-    setState({ answering: true, error: null });
+    setState({ answering: true, error: null, decision });
     try {
       if (rule === undefined) {
         await onAnswer(request.id, decision);
@@ -271,6 +297,7 @@ function PermissionRequestRow({
       answeringRef.current = false;
       setState({
         answering: false,
+        decision,
         error:
           decision === "allow_always"
             ? `Flywheel didn't save that rule: ${rejectionReason(err)}`
@@ -300,6 +327,14 @@ function PermissionRequestRow({
   );
 
   const payloadMaxHeight = variant === "compact" ? 160 : 240;
+
+  // One error line: inside the pattern editor while it is open (a refused rule says why next to the rule), on the
+  // card otherwise.
+  const errorLine = state.error && (
+    <p role="alert" className="m-0 text-small break-words text-destructive-text">
+      {state.error}
+    </p>
+  );
 
   return (
     <RequestFrame
@@ -335,67 +370,94 @@ function PermissionRequestRow({
         {literal}
       </pre>
 
-      <div className="flex flex-col gap-3">
-        <div className="flex gap-2">
-          {isGated ? (
-            <>
-              {/* Reversed emphasis: Deny leads, filled in ink, where a request's Allow once sits, so
-                  approve-by-muscle-memory lands on the safe answer. */}
-              <Button variant="neutral" disabled={state.answering} onClick={() => void answer("deny")}>
-                <X aria-hidden="true" />
-                Deny
-              </Button>
-              <Button variant="outline" disabled={state.answering} onClick={() => void answer("allow")}>
-                <Check aria-hidden="true" />
-                Allow once
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="attention" disabled={state.answering} onClick={() => void answer("allow")}>
-                <Check aria-hidden="true" />
-                Allow once
-              </Button>
-              <Button variant="ghost" disabled={state.answering} onClick={() => void answer("deny")}>
-                <X aria-hidden="true" />
-                Deny
-              </Button>
-            </>
-          )}
-        </div>
-        {/* The standing rule is absent from a Gated action's card, never rendered-and-disabled, because no
-            rule may ever cover one. It sits below a rule, away from the two quick answers, with its pattern
-            pre-filled and editable. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Deny is the first slot of one Button Group on every request card (Story #206, critique F20), so the left
+            answer means the same thing all the way down the Waiting-on-you queue. Each card keeps its own tones:
+            a request's Allow once is the attention fill, a Gated action's Deny the ink fill, so on a Gated action
+            approve-by-muscle-memory still lands on the safe answer. */}
+        <ButtonGroup aria-label="Answer">
+          <Button
+            variant={isGated ? "neutral" : "outline"}
+            disabled={state.answering}
+            loading={state.answering && state.decision === "deny"}
+            aria-keyshortcuts={keyboardEnabled ? "D" : undefined}
+            onClick={() => void answer("deny")}
+          >
+            <X aria-hidden="true" />
+            Deny
+            {keyboardEnabled && <AnswerKey>D</AnswerKey>}
+          </Button>
+          <Button
+            variant={isGated ? "outline" : "attention"}
+            disabled={state.answering}
+            loading={state.answering && state.decision === "allow"}
+            aria-keyshortcuts={keyboardEnabled ? "A" : undefined}
+            onClick={() => void answer("allow")}
+          >
+            <Check aria-hidden="true" />
+            Allow once
+            {keyboardEnabled && <AnswerKey>A</AnswerKey>}
+          </Button>
+        </ButtonGroup>
+        {/* The standing rule is absent from a Gated action's card, never rendered-and-disabled, because no rule may
+            ever cover one. On a request it is a Popover beside the two quick answers, its pattern pre-filled. */}
         {!isGated && (
-          <form className="flex flex-col gap-1.5 border-t border-border pt-3" onSubmit={submitRule}>
-            <label htmlFor={patternId} className="text-small font-semibold text-muted-foreground">
-              Pattern
-            </label>
-            <div className="flex flex-wrap gap-2">
-              <Input
-                id={patternId}
-                value={pattern}
-                onChange={(e) => setPattern(e.target.value)}
-                disabled={state.answering}
-                spellCheck={false}
-                autoCapitalize="off"
-                autoCorrect="off"
-                className="min-w-56 flex-1 font-mono text-small"
-              />
-              <Button type="submit" variant="outline" disabled={state.answering}>
+          <Popover open={editorOpen} onOpenChange={setEditorOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" disabled={state.answering}>
                 <ShieldCheck aria-hidden="true" />
-                Always allow this pattern <span className="font-bold">in this project</span>
+                Always allow…
               </Button>
-            </div>
-          </form>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-[26rem] max-w-[calc(100vw-2rem)] gap-3 p-3">
+              <form className="flex flex-col gap-3" onSubmit={submitRule}>
+                <PopoverHeader>
+                  <PopoverTitle className="text-row font-semibold">Always allow in this project</PopoverTitle>
+                  <PopoverDescription className="text-small">
+                    Calls that match this pattern run without asking, in this project only. It uses Claude Code&rsquo;s
+                    rule syntax, such as <code className="font-mono">Bash(npm test:*)</code>.
+                  </PopoverDescription>
+                </PopoverHeader>
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor={patternId} className="text-small font-semibold text-muted-foreground">
+                    Pattern
+                  </label>
+                  <InputGroup className="h-8.5">
+                    <InputGroupInput
+                      id={patternId}
+                      value={pattern}
+                      onChange={(e) => setPattern(e.target.value)}
+                      disabled={state.answering}
+                      aria-invalid={state.error !== null && state.decision === "allow_always" ? true : undefined}
+                      spellCheck={false}
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      className="font-mono text-small"
+                    />
+                    <InputGroupAddon align="inline-end">
+                      <InputGroupButton
+                        type="submit"
+                        variant="default"
+                        size="sm"
+                        disabled={state.answering}
+                        loading={state.answering && state.decision === "allow_always"}
+                        aria-label="Always allow this pattern in this project"
+                        className="h-6.5"
+                      >
+                        <ShieldCheck aria-hidden="true" />
+                        Always allow
+                      </InputGroupButton>
+                    </InputGroupAddon>
+                  </InputGroup>
+                </div>
+                {editorOpen && errorLine}
+              </form>
+            </PopoverContent>
+          </Popover>
         )}
       </div>
 
-      {state.error && (
-        <p role="alert" className="m-0 text-small break-words text-destructive-text">
-          {state.error}
-        </p>
-      )}
+      {!editorOpen && errorLine}
     </RequestFrame>
   );
 }
