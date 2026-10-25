@@ -12,6 +12,11 @@ import type { SettingsDto } from "../../adapters/tauri";
 
 const getSettingsMock = vi.fn();
 const setNotificationsMock = vi.fn();
+const notifySuccessMock = vi.fn();
+
+vi.mock("../../lib/notify", () => ({
+  notify: { success: (title: string) => notifySuccessMock(title), error: vi.fn(), dismiss: vi.fn() },
+}));
 
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string) => Promise.resolve(command === "project_list" ? [] : undefined),
@@ -46,6 +51,7 @@ function renderSettings() {
 }
 
 beforeEach(() => {
+  notifySuccessMock.mockReset();
   getSettingsMock.mockReset();
   setNotificationsMock.mockReset();
   getSettingsMock.mockResolvedValue(fixture(true));
@@ -53,24 +59,26 @@ beforeEach(() => {
 });
 
 describe("SettingsSurface — notification switch", () => {
-  it("renders exactly one switch, checked from the stored value, even with projects registered", async () => {
+  it("renders exactly one switch, on from the stored value, even with projects registered", async () => {
     renderSettings();
-    const box = (await screen.findByTestId("notifications-switch")) as HTMLInputElement;
-    expect(box.checked).toBe(true);
-    expect(screen.getAllByRole("checkbox", { name: /notify when an agent/i })).toHaveLength(1);
+    const toggle = await screen.findByTestId("notifications-switch");
+    expect(toggle).toHaveAttribute("role", "switch");
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(screen.getAllByRole("switch", { name: /notify when an agent/i })).toHaveLength(1);
     expect(screen.getAllByTestId("notifications-switch")).toHaveLength(1);
   });
 
-  it("reads an off value as unchecked", async () => {
+  it("reads an off value as off", async () => {
     getSettingsMock.mockResolvedValue(fixture(false));
     renderSettings();
-    expect(((await screen.findByTestId("notifications-switch")) as HTMLInputElement).checked).toBe(false);
+    expect(await screen.findByTestId("notifications-switch")).toHaveAttribute("aria-checked", "false");
   });
 
-  it("toggling calls the setter once with the new value", async () => {
+  it("toggling calls the setter once with the new value and raises a toast", async () => {
     renderSettings();
     fireEvent.click(await screen.findByTestId("notifications-switch"));
     await waitFor(() => expect(setNotificationsMock).toHaveBeenCalledTimes(1));
     expect(setNotificationsMock).toHaveBeenCalledWith(false);
+    await waitFor(() => expect(notifySuccessMock).toHaveBeenCalledWith("Notifications turned off"));
   });
 });

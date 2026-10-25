@@ -1,32 +1,38 @@
 /**
- * The Settings surface's Permission Rules table (D-38, 02-UI-SPEC.md "Permission rules", E7) —
- * every allow-always rule the user has granted, across every registered project, listed with its
- * project, tool, pattern and granted date, and a `Revoke` action per row. This is the only
- * place a granted rule can be inspected and withdrawn (02-RESEARCH.md's Security Domain: a stale
- * rule surviving a repurposed project, T-02-04).
+ * The Settings surface's Permission rules table (D-38, E7): every allow-always rule the user has granted, across
+ * every registered project, listed with its project, tool, pattern and granted date, and a Revoke action per
+ * row. This is the only place a granted rule can be inspected and withdrawn (T-02-04: a stale rule surviving a
+ * repurposed project).
  *
- * `listPermissionRules` (plan 02-05) is per-project — this table fans out one call per registered
- * project (`useProjects()`, `board/useBoardQuery.ts`) and merges the results, tagging each row
- * with its own project's name, so a rule can never be read as global (T-02-45): the project column
- * is on every row, not an implicit grouping the reader has to infer.
+ * `listPermissionRules` is per-project, so this table fans out one call per registered project and merges the
+ * results, tagging each row with its own project's name, so a rule can never be read as global (T-02-45): the
+ * project column is on every row, not an implicit grouping the reader has to infer.
  *
- * Revoke calls `revokePermissionRule` and then re-reads (invalidating this table's own query) —
- * it never optimistically drops the row before the underlying write lands, because the row
- * represents granted authority and the list must reflect what is actually stored. The mutation
- * appends an event (plan 02-05's `permission_rule` domain module), so a revocation is as auditable
- * as the grant it undoes; this table relies on that happening elsewhere rather than writing to the
- * activity trail itself.
+ * Revoke calls `revokePermissionRule` and then re-reads: it never optimistically drops the row before the write
+ * lands, because the row represents granted authority and the list must reflect what is actually stored.
+ *
+ * Layout (#209): a fixed-layout Table, so a long pattern truncates inside its own column (the full text in a
+ * Tooltip) instead of drawing over the Granted date beside it.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ShieldOff } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ReadError } from "@/components/ReadError";
+import { RelativeTime } from "@/components/RelativeTime";
+import { notify } from "@/lib/notify";
+import { cn } from "@/lib/utils";
 import { listPermissionRules, revokePermissionRule, type PermissionRuleDto } from "../adapters/tauri";
 import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
 import type { Project } from "../board/useBoardQuery";
-import "../styles/admin-surfaces.css";
 
-/** The exact copy from 02-UI-SPEC.md's Copywriting Contract ("Settings — permission rules, empty
- * state") — tells the user where rules come from rather than just reporting their absence. */
-const EMPTY_STATE_COPY =
-  "No rules yet — they're created from a permission request's \"Always allow this pattern in this project\" action.";
+/** Tells the user where rules come from rather than just reporting their absence. */
+export const EMPTY_TITLE = "No rules yet";
+export const EMPTY_DESCRIPTION =
+  "They're created from a permission request's “Always allow this pattern in this project” action.";
 
 interface RuleRow extends PermissionRuleDto {
   projectName: string;
@@ -36,39 +42,42 @@ function rulesQueryKey(projectIds: string[]) {
   return ["permission-rules", ...projectIds] as const;
 }
 
-/** A row-shaped placeholder for the window between this table mounting and its fan-out read
- * resolving — never the empty-state copy during a load, which would tell the user something false
- * about their own security posture (E7 loading). Same minimal pattern
- * `settings/SettingsSurface.tsx`'s own `SectionSkeleton` uses. */
+/** Skeleton rows in the table's own shape while the fan-out read is in flight: never the empty state during a
+ * load, which would tell the user something false about their own security posture (E7 loading). */
 function RowsSkeleton() {
-  const barStyle = { height: 12, borderRadius: "var(--radius-control)", background: "var(--border)" };
   return (
-    <div
-      aria-hidden="true"
-      data-testid="permission-rules-skeleton"
-      style={{ display: "flex", flexDirection: "column", gap: "var(--space-sm)" }}
-    >
-      <div style={{ ...barStyle, width: "80%" }} />
-      <div style={{ ...barStyle, width: "55%" }} />
+    <div aria-hidden="true" data-testid="permission-rules-skeleton" className="flex flex-col gap-3 py-1">
+      {[0, 1, 2].map((row) => (
+        <div key={row} className="flex items-center gap-4">
+          <Skeleton className="h-3.5 w-[18%]" />
+          <Skeleton className="h-3.5 w-[12%]" />
+          <Skeleton className="h-3.5 flex-1" />
+          <Skeleton className="h-3.5 w-16" />
+          <Skeleton className="h-7 w-18" />
+        </div>
+      ))}
     </div>
   );
 }
 
-function formatDate(iso: string): string {
-  const parsed = new Date(iso);
-  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleDateString();
+/** A cell's text on one line, cut with an ellipsis inside its column, the whole text in a Tooltip: a cell that
+ * names granted authority never hides any of it. */
+function TruncatedText({ text, className }: { text: string; className?: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={cn("block truncate", className)}>{text}</span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-md break-all">{text}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 export interface PermissionRulesTableProps {
-  /** The full registered-project roster (`useProjects()`) — fetched by the caller
-   * (`SettingsSurface.tsx`), not by this component, matching `AssigneePicker.tsx`'s own
-   * "the roster is fetched by the caller" convention. */
+  /** The full registered-project roster (`useProjects()`), fetched by the caller. */
   projects: Project[];
-  /** Whether the CALLER's own project-roster read is still in flight — `projects` reads as an
-   * empty array both while the roster is loading and once it genuinely resolves to zero projects,
-   * and those two states must render differently here (skeleton vs. the real empty-state copy).
-   * Defaults to `false` so a caller that has already resolved its roster (or has none to track)
-   * is unaffected. */
+  /** Whether the caller's own roster read is still in flight: an empty `projects` reads the same while it loads
+   * and once it resolves to zero projects, and those must render differently (skeleton vs. empty state). */
   loadingProjects?: boolean;
 }
 
@@ -92,87 +101,103 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
     enabled: projects.length > 0,
   });
 
-  // Revoking a rule appends a project-scoped event (plan 02-05's `revoke_rule`), which reaches
-  // the board through the same `board:changed` push every other surface already subscribes to
-  // (D-04) — this table never trusts its own write as already resolved, matching every other hook
-  // in `useBoardQuery.ts`.
+  // Revoking appends a project-scoped event, which reaches the board through the same `board:changed` push every
+  // other surface subscribes to (D-04).
   useBoardChangedInvalidation({ kind: "account" }, projects.length > 0 ? [queryKey] : []);
 
   const revokeMutation = useMutation({
-    mutationFn: (ruleId: string) => revokePermissionRule(ruleId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    mutationFn: (rule: RuleRow) => revokePermissionRule(rule.id),
+    onSuccess: async (_data, rule) => {
+      await queryClient.invalidateQueries({ queryKey });
+      notify.success(`Revoked ${rule.tool} in ${rule.projectName}`, {
+        description: "Its next request will ask you again.",
+      });
+    },
   });
 
-  const rules: RuleRow[] = rulesQuery.data ?? [];
-  // Loading while the CALLER's own roster is still resolving (an empty `projects` array is
-  // ambiguous between "still loading" and "genuinely zero") OR while this table's own fan-out
-  // read is in flight for a non-empty roster — never merely `rulesQuery.isPending` alone, which
-  // stays permanently true for a roster that resolves to zero projects (the query is `enabled`
-  // only when `projects.length > 0` and therefore never settles on its own in that case).
+  // Loading while the caller's roster is still resolving, or while this table's own fan-out read is in flight
+  // for a non-empty roster. Never `rulesQuery.isPending` alone: it stays true for a zero-project roster, where
+  // the query is disabled and never settles.
   const loading = loadingProjects || (rulesQuery.isPending && projects.length > 0);
+  if (loading) return <RowsSkeleton />;
+  if (rulesQuery.isError) return <ReadError title="Couldn't load the permission rules" query={rulesQuery} />;
+
+  const rules: RuleRow[] = rulesQuery.data ?? [];
+  if (rules.length === 0) {
+    return (
+      <Empty className="border border-border p-6">
+        <EmptyHeader>
+          <EmptyTitle>{EMPTY_TITLE}</EmptyTitle>
+          <EmptyDescription>{EMPTY_DESCRIPTION}</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
 
   return (
-    <div role="table" aria-label="Permission rules" className="admin-table">
-      {loading ? (
-        <RowsSkeleton />
-      ) : rules.length === 0 ? (
-        <p className="type-body" style={{ margin: 0, color: "var(--muted-foreground)" }}>
-          {EMPTY_STATE_COPY}
+    <div className="flex flex-col gap-2">
+      <Table aria-label="Permission rules" className="table-fixed text-body">
+        <colgroup>
+          <col className="w-[22%]" />
+          <col className="w-[16%]" />
+          <col />
+          <col className="w-24" />
+          <col className="w-24" />
+        </colgroup>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="pl-0 text-small text-muted-foreground">Project</TableHead>
+            <TableHead className="text-small text-muted-foreground">Tool</TableHead>
+            <TableHead className="text-small text-muted-foreground">Pattern</TableHead>
+            <TableHead className="text-small text-muted-foreground">Granted</TableHead>
+            <TableHead className="pr-0">
+              <span className="sr-only">Action</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rules.map((rule) => {
+            const revoking = revokeMutation.isPending && revokeMutation.variables?.id === rule.id;
+            return (
+              <TableRow key={rule.id}>
+                <TableCell className="pl-0">
+                  <TruncatedText text={rule.projectName} />
+                </TableCell>
+                <TableCell>
+                  <TruncatedText text={rule.tool} />
+                </TableCell>
+                <TableCell>
+                  {rule.pattern === "*" ? (
+                    <span className="text-muted-foreground">every input</span>
+                  ) : (
+                    <TruncatedText text={rule.pattern} className="font-mono text-small text-muted-foreground" />
+                  )}
+                </TableCell>
+                <TableCell className="text-small text-muted-foreground">
+                  <RelativeTime at={rule.createdAt} />
+                </TableCell>
+                <TableCell className="pr-0 text-right">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    loading={revoking}
+                    // One revoke at a time per rule: a second click while the write is in flight would fire it twice.
+                    onClick={() => revokeMutation.mutate(rule)}
+                  >
+                    <ShieldOff aria-hidden="true" />
+                    Revoke
+                  </Button>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+      {revokeMutation.isError && (
+        // The row is kept (it is still granted authority) and the failure is named in place.
+        <p role="alert" className="m-0 text-small text-destructive-text">
+          Couldn&rsquo;t revoke this rule: {(revokeMutation.error as Error).message}
         </p>
-      ) : (
-        <>
-          {/* Column headings, so the four unlabelled columns read as a table and not as a run of words. */}
-          <div role="row" className="admin-table-row admin-table-head type-label">
-            <span role="columnheader">Project</span>
-            <span role="columnheader">Tool</span>
-            <span role="columnheader">Pattern</span>
-            <span role="columnheader">Granted</span>
-            <span role="columnheader" aria-hidden="true" />
-          </div>
-          {rules.map((rule) => (
-            <div key={rule.id} role="row" className="admin-table-row">
-              <span
-                role="cell"
-                className="type-body"
-                // A cell that ellipsizes names granted authority, so the whole name stays readable (title).
-                title={rule.projectName}
-                style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-              >
-                {rule.projectName}
-              </span>
-              <span
-                role="cell"
-                className="type-body"
-                title={rule.tool}
-                style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-              >
-                {rule.tool}
-              </span>
-              <span role="cell" className="type-label" style={{ color: "var(--muted-foreground)" }}>
-                {rule.pattern === "*" ? "every input" : rule.pattern}
-              </span>
-              <span role="cell" className="type-label tabular-nums" style={{ color: "var(--muted-foreground)" }}>
-                {formatDate(rule.createdAt)}
-              </span>
-              <button
-                type="button"
-                onClick={() => revokeMutation.mutate(rule.id)}
-                // One revoke at a time per rule: a second click while the write is in flight would fire it twice.
-                disabled={revokeMutation.isPending && revokeMutation.variables === rule.id}
-                className="type-label control-edge admin-action"
-                style={{ justifySelf: "end" }}
-              >
-                Revoke
-              </button>
-            </div>
-          ))}
-          {revokeMutation.isError && (
-            // The row is kept (it is still granted authority) and the failure is named in place.
-            <p role="alert" className="type-label" style={{ margin: "var(--space-sm) 0 0", color: "var(--destructive-text)" }}>
-              Couldn&rsquo;t revoke this rule — {(revokeMutation.error as Error).message}
-            </p>
-          )}
-        </>
       )}
     </div>
   );

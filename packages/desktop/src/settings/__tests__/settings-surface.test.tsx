@@ -18,12 +18,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SettingsSurface } from "../SettingsSurface";
+import { EMPTY_DESCRIPTION } from "../PermissionRulesTable";
 import { dispatchAction, MENU_ACTION_IDS, useGlobalBindings } from "../../state/keyboard";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { Project } from "../../board/useBoardQuery";
 import type { PermissionRuleDto, SettingsDto } from "../../adapters/tauri";
 
 const invokeCommandMock = vi.fn();
+const notifySuccessMock = vi.fn();
+const notifyErrorMock = vi.fn();
 const getSettingsMock = vi.fn();
 const setCredentialModeMock = vi.fn();
 const storeApiKeyMock = vi.fn();
@@ -40,6 +43,19 @@ const setOpenCommandTemplateMock = vi.fn();
 // not whatever a test later re-exports, so a partial `...actual` spread would silently leave every
 // other real adapter function calling the genuine `@tauri-apps/api` (which throws outside a real
 // Tauri context).
+vi.mock("../../lib/notify", () => ({
+  notify: {
+    success: (title: string, options?: unknown) => notifySuccessMock(title, options),
+    error: (title: string, options?: unknown) => notifyErrorMock(title, options),
+    dismiss: vi.fn(),
+  },
+}));
+
+// Radix Select measures and captures the pointer; jsdom implements neither.
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.releasePointerCapture ??= () => {};
+Element.prototype.scrollIntoView ??= () => {};
+
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: (command: string, args?: Record<string, unknown>) => invokeCommandMock(command, args),
   getSettings: () => getSettingsMock(),
@@ -109,6 +125,8 @@ function renderSettings() {
 
 beforeEach(() => {
   invokeCommandMock.mockReset();
+  notifySuccessMock.mockReset();
+  notifyErrorMock.mockReset();
   getSettingsMock.mockReset();
   setCredentialModeMock.mockReset();
   storeApiKeyMock.mockReset();
@@ -141,8 +159,8 @@ describe("SettingsSurface — credential path (Task 1)", () => {
     getSettingsMock.mockResolvedValue(settingsFixture({ globalCredentialMode: "local" }));
     renderSettings();
 
-    const local = await screen.findByRole("radio", { name: "Local Claude Code Credentials" });
-    const apiKey = screen.getByRole("radio", { name: "API Key" });
+    const local = await screen.findByRole("radio", { name: "Local Claude Code credentials" });
+    const apiKey = screen.getByRole("radio", { name: "API key" });
     expect(local).toBeInTheDocument();
     expect(apiKey).toBeInTheDocument();
     expect(local).toHaveAttribute("aria-checked", "true");
@@ -153,15 +171,15 @@ describe("SettingsSurface — credential path (Task 1)", () => {
     getSettingsMock.mockResolvedValue(settingsFixture({ globalCredentialMode: "local" }));
     renderSettings();
 
-    await screen.findByRole("radio", { name: "Local Claude Code Credentials" });
-    expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
+    await screen.findByRole("radio", { name: "Local Claude Code credentials" });
+    expect(screen.queryByLabelText("Anthropic API key")).not.toBeInTheDocument();
   });
 
   it("selecting API Key reveals a masked input with no reveal toggle", async () => {
     getSettingsMock.mockResolvedValue(settingsFixture({ globalCredentialMode: "api_key" }));
     renderSettings();
 
-    const input = await screen.findByLabelText("API key");
+    const input = await screen.findByLabelText("Anthropic API key");
     expect(input).toHaveAttribute("type", "password");
     expect(screen.queryByRole("button", { name: /show/i })).not.toBeInTheDocument();
   });
@@ -185,7 +203,7 @@ describe("SettingsSurface — credential path (Task 1)", () => {
     getSettingsMock.mockResolvedValue(settingsFixture({ globalCredentialMode: "local" }));
     renderSettings();
 
-    await screen.findByRole("radio", { name: "Local Claude Code Credentials" });
+    await screen.findByRole("radio", { name: "Local Claude Code credentials" });
     expect(screen.queryByTestId("api-key-precedence-notice")).not.toBeInTheDocument();
   });
 
@@ -197,14 +215,15 @@ describe("SettingsSurface — credential path (Task 1)", () => {
       );
     renderSettings();
 
-    const input = (await screen.findByLabelText("API key")) as HTMLInputElement;
+    const input = (await screen.findByLabelText("Anthropic API key")) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "sk-ant-test-key" } });
     fireEvent.blur(input);
 
     await waitFor(() => expect(storeApiKeyMock).toHaveBeenCalledWith("sk-ant-test-key"));
-    await waitFor(() => expect(screen.queryByLabelText("API key")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByLabelText("Anthropic API key")).not.toBeInTheDocument());
     expect(screen.getByText(/^API key configured on /)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Replace" })).toBeInTheDocument();
+    expect(notifySuccessMock).toHaveBeenCalledWith("Saved the API key", expect.anything());
   });
 
   it("Replace returns to the masked input; the previously stored value is never rendered", async () => {
@@ -216,7 +235,7 @@ describe("SettingsSurface — credential path (Task 1)", () => {
     const replaceButton = await screen.findByRole("button", { name: "Replace" });
     fireEvent.click(replaceButton);
 
-    const input = (await screen.findByLabelText("API key")) as HTMLInputElement;
+    const input = (await screen.findByLabelText("Anthropic API key")) as HTMLInputElement;
     expect(input.value).toBe("");
     expect(screen.queryByText(/^API key configured on /)).not.toBeInTheDocument();
   });
@@ -233,17 +252,69 @@ describe("SettingsSurface — credential path (Task 1)", () => {
     );
     renderSettings();
 
-    const flywheelControl = await screen.findByRole("radiogroup", { name: "Credential path for Flywheel" });
-    expect(flywheelControl.querySelector('[aria-checked="true"]')?.textContent).toBe("Use global default");
+    const flywheelControl = await screen.findByRole("combobox", { name: "Credentials for Flywheel" });
+    expect(flywheelControl).toHaveTextContent("Use the default");
 
-    const acmeControl = screen.getByRole("radiogroup", { name: "Credential path for Acme" });
-    expect(acmeControl.querySelector('[aria-checked="true"]')?.textContent).toBe("API Key");
+    const acmeControl = screen.getByRole("combobox", { name: "Credentials for Acme" });
+    expect(acmeControl).toHaveTextContent("API key");
+    // A Table, not a fixed-height scroll box that clips its last row.
+    expect(flywheelControl.closest("table")).toHaveAccessibleName("Per-project credentials");
+  });
+
+  it("changing a project's override saves it and raises a toast naming the project", async () => {
+    mockProjects([PROJECT_A]);
+    getSettingsMock.mockResolvedValue(
+      settingsFixture({ projectOverrides: [{ projectId: "proj-a", projectName: "Flywheel", credentialMode: null }] }),
+    );
+    renderSettings();
+
+    const trigger = await screen.findByRole("combobox", { name: "Credentials for Flywheel" });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.keyDown(await screen.findByRole("option", { name: "API key" }), { key: "Enter" });
+
+    await waitFor(() => expect(setCredentialModeMock).toHaveBeenCalledWith("project", "api_key", "proj-a"));
+    await waitFor(() => expect(notifySuccessMock).toHaveBeenCalledWith("Set Flywheel to the API key", undefined));
+  });
+
+  it("choosing 'Use the default' clears the override (mode null) and says so", async () => {
+    mockProjects([PROJECT_A]);
+    getSettingsMock.mockResolvedValue(
+      settingsFixture({ projectOverrides: [{ projectId: "proj-a", projectName: "Flywheel", credentialMode: "api_key" }] }),
+    );
+    renderSettings();
+
+    const trigger = await screen.findByRole("combobox", { name: "Credentials for Flywheel" });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.keyDown(await screen.findByRole("option", { name: "Use the default" }), { key: "Enter" });
+
+    await waitFor(() => expect(setCredentialModeMock).toHaveBeenCalledWith("project", null, "proj-a"));
+    await waitFor(() =>
+      expect(notifySuccessMock).toHaveBeenCalledWith("Set Flywheel to the default credentials", undefined),
+    );
+  });
+
+  it("changing the global credential path raises a toast once it is saved", async () => {
+    renderSettings();
+    fireEvent.click(await screen.findByRole("radio", { name: "API key" }));
+    await waitFor(() => expect(notifySuccessMock).toHaveBeenCalledWith("Switched to the API key", undefined));
+  });
+
+  it("a refused credential change raises an error toast and the stored choice stays selected", async () => {
+    setCredentialModeMock.mockRejectedValue(new Error("database is locked"));
+    renderSettings();
+    fireEvent.click(await screen.findByRole("radio", { name: "API key" }));
+    await waitFor(() =>
+      expect(notifyErrorMock).toHaveBeenCalledWith("Couldn't change the credential path", expect.anything()),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("radio", { name: "Local Claude Code credentials" })).toHaveAttribute("aria-checked", "true"),
+    );
   });
 
   it("no Save button is rendered, and changing a control invokes the mutation immediately", async () => {
     renderSettings();
 
-    const apiKeyRadio = await screen.findByRole("radio", { name: "API Key" });
+    const apiKeyRadio = await screen.findByRole("radio", { name: "API key" });
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
 
     fireEvent.click(apiKeyRadio);
@@ -257,8 +328,8 @@ describe("SettingsSurface — credential path (Task 1)", () => {
     await screen.findByText(
       "Local credentials require the claude CLI, which wasn't found. The API key path still works.",
     );
-    const local = screen.getByRole("radio", { name: "Local Claude Code Credentials" });
-    const apiKey = screen.getByRole("radio", { name: "API Key" });
+    const local = screen.getByRole("radio", { name: "Local Claude Code credentials" });
+    const apiKey = screen.getByRole("radio", { name: "API key" });
     expect(local).toBeEnabled();
     expect(apiKey).toBeEnabled();
   });
@@ -267,17 +338,17 @@ describe("SettingsSurface — credential path (Task 1)", () => {
     mockProjects([]);
     renderSettings();
 
-    await screen.findByRole("radio", { name: "Local Claude Code Credentials" });
-    expect(screen.queryByText("Per-Project Override")).not.toBeInTheDocument();
+    await screen.findByRole("radio", { name: "Local Claude Code credentials" });
+    expect(screen.queryByText("Per-project credentials")).not.toBeInTheDocument();
   });
 
   it("renders skeleton rows under the section heading while the settings read is in flight", () => {
     getSettingsMock.mockReturnValue(new Promise(() => {})); // never resolves
     renderSettings();
 
-    expect(screen.getByText("Credential Path")).toBeInTheDocument();
+    expect(screen.getByText("Credentials")).toBeInTheDocument();
     expect(screen.getByTestId("settings-skeleton")).toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: "Local Claude Code Credentials" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Local Claude Code credentials" })).not.toBeInTheDocument();
   });
 
   it("a rejected key save keeps the input's value, shows an inline error, and never claims a key is configured", async () => {
@@ -285,7 +356,7 @@ describe("SettingsSurface — credential path (Task 1)", () => {
     storeApiKeyMock.mockRejectedValue(new Error("Keychain write failed"));
     renderSettings();
 
-    const input = (await screen.findByLabelText("API key")) as HTMLInputElement;
+    const input = (await screen.findByLabelText("Anthropic API key")) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "sk-ant-bad" } });
     fireEvent.blur(input);
 
@@ -321,17 +392,42 @@ function ruleFixture(overrides: Partial<PermissionRuleDto> = {}): PermissionRule
   };
 }
 
+describe("SettingsSurface — open commands", () => {
+  it("saving an edited command calls the setter and raises a toast", async () => {
+    renderSettings();
+    const input = (await screen.findByLabelText("Open in editor")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "zed {worktree_path}" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(setOpenCommandTemplateMock).toHaveBeenCalledWith("editor", "zed {worktree_path}"));
+    await waitFor(() => expect(notifySuccessMock).toHaveBeenCalledWith("Saved the editor command", undefined));
+  });
+
+  it("leaving a command untouched saves nothing and says nothing", async () => {
+    renderSettings();
+    const input = (await screen.findByLabelText("Open in terminal")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "code {worktree_path}" } });
+    fireEvent.blur(input);
+    expect(setOpenCommandTemplateMock).not.toHaveBeenCalled();
+    expect(notifySuccessMock).not.toHaveBeenCalled();
+  });
+
+  it("a refused command shows the core's reason under the field", async () => {
+    setOpenCommandTemplateMock.mockRejectedValue(new Error("The template cannot be empty."));
+    renderSettings();
+    const input = (await screen.findByLabelText("Open in editor")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: " " } });
+    fireEvent.blur(input);
+    expect(await screen.findByRole("alert")).toHaveTextContent("The template cannot be empty.");
+  });
+});
+
 describe("SettingsSurface — permission rules (Task 2)", () => {
   it("renders the exact empty-state copy when no rules exist", async () => {
     mockProjects([PROJECT_A]);
     listPermissionRulesMock.mockResolvedValue([]);
     renderSettings();
 
-    expect(
-      await screen.findByText(
-        'No rules yet — they\'re created from a permission request\'s "Always allow this pattern in this project" action.',
-      ),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(EMPTY_DESCRIPTION)).toBeInTheDocument();
   });
 
   it("renders each rule with its OWN project's name — a rule can never be read as global", async () => {
@@ -347,8 +443,8 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
 
     const flywheelRow = await screen.findByText("Flywheel");
     const acmeRow = await screen.findByText("Acme");
-    expect(flywheelRow.closest('[role="row"]')?.textContent).toContain("Bash");
-    expect(acmeRow.closest('[role="row"]')?.textContent).toContain("Edit");
+    expect(flywheelRow.closest("tr")?.textContent).toContain("Bash");
+    expect(acmeRow.closest("tr")?.textContent).toContain("Edit");
   });
 
   it("revoking a rule calls the mutation with its id and removes the row only after the re-read resolves", async () => {
@@ -365,13 +461,8 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
     fireEvent.click(revokeButton);
 
     await waitFor(() => expect(revokePermissionRuleMock).toHaveBeenCalledWith("rule-a"));
-    await waitFor(() =>
-      expect(
-        screen.getByText(
-          'No rules yet — they\'re created from a permission request\'s "Always allow this pattern in this project" action.',
-        ),
-      ).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText(EMPTY_DESCRIPTION)).toBeInTheDocument());
+    expect(notifySuccessMock).toHaveBeenCalledWith("Revoked Bash in Flywheel", expect.anything());
   });
 
   it("truncates a long tool name with an ellipsis rather than widening the table", async () => {
@@ -381,11 +472,12 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
     renderSettings();
 
     const toolCell = await screen.findByText(longName);
-    expect(toolCell.style.textOverflow).toBe("ellipsis");
-    expect(toolCell.style.whiteSpace).toBe("nowrap");
-    expect(toolCell.style.overflow).toBe("hidden");
-    // 11-17 finish review (group five): the ellipsis must never hide the name of a granted authority.
-    expect(toolCell).toHaveAttribute("title", longName);
+    expect(toolCell).toHaveClass("truncate");
+    // The columns are fixed, so a long cell cuts inside its own column instead of drawing over the next (#209).
+    expect(toolCell.closest("table")).toHaveClass("table-fixed");
+    // 11-17 finish review (group five): the ellipsis must never hide the name of a granted authority. The whole
+    // name is in a Tooltip on its trigger.
+    expect(toolCell).toHaveAttribute("data-slot", "tooltip-trigger");
   });
 
   it("disables a rule's Revoke while its revoke is in flight, so one click is one write", async () => {
@@ -396,7 +488,7 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
 
     const revokeButton = await screen.findByRole("button", { name: "Revoke" });
     fireEvent.click(revokeButton);
-    await waitFor(() => expect(revokeButton).toBeDisabled());
+    await waitFor(() => expect(revokeButton).toHaveAttribute("aria-busy", "true"));
     fireEvent.click(revokeButton);
     expect(revokePermissionRuleMock).toHaveBeenCalledTimes(1);
   });
@@ -409,7 +501,7 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("Couldn\u2019t revoke this rule \u2014 database is locked");
+    expect(alert.textContent).toContain("Couldn\u2019t revoke this rule: database is locked");
     expect(screen.getByText("Bash")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revoke" })).toBeEnabled();
   });
@@ -419,11 +511,11 @@ describe("SettingsSurface — permission rules (Task 2)", () => {
     listPermissionRulesMock.mockReturnValue(new Promise(() => {})); // never resolves
     renderSettings();
 
-    await screen.findByText("Permission Rules");
+    await screen.findByText("Permission rules");
     expect(screen.getByTestId("permission-rules-skeleton")).toBeInTheDocument();
     expect(
       screen.queryByText(
-        'No rules yet — they\'re created from a permission request\'s "Always allow this pattern in this project" action.',
+        EMPTY_DESCRIPTION,
       ),
     ).not.toBeInTheDocument();
   });
