@@ -168,10 +168,12 @@ impl From<flywheel_core::query::needs_you::NeedsYouItem> for NeedsYouItemDto {
     }
 }
 
-/// Everything in `project_id` that waits on the developer, ranked. Read-only.
+/// Everything in `project_id` that waits on the developer, ranked. Read-only. A review item asks
+/// git whether the Story still merges cleanly, so the read runs on a side connection, never under
+/// the board mutex (issue #215).
 #[tauri::command]
 pub fn needs_you_list(state: State<AppState>, project_id: String) -> Result<Vec<NeedsYouItemDto>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = super::side_connection(&state.db)?;
     let items = flywheel_core::query::needs_you::needs_you(&conn, &project_id).map_err(|e| e.to_string())?;
     Ok(items.into_iter().map(Into::into).collect())
 }

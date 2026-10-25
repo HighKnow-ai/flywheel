@@ -87,7 +87,8 @@ pub fn story_context_packet_size(
     state: State<AppState>,
     story_id: String,
 ) -> Result<flywheel_core::context_packet::PacketSize, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    // The packet reads the worktree's diff through git: a side connection, not the board mutex.
+    let conn = super::side_connection(&state.db)?;
     flywheel_core::context_packet::context_packet_size(&conn, &story_id).map_err(|e| e.to_string())
 }
 
@@ -229,9 +230,11 @@ pub fn story_request_changes(
 }
 
 /// [`story_request_changes`]'s body, driven without a Tauri app handle. The In review check, the move
-/// and the launch's database half share one lock, so nothing reads the Story between its move to
-/// Running and its new session's row: it never reads Stopped on the way. The comments are on the
-/// board before the packet is built, which is how section 7 carries them.
+/// and the launch share the Story's work lock ([`super::story_work`]) and run on a side connection,
+/// never under the board mutex: the review's diff and the Context packet are git (issue #215). A
+/// reader can see the Story Stopped only between the move's commit and the session row's, a few
+/// database statements with no git between them once the worktree exists, which In review implies.
+/// The comments are on the board before the packet is built, which is how section 7 carries them.
 ///
 /// Nothing is written when the Story is not In review or `claude` is missing (issue #88): the Story
 /// stays In review. Once it moved, a launch that fails (the credential, the session row, the shim or
@@ -245,25 +248,30 @@ pub(crate) fn request_changes_and_launch(
     merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<StartRunOutcome, String> {
-    let mut conn = db.lock().map_err(|e| e.to_string())?;
-    let current = flywheel_core::domain::story::get_story(&conn, story_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Story {story_id:?} not found"))?
-        .state;
-    if current != flywheel_core::domain::story::StoryState::InReview.as_str() {
-        return Err(format!("Request changes needs a Story In review; this one is {}", current.replace('_', " ")));
-    }
-    find_claude()?;
-    let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::request_changes::request_changes(&mut conn, &human, story_id, comments)
-        .map_err(|e| format!("{e:#}"))?;
+    super::with_story_work(story_id, || {
+        let mut conn = super::side_connection(db)?;
+        let current = flywheel_core::domain::story::get_story(&conn, story_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Story {story_id:?} not found"))?
+            .state;
+        if current != flywheel_core::domain::story::StoryState::InReview.as_str() {
+            return Err(format!("Request changes needs a Story In review; this one is {}", current.replace('_', " ")));
+        }
+        find_claude()?;
+        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        flywheel_core::domain::request_changes::request_changes(&mut conn, &human, story_id, comments)
+            .map_err(|e| format!("{e:#}"))?;
 
-    let stopped = |why: String| format!("The Story is back in Running, but its session did not start ({why}). Resume it.");
-    let PreparedLaunch { outcome, repo_path, env } =
-        prepare_launch(&mut conn, story_id, SessionKind::Story, "").map_err(stopped)?;
-    spawn_prepared_run(db, conn, &outcome, env, SessionKind::Story, merge_shim, |request| send(&repo_path, request))
+        let stopped =
+            |why: String| format!("The Story is back in Running, but its session did not start ({why}). Resume it.");
+        let PreparedLaunch { outcome, repo_path, env } =
+            prepare_launch(&mut conn, story_id, SessionKind::Story, "").map_err(stopped)?;
+        spawn_prepared_run(&mut conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
+            send(&repo_path, request)
+        })
         .map_err(stopped)?;
-    Ok(outcome)
+        Ok(outcome)
+    })
 }
 
 /// The developer's Drop (docs/mvp-spec.md §2): the Story moves to Dropped and its worktree and
@@ -271,11 +279,14 @@ pub(crate) fn request_changes_and_launch(
 /// Story and while a session is live. Not a Gated action: it raises no permission request.
 #[tauri::command]
 pub fn story_drop(state: State<AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::story_drop::drop_story(&mut conn, &actor_id, &story_id).map_err(|e| format!("{e:#}"))?;
-    let project_id = super::project_of(&conn, "stories", &story_id);
-    drop(conn);
+    // Removing the worktree and the branch is git: a side connection, under the Story's work lock.
+    let project_id = super::with_story_work(&story_id, || -> Result<Option<String>, String> {
+        let mut conn = super::side_connection(&state.db)?;
+        let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        flywheel_core::domain::story_drop::drop_story(&mut conn, &actor_id, &story_id)
+            .map_err(|e| format!("{e:#}"))?;
+        Ok(super::project_of(&conn, "stories", &story_id))
+    })?;
     emit_board_changed(&app, project_id.as_deref(), "story", Some(&story_id));
     Ok(())
 }

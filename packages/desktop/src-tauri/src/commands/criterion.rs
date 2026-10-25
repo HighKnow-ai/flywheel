@@ -43,9 +43,17 @@ pub struct AcceptanceCriterionDto {
 }
 
 /// The head of `story_id`'s branch, read once per listing to tell stale results; `None` when it
-/// can't be read.
-fn branch_head(conn: &rusqlite::Connection, story_id: &str) -> Option<String> {
-    flywheel_core::domain::check::branch_head(conn, story_id).ok().flatten()
+/// can't be read. The lock is held only to find the worktree: git reads its head without it
+/// (issue #215).
+fn branch_head(db: &std::sync::Mutex<rusqlite::Connection>, story_id: &str) -> Result<Option<String>, String> {
+    let worktree_path = {
+        let conn = db.lock().map_err(|e| e.to_string())?;
+        flywheel_core::domain::worktree::worktree_for_story(&conn, story_id).ok().flatten().map(|w| w.path)
+    };
+    Ok(worktree_path
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_dir())
+        .and_then(|path| flywheel_core::domain::check::worktree_head(&path).ok()))
 }
 
 fn to_dto(
@@ -118,8 +126,8 @@ pub fn criterion_create(
 /// A Story's criteria, in order, each with its Check and current result.
 #[tauri::command]
 pub fn criterion_list(state: State<AppState>, story_id: String) -> Result<Vec<AcceptanceCriterionDto>, String> {
+    let head = branch_head(&state.db, &story_id)?;
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let head = branch_head(&conn, &story_id);
     flywheel_core::domain::acceptance_criterion::criteria_for_story(&conn, &story_id)
         .map_err(|e| e.to_string())?
         .into_iter()

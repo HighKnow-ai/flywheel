@@ -63,7 +63,9 @@ pub fn project_register(
         ));
     }
 
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    // Registering installs the repository's git hooks, which reads git's config: a side
+    // connection, never the board mutex (issue #215).
+    let mut conn = super::side_connection(&state.db)?;
     let actor_id = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     // T-01-13: the native folder picker returns an absolute path, but this handler is the trust
     // boundary — length/emptiness are validated above, and `register_project` (01-11-PLAN.md
@@ -130,7 +132,8 @@ pub fn project_relocate(
         return Err("repository path is invalid".to_string());
     }
 
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    // Relocating reinstalls the git hooks at the new path: a side connection, not the board mutex.
+    let mut conn = super::side_connection(&state.db)?;
     let actor_id =
         flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
     let project = flywheel_core::domain::project::relocate_project(

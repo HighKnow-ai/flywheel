@@ -238,31 +238,25 @@ pub(crate) fn prepare_launch(
 /// parameters only so a test can force each to fail; [`launch_run_for_story`] passes the real ones.
 ///
 /// D-51: the shim's per-run directory is keyed by the session id, which only exists from
-/// `prepare_launch` on, so a shim-install failure here refuses the spawn. `conn` is the caller's
-/// held `AppState.db` guard; it is dropped before `send` so the spawn floor's sleep never runs while
-/// holding the SQLite mutex (T-03-04-05).
+/// `prepare_launch` on, so a shim-install failure here refuses the spawn. `conn` is the launch's
+/// own [`super::side_connection`], never the `AppState.db` guard: the spawn floor sleeps inside
+/// `send`, and nothing here may run while holding the board mutex (T-03-04-05, issue #215).
 pub(crate) fn spawn_prepared_run(
-    db: &std::sync::Mutex<Connection>,
-    mut conn: std::sync::MutexGuard<'_, Connection>,
+    conn: &mut Connection,
     outcome: &StartRunOutcome,
     mut env: std::collections::HashMap<String, String>,
     kind: SessionKind,
     merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
     send: impl FnOnce(&serde_json::Value) -> Result<(), String>,
 ) -> Result<(), String> {
-    merge_shim(&mut env, &outcome.run_id).map_err(|e| fail_launch(&mut conn, &outcome.run_id, e.to_string()))?;
-    drop(conn);
+    merge_shim(&mut env, &outcome.run_id).map_err(|e| fail_launch(conn, &outcome.run_id, e.to_string()))?;
     // The Gated-action deny-list allows a recursive `rm` inside, and deleting or rewriting, only the
     // Story's own worktree and branch, so the shim needs to know which ones those are.
     env.insert(flywheel_core::destructive::WORKTREE_ENV.to_string(), outcome.worktree_path.clone());
     env.insert(flywheel_core::destructive::STORY_BRANCH_ENV.to_string(), outcome.branch.clone());
 
     let request = spawn_request(outcome, &env, kind);
-    // The guard is gone (the spawn floor sleeps inside `send`), so closing the row takes the lock afresh.
-    send(&request).map_err(|why| match db.lock() {
-        Ok(mut conn) => fail_launch(&mut conn, &outcome.run_id, why),
-        Err(_) => why,
-    })
+    send(&request).map_err(|why| fail_launch(conn, &outcome.run_id, why))
 }
 
 /// The sidecar's `spawn` request for a session of `kind`. The kind alone fixes the permission mode,
@@ -319,17 +313,21 @@ pub(crate) fn launch_run_for_story(
     instruction: &str,
 ) -> Result<SessionDto, String> {
     flywheel_core::login_path::claude_bin()?;
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let PreparedLaunch { outcome, repo_path, env } = prepare_launch(&mut conn, story_id, kind, instruction)?;
-    spawn_prepared_run(
-        &state.db,
-        conn,
-        &outcome,
-        env,
-        kind,
-        crate::sidecar::merge_shim_env_for_run,
-        |request| send_gated_spawn(state, &repo_path, request),
-    )?;
+    // The launch creates the worktree and builds the Context packet, both git: it runs on its own
+    // connection, with this Story's work lock in place of the board mutex (issue #215).
+    let outcome = super::with_story_work(story_id, || -> Result<StartRunOutcome, String> {
+        let mut conn = super::side_connection(&state.db)?;
+        let PreparedLaunch { outcome, repo_path, env } = prepare_launch(&mut conn, story_id, kind, instruction)?;
+        spawn_prepared_run(
+            &mut conn,
+            &outcome,
+            env,
+            kind,
+            crate::sidecar::merge_shim_env_for_run,
+            |request| send_gated_spawn(state, &repo_path, request),
+        )?;
+        Ok(outcome)
+    })?;
 
     let project_id = project_of_locked(&state.db, "stories", story_id);
     emit_board_changed(app, project_id.as_deref(), "session", Some(&outcome.run_id));
@@ -372,9 +370,11 @@ pub fn story_start(
 }
 
 /// [`story_start`]'s body, driven without a Tauri app handle. The Ready check and the launch share
-/// one lock, so two Starts cannot both pass it (the second meets the first's live session). The
-/// Story moves to Running only once the spawn request went out: a launch that fails leaves it
-/// Ready, its session `failed` and its worktree in place for the next Start.
+/// the Story's work lock ([`super::story_work`]), so two Starts cannot both pass it (the second
+/// meets the first's live session); they run on a side connection, never under the board mutex,
+/// because the launch runs git (issue #215). The Story moves to Running only once the spawn
+/// request went out: a launch that fails leaves it Ready, its session `failed` and its worktree in
+/// place for the next Start.
 ///
 /// `find_claude` runs after the Ready check and before anything is created: with no `claude` on
 /// the login-shell `PATH` the Start is refused with the sentence naming the `PATH` searched, and
@@ -388,31 +388,32 @@ pub(crate) fn start_ready_story(
     merge_shim: impl FnOnce(&mut std::collections::HashMap<String, String>, &str) -> anyhow::Result<()>,
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<StartRunOutcome, String> {
-    let mut conn = db.lock().map_err(|e| e.to_string())?;
-    let current = flywheel_core::domain::story::get_story(&conn, story_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Story {story_id:?} not found"))?
-        .state;
-    if current != flywheel_core::domain::story::StoryState::Ready.as_str() {
-        return Err(format!("Start needs a Ready Story; this one is {current}"));
-    }
-    find_claude()?;
-    let PreparedLaunch { outcome, repo_path, env } =
-        prepare_launch(&mut conn, story_id, SessionKind::Story, instruction)?;
-    spawn_prepared_run(db, conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
-        send(&repo_path, request)
-    })?;
+    super::with_story_work(story_id, || {
+        let mut conn = super::side_connection(db)?;
+        let current = flywheel_core::domain::story::get_story(&conn, story_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Story {story_id:?} not found"))?
+            .state;
+        if current != flywheel_core::domain::story::StoryState::Ready.as_str() {
+            return Err(format!("Start needs a Ready Story; this one is {current}"));
+        }
+        find_claude()?;
+        let PreparedLaunch { outcome, repo_path, env } =
+            prepare_launch(&mut conn, story_id, SessionKind::Story, instruction)?;
+        spawn_prepared_run(&mut conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
+            send(&repo_path, request)
+        })?;
 
-    let mut conn = db.lock().map_err(|e| e.to_string())?;
-    let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::story::set_story_state(
-        &mut conn,
-        &human,
-        story_id,
-        flywheel_core::domain::story::StoryState::Running,
-    )
-    .map_err(|e| format!("the session started, but the Story could not move to Running: {e}"))?;
-    Ok(outcome)
+        let human = flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        flywheel_core::domain::story::set_story_state(
+            &mut conn,
+            &human,
+            story_id,
+            flywheel_core::domain::story::StoryState::Running,
+        )
+        .map_err(|e| format!("the session started, but the Story could not move to Running: {e}"))?;
+        Ok(outcome)
+    })
 }
 
 /// The longest resume note Resume accepts, in characters: one line.
@@ -461,8 +462,8 @@ pub fn story_resume(
 }
 
 /// [`story_resume`]'s body, driven without a Tauri app handle. The Stopped check and the launch
-/// share one lock, so two Resumes cannot both pass it (the second meets the first's live session).
-/// The Story stays Running throughout: Resume is not a state move. Like Start, it spawns with the
+/// share the Story's work lock ([`super::story_work`]), so two Resumes cannot both pass it (the
+/// second meets the first's live session). The Story stays Running throughout: Resume is not a state move. Like Start, it spawns with the
 /// login-shell `PATH` adopted at startup, and `find_claude` refuses it, naming that `PATH`, before
 /// anything is created when `claude` is missing (issue #88): the Story stays Stopped.
 pub(crate) fn resume_stopped_story(
@@ -474,20 +475,22 @@ pub(crate) fn resume_stopped_story(
     send: impl FnOnce(&str, &serde_json::Value) -> Result<(), String>,
 ) -> Result<StartRunOutcome, String> {
     let note = validate_resume_note(Some(note))?;
-    let mut conn = db.lock().map_err(|e| e.to_string())?;
-    if flywheel_core::query::sessions::stopped_session_for_story(&conn, story_id)
-        .map_err(|e| e.to_string())?
-        .is_none()
-    {
-        return Err("Resume needs a Stopped Story: Running, with no live session".to_string());
-    }
-    find_claude()?;
-    let PreparedLaunch { outcome, repo_path, env } =
-        prepare_launch(&mut conn, story_id, SessionKind::Story, &note)?;
-    spawn_prepared_run(db, conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
-        send(&repo_path, request)
-    })?;
-    Ok(outcome)
+    super::with_story_work(story_id, || {
+        let mut conn = super::side_connection(db)?;
+        if flywheel_core::query::sessions::stopped_session_for_story(&conn, story_id)
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
+            return Err("Resume needs a Stopped Story: Running, with no live session".to_string());
+        }
+        find_claude()?;
+        let PreparedLaunch { outcome, repo_path, env } =
+            prepare_launch(&mut conn, story_id, SessionKind::Story, &note)?;
+        spawn_prepared_run(&mut conn, &outcome, env, SessionKind::Story, merge_shim, |request| {
+            send(&repo_path, request)
+        })?;
+        Ok(outcome)
+    })
 }
 
 /// Whether a Story is Stopped (docs/mvp-spec.md §2 "Attention"), and the dead session it shows.
@@ -1789,13 +1792,16 @@ pub fn worktree_remove(
     app: AppHandle,
     story_id: String,
 ) -> Result<(), String> {
-    let mut conn = state.db.lock().map_err(|e| e.to_string())?;
-    let actor_id =
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
-    flywheel_core::domain::worktree::remove_worktree_for_story(&mut conn, &story_id, &actor_id)
-        .map_err(|e| e.to_string())?;
-    let project_id = project_of(&conn, "stories", &story_id);
-    drop(conn);
+    // The porcelain re-read and `git worktree remove` are git: a side connection, under the Story's
+    // work lock, never the board mutex (issue #215).
+    let project_id = super::with_story_work(&story_id, || -> Result<Option<String>, String> {
+        let mut conn = super::side_connection(&state.db)?;
+        let actor_id =
+            flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
+        flywheel_core::domain::worktree::remove_worktree_for_story(&mut conn, &story_id, &actor_id)
+            .map_err(|e| e.to_string())?;
+        Ok(project_of(&conn, "stories", &story_id))
+    })?;
 
     emit_board_changed(&app, project_id.as_deref(), "worktree", Some(&story_id));
 
@@ -1808,25 +1814,20 @@ pub fn worktree_remove(
 /// the renderer. Delegates straight to `recreate_worktree_for_story`, which itself refuses on any
 /// non-`missing` row (naming the actual status in the error) — this command carries no
 /// force/override parameter beyond `story_id`, so there is no second guard here and no way around
-/// the first. `recreate_worktree_for_story` shells out to git; the connection lock is dropped
-/// before that call so a slow git operation never holds `state.db` (mirrors `session_start`'s
-/// own resolve-before-lock discipline for `send_spawn_request`, see the comment above it). Emits
+/// the first. `recreate_worktree_for_story` shells out to git, so it runs on a side connection
+/// under the Story's work lock and a slow git operation never holds `state.db` (issue #215). Emits
 /// `board:changed` with `{ entity: "worktree", id: story_id }` on success — `useWorktreeSummary`'s
 /// existing invalidation is what makes the banner disappear once the row reads `active` again.
 #[tauri::command]
 pub fn worktree_recreate(state: State<AppState>, app: AppHandle, story_id: String) -> Result<(), String> {
-    let actor_id = {
-        let conn = state.db.lock().map_err(|e| e.to_string())?;
-        flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?
-    };
-
-    {
-        let mut conn = state.db.lock().map_err(|e| e.to_string())?;
+    let project_id = super::with_story_work(&story_id, || -> Result<Option<String>, String> {
+        let mut conn = super::side_connection(&state.db)?;
+        let actor_id =
+            flywheel_core::domain::actor::local_human_actor_id(&conn).map_err(|e| e.to_string())?;
         flywheel_core::domain::worktree::recreate_worktree_for_story(&mut conn, &story_id, &actor_id)
             .map_err(|e| e.to_string())?;
-    }
-
-    let project_id = project_of_locked(&state.db, "stories", &story_id);
+        Ok(project_of(&conn, "stories", &story_id))
+    })?;
     emit_board_changed(&app, project_id.as_deref(), "worktree", Some(&story_id));
 
     Ok(())
@@ -2952,8 +2953,9 @@ pub(crate) mod tests {
         let db = std::sync::Mutex::new(conn);
         let mut guard = db.lock().unwrap();
         let prepared = launch(&mut guard, &story).expect("the session row is inserted");
-        let err = spawn_prepared_run(&db, guard, &prepared.outcome, prepared.env, SessionKind::Story, merge_shim, send)
+        let err = spawn_prepared_run(&mut guard, &prepared.outcome, prepared.env, SessionKind::Story, merge_shim, send)
             .expect_err("the injected step fails");
+        drop(guard);
         (err, db, story, repo)
     }
 
