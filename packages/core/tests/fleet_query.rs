@@ -487,3 +487,126 @@ fn each_row_carries_its_storys_doing_task_and_none_without_one() {
     assert_eq!(row_b.doing_task_title, None);
     assert_eq!(row_b.project_name, "Beta");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Live shaping sessions (issue #239): a shaping session has no Story, so it is no Story row, but it
+// is an agent (GLOSSARY.md § Agent), and the fleet read returns it beside the rows, naming its subject.
+// ---------------------------------------------------------------------------------------------
+
+fn start_shaping(f: &mut Fixture, subject: core::domain::session::ShapingSubject) -> String {
+    use core::domain::session_kind::SessionKind;
+    let mode = SessionKind::Shaping.launch_policy().permission_mode;
+    let actor = f.actor_id.clone();
+    core::domain::session::start_shaping_session(&mut f.conn, &subject, mode, &actor).expect("start_shaping_session").id
+}
+
+#[test]
+fn the_fleet_returns_a_live_shaping_session_naming_its_epic_milestone_or_roadmap() {
+    use core::domain::session::ShapingSubject;
+    use core::domain::{epic, milestone};
+    let mut f = fixture();
+    let alpha = project(&mut f, "Alpha", "ALP");
+    let actor = f.actor_id.clone();
+    let m = milestone::create_milestone(&mut f.conn, &alpha.id, &actor, "Private beta", None).unwrap();
+    let e = epic::create_epic(&mut f.conn, &actor, &m.id, "Waitlist").unwrap();
+    let on_epic = start_shaping(&mut f, ShapingSubject::Epic(e.id.clone()));
+    let on_milestone = start_shaping(&mut f, ShapingSubject::Milestone(m.id.clone()));
+    let on_roadmap = start_shaping(&mut f, ShapingSubject::Roadmap(alpha.id.clone()));
+
+    let list = fleet_rows(&f.conn, 50).unwrap();
+    assert!(list.rows.is_empty(), "a shaping session is never a Story row");
+    assert_eq!(list.total_rows, 0, "the run count stays the Story rows' length");
+    assert_eq!(list.shaping_rows.len(), 3, "every live shaping session is on the fleet: {:?}", list.shaping_rows);
+    let row = |id: &str| list.shaping_rows.iter().find(|r| r.session_id == id).expect("the session is listed");
+
+    let epic_row = row(&on_epic);
+    assert_eq!(epic_row.subject, "epic");
+    assert_eq!(epic_row.epic_id.as_deref(), Some(e.id.as_str()));
+    assert_eq!(epic_row.epic_key.as_deref(), Some(e.key.as_str()));
+    assert_eq!(epic_row.epic_title.as_deref(), Some("Waitlist"));
+    assert_eq!(epic_row.milestone_id, None);
+    assert_eq!(epic_row.project_name, "Alpha");
+    assert_eq!(epic_row.fleet_state, "running", "working between Rounds, it is a running agent");
+    assert_eq!(epic_row.blocked_since, None);
+
+    let milestone_row = row(&on_milestone);
+    assert_eq!(milestone_row.subject, "milestone");
+    assert_eq!(milestone_row.milestone_id.as_deref(), Some(m.id.as_str()));
+    assert_eq!(milestone_row.milestone_title.as_deref(), Some("Private beta"));
+    assert_eq!(milestone_row.epic_id, None);
+
+    let roadmap_row = row(&on_roadmap);
+    assert_eq!(roadmap_row.subject, "roadmap");
+    assert_eq!(roadmap_row.project_id, alpha.id);
+    assert_eq!((roadmap_row.epic_id.as_deref(), roadmap_row.milestone_id.as_deref()), (None, None));
+    assert_eq!(roadmap_row.fleet_state, "running", "a roadmap Round being prepared holds no call yet");
+}
+
+#[test]
+fn the_fleet_returns_a_shaping_session_held_on_its_round_as_waiting_on_you_and_first() {
+    use core::domain::session::ShapingSubject;
+    use core::domain::{epic, milestone};
+    let mut f = fixture();
+    let alpha = project(&mut f, "Alpha", "ALP");
+    let actor = f.actor_id.clone();
+    let m = milestone::create_milestone(&mut f.conn, &alpha.id, &actor, "Beta", None).unwrap();
+    let working = epic::create_epic(&mut f.conn, &actor, &m.id, "Working").unwrap();
+    let held = epic::create_epic(&mut f.conn, &actor, &m.id, "Held").unwrap();
+    let working_id = start_shaping(&mut f, ShapingSubject::Epic(working.id.clone()));
+    let held_id = start_shaping(&mut f, ShapingSubject::Epic(held.id.clone()));
+    let stage: String = f
+        .conn
+        .query_row("SELECT id FROM stages WHERE epic_id = ?1 AND state = 'open'", params![held.id], |r| r.get(0))
+        .unwrap();
+    f.conn
+        .execute(
+            "INSERT INTO rounds (id, project_id, stage_id, session_id, number, note, state, held_request_id, posted_at)
+             VALUES (?1, ?2, ?3, ?4, 1, 'note', 'open', 'request-1', '2026-01-01T00:00:00Z')",
+            params![new_id(), alpha.id, stage, held_id],
+        )
+        .unwrap();
+
+    let list = fleet_rows(&f.conn, 50).unwrap();
+    let order: Vec<&str> = list.shaping_rows.iter().map(|r| r.session_id.as_str()).collect();
+    assert_eq!(order, vec![held_id.as_str(), working_id.as_str()], "Waiting on you comes first");
+    assert_eq!(list.shaping_rows[0].fleet_state, "blocked");
+    assert_eq!(list.shaping_rows[0].blocked_since.as_deref(), Some("2026-01-01T00:00:00Z"));
+    assert_eq!(list.shaping_rows[1].fleet_state, "running");
+}
+
+#[test]
+fn the_fleet_returns_no_ended_shaping_session_and_none_in_a_hidden_project() {
+    use core::domain::session::ShapingSubject;
+    use core::domain::{epic, milestone, project::hide_project};
+    let mut f = fixture();
+    let alpha = project(&mut f, "Alpha", "ALP");
+    let gone = project(&mut f, "Gone", "GON");
+    let actor = f.actor_id.clone();
+    let m = milestone::create_milestone(&mut f.conn, &alpha.id, &actor, "Beta", None).unwrap();
+    let mut ended = Vec::new();
+    for status in ["completed", "failed", "interrupted", "abandoned"] {
+        let e = epic::create_epic(&mut f.conn, &actor, &m.id, status).unwrap();
+        let id = start_shaping(&mut f, ShapingSubject::Epic(e.id.clone()));
+        f.conn
+            .execute(
+                "UPDATE sessions SET status = ?1, ended_at = '2026-01-01T00:00:00Z' WHERE id = ?2",
+                params![status, id],
+            )
+            .unwrap();
+        ended.push(id);
+    }
+    let live_blocked = {
+        let e = epic::create_epic(&mut f.conn, &actor, &m.id, "Live").unwrap();
+        let id = start_shaping(&mut f, ShapingSubject::Epic(e.id.clone()));
+        f.conn.execute("UPDATE sessions SET status = 'blocked' WHERE id = ?1", params![id]).unwrap();
+        id
+    };
+    let hidden = start_shaping(&mut f, ShapingSubject::Roadmap(gone.id.clone()));
+    hide_project(&mut f.conn, &actor, &gone.id).unwrap();
+
+    let list = fleet_rows(&f.conn, 50).unwrap();
+    let listed: Vec<&str> = list.shaping_rows.iter().map(|r| r.session_id.as_str()).collect();
+    assert_eq!(listed, vec![live_blocked.as_str()], "only the live session in a listed project");
+    assert!(ended.iter().all(|id| !listed.contains(&id.as_str())));
+    assert!(!listed.contains(&hidden.as_str()));
+}

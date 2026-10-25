@@ -771,4 +771,37 @@ describe("the rail's All agents figure is the strip's agent count (issues #199, 
     const fleet = screen.getByRole("button", { name: "Open fleet" });
     await waitFor(() => expect(fleet.querySelector('[data-count="agents"]')).toHaveTextContent("3"));
   });
+
+  it("counts a shaping session working between Rounds once, and once only when held on a Round (issue #239)", async () => {
+    const shaping = (sessionId: string, fleetState: "running" | "blocked") => ({
+      sessionId,
+      projectId: "proj-1",
+      projectName: "Flywheel",
+      projectKeyPrefix: "FLY",
+      projectStatus: "active",
+      subject: "epic" as const,
+      epicId: "e-9",
+      epicKey: "FLY-9",
+      epicTitle: "Waitlist",
+      milestoneId: null,
+      milestoneTitle: null,
+      runStatus: "running",
+      fleetState,
+      startedAt: "2026-10-22T08:30:00Z",
+      blockedSince: null,
+      activity: { lines: [], truncated: false },
+    });
+    fleetListMock.mockResolvedValue({
+      rows: [fleetRow({ sessionId: "r-run" })],
+      shapingRows: [shaping("shaping-working", "running"), shaping("shaping-held", "blocked")],
+      totalRows: 1,
+      visibleCostUsd: null,
+    });
+    fleetWaitingRoundsMock.mockResolvedValue([
+      { roundId: "round-1", roundNumber: 2, sessionId: "shaping-held", projectId: "proj-1", epicId: "e-8" },
+    ]);
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
+    const fleet = screen.getByRole("button", { name: "Open fleet" });
+    await waitFor(() => expect(fleet.querySelector('[data-count="agents"]')).toHaveTextContent("3"));
+  });
 });

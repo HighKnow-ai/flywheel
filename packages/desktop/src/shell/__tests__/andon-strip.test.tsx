@@ -6,8 +6,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { FleetRowDto, WaitingRoundDto } from "../../adapters/tauri";
-import { agentCount, AndonStrip, lampCapacity, lampsFromFleet, stripLamps } from "../AndonStrip";
+import type { FleetRowDto, ShapingFleetRowDto, WaitingRoundDto } from "../../adapters/tauri";
+import { agentCount, AndonStrip, lampCapacity, lampsFromFleet, ShapingLamp, stripLamps } from "../AndonStrip";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 
 const fleetList = vi.fn();
@@ -210,6 +210,98 @@ describe("the agent count (GLOSSARY.md: an agent is a live session)", () => {
     // Four lamps (a Round, Waiting, Running, Stopped), three agents: the Stopped Story has no live session.
     await screen.findByRole("button", { name: /Open Epic FLY-8/ });
     expect(await screen.findByLabelText("3 agents")).toHaveTextContent("3");
+  });
+});
+
+const SHAPING: ShapingFleetRowDto = {
+  sessionId: "r-shaping",
+  projectId: "p1",
+  projectName: "Flywheel",
+  projectKeyPrefix: "FLY",
+  projectStatus: "active",
+  subject: "epic",
+  epicId: "e-9",
+  epicKey: "FLY-9",
+  epicTitle: "Waitlist",
+  milestoneId: null,
+  milestoneTitle: null,
+  runStatus: "running",
+  fleetState: "running",
+  startedAt: "2026-10-22T08:30:00Z",
+  blockedSince: null,
+  activity: { lines: [], truncated: false },
+};
+
+describe("a shaping session working between Rounds (issue #239)", () => {
+  it("counts once as an agent, and once only when it is also held on a Round", () => {
+    expect(agentCount([RUNNING, DONE, DEAD, WAITING], [], [SHAPING])).toBe(3);
+    const held = { ...SHAPING, sessionId: ROUND.sessionId, fleetState: "blocked" as const };
+    expect(agentCount([RUNNING, WAITING], [ROUND], [held])).toBe(3);
+  });
+
+  it("lights a running lamp among the Story sessions', longest running first, and none for a held one", () => {
+    expect(stripLamps([RUNNING, DEAD, WAITING], [], [SHAPING]).map((l) => [l.kind, l.tone, l.key])).toEqual([
+      ["session", "waiting", "FLY-6"],
+      ["shaping", "running", "FLY-9"],
+      ["session", "running", "FLY-4"],
+      ["session", "stopped", "FLY-7"],
+    ]);
+    const held = { ...SHAPING, sessionId: ROUND.sessionId, fleetState: "blocked" as const };
+    expect(stripLamps([], [ROUND], [held]).map((l) => l.kind)).toEqual(["round"]);
+  });
+
+  it("counts in the strip's figure, names its Epic, and opens the Epic's shaping view", async () => {
+    fleetList.mockResolvedValue({
+      rows: [RUNNING, DONE, DEAD, WAITING],
+      shapingRows: [SHAPING],
+      totalRows: 4,
+      visibleCostUsd: null,
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AndonStrip />
+      </QueryClientProvider>,
+    );
+    const lamp = await screen.findByRole("button", { name: "Open Epic FLY-9 Waitlist, Shaping" });
+    expect(lamp).toHaveAttribute("data-lamp", "running");
+    expect(lamp).toHaveTextContent("FLY-9");
+    expect(lamp).toHaveTextContent(/Shaping · /);
+    expect(screen.getByLabelText("3 agents")).toHaveTextContent("3");
+    fireEvent.click(lamp);
+    expect(useUiStore.getState().currentEpicId).toBe("e-9");
+    expect(useUiStore.getState().activeSessionId).toBeNull();
+  });
+
+  it("names a Milestone's session by its title and the Roadmap's by its project", () => {
+    const milestone = {
+      ...SHAPING,
+      sessionId: "r-m",
+      subject: "milestone" as const,
+      epicId: null,
+      epicKey: null,
+      epicTitle: null,
+      milestoneId: "m-1",
+      milestoneTitle: "Private beta",
+    };
+    const roadmap = {
+      ...milestone,
+      sessionId: "r-r",
+      subject: "roadmap" as const,
+      milestoneId: null,
+      milestoneTitle: null,
+    };
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ShapingLamp row={milestone} current={false} now={Date.parse("2026-10-22T09:30:00Z")} />
+        <ShapingLamp row={roadmap} current={false} now={Date.parse("2026-10-22T09:30:00Z")} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole("button", { name: "Open Milestone Private beta, Shaping" })).toHaveTextContent(
+      "Private beta",
+    );
+    expect(screen.getByRole("button", { name: "Open the Flywheel Roadmap, Shaping" })).toHaveTextContent(
+      "Flywheel Roadmap",
+    );
   });
 });
 

@@ -1,5 +1,6 @@
 //! The cross-project fleet read (FLEET-01, FLEET-04, D-163..D-171): every Story session across every
-//! registered project in one bounded, banded, ordered statement. `fleet_rows` is the generalisation
+//! registered project in one bounded, banded, ordered statement, and beside them every live shaping
+//! session (issue #239), which has no Story but is an agent all the same. `fleet_rows` is the generalisation
 //! of `query::permissions` / `query::recovery`'s per-project reads, and keeps their discipline —
 //! the statement below is a single literal `&str`, bound through `params![]`.
 //!
@@ -58,9 +59,42 @@ pub struct FleetRow {
     pub doing_task_title: Option<String>,
 }
 
+/// One live shaping session (issue #239): an agent shaping an Epic, a Milestone or its project's Roadmap
+/// with the developer. It has no Story, so it is not a [`FleetRow`], but it is an agent all the same
+/// (GLOSSARY.md § Agent: a live session), whether it works between Rounds or is held on one. Only live
+/// sessions appear: an ended shaping session hands nothing off, so it leaves nothing to dismiss.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapingFleetRow {
+    pub session_id: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub project_key_prefix: String,
+    pub project_status: String,
+    /// `epic`, `milestone` or `roadmap`: what the session shapes.
+    pub subject: String,
+    /// The Epic an Epic's session shapes; `None` for any other subject.
+    pub epic_id: Option<String>,
+    pub epic_key: Option<String>,
+    pub epic_title: Option<String>,
+    /// The Milestone a Milestone's session shapes; `None` for any other subject.
+    pub milestone_id: Option<String>,
+    pub milestone_title: Option<String>,
+    /// `running` or `blocked`, as `sessions.status` holds it.
+    pub run_status: String,
+    /// `blocked` (Waiting on you) while a Round it holds waits on the developer (`round_waiting_on_you`),
+    /// else `running`: working between Rounds.
+    pub fleet_state: String,
+    pub started_at: String,
+    /// When the oldest Round it is held on was posted; `None` while it works between Rounds.
+    pub blocked_since: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FleetList {
     pub rows: Vec<FleetRow>,
+    /// Every live shaping session (issue #239), Waiting on you first, then oldest first. Kept apart from
+    /// `rows` because a shaping session has no Story, and every reader of a Story row keeps its Story.
+    pub shaping_rows: Vec<ShapingFleetRow>,
     /// The length of `rows` — never a second count, so the header and the list cannot disagree.
     pub total_rows: usize,
     /// The sum of the non-NULL `cost_usd` of the rows returned; `None` when no returned row carries
@@ -114,9 +148,61 @@ pub const FLEET_SQL: &str = "SELECT * FROM ( \
         session_id ASC \
     LIMIT ?1";
 
+/// Every live shaping session across every registered project (issue #239), in a project that is not
+/// hidden. Its subject is named from its own row: the Epic, the Milestone, or with neither the Roadmap.
+/// It reads Waiting on you while a Round it holds waits on the developer, by the one derivation
+/// (`round_waiting_on_you`) the waiting-Round lamps use, so the two never disagree.
+pub const FLEET_SHAPING_SQL: &str = concat!(
+    "SELECT * FROM ( \
+    SELECT ar.id AS session_id, ar.project_id, p.name, p.key_prefix, p.status, \
+        CASE WHEN ar.epic_id IS NOT NULL THEN 'epic' WHEN ar.milestone_id IS NOT NULL THEN 'milestone' \
+            ELSE 'roadmap' END, \
+        e.id, e.key, e.title, m.id, m.title, ar.status, ar.started_at AS started_at, \
+        (SELECT MIN(r.posted_at) FROM rounds r WHERE r.session_id = ar.id AND ",
+    crate::query::round_waiting_on_you!(),
+    ") AS blocked_since \
+    FROM sessions ar \
+    JOIN projects p ON p.id = ar.project_id AND p.hidden = 0 \
+    LEFT JOIN epics e ON e.id = ar.epic_id \
+    LEFT JOIN milestones m ON m.id = ar.milestone_id \
+    WHERE ar.kind = 'shaping' AND ar.status IN ('running', 'blocked') \
+    ) \
+    ORDER BY blocked_since IS NULL ASC, COALESCE(blocked_since, started_at) ASC, session_id ASC \
+    LIMIT ?1"
+);
+
+fn shaping_fleet_rows(conn: &Connection, limit: i64) -> anyhow::Result<Vec<ShapingFleetRow>> {
+    let mut stmt = conn.prepare(FLEET_SHAPING_SQL)?;
+    let rows = stmt
+        .query_map(params![limit], |row| {
+            let blocked_since: Option<String> = row.get(13)?;
+            Ok(ShapingFleetRow {
+                session_id: row.get(0)?,
+                project_id: row.get(1)?,
+                project_name: row.get(2)?,
+                project_key_prefix: row.get(3)?,
+                project_status: row.get(4)?,
+                subject: row.get(5)?,
+                epic_id: row.get(6)?,
+                epic_key: row.get(7)?,
+                epic_title: row.get(8)?,
+                milestone_id: row.get(9)?,
+                milestone_title: row.get(10)?,
+                run_status: row.get(11)?,
+                fleet_state: if blocked_since.is_some() { "blocked" } else { "running" }.to_string(),
+                started_at: row.get(12)?,
+                blocked_since,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .context("failed to read the live shaping sessions")?;
+    Ok(rows)
+}
+
 /// Every Story session across every registered project that belongs on the fleet, banded and
-/// ordered, at most `limit` (clamped to [`FLEET_ROWS_MAX_LIMIT`]) rows. An empty database returns
-/// zero rows, never an error.
+/// ordered, at most `limit` (clamped to [`FLEET_ROWS_MAX_LIMIT`]) rows, and beside them every live
+/// shaping session (issue #239), at most `limit` too. An empty database returns zero rows, never an
+/// error.
 pub fn fleet_rows(conn: &Connection, limit: usize) -> anyhow::Result<FleetList> {
     let limit = limit.min(FLEET_ROWS_MAX_LIMIT) as i64;
     let mut stmt = conn.prepare(FLEET_SQL)?;
@@ -145,9 +231,10 @@ pub fn fleet_rows(conn: &Connection, limit: usize) -> anyhow::Result<FleetList> 
         })?
         .collect::<Result<Vec<_>, _>>()
         .context("failed to read the fleet")?;
+    let shaping_rows = shaping_fleet_rows(conn, limit)?;
     let total_rows = rows.len();
     let visible_cost_usd = rows.iter().filter_map(|r| r.cost_usd).fold(None, |sum, c| Some(sum.unwrap_or(0.0) + c));
-    Ok(FleetList { rows, total_rows, visible_cost_usd })
+    Ok(FleetList { rows, shaping_rows, total_rows, visible_cost_usd })
 }
 
 /// The hard ceiling on one blocked-queue window (T-10-05-04).

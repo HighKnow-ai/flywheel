@@ -32,11 +32,23 @@
  * fills is left out, and the Story column takes whatever width is left. Money and ages go through
  * `lib/format.ts`. The header counts agents as GLOSSARY.md defines them (a live session) and labels the
  * list's length as runs, so the two figures never read as one disagreeing count. The view switch is Tabs.
+ *
+ * #239 lists every live shaping session too (`ShapingRowView`): an agent shaping an Epic, a Milestone or the
+ * Roadmap, Running between Rounds and Waiting on you while held on one, laid into its band among the Story
+ * rows by the core's own keys. Its row opens what it shapes, and the subject column reads "Working on".
  */
 import { useEffect, useLayoutEffect, useState, type MouseEvent } from "react";
 import { Tip } from "@/components/Tip";
 import { TruncateTip } from "@/components/TruncateTip";
-import { acknowledgeSession, sessionAcknowledgeMany, type FleetActivityDto, type FleetRowDto } from "../adapters/tauri";
+import {
+  acknowledgeSession,
+  sessionAcknowledgeMany,
+  type FleetActivityDto,
+  type FleetRowDto,
+  type ShapingFleetRowDto,
+} from "../adapters/tauri";
+import { Flag, Layers, Map as MapIcon } from "lucide-react";
+import { shapingSessionWords, useOpenWaitingRound } from "./waitingRound";
 import { StateBadge } from "../components/StateBadge";
 import { ReadError } from "../components/ReadError";
 import { StoryKey } from "../components/StoryKey";
@@ -118,14 +130,14 @@ export function activityLine(activity: FleetActivityDto): string | null {
   return line.trim() === "" ? null : clip(line);
 }
 
-function isLiveRun(row: FleetRowDto): boolean {
+function isLiveRun(row: Pick<FleetRowDto, "runStatus">): boolean {
   return row.runStatus === "running" || row.runStatus === "blocked";
 }
 
 /** A live row's activity, under its doing Task. One that cannot be read is said to assistive tech and
  * draws nothing: a column of dashes reads as a column of data (#208). The text is derived from this
  * render's tail alone, never the line it used to have. A terminal row renders nothing. */
-function ActivityLine({ row }: { row: FleetRowDto }) {
+function ActivityLine({ row }: { row: Pick<FleetRowDto, "runStatus" | "activity"> }) {
   if (!isLiveRun(row)) return null;
   const line = activityLine(row.activity);
   return line === null ? (
@@ -289,12 +301,17 @@ const PROJECT_MIN_WIDTH = 896;
 const DOING_MIN_WIDTH = 768;
 const SPEND_MIN_WIDTH = 672;
 
-/** The columns for these rows at this card width; an unmeasured card (no layout yet) shows every column. */
-export function fleetColumns(rows: FleetRowDto[], cardWidth: number | null = null): FleetColumns {
+/** The columns for these rows at this card width; an unmeasured card (no layout yet) shows every column. A
+ * live shaping session (issue #239) always fills Doing. */
+export function fleetColumns(
+  rows: FleetRowDto[],
+  cardWidth: number | null = null,
+  shapingRows: ShapingFleetRowDto[] = [],
+): FleetColumns {
   const fits = (min: number) => cardWidth === null || cardWidth >= min;
   return {
     project: fits(PROJECT_MIN_WIDTH),
-    doing: rows.some(hasDoing) && fits(DOING_MIN_WIDTH),
+    doing: (rows.some(hasDoing) || shapingRows.length > 0) && fits(DOING_MIN_WIDTH),
     spend: rows.some(hasSpend) && fits(SPEND_MIN_WIDTH),
   };
 }
@@ -434,6 +451,129 @@ export function FleetRowView({
   );
 }
 
+const SHAPING_ICON = { epic: Layers, milestone: Flag, roadmap: MapIcon } as const;
+
+/** A live shaping session's row (issue #239): an agent shaping an Epic, a Milestone or the Roadmap. Running
+ * while it works between Rounds, Waiting on you while a Round it holds waits on the developer. Its subject is the
+ * record it shapes, behind that record's icon; Doing says "Shaping" over its activity line. It has no session
+ * surface of its own and hands nothing off, so the row opens the shaping view (or the Roadmap's board), where its
+ * dock is, and it has no spend and nothing to dismiss. */
+export function ShapingRowView({
+  row,
+  now,
+  columns = ALL_COLUMNS,
+  selected = false,
+  onOpen,
+}: {
+  row: ShapingFleetRowDto;
+  now: number;
+  columns?: FleetColumns;
+  selected?: boolean;
+  onOpen?: (row: ShapingFleetRowDto) => void;
+}) {
+  const state: FleetState = row.fleetState === "blocked" ? "blocked" : "running";
+  const words = shapingSessionWords(row);
+  const Icon = SHAPING_ICON[row.subject] ?? Layers;
+  const age = ageText(row.blockedSince ?? row.startedAt, now);
+  return (
+    <TableRow
+      data-fleet-state={state}
+      data-run-id={row.sessionId}
+      data-shaping-subject={row.subject}
+      data-selected={selected ? "true" : undefined}
+      aria-current={selected ? "true" : undefined}
+      onClick={() => onOpen?.(row)}
+      className={cn(
+        "h-13 border-border text-body hover:bg-accent",
+        onOpen && "cursor-pointer",
+        selected && "bg-running-muted hover:bg-running-muted",
+        state === "blocked" && !selected && "bg-attention-muted hover:bg-attention-muted",
+      )}
+    >
+      <TableCell data-field="state" className="pl-4">
+        <span className="inline-flex">
+          <StateBadge state={state} pulse={state === "running" && !prefersReducedMotion()} />
+        </span>
+      </TableCell>
+      {columns.project && (
+        <TruncateTip text={row.projectName}>
+          <TableCell data-field="project" className="truncate text-small text-muted-foreground">
+            {row.projectName}
+          </TableCell>
+        </TruncateTip>
+      )}
+      <TruncateTip text={words.record}>
+        <TableCell data-field="subject" className="truncate">
+          <button
+            type="button"
+            data-subject-target
+            aria-label={`Open ${words.record}`}
+            className="inline-flex max-w-full min-w-0 items-baseline gap-1.5 rounded-sm text-left underline-offset-4 hover:underline"
+            onClick={(event: MouseEvent) => {
+              event.stopPropagation();
+              onOpen?.(row);
+            }}
+          >
+            <Icon aria-hidden="true" size={15} className="shrink-0 self-center text-muted-foreground" />
+            {words.key && <StoryKey value={words.key} />}
+            <span className="truncate font-semibold">{row.subject === "roadmap" ? "Roadmap" : words.lampTitle}</span>
+          </button>
+        </TableCell>
+      </TruncateTip>
+      {columns.doing && (
+        <TableCell data-field="doing">
+          <span data-field="doing-task" className="block truncate text-small">
+            Shaping
+          </span>
+          <ActivityLine row={row} />
+        </TableCell>
+      )}
+      {columns.spend && (
+        <TableCell className="text-right">
+          <span data-field="spend" />
+        </TableCell>
+      )}
+      <TableCell
+        data-field="age"
+        aria-label={`In this state for ${age}`}
+        className="text-right text-small text-muted-foreground tabular-nums"
+      >
+        {age}
+      </TableCell>
+      <TableCell data-field="dismiss" className="pr-4" />
+    </TableRow>
+  );
+}
+
+/** A band's entry: a Story session's row, or a live shaping session's (issue #239). */
+export type FleetEntry =
+  { kind: "story"; id: string; row: FleetRowDto } | { kind: "shaping"; id: string; row: ShapingFleetRowDto };
+
+/** The keys the core orders the fleet by (`fleet.rs`): the state's rank, then
+ * `COALESCE(blocked_since, ended_at, started_at)`. */
+const STATE_RANK: Record<string, number> = { blocked: 1, awaiting_review: 2, abandoned: 3, running: 4 };
+
+function entryRank(entry: FleetEntry): number {
+  return STATE_RANK[entry.row.fleetState] ?? 5;
+}
+
+function entrySince(entry: FleetEntry): string {
+  const row = entry.row;
+  return row.blockedSince ?? ("endedAt" in row ? row.endedAt : null) ?? row.startedAt;
+}
+
+/** One band's entries in drawn order: its Story rows as the core ordered them, with its shaping sessions laid in
+ * by the same keys. The sort is stable and the core already ordered the Story rows by these keys, so their order
+ * never changes; only where the shaping rows fall among them is decided here. */
+export function bandEntries(rows: FleetRowDto[], shaping: ShapingFleetRowDto[] = []): FleetEntry[] {
+  const entries: FleetEntry[] = [
+    ...rows.map((row): FleetEntry => ({ kind: "story", id: row.sessionId, row })),
+    ...shaping.map((row): FleetEntry => ({ kind: "shaping", id: row.sessionId, row })),
+  ];
+  if (shaping.length === 0) return entries;
+  return entries.sort((a, b) => entryRank(a) - entryRank(b) || entrySince(a).localeCompare(entrySince(b)));
+}
+
 /** One band of the table: a row group headed by the band's name and count, then its rows. */
 export function FleetBand({
   band,
@@ -442,8 +582,10 @@ export function FleetBand({
   columns = ALL_COLUMNS,
   selectedRunId = null,
   stoppedRunIds,
+  shapingRows = [],
   onOpenSession,
   onOpenSubject,
+  onOpenShaping,
 }: {
   band: { id: FleetBandId; header: string };
   rows: FleetRowDto[];
@@ -451,18 +593,22 @@ export function FleetBand({
   columns?: FleetColumns;
   selectedRunId?: string | null;
   stoppedRunIds?: Set<string>;
+  /** The band's live shaping sessions (issue #239), laid in among its Story rows. */
+  shapingRows?: ShapingFleetRowDto[];
   onOpenSession?: (row: FleetRowDto) => void;
   onOpenSubject?: (row: FleetRowDto) => void;
+  onOpenShaping?: (row: ShapingFleetRowDto) => void;
 }) {
   const [dismissNotice, setDismissNotice] = useState<string | null>(null);
   const [dismissing, setDismissing] = useState(false);
+  const entries = bandEntries(rows, shapingRows);
   return (
     <TableBody data-band={band.id} aria-label={band.header} className="[&_tr:last-child]:border-b">
       <TableRow data-band-header className="border-border bg-muted hover:bg-muted">
         <TableHead scope="rowgroup" colSpan={columnCount(columns)} className="h-10 px-4">
           <div className="flex items-center gap-2">
             <h2 className="m-0 text-small font-semibold tracking-[0.02em] text-muted-foreground">{band.header}</h2>
-            <span className="mr-auto text-small font-normal text-muted-foreground tabular-nums">{rows.length}</span>
+            <span className="mr-auto text-small font-normal text-muted-foreground tabular-nums">{entries.length}</span>
             {band.id === "done-failed" && (
               <span className="flex items-center gap-2">
                 {dismissNotice && (
@@ -495,18 +641,29 @@ export function FleetBand({
           </div>
         </TableHead>
       </TableRow>
-      {rows.map((row) => (
-        <FleetRowView
-          key={row.sessionId}
-          row={row}
-          now={now}
-          columns={columns}
-          selected={row.sessionId === selectedRunId}
-          stopped={stoppedRunIds?.has(row.sessionId) ?? false}
-          onOpenSession={onOpenSession}
-          onOpenSubject={onOpenSubject}
-        />
-      ))}
+      {entries.map((entry) =>
+        entry.kind === "shaping" ? (
+          <ShapingRowView
+            key={entry.id}
+            row={entry.row}
+            now={now}
+            columns={columns}
+            selected={entry.id === selectedRunId}
+            onOpen={onOpenShaping}
+          />
+        ) : (
+          <FleetRowView
+            key={entry.id}
+            row={entry.row}
+            now={now}
+            columns={columns}
+            selected={entry.id === selectedRunId}
+            stopped={stoppedRunIds?.has(entry.id) ?? false}
+            onOpenSession={onOpenSession}
+            onOpenSubject={onOpenSubject}
+          />
+        ),
+      )}
     </TableBody>
   );
 }
@@ -523,21 +680,26 @@ export const STICKY_HEADER =
 
 function FleetTable({
   byBand,
+  shapingByBand,
   now,
   selectedRunId,
   stoppedRunIds,
   onOpenSession,
   onOpenSubject,
+  onOpenShaping,
 }: {
   byBand: Map<FleetBandId, FleetRowDto[]>;
+  shapingByBand: Map<FleetBandId, ShapingFleetRowDto[]>;
   now: number;
   selectedRunId: string | null;
   stoppedRunIds: Set<string>;
   onOpenSession: (row: FleetRowDto) => void;
   onOpenSubject: (row: FleetRowDto) => void;
+  onOpenShaping: (row: ShapingFleetRowDto) => void;
 }) {
   const [cardRef, cardWidth] = useWidth<HTMLDivElement>();
-  const columns = fleetColumns([...byBand.values()].flat(), cardWidth);
+  const shapingRows = [...shapingByBand.values()].flat();
+  const columns = fleetColumns([...byBand.values()].flat(), cardWidth, shapingRows);
   return (
     <div ref={cardRef} data-fleet-table className={TABLE_CARD}>
       <Table className="table-fixed">
@@ -545,7 +707,9 @@ function FleetTable({
           <TableRow>
             <TableHead className="w-44 pl-4">State</TableHead>
             {columns.project && <TableHead className="w-32">Project</TableHead>}
-            <TableHead>Story</TableHead>
+            {/* "Story" while every row carries one out; "Working on" once a shaping agent shapes an Epic, a
+                Milestone or the Roadmap beside them (issue #239). */}
+            <TableHead>{shapingRows.length > 0 ? "Working on" : "Story"}</TableHead>
             {columns.doing && <TableHead className="w-[20%]">Doing</TableHead>}
             {columns.spend && <TableHead className="w-30 text-right">Spend</TableHead>}
             <TableHead className="w-20 text-right">Age</TableHead>
@@ -554,17 +718,19 @@ function FleetTable({
             </TableHead>
           </TableRow>
         </TableHeader>
-        {FLEET_BANDS.filter((band) => byBand.has(band.id)).map((band) => (
+        {FLEET_BANDS.filter((band) => byBand.has(band.id) || shapingByBand.has(band.id)).map((band) => (
           <FleetBand
             key={band.id}
             band={band}
             rows={byBand.get(band.id) ?? []}
+            shapingRows={shapingByBand.get(band.id) ?? []}
             now={now}
             columns={columns}
             selectedRunId={selectedRunId}
             stoppedRunIds={stoppedRunIds}
             onOpenSession={onOpenSession}
             onOpenSubject={onOpenSubject}
+            onOpenShaping={onOpenShaping}
           />
         ))}
       </Table>
@@ -597,12 +763,15 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
   const openStory = useUiStore((state) => state.openStory);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const rows = fleet.data?.rows ?? [];
+  // Issue #239: every live shaping session is an agent, listed beside the Story sessions.
+  const shapingRows = fleet.data?.shapingRows ?? [];
   const total = fleet.data?.totalRows ?? 0;
   const queue = blocked.data ?? [];
   // Issue #124: a shaping Round a live session is held on waits on you too, beside the requests.
   const waitingRounds = useWaitingRounds().data ?? [];
   const waitingTotal = queue.length + waitingRounds.length;
-  const now = useNowTick(rows.length > 0 || waitingTotal > 0);
+  const openShaping = useOpenWaitingRound();
+  const now = useNowTick(rows.length > 0 || shapingRows.length > 0 || waitingTotal > 0);
   // The strip's own rule for Stopped, so the fleet, the strip and the sidebar agree on which Story it is.
   const stoppedRunIds = new Set(
     lampsFromFleet(rows)
@@ -620,11 +789,25 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
     if (bucket) bucket.push(row);
     else byBand.set(band, [row]);
   }
+  const shapingByBand = new Map<FleetBandId, ShapingFleetRowDto[]>();
+  for (const row of shapingRows) {
+    const band = bandForState(row.fleetState === "blocked" ? "blocked" : "running");
+    const bucket = shapingByBand.get(band);
+    if (bucket) bucket.push(row);
+    else shapingByBand.set(band, [row]);
+  }
   // Selection moves through the rows in the order they are drawn: band by band, as grouped above.
-  const drawnRows = FLEET_BANDS.flatMap((band) => byBand.get(band.id) ?? []).map((r) => ({ ...r, id: r.sessionId }));
+  const drawnRows = FLEET_BANDS.flatMap((band) =>
+    bandEntries(byBand.get(band.id) ?? [], shapingByBand.get(band.id) ?? []),
+  );
   const openSession = (row: FleetRowDto) => {
     setSelectedRunId(row.sessionId);
     setActiveSessionId(...sessionOpenerArgs(row));
+  };
+  // A shaping session's row opens what it shapes, where its dock is: it has no session surface of its own.
+  const openShapingRow = (row: ShapingFleetRowDto) => {
+    setSelectedRunId(row.sessionId);
+    openShaping(row);
   };
   // The secondary target: the row's Story, opened in its own project (issue #104). It replaces the
   // fleet, which stays one Back away. Opens nothing else — the session is the primary target.
@@ -634,7 +817,13 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
     setSelectedRunId(row.sessionId);
     openStory(row.projectId, target);
   };
-  const selectedRow = view === "fleet" ? drawnRows.find((r) => r.sessionId === selectedRunId) : undefined;
+  const selected = view === "fleet" ? drawnRows.find((entry) => entry.id === selectedRunId) : undefined;
+  const openSelected = (subject: boolean) => {
+    if (!selected) return;
+    if (selected.kind === "shaping") openShapingRow(selected.row);
+    else if (subject) openSubject(selected.row);
+    else openSession(selected.row);
+  };
   // The queue view owns `a`/`d`/shift-`a` through its keyboard-owner card, and the layer refuses those
   // ids here anyway; this surface registers nothing while the queue is showing.
   useRegionBindings(
@@ -644,16 +833,12 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
       ? {
           "move-down": () => setSelectedRunId((current) => nextSelectionId(drawnRows, current, 1)),
           "move-up": () => setSelectedRunId((current) => nextSelectionId(drawnRows, current, -1)),
-          "open-fleet-row": () => {
-            if (selectedRow) openSession(selectedRow);
-          },
-          "open-fleet-row-subject": () => {
-            if (selectedRow) openSubject(selectedRow);
-          },
+          "open-fleet-row": () => openSelected(false),
+          "open-fleet-row-subject": () => openSelected(true),
         }
       : {},
   );
-  const countText = fleetCountText(agentCount(rows, waitingRounds), total - rows.filter(isLiveRun).length);
+  const countText = fleetCountText(agentCount(rows, waitingRounds, shapingRows), total - rows.filter(isLiveRun).length);
 
   return (
     <Tabs
@@ -699,7 +884,7 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
         <SurfaceBody className="flex flex-col gap-3 overflow-hidden">
           {fleet.isError ? (
             <ReadError title="Couldn't load the fleet" query={fleet} className="mx-auto max-w-[1240px]" />
-          ) : fleet.isSuccess && rows.length === 0 ? (
+          ) : fleet.isSuccess && rows.length === 0 && shapingRows.length === 0 ? (
             <Empty className="mx-auto max-w-[1240px] flex-none rounded-lg border border-solid border-border bg-card shadow-card">
               <EmptyHeader>
                 <EmptyTitle className="text-section font-semibold">No agents running</EmptyTitle>
@@ -707,14 +892,16 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
               </EmptyHeader>
             </Empty>
           ) : (
-            rows.length > 0 && (
+            (rows.length > 0 || shapingRows.length > 0) && (
               <FleetTable
                 byBand={byBand}
+                shapingByBand={shapingByBand}
                 now={now}
                 selectedRunId={selectedRunId}
                 stoppedRunIds={stoppedRunIds}
                 onOpenSession={openSession}
                 onOpenSubject={openSubject}
+                onOpenShaping={openShapingRow}
               />
             )
           )}

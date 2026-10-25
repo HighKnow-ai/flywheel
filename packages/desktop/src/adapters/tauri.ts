@@ -1867,8 +1867,32 @@ export interface FleetActivityDto {
   truncated: boolean;
 }
 
+/** A live shaping session (issue #239) — mirrors `commands/fleet.rs`'s `ShapingFleetRowDto`. It has no
+ * Story, so it is no `FleetRowDto`, but it is an agent: it shapes an Epic, a Milestone or the Roadmap. */
+export interface ShapingFleetRowDto {
+  sessionId: string;
+  projectId: string;
+  projectName: string;
+  projectKeyPrefix: string;
+  projectStatus: string;
+  subject: "epic" | "milestone" | "roadmap";
+  epicId: string | null;
+  epicKey: string | null;
+  epicTitle: string | null;
+  milestoneId: string | null;
+  milestoneTitle: string | null;
+  runStatus: string;
+  /** `blocked` (Waiting on you) while a Round it holds waits on the developer, else `running`. */
+  fleetState: "blocked" | "running";
+  startedAt: string;
+  blockedSince: string | null;
+  activity: FleetActivityDto;
+}
+
 export interface FleetListDto {
   rows: FleetRowDto[];
+  /** Every live shaping session (issue #239). Optional so an older fixture without it reads as none. */
+  shapingRows?: ShapingFleetRowDto[];
   /** The length of `rows` — one source, so the header count and the list cannot disagree. */
   totalRows: number;
   /** Sum of the visible rows' recorded costs; `null` when no row has one. An estimate. */

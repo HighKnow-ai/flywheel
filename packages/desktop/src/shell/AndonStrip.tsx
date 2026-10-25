@@ -15,6 +15,8 @@
  * A shaping session has no Story, so it is no fleet row; but while it is held on a Round it is Waiting on
  * you, and its Round lights a lamp of its own among the waiting ones (issue #124): the Epic's key and title,
  * "Round n · Waiting on you", and a click opens the Epic's shaping view, where the dock takes the answers.
+ * Working between Rounds it is an agent at work, so it lights a running lamp among the Story sessions' (issue
+ * #239): the Epic, Milestone or Roadmap it shapes, "Shaping" and for how long, opening the same view.
  *
  * Everything here is read from the fleet's one app-wide query (`useFleet`), the same read the sidebar and
  * All agents use, so the three can never disagree. A Stopped lamp reads its ending label from the same
@@ -32,11 +34,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Activity, ChevronRight, CirclePause, Hand, LoaderCircle } from "lucide-react";
-import { storyStopped, type FleetRowDto, type WaitingRoundDto } from "../adapters/tauri";
+import { storyStopped, type FleetRowDto, type ShapingFleetRowDto, type WaitingRoundDto } from "../adapters/tauri";
 import { endingWords } from "../board/StoryControls";
 import { useFleet, useWaitingRounds } from "../fleet/useFleet";
 import {
   isRoundHere,
+  shapingSessionWords,
   useOpenWaitingRound,
   usePlaceBoardId,
   usePlaceShapingId,
@@ -64,13 +67,15 @@ function isLive(row: FleetRowDto): boolean {
 }
 
 /**
- * How many agents there are (GLOSSARY.md: an agent is a live session, one running or Waiting on you). The fleet
- * read holds every Story session; a shaping session is in it only while it is held on a Round, so those are the
- * shaping sessions counted. A session in both is counted once. The rail and All agents count with this too.
+ * How many agents there are (GLOSSARY.md: an agent is a live session, one running or Waiting on you, whether it
+ * carries out a Story or shapes a record). The fleet read holds every Story session in `rows` and every live
+ * shaping session in `shaping` (issue #239), working between Rounds or held on one; a waiting Round's session is
+ * one of those too. A session in more than one is counted once. The rail and All agents count with this too.
  */
-export function agentCount(rows: FleetRowDto[], rounds: WaitingRoundDto[]): number {
+export function agentCount(rows: FleetRowDto[], rounds: WaitingRoundDto[], shaping: ShapingFleetRowDto[] = []): number {
   const live = new Set(rows.filter(isLive).map((row) => row.sessionId));
   for (const round of rounds) live.add(round.sessionId);
+  for (const row of shaping) live.add(row.sessionId);
   return live.size;
 }
 
@@ -99,14 +104,22 @@ export function lampsFromFleet(rows: FleetRowDto[]): LampData[] {
   ];
 }
 
-/** A lamp on the strip: a Story session's, or a shaping Round's while a live session is held on it. */
+/** A lamp on the strip: a Story session's, a shaping Round's while a live session is held on it, or a shaping
+ * session's while it works between Rounds (issue #239). */
 export type StripLamp =
   | { kind: "session"; id: string; tone: LampTone; key: string; lamp: LampData }
-  | { kind: "round"; id: string; tone: "waiting"; key: string; since: string; round: WaitingRoundDto };
+  | { kind: "round"; id: string; tone: "waiting"; key: string; since: string; round: WaitingRoundDto }
+  | { kind: "shaping"; id: string; tone: "running"; key: string; since: string; row: ShapingFleetRowDto };
 
 /** Every lamp on the strip, in strip order: Waiting on you first (Story sessions and shaping Rounds
- * together, longest waiting first), then Running, then Stopped. Pure, so the order is testable. */
-export function stripLamps(rows: FleetRowDto[], rounds: WaitingRoundDto[]): StripLamp[] {
+ * together, longest waiting first), then Running (Story sessions and working shaping sessions together,
+ * longest running first), then Stopped. A shaping session held on a Round lights its Round's lamp, never a
+ * second one. Pure, so the order is testable. */
+export function stripLamps(
+  rows: FleetRowDto[],
+  rounds: WaitingRoundDto[],
+  shaping: ShapingFleetRowDto[] = [],
+): StripLamp[] {
   const sessions = lampsFromFleet(rows).map((lamp): StripLamp => ({
     kind: "session",
     id: lamp.row.sessionId,
@@ -114,7 +127,7 @@ export function stripLamps(rows: FleetRowDto[], rounds: WaitingRoundDto[]): Stri
     key: lamp.row.storyKey,
     lamp,
   }));
-  const since = (l: StripLamp) => (l.kind === "round" ? l.since : (l.lamp.row.blockedSince ?? l.lamp.row.startedAt));
+  const since = (l: StripLamp) => (l.kind === "session" ? (l.lamp.row.blockedSince ?? l.lamp.row.startedAt) : l.since);
   const waiting = [
     ...sessions.filter((l) => l.tone === "waiting"),
     ...rounds.map((round): StripLamp => ({
@@ -126,7 +139,21 @@ export function stripLamps(rows: FleetRowDto[], rounds: WaitingRoundDto[]): Stri
       round,
     })),
   ].sort((a, b) => since(a).localeCompare(since(b)));
-  return [...waiting, ...sessions.filter((l) => l.tone !== "waiting")];
+  const held = new Set(rounds.map((round) => round.sessionId));
+  const running = [
+    ...sessions.filter((l) => l.tone === "running"),
+    ...shaping
+      .filter((row) => !held.has(row.sessionId))
+      .map((row): StripLamp => ({
+        kind: "shaping",
+        id: row.sessionId,
+        tone: "running",
+        key: shapingSessionWords(row).key,
+        since: row.startedAt,
+        row,
+      })),
+  ].sort((a, b) => since(a).localeCompare(since(b)));
+  return [...waiting, ...running, ...sessions.filter((l) => l.tone === "stopped")];
 }
 
 /** How many lamps fit a strip of `width` px, keeping room for the "+n more" lamp when some do not. */
@@ -247,6 +274,48 @@ export function RoundLamp({ round, current, now }: { round: WaitingRoundDto; cur
   );
 }
 
+/** A shaping session's lamp while it works between Rounds (issue #239): graphite with the blue bulb, like any
+ * agent at work. It names the Epic (key and title), the Milestone or the Roadmap, says "Shaping" and for how
+ * long, and opens the shaping view (or the Roadmap's board), where the session's dock is. */
+export function ShapingLamp({ row, current, now }: { row: ShapingFleetRowDto; current: boolean; now: number }) {
+  const open = useOpenWaitingRound();
+  const words = shapingSessionWords(row);
+  const pulse = !prefersReducedMotion();
+  const detail = `Shaping · ${formatAge(row.startedAt, now)}`;
+  return (
+    <LampTip title={words.record} detail={detail}>
+      <button
+        type="button"
+        data-lamp="running"
+        data-shaping-session={row.sessionId}
+        data-epic-id={row.epicId ?? undefined}
+        data-milestone-id={row.milestoneId ?? undefined}
+        data-roadmap-round={row.subject === "roadmap" ? row.projectId : undefined}
+        aria-current={current ? "location" : undefined}
+        aria-label={`Open ${words.record}, Shaping`}
+        onClick={() => open(row)}
+        style={{ width: LAMP_WIDTH }}
+        className={lampClass("running", current)}
+      >
+        <span
+          aria-hidden="true"
+          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+        >
+          <LoaderCircle size={16} strokeWidth={2} className={pulse ? "agent-pulse" : undefined} />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex min-w-0 items-baseline gap-1.5 text-small font-semibold">
+            {words.key && <span className="shrink-0 font-mono text-meta font-normal">{words.key}</span>}
+            <span className="truncate">{words.lampTitle}</span>
+          </span>
+          <span className="truncate text-meta text-strip-muted-foreground">{detail}</span>
+        </span>
+        <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-strip-muted-foreground" />
+      </button>
+    </LampTip>
+  );
+}
+
 export function Lamp({ lamp, current, now }: { lamp: LampData; current: boolean; now: number }) {
   const openStory = useUiStore((state) => state.openStory);
   const { row, tone } = lamp;
@@ -301,10 +370,12 @@ export function Lamp({ lamp, current, now }: { lamp: LampData; current: boolean;
 }
 
 export function AndonStrip() {
-  const rows = useFleet().data?.rows ?? [];
+  const fleet = useFleet().data;
+  const rows = fleet?.rows ?? [];
+  const shaping = fleet?.shapingRows ?? [];
   const rounds = useWaitingRounds().data ?? [];
-  const lamps = stripLamps(rows, rounds);
-  const agents = agentCount(rows, rounds);
+  const lamps = stripLamps(rows, rounds, shaping);
+  const agents = agentCount(rows, rounds, shaping);
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
   const placeStoryId = useUiStore((state) =>
     state.activeSessionId ? state.activeSessionStoryId : state.currentStoryId,
@@ -355,6 +426,8 @@ export function AndonStrip() {
                     current={isRoundHere(lamp.round, placeBoardId, placeShapingId)}
                     now={now}
                   />
+                ) : lamp.kind === "shaping" ? (
+                  <ShapingLamp row={lamp.row} current={isRoundHere(lamp.row, placeBoardId, placeShapingId)} now={now} />
                 ) : (
                   <Lamp lamp={lamp.lamp} current={lamp.lamp.row.storyId === placeStoryId} now={now} />
                 )}
@@ -367,7 +440,7 @@ export function AndonStrip() {
                     <button
                       type="button"
                       // A folded yellow lamp (a Story session's or a shaping Round's) is found in Waiting on you, which
-                      // lists both; All agents lists no shaping Round.
+                      // lists both; a folded blue lamp (a Story's or a shaping session's) in All agents, which lists both.
                       aria-label={`${hidden} more: ${hiddenTones.map((tone) => TONE_WORD[tone]).join(", ")}. Open ${
                         hiddenTones.includes("waiting") ? "Waiting on you" : "All agents"
                       }`}

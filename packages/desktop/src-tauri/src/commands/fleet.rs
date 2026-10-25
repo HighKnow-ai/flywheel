@@ -87,10 +87,60 @@ impl From<flywheel_core::query::fleet::FleetRow> for FleetRowDto {
     }
 }
 
+/// Mirrors `flywheel_core::query::fleet::ShapingFleetRow` (issue #239): a live shaping session, named by
+/// the Epic, the Milestone or the Roadmap it shapes, with the end of its log for the activity cell.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShapingFleetRowDto {
+    pub session_id: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub project_key_prefix: String,
+    pub project_status: String,
+    /// `epic`, `milestone` or `roadmap`.
+    pub subject: String,
+    pub epic_id: Option<String>,
+    pub epic_key: Option<String>,
+    pub epic_title: Option<String>,
+    pub milestone_id: Option<String>,
+    pub milestone_title: Option<String>,
+    pub run_status: String,
+    /// `blocked` while a Round it holds waits on the developer, else `running`.
+    pub fleet_state: String,
+    pub started_at: String,
+    pub blocked_since: Option<String>,
+    pub activity: FleetActivityDto,
+}
+
+impl From<flywheel_core::query::fleet::ShapingFleetRow> for ShapingFleetRowDto {
+    fn from(row: flywheel_core::query::fleet::ShapingFleetRow) -> Self {
+        Self {
+            session_id: row.session_id,
+            project_id: row.project_id,
+            project_name: row.project_name,
+            project_key_prefix: row.project_key_prefix,
+            project_status: row.project_status,
+            subject: row.subject,
+            epic_id: row.epic_id,
+            epic_key: row.epic_key,
+            epic_title: row.epic_title,
+            milestone_id: row.milestone_id,
+            milestone_title: row.milestone_title,
+            run_status: row.run_status,
+            fleet_state: row.fleet_state,
+            started_at: row.started_at,
+            blocked_since: row.blocked_since,
+            activity: FleetActivityDto::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FleetListDto {
     pub rows: Vec<FleetRowDto>,
+    /// Every live shaping session (issue #239): agents with no Story, kept apart from `rows`.
+    pub shaping_rows: Vec<ShapingFleetRowDto>,
     pub total_rows: usize,
     /// Sum of the visible rows' recorded costs, or null when none has one. An estimate (bundled
     /// price table), computed by the core read so the renderer never sums.
@@ -134,14 +184,22 @@ pub async fn fleet_list(state: State<'_, AppState>) -> Result<FleetListDto, Stri
     let total_rows = list.total_rows;
     let visible_cost_usd = list.visible_cost_usd;
     let mut rows: Vec<FleetRowDto> = list.rows.into_iter().map(FleetRowDto::from).collect();
-    let rows = tauri::async_runtime::spawn_blocking(move || {
+    let mut shaping_rows: Vec<ShapingFleetRowDto> =
+        list.shaping_rows.into_iter().map(ShapingFleetRowDto::from).collect();
+    let (rows, shaping_rows) = tauri::async_runtime::spawn_blocking(move || {
         attach_activity(&mut rows, flywheel_core::session_log::read_tail);
-        rows
+        // Every shaping row is live, so each gets its log's end, through the same read.
+        for row in shaping_rows.iter_mut() {
+            if let Ok(tail) = flywheel_core::session_log::read_tail(&row.session_id) {
+                row.activity = FleetActivityDto { lines: tail.lines, truncated: tail.truncated };
+            }
+        }
+        (rows, shaping_rows)
     })
     .await
     .map_err(|e| ipc_error("fleet_list:tail", e))?;
 
-    Ok(FleetListDto { total_rows, visible_cost_usd, rows })
+    Ok(FleetListDto { total_rows, visible_cost_usd, rows, shaping_rows })
 }
 
 /// The server-side cap on the blocked queue (T-10-05-04), equal to the core's backstop clamp.
