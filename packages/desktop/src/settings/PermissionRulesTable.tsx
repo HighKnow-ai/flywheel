@@ -138,8 +138,8 @@ export function PermissionRulesTable({ projects, loadingProjects = false }: Perm
     <div className="flex flex-col gap-2">
       <Table aria-label="Permission rules" className="table-fixed text-body">
         <colgroup>
-          <col className="w-[22%]" />
-          <col className="w-[16%]" />
+          <col className="w-[20%]" />
+          <col className="w-[14%]" />
           <col />
           <col className="w-24" />
           <col className="w-24" />

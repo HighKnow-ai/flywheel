@@ -377,7 +377,7 @@ function ProjectOverrides({ settings }: { settings: SettingsDto }) {
     <Table aria-label="Per-project credentials" className="table-fixed text-body">
       <colgroup>
         <col />
-        <col className="w-[min(18rem,55%)]" />
+        <col className="w-72" />
       </colgroup>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
