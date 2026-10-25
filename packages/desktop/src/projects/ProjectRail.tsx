@@ -470,9 +470,11 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
   const waitingCount = queue.length + waitingRounds.length;
   // Every project's Needs-you list, the same read the board's column makes (issue #156).
   const needsYouLists = useNeedsYouLists(projects.map((project) => project.id));
-  const fleetRows = useFleet().data?.rows ?? [];
+  const fleet = useFleet().data;
+  const fleetRows = fleet?.rows ?? [];
   const liveSessions = fleetRows.filter(isLiveSession);
-  const agents = agentCount(fleetRows, waitingRounds);
+  // Issue #239: a shaping session working between Rounds is an agent too.
+  const agents = agentCount(fleetRows, waitingRounds, fleet?.shapingRows ?? []);
   // The strip's own rule for Stopped, so the sidebar and the lamps agree.
   const stoppedRows = lampsFromFleet(fleetRows)
     .filter((lamp) => lamp.tone === "stopped")

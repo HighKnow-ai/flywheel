@@ -15,7 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { FleetListDto, FleetRowDto } from "../../adapters/tauri";
+import type { FleetListDto, FleetRowDto, ShapingFleetRowDto } from "../../adapters/tauri";
 import { RUN_STATUS_LABELS } from "../../legend/runStatus";
 import { STATE_VOCABULARY } from "../../components/StateBadge";
 import { activeSurface } from "../../state/keyboard";
@@ -471,5 +471,85 @@ describe("every live Story session across projects (#58)", () => {
     fireEvent.click(await screen.findByText("Wire the thing"));
     expect(useUiStore.getState().activeSessionId).toBe("r-b");
     expect(useUiStore.getState().activeSessionStoryId).toBe("story-2");
+  });
+});
+
+describe("a live shaping session on All agents (issue #239)", () => {
+  function shaping(overrides: Partial<ShapingFleetRowDto>): ShapingFleetRowDto {
+    return {
+      sessionId: "shape-1",
+      projectId: "proj-1",
+      projectName: "Alpha",
+      projectKeyPrefix: "ALP",
+      projectStatus: "active",
+      subject: "epic",
+      epicId: "epic-9",
+      epicKey: "ALP-9",
+      epicTitle: "Waitlist",
+      milestoneId: null,
+      milestoneTitle: null,
+      runStatus: "running",
+      fleetState: "running",
+      startedAt: new Date(Date.now() - 60_000).toISOString(),
+      blockedSince: null,
+      activity: { lines: [], truncated: false },
+      ...overrides,
+    };
+  }
+
+  it("counts a shaping session working between Rounds once in the headline", async () => {
+    fleetListMock.mockResolvedValue({ ...list([row({ sessionId: "r-a" })]), shapingRows: [shaping({})] });
+    renderFleet();
+    await waitFor(() => expect(screen.getByText("2 agents")).toBeInTheDocument());
+  });
+
+  it("lists it as a Running row naming its Epic, says Shaping, and opens the Epic's shaping view", async () => {
+    fleetListMock.mockResolvedValue({ ...list([row({ sessionId: "r-a" })]), shapingRows: [shaping({})] });
+    renderFleet();
+    const table = await screen.findByRole("table");
+    const headers = within(table.querySelector("thead") as HTMLElement)
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent);
+    expect(headers).toContain("Working on");
+    const shapingRow = table.querySelector('[data-run-id="shape-1"]') as HTMLElement;
+    expect(shapingRow.closest("[data-band]")).toHaveAttribute("data-band", "running");
+    expect(within(shapingRow).getByText(RUN_STATUS_LABELS.running)).toBeInTheDocument();
+    expect(within(shapingRow).getByText("ALP-9")).toBeInTheDocument();
+    expect(within(shapingRow).getByText("Waitlist")).toBeInTheDocument();
+    expect(shapingRow.querySelector('[data-field="doing-task"]')?.textContent).toBe("Shaping");
+    // Live: nothing to dismiss.
+    expect(within(shapingRow).queryByRole("button", { name: /Dismiss/ })).toBeNull();
+    fireEvent.click(shapingRow);
+    expect(useUiStore.getState().currentEpicId).toBe("epic-9");
+    expect(useUiStore.getState().activeSessionId).toBeNull();
+  });
+
+  it("puts a held one under NEEDS YOU as Waiting on you, and names a Milestone's and the Roadmap's", async () => {
+    fleetListMock.mockResolvedValue({
+      ...list([]),
+      shapingRows: [
+        shaping({ fleetState: "blocked", blockedSince: new Date(Date.now() - 30_000).toISOString() }),
+        shaping({
+          sessionId: "shape-m",
+          subject: "milestone",
+          epicId: null,
+          epicKey: null,
+          epicTitle: null,
+          milestoneId: "m-1",
+          milestoneTitle: "Private beta",
+        }),
+        shaping({ sessionId: "shape-r", subject: "roadmap", epicId: null, epicKey: null, epicTitle: null }),
+      ],
+    });
+    renderFleet();
+    const table = await screen.findByRole("table");
+    await waitFor(() => expect(screen.getByText("3 agents")).toBeInTheDocument());
+    const held = table.querySelector('[data-run-id="shape-1"]') as HTMLElement;
+    expect(held.closest("[data-band]")).toHaveAttribute("data-band", "needs-you");
+    expect(within(held).getByText(RUN_STATUS_LABELS.blocked)).toBeInTheDocument();
+    const milestone = table.querySelector('[data-run-id="shape-m"]') as HTMLElement;
+    expect(within(milestone).getByText("Private beta")).toBeInTheDocument();
+    const roadmap = table.querySelector('[data-run-id="shape-r"]') as HTMLElement;
+    expect(within(roadmap).getByRole("button", { name: "Open the Alpha Roadmap" })).toHaveTextContent("Roadmap");
   });
 });

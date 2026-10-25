@@ -98,10 +98,47 @@ export function usePlaceShapingId(): string | null {
   return useUiStore((state) => (state.activeSessionId ? null : (state.currentEpicId ?? state.currentMilestoneId)));
 }
 
-/** Whether a waiting Round's lamp or row marks the current place: its project's board for a roadmap Round,
- * else its Epic's or Milestone's shaping view. */
+/** What a shaping Round or a shaping session is about: the fields a waiting Round and a live shaping session
+ * (issue #239) share, enough to name, place and open it. */
+export type ShapingSubjectRef = Pick<WaitingRoundDto, "subject" | "projectId" | "projectName" | "epicId"> & {
+  epicKey?: string | null;
+  epicTitle?: string | null;
+  milestoneId?: string | null;
+  milestoneTitle?: string | null;
+};
+
+/** How a working shaping session (issue #239) reads on its lamp and its All agents row: the record it shapes,
+ * named as its waiting Round's lamp names it. */
+export interface ShapingSessionWords {
+  /** The Epic's key, or empty for a Milestone and the Roadmap, which have none. */
+  key: string;
+  /** The title where nothing around it names the project: "Waitlist", "Private beta", "flywheel Roadmap". */
+  lampTitle: string;
+  /** The record as a sentence names it: "Epic FLY-1 Waitlist", "Milestone Private beta", "the flywheel Roadmap". */
+  record: string;
+}
+
+export function shapingSessionWords(subject: ShapingSubjectRef): ShapingSessionWords {
+  if (subject.subject === "roadmap") {
+    return {
+      key: "",
+      lampTitle: `${subject.projectName} Roadmap`,
+      record: `the ${subject.projectName} Roadmap`,
+    };
+  }
+  if (subject.subject === "milestone") {
+    const title = subject.milestoneTitle ?? "";
+    return { key: "", lampTitle: title, record: `Milestone ${title}` };
+  }
+  const key = subject.epicKey ?? "";
+  const title = subject.epicTitle ?? "";
+  return { key, lampTitle: title, record: `Epic ${`${key} ${title}`.trim()}` };
+}
+
+/** Whether a waiting Round's (or a shaping session's) lamp or row marks the current place: its project's board
+ * for the Roadmap, else its Epic's or Milestone's shaping view. */
 export function isRoundHere(
-  round: WaitingRoundDto,
+  round: ShapingSubjectRef,
   placeBoardId: string | null,
   placeShapingId: string | null,
 ): boolean {
@@ -110,8 +147,9 @@ export function isRoundHere(
   return id != null && id === placeShapingId;
 }
 
-/** Opens what a waiting Round is about: its Epic's or Milestone's shaping view, or its project's board. */
-export function useOpenWaitingRound(): (round: WaitingRoundDto) => void {
+/** Opens what a waiting Round (or a shaping session) is about: its Epic's or Milestone's shaping view, or its
+ * project's board. */
+export function useOpenWaitingRound(): (round: ShapingSubjectRef) => void {
   const openEpic = useUiStore((state) => state.openEpic);
   const openMilestone = useUiStore((state) => state.openMilestone);
   const openProject = useUiStore((state) => state.setCurrentProjectId);
