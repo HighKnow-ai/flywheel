@@ -102,6 +102,13 @@ async function openChecklist() {
   return list;
 }
 
+/** A Task's row actions are one ⋯ menu (issue #204): open it and pick `item`. */
+async function pick(taskTitle: string, item: string) {
+  fireEvent.keyDown(screen.getByRole("button", { name: `Actions for ${taskTitle}` }), { key: "Enter" });
+  const menu = await screen.findByRole("menu");
+  return within(menu).getByRole("menuitem", { name: item });
+}
+
 beforeEach(() => {
   boardChanged = null;
   useUiStore.setState({ currentProjectId: "p1", currentStoryId: null });
@@ -155,7 +162,7 @@ describe("A Story's Task checklist", () => {
   it("edits a Task's title", async () => {
     renderBoard();
     await openChecklist();
-    fireEvent.click(screen.getByRole("button", { name: "Edit Refactor" }));
+    fireEvent.click(await pick("Refactor", "Rename"));
     fireEvent.change(screen.getByLabelText("Title of Refactor"), { target: { value: "Refactor the parser" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(taskRename).toHaveBeenCalledWith("t3", "Refactor the parser"));
@@ -164,22 +171,26 @@ describe("A Story's Task checklist", () => {
   it("reorders Tasks up and down", async () => {
     renderBoard();
     await openChecklist();
-    expect(screen.getByRole("button", { name: "Move Write the failing test up" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Move Refactor down" })).toBeDisabled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Move Refactor up" }));
+    expect(await pick("Write the failing test", "Move up")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.keyDown(await screen.findByRole("menu"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(await pick("Refactor", "Move down")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move up" }));
     await waitFor(() => expect(taskMove).toHaveBeenCalledWith("t3", "t2"));
-    fireEvent.click(screen.getByRole("button", { name: "Move Write the failing test down" }));
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    fireEvent.click(await pick("Write the failing test", "Move down"));
     await waitFor(() => expect(taskMove).toHaveBeenCalledWith("t1", "t3"));
-    fireEvent.click(screen.getByRole("button", { name: "Move Make it pass down" }));
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    fireEvent.click(await pick("Make it pass", "Move down"));
     await waitFor(() => expect(taskMove).toHaveBeenCalledWith("t2", null));
   });
 
-  it("drops a Task only with a reason, and shows the reason once dropped", async () => {
+  it("drops a Task only with a reason, asked in a Popover, and shows the reason once dropped", async () => {
     renderBoard();
     await openChecklist();
-    fireEvent.click(screen.getByRole("button", { name: "Drop Refactor" }));
-    const confirm = screen.getByRole("button", { name: "Confirm drop" });
+    fireEvent.click(await pick("Refactor", "Drop…"));
+    const popover = await screen.findByRole("dialog", { name: "Drop Refactor" });
+    const confirm = within(popover).getByRole("button", { name: "Drop Task" });
     expect(confirm).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Reason for dropping Refactor"), { target: { value: "not needed" } });
     fireEvent.click(confirm);
@@ -188,7 +199,8 @@ describe("A Story's Task checklist", () => {
     taskList.mockResolvedValue([task("t3", "Refactor", "dropped", "not needed")]);
     act(() => boardChanged?.({ projectId: "p1" }));
     expect(await screen.findByText("Dropped: not needed")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Drop Refactor" })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Refactor" }), { key: "Enter" });
+    expect(within(await screen.findByRole("menu")).queryByRole("menuitem", { name: "Drop…" })).toBeNull();
   });
 
   it("shows each Task's note collapsed by default, and opens it on demand", async () => {
@@ -227,7 +239,7 @@ describe("A Story's Task checklist", () => {
     taskMove.mockRejectedValue(new Error("Task \"x\" is not a Task of this Story"));
     renderBoard();
     await openChecklist();
-    fireEvent.click(screen.getByRole("button", { name: "Move Refactor up" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("is not a Task of this Story");
+    fireEvent.click(await pick("Refactor", "Move up"));
+    expect(await screen.findByText(/is not a Task of this Story/)).toHaveAttribute("role", "alert");
   });
 });

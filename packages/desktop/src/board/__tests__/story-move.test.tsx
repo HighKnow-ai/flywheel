@@ -2,7 +2,8 @@
  * Behaviour under test (issue #168, docs/mvp-spec.md §7): creating an Epic or a Story and moving a Story
  * between Epics are reachable from visible controls. "+ Story" on an Epic card's heading opens Write a Story
  * with that Epic chosen; "+ Epic" in the Milestone header opens Add an Epic with the picked Milestone chosen;
- * "Move to Epic…" in the Story view lists the project's other open Epics and moves the Story to the one picked.
+ * "Move to Epic…" in the Story view is a Combobox of the project's open Epics, with a check on the Story's own, and
+ * moves the Story to the one picked, saying so in a toast with Undo.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -20,6 +21,11 @@ const storyListForProject = vi.fn();
 const storyGet = vi.fn();
 const storyMove = vi.fn();
 const storyWriteByHand = vi.fn();
+const notifySuccess = vi.fn();
+
+vi.mock("@/lib/notify", () => ({
+  notify: { success: (...args: unknown[]) => notifySuccess(...args), error: vi.fn(), dismiss: vi.fn() },
+}));
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -124,40 +130,61 @@ describe("+ Epic in the Milestone header", () => {
 });
 
 describe("Move to Epic… in the Story view", () => {
-  async function openMenu() {
-    wrap(<StoryView projectId="p1" projectName="Threadfin" storyId="10" onBack={() => {}} />);
-    const trigger = await screen.findByRole("button", { name: "Move FLY-10 to another Epic" });
-    fireEvent.keyDown(trigger, { key: "Enter" });
-    return screen.findByRole("menu");
-  }
-
-  it("lists the project's other open Epics, under their Milestones", async () => {
-    const menu = await openMenu();
-    await within(menu).findByRole("menuitem", { name: /FLY-2 Needs you/ });
-    expect(within(menu).getByRole("menuitem", { name: /FLY-3 Merge/ })).toBeTruthy();
-    expect(within(menu).queryByRole("menuitem", { name: /FLY-1 Roster/ })).toBeNull();
-    expect(within(menu).queryByRole("menuitem", { name: /FLY-9 Old work/ })).toBeNull();
-    expect(within(menu).getByText("Board")).toBeTruthy();
-    expect(within(menu).getByText("Review")).toBeTruthy();
+  beforeEach(() => {
+    // cmdk scrolls the highlighted option into view; jsdom has no layout to scroll.
+    Element.prototype.scrollIntoView = vi.fn();
+    notifySuccess.mockReset();
   });
 
-  it("moves the Story to the Epic picked", async () => {
-    const menu = await openMenu();
-    fireEvent.click(await within(menu).findByRole("menuitem", { name: /FLY-3 Merge/ }));
+  async function openPicker() {
+    wrap(<StoryView projectId="p1" projectName="Threadfin" storyId="10" onBack={() => {}} />);
+    const trigger = await screen.findByRole("combobox", { name: "Move FLY-10 to another Epic" });
+    fireEvent.click(trigger);
+    return screen.findByRole("listbox");
+  }
+
+  it("lists the project's open Epics under their Milestones, with a check on the Story's own", async () => {
+    const list = await openPicker();
+    await within(list).findByRole("option", { name: /FLY-2 Needs you/ });
+    expect(within(list).getByRole("option", { name: /FLY-3 Merge/ })).toBeTruthy();
+    const current = within(list).getByRole("option", { name: /FLY-1 Roster/ });
+    expect(current).toHaveAttribute("data-checked", "true");
+    expect(current).toHaveAttribute("aria-disabled", "true");
+    expect(within(list).queryByRole("option", { name: /FLY-9 Old work/ })).toBeNull();
+    expect(within(list).getByText("Board")).toBeTruthy();
+    expect(within(list).getByText("Review")).toBeTruthy();
+  });
+
+  it("narrows the list as the Developer types", async () => {
+    const list = await openPicker();
+    await within(list).findByRole("option", { name: /FLY-2 Needs you/ });
+    fireEvent.change(screen.getByPlaceholderText("Search Epics"), { target: { value: "merge" } });
+    await waitFor(() => expect(within(list).queryByRole("option", { name: /FLY-2 Needs you/ })).toBeNull());
+    expect(within(list).getByRole("option", { name: /FLY-3 Merge/ })).toBeTruthy();
+  });
+
+  it("moves the Story to the Epic picked, and says so with Undo", async () => {
+    const list = await openPicker();
+    fireEvent.click(await within(list).findByRole("option", { name: /FLY-3 Merge/ }));
     await waitFor(() => expect(storyMove).toHaveBeenCalledWith("10", "e3"));
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith("Moved FLY-10 to FLY-3", expect.anything()));
+    const { undo } = notifySuccess.mock.calls[0][1] as { undo: () => void };
+    undo();
+    await waitFor(() => expect(storyMove).toHaveBeenLastCalledWith("10", "e1"));
   });
 
   it("says why when the core refuses the move", async () => {
     storyMove.mockRejectedValue("FLY-3 is done; a Story moves only into an open Epic");
-    const menu = await openMenu();
-    fireEvent.click(await within(menu).findByRole("menuitem", { name: /FLY-3 Merge/ }));
+    const list = await openPicker();
+    fireEvent.click(await within(list).findByRole("option", { name: /FLY-3 Merge/ }));
     expect(await screen.findByText("FLY-3 is done; a Story moves only into an open Epic")).toBeTruthy();
+    expect(notifySuccess).not.toHaveBeenCalled();
   });
 
   it("is not offered on a closed Story", async () => {
     storyGet.mockResolvedValue(story("10", "e1", "merged"));
     wrap(<StoryView projectId="p1" projectName="Threadfin" storyId="10" onBack={() => {}} />);
     await screen.findByRole("heading", { name: /Story 10/ });
-    expect(screen.queryByRole("button", { name: "Move FLY-10 to another Epic" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Move FLY-10 to another Epic" })).toBeNull();
   });
 });

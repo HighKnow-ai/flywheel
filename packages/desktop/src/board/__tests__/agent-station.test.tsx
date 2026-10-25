@@ -128,7 +128,7 @@ describe("the agent station (Story #118)", () => {
     expect(stopSession).not.toHaveBeenCalled();
 
     fireEvent.click(within(station).getByRole("button", { name: "Stop FLY-4" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Confirm stop of FLY-4" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop the session" }));
     await waitFor(() => expect(stopSession).toHaveBeenCalledWith("ses-live"));
     expect(useUiStore.getState().activeSessionId).toBeNull();
   });
@@ -138,7 +138,7 @@ describe("the agent station (Story #118)", () => {
     renderStory();
     const station = await screen.findByRole("region", { name: "Live agent" });
     fireEvent.click(await within(station).findByRole("button", { name: "Stop FLY-4" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Confirm stop of FLY-4" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop the session" }));
     expect(await screen.findByText(/could not confirm the agent process actually stopped/)).toBeInTheDocument();
   });
 

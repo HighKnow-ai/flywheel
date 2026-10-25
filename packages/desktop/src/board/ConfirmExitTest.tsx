@@ -11,9 +11,9 @@
  *   (`set_*_state(Shaping)`). No Round starts. A Milestone still in Shaping has nothing to reopen.
  *
  * Confirming or declining removes the control (the record is Done, or back in Shaping), so what follows
- * is said by {@link ConfirmExitTestOutcome}, mounted once on the board: the announcement, and, when the
- * Round's session could not start (no `claude`), a dialog saying the record is Done and the Round waits on
- * the strip for Continue. Starting a Round opens nothing: the board stays put, and the keyboard moves to
+ * is said by a toast (DESIGN.md § Feedback, issue #204), and, when the Round's session could not start (no
+ * `claude`), by {@link ConfirmExitTestOutcome}, mounted once on the board: a dialog saying the record is Done
+ * and the Round waits on the strip for Continue. Confirm Done and Reopen show as pending on their own Button. Starting a Round opens nothing: the board stays put, and the keyboard moves to
  * the Round's band without scrolling.
  */
 import { useId, useState } from "react";
@@ -41,6 +41,7 @@ import {
 import { Button } from "../components/ui/button";
 import { useRoadmapRound } from "./RoadmapRound";
 import { errorText } from "./StoryControls";
+import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
 /** An Epic's exit test can be confirmed once shaping is closed and every Story is Merged or Dropped. */
@@ -85,10 +86,8 @@ function roundSentence(subject: ExitTestSubject, openRound: number | null): stri
   return "Confirming also starts a Roadmap Round: an agent asks whether the next Milestone is still right, and proposes reordering, amending, retiring or adding Milestones.";
 }
 
-/** What the last confirmation or decline left to say, once its control is gone (UI state). */
+/** What the last confirmation left to say, once its control is gone (UI state). */
 interface Outcome {
-  /** The polite announcement. */
-  message: string;
   /** Set when the record is Done but its Round's session could not start. */
   stalled: { title: string; roundNumber: number; reason: string } | null;
 }
@@ -99,8 +98,7 @@ const useOutcome = create<{ outcome: Outcome | null; set: (outcome: Outcome | nu
 }));
 
 /**
- * Mounted once on the board: the live region that announces what a confirmation or a decline did, and the
- * dialog that says a record is Done while its Round's session could not start.
+ * Mounted once on the board: the dialog that says a record is Done while its Round's session could not start.
  */
 export function ConfirmExitTestOutcome() {
   const outcome = useOutcome((s) => s.outcome);
@@ -108,13 +106,10 @@ export function ConfirmExitTestOutcome() {
   const stalled = outcome?.stalled ?? null;
   return (
     <>
-      <span role="status" className="sr-only">
-        {outcome?.message ?? ""}
-      </span>
       <AlertDialog
         open={stalled !== null}
         onOpenChange={(open) => {
-          if (!open && outcome) setOutcome({ message: outcome.message, stalled: null });
+          if (!open && outcome) setOutcome({ stalled: null });
         }}
       >
         <AlertDialogContent className="data-[size=default]:sm:max-w-lg">
@@ -176,12 +171,14 @@ export function ConfirmExitTest({
     try {
       const done: ConfirmDoneDto =
         subject.kind === "epic" ? await epicConfirmDone(subject.id) : await milestoneConfirmDone(subject.id);
-      // Said by the board's ConfirmExitTestOutcome: this control goes with the refetch, the record being Done.
-      setOutcome({
-        message:
+      // Said by a toast and the board's ConfirmExitTestOutcome: this control goes with the refetch.
+      notify.success(`${name} is Done`, {
+        description:
           done.outcome === "noted"
-            ? `${name} is Done. Noted on Roadmap Round ${done.roundNumber}, on the Roadmap strip.`
-            : `${name} is Done. Roadmap Round ${done.roundNumber} started, on the Roadmap strip.`,
+            ? `Noted on Roadmap Round ${done.roundNumber}, on the Roadmap strip.`
+            : `Roadmap Round ${done.roundNumber} started, on the Roadmap strip.`,
+      });
+      setOutcome({
         stalled: done.sessionError ? { title: titleOf(subject), roundNumber: done.roundNumber, reason: done.sessionError } : null,
       });
       setOpen(false);
@@ -201,7 +198,7 @@ export function ConfirmExitTest({
     try {
       if (subject.kind === "epic") await epicSetState(subject.id, "shaping");
       else await milestoneSetState(subject.id, "shaping");
-      setOutcome({ message: `Shaping reopened on ${name}.`, stalled: null });
+      notify.success(`Shaping reopened on ${name}`);
       setOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["board", projectId] });
       // The control is gone with the dialog: the keyboard goes to what replaced it.
@@ -271,17 +268,23 @@ export function ConfirmExitTest({
                 variant="ghost"
                 className="sm:mr-auto"
                 aria-label={`Not met: reopen shaping on ${name}`}
-                disabled={busy !== null}
+                loading={busy === "decline"}
+                disabled={busy === "confirm"}
                 onClick={() => void decline()}
               >
                 <Undo2 aria-hidden="true" />
-                {busy === "decline" ? "Reopening…" : "Not met: reopen shaping"}
+                Not met: reopen shaping
               </Button>
             )}
             <AlertDialogCancel disabled={busy !== null}>Not yet</AlertDialogCancel>
-            <Button aria-label={`Confirm ${name} Done`} disabled={busy !== null} onClick={() => void confirm()}>
+            <Button
+              aria-label={`Confirm ${name} Done`}
+              loading={busy === "confirm"}
+              disabled={busy === "decline"}
+              onClick={() => void confirm()}
+            >
               <Check aria-hidden="true" />
-              {busy === "confirm" ? "Confirming…" : "Confirm Done"}
+              Confirm Done
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

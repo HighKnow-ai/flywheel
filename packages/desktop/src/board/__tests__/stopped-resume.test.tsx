@@ -191,16 +191,16 @@ describe("The Story view: Drop (issue #54)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Drop FLY-2" }));
     expect(storyDrop).not.toHaveBeenCalled();
     expect(screen.getByText(/removes its worktree and branch, uncommitted work included/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Confirm drop of FLY-2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Drop the Story" }));
     await waitFor(() => expect(storyDrop).toHaveBeenCalledWith("s1"));
   });
 
   it("cancelling the confirmation drops nothing", async () => {
     renderStory();
     fireEvent.click(await screen.findByRole("button", { name: "Drop FLY-2" }));
-    fireEvent.click(screen.getByRole("button", { name: "Keep FLY-2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
     expect(storyDrop).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: "Confirm drop of FLY-2" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Drop the Story" })).toBeNull();
   });
 
   it("shows the core's refusal while a session is live", async () => {
@@ -208,7 +208,7 @@ describe("The Story view: Drop (issue #54)", () => {
     storyDrop.mockRejectedValue(new Error("FLY-2 has a live session. Stop the session first, then drop it."));
     renderStory();
     fireEvent.click(await screen.findByRole("button", { name: "Drop FLY-2" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm drop of FLY-2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Drop the Story" }));
     expect(await screen.findByText(/Stop the session first/)).toBeInTheDocument();
   });
 
@@ -222,7 +222,7 @@ describe("The Story view: Drop (issue #54)", () => {
 });
 
 describe("The Story view: the Story's session list (issue #54)", () => {
-  it("lists each session with its ID, start and end, ending reason and summary, and opens its feed", async () => {
+  it("lists each session by its ordinal, with how it ended as a StateBadge, its duration, its summary, and opens its feed", async () => {
     sessionsForStory.mockResolvedValue([
       run("01JSESSIONNEXT0000000000000", null, null),
       run("01JSESSIONDEAD0000000000000", "crash", "2026-10-19T10:00:00Z"),
@@ -239,12 +239,18 @@ describe("The Story view: the Story's session list (issue #54)", () => {
     const list = await screen.findByRole("list", { name: "Sessions of FLY-2" });
     const items = await within(list).findAllByRole("listitem");
     expect(items).toHaveLength(2);
+    expect(within(items[0]).getByText("Session 2")).toBeInTheDocument();
     expect(within(items[0]).getByText(/01JSESSIONNEXT/)).toBeInTheDocument();
-    expect(within(items[0]).getByText("live")).toBeInTheDocument();
-    expect(within(items[1]).getByText("crash")).toBeInTheDocument();
-    expect(within(items[1]).getByText(/Stub summary/)).toBeInTheDocument();
+    expect(within(items[0]).getByText("Live")).toBeInTheDocument();
+    expect(within(items[1]).getByText("Session 1")).toBeInTheDocument();
+    // A crash is a failure: red, in words, never the raw enum.
+    const crashed = within(items[1]).getByText("Crashed").closest("[data-tone]");
+    expect(crashed).toHaveAttribute("data-tone", "destructive");
+    expect(within(items[1]).queryByText("crash")).toBeNull();
+    expect(within(items[1]).getByText(/Summary written by Flywheel/)).toBeInTheDocument();
+    expect(within(items[1]).queryByText(/Stub summary/)).toBeNull();
     expect(within(items[1]).getByText(/ended \(crash\) without handing off/)).toBeInTheDocument();
-    expect(within(items[1]).getByText(/2026-10-19 10:00/)).toBeInTheDocument();
+    expect(within(items[1]).getByText("ran 1h 00m")).toBeInTheDocument();
 
     fireEvent.click(within(items[1]).getByRole("button", { name: /Open feed/ }));
     expect(useUiStore.getState().activeSessionId).toBe("01JSESSIONDEAD0000000000000");

@@ -1313,8 +1313,8 @@ describe.runIf(CRITIQUE_RUN)("M2 to M4 flow screens", () => {
   it("118 Story view: Move to Epic lists the other open Epics under their Milestones (issue #168)", async () => {
     await boardReady();
     await openStory("FLY-4", "Make clicking and navigation predictable");
-    await click("Move FLY-4 to another Epic");
-    await screen.findByRole("menu");
+    await userEvent.click(await screen.findByRole("combobox", { name: "Move FLY-4 to another Epic" }));
+    await screen.findByRole("listbox");
     await shot("118-story-move-to-epic");
   });
 
@@ -1323,8 +1323,8 @@ describe.runIf(CRITIQUE_RUN)("M2 to M4 flow screens", () => {
     try {
       await boardReady();
       await openStory("FLY-4", "Make clicking and navigation predictable");
-      await click("Move FLY-4 to another Epic");
-      await screen.findByRole("menu");
+      await userEvent.click(await screen.findByRole("combobox", { name: "Move FLY-4 to another Epic" }));
+      await screen.findByRole("listbox");
       await shot("119-story-move-to-epic-min-width");
     } finally {
       await page.viewport(1440, 900);

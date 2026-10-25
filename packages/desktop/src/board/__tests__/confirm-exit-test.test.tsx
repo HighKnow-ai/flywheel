@@ -29,6 +29,11 @@ const epicConfirmDone = vi.fn();
 const milestoneConfirmDone = vi.fn();
 const epicSetState = vi.fn();
 const milestoneSetState = vi.fn();
+const notifySuccess = vi.fn();
+
+vi.mock("@/lib/notify", () => ({
+  notify: { success: (...args: unknown[]) => notifySuccess(...args), error: vi.fn(), dismiss: vi.fn() },
+}));
 
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
@@ -109,6 +114,7 @@ async function card(title: string) {
 }
 
 beforeEach(() => {
+  notifySuccess.mockReset();
   resetUiState();
   useUiStore.setState({ currentProjectId: "p1" });
   roadmap = [milestone()];
@@ -159,7 +165,7 @@ describe("Confirm exit test on an Epic card", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Not met: reopen shaping on FLY-1 Rounds" }));
     await waitFor(() => expect(epicSetState).toHaveBeenCalledWith("e1", "shaping"));
     expect(epicConfirmDone).not.toHaveBeenCalled();
-    expect(await screen.findByText("Shaping reopened on FLY-1 Rounds.")).toBeTruthy();
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith("Shaping reopened on FLY-1 Rounds"));
   });
 
   it("Confirm asks first, naming the exit test and the short Round it starts, then confirms Done", async () => {
@@ -172,7 +178,9 @@ describe("Confirm exit test on an Epic card", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm FLY-1 Rounds Done" }));
     await waitFor(() => expect(epicConfirmDone).toHaveBeenCalledWith("e1"));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-    expect(await screen.findByText("FLY-1 Rounds is Done. Roadmap Round 1 started, on the Roadmap strip.")).toBeTruthy();
+    expect(notifySuccess).toHaveBeenCalledWith("FLY-1 Rounds is Done", {
+      description: "Roadmap Round 1 started, on the Roadmap strip.",
+    });
   });
 
   it("says the trigger is noted when a roadmap Round is already open", async () => {

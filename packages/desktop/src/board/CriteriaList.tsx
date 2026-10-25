@@ -7,14 +7,23 @@
  *
  * Every control is a core write (`check_set`, `check_remove`); the list re-reads on `board:changed`
  * and never trusts its own edit.
+ *
+ * Controls on demand (issue #204): Change and Remove show on the row's hover and while focus is inside it, so a
+ * long list reads as statements and Checks; Add Check stays visible, as it is the call to write one. Remove is
+ * reversible, so it does not confirm: its toast offers Undo, which sets the same command back. A failed read
+ * says so (ReadError); the empty state shows only once the read succeeded with nothing in it.
  */
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, SquareTerminal, X } from "lucide-react";
 import { checkRemove, checkSet, criterionList, type AcceptanceCriterionDto, type CheckDto } from "../adapters/tauri";
+import { ReadError } from "../components/ReadError";
 import { StateBadge } from "../components/StateBadge";
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
 function errorText(err: unknown): string {
@@ -63,15 +72,31 @@ export interface CriteriaListProps {
   emptyText?: string | null;
 }
 
-export function CriteriaList({ projectId, storyId, storyKey, compact = false, emptyText = "No Acceptance criteria." }: CriteriaListProps) {
+export function CriteriaList({ projectId, storyId, storyKey, compact = false, emptyText = "No Acceptance criteria yet" }: CriteriaListProps) {
   const criteriaQuery = useCriteria(projectId, storyId);
   const criteria = criteriaQuery.data ?? [];
 
   return (
     <div className="flex flex-col">
-      {criteriaQuery.isError && <p className="m-0 text-small text-destructive-text">{errorText(criteriaQuery.error)}</p>}
-      {criteriaQuery.isSuccess && criteria.length === 0 && emptyText && (
-        <p className={cn("m-0 text-muted-foreground", compact ? "text-small" : "text-body")}>{emptyText}</p>
+      {criteriaQuery.isError && <ReadError title="Couldn't load the Acceptance criteria" query={criteriaQuery} />}
+      {criteriaQuery.isPending && !compact && (
+        <div role="status" aria-label="Loading the Acceptance criteria" className="flex flex-col gap-2.5 py-1">
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-4 w-1/2" />
+        </div>
+      )}
+      {criteriaQuery.isSuccess && criteria.length === 0 && emptyText && compact && (
+        <p className="m-0 text-small text-muted-foreground">{emptyText}</p>
+      )}
+      {criteriaQuery.isSuccess && criteria.length === 0 && emptyText && !compact && (
+        <Empty className="p-4">
+          <EmptyHeader>
+            <EmptyTitle className="text-body font-semibold">{emptyText}</EmptyTitle>
+            <EmptyDescription className="text-small">
+              Criteria are written while the Epic is shaped; each can carry a Check that proves it.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       )}
       <ol aria-label={`${storyKey} Acceptance criteria`} className="m-0 list-none p-0 empty:hidden">
         {criteria.map((criterion, index) => (
@@ -81,6 +106,10 @@ export function CriteriaList({ projectId, storyId, storyKey, compact = false, em
     </div>
   );
 }
+
+/** A row control shown on demand: on the row's hover, while focus is in the row, and always without hover. */
+const ON_DEMAND =
+  "opacity-0 transition-opacity group-hover/criterion:opacity-100 group-focus-within/criterion:opacity-100 focus-visible:opacity-100 data-[loading=true]:opacity-100 [@media(hover:none)]:opacity-100";
 
 function CriterionRow({
   projectId,
@@ -112,6 +141,15 @@ function CriterionRow({
       .finally(() => setBusy(false));
   }
 
+  function remove(removed: CheckDto) {
+    write(checkRemove(criterion.id), () =>
+      notify.success(`Removed the Check of criterion ${number}`, {
+        description: removed.command,
+        undo: () => write(checkSet(criterion.id, removed.command, removed.timeoutSecs)),
+      }),
+    );
+  }
+
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (busy || command.trim() === "") return;
@@ -138,7 +176,8 @@ function CriterionRow({
               autoFocus
             />
           </label>
-          <Button type="submit" size="sm" disabled={busy || command.trim() === ""}>
+          <Button type="submit" size="sm" loading={busy} disabled={command.trim() === ""}>
+            <SquareTerminal aria-hidden="true" />
             Save Check
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={busy}>
@@ -172,6 +211,7 @@ function CriterionRow({
               className="h-5.5 text-meta"
             />
           )}
+          {/* Change and Remove show on demand (hover, focus-within, or no hover at all); Add Check always. */}
           <span className={cn("flex gap-0.5", !compact && "ml-auto")}>
             <Button
               variant="ghost"
@@ -182,7 +222,7 @@ function CriterionRow({
                 setError(null);
                 setEditing(true);
               }}
-              className={check ? "text-muted-foreground" : "text-running"}
+              className={check ? cn("text-muted-foreground", ON_DEMAND) : "text-running"}
             >
               {check ? <Pencil aria-hidden="true" /> : <Plus aria-hidden="true" />}
               {check ? "Change" : "Add Check"}
@@ -192,9 +232,9 @@ function CriterionRow({
                 variant="ghost"
                 size="xs"
                 aria-label={`Remove the Check of criterion ${number}`}
-                onClick={() => write(checkRemove(criterion.id))}
-                disabled={busy}
-                className="text-muted-foreground"
+                onClick={() => remove(check)}
+                loading={busy}
+                className={cn("text-muted-foreground", ON_DEMAND)}
               >
                 <X aria-hidden="true" />
                 Remove

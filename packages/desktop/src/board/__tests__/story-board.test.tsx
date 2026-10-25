@@ -171,7 +171,7 @@ describe("PacketSize: the Context packet size (issue #51), shown in the Story vi
     storyContextPacketSize.mockResolvedValue({ bytes: 100_000, approxTokens: 25_000, overSoftLimit: true });
     renderSize("running");
 
-    expect(await screen.findByText("Context packet ~25.0K tokens, above the ~20K soft limit")).toBeInTheDocument();
+    expect(await screen.findByText("Context packet ~25K tokens, above the ~20K soft limit")).toBeInTheDocument();
   });
 });
 
