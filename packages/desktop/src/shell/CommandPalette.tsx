@@ -25,6 +25,24 @@ import { useRegisterProjectFlow } from "../projects/RegisterProjectFlow";
 import { useGlobalBindings } from "../state/keyboard";
 import { useUiStore } from "../state/uiStore";
 
+/**
+ * Words, not scattered letters: every word typed must begin a word of the item (its key, its title, or the
+ * hidden words of a place), so "set" finds Settings and not every title holding an s, an e and a t in order,
+ * which is what cmdk's fuzzy default does. Items keep their listed order.
+ */
+export function matchWords(value: string, search: string, keywords?: string[]): number {
+  const haystack = [value, ...(keywords ?? [])].join(" ").toLowerCase();
+  const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+  return words.every((word) => startsAWord(haystack, word)) ? 1 : 0;
+}
+
+function startsAWord(haystack: string, word: string): boolean {
+  for (let at = haystack.indexOf(word); at !== -1; at = haystack.indexOf(word, at + 1)) {
+    if (at === 0 || !/[\p{L}\p{N}]/u.test(haystack[at - 1])) return true;
+  }
+  return false;
+}
+
 export function CommandPalette({ projects, currentProjectId }: { projects: Project[]; currentProjectId: string }) {
   const open = useUiStore((state) => state.paletteOpen);
   const setOpen = useUiStore((state) => state.setPaletteOpen);
@@ -56,6 +74,7 @@ export function CommandPalette({ projects, currentProjectId }: { projects: Proje
       title="Search Flywheel"
       description="Find a Story or go to a place."
       className="sm:max-w-xl"
+      filter={matchWords}
     >
       <CommandInput placeholder="Find a Story, a project or a place" />
       <CommandList className="max-h-96">
@@ -69,7 +88,7 @@ export function CommandPalette({ projects, currentProjectId }: { projects: Proje
                 onSelect={() => run(() => openStory(currentProjectId, story.id))}
               >
                 <StateBadge state={story.state} hideLabel className="size-6 justify-center p-0" />
-                <span className="font-mono text-small text-muted-foreground">{story.key}</span>
+                <span className="min-w-[6ch] shrink-0 font-mono text-small text-muted-foreground">{story.key}</span>
                 <span className="truncate">{story.title}</span>
               </CommandItem>
             ))}
