@@ -24,32 +24,26 @@
  */
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowDown,
-  ArrowRightLeft,
-  Ban,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  CircleDashed,
-  CircleSlash,
-  Columns3,
-  ListChecks,
-  PenLine,
-  SquareTerminal,
-  X,
-} from "lucide-react";
+import { ArrowDown, ArrowRightLeft, ChevronLeft, ChevronRight, CircleSlash, Columns3, ListChecks, SquareTerminal } from "lucide-react";
 import { proposalAccept, proposalAmend, proposalReject, type ProposalDto, type StoryDto } from "../adapters/tauri";
 import { CriteriaList, useCriteria } from "../board/CriteriaList";
 import { StateBadge } from "../components/StateBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Kbd } from "@/components/ui/kbd";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import {
+  AmendActions,
+  DecisionGroup,
+  OrderChip,
+  ProposedBadge,
+  RejectReasonForm,
+  RejectedLine as RejectedProposal,
+  announceDecision,
+  type Decision,
+} from "./ProposalParts";
 
-/** The longest rejection reason `proposal_reject` accepts. */
-const MAX_REASON_LEN = 500;
 /** The core's limits on a New Story (`proposal_apply::MAX_STORY_*`). */
 const MAX_TITLE_LEN = 500;
 const MAX_DESCRIPTION_LEN = 20_000;
@@ -245,14 +239,21 @@ export function StoryColumns({ projectId, stories, proposals, queryKey, criteria
           accept, amend or reject.
         </p>
       ) : (
-        <div className="relative min-w-0">
-          <div
-            ref={regionRef}
-            role="region"
-            aria-labelledby={headingId}
-            tabIndex={-1}
-            className="-mx-1 min-w-0 overflow-x-auto px-1 pt-1 pb-3 outline-none"
-          >
+        // A horizontal Scroll Area that bleeds into the surface's gutter by its own edge padding: at rest the first
+        // column lines up with the heading, and scrolled to its end the last column and every bracket label keep
+        // that same padding from the edge instead of running into it (issue #211, F46).
+        <ScrollArea
+          role="region"
+          aria-labelledby={headingId}
+          className="-mx-3 min-w-0"
+          ref={(root: HTMLDivElement | null) => {
+            const viewport = root?.querySelector<HTMLDivElement>("[data-slot=scroll-area-viewport]") ?? null;
+            // Once a decision lands the control that made it may be gone: the keyboard lands on the strip.
+            if (viewport) viewport.tabIndex = -1;
+            regionRef.current = viewport;
+          }}
+        >
+          <div className="w-max px-3 pt-1 pb-4">
             <div className="flex w-max flex-col">
               {constraints.length > 0 && (
                 <ul
@@ -261,7 +262,7 @@ export function StoryColumns({ projectId, stories, proposals, queryKey, criteria
                   style={{ height: constraints.length * BRACKET_ROW + BRACKET_FOOT }}
                 >
                   {constraints.map((c, row) => (
-                    <Bracket key={c.key} constraint={c} row={row} />
+                    <Bracket key={c.key} constraint={c} row={row} count={columns.length} />
                   ))}
                 </ul>
               )}
@@ -294,7 +295,8 @@ export function StoryColumns({ projectId, stories, proposals, queryKey, criteria
               </ol>
             </div>
           </div>
-        </div>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
       )}
 
       {rejected.length > 0 && (
@@ -325,12 +327,16 @@ const footX = (column: number, end: "arrow" | "start") => `(${centre(column)} ${
  * its feet running down to the tops of both columns and an arrow on the one that waits. The label sits over the
  * arrow's end, so it reads as a sentence about the Story under it; it knocks out the feet of the brackets above.
  */
-function Bracket({ constraint, row }: { constraint: Constraint; row: number }) {
+function Bracket({ constraint, row, count }: { constraint: Constraint; row: number; count: number }) {
   const { from, to, provisional } = constraint;
   const [left, right] = from < to ? [from, to] : [to, from];
   const arrowOnRight = to > from;
   const leftFoot = footX(left, arrowOnRight ? "start" : "arrow");
   const rightFoot = footX(right, arrowOnRight ? "arrow" : "start");
+  // Each bracket has a row of its own, so its label may run past the bracket's span, away from the arrow, as far
+  // as the strip's own edge: a short bracket between neighbours keeps its reason instead of cutting it to "·".
+  const strip = `(${count} * ${COLUMN_WIDTH} + ${count - 1} * 0.75rem)`;
+  const labelMax = arrowOnRight ? `calc(${rightFoot} + 0.5rem)` : `calc(${strip} - ${leftFoot} + 0.5rem)`;
   return (
     <li
       data-from={from}
@@ -361,9 +367,10 @@ function Bracket({ constraint, row }: { constraint: Constraint; row: number }) {
       <span
         aria-hidden="true"
         className={cn(
-          "absolute top-0 z-10 flex h-5 max-w-full min-w-0 items-center gap-1.5 bg-background px-1 text-meta",
+          "absolute top-0 z-10 flex h-5 w-max min-w-0 items-center gap-1.5 bg-background px-1 text-meta",
           arrowOnRight ? "right-0 translate-x-2" : "left-0 -translate-x-2",
         )}
+        style={{ maxWidth: labelMax }}
       >
         <span className={cn("flex shrink-0 items-center gap-1.5", provisional ? "text-running" : "text-foreground")}>
           <End end={constraint.ends[0]} />
@@ -459,87 +466,32 @@ function OverflowChips({ regionRef, watch }: { regionRef: RefObject<HTMLDivEleme
 }
 
 function End({ end }: { end: ColumnRef }) {
-  return end.key ? <span className="font-mono text-small text-foreground">{end.key}</span> : <NumberChip number={end.number} ghost />;
+  return end.key ? <span className="font-mono text-small text-foreground">{end.key}</span> : <OrderChip number={end.number} tone="ghost" />;
 }
 
-function NumberChip({ number, ghost }: { number: number; ghost?: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "flex size-5 shrink-0 items-center justify-center rounded-sm text-meta font-semibold tabular-nums",
-        ghost ? "border border-dashed border-primary text-running" : "bg-foreground text-card",
-      )}
-    >
-      {number}
-    </span>
-  );
-}
-
-/** Accept, Amend and Reject all end the same way: refresh the read, or say why the decision failed. */
+/**
+ * Accept, Amend and Reject all end the same way: refresh the read and say what the decision did, or say why it
+ * failed. `pending` names the decision under way, for its button's `loading`.
+ */
 function useDecision(queryKey: readonly unknown[], what: string, onSettled: () => void) {
   const queryClient = useQueryClient();
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<Decision | null>(null);
   const [error, setError] = useState<string | null>(null);
-  async function decide(write: () => Promise<void>) {
-    if (busy) return;
-    setBusy(true);
+  async function decide(decision: Decision, write: () => Promise<void>) {
+    if (pending) return;
+    setPending(decision);
     setError(null);
     try {
       await write();
+      announceDecision(decision, what);
       await queryClient.invalidateQueries({ queryKey });
       onSettled();
     } catch (err) {
       setError(`Could not decide ${what}: ${reason(err)}`);
-      setBusy(false);
+      setPending(null);
     }
   }
-  return { busy, error, setError, decide };
-}
-
-/** The one-line "Why not? (optional)" field a Reject opens. */
-function RejectForm({ busy, onReject, onCancel }: { busy: boolean; onReject: (why: string | null) => void; onCancel: () => void }) {
-  const reasonId = useId();
-  const [why, setWhy] = useState("");
-  return (
-    <form
-      className="flex min-w-0 flex-col gap-2"
-      onSubmit={(e: FormEvent) => {
-        e.preventDefault();
-        onReject(why.trim() === "" ? null : why.trim());
-      }}
-    >
-      <label htmlFor={reasonId} className="sr-only">
-        Why not? (optional)
-      </label>
-      <Input
-        id={reasonId}
-        value={why}
-        maxLength={MAX_REASON_LEN}
-        autoFocus
-        disabled={busy}
-        placeholder="Why not? (optional)"
-        className="h-7.5"
-        onChange={(e) => setWhy(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.stopPropagation();
-            onCancel();
-          }
-        }}
-      />
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" variant="outline" size="sm" disabled={busy}>
-          <Ban aria-hidden="true" />
-          {busy ? "Saving…" : "Reject"}
-        </Button>
-        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
-          <X aria-hidden="true" />
-          Cancel
-        </Button>
-      </div>
-    </form>
-  );
+  return { pending, busy: pending !== null, error, setError, decide };
 }
 
 function ErrorLine({ error }: { error: string | null }) {
@@ -579,7 +531,7 @@ function StoryColumn({
       className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3 shadow-card"
     >
       <div className="flex min-w-0 items-center gap-2">
-        <NumberChip number={number} />
+        <OrderChip number={number} />
         <span className="min-w-0 truncate font-mono text-small text-muted-foreground">{story.key}</span>
         <StateBadge state={story.state} className="ml-auto h-5.5 shrink-0 text-meta" />
       </div>
@@ -619,7 +571,7 @@ function Landing({ proposal, story, columns }: { proposal: ProposalDto; story: S
       {prev.kind === "story" ? (
         <span className="shrink-0 font-mono text-small">{prev.story.key}</span>
       ) : (
-        <NumberChip number={number} ghost />
+        <OrderChip number={number} tone="ghost" />
       )}
       <span className="min-w-0 truncate" title={title}>
         {title}
@@ -644,7 +596,7 @@ function OrderPlate({
 }) {
   const move = proposal.verb === "reorder";
   const noun = move ? "move" : "retirement";
-  const { busy, error, setError, decide } = useDecision(queryKey, `the ${noun} of ${story.key}`, onSettled);
+  const { pending, busy, error, setError, decide } = useDecision(queryKey, `the ${noun} of ${story.key}`, onSettled);
   const [rejecting, setRejecting] = useState(false);
   const rejectRef = useRef<HTMLButtonElement>(null);
   const Icon = move ? ArrowRightLeft : CircleSlash;
@@ -655,18 +607,16 @@ function OrderPlate({
       data-state="pending"
       className="flex min-w-0 flex-col gap-2 rounded-md border border-dashed border-primary bg-running-muted px-2.5 py-2"
     >
-      <span className="flex items-center gap-1.5 text-meta font-semibold text-running">
-        <Icon aria-hidden="true" className="size-3.5 shrink-0" />
-        Proposed {noun}
-      </span>
+      <ProposedBadge icon={<Icon aria-hidden="true" />}>Proposed {noun}</ProposedBadge>
       <div className="m-0 min-w-0 text-small break-words text-foreground">
         {move ? <Landing proposal={proposal} story={story} columns={columns} /> : "Drops it from the Epic"}
       </div>
       {proposal.rationale && <p className="m-0 text-small break-words text-muted-foreground">Why: {proposal.rationale}</p>}
       {rejecting ? (
-        <RejectForm
+        <RejectReasonForm
+          stacked
           busy={busy}
-          onReject={(why) => void decide(() => proposalReject(proposal.id, why))}
+          onReject={(why) => void decide("reject", () => proposalReject(proposal.id, why))}
           onCancel={() => {
             setRejecting(false);
             setError(null);
@@ -674,32 +624,16 @@ function OrderPlate({
           }}
         />
       ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            aria-label={`Accept the ${noun} of ${story.key}`}
-            onClick={() => void decide(() => proposalAccept(proposal.id))}
-          >
-            <Check aria-hidden="true" />
-            {busy ? "Saving…" : "Accept"}
-          </Button>
-          <Button
-            ref={rejectRef}
-            variant="ghost"
-            size="sm"
-            disabled={busy}
-            aria-label={`Reject the ${noun} of ${story.key}`}
-            onClick={() => {
-              setError(null);
-              setRejecting(true);
-            }}
-          >
-            <Ban aria-hidden="true" />
-            Reject
-          </Button>
-        </div>
+        <DecisionGroup
+          name={(verb) => `${verb} the ${noun} of ${story.key}`}
+          pending={pending}
+          rejectRef={rejectRef}
+          onAccept={() => void decide("accept", () => proposalAccept(proposal.id))}
+          onReject={() => {
+            setError(null);
+            setRejecting(true);
+          }}
+        />
       )}
       <ErrorLine error={error} />
     </div>
@@ -726,7 +660,7 @@ function GhostColumn({
   onSettled: () => void;
 }) {
   const name = `the proposed Story ${draft.title}`;
-  const { busy, error, setError, decide } = useDecision(queryKey, name, onSettled);
+  const { pending, busy, error, setError, decide } = useDecision(queryKey, name, onSettled);
   const [mode, setMode] = useState<Mode>("idle");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -754,7 +688,7 @@ function GhostColumn({
       description: description.trim() === "" ? null : description.trim(),
       ...(runsAfterSomething ? { runs_after_reason: why.trim() } : {}),
     };
-    void decide(() => proposalAmend(proposal.id, edited));
+    void decide("amend", () => proposalAmend(proposal.id, edited));
   }
 
   const onEditKey = (e: KeyboardEvent) => {
@@ -773,11 +707,8 @@ function GhostColumn({
       className="flex min-w-0 flex-col gap-2 rounded-lg border border-dashed border-primary bg-running-muted p-3"
     >
       <div className="flex min-w-0 items-center gap-2">
-        <NumberChip number={number} ghost />
-        <span className="flex min-w-0 items-center gap-1.5 text-meta font-semibold text-running">
-          <CircleDashed aria-hidden="true" className="size-3.5 shrink-0" />
-          Proposed Story
-        </span>
+        <OrderChip number={number} tone="ghost" />
+        <ProposedBadge>Proposed Story</ProposedBadge>
       </div>
 
       {mode === "amending" ? (
@@ -820,17 +751,7 @@ function GhostColumn({
               <Input id={whyId} value={why} maxLength={MAX_RUNS_AFTER_REASON_LEN} disabled={busy} onChange={(e) => setWhy(e.target.value)} onKeyDown={onEditKey} />
             </>
           )}
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" variant="outline" size="sm" disabled={busy || !title.trim() || (runsAfterSomething && !why.trim())} aria-label={`Accept edit to ${name}`}>
-              <Check aria-hidden="true" />
-              {busy ? "Saving…" : "Accept edit"}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={cancel}>
-              <X aria-hidden="true" />
-              Cancel
-            </Button>
-            <Kbd className="ml-auto">⌘↩</Kbd>
-          </div>
+          <AmendActions busy={busy} ready={Boolean(title.trim()) && !(runsAfterSomething && !why.trim())} subject={name} onCancel={cancel} />
         </form>
       ) : (
         <>
@@ -840,47 +761,28 @@ function GhostColumn({
       )}
 
       {mode === "rejecting" && (
-        <RejectForm busy={busy} onReject={(given) => void decide(() => proposalReject(proposal.id, given))} onCancel={cancel} />
+        <RejectReasonForm stacked busy={busy} onReject={(given) => void decide("reject", () => proposalReject(proposal.id, given))} onCancel={cancel} />
       )}
 
       {mode === "idle" && (
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="sm" disabled={busy} aria-label={`Accept ${name}`} onClick={() => void decide(() => proposalAccept(proposal.id))}>
-            <Check aria-hidden="true" />
-            {busy ? "Saving…" : "Accept"}
-          </Button>
-          <Button
-            ref={amendRef}
-            variant="ghost"
-            size="sm"
-            disabled={busy}
-            aria-label={`Amend ${name}`}
-            onClick={() => {
-              setTitle(draft.title);
-              setDescription(draft.description ?? "");
-              setWhy(draft.runs_after_reason ?? "");
-              setError(null);
-              setMode("amending");
-            }}
-          >
-            <PenLine aria-hidden="true" />
-            Amend
-          </Button>
-          <Button
-            ref={rejectRef}
-            variant="ghost"
-            size="sm"
-            disabled={busy}
-            aria-label={`Reject ${name}`}
-            onClick={() => {
-              setError(null);
-              setMode("rejecting");
-            }}
-          >
-            <Ban aria-hidden="true" />
-            Reject
-          </Button>
-        </div>
+        <DecisionGroup
+          name={(verb) => `${verb} ${name}`}
+          pending={pending}
+          amendRef={amendRef}
+          rejectRef={rejectRef}
+          onAccept={() => void decide("accept", () => proposalAccept(proposal.id))}
+          onAmend={() => {
+            setTitle(draft.title);
+            setDescription(draft.description ?? "");
+            setWhy(draft.runs_after_reason ?? "");
+            setError(null);
+            setMode("amending");
+          }}
+          onReject={() => {
+            setError(null);
+            setMode("rejecting");
+          }}
+        />
       )}
       <ErrorLine error={error} />
     </li>
@@ -947,7 +849,7 @@ function ProposedCheck({ command }: { command: string | null }) {
 function GhostCriterion({ proposal, queryKey, onSettled }: { proposal: ProposalDto; queryKey: readonly unknown[]; onSettled: () => void }) {
   const draft = newCriterionOf(proposal) as NewCriterionPayload;
   const name = `the proposed criterion ${draft.statement}`;
-  const { busy, error, setError, decide } = useDecision(queryKey, name, onSettled);
+  const { pending, busy, error, setError, decide } = useDecision(queryKey, name, onSettled);
   const [mode, setMode] = useState<Mode>("idle");
   const [statement, setStatement] = useState("");
   const [command, setCommand] = useState("");
@@ -967,7 +869,7 @@ function GhostCriterion({ proposal, queryKey, onSettled }: { proposal: ProposalD
     event.preventDefault();
     if (!statement.trim()) return;
     const edited = { story_id: draft.story_id, statement: statement.trim(), check_command: command.trim() === "" ? null : command.trim() };
-    void decide(() => proposalAmend(proposal.id, edited));
+    void decide("amend", () => proposalAmend(proposal.id, edited));
   }
 
   const onEditKey = (e: KeyboardEvent) => {
@@ -986,10 +888,7 @@ function GhostCriterion({ proposal, queryKey, onSettled }: { proposal: ProposalD
       data-state="pending"
       className="flex min-w-0 flex-col gap-2 rounded-md border border-dashed border-primary bg-running-muted px-2.5 py-2"
     >
-      <span className="flex items-center gap-1.5 text-meta font-semibold text-running">
-        <CircleDashed aria-hidden="true" className="size-3.5 shrink-0" />
-        Proposed criterion
-      </span>
+      <ProposedBadge>Proposed criterion</ProposedBadge>
       {mode === "amending" ? (
         <form className="flex min-w-0 flex-col gap-2" onSubmit={submitAmend}>
           <label htmlFor={statementId} className="text-meta font-semibold text-muted-foreground">
@@ -1017,17 +916,7 @@ function GhostCriterion({ proposal, queryKey, onSettled }: { proposal: ProposalD
             onChange={(e) => setCommand(e.target.value)}
             onKeyDown={onEditKey}
           />
-          <div className="flex flex-wrap items-center gap-1">
-            <Button type="submit" variant="outline" size="xs" disabled={busy || !statement.trim()} aria-label={`Accept edit to ${name}`}>
-              <Check aria-hidden="true" />
-              {busy ? "Saving…" : "Accept edit"}
-            </Button>
-            <Button type="button" variant="ghost" size="xs" disabled={busy} onClick={cancel}>
-              <X aria-hidden="true" />
-              Cancel
-            </Button>
-            <Kbd className="ml-auto">⌘↩</Kbd>
-          </div>
+          <AmendActions busy={busy} ready={Boolean(statement.trim())} subject={name} onCancel={cancel} />
         </form>
       ) : (
         <>
@@ -1036,45 +925,26 @@ function GhostCriterion({ proposal, queryKey, onSettled }: { proposal: ProposalD
         </>
       )}
       {mode === "rejecting" && (
-        <RejectForm busy={busy} onReject={(given) => void decide(() => proposalReject(proposal.id, given))} onCancel={cancel} />
+        <RejectReasonForm stacked busy={busy} onReject={(given) => void decide("reject", () => proposalReject(proposal.id, given))} onCancel={cancel} />
       )}
       {mode === "idle" && (
-        <div className="flex flex-wrap items-center gap-1">
-          <Button variant="outline" size="xs" disabled={busy} aria-label={`Accept ${name}`} onClick={() => void decide(() => proposalAccept(proposal.id))}>
-            <Check aria-hidden="true" />
-            {busy ? "Saving…" : "Accept"}
-          </Button>
-          <Button
-            ref={amendRef}
-            variant="ghost"
-            size="xs"
-            disabled={busy}
-            aria-label={`Amend ${name}`}
-            onClick={() => {
-              setStatement(draft.statement);
-              setCommand(draft.check_command ?? "");
-              setError(null);
-              setMode("amending");
-            }}
-          >
-            <PenLine aria-hidden="true" />
-            Amend
-          </Button>
-          <Button
-            ref={rejectRef}
-            variant="ghost"
-            size="xs"
-            disabled={busy}
-            aria-label={`Reject ${name}`}
-            onClick={() => {
-              setError(null);
-              setMode("rejecting");
-            }}
-          >
-            <Ban aria-hidden="true" />
-            Reject
-          </Button>
-        </div>
+        <DecisionGroup
+          name={(verb) => `${verb} ${name}`}
+          pending={pending}
+          amendRef={amendRef}
+          rejectRef={rejectRef}
+          onAccept={() => void decide("accept", () => proposalAccept(proposal.id))}
+          onAmend={() => {
+            setStatement(draft.statement);
+            setCommand(draft.check_command ?? "");
+            setError(null);
+            setMode("amending");
+          }}
+          onReject={() => {
+            setError(null);
+            setMode("rejecting");
+          }}
+        />
       )}
       <ErrorLine error={error} />
     </div>
@@ -1093,18 +963,5 @@ function RejectedLine({ proposal, stories }: { proposal: ProposalDto; stories: S
       : proposal.verb === "reorder"
         ? [`Rejected move of ${key}`, `Move ${key}`]
         : [`Rejected retirement of ${key}`, `Retire ${key}`];
-  return (
-    <li role="group" aria-label={label} data-state="rejected" className="flex min-w-0 flex-col gap-0.5">
-      <span className="flex min-w-0 items-center gap-1.5 text-small text-muted-foreground">
-        <Ban aria-hidden="true" className="size-3.5 shrink-0 text-subtle-foreground" />
-        <span className="shrink-0 text-meta font-semibold text-subtle-foreground">Rejected</span>
-        <del className="min-w-0 truncate decoration-1" title={struck}>
-          {struck}
-        </del>
-      </span>
-      <span className="truncate pl-5 text-meta text-subtle-foreground" title={proposal.rejectionReason ?? undefined}>
-        {proposal.rejectionReason ? `Your reason: ${proposal.rejectionReason}` : "No reason given"}
-      </span>
-    </li>
-  );
+  return <RejectedProposal as="li" label={label} struck={struck} reason={proposal.rejectionReason} />;
 }

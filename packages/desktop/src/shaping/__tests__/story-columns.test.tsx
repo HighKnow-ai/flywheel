@@ -10,6 +10,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StoryColumns } from "../StoryColumns";
 import type { AcceptanceCriterionDto, ProposalDto, StoryDto } from "../../adapters/tauri";
+import { expectDecisionGroup } from "./decision-group";
 
 const proposalAccept = vi.fn();
 const proposalAmend = vi.fn();
@@ -319,5 +320,48 @@ describe("StoryColumns: criteria (issue #128)", () => {
     const rejected = screen.getByRole("group", { name: "Rejected criterion on FLY-11: It is pretty" });
     expect(within(rejected).getByText("It is pretty").tagName).toBe("DEL");
     expect(rejected).toHaveTextContent("Your reason: Not observable");
+  });
+});
+
+describe("StoryColumns: one decision group, columns that scroll (issue #211)", () => {
+  it("decides a ghost Story, a move, a retirement and a criterion through the same Button Group", async () => {
+    criterionList.mockResolvedValue([]);
+    renderColumns(
+      [PARSER, FEED],
+      [
+        newStory("p1", "Schema", "a1"),
+        storyProposal("m1", "reorder", { rank: "a3" }, { targetId: "s1" }),
+        storyProposal("r1", "retire", {}, { targetId: "s2" }),
+        criterionProposal("pc1", "s2", "The row shows the live verb", null),
+      ],
+      { criteria: true },
+    );
+    expectDecisionGroup(column("2. Proposed Story: Schema"), "the proposed Story Schema");
+    expectDecisionGroup(screen.getByRole("group", { name: "Proposed move of FLY-11" }), "the move of FLY-11", { amend: false });
+    expectDecisionGroup(screen.getByRole("group", { name: "Proposed retirement of FLY-12" }), "the retirement of FLY-12", { amend: false });
+    expectDecisionGroup(
+      screen.getByRole("group", { name: "Proposed criterion: The row shows the live verb" }),
+      "the proposed criterion The row shows the live verb",
+    );
+  });
+
+  it("numbers the columns with order chips: ink for a Story, dashed for a proposed one", () => {
+    renderColumns([PARSER], [newStory("p1", "Schema", "a1")]);
+    const ink = column("1. FLY-11 Parser").querySelector("[data-slot=badge][data-tone]");
+    const ghost = column("2. Proposed Story: Schema").querySelector("[data-slot=badge][data-tone]");
+    expect(ink).toHaveAttribute("data-tone", "ink");
+    expect(ink).toHaveTextContent("1");
+    expect(ghost).toHaveAttribute("data-tone", "ghost");
+    expect(ghost).toHaveTextContent("2");
+  });
+
+  it("puts the columns and their brackets in one horizontal Scroll Area, named by the heading", () => {
+    renderColumns([PARSER, FEED], []);
+    // The section and the strip inside it are both named by the heading; the strip is the Scroll Area.
+    const region = screen.getAllByRole("region", { name: "Stories" }).find((r) => r.dataset.slot === "scroll-area");
+    if (!region) throw new Error("no Scroll Area region");
+    const viewport = region.querySelector("[data-slot=scroll-area-viewport]") as HTMLElement;
+    expect(within(viewport).getByRole("list", { name: "Stories in execution order" })).toBeInTheDocument();
+    expect(within(viewport).getByRole("list", { name: "Runs-after constraints" })).toBeInTheDocument();
   });
 });

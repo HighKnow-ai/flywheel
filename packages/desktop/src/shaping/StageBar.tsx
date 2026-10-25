@@ -33,6 +33,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
 /** An Epic's Stages, in order. */
@@ -146,6 +147,9 @@ export function StageBar({
       if (done.sidecarWarning) notes.push(done.sidecarWarning);
       setNotice(notes);
       setConfirming(false);
+      notify.success(`Closed ${stageRef}`, {
+        description: done.opened && !done.launchError ? `${stageLabel(done.opened.kind)} has started.` : undefined,
+      });
       await queryClient.invalidateQueries({ queryKey: ["board", projectId] });
     } catch (err) {
       setError(`Could not close the Stage: ${errorText(err)}`);
@@ -324,9 +328,9 @@ export function StageBar({
           )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={closing}>Keep it open</AlertDialogCancel>
-            <Button disabled={closing} onClick={() => void close()}>
+            <Button loading={closing} onClick={() => void close()}>
               <StepForward aria-hidden="true" />
-              {closing ? "Closing…" : finishes ? (record === "Epic" ? "Close and make the Epic Ready" : "Close and make it Ready") : `Close and start ${next}`}
+              {finishes ? (record === "Epic" ? "Close and make the Epic Ready" : "Close and make it Ready") : `Close and start ${next}`}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

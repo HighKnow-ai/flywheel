@@ -16,17 +16,21 @@
  */
 import { useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Ban, Check, CircleDashed, PenLine, X } from "lucide-react";
 import { proposalAccept, proposalAmend, proposalReject, type ProposalDto } from "../adapters/tauri";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  AmendActions,
+  DecisionGroup,
+  ProposedBadge,
+  RejectReasonForm,
+  RejectedLine as RejectedProposal,
+  announceDecision,
+  type Decision,
+} from "./ProposalParts";
 
 /** The longest spec field the core accepts (`proposal_apply::MAX_SPEC_FIELD_LEN`). */
 const MAX_SPEC_LEN = 20_000;
-/** The longest rejection reason `proposal_reject` accepts. */
-const MAX_REASON_LEN = 500;
 
 /** A spec change's payload, or a Milestone exit-test change's as the same `{field, text}` (issue #132: an
  * Amend Milestone carrying only `exit_test`), or null for any other Proposal. */
@@ -73,25 +77,7 @@ export function GhostCard({ proposal, label, queryKey }: GhostCardProps) {
 }
 
 function RejectedLine({ text, label, reason }: { text: string; label: string; reason: string | null }) {
-  return (
-    <div
-      role="group"
-      aria-label={`Rejected ${label}`}
-      data-state="rejected"
-      className="mt-2 flex min-w-0 flex-col gap-0.5"
-    >
-      <span className="flex min-w-0 items-center gap-1.5 text-small text-muted-foreground">
-        <Ban aria-hidden="true" className="size-3.5 shrink-0 text-subtle-foreground" />
-        <span className="shrink-0 text-meta font-semibold text-subtle-foreground">Rejected</span>
-        <del className="min-w-0 truncate decoration-1" title={text}>
-          {text}
-        </del>
-      </span>
-      <span className="truncate pl-5 text-meta text-subtle-foreground" title={reason ?? undefined}>
-        {reason ? `Your reason: ${reason}` : "No reason given"}
-      </span>
-    </div>
-  );
+  return <RejectedProposal label={`Rejected ${label}`} struck={text} reason={reason} className="mt-2" />;
 }
 
 type Mode = "idle" | "amending" | "rejecting";
@@ -133,27 +119,27 @@ export interface ProposalDecisionProps {
  */
 export function ProposalDecision({ proposal, subject, amend, children, afterDecide, amendWord = "Amend" }: ProposalDecisionProps) {
   const fieldId = useId();
-  const reasonId = useId();
   const [mode, setMode] = useState<Mode>("idle");
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const [why, setWhy] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<Decision | null>(null);
   const [error, setError] = useState<string | null>(null);
   const amendRef = useRef<HTMLButtonElement>(null);
   const rejectRef = useRef<HTMLButtonElement>(null);
+  const busy = pending !== null;
 
   const ready = amend?.fields.every((f) => !f.required || (draft[f.name] ?? "").trim() !== "") ?? false;
 
-  async function decide(write: () => Promise<void>) {
+  async function decide(decision: Decision, write: () => Promise<void>) {
     if (busy) return;
-    setBusy(true);
+    setPending(decision);
     setError(null);
     try {
       await write();
+      announceDecision(decision, subject);
       await afterDecide();
     } catch (err) {
       setError(`Could not decide ${subject}: ${reason(err)}`);
-      setBusy(false);
+      setPending(null);
     }
   }
 
@@ -161,13 +147,7 @@ export function ProposalDecision({ proposal, subject, amend, children, afterDeci
     event.preventDefault();
     if (!amend || !ready) return;
     const values = Object.fromEntries(amend.fields.map((f) => [f.name, (draft[f.name] ?? "").trim()]));
-    void decide(() => proposalAmend(proposal.id, amend.payload(values)));
-  }
-
-  function submitReject(event: FormEvent) {
-    event.preventDefault();
-    const given = why.trim();
-    void decide(() => proposalReject(proposal.id, given === "" ? null : given));
+    void decide("amend", () => proposalAmend(proposal.id, amend.payload(values)));
   }
 
   function cancel() {
@@ -218,100 +198,43 @@ export function ProposalDecision({ proposal, subject, amend, children, afterDeci
               </div>
             );
           })}
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" variant="outline" size="sm" disabled={busy || !ready} aria-label={`Accept edit to ${subject}`}>
-              <Check aria-hidden="true" />
-              {busy ? "Saving…" : "Accept edit"}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={cancel}>
-              <X aria-hidden="true" />
-              Cancel
-            </Button>
-            <Kbd className="ml-auto">⌘↩</Kbd>
-          </div>
+          <AmendActions busy={busy} ready={ready} subject={subject} onCancel={cancel} />
         </form>
       ) : (
         children
       )}
 
       {mode === "rejecting" && (
-        <form className="flex min-w-0 flex-wrap items-center gap-2" onSubmit={submitReject}>
-          <label htmlFor={reasonId} className="sr-only">
-            Why not? (optional)
-          </label>
-          <Input
-            id={reasonId}
-            value={why}
-            maxLength={MAX_REASON_LEN}
-            autoFocus
-            disabled={busy}
-            placeholder="Why not? (optional)"
-            className="h-7.5 min-w-48 flex-1"
-            onChange={(e) => setWhy(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                e.stopPropagation();
-                cancel();
-              }
-            }}
-          />
-          <Button type="submit" variant="outline" size="sm" disabled={busy}>
-            <Ban aria-hidden="true" />
-            {busy ? "Saving…" : "Reject"}
-          </Button>
-          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={cancel}>
-            <X aria-hidden="true" />
-            Cancel
-          </Button>
-        </form>
+        <RejectReasonForm
+          busy={busy}
+          onReject={(why) => void decide("reject", () => proposalReject(proposal.id, why))}
+          onCancel={cancel}
+        />
       )}
 
       {mode === "idle" && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            data-decision="accept"
-            onClick={() => void decide(() => proposalAccept(proposal.id))}
-            aria-label={`Accept ${subject}`}
-          >
-            <Check aria-hidden="true" />
-            {busy ? "Saving…" : "Accept"}
-          </Button>
-          {amend && (
-            <Button
-              ref={amendRef}
-              variant="ghost"
-              size="sm"
-              disabled={busy}
-              onClick={() => {
-                setDraft(Object.fromEntries(amend.fields.map((f) => [f.name, f.value])));
-                setError(null);
-                setMode("amending");
-              }}
-              aria-label={`${amendWord} ${subject}`}
-            >
-              <PenLine aria-hidden="true" />
-              {amendWord}
-            </Button>
-          )}
-          <Button
-            ref={rejectRef}
-            variant="ghost"
-            size="sm"
-            disabled={busy}
-            onClick={() => {
-              setWhy("");
-              setError(null);
-              setMode("rejecting");
-            }}
-            aria-label={`Reject ${subject}`}
-          >
-            <Ban aria-hidden="true" />
-            Reject
-          </Button>
-        </div>
+        <DecisionGroup
+          name={(verb) => `${verb} ${subject}`}
+          pending={pending}
+          amendWord={amendWord}
+          amendRef={amendRef}
+          rejectRef={rejectRef}
+          className="self-start"
+          onAccept={() => void decide("accept", () => proposalAccept(proposal.id))}
+          onAmend={
+            amend
+              ? () => {
+                  setDraft(Object.fromEntries(amend.fields.map((f) => [f.name, f.value])));
+                  setError(null);
+                  setMode("amending");
+                }
+              : undefined
+          }
+          onReject={() => {
+            setError(null);
+            setMode("rejecting");
+          }}
+        />
       )}
 
       {error && (
@@ -322,6 +245,7 @@ export function ProposalDecision({ proposal, subject, amend, children, afterDeci
     </>
   );
 }
+
 
 function PendingGhost({
   proposal,
@@ -357,10 +281,7 @@ function PendingGhost({
       data-state="pending"
       className="mt-2.5 flex min-w-0 flex-col gap-2 rounded-md border border-dashed border-primary bg-running-muted px-3 py-2.5"
     >
-      <span className="flex items-center gap-1.5 text-meta font-semibold text-running">
-        <CircleDashed aria-hidden="true" className="size-3.5" />
-        Proposed {label}
-      </span>
+      <ProposedBadge>Proposed {label}</ProposedBadge>
       <ProposalDecision
         proposal={proposal}
         subject={`the proposed ${label}`}

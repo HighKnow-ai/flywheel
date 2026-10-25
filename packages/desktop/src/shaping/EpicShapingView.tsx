@@ -37,7 +37,9 @@ import { StoryColumns } from "./StoryColumns";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
+import { useSettle } from "./ProposalParts";
 
 /** The read the view and the board's Epic card share, keyed under the project. */
 export function epicShapingKey(projectId: string, epicId: string) {
@@ -194,20 +196,44 @@ function KnowledgeChips({ chips }: { chips: KnowledgeChip[] }) {
     <ul aria-label="ADRs and glossary" className="m-0 flex min-w-0 list-none flex-wrap gap-1.5 p-0 pt-1">
       {chips.map((chip) => (
         <li key={chip.key} className="flex min-w-0 max-w-full">
-          <Badge
-            variant="outline"
-            title={chip.pending ? `${chip.title}, accepted on this Epic, not written yet` : chip.title}
-            className={cn("max-w-full min-w-0 text-meta font-normal", chip.pending && "border-dashed")}
-          >
-            {chip.kind === "adr" ? <ScrollText aria-hidden="true" /> : <BookA aria-hidden="true" />}
-            <span className="sr-only">{chip.kind === "adr" ? `ADR ${chip.title.slice(0, chip.title.length - chip.name.length)}` : "Glossary term "}</span>
-            <span className={cn("min-w-0 truncate", chip.kind === "adr" && "font-mono")}>{chip.name}</span>
-            {chip.pending && (
-              <span className="shrink-0 text-meta text-muted-foreground">
-                {chip.kind === "adr" ? "· not in the repo yet" : "· not in GLOSSARY.md yet"}
+          {/* The whole path in a Hover Card (issue #211), opened by the pointer or by the keyboard's focus. */}
+          <HoverCard openDelay={300} closeDelay={100}>
+            <HoverCardTrigger asChild>
+              <Badge
+                variant="outline"
+                tabIndex={0}
+                className={cn(
+                  "max-w-full min-w-0 cursor-default text-meta font-normal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                  chip.pending && "border-dashed",
+                )}
+              >
+                {chip.kind === "adr" ? <ScrollText aria-hidden="true" /> : <BookA aria-hidden="true" />}
+                <span className="sr-only">{chip.kind === "adr" ? `ADR ${chip.title.slice(0, chip.title.length - chip.name.length)}` : "Glossary term "}</span>
+                <span className={cn("min-w-0 truncate", chip.kind === "adr" && "font-mono")}>{chip.name}</span>
+                {chip.pending && (
+                  <span className="shrink-0 text-meta text-muted-foreground">
+                    {chip.kind === "adr" ? "· not in the repo yet" : "· not in GLOSSARY.md yet"}
+                  </span>
+                )}
+              </Badge>
+            </HoverCardTrigger>
+            <HoverCardContent align="start" className="flex w-auto max-w-96 flex-col gap-1">
+              <span className="flex min-w-0 items-center gap-1.5 text-meta font-semibold text-muted-foreground">
+                {chip.kind === "adr" ? <ScrollText aria-hidden="true" className="size-3.5 shrink-0" /> : <BookA aria-hidden="true" className="size-3.5 shrink-0" />}
+                {chip.kind === "adr" ? "ADR" : "Glossary term"}
               </span>
-            )}
-          </Badge>
+              <span className={cn("text-small break-all text-foreground", chip.kind === "adr" && "font-mono")}>
+                {chip.kind === "adr" ? chip.title : chip.name}
+              </span>
+              <span className="text-meta text-muted-foreground">
+                {chip.pending
+                  ? chip.kind === "adr"
+                    ? "Accepted on this Epic. Its first Story writes the file."
+                    : "Accepted on this Epic. Its first Story adds it to GLOSSARY.md."
+                  : "Linked to this Epic."}
+              </span>
+            </HoverCardContent>
+          </HoverCard>
         </li>
       ))}
     </ul>
@@ -292,12 +318,15 @@ function SpecField({
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // An accepted Proposal settles into the field: its new text takes the running tint and fades to the card.
+  const settle = useSettle(value);
 
   async function save() {
     if (saving) return;
     setSaving(true);
     setError(null);
     const text = draft.trim();
+    settle.own();
     const spec: EpicSpecInput = {
       problem: epic.problem,
       scope: epic.scope,
@@ -361,9 +390,9 @@ function SpecField({
               }}
             />
             <div className="flex items-center gap-2">
-              <Button type="submit" variant="outline" size="sm" disabled={saving} aria-label={`Save ${label}`}>
+              <Button type="submit" variant="outline" size="sm" loading={saving} aria-label={`Save ${label}`}>
                 <Check aria-hidden="true" />
-                {saving ? "Saving…" : "Save"}
+                Save
               </Button>
               <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={() => setEditing(false)}>
                 <X aria-hidden="true" />
@@ -372,7 +401,9 @@ function SpecField({
             </div>
           </form>
         ) : value ? (
-          <p className="m-0 max-w-[68ch] text-body whitespace-pre-wrap break-words">{value}</p>
+          <p data-settling={settle.settling || undefined} className={cn("m-0 max-w-[68ch] text-body whitespace-pre-wrap break-words", settle.className)}>
+            {value}
+          </p>
         ) : (
           <p className="m-0 text-body text-subtle-foreground">Not written yet</p>
         )}

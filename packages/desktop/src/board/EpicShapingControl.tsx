@@ -29,6 +29,7 @@ import { epicShape, epicShapingRounds, epicShapingSession, shapingContinue, type
 import { useUiStore } from "../state/uiStore";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 import { errorText } from "./StoryControls";
 
@@ -47,7 +48,7 @@ export function shapingSessionKey(projectId: string, epicId: string) {
 }
 
 /** Start a shaping session (Shape or Continue shaping) and refetch the Epic's session, keeping the refusal. */
-function useStartShaping(projectId: string, epicId: string, start: (epicId: string) => Promise<unknown>) {
+function useStartShaping(projectId: string, epicId: string, start: (epicId: string) => Promise<unknown>, done: string) {
   const queryClient = useQueryClient();
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +57,10 @@ function useStartShaping(projectId: string, epicId: string, start: (epicId: stri
     setStarting(true);
     setError(null);
     start(epicId)
-      .then(() => queryClient.invalidateQueries({ queryKey: shapingSessionKey(projectId, epicId) }))
+      .then(() => {
+        notify.success(done);
+        return queryClient.invalidateQueries({ queryKey: shapingSessionKey(projectId, epicId) });
+      })
       .catch((err: unknown) => setError(errorText(err)))
       .finally(() => setStarting(false));
   }
@@ -85,7 +89,7 @@ export function ContinueShapingButton({
   epic: Pick<EpicDto, "id" | "key" | "title">;
   className?: string;
 }) {
-  const { run, starting, error } = useStartShaping(projectId, epic.id, shapingContinue);
+  const { run, starting, error } = useStartShaping(projectId, epic.id, shapingContinue, `Continued shaping ${epic.key}`);
   return (
     <span className={cn("flex min-w-0 items-center gap-2", className)}>
       <StartError error={error} />
@@ -94,11 +98,11 @@ export function ContinueShapingButton({
         size="sm"
         aria-label={`Continue shaping ${epic.key} ${epic.title}`}
         onClick={run}
-        disabled={starting}
+        loading={starting}
         className="shrink-0"
       >
         <RotateCcw aria-hidden="true" />
-        {starting ? "Starting…" : "Continue shaping"}
+        Continue shaping
       </Button>
     </span>
   );
@@ -107,7 +111,7 @@ export function ContinueShapingButton({
 export function EpicShapingControl({ projectId, epic, place = "board" }: EpicShapingControlProps) {
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
   const openEpic = useUiStore((state) => state.openEpic);
-  const shape = useStartShaping(projectId, epic.id, epicShape);
+  const shape = useStartShaping(projectId, epic.id, epicShape, `Started shaping ${epic.key}`);
   const shaping = epic.state === "shaping";
   const liveQuery = useQuery({
     queryKey: shapingSessionKey(projectId, epic.id),
@@ -164,11 +168,11 @@ export function EpicShapingControl({ projectId, epic, place = "board" }: EpicSha
         size="sm"
         aria-label={`Shape ${epic.key} ${epic.title}`}
         onClick={shape.run}
-        disabled={shape.starting}
+        loading={shape.starting}
         className="shrink-0"
       >
         <MessagesSquare aria-hidden="true" />
-        {shape.starting ? "Starting…" : "Shape"}
+        Shape
       </Button>
     );
   }

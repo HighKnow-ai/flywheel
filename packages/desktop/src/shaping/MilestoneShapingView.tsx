@@ -46,6 +46,8 @@ import { MILESTONE_STAGES, StageBar } from "./StageBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import { useSettle } from "./ProposalParts";
 
 export interface MilestoneShapingViewProps {
   projectId: string;
@@ -165,6 +167,8 @@ function MilestoneCard({
   const editable = milestone.state !== "done" && milestone.state !== "dropped";
   const titleEdit = useHandEdit(milestone, queryKey, "title");
   const exitTestEdit = useHandEdit(milestone, queryKey, "Exit test");
+  // An accepted exit-test Proposal settles into the field; the Developer's own save does not tint it.
+  const settle = useSettle(milestone.exitTest);
   const index = roadmap.findIndex((m) => m.id === milestone.id);
   const before = index > 0 ? roadmap[index - 1] : null;
   const after = index >= 0 && index < roadmap.length - 1 ? roadmap[index + 1] : null;
@@ -228,7 +232,14 @@ function MilestoneCard({
               with no Edit (`GhostCard`); otherwise it lands on the Edit above. */}
           <dd tabIndex={-1} role="group" aria-labelledby={exitTestId} className="m-0 min-w-0 rounded-sm">
             {exitTestEdit.editing ? (
-              <EditForm edit={exitTestEdit} label="Exit test" onSave={(draft) => exitTestEdit.save(milestone.title, draft)}>
+              <EditForm
+                edit={exitTestEdit}
+                label="Exit test"
+                onSave={(draft) => {
+                  settle.own();
+                  return exitTestEdit.save(milestone.title, draft);
+                }}
+              >
                 <Textarea
                   id={exitTestFieldId}
                   aria-label="Exit test"
@@ -241,7 +252,12 @@ function MilestoneCard({
                 />
               </EditForm>
             ) : milestone.exitTest ? (
-              <p className="m-0 max-w-[68ch] text-body whitespace-pre-wrap break-words">{milestone.exitTest}</p>
+              <p
+                data-settling={settle.settling || undefined}
+                className={cn("m-0 max-w-[68ch] text-body whitespace-pre-wrap break-words", settle.className)}
+              >
+                {milestone.exitTest}
+              </p>
             ) : (
               <p className="m-0 text-body text-subtle-foreground">Not written yet</p>
             )}
@@ -370,9 +386,9 @@ function EditForm({
     >
       {children}
       <div className="flex items-center gap-2">
-        <Button type="submit" variant="outline" size="sm" disabled={edit.saving} aria-label={`Save ${label}`}>
+        <Button type="submit" variant="outline" size="sm" loading={edit.saving} aria-label={`Save ${label}`}>
           <Check aria-hidden="true" />
-          {edit.saving ? "Saving…" : "Save"}
+          Save
         </Button>
         <Button type="button" variant="ghost" size="sm" disabled={edit.saving} onClick={edit.close}>
           <X aria-hidden="true" />

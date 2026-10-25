@@ -30,6 +30,8 @@ import { roundAccept, roundAcceptAll, roundAnswer, type EpicDto, type RoundDto, 
 import { ContinueShapingButton } from "../board/EpicShapingControl";
 import { QuestionCard } from "./QuestionCard";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
 /** The Stage names as the developer reads them (GLOSSARY.md "Stage"). */
@@ -186,6 +188,10 @@ function RoundCard({
     setError(null);
     try {
       await roundAcceptAll(round.id);
+      notify.success(
+        openPlain === 1 ? "Accepted the recommended answer" : `Accepted ${openPlain} recommended answers`,
+        { description: `Round ${round.number}` },
+      );
       await onAcceptAll();
     } catch (err) {
       setError(`Could not accept the recommended answers: ${reason(err)}`);
@@ -231,14 +237,29 @@ function RoundCard({
       </header>
       {open && <p className="m-0 px-4 pt-3 pb-1 text-body break-words">{round.note}</p>}
       {open && (
-        // The Round's one filled action, kept on screen while the questions scroll under it.
+        // The Round's one filled action, kept on screen while the questions scroll under it. On a Round that is
+        // Waiting on you it is the attention fill (direction.md rule 2): the one yellow action on a yellow item.
         <div className="sticky top-0 z-10 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-card px-4 py-3">
-          <Button onClick={() => void acceptAll()} disabled={accepting || openPlain === 0}>
+          <Button
+            variant={waiting ? "attention" : "default"}
+            onClick={() => void acceptAll()}
+            loading={accepting}
+            disabled={!accepting && openPlain === 0}
+          >
             <CheckCheck aria-hidden="true" />
-            {accepting ? "Accepting…" : "Accept all recommended"}
+            Accept all recommended
           </Button>
-          <span className="text-small font-semibold tabular-nums">
-            {answered} of {total} answered
+          <span data-slot="round-progress" className="flex min-w-36 flex-1 basis-36 items-center gap-2.5 sm:max-w-60">
+            <span id={`${headingId}-progress`} className="shrink-0 text-small font-semibold tabular-nums">
+              {answered} of {total} answered
+            </span>
+            {/* `components/ui/progress` draws `value` but does not hand it to Radix, so the bar names it itself. */}
+            <Progress
+              value={total === 0 ? 0 : (answered / total) * 100}
+              aria-valuenow={total === 0 ? 0 : Math.round((answered / total) * 100)}
+              aria-labelledby={`${headingId}-progress`}
+              className="min-w-12 flex-1 [&_[data-slot=progress-indicator]]:transition-transform [&_[data-slot=progress-indicator]]:duration-(--duration-state)"
+            />
           </span>
           <span className="min-w-0 text-small text-muted-foreground">
             {openAdrs > 0 && openPlain === 0

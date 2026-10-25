@@ -17,20 +17,7 @@
  */
 import { useId, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Ban,
-  Check,
-  CircleDashed,
-  CircleMinus,
-  Compass,
-  Hand,
-  ListPlus,
-  LoaderCircle,
-  PenLine,
-  RotateCcw,
-  SquareTerminal,
-  X,
-} from "lucide-react";
+import { CircleMinus, Compass, Hand, ListPlus, LoaderCircle, RotateCcw, SquareTerminal, X } from "lucide-react";
 import {
   proposalAccept,
   proposalAmend,
@@ -46,11 +33,18 @@ import { Input } from "../components/ui/input";
 import { formatAge } from "../legend/runStatus";
 import { prefersReducedMotion } from "../session/FeedRow";
 import { useUiStore } from "../state/uiStore";
+import {
+  AmendActions,
+  DecisionGroup,
+  ProposedBadge,
+  RejectReasonForm,
+  RejectedLine,
+  announceDecision,
+  type Decision,
+} from "../shaping/ProposalParts";
 import { errorText } from "./StoryControls";
+import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
-
-/** The longest rejection reason `proposal_reject` accepts. */
-const MAX_REASON_LEN = 500;
 
 /**
  * Where the keyboard goes once the strip has re-read after a decision, a start or a dismissal: the next
@@ -133,9 +127,9 @@ export function RevisitRoadmapButton({ projectId }: { projectId: string }) {
   const { start, starting, error } = useRevisit(projectId);
   return (
     <>
-      <Button variant="outline" size="sm" data-slot="roadmap-revisit" disabled={starting} onClick={() => void start()}>
+      <Button variant="outline" size="sm" data-slot="roadmap-revisit" loading={starting} onClick={() => void start()}>
         <Compass aria-hidden="true" />
-        {starting ? "Starting…" : "Revisit roadmap"}
+        Revisit roadmap
       </Button>
       {error && (
         <p role="alert" className="m-0 basis-full text-small break-words text-destructive-text">
@@ -156,6 +150,7 @@ function useRevisit(projectId: string) {
     setError(null);
     try {
       await roadmapRevisit(projectId);
+      notify.success("Started a roadmap Round");
       await queryClient.invalidateQueries({ queryKey: ["board", projectId, "roadmap-round"] });
       // Revisit roadmap gives way to the band: the keyboard follows it, onto Open session.
       focusInStrip(null);
@@ -219,6 +214,7 @@ export function RoundBand({
     try {
       const strip = bandRef.current?.closest("[data-slot=roadmap-strip]") ?? null;
       await roadmapRoundDismiss(round.id);
+      notify.success(`Dismissed Roadmap Round ${round.number}`);
       await queryClient.invalidateQueries({ queryKey: ["board", projectId] });
       // The band is gone: back to Revisit roadmap.
       focusInStrip(strip);
@@ -274,9 +270,9 @@ export function RoundBand({
             <span id={warningId} role="alert" className="text-small font-semibold">
               {pending === 1 ? "Dismissing rejects the undecided change." : `Dismissing rejects the ${pending} undecided changes.`}
             </span>
-            <Button size="sm" variant="outline" aria-describedby={warningId} disabled={dismissing} onClick={() => void dismiss()}>
+            <Button size="sm" variant="outline" aria-describedby={warningId} loading={dismissing} onClick={() => void dismiss()}>
               <CircleMinus aria-hidden="true" />
-              {dismissing ? "Dismissing…" : "Dismiss Round"}
+              Dismiss Round
             </Button>
             <Button
               ref={keepRef}
@@ -301,9 +297,9 @@ export function RoundBand({
                 Open session
               </Button>
             ) : (
-              <Button size="sm" variant="outline" disabled={revisit.starting} onClick={() => void revisit.start()}>
+              <Button size="sm" variant="outline" loading={revisit.starting} onClick={() => void revisit.start()}>
                 <RotateCcw aria-hidden="true" />
-                {revisit.starting ? "Starting…" : "Continue"}
+                Continue
               </Button>
             )}
             <Button
@@ -367,23 +363,14 @@ export function GhostRow({ projectId, proposal }: { projectId: string; proposal:
 
 function RejectedRow({ proposal }: { proposal: RoadmapProposalDto }) {
   return (
-    <li
+    <RejectedLine
+      as="li"
       data-slot="roadmap-ghost-row"
-      data-state="rejected"
-      aria-label={`Rejected: ${proposal.summary}`}
-      className="flex min-w-0 flex-col gap-0.5 border-t border-border py-1.5 pr-3 pl-10"
-    >
-      <span className="flex min-w-0 items-center gap-1.5 text-small text-muted-foreground">
-        <Ban aria-hidden="true" className="size-3.5 shrink-0 text-subtle-foreground" />
-        <span className="shrink-0 text-meta font-semibold text-subtle-foreground">Rejected</span>
-        <del className="min-w-0 truncate decoration-1" title={proposal.summary}>
-          {proposal.summary}
-        </del>
-      </span>
-      <span className="truncate pl-5 text-meta text-subtle-foreground" title={proposal.rejectionReason ?? undefined}>
-        {proposal.rejectionReason ? `Your reason: ${proposal.rejectionReason}` : "No reason given"}
-      </span>
-    </li>
+      label={`Rejected: ${proposal.summary}`}
+      struck={proposal.summary}
+      reason={proposal.rejectionReason}
+      className="border-t border-border py-1.5 pr-3 pl-10"
+    />
   );
 }
 
@@ -397,20 +384,19 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
   const queryClient = useQueryClient();
   const kind = changeKindOf(proposal);
   const fields = kind ? AMEND_FIELDS[kind] : undefined;
-  const reasonId = useId();
   const fieldIds = useId();
   const [mode, setMode] = useState<Mode>("idle");
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const [why, setWhy] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<Decision | null>(null);
+  const busy = pending !== null;
   const [error, setError] = useState<string | null>(null);
   const amendRef = useRef<HTMLButtonElement>(null);
   const rejectRef = useRef<HTMLButtonElement>(null);
   const rowRef = useRef<HTMLLIElement>(null);
 
-  async function decide(write: () => Promise<void>) {
+  async function decide(decision: Decision, write: () => Promise<void>) {
     if (busy) return;
-    setBusy(true);
+    setPending(decision);
     setError(null);
     // Once decided the row changes under the focus: keep the keyboard on the strip, at the next undecided change.
     const strip = rowRef.current?.closest("[data-slot=roadmap-strip]") ?? null;
@@ -419,13 +405,14 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
       : [];
     try {
       await write();
+      announceDecision(decision, proposal.summary);
       await queryClient.invalidateQueries({ queryKey: ["board", projectId] });
       setMode("idle");
       focusInStrip(strip, order, proposal.id);
     } catch (err) {
       setError(`Could not decide "${proposal.summary}": ${errorText(err)}`);
     } finally {
-      setBusy(false);
+      setPending(null);
     }
   }
 
@@ -444,7 +431,7 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
       const text = draft[f.key]?.trim() ?? "";
       payload[f.key] = text === "" ? null : text;
     }
-    void decide(() => proposalAmend(proposal.id, payload));
+    void decide("amend", () => proposalAmend(proposal.id, payload));
   }
 
   function cancel() {
@@ -473,9 +460,8 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
       >
         {/* Reading order: the change, then why, then the decisions, as on the Epic card's ghost field. */}
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 @[40rem]:col-start-1">
-          <span className="flex shrink-0 items-center gap-1.5 self-center text-meta font-semibold text-running">
-            <CircleDashed aria-hidden="true" className="size-3.5" />
-            Proposed
+          <span className="shrink-0 self-center">
+            <ProposedBadge>Proposed</ProposedBadge>
           </span>
           <span className="min-w-0 flex-1 basis-60 text-row font-semibold break-words text-foreground">{proposal.summary}</span>
         </div>
@@ -483,39 +469,19 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
           <p className="m-0 max-w-[68ch] text-small break-words text-muted-foreground @[40rem]:col-start-1">Why: {proposal.rationale}</p>
         )}
         {mode === "idle" && (
-          <span className="flex shrink-0 flex-wrap items-center gap-1.5 self-start @[40rem]:col-start-2 @[40rem]:row-span-2 @[40rem]:row-start-1">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              aria-label={`Accept: ${proposal.summary}`}
-              onClick={() => void decide(() => proposalAccept(proposal.id))}
-            >
-              <Check aria-hidden="true" />
-              {busy ? "Saving…" : "Accept"}
-            </Button>
-            {amendable && (
-              <Button ref={amendRef} variant="ghost" size="sm" disabled={busy} aria-label={`Amend: ${proposal.summary}`} onClick={openAmend}>
-                <PenLine aria-hidden="true" />
-                Amend
-              </Button>
-            )}
-            <Button
-              ref={rejectRef}
-              variant="ghost"
-              size="sm"
-              disabled={busy}
-              aria-label={`Reject: ${proposal.summary}`}
-              onClick={() => {
-                setWhy("");
-                setError(null);
-                setMode("rejecting");
-              }}
-            >
-              <Ban aria-hidden="true" />
-              Reject
-            </Button>
-          </span>
+          <DecisionGroup
+            name={(verb) => `${verb}: ${proposal.summary}`}
+            pending={pending}
+            amendRef={amendRef}
+            rejectRef={rejectRef}
+            className="self-start @[40rem]:col-start-2 @[40rem]:row-span-2 @[40rem]:row-start-1"
+            onAccept={() => void decide("accept", () => proposalAccept(proposal.id))}
+            onAmend={amendable ? openAmend : undefined}
+            onReject={() => {
+              setError(null);
+              setMode("rejecting");
+            }}
+          />
         )}
 
         {mode === "amending" && fields && (
@@ -544,56 +510,18 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
                 />
               </div>
             ))}
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="submit" variant="outline" size="sm" disabled={busy || !canSubmitAmend}>
-                <Check aria-hidden="true" />
-                {busy ? "Saving…" : "Accept edit"}
-              </Button>
-              <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={cancel}>
-                <X aria-hidden="true" />
-                Cancel
-              </Button>
-            </div>
+            <AmendActions busy={busy} ready={canSubmitAmend} subject={proposal.summary} onCancel={cancel} />
           </form>
         )}
 
         {mode === "rejecting" && (
-          <form
-            className="flex min-w-0 flex-wrap items-center gap-2 pt-1 @[40rem]:col-span-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const given = why.trim();
-              void decide(() => proposalReject(proposal.id, given === "" ? null : given));
-            }}
-          >
-            <label htmlFor={reasonId} className="sr-only">
-              Why not? (optional)
-            </label>
-            <Input
-              id={reasonId}
-              value={why}
-              maxLength={MAX_REASON_LEN}
-              autoFocus
-              disabled={busy}
-              placeholder="Why not? (optional)"
-              className="h-7.5 min-w-48 flex-1 bg-card"
-              onChange={(e) => setWhy(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.stopPropagation();
-                  cancel();
-                }
-              }}
-            />
-            <Button type="submit" variant="outline" size="sm" disabled={busy}>
-              <Ban aria-hidden="true" />
-              {busy ? "Saving…" : "Reject"}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={cancel}>
-              <X aria-hidden="true" />
-              Cancel
-            </Button>
-          </form>
+          <RejectReasonForm
+            busy={busy}
+            className="pt-1 @[40rem]:col-span-2"
+            inputClassName="bg-card"
+            onReject={(why) => void decide("reject", () => proposalReject(proposal.id, why))}
+            onCancel={cancel}
+          />
         )}
 
         {error && (

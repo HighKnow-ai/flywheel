@@ -374,7 +374,7 @@ describe("RoadmapStrip: the roadmap Round (issue #133)", () => {
     expect(outcome).toHaveValue("Mobile");
     fireEvent.change(outcome, { target: { value: "Mobile, read-only" } });
     fireEvent.change(within(created).getByRole("textbox", { name: "Exit test (optional)" }), { target: { value: "A phone reads the board" } });
-    fireEvent.click(within(created).getByRole("button", { name: "Accept edit" }));
+    fireEvent.click(within(created).getByRole("button", { name: 'Accept edit to New Milestone "Mobile"' }));
     await waitFor(() =>
       expect(proposalAmend).toHaveBeenCalledWith("p-new", { title: "Mobile, read-only", exit_test: "A phone reads the board" }),
     );

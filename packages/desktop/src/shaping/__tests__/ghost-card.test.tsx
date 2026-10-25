@@ -11,6 +11,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EpicShapingView } from "../EpicShapingView";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import type { EpicDto, EpicShapingDto, ProposalDto } from "../../adapters/tauri";
+import { expectDecisionGroup } from "./decision-group";
+
+const notifySuccess = vi.fn();
+vi.mock("@/lib/notify", () => ({ notify: { success: (...args: unknown[]) => notifySuccess(...args), error: vi.fn(), dismiss: vi.fn() } }));
 
 const epicShapingRounds = vi.fn();
 const proposalAccept = vi.fn();
@@ -99,6 +103,7 @@ beforeEach(() => {
   proposalAmend.mockReset().mockResolvedValue(undefined);
   proposalReject.mockReset().mockResolvedValue(undefined);
   proposalListPending.mockReset().mockResolvedValue([]);
+  notifySuccess.mockReset();
 });
 
 describe("ghost fields for spec-change Proposals (issue #125)", () => {
@@ -182,5 +187,27 @@ describe("ghost fields for spec-change Proposals (issue #125)", () => {
     const card = await ghost("Scope");
     fireEvent.click(within(card).getByRole("button", { name: "Accept the proposed Scope" }));
     expect((await within(card).findByRole("alert")).textContent).toMatch(/already accepted/);
+  });
+
+  it("is decided through the one Accept, Amend and Reject group (issue #211)", async () => {
+    renderView();
+    expectDecisionGroup(await ghost("Scope"), "the proposed Scope");
+    // The rejected line wears the Rejected pill, the pending ghost the Proposed one.
+    expect(within(await ghost("Scope")).getByText("Proposed Scope").closest("[data-slot=badge]")).toBeTruthy();
+    expect(within(screen.getByRole("group", { name: "Rejected Out of scope" })).getByText("Rejected").closest("[data-slot=badge]")).toBeTruthy();
+  });
+
+  it("Accept shows loading on its own button until it lands, then says what it did in a toast (issue #211)", async () => {
+    let land: () => void = () => {};
+    proposalAccept.mockImplementationOnce(() => new Promise<void>((resolve) => (land = resolve)));
+    renderView();
+    const card = await ghost("Scope");
+    const accept = within(card).getByRole("button", { name: "Accept the proposed Scope" });
+    fireEvent.click(accept);
+    await waitFor(() => expect(accept).toHaveAttribute("aria-busy", "true"));
+    expect(accept).toHaveTextContent("Accept");
+    expect(within(card).getByRole("button", { name: "Reject the proposed Scope" })).toBeDisabled();
+    land();
+    await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith("Accepted the proposed Scope"));
   });
 });

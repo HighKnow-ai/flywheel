@@ -19,6 +19,7 @@ import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent 
 import { Ban, Check, CircleCheck, FileText, PenLine, ScrollText, Send, X } from "lucide-react";
 import type { AdrDraftDto, RoundQuestionDto } from "../adapters/tauri";
 import { Button } from "@/components/ui/button";
+import { OrderChip } from "./ProposalParts";
 import { Textarea } from "@/components/ui/textarea";
 import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
@@ -43,17 +44,7 @@ function reason(err: unknown): string {
 }
 
 function NumberChip({ number, answered }: { number: number; answered: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "flex size-5 shrink-0 items-center justify-center rounded-sm text-meta font-semibold tabular-nums",
-        answered ? "bg-secondary text-muted-foreground" : "bg-foreground text-card",
-      )}
-    >
-      {number}
-    </span>
-  );
+  return <OrderChip number={number} tone={answered ? "quiet" : "ink"} />;
 }
 
 export function QuestionCard(props: QuestionCardProps) {
@@ -179,9 +170,9 @@ function PlainQuestionCard({ question: q, open, onAccept, onAnswer }: QuestionCa
             disabled={busy}
           />
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" variant="outline" size="sm" disabled={busy || !draft.trim()}>
+            <Button type="submit" variant="outline" size="sm" loading={busy} disabled={!busy && !draft.trim()}>
               <Send aria-hidden="true" />
-              {busy ? "Saving…" : "Send answer"}
+              Send answer
             </Button>
             <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)} disabled={busy}>
               <X aria-hidden="true" />
@@ -207,12 +198,13 @@ function PlainQuestionCard({ question: q, open, onAccept, onAnswer }: QuestionCa
             <Button
               variant="outline"
               size="sm"
-              disabled={!open || busy}
+              disabled={!open}
+              loading={busy}
               onClick={() => void run(() => onAccept(q.id))}
               aria-label={`Accept the recommended answer to question ${q.number}`}
             >
               <Check aria-hidden="true" />
-              {busy ? "Saving…" : "Accept"}
+              Accept
             </Button>
             <Button
               variant="ghost"
@@ -324,12 +316,13 @@ function AdrQuestionCard({ question: q, open, onAnswer, adr }: QuestionCardProps
       <Button
         variant={recommended ? "outline" : "ghost"}
         size="sm"
-        disabled={!open || busy !== null}
+        disabled={!open || (busy !== null && busy !== word)}
+        loading={busy === word}
         onClick={() => void answer(word)}
         aria-describedby={questionId}
       >
         {word === "Yes" ? <Check aria-hidden="true" /> : <Ban aria-hidden="true" />}
-        {busy === word ? "Saving…" : word === "Yes" ? "Yes, record it" : "No, don't record it"}
+        {word === "Yes" ? "Yes, record it" : "No, don't record it"}
       </Button>
     );
   };

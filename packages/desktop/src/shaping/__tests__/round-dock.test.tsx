@@ -414,3 +414,42 @@ describe("the Epic card's ADR and glossary chips (issue #129)", () => {
     expect(screen.queryByRole("list", { name: "ADRs and glossary" })).toBeNull();
   });
 });
+
+describe("the dock's Round progress and its Accept all (issue #211)", () => {
+  it("shows how much of the Round is answered as a progress bar beside the count", async () => {
+    epicShapingRounds.mockResolvedValue(
+      shaping([round([question(1, { answer: "Yes, cover thing 1", with: "recommended" }), question(2), question(3), question(4)])]),
+    );
+    renderView();
+    const dock = await screen.findByRole("region", { name: /Round 1/ });
+    const bar = within(dock).getByRole("progressbar", { name: "1 of 4 answered" });
+    expect(bar).toHaveAttribute("aria-valuenow", "25");
+  });
+
+  it("makes Accept all the attention fill while the Round is Waiting on you", async () => {
+    renderView();
+    const dock = await screen.findByRole("region", { name: /Round 1/ });
+    expect(within(dock).getByRole("button", { name: /Accept all recommended/ })).toHaveAttribute("data-variant", "attention");
+  });
+
+  it("keeps Accept all the brand fill on an open Round no session waits on", async () => {
+    epicShapingSession.mockResolvedValue(null);
+    epicShapingRounds.mockResolvedValue(shaping([round([question(1), question(2)], false)]));
+    renderView();
+    const dock = await screen.findByRole("region", { name: /Round 1/ });
+    expect(within(dock).getByRole("button", { name: /Accept all recommended/ })).toHaveAttribute("data-variant", "default");
+  });
+
+  it("shows Accept all as loading while it lands, with its label kept", async () => {
+    let resolveAll: () => void = () => {};
+    roundAcceptAll.mockImplementationOnce(() => new Promise<void>((resolve) => (resolveAll = resolve)));
+    renderView();
+    const dock = await screen.findByRole("region", { name: /Round 1/ });
+    const button = within(dock).getByRole("button", { name: /Accept all recommended/ });
+    fireEvent.click(button);
+    await waitFor(() => expect(button).toHaveAttribute("aria-busy", "true"));
+    expect(button).toHaveTextContent("Accept all recommended");
+    resolveAll();
+    await waitFor(() => expect(button).not.toHaveAttribute("aria-busy"));
+  });
+});
