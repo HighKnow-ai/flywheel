@@ -245,7 +245,12 @@ export function StoryColumns({ projectId, stories, proposals, queryKey, criteria
         <ScrollArea
           role="region"
           aria-labelledby={headingId}
-          className="-mx-3 min-w-0"
+          className={cn(
+            "-mx-3 min-w-0",
+            "data-[overflow-after=true]:[mask-image:linear-gradient(to_right,#000_calc(100%-3rem),transparent)]",
+            "data-[overflow-before=true]:[mask-image:linear-gradient(to_left,#000_calc(100%-3rem),transparent)]",
+            "data-[overflow-before=true]:data-[overflow-after=true]:[mask-image:linear-gradient(to_right,transparent,#000_3rem,#000_calc(100%-3rem),transparent)]",
+          )}
           ref={(root: HTMLDivElement | null) => {
             const viewport = root?.querySelector<HTMLDivElement>("[data-slot=scroll-area-viewport]") ?? null;
             // Once a decision lands the control that made it may be gone: the keyboard lands on the strip.
@@ -413,6 +418,12 @@ function OverflowChips({ regionRef, watch }: { regionRef: RefObject<HTMLDivEleme
           next.before += 1;
           if (pending) next.pendingBefore += 1;
         }
+      }
+      // The Scroll Area fades whichever edge has columns past it, so a column cut there reads as more to scroll to.
+      const root = region.parentElement;
+      if (root) {
+        root.dataset.overflowBefore = String(next.before > 0);
+        root.dataset.overflowAfter = String(next.after > 0);
       }
       setEdges((prev) =>
         prev.before === next.before && prev.after === next.after && prev.pendingBefore === next.pendingBefore && prev.pendingAfter === next.pendingAfter
