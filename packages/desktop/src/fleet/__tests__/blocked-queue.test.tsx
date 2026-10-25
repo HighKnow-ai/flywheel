@@ -129,11 +129,11 @@ describe("BlockedQueue contents", () => {
   it("a destructive entry renders Deny before Allow", () => {
     renderQueue([entry(1, { destructiveCategory: "force-push", inputPayload: '{"command":"git push --force origin main"}' })]);
     const card = screen.getByRole("group", { name: "Bash wants to:" });
-    const labels = within(card)
-      .getAllByRole("button")
-      .map((b) => b.textContent);
-    expect(labels.indexOf("Deny")).toBeGreaterThanOrEqual(0);
-    expect(labels.indexOf("Deny")).toBeLessThan(labels.findIndex((l) => l?.startsWith("Allow")));
+    // By accessible name: the buttons also draw their answer keys (Story #206), which are not part of the name.
+    const buttons = within(card).getAllByRole("button");
+    const deny = within(card).getByRole("button", { name: "Deny" });
+    const allow = within(card).getByRole("button", { name: "Allow once" });
+    expect(buttons.indexOf(deny)).toBeLessThan(buttons.indexOf(allow));
   });
 
   it("names the project, subject and wait time of each waiting request", () => {
