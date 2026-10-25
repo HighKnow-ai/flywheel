@@ -2,18 +2,21 @@
  * Behavior under test (CR-02/IN-01, 01-REVIEW.md): `deriveKeyPrefix` must always emit a prefix
  * `core::domain::project::validate_key_prefix` accepts (2-10 uppercase letters/digits, starting
  * with a letter) — a directory name like `2024-app` or a single-character name used to derive an
- * invalid prefix, which three of the four registration entry points had no way to recover from
- * since they register immediately with no confirmation step to edit it.
+ * invalid prefix, which the registration entry points that register immediately had no way to recover from.
+ *
+ * Issue #210 (critique F4): first run is Empty with a filled primary; Register project is a Dialog with a
+ * Field and Input for the key; a failure is an Alert with a human line and the raw detail behind Details.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FirstRun, deriveKeyPrefix } from "../FirstRun";
 
 const openFolderMock = vi.fn(() => Promise.resolve<string | null>(null));
+const invokeCommandMock = vi.fn((_command: string, _args?: unknown) => Promise.resolve<unknown>(undefined));
 
 vi.mock("../../adapters/tauri", () => ({
-  invokeCommand: () => Promise.resolve(undefined),
+  invokeCommand: (command: string, args?: unknown) => invokeCommandMock(command, args),
   subscribeBoardChanged: () => Promise.resolve(() => {}),
   subscribeAgentEvent: () => Promise.resolve(() => {}),
   fleetBlockedQueue: () => Promise.resolve([]),
@@ -21,10 +24,18 @@ vi.mock("../../adapters/tauri", () => ({
   openFolderDialog: () => openFolderMock(),
 }));
 
+beforeEach(() => {
+  invokeCommandMock.mockReset();
+  invokeCommandMock.mockImplementation(() => Promise.resolve(undefined));
+});
 afterEach(cleanup);
 
 function withClient(node: React.ReactElement) {
-  return render(<QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>);
+  return render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      {node}
+    </QueryClientProvider>,
+  );
 }
 
 // The brand mark on this surface and the rail is asserted in theme/__tests__/brand-mark.test.tsx (issue #196).
@@ -58,17 +69,7 @@ describe("deriveKeyPrefix", () => {
   });
 
   it("never emits a prefix validate_key_prefix would reject, across a spread of realistic names", () => {
-    const names = [
-      "2024-app",
-      "_x",
-      "a",
-      "99bottles",
-      "my-app",
-      "___",
-      "1",
-      "Flywheel",
-      "___2025___",
-    ];
+    const names = ["2024-app", "_x", "a", "99bottles", "my-app", "___", "1", "Flywheel", "___2025___"];
     for (const name of names) {
       const prefix = deriveKeyPrefix(`/repos/${name}`);
       expect(isValidKeyPrefix(prefix)).toBe(true);
@@ -76,32 +77,93 @@ describe("deriveKeyPrefix", () => {
   });
 });
 
-/** 08.1 group-six closure: the confirm-the-key step must say what it is asking for, about which folder. */
-describe("the register step (08.1 closure)", () => {
+describe("first run (issue #210)", () => {
+  it("is Empty on the floor, with a heading, one line and the filled primary", () => {
+    withClient(<FirstRun />);
+    const heading = screen.getByRole("heading", { level: 1, name: "No projects yet" });
+    expect(heading.closest("[data-slot=empty]")).not.toBeNull();
+    const register = screen.getByRole("button", { name: "Register project…" });
+    // The filled primary (`default`), never an outline with a permanent ring.
+    expect(register).toHaveAttribute("data-variant", "default");
+  });
+
+  it("names the action in sentence case, as the rail does", () => {
+    withClient(<FirstRun />);
+    expect(screen.queryByRole("button", { name: "Register Project…" })).toBeNull();
+  });
+});
+
+/** 08.1 group-six closure, now on a Dialog (#210): the confirm-the-key step says what it asks for, about which folder. */
+describe("the register dialog", () => {
   async function reachRegisterStep() {
     openFolderMock.mockResolvedValue("/Users/dev/repos/threadfin");
     withClient(<FirstRun />);
-    fireEvent.click(screen.getByRole("button", { name: "Register Project…" }));
-    await screen.findByRole("heading", { name: "Register threadfin" });
+    fireEvent.click(screen.getByRole("button", { name: "Register project…" }));
+    return screen.findByRole("dialog", { name: "Register threadfin" });
   }
 
-  it("labels the key field, so the value is an answer to a question and not a display", async () => {
-    await reachRegisterStep();
-    const label = screen.getByText("Project key", { selector: "label" });
-    expect(label).toHaveAttribute("for", "first-run-project-key");
-    expect(document.getElementById("first-run-project-key")).toBe(screen.getByRole("textbox", { name: "Project key prefix" }));
-    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("THRE");
+  it("is the shadcn Dialog, carrying the shared overlay motion in and out", async () => {
+    const dialog = await reachRegisterStep();
+    expect(dialog).toHaveAttribute("data-slot", "dialog-content");
+    expect(dialog.className).toMatch(/data-open:animate-in/);
+    expect(dialog.className).toMatch(/data-closed:animate-out/);
+  });
+
+  it("asks for the key in a labelled Field, filled with the derived default", async () => {
+    const dialog = await reachRegisterStep();
+    const input = within(dialog).getByRole("textbox", { name: "Project key" });
+    expect(input).toHaveAttribute("data-slot", "input");
+    expect(input.closest("[data-slot=field]")).not.toBeNull();
+    expect((input as HTMLInputElement).value).toBe("THRE");
+    expect(within(dialog).getByText(/Every Story key starts with it/)).toBeInTheDocument();
   });
 
   it("prints the folder just picked, so the permanent key can be tied to something", async () => {
-    await reachRegisterStep();
-    expect(screen.getByText("/Users/dev/repos/threadfin")).toBeInTheDocument();
+    const dialog = await reachRegisterStep();
+    expect(within(dialog).getByText("/Users/dev/repos/threadfin")).toBeInTheDocument();
   });
 
-  it("offers Back, which returns to the picker step without registering anything", async () => {
-    await reachRegisterStep();
-    fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "No projects yet" })).toBeInTheDocument());
-    expect(screen.queryByRole("textbox")).toBeNull();
+  it("registers with the key as typed, upper-cased", async () => {
+    const dialog = await reachRegisterStep();
+    const input = within(dialog).getByRole("textbox", { name: "Project key" });
+    fireEvent.change(input, { target: { value: "tf" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Register project" }));
+    await waitFor(() =>
+      expect(invokeCommandMock).toHaveBeenCalledWith("project_register", {
+        name: "threadfin",
+        repoPath: "/Users/dev/repos/threadfin",
+        keyPrefix: "TF",
+      }),
+    );
+  });
+
+  it("Cancel closes the dialog without registering anything", async () => {
+    const dialog = await reachRegisterStep();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("heading", { name: "No projects yet" })).toBeInTheDocument();
+    expect(invokeCommandMock).not.toHaveBeenCalledWith("project_register", expect.anything());
+  });
+
+  it("says a failure as an Alert: a human line, and the raw message behind Details in the code face", async () => {
+    const raw = "/Users/dev/repos/threadfin is not a git repository (git rev-parse --show-toplevel exited 128)";
+    invokeCommandMock.mockImplementation((command: string) =>
+      command === "project_register" ? Promise.reject(raw) : Promise.resolve(undefined),
+    );
+    const dialog = await reachRegisterStep();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Register project" }));
+
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).toHaveAttribute("data-slot", "action-failure");
+    expect(within(alert).getByText("Couldn’t register threadfin")).toBeInTheDocument();
+    expect(within(alert).getByText(/isn’t a git repository/)).toBeInTheDocument();
+    // The raw command is folded away until asked for.
+    expect(within(alert).queryByText(raw)).toBeNull();
+    fireEvent.click(within(alert).getByRole("button", { name: "Details" }));
+    const detail = await within(alert).findByText(raw);
+    expect(detail.className).toMatch(/font-mono/);
+    // Two hyphens stay two hyphens: the code face, with no ligature to join them into a dash.
+    expect(detail.textContent).toContain("--show-toplevel");
+    expect(detail.className).toMatch(/font-variant-ligatures:none/);
   });
 });

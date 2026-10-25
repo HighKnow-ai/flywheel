@@ -1,7 +1,7 @@
 /**
  * The launch sheet (D-27, 02-UI-SPEC.md "Launch sheet"): a briefing gate, not a confirmation
- * dialog. Reuses the command palette's scrim/`FocusScope`/`DismissableLayer`/portal mechanics
- * rather than a new overlay pattern, and the `⌘Enter`-to-save convention for its own free-text field.
+ * dialog. Issue #210: it is a shadcn Dialog, so it arrives and leaves with the shared overlay motion,
+ * and its Start Work button shows the ⌘↩ shortcut it answers to.
  *
  * Mounted once at the `App.tsx` level and driven entirely by `state/uiStore.ts`'s
  * `launchSheetStoryId`: `null` renders nothing, a Story id opens the sheet against that Story.
@@ -11,18 +11,17 @@
  * Story may start is the Rust core's decision: a refused start is shown as the core's own words.
  *
  * No global `keydown` listener is registered here: Enter/⌘Enter/Tab are handled by this dialog's
- * own local `onKeyDown`, and Escape is Radix `DismissableLayer`'s `onEscapeKeyDown` — never a second
+ * own local `onKeyDown`, and Escape is the Dialog's own dismissal (`onOpenChange`) — never a second
  * hand-rolled `event.key === '...'` switch (`state/keyboard.ts`'s own house rule).
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { createPortal } from "react-dom";
-import { FocusScope } from "@radix-ui/react-focus-scope";
-import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { useQuery } from "@tanstack/react-query";
 import { startSession, storyGet } from "../adapters/tauri";
 import { useBoardChangedInvalidation } from "../board/useBoardChangedInvalidation";
 import { Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
 
 const INSTRUCTION_PLACEHOLDER = "Anything else the agent should know for this run? (optional)";
@@ -53,12 +52,17 @@ export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
   // this codebase's own established pattern (`SessionSurface.tsx`'s `stoppingRef`/`discardingRef`).
   const startingRef = useRef(false);
 
+  // The last Story the sheet was open for, so it keeps its words while it fades out after closing (#210).
+  const [shownStoryId, setShownStoryId] = useState(storyId);
+  if (storyId !== null && storyId !== shownStoryId) setShownStoryId(storyId);
+  const open = storyId !== null;
+
   const storyQuery = useQuery({
-    queryKey: storyId ? launchSheetStoryQueryKey(storyId) : ["launch-sheet-story", "none"],
-    queryFn: () => storyGet(storyId as string),
-    enabled: storyId !== null,
+    queryKey: shownStoryId ? launchSheetStoryQueryKey(shownStoryId) : ["launch-sheet-story", "none"],
+    queryFn: () => storyGet(shownStoryId as string),
+    enabled: shownStoryId !== null,
   });
-  useBoardChangedInvalidation({ kind: "viewed" }, storyId ? [launchSheetStoryQueryKey(storyId)] : []);
+  useBoardChangedInvalidation({ kind: "viewed" }, shownStoryId ? [launchSheetStoryQueryKey(shownStoryId)] : []);
 
   // Reset the per-open draft state whenever the sheet opens for a (possibly different) Story —
   // reopening must not carry over a previous Story's typed instruction.
@@ -71,7 +75,7 @@ export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
     }
   }, [storyId]);
 
-  if (storyId === null) return null;
+  if (shownStoryId === null) return null;
 
   function handleCancel() {
     onClose();
@@ -80,14 +84,13 @@ export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
   function handleSubmit() {
     // The synchronous-tick guard (WR-03, see startingRef's own doc comment above) — checked and
     // set BEFORE the `starting` state guard, since the ref is what is actually safe against two
-    // activations racing in the same tick; `starting` state still drives the disabled button and
-    // the "Starting…" label.
-    if (startingRef.current) return;
+    // activations racing in the same tick; `starting` state still drives the button's `loading`.
+    if (startingRef.current || storyId === null) return;
     startingRef.current = true;
     setStarting(true);
     setError(null);
     // No permission mode is sent: the session kind decides it, never the developer (ADR 0001).
-    startSession(storyId as string, instruction)
+    startSession(storyId, instruction)
       .then((run) => onStarted(run.id, storyQuery.data?.projectId ?? null))
       .catch((err: unknown) => {
         startingRef.current = false;
@@ -113,64 +116,60 @@ export function LaunchSheet({ storyId, onClose, onStarted }: LaunchSheetProps) {
 
   const story = storyQuery.data;
   const headerLabel = `Start Work on ${story?.key ?? ""}`;
-  const submitLabel = starting ? "Starting…" : "Start Work";
 
-  return createPortal(
-    <FocusScope trapped loop asChild>
-      <DismissableLayer
-        onEscapeKeyDown={(event) => {
-          event.preventDefault();
-          handleCancel();
-        }}
-        onPointerDownOutside={handleCancel}
-        asChild
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && handleCancel()}>
+      <DialogContent
+        aria-describedby={undefined}
+        showCloseButton={false}
+        onKeyDown={handleDialogKeyDown}
+        className="flex flex-col gap-0 overflow-hidden p-0 sm:max-w-[640px]"
+        style={{ width: 640, maxHeight: "80vh" }}
       >
-        <div role="presentation" className="fixed inset-0 z-50 flex items-center justify-center bg-(--scrim)">
-          <div
-            role="dialog"
-            aria-label="Launch sheet"
-            onKeyDown={handleDialogKeyDown}
-            className="flex flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-overlay"
-            style={{ width: 640, maxHeight: "80vh" }}
-          >
-            <header className="shrink-0 border-b border-border px-5 py-4">
-              <span className="text-section font-semibold">{headerLabel}</span>
-            </header>
+        <DialogHeader className="shrink-0 border-b border-border px-5 py-4">
+          <DialogTitle className="text-section font-semibold">{headerLabel}</DialogTitle>
+        </DialogHeader>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              {story && (
-                <section className="flex flex-col gap-1">
-                  <div className="text-meta font-semibold text-muted-foreground">Story</div>
-                  <div className="text-row font-semibold">{story.title}</div>
-                </section>
-              )}
-              {error && <p className="mt-3 mb-0 text-small text-destructive-text">{error}</p>}
-            </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          {story && (
+            <section className="flex flex-col gap-1">
+              <div className="text-meta font-semibold text-muted-foreground">Story</div>
+              <div className="text-row font-semibold">{story.title}</div>
+            </section>
+          )}
+          {error && (
+            <p role="alert" className="mt-3 mb-0 text-small text-destructive-text">
+              {error}
+            </p>
+          )}
+        </div>
 
-            <div className="flex shrink-0 flex-col gap-4 border-t border-border bg-muted/50 px-5 py-4">
-              <Textarea
-                ref={instructionRef}
-                aria-label="Instruction"
-                placeholder={INSTRUCTION_PLACEHOLDER}
-                value={instruction}
-                onChange={(event) => setInstruction(event.target.value)}
-                rows={3}
-              />
+        <div className="flex shrink-0 flex-col gap-4 border-t border-border bg-muted/50 px-5 py-4">
+          <Textarea
+            ref={instructionRef}
+            aria-label="Instruction"
+            placeholder={INSTRUCTION_PLACEHOLDER}
+            value={instruction}
+            onChange={(event) => setInstruction(event.target.value)}
+            rows={3}
+          />
 
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="ghost" onClick={handleCancel}>
-                  Cancel
-                </Button>
-                <Button type="button" onClick={handleSubmit} disabled={starting}>
-                  <Play aria-hidden="true" />
-                  {submitLabel}
-                </Button>
-              </div>
-            </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={handleCancel}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleSubmit} loading={starting} aria-keyshortcuts="Meta+Enter">
+              <Play aria-hidden="true" />
+              Start Work
+              {/* The shortcut, shown where it applies (critique F54): ⌘↩ starts from anywhere in the sheet. */}
+              <KbdGroup aria-hidden="true" className="ml-1">
+                <Kbd className="bg-primary-foreground/20 text-primary-foreground">⌘</Kbd>
+                <Kbd className="bg-primary-foreground/20 text-primary-foreground">↩</Kbd>
+              </KbdGroup>
+            </Button>
           </div>
         </div>
-      </DismissableLayer>
-    </FocusScope>,
-    document.body,
+      </DialogContent>
+    </Dialog>
   );
 }

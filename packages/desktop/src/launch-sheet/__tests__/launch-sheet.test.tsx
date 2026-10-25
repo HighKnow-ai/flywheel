@@ -232,3 +232,38 @@ describe("LaunchSheet", () => {
     expect(storyMock).not.toHaveBeenCalled();
   });
 });
+
+describe("LaunchSheet on Dialog (issue #210)", () => {
+  it("is the shadcn Dialog, carrying the shared overlay motion in and out", async () => {
+    storyMock.mockReset().mockResolvedValue(makeStory());
+    renderSheet();
+    const dialog = await screen.findByRole("dialog", { name: "Start Work on FLY-42" });
+    expect(dialog).toHaveAttribute("data-slot", "dialog-content");
+    expect(dialog.className).toMatch(/data-open:animate-in/);
+    expect(dialog.className).toMatch(/data-closed:animate-out/);
+  });
+
+  it("shows the ⌘↩ shortcut on Start Work, as Kbd, out of the button's name", async () => {
+    storyMock.mockReset().mockResolvedValue(makeStory());
+    renderSheet();
+    const start = await screen.findByRole("button", { name: "Start Work" });
+    expect(start).toHaveAttribute("aria-keyshortcuts", "Meta+Enter");
+    const keys = start.querySelectorAll("[data-slot=kbd]");
+    expect(Array.from(keys).map((key) => key.textContent)).toEqual(["⌘", "↩"]);
+  });
+
+  it("keeps the Story's words while it closes, then draws nothing", async () => {
+    storyMock.mockReset().mockResolvedValue(makeStory());
+    const queryClient = new QueryClient();
+    const tree = (storyId: string | null) => (
+      <QueryClientProvider client={queryClient}>
+        <LaunchSheet storyId={storyId} onClose={() => {}} onStarted={() => {}} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree("story-1"));
+    await screen.findByText("Start Work on FLY-42");
+    rerender(tree(null));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByText(/^Start Work on\s*$/)).toBeNull();
+  });
+});

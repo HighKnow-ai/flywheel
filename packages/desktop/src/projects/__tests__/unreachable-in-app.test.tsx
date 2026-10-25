@@ -69,10 +69,23 @@ describe("the unreachable project inside the real app", () => {
     const rail = await screen.findByRole("navigation", { name: "Projects" });
     fireEvent.click(within(rail).getByRole("button", { name: "Gone, Unreachable" }));
     const heading = await screen.findByRole("heading", { name: "Can’t find this project" });
-    const surface = heading.parentElement as HTMLElement;
-    expect(within(surface).getByRole("button", { name: "Locate Project…" })).toBeInTheDocument();
-    // The heading is the first thing on the surface: nothing restates it above.
-    expect(surface.firstElementChild).toBe(heading);
+    const surface = heading.closest("[data-slot=project-unreachable]") as HTMLElement;
+    expect(within(surface).getByRole("button", { name: "Locate project…" })).toBeInTheDocument();
+    // Above the heading is only its icon: no text restates it.
+    const header = heading.closest("[data-slot=empty-header]") as HTMLElement;
+    const before = Array.from(header.children).slice(0, Array.from(header.children).indexOf(heading.parentElement as Element));
+    expect(before.map((node) => node.textContent).join("")).toBe("");
     expect(within(surface).queryByText("Unreachable")).toBeNull();
+  });
+
+  it("keeps the top bar, naming the project, with Search (critique F7)", async () => {
+    render(<App />);
+    const rail = await screen.findByRole("navigation", { name: "Projects" });
+    fireEvent.click(within(rail).getByRole("button", { name: "Gone, Unreachable" }));
+    const heading = await screen.findByRole("heading", { name: "Can’t find this project" });
+    const surface = heading.closest("[data-slot=project-unreachable]") as HTMLElement;
+    const crumbs = within(surface).getByRole("navigation", { name: "You are here" });
+    expect(within(crumbs).getByText("Gone")).toBeInTheDocument();
+    expect(within(surface).getByRole("button", { name: "Search, ⌘K" })).toBeInTheDocument();
   });
 });

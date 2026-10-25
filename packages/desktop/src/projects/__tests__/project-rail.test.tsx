@@ -294,17 +294,17 @@ describe("ProjectRail's own proposal-badge absence (plan 05-09, D-46/D-82)", () 
 });
 
 describe("ProjectUnreachable", () => {
-  it("offers exactly one action and no automatic-recovery affordance", () => {
+  it("offers Locate project… and Remove from Flywheel…, and no automatic-recovery affordance (#210)", () => {
     renderWithClient(
       <ProjectUnreachable
         project={project({ id: "proj-3", name: "Orphaned Repo", repoPath: "/Users/dev/orphaned-repo" })}
       />,
     );
 
-    const buttons = screen.getAllByRole("button");
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0]).toHaveTextContent("Locate Project…");
-    expect(screen.getByText(/Orphaned Repo/)).toBeInTheDocument();
+    // The top bar's Search, then the surface's two answers: nothing that scans, retries or guesses.
+    const names = screen.getAllByRole("button").map((button) => button.textContent);
+    expect(names).toEqual(["Search⌘K", "Remove from Flywheel…", "Locate project…"]);
+    expect(screen.getByText("Flywheel expected Orphaned Repo here")).toBeInTheDocument();
     expect(screen.getByText(/\/Users\/dev\/orphaned-repo/)).toBeInTheDocument();
     expect(screen.getByText(/Nothing was scanned or guessed automatically/)).toBeInTheDocument();
   });

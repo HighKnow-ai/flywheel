@@ -1,12 +1,12 @@
 /**
- * Behavior under test (03-10-PLAN.md Task 1, 03-UI-SPEC.md "Orphan recovery modal", D-46): the
- * modal is structurally absent for an empty pending-orphan list; a populated list renders a
- * blocking overlay with no Escape/click-outside/close-button dismissal; each row carries Story
- * identity, run identity, a relative start time and a Kill action; a kill in flight shows a
- * transient "Killing…" label; a successful kill removes its row (and unmounts the modal once the
- * last row resolves); a failed kill leaves its row mounted with permanent failure copy naming the
- * pid; Kill All resolves every row concurrently, leaving only the failed ones mounted; focus on
- * mount lands on the first row's Kill button, never on Kill All.
+ * Behavior under test (03-10-PLAN.md Task 1, 03-UI-SPEC.md "Orphan recovery modal", D-46; issue #210): the
+ * dialog is structurally absent for an empty pending-orphan list; a populated list renders a blocking
+ * AlertDialog with no Escape/click-outside/close-button dismissal; each row is an Item with the running mark,
+ * the Story's key and title and when it started, and a `destructive` Stop; no raw run or session id is shown;
+ * a stop in flight shows on its own button as `loading`; a successful stop removes its row (and closes the
+ * dialog once the last row resolves); a failed stop leaves its row mounted with permanent failure copy naming
+ * the pid; Stop n agents resolves every row concurrently, leaving only the failed ones mounted; focus on open
+ * lands on the title, never on a Stop.
  */
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -29,7 +29,7 @@ function makeOrphan(overrides: Partial<PendingOrphanDto> = {}): PendingOrphanDto
     storyKey: "FLY-1",
     storyTitle: "Sample orphaned Story",
     projectId: "proj-1",
-    externalSessionId: "sess-1",
+    externalSessionId: "6f1c2d4e-9a8b-4c3d-8e7f-0a1b2c3d4e5f",
     pid: 4242,
     startedAt: new Date(Date.now() - 60_000).toISOString(),
     ...overrides,
@@ -49,6 +49,11 @@ function renderModal() {
   );
 }
 
+/** Every row's own Stop button. */
+const ROW_STOP = /^Stop (FLY-\d+’s|this) agent$/;
+/** The footer's Stop n agents. */
+const STOP_ALL = /^Stop (\d+ agents?|agents)$/;
+
 describe("OrphanRecoveryModal — empty list", () => {
   it("renders nothing at all for an empty pending-orphan list", async () => {
     pendingOrphansMock.mockResolvedValue([]);
@@ -67,46 +72,70 @@ describe("OrphanRecoveryModal — empty list", () => {
   });
 });
 
-describe("OrphanRecoveryModal — populated", () => {
-  it("renders a blocking overlay naming Story identity, run identity, start time and a Kill action per row", async () => {
+describe("OrphanRecoveryModal — populated (issue #210)", () => {
+  it("is the shadcn AlertDialog, carrying the shared overlay motion in and out", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan()]);
     renderModal();
 
     const dialog = await screen.findByRole("alertdialog");
-    expect(within(dialog).getByText("FLY-1")).toBeInTheDocument();
-    expect(within(dialog).getByText("Sample orphaned Story")).toBeInTheDocument();
-    expect(within(dialog).getByText("Run · session sess-1")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Kill" })).toBeInTheDocument();
-    expect(
-      within(dialog).getByText(
-        "Every process above is spending tokens right now — Flywheel didn't start any of them this time.",
-      ),
-    ).toBeInTheDocument();
+    expect(dialog).toHaveAttribute("data-slot", "alert-dialog-content");
+    expect(dialog.className).toMatch(/data-open:animate-in/);
+    expect(dialog.className).toMatch(/data-closed:animate-out/);
+    expect(dialog.className).toMatch(/duration-\(--duration-/);
   });
 
-  it("interpolates singular wording for exactly one orphan", async () => {
+  it("draws each agent as an Item: the running mark, the Story's key and title, when it started, and Stop", async () => {
+    pendingOrphansMock.mockResolvedValue([makeOrphan()]);
+    renderModal();
+
+    const dialog = await screen.findByRole("alertdialog");
+    const row = within(dialog).getByRole("listitem");
+    expect(row).toHaveAttribute("data-slot", "item");
+    expect(within(row).getByRole("img", { name: "Running" })).toBeInTheDocument();
+    const key = within(row).getByText("FLY-1");
+    expect(key).toHaveAttribute("data-slot", "story-key");
+    expect(within(row).getByText("Sample orphaned Story")).toBeInTheDocument();
+    expect(within(row).getByText(/^Started/)).toBeInTheDocument();
+    expect(within(row).getByText("1m ago")).toBeInTheDocument();
+    const stop = within(row).getByRole("button", { name: "Stop FLY-1’s agent" });
+    expect(stop).toHaveAttribute("data-variant", "destructive");
+  });
+
+  it("shows no raw run or session id (critique F5)", async () => {
+    pendingOrphansMock.mockResolvedValue([makeOrphan()]);
+    renderModal();
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog.textContent).not.toMatch(/6f1c2d4e|run-1|Run ·/);
+  });
+
+  it("says one agent in the singular", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan()]);
     renderModal();
 
     expect(
-      await screen.findByText("Flywheel found 1 agent process still running from a previous session."),
+      await screen.findByRole("heading", { name: "1 agent still running from a previous session" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop 1 agent" })).toBeInTheDocument();
   });
 
-  it("interpolates plural wording for more than one orphan", async () => {
+  it("says several agents in the plural, and the footer counts them", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan({ runId: "run-1" }), makeOrphan({ runId: "run-2" })]);
     renderModal();
 
     expect(
-      await screen.findByText("Flywheel found 2 agent processes still running from a previous session."),
+      await screen.findByRole("heading", { name: "2 agents still running from a previous session" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop 2 agents" })).toHaveAttribute("data-variant", "destructive");
+    expect(screen.getByText(/spending tokens now/)).toBeInTheDocument();
   });
 
   it("falls back to the unresolvable-Story copy when the Story fields are absent", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan({ storyKey: "", storyTitle: "" })]);
     renderModal();
 
-    expect(await screen.findByText("an unresolvable Story")).toBeInTheDocument();
+    expect(await screen.findByText("An unresolvable Story")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop this agent" })).toBeInTheDocument();
   });
 
   it("renders no cost figure, token count, or route into the live session surface", async () => {
@@ -130,11 +159,13 @@ describe("OrphanRecoveryModal — undismissable (T-03-10-01, D-46)", () => {
     expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
   });
 
-  it("does not close on a click at the scrim", async () => {
+  it("does not close on a click outside", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan()]);
     renderModal();
 
     const dialog = await screen.findByRole("alertdialog");
+    fireEvent.pointerDown(document.body);
+    fireEvent.click(document.body);
     fireEvent.click(dialog);
 
     expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
@@ -149,29 +180,31 @@ describe("OrphanRecoveryModal — undismissable (T-03-10-01, D-46)", () => {
   });
 });
 
-describe("OrphanRecoveryModal — Leave them running (A-08(b))", () => {
-  it("dismisses the modal and kills nothing, from one explicit press", async () => {
+describe("OrphanRecoveryModal — Leave running (A-08(b))", () => {
+  it("closes the dialog and stops nothing, from one explicit press", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan(), makeOrphan({ runId: "run-2", pid: 4343 })]);
     renderModal();
 
     await screen.findByRole("alertdialog");
-    fireEvent.click(screen.getByRole("button", { name: "Leave them running" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave running" }));
 
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(orphanKillMock).not.toHaveBeenCalled();
   });
 
-  it("sits on the hairline to the left of Kill All", async () => {
+  it("sits in the footer to the left of Stop n agents, as outline", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan()]);
     renderModal();
 
-    const leave = await screen.findByRole("button", { name: "Leave them running" });
-    const killAll = screen.getByRole("button", { name: "Kill All" });
-    expect(leave.compareDocumentPosition(killAll) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(leave.parentElement).toBe(killAll.parentElement);
+    const leave = await screen.findByRole("button", { name: "Leave running" });
+    const stopAll = screen.getByRole("button", { name: STOP_ALL });
+    expect(leave.compareDocumentPosition(stopAll) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(leave.parentElement).toBe(stopAll.parentElement);
+    expect(leave.parentElement).toHaveAttribute("data-slot", "alert-dialog-footer");
+    expect(leave).toHaveAttribute("data-variant", "outline");
   });
 
-  it("stays gone for the session: a later re-read of the orphan list does not bring the modal back", async () => {
+  it("stays gone for the session: a later re-read of the orphan list does not bring the dialog back", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan()]);
     const queryClient = new QueryClient();
     render(
@@ -181,19 +214,19 @@ describe("OrphanRecoveryModal — Leave them running (A-08(b))", () => {
     );
 
     await screen.findByRole("alertdialog");
-    fireEvent.click(screen.getByRole("button", { name: "Leave them running" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave running" }));
     await queryClient.invalidateQueries({ queryKey: ["pending-orphans"] });
 
-    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
 
-  it("adds an answer, not an escape route: Escape and a scrim click still do nothing, and no close word appears", async () => {
+  it("adds an answer, not an escape route: Escape and a click outside still do nothing, and no close word appears", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan()]);
     renderModal();
 
     const dialog = await screen.findByRole("alertdialog");
     fireEvent.keyDown(dialog, { key: "Escape" });
-    fireEvent.click(dialog);
+    fireEvent.pointerDown(document.body);
 
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /close|dismiss|cancel|continue/i })).not.toBeInTheDocument();
@@ -201,37 +234,35 @@ describe("OrphanRecoveryModal — Leave them running (A-08(b))", () => {
   });
 });
 
-describe("OrphanRecoveryModal — kill in flight and outcomes", () => {
-  it("shows a transient 'Killing…' label in place of the Kill button while a kill is in flight", async () => {
+describe("OrphanRecoveryModal — stop in flight and outcomes", () => {
+  it("shows the stop under way on the row's own button (Button loading)", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan()]);
     orphanKillMock.mockReturnValue(new Promise(() => {}));
     renderModal();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Kill" }));
+    fireEvent.click(await screen.findByRole("button", { name: ROW_STOP }));
 
-    expect(await screen.findByText("Killing…")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Kill" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: ROW_STOP })).toHaveAttribute("aria-busy", "true"));
   });
 
-  it("removes the row on a successful kill, unmounting the modal once it was the last row", async () => {
+  it("removes the row on a successful stop, closing the dialog once it was the last row", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan()]);
     orphanKillMock.mockResolvedValue(killDto({ killed: true }));
     renderModal();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Kill" }));
+    fireEvent.click(await screen.findByRole("button", { name: ROW_STOP }));
 
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
 
-  it("leaves a failed row mounted with its pid, and the modal stays present even as the only remaining row", async () => {
+  it("leaves a failed row mounted with its pid, and the dialog stays open even as the only remaining row", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan({ pid: 9999 })]);
     orphanKillMock.mockResolvedValue(killDto({ killed: false, pid: 9999, detail: "still running" }));
     renderModal();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Kill" }));
+    fireEvent.click(await screen.findByRole("button", { name: ROW_STOP }));
 
-    const failureText = await screen.findByText(/Couldn't kill this process \(PID 9999\)/);
-    expect(failureText).toBeInTheDocument();
+    expect(await screen.findByText(/Couldn’t stop it \(PID 9999\)/)).toBeInTheDocument();
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
   });
 
@@ -240,13 +271,13 @@ describe("OrphanRecoveryModal — kill in flight and outcomes", () => {
     orphanKillMock.mockRejectedValue(new Error("ipc failure"));
     renderModal();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Kill" }));
+    fireEvent.click(await screen.findByRole("button", { name: ROW_STOP }));
 
-    expect(await screen.findByText(/Couldn't kill this process \(PID 1234\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/Couldn’t stop it \(PID 1234\)/)).toBeInTheDocument();
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
   });
 
-  it("Kill All resolves every row in one press, leaving exactly the failed rows mounted", async () => {
+  it("Stop n agents resolves every row in one press, leaving exactly the failed rows mounted", async () => {
     pendingOrphansMock.mockResolvedValue([
       makeOrphan({ runId: "run-a", pid: 1 }),
       makeOrphan({ runId: "run-b", pid: 2 }),
@@ -259,31 +290,32 @@ describe("OrphanRecoveryModal — kill in flight and outcomes", () => {
     );
     renderModal();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Kill All" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop 3 agents" }));
 
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(1));
-    expect(screen.getByText(/Couldn't kill this process \(PID 3\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Couldn’t stop it \(PID 3\)/)).toBeInTheDocument();
   });
 
-  it("a failed row presents no enabled control that looks retryable — no enabled button named Kill", async () => {
+  it("a failed row presents no control that looks retryable — no Stop on it", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan({ pid: 7 })]);
     orphanKillMock.mockResolvedValue(killDto({ killed: false, pid: 7, detail: "still running" }));
     renderModal();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Kill" }));
+    fireEvent.click(await screen.findByRole("button", { name: ROW_STOP }));
 
-    await screen.findByText(/Couldn't kill this process \(PID 7\)/);
-    expect(screen.queryByRole("button", { name: "Kill" })).not.toBeInTheDocument();
+    await screen.findByText(/Couldn’t stop it \(PID 7\)/);
+    expect(screen.queryByRole("button", { name: ROW_STOP })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: STOP_ALL })).toBeDisabled();
   });
 });
 
 /**
  * Success criterion 2 (ROADMAP.md, quoted verbatim): "the application must never reach the board
- * implying a clean launch it did not achieve." The application must not be able to lie about this
- * — a Kill All where every single kill fails must leave the modal fully honest about it.
+ * implying a clean launch it did not achieve." A Stop-all where every stop fails must leave the
+ * dialog fully honest about it.
  */
 describe("OrphanRecoveryModal — criterion 2 honesty (03-10 Task 3)", () => {
-  it("a Kill All where every kill fails leaves all three rows mounted, each naming its own distinct pid, with no way out", async () => {
+  it("a Stop-all where every stop fails leaves all three rows mounted, each naming its own distinct pid, with no way out", async () => {
     pendingOrphansMock.mockResolvedValue([
       makeOrphan({ runId: "run-a", pid: 101 }),
       makeOrphan({ runId: "run-b", pid: 202 }),
@@ -294,75 +326,54 @@ describe("OrphanRecoveryModal — criterion 2 honesty (03-10 Task 3)", () => {
     );
     renderModal();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Kill All" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop 3 agents" }));
 
-    // (a) three rows remain
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(3));
-    // (b) each row's text contains its own distinct pid
-    expect(screen.getByText(/Couldn't kill this process \(PID 101\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Couldn't kill this process \(PID 202\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Couldn't kill this process \(PID 303\)/)).toBeInTheDocument();
-    // (c) the modal heading is still in the document
-    expect(
-      screen.getByText("Flywheel found 3 agent processes still running from a previous session."),
-    ).toBeInTheDocument();
-    // (d) no button whose accessible name matches a close, dismiss or continue word — the
-    // application must never reach the board implying a clean launch it did not achieve.
-    const buttons = screen.queryAllByRole("button", { name: /close|dismiss|continue/i });
-    expect(buttons).toHaveLength(0);
+    expect(screen.getByText(/Couldn’t stop it \(PID 101\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Couldn’t stop it \(PID 202\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Couldn’t stop it \(PID 303\)/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "3 agents still running from a previous session" })).toBeInTheDocument();
+    expect(screen.queryAllByRole("button", { name: /close|dismiss|continue/i })).toHaveLength(0);
   });
 });
 
 describe("OrphanRecoveryModal — focus (D-46)", () => {
-  it("puts initial focus on the dialog's heading: never on a Kill, never on Kill All (08.1 closure)", async () => {
-    // The modal blocks the board and cannot be dismissed, so one errant Enter on a focused Kill would kill a
+  it("puts initial focus on the dialog's title: never on a Stop (08.1 closure)", async () => {
+    // The dialog blocks the board and cannot be dismissed, so one errant Enter on a focused Stop would stop a
     // running agent. The title takes the focus; every button is a deliberate Tab away.
     pendingOrphansMock.mockResolvedValue([makeOrphan({ runId: "run-1" }), makeOrphan({ runId: "run-2" })]);
     renderModal();
 
-    const killButtons = await screen.findAllByRole("button", { name: "Kill" });
-    const heading = screen.getByRole("heading", { name: /found 2 agent processes/ });
+    const stops = await screen.findAllByRole("button", { name: ROW_STOP });
+    const heading = screen.getByRole("heading", { name: /2 agents still running/ });
     await waitFor(() => expect(heading).toHaveFocus());
-    for (const kill of killButtons) expect(kill).not.toHaveFocus();
-    expect(screen.getByRole("button", { name: "Kill All" })).not.toHaveFocus();
-  });
-
-  it("prints no dangling \"Run\" for a run with no session id, and still prints the session when there is one", async () => {
-    pendingOrphansMock.mockResolvedValue([
-      makeOrphan({ runId: "run-1", externalSessionId: "sess-1" }),
-      makeOrphan({ runId: "run-2", externalSessionId: null }),
-    ]);
-    renderModal();
-    await screen.findAllByRole("button", { name: "Kill" });
-    expect(screen.getByText("Run · session sess-1")).toBeInTheDocument();
-    expect(screen.queryByText("Run")).toBeNull();
+    for (const stop of stops) expect(stop).not.toHaveFocus();
+    expect(screen.getByRole("button", { name: STOP_ALL })).not.toHaveFocus();
   });
 });
 
 /**
- * 03-17-PLAN.md Task 1 (T-03-17-01): `handleKill`/`handleKillAll` had NO synchronous re-entry
- * guard at all — a row's `killing` flag is a React state update that has not necessarily flushed
- * to the DOM before a second `.click()` fires in the same tick, so two synchronous clicks both
- * read the same stale row and dispatch twice. Raw `element.click()` calls (never `fireEvent.click`,
- * which flushes `act()` between calls) reproduce the bug; `orphanKillMock` returns a
- * never-resolving promise so the row's `killing` state never settles mid-test.
+ * 03-17-PLAN.md Task 1 (T-03-17-01): a row's in-flight flag is a React state update that has not necessarily
+ * flushed before a second `.click()` fires in the same tick, so the guard is a ref. Raw `element.click()` calls
+ * (never `fireEvent.click`, which flushes `act()` between calls) reproduce the race; `orphanKillMock` returns a
+ * never-resolving promise so the row's state never settles mid-test.
  */
 describe("OrphanRecoveryModal — synchronous double activation (03-17, T-03-17-01)", () => {
-  it("clicking a pending orphan's Kill button three times in one synchronous tick issues exactly one orphanKill call for that run", async () => {
+  it("clicking a row's Stop three times in one synchronous tick issues exactly one orphanKill call for that run", async () => {
     pendingOrphansMock.mockResolvedValue([makeOrphan({ runId: "run-1" })]);
     orphanKillMock.mockReturnValue(new Promise(() => {}));
     renderModal();
 
-    const killButton = await screen.findByRole("button", { name: "Kill" });
-    killButton.click();
-    killButton.click();
-    killButton.click();
+    const stop = await screen.findByRole("button", { name: ROW_STOP });
+    stop.click();
+    stop.click();
+    stop.click();
 
     await waitFor(() => expect(orphanKillMock).toHaveBeenCalledTimes(1));
     expect(orphanKillMock).toHaveBeenCalledWith("run-1");
   });
 
-  it("clicking Kill All three times in one synchronous tick issues exactly one orphanKill call per row, never three per row", async () => {
+  it("clicking Stop n agents three times in one synchronous tick issues exactly one orphanKill call per row", async () => {
     pendingOrphansMock.mockResolvedValue([
       makeOrphan({ runId: "run-a", pid: 1 }),
       makeOrphan({ runId: "run-b", pid: 2 }),
@@ -370,15 +381,15 @@ describe("OrphanRecoveryModal — synchronous double activation (03-17, T-03-17-
     orphanKillMock.mockReturnValue(new Promise(() => {}));
     renderModal();
 
-    const killAllButton = await screen.findByRole("button", { name: "Kill All" });
-    killAllButton.click();
-    killAllButton.click();
-    killAllButton.click();
+    const stopAll = await screen.findByRole("button", { name: STOP_ALL });
+    stopAll.click();
+    stopAll.click();
+    stopAll.click();
 
     await waitFor(() => expect(orphanKillMock).toHaveBeenCalledTimes(2));
   });
 
-  it("two rows, each row's own Kill button clicked once in the same tick, each get their own independent call", async () => {
+  it("two rows, each row's own Stop clicked once in the same tick, each get their own independent call", async () => {
     pendingOrphansMock.mockResolvedValue([
       makeOrphan({ runId: "run-a", pid: 1 }),
       makeOrphan({ runId: "run-b", pid: 2 }),
@@ -386,16 +397,16 @@ describe("OrphanRecoveryModal — synchronous double activation (03-17, T-03-17-
     orphanKillMock.mockReturnValue(new Promise(() => {}));
     renderModal();
 
-    const killButtons = await screen.findAllByRole("button", { name: "Kill" });
-    killButtons[0].click();
-    killButtons[1].click();
+    const stops = await screen.findAllByRole("button", { name: ROW_STOP });
+    stops[0].click();
+    stops[1].click();
 
     await waitFor(() => expect(orphanKillMock).toHaveBeenCalledTimes(2));
     const calledIds = orphanKillMock.mock.calls.map((call: unknown[]) => call[0]);
     expect(calledIds).toEqual(expect.arrayContaining(["run-a", "run-b"]));
   });
 
-  it("Kill All clicked, then a still-listed row's own Kill button clicked in the same tick, that row still receives exactly one call", async () => {
+  it("Stop n agents clicked, then a row's own Stop clicked in the same tick, that row still receives exactly one call", async () => {
     pendingOrphansMock.mockResolvedValue([
       makeOrphan({ runId: "run-a", pid: 1 }),
       makeOrphan({ runId: "run-b", pid: 2 }),
@@ -403,18 +414,17 @@ describe("OrphanRecoveryModal — synchronous double activation (03-17, T-03-17-
     orphanKillMock.mockReturnValue(new Promise(() => {}));
     renderModal();
 
-    const killButtons = await screen.findAllByRole("button", { name: "Kill" });
-    const firstRowKill = killButtons[0];
-    const killAllButton = screen.getByRole("button", { name: "Kill All" });
+    const stops = await screen.findAllByRole("button", { name: ROW_STOP });
+    const stopAll = screen.getByRole("button", { name: STOP_ALL });
 
-    killAllButton.click();
-    firstRowKill.click();
+    stopAll.click();
+    stops[0].click();
 
     await waitFor(() => expect(orphanKillMock).toHaveBeenCalledTimes(2));
     expect(orphanKillMock.mock.calls.filter((call: unknown[]) => call[0] === "run-a")).toHaveLength(1);
   });
 
-  it("a rejected kill releases the guard without preventing Kill All from still reaching a still-pending sibling row", async () => {
+  it("a rejected stop releases the guard without preventing Stop n agents from still reaching a pending sibling row", async () => {
     pendingOrphansMock.mockResolvedValue([
       makeOrphan({ runId: "run-a", pid: 1 }),
       makeOrphan({ runId: "run-b", pid: 2 }),
@@ -424,13 +434,12 @@ describe("OrphanRecoveryModal — synchronous double activation (03-17, T-03-17-
     );
     renderModal();
 
-    const killButtons = await screen.findAllByRole("button", { name: "Kill" });
-    killButtons[0].click();
+    const stops = await screen.findAllByRole("button", { name: ROW_STOP });
+    stops[0].click();
 
-    await screen.findByText(/Couldn't kill this process \(PID 1\)/);
+    await screen.findByText(/Couldn’t stop it \(PID 1\)/);
 
-    const killAllButton = screen.getByRole("button", { name: "Kill All" });
-    killAllButton.click();
+    screen.getByRole("button", { name: STOP_ALL }).click();
 
     await waitFor(() => expect(orphanKillMock).toHaveBeenCalledTimes(2));
     expect(orphanKillMock).toHaveBeenNthCalledWith(2, "run-b");
