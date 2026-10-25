@@ -10,10 +10,11 @@
  * paging query rather than sharing `useSessionFeed`'s hook (both page through `logPaging.ts`), since the raw view's page shape
  * (verbatim lines, not parsed events) is a different read entirely.
  */
-import { useEffect, useMemo, type UIEvent } from "react";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { sessionRawWindow, subscribeAgentEvent } from "../adapters/tauri";
-import { fetchLogPage, nextLogPage, previousLogPage, useFollowLogTail, type LogPageParam } from "./logPaging";
+import { useMemo, type UIEvent } from "react";
+import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { sessionRawWindow, type RawLogWindowDto } from "../adapters/tauri";
+import { useAgentEventInvalidation } from "../board/useBoardChangedInvalidation";
+import { fetchFirstLogPage, nextLogPage, previousLogPage, useFollowLogTail, type LogPageParam } from "./logPaging";
 
 const MONO_STACK = "var(--font-code)";
 const SCROLL_TOP_FETCH_THRESHOLD_PX = 40;
@@ -30,24 +31,18 @@ export function RawLogView({ sessionId }: RawLogViewProps) {
   const queryClient = useQueryClient();
   const queryKey = rawLogQueryKey(sessionId);
 
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeAgentEvent(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, queryClient]);
+  // This session's own events only, coalesced (issue #195).
+  useAgentEventInvalidation(sessionId, [queryKey]);
 
   const query = useInfiniteQuery({
     queryKey,
+    // A loaded tail is re-read where it is, so the window never slides under the reader (issue #195).
     queryFn: ({ pageParam }) =>
-      fetchLogPage((offset, limit) => sessionRawWindow(sessionId, offset, limit), pageParam as LogPageParam),
+      fetchFirstLogPage(
+        (offset, limit) => sessionRawWindow(sessionId, offset, limit),
+        pageParam as LogPageParam,
+        queryClient.getQueryData<InfiniteData<RawLogWindowDto>>(queryKey)?.pages[0],
+      ),
     initialPageParam: "tail" as LogPageParam,
     // The same tiling windows as the structured feed (`logPaging.ts`, issue #190): no line twice.
     getNextPageParam: (lastPage) => nextLogPage(lastPage, lastPage.lines.length),

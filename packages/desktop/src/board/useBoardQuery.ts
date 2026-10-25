@@ -4,18 +4,17 @@
  * group and mutation hooks were deleted with the board UI (issue #38); what remains serves the
  * surfaces that survive it (project rail, fleet, session, recovery).
  */
-import { useEffect } from "react";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import {
   sessionLogWindow,
   boardRecoverySummary,
   invokeCommand,
   pendingOrphans,
   pendingPermissionRequests,
-  subscribeAgentEvent,
+  type LogWindowDto,
 } from "../adapters/tauri";
-import { useBoardChangedInvalidation } from "./useBoardChangedInvalidation";
-import { fetchLogPage, nextLogPage, previousLogPage, useFollowLogTail, type LogPageParam } from "../session/logPaging";
+import { useAgentEventInvalidation, useBoardChangedInvalidation } from "./useBoardChangedInvalidation";
+import { fetchFirstLogPage, nextLogPage, previousLogPage, useFollowLogTail, type LogPageParam } from "../session/logPaging";
 
 export interface Project {
   id: string;
@@ -69,8 +68,8 @@ export function useRegisterProject() {
  * to the bare `["board"]` / `["epics"]` prefixes — an unroutable event that invalidated nothing
  * would leave a stale board, which is strictly worse than an over-broad refresh.
  *
- * No coalescing, debounce or timer: the event rate has not been measured, and a window sized on a
- * guess can only lose events. Two events in one tick invalidate twice.
+ * Coalesced (issue #195): the events of one `COALESCE_MS` window invalidate each key once, sized on the
+ * measured event rate (`useBoardChangedInvalidation.ts`).
  */
 export function useBoardChangedSubscription(projectId?: string) {
   useBoardChangedInvalidation(
@@ -103,28 +102,10 @@ export function pendingPermissionRequestsQueryKey(sessionId: string) {
  * file's existing per-hook subscription pattern rather than adding a third global listener.
  */
 export function usePendingPermissionRequests(sessionId: string | null | undefined) {
-  const queryClient = useQueryClient();
-  useBoardChangedInvalidation(
-    { kind: "viewed" },
-    sessionId ? [pendingPermissionRequestsQueryKey(sessionId)] : [],
-  );
-
-  useEffect(() => {
-    if (!sessionId) return undefined;
-    const queryKey = pendingPermissionRequestsQueryKey(sessionId);
-    let unlistenAgent: (() => void) | undefined;
-    let cancelled = false;
-
-    subscribeAgentEvent(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
-      if (cancelled) fn();
-      else unlistenAgent = fn;
-    });
-
-    return () => {
-      cancelled = true;
-      unlistenAgent?.();
-    };
-  }, [sessionId, queryClient]);
+  const keys = sessionId ? [pendingPermissionRequestsQueryKey(sessionId)] : [];
+  useBoardChangedInvalidation({ kind: "viewed" }, keys);
+  // Only this session's own agent events, coalesced (issue #195).
+  useAgentEventInvalidation(sessionId, keys);
 
   return useQuery({
     queryKey: pendingPermissionRequestsQueryKey(sessionId ?? "none"),
@@ -192,11 +173,12 @@ export function sessionFeedQueryKey(sessionId: string) {
  * The live session surface's own feed read (D-32/D-33, plan 02-07 Task 2): a bounded window
  * page-in from the TAIL of the persisted log, paging OLDER pages backward via
  * `fetchPreviousPage()` as the user scrolls toward the top of what's loaded — never the whole
- * transcript at once (PROC-07). Because the initial page's own `pageParam` is the literal string
- * `"tail"` rather than a fixed numeric offset, a live `agent:event` invalidation naturally
- * re-resolves that page against the log's CURRENT total on every refetch. Once older pages are
- * loaded, every page is an explicit `{ offset, limit }` window that ends where the next begins, and a
- * refetch re-reads them in order and follows the log to its end (`session/logPaging.ts`, issue #190).
+ * transcript at once (PROC-07). The initial page's own `pageParam` is the literal string `"tail"`,
+ * resolved against the log's length on the first read; a live `agent:event` refetch then re-reads the
+ * window it resolved to (`fetchFirstLogPage`, issue #195) rather than sliding it forward, and the lines
+ * after it arrive through the windows that follow. Every later page is an explicit `{ offset, limit }`
+ * window that ends where the next begins, and a refetch re-reads them in order and follows the log to
+ * its end (`session/logPaging.ts`, issue #190).
  *
  * `data.pages` is chronological ascending (oldest loaded page first, tail page last) — the exact
  * order `fetchPreviousPage` prepending to `data.pages` naturally produces, so a caller can render
@@ -213,26 +195,20 @@ export function useSessionFeed(sessionId: string, initialOffset?: number | null)
   const queryClient = useQueryClient();
   const queryKey = sessionFeedQueryKey(sessionId);
 
-  // A live `agent:event` push invalidates the windowed read (D-32/D-04) — the stream itself is
-  // never treated as the source of truth, only the persisted log read back through the command.
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    subscribeAgentEvent(() => queryClient.invalidateQueries({ queryKey })).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, queryClient]);
+  // A live `agent:event` push of THIS session invalidates the windowed read (D-32/D-04), coalesced
+  // (issue #195) — the stream itself is never treated as the source of truth, only the persisted log
+  // read back through the command.
+  useAgentEventInvalidation(sessionId, [queryKey]);
 
   const query = useInfiniteQuery({
     queryKey,
+    // A loaded tail is re-read where it is, so the window never slides under the reader (issue #195).
     queryFn: ({ pageParam }) =>
-      fetchLogPage((offset, limit) => sessionLogWindow(sessionId, offset, limit), pageParam as LogPageParam | number),
+      fetchFirstLogPage(
+        (offset, limit) => sessionLogWindow(sessionId, offset, limit),
+        pageParam as LogPageParam | number,
+        queryClient.getQueryData<InfiniteData<LogWindowDto>>(queryKey)?.pages[0],
+      ),
     initialPageParam: (initialOffset ?? "tail") as LogPageParam | number,
     // Issue #190: windows tile (`session/logPaging.ts`). A refetch re-reads the first loaded window and
     // the ones after it through `nextLogPage`, so paging back never loses the tail.

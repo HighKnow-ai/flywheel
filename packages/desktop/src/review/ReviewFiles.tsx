@@ -4,12 +4,14 @@
  * file at a time (`review_file_patch`) and drawn with `react-diff-view` in the unified view.
  *
  * A patch is read only while its file is open, keyed by the branch's head so a new commit reads it again.
+ * While the new head's patch is read the previous one stays drawn (issue #195), so a commit never blanks
+ * an open diff to "Reading the diff…".
  * Every file opens by default; a diff of more than {@link OPEN_BY_DEFAULT_MAX} files starts folded, so the
  * card never reads fifty patches at once. A binary file and a patch past the core's size limit say so
  * instead of drawing.
  */
 import { useId, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Decoration, Diff, Hunk, parseDiff } from "react-diff-view";
 import "react-diff-view/style/index.css";
 import { ChevronRight, FileCode } from "lucide-react";
@@ -57,6 +59,8 @@ function FilePatch({ projectId, storyId, headSha, file }: { projectId: string; s
     queryKey: ["board", projectId, "review", storyId, "patch", headSha, file.oldPath, file.path],
     queryFn: () => reviewFilePatch(storyId, file.path, file.oldPath),
     staleTime: Infinity,
+    // A new head is a new key: keep this file's previous patch on screen until the new one arrives.
+    placeholderData: keepPreviousData,
   });
   if (query.isPending) return <p className="m-0 px-3 py-2 text-meta text-muted-foreground">Reading the diff…</p>;
   if (query.isError) {

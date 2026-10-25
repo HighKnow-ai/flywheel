@@ -8,11 +8,12 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useBoardChangedSubscription } from "../useBoardQuery";
-import { useBoardChangedInvalidation } from "../useBoardChangedInvalidation";
+import { COALESCE_MS, useAgentEventInvalidation, useBoardChangedInvalidation } from "../useBoardChangedInvalidation";
 import { useUiStore } from "../../state/uiStore";
 
 type Handler = (payload?: unknown) => void;
 let handlers: Handler[] = [];
+let agentHandlers: Handler[] = [];
 
 vi.mock("../../adapters/tauri", () => ({
   invokeCommand: () => Promise.resolve(undefined),
@@ -20,6 +21,12 @@ vi.mock("../../adapters/tauri", () => ({
     handlers.push(handler);
     return Promise.resolve(() => {
       handlers = handlers.filter((h) => h !== handler);
+    });
+  },
+  subscribeAgentEvent: (handler: Handler) => {
+    agentHandlers.push(handler);
+    return Promise.resolve(() => {
+      agentHandlers = agentHandlers.filter((h) => h !== handler);
     });
   },
 }));
@@ -36,9 +43,16 @@ function mount() {
   return spy;
 }
 
+/** Deliver every payload in one window, then let the window close (issue #195's coalescing). */
 async function fire(...payloads: unknown[]) {
   await waitFor(() => expect(handlers).toHaveLength(1));
-  for (const payload of payloads) handlers.forEach((h) => h(payload));
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    for (const payload of payloads) handlers.forEach((h) => h(payload));
+    vi.advanceTimersByTime(COALESCE_MS + 1);
+  } finally {
+    vi.useRealTimers();
+  }
 }
 
 const keys = (spy: ReturnType<typeof mount>) => spy.mock.calls.map((c) => (c[0] as { queryKey: unknown }).queryKey);
@@ -47,6 +61,7 @@ const BROADCAST = [["board"], ["epics"]];
 
 beforeEach(() => {
   handlers = [];
+  agentHandlers = [];
 });
 
 describe("board:changed routing", () => {
@@ -83,17 +98,16 @@ describe("board:changed routing", () => {
   it("a malformed payload (non-string projectId, missing entity, no payload) broadcasts rather than throwing", async () => {
     const spy = mount();
     await fire({ projectId: 42 }, { projectId: {}, id: 3 }, undefined, "not an object");
-    expect(keys(spy)).toEqual([...BROADCAST, ...BROADCAST, ...BROADCAST, ...BROADCAST]);
+    expect(keys(spy)).toEqual(BROADCAST);
   });
 
-  it("two events for the viewed project in the same tick each invalidate — nothing is coalesced", async () => {
+  it("two events for the viewed project in one window invalidate each key once", async () => {
     const spy = mount();
     await fire(
       { projectId: VIEWED, entity: "story", id: "s1" },
       { projectId: VIEWED, entity: "story", id: "s2" },
     );
-    expect(spy).toHaveBeenCalledTimes(4);
-    expect(keys(spy).filter((k) => JSON.stringify(k) === JSON.stringify(["board", VIEWED]))).toHaveLength(2);
+    expect(keys(spy)).toEqual([["board", VIEWED], ["epics", VIEWED]]);
   });
 
   it("an interleaved foreign event neither invalidates nor reorders the viewed project's events", async () => {
@@ -103,7 +117,98 @@ describe("board:changed routing", () => {
       { projectId: "project-b", entity: "story", id: "s9" },
       { projectId: VIEWED, entity: "epic", id: "e1" },
     );
-    expect(spy).toHaveBeenCalledTimes(4);
+    expect(keys(spy)).toEqual([["board", VIEWED], ["epics", VIEWED]]);
+  });
+});
+
+/**
+ * Issue #195: the measured event rate, and the coalescing it decided.
+ *
+ * Measured over the 18 real Claude Code sessions in the owner's app data (2026-09-11 to 2026-10-25, every
+ * line of each session log is one `agent:event`): 38 events a minute on average, bursts of up to 19 events
+ * inside 100 ms and 21 in one second, and up to 28 board writes (Tasks, Checks, permission requests,
+ * the close) per session, each one `board:changed`. The git-truth tick adds at most one `board:changed`
+ * every 5 s while a worktree changes. A burst used to cost one invalidation per event per key; it now
+ * costs one per key per `COALESCE_MS` window.
+ */
+describe("coalescing at the measured rate (issue #195)", () => {
+  it("folds a 19-event burst inside 100 ms into one invalidation per key", async () => {
+    const spy = mount();
+    await fire(...Array.from({ length: 19 }, (_, i) => ({ projectId: VIEWED, entity: "task", id: `t${i}` })));
+    expect(keys(spy)).toEqual([["board", VIEWED], ["epics", VIEWED]]);
+  });
+
+  it("keeps every key of the window: a broadcast among routed events still broadcasts", async () => {
+    const spy = mount();
+    await fire({ projectId: VIEWED, entity: "task", id: "t1" }, { projectId: null, entity: "git_facts", id: null });
+    // The bare prefixes cover the project's keys, so those are not invalidated a second time.
+    expect(keys(spy)).toEqual(BROADCAST);
+  });
+
+  it("never waits past one window: a steady stream still refreshes every window", async () => {
+    const spy = mount();
+    await waitFor(() => expect(handlers).toHaveLength(1));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      // One event every 20 ms for a second: a stream that never pauses.
+      for (let t = 0; t < 1000; t += 20) {
+        handlers.forEach((h) => h({ projectId: VIEWED, entity: "task", id: "t1" }));
+        vi.advanceTimersByTime(20);
+      }
+      vi.advanceTimersByTime(COALESCE_MS + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+    const boardCalls = keys(spy).filter((k) => JSON.stringify(k) === JSON.stringify(["board", VIEWED])).length;
+    expect(boardCalls).toBeGreaterThanOrEqual(Math.floor(1000 / COALESCE_MS));
+    expect(boardCalls).toBeLessThanOrEqual(Math.ceil(1000 / COALESCE_MS) + 1);
+  });
+});
+
+describe("agent:event routing (issue #195)", () => {
+  function mountAgent(sessionId: string | null, keyList: unknown[][]) {
+    const queryClient = new QueryClient();
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    renderHook(() => useAgentEventInvalidation(sessionId, keyList), { wrapper });
+    return spy;
+  }
+
+  async function push(...events: unknown[]) {
+    await waitFor(() => expect(agentHandlers).toHaveLength(1));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      for (const event of events) agentHandlers.forEach((h) => h(event));
+      vi.advanceTimersByTime(COALESCE_MS + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it("another session's events wake nothing", async () => {
+    const spy = mountAgent("run-a", [["agent-run-log", "run-a"]]);
+    await push({ runId: "run-b", type: "assistant_text" }, { runId: "run-b", type: "tool_call" });
+    expect(spy).toHaveBeenCalledTimes(0);
+  });
+
+  it("a burst of the session's own events invalidates its keys once", async () => {
+    const spy = mountAgent("run-a", [["agent-run-log", "run-a"]]);
+    await push(...Array.from({ length: 19 }, (_, seq) => ({ runId: "run-a", type: "assistant_text", seq })));
+    expect(keys(spy)).toEqual([["agent-run-log", "run-a"]]);
+  });
+
+  it("an event with no runId fails open", async () => {
+    const spy = mountAgent("run-a", [["agent-run-log", "run-a"]]);
+    await push({ type: "system_notice" });
+    expect(keys(spy)).toEqual([["agent-run-log", "run-a"]]);
+  });
+
+  it("no session subscribes to nothing", async () => {
+    mountAgent(null, [["agent-run-log", "none"]]);
+    await Promise.resolve();
+    expect(agentHandlers).toHaveLength(0);
   });
 });
 
@@ -123,7 +228,7 @@ describe("useBoardChangedInvalidation — shared routing", () => {
 
   const DEBOUNCED_KEY = ["debounced", PROJ];
   const mountDebounced = () =>
-    mountWith(() => useBoardChangedInvalidation({ kind: "project", projectId: PROJ }, [DEBOUNCED_KEY], { debounceMs: 1000 }));
+    mountWith(() => useBoardChangedInvalidation({ kind: "project", projectId: PROJ }, [DEBOUNCED_KEY], { coalesceMs: 1000 }));
 
   /** Fire, then let the 1s debounce window elapse. */
   async function fireAndFlush(...payloads: unknown[]) {
@@ -186,10 +291,10 @@ describe("useBoardChangedInvalidation — shared routing", () => {
     expect(handlers).toHaveLength(0);
   });
 
-  it("two events in one tick on a non-debounced subscriber invalidate twice, in arrival order", async () => {
+  it("two events in one window on a default subscriber invalidate once", async () => {
     const spy = mountWith(() => useBoardChangedInvalidation({ kind: "project", projectId: PROJ }, [["k"]]));
     await fire({ projectId: PROJ }, { projectId: null });
-    expect(keys(spy)).toEqual([["k"], ["k"]]);
+    expect(keys(spy)).toEqual([["k"]]);
   });
 
   it("a viewed scope follows the viewed project", async () => {
