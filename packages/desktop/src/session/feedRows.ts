@@ -5,7 +5,8 @@
  * thing about the same line.
  *
  * What the v0.1 walk (2026-10-16) found unreadable, and what this module does about it:
- * - noise: hook lifecycle and thinking-token notices, reasoning blocks, rate-limit events,
+ * - noise: hook lifecycle, thinking-token and background-task notices, Claude CLI's stdin warning, the
+ *   board server's echo of a board call, reasoning blocks, rate-limit events,
  *   heartbeats and Claude Code's own read-only git calls are not rows. They stay in the log and in
  *   "View raw";
  * - raw JSON for tool results: a result pairs with its call by the backend's call id (`toolUseId`),
@@ -156,8 +157,10 @@ export function gitRetryText(attempt: number, max: number): string {
 
 /** Entry types that are never rows: consumed elsewhere (`init`/`cost_update`/`result` feed the
  * status strip, `permission_request` is the card mount, `session_closed` the terminal row,
- * `git_lock_exhausted` the Activity Trail, `backend_echo` the developer_turn row), or noise the walk
- * logged (`thinking`, `rate_limit`). `tool_progress` folds into its call instead. */
+ * `git_lock_exhausted` the Activity Trail, `backend_echo` the developer_turn row, `board_tool_request`
+ * the board call's own `tool_call` row, which the board server's echo of it would only repeat as raw
+ * JSON), or noise the walk logged (`thinking`, `rate_limit`). `tool_progress` folds into its call
+ * instead. */
 const SUPPRESSED_EVENT_TYPES = new Set([
   "init",
   "cost_update",
@@ -166,16 +169,24 @@ const SUPPRESSED_EVENT_TYPES = new Set([
   "session_closed",
   "git_lock_exhausted",
   "backend_echo",
+  "board_tool_request",
   "thinking",
   "rate_limit",
   "tool_progress",
 ]);
 
 /** A backend lifecycle notice that is noise: the sidecar words a `system` line as `system: <subtype>`,
- * and the hook subtypes (`hook_started`, `hook_response`, ...) and thinking-token counts say nothing
- * a supervisor acts on. Other subtypes stay: a future one may matter, and it is one short line. */
+ * and the hook subtypes (`hook_started`, `hook_response`, ...), thinking-token counts and background-task
+ * lifecycle lines (`task_started`, `task_notification`; the call that started the task is its own row)
+ * say nothing a supervisor acts on. Other subtypes stay: a future one may matter, and it is one short
+ * line.
+ *
+ * Issue #190: Claude CLI also writes notices of its own to stderr, which the sidecar carries verbatim.
+ * The stdin warning it prints when no prompt arrives on stdin within three seconds is about how the CLI
+ * was spawned, not the agent's work. Any other stderr line stays a row: a spawn or argument error must
+ * never vanish from the feed. */
 function isNoiseNotice(text: string): boolean {
-  return /^system: (hook_|thinking)/.test(text);
+  return /^system: (hook_|thinking|task_)/.test(text) || /^Warning: no stdin data received/.test(text);
 }
 
 /** Git subcommands that only read. `branch`, `stash`, `worktree`, `remote` and `config` are listed

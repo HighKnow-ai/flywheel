@@ -13,9 +13,9 @@ import {
   pendingOrphans,
   pendingPermissionRequests,
   subscribeAgentEvent,
-  type LogWindowDto,
 } from "../adapters/tauri";
 import { useBoardChangedInvalidation } from "./useBoardChangedInvalidation";
+import { fetchLogPage, nextLogPage, previousLogPage, useFollowLogTail, type LogPageParam } from "../session/logPaging";
 
 export interface Project {
   id: string;
@@ -182,37 +182,10 @@ export function usePendingOrphans() {
   });
 }
 
-/** `useSessionFeed`'s own page size (plan 02-07 Task 1/2, D-33) — matches
- * `commands/session.rs`'s `LOG_WINDOW_DEFAULT_LIMIT`. */
-const SESSION_FEED_PAGE_SIZE = 50;
-
 /** `useSessionFeed`'s query key, keyed by `sessionId` — exported so `SessionSurface.tsx` (and
  * any future caller) can invalidate/read the same cache entry without re-deriving the key shape. */
 export function sessionFeedQueryKey(sessionId: string) {
   return ["agent-run-log", sessionId] as const;
-}
-
-/** `useInfiniteQuery`'s own page-identity value: `"tail"` for the initial (most-recent) page,
- * a numeric byte-line offset for every page paged in afterward via `fetchPreviousPage` (D-33's
- * "page backwards from the tail"). */
-type SessionFeedPageParam = number | "tail";
-
-/** Resolve ONE page of `useSessionFeed`'s window. `"tail"` is resolved in two calls when the log
- * is longer than one page: a first call learns the log's true `total` (every `read_window` call
- * reports it, regardless of the requested window), then a second call requests the actual last
- * page at `total - PAGE_SIZE`. A log no longer than one page needs only the first call — its own
- * `offset: 0` window already covers everything. */
-async function fetchSessionFeedPage(
-  sessionId: string,
-  pageParam: SessionFeedPageParam,
-): Promise<LogWindowDto> {
-  if (pageParam !== "tail") {
-    return sessionLogWindow(sessionId, pageParam, SESSION_FEED_PAGE_SIZE);
-  }
-  const probe = await sessionLogWindow(sessionId, 0, SESSION_FEED_PAGE_SIZE);
-  if (probe.total <= SESSION_FEED_PAGE_SIZE) return probe;
-  const tailOffset = probe.total - SESSION_FEED_PAGE_SIZE;
-  return sessionLogWindow(sessionId, tailOffset, SESSION_FEED_PAGE_SIZE);
 }
 
 /**
@@ -221,9 +194,9 @@ async function fetchSessionFeedPage(
  * `fetchPreviousPage()` as the user scrolls toward the top of what's loaded — never the whole
  * transcript at once (PROC-07). Because the initial page's own `pageParam` is the literal string
  * `"tail"` rather than a fixed numeric offset, a live `agent:event` invalidation naturally
- * re-resolves that page against the log's CURRENT total on every refetch — the tail page always
- * catches up to newly arrived events, while every older page already loaded keeps its own stable
- * numeric offset (appending to the end of a log never shifts an earlier line's offset).
+ * re-resolves that page against the log's CURRENT total on every refetch. Once older pages are
+ * loaded, every page is an explicit `{ offset, limit }` window that ends where the next begins, and a
+ * refetch re-reads them in order and follows the log to its end (`session/logPaging.ts`, issue #190).
  *
  * `data.pages` is chronological ascending (oldest loaded page first, tail page last) — the exact
  * order `fetchPreviousPage` prepending to `data.pages` naturally produces, so a caller can render
@@ -233,7 +206,7 @@ async function fetchSessionFeedPage(
  * hook's own "page in from the tail" behaviour byte-identical to before. A caller with a recorded
  * log offset to open at (`SessionSurface.tsx`'s `initialFeedOffset`, the triage surface's
  * turn-pointer jump) passes it here instead, and the FIRST page resolves at that numeric offset
- * rather than `"tail"` — the same `fetchSessionFeedPage` codepath every older page already uses,
+ * rather than `"tail"` — the same `fetchLogPage` codepath every older page already uses,
  * never a second fetch shape.
  */
 export function useSessionFeed(sessionId: string, initialOffset?: number | null) {
@@ -256,14 +229,16 @@ export function useSessionFeed(sessionId: string, initialOffset?: number | null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, queryClient]);
 
-  return useInfiniteQuery({
+  const query = useInfiniteQuery({
     queryKey,
-    queryFn: ({ pageParam }) => fetchSessionFeedPage(sessionId, pageParam as SessionFeedPageParam),
-    initialPageParam: (initialOffset ?? "tail") as SessionFeedPageParam,
-    // The feed never pages "forward" past the tail — new events arrive by the tail page itself
-    // re-resolving on invalidation (see doc comment above), not by fetching a page after it.
-    getNextPageParam: () => undefined,
-    getPreviousPageParam: (firstPage) =>
-      firstPage.offset > 0 ? Math.max(0, firstPage.offset - SESSION_FEED_PAGE_SIZE) : undefined,
+    queryFn: ({ pageParam }) =>
+      fetchLogPage((offset, limit) => sessionLogWindow(sessionId, offset, limit), pageParam as LogPageParam | number),
+    initialPageParam: (initialOffset ?? "tail") as LogPageParam | number,
+    // Issue #190: windows tile (`session/logPaging.ts`). A refetch re-reads the first loaded window and
+    // the ones after it through `nextLogPage`, so paging back never loses the tail.
+    getNextPageParam: (lastPage) => nextLogPage(lastPage, lastPage.entries.length),
+    getPreviousPageParam: (firstPage) => previousLogPage(firstPage),
   });
+  useFollowLogTail(query, initialOffset == null);
+  return query;
 }

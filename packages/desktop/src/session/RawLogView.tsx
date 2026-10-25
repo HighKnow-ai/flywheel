@@ -7,14 +7,14 @@
  *
  * Renders at the Label size (11px), not Body (13px), so a long payload fits without wrapping
  * every line (02-UI-SPEC.md "Typography Additions"). Self-contained: this file owns its own
- * paging query rather than sharing `useSessionFeed`'s hook, since the raw view's page shape
+ * paging query rather than sharing `useSessionFeed`'s hook (both page through `logPaging.ts`), since the raw view's page shape
  * (verbatim lines, not parsed events) is a different read entirely.
  */
 import { useEffect, useMemo, type UIEvent } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { sessionRawWindow, subscribeAgentEvent, type RawLogWindowDto } from "../adapters/tauri";
+import { sessionRawWindow, subscribeAgentEvent } from "../adapters/tauri";
+import { fetchLogPage, nextLogPage, previousLogPage, useFollowLogTail, type LogPageParam } from "./logPaging";
 
-const PAGE_SIZE = 50;
 const MONO_STACK = "var(--font-code)";
 const SCROLL_TOP_FETCH_THRESHOLD_PX = 40;
 
@@ -24,22 +24,6 @@ export interface RawLogViewProps {
 
 export function rawLogQueryKey(sessionId: string) {
   return ["agent-run-raw-log", sessionId] as const;
-}
-
-type RawWindowPageParam = number | "tail";
-
-/** Mirrors `useSessionFeed`'s own tail-first resolution (`board/useBoardQuery.ts`): a first call
- * learns the log's true `total` (every `read_window`-backed call reports it regardless of the
- * requested window), then — only if the log is longer than one page — a second call requests the
- * actual last page. */
-async function fetchRawPage(sessionId: string, pageParam: RawWindowPageParam): Promise<RawLogWindowDto> {
-  if (pageParam !== "tail") {
-    return sessionRawWindow(sessionId, pageParam, PAGE_SIZE);
-  }
-  const probe = await sessionRawWindow(sessionId, 0, PAGE_SIZE);
-  if (probe.total <= PAGE_SIZE) return probe;
-  const tailOffset = probe.total - PAGE_SIZE;
-  return sessionRawWindow(sessionId, tailOffset, PAGE_SIZE);
 }
 
 export function RawLogView({ sessionId }: RawLogViewProps) {
@@ -62,12 +46,14 @@ export function RawLogView({ sessionId }: RawLogViewProps) {
 
   const query = useInfiniteQuery({
     queryKey,
-    queryFn: ({ pageParam }) => fetchRawPage(sessionId, pageParam as RawWindowPageParam),
-    initialPageParam: "tail" as RawWindowPageParam,
-    getNextPageParam: () => undefined,
-    getPreviousPageParam: (firstPage) =>
-      firstPage.offset > 0 ? Math.max(0, firstPage.offset - PAGE_SIZE) : undefined,
+    queryFn: ({ pageParam }) =>
+      fetchLogPage((offset, limit) => sessionRawWindow(sessionId, offset, limit), pageParam as LogPageParam),
+    initialPageParam: "tail" as LogPageParam,
+    // The same tiling windows as the structured feed (`logPaging.ts`, issue #190): no line twice.
+    getNextPageParam: (lastPage) => nextLogPage(lastPage, lastPage.lines.length),
+    getPreviousPageParam: (firstPage) => previousLogPage(firstPage),
   });
+  useFollowLogTail(query);
 
   const lines = useMemo(() => query.data?.pages.flatMap((page) => page.lines) ?? [], [query.data]);
 
