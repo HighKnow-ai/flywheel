@@ -7,7 +7,6 @@
  * Also here: what a decision says once it lands (a toast through `notify`), and an evidence line's paths shown
  * relative to the filing Story's worktree, middle-truncated, the whole path in a Tooltip.
  */
-import { useRef, type MouseEvent, type ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { notify } from "@/lib/notify";
 
@@ -56,33 +55,8 @@ export function proposalKindWords(verb: string, targetType: string): string {
 /** How a decision on a pending Proposal ended. */
 export type Decision = "accepted" | "amended" | "rejected";
 
-/**
- * Which decision the shared `ProposalDecision` (`shaping/GhostCard.tsx`) is taking, read from the control the
- * Developer pressed: Accept, Amend/Edit (then Accept edit) or Reject (then its Reject). Its `afterDecide` does not
- * say which landed, so the card listens to the clicks around it (capture phase, on a `display: contents` wrapper).
- */
-export function useDecisionIntent(amendWord = "Amend"): {
-  wrap: (children: ReactNode) => ReactNode;
-  current: () => Decision;
-} {
-  const intent = useRef<Decision>("accepted");
-  function onClickCapture(event: MouseEvent) {
-    const button = (event.target as HTMLElement | null)?.closest("button");
-    const label = button?.getAttribute("aria-label") ?? "";
-    if (label.startsWith("Accept edit")) intent.current = "amended";
-    else if (label.startsWith("Accept ")) intent.current = "accepted";
-    else if (label.startsWith("Reject ")) intent.current = "rejected";
-    else if (label.startsWith(`${amendWord} `)) intent.current = "amended";
-  }
-  return {
-    wrap: (children) => (
-      <div className="contents" onClickCapture={onClickCapture}>
-        {children}
-      </div>
-    ),
-    current: () => intent.current,
-  };
-}
+/** The past tense of a decision `ProposalDecision` hands its `afterDecide` (`shaping/ProposalParts.tsx`). */
+export const DECIDED = { accept: "accepted", amend: "amended", reject: "rejected" } as const satisfies Record<string, Decision>;
 
 /** What a decision says once it lands: "Accepted New Story “Empty-line recovery”". The core keeps a decision
  * final (there is no command that takes one back), so no Undo is offered. */

@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 import { proposalListForTriage, type ProposalDto, type TriageProposalDto } from "../adapters/tauri";
 import { DuplicateFlag } from "./DuplicateFlag";
-import { EvidenceLine, notifyDecided, proposalKindWords, useDecisionIntent } from "./proposalWords";
+import { DECIDED, EvidenceLine, notifyDecided, proposalKindWords } from "./proposalWords";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -513,7 +513,6 @@ function TriageCard({
   const kind = kindOf(p);
   const title = titleOf(t);
   const subject = subjectOf(t);
-  const intent = useDecisionIntent();
   return (
     <LeavingItem
       leaving={leaving}
@@ -534,13 +533,12 @@ function TriageCard({
             {formatAge(p.createdAt, now)}
           </time>
         </div>
-        {intent.wrap(
-          <ProposalDecision
+        <ProposalDecision
             proposal={p}
             subject={subject}
             amend={amendOf(t)}
-            afterDecide={async () => {
-              notifyDecided(intent.current(), subject, `Filed by ${t.storyKey}`);
+            afterDecide={async (decision) => {
+              notifyDecided(DECIDED[decision], subject, `Filed by ${t.storyKey}`);
               await afterDecide();
             }}
           >
@@ -569,8 +567,7 @@ function TriageCard({
                 {t.storyTitle}
               </span>
             </p>
-          </ProposalDecision>,
-        )}
+        </ProposalDecision>
       </Card>
     </LeavingItem>
   );

@@ -106,7 +106,8 @@ export interface ProposalDecisionProps {
   /** The Proposal as it reads while no edit is open. */
   children: ReactNode;
   /** Runs once a decision lands, while this Proposal is still mounted: refresh the reads, move the keyboard. */
-  afterDecide: () => Promise<void>;
+  /** Which decision landed is passed in, so the caller can say it (`announceDecision`, or its own toast). */
+  afterDecide: (decision: Decision) => Promise<void>;
   /** The edit control's word: "Amend" by default; a judged-on change in Needs you says "Edit" (issue #163). */
   amendWord?: string;
 }
@@ -135,8 +136,7 @@ export function ProposalDecision({ proposal, subject, amend, children, afterDeci
     setError(null);
     try {
       await write();
-      announceDecision(decision, subject);
-      await afterDecide();
+      await afterDecide(decision);
     } catch (err) {
       setError(`Could not decide ${subject}: ${reason(err)}`);
       setPending(null);
@@ -263,7 +263,8 @@ function PendingGhost({
   const queryClient = useQueryClient();
   const rootRef = useRef<HTMLDivElement>(null);
 
-  async function afterDecide() {
+  async function afterDecide(decision: Decision) {
+    announceDecision(decision, `the proposed ${label}`);
     // Once decided the ghost unmounts; the keyboard stays on the field, at its Edit button.
     // A field with no Edit (a Done or Dropped Milestone's exit test, issues #132 and #149) takes the focus
     // itself: its `dd` is focusable.
