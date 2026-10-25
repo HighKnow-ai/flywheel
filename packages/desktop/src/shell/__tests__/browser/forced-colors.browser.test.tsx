@@ -20,7 +20,6 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "../../../styles/globals.css";
-import "../../../App.css";
 import type { FleetRowDto } from "../../../adapters/tauri";
 import { StateBadge } from "../../../components/StateBadge";
 import { Lamp, type LampData, type LampTone } from "../../AndonStrip";

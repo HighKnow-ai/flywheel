@@ -25,7 +25,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "../../../styles/globals.css";
-import "../../../App.css";
 import type { FleetListDto, FleetRowDto, InventoryReason, WorktreeInventoryRowDto } from "../../../adapters/tauri";
 import { FleetSurface } from "../../FleetSurface";
 import { RECLAIM_REASONS, WorktreeInventory } from "../../WorktreeInventory";

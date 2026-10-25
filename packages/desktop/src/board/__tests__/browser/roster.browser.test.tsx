@@ -11,7 +11,6 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import { page, userEvent } from "vitest/browser";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import "../../../styles/globals.css";
-import "../../../App.css";
 import { queryClient } from "../../../adapters/queryClient";
 import { resetUiState } from "../../../state/uiStore";
 import App from "../../../App";

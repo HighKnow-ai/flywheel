@@ -100,7 +100,7 @@ describe.each(Object.keys(SURFACES) as (keyof typeof SURFACES)[])("the %s mark",
 });
 
 describe("no stylesheet recolours the mark", () => {
-  it.each(["App.css", "styles/states-and-confirms.css"])("%s draws no mask, filter or token fill on a mark", (file) => {
+  it.each(["styles/globals.css"])("%s draws no mask, filter or token fill on a mark", (file) => {
     const css = text(file);
     for (const rule of css.matchAll(/\.(?:rail|first-run)-mark\s*\{([^}]*)\}/g)) {
       expect(rule[1]).not.toMatch(/mask|filter|background-color|var\(--/);

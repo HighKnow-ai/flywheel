@@ -517,7 +517,7 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                 a logo; issue #196): the #3c64dd tile with the white glyph, fixed in both schemes, as HighKnow's
                 Wordmark draws it. The mark is identity, not a state colour (direction.md § The mark). A static file
                 reference, never inline markup. */}
-            <img src={logoUrl} alt="Flywheel by HighKnow" className="rail-mark shrink-0" />
+            <img src={logoUrl} alt="Flywheel by HighKnow" className="block size-7 shrink-0" />
             <span aria-hidden="true" className="truncate text-section font-bold group-data-[collapsible=icon]:hidden">
               Flywheel
             </span>

@@ -41,7 +41,7 @@ export function FirstRun() {
             {/* The HighKnow mark in its real colours (issue #196): the #3c64dd tile with the white glyph, the
                 same in both schemes, as HighKnow's Wordmark draws it. An image cannot read the page's tokens,
                 which is the point. A reference to a static file, never inline markup (T-08.1-05). */}
-            <img src={logoUrl} alt="Flywheel by HighKnow" className="first-run-mark size-16" />
+            <img src={logoUrl} alt="Flywheel by HighKnow" className="block size-16 shrink-0" />
           </EmptyMedia>
           <EmptyTitle>
             <h1 className="m-0 text-title font-semibold tracking-tight">No projects yet</h1>

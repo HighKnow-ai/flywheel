@@ -79,7 +79,7 @@ export function RawLogView({ sessionId }: RawLogViewProps) {
       {lines.map((line) => (
         <div
           key={line.line}
-          className="type-label"
+          className="text-meta font-medium"
           style={{ display: "flex", gap: "var(--space-sm)", color: "var(--foreground)" }}
         >
           <span

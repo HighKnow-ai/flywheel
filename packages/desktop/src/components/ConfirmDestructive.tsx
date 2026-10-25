@@ -105,9 +105,11 @@ export function ConfirmDestructive({
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
       {trigger && <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>}
-      <AlertDialogContent className="sm:max-w-md">
+      {/* The content's own `data-[size=default]:sm:max-w-sm` outranks a bare `sm:max-w-md`, so the width names the
+          same variant; a long object name in the title wraps instead of widening the dialog. */}
+      <AlertDialogContent className="data-[size=default]:max-w-[calc(100%-2rem)] data-[size=default]:sm:max-w-md">
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-section font-semibold">{title}</AlertDialogTitle>
+          <AlertDialogTitle className="text-section font-semibold wrap-anywhere">{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
         {children}

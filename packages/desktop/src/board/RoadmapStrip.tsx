@@ -367,8 +367,6 @@ export function RoadmapStrip({ projectId }: { projectId: string }) {
                   <button
                     type="button"
                     aria-label={`${milestone.title}, ${stateWord}${milestone.current ? ", Current Milestone" : ""}`}
-                    // A slot of its own, so the legacy bare-button hover (App.css) never greys the picked row.
-                    data-slot="roadmap-row"
                     data-row-id={milestone.id}
                     aria-describedby={closed ? exitTestId : `${exitTestId} ${rowHintId}`}
                     aria-current={selected ? "true" : undefined}

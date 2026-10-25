@@ -46,7 +46,7 @@ async function shot(name: string) {
 }
 
 async function boardReady() {
-  // The shipped page mounts into `#root`, which App.css sizes to the window; render into the same node.
+  // The shipped page mounts into `#root`, which globals.css sizes to the window; render into the same node.
   const root = document.getElementById("root") ?? document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
   render(<App />, { container: root });
   await screen.findAllByText("Make clicking and navigation predictable");

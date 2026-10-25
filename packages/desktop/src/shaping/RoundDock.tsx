@@ -253,10 +253,8 @@ function RoundCard({
             <span id={`${headingId}-progress`} className="shrink-0 text-small font-semibold tabular-nums">
               {answered} of {total} answered
             </span>
-            {/* `components/ui/progress` draws `value` but does not hand it to Radix, so the bar names it itself. */}
             <Progress
               value={total === 0 ? 0 : (answered / total) * 100}
-              aria-valuenow={total === 0 ? 0 : Math.round((answered / total) * 100)}
               aria-labelledby={`${headingId}-progress`}
               className="min-w-12 flex-1 [&_[data-slot=progress-indicator]]:transition-transform [&_[data-slot=progress-indicator]]:duration-(--duration-state)"
             />
