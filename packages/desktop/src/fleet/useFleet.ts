@@ -10,6 +10,14 @@ import {
   worktreeInventory,
 } from "../adapters/tauri";
 import { createInvalidationBatch } from "../board/useBoardChangedInvalidation";
+import { formatDuration } from "@/lib/format";
+
+/** How long a fleet row or a queue entry has been in its state, as a clock reading (`lib/format.ts`):
+ * "45s", "2m 05s", "3h 07m"; the dash when the time cannot be read. Both views age on one clock. */
+export function ageText(sinceIso: string | null | undefined, now: number): string {
+  const since = sinceIso ? Date.parse(sinceIso) : NaN;
+  return formatDuration(Number.isNaN(since) ? null : Math.max(0, (now - since) / 1000));
+}
 
 /** How often a running agent's activity line may be re-read: `agent:event` fires per stream event, far
  * faster than a row needs to move. Trailing edge, so the last event of a burst is always picked up. */

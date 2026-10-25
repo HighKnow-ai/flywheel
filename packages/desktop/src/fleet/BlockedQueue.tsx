@@ -19,6 +19,9 @@
  * A Gated action raised by the shim lands here like any other request, with Deny leading and no
  * standing rule offered.
  *
+ * The keyboard owner's hint draws its keys as Kbd, and the in-row Open session is the roster's small size
+ * (#208), so an action reads the same size wherever it sits in a row.
+ *
  * Every entry goes somewhere (issue #104): its Story key opens the Story, and its "Open session"
  * control, and only that, opens the live session it came from.
  *
@@ -34,15 +37,16 @@ import {
   type WaitingRoundDto,
 } from "../adapters/tauri";
 import { pendingPermissionRequestsQueryKey } from "../board/useBoardQuery";
-import { formatAge } from "../legend/runStatus";
 import { PermissionRequestCard, type PermissionDecision } from "../session/PermissionRequestCard";
 import { ASK_USER_QUESTION_TOOL } from "../session/feedRows";
 import { useUiStore } from "../state/uiStore";
 import { useOpenWaitingRound, waitingRoundWords } from "./waitingRound";
-import { blockedQueueQueryKey, fleetQueryKey } from "./useFleet";
+import { ageText, blockedQueueQueryKey, fleetQueryKey } from "./useFleet";
 import { ChevronRight, CircleDashed, MessageCircleQuestionMark, Terminal } from "lucide-react";
 import { StateBadge } from "../components/StateBadge";
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Kbd } from "@/components/ui/kbd";
 
 /** What the waiting session is about: its Story's key and title. */
 function subjectText(entry: BlockedQueueEntryDto): { key: string; detail: string | null } {
@@ -88,12 +92,12 @@ export function BlockedQueue({ entries, rounds = [], now }: BlockedQueueProps) {
 
   if (entries.length === 0 && rounds.length === 0) {
     return (
-      <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-card px-5 py-6 shadow-card">
-        <span className="text-section font-semibold">Nothing is waiting on you</span>
-        <span className="text-body text-muted-foreground">
-          When an agent in any project stops to ask for your answer, its request appears here.
-        </span>
-      </div>
+      <Empty className="flex-none rounded-lg border border-solid border-border bg-card shadow-card">
+        <EmptyHeader>
+          <EmptyTitle className="text-section font-semibold">Nothing is waiting on you</EmptyTitle>
+          <EmptyDescription>When an agent in any project stops to ask for your answer, its request appears here.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
@@ -135,7 +139,7 @@ export function BlockedQueue({ entries, rounds = [], now }: BlockedQueueProps) {
                   </button>
                   <Button
                     variant="outline"
-                    size="xs"
+                    size="sm"
                     aria-label={`Open live session of ${subject.key}`}
                     onClick={() => setActiveSessionId(entry.sessionId, entry.storyId, null, "blocked")}
                   >
@@ -143,16 +147,16 @@ export function BlockedQueue({ entries, rounds = [], now }: BlockedQueueProps) {
                     Open session
                   </Button>
                   {owner && (
-                    <span data-field="owner" className="text-meta text-muted-foreground">
-                      Keys A and D answer this one
+                    <span data-field="owner" className="inline-flex items-center gap-1 text-meta text-muted-foreground">
+                      Keys <Kbd>A</Kbd> and <Kbd>D</Kbd> answer this one
                     </span>
                   )}
                   <span
                     data-field="age"
-                    aria-label={`Waiting ${formatAge(entry.blockedSince, now)}`}
+                    aria-label={`Waiting ${ageText(entry.blockedSince, now)}`}
                     className="ml-auto text-small text-muted-foreground tabular-nums"
                   >
-                    {formatAge(entry.blockedSince, now)}
+                    {ageText(entry.blockedSince, now)}
                   </span>
                 </div>
                 <PermissionRequestCard
@@ -191,7 +195,7 @@ export function BlockedQueue({ entries, rounds = [], now }: BlockedQueueProps) {
 function WaitingRoundItem({ round, now }: { round: WaitingRoundDto; now: number }) {
   const open = useOpenWaitingRound();
   const words = waitingRoundWords(round);
-  const age = formatAge(round.waitingSince, now);
+  const age = ageText(round.waitingSince, now);
   return (
     <div
       role="listitem"

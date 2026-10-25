@@ -6,15 +6,19 @@
  * - Re-measure calls the adapter once; the empty state names the Story-worktrees-only limit.
  * - Rows render in the order the core sent them (equal sizes: Story key ascending).
  * - The rail's Worktrees row is a button that opens the view, and the view offers no bulk control.
+ * - #208: a Table with column headers, the rows grouped under their project; what Re-measure did is a toast.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { WorktreeInventoryRowDto, WorktreeMeasureDto } from "../../adapters/tauri";
 import { resetUiState, useUiStore } from "../../state/uiStore";
 import { RECLAIM_REASONS, RECLAIM_REASON_WORDS, WorktreeInventory, formatBytes, DISPOSITION_CHIPS } from "../WorktreeInventory";
 
 const inventoryMock = vi.fn<() => Promise<WorktreeInventoryRowDto[]>>();
+const notifyMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), dismiss: vi.fn() }));
+
+vi.mock("@/lib/notify", () => ({ notify: notifyMock }));
 const measureMock = vi.fn<(storyIds?: string[]) => Promise<WorktreeMeasureDto[]>>();
 
 vi.mock("../../adapters/tauri", async () => {
@@ -62,6 +66,8 @@ beforeEach(() => {
   inventoryMock.mockReset();
   measureMock.mockReset();
   measureMock.mockResolvedValue([]);
+  notifyMock.success.mockReset();
+  notifyMock.error.mockReset();
 });
 afterEach(cleanup);
 
@@ -80,7 +86,7 @@ describe("WorktreeInventory", () => {
     renderInventory();
     const size = await screen.findByText("3.0 GiB", { exact: false });
     expect(size.closest("[data-field='size']")?.textContent).toContain("measured 3m ago");
-    expect(screen.getByText("1 worktree")).toBeInTheDocument();
+    expect(document.querySelector("header [aria-live]")).toHaveTextContent("1 worktree");
   });
 
   it("renders a never-measured size as empty text and prints no byte figure anywhere", async () => {
@@ -160,7 +166,7 @@ describe("WorktreeInventory", () => {
     fireEvent.click(screen.getByRole("button", { name: "Re-measure sizes" }));
 
     await waitFor(() => expect(sizeCell().textContent).toContain("2.5 GiB"));
-    expect(sizeCell().textContent).toContain("measured 0s ago");
+    expect(sizeCell().textContent).toContain("measured just now");
     expect(measureMock).toHaveBeenCalledTimes(1);
     expect(inventoryMock, "the list was read again, not edited locally").toHaveBeenCalledTimes(2);
   });
@@ -171,7 +177,9 @@ describe("WorktreeInventory", () => {
     renderInventory();
     await screen.findByText("ALP-1");
     fireEvent.click(screen.getByRole("button", { name: "Re-measure sizes" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("1 worktree could not be measured completely");
+    await waitFor(() =>
+      expect(notifyMock.error).toHaveBeenCalledWith("1 worktree could not be measured completely", { description: "It keeps no size." }),
+    );
   });
 
   it("renders the empty state with a zero count", async () => {
@@ -189,8 +197,30 @@ describe("WorktreeInventory", () => {
     ]);
     renderInventory();
     await screen.findByText("ALP-1");
-    const keys = Array.from(document.querySelectorAll("[data-field='story']")).map((el) => el.textContent);
+    const keys = Array.from(document.querySelectorAll("[data-field='story'] [data-slot='story-key']")).map((el) => el.textContent);
     expect(keys).toEqual(["ALP-1", "ALP-2"]);
+  });
+
+  it("draws a table with a header for each column", async () => {
+    inventoryMock.mockResolvedValue([row({})]);
+    renderInventory();
+    const table = await screen.findByRole("table");
+    const head = table.querySelector("thead") as HTMLElement;
+    expect(within(head).getAllByRole("columnheader").map((h) => h.textContent?.trim())).toEqual(["", "Story", "Size", "Status"]);
+  });
+
+  it("names each project once, over its rows, in the order the core's list first names it", async () => {
+    inventoryMock.mockResolvedValue([
+      row({ storyId: "a", storyKey: "BET-1", projectId: "p-b", projectName: "Beta", sizeBytes: 9000 }),
+      row({ storyId: "b", storyKey: "ALP-1", projectId: "p-a", projectName: "Alpha", sizeBytes: 5000 }),
+      row({ storyId: "c", storyKey: "BET-2", projectId: "p-b", projectName: "Beta", sizeBytes: 1000 }),
+    ]);
+    renderInventory();
+    await screen.findByText("BET-1");
+    const groups = Array.from(document.querySelectorAll<HTMLElement>("tbody[data-project]"));
+    expect(groups.map((g) => g.querySelector("[data-field='project']")?.textContent)).toEqual(["Beta", "Alpha"]);
+    expect(Array.from(groups[0].querySelectorAll("[data-worktree-row]")).map((r) => r.getAttribute("data-worktree-row"))).toEqual(["a", "c"]);
+    expect(screen.getAllByText("Beta")).toHaveLength(1);
   });
 });
 

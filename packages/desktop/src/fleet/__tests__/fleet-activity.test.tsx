@@ -2,8 +2,9 @@
  * Behavior under test (Phase 10 plan 10-03, FLEET-01, D-167/D-171):
  * - A live row whose newest log line is a tool call shows that tool and its target, worded by the
  *   session feed's own `toolCallLabel`; narration shows its first clause, clipped to the pinned width.
- * - A live row with an empty or oversize tail shows an explicit dash, and a refresh that returns an
- *   empty tail does not leave the previous line on screen.
+ * - A live row with an empty or oversize tail says so to assistive tech and draws nothing (#208: a column
+ *   of dashes reads as data), and a refresh that returns an empty tail does not leave the previous line
+ *   on screen.
  * - A terminal row shows no activity text at all.
  * - ONE `agent:event` listener serves the surface however many live rows it holds; ten events inside
  *   one throttle window invalidate the fleet key once; both listeners are removed on unmount.
@@ -11,7 +12,7 @@
  *   and `feedRowText` directly and the cell matches.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { FleetActivityDto, FleetListDto, FleetRowDto } from "../../adapters/tauri";
 import { buildFeedRows } from "../../session/SessionSurface";
@@ -84,8 +85,10 @@ function renderFleet() {
 
 function cellFor(runId: string): HTMLElement {
   const item = document.querySelector(`[data-run-id="${runId}"]`) as HTMLElement;
-  return within(item).getByText((_, el) => el?.getAttribute("data-field") === "activity");
+  return item.querySelector('[data-field="activity"]') as HTMLElement;
 }
+
+const ABSENT_WORDS = "No activity could be read";
 
 beforeEach(() => {
   fleetListMock.mockReset();
@@ -146,7 +149,7 @@ describe("the activity cell", () => {
     expect(activityLine(activity("not json at all"))).toBe("not json at all");
   });
 
-  it("says so with a dash when the tail is empty, oversize or normalises to nothing", async () => {
+  it("says so, without a dash, when the tail is empty, oversize or normalises to nothing", async () => {
     fleetListMock.mockResolvedValue(
       list([
         row("empty"),
@@ -157,8 +160,9 @@ describe("the activity cell", () => {
     renderFleet();
     await waitFor(() => expect(document.querySelector('[data-run-id="empty"]')).not.toBeNull());
     for (const id of ["empty", "big", "quiet"]) {
-      expect(cellFor(id).textContent).toBe("—");
+      expect(cellFor(id).textContent).toBe(ABSENT_WORDS);
       expect(cellFor(id).getAttribute("data-absent")).toBe("true");
+      expect(cellFor(id).className).toContain("sr-only");
     }
   });
 
@@ -176,7 +180,7 @@ describe("the activity cell", () => {
 
     await act(async () => boardChanged());
 
-    await waitFor(() => expect(cellFor("1").textContent).toBe("—"));
+    await waitFor(() => expect(cellFor("1").textContent).toBe(ABSENT_WORDS));
     expect(screen.queryByText(/npm test/)).toBeNull();
   });
 
@@ -193,7 +197,7 @@ describe("the activity cell", () => {
     );
     renderFleet();
     await waitFor(() => expect(document.querySelector('[data-run-id="1"]')).not.toBeNull());
-    expect(cellFor("1").textContent).toBe("");
+    expect(cellFor("1")).toBeNull();
     expect(screen.queryByText(/npm test/)).toBeNull();
   });
 });

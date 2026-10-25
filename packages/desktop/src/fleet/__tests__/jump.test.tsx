@@ -194,7 +194,7 @@ describe("the primary target: a row opens that run's session", () => {
     await renderFleet([row({ sessionId: "run-t" })]);
     fireEvent.keyDown(window, { key: "Enter" });
     expect(spies.setActiveSessionId).not.toHaveBeenCalled();
-    expect(screen.getAllByRole("listitem").filter((el) => !el.closest("nav"))).toHaveLength(1);
+    expect(document.querySelectorAll("[data-run-id]")).toHaveLength(1);
   });
 });
 

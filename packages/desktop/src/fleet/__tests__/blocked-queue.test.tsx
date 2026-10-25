@@ -97,7 +97,17 @@ describe("BlockedQueue keyboard ownership", () => {
     const owners = document.querySelectorAll('[data-keyboard-owner="true"]');
     expect(owners).toHaveLength(1);
     expect(owners[0]).toHaveAttribute("data-run-id", "run-1");
-    expect(screen.getAllByText("Keys A and D answer this one")).toHaveLength(1);
+    const hints = document.querySelectorAll('[data-field="owner"]');
+    expect(hints).toHaveLength(1);
+    expect(hints[0]).toHaveTextContent("Keys A and D answer this one");
+    // The keys are drawn as keys (#208), not as words in a sentence.
+    expect(Array.from(hints[0].querySelectorAll("kbd")).map((k) => k.textContent)).toEqual(["A", "D"]);
+  });
+
+  it("draws Open session at the roster's in-row size (#208)", () => {
+    renderQueue([entry(1)]);
+    const open = screen.getByRole("button", { name: /Open live session of/ });
+    expect(open).toHaveAttribute("data-size", "sm");
   });
 
   it("the two existing mounts are unchanged: a card given no prop still lets its first row own the keyboard", () => {
@@ -209,7 +219,7 @@ describe("a shaping Round waiting on you (issue #124)", () => {
     renderWithRound([entry(1)]);
     const item = screen.getByRole("listitem", { name: "Round 2 of P1-8 Epic shaping" });
     expect(within(item).getByText("1 of 4 answered")).toBeTruthy();
-    expect(within(item).getByText("20m")).toBeTruthy();
+    expect(within(item).getByText("20m 00s")).toBeTruthy();
     fireEvent.click(within(item).getByRole("button", { name: "Answer Round 2 of P1-8" }));
     expect(useUiStore.getState().currentEpicId).toBe("e-59");
     expect(useUiStore.getState().activeSessionId).toBeNull();
