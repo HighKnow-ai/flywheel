@@ -8,9 +8,9 @@ import { within } from "@testing-library/react";
 export function expectDecisionGroup(
   scope: HTMLElement,
   subject: string,
-  options: { amend?: boolean; separator?: string } = {},
+  options: { amend?: boolean; separator?: string; size?: "sm" | "xs" } = {},
 ) {
-  const { amend = true, separator = " " } = options;
+  const { amend = true, separator = " ", size = "sm" } = options;
   const group = within(scope).getByRole("group", { name: `Decide${separator}${subject}` });
   expect(group).toHaveAttribute("data-slot", "button-group");
   const buttons = within(group).getAllByRole("button");
@@ -19,7 +19,7 @@ export function expectDecisionGroup(
   expect(buttons.map((b) => b.textContent)).toEqual(verbs);
   for (const b of buttons) {
     expect(b).toHaveAttribute("data-variant", "outline");
-    expect(b).toHaveAttribute("data-size", "sm");
+    expect(b).toHaveAttribute("data-size", size);
   }
   return group;
 }

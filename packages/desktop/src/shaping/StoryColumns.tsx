@@ -704,6 +704,7 @@ function OrderPlate({
         />
       ) : (
         <DecisionGroup
+          size="xs"
           name={(verb) => `${verb} the ${noun} of ${story.key}`}
           pending={pending}
           rejectRef={rejectRef}
@@ -864,6 +865,7 @@ function GhostColumn({
 
       {mode === "idle" && (
         <DecisionGroup
+          size="xs"
           name={(verb) => `${verb} ${name}`}
           pending={pending}
           amendRef={amendRef}
@@ -1047,6 +1049,7 @@ function GhostCriterion({
       )}
       {mode === "idle" && (
         <DecisionGroup
+          size="xs"
           name={(verb) => `${verb} ${name}`}
           pending={pending}
           amendRef={amendRef}

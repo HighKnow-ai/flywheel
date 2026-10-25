@@ -43,6 +43,8 @@ export interface DecisionGroupProps {
   amendWord?: string;
   amendRef?: Ref<HTMLButtonElement>;
   rejectRef?: Ref<HTMLButtonElement>;
+  /** `xs` inside a 17.5rem Story column, where the small size runs past the card (#212); `sm` everywhere else. */
+  size?: "sm" | "xs";
   className?: string;
 }
 
@@ -56,6 +58,7 @@ export function DecisionGroup({
   amendWord = "Amend",
   amendRef,
   rejectRef,
+  size = "sm",
   className,
 }: DecisionGroupProps) {
   const off = (decision: Decision) => pending !== null && pending !== decision;
@@ -63,7 +66,7 @@ export function DecisionGroup({
     <ButtonGroup aria-label={name("Decide")} className={cn("shrink-0", className)}>
       <Button
         variant="outline"
-        size="sm"
+        size={size}
         data-decision="accept"
         loading={pending === "accept"}
         disabled={off("accept")}
@@ -77,7 +80,7 @@ export function DecisionGroup({
         <Button
           ref={amendRef}
           variant="outline"
-          size="sm"
+          size={size}
           data-decision="amend"
           disabled={pending !== null}
           aria-label={name(amendWord)}
@@ -90,7 +93,7 @@ export function DecisionGroup({
       <Button
         ref={rejectRef}
         variant="outline"
-        size="sm"
+        size={size}
         data-decision="reject"
         disabled={pending !== null}
         aria-label={name("Reject")}

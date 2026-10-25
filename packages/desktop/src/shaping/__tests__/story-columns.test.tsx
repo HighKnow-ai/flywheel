@@ -405,18 +405,20 @@ describe("StoryColumns: one decision group, columns that scroll (issue #211)", (
       ],
       { criteria: true },
     );
-    expectDecisionGroup(column("2. Proposed Story: Schema"), "the proposed Story Schema");
+    expectDecisionGroup(column("2. Proposed Story: Schema"), "the proposed Story Schema", { size: "xs" });
     expectDecisionGroup(screen.getByRole("group", { name: "Proposed move of FLY-11" }), "the move of FLY-11", {
       amend: false,
+      size: "xs",
     });
     expectDecisionGroup(
       screen.getByRole("group", { name: "Proposed retirement of FLY-12" }),
       "the retirement of FLY-12",
-      { amend: false },
+      { amend: false, size: "xs" },
     );
     expectDecisionGroup(
       screen.getByRole("group", { name: "Proposed criterion: The row shows the live verb" }),
       "the proposed criterion The row shows the live verb",
+      { size: "xs" },
     );
   });
 
