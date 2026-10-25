@@ -29,6 +29,7 @@ import {
 import { useUiStore } from "../state/uiStore";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 import { errorText } from "./StoryControls";
 
@@ -69,7 +70,7 @@ export function useMilestoneAttention(projectId: string, milestone: Pick<Milesto
 }
 
 /** Start a shaping session on the Milestone (Shape or Continue shaping), keeping the refusal. */
-function useStart(projectId: string, milestoneId: string, start: (id: string) => Promise<unknown>, then?: () => void) {
+function useStart(projectId: string, milestoneId: string, start: (id: string) => Promise<unknown>, done: string, then?: () => void) {
   const queryClient = useQueryClient();
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +80,7 @@ function useStart(projectId: string, milestoneId: string, start: (id: string) =>
     setError(null);
     start(milestoneId)
       .then(() => {
+        notify.success(done);
         then?.();
         return queryClient.invalidateQueries({ queryKey: ["board", projectId] });
       })
@@ -136,7 +138,7 @@ export function ContinueMilestoneShapingButton({
   milestone: Pick<MilestoneDto, "id" | "title">;
   size?: "sm" | "xs";
 }) {
-  const { run, starting, error } = useStart(projectId, milestone.id, milestoneShapingContinue);
+  const { run, starting, error } = useStart(projectId, milestone.id, milestoneShapingContinue, `Continued shaping ${milestone.title}`);
   return (
     <span className="flex min-w-0 items-center gap-2">
       <WithRefusal error={error} compact={size === "xs"}>
@@ -145,11 +147,11 @@ export function ContinueMilestoneShapingButton({
         size={size}
         aria-label={`Continue shaping the exit test of ${milestone.title}`}
         onClick={run}
-        disabled={starting}
+        loading={starting}
         className="shrink-0"
       >
         <RotateCcw aria-hidden="true" />
-        {starting ? "Starting…" : "Continue shaping"}
+        Continue shaping
       </Button>
       </WithRefusal>
     </span>
@@ -167,7 +169,7 @@ export function MilestoneShapingControl({ projectId, milestone, place }: Milesto
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
   const openMilestone = useUiStore((state) => state.openMilestone);
   const open = () => openMilestone(projectId, milestone.id);
-  const shape = useStart(projectId, milestone.id, milestoneShape, place === "view" ? undefined : open);
+  const shape = useStart(projectId, milestone.id, milestoneShape, `Started shaping ${milestone.title}`, place === "view" ? undefined : open);
   const shaping = milestone.state === "shaping";
   const liveQuery = useQuery({
     queryKey: milestoneSessionKey(projectId, milestone.id),
@@ -227,11 +229,11 @@ export function MilestoneShapingControl({ projectId, milestone, place }: Milesto
         size={size}
         aria-label={`Shape the exit test of ${milestone.title}`}
         onClick={shape.run}
-        disabled={shape.starting}
+        loading={shape.starting}
         className="shrink-0"
       >
         <MessagesSquare aria-hidden="true" />
-        {shape.starting ? "Starting…" : "Shape"}
+        Shape
       </Button>
       </WithRefusal>
     );

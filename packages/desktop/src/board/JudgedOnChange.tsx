@@ -22,7 +22,7 @@ import type { NeedsYouItemDto, NeedsYouJudgedOnDto, ProposalDto } from "../adapt
 import { ProposalDecision, type AmendField } from "../shaping/GhostCard";
 import { needsYouQueryKey } from "../fleet/useFleet";
 import { DuplicateFlag } from "../proposals/DuplicateFlag";
-import { EvidenceLine, notifyDecided, useDecisionIntent } from "../proposals/proposalWords";
+import { DECIDED, EvidenceLine, notifyDecided } from "../proposals/proposalWords";
 
 /** The longest criterion statement, Check command and spec field the core accepts (`proposal_apply`). */
 const MAX_STATEMENT_LEN = 2_000;
@@ -121,17 +121,15 @@ export function JudgedOnChange({ item }: { item: NeedsYouItemDto }) {
   // ProposalDecision reads the Proposal's id and why; the rest of a ProposalDto plays no part here.
   const proposal = { id: change.proposalId, rationale: change.rationale } as ProposalDto;
   const decisionSubject = `the ${judgedOnWord(change)} on ${item.record.key ?? item.record.title}`;
-  const intent = useDecisionIntent("Edit");
   return (
     <div data-slot="judged-on" className="flex min-w-0 flex-col gap-2.5">
-      {intent.wrap(
       <ProposalDecision
         proposal={proposal}
         subject={decisionSubject}
         amend={editOf(change, subject)}
         amendWord="Edit"
-        afterDecide={async () => {
-          notifyDecided(intent.current(), decisionSubject, change.filedBy ? `Filed by ${change.filedBy}'s session` : undefined);
+        afterDecide={async (decision) => {
+          notifyDecided(DECIDED[decision], decisionSubject, change.filedBy ? `Filed by ${change.filedBy}'s session` : undefined);
           // Decided, the card leaves the list; the list moves the keyboard to the card in its place.
           await queryClient.invalidateQueries({ queryKey: needsYouQueryKey() });
         }}
@@ -158,8 +156,7 @@ export function JudgedOnChange({ item }: { item: NeedsYouItemDto }) {
           </p>
         )}
         {change.filedBy && <p className="m-0 text-meta text-subtle-foreground">{`Filed by ${change.filedBy}'s session`}</p>}
-      </ProposalDecision>,
-      )}
+      </ProposalDecision>
     </div>
   );
 }
