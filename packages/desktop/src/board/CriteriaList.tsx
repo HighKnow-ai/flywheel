@@ -52,9 +52,7 @@ export function CheckChip({ check }: { check: CheckDto }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <StateBadge state={check.result} className="h-5.5 text-meta" />
-      {check.stale && (
-        <StateBadge state="stale" label="Stale" className="h-5.5 text-meta" />
-      )}
+      {check.stale && <StateBadge state="stale" label="Stale" className="h-5.5 text-meta" />}
     </span>
   );
 }
@@ -72,7 +70,13 @@ export interface CriteriaListProps {
   emptyText?: string | null;
 }
 
-export function CriteriaList({ projectId, storyId, storyKey, compact = false, emptyText = "No Acceptance criteria yet" }: CriteriaListProps) {
+export function CriteriaList({
+  projectId,
+  storyId,
+  storyKey,
+  compact = false,
+  emptyText = "No Acceptance criteria yet",
+}: CriteriaListProps) {
   const criteriaQuery = useCriteria(projectId, storyId);
   const criteria = criteriaQuery.data ?? [];
 
@@ -100,7 +104,13 @@ export function CriteriaList({ projectId, storyId, storyKey, compact = false, em
       )}
       <ol aria-label={`${storyKey} Acceptance criteria`} className="m-0 list-none p-0 empty:hidden">
         {criteria.map((criterion, index) => (
-          <CriterionRow key={criterion.id} projectId={projectId} criterion={criterion} number={index + 1} compact={compact} />
+          <CriterionRow
+            key={criterion.id}
+            projectId={projectId}
+            criterion={criterion}
+            number={index + 1}
+            compact={compact}
+          />
         ))}
       </ol>
     </div>
@@ -163,7 +173,9 @@ function CriterionRow({
         compact ? "gap-1.5 py-2" : "gap-2 py-3",
       )}
     >
-      <span className={cn("font-semibold break-words", compact ? "text-small" : "text-body")}>{criterion.statement}</span>
+      <span className={cn("font-semibold break-words", compact ? "text-small" : "text-body")}>
+        {criterion.statement}
+      </span>
       {editing ? (
         <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
           <label className="flex min-w-56 flex-1 flex-col gap-1.5 text-small text-muted-foreground">

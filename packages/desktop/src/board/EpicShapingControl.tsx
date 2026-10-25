@@ -89,7 +89,12 @@ export function ContinueShapingButton({
   epic: Pick<EpicDto, "id" | "key" | "title">;
   className?: string;
 }) {
-  const { run, starting, error } = useStartShaping(projectId, epic.id, shapingContinue, `Continued shaping ${epic.key}`);
+  const { run, starting, error } = useStartShaping(
+    projectId,
+    epic.id,
+    shapingContinue,
+    `Continued shaping ${epic.key}`,
+  );
   return (
     <span className={cn("flex min-w-0 items-center gap-2", className)}>
       <StartError error={error} />

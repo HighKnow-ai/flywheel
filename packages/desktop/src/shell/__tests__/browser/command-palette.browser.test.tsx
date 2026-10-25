@@ -79,11 +79,23 @@ describe("the command palette", () => {
     const dialog = await openFromButton();
     await within(dialog).findByRole("option", { name: /FLY-4/ });
     await type("ghost cards");
-    await waitFor(() => expect(within(dialog).getAllByRole("option").map((o) => o.textContent)).toEqual([expect.stringContaining("FLY-10")]));
+    await waitFor(() =>
+      expect(
+        within(dialog)
+          .getAllByRole("option")
+          .map((o) => o.textContent),
+      ).toEqual([expect.stringContaining("FLY-10")]),
+    );
     // Words, not scattered letters: "set" is the start of Settings, and no Story whose title merely holds an
     // s, an e and a t in that order ("Prototype the dock as a modal sheet") comes along with it.
     await type("set");
-    await waitFor(() => expect(within(dialog).getAllByRole("option").map((o) => o.textContent)).toEqual([expect.stringContaining("Settings")]));
+    await waitFor(() =>
+      expect(
+        within(dialog)
+          .getAllByRole("option")
+          .map((o) => o.textContent),
+      ).toEqual([expect.stringContaining("Settings")]),
+    );
     await type("zzzz no such thing");
     await within(dialog).findByText("Nothing matches.");
     expect(within(dialog).queryAllByRole("option")).toEqual([]);

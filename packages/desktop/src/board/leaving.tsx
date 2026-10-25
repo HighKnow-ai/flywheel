@@ -26,7 +26,10 @@ interface Departed<T> {
  * The list to draw: `items` in their order, with every item that just left kept at the place it held, marked
  * `leaving`, until `done(key)`. An item that comes back while still leaving is simply in the list again.
  */
-export function useLeavingItems<T>(items: readonly T[], keyOf: (item: T) => string): { shown: Shown<T>[]; done: (key: string) => void } {
+export function useLeavingItems<T>(
+  items: readonly T[],
+  keyOf: (item: T) => string,
+): { shown: Shown<T>[]; done: (key: string) => void } {
   const signature = items.map(keyOf).join("\u0000");
   const [previous, setPrevious] = useState<{ signature: string; items: readonly T[] }>({ signature, items });
   const [departed, setDeparted] = useState<Departed<T>[]>([]);
@@ -36,7 +39,9 @@ export function useLeavingItems<T>(items: readonly T[], keyOf: (item: T) => stri
   let leaving = departed;
   if (previous.signature !== signature) {
     const present = new Set(items.map(keyOf));
-    const gone = previous.items.flatMap((item, index) => (present.has(keyOf(item)) ? [] : [{ item, key: keyOf(item), index }]));
+    const gone = previous.items.flatMap((item, index) =>
+      present.has(keyOf(item)) ? [] : [{ item, key: keyOf(item), index }],
+    );
     leaving = [...departed.filter((d) => !present.has(d.key) && !gone.some((g) => g.key === d.key)), ...gone];
     setPrevious({ signature, items });
     setDeparted(leaving);
@@ -100,7 +105,11 @@ export function animateLeave(element: HTMLElement): Promise<void> {
  * A list item that, once `leaving`, is inert and hidden from assistive tech while it collapses, then calls
  * `onLeft`. The live region of its list says what went.
  */
-export function LeavingItem({ leaving, onLeft, ...props }: ComponentProps<"li"> & { leaving: boolean; onLeft: () => void }) {
+export function LeavingItem({
+  leaving,
+  onLeft,
+  ...props
+}: ComponentProps<"li"> & { leaving: boolean; onLeft: () => void }) {
   const ref = useRef<HTMLLIElement>(null);
   const left = useRef(onLeft);
   left.current = onLeft;

@@ -30,7 +30,12 @@ export function AddStoryToEpic({
   if (!isOpenRecord(epic.state)) return null;
   return (
     <>
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)} aria-label={`Add a Story to ${epic.key} ${epic.title}`}>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen(true)}
+        aria-label={`Add a Story to ${epic.key} ${epic.title}`}
+      >
         <Plus aria-hidden="true" />
         Story
       </Button>

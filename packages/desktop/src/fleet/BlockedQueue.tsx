@@ -67,12 +67,7 @@ export function BlockedQueue({ entries, rounds = [], now }: BlockedQueueProps) {
   const openStory = useUiStore((state) => state.openStory);
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
 
-  async function onAnswer(
-    entry: BlockedQueueEntryDto,
-    requestId: string,
-    decision: PermissionDecision,
-    rule?: string,
-  ) {
+  async function onAnswer(entry: BlockedQueueEntryDto, requestId: string, decision: PermissionDecision, rule?: string) {
     await answerPermissionRequest(requestId, decision, rule);
     refresh(entry);
   }
@@ -95,7 +90,9 @@ export function BlockedQueue({ entries, rounds = [], now }: BlockedQueueProps) {
       <Empty className="flex-none rounded-lg border border-solid border-border bg-card shadow-card">
         <EmptyHeader>
           <EmptyTitle className="text-section font-semibold">Nothing is waiting on you</EmptyTitle>
-          <EmptyDescription>When an agent in any project stops to ask for your answer, its request appears here.</EmptyDescription>
+          <EmptyDescription>
+            When an agent in any project stops to ask for your answer, its request appears here.
+          </EmptyDescription>
         </EmptyHeader>
       </Empty>
     );
@@ -199,7 +196,11 @@ function WaitingRoundItem({ round, now }: { round: WaitingRoundDto; now: number 
   return (
     <div
       role="listitem"
-      aria-label={round.subject === "roadmap" ? `${words.round} of ${words.record}` : `${words.round} of ${words.key} ${words.title}`}
+      aria-label={
+        round.subject === "roadmap"
+          ? `${words.round} of ${words.record}`
+          : `${words.round} of ${words.key} ${words.title}`
+      }
       data-round-id={round.roundId}
       className="flex flex-col gap-2"
     >
@@ -212,7 +213,9 @@ function WaitingRoundItem({ round, now }: { round: WaitingRoundDto; now: number 
           type="button"
           data-field="subject"
           aria-label={round.subject === "roadmap" ? `Open ${words.record}` : `Open Epic ${words.key}`}
-          title={round.subject === "roadmap" ? `Open ${words.record} on the board` : `Open Epic ${words.key} and its Rounds`}
+          title={
+            round.subject === "roadmap" ? `Open ${words.record} on the board` : `Open Epic ${words.key} and its Rounds`
+          }
           onClick={() => open(round)}
           className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent"
         >
@@ -232,7 +235,11 @@ function WaitingRoundItem({ round, now }: { round: WaitingRoundDto; now: number 
           same kind of thing as every other entry here. */}
       <div className="overflow-clip rounded-lg border-2 border-attention bg-card shadow-card">
         <div className="flex min-h-11 items-center gap-2.5 bg-attention px-4 py-2.5 text-attention-foreground [&_svg]:size-[18px]">
-          {round.subject === "roadmap" ? <CircleDashed aria-hidden="true" /> : <MessageCircleQuestionMark aria-hidden="true" />}
+          {round.subject === "roadmap" ? (
+            <CircleDashed aria-hidden="true" />
+          ) : (
+            <MessageCircleQuestionMark aria-hidden="true" />
+          )}
           <span className="text-row font-bold">{words.round}</span>
           <span className="ml-auto text-small font-semibold">{words.kind}</span>
         </div>
@@ -245,7 +252,11 @@ function WaitingRoundItem({ round, now }: { round: WaitingRoundDto; now: number 
             aria-label={`${words.action} ${words.round} of ${round.subject === "roadmap" ? words.record : words.key}`}
             onClick={() => open(round)}
           >
-            {round.subject === "roadmap" ? <ChevronRight aria-hidden="true" /> : <MessageCircleQuestionMark aria-hidden="true" />}
+            {round.subject === "roadmap" ? (
+              <ChevronRight aria-hidden="true" />
+            ) : (
+              <MessageCircleQuestionMark aria-hidden="true" />
+            )}
             {words.action}
           </Button>
         </div>

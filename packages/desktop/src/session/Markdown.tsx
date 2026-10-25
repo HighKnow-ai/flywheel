@@ -127,7 +127,11 @@ function parseBlocks(lines: string[]): Block[] {
         if (!current.trim()) {
           // A blank line ends the list unless the next line continues it.
           const after = lines[i + 1];
-          if (after !== undefined && after.trim() && (indentOf(after) > baseIndent || (LIST_ITEM.test(after) && indentOf(after) === baseIndent))) {
+          if (
+            after !== undefined &&
+            after.trim() &&
+            (indentOf(after) > baseIndent || (LIST_ITEM.test(after) && indentOf(after) === baseIndent))
+          ) {
             items[items.length - 1].push("");
             i += 1;
             continue;

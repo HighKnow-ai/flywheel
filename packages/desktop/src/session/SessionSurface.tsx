@@ -16,13 +16,7 @@
  * Story #56 replaced the fixed 32px virtual slots (which clipped every agent turn to one line of
  * unrendered markdown) with measured, variable-height virtual rows.
  */
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type UIEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CirclePause, Ellipsis, FileText, Hourglass, ListTree, Square, SquareX, TriangleAlert, X } from "lucide-react";
@@ -79,7 +73,6 @@ import { PageHeader } from "../shell/PageHeader";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-
 /**
  * Issue #100: which open question each unanswered question card in the feed answers, by row key. A
  * pending `AskUserQuestion` request is matched to the newest unanswered question row asking the same
@@ -93,7 +86,12 @@ export function openQuestionRows(rows: FeedRowData[], pending: PendingPermission
     const questions = questionsFromPayload(request.inputPayload);
     for (let i = rows.length - 1; i >= 0; i -= 1) {
       const row = rows[i];
-      if (row.kind === "question" && row.answer === undefined && !byRow.has(row.key) && sameQuestions(row.questions, questions)) {
+      if (
+        row.kind === "question" &&
+        row.answer === undefined &&
+        !byRow.has(row.key) &&
+        sameQuestions(row.questions, questions)
+      ) {
         byRow.set(row.key, request.id);
         break;
       }
@@ -184,7 +182,10 @@ function SessionMeta({
   const costUsd = latestNumericField(entries, ["totalCostUsd", "cost_usd"]);
 
   return (
-    <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 text-small text-muted-foreground" data-testid="session-meta">
+    <p
+      className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 text-small text-muted-foreground"
+      data-testid="session-meta"
+    >
       <span className="whitespace-nowrap" data-testid="session-clock">
         {running ? "Elapsed " : "Duration "}
         <span className="font-semibold text-foreground tabular-nums" aria-label="Elapsed time">
@@ -303,7 +304,10 @@ function TerminalRow({ info }: { info: TerminalInfo }) {
     return (
       <div role="listitem" className="mt-3 flex flex-col gap-1.5 rounded-md border border-border bg-muted px-4 py-3">
         <p className="m-0 flex items-center gap-2 text-body font-semibold">
-          <span aria-hidden="true" className="flex size-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground">
+          <span
+            aria-hidden="true"
+            className="flex size-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
+          >
             <X size={13} strokeWidth={2.5} />
           </span>
           {FAILED_RUN_GLOSS}
@@ -323,7 +327,10 @@ function TerminalRow({ info }: { info: TerminalInfo }) {
   }
 
   return (
-    <div role="listitem" className="mt-3 flex flex-col gap-1 rounded-md border border-border bg-muted px-4 py-3 text-small text-muted-foreground">
+    <div
+      role="listitem"
+      className="mt-3 flex flex-col gap-1 rounded-md border border-border bg-muted px-4 py-3 text-small text-muted-foreground"
+    >
       <span className="font-semibold text-foreground">{RUN_STATUS_LABELS[info.reason]}</span>
       {info.reason === "interrupted" && <p className="m-0">{TASK_STOPPED_GLOSS}</p>}
     </div>
@@ -386,7 +393,10 @@ function SessionFloor({ doing, lastActivityAt }: { doing: string | null; lastAct
   const now = useNowTick(true);
   const since = lastActivityAt ? ` Last activity ${formatAge(lastActivityAt, now)} ago.` : "";
   return (
-    <p role="status" className="m-0 shrink-0 truncate border-t border-border px-5 py-2.5 text-small text-muted-foreground">
+    <p
+      role="status"
+      className="m-0 shrink-0 truncate border-t border-border px-5 py-2.5 text-small text-muted-foreground"
+    >
       {doing ? (
         <>
           {"The agent is working: "}
@@ -669,10 +679,7 @@ export function SessionSurface({
 
   const showStop = !storedEnded && !TERMINAL_STATUSES.includes(status);
 
-  const entries = useMemo(
-    () => feedQuery.data?.pages.flatMap((page) => page.entries) ?? [],
-    [feedQuery.data],
-  );
+  const entries = useMemo(() => feedQuery.data?.pages.flatMap((page) => page.entries) ?? [], [feedQuery.data]);
   const allRows = useMemo(() => buildFeedRows(entries), [entries]);
   // Issue #205: a session the usage limit ended closes on the usage-limit Alert, which says when the limit
   // resets and offers the next step; the notice it came from is not repeated as a row just above it.
@@ -723,7 +730,11 @@ export function SessionSurface({
 
   function handleScroll(event: UIEvent<HTMLDivElement>) {
     const el = event.currentTarget;
-    if (el.scrollTop <= SCROLL_TOP_FETCH_THRESHOLD_PX && feedQuery.hasPreviousPage && !feedQuery.isFetchingPreviousPage) {
+    if (
+      el.scrollTop <= SCROLL_TOP_FETCH_THRESHOLD_PX &&
+      feedQuery.hasPreviousPage &&
+      !feedQuery.isFetchingPreviousPage
+    ) {
       feedQuery.fetchPreviousPage();
     }
     // A feed opened at a turn (the triage jump) pages forward as the reader scrolls down; one opened at
@@ -760,10 +771,23 @@ export function SessionSurface({
         onBack={onBack}
         crumbs={[
           ...(projectName && itemHeader
-            ? [{ label: projectName, onSelect: () => setCurrentProjectId(itemHeader.projectId), ariaLabel: `Open the ${projectName} board` }]
+            ? [
+                {
+                  label: projectName,
+                  onSelect: () => setCurrentProjectId(itemHeader.projectId),
+                  ariaLabel: `Open the ${projectName} board`,
+                },
+              ]
             : []),
           ...(itemHeader && storyId
-            ? [{ label: itemHeader.key, mono: true, onSelect: () => openStory(itemHeader.projectId, storyId), ariaLabel: `Open Story ${itemHeader.key}` }]
+            ? [
+                {
+                  label: itemHeader.key,
+                  mono: true,
+                  onSelect: () => openStory(itemHeader.projectId, storyId),
+                  ariaLabel: `Open Story ${itemHeader.key}`,
+                },
+              ]
             : []),
           // The session by its ordinal, as the Story's session list names it (lib/format.ts); its id only
           // while the ordinal is unknown.
@@ -772,216 +796,245 @@ export function SessionSurface({
         actions={itemHeader ? <WriteStoryDialog projectId={itemHeader.projectId} /> : undefined}
       />
       <div className="flex min-h-0 flex-1 flex-col px-5 pb-5">
-      <section
-        aria-label="Session"
-        className={cn(
-          // Sized to its content (issue #205), up to the pane's height, where the feed scrolls inside it: a
-          // short run or a waiting request is never a card stretched over a void.
-          "flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-card",
-          showStop && pendingRequests.length > 0 && "border-attention",
-        )}
-      >
-      {/* One header for every run state (issue #205): the state, the Story's key and title, the view toggle and
+        <section
+          aria-label="Session"
+          className={cn(
+            // Sized to its content (issue #205), up to the pane's height, where the feed scrolls inside it: a
+            // short run or a waiting request is never a card stretched over a void.
+            "flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-card",
+            showStop && pendingRequests.length > 0 && "border-attention",
+          )}
+        >
+          {/* One header for every run state (issue #205): the state, the Story's key and title, the view toggle and
           the live actions on one line; the clock, the ending and the figures on the line below. Running,
           waiting and ended differ only in the words inside, never in the layout. */}
-      <header className="flex shrink-0 flex-col gap-1.5 border-b border-border px-5 py-3" data-testid="session-header">
-        <div className="flex min-w-0 items-center gap-3">
-          <RunStatusBadge status={status} />
-          {itemHeader && storyId ? (
-            // Where the developer is (issue #104): the session's Story, which is one click away.
-            <button
-              type="button"
-              aria-label={`Open Story ${headerText}`}
-              onClick={() => openStory(itemHeader.projectId, storyId)}
-              className="group flex min-w-0 flex-1 items-baseline gap-2 rounded-sm text-left"
-            >
-              <StoryKey value={itemHeader.key} size="small" />
-              <span className="min-w-0 truncate text-section font-semibold underline-offset-4 group-hover:underline">
-                {itemHeader.title}
-              </span>
-            </button>
-          ) : (
-            <span className="min-w-0 flex-1 truncate text-section font-semibold">{headerText}</span>
-          )}
-
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            {/* Structured or Raw: a choice between two views, so a Toggle Group, never a label-swapping button. */}
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              size="sm"
-              spacing={0}
-              aria-label="Feed view"
-              value={rawViewOpen ? "raw" : "structured"}
-              onValueChange={(value) => {
-                if (value) setRawViewOpen(value === "raw");
-              }}
-            >
-              <ToggleGroupItem value="structured" aria-label="Structured">
-                <ListTree aria-hidden="true" />
-                {/* In a narrow window the icons carry the choice, so the Story's title keeps its room. */}
-                <span className="max-lg:sr-only">Structured</span>
-              </ToggleGroupItem>
-              <ToggleGroupItem value="raw" aria-label="Raw">
-                <FileText aria-hidden="true" />
-                <span className="max-lg:sr-only">Raw</span>
-              </ToggleGroupItem>
-            </ToggleGroup>
-
-            {showStop && (
-              // While a run is live the lead is Stop, the one action a running session offers. Outline, not
-              // filled: the next action on this screen is the agent's, or the answer it waits on. It confirms,
-              // as the Story view's Stop does (DESIGN.md § Feedback).
-              <ConfirmDestructive
-                trigger={
-                  <Button variant="outline" size="sm" loading={stopping} disabled={discarding}>
-                    <Square aria-hidden="true" />
-                    Stop
-                  </Button>
-                }
-                title={itemHeader ? `Stop ${itemHeader.key}'s agent?` : "Stop this session?"}
-                description={STOP_CONSEQUENCE}
-                confirmLabel="Stop the session"
-                icon={<Square aria-hidden="true" />}
-                onConfirm={handleStop}
-              />
-            )}
-
-            {showStop && (
-              // D-67: Discard ends the session and opens the launch sheet for the same Story. Never beside Stop
-              // as a bare word: it waits in the ⋯ menu and confirms what it does.
-              <DropdownMenu modal={false}>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon-sm" aria-label="More session actions" disabled={stopping || discarding}>
-                    <Ellipsis aria-hidden="true" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-auto min-w-52">
-                  <DropdownMenuItem variant="destructive" onSelect={() => setDiscardOpen(true)}>
-                    <SquareX aria-hidden="true" />
-                    Discard and start fresh…
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            <ConfirmDestructive
-              open={discardOpen}
-              onOpenChange={setDiscardOpen}
-              title={itemHeader ? `Discard ${itemHeader.key}'s session?` : "Discard this session?"}
-              description={
-                storyId
-                  ? "The session ends now and the launch sheet opens for the same Story, to start a fresh session from its Context packet. The worktree stays exactly as the agent left it."
-                  : "The session ends now. Nothing in the worktree is undone."
-              }
-              confirmLabel="Discard the session"
-              icon={<SquareX aria-hidden="true" />}
-              onConfirm={handleDiscard}
-            />
-          </div>
-        </div>
-
-        <SessionMeta
-          entries={entries}
-          running={!clockStopped}
-          startedAt={stored?.startedAt ?? firstLoadedAt}
-          endedAt={clockStopped ? (stored?.endedAt ?? lastActivityAt) : undefined}
-          ending={storedEnded && stored ? { reason: endingWords(stored.endingReason), at: stored.endedAt } : null}
-        />
-      </header>
-
-      <div className="flex min-h-0 flex-1 flex-col">
-      {rawViewOpen ? (
-        <RawLogView sessionId={sessionId} />
-      ) : (
-        <div
-          ref={parentRef}
-          onScroll={handleScroll}
-          data-testid="session-feed-scroll"
-          // A transcript reads from the top of its card, like the Story it serves; follow-the-tail keeps the
-          // newest row in view once it outgrows the pane. A short run is a few rows under the header, never
-          // a few rows under a blank page (critique 2026-10, minor observation).
-          // A request card is a band across the card's foot, so nothing pads beneath it (issue #205).
-          className={cn("flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-4", footerRequests.length > 0 ? "pb-0" : "pb-4")}
-        >
-          <RequestInCard.Provider value={true}>
-          <div className="shrink-0">
-          {persistenceFailed && (
-            <PersistenceFailureBanner
-              text={persistenceFailureText ?? "Flywheel could not write this session's log — the transcript below may be incomplete."}
-            />
-          )}
-
-          {showStartingPulse && <StartingSessionRow />}
-
-          <div role="list" aria-label="Session events" style={{ position: "relative", height: rowVirtualizer.getTotalSize(), width: "100%" }}>
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-              const row = feedRows[virtualRow.index];
-              return (
-                <div
-                  key={row.key}
-                  ref={rowVirtualizer.measureElement}
-                  data-index={virtualRow.index}
-                  data-row-key={row.key}
-                  data-testid="feed-row-slot"
-                  // Positioned, never sized: the row's own content sets its height and the virtualizer
-                  // measures it, so a long turn is never clipped and never paints over the next row.
-                  style={{ position: "absolute", top: 0, left: 0, width: "100%", minWidth: 0, transform: `translateY(${virtualRow.start}px)` }}
+          <header
+            className="flex shrink-0 flex-col gap-1.5 border-b border-border px-5 py-3"
+            data-testid="session-header"
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <RunStatusBadge status={status} />
+              {itemHeader && storyId ? (
+                // Where the developer is (issue #104): the session's Story, which is one click away.
+                <button
+                  type="button"
+                  aria-label={`Open Story ${headerText}`}
+                  onClick={() => openStory(itemHeader.projectId, storyId)}
+                  className="group flex min-w-0 flex-1 items-baseline gap-2 rounded-sm text-left"
                 >
-                  <FeedRow
-                    row={row}
-                    expanded={expanded.has(row.key)}
-                    onToggleExpand={() => toggle(row.key)}
-                    live={row.key === liveRowKey}
-                    onAnswerQuestion={
-                      questionRows.has(row.key)
-                        ? (picks) => handleAnswerQuestion(questionRows.get(row.key) as string, picks)
-                        : undefined
+                  <StoryKey value={itemHeader.key} size="small" />
+                  <span className="min-w-0 truncate text-section font-semibold underline-offset-4 group-hover:underline">
+                    {itemHeader.title}
+                  </span>
+                </button>
+              ) : (
+                <span className="min-w-0 flex-1 truncate text-section font-semibold">{headerText}</span>
+              )}
+
+              <div className="ml-auto flex shrink-0 items-center gap-2">
+                {/* Structured or Raw: a choice between two views, so a Toggle Group, never a label-swapping button. */}
+                <ToggleGroup
+                  type="single"
+                  variant="outline"
+                  size="sm"
+                  spacing={0}
+                  aria-label="Feed view"
+                  value={rawViewOpen ? "raw" : "structured"}
+                  onValueChange={(value) => {
+                    if (value) setRawViewOpen(value === "raw");
+                  }}
+                >
+                  <ToggleGroupItem value="structured" aria-label="Structured">
+                    <ListTree aria-hidden="true" />
+                    {/* In a narrow window the icons carry the choice, so the Story's title keeps its room. */}
+                    <span className="max-lg:sr-only">Structured</span>
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="raw" aria-label="Raw">
+                    <FileText aria-hidden="true" />
+                    <span className="max-lg:sr-only">Raw</span>
+                  </ToggleGroupItem>
+                </ToggleGroup>
+
+                {showStop && (
+                  // While a run is live the lead is Stop, the one action a running session offers. Outline, not
+                  // filled: the next action on this screen is the agent's, or the answer it waits on. It confirms,
+                  // as the Story view's Stop does (DESIGN.md § Feedback).
+                  <ConfirmDestructive
+                    trigger={
+                      <Button variant="outline" size="sm" loading={stopping} disabled={discarding}>
+                        <Square aria-hidden="true" />
+                        Stop
+                      </Button>
                     }
-                    questionDraftKey={questionRows.get(row.key)}
-                    root={root}
+                    title={itemHeader ? `Stop ${itemHeader.key}'s agent?` : "Stop this session?"}
+                    description={STOP_CONSEQUENCE}
+                    confirmLabel="Stop the session"
+                    icon={<Square aria-hidden="true" />}
+                    onConfirm={handleStop}
                   />
-                </div>
-              );
-            })}
-          </div>
+                )}
 
-          {endedByUsageLimit ? (
-            <UsageLimitAlert
-              resetsAt={usageLimitRow?.kind === "usage_limit" ? usageLimitRow.resetsAt : undefined}
-              story={itemHeader && storyId ? { id: storyId, key: itemHeader.key } : null}
-              canResume={stoppedOn?.sessionId === sessionId}
-              onOpenStory={itemHeader && storyId ? () => openStory(itemHeader.projectId, storyId) : null}
-            />
-          ) : (
-            terminalInfo && <TerminalRow info={terminalInfo} />
-          )}
-
-          {stopWarning && <StopWarningNotice warning={stopWarning} />}
-
-          {footerRequests.length > 0 && (
-            <div className="mt-4">
-              <PermissionRequestCard
-                variant="feed"
-                requests={footerRequests}
-                onAnswer={handleAnswer}
-                onAnswerQuestion={handleAnswerQuestion}
-              />
+                {showStop && (
+                  // D-67: Discard ends the session and opens the launch sheet for the same Story. Never beside Stop
+                  // as a bare word: it waits in the ⋯ menu and confirms what it does.
+                  <DropdownMenu modal={false}>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="More session actions"
+                        disabled={stopping || discarding}
+                      >
+                        <Ellipsis aria-hidden="true" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-auto min-w-52">
+                      <DropdownMenuItem variant="destructive" onSelect={() => setDiscardOpen(true)}>
+                        <SquareX aria-hidden="true" />
+                        Discard and start fresh…
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                <ConfirmDestructive
+                  open={discardOpen}
+                  onOpenChange={setDiscardOpen}
+                  title={itemHeader ? `Discard ${itemHeader.key}'s session?` : "Discard this session?"}
+                  description={
+                    storyId
+                      ? "The session ends now and the launch sheet opens for the same Story, to start a fresh session from its Context packet. The worktree stays exactly as the agent left it."
+                      : "The session ends now. Nothing in the worktree is undone."
+                  }
+                  confirmLabel="Discard the session"
+                  icon={<SquareX aria-hidden="true" />}
+                  onConfirm={handleDiscard}
+                />
+              </div>
             </div>
-          )}
 
-          <div ref={tailRef} />
+            <SessionMeta
+              entries={entries}
+              running={!clockStopped}
+              startedAt={stored?.startedAt ?? firstLoadedAt}
+              endedAt={clockStopped ? (stored?.endedAt ?? lastActivityAt) : undefined}
+              ending={storedEnded && stored ? { reason: endingWords(stored.endingReason), at: stored.endedAt } : null}
+            />
+          </header>
+
+          <div className="flex min-h-0 flex-1 flex-col">
+            {rawViewOpen ? (
+              <RawLogView sessionId={sessionId} />
+            ) : (
+              <div
+                ref={parentRef}
+                onScroll={handleScroll}
+                data-testid="session-feed-scroll"
+                // A transcript reads from the top of its card, like the Story it serves; follow-the-tail keeps the
+                // newest row in view once it outgrows the pane. A short run is a few rows under the header, never
+                // a few rows under a blank page (critique 2026-10, minor observation).
+                // A request card is a band across the card's foot, so nothing pads beneath it (issue #205).
+                className={cn(
+                  "flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-4",
+                  footerRequests.length > 0 ? "pb-0" : "pb-4",
+                )}
+              >
+                <RequestInCard.Provider value={true}>
+                  <div className="shrink-0">
+                    {persistenceFailed && (
+                      <PersistenceFailureBanner
+                        text={
+                          persistenceFailureText ??
+                          "Flywheel could not write this session's log — the transcript below may be incomplete."
+                        }
+                      />
+                    )}
+
+                    {showStartingPulse && <StartingSessionRow />}
+
+                    <div
+                      role="list"
+                      aria-label="Session events"
+                      style={{ position: "relative", height: rowVirtualizer.getTotalSize(), width: "100%" }}
+                    >
+                      {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                        const row = feedRows[virtualRow.index];
+                        return (
+                          <div
+                            key={row.key}
+                            ref={rowVirtualizer.measureElement}
+                            data-index={virtualRow.index}
+                            data-row-key={row.key}
+                            data-testid="feed-row-slot"
+                            // Positioned, never sized: the row's own content sets its height and the virtualizer
+                            // measures it, so a long turn is never clipped and never paints over the next row.
+                            style={{
+                              position: "absolute",
+                              top: 0,
+                              left: 0,
+                              width: "100%",
+                              minWidth: 0,
+                              transform: `translateY(${virtualRow.start}px)`,
+                            }}
+                          >
+                            <FeedRow
+                              row={row}
+                              expanded={expanded.has(row.key)}
+                              onToggleExpand={() => toggle(row.key)}
+                              live={row.key === liveRowKey}
+                              onAnswerQuestion={
+                                questionRows.has(row.key)
+                                  ? (picks) => handleAnswerQuestion(questionRows.get(row.key) as string, picks)
+                                  : undefined
+                              }
+                              questionDraftKey={questionRows.get(row.key)}
+                              root={root}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {endedByUsageLimit ? (
+                      <UsageLimitAlert
+                        resetsAt={usageLimitRow?.kind === "usage_limit" ? usageLimitRow.resetsAt : undefined}
+                        story={itemHeader && storyId ? { id: storyId, key: itemHeader.key } : null}
+                        canResume={stoppedOn?.sessionId === sessionId}
+                        onOpenStory={itemHeader && storyId ? () => openStory(itemHeader.projectId, storyId) : null}
+                      />
+                    ) : (
+                      terminalInfo && <TerminalRow info={terminalInfo} />
+                    )}
+
+                    {stopWarning && <StopWarningNotice warning={stopWarning} />}
+
+                    {footerRequests.length > 0 && (
+                      <div className="mt-4">
+                        <PermissionRequestCard
+                          variant="feed"
+                          requests={footerRequests}
+                          onAnswer={handleAnswer}
+                          onAnswerQuestion={handleAnswerQuestion}
+                        />
+                      </div>
+                    )}
+
+                    <div ref={tailRef} />
+                  </div>
+                </RequestInCard.Provider>
+              </div>
+            )}
+            {showStop && status === "running" && pendingRequests.length === 0 && (
+              <SessionFloor
+                doing={
+                  liveRow && liveRow.kind === "tool_call"
+                    ? toolCallLabel(liveRow.toolName, liveRow.input, { live: true, root })
+                    : null
+                }
+                lastActivityAt={lastActivityAt}
+              />
+            )}
           </div>
-          </RequestInCard.Provider>
-        </div>
-      )}
-      {showStop && status === "running" && pendingRequests.length === 0 && (
-        <SessionFloor
-          doing={liveRow && liveRow.kind === "tool_call" ? toolCallLabel(liveRow.toolName, liveRow.input, { live: true, root }) : null}
-          lastActivityAt={lastActivityAt}
-        />
-      )}
-      </div>
-      </section>
+        </section>
       </div>
     </div>
   );

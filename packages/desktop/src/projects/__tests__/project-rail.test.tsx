@@ -94,9 +94,7 @@ describe("ProjectRail", () => {
   });
 
   it("renders the switcher chrome once at least one project is registered", () => {
-    renderWithClient(
-      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
-    );
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
     expect(screen.getByRole("navigation", { name: "Projects" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Flywheel" })).toBeInTheDocument();
   });
@@ -116,9 +114,7 @@ describe("ProjectRail", () => {
     // (`ProjectRail.tsx`'s own comment on the choice) — strip it before the exact-text match so
     // this assertion still reads the DOM as showing the literal word, exactly as a sighted user
     // sees it and exactly as the button's own `aria-label` (asserted above) already states it.
-    const unreachableLabel = within(entry).getByText(
-      (content) => content.replace(/\u00AD/gi, "") === "Unreachable",
-    );
+    const unreachableLabel = within(entry).getByText((content) => content.replace(/\u00AD/gi, "") === "Unreachable");
     expect(unreachableLabel).toBeInTheDocument();
     // The warning glyph is an `aria-hidden` icon — its presence is asserted via the accessible
     // name above (which only reads "Unreachable" because of it) plus a real SVG in the DOM,
@@ -129,9 +125,7 @@ describe("ProjectRail", () => {
 
 describe("ProjectRail's Fleet entry point (Phase 10, D-163)", () => {
   it("renders the Fleet row as a button that opens the fleet surface", () => {
-    renderWithClient(
-      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
-    );
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
     const fleetGroup = screen.getByRole("group", { name: "Fleet" });
     const row = within(fleetGroup).getByRole("button", { name: "Open fleet" });
     expect(row.tagName).toBe("BUTTON");
@@ -143,9 +137,7 @@ describe("ProjectRail's Fleet entry point (Phase 10, D-163)", () => {
 
 describe("ProjectRail's Worktrees entry point (Phase 10 plan 10-08, WORK-07)", () => {
   it("renders the Worktrees row as a button that opens the inventory", () => {
-    renderWithClient(
-      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
-    );
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
     const fleetGroup = screen.getByRole("group", { name: "Fleet" });
     const row = within(fleetGroup).getByRole("button", { name: "Open worktree inventory" });
     expect(row.tagName).toBe("BUTTON");
@@ -157,9 +149,7 @@ describe("ProjectRail's Worktrees entry point (Phase 10 plan 10-08, WORK-07)", (
 
 describe("ProjectRail's Waiting on you row (#57, docs/mvp-spec.md §4.1)", () => {
   it("puts Waiting on you at the top of the sidebar, above the projects, as a button that opens the queue", () => {
-    renderWithClient(
-      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
-    );
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
     const groups = screen.getAllByRole("group").map((g) => g.getAttribute("aria-labelledby"));
     expect(groups[0]).toBe("rail-waiting");
     const group = screen.getByRole("group", { name: "Waiting on you" });
@@ -170,9 +160,7 @@ describe("ProjectRail's Waiting on you row (#57, docs/mvp-spec.md §4.1)", () =>
   });
 
   it("never words it Blocked", () => {
-    renderWithClient(
-      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
-    );
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
     expect(screen.queryByText("Blocked")).toBeNull();
   });
 
@@ -197,7 +185,14 @@ describe("ProjectRail's Waiting on you row (#57, docs/mvp-spec.md §4.1)", () =>
   it("counts a shaping Round a live session waits on beside the requests, in its project too (issue #124)", async () => {
     fleetBlockedQueueMock.mockResolvedValue([{ requestId: "r1", projectId: "proj-1" }]);
     fleetWaitingRoundsMock.mockResolvedValue([
-      { roundId: "round-1", roundNumber: 2, projectId: "proj-2", epicId: "e-8", epicKey: "OTH-8", epicTitle: "Epic shaping" },
+      {
+        roundId: "round-1",
+        roundNumber: 2,
+        projectId: "proj-2",
+        epicId: "e-8",
+        epicKey: "OTH-8",
+        epicTitle: "Epic shaping",
+      },
     ]);
     renderWithClient(
       <ProjectRail
@@ -209,27 +204,36 @@ describe("ProjectRail's Waiting on you row (#57, docs/mvp-spec.md §4.1)", () =>
     const row = await screen.findByRole("button", { name: "Open Waiting on you, 2 waiting" });
     expect(row.querySelector('[data-count="waiting"]')).toHaveTextContent("2");
     // The badge and the rows under the project agree: the Round has its row, which opens its Epic.
-    fireEvent.click(await screen.findByRole("button", { name: "Open Epic OTH-8 Epic shaping, Round 2 Waiting on you" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open Epic OTH-8 Epic shaping, Round 2 Waiting on you" }),
+    );
     expect(useUiStore.getState().currentEpicId).toBe("e-8");
   });
 
   it("shows no figure at all when nothing is waiting", async () => {
-    renderWithClient(
-      <ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />,
-    );
+    renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
     await waitFor(() => expect(fleetBlockedQueueMock).toHaveBeenCalled());
     expect(document.querySelector('[data-count="waiting"]')).toBeNull();
   });
-
 });
 
 /** One Needs-you item, as `needs_you_list` returns it (issue #156). */
 function needsYouItem(kind: string, id: string, extra: Record<string, unknown> = {}) {
   return {
-    kind, rank: 1, id, since: "2026-10-20T10:00:00Z",
+    kind,
+    rank: 1,
+    id,
+    since: "2026-10-20T10:00:00Z",
     record: { kind: "story", id: `s-${id}`, key: `FLY-${id}`, title: `Story ${id}`, state: null },
-    sessionId: null, request: null, endingReason: null, missingWorktree: false, doingTaskTitle: null,
-    exitTest: null, milestoneTitle: null, round: null, ...extra,
+    sessionId: null,
+    request: null,
+    endingReason: null,
+    missingWorktree: false,
+    doingTaskTitle: null,
+    exitTest: null,
+    milestoneTitle: null,
+    round: null,
+    ...extra,
   };
 }
 
@@ -466,9 +470,25 @@ describe("ProjectRail's running sessions per project (#58)", () => {
   it("lists each project's live sessions under that project, and no finished one", async () => {
     fleetListMock.mockResolvedValue({
       rows: [
-        fleetRow({ sessionId: "r-blocked", projectId: "proj-2", storyId: "s-2", storyKey: "THF-2", storyTitle: "Second", fleetState: "blocked", runStatus: "blocked" }),
+        fleetRow({
+          sessionId: "r-blocked",
+          projectId: "proj-2",
+          storyId: "s-2",
+          storyKey: "THF-2",
+          storyTitle: "Second",
+          fleetState: "blocked",
+          runStatus: "blocked",
+        }),
         fleetRow({ sessionId: "r-run", storyKey: "FLY-1", storyTitle: "First", doingTaskTitle: "Write the query" }),
-        fleetRow({ sessionId: "r-done", storyId: "s-3", storyKey: "FLY-3", storyTitle: "Finished", storyState: "in_review", fleetState: "awaiting_review", runStatus: "completed" }),
+        fleetRow({
+          sessionId: "r-done",
+          storyId: "s-3",
+          storyKey: "FLY-3",
+          storyTitle: "Finished",
+          storyState: "in_review",
+          fleetState: "awaiting_review",
+          runStatus: "completed",
+        }),
       ],
       totalRows: 3,
       visibleCostUsd: null,
@@ -482,14 +502,16 @@ describe("ProjectRail's running sessions per project (#58)", () => {
     );
     const flywheel = await screen.findByRole("list", { name: "Flywheel running sessions" });
     const threadfin = screen.getByRole("list", { name: "Threadfin running sessions" });
-    expect(within(flywheel).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
-      "Open Story FLY-1 First, doing Write the query",
-      "Open FLY-1 First session",
-    ]);
-    expect(within(threadfin).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
-      "Open Story THF-2 Second",
-      "Open THF-2 Second session",
-    ]);
+    expect(
+      within(flywheel)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label")),
+    ).toEqual(["Open Story FLY-1 First, doing Write the query", "Open FLY-1 First session"]);
+    expect(
+      within(threadfin)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label")),
+    ).toEqual(["Open Story THF-2 Second", "Open THF-2 Second session"]);
     expect(screen.queryByText("FLY-3")).not.toBeInTheDocument();
     // The session waiting on you is flagged by the hand named Waiting on you, never "Blocked"; the busy one is not.
     expect(within(threadfin).getByRole("img", { name: "Waiting on you" })).toBeInTheDocument();
@@ -500,7 +522,16 @@ describe("ProjectRail's running sessions per project (#58)", () => {
     fleetListMock.mockResolvedValue({
       rows: [
         fleetRow({ sessionId: "r-run", storyKey: "FLY-1", storyTitle: "First" }),
-        fleetRow({ sessionId: "r-dead", storyId: "s-7", storyKey: "FLY-7", storyTitle: "Halted", storyState: "running", fleetState: "interrupted", runStatus: "interrupted", endedAt: new Date().toISOString() }),
+        fleetRow({
+          sessionId: "r-dead",
+          storyId: "s-7",
+          storyKey: "FLY-7",
+          storyTitle: "Halted",
+          storyState: "running",
+          fleetState: "interrupted",
+          runStatus: "interrupted",
+          endedAt: new Date().toISOString(),
+        }),
       ],
       totalRows: 2,
       visibleCostUsd: null,
@@ -508,11 +539,11 @@ describe("ProjectRail's running sessions per project (#58)", () => {
     renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
     const list = await screen.findByRole("list", { name: "Flywheel running sessions" });
     await waitFor(() =>
-      expect(within(list).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
-        "Open Story FLY-1 First",
-        "Open FLY-1 First session",
-        "Open Story FLY-7 Halted, Stopped",
-      ]),
+      expect(
+        within(list)
+          .getAllByRole("button")
+          .map((b) => b.getAttribute("aria-label")),
+      ).toEqual(["Open Story FLY-1 First", "Open FLY-1 First session", "Open Story FLY-7 Halted, Stopped"]),
     );
     expect(within(list).getByRole("img", { name: "Stopped" })).toBeInTheDocument();
   });
@@ -520,7 +551,15 @@ describe("ProjectRail's running sessions per project (#58)", () => {
   it("flags a session from the derived fleet state, not its stored status", async () => {
     // Stored as blocked but holding nothing: the core reads it as running.
     fleetListMock.mockResolvedValue({
-      rows: [fleetRow({ sessionId: "r-1", storyKey: "FLY-1", storyTitle: "First", fleetState: "running", runStatus: "blocked" })],
+      rows: [
+        fleetRow({
+          sessionId: "r-1",
+          storyKey: "FLY-1",
+          storyTitle: "First",
+          fleetState: "running",
+          runStatus: "blocked",
+        }),
+      ],
       totalRows: 1,
       visibleCostUsd: null,
     });
@@ -554,7 +593,9 @@ describe("ProjectRail's running sessions per project (#58)", () => {
 describe("the sidebar's click model and current place (issue #104)", () => {
   it("a running row opens its Story, never its session", async () => {
     fleetListMock.mockResolvedValue({
-      rows: [fleetRow({ sessionId: "r-run", projectId: "proj-1", storyId: "s-1", storyKey: "FLY-1", storyTitle: "First" })],
+      rows: [
+        fleetRow({ sessionId: "r-run", projectId: "proj-1", storyId: "s-1", storyKey: "FLY-1", storyTitle: "First" }),
+      ],
       totalRows: 1,
       visibleCostUsd: null,
     });
@@ -577,7 +618,10 @@ describe("the sidebar's click model and current place (issue #104)", () => {
     useUiStore.setState({ currentProjectId: "proj-1", activeSessionId: "r-2", activeSessionStoryId: "s-2" });
     renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
     expect(screen.getByRole("button", { name: "Flywheel" })).toHaveAttribute("aria-current", "true");
-    expect(await screen.findByRole("button", { name: "Open Story FLY-2 Second" })).toHaveAttribute("aria-current", "location");
+    expect(await screen.findByRole("button", { name: "Open Story FLY-2 Second" })).toHaveAttribute(
+      "aria-current",
+      "location",
+    );
     expect(screen.getByRole("button", { name: "Open FLY-2 Second session" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Open Story FLY-1 First" })).not.toHaveAttribute("aria-current");
   });
@@ -596,7 +640,10 @@ describe("the sidebar's click model and current place (issue #104)", () => {
     });
     useUiStore.setState({ currentProjectId: "proj-1", currentStoryId: "s-9" });
     renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
-    expect(await screen.findByRole("button", { name: "Open Story FLY-9 Quiet" })).toHaveAttribute("aria-current", "location");
+    expect(await screen.findByRole("button", { name: "Open Story FLY-9 Quiet" })).toHaveAttribute(
+      "aria-current",
+      "location",
+    );
   });
 });
 
@@ -605,7 +652,9 @@ describe("the rail raises where the developer is, whichever project that is (iss
 
   it("with another project's live session open, raises that project and that Story", async () => {
     fleetListMock.mockResolvedValue({
-      rows: [fleetRow({ sessionId: "r-2", projectId: "proj-2", storyId: "s-2", storyKey: "THF-2", storyTitle: "Second" })],
+      rows: [
+        fleetRow({ sessionId: "r-2", projectId: "proj-2", storyId: "s-2", storyKey: "THF-2", storyTitle: "Second" }),
+      ],
       totalRows: 1,
       visibleCostUsd: null,
     });
@@ -651,13 +700,23 @@ describe("the rail raises where the developer is, whichever project that is (iss
 
   it("with another project's Story open, raises that project and that Story", async () => {
     storyGetMock.mockResolvedValue({
-      id: "s-5", projectId: "proj-2", epicId: "e1", key: "THF-5", title: "Quiet",
-      description: null, state: "ready", runsAfterStoryId: null, rank: "a",
+      id: "s-5",
+      projectId: "proj-2",
+      epicId: "e1",
+      key: "THF-5",
+      title: "Quiet",
+      description: null,
+      state: "ready",
+      runsAfterStoryId: null,
+      rank: "a",
     });
     useUiStore.getState().openStory("proj-2", "s-5");
     renderWithClient(<ProjectRail projects={two} currentProjectId="proj-2" onSelect={() => {}} />);
     expect(screen.getByRole("button", { name: "Threadfin" })).toHaveAttribute("aria-current", "true");
-    expect(await screen.findByRole("button", { name: "Open Story THF-5 Quiet" })).toHaveAttribute("aria-current", "location");
+    expect(await screen.findByRole("button", { name: "Open Story THF-5 Quiet" })).toHaveAttribute(
+      "aria-current",
+      "location",
+    );
   });
 });
 
@@ -698,7 +757,15 @@ describe("the rail's All agents figure is the strip's agent count (issues #199, 
       visibleCostUsd: null,
     });
     fleetWaitingRoundsMock.mockResolvedValue([
-      { roundId: "round-1", roundNumber: 2, sessionId: "shaping-1", projectId: "proj-1", epicId: "e-8", epicKey: "FLY-8", epicTitle: "Epic shaping" },
+      {
+        roundId: "round-1",
+        roundNumber: 2,
+        sessionId: "shaping-1",
+        projectId: "proj-1",
+        epicId: "e-8",
+        epicKey: "FLY-8",
+        epicTitle: "Epic shaping",
+      },
     ]);
     renderWithClient(<ProjectRail projects={[project({})]} currentProjectId="proj-1" onSelect={() => {}} />);
     const fleet = screen.getByRole("button", { name: "Open fleet" });

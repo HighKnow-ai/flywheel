@@ -49,7 +49,11 @@ function fileKey(file: ReviewFileDto): string {
 function PatchView({ path, patch }: { path: string; patch: string }) {
   const file = useMemo(() => parseDiff(patch)[0], [patch]);
   if (!file || file.hunks.length === 0) {
-    return <p className="m-0 px-3 py-2 text-meta text-muted-foreground">No line changes: only the file's mode or name changed.</p>;
+    return (
+      <p className="m-0 px-3 py-2 text-meta text-muted-foreground">
+        No line changes: only the file's mode or name changed.
+      </p>
+    );
   }
   return (
     <div role="group" aria-label={`Diff of ${path}`} className="review-diff overflow-x-auto">
@@ -65,7 +69,17 @@ function PatchView({ path, patch }: { path: string; patch: string }) {
   );
 }
 
-function FilePatch({ projectId, storyId, headSha, file }: { projectId: string; storyId: string; headSha: string | null; file: ReviewFileDto }) {
+function FilePatch({
+  projectId,
+  storyId,
+  headSha,
+  file,
+}: {
+  projectId: string;
+  storyId: string;
+  headSha: string | null;
+  file: ReviewFileDto;
+}) {
   const query = useQuery({
     queryKey: ["board", projectId, "review", storyId, "patch", headSha, file.oldPath, file.path],
     queryFn: () => reviewFilePatch(storyId, file.path, file.oldPath),
@@ -92,7 +106,9 @@ function FilePatch({ projectId, storyId, headSha, file }: { projectId: string; s
 }
 
 function LineCounts({ file }: { file: ReviewFileDto }) {
-  return <span className="shrink-0 font-mono text-meta tabular-nums text-muted-foreground">{`+${file.added ?? 0} −${file.removed ?? 0}`}</span>;
+  return (
+    <span className="shrink-0 font-mono text-meta tabular-nums text-muted-foreground">{`+${file.added ?? 0} −${file.removed ?? 0}`}</span>
+  );
 }
 
 const ROW_HEADER = "flex w-full min-w-0 items-center gap-2 bg-muted px-3 py-1.5 text-left";
@@ -166,7 +182,15 @@ function FileRow({
  * The file index: one line per changed file, two columns once the card is wide enough. An entry opens its
  * file, scrolls it to the top and gives its header the focus, so the keyboard lands where the eye does.
  */
-function FileIndex({ files, rowId, onGo }: { files: ReviewFileDto[]; rowId: (index: number) => string; onGo: (index: number) => void }) {
+function FileIndex({
+  files,
+  rowId,
+  onGo,
+}: {
+  files: ReviewFileDto[];
+  rowId: (index: number) => string;
+  onGo: (index: number) => void;
+}) {
   return (
     <nav aria-label="File index">
       <ul className="m-0 grid min-w-0 list-none grid-cols-1 gap-x-4 p-0 @2xl:grid-cols-2">
@@ -239,7 +263,12 @@ export function ReviewFiles({
       <div className="flex min-w-0 items-center gap-2">
         <h3 className="m-0 text-small font-semibold">{label}</h3>
         {openable.length > 1 && (
-          <Button variant="ghost" size="xs" className="ml-auto" onClick={() => setOpen(new Set(allOpen ? [] : openable))}>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="ml-auto"
+            onClick={() => setOpen(new Set(allOpen ? [] : openable))}
+          >
             {allOpen ? <ChevronsDownUp aria-hidden="true" /> : <ChevronsUpDown aria-hidden="true" />}
             {allOpen ? "Collapse all" : "Expand all"}
           </Button>

@@ -94,7 +94,9 @@ afterEach(() => {
 
 describe("spend cell", () => {
   it("is empty text for a running row, never $0.00", async () => {
-    fleetListMock.mockResolvedValue(list([row({ sessionId: "live", costUsd: null }), completed("done", { costUsd: 1.25 })]));
+    fleetListMock.mockResolvedValue(
+      list([row({ sessionId: "live", costUsd: null }), completed("done", { costUsd: 1.25 })]),
+    );
     const { container } = renderFleet();
     await screen.findByText("Dismiss");
     expect(spendOf(container, "live").textContent).toBe("");
@@ -110,7 +112,9 @@ describe("spend cell", () => {
   });
 
   it("is empty even if a live row somehow carried a cost", async () => {
-    fleetListMock.mockResolvedValue(list([row({ sessionId: "live", costUsd: 0.5 }), completed("done", { costUsd: 1.25 })]));
+    fleetListMock.mockResolvedValue(
+      list([row({ sessionId: "live", costUsd: 0.5 }), completed("done", { costUsd: 1.25 })]),
+    );
     const { container } = renderFleet();
     await screen.findByText("Dismiss");
     expect(spendOf(container, "live").textContent).toBe("");

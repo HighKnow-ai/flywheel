@@ -131,14 +131,22 @@ describe("the face: Public Sans, self-hosted, with tabular numerals", () => {
   });
 
   it("ships a tabular-figures (tnum) feature in the latin file the app loads", () => {
-    const file = readFileSync(DESKTOP + "node_modules/@fontsource-variable/public-sans/files/public-sans-latin-wght-normal.woff2");
+    const file = readFileSync(
+      DESKTOP + "node_modules/@fontsource-variable/public-sans/files/public-sans-latin-wght-normal.woff2",
+    );
     expect(woff2Tables(file)).toContain("GSUB");
     expect(woff2Sfnt(file).includes("tnum"), "the GSUB feature list names tnum").toBe(true);
   });
 
   it("turns tabular numerals on for the shared utility, and counts and times use it", () => {
     expect(GLOBALS).toMatch(/\.tabular-nums \{\s*font-variant-numeric: tabular-nums lining-nums;/);
-    for (const file of ["board/MilestoneHeader.tsx", "board/EpicProgress.tsx", "shell/AndonStrip.tsx", "session/FeedRow.tsx", "projects/ProjectRail.tsx"]) {
+    for (const file of [
+      "board/MilestoneHeader.tsx",
+      "board/EpicProgress.tsx",
+      "shell/AndonStrip.tsx",
+      "session/FeedRow.tsx",
+      "projects/ProjectRail.tsx",
+    ]) {
       expect(text(SRC + file), `${file} sets its counts or times in tabular figures`).toMatch(/tabular-nums/);
     }
   });
@@ -148,11 +156,69 @@ describe("the face: Public Sans, self-hosted, with tabular numerals", () => {
 
 /** The spec's known-table index (§5.1): a table's flags byte names its tag by position here. */
 const KNOWN_TAGS = [
-  "cmap", "head", "hhea", "hmtx", "maxp", "name", "OS/2", "post", "cvt ", "fpgm", "glyf", "loca", "prep", "CFF ",
-  "VORG", "EBDT", "EBLC", "gasp", "hdmx", "kern", "LTSH", "PCLT", "VDMX", "vhea", "vmtx", "BASE", "GDEF", "GPOS",
-  "GSUB", "EBSC", "JSTF", "MATH", "CBDT", "CBLC", "COLR", "CPAL", "SVG ", "sbix", "acnt", "avar", "bdat", "bloc",
-  "bsln", "cvar", "fdsc", "feat", "fmtx", "fvar", "gvar", "hsty", "just", "lcar", "mort", "morx", "opbd", "prop",
-  "trak", "Zapf", "Silf", "Glat", "Gloc", "Feat", "Sill",
+  "cmap",
+  "head",
+  "hhea",
+  "hmtx",
+  "maxp",
+  "name",
+  "OS/2",
+  "post",
+  "cvt ",
+  "fpgm",
+  "glyf",
+  "loca",
+  "prep",
+  "CFF ",
+  "VORG",
+  "EBDT",
+  "EBLC",
+  "gasp",
+  "hdmx",
+  "kern",
+  "LTSH",
+  "PCLT",
+  "VDMX",
+  "vhea",
+  "vmtx",
+  "BASE",
+  "GDEF",
+  "GPOS",
+  "GSUB",
+  "EBSC",
+  "JSTF",
+  "MATH",
+  "CBDT",
+  "CBLC",
+  "COLR",
+  "CPAL",
+  "SVG ",
+  "sbix",
+  "acnt",
+  "avar",
+  "bdat",
+  "bloc",
+  "bsln",
+  "cvar",
+  "fdsc",
+  "feat",
+  "fmtx",
+  "fvar",
+  "gvar",
+  "hsty",
+  "just",
+  "lcar",
+  "mort",
+  "morx",
+  "opbd",
+  "prop",
+  "trak",
+  "Zapf",
+  "Silf",
+  "Glat",
+  "Gloc",
+  "Feat",
+  "Sill",
 ];
 
 const latin1 = (bytes: Uint8Array): string => String.fromCharCode(...bytes);

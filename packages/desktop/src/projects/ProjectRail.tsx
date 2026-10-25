@@ -96,7 +96,13 @@ import { cn } from "@/lib/utils";
 import { useRegisterProjectFlow, useRegistrationErrorToast } from "./RegisterProjectFlow";
 import { agentCount, lampsFromFleet } from "../shell/AndonStrip";
 import { useUiStore } from "../state/uiStore";
-import { isRoundHere, useOpenWaitingRound, usePlaceBoardId, usePlaceShapingId, waitingRoundWords } from "../fleet/waitingRound";
+import {
+  isRoundHere,
+  useOpenWaitingRound,
+  usePlaceBoardId,
+  usePlaceShapingId,
+  waitingRoundWords,
+} from "../fleet/waitingRound";
 
 /** The rail's width, open and folded to icons (issue #200): 248px open, a 56px column of 36px icon rows. */
 const RAIL_WIDTH = "248px";
@@ -260,7 +266,11 @@ function RunningSessions({
       : null;
   if (sessions.length === 0 && stopped.length === 0 && rounds.length === 0 && !extraStory) return null;
   return (
-    <SidebarMenuSub role="list" aria-label={`${projectName} running sessions`} className="mx-0 ml-4 mr-0 gap-0.5 px-1.5 py-1">
+    <SidebarMenuSub
+      role="list"
+      aria-label={`${projectName} running sessions`}
+      className="mx-0 ml-4 mr-0 gap-0.5 px-1.5 py-1"
+    >
       {/* A shaping Round a live session is held on: Waiting on you, so it leads, and it opens its Epic. */}
       {rounds.map((round) => {
         const words = waitingRoundWords(round);
@@ -269,7 +279,9 @@ function RunningSessions({
             <StoryRowButton
               story={{ id: round.epicId ?? round.milestoneId ?? round.roundId, key: words.key, title: words.title }}
               detail={`${words.shortRound} · Waiting on you`}
-              tile={<StateBadge state="waiting_on_you" hideLabel className="size-5 justify-center p-0 [&>svg]:size-3.5" />}
+              tile={
+                <StateBadge state="waiting_on_you" hideLabel className="size-5 justify-center p-0 [&>svg]:size-3.5" />
+              }
               here={isRoundHere(round, placeBoardId, placeShapingId)}
               ariaLabel={`Open ${words.record}, ${words.round} Waiting on you`}
               hint={`${words.record}: ${words.round} waiting on you`}
@@ -585,7 +597,11 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
               <SidebarMenuItem>
                 <SidebarMenuButton
                   aria-label="Open worktree inventory"
-                  tooltip={rowTooltip("Worktrees", "Every Story worktree across every project, with its disk usage", collapsed)}
+                  tooltip={rowTooltip(
+                    "Worktrees",
+                    "Every Story worktree across every project, with its disk usage",
+                    collapsed,
+                  )}
                   aria-current={worktreeInventoryOpen ? "page" : undefined}
                   onClick={() => setWorktreeInventoryOpen(true)}
                   className={cn(rowClass, worktreeInventoryOpen && currentClass)}
@@ -635,7 +651,10 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
                         <TriangleAlert aria-hidden="true" className="mt-0.5 self-start text-destructive-text" />
                       ) : (
                         <>
-                          <Folder aria-hidden="true" className="mt-0.5 self-start group-data-[collapsible=icon]:hidden" />
+                          <Folder
+                            aria-hidden="true"
+                            className="mt-0.5 self-start group-data-[collapsible=icon]:hidden"
+                          />
                           {/* Folded to icons, the project shows its key prefix: every row a folder would be the same. */}
                           <span
                             aria-hidden="true"

@@ -23,7 +23,8 @@ async function bigBoard() {
   installStressBackend();
   useUiStore.getState().setCurrentProjectId(BIG);
   const root =
-    document.getElementById("root") ?? document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
+    document.getElementById("root") ??
+    document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
   render(<App />, { container: root });
   await waitFor(() => {
     if (!document.body.textContent?.includes(STRESS.BIG_NAME)) throw new Error("the big project is not on screen yet");

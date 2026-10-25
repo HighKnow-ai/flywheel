@@ -20,10 +20,7 @@ import type { Project } from "../board/useBoardQuery";
 /**
  * Invoke a Tauri command and return its typed result.
  */
-export async function invokeCommand<TResult>(
-  command: string,
-  args?: Record<string, unknown>,
-): Promise<TResult> {
+export async function invokeCommand<TResult>(command: string, args?: Record<string, unknown>): Promise<TResult> {
   return invoke<TResult>(command, args);
 }
 
@@ -45,9 +42,7 @@ export interface BoardChangedPayload {
  * must never trust its own optimistic write as the source of truth. The typed payload names
  * the project the change happened in, so a handler can leave other projects' views alone.
  */
-export async function subscribeBoardChanged(
-  handler: (payload: BoardChangedPayload) => void,
-): Promise<UnlistenFn> {
+export async function subscribeBoardChanged(handler: (payload: BoardChangedPayload) => void): Promise<UnlistenFn> {
   return listen<BoardChangedPayload>("board:changed", (event) => handler(event.payload));
 }
 
@@ -1284,11 +1279,7 @@ export interface LogWindowDto {
   total: number;
 }
 
-export async function sessionLogWindow(
-  sessionId: string,
-  offset: number,
-  limit: number,
-): Promise<LogWindowDto> {
+export async function sessionLogWindow(sessionId: string, offset: number, limit: number): Promise<LogWindowDto> {
   return invokeCommand<LogWindowDto>("session_log_window", {
     sessionId,
     offset,
@@ -1312,11 +1303,7 @@ export interface RawLogWindowDto {
   total: number;
 }
 
-export async function sessionRawWindow(
-  sessionId: string,
-  offset: number,
-  limit: number,
-): Promise<RawLogWindowDto> {
+export async function sessionRawWindow(sessionId: string, offset: number, limit: number): Promise<RawLogWindowDto> {
   return invokeCommand<RawLogWindowDto>("session_raw_window", {
     sessionId,
     offset,
@@ -1346,11 +1333,7 @@ export interface RunSummaryDto {
 }
 
 /** `storyId`'s agent runs, newest first, bounded. Read-only. Thin wrapper over `sessions_for_story`. */
-export async function sessionsForStory(
-  storyId: string,
-  limit?: number,
-  offset?: number,
-): Promise<RunSummaryDto[]> {
+export async function sessionsForStory(storyId: string, limit?: number, offset?: number): Promise<RunSummaryDto[]> {
   return invokeCommand<RunSummaryDto[]>("sessions_for_story", { storyId, limit, offset });
 }
 
@@ -1480,10 +1463,7 @@ export async function openCommandTemplate(surface: WorktreeOpenSurface): Promise
 }
 
 /** Set `surface`'s stored open-command template (D-130). Rejects an empty template. */
-export async function setOpenCommandTemplate(
-  surface: WorktreeOpenSurface,
-  template: string,
-): Promise<void> {
+export async function setOpenCommandTemplate(surface: WorktreeOpenSurface, template: string): Promise<void> {
   await invokeCommand<void>("set_open_command_template", { surface, template });
 }
 
@@ -1516,9 +1496,7 @@ export async function gitIdentifierResolve(raw: string): Promise<GitIdentityOutc
  * (D-32) — the session surface invalidates its windowed read on this, never trusting a streamed
  * event as already-persisted.
  */
-export async function subscribeAgentEvent(
-  handler: (event: Record<string, unknown>) => void,
-): Promise<UnlistenFn> {
+export async function subscribeAgentEvent(handler: (event: Record<string, unknown>) => void): Promise<UnlistenFn> {
   return listen<Record<string, unknown>>("agent:event", (event) => handler(event.payload));
 }
 

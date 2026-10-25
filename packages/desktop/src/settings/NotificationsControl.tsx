@@ -18,7 +18,9 @@ export function NotificationsControl({ settings, onChanged }: { settings: Settin
     onError: (error) => notify.error("Couldn't change notifications", { error }),
     onSettled: onChanged,
   });
-  const checked = mutation.isPending ? (mutation.variables ?? settings.notificationsEnabled) : settings.notificationsEnabled;
+  const checked = mutation.isPending
+    ? (mutation.variables ?? settings.notificationsEnabled)
+    : settings.notificationsEnabled;
   return (
     <Field orientation="horizontal">
       <FieldContent>

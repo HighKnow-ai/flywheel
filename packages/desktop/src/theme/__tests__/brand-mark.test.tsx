@@ -45,7 +45,9 @@ const SURFACES = {
   rail: () =>
     withClient(
       <ProjectRail
-        projects={[{ id: "p1", keyPrefix: "FLY", name: "Flywheel", repoPath: "/r", defaultBranch: "main", status: "active" }]}
+        projects={[
+          { id: "p1", keyPrefix: "FLY", name: "Flywheel", repoPath: "/r", defaultBranch: "main", status: "active" },
+        ]}
         currentProjectId="p1"
         onSelect={() => {}}
       />,

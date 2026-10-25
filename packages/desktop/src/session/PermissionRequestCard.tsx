@@ -266,7 +266,9 @@ function PermissionRequestRow({
   const patternId = useId();
   const [editorOpen, setEditorOpen] = useState(false);
   const isGated = request.destructiveCategory !== null;
-  const consequenceCopy = isGated ? consequenceCopyFor(request.destructiveCategory as string, request.inputPayload) : null;
+  const consequenceCopy = isGated
+    ? consequenceCopyFor(request.destructiveCategory as string, request.inputPayload)
+    : null;
   // A Bash call shows the literal command it would run; any other tool shows its raw input.
   const literal = commandFromPayload(request.inputPayload) ?? request.inputPayload ?? "";
 
@@ -543,11 +545,17 @@ function QuestionRequestRow({
       ariaLabel="The agent has a question"
       card="question"
       icon={<MessageCircleQuestionMark />}
-      title={questions.length > 1 ? `The agent asks you ${questions.length} questions` : "The agent asks you a question"}
+      title={
+        questions.length > 1 ? `The agent asks you ${questions.length} questions` : "The agent asks you a question"
+      }
       aside="The session waits until you answer"
     >
       {onAnswerQuestion ? (
-        <QuestionForm questions={questions} onSubmit={(picks) => onAnswerQuestion(request.id, picks)} draftKey={request.id} />
+        <QuestionForm
+          questions={questions}
+          onSubmit={(picks) => onAnswerQuestion(request.id, picks)}
+          draftKey={request.id}
+        />
       ) : (
         questions.map((q, i) => (
           <p key={i} className="m-0 text-body break-words">

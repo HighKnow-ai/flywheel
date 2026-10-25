@@ -68,13 +68,21 @@ describe("board:changed routing", () => {
   it("an event for the viewed project invalidates that project's board and epics keys", async () => {
     const spy = mount();
     await fire({ projectId: VIEWED, entity: "story", id: "s1" });
-    expect(keys(spy)).toEqual(expect.arrayContaining([["board", VIEWED], ["epics", VIEWED]]));
+    expect(keys(spy)).toEqual(
+      expect.arrayContaining([
+        ["board", VIEWED],
+        ["epics", VIEWED],
+      ]),
+    );
   });
 
   it("an event for the viewed project touches no other project's keys and no bare prefix", async () => {
     const spy = mount();
     await fire({ projectId: VIEWED, entity: "story", id: "s1" });
-    expect(keys(spy)).toEqual([["board", VIEWED], ["epics", VIEWED]]);
+    expect(keys(spy)).toEqual([
+      ["board", VIEWED],
+      ["epics", VIEWED],
+    ]);
   });
 
   it("an event for a different project invalidates nothing at all", async () => {
@@ -103,11 +111,11 @@ describe("board:changed routing", () => {
 
   it("two events for the viewed project in one window invalidate each key once", async () => {
     const spy = mount();
-    await fire(
-      { projectId: VIEWED, entity: "story", id: "s1" },
-      { projectId: VIEWED, entity: "story", id: "s2" },
-    );
-    expect(keys(spy)).toEqual([["board", VIEWED], ["epics", VIEWED]]);
+    await fire({ projectId: VIEWED, entity: "story", id: "s1" }, { projectId: VIEWED, entity: "story", id: "s2" });
+    expect(keys(spy)).toEqual([
+      ["board", VIEWED],
+      ["epics", VIEWED],
+    ]);
   });
 
   it("an interleaved foreign event neither invalidates nor reorders the viewed project's events", async () => {
@@ -117,7 +125,10 @@ describe("board:changed routing", () => {
       { projectId: "project-b", entity: "story", id: "s9" },
       { projectId: VIEWED, entity: "epic", id: "e1" },
     );
-    expect(keys(spy)).toEqual([["board", VIEWED], ["epics", VIEWED]]);
+    expect(keys(spy)).toEqual([
+      ["board", VIEWED],
+      ["epics", VIEWED],
+    ]);
   });
 });
 
@@ -135,7 +146,10 @@ describe("coalescing at the measured rate (issue #195)", () => {
   it("folds a 19-event burst inside 100 ms into one invalidation per key", async () => {
     const spy = mount();
     await fire(...Array.from({ length: 19 }, (_, i) => ({ projectId: VIEWED, entity: "task", id: `t${i}` })));
-    expect(keys(spy)).toEqual([["board", VIEWED], ["epics", VIEWED]]);
+    expect(keys(spy)).toEqual([
+      ["board", VIEWED],
+      ["epics", VIEWED],
+    ]);
   });
 
   it("keeps every key of the window: a broadcast among routed events still broadcasts", async () => {
@@ -228,7 +242,9 @@ describe("useBoardChangedInvalidation — shared routing", () => {
 
   const DEBOUNCED_KEY = ["debounced", PROJ];
   const mountDebounced = () =>
-    mountWith(() => useBoardChangedInvalidation({ kind: "project", projectId: PROJ }, [DEBOUNCED_KEY], { coalesceMs: 1000 }));
+    mountWith(() =>
+      useBoardChangedInvalidation({ kind: "project", projectId: PROJ }, [DEBOUNCED_KEY], { coalesceMs: 1000 }),
+    );
 
   /** Fire, then let the 1s debounce window elapse. */
   async function fireAndFlush(...payloads: unknown[]) {
@@ -254,10 +270,7 @@ describe("useBoardChangedInvalidation — shared routing", () => {
 
   it("same-project events invalidate a debounced subscriber exactly once after the window", async () => {
     const spy = mountDebounced();
-    await fireAndFlush(
-      { projectId: PROJ, entity: "story", id: "s1" },
-      { projectId: PROJ, entity: "story", id: "s2" },
-    );
+    await fireAndFlush({ projectId: PROJ, entity: "story", id: "s1" }, { projectId: PROJ, entity: "story", id: "s2" });
     expect(keys(spy)).toEqual([DEBOUNCED_KEY]);
   });
 

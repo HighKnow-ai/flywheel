@@ -30,7 +30,14 @@ describe("PageHeader", () => {
   });
 
   it("has no folded-places menu with two crumbs or fewer", () => {
-    render(<PageHeader crumbs={[{ label: "Flywheel", onSelect: vi.fn() }, { label: "FLY-1", mono: true }]} />);
+    render(
+      <PageHeader
+        crumbs={[
+          { label: "Flywheel", onSelect: vi.fn() },
+          { label: "FLY-1", mono: true },
+        ]}
+      />,
+    );
     expect(screen.queryByRole("button", { name: "Show the folded places" })).toBeNull();
   });
 

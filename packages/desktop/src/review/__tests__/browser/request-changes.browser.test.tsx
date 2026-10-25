@@ -21,7 +21,8 @@ const requests: Record<string, unknown>[] = [];
 
 async function openReview() {
   const root =
-    document.getElementById("root") ?? document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
+    document.getElementById("root") ??
+    document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
   render(<App />, { container: root });
   await screen.findAllByText("Make clicking and navigation predictable");
   const open = await screen.findByRole("button", { name: "Open review of FLY-3" });
@@ -64,10 +65,15 @@ describe("Request changes in WebKit", () => {
     await waitFor(() => expect(within(card).getByRole("button", { name: "Request changes on FLY-3" })).toHaveFocus());
 
     await userEvent.click(within(card).getByRole("button", { name: "Request changes on FLY-3" }));
-    await userEvent.type(within(card).getByRole("textbox", { name: "What should change?" }), "Lift the subtle ink.{Enter}Record the lift.");
+    await userEvent.type(
+      within(card).getByRole("textbox", { name: "What should change?" }),
+      "Lift the subtle ink.{Enter}Record the lift.",
+    );
     await userEvent.click(within(card).getByRole("button", { name: "Send FLY-3 back to Running" }));
 
-    await waitFor(() => expect(requests).toEqual([{ storyId: "s-3", comments: "Lift the subtle ink.\nRecord the lift." }]));
+    await waitFor(() =>
+      expect(requests).toEqual([{ storyId: "s-3", comments: "Lift the subtle ink.\nRecord the lift." }]),
+    );
   });
 
   it("reads Rebase needed with the conflicting files and sends them back in the pre-filled comment", async () => {

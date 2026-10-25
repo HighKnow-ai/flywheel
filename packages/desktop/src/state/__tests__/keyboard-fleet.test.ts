@@ -84,9 +84,7 @@ describe("the fleet-surface layer", () => {
   });
 
   it("grants no binding on a, d or Shift+A in the fleet-surface region", () => {
-    const clash = BINDINGS.filter(
-      (b) => b.region === "fleet-surface" && (b.key === "a" || b.key === "d"),
-    );
+    const clash = BINDINGS.filter((b) => b.region === "fleet-surface" && (b.key === "a" || b.key === "d"));
     expect(clash).toEqual([]);
     const event = (key: string, shift = false) => ({ key, metaKey: false, shiftKey: shift, target: document.body });
     expect(resolveBinding(event("a"), "fleet-surface")).toBeUndefined();

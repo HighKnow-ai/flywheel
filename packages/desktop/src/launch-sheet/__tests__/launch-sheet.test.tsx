@@ -11,14 +11,12 @@ import { LaunchSheet } from "../LaunchSheet";
 const storyMock = vi.fn();
 const startMock = vi.fn();
 
-
 vi.mock("../../adapters/tauri", async () => {
   const actual = await vi.importActual<typeof import("../../adapters/tauri")>("../../adapters/tauri");
   return {
     ...actual,
     storyGet: (storyId: string) => storyMock(storyId),
-    startSession: (storyId: string, ...rest: unknown[]) =>
-      startMock(storyId, ...rest),
+    startSession: (storyId: string, ...rest: unknown[]) => startMock(storyId, ...rest),
     subscribeBoardChanged: () => Promise.resolve(() => {}),
   };
 });
@@ -73,7 +71,9 @@ describe("LaunchSheet", () => {
 
   it("offers no permission-mode choice and sends none: the session kind decides it (ADR 0001)", async () => {
     storyMock.mockReset().mockResolvedValue(makeStory());
-    startMock.mockReset().mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
+    startMock
+      .mockReset()
+      .mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
     await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
@@ -117,7 +117,9 @@ describe("LaunchSheet", () => {
 
   it("Enter with focus in the body submits", async () => {
     storyMock.mockReset().mockResolvedValue(makeStory());
-    startMock.mockReset().mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
+    startMock
+      .mockReset()
+      .mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
     await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
@@ -129,7 +131,9 @@ describe("LaunchSheet", () => {
 
   it("Enter with focus in the free-text field does not submit, but ⌘Enter does", async () => {
     storyMock.mockReset().mockResolvedValue(makeStory());
-    startMock.mockReset().mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
+    startMock
+      .mockReset()
+      .mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
     await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());
@@ -157,7 +161,9 @@ describe("LaunchSheet", () => {
 
   it("submitting with an empty instruction still calls the start command", async () => {
     storyMock.mockReset().mockResolvedValue(makeStory());
-    startMock.mockReset().mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
+    startMock
+      .mockReset()
+      .mockResolvedValue({ id: "run-1", storyId: "story-1", status: "running", permissionMode: "acceptEdits" });
     renderSheet();
 
     await waitFor(() => expect(screen.getByText("Start Work on FLY-42")).toBeInTheDocument());

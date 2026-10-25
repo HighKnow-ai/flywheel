@@ -163,15 +163,40 @@ function makeEvent(i: number) {
 }
 
 function makeToolCall(seq: number, toolName: string, input: unknown) {
-  return { runId: "run-1", seq, at: "2026-01-01T00:00:00.000Z", raw: `tool-${seq}`, type: "tool_call", toolName, input };
+  return {
+    runId: "run-1",
+    seq,
+    at: "2026-01-01T00:00:00.000Z",
+    raw: `tool-${seq}`,
+    type: "tool_call",
+    toolName,
+    input,
+  };
 }
 
 function makeToolResult(seq: number, toolName: string, output: unknown) {
-  return { runId: "run-1", seq, at: "2026-01-01T00:00:00.000Z", raw: `result-${seq}`, type: "tool_result", toolName, output };
+  return {
+    runId: "run-1",
+    seq,
+    at: "2026-01-01T00:00:00.000Z",
+    raw: `result-${seq}`,
+    type: "tool_result",
+    toolName,
+    output,
+  };
 }
 
 function makeSessionClosed(seq: number, reason: string, result?: { subtype: string }, detail?: string) {
-  return { runId: "run-1", seq, at: "2026-01-01T00:00:00.000Z", raw: `closed-${seq}`, type: "session_closed", reason, result, detail };
+  return {
+    runId: "run-1",
+    seq,
+    at: "2026-01-01T00:00:00.000Z",
+    raw: `closed-${seq}`,
+    type: "session_closed",
+    reason,
+    result,
+    detail,
+  };
 }
 
 const OVERSIZED_EVENT_MARKER = "OVERSIZED-END-MARKER";
@@ -199,7 +224,6 @@ function renderSurface(queryClient = new QueryClient()) {
     </QueryClientProvider>,
   );
 }
-
 
 /** The feed's rows: every list item on the surface but the breadcrumb's. */
 function feedItems() {
@@ -242,7 +266,9 @@ describe("SessionSurface", () => {
     // Serve the whole log in one page, so all 2,000 rows are in the feed at once.
     invokeCommandMock.mockImplementation((command: string, args: { offset: number; limit: number }) =>
       Promise.resolve(
-        command === "session_log_window" ? { entries: events, offset: args.offset, limit: args.limit, total: events.length } : undefined,
+        command === "session_log_window"
+          ? { entries: events, offset: args.offset, limit: args.limit, total: events.length }
+          : undefined,
       ),
     );
     const scrollIntoView = vi.fn();
@@ -368,9 +394,7 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
     expect(screen.getByText("Interrupted")).toBeInTheDocument();
-    expect(
-      screen.getByText(/could not confirm the agent process stopped/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/could not confirm the agent process stopped/)).toBeInTheDocument();
   });
 
   it("renders no warning notice when the sidecar confirms the interrupt", async () => {
@@ -478,7 +502,9 @@ describe("SessionSurface Stop control (plan 02-02 Task 3, D-35)", () => {
     fireEvent.click(confirm);
 
     // The dialog stays open with the failure's message, and its action is usable again.
-    await waitFor(() => expect(within(screen.getByRole("alertdialog")).getByRole("alert")).toHaveTextContent("ipc failure"));
+    await waitFor(() =>
+      expect(within(screen.getByRole("alertdialog")).getByRole("alert")).toHaveTextContent("ipc failure"),
+    );
     await waitFor(() => expect(confirm).not.toHaveAttribute("aria-busy", "true"));
 
     fireEvent.click(confirm);
@@ -586,7 +612,9 @@ describe("SessionSurface Discard control (plan 04-13, D-66/D-67, CTX-08)", () =>
     fireEvent.click(confirm);
 
     await waitFor(() =>
-      expect(within(screen.getByRole("alertdialog")).getByRole("alert")).toHaveTextContent(/could not confirm this discard completed/),
+      expect(within(screen.getByRole("alertdialog")).getByRole("alert")).toHaveTextContent(
+        /could not confirm this discard completed/,
+      ),
     );
     expect(useUiStore.getState().launchSheetStoryId).toBeNull();
 
@@ -614,7 +642,10 @@ describe("SessionSurface persistence-failure banner (plan 02-12, CR-03/PROC-07)"
 
     await screen.findByRole("button", { name: "Back" });
     capturedAgentEventHandler?.(
-      makePersistenceFailureNotice("run-1", "Flywheel could not write this session's log — the transcript below may be incomplete."),
+      makePersistenceFailureNotice(
+        "run-1",
+        "Flywheel could not write this session's log — the transcript below may be incomplete.",
+      ),
     );
 
     await screen.findByText("Flywheel could not write this session's log — the transcript below may be incomplete.");
@@ -712,7 +743,14 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
 
   it("renders a system notice as a muted line in the row grid, with its icon (issue #205)", async () => {
     const events = [
-      { runId: "run-1", seq: 0, at: "2026-01-01T00:00:00.000Z", raw: "retrying", type: "system_notice", text: "Retrying request…" },
+      {
+        runId: "run-1",
+        seq: 0,
+        at: "2026-01-01T00:00:00.000Z",
+        raw: "retrying",
+        type: "system_notice",
+        text: "Retrying request…",
+      },
     ];
     mockWindowReads(() => events);
 
@@ -787,7 +825,9 @@ describe("SessionSurface structured feed (plan 02-07 Task 2, D-32)", () => {
     renderSurface();
 
     await screen.findByText("Completed");
-    expect(screen.queryByText("This run ended in an error. The worktree was left as-is — nothing was lost.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("This run ended in an error. The worktree was left as-is — nothing was lost."),
+    ).not.toBeInTheDocument();
   });
 
   it("never renders more rows than the windowed read returned", async () => {
@@ -992,7 +1032,11 @@ describe("SessionSurface raw view, status strip, and run-status badge (plan 02-0
 
 describe("08.1 group-four finish-review closure (behaviour)", () => {
   it("prints no meter figures while there are none, and prints them once they exist", async () => {
-    mockCombinedReads({ events: [{ runId: "run-1", seq: 0, at: "2026-01-01T00:00:00.000Z", raw: "hi", type: "assistant_text", text: "hi" }] });
+    mockCombinedReads({
+      events: [
+        { runId: "run-1", seq: 0, at: "2026-01-01T00:00:00.000Z", raw: "hi", type: "assistant_text", text: "hi" },
+      ],
+    });
     const { unmount } = renderSurface();
     await screen.findByText("hi");
     expect(screen.getByLabelText("Elapsed time")).toBeInTheDocument();
@@ -1004,7 +1048,13 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
   });
 
   it("the running tool call, and only that one, wears the live caret; a finished run's call does not", async () => {
-    mockCombinedReads({ events: [makeToolCall(0, "Read", { file_path: "a.ts" }), makeToolResult(1, "Read", "ok"), makeToolCall(2, "Bash", { command: "npm test" })] });
+    mockCombinedReads({
+      events: [
+        makeToolCall(0, "Read", { file_path: "a.ts" }),
+        makeToolResult(1, "Read", "ok"),
+        makeToolCall(2, "Bash", { command: "npm test" }),
+      ],
+    });
     const running = renderSurface();
     const bash = await screen.findByRole("button", { name: /(Ran|Running) · npm test/ });
     expect(bash).toHaveAttribute("data-live", "true");
@@ -1039,7 +1089,9 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
     const a = renderSurface();
     // The command sits in the code face inside the sentence, so the sentence is read as the status's text.
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent(/^The agent is working: Running · npm test\. Last activity .+ ago\.$/),
+      expect(screen.getByRole("status")).toHaveTextContent(
+        /^The agent is working: Running · npm test\. Last activity .+ ago\.$/,
+      ),
     );
     a.unmount();
 
@@ -1074,8 +1126,26 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
         { runId: "run-1", seq: 0, at: startedAt, raw: "h", type: "system_notice", text: "system: hook_started" },
         { runId: "run-1", seq: 1, at: startedAt, raw: "t", type: "thinking", text: "", hasSignature: true },
         { ...makeToolCall(2, "Bash", { command: "cargo test --workspace" }), at: startedAt, toolUseId: "toolu_long" },
-        { runId: "run-1", seq: 3, at, raw: "p1", type: "tool_progress", toolUseId: "toolu_long", toolName: "Bash", elapsedSeconds: 30 },
-        { runId: "run-1", seq: 4, at, raw: "p2", type: "tool_progress", toolUseId: "toolu_long", toolName: "Bash", elapsedSeconds: 60 },
+        {
+          runId: "run-1",
+          seq: 3,
+          at,
+          raw: "p1",
+          type: "tool_progress",
+          toolUseId: "toolu_long",
+          toolName: "Bash",
+          elapsedSeconds: 30,
+        },
+        {
+          runId: "run-1",
+          seq: 4,
+          at,
+          raw: "p2",
+          type: "tool_progress",
+          toolUseId: "toolu_long",
+          toolName: "Bash",
+          elapsedSeconds: 60,
+        },
         { runId: "run-1", seq: 5, at, raw: "r", type: "rate_limit", status: "allowed_warning" },
       ],
     });
@@ -1083,7 +1153,9 @@ describe("08.1 group-four finish-review closure (behaviour)", () => {
     const call = await screen.findByRole("button", { name: /Running · cargo test --workspace/ });
     expect(call).toHaveTextContent("running · 1m");
     expect(feedItems()).toHaveLength(1);
-    expect(screen.getByRole("status")).toHaveTextContent(/^The agent is working: Running · cargo test --workspace\. Last activity \d+s ago\.$/);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /^The agent is working: Running · cargo test --workspace\. Last activity \d+s ago\.$/,
+    );
   });
 
   it("while running, Stop leads and Discard waits in the ⋯ menu beside it", async () => {
@@ -1111,7 +1183,10 @@ describe("the header names the Story the session serves (11-22, finish-review fo
   }
 
   it("names the Story by key and title", async () => {
-    renderHeader({ storyId: "story-1" }, { story_get: () => Promise.resolve({ key: "FLY-9", title: "Add push retry" }) });
+    renderHeader(
+      { storyId: "story-1" },
+      { story_get: () => Promise.resolve({ key: "FLY-9", title: "Add push retry" }) },
+    );
     const story = await screen.findByRole("button", { name: "Open Story FLY-9 Add push retry" });
     // The key is a StoryKey (issue #205), the title beside it.
     expect(within(story).getByText("FLY-9")).toHaveAttribute("data-slot", "story-key");

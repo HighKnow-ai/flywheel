@@ -13,7 +13,13 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { WorktreeInventoryRowDto, WorktreeMeasureDto } from "../../adapters/tauri";
 import { resetUiState, useUiStore } from "../../state/uiStore";
-import { RECLAIM_REASONS, RECLAIM_REASON_WORDS, WorktreeInventory, formatBytes, DISPOSITION_CHIPS } from "../WorktreeInventory";
+import {
+  RECLAIM_REASONS,
+  RECLAIM_REASON_WORDS,
+  WorktreeInventory,
+  formatBytes,
+  DISPOSITION_CHIPS,
+} from "../WorktreeInventory";
 
 const inventoryMock = vi.fn<() => Promise<WorktreeInventoryRowDto[]>>();
 const notifyMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), dismiss: vi.fn() }));
@@ -178,7 +184,9 @@ describe("WorktreeInventory", () => {
     await screen.findByText("ALP-1");
     fireEvent.click(screen.getByRole("button", { name: "Re-measure sizes" }));
     await waitFor(() =>
-      expect(notifyMock.error).toHaveBeenCalledWith("1 worktree could not be measured completely", { description: "It keeps no size." }),
+      expect(notifyMock.error).toHaveBeenCalledWith("1 worktree could not be measured completely", {
+        description: "It keeps no size.",
+      }),
     );
   });
 
@@ -197,7 +205,9 @@ describe("WorktreeInventory", () => {
     ]);
     renderInventory();
     await screen.findByText("ALP-1");
-    const keys = Array.from(document.querySelectorAll("[data-field='story'] [data-slot='story-key']")).map((el) => el.textContent);
+    const keys = Array.from(document.querySelectorAll("[data-field='story'] [data-slot='story-key']")).map(
+      (el) => el.textContent,
+    );
     expect(keys).toEqual(["ALP-1", "ALP-2"]);
   });
 
@@ -206,7 +216,11 @@ describe("WorktreeInventory", () => {
     renderInventory();
     const table = await screen.findByRole("table");
     const head = table.querySelector("thead") as HTMLElement;
-    expect(within(head).getAllByRole("columnheader").map((h) => h.textContent?.trim())).toEqual(["", "Story", "Size", "Status"]);
+    expect(
+      within(head)
+        .getAllByRole("columnheader")
+        .map((h) => h.textContent?.trim()),
+    ).toEqual(["", "Story", "Size", "Status"]);
   });
 
   it("names each project once, over its rows, in the order the core's list first names it", async () => {
@@ -219,7 +233,9 @@ describe("WorktreeInventory", () => {
     await screen.findByText("BET-1");
     const groups = Array.from(document.querySelectorAll<HTMLElement>("tbody[data-project]"));
     expect(groups.map((g) => g.querySelector("[data-field='project']")?.textContent)).toEqual(["Beta", "Alpha"]);
-    expect(Array.from(groups[0].querySelectorAll("[data-worktree-row]")).map((r) => r.getAttribute("data-worktree-row"))).toEqual(["a", "c"]);
+    expect(
+      Array.from(groups[0].querySelectorAll("[data-worktree-row]")).map((r) => r.getAttribute("data-worktree-row")),
+    ).toEqual(["a", "c"]);
     expect(screen.getAllByText("Beta")).toHaveLength(1);
   });
 });

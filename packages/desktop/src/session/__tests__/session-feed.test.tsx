@@ -118,7 +118,9 @@ describe("the session feed over a long log (issue #190)", () => {
     await pageInEverything(client);
 
     expect(loadedSeqs(client)).toEqual(range(served.entries.length));
-    const keys = Array.from(document.querySelectorAll<HTMLElement>("[data-testid='feed-row-slot']")).map((el) => el.dataset.rowKey);
+    const keys = Array.from(document.querySelectorAll<HTMLElement>("[data-testid='feed-row-slot']")).map(
+      (el) => el.dataset.rowKey,
+    );
     expect(new Set(keys).size).toBe(keys.length);
   });
 
@@ -139,7 +141,14 @@ describe("the session feed over a long log (issue #190)", () => {
     // The run goes on: 60 more lines, more than one window's worth.
     const grown = served.entries.slice(0, -2);
     for (let i = 0; i < 60; i += 1) {
-      grown.push({ runId: SYNTHETIC_RUN_ID, seq: grown.length, at: SYNTHETIC_STARTED_AT, raw: "{}", type: "assistant_text", text: `More ${i}` });
+      grown.push({
+        runId: SYNTHETIC_RUN_ID,
+        seq: grown.length,
+        at: SYNTHETIC_STARTED_AT,
+        raw: "{}",
+        type: "assistant_text",
+        text: `More ${i}`,
+      });
     }
     served.entries = grown;
     await act(async () => served.push?.({ type: "assistant_text", runId: SYNTHETIC_RUN_ID }));
@@ -207,8 +216,22 @@ describe("a session the usage limit ended (issue #205)", () => {
   function usageLimitedLog(): Entry[] {
     const entries = syntheticSessionLog().slice(0, 30);
     const seq = entries.length;
-    entries.push({ runId: SYNTHETIC_RUN_ID, seq, at: SYNTHETIC_STARTED_AT, raw: "{}", type: "system_notice", text: `Claude AI usage limit reached|${epoch}` });
-    entries.push({ runId: SYNTHETIC_RUN_ID, seq: seq + 1, at: SYNTHETIC_STARTED_AT, raw: "{}", type: "session_closed", reason: "usage_limit" });
+    entries.push({
+      runId: SYNTHETIC_RUN_ID,
+      seq,
+      at: SYNTHETIC_STARTED_AT,
+      raw: "{}",
+      type: "system_notice",
+      text: `Claude AI usage limit reached|${epoch}`,
+    });
+    entries.push({
+      runId: SYNTHETIC_RUN_ID,
+      seq: seq + 1,
+      at: SYNTHETIC_STARTED_AT,
+      raw: "{}",
+      type: "session_closed",
+      reason: "usage_limit",
+    });
     return entries;
   }
 
@@ -225,8 +248,12 @@ describe("a session the usage limit ended (issue #205)", () => {
     const row = rows.find((r) => r.kind === "usage_limit");
     expect(row).toEqual({ kind: "usage_limit", key: expect.any(String), resetsAt: resets.toISOString() });
     expect(rows.map(feedRowText).join("\n")).not.toContain(String(epoch));
-    expect(usageLimitText(resets.toISOString(), new Date(2026, 9, 26, 12, 0).getTime())).toBe("Usage limit reached · resets 16:00");
-    expect(usageLimitText(resets.toISOString(), new Date(2026, 9, 26, 17, 0).getTime())).toBe("Usage limit reached · reset at 16:00");
+    expect(usageLimitText(resets.toISOString(), new Date(2026, 9, 26, 12, 0).getTime())).toBe(
+      "Usage limit reached · resets 16:00",
+    );
+    expect(usageLimitText(resets.toISOString(), new Date(2026, 9, 26, 17, 0).getTime())).toBe(
+      "Usage limit reached · reset at 16:00",
+    );
     expect(usageLimitText(undefined)).toBe("Usage limit reached");
   });
 
@@ -262,12 +289,21 @@ describe("a session the usage limit ended (issue #205)", () => {
 });
 
 describe("CLI notices stay in View raw (issue #190)", () => {
-  const NOT_THE_AGENTS_WORK = [/^Warning: no stdin data received/, /^system: hook_/, /^system: thinking/, /^system: task_/, /board_tool_request/];
+  const NOT_THE_AGENTS_WORK = [
+    /^Warning: no stdin data received/,
+    /^system: hook_/,
+    /^system: thinking/,
+    /^system: task_/,
+    /board_tool_request/,
+  ];
 
   it("are not feed rows", () => {
     const texts = buildFeedRows(syntheticSessionLog()).map(feedRowText);
     for (const pattern of NOT_THE_AGENTS_WORK) {
-      expect(texts.filter((text) => pattern.test(text)), String(pattern)).toEqual([]);
+      expect(
+        texts.filter((text) => pattern.test(text)),
+        String(pattern),
+      ).toEqual([]);
     }
     // A stderr line that is not a known CLI notice still shows: a spawn error must never vanish.
     const other = buildFeedRows([{ seq: 0, type: "system_notice", text: "error: unknown option '--frobnicate'" }]);
@@ -282,6 +318,8 @@ describe("CLI notices stay in View raw (issue #190)", () => {
     expect(screen.queryByText(STDIN_WARNING)).not.toBeInTheDocument();
 
     await act(async () => screen.getByRole("radio", { name: "Raw" }).click());
-    await waitFor(() => expect(screen.getByRole("log", { name: "Raw session log" })).toHaveTextContent("no stdin data received"));
+    await waitFor(() =>
+      expect(screen.getByRole("log", { name: "Raw session log" })).toHaveTextContent("no stdin data received"),
+    );
   });
 });

@@ -23,7 +23,15 @@ import { Send } from "lucide-react";
 import type { QuestionPrompt } from "./feedRows";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, FieldContent, FieldDescription, FieldLabel, FieldLegend, FieldSet, FieldTitle } from "@/components/ui/field";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  FieldTitle,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
@@ -71,7 +79,10 @@ function ChoiceCard({
   children: ReactNode;
 }) {
   return (
-    <FieldLabel htmlFor={id} className="cursor-pointer rounded-md transition-colors duration-(--duration-state) ease-(--ease)">
+    <FieldLabel
+      htmlFor={id}
+      className="cursor-pointer rounded-md transition-colors duration-(--duration-state) ease-(--ease)"
+    >
       <Field orientation="horizontal" className="items-start">
         {children}
         <FieldContent className="min-w-0 gap-0.5">
@@ -143,7 +154,9 @@ export function QuestionForm({ questions, onSubmit, draftKey }: QuestionFormProp
 
   function typeOther(index: number, text: string, multi: boolean) {
     // Typing is choosing: a single-choice question drops its picked option for the typed answer.
-    update(index, (c) => (multi ? { ...c, other: true, otherText: text } : { labels: [], other: true, otherText: text }));
+    update(index, (c) =>
+      multi ? { ...c, other: true, otherText: text } : { labels: [], other: true, otherText: text },
+    );
   }
 
   async function submit(event: FormEvent) {
@@ -168,7 +181,11 @@ export function QuestionForm({ questions, onSubmit, draftKey }: QuestionFormProp
   }
 
   return (
-    <form className="@container/question flex min-w-0 flex-col gap-4" onSubmit={(e) => void submit(e)} aria-label="Answer the agent's question">
+    <form
+      className="@container/question flex min-w-0 flex-col gap-4"
+      onSubmit={(e) => void submit(e)}
+      aria-label="Answer the agent's question"
+    >
       {/* Two questions sit side by side when the card has the room, not when the window does: the same card is 400px
           in the Waiting-on-you column and the feed's width in the session. */}
       <div className={cn("grid min-w-0 gap-x-6 gap-y-5", questions.length > 1 && "@2xl/question:grid-cols-2")}>
@@ -204,7 +221,12 @@ export function QuestionForm({ questions, onSubmit, draftKey }: QuestionFormProp
                 </span>
               </FieldLegend>
               {multi ? (
-                <div role="group" aria-labelledby={`${ids}-text`} data-slot="checkbox-group" className="flex flex-col gap-2">
+                <div
+                  role="group"
+                  aria-labelledby={`${ids}-text`}
+                  data-slot="checkbox-group"
+                  className="flex flex-col gap-2"
+                >
                   {q.options.map((option, j) => (
                     <ChoiceCard key={j} id={`${ids}-o${j}`} title={option.label} description={option.description}>
                       <Checkbox

@@ -85,7 +85,9 @@ export function MilestoneShapingView({ projectId, projectName, milestoneId, onBa
           { label: projectName, onSelect: () => setCurrentProjectId(projectId) },
           { label: milestone ? milestone.title : "Milestone" },
         ]}
-        actions={milestone ? <MilestoneShapingControl projectId={projectId} milestone={milestone} place="view" /> : null}
+        actions={
+          milestone ? <MilestoneShapingControl projectId={projectId} milestone={milestone} place="view" /> : null
+        }
       />
       <SurfaceBody>
         {shapingQuery.isError ? (
@@ -348,7 +350,17 @@ function useHandEdit(milestone: MilestoneDto, queryKey: readonly unknown[], labe
 type HandEdit = ReturnType<typeof useHandEdit>;
 
 /** The ghost Edit that opens a field in place, as on the Epic card (`SpecField`). */
-function EditButton({ edit, value, label, className }: { edit: HandEdit; value: string; label: string; className?: string }) {
+function EditButton({
+  edit,
+  value,
+  label,
+  className,
+}: {
+  edit: HandEdit;
+  value: string;
+  label: string;
+  className?: string;
+}) {
   return (
     <Button
       ref={edit.editRef}

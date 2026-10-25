@@ -23,7 +23,12 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useUiStore } from "../state/uiStore";
@@ -100,14 +105,14 @@ function CrumbItem({ crumb, last, className }: { crumb: Crumb; last: boolean; cl
         </CrumbTip>
       ) : (
         <CrumbTip crumb={crumb}>
-        <button
-          type="button"
-          onClick={crumb.onSelect}
-          aria-label={crumb.ariaLabel}
-          className="block max-w-full min-w-0 rounded-sm text-left font-semibold text-foreground underline-offset-4 transition-colors duration-(--duration-feedback) ease-(--ease) hover:underline"
-        >
-          <CrumbText crumb={crumb} />
-        </button>
+          <button
+            type="button"
+            onClick={crumb.onSelect}
+            aria-label={crumb.ariaLabel}
+            className="block max-w-full min-w-0 rounded-sm text-left font-semibold text-foreground underline-offset-4 transition-colors duration-(--duration-feedback) ease-(--ease) hover:underline"
+          >
+            <CrumbText crumb={crumb} />
+          </button>
         </CrumbTip>
       )}
     </BreadcrumbItem>

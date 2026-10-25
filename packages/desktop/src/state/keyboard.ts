@@ -351,10 +351,7 @@ function isActivationTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && target.closest("button, a, [role='button']") !== null;
 }
 
-function keyMatches(
-  event: Pick<KeyboardEvent, "key" | "metaKey" | "shiftKey">,
-  binding: Binding,
-): boolean {
+function keyMatches(event: Pick<KeyboardEvent, "key" | "metaKey" | "shiftKey">, binding: Binding): boolean {
   if (!binding.key || binding.key !== event.key) return false;
   if (Boolean(binding.meta) !== event.metaKey) return false;
   if (Boolean(binding.shift) !== event.shiftKey) return false;
@@ -802,10 +799,7 @@ export function nextSelectionId<T extends { id: string }>(
 }
 
 /** `Home`/`End` — jumps to the first/last item, or `null` for an empty list. */
-export function boundarySelectionId<T extends { id: string }>(
-  items: T[],
-  edge: "first" | "last",
-): string | null {
+export function boundarySelectionId<T extends { id: string }>(items: T[], edge: "first" | "last"): string | null {
   if (items.length === 0) return null;
   return edge === "first" ? items[0].id : items[items.length - 1].id;
 }

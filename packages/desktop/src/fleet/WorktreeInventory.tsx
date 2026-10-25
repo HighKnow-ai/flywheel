@@ -153,7 +153,10 @@ function ReclaimBar({
   const over = rows.length > RECLAIM_BATCH_CAP;
   const total = totalWords(sizeTotal(rows.map((r) => r.sizeBytes)), rows.length);
   return (
-    <div data-reclaim-bar className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border bg-muted px-4 py-2.5">
+    <div
+      data-reclaim-bar
+      className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border bg-muted px-4 py-2.5"
+    >
       <span data-field="selection" className="text-small font-semibold tabular-nums">
         {`Reclaim ${worktreesWord(rows.length)} · ${total}`}
       </span>
@@ -205,12 +208,19 @@ function ReclaimResultList({ lines, onClose }: { lines: ResultLine[]; onClose: (
               ) : (
                 <X aria-hidden="true" size={15} className="shrink-0 text-destructive-text" />
               )}
-              <span>{label}</span> <span className={outcome.removed ? "text-muted-foreground" : undefined}>{outcomeWords(outcome)}</span>
+              <span>{label}</span>{" "}
+              <span className={outcome.removed ? "text-muted-foreground" : undefined}>{outcomeWords(outcome)}</span>
             </li>
           ))}
         </ul>
       </AlertDescription>
-      <Button variant="ghost" size="icon-sm" aria-label="Close the result" onClick={onClose} className="absolute top-1.5 right-1.5">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Close the result"
+        onClick={onClose}
+        className="absolute top-1.5 right-1.5"
+      >
         <X aria-hidden="true" />
       </Button>
     </Alert>
@@ -221,7 +231,11 @@ function Chip({ row }: { row: WorktreeInventoryRowDto }) {
   const chip = DISPOSITION_CHIPS[row.disposition];
   const ChipIcon = chip.icon;
   return (
-    <span data-field="disposition" data-disposition={row.disposition} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+    <span
+      data-field="disposition"
+      data-disposition={row.disposition}
+      className="flex flex-wrap items-center gap-x-2 gap-y-0.5"
+    >
       <Badge variant={row.disposition === "reclaimable" ? "outline" : "secondary"}>
         <ChipIcon aria-hidden="true" />
         {chip.label}
@@ -330,7 +344,11 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
   // Throws when the call fails outright, so the confirmation stays open with the failure and nothing is
   // reported as removed.
   const reclaim = async () => {
-    const submitted = selectedRows.map((r) => ({ id: r.storyId, label: `${r.projectName} ${r.storyKey}`, bytes: r.sizeBytes }));
+    const submitted = selectedRows.map((r) => ({
+      id: r.storyId,
+      label: `${r.projectName} ${r.storyKey}`,
+      bytes: r.sizeBytes,
+    }));
     try {
       const outcomes = await worktreeReclaim(submitted.map((r) => r.id));
       const labels = new Map(submitted.map((r) => [r.id, r.label]));
@@ -379,7 +397,10 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
         crumbs={[{ label: "Worktrees" }]}
         actions={
           <>
-            <span aria-live="polite" className="shrink-0 text-small whitespace-nowrap text-muted-foreground tabular-nums">
+            <span
+              aria-live="polite"
+              className="shrink-0 text-small whitespace-nowrap text-muted-foreground tabular-nums"
+            >
               {worktreesWord(rows.length)}
             </span>
             <Button variant="outline" loading={measuring} onClick={() => void remeasure()}>
@@ -390,7 +411,9 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
         }
       />
       <SurfaceBody className="flex flex-col gap-3 overflow-hidden">
-        {results !== null && results.length > 0 && <ReclaimResultList lines={results} onClose={() => setResults(null)} />}
+        {results !== null && results.length > 0 && (
+          <ReclaimResultList lines={results} onClose={() => setResults(null)} />
+        )}
         {inventory.isError ? (
           <ReadError title="Couldn't load the worktrees" query={inventory} className="mx-auto max-w-[1240px]" />
         ) : inventory.isSuccess && rows.length === 0 ? (
@@ -412,7 +435,9 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
                           checked={allSelected ? true : selectedRows.length > 0 ? "indeterminate" : false}
                           // A partial selection reads as a dash, not the tick the shared indicator draws.
                           className="data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary data-[state=indeterminate]:before:h-0.5 data-[state=indeterminate]:before:w-2 data-[state=indeterminate]:before:rounded-full data-[state=indeterminate]:before:bg-primary-foreground data-[state=indeterminate]:[&_svg]:hidden"
-                          onCheckedChange={() => setSelected(allSelected ? new Set() : new Set(reclaimable.map((r) => r.storyId)))}
+                          onCheckedChange={() =>
+                            setSelected(allSelected ? new Set() : new Set(reclaimable.map((r) => r.storyId)))
+                          }
                           aria-label={`Select every worktree that can be reclaimed (${reclaimable.length})`}
                         />
                       )}
@@ -432,7 +457,11 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
                     <TableRow className="border-border bg-muted hover:bg-muted">
                       <TableHead scope="rowgroup" colSpan={4} className="h-9 px-4">
                         <span className="flex min-w-0 items-baseline gap-2">
-                          <span data-field="project" title={group.projectName} className="truncate text-small font-semibold">
+                          <span
+                            data-field="project"
+                            title={group.projectName}
+                            className="truncate text-small font-semibold"
+                          >
                             {group.projectName}
                           </span>
                           <span className="shrink-0 text-meta font-normal text-muted-foreground tabular-nums">
@@ -442,12 +471,20 @@ export function WorktreeInventory({ onClose }: { onClose: () => void }) {
                       </TableHead>
                     </TableRow>
                     {group.rows.map((row) => (
-                      <Row key={row.storyId} row={row} now={now} selected={selected.has(row.storyId)} onToggle={() => toggle(row.storyId)} />
+                      <Row
+                        key={row.storyId}
+                        row={row}
+                        now={now}
+                        selected={selected.has(row.storyId)}
+                        onToggle={() => toggle(row.storyId)}
+                      />
                     ))}
                   </TableBody>
                 ))}
               </Table>
-              {selectedRows.length > 0 && <ReclaimBar rows={selectedRows} onClear={() => setSelected(new Set())} onReclaim={reclaim} />}
+              {selectedRows.length > 0 && (
+                <ReclaimBar rows={selectedRows} onClear={() => setSelected(new Set())} onReclaim={reclaim} />
+              )}
             </div>
           )
         )}

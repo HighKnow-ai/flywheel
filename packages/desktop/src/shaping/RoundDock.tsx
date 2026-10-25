@@ -26,7 +26,14 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCheck, Hand, MessagesSquare } from "lucide-react";
-import { roundAccept, roundAcceptAll, roundAnswer, type EpicDto, type RoundDto, type StageDto } from "../adapters/tauri";
+import {
+  roundAccept,
+  roundAcceptAll,
+  roundAnswer,
+  type EpicDto,
+  type RoundDto,
+  type StageDto,
+} from "../adapters/tauri";
 import { ContinueShapingButton } from "../board/EpicShapingControl";
 import { QuestionCard } from "./QuestionCard";
 import { Button } from "@/components/ui/button";
@@ -215,7 +222,11 @@ function RoundCard({
           waiting ? "bg-attention text-attention-foreground" : "border-b border-border bg-secondary text-foreground",
         )}
       >
-        {waiting ? <Hand aria-hidden="true" /> : <MessagesSquare aria-hidden="true" className="text-muted-foreground" />}
+        {waiting ? (
+          <Hand aria-hidden="true" />
+        ) : (
+          <MessagesSquare aria-hidden="true" className="text-muted-foreground" />
+        )}
         <h2 id={headingId} className="m-0 min-w-0 truncate text-row font-bold">
           Round {round.number}
           {stageShown ? (
@@ -224,7 +235,9 @@ function RoundCard({
             <span className="sr-only">, {stage}</span>
           )}
         </h2>
-        <span className={cn("ml-auto min-w-0 text-right text-small font-semibold", !waiting && "text-muted-foreground")}>
+        <span
+          className={cn("ml-auto min-w-0 text-right text-small font-semibold", !waiting && "text-muted-foreground")}
+        >
           {waiting
             ? "Waiting on you"
             : !open
@@ -269,8 +282,8 @@ function RoundCard({
                   ? "The ADR is answered on its own: Accept all leaves it open."
                   : `Each ADR is answered on its own: Accept all leaves these ${openAdrs} open.`
                 : waiting
-                ? "The agent goes on once every question is answered."
-                : "Every answer is saved as you give it."}
+                  ? "The agent goes on once every question is answered."
+                  : "Every answer is saved as you give it."}
           </span>
           {error && (
             <p role="alert" className="m-0 w-full text-small break-words text-destructive-text">

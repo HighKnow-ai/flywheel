@@ -137,7 +137,9 @@ describe("BlockedQueue contents", () => {
   });
 
   it("a destructive entry renders Deny before Allow", () => {
-    renderQueue([entry(1, { destructiveCategory: "force-push", inputPayload: '{"command":"git push --force origin main"}' })]);
+    renderQueue([
+      entry(1, { destructiveCategory: "force-push", inputPayload: '{"command":"git push --force origin main"}' }),
+    ]);
     const card = screen.getByRole("group", { name: "Bash wants to:" });
     // By accessible name: the buttons also draw their answer keys (Story #206), which are not part of the name.
     const buttons = within(card).getAllByRole("button");
@@ -231,7 +233,19 @@ describe("a shaping Round waiting on you (issue #124)", () => {
       <QueryClientProvider client={new QueryClient()}>
         <BlockedQueue
           entries={[]}
-          rounds={[{ ...ROUND, subject: "roadmap", stageKind: null, epicId: null, epicKey: null, epicTitle: null, roundNumber: 1, answered: 0, questions: 2 }]}
+          rounds={[
+            {
+              ...ROUND,
+              subject: "roadmap",
+              stageKind: null,
+              epicId: null,
+              epicKey: null,
+              epicTitle: null,
+              roundNumber: 1,
+              answered: 0,
+              questions: 2,
+            },
+          ]}
           now={NOW}
         />
       </QueryClientProvider>,

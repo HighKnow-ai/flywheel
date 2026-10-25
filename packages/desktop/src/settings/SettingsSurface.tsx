@@ -27,14 +27,7 @@ import { Info, KeyRound, ShieldAlert } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldError,
-  FieldLabel,
-  FieldTitle,
-} from "@/components/ui/field";
+import { Field, FieldContent, FieldDescription, FieldError, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -109,15 +102,7 @@ const BACKEND_UNAVAILABLE_NOTICE =
   "Local credentials require the claude CLI, which wasn't found. The API key path still works.";
 
 /** One Settings section: a Card with its heading and one line on what it governs. */
-function Section({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: ReactNode;
-  children: ReactNode;
-}) {
+function Section({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
   const headingId = useId();
   return (
     <Card role="region" aria-labelledby={headingId}>
@@ -456,9 +441,8 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
   const loading = settingsQuery.isPending;
   const projects = projectsQuery.data ?? [];
   const backendUnavailable = backendQuery.data ? !backendQuery.data.available : false;
-  const globalMode = (
-    globalMutation.isPending ? globalMutation.variables : settings?.globalCredentialMode
-  ) as CredentialMode | undefined;
+  const globalMode = (globalMutation.isPending ? globalMutation.variables : settings?.globalCredentialMode) as
+    CredentialMode | undefined;
 
   return (
     <div className="flex h-full flex-col text-foreground">
@@ -470,7 +454,10 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
             <ReadError title="Couldn't load your settings" query={settingsQuery} />
           ) : (
             <>
-              <Section title="Credentials" description="What Flywheel's agents sign in with, unless a project says otherwise.">
+              <Section
+                title="Credentials"
+                description="What Flywheel's agents sign in with, unless a project says otherwise."
+              >
                 {loading || !settings || !globalMode ? (
                   <CredentialsSkeleton />
                 ) : (
@@ -535,7 +522,10 @@ export function SettingsSurface({ onBack }: SettingsSurfaceProps) {
             </div>
           </Section>
 
-          <Section title="Permission rules" description="Patterns you chose to always allow. Revoke one and its next request asks you again.">
+          <Section
+            title="Permission rules"
+            description="Patterns you chose to always allow. Revoke one and its next request asks you again."
+          >
             <PermissionRulesTable projects={projects} loadingProjects={projectsQuery.isPending} />
           </Section>
         </div>

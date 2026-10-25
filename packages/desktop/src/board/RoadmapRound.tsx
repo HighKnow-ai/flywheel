@@ -60,8 +60,7 @@ function focusInStrip(strip: Element | null, order: string[] = [], decided: stri
       (row) => row.dataset.proposalId !== decided,
     );
     const at = decided ? order.indexOf(decided) : -1;
-    const next =
-      pending.find((row) => order.indexOf(row.dataset.proposalId ?? "") > at) ?? pending[0] ?? null;
+    const next = pending.find((row) => order.indexOf(row.dataset.proposalId ?? "") > at) ?? pending[0] ?? null;
     const target =
       next?.querySelector<HTMLElement>("button") ??
       root.querySelector<HTMLElement>("[data-slot=roadmap-round-band] button") ??
@@ -78,12 +77,7 @@ export function useRoadmapRound(projectId: string) {
 
 /** A Roadmap Proposal's change kind, as `propose_roadmap_change` names it. */
 export type RoadmapChangeKind =
-  | "create_milestone"
-  | "amend_milestone"
-  | "reorder_milestone"
-  | "retire_milestone"
-  | "add_epic"
-  | "drop_epic";
+  "create_milestone" | "amend_milestone" | "reorder_milestone" | "retire_milestone" | "add_epic" | "drop_epic";
 
 export function changeKindOf(p: RoadmapProposalDto): RoadmapChangeKind | null {
   const key = `${p.verb}:${p.targetType}`;
@@ -268,9 +262,17 @@ export function RoundBand({
         {confirming ? (
           <>
             <span id={warningId} role="alert" className="text-small font-semibold">
-              {pending === 1 ? "Dismissing rejects the undecided change." : `Dismissing rejects the ${pending} undecided changes.`}
+              {pending === 1
+                ? "Dismissing rejects the undecided change."
+                : `Dismissing rejects the ${pending} undecided changes.`}
             </span>
-            <Button size="sm" variant="outline" aria-describedby={warningId} loading={dismissing} onClick={() => void dismiss()}>
+            <Button
+              size="sm"
+              variant="outline"
+              aria-describedby={warningId}
+              loading={dismissing}
+              onClick={() => void dismiss()}
+            >
               <CircleMinus aria-hidden="true" />
               Dismiss Round
             </Button>
@@ -377,7 +379,9 @@ function RejectedRow({ proposal }: { proposal: RoadmapProposalDto }) {
 type Mode = "idle" | "amending" | "rejecting";
 
 function payloadOf(proposal: RoadmapProposalDto): Record<string, unknown> {
-  return proposal.payload && typeof proposal.payload === "object" ? { ...(proposal.payload as Record<string, unknown>) } : {};
+  return proposal.payload && typeof proposal.payload === "object"
+    ? { ...(proposal.payload as Record<string, unknown>) }
+    : {};
 }
 
 function PendingRow({ projectId, proposal }: { projectId: string; proposal: RoadmapProposalDto }) {
@@ -401,7 +405,9 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
     // Once decided the row changes under the focus: keep the keyboard on the strip, at the next undecided change.
     const strip = rowRef.current?.closest("[data-slot=roadmap-strip]") ?? null;
     const order = strip
-      ? [...strip.querySelectorAll<HTMLElement>("[data-slot=roadmap-ghost-row][data-state=pending]")].map((r) => r.dataset.proposalId ?? "")
+      ? [...strip.querySelectorAll<HTMLElement>("[data-slot=roadmap-ghost-row][data-state=pending]")].map(
+          (r) => r.dataset.proposalId ?? "",
+        )
       : [];
     try {
       await write();
@@ -418,7 +424,11 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
 
   function openAmend() {
     const payload = payloadOf(proposal);
-    setDraft(Object.fromEntries((fields ?? []).map((f) => [f.key, typeof payload[f.key] === "string" ? (payload[f.key] as string) : ""])));
+    setDraft(
+      Object.fromEntries(
+        (fields ?? []).map((f) => [f.key, typeof payload[f.key] === "string" ? (payload[f.key] as string) : ""]),
+      ),
+    );
     setError(null);
     setMode("amending");
   }
@@ -463,10 +473,14 @@ function PendingRow({ projectId, proposal }: { projectId: string; proposal: Road
           <span className="shrink-0 self-center">
             <ProposedBadge>Proposed</ProposedBadge>
           </span>
-          <span className="min-w-0 flex-1 basis-60 text-row font-semibold break-words text-foreground">{proposal.summary}</span>
+          <span className="min-w-0 flex-1 basis-60 text-row font-semibold break-words text-foreground">
+            {proposal.summary}
+          </span>
         </div>
         {proposal.rationale && (
-          <p className="m-0 max-w-[68ch] text-small break-words text-muted-foreground @[40rem]:col-start-1">Why: {proposal.rationale}</p>
+          <p className="m-0 max-w-[68ch] text-small break-words text-muted-foreground @[40rem]:col-start-1">
+            Why: {proposal.rationale}
+          </p>
         )}
         {mode === "idle" && (
           <DecisionGroup

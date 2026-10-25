@@ -115,7 +115,14 @@ export function AmendActions({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button type="submit" variant="outline" size="sm" loading={busy} disabled={!busy && !ready} aria-label={`Accept edit to ${subject}`}>
+      <Button
+        type="submit"
+        variant="outline"
+        size="sm"
+        loading={busy}
+        disabled={!busy && !ready}
+        aria-label={`Accept edit to ${subject}`}
+      >
         <Check aria-hidden="true" />
         Accept edit
       </Button>
@@ -273,7 +280,12 @@ export function OrderChip({ number, tone = "ink" }: { number: number; tone?: "in
 
 /** What a decision did, as a toast: "Accepted the proposed Scope". */
 export function announceDecision(decision: Decision | "edit", subject: string) {
-  const words = { accept: "Accepted", amend: "Accepted your edit to", edit: "Accepted your edit to", reject: "Rejected" } as const;
+  const words = {
+    accept: "Accepted",
+    amend: "Accepted your edit to",
+    edit: "Accepted your edit to",
+    reject: "Rejected",
+  } as const;
   notify.success(`${words[decision]} ${subject}`);
 }
 

@@ -218,7 +218,9 @@ function useAdrDecision({
   // Wrong decision picked, or its answers edited, but not recorded yet.
   const unrecorded =
     choice === "wrong_decision" &&
-    (stored.kind !== "wrong_decision" || whatIsWrong !== (stored.whatIsWrong ?? "") || shouldBe !== (stored.shouldBe ?? ""));
+    (stored.kind !== "wrong_decision" ||
+      whatIsWrong !== (stored.whatIsWrong ?? "") ||
+      shouldBe !== (stored.shouldBe ?? ""));
 
   const group = (
     <RadioGroup
@@ -294,7 +296,9 @@ function useAdrDecision({
         <p className="m-0 flex items-start gap-1.5 pl-6 text-small text-muted-foreground">
           <FileX aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-foreground" />
           <span>
-            <span className="font-semibold text-foreground">{stored.kind === "not_an_adr" ? "Not an ADR" : "Wrong decision"}</span>
+            <span className="font-semibold text-foreground">
+              {stored.kind === "not_an_adr" ? "Not an ADR" : "Wrong decision"}
+            </span>
             {stored.kind === "not_an_adr"
               ? " · Merge waits. Request changes asks the agent to delete the file and keep the decision out of docs/adr."
               : " · Merge waits. Request changes sends both answers as one review point on the code and the ADR."}
@@ -354,7 +358,10 @@ function NewAdrCard({
 
       {adr.barLines ? (
         <div className="flex min-w-0 flex-col gap-1.5 pl-6">
-          <ul aria-label="Bar lines" className="m-0 grid min-w-0 list-none grid-cols-1 gap-x-4 gap-y-2 p-0 @lg:grid-cols-2">
+          <ul
+            aria-label="Bar lines"
+            className="m-0 grid min-w-0 list-none grid-cols-1 gap-x-4 gap-y-2 p-0 @lg:grid-cols-2"
+          >
             {BAR_LINES.map(({ key, label }) => {
               const value = adr.barLines?.[key] ?? null;
               return (

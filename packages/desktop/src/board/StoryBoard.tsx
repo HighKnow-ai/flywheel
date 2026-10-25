@@ -420,7 +420,9 @@ function useScrollMargin(roster: HTMLElement | null, scrollElement: HTMLElement 
   useLayoutEffect(() => {
     if (!roster || !scrollElement) return;
     const update = () =>
-      setMargin(roster.getBoundingClientRect().top - scrollElement.getBoundingClientRect().top + scrollElement.scrollTop);
+      setMargin(
+        roster.getBoundingClientRect().top - scrollElement.getBoundingClientRect().top + scrollElement.scrollTop,
+      );
     update();
     const observer = new ResizeObserver(update);
     observer.observe(roster.parentElement ?? roster);
@@ -663,9 +665,7 @@ function RowDetail({ story, figures }: { story: StoryDto; figures: RosterRowDto 
           {doing && <span className="truncate">{`· was doing “${doing}”`}</span>}
         </>
       )}
-      {!stopped && doing && (
-        <span aria-label={`${story.key} is doing`} className="truncate">{`Doing: ${doing}`}</span>
-      )}
+      {!stopped && doing && <span aria-label={`${story.key} is doing`} className="truncate">{`Doing: ${doing}`}</span>}
       {review && (
         <span className="inline-flex shrink-0 items-center gap-1 self-center text-muted-foreground tabular-nums">
           <FileDiff aria-hidden="true" size={13} className="shrink-0" />
@@ -802,7 +802,11 @@ function StoryRow({
           </span>
         </ItemContent>
         <ItemActions className="justify-end">{action ?? <RowCounts story={story} figures={figures} />}</ItemActions>
-        <ChevronRight aria-hidden="true" size={16} className="text-subtle-foreground transition-colors group-hover/row:text-foreground" />
+        <ChevronRight
+          aria-hidden="true"
+          size={16}
+          className="text-subtle-foreground transition-colors group-hover/row:text-foreground"
+        />
         {error && <p className="col-span-full m-0 pt-1 text-small text-destructive-text">{error}</p>}
       </li>
     </Item>

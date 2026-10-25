@@ -11,11 +11,7 @@ import { useState } from "react";
 import { FolderPlus } from "lucide-react";
 import { openFolderDialog } from "../adapters/tauri";
 import logoUrl from "../assets/logo.svg";
-import {
-  RegisterProjectDialog,
-  folderName,
-  type PendingRegistration,
-} from "../projects/RegisterProjectFlow";
+import { RegisterProjectDialog, folderName, type PendingRegistration } from "../projects/RegisterProjectFlow";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { LaunchEnvironmentNotice } from "./LaunchEnvironmentNotice";
@@ -47,8 +43,8 @@ export function FirstRun() {
             <h1 className="m-0 text-title font-semibold tracking-tight">No projects yet</h1>
           </EmptyTitle>
           <EmptyDescription className="text-body">
-            Register a local git repository to see its board. Flywheel keeps the board in its own database and
-            writes only a small marker file into the repository.
+            Register a local git repository to see its board. Flywheel keeps the board in its own database and writes
+            only a small marker file into the repository.
           </EmptyDescription>
         </EmptyHeader>
         <EmptyContent>

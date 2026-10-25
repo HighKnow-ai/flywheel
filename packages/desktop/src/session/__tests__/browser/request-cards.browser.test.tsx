@@ -31,7 +31,9 @@ const REQUESTS: PendingPermissionRequest[] = [
   {
     id: "gated",
     toolName: "Bash",
-    inputPayload: JSON.stringify({ command: "git push --force origin story/fly-206-request-cards-in-one-button-group" }),
+    inputPayload: JSON.stringify({
+      command: "git push --force origin story/fly-206-request-cards-in-one-button-group",
+    }),
     destructiveCategory: "force-push",
     suggestedRule: null,
   },
@@ -81,7 +83,13 @@ function Queue() {
         <PermissionRequestCard variant="compact" requests={REQUESTS} onAnswer={answer} onAnswerQuestion={answer} />
       </div>
       <div data-testid="feed" className="min-w-0 max-w-[860px] flex-1">
-        <PermissionRequestCard variant="feed" keyboardEnabled={false} requests={REQUESTS} onAnswer={answer} onAnswerQuestion={answer} />
+        <PermissionRequestCard
+          variant="feed"
+          keyboardEnabled={false}
+          requests={REQUESTS}
+          onAnswer={answer}
+          onAnswerQuestion={answer}
+        />
       </div>
     </div>
   );
@@ -102,7 +110,8 @@ describe(`the request cards in an engine (${SCHEME})`, () => {
       await page.viewport(width, height);
       render(<Queue />);
       await settle();
-      if (SHOTS) await page.screenshot({ path: `../../../../../../target/s206/${SHOTS}-${width}x${height}-${SCHEME}.png` });
+      if (SHOTS)
+        await page.screenshot({ path: `../../../../../../target/s206/${SHOTS}-${width}x${height}-${SCHEME}.png` });
 
       for (const region of ["column", "feed"]) {
         const scope = screen.getByTestId(region);

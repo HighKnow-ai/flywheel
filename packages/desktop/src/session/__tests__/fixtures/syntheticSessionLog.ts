@@ -48,8 +48,18 @@ export function syntheticSessionLog(): Entry[] {
     const id = `toolu_synthetic_${call}`;
     if (call % 9 === 4 && remaining >= 4) {
       // A board tool call: the agent's call, the board server's echo of it, and the result.
-      push({ type: "tool_call", toolName: "mcp__flywheel-board__task_update", toolUseId: id, input: { task_id: `task-${call}`, state: "done" } });
-      push({ type: "board_tool_request", requestId: `req-${call}`, tool: "task_update", args: { task_id: `task-${call}`, state: "done" } });
+      push({
+        type: "tool_call",
+        toolName: "mcp__flywheel-board__task_update",
+        toolUseId: id,
+        input: { task_id: `task-${call}`, state: "done" },
+      });
+      push({
+        type: "board_tool_request",
+        requestId: `req-${call}`,
+        tool: "task_update",
+        args: { task_id: `task-${call}`, state: "done" },
+      });
       push({ type: "tool_result", toolUseId: id, isError: false, output: "ok" });
       call += 1;
       continue;
@@ -72,7 +82,10 @@ export function syntheticSessionLog(): Entry[] {
       type: "tool_call",
       toolName: "Bash",
       toolUseId: id,
-      input: { command: `cat docs/synthetic-${call}.md && wc -l docs/synthetic-${call}.md`, description: `Read page ${call}` },
+      input: {
+        command: `cat docs/synthetic-${call}.md && wc -l docs/synthetic-${call}.md`,
+        description: `Read page ${call}`,
+      },
     });
     if (call === 1) push({ type: "rate_limit", status: "allowed", rateLimitType: "five_hour" });
     push({ type: "tool_result", toolUseId: id, isError: call % 13 === 0, output: `page ${call}\n`.repeat(3) });
@@ -110,7 +123,9 @@ export function logWindow(entries: Entry[], offset: number, limit: number) {
 export function rawWindow(entries: Entry[], offset: number, limit: number) {
   const effective = Math.min(limit, 100);
   return {
-    lines: entries.slice(offset, offset + effective).map((entry, i) => ({ line: offset + i, text: JSON.stringify(entry) })),
+    lines: entries
+      .slice(offset, offset + effective)
+      .map((entry, i) => ({ line: offset + i, text: JSON.stringify(entry) })),
     offset,
     limit: effective,
     total: entries.length,

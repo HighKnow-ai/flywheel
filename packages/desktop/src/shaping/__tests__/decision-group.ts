@@ -5,7 +5,11 @@ import { within } from "@testing-library/react";
  * Every Proposal is decided through the one Button Group (issue #211): Accept, then Amend when the Proposal carries
  * text to edit, then Reject, each an outline button at the small size, named by its verb and the Proposal.
  */
-export function expectDecisionGroup(scope: HTMLElement, subject: string, options: { amend?: boolean; separator?: string } = {}) {
+export function expectDecisionGroup(
+  scope: HTMLElement,
+  subject: string,
+  options: { amend?: boolean; separator?: string } = {},
+) {
   const { amend = true, separator = " " } = options;
   const group = within(scope).getByRole("group", { name: `Decide${separator}${subject}` });
   expect(group).toHaveAttribute("data-slot", "button-group");

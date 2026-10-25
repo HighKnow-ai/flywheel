@@ -44,7 +44,12 @@ function story(id: string, key: string, title: string, rank: string, extra: Part
   };
 }
 
-function storyProposal(id: string, verb: string, payload: Record<string, unknown>, extra: Partial<ProposalDto> = {}): ProposalDto {
+function storyProposal(
+  id: string,
+  verb: string,
+  payload: Record<string, unknown>,
+  extra: Partial<ProposalDto> = {},
+): ProposalDto {
   return {
     id,
     projectId: "p1",
@@ -64,11 +69,25 @@ function storyProposal(id: string, verb: string, payload: Record<string, unknown
   };
 }
 
-function newStory(id: string, title: string, rank: string, extra: Record<string, unknown> = {}, proposal: Partial<ProposalDto> = {}) {
+function newStory(
+  id: string,
+  title: string,
+  rank: string,
+  extra: Record<string, unknown> = {},
+  proposal: Partial<ProposalDto> = {},
+) {
   return storyProposal(
     id,
     "create",
-    { title, description: `${title}: proposed.`, rank, runs_after_story_id: null, runs_after_proposal_id: null, runs_after_reason: null, ...extra },
+    {
+      title,
+      description: `${title}: proposed.`,
+      rank,
+      runs_after_story_id: null,
+      runs_after_proposal_id: null,
+      runs_after_reason: null,
+      ...extra,
+    },
     proposal,
   );
 }
@@ -97,7 +116,10 @@ function columnNames() {
 }
 
 const PARSER = story("s1", "FLY-11", "Parser", "a0");
-const FEED = story("s2", "FLY-12", "Feed row", "a2", { runsAfterStoryId: "s1", runsAfterReason: "shares `FeedRow.tsx`" });
+const FEED = story("s2", "FLY-12", "Feed row", "a2", {
+  runsAfterStoryId: "s1",
+  runsAfterReason: "shares `FeedRow.tsx`",
+});
 
 beforeEach(() => {
   proposalAccept.mockReset().mockResolvedValue(undefined);
@@ -119,7 +141,9 @@ describe("StoryColumns", () => {
     expect(ghost).toHaveAttribute("data-state", "pending");
     expect(within(ghost).getByText("Schema: proposed.")).toBeInTheDocument();
     for (const name of ["Accept", "Amend", "Reject"]) {
-      expect(within(ghost).getByRole("button", { name: new RegExp(`^${name} the proposed Story`) })).toBeInTheDocument();
+      expect(
+        within(ghost).getByRole("button", { name: new RegExp(`^${name} the proposed Story`) }),
+      ).toBeInTheDocument();
     }
   });
 
@@ -143,7 +167,10 @@ describe("StoryColumns", () => {
   it("draws a pending Story's constraint as provisional, even when it runs after another pending Story", () => {
     renderColumns(
       [PARSER],
-      [newStory("p1", "Schema", "a1"), newStory("p2", "Feed", "a2", { runs_after_proposal_id: "p1", runs_after_reason: "reads its table" })],
+      [
+        newStory("p1", "Schema", "a1"),
+        newStory("p2", "Feed", "a2", { runs_after_proposal_id: "p1", runs_after_reason: "reads its table" }),
+      ],
     );
     const item = within(screen.getByRole("list", { name: "Runs-after constraints" })).getByRole("listitem");
     expect(item).toHaveTextContent("Feed runs after Schema");
@@ -180,7 +207,9 @@ describe("StoryColumns", () => {
   it("rejects a pending Story with an optional reason", async () => {
     renderColumns([], [newStory("p1", "Schema", "a1")]);
     fireEvent.click(screen.getByRole("button", { name: "Reject the proposed Story Schema" }));
-    fireEvent.change(screen.getByPlaceholderText("Why not? (optional)"), { target: { value: "Fold it into the feed" } });
+    fireEvent.change(screen.getByPlaceholderText("Why not? (optional)"), {
+      target: { value: "Fold it into the feed" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Reject" }));
     await waitFor(() => expect(proposalReject).toHaveBeenCalledWith("p1", "Fold it into the feed"));
   });
@@ -206,7 +235,10 @@ describe("StoryColumns", () => {
   });
 
   it("shrinks rejected Story Proposals to struck-through lines with their reason", () => {
-    renderColumns([PARSER], [newStory("p1", "Schema", "a1", {}, { state: "rejected", rejectionReason: "Fold it into the feed" })]);
+    renderColumns(
+      [PARSER],
+      [newStory("p1", "Schema", "a1", {}, { state: "rejected", rejectionReason: "Fold it into the feed" })],
+    );
     expect(columnNames()).toEqual(["1. FLY-11 Parser"]);
     const rejected = screen.getByRole("group", { name: "Rejected Story Schema" });
     expect(within(rejected).getByText("Schema").tagName).toBe("DEL");
@@ -236,7 +268,13 @@ function criterion(id: string, storyId: string, statement: string, command: stri
   };
 }
 
-function criterionProposal(id: string, storyId: string, statement: string, check: string | null, extra: Partial<ProposalDto> = {}) {
+function criterionProposal(
+  id: string,
+  storyId: string,
+  statement: string,
+  check: string | null,
+  extra: Partial<ProposalDto> = {},
+) {
   return storyProposal(
     id,
     "create",
@@ -253,14 +291,20 @@ describe("StoryColumns: criteria (issue #128)", () => {
   it("stacks each Story's criteria under its column, with the Check as a chip or judged at review", async () => {
     criterionList.mockImplementation(async (storyId: string) =>
       storyId === "s1"
-        ? [criterion("c1", "s1", "A malformed line is skipped", "cargo test -p core --test parser"), criterion("c2", "s1", "The error reads plainly", null)]
+        ? [
+            criterion("c1", "s1", "A malformed line is skipped", "cargo test -p core --test parser"),
+            criterion("c2", "s1", "The error reads plainly", null),
+          ]
         : [],
     );
     renderColumns([PARSER, FEED], [], { criteria: true });
     const parser = column("1. FLY-11 Parser");
     const list = await within(parser).findByRole("list", { name: "FLY-11 Acceptance criteria" });
     const rows = await within(list).findAllByRole("listitem");
-    expect(rows.map((r) => r.querySelector("span")?.textContent)).toEqual(["A malformed line is skipped", "The error reads plainly"]);
+    expect(rows.map((r) => r.querySelector("span")?.textContent)).toEqual([
+      "A malformed line is skipped",
+      "The error reads plainly",
+    ]);
     expect(within(rows[0]).getByText("Not run")).toBeInTheDocument();
     expect(within(rows[0]).getByText("cargo test -p core --test parser")).toBeInTheDocument();
     expect(within(rows[1]).getByText(/judged at review/i)).toBeInTheDocument();
@@ -276,17 +320,30 @@ describe("StoryColumns: criteria (issue #128)", () => {
 
   it("draws a pending criterion as a ghost card under its Story and accepts it there", async () => {
     criterionList.mockResolvedValue([]);
-    renderColumns([PARSER, FEED], [criterionProposal("pc1", "s2", "The row shows the live verb", "npm test -- feed-row"), criterionProposal("pc2", "s2", "It reads calmly", null)], {
-      criteria: true,
-    });
+    renderColumns(
+      [PARSER, FEED],
+      [
+        criterionProposal("pc1", "s2", "The row shows the live verb", "npm test -- feed-row"),
+        criterionProposal("pc2", "s2", "It reads calmly", null),
+      ],
+      {
+        criteria: true,
+      },
+    );
     const feed = column("2. FLY-12 Feed row");
     const ghost = within(feed).getByRole("group", { name: "Proposed criterion: The row shows the live verb" });
     expect(ghost).toHaveAttribute("data-state", "pending");
     expect(within(ghost).getByText("npm test -- feed-row")).toBeInTheDocument();
-    expect(within(within(feed).getByRole("group", { name: "Proposed criterion: It reads calmly" })).getByText(/judged at review/i)).toBeInTheDocument();
+    expect(
+      within(within(feed).getByRole("group", { name: "Proposed criterion: It reads calmly" })).getByText(
+        /judged at review/i,
+      ),
+    ).toBeInTheDocument();
     expect(within(column("1. FLY-11 Parser")).queryByRole("group", { name: /Proposed criterion/ })).toBeNull();
 
-    fireEvent.click(within(ghost).getByRole("button", { name: "Accept the proposed criterion The row shows the live verb" }));
+    fireEvent.click(
+      within(ghost).getByRole("button", { name: "Accept the proposed criterion The row shows the live verb" }),
+    );
     await waitFor(() => expect(proposalAccept).toHaveBeenCalledWith("pc1"));
   });
 
@@ -296,10 +353,16 @@ describe("StoryColumns: criteria (issue #128)", () => {
     const ghost = within(column("1. FLY-11 Parser")).getByRole("group", { name: "Proposed criterion: It parses" });
     fireEvent.click(within(ghost).getByRole("button", { name: "Amend the proposed criterion It parses" }));
     fireEvent.change(within(ghost).getByLabelText("Criterion"), { target: { value: "A malformed line is skipped" } });
-    fireEvent.change(within(ghost).getByLabelText("Check command (blank: judged at review)"), { target: { value: "  " } });
+    fireEvent.change(within(ghost).getByLabelText("Check command (blank: judged at review)"), {
+      target: { value: "  " },
+    });
     fireEvent.click(within(ghost).getByRole("button", { name: "Accept edit to the proposed criterion It parses" }));
     await waitFor(() =>
-      expect(proposalAmend).toHaveBeenCalledWith("pc1", { story_id: "s1", statement: "A malformed line is skipped", check_command: null }),
+      expect(proposalAmend).toHaveBeenCalledWith("pc1", {
+        story_id: "s1",
+        statement: "A malformed line is skipped",
+        check_command: null,
+      }),
     );
   });
 
@@ -308,15 +371,21 @@ describe("StoryColumns: criteria (issue #128)", () => {
     renderColumns([PARSER], [criterionProposal("pc1", "s1", "It parses", null)], { criteria: true });
     const ghost = within(column("1. FLY-11 Parser")).getByRole("group", { name: "Proposed criterion: It parses" });
     fireEvent.click(within(ghost).getByRole("button", { name: "Reject the proposed criterion It parses" }));
-    fireEvent.change(within(ghost).getByPlaceholderText("Why not? (optional)"), { target: { value: "Not observable" } });
+    fireEvent.change(within(ghost).getByPlaceholderText("Why not? (optional)"), {
+      target: { value: "Not observable" },
+    });
     fireEvent.click(within(ghost).getByRole("button", { name: "Reject" }));
     await waitFor(() => expect(proposalReject).toHaveBeenCalledWith("pc1", "Not observable"));
   });
 
   it("shrinks a rejected criterion to a struck-through line with its reason", () => {
-    renderColumns([PARSER], [criterionProposal("pc1", "s1", "It is pretty", null, { state: "rejected", rejectionReason: "Not observable" })], {
-      criteria: true,
-    });
+    renderColumns(
+      [PARSER],
+      [criterionProposal("pc1", "s1", "It is pretty", null, { state: "rejected", rejectionReason: "Not observable" })],
+      {
+        criteria: true,
+      },
+    );
     const rejected = screen.getByRole("group", { name: "Rejected criterion on FLY-11: It is pretty" });
     expect(within(rejected).getByText("It is pretty").tagName).toBe("DEL");
     expect(rejected).toHaveTextContent("Your reason: Not observable");
@@ -337,8 +406,14 @@ describe("StoryColumns: one decision group, columns that scroll (issue #211)", (
       { criteria: true },
     );
     expectDecisionGroup(column("2. Proposed Story: Schema"), "the proposed Story Schema");
-    expectDecisionGroup(screen.getByRole("group", { name: "Proposed move of FLY-11" }), "the move of FLY-11", { amend: false });
-    expectDecisionGroup(screen.getByRole("group", { name: "Proposed retirement of FLY-12" }), "the retirement of FLY-12", { amend: false });
+    expectDecisionGroup(screen.getByRole("group", { name: "Proposed move of FLY-11" }), "the move of FLY-11", {
+      amend: false,
+    });
+    expectDecisionGroup(
+      screen.getByRole("group", { name: "Proposed retirement of FLY-12" }),
+      "the retirement of FLY-12",
+      { amend: false },
+    );
     expectDecisionGroup(
       screen.getByRole("group", { name: "Proposed criterion: The row shows the live verb" }),
       "the proposed criterion The row shows the live verb",

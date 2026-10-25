@@ -45,7 +45,9 @@ vi.mock("../../adapters/tauri", async () => {
   return {
     ...actual,
     milestoneList: () =>
-      Promise.resolve([{ id: "m1", projectId: "p1", title: "M1", exitTest: null, state: "ready", current: true, rank: "a" }]),
+      Promise.resolve([
+        { id: "m1", projectId: "p1", title: "M1", exitTest: null, state: "ready", current: true, rank: "a" },
+      ]),
     epicList: () => Promise.resolve([]),
     milestoneProgress: () => Promise.resolve(null),
     rosterRows: (...args: unknown[]) => rosterRows(...(args as [])),
@@ -67,7 +69,17 @@ vi.mock("../../adapters/tauri", async () => {
 });
 
 function story(state: string): StoryDto {
-  return { id: "s1", projectId: "p1", epicId: "e1", key: "FLY-2", title: "Parser", description: null, state, runsAfterStoryId: null, rank: "a" };
+  return {
+    id: "s1",
+    projectId: "p1",
+    epicId: "e1",
+    key: "FLY-2",
+    title: "Parser",
+    description: null,
+    state,
+    runsAfterStoryId: null,
+    rank: "a",
+  };
 }
 
 function run(id: string, endingReason: RunSummaryDto["endingReason"], endedAt: string | null): RunSummaryDto {
@@ -116,8 +128,12 @@ beforeEach(() => {
   storyListForProject.mockReset().mockResolvedValue([story("running")]);
   storyGet.mockReset().mockImplementation(async () => (await storyListForProject())[0]);
   blockedSummary.mockReset().mockResolvedValue({ blockedStoryIds: [], blockedCount: 0 });
-  storyStopped.mockReset().mockResolvedValue({ sessionId: "01JSESSIONDEAD", endingReason: "crash", endedAt: "2026-10-19T10:00:00Z" });
-  storyResume.mockReset().mockResolvedValue({ id: "01JSESSIONNEXT", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
+  storyStopped
+    .mockReset()
+    .mockResolvedValue({ sessionId: "01JSESSIONDEAD", endingReason: "crash", endedAt: "2026-10-19T10:00:00Z" });
+  storyResume
+    .mockReset()
+    .mockResolvedValue({ id: "01JSESSIONNEXT", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
   storyDrop.mockReset().mockResolvedValue(undefined);
   sessionsForStory.mockReset().mockResolvedValue([]);
   sessionSummariesForStory.mockReset().mockResolvedValue([]);
@@ -159,7 +175,9 @@ describe("StoryBoard: a Stopped Story (issue #54)", () => {
     renderBoard();
     const row = await storyRow();
     fireEvent.click(await within(row).findByRole("button", { name: "Resume FLY-2" }));
-    fireEvent.change(await screen.findByLabelText("Resume note for FLY-2"), { target: { value: "Pick the parser back up" } });
+    fireEvent.change(await screen.findByLabelText("Resume note for FLY-2"), {
+      target: { value: "Pick the parser back up" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Start the new session for FLY-2" }));
 
     await waitFor(() => expect(storyResume).toHaveBeenCalledWith("s1", "Pick the parser back up"));

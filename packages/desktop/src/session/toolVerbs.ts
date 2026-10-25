@@ -230,7 +230,10 @@ function describeBoardTool(tool: string, call: ToolCallInput): Described {
     }
     case "task_list": {
       const tasks = Array.isArray(answer.tasks) ? answer.tasks : null;
-      const metrics = base.metrics.length > 0 || !tasks ? base.metrics : [{ text: plural(tasks.length, "Task"), tone: "neutral" as const }];
+      const metrics =
+        base.metrics.length > 0 || !tasks
+          ? base.metrics
+          : [{ text: plural(tasks.length, "Task"), tone: "neutral" as const }];
       return { ...base, verb: "Read Tasks", liveVerb: "Reading Tasks", target: "", metrics };
     }
     case "checks_run":
@@ -254,7 +257,9 @@ function describeBoardTool(tool: string, call: ToolCallInput): Described {
       // Issue #123: the call is held until every question is answered, so while it runs the agent is
       // waiting on the developer, and once it answers it carries every answer. Issue #124: round_wait is a
       // later session picking up the Round its predecessor left open, held the same way.
-      const titles = (Array.isArray(input.questions) ? input.questions : []).map((q) => str(record(q).title)).filter(Boolean);
+      const titles = (Array.isArray(input.questions) ? input.questions : [])
+        .map((q) => str(record(q).title))
+        .filter(Boolean);
       const count = Array.isArray(input.questions) ? input.questions.length : 0;
       const answers = Array.isArray(answer.answers) ? answer.answers.map(record) : null;
       const recommended = answers ? answers.filter((a) => a.answered_with === "recommended").length : 0;
@@ -305,7 +310,12 @@ function describeBoardTool(tool: string, call: ToolCallInput): Described {
       return { ...base, verb: "Proposed", liveVerb: "Proposing", target: [what, title].filter(Boolean).join(": ") };
     }
     case "roadmap_holds":
-      return { ...base, verb: "Said the Roadmap still holds", liveVerb: "Closing the roadmap Round", target: str(input.why) };
+      return {
+        ...base,
+        verb: "Said the Roadmap still holds",
+        liveVerb: "Closing the roadmap Round",
+        target: str(input.why),
+      };
     case "propose_story": {
       // Issue #127: a New Story, waiting as a ghost column; the agent keeps slicing.
       const after = str(input.runs_after);
@@ -314,19 +324,32 @@ function describeBoardTool(tool: string, call: ToolCallInput): Described {
     }
     case "propose_story_order": {
       const story = str(input.story);
-      const place = str(input.after) ? `after ${str(input.after)}` : str(input.before) ? `before ${str(input.before)}` : "to the end";
+      const place = str(input.after)
+        ? `after ${str(input.after)}`
+        : str(input.before)
+          ? `before ${str(input.before)}`
+          : "to the end";
       const target = input.action === "retire" ? `Retire ${story}` : `Move ${story} ${place}`;
       return { ...base, verb: "Proposed", liveVerb: "Proposing", target };
     }
     case "propose_criterion": {
       // Issue #128: a criterion for a Story, waiting as a ghost card under it; the agent keeps writing.
       const check = str(input.check) ? " · with a Check" : " · judged at review";
-      return { ...base, verb: "Proposed", liveVerb: "Proposing", target: `Criterion on ${str(input.story)}: ${str(input.statement)}${check}` };
+      return {
+        ...base,
+        verb: "Proposed",
+        liveVerb: "Proposing",
+        target: `Criterion on ${str(input.story)}: ${str(input.statement)}${check}`,
+      };
     }
     case "propose": {
       // Issue #160: a running Story's Proposal, answered at once; the agent keeps working.
       const kind = str(input.kind);
-      const place = str(input.after) ? ` after ${str(input.after)}` : str(input.before) ? ` before ${str(input.before)}` : "";
+      const place = str(input.after)
+        ? ` after ${str(input.after)}`
+        : str(input.before)
+          ? ` before ${str(input.before)}`
+          : "";
       const named: Record<string, string> = {
         new_story: str(input.title),
         amend_criterion: str(input.statement),
@@ -338,8 +361,16 @@ function describeBoardTool(tool: string, call: ToolCallInput): Described {
       const what = STORY_PROPOSAL_KIND_WORDS[kind] ?? words(kind);
       const open = typeof answer.open === "number" && typeof answer.cap === "number" ? answer.open : null;
       const metrics =
-        base.metrics.length > 0 || open === null ? base.metrics : [{ text: `${open} of ${String(answer.cap)} open`, tone: "neutral" as const }];
-      return { ...base, verb: "Proposed", liveVerb: "Proposing", target: [what, named[kind] ?? ""].filter(Boolean).join(": "), metrics };
+        base.metrics.length > 0 || open === null
+          ? base.metrics
+          : [{ text: `${open} of ${String(answer.cap)} open`, tone: "neutral" as const }];
+      return {
+        ...base,
+        verb: "Proposed",
+        liveVerb: "Proposing",
+        target: [what, named[kind] ?? ""].filter(Boolean).join(": "),
+        metrics,
+      };
     }
     case "proposal_withdraw":
       return { ...base, verb: "Withdrew Proposal", liveVerb: "Withdrawing Proposal", target: "" };
@@ -394,7 +425,9 @@ function describeCall(call: ToolCallInput): Described {
   switch (call.toolName) {
     case "Read":
       return {
-        ...code("Read", "Reading", "read", str(input.file_path) || str(input.path), [{ text: plural(lineCount(text), "line"), tone: "neutral" }]),
+        ...code("Read", "Reading", "read", str(input.file_path) || str(input.path), [
+          { text: plural(lineCount(text), "line"), tone: "neutral" },
+        ]),
         targetIsPath: true,
       };
     case "Edit":
@@ -415,7 +448,8 @@ function describeCall(call: ToolCallInput): Described {
       return {
         ...code("Wrote", "Writing", "write", str(input.file_path), []),
         targetIsPath: true,
-        metrics: failed.length > 0 ? failed : [{ text: plural(lineCount(str(input.content)), "line"), tone: "neutral" }],
+        metrics:
+          failed.length > 0 ? failed : [{ text: plural(lineCount(str(input.content)), "line"), tone: "neutral" }],
       };
     case "Bash":
       // Claude Code marks a non-zero exit as an error, so a clean answer is a clean exit.
@@ -439,7 +473,16 @@ function describeCall(call: ToolCallInput): Described {
       return { ...code("Proposed plan", "Proposing plan", "other", "", []), targetIsCode: false };
     case "Skill":
     case "SlashCommand":
-      return { ...code("Used", "Using", "other", str(input.skill) || str(input.command) || words(camelWords(call.toolName)), []), targetIsCode: false };
+      return {
+        ...code(
+          "Used",
+          "Using",
+          "other",
+          str(input.skill) || str(input.command) || words(camelWords(call.toolName)),
+          [],
+        ),
+        targetIsCode: false,
+      };
     case "WebFetch":
       return code("Fetched", "Fetching", "web", str(input.url), []);
     case "WebSearch":

@@ -113,7 +113,10 @@ export function payloadText(value: unknown): string {
 /** The kind word a Proposal tool's name carries: `mcp__flywheel__propose_story` reads "story". */
 export function proposalKind(toolName: string): string {
   const bare = toolName.split("__").pop() ?? toolName;
-  return bare.replace(/^propose_?/i, "").replace(/_/g, " ").trim();
+  return bare
+    .replace(/^propose_?/i, "")
+    .replace(/_/g, " ")
+    .trim();
 }
 
 /** Whether a tool call files a Proposal on the board: a tool named `propose_*`, on any MCP server. */
@@ -136,7 +139,8 @@ export function feedRowText(row: FeedRowData): string {
     case "tool_result":
       return payloadText(row.output);
     case "proposal": {
-      const title = row.input && typeof row.input === "object" ? (row.input as Record<string, unknown>).title : undefined;
+      const title =
+        row.input && typeof row.input === "object" ? (row.input as Record<string, unknown>).title : undefined;
       const kind = proposalKind(row.toolName);
       const head = kind ? `Proposal · ${kind}` : "Proposal";
       return typeof title === "string" && title ? `${head} · ${title}` : head;
@@ -260,7 +264,21 @@ const READ_ONLY_GIT_SUBCOMMANDS = new Set([
 ]);
 
 /** Commands a read-only git call may pipe into without changing anything. */
-const PIPE_FILTERS = new Set(["head", "tail", "grep", "wc", "sort", "uniq", "cat", "cut", "awk", "sed", "tr", "less", "more"]);
+const PIPE_FILTERS = new Set([
+  "head",
+  "tail",
+  "grep",
+  "wc",
+  "sort",
+  "uniq",
+  "cat",
+  "cut",
+  "awk",
+  "sed",
+  "tr",
+  "less",
+  "more",
+]);
 
 /** Git's global options that take a separate value (`-C <path>`, `-c <name>=<value>`). */
 const GIT_OPTIONS_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace"]);
@@ -279,7 +297,12 @@ function isReadOnlyGitInvocation(words: string[]): boolean {
   switch (sub) {
     // `git branch` lists unless it is given a name, or a delete/move/copy/upstream flag.
     case "branch":
-      return positional.length === 0 && !args.some((a) => /^-(d|D|m|M|c|C|f|u)$|^--(delete|move|copy|force|set-upstream|unset-upstream|edit-description)/.test(a));
+      return (
+        positional.length === 0 &&
+        !args.some((a) =>
+          /^-(d|D|m|M|c|C|f|u)$|^--(delete|move|copy|force|set-upstream|unset-upstream|edit-description)/.test(a),
+        )
+      );
     case "stash":
     case "worktree":
       return positional[0] === "list" || (sub === "stash" && positional[0] === "show");
@@ -365,14 +388,23 @@ function questionsFrom(event: Record<string, unknown>): QuestionPrompt[] {
     event.input && typeof event.input === "object" ? (event.input as Record<string, unknown>).questions : undefined;
   const list = parsed ?? (Array.isArray(fromInput) ? fromInput : []);
   return list
-    .filter((q): q is Record<string, unknown> => !!q && typeof q === "object" && typeof (q as Record<string, unknown>).question === "string")
+    .filter(
+      (q): q is Record<string, unknown> =>
+        !!q && typeof q === "object" && typeof (q as Record<string, unknown>).question === "string",
+    )
     .map((q) => ({
       question: q.question as string,
       ...(typeof q.header === "string" ? { header: q.header } : {}),
       ...(typeof q.multiSelect === "boolean" ? { multiSelect: q.multiSelect } : {}),
       options: (Array.isArray(q.options) ? q.options : [])
-        .filter((o): o is Record<string, unknown> => !!o && typeof o === "object" && typeof (o as Record<string, unknown>).label === "string")
-        .map((o) => ({ label: o.label as string, ...(typeof o.description === "string" ? { description: o.description } : {}) })),
+        .filter(
+          (o): o is Record<string, unknown> =>
+            !!o && typeof o === "object" && typeof (o as Record<string, unknown>).label === "string",
+        )
+        .map((o) => ({
+          label: o.label as string,
+          ...(typeof o.description === "string" ? { description: o.description } : {}),
+        })),
     }));
 }
 

@@ -39,8 +39,7 @@ const EXPECTED_SIZE: Record<string, number> = {
   "icons/128x128@2x.png": 256,
 };
 
-const u32 = (b: Uint8Array, at: number) =>
-  ((b[at] << 24) | (b[at + 1] << 16) | (b[at + 2] << 8) | b[at + 3]) >>> 0;
+const u32 = (b: Uint8Array, at: number) => ((b[at] << 24) | (b[at + 1] << 16) | (b[at + 2] << 8) | b[at + 3]) >>> 0;
 
 const icons = tauriConf.bundle.icon;
 
@@ -55,17 +54,14 @@ describe("bundle.icon artifacts", () => {
     expect(gitBlobHash(bytes).slice(0, 8)).not.toBe(SCAFFOLD_BLOB[rel]);
   });
 
-  it.each(icons.filter((r) => r.endsWith(".png")))(
-    "%s is an RGBA PNG of the dimensions its filename claims",
-    (rel) => {
-      const b = read(rel);
-      expect(Array.from(b.slice(1, 4))).toEqual([0x50, 0x4e, 0x47]); // "PNG"
-      expect(u32(b, 16)).toBe(EXPECTED_SIZE[rel]);
-      expect(u32(b, 20)).toBe(EXPECTED_SIZE[rel]);
-      expect(b[24]).toBe(8); // bit depth
-      expect(b[25]).toBe(6); // colour type 6 = RGBA
-    },
-  );
+  it.each(icons.filter((r) => r.endsWith(".png")))("%s is an RGBA PNG of the dimensions its filename claims", (rel) => {
+    const b = read(rel);
+    expect(Array.from(b.slice(1, 4))).toEqual([0x50, 0x4e, 0x47]); // "PNG"
+    expect(u32(b, 16)).toBe(EXPECTED_SIZE[rel]);
+    expect(u32(b, 20)).toBe(EXPECTED_SIZE[rel]);
+    expect(b[24]).toBe(8); // bit depth
+    expect(b[25]).toBe(6); // colour type 6 = RGBA
+  });
 
   it("icon.icns carries the icns magic", () => {
     expect(new TextDecoder().decode(read("icons/icon.icns").slice(0, 4))).toBe("icns");
@@ -80,7 +76,7 @@ describe("bundle.icon artifacts", () => {
     // Gather IDAT chunks, inflate, and read the first scanline's first pixel. The row above and the
     // pixel to the left are both zero, so every PNG filter type (0-4) reduces to the raw byte.
     const idat: Uint8Array[] = [];
-    for (let at = 8; at < b.length; ) {
+    for (let at = 8; at < b.length;) {
       const len = u32(b, at);
       const type = String.fromCharCode(b[at + 4], b[at + 5], b[at + 6], b[at + 7]);
       if (type === "IDAT") idat.push(b.slice(at + 8, at + 8 + len));
@@ -102,7 +98,7 @@ describe("bundle.icon artifacts", () => {
     const height = u32(b, 20);
     expect([b[24], b[25]]).toEqual([8, 6]); // 8-bit RGBA, so four bytes per pixel below
     const idat: Uint8Array[] = [];
-    for (let at = 8; at < b.length; ) {
+    for (let at = 8; at < b.length;) {
       const len = u32(b, at);
       if (String.fromCharCode(b[at + 4], b[at + 5], b[at + 6], b[at + 7]) === "IDAT") {
         idat.push(b.slice(at + 8, at + 8 + len));

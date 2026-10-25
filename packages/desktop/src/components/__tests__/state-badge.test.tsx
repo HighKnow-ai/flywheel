@@ -42,7 +42,17 @@ describe("the state vocabulary", () => {
     expect(byTone.attention.sort()).toEqual(["blocked", "waiting_on_you"]);
     expect(byTone.running.sort()).toEqual(["doing", "running"]);
     expect(byTone.destructive.sort()).toEqual(["abandoned", "ci_failed", "failed", "stopped"]);
-    for (const state of ["shaping", "ready", "in_review", "merged", "dropped", "passed", "not_run", "timed_out", "stale"]) {
+    for (const state of [
+      "shaping",
+      "ready",
+      "in_review",
+      "merged",
+      "dropped",
+      "passed",
+      "not_run",
+      "timed_out",
+      "stale",
+    ]) {
       expect(stateToneOf(state), state).toBe("neutral");
     }
   });

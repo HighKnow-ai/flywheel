@@ -124,7 +124,9 @@ export function feedRowEstimateSize(row: FeedRowData, expanded: boolean): number
   switch (row.kind) {
     case "assistant_text":
     case "developer_turn":
-      return 16 + LINE * row.text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(line.length / 100)), 0);
+      return (
+        16 + LINE * row.text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(line.length / 100)), 0)
+      );
     case "proposal":
       return 140;
     case "question":
@@ -169,7 +171,11 @@ function useSecondTick(enabled: boolean): number {
 
 /** How long a live call has been running: the newer of its last heartbeat and the clock since it
  * started, so the figure keeps moving between heartbeats and never runs behind one. */
-export function runningSeconds(startedAt: string | undefined, heartbeatSeconds: number | undefined, nowMs: number): number {
+export function runningSeconds(
+  startedAt: string | undefined,
+  heartbeatSeconds: number | undefined,
+  nowMs: number,
+): number {
   const started = startedAt ? Date.parse(startedAt) : Number.NaN;
   const byClock = Number.isNaN(started) ? 0 : Math.max(0, (nowMs - started) / 1000);
   return Math.floor(Math.max(byClock, heartbeatSeconds ?? 0));
@@ -190,7 +196,10 @@ function RunningFor({
   const nowMs = now ?? ticked;
   const seconds = runningSeconds(startedAt, heartbeatSeconds, nowMs);
   return (
-    <span className={cn("feed-call-state shrink-0 font-sans text-meta font-semibold tabular-nums", className)} data-state="running">
+    <span
+      className={cn("feed-call-state shrink-0 font-sans text-meta font-semibold tabular-nums", className)}
+      data-state="running"
+    >
       {`running · ${formatDuration(seconds)}`}
     </span>
   );
@@ -204,7 +213,11 @@ export function Fields({ value, depth = 0 }: { value: unknown; depth?: number })
     return <span className="text-muted-foreground">none</span>;
   }
   if (typeof value === "string") {
-    return value.includes("\n") ? <pre className="m-0 font-mono text-small break-words whitespace-pre-wrap">{value}</pre> : <span className="font-mono text-small break-words">{value}</span>;
+    return value.includes("\n") ? (
+      <pre className="m-0 font-mono text-small break-words whitespace-pre-wrap">{value}</pre>
+    ) : (
+      <span className="font-mono text-small break-words">{value}</span>
+    );
   }
   if (typeof value === "number" || typeof value === "boolean") return <span>{String(value)}</span>;
   if (depth >= FIELDS_MAX_DEPTH) return <span>{payloadText(value)}</span>;
@@ -241,7 +254,8 @@ export function Fields({ value, depth = 0 }: { value: unknown; depth?: number })
 
 /** A tool's output: text as preformatted text, anything structured as fields. */
 function OutputView({ output }: { output: unknown }) {
-  if (typeof output === "string") return <pre className="m-0 font-mono text-small break-words whitespace-pre-wrap">{output || "(no output)"}</pre>;
+  if (typeof output === "string")
+    return <pre className="m-0 font-mono text-small break-words whitespace-pre-wrap">{output || "(no output)"}</pre>;
   return <Fields value={output} />;
 }
 
@@ -250,7 +264,10 @@ function Chevron({ expanded }: { expanded: boolean }) {
     <ChevronRight
       aria-hidden="true"
       size={14}
-      className={cn("shrink-0 text-subtle-foreground transition-transform duration-(--duration-state) ease-(--ease)", expanded && "rotate-90")}
+      className={cn(
+        "shrink-0 text-subtle-foreground transition-transform duration-(--duration-state) ease-(--ease)",
+        expanded && "rotate-90",
+      )}
     />
   );
 }
@@ -279,20 +296,20 @@ function CallMetrics({ metrics, seconds, surface }: { metrics: ToolMetric[]; sec
         metric.tone === "failed" ? (
           <StateBadge key={metric.text} state="failed" label={metric.text} className="h-5 px-2 text-meta" />
         ) : (
-        <span
-          key={metric.text}
-          data-tone={metric.tone}
-          className={cn(
-            "inline-flex items-center gap-1",
-            metric.tone !== "neutral" && "font-semibold",
-            metric.tone === "ok" && (onStrip ? "text-strip-foreground" : "text-foreground"),
-            // On the strip the line sits in a `dark` scope, so this is the red lifted for a dark ground.
-            metric.tone === "failed-check" && "text-destructive-text",
-          )}
-        >
-          {metric.tone === "failed-check" && <CircleX aria-hidden="true" size={14} className="text-destructive" />}
-          {metric.text}
-        </span>
+          <span
+            key={metric.text}
+            data-tone={metric.tone}
+            className={cn(
+              "inline-flex items-center gap-1",
+              metric.tone !== "neutral" && "font-semibold",
+              metric.tone === "ok" && (onStrip ? "text-strip-foreground" : "text-foreground"),
+              // On the strip the line sits in a `dark` scope, so this is the red lifted for a dark ground.
+              metric.tone === "failed-check" && "text-destructive-text",
+            )}
+          >
+            {metric.tone === "failed-check" && <CircleX aria-hidden="true" size={14} className="text-destructive" />}
+            {metric.text}
+          </span>
         ),
       )}
       {seconds !== undefined && <span>{formatDuration(seconds)}</span>}
@@ -359,9 +376,16 @@ export function ToolCallLine({
   const verb = live ? described.liveVerb : described.verb;
   return (
     <>
-      <KindIcon aria-hidden="true" size={16} className={cn("shrink-0", onStrip ? "text-strip-muted-foreground" : "text-muted-foreground")} />
+      <KindIcon
+        aria-hidden="true"
+        size={16}
+        className={cn("shrink-0", onStrip ? "text-strip-muted-foreground" : "text-muted-foreground")}
+      />
       <span
-        className={cn("feed-call-verb w-27 shrink-0 truncate text-small font-semibold", onStrip ? "text-strip-foreground" : "text-foreground")}
+        className={cn(
+          "feed-call-verb w-27 shrink-0 truncate text-small font-semibold",
+          onStrip ? "text-strip-foreground" : "text-foreground",
+        )}
         title={verb}
       >
         {verb}
@@ -372,11 +396,19 @@ export function ToolCallLine({
         // durations above it. Running ink: on the strip the line's `dark` scope lifts it to the dark blue.
         // Under reduced motion the pulse class is omitted, so the mark is plain and never frozen mid-cycle.
         <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 text-running">
-          <LoaderCircle aria-hidden="true" size={15} className={cn("feed-caret shrink-0", !prefersReducedMotion() && "agent-pulse")} />
+          <LoaderCircle
+            aria-hidden="true"
+            size={15}
+            className={cn("feed-caret shrink-0", !prefersReducedMotion() && "agent-pulse")}
+          />
           <RunningFor startedAt={row.startedAt} heartbeatSeconds={row.elapsedSeconds} now={now} />
         </span>
       ) : (
-        <CallMetrics metrics={described.metrics} seconds={toolCallSeconds(row.startedAt, row.endedAt)} surface={surface} />
+        <CallMetrics
+          metrics={described.metrics}
+          seconds={toolCallSeconds(row.startedAt, row.endedAt)}
+          surface={surface}
+        />
       )}
     </>
   );
@@ -389,7 +421,11 @@ export function toolCallAccessibleName(
   root?: string | null,
 ): string {
   const label = toolCallLabel(row.toolName, row.input, { live, output: row.output, root });
-  const state = live ? "running" : describeToolCall(row).metrics.map((m) => m.text).join(", ");
+  const state = live
+    ? "running"
+    : describeToolCall(row)
+        .metrics.map((m) => m.text)
+        .join(", ");
   return [label, state].filter(Boolean).join(", ");
 }
 
@@ -476,7 +512,9 @@ function ToolResultRow({
   if (!expandable) {
     return (
       <div role="listitem" className="feed-row">
-        <span className="feed-call-label block truncate py-1 font-mono text-small text-muted-foreground">{summary}</span>
+        <span className="feed-call-label block truncate py-1 font-mono text-small text-muted-foreground">
+          {summary}
+        </span>
       </div>
     );
   }
@@ -496,7 +534,10 @@ function ToolResultRow({
 }
 
 function ProposalCard({ row }: { row: Extract<FeedRowData, { kind: "proposal" }> }) {
-  const input = row.input && typeof row.input === "object" && !Array.isArray(row.input) ? (row.input as Record<string, unknown>) : {};
+  const input =
+    row.input && typeof row.input === "object" && !Array.isArray(row.input)
+      ? (row.input as Record<string, unknown>)
+      : {};
   const { title, why, ...rest } = input;
   const kind = proposalKind(row.toolName);
   return (
@@ -530,7 +571,8 @@ function QuestionCard({
   onAnswer?: (picks: QuestionPicks) => Promise<void>;
   draftKey?: string;
 }) {
-  const heading = questions.length > 1 ? `The agent asks you ${questions.length} questions` : "The agent asks you a question";
+  const heading =
+    questions.length > 1 ? `The agent asks you ${questions.length} questions` : "The agent asks you a question";
   if (onAnswer && answer === undefined) {
     return (
       <div role="listitem" className="feed-row py-2">
@@ -599,10 +641,21 @@ function noticeIcon(text: string): LucideIcon {
  * the chevron's slot left empty, its glyph in the icon column and its words where a call's verb begins, so
  * it lines up with the calls around it instead of hanging off the card's edge.
  */
-function NoticeRow({ text, icon: NoticeIcon = noticeIcon(text), kind }: { text: string; icon?: LucideIcon; kind?: string }) {
+function NoticeRow({
+  text,
+  icon: NoticeIcon = noticeIcon(text),
+  kind,
+}: {
+  text: string;
+  icon?: LucideIcon;
+  kind?: string;
+}) {
   return (
     <div role="listitem" className="feed-row">
-      <p className="feed-notice -mx-2 my-0 flex min-w-0 items-start gap-2.5 px-2 py-1 text-small text-muted-foreground" data-notice={kind}>
+      <p
+        className="feed-notice -mx-2 my-0 flex min-w-0 items-start gap-2.5 px-2 py-1 text-small text-muted-foreground"
+        data-notice={kind}
+      >
         <span aria-hidden="true" className="w-3.5 shrink-0" />
         <NoticeIcon aria-hidden="true" size={16} className="mt-0.5 shrink-0" />
         <span className="min-w-0 break-words">{text}</span>
@@ -615,7 +668,11 @@ function NoticeRow({ text, icon: NoticeIcon = noticeIcon(text), kind }: { text: 
  * form is cut before it reaches the DOM, so a multi-kilobyte line never sits behind a CSS clip. */
 function RawRow({ raw, expanded, onToggleExpand }: { raw: string; expanded: boolean; onToggleExpand: () => void }) {
   const expandable = raw.length > FEED_ROW_TRUNCATION_THRESHOLD;
-  const clipped = <span className="min-w-0 truncate font-mono text-small text-muted-foreground">{raw.slice(0, FEED_ROW_TRUNCATION_THRESHOLD)}</span>;
+  const clipped = (
+    <span className="min-w-0 truncate font-mono text-small text-muted-foreground">
+      {raw.slice(0, FEED_ROW_TRUNCATION_THRESHOLD)}
+    </span>
+  );
   if (!expandable) {
     return (
       <div role="listitem" className="feed-row flex py-1">
@@ -642,7 +699,16 @@ function RawRow({ raw, expanded, onToggleExpand }: { raw: string; expanded: bool
   );
 }
 
-export function FeedRow({ row, expanded, onToggleExpand, live = false, now, onAnswerQuestion, questionDraftKey, root }: FeedRowProps) {
+export function FeedRow({
+  row,
+  expanded,
+  onToggleExpand,
+  live = false,
+  now,
+  onAnswerQuestion,
+  questionDraftKey,
+  root,
+}: FeedRowProps) {
   switch (row.kind) {
     case "assistant_text":
       return (
@@ -671,14 +737,21 @@ export function FeedRow({ row, expanded, onToggleExpand, live = false, now, onAn
     case "git_lock_exhausted":
       return null;
     case "tool_call":
-      return <ToolCallRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} live={live} now={now} root={root} />;
+      return (
+        <ToolCallRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} live={live} now={now} root={root} />
+      );
     case "tool_result":
       return <ToolResultRow row={row} expanded={expanded} onToggleExpand={onToggleExpand} />;
     case "proposal":
       return <ProposalCard row={row} />;
     case "question":
       return (
-        <QuestionCard questions={row.questions} answer={row.answer} onAnswer={onAnswerQuestion} draftKey={questionDraftKey} />
+        <QuestionCard
+          questions={row.questions}
+          answer={row.answer}
+          onAnswer={onAnswerQuestion}
+          draftKey={questionDraftKey}
+        />
       );
     case "raw":
       return <RawRow raw={row.raw} expanded={expanded} onToggleExpand={onToggleExpand} />;

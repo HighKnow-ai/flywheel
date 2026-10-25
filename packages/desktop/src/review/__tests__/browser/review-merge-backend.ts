@@ -19,7 +19,13 @@
  */
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { MergeDto, NeedsYouItemDto, ReviewFileDto, StoryReviewDto, TriageProposalDto } from "../../../adapters/tauri";
+import type {
+  MergeDto,
+  NeedsYouItemDto,
+  ReviewFileDto,
+  StoryReviewDto,
+  TriageProposalDto,
+} from "../../../adapters/tauri";
 import {
   STORIES,
   answer as m2,
@@ -49,7 +55,15 @@ const EXTRA_FILES: ReviewFileDto[] = Array.from({ length: 23 }, (_, i) => ({
 
 function extraPatch(path: string): string {
   const lines = Array.from({ length: 40 }, (_, i) => `+export const line${i + 1} = ${i + 1};`);
-  return [`diff --git a/${path} b/${path}`, "new file mode 100644", "--- /dev/null", `+++ b/${path}`, "@@ -0,0 +1,40 @@", ...lines, ""].join("\n");
+  return [
+    `diff --git a/${path} b/${path}`,
+    "new file mode 100644",
+    "--- /dev/null",
+    `+++ b/${path}`,
+    "@@ -0,0 +1,40 @@",
+    ...lines,
+    "",
+  ].join("\n");
 }
 
 type Args = Record<string, unknown> | undefined;
@@ -69,13 +83,18 @@ export function installReviewMergeBackend() {
   const writes: { cmd: string; args: Record<string, unknown> }[] = [];
   let merged: MergeDto | null = null;
 
-  const changed = (entity: string, id: string | null = null) => emit("board:changed", { projectId: PROJECT_ID, entity, id });
+  const changed = (entity: string, id: string | null = null) =>
+    emit("board:changed", { projectId: PROJECT_ID, entity, id });
 
-  const triage = () => (m2("proposal_list_for_triage", { projectId: PROJECT_ID }) as TriageProposalDto[]).filter((t) => !decided.has(t.proposal.id));
+  const triage = () =>
+    (m2("proposal_list_for_triage", { projectId: PROJECT_ID }) as TriageProposalDto[]).filter(
+      (t) => !decided.has(t.proposal.id),
+    );
 
   function needsYou(projectId: string): NeedsYouItemDto[] {
     const items = (m2("needs_you_list", { projectId }) as NeedsYouItemDto[]).filter(
-      (i) => !(i.judgedOn && decided.has(i.judgedOn.proposalId)) && !(i.kind === "review" && i.id === STORY_ID && merged),
+      (i) =>
+        !(i.judgedOn && decided.has(i.judgedOn.proposalId)) && !(i.kind === "review" && i.id === STORY_ID && merged),
     );
     if (projectId !== PROJECT_ID) return items;
     const left = triage();
@@ -83,20 +102,36 @@ export function installReviewMergeBackend() {
       if (i.kind !== "proposals") return [i];
       if (left.length === 0) return [];
       const epics = new Set(left.map((t) => t.proposal.epicId).filter(Boolean)).size;
-      return [{ ...i, proposals: { count: left.length, stories: new Set(left.map((t) => t.storyId)).size, epics, roadmap: left.some((t) => t.proposal.epicId === null) } }];
+      return [
+        {
+          ...i,
+          proposals: {
+            count: left.length,
+            stories: new Set(left.map((t) => t.storyId)).size,
+            epics,
+            roadmap: left.some((t) => t.proposal.epicId === null),
+          },
+        },
+      ];
     });
   }
 
   function review(): StoryReviewDto {
     const base = m2("story_review", { storyId: STORY_ID }) as StoryReviewDto;
     const decisions = base.decisions.map((c) =>
-      c.newAdr && adrDecisions[c.path] ? { ...c, newAdr: { ...c.newAdr, decision: { kind: adrDecisions[c.path], whatIsWrong: null, shouldBe: null } } } : c,
+      c.newAdr && adrDecisions[c.path]
+        ? { ...c, newAdr: { ...c.newAdr, decision: { kind: adrDecisions[c.path], whatIsWrong: null, shouldBe: null } } }
+        : c,
     );
     return {
       ...base,
       storyState: merged ? "merged" : base.storyState,
       review: merged ? null : base.review,
-      criteria: base.criteria.map((c) => ({ ...c, accepted: accepted[c.id] ?? c.accepted, acceptedAt: accepted[c.id] ? new Date().toISOString() : null })),
+      criteria: base.criteria.map((c) => ({
+        ...c,
+        accepted: accepted[c.id] ?? c.accepted,
+        acceptedAt: accepted[c.id] ? new Date().toISOString() : null,
+      })),
       decisions,
       files: [...base.files, ...EXTRA_FILES],
       adrReviewPoints: Object.entries(adrDecisions)
@@ -112,51 +147,68 @@ export function installReviewMergeBackend() {
     if (unaccepted > 0) throw `Accept every criterion before merging: ${unaccepted} not accepted.`;
     const held = Object.entries(adrDecisions).find(([, d]) => d !== "keep");
     if (held) throw `${held[0]} is marked Not an ADR: request changes, or set it back to Keep.`;
-    merged = { mergeCommit: "c0ffee1d2e3f", baseBranch: "main", method: "checkout", failingChecksOverridden: 0, cleanupWarning: null, adrsLinked: ["docs/adr/0010-the-andon-is-the-visual-world.md"] };
+    merged = {
+      mergeCommit: "c0ffee1d2e3f",
+      baseBranch: "main",
+      method: "checkout",
+      failingChecksOverridden: 0,
+      cleanupWarning: null,
+      adrsLinked: ["docs/adr/0010-the-andon-is-the-visual-world.md"],
+    };
     story.state = "merged";
     return merged;
   }
 
   function handle(cmd: string, args: Args): unknown {
-      const write = (entity: string, id: string | null, apply: () => unknown) => {
-        writes.push({ cmd, args: { ...(args ?? {}) } });
-        const result = apply();
-        void changed(entity, id);
-        return result;
-      };
-      switch (cmd) {
-        case "needs_you_list":
-          return needsYou(arg(args, "projectId"));
-        case "proposal_list_for_triage":
-          return arg(args, "projectId") === PROJECT_ID ? triage() : [];
-        case "milestone_progress": {
-          const progress = m2(cmd, args) as { epics: { epicId: string; proposals: number }[] } | null;
-          if (!progress) return null;
-          const left = triage();
-          return { ...progress, epics: progress.epics.map((e) => ({ ...e, proposals: left.filter((t) => t.proposal.epicId === e.epicId).length })) };
-        }
-        case "proposal_accept":
-        case "proposal_amend":
-          return write("proposal", arg(args, "proposalId"), () => void decided.set(arg(args, "proposalId"), "accepted"));
-        case "proposal_reject":
-          return write("proposal", arg(args, "proposalId"), () => void decided.set(arg(args, "proposalId"), "rejected"));
-        case "story_review":
-          return arg(args, "storyId") === STORY_ID ? review() : m2(cmd, args);
-        case "criterion_accept":
-          return write("criterion", arg(args, "criterionId"), () => void (accepted[arg(args, "criterionId")] = true));
-        case "criterion_unaccept":
-          return write("criterion", arg(args, "criterionId"), () => void (accepted[arg(args, "criterionId")] = false));
-        case "story_adr_decide":
-          return write("story", STORY_ID, () => void (adrDecisions[arg(args, "path")] = arg(args, "decision") as "keep" | "not_an_adr"));
-        case "story_merge":
-          return write("story", null, merge);
-        case "review_file_patch": {
-          const path = arg(args, "path");
-          return EXTRA_FILES.some((f) => f.path === path) ? { patch: extraPatch(path), tooLarge: false } : m2(cmd, args);
-        }
-        default:
-          return m2(cmd, args);
+    const write = (entity: string, id: string | null, apply: () => unknown) => {
+      writes.push({ cmd, args: { ...(args ?? {}) } });
+      const result = apply();
+      void changed(entity, id);
+      return result;
+    };
+    switch (cmd) {
+      case "needs_you_list":
+        return needsYou(arg(args, "projectId"));
+      case "proposal_list_for_triage":
+        return arg(args, "projectId") === PROJECT_ID ? triage() : [];
+      case "milestone_progress": {
+        const progress = m2(cmd, args) as { epics: { epicId: string; proposals: number }[] } | null;
+        if (!progress) return null;
+        const left = triage();
+        return {
+          ...progress,
+          epics: progress.epics.map((e) => ({
+            ...e,
+            proposals: left.filter((t) => t.proposal.epicId === e.epicId).length,
+          })),
+        };
       }
+      case "proposal_accept":
+      case "proposal_amend":
+        return write("proposal", arg(args, "proposalId"), () => void decided.set(arg(args, "proposalId"), "accepted"));
+      case "proposal_reject":
+        return write("proposal", arg(args, "proposalId"), () => void decided.set(arg(args, "proposalId"), "rejected"));
+      case "story_review":
+        return arg(args, "storyId") === STORY_ID ? review() : m2(cmd, args);
+      case "criterion_accept":
+        return write("criterion", arg(args, "criterionId"), () => void (accepted[arg(args, "criterionId")] = true));
+      case "criterion_unaccept":
+        return write("criterion", arg(args, "criterionId"), () => void (accepted[arg(args, "criterionId")] = false));
+      case "story_adr_decide":
+        return write(
+          "story",
+          STORY_ID,
+          () => void (adrDecisions[arg(args, "path")] = arg(args, "decision") as "keep" | "not_an_adr"),
+        );
+      case "story_merge":
+        return write("story", null, merge);
+      case "review_file_patch": {
+        const path = arg(args, "path");
+        return EXTRA_FILES.some((f) => f.path === path) ? { patch: extraPatch(path), tooLarge: false } : m2(cmd, args);
+      }
+      default:
+        return m2(cmd, args);
+    }
   }
 
   // Every answer crosses as a copy, as the IPC's serialisation makes it: the m2 world hands out its own objects,

@@ -35,7 +35,13 @@ import { Activity, ChevronRight, CirclePause, Hand, LoaderCircle } from "lucide-
 import { storyStopped, type FleetRowDto, type WaitingRoundDto } from "../adapters/tauri";
 import { endingWords } from "../board/StoryControls";
 import { useFleet, useWaitingRounds } from "../fleet/useFleet";
-import { isRoundHere, useOpenWaitingRound, usePlaceBoardId, usePlaceShapingId, waitingRoundWords } from "../fleet/waitingRound";
+import {
+  isRoundHere,
+  useOpenWaitingRound,
+  usePlaceBoardId,
+  usePlaceShapingId,
+  waitingRoundWords,
+} from "../fleet/waitingRound";
 import { formatAge } from "../legend/runStatus";
 import { prefersReducedMotion } from "../session/FeedRow";
 import { useUiStore } from "../state/uiStore";
@@ -75,7 +81,9 @@ export function lampsFromFleet(rows: FleetRowDto[]): LampData[] {
   const waiting = live
     .filter((row) => row.fleetState === "blocked")
     .sort((a, b) => (a.blockedSince ?? a.startedAt).localeCompare(b.blockedSince ?? b.startedAt));
-  const running = live.filter((row) => row.fleetState !== "blocked").sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  const running = live
+    .filter((row) => row.fleetState !== "blocked")
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   // Stopped: a Running Story whose newest session has ended. One lamp per Story, from that newest session.
   const newestEnded = new Map<string, FleetRowDto>();
   for (const row of rows) {
@@ -99,23 +107,24 @@ export type StripLamp =
 /** Every lamp on the strip, in strip order: Waiting on you first (Story sessions and shaping Rounds
  * together, longest waiting first), then Running, then Stopped. Pure, so the order is testable. */
 export function stripLamps(rows: FleetRowDto[], rounds: WaitingRoundDto[]): StripLamp[] {
-  const sessions = lampsFromFleet(rows).map(
-    (lamp): StripLamp => ({ kind: "session", id: lamp.row.sessionId, tone: lamp.tone, key: lamp.row.storyKey, lamp }),
-  );
-  const since = (l: StripLamp) =>
-    l.kind === "round" ? l.since : (l.lamp.row.blockedSince ?? l.lamp.row.startedAt);
+  const sessions = lampsFromFleet(rows).map((lamp): StripLamp => ({
+    kind: "session",
+    id: lamp.row.sessionId,
+    tone: lamp.tone,
+    key: lamp.row.storyKey,
+    lamp,
+  }));
+  const since = (l: StripLamp) => (l.kind === "round" ? l.since : (l.lamp.row.blockedSince ?? l.lamp.row.startedAt));
   const waiting = [
     ...sessions.filter((l) => l.tone === "waiting"),
-    ...rounds.map(
-      (round): StripLamp => ({
-        kind: "round",
-        id: round.roundId,
-        tone: "waiting",
-        key: waitingRoundWords(round).key,
-        since: round.waitingSince,
-        round,
-      }),
-    ),
+    ...rounds.map((round): StripLamp => ({
+      kind: "round",
+      id: round.roundId,
+      tone: "waiting",
+      key: waitingRoundWords(round).key,
+      since: round.waitingSince,
+      round,
+    })),
   ].sort((a, b) => since(a).localeCompare(since(b)));
   return [...waiting, ...sessions.filter((l) => l.tone !== "waiting")];
 }
@@ -297,7 +306,9 @@ export function AndonStrip() {
   const lamps = stripLamps(rows, rounds);
   const agents = agentCount(rows, rounds);
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
-  const placeStoryId = useUiStore((state) => (state.activeSessionId ? state.activeSessionStoryId : state.currentStoryId));
+  const placeStoryId = useUiStore((state) =>
+    state.activeSessionId ? state.activeSessionStoryId : state.currentStoryId,
+  );
   const placeShapingId = usePlaceShapingId();
   // A roadmap Round's lamp is current on its project's board, with nothing open over it.
   const placeBoardId = usePlaceBoardId();
@@ -324,7 +335,12 @@ export function AndonStrip() {
           {agents}
         </span>
       </div>
-      <div ref={laneRef} role="list" aria-label="Live sessions" className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+      <div
+        ref={laneRef}
+        role="list"
+        aria-label="Live sessions"
+        className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
+      >
         {lamps.length === 0 ? (
           <span role="listitem" className="text-small text-strip-muted-foreground">
             No agent running
@@ -334,7 +350,11 @@ export function AndonStrip() {
             {shown.map((lamp) => (
               <div role="listitem" key={lamp.id} className="shrink-0">
                 {lamp.kind === "round" ? (
-                  <RoundLamp round={lamp.round} current={isRoundHere(lamp.round, placeBoardId, placeShapingId)} now={now} />
+                  <RoundLamp
+                    round={lamp.round}
+                    current={isRoundHere(lamp.round, placeBoardId, placeShapingId)}
+                    now={now}
+                  />
                 ) : (
                   <Lamp lamp={lamp.lamp} current={lamp.lamp.row.storyId === placeStoryId} now={now} />
                 )}

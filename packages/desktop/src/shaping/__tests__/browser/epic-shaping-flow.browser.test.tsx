@@ -24,13 +24,16 @@ type Backend = ReturnType<typeof installEpicShapingBackend>;
 
 function renderApp() {
   const root =
-    document.getElementById("root") ?? document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
+    document.getElementById("root") ??
+    document.body.appendChild(Object.assign(document.createElement("div"), { id: "root" }));
   render(<App />, { container: root });
 }
 
 /** The current Round's card in the dock. */
 async function currentRound(number: number) {
-  return (await screen.findByRole("heading", { name: new RegExp(`^Round ${number}\\b`) })).closest("section") as HTMLElement;
+  return (await screen.findByRole("heading", { name: new RegExp(`^Round ${number}\\b`) })).closest(
+    "section",
+  ) as HTMLElement;
 }
 
 /** Close the open Stage through its confirmation. */
@@ -69,13 +72,21 @@ describe("shaping an Epic from Shape to Ready in WebKit", () => {
         recommendedAnswer: "Yes, only while the call runs",
         because: "The finished row keeps saying what the tool did",
       },
-      { title: "Who reads it", question: "Is the reader every viewer of the feed?", recommendedAnswer: "Yes, every viewer", because: "The feed has one audience" },
+      {
+        title: "Who reads it",
+        question: "Is the reader every viewer of the feed?",
+        recommendedAnswer: "Yes, every viewer",
+        because: "The feed has one audience",
+      },
       {
         title: "Record where verbs come from",
-        question: "Record \"live verbs come from the tool name\" as ADR 0009?",
+        question: 'Record "live verbs come from the tool name" as ADR 0009?',
         recommendedAnswer: "Yes",
         because: "Every later tool's row follows it",
-        adr: { path: ADR_PATH, text: "# Live verbs come from the tool name\n\nA row's live verb is derived from the tool, never from prose.\n" },
+        adr: {
+          path: ADR_PATH,
+          text: "# Live verbs come from the tool name\n\nA row's live verb is derived from the tool, never from prose.\n",
+        },
       },
     ]);
     await userEvent.click(await screen.findByRole("button", { name: "Answer the Round on FLY-12" }));
@@ -107,14 +118,19 @@ describe("shaping an Epic from Shape to Ready in WebKit", () => {
     // The ADR's Yes completes the Round: the resumed session gets every answer, and the Epic wears the ADR.
     await userEvent.click(within(round).getByRole("button", { name: "Yes, record it" }));
     await waitFor(() =>
-      expect(backend.released).toEqual([{ sessionId: backend.liveSession, answers: ["Yes, only while the call runs", OWN_ANSWER, "Yes"] }]),
+      expect(backend.released).toEqual([
+        { sessionId: backend.liveSession, answers: ["Yes, only while the call runs", OWN_ANSWER, "Yes"] },
+      ]),
     );
     const chips = await screen.findByRole("list", { name: "ADRs and glossary" });
     expect(within(chips).getByText("0009-live-verbs-come-from-the-tool-name.md")).toBeTruthy();
     expect(within(chips).getByText("· not in the repo yet")).toBeTruthy();
 
     // The agent proposes the spec; the developer accepts each ghost and closes Challenge the spec.
-    await backend.agent.proposeSpecChange("problem", "A feed row says what a tool did, never what the agent is doing now.");
+    await backend.agent.proposeSpecChange(
+      "problem",
+      "A feed row says what a tool did, never what the agent is doing now.",
+    );
     await backend.agent.proposeSpecChange("exit_test", "A running tool call reads as its live verb in the feed.");
     await userEvent.click(await screen.findByRole("button", { name: "Accept the proposed Problem" }));
     await userEvent.click(await screen.findByRole("button", { name: "Accept the proposed Exit test" }));
@@ -123,23 +139,42 @@ describe("shaping an Epic from Shape to Ready in WebKit", () => {
     await waitFor(() => expect(backend.liveSession).not.toBeNull());
 
     // Slice: two Stories, the second running after the first; accepted where they land.
-    const first = await backend.agent.proposeStory("Live verbs for board tools", "Each board tool reads as a live verb.");
-    await backend.agent.proposeStory("The feed row shows the live verb", "The row swaps to the verb while the call runs.", {
-      proposalId: first,
-      reason: "reads its verbs",
-    });
-    await userEvent.click(await screen.findByRole("button", { name: "Accept the proposed Story Live verbs for board tools" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Accept the proposed Story The feed row shows the live verb" }));
+    const first = await backend.agent.proposeStory(
+      "Live verbs for board tools",
+      "Each board tool reads as a live verb.",
+    );
+    await backend.agent.proposeStory(
+      "The feed row shows the live verb",
+      "The row swaps to the verb while the call runs.",
+      {
+        proposalId: first,
+        reason: "reads its verbs",
+      },
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Accept the proposed Story Live verbs for board tools" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Accept the proposed Story The feed row shows the live verb" }),
+    );
     await screen.findByRole("listitem", { name: "2. FLY-14 The feed row shows the live verb" });
-    expect(screen.getByRole("list", { name: "Runs-after constraints" }).textContent).toContain("FLY-14 runs after FLY-13: reads its verbs");
+    expect(screen.getByRole("list", { name: "Runs-after constraints" }).textContent).toContain(
+      "FLY-14 runs after FLY-13: reads its verbs",
+    );
     await closeStage("Close and start Write the Acceptance criteria");
     await waitFor(() => expect(backend.liveSession).not.toBeNull());
 
     // Criteria: one with a Check under each Story, accepted on its ghost card.
     await backend.agent.proposeCriterion("FLY-13", "Every board tool has a live verb", "npm test -- tool-verbs");
     await backend.agent.proposeCriterion("FLY-14", "A running call's row reads its live verb", "npm test -- feed-row");
-    await userEvent.click(await screen.findByRole("button", { name: "Accept the proposed criterion Every board tool has a live verb" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Accept the proposed criterion A running call's row reads its live verb" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Accept the proposed criterion Every board tool has a live verb" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Accept the proposed criterion A running call's row reads its live verb",
+      }),
+    );
     await screen.findByText("npm test -- feed-row");
     await closeStage("Close and make the Epic Ready");
 
@@ -148,7 +183,10 @@ describe("shaping an Epic from Shape to Ready in WebKit", () => {
     expect(screen.getByText("Every Stage is closed: shaping is done.")).toBeTruthy();
     expect(backend.epic.state).toBe("ready");
     expect(backend.liveSession).toBeNull();
-    for (const [key, check] of [["FLY-13", "npm test -- tool-verbs"], ["FLY-14", "npm test -- feed-row"]]) {
+    for (const [key, check] of [
+      ["FLY-13", "npm test -- tool-verbs"],
+      ["FLY-14", "npm test -- feed-row"],
+    ]) {
       const column = screen.getByRole("listitem", { name: new RegExp(`^\\d\\. ${key} `) });
       expect(within(column).getByText("Ready")).toBeTruthy();
       expect(within(column).getByText(check)).toBeTruthy();

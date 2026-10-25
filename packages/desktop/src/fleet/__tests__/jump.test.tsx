@@ -47,7 +47,8 @@ vi.mock("../../adapters/tauri", async () => {
     subscribeMenuAction: () => Promise.resolve(() => {}),
     openFolderDialog: () => Promise.resolve(null),
     sessionLogWindow: (id: string, offset: number, limit: number) => logWindowMock(id, offset, limit),
-    sessionRawWindow: (_id: string, offset: number, limit: number) => Promise.resolve({ entries: [], offset, limit, total: 0 }),
+    sessionRawWindow: (_id: string, offset: number, limit: number) =>
+      Promise.resolve({ entries: [], offset, limit, total: 0 }),
     pendingPermissionRequests: () => Promise.resolve([]),
   };
 });
@@ -153,7 +154,12 @@ describe("the primary target: a row opens that run's session", () => {
 
   it("an awaiting-review row opens as the completed run it is", async () => {
     const { container } = await renderFleet([
-      row({ sessionId: "run-r", runStatus: "completed", fleetState: "awaiting_review", endedAt: new Date().toISOString() }),
+      row({
+        sessionId: "run-r",
+        runStatus: "completed",
+        fleetState: "awaiting_review",
+        endedAt: new Date().toISOString(),
+      }),
     ]);
     fireEvent.click(rowFor(container, "run-r"));
     expect(useUiStore.getState().activeSessionInitialStatus).toBe("completed");
@@ -197,7 +203,6 @@ describe("the primary target: a row opens that run's session", () => {
     expect(document.querySelectorAll("[data-run-id]")).toHaveLength(1);
   });
 });
-
 
 describe("the secondary target: the subject key opens its Story (issue #104)", () => {
   it("activating it in another project switches the project and opens that Story in place of the fleet", async () => {
@@ -273,8 +278,22 @@ describe("the secondary target: the subject key opens its Story (issue #104)", (
 // how the key-as-button reads at row density in a WKWebView (no WebDriver) - those stay in the register.
 // ---------------------------------------------------------------------------------------------
 
-const PROJECT_A = { id: "proj-A", keyPrefix: "ALP", name: "Alpha", repoPath: "/repo/alpha", defaultBranch: "main", status: "active" };
-const PROJECT_B = { id: "proj-B", keyPrefix: "BET", name: "Beta", repoPath: "/repo/beta", defaultBranch: "main", status: "active" };
+const PROJECT_A = {
+  id: "proj-A",
+  keyPrefix: "ALP",
+  name: "Alpha",
+  repoPath: "/repo/alpha",
+  defaultBranch: "main",
+  status: "active",
+};
+const PROJECT_B = {
+  id: "proj-B",
+  keyPrefix: "BET",
+  name: "Beta",
+  repoPath: "/repo/beta",
+  defaultBranch: "main",
+  status: "active",
+};
 const unhandled = new Set<string>();
 
 function stubShellReads() {
@@ -284,16 +303,30 @@ function stubShellReads() {
     // Fire-and-forget: the native menu's enabled-state sync (`state/menuSync.ts`). Nothing reads its answer.
     if (command === "menu_set_action_enabled") return Promise.resolve(undefined);
     // The shell's launch-environment notice (issue #88): a healthy environment shows nothing.
-    if (command === "launch_environment") return Promise.resolve({ path: "/usr/bin", pathWarning: null, claudeError: null });
+    if (command === "launch_environment")
+      return Promise.resolve({ path: "/usr/bin", pathWarning: null, claudeError: null });
     unhandled.add(command);
     return Promise.resolve(undefined);
   });
 }
 
-const FEED_LINE = { type: "assistant_text", seq: 0, at: new Date().toISOString(), raw: "{}", text: "Reading the reconciliation module." };
+const FEED_LINE = {
+  type: "assistant_text",
+  seq: 0,
+  at: new Date().toISOString(),
+  raw: "{}",
+  text: "Reading the reconciliation module.",
+};
 
 /** The run in project B that every shell test starts from: live, with output on disk. */
-const RUN_B = row({ sessionId: "run-b", projectId: "proj-B", projectName: "Beta", storyId: "story-b7", storyKey: "BET-7", storyTitle: "Beta seven" });
+const RUN_B = row({
+  sessionId: "run-b",
+  projectId: "proj-B",
+  projectName: "Beta",
+  storyId: "story-b7",
+  storyKey: "BET-7",
+  storyTitle: "Beta seven",
+});
 
 async function mountShellOnFleet(rows: FleetRowDto[], currentProjectId = "proj-A") {
   useUiStore.setState({ currentProjectId, fleetSurface: { view: "fleet" } });
@@ -329,7 +362,10 @@ describe("AppShell: where a fleet row takes you", () => {
     expect(fleetRows().length, "the fleet gave way to the session").toBe(0);
     expect(useUiStore.getState().activeSessionId).toBe("run-b");
     await waitFor(() => expect(logWindowMock).toHaveBeenCalled());
-    expect(logWindowMock.mock.calls.every((call) => call[0] === "run-b"), "every log read names the row's own run").toBe(true);
+    expect(
+      logWindowMock.mock.calls.every((call) => call[0] === "run-b"),
+      "every log read names the row's own run",
+    ).toBe(true);
     expect(await screen.findByText("Reading the reconciliation module.")).toBeInTheDocument();
   });
 
@@ -361,7 +397,10 @@ describe("AppShell: where a fleet row takes you", () => {
   // an expected failure rather than asserted as correct; when the selection survives the round trip this
   // turns red, which is the cue to make it a plain `it`. Logged in deferred-items.md.
   it.fails("Back from the session returns to the fleet with the same row selected", async () => {
-    const { container } = await mountShellOnFleet([RUN_B, row({ sessionId: "run-other", storyId: "story-o", storyKey: "ALP-2" })]);
+    const { container } = await mountShellOnFleet([
+      RUN_B,
+      row({ sessionId: "run-other", storyId: "story-o", storyKey: "ALP-2" }),
+    ]);
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "j" });
     fireEvent.keyDown(window, { key: "Enter" });
@@ -403,7 +442,13 @@ describe("AppShell: where a fleet row takes you", () => {
   it.fails("a finished run with no output opens a session that does not claim to be starting", async () => {
     noLog();
     const { container } = await mountShellOnFleet([
-      row({ sessionId: "run-f", projectId: "proj-B", runStatus: "failed", fleetState: "failed", endedAt: new Date().toISOString() }),
+      row({
+        sessionId: "run-f",
+        projectId: "proj-B",
+        runStatus: "failed",
+        fleetState: "failed",
+        endedAt: new Date().toISOString(),
+      }),
     ]);
     fireEvent.click(rowFor(container, "run-f"));
     await waitFor(() => expect(sessionBack()).not.toBeNull());

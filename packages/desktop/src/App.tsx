@@ -34,9 +34,7 @@ import { activeSurface, dispatchAction, useGlobalBindings, type ActionId } from 
 import { useMenuLayerSync } from "./state/menuSync";
 import { useUiStore } from "./state/uiStore";
 // Phase 10 plan 10-01: the fleet surface, loaded on first open.
-const FleetSurface = React.lazy(() =>
-  import("./fleet/FleetSurface").then((m) => ({ default: m.FleetSurface })),
-);
+const FleetSurface = React.lazy(() => import("./fleet/FleetSurface").then((m) => ({ default: m.FleetSurface })));
 // Phase 10 plan 10-08: the worktree inventory, loaded on first open the same way.
 const WorktreeInventory = React.lazy(() =>
   import("./fleet/WorktreeInventory").then((m) => ({ default: m.WorktreeInventory })),
@@ -159,8 +157,7 @@ function AppShell() {
     );
   }
 
-  const project =
-    projectsQuery.data.find((candidate) => candidate.id === currentProjectId) ?? projectsQuery.data[0];
+  const project = projectsQuery.data.find((candidate) => candidate.id === currentProjectId) ?? projectsQuery.data[0];
   // Which surface fills the content area is one modelled value (`state/keyboard.ts`'s
   // `activeSurface`, Phase 13 plan 13-08, FNC-06) — the precedence order and its reasoning live
   // there, beside `topLayer`. This is the one place that knows what "open" means for each store
@@ -209,9 +206,7 @@ function AppShell() {
         return <ProjectUnreachable project={project} projects={projectsQuery.data} />;
       case "story":
         if (!currentStoryId) return null;
-        return (
-          <StoryView projectId={project.id} projectName={project.name} storyId={currentStoryId} onBack={goBack} />
-        );
+        return <StoryView projectId={project.id} projectName={project.name} storyId={currentStoryId} onBack={goBack} />;
       case "epic":
         if (!currentEpicId) return null;
         // Issue #123: the Epic card beside its Round dock.

@@ -14,7 +14,9 @@ import type { EpicDto, EpicShapingDto, ProposalDto } from "../../adapters/tauri"
 import { expectDecisionGroup } from "./decision-group";
 
 const notifySuccess = vi.fn();
-vi.mock("@/lib/notify", () => ({ notify: { success: (...args: unknown[]) => notifySuccess(...args), error: vi.fn(), dismiss: vi.fn() } }));
+vi.mock("@/lib/notify", () => ({
+  notify: { success: (...args: unknown[]) => notifySuccess(...args), error: vi.fn(), dismiss: vi.fn() },
+}));
 
 const epicShapingRounds = vi.fn();
 const proposalAccept = vi.fn();
@@ -137,7 +139,10 @@ describe("ghost fields for spec-change Proposals (issue #125)", () => {
     fireEvent.change(field, { target: { value: "The board and the dock, nothing else." } });
     fireEvent.click(within(card).getByRole("button", { name: "Accept edit to the proposed Scope" }));
     await waitFor(() =>
-      expect(proposalAmend).toHaveBeenCalledWith("p-scope", { field: "scope", text: "The board and the dock, nothing else." }),
+      expect(proposalAmend).toHaveBeenCalledWith("p-scope", {
+        field: "scope",
+        text: "The board and the dock, nothing else.",
+      }),
     );
     expect(proposalAccept).not.toHaveBeenCalled();
   });
@@ -160,7 +165,9 @@ describe("ghost fields for spec-change Proposals (issue #125)", () => {
     fireEvent.click(amend);
     expect(within(card).getByText(/round 1 narrowed it to the board/i)).toBeTruthy();
     fireEvent.click(within(card).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(document.activeElement).toBe(within(card).getByRole("button", { name: "Amend the proposed Scope" })));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(card).getByRole("button", { name: "Amend the proposed Scope" })),
+    );
   });
 
   it("Reject with no reason sends none", async () => {
@@ -193,8 +200,16 @@ describe("ghost fields for spec-change Proposals (issue #125)", () => {
     renderView();
     expectDecisionGroup(await ghost("Scope"), "the proposed Scope");
     // The rejected line wears the Rejected pill, the pending ghost the Proposed one.
-    expect(within(await ghost("Scope")).getByText("Proposed Scope").closest("[data-slot=badge]")).toBeTruthy();
-    expect(within(screen.getByRole("group", { name: "Rejected Out of scope" })).getByText("Rejected").closest("[data-slot=badge]")).toBeTruthy();
+    expect(
+      within(await ghost("Scope"))
+        .getByText("Proposed Scope")
+        .closest("[data-slot=badge]"),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByRole("group", { name: "Rejected Out of scope" }))
+        .getByText("Rejected")
+        .closest("[data-slot=badge]"),
+    ).toBeTruthy();
   });
 
   it("Accept shows loading on its own button until it lands, then says what it did in a toast (issue #211)", async () => {

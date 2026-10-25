@@ -108,7 +108,12 @@ function MilestoneProgress({ projectId, progress }: { projectId: string; progres
           <div className="flex flex-wrap items-center gap-2.5">
             {/* The flag stays beside the name however long it is; the pill and the controls wrap after it. */}
             <div className="flex min-w-0 items-start gap-2.5">
-              <Flag size={20} strokeWidth={2} aria-hidden="true" className="mt-[0.3em] shrink-0 text-muted-foreground" />
+              <Flag
+                size={20}
+                strokeWidth={2}
+                aria-hidden="true"
+                className="mt-[0.3em] shrink-0 text-muted-foreground"
+              />
               <h2
                 id={headingId}
                 title={progress.title}
@@ -155,7 +160,11 @@ function MilestoneProgress({ projectId, progress }: { projectId: string; progres
           </p>
         </div>
 
-        <div className="grid min-w-0 grid-cols-[auto_repeat(4,minmax(0,auto))] gap-1.5" role="list" aria-label="Stories by state">
+        <div
+          className="grid min-w-0 grid-cols-[auto_repeat(4,minmax(0,auto))] gap-1.5"
+          role="list"
+          aria-label="Stories by state"
+        >
           <LeadBox merged={counts.merged} total={counts.storiesTotal} />
           {BOX_ORDER.map((key) => BAR_SEGMENTS.find((s) => s.key === key) as BarSegment).map((segment) => (
             <CountBox
@@ -281,10 +290,14 @@ function CountBox({
         lit ? "bg-attention text-attention-foreground" : "border border-border bg-secondary text-foreground",
       )}
     >
-      {swatch && !lit && <span aria-hidden="true" className={cn("absolute inset-x-0 top-0 h-1", swatch)} style={swatchStyle} />}
+      {swatch && !lit && (
+        <span aria-hidden="true" className={cn("absolute inset-x-0 top-0 h-1", swatch)} style={swatchStyle} />
+      )}
       <span className={cn("text-count font-bold tracking-[-0.02em] tabular-nums", quiet && "text-muted-foreground")}>
         {count}
-        {of !== undefined && <span className="text-[18px] font-semibold tracking-normal text-muted-foreground">/{of}</span>}
+        {of !== undefined && (
+          <span className="text-[18px] font-semibold tracking-normal text-muted-foreground">/{of}</span>
+        )}
       </span>
       <span
         className={cn(

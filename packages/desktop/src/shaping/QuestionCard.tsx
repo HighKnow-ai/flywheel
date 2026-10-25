@@ -48,7 +48,8 @@ function NumberChip({ number, answered }: { number: number; answered: boolean })
 }
 
 export function QuestionCard(props: QuestionCardProps) {
-  if (props.question.kind === "adr" && props.question.adr) return <AdrQuestionCard {...props} adr={props.question.adr} />;
+  if (props.question.kind === "adr" && props.question.adr)
+    return <AdrQuestionCard {...props} adr={props.question.adr} />;
   return <PlainQuestionCard {...props} />;
 }
 
@@ -108,7 +109,12 @@ function PlainQuestionCard({ question: q, open, onAccept, onAnswer }: QuestionCa
         </span>
         <span className="shrink-0 text-meta text-subtle-foreground">{own ? "Your answer" : "Recommended"}</span>
         {open && (
-          <Button variant="ghost" size="xs" onClick={startEditing} aria-label={`Change the answer to question ${q.number}`}>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={startEditing}
+            aria-label={`Change the answer to question ${q.number}`}
+          >
             <PenLine aria-hidden="true" />
             Change
           </Button>
@@ -229,7 +235,10 @@ function PlainQuestionCard({ question: q, open, onAccept, onAnswer }: QuestionCa
 }
 
 /** The four bar lines (docs/mvp-spec.md §6), in the order the spec gives them. */
-const BAR_LINES: { key: keyof Pick<AdrDraftDto, "hardToReverse" | "surprising" | "losingAlternative" | "relatesTo">; label: string }[] = [
+const BAR_LINES: {
+  key: keyof Pick<AdrDraftDto, "hardToReverse" | "surprising" | "losingAlternative" | "relatesTo">;
+  label: string;
+}[] = [
   { key: "hardToReverse", label: "Hard to reverse" },
   { key: "surprising", label: "Surprising" },
   { key: "losingAlternative", label: "Losing alternative" },
@@ -301,7 +310,9 @@ function AdrQuestionCard({ question: q, open, onAnswer, adr }: QuestionCardProps
             </span>
           </span>
         ) : (
-          <span className="min-w-0 flex-1 truncate text-body text-muted-foreground">No. Not recorded: no ADR is written</span>
+          <span className="min-w-0 flex-1 truncate text-body text-muted-foreground">
+            No. Not recorded: no ADR is written
+          </span>
         )}
         <span className="shrink-0 text-meta text-subtle-foreground">
           {q.answeredWith === "own" ? "Your answer" : "Recommended"}
@@ -352,7 +363,10 @@ function AdrQuestionCard({ question: q, open, onAnswer, adr }: QuestionCardProps
       </div>
 
       <div className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-3 @xl:grid-cols-[minmax(0,1fr)_minmax(0,15rem)]">
-        <figure aria-labelledby={draftId} className="m-0 flex min-w-0 flex-col self-start overflow-clip rounded-md border border-border bg-secondary">
+        <figure
+          aria-labelledby={draftId}
+          className="m-0 flex min-w-0 flex-col self-start overflow-clip rounded-md border border-border bg-secondary"
+        >
           <figcaption className="flex min-h-9 min-w-0 items-start gap-1.5 border-b border-border px-3 py-1.5 text-meta text-muted-foreground">
             <ScrollText aria-hidden="true" className="mt-px size-3.5 shrink-0" />
             <span className="shrink-0 font-semibold">ADR draft</span>
@@ -381,7 +395,9 @@ function AdrQuestionCard({ question: q, open, onAnswer, adr }: QuestionCardProps
           ))}
         </ul>
       </div>
-      <p className="-mt-1.5 mb-0 text-meta text-subtle-foreground">The bar lines are shown beside the ADR, never written into it.</p>
+      <p className="-mt-1.5 mb-0 text-meta text-subtle-foreground">
+        The bar lines are shown beside the ADR, never written into it.
+      </p>
 
       <div className="flex min-w-0 flex-col gap-1 rounded-md border border-primary bg-running-muted px-3 py-2.5">
         <span className="flex items-center gap-1.5 text-meta font-semibold text-running">

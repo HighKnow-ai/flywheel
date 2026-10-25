@@ -49,8 +49,7 @@ interface KnownDefect {
   where?: RegExp;
 }
 
-export const KNOWN_DEFECTS: KnownDefect[] = [
-];
+export const KNOWN_DEFECTS: KnownDefect[] = [];
 
 export interface CaptureRecord {
   screen: string;
@@ -68,7 +67,9 @@ export async function settle(ms = 600) {
 }
 
 function knownIssue(screen: string, defect: LayoutDefect): number | null {
-  const hit = KNOWN_DEFECTS.find((k) => k.kind === defect.kind && k.screen.test(screen) && (!k.where || k.where.test(defect.where)));
+  const hit = KNOWN_DEFECTS.find(
+    (k) => k.kind === defect.kind && k.screen.test(screen) && (!k.where || k.where.test(defect.where)),
+  );
   return hit?.issue ?? null;
 }
 
@@ -78,7 +79,10 @@ function knownIssue(screen: string, defect: LayoutDefect): number | null {
  */
 export async function capture(
   screen: string,
-  { sizes = SIZES, restore = { width: 1440, height: 900 } }: { sizes?: readonly { width: number; height: number }[]; restore?: { width: number; height: number } } = {},
+  {
+    sizes = SIZES,
+    restore = { width: 1440, height: 900 },
+  }: { sizes?: readonly { width: number; height: number }[]; restore?: { width: number; height: number } } = {},
 ) {
   const unknown: string[] = [];
   try {

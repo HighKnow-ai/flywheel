@@ -29,8 +29,12 @@ const PROJECTS = [
   { id: "proj-B", keyPrefix: "BET", name: "Beta", repoPath: "/repo/beta", defaultBranch: "main", status: "active" },
 ];
 const BOARDS: Record<string, unknown[]> = {
-  "proj-A": [{ id: "story-a1", key: "ALP-1", title: "Alpha one", status: "backlog", rank: "10", priority: 0, epicId: null }],
-  "proj-B": [{ id: "story-b7", key: "BET-7", title: "Beta seven", status: "backlog", rank: "10", priority: 0, epicId: null }],
+  "proj-A": [
+    { id: "story-a1", key: "ALP-1", title: "Alpha one", status: "backlog", rank: "10", priority: 0, epicId: null },
+  ],
+  "proj-B": [
+    { id: "story-b7", key: "BET-7", title: "Beta seven", status: "backlog", rank: "10", priority: 0, epicId: null },
+  ],
 };
 
 vi.mock(import("../../../adapters/tauri"), async (importOriginal) => ({
@@ -40,7 +44,11 @@ vi.mock(import("../../../adapters/tauri"), async (importOriginal) => ({
     if (command === "project_list") return Promise.resolve(PROJECTS);
     if (command === "board_list" || command === "board_search") {
       const items = BOARDS[(args?.projectId as string) ?? ""] ?? [];
-      return Promise.resolve({ items, issues: [], counts: { backlog: items.length, todo: 0, inProgress: 0, inReview: 0, done: 0 } });
+      return Promise.resolve({
+        items,
+        issues: [],
+        counts: { backlog: items.length, todo: 0, inProgress: 0, inReview: 0, done: 0 },
+      });
     }
     if (command === "actor_list") return Promise.resolve([]);
     return Promise.resolve(undefined);
@@ -56,12 +64,21 @@ vi.mock(import("../../../adapters/tauri"), async (importOriginal) => ({
   gitTruthFocusStory: () => Promise.resolve(),
   sessionLogWindow: (_id: string, offset: number, limit: number) =>
     Promise.resolve({
-      entries: [{ type: "assistant_text", seq: 0, at: new Date().toISOString(), raw: "{}", text: "Reading the reconciliation module." }],
+      entries: [
+        {
+          type: "assistant_text",
+          seq: 0,
+          at: new Date().toISOString(),
+          raw: "{}",
+          text: "Reading the reconciliation module.",
+        },
+      ],
       offset,
       limit,
       total: 1,
     }),
-  sessionRawWindow: (_id: string, offset: number, limit: number) => Promise.resolve({ lines: [], offset, limit, total: 0 }),
+  sessionRawWindow: (_id: string, offset: number, limit: number) =>
+    Promise.resolve({ lines: [], offset, limit, total: 0 }),
   pendingPermissionRequests: () => Promise.resolve([]),
 }));
 
@@ -101,7 +118,9 @@ async function mountOnFleet(currentProjectId = "proj-A") {
 /** The session's Back control, present only while the session surface shows. */
 const sessionBack = () =>
   document.querySelector("[data-testid='session-feed-scroll']")
-    ? Array.from(document.querySelectorAll<HTMLElement>("header button")).find((b) => b.textContent?.trim() === "Back") ?? null
+    ? (Array.from(document.querySelectorAll<HTMLElement>("header button")).find(
+        (b) => b.textContent?.trim() === "Back",
+      ) ?? null)
     : null;
 const fleetRows = () => document.querySelectorAll("[data-run-id]");
 
@@ -164,7 +183,9 @@ describe("AppShell in WebKit: the fleet's view switch is Tabs (#208)", () => {
   it("moves between All agents and Waiting on you with the arrow keys, and j still moves the row selection", async () => {
     await mountOnFleet();
     const tab = (name: RegExp) =>
-      Array.from(document.querySelectorAll<HTMLElement>('[role="tab"]')).find((t) => name.test(t.textContent ?? "")) as HTMLElement;
+      Array.from(document.querySelectorAll<HTMLElement>('[role="tab"]')).find((t) =>
+        name.test(t.textContent ?? ""),
+      ) as HTMLElement;
     expect(document.querySelector('[role="tablist"]')?.getAttribute("aria-label")).toBe("Fleet views");
     expect(tab(/^All agents$/).getAttribute("aria-selected")).toBe("true");
 
@@ -182,6 +203,8 @@ describe("AppShell in WebKit: the fleet's view switch is Tabs (#208)", () => {
     // The tabs own the arrows; the fleet's own keys still reach the list.
     (document.activeElement as HTMLElement | null)?.blur();
     await userEvent.keyboard("j");
-    await waitFor(() => expect(document.querySelector("[data-selected='true']")?.getAttribute("data-run-id")).toBe("run-b"));
+    await waitFor(() =>
+      expect(document.querySelector("[data-selected='true']")?.getAttribute("data-run-id")).toBe("run-b"),
+    );
   });
 });

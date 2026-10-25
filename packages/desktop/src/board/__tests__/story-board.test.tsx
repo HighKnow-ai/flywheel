@@ -138,7 +138,9 @@ beforeEach(() => {
   epicCreate.mockReset().mockResolvedValue(epic("e1", "E1"));
   storyListForProject.mockReset().mockResolvedValue([]);
   storyWriteByHand.mockReset().mockResolvedValue(story("s1", "FLY-2", "S", "ready"));
-  storyStart.mockReset().mockResolvedValue({ id: "run-1", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
+  storyStart
+    .mockReset()
+    .mockResolvedValue({ id: "run-1", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
   storyContextPacketSize.mockReset().mockResolvedValue({ bytes: 4000, approxTokens: 1000, overSoftLimit: false });
   milestoneProgress.mockReset().mockResolvedValue(null);
   proposalListForTriage.mockReset().mockResolvedValue([]);
@@ -265,7 +267,15 @@ describe("StoryBoard: rows from the roster's one core read (issue #159)", () => 
   it("shows an In review row's diff size and Open review, saying In review, untinted (#202)", async () => {
     seedRoster(
       [story("s1", "FLY-2", "Under review", "in_review")],
-      [row("s1", { criteriaMet: 2, criteriaTotal: 5, tasksDone: 1, tasksTotal: 1, review: { files: 3, added: 40, removed: 7 } })],
+      [
+        row("s1", {
+          criteriaMet: 2,
+          criteriaTotal: 5,
+          tasksDone: 1,
+          tasksTotal: 1,
+          review: { files: 3, added: 40, removed: 7 },
+        }),
+      ],
     );
     renderBoard();
 
@@ -392,7 +402,15 @@ describe("StoryBoard: rows from the roster's one core read (issue #159)", () => 
   it("marks an Epic in Shaping with where its shaping has got to", async () => {
     seedRoster([story("s1", "FLY-2", "One", "shaping")], [row("s1")]);
     const counts = {
-      shaping: 1, ready: 0, running: 0, waitingOnYou: 0, stopped: 0, inReview: 0, merged: 0, dropped: 0, storiesTotal: 1,
+      shaping: 1,
+      ready: 0,
+      running: 0,
+      waitingOnYou: 0,
+      stopped: 0,
+      inReview: 0,
+      merged: 0,
+      dropped: 0,
+      storiesTotal: 1,
     };
     const progress: EpicProgressDto = {
       epicId: "e1",
@@ -426,17 +444,41 @@ describe("StoryBoard: rows from the roster's one core read (issue #159)", () => 
 
 describe("StoryBoard: an Epic row's Proposals (issue #162)", () => {
   const counts = {
-    shaping: 0, ready: 0, running: 1, waitingOnYou: 0, stopped: 0, inReview: 0, merged: 0, dropped: 0, storiesTotal: 1,
+    shaping: 0,
+    ready: 0,
+    running: 1,
+    waitingOnYou: 0,
+    stopped: 0,
+    inReview: 0,
+    merged: 0,
+    dropped: 0,
+    storiesTotal: 1,
   };
   // The drawer's open state lives in its own store, which outlives a render.
   beforeEach(() => useTriageDrawer.getState().closeTriage());
 
   function seedProgress(proposals: number) {
     seedRoster([story("s1", "FLY-2", "Running one", "running")], [row("s1")]);
-    const progress: EpicProgressDto = { epicId: "e1", key: "FLY-1", title: "E1", state: "in_progress", counts, attention: null, proposals };
+    const progress: EpicProgressDto = {
+      epicId: "e1",
+      key: "FLY-1",
+      title: "E1",
+      state: "in_progress",
+      counts,
+      attention: null,
+      proposals,
+    };
     milestoneProgress.mockResolvedValue({
-      milestoneId: "m1", title: "M1", exitTest: null, state: "in_progress", current: true, nextMilestoneTitle: null,
-      counts, epicsDone: 0, epicsTotal: 1, epics: [progress],
+      milestoneId: "m1",
+      title: "M1",
+      exitTest: null,
+      state: "in_progress",
+      current: true,
+      nextMilestoneTitle: null,
+      counts,
+      epicsDone: 0,
+      epicsTotal: 1,
+      epics: [progress],
     });
   }
 

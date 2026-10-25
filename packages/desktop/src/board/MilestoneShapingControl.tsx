@@ -70,7 +70,13 @@ export function useMilestoneAttention(projectId: string, milestone: Pick<Milesto
 }
 
 /** Start a shaping session on the Milestone (Shape or Continue shaping), keeping the refusal. */
-function useStart(projectId: string, milestoneId: string, start: (id: string) => Promise<unknown>, done: string, then?: () => void) {
+function useStart(
+  projectId: string,
+  milestoneId: string,
+  start: (id: string) => Promise<unknown>,
+  done: string,
+  then?: () => void,
+) {
   const queryClient = useQueryClient();
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -103,7 +109,15 @@ function StartError({ error }: { error: string | null }) {
  * A start control on a strip row, where no line of text fits beside it: a refusal is the button's tooltip,
  * named to assistive tech through a hidden alert the button points at. Elsewhere the refusal is a line.
  */
-function WithRefusal({ error, compact, children }: { error: string | null; compact: boolean; children: React.ReactElement }) {
+function WithRefusal({
+  error,
+  compact,
+  children,
+}: {
+  error: string | null;
+  compact: boolean;
+  children: React.ReactElement;
+}) {
   const alertId = useId();
   if (!compact || !error) {
     return (
@@ -138,21 +152,26 @@ export function ContinueMilestoneShapingButton({
   milestone: Pick<MilestoneDto, "id" | "title">;
   size?: "sm" | "xs";
 }) {
-  const { run, starting, error } = useStart(projectId, milestone.id, milestoneShapingContinue, `Continued shaping ${milestone.title}`);
+  const { run, starting, error } = useStart(
+    projectId,
+    milestone.id,
+    milestoneShapingContinue,
+    `Continued shaping ${milestone.title}`,
+  );
   return (
     <span className="flex min-w-0 items-center gap-2">
       <WithRefusal error={error} compact={size === "xs"}>
-      <Button
-        variant="outline"
-        size={size}
-        aria-label={`Continue shaping the exit test of ${milestone.title}`}
-        onClick={run}
-        loading={starting}
-        className="shrink-0"
-      >
-        <RotateCcw aria-hidden="true" />
-        Continue shaping
-      </Button>
+        <Button
+          variant="outline"
+          size={size}
+          aria-label={`Continue shaping the exit test of ${milestone.title}`}
+          onClick={run}
+          loading={starting}
+          className="shrink-0"
+        >
+          <RotateCcw aria-hidden="true" />
+          Continue shaping
+        </Button>
       </WithRefusal>
     </span>
   );
@@ -169,7 +188,13 @@ export function MilestoneShapingControl({ projectId, milestone, place }: Milesto
   const setActiveSessionId = useUiStore((state) => state.setActiveSessionId);
   const openMilestone = useUiStore((state) => state.openMilestone);
   const open = () => openMilestone(projectId, milestone.id);
-  const shape = useStart(projectId, milestone.id, milestoneShape, `Started shaping ${milestone.title}`, place === "view" ? undefined : open);
+  const shape = useStart(
+    projectId,
+    milestone.id,
+    milestoneShape,
+    `Started shaping ${milestone.title}`,
+    place === "view" ? undefined : open,
+  );
   const shaping = milestone.state === "shaping";
   const liveQuery = useQuery({
     queryKey: milestoneSessionKey(projectId, milestone.id),
@@ -224,17 +249,17 @@ export function MilestoneShapingControl({ projectId, milestone, place }: Milesto
   } else {
     action = (
       <WithRefusal error={shape.error} compact={place === "strip"}>
-      <Button
-        variant="outline"
-        size={size}
-        aria-label={`Shape the exit test of ${milestone.title}`}
-        onClick={shape.run}
-        loading={shape.starting}
-        className="shrink-0"
-      >
-        <MessagesSquare aria-hidden="true" />
-        Shape
-      </Button>
+        <Button
+          variant="outline"
+          size={size}
+          aria-label={`Shape the exit test of ${milestone.title}`}
+          onClick={shape.run}
+          loading={shape.starting}
+          className="shrink-0"
+        >
+          <MessagesSquare aria-hidden="true" />
+          Shape
+        </Button>
       </WithRefusal>
     );
   }

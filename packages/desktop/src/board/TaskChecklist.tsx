@@ -157,11 +157,7 @@ function TaskRow({
   const dropped = task.state === "dropped";
   const doing = task.state === "doing";
   return (
-    <Collapsible
-      asChild
-      open={noteOpen}
-      onOpenChange={setNoteOpen}
-    >
+    <Collapsible asChild open={noteOpen} onOpenChange={setNoteOpen}>
       <li className="group/task flex flex-col gap-1.5 border-t border-border py-2 first:border-t-0 first:pt-0">
         <div className="flex items-start gap-2.5">
           <StateBadge
@@ -232,7 +228,11 @@ function TaskRow({
                         variant="ghost"
                         size="icon-xs"
                         aria-label={`Actions for ${task.title}`}
-                        className={cn("text-subtle-foreground hover:text-foreground", ON_DEMAND, dropping && "opacity-100")}
+                        className={cn(
+                          "text-subtle-foreground hover:text-foreground",
+                          ON_DEMAND,
+                          dropping && "opacity-100",
+                        )}
                       >
                         <Ellipsis aria-hidden="true" />
                       </Button>
@@ -267,10 +267,13 @@ function TaskRow({
                     {!dropped && (
                       <>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem variant="destructive" onSelect={() => {
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => {
                             droppingNext.current = true;
                             setDropping(true);
-                          }}>
+                          }}
+                        >
                           <CircleSlash aria-hidden="true" />
                           Drop…
                         </DropdownMenuItem>
@@ -280,7 +283,10 @@ function TaskRow({
                 </DropdownMenu>
                 <PopoverContent align="end" className="w-80 p-3" aria-label={`Drop ${task.title}`}>
                   <form onSubmit={confirmDrop} className="flex flex-col gap-2">
-                    <label className="flex flex-col gap-1.5 text-small font-semibold" htmlFor={`drop-reason-${task.id}`}>
+                    <label
+                      className="flex flex-col gap-1.5 text-small font-semibold"
+                      htmlFor={`drop-reason-${task.id}`}
+                    >
                       Why drop this Task?
                       <Input
                         id={`drop-reason-${task.id}`}
@@ -341,7 +347,12 @@ function TaskRow({
               </form>
             ) : (
               <div className="flex items-start gap-2">
-                <p className={cn("m-0 min-w-0 flex-1 text-small whitespace-pre-wrap", !task.note && "text-muted-foreground")}>
+                <p
+                  className={cn(
+                    "m-0 min-w-0 flex-1 text-small whitespace-pre-wrap",
+                    !task.note && "text-muted-foreground",
+                  )}
+                >
                   {task.note ?? "No note yet. The agent writes here what it learns on this Task."}
                 </p>
                 <Button

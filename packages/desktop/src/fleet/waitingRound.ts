@@ -81,7 +81,13 @@ export function waitingRoundWords(round: WaitingRoundDto): WaitingRoundWords {
  * Round's lamp and sidebar row are marked current. */
 export function usePlaceBoardId(): string | null {
   return useUiStore((state) =>
-    state.activeSessionId || state.currentStoryId || state.currentEpicId || state.currentMilestoneId || state.fleetSurface || state.worktreeInventoryOpen || state.settingsOpen
+    state.activeSessionId ||
+    state.currentStoryId ||
+    state.currentEpicId ||
+    state.currentMilestoneId ||
+    state.fleetSurface ||
+    state.worktreeInventoryOpen ||
+    state.settingsOpen
       ? null
       : state.currentProjectId,
   );
@@ -94,7 +100,11 @@ export function usePlaceShapingId(): string | null {
 
 /** Whether a waiting Round's lamp or row marks the current place: its project's board for a roadmap Round,
  * else its Epic's or Milestone's shaping view. */
-export function isRoundHere(round: WaitingRoundDto, placeBoardId: string | null, placeShapingId: string | null): boolean {
+export function isRoundHere(
+  round: WaitingRoundDto,
+  placeBoardId: string | null,
+  placeShapingId: string | null,
+): boolean {
   if (round.subject === "roadmap") return round.projectId === placeBoardId;
   const id = round.subject === "milestone" ? round.milestoneId : round.epicId;
   return id != null && id === placeShapingId;

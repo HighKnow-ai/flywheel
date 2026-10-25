@@ -22,7 +22,10 @@ export function shapingMarkerWords(marker: ShapingMarkerDto): string {
 function ShapingMarker({ marker }: { marker: ShapingMarkerDto }) {
   const words = shapingMarkerWords(marker);
   return (
-    <span data-shaping-marker="" className="flex min-w-0 items-center gap-1.5 pl-6 text-meta text-muted-foreground tabular-nums">
+    <span
+      data-shaping-marker=""
+      className="flex min-w-0 items-center gap-1.5 pl-6 text-meta text-muted-foreground tabular-nums"
+    >
       <MessagesSquare aria-hidden="true" size={13} className="shrink-0" />
       <span className="truncate" title={words}>
         {words}
@@ -119,5 +122,7 @@ export function EpicProgress({
 
 /** The header grid's actions cell: right-aligned, in the order they are given. */
 export function EpicHeaderActions({ children }: { children?: ReactNode }) {
-  return <div className="flex min-w-0 items-center justify-end gap-1.5 [grid-area:actions] empty:hidden">{children}</div>;
+  return (
+    <div className="flex min-w-0 items-center justify-end gap-1.5 [grid-area:actions] empty:hidden">{children}</div>
+  );
 }

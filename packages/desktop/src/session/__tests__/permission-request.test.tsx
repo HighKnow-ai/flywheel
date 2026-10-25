@@ -20,7 +20,12 @@ function request(overrides: Partial<PendingPermissionRequest> = {}): PendingPerm
 }
 
 function gated(overrides: Partial<PendingPermissionRequest> = {}): PendingPermissionRequest {
-  return request({ inputPayload: '{"command":"git reset --hard"}', destructiveCategory: "hard-reset", suggestedRule: null, ...overrides });
+  return request({
+    inputPayload: '{"command":"git reset --hard"}',
+    destructiveCategory: "hard-reset",
+    suggestedRule: null,
+    ...overrides,
+  });
 }
 
 /** The answer buttons, in reading order, from the card's one Button Group. */
@@ -86,12 +91,18 @@ describe("the answer keys are shown with Kbd", () => {
   it("shows them on a Gated action too", () => {
     render(<PermissionRequestCard variant="feed" requests={[gated()]} onAnswer={vi.fn()} />);
     expect(screen.getByRole("button", { name: "Deny" }).querySelector('[data-slot="kbd"]')).toHaveTextContent("D");
-    expect(screen.getByRole("button", { name: "Allow once" }).querySelector('[data-slot="kbd"]')).toHaveTextContent("A");
+    expect(screen.getByRole("button", { name: "Allow once" }).querySelector('[data-slot="kbd"]')).toHaveTextContent(
+      "A",
+    );
   });
 
   it("shows them only on the row that owns the keys", () => {
     render(
-      <PermissionRequestCard variant="feed" requests={[request(), request({ id: "req-2", toolName: "Edit" })]} onAnswer={vi.fn()} />,
+      <PermissionRequestCard
+        variant="feed"
+        requests={[request(), request({ id: "req-2", toolName: "Edit" })]}
+        onAnswer={vi.fn()}
+      />,
     );
     const owner = screen.getByRole("group", { name: "Bash wants to:" });
     const other = screen.getByRole("group", { name: "Edit wants to:" });
@@ -124,7 +135,9 @@ describe("the Always-allow pattern editor is a Popover with an Input Group", () 
     const onAnswer = vi.fn().mockResolvedValue(undefined);
     render(<PermissionRequestCard variant="feed" requests={[request()]} onAnswer={onAnswer} />);
     fireEvent.click(screen.getByRole("button", { name: "Always allow…" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Pattern" }), { target: { value: "Bash(npm test:*)" } });
+    fireEvent.change(await screen.findByRole("textbox", { name: "Pattern" }), {
+      target: { value: "Bash(npm test:*)" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Always allow this pattern in this project" }));
     await waitFor(() => expect(onAnswer).toHaveBeenCalledWith("req-1", "allow_always", "Bash(npm test:*)"));
   });

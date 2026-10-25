@@ -64,7 +64,16 @@ const story: StoryDto = {
 };
 
 function check(command: string, result: string, stale = false, outputTail: string | null = null): ReviewCheckDto {
-  return { checkId: `k-${command}`, criterionId: `c-${command}`, command, result, stale, commitSha: "abc", outputTail, objections: [] };
+  return {
+    checkId: `k-${command}`,
+    criterionId: `c-${command}`,
+    command,
+    result,
+    stale,
+    commitSha: "abc",
+    outputTail,
+    objections: [],
+  };
 }
 
 function review(overrides: Partial<StoryReviewDto> = {}): StoryReviewDto {
@@ -86,8 +95,22 @@ function review(overrides: Partial<StoryReviewDto> = {}): StoryReviewDto {
       adrNotes: [],
     },
     criteria: [
-      { id: "c1", statement: "The config parses.", accepted: false, acceptedAt: null, preTicked: true, check: check("cargo test config", "passed") },
-      { id: "c2", statement: "Errors name the line.", accepted: true, acceptedAt: "2026-10-23T09:05:00Z", preTicked: false, check: null },
+      {
+        id: "c1",
+        statement: "The config parses.",
+        accepted: false,
+        acceptedAt: null,
+        preTicked: true,
+        check: check("cargo test config", "passed"),
+      },
+      {
+        id: "c2",
+        statement: "Errors name the line.",
+        accepted: true,
+        acceptedAt: "2026-10-23T09:05:00Z",
+        preTicked: false,
+        check: null,
+      },
     ],
     openTasks: 1,
     failingChecks: [],
@@ -154,10 +177,14 @@ describe("the review card", () => {
   });
 
   it("merges in one click once every criterion is accepted and every Check passed", async () => {
-    storyReview.mockResolvedValue(
-      review({ criteria: review().criteria.map((c) => ({ ...c, accepted: true })) }),
-    );
-    storyMerge.mockResolvedValue({ mergeCommit: "def", baseBranch: "main", method: "checkout", failingChecksOverridden: 0, cleanupWarning: null });
+    storyReview.mockResolvedValue(review({ criteria: review().criteria.map((c) => ({ ...c, accepted: true })) }));
+    storyMerge.mockResolvedValue({
+      mergeCommit: "def",
+      baseBranch: "main",
+      method: "checkout",
+      failingChecksOverridden: 0,
+      cleanupWarning: null,
+    });
     renderCard();
     const merge = await screen.findByRole("button", { name: "Merge FLY-7" });
     expect(merge).not.toHaveAttribute("aria-disabled");
@@ -172,13 +199,26 @@ describe("the review card", () => {
     storyReview.mockResolvedValue(
       review({
         criteria: [
-          { id: "c1", statement: "The config parses.", accepted: true, acceptedAt: "x", preTicked: false, check: stale },
+          {
+            id: "c1",
+            statement: "The config parses.",
+            accepted: true,
+            acceptedAt: "x",
+            preTicked: false,
+            check: stale,
+          },
           { id: "c3", statement: "The tests pass.", accepted: true, acceptedAt: "x", preTicked: false, check: failed },
         ],
         failingChecks: [stale, failed],
       }),
     );
-    storyMerge.mockResolvedValue({ mergeCommit: "def", baseBranch: "main", method: "plumbing", failingChecksOverridden: 2, cleanupWarning: null });
+    storyMerge.mockResolvedValue({
+      mergeCommit: "def",
+      baseBranch: "main",
+      method: "plumbing",
+      failingChecksOverridden: 2,
+      cleanupWarning: null,
+    });
     renderCard();
 
     const failing = await screen.findByRole("region", { name: "2 Checks not passing" });
@@ -197,10 +237,10 @@ describe("the review card", () => {
   });
 
   it("shows a refused Merge's reason as the core wrote it", async () => {
-    storyReview.mockResolvedValue(
-      review({ criteria: review().criteria.map((c) => ({ ...c, accepted: true })) }),
+    storyReview.mockResolvedValue(review({ criteria: review().criteria.map((c) => ({ ...c, accepted: true })) }));
+    storyMerge.mockRejectedValue(
+      "main is checked out with uncommitted changes (README.md). Commit or stash them, then merge.",
     );
-    storyMerge.mockRejectedValue("main is checked out with uncommitted changes (README.md). Commit or stash them, then merge.");
     renderCard();
     fireEvent.click(await screen.findByRole("button", { name: "Merge FLY-7" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("main is checked out with uncommitted changes");
@@ -208,7 +248,11 @@ describe("the review card", () => {
 
   it("names a live session and uncommitted work as what holds Merge", async () => {
     storyReview.mockResolvedValue(
-      review({ criteria: review().criteria.map((c) => ({ ...c, accepted: true })), liveSession: true, uncommitted: ["scratch.txt"] }),
+      review({
+        criteria: review().criteria.map((c) => ({ ...c, accepted: true })),
+        liveSession: true,
+        uncommitted: ["scratch.txt"],
+      }),
     );
     renderCard();
     const held = await screen.findByRole("region", { name: "What holds Merge" });
@@ -261,7 +305,14 @@ const DECISIONS: DecisionChangeDto[] = [
     status: "A",
     added: 4,
     removed: 0,
-    newAdr: { title: "Written bare", barLines: null, barLinesFrom: null, related: [], proposalId: null, decision: KEEP },
+    newAdr: {
+      title: "Written bare",
+      barLines: null,
+      barLinesFrom: null,
+      related: [],
+      proposalId: null,
+      decision: KEEP,
+    },
     flags: [],
   },
   { kind: "glossary", path: "GLOSSARY.md", oldPath: null, status: "M", added: 3, removed: 1, newAdr: null, flags: [] },
@@ -310,8 +361,20 @@ const FLAGGED: DecisionChangeDto[] = [
   {
     ...DECISIONS[1],
     flags: [
-      { kind: "renumber", number: 10, takenBy: "docs/adr/0010-landed-meanwhile.md", baseBranch: "main", superseded: null },
-      { kind: "supersession_line_missing", number: 2, takenBy: null, baseBranch: null, superseded: "docs/adr/0002-repo-holds-knowledge.md" },
+      {
+        kind: "renumber",
+        number: 10,
+        takenBy: "docs/adr/0010-landed-meanwhile.md",
+        baseBranch: "main",
+        superseded: null,
+      },
+      {
+        kind: "supersession_line_missing",
+        number: 2,
+        takenBy: null,
+        baseBranch: null,
+        superseded: "docs/adr/0002-repo-holds-knowledge.md",
+      },
     ],
   },
   DECISIONS[2],
@@ -327,7 +390,9 @@ describe("ADR flags and decisions", () => {
     renderCard();
 
     const section = await screen.findByRole("region", { name: "Decisions, 3 changes" });
-    const edited = within(section).getByText("docs/adr/0002-repo-holds-knowledge.md", { selector: "li > div > code" }).closest("li")!;
+    const edited = within(section)
+      .getByText("docs/adr/0002-repo-holds-knowledge.md", { selector: "li > div > code" })
+      .closest("li")!;
     expect(within(edited).getByText("Wording or supersede?")).toBeInTheDocument();
     expect(within(edited).getByText(/A line other than Status: changed/)).toBeInTheDocument();
 
@@ -354,7 +419,13 @@ describe("ADR flags and decisions", () => {
 
     fireEvent.click(within(card).getByRole("radio", { name: "Not an ADR" }));
     await waitFor(() =>
-      expect(storyAdrDecide).toHaveBeenCalledWith("s1", "docs/adr/0010-reviews-are-a-board-record.md", "not_an_adr", null, null),
+      expect(storyAdrDecide).toHaveBeenCalledWith(
+        "s1",
+        "docs/adr/0010-reviews-are-a-board-record.md",
+        "not_an_adr",
+        null,
+        null,
+      ),
     );
 
     fireEvent.click(within(card).getByRole("radio", { name: "Wrong decision" }));
@@ -390,12 +461,19 @@ describe("ADR flags and decisions", () => {
         adrReviewPoints: points,
       }),
     );
-    storyRequestChanges.mockResolvedValue({ id: "run2", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
+    storyRequestChanges.mockResolvedValue({
+      id: "run2",
+      storyId: "s1",
+      status: "running",
+      permissionMode: "acceptEdits",
+    });
     renderCard();
 
     const card = await screen.findByRole("group", { name: /Reviews are a board record/ });
     expect(within(card).getByRole("radio", { name: "Not an ADR" })).toBeChecked();
-    expect(within(card).getByText(/Merge waits\. Request changes asks the agent to delete the file/)).toBeInTheDocument();
+    expect(
+      within(card).getByText(/Merge waits\. Request changes asks the agent to delete the file/),
+    ).toBeInTheDocument();
     const merge = screen.getByRole("button", { name: "Merge FLY-7" });
     expect(merge).toHaveAttribute("aria-disabled", "true");
     expect(
@@ -418,7 +496,11 @@ describe("ADR flags and decisions", () => {
     storyReview.mockResolvedValue(
       review({
         decisions: [
-          withDecision(DECISIONS[1], { kind: "wrong_decision", whatIsWrong: "It keeps the lock", shouldBe: "Release it first" }),
+          withDecision(DECISIONS[1], {
+            kind: "wrong_decision",
+            whatIsWrong: "It keeps the lock",
+            shouldBe: "Release it first",
+          }),
         ],
       }),
     );
@@ -428,11 +510,19 @@ describe("ADR flags and decisions", () => {
     expect(within(card).getByRole("textbox", { name: "What is wrong?" })).toHaveValue("It keeps the lock");
     expect(within(card).getByRole("textbox", { name: "What should it be?" })).toHaveValue("Release it first");
     expect(within(card).queryByRole("button", { name: "Record Wrong decision" })).toBeNull();
-    expect(within(card).getByText(/sends both answers as one review point on the code and the ADR/)).toBeInTheDocument();
+    expect(
+      within(card).getByText(/sends both answers as one review point on the code and the ADR/),
+    ).toBeInTheDocument();
 
     fireEvent.click(within(card).getByRole("radio", { name: "Keep" }));
     await waitFor(() =>
-      expect(storyAdrDecide).toHaveBeenCalledWith("s1", "docs/adr/0010-reviews-are-a-board-record.md", "keep", null, null),
+      expect(storyAdrDecide).toHaveBeenCalledWith(
+        "s1",
+        "docs/adr/0010-reviews-are-a-board-record.md",
+        "keep",
+        null,
+        null,
+      ),
     );
   });
 });
@@ -440,7 +530,12 @@ describe("ADR flags and decisions", () => {
 describe("Request changes", () => {
   it("sends the Story back to Running with the comments typed in the footer", async () => {
     storyReview.mockResolvedValue(review());
-    storyRequestChanges.mockResolvedValue({ id: "run2", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
+    storyRequestChanges.mockResolvedValue({
+      id: "run2",
+      storyId: "s1",
+      status: "running",
+      permissionMode: "acceptEdits",
+    });
     renderCard();
 
     fireEvent.click(await screen.findByRole("button", { name: "Request changes on FLY-7" }));
@@ -497,12 +592,21 @@ describe("Rebase needed", () => {
     expect(within(rebase).getByText("README.md")).toBeInTheDocument();
     expect(within(rebase).getByText("src/config.rs")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Merge FLY-7" })).toHaveAttribute("aria-disabled", "true");
-    expect(within(screen.getByRole("region", { name: "What holds Merge" })).getByText(/Rebase needed: merging would conflict in 2 files/)).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("region", { name: "What holds Merge" })).getByText(
+        /Rebase needed: merging would conflict in 2 files/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("sends the Story back with the paths in a pre-filled comment", async () => {
     storyReview.mockResolvedValue(review({ conflicts: ["README.md", "src/config.rs"], rebaseComment }));
-    storyRequestChanges.mockResolvedValue({ id: "run2", storyId: "s1", status: "running", permissionMode: "acceptEdits" });
+    storyRequestChanges.mockResolvedValue({
+      id: "run2",
+      storyId: "s1",
+      status: "running",
+      permissionMode: "acceptEdits",
+    });
     renderCard();
     const rebase = await screen.findByRole("region", { name: "Rebase needed" });
     fireEvent.click(within(rebase).getByRole("button", { name: "Request a rebase of FLY-7" }));
@@ -677,15 +781,27 @@ describe("Merge in reach, pending, and saying it landed (issue #207)", () => {
     const merge = screen.getByRole("button", { name: "Merge FLY-7" });
     expect(merge).toHaveAttribute("aria-busy", "true");
     expect(merge).toHaveTextContent(/^Merge$/);
-    expect(screen.getByText("Merging FLY-7: writing the merge commit, then removing the worktree.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Merging FLY-7: writing the merge commit, then removing the worktree."),
+    ).toBeInTheDocument();
     fireEvent.click(merge);
     expect(storyMerge).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      merging.resolve({ mergeCommit: "def", baseBranch: "main", method: "checkout", failingChecksOverridden: 0, cleanupWarning: null, adrsLinked: [] });
+      merging.resolve({
+        mergeCommit: "def",
+        baseBranch: "main",
+        method: "checkout",
+        failingChecksOverridden: 0,
+        cleanupWarning: null,
+        adrsLinked: [],
+      });
     });
     await waitFor(() => expect(notifySuccess).toHaveBeenCalledTimes(1));
-    const [title, options] = notifySuccess.mock.calls[0] as [string, { description: string; action: { label: string; onClick: () => void } }];
+    const [title, options] = notifySuccess.mock.calls[0] as [
+      string,
+      { description: string; action: { label: string; onClick: () => void } },
+    ];
     expect(title).toBe("FLY-7 merged into main");
     expect(options.description).toBe("Worktree cleaned.");
     expect(options.action.label).toBe("Open board");
@@ -708,7 +824,9 @@ describe("Merge in reach, pending, and saying it landed (issue #207)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Merge FLY-7" }));
     await waitFor(() => expect(notifySuccess).toHaveBeenCalled());
     expect(notifySuccess.mock.calls[0]?.[0]).toBe("FLY-7 merged into trunk");
-    expect((notifySuccess.mock.calls[0]?.[1] as { description: string }).description).toBe("The worktree at /tmp/x could not be removed.");
+    expect((notifySuccess.mock.calls[0]?.[1] as { description: string }).description).toBe(
+      "The worktree at /tmp/x could not be removed.",
+    );
   });
 
   it("shows Re-run Checks pending with its step and a Progress bar as each Check ends", async () => {

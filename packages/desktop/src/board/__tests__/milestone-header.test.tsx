@@ -19,7 +19,15 @@ vi.mock("../../adapters/tauri", async () => {
 });
 
 const ZERO: StoryStateCountsDto = {
-  shaping: 0, ready: 0, running: 0, waitingOnYou: 0, stopped: 0, inReview: 0, merged: 0, dropped: 0, storiesTotal: 0,
+  shaping: 0,
+  ready: 0,
+  running: 0,
+  waitingOnYou: 0,
+  stopped: 0,
+  inReview: 0,
+  merged: 0,
+  dropped: 0,
+  storiesTotal: 0,
 };
 
 function progress(overrides: Partial<MilestoneProgressDto> = {}): MilestoneProgressDto {
@@ -31,12 +39,38 @@ function progress(overrides: Partial<MilestoneProgressDto> = {}): MilestoneProgr
     current: true,
     nextMilestoneTitle: "Board and review",
     // Deliberately not a sum of the parts: the header must print the core's total, never add its own.
-    counts: { shaping: 1, ready: 2, running: 3, waitingOnYou: 1, stopped: 1, inReview: 1, merged: 2, dropped: 1, storiesTotal: 11 },
+    counts: {
+      shaping: 1,
+      ready: 2,
+      running: 3,
+      waitingOnYou: 1,
+      stopped: 1,
+      inReview: 1,
+      merged: 2,
+      dropped: 1,
+      storiesTotal: 11,
+    },
     epicsDone: 1,
     epicsTotal: 3,
     epics: [
-      { epicId: "e1", key: "FLY-1", title: "Design system", state: "in_progress", attention: null, counts: { ...ZERO, merged: 1, running: 2, storiesTotal: 7 }, proposals: 0 },
-      { epicId: "e2", key: "FLY-2", title: "Roadmap shaping", state: "shaping", attention: null, counts: ZERO, proposals: 0 },
+      {
+        epicId: "e1",
+        key: "FLY-1",
+        title: "Design system",
+        state: "in_progress",
+        attention: null,
+        counts: { ...ZERO, merged: 1, running: 2, storiesTotal: 7 },
+        proposals: 0,
+      },
+      {
+        epicId: "e2",
+        key: "FLY-2",
+        title: "Roadmap shaping",
+        state: "shaping",
+        attention: null,
+        counts: ZERO,
+        proposals: 0,
+      },
     ],
     ...overrides,
   };
@@ -71,7 +105,9 @@ describe("MilestoneHeader", () => {
     milestoneProgress.mockResolvedValue(progress());
     renderHeader();
     const boxes = await screen.findByRole("list", { name: "Stories by state" });
-    const names = within(boxes).getAllByRole("listitem").map((item) => item.getAttribute("aria-label"));
+    const names = within(boxes)
+      .getAllByRole("listitem")
+      .map((item) => item.getAttribute("aria-label"));
     expect(names).toEqual([
       "2 of 11 Stories merged",
       "1 In review",

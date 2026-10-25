@@ -31,12 +31,28 @@ const LONG_TITLE =
 
 /** A Done Epic in the Current Milestone, all Merged: it should fold at the end of the roster. */
 const DONE_EPIC: EpicDto = {
-  id: "e-done", projectId: "p-fly", milestoneId: "m-3", key: "FLY-90", title: "Ship the first board",
-  problem: null, scope: null, outOfScope: null, exitTest: null, state: "done", rank: "0",
+  id: "e-done",
+  projectId: "p-fly",
+  milestoneId: "m-3",
+  key: "FLY-90",
+  title: "Ship the first board",
+  problem: null,
+  scope: null,
+  outOfScope: null,
+  exitTest: null,
+  state: "done",
+  rank: "0",
 };
 const DONE_STORIES: StoryDto[] = [1, 2].map((n) => ({
-  id: `s-done-${n}`, projectId: "p-fly", epicId: "e-done", key: `FLY-9${n}`, title: `Finished work ${n}`,
-  description: null, state: "merged", runsAfterStoryId: null, rank: `0${n}`,
+  id: `s-done-${n}`,
+  projectId: "p-fly",
+  epicId: "e-done",
+  key: `FLY-9${n}`,
+  title: `Finished work ${n}`,
+  description: null,
+  state: "merged",
+  runsAfterStoryId: null,
+  rank: `0${n}`,
 }));
 
 /** "FLY-4" becomes "PRESALES-1004": the stress project's key prefix, four digits. */

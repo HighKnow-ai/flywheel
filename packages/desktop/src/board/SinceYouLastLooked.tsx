@@ -109,47 +109,47 @@ function Timeline({ visit }: { visit: UseQueryResult<SinceLastLookedDto> }) {
   const older = total - events.length;
   return (
     <Collapsible asChild open={open} onOpenChange={setOpen}>
-    <section aria-label="Since you last looked" className="rounded-lg border border-border bg-card shadow-card">
-      <h2 className="m-0 text-body font-normal">
-        <CollapsibleTrigger
-          className={cn(
-            "group/fold flex min-h-11 w-full items-center gap-2.5 rounded-lg px-4 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent",
-            open && "rounded-b-none",
-          )}
-        >
-          <ChevronRight
-            aria-hidden="true"
-            size={16}
-            className="shrink-0 text-subtle-foreground transition-transform duration-(--duration-state) ease-(--ease) group-hover/fold:text-foreground group-data-[state=open]/fold:rotate-90"
-          />
-          <History aria-hidden="true" size={16} className="shrink-0 text-muted-foreground" />
-          <span className="text-row">
-            <span className="font-semibold tabular-nums">{total === 1 ? "1 event" : `${total} events`}</span>
-            {" since you last looked"}
-          </span>
-          {events.length > 0 && (
-            <span className="ml-auto shrink-0 text-meta text-subtle-foreground tabular-nums">
-              {`over the last ${formatAge(events[0].occurredAt, now)}`}
+      <section aria-label="Since you last looked" className="rounded-lg border border-border bg-card shadow-card">
+        <h2 className="m-0 text-body font-normal">
+          <CollapsibleTrigger
+            className={cn(
+              "group/fold flex min-h-11 w-full items-center gap-2.5 rounded-lg px-4 text-left transition-colors duration-(--duration-state) ease-(--ease) hover:bg-accent",
+              open && "rounded-b-none",
+            )}
+          >
+            <ChevronRight
+              aria-hidden="true"
+              size={16}
+              className="shrink-0 text-subtle-foreground transition-transform duration-(--duration-state) ease-(--ease) group-hover/fold:text-foreground group-data-[state=open]/fold:rotate-90"
+            />
+            <History aria-hidden="true" size={16} className="shrink-0 text-muted-foreground" />
+            <span className="text-row">
+              <span className="font-semibold tabular-nums">{total === 1 ? "1 event" : `${total} events`}</span>
+              {" since you last looked"}
             </span>
-          )}
-        </CollapsibleTrigger>
-      </h2>
-      <CollapsibleContent>
-        <div className="border-t border-border">
-          {older > 0 && (
-            // The list is the newest slice, oldest first, so what it leaves out sits above it.
-            <p className="m-0 px-4 pt-2.5 text-meta text-muted-foreground tabular-nums">
-              {`The newest ${events.length} of ${total}. The ${older} older ${older === 1 ? "change is" : "changes are"} already on the board: open a Story or an Epic to see where it stands.`}
-            </p>
-          )}
-          <ol aria-label="Since you last looked" className="m-0 list-none py-1 pl-0">
-            {events.map((event) => (
-              <TimelineRow key={event.id} event={event} now={now} />
-            ))}
-          </ol>
-        </div>
-      </CollapsibleContent>
-    </section>
+            {events.length > 0 && (
+              <span className="ml-auto shrink-0 text-meta text-subtle-foreground tabular-nums">
+                {`over the last ${formatAge(events[0].occurredAt, now)}`}
+              </span>
+            )}
+          </CollapsibleTrigger>
+        </h2>
+        <CollapsibleContent>
+          <div className="border-t border-border">
+            {older > 0 && (
+              // The list is the newest slice, oldest first, so what it leaves out sits above it.
+              <p className="m-0 px-4 pt-2.5 text-meta text-muted-foreground tabular-nums">
+                {`The newest ${events.length} of ${total}. The ${older} older ${older === 1 ? "change is" : "changes are"} already on the board: open a Story or an Epic to see where it stands.`}
+              </p>
+            )}
+            <ol aria-label="Since you last looked" className="m-0 list-none py-1 pl-0">
+              {events.map((event) => (
+                <TimelineRow key={event.id} event={event} now={now} />
+              ))}
+            </ol>
+          </div>
+        </CollapsibleContent>
+      </section>
     </Collapsible>
   );
 }
@@ -158,7 +158,10 @@ function TimelineRow({ event, now }: { event: LookedEventDto; now: number }) {
   const Icon = kindIcon(event.eventType);
   return (
     <li className="grid min-h-9 grid-cols-[80px_16px_minmax(0,0.9fr)_minmax(0,1.1fr)] items-center gap-x-3 px-4">
-      <time dateTime={event.occurredAt} className="text-right text-meta whitespace-nowrap text-subtle-foreground tabular-nums">
+      <time
+        dateTime={event.occurredAt}
+        className="text-right text-meta whitespace-nowrap text-subtle-foreground tabular-nums"
+      >
         {`${formatAge(event.occurredAt, now)} ago`}
       </time>
       <Icon aria-hidden="true" size={16} className="text-muted-foreground" />

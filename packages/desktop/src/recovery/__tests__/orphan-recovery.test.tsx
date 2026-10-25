@@ -322,7 +322,9 @@ describe("OrphanRecoveryModal — criterion 2 honesty (03-10 Task 3)", () => {
       makeOrphan({ runId: "run-c", pid: 303 }),
     ]);
     orphanKillMock.mockImplementation((runId: string) =>
-      Promise.resolve(killDto({ killed: false, pid: { "run-a": 101, "run-b": 202, "run-c": 303 }[runId], detail: "still running" })),
+      Promise.resolve(
+        killDto({ killed: false, pid: { "run-a": 101, "run-b": 202, "run-c": 303 }[runId], detail: "still running" }),
+      ),
     );
     renderModal();
 

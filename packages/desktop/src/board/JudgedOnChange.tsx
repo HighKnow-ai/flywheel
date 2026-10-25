@@ -61,7 +61,19 @@ export function consequenceOf(change: NeedsYouJudgedOnDto): string {
 }
 
 /** One before-and-after pair. `code` draws both in the code face. */
-function Diff({ label, icon, before, after, code }: { label: string; icon?: ReactNode; before: string | null; after: string; code?: boolean }) {
+function Diff({
+  label,
+  icon,
+  before,
+  after,
+  code,
+}: {
+  label: string;
+  icon?: ReactNode;
+  before: string | null;
+  after: string;
+  code?: boolean;
+}) {
   const face = code ? "font-mono text-small" : "text-body";
   return (
     <div role="group" aria-label={`${label}, before and after`} className="flex min-w-0 flex-col gap-1">
@@ -73,7 +85,9 @@ function Diff({ label, icon, before, after, code }: { label: string; icon?: Reac
         <Minus aria-hidden="true" className="mt-[3px] size-3.5 shrink-0 text-subtle-foreground" />
         <span className="sr-only">Before: </span>
         {before ? (
-          <del className={`min-w-0 break-words whitespace-pre-wrap text-muted-foreground decoration-1 ${face}`}>{before}</del>
+          <del className={`min-w-0 break-words whitespace-pre-wrap text-muted-foreground decoration-1 ${face}`}>
+            {before}
+          </del>
         ) : (
           <span className="text-small text-subtle-foreground">Empty</span>
         )}
@@ -91,13 +105,33 @@ function Diff({ label, icon, before, after, code }: { label: string; icon?: Reac
 function editOf(change: NeedsYouJudgedOnDto, subject: string) {
   if (change.change === "amend_epic_spec") {
     const fields: AmendField[] = [
-      { name: "text", label: `Your ${subject}`, value: change.after, multiline: true, maxLength: MAX_SPEC_LEN, required: true },
+      {
+        name: "text",
+        label: `Your ${subject}`,
+        value: change.after,
+        multiline: true,
+        maxLength: MAX_SPEC_LEN,
+        required: true,
+      },
     ];
     return { fields, payload: (v: Record<string, string>) => ({ field: change.field, text: v.text }) };
   }
   const fields: AmendField[] = [
-    { name: "statement", label: "Your criterion", value: change.after, multiline: true, maxLength: MAX_STATEMENT_LEN, required: true },
-    { name: "check_command", label: "Its Check command", value: change.checkAfter ?? "", maxLength: MAX_COMMAND_LEN, code: true },
+    {
+      name: "statement",
+      label: "Your criterion",
+      value: change.after,
+      multiline: true,
+      maxLength: MAX_STATEMENT_LEN,
+      required: true,
+    },
+    {
+      name: "check_command",
+      label: "Its Check command",
+      value: change.checkAfter ?? "",
+      maxLength: MAX_COMMAND_LEN,
+      code: true,
+    },
   ];
   return {
     fields,
@@ -129,7 +163,11 @@ export function JudgedOnChange({ item }: { item: NeedsYouItemDto }) {
         amend={editOf(change, subject)}
         amendWord="Edit"
         afterDecide={async (decision) => {
-          notifyDecided(DECIDED[decision], decisionSubject, change.filedBy ? `Filed by ${change.filedBy}'s session` : undefined);
+          notifyDecided(
+            DECIDED[decision],
+            decisionSubject,
+            change.filedBy ? `Filed by ${change.filedBy}'s session` : undefined,
+          );
           // Decided, the card leaves the list; the list moves the keyboard to the card in its place.
           await queryClient.invalidateQueries({ queryKey: needsYouQueryKey() });
         }}
@@ -137,7 +175,13 @@ export function JudgedOnChange({ item }: { item: NeedsYouItemDto }) {
         <div className="flex min-w-0 flex-col gap-2 rounded-md border border-border bg-muted px-2.5 py-2">
           <Diff label={subject} before={change.before} after={change.after} />
           {proposed && (
-            <Diff label="Check" icon={<SquareTerminal aria-hidden="true" />} before={change.checkBefore} after={proposed} code />
+            <Diff
+              label="Check"
+              icon={<SquareTerminal aria-hidden="true" />}
+              before={change.checkBefore}
+              after={proposed}
+              code
+            />
           )}
         </div>
         {change.duplicate && <DuplicateFlag duplicate={change.duplicate} />}
@@ -155,7 +199,9 @@ export function JudgedOnChange({ item }: { item: NeedsYouItemDto }) {
             </span>
           </p>
         )}
-        {change.filedBy && <p className="m-0 text-meta text-subtle-foreground">{`Filed by ${change.filedBy}'s session`}</p>}
+        {change.filedBy && (
+          <p className="m-0 text-meta text-subtle-foreground">{`Filed by ${change.filedBy}'s session`}</p>
+        )}
       </ProposalDecision>
     </div>
   );

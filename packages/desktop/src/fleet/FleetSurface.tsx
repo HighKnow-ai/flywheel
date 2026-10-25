@@ -38,7 +38,14 @@ import { acknowledgeSession, sessionAcknowledgeMany, type FleetActivityDto, type
 import { StateBadge } from "../components/StateBadge";
 import { ReadError } from "../components/ReadError";
 import { StoryKey } from "../components/StoryKey";
-import { FLEET_BANDS, bandForState, isFleetState, isRunStatus, type FleetBandId, type FleetState } from "../legend/runStatus";
+import {
+  FLEET_BANDS,
+  bandForState,
+  isFleetState,
+  isRunStatus,
+  type FleetBandId,
+  type FleetState,
+} from "../legend/runStatus";
 import { feedRowText } from "../session/FeedRow";
 import { buildFeedRows } from "../session/SessionSurface";
 import { nextSelectionId, useRegionBindings } from "../state/keyboard";
@@ -136,7 +143,11 @@ function ActivityLine({ row }: { row: FleetRowDto }) {
 export function DoingTaskCell({ row }: { row: FleetRowDto }) {
   const title = row.doingTaskTitle;
   return (
-    <span data-field="doing-task" title={title ? `Doing: ${title}` : undefined} className="block truncate text-small empty:hidden">
+    <span
+      data-field="doing-task"
+      title={title ? `Doing: ${title}` : undefined}
+      className="block truncate text-small empty:hidden"
+    >
       {title ?? ""}
     </span>
   );
@@ -180,7 +191,10 @@ export function SpendCell({ row }: { row: FleetRowDto }) {
         </span>
       )}
       {tokens && (
-        <span title="Input tokens include cache reads, so this is larger than the prompt size" className="text-meta text-muted-foreground">
+        <span
+          title="Input tokens include cache reads, so this is larger than the prompt size"
+          className="text-meta text-muted-foreground"
+        >
           {tokens}
         </span>
       )}
@@ -194,8 +208,8 @@ export function FleetFooter({ visibleCostUsd }: { visibleCostUsd: number | null 
   if (visibleCostUsd == null) return null;
   return (
     <footer data-fleet-footer className="shrink-0 text-right text-meta text-muted-foreground tabular-nums">
-      Estimated spend, this fleet: {formatMoney(visibleCostUsd)} (Flywheel's own estimate from a bundled price
-      table, not a billed amount)
+      Estimated spend, this fleet: {formatMoney(visibleCostUsd)} (Flywheel's own estimate from a bundled price table,
+      not a billed amount)
     </footer>
   );
 }
@@ -387,7 +401,11 @@ export function FleetRowView({
           <SpendCell row={row} />
         </TableCell>
       )}
-      <TableCell data-field="age" aria-label={`In this state for ${age}`} className="text-right text-small text-muted-foreground tabular-nums">
+      <TableCell
+        data-field="age"
+        aria-label={`In this state for ${age}`}
+        className="text-right text-small text-muted-foreground tabular-nums"
+      >
         {age}
       </TableCell>
       <TableCell data-field="dismiss" className="pr-4 text-right">
@@ -652,7 +670,11 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
           <>
             {/* The headline count, the strip's own figure. Waiting on you's count is its tab's. */}
             {view === "fleet" && fleet.isSuccess && (
-              <span aria-live="polite" data-fleet-count className="shrink-0 text-small whitespace-nowrap text-muted-foreground tabular-nums">
+              <span
+                aria-live="polite"
+                data-fleet-count
+                className="shrink-0 text-small whitespace-nowrap text-muted-foreground tabular-nums"
+              >
                 {countText}
               </span>
             )}
@@ -662,7 +684,12 @@ export function FleetSurface({ onClose }: FleetSurfaceProps) {
               </TabsTrigger>
               <TabsTrigger value="queue" className="px-2.5">
                 Waiting on you{" "}
-                <span className={cn("tabular-nums", waitingTotal > 0 ? "font-semibold text-foreground" : "text-muted-foreground")}>
+                <span
+                  className={cn(
+                    "tabular-nums",
+                    waitingTotal > 0 ? "font-semibold text-foreground" : "text-muted-foreground",
+                  )}
+                >
                   {waitingTotal}
                 </span>
               </TabsTrigger>
