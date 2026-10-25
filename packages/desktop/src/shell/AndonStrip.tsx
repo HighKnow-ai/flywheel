@@ -19,9 +19,18 @@
  * Everything here is read from the fleet's one app-wide query (`useFleet`), the same read the sidebar and
  * All agents use, so the three can never disagree. A Stopped lamp reads its ending label from the same
  * `story_stopped` query the Story's own row uses.
+ *
+ * The figure under "Agents" is `agentCount`: the live sessions, as GLOSSARY.md defines an agent (issue #199).
+ * It is not the number of lamps: a Stopped Story lights a lamp but has no live session.
+ *
+ * A lamp lighting is the world's one authored moment (DESIGN.md § Motion): when a session turns Waiting on you its
+ * lamp changes colour in place over `--duration-lamp` while a yellow glow rises under it. Under reduced motion only
+ * the colour changes; the lit lamp keeps no glow. A lamp's details are in its Tooltip.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Activity, ChevronRight, CirclePause, Hand, LoaderCircle } from "lucide-react";
 import { storyStopped, type FleetRowDto, type WaitingRoundDto } from "../adapters/tauri";
 import { endingWords } from "../board/StoryControls";
@@ -46,6 +55,17 @@ const MORE_WIDTH = 136;
 
 function isLive(row: FleetRowDto): boolean {
   return row.runStatus === "running" || row.runStatus === "blocked";
+}
+
+/**
+ * How many agents there are (GLOSSARY.md: an agent is a live session, one running or Waiting on you). The fleet
+ * read holds every Story session; a shaping session is in it only while it is held on a Round, so those are the
+ * shaping sessions counted. A session in both is counted once. The rail and All agents count with this too.
+ */
+export function agentCount(rows: FleetRowDto[], rounds: WaitingRoundDto[]): number {
+  const live = new Set(rows.filter(isLive).map((row) => row.sessionId));
+  for (const round of rounds) live.add(round.sessionId);
+  return live.size;
 }
 
 /** Every lamp the fleet read implies, in strip order. Pure, so the order is testable on its own. */
@@ -150,13 +170,27 @@ function LampDetail({ lamp, now }: { lamp: LampData; now: number }) {
   return <>{row.doingTaskTitle ? `Doing: ${row.doingTaskTitle}` : `Running · ${formatAge(row.startedAt, now)}`}</>;
 }
 
+/** A lamp's details, in full where the lamp truncates them: its subject, then what it waits on or is doing. */
+function LampTip({ title, detail, children }: { title: ReactNode; detail: ReactNode; children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="bottom" className="flex-col items-start gap-0.5">
+        <span className="font-semibold">{title}</span>
+        <span>{detail}</span>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 /** The lamp's body, shared by a Story session's lamp and a shaping Round's. */
 function lampClass(tone: LampTone, current: boolean) {
   return cn(
-    "group/lamp flex h-13 shrink-0 items-center gap-2.5 rounded-lg border px-2.5 text-left transition-colors duration-(--duration-lamp) ease-(--ease) focus-visible:outline-strip-foreground",
+    // The lighting: colour and glow on the lamp duration; under reduced motion the colour alone, and no glow.
+    "group/lamp flex h-13 shrink-0 items-center gap-2.5 rounded-lg border px-2.5 text-left transition-[background-color,border-color,color,box-shadow] duration-(--duration-lamp) ease-(--ease) focus-visible:outline-strip-foreground motion-reduce:transition-colors",
     tone === "waiting"
-      ? "border-attention bg-attention text-attention-foreground hover:bg-attention/90"
-      : "border-white/10 bg-lamp text-strip-foreground hover:bg-white/10",
+      ? "border-attention bg-attention text-attention-foreground shadow-[0_2px_18px_-3px_color-mix(in_oklab,var(--attention)_60%,transparent)] hover:bg-attention/90 motion-reduce:shadow-none"
+      : "border-white/10 bg-lamp text-strip-foreground shadow-[0_2px_18px_-3px_transparent] hover:bg-white/10",
     current && "outline-2 outline-offset-2 outline-strip-foreground",
   );
 }
@@ -167,36 +201,40 @@ export function RoundLamp({ round, current, now }: { round: WaitingRoundDto; cur
   const open = useOpenWaitingRound();
   const words = waitingRoundWords(round);
   return (
-    <button
-      type="button"
-      data-lamp="waiting"
-      data-epic-id={round.epicId ?? undefined}
-      data-milestone-id={round.milestoneId ?? undefined}
-      data-roadmap-round={round.subject === "roadmap" ? round.projectId : undefined}
-      aria-current={current ? "location" : undefined}
-      aria-label={`Open ${words.record}, ${words.round} Waiting on you`}
-      title={`${words.record}: ${words.round}, ${words.progress}, waiting ${formatAge(round.waitingSince, now)}`}
-      onClick={() => open(round)}
-      style={{ width: LAMP_WIDTH }}
-      className={lampClass("waiting", current)}
+    <LampTip
+      title={words.record}
+      detail={`${words.round}, ${words.progress}, waiting ${formatAge(round.waitingSince, now)}`}
     >
-      <span
-        aria-hidden="true"
-        className="flex size-7 shrink-0 items-center justify-center rounded-full bg-attention-foreground/10 text-attention-foreground"
+      <button
+        type="button"
+        data-lamp="waiting"
+        data-epic-id={round.epicId ?? undefined}
+        data-milestone-id={round.milestoneId ?? undefined}
+        data-roadmap-round={round.subject === "roadmap" ? round.projectId : undefined}
+        aria-current={current ? "location" : undefined}
+        aria-label={`Open ${words.record}, ${words.round} Waiting on you`}
+        onClick={() => open(round)}
+        style={{ width: LAMP_WIDTH }}
+        className={lampClass("waiting", current)}
       >
-        <Hand size={16} strokeWidth={2} />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex min-w-0 items-baseline gap-1.5 text-small font-semibold">
-          {words.key && <span className="shrink-0 font-mono text-meta font-normal">{words.key}</span>}
-          <span className="truncate">{words.lampTitle}</span>
+        <span
+          aria-hidden="true"
+          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-attention-foreground/10 text-attention-foreground"
+        >
+          <Hand size={16} strokeWidth={2} />
         </span>
-        <span className="truncate text-meta font-semibold text-attention-foreground">
-          {`${words.shortRound} · Waiting on you`}
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex min-w-0 items-baseline gap-1.5 text-small font-semibold">
+            {words.key && <span className="shrink-0 font-mono text-meta font-normal">{words.key}</span>}
+            <span className="truncate">{words.lampTitle}</span>
+          </span>
+          <span className="truncate text-meta font-semibold text-attention-foreground">
+            {`${words.shortRound} · Waiting on you`}
+          </span>
         </span>
-      </span>
-      <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-attention-foreground" />
-    </button>
+        <ChevronRight aria-hidden="true" size={16} className="shrink-0 text-attention-foreground" />
+      </button>
+    </LampTip>
   );
 }
 
@@ -207,48 +245,49 @@ export function Lamp({ lamp, current, now }: { lamp: LampData; current: boolean;
   const pulse = tone === "running" && !prefersReducedMotion();
   const subject = `${row.storyKey} ${row.storyTitle}`.trim();
   return (
-    <button
-      type="button"
-      data-lamp={tone}
-      data-story-id={row.storyId}
-      aria-current={current ? "location" : undefined}
-      aria-label={`Open Story ${subject}, ${TONE_WORD[tone]}`}
-      title={subject}
-      onClick={() => openStory(row.projectId, row.storyId)}
-      style={{ width: LAMP_WIDTH }}
-      className={lampClass(tone, current)}
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "flex size-7 shrink-0 items-center justify-center rounded-full",
-          tone === "waiting" && "bg-attention-foreground/10 text-attention-foreground",
-          tone === "running" && "bg-primary text-primary-foreground",
-          tone === "stopped" && "bg-destructive text-destructive-foreground",
-        )}
+    <LampTip title={subject} detail={<LampDetail lamp={lamp} now={now} />}>
+      <button
+        type="button"
+        data-lamp={tone}
+        data-story-id={row.storyId}
+        aria-current={current ? "location" : undefined}
+        aria-label={`Open Story ${subject}, ${TONE_WORD[tone]}`}
+        onClick={() => openStory(row.projectId, row.storyId)}
+        style={{ width: LAMP_WIDTH }}
+        className={lampClass(tone, current)}
       >
-        <Bulb size={16} strokeWidth={2} className={pulse ? "agent-pulse" : undefined} />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex min-w-0 items-baseline gap-1.5 text-small font-semibold">
-          <span className="shrink-0 font-mono text-meta font-normal">{row.storyKey}</span>
-          <span className="truncate">{row.storyTitle}</span>
-        </span>
         <span
+          aria-hidden="true"
           className={cn(
-            "truncate text-meta",
-            tone === "waiting" ? "font-semibold text-attention-foreground" : "text-strip-muted-foreground",
+            "flex size-7 shrink-0 items-center justify-center rounded-full",
+            tone === "waiting" && "bg-attention-foreground/10 text-attention-foreground",
+            tone === "running" && "bg-primary text-primary-foreground",
+            tone === "stopped" && "bg-destructive text-destructive-foreground",
           )}
         >
-          <LampDetail lamp={lamp} now={now} />
+          <Bulb size={16} strokeWidth={2} className={pulse ? "agent-pulse" : undefined} />
         </span>
-      </span>
-      <ChevronRight
-        aria-hidden="true"
-        size={16}
-        className={cn("shrink-0", tone === "waiting" ? "text-attention-foreground" : "text-strip-muted-foreground")}
-      />
-    </button>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex min-w-0 items-baseline gap-1.5 text-small font-semibold">
+            <span className="shrink-0 font-mono text-meta font-normal">{row.storyKey}</span>
+            <span className="truncate">{row.storyTitle}</span>
+          </span>
+          <span
+            className={cn(
+              "truncate text-meta",
+              tone === "waiting" ? "font-semibold text-attention-foreground" : "text-strip-muted-foreground",
+            )}
+          >
+            <LampDetail lamp={lamp} now={now} />
+          </span>
+        </span>
+        <ChevronRight
+          aria-hidden="true"
+          size={16}
+          className={cn("shrink-0", tone === "waiting" ? "text-attention-foreground" : "text-strip-muted-foreground")}
+        />
+      </button>
+    </LampTip>
   );
 }
 
@@ -256,6 +295,7 @@ export function AndonStrip() {
   const rows = useFleet().data?.rows ?? [];
   const rounds = useWaitingRounds().data ?? [];
   const lamps = stripLamps(rows, rounds);
+  const agents = agentCount(rows, rounds);
   const setFleetSurface = useUiStore((state) => state.setFleetSurface);
   const placeStoryId = useUiStore((state) => (state.activeSessionId ? state.activeSessionStoryId : state.currentStoryId));
   const placeShapingId = usePlaceShapingId();
@@ -277,8 +317,11 @@ export function AndonStrip() {
     >
       <div className="flex w-14 shrink-0 flex-col gap-0.5">
         <span className="font-condensed text-meta tracking-[0.06em] text-strip-muted-foreground uppercase">Agents</span>
-        <span className="text-section leading-none font-semibold tabular-nums" aria-label={`${lamps.length} lamps`}>
-          {lamps.length}
+        <span
+          className="text-section leading-none font-semibold tabular-nums"
+          aria-label={`${agents} ${agents === 1 ? "agent" : "agents"}`}
+        >
+          {agents}
         </span>
       </div>
       <div ref={laneRef} role="list" aria-label="Live sessions" className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
@@ -299,53 +342,61 @@ export function AndonStrip() {
             ))}
             {hidden > 0 && (
               <div role="listitem" className="shrink-0">
-                <button
-                  type="button"
-                  // A folded yellow lamp (a Story session's or a shaping Round's) is found in Waiting on you, which
-                  // lists both; All agents lists no shaping Round.
-                  aria-label={`${hidden} more: ${hiddenTones.map((tone) => TONE_WORD[tone]).join(", ")}. Open ${
-                    hiddenTones.includes("waiting") ? "Waiting on you" : "All agents"
-                  }`}
-                  onClick={() => setFleetSurface({ view: hiddenTones.includes("waiting") ? "queue" : "fleet" })}
-                  style={{ width: MORE_WIDTH }}
-                  className="flex h-13 items-center justify-center gap-1.5 rounded-lg border border-dashed whitespace-nowrap border-white/25 text-small font-semibold text-strip-foreground transition-colors duration-(--duration-state) ease-(--ease) hover:bg-white/10 focus-visible:outline-strip-foreground"
-                >
-                  {/* What the folded lamps are, by their bulbs: never a stateless count. */}
-                  <span aria-hidden="true" className="flex -space-x-1">
-                    {hiddenTones.map((tone) => {
-                      const Bulb = BULB_ICON[tone];
-                      return (
-                        <span
-                          key={tone}
-                          className={cn(
-                            "flex size-5 items-center justify-center rounded-full ring-2 ring-strip",
-                            tone === "waiting" && "bg-attention text-attention-foreground",
-                            tone === "running" && "bg-primary text-primary-foreground",
-                            tone === "stopped" && "bg-destructive text-destructive-foreground",
-                          )}
-                        >
-                          <Bulb size={12} strokeWidth={2.25} />
-                        </span>
-                      );
-                    })}
-                  </span>
-                  {`+${hidden} more`}
-                  <ChevronRight aria-hidden="true" size={16} className="text-strip-muted-foreground" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      // A folded yellow lamp (a Story session's or a shaping Round's) is found in Waiting on you, which
+                      // lists both; All agents lists no shaping Round.
+                      aria-label={`${hidden} more: ${hiddenTones.map((tone) => TONE_WORD[tone]).join(", ")}. Open ${
+                        hiddenTones.includes("waiting") ? "Waiting on you" : "All agents"
+                      }`}
+                      onClick={() => setFleetSurface({ view: hiddenTones.includes("waiting") ? "queue" : "fleet" })}
+                      style={{ width: MORE_WIDTH }}
+                      className="flex h-13 items-center justify-center gap-1.5 rounded-lg border border-dashed whitespace-nowrap border-white/25 text-small font-semibold text-strip-foreground transition-colors duration-(--duration-state) ease-(--ease) hover:bg-white/10 focus-visible:outline-strip-foreground"
+                    >
+                      {/* What the folded lamps are, by their bulbs: never a stateless count. */}
+                      <span aria-hidden="true" className="flex -space-x-1">
+                        {hiddenTones.map((tone) => {
+                          const Bulb = BULB_ICON[tone];
+                          return (
+                            <span
+                              key={tone}
+                              className={cn(
+                                "flex size-5 items-center justify-center rounded-full ring-2 ring-strip",
+                                tone === "waiting" && "bg-attention text-attention-foreground",
+                                tone === "running" && "bg-primary text-primary-foreground",
+                                tone === "stopped" && "bg-destructive text-destructive-foreground",
+                              )}
+                            >
+                              <Bulb size={12} strokeWidth={2.25} />
+                            </span>
+                          );
+                        })}
+                      </span>
+                      {`+${hidden} more`}
+                      <ChevronRight aria-hidden="true" size={16} className="text-strip-muted-foreground" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="flex-col items-start gap-0.5">
+                    <span className="font-semibold">{`${hidden} more: ${hiddenTones.map((tone) => TONE_WORD[tone]).join(", ")}`}</span>
+                    <span>{`Opens ${hiddenTones.includes("waiting") ? "Waiting on you" : "All agents"}`}</span>
+                  </TooltipContent>
+                </Tooltip>
               </div>
             )}
           </>
         )}
       </div>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
         aria-label="Open All agents"
         onClick={() => setFleetSurface({ view: "fleet" })}
-        className="flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-white/15 px-3 text-body font-semibold text-strip-foreground transition-colors duration-(--duration-state) ease-(--ease) hover:bg-white/10 focus-visible:outline-strip-foreground"
+        className="h-9 border-white/15 text-strip-foreground duration-(--duration-feedback) hover:bg-white/10 hover:text-strip-foreground focus-visible:outline-strip-foreground"
       >
-        <Activity aria-hidden="true" size={16} />
+        <Activity aria-hidden="true" />
         All agents
-      </button>
+      </Button>
     </section>
   );
 }
