@@ -35,10 +35,6 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 
-/** How long a registration-failure notice stays visible before auto-clearing — the same
- * transient-notice duration `ProjectRail.tsx`'s pre-existing `alreadyRegistered` notice uses. */
-const REGISTRATION_NOTICE_VISIBLE_MS = 4000;
-
 /** A short, uppercase, greppable default derived from a repo path's directory name (D-10).
  * Always emits a prefix `domain/project.rs::validate_key_prefix` accepts (2-10 uppercase
  * letters/digits, starting with a letter) — a directory name like `2024-app` or a single-
@@ -275,32 +271,7 @@ export function useRegisterProjectFlow(onRegistered?: (result: RegisterProjectRe
 }
 
 /**
- * Turns a `useRegisterProjectFlow` mutation's `isError`/`error` into a transient message string
- * that auto-clears after `REGISTRATION_NOTICE_VISIBLE_MS`, for a caller that draws its own inline
- * notice (`ProjectRail.tsx`). A caller with no surface of its own uses `useRegistrationErrorToast`.
- */
-export function useRegistrationErrorNotice(isError: boolean, error: unknown): string | null {
-  const [message, setMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isError) {
-      // WR-01: a successful retry flips `isError` back to `false` before the previous failure's
-      // timeout has fired — without this branch, the effect's cleanup cancels that pending
-      // `clearTimeout` and then returns early here without ever clearing `message` itself,
-      // leaving the stale "Couldn't register this project — …" notice on screen indefinitely.
-      setMessage(null);
-      return;
-    }
-    setMessage(`Couldn't register this project — ${failureMessage(error)}`);
-    const timeout = window.setTimeout(() => setMessage(null), REGISTRATION_NOTICE_VISIBLE_MS);
-    return () => window.clearTimeout(timeout);
-  }, [isError, error]);
-
-  return message;
-}
-
-/**
- * A registration that failed from an entry point with no surface of its own (⌘⇧O, the File menu): an error
+ * A registration that failed from an entry point with no surface of its own (⌘⇧O, the File menu, the rail's Register project…): an error
  * toast (DESIGN.md § Feedback, #198), titled with the outcome, its line the human reason.
  */
 export function useRegistrationErrorToast(isError: boolean, error: unknown) {

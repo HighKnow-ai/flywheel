@@ -34,7 +34,7 @@
  * Register project opens the SAME registration flow ⌘⇧O and the native File menu use
  * (`RegisterProjectFlow.tsx`); what it reports back is a toast. Challenges never surface here (D-46/D-82).
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -92,7 +92,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
-import { useRegisterProjectFlow } from "./RegisterProjectFlow";
+import { useRegisterProjectFlow, useRegistrationErrorToast } from "./RegisterProjectFlow";
 import { lampsFromFleet } from "../shell/AndonStrip";
 import { useUiStore } from "../state/uiStore";
 import { isRoundHere, useOpenWaitingRound, usePlaceBoardId, usePlaceShapingId, waitingRoundWords } from "../fleet/waitingRound";
@@ -449,9 +449,8 @@ export function ProjectRail({ projects, currentProjectId, onSelect }: ProjectRai
       });
     }
   });
-  useEffect(() => {
-    if (registerIsError) notify.error("Couldn't register this project", { error: registerError });
-  }, [registerIsError, registerError]);
+  // A failure is the same error toast ⌘⇧O and the File menu raise (issue #210).
+  useRegistrationErrorToast(registerIsError, registerError);
   // Every hook is called above the early return below, so their order never changes (Rules of Hooks).
   const queue = useBlockedQueue().data ?? [];
   const waitingRounds = useWaitingRounds().data ?? [];
